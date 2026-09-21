@@ -4,12 +4,16 @@ Summary: Replace redundant asset operation result wrappers with C++23 expected w
 
 Last reviewed: 2026-09-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-21
 
 ## Current Status
 
-Stages 0–4 are complete. Stage 5 contract publication and final audit are next.
+Stages 0–5 are complete. The migration preserves asynchronous admission,
+load-report observations, resource ownership and partial publication outcomes.
+Stage 4 passed the shared build and 222 semantic cases; Stage 5 changed only
+contract documentation and reused that runtime evidence. All selected interfaces
+and retained exceptions are documented in the owning domains below.
 Stage 1 validation: Win64-Debug-DurinEditor `all` build passed; TextureTests
 (125), TextureImportWorkflowTests (21), StaticMeshTests (126), AssetImportTests
 (14), and SceneImportTests (10) passed, 296 cases total. The inspection failure
@@ -26,11 +30,6 @@ Commit `1c001f246` established value-returning file fingerprints, encoded source
 capture, and LDR image decoding, plus distinct JSON/YAML load and parse errors.
 This plan continues at the business interface boundary. It does not repeat that
 migration or authorize changes to persistence semantics.
-
-The strongest immediate candidates are detached import preparation, translation,
-and validation. Asset loading needs a separate report/lifetime review. Save,
-scene import, cache, and pending request outcomes require explicit state models;
-their existing result types are retained unless a lossless replacement is justified.
 
 Stage 2 validation: the final Win64-Debug-DurinEditor `all` build passed.
 AssetBulkContainerTests (11), AssetImportDataTests (5), AssetPackageTests (189),
@@ -52,134 +51,41 @@ Keep file causes structured until a business presentation boundary decides
 whether to log or display them. Optional inputs and cache misses remain normal
 outcomes. Expected does not add retries, rollback, ownership, or durability.
 
-## Selected Design
+## Implemented Contracts
 
-- Use `std::expected<T, FDomainError>` for a detached value and
-  `std::expected<void, FDomainError>` for validation or an operation without a
-  returned value. Preserve domain errors; do not reduce every failure to `FFileError`.
-- Return multiple inseparable success values in a named struct, not additional
-  output arguments or an opaque tuple. Physical path values use `FFilePath`;
-  package, object, mounted, and source-hint identities retain their own types.
-- Remove wrappers whose only purpose is `Error.Code == None`. Remove enum `None`
-  only after auditing embedded errors, default states, serialized values, and all
-  consumers. Expected success must not depend on a sentinel error.
-- Keep parsing/decoding/validation silent. Formatting functions remain presentation
-  adapters. Business boundaries choose severity and avoid duplicate logging.
-- Use direct early returns and `std::unexpected` by default. Use `transform` or
-  `transform_error` where they clarify a small mapping; do not introduce propagation
-  macros or a general custom Result framework.
-- Mark fallible entry points `[[nodiscard]]`. Access `error()` only on failure;
-  move buffers, leases, and prepared values without introducing copies or new
-  dangling views. Success is not a promise of persistence or async completion.
-- Migrate each selected interface and all consumers together. Do not retain a
-  permanent parallel bool/out-error API. Audit forward declarations before
-  replacing a struct with an alias; aliases cannot satisfy `struct F...Result;`.
+This plan records migration decisions and validation history. Current API and
+ownership contracts are maintained by their owning domains:
 
-## Candidate Inventory
-
-Paths below are relative to the repository root. Proposed new error/value names
-are design targets, not claims that those types already exist.
-
-| Current interface or result | Proposed treatment | Reason / boundary |
-| --- | --- | --- |
-| `PrepareTexture2DImport` / `FTexture2DPreparationResult` | `expected<FPreparedTexture2DImport, FTexture2DPreparationError>` | Detached output currently travels through `OutPrepared`. |
-| `TranslateTexture2DSource` / `FTexture2DTranslationResult` | `expected<FTextureSource, FTexture2DTranslationError>` | Return authored source directly; retain decode cause and dimensions. |
-| `TranslateVolumeTextureAtlasSource` / `FVolumeTextureTranslationResult` | `expected<FVolumeTextureSourceData, FVolumeTextureTranslationError>` | Same value/error split; retain layout, limit, and source identity facts. |
-| `InspectVolumeTextureAtlasSource` / `FVolumeTextureAtlasInspection` | `expected<FVolumeTextureAtlasInspection, Image::FImageDecodeError>` after removing Error/bool from the value | A valid inspection with no confident layout is still success. |
-| `FVolumeTextureImportSettingsResult` | `expected<void, FVolumeTextureImportSettingsError>` | Pure validation wrapper. |
-| `FTexture2DSubmissionResult` | `expected<void, FTexture2DSubmissionError>` | Means submission/admission succeeded; completion stays in the existing callback. |
-| `FStaticMeshRebuildResult`, `FVolumeTextureRebuildResult` | `expected<void, corresponding domain error>` | Preserve build/import/save causes, including effects carried by nested save results. |
-| `FAssetImportDataResult` | `expected<void, FAssetImportDataError>` for validators | Error-only wrapper; audit other producers before choosing their success types. |
-| `MakeSourceHint`, `ResolveSourceHint` / `FSourceHintResult` | Named `{Base, Hint}` success value for Make; `FFilePath` for Resolve; keep `FSourceHintError` | Replace coupled outputs without confusing hints with physical paths. |
-| `FBulkDataResult`, `FEditorBulkDataResult`, `FPackageBulkDataResult`, `FEditorBulkDataStorageResult` | Expected with existing errors; choose void or owned value per producer | Validation/mutation wrappers are candidates; read admission and lease state are separate. |
-| `FPackageResourceRangeResult`, `FPreparedPackageResourceResult`, `FPackageGenerationResult` | Expected with existing domain errors; inspect each producer's outputs | Range validation is immediately suitable; prepared resource ownership must stay explicit. |
-| `FPackageResourceRegistrationResult` | `expected<FPackageResourceHandle, FPackageResourceRegistrationError>` | Already contains mutually exclusive handle and error. Preserve retirement/publication rules. |
-| `FAssetReadResult` and `LoadPackage` / `LoadObject` | Extract `FAssetReadError`; return expected of the appropriate object/package pointer or void | Broad shared API; reports and package residency can remain meaningful after failure. |
-| `FSoftObjectResolveResult`, `TSoftObjectResolveResult` | Expected of a resolve value retaining State/Object/ResolvedPath/bRedirected | Null allowed, not loaded, and loaded are distinct normal states; do not equate nullptr with error. |
-| `FPackageResourceReadResult` | Retain until pending request state is separated from terminal completion | `Pending` is not an error or a completed value. |
-| `FBulkDataReadResult` | Retain admission model in this plan | Acquired/Empty/Busy/Retired/ReadFailed and move-only lock ownership require more than bool success. |
-| `FCacheGetResult`, `FCachePutResult` | Retain in this plan | Keep backend-neutral cache policy and normal misses explicit; no mandatory expected conversion. |
-| `FAssetWriteResult`, `FPackageWriteResult`, `FAssetBatchSaveResult`, `FSceneImportResult` | Review and retain outcome/report types by default | Failure can coexist with committed packages, partial writes, recovery files, and useful diagnostics. |
-
-Primary declarations:
-
-- [Texture2D import](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImport.h),
-  [VolumeTexture import](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/VolumeTextureImport.h),
-  [StaticMesh import](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/StaticMeshImport.h).
-- [Asset import data](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h),
-  [source hints](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h),
-  [bulk data](../../Engine/Source/Runtime/Engine/Public/Asset/BulkData.h),
-  [package resources](../../Engine/Source/Runtime/Engine/Public/Asset/PackageResource.h).
-- [Asset read result](../../Engine/Source/Runtime/Engine/Public/Asset/AssetReadResult.h),
-  [loading](../../Engine/Source/Runtime/Engine/Public/Asset/Load.h),
-  [asset write result](../../Engine/Source/Runtime/Engine/Public/Asset/AssetWriteResult.h),
-  [package writer](../../Engine/Source/Runtime/Core/Public/Misc/PackageWriter.h),
-  [batch save](../../Engine/Source/Runtime/Engine/Public/Asset/PackageSerialization.h),
-  [scene import](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/SceneImport.h).
+- [Asset import](../Editor/Architecture/AssetImportFramework.md): detached values,
+  validation, hints, submission, rebuilds and returned scene reports.
+- [Asset packages](../Runtime/Assets/AssetPackages.md): synchronous/async loading,
+  soft resolution, caller-owned reports, dependency residency and save effects.
+- [Package bulk data](../Runtime/Assets/BulkData.md): construction, validation,
+  registration, storage inspection, pending reads and admission leases.
+- [Package persistence](../Runtime/Core/PackagePersistence.md#writer-outcome-reports):
+  physical writer phases, committed/recovery/partial outcomes and file diagnostics.
+- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md): cache outcomes
+  and diagnostic ownership independent of build success.
 
 ## Implementation Stages
 
-### Migration contract decisions
+### Historical Migration Boundaries
 
-- Workspace search covers `Engine/Source`, `Engine/Tests`, `Sandbox/Source`,
-  `Sandbox/Tests`, `RoadWeaver/Source`, and `RoadWeaver/Tests`. The initial
-  selected-result/loading search reaches 151 files. Producers are concentrated
-  in Engine asset runtime and AssetForgeBuiltins; consumers include editor
-  workflows, cook/load adapters, test fixtures, and project source.
-- Detached texture preparation and translation return owned values. Failed
-  translations currently clear output buffers; the new interface exposes no
-  failed value. Inspection without confident layout remains a successful value.
-  Settings validation returns void. Submission returns admission only, retaining
-  the existing game-thread completion callback and its publication diagnostics.
-- Rebuild returns void while preserving mutations and save effects. Volume
-  rebuild retains `FAssetWriteResult` through `SaveCause`; StaticMesh retains it
-  through `CompletionCause.Error.SaveCause`. Neither failure implies rollback.
-  `CreateTransientStaticMeshFromFile` also produces an object and therefore needs
-  an expected pointer value rather than the void rebuild alias.
-- Import validators return void; `InspectAssetImportInfo` returns owned import
-  info. MakeSourceHint returns a named Base/Hint pair, while ResolveSourceHint
-  returns `FFilePath`. Hint identities and physical paths remain distinct.
-- Bulk creation/attachment returns owned bulk values; UpdatePayload and metadata,
-  segment, and range validation return void. Storage inspection returns owned
-  descriptor/path vectors; partially collected descriptors on validation failure
-  are not a usable construction result. Prepared Read/Prepare return an owned
-  unpublished closure; Revalidate returns void. Owned-resource construction and
-  registration return handles. Loose-generation validation returns void and keeps
-  its instrumentation counters separate (they can advance on failure).
-- Loading retains the optional caller-owned `FAssetLoadReport*` on both branches.
-  Reports are observations, not success values: redirects, reads and mutation
-  evidence can precede root failure. Preserve existing early-return report
-  behavior. `FAssetPackageLoadScope` still records completed dependencies and
-  explicitly releases residency; expected pointers do not acquire ownership or
-  roll back admitted dependencies. Internal linker callbacks that expose pending
-  skeletons need separate review from public synchronous loaded values.
-- Soft resolution returns a value containing State/Object/ResolvedPath/bRedirected.
-  Allowed null and NotLoaded are successes. Rejected null, lookup failures and
-  type mismatch are errors; preserve resolved identity diagnostics when present
-  on a failing branch. Cache mutation and async admission/completion stay separate.
-- Stage 3 retains `FAssetReadResult` for codec/inspection callbacks, pending
-  skeleton bindings, registry operations, and explicit residency release. These
-  are not parallel overloads of the migrated completed-load APIs. The codec
-  boundary explicitly converts failures to `FAssetReadError`; resource, storage,
-  and soft-object validation causes remain typed where available. Async handles
-  store an optional terminal expected value and require completion before result
-  access; their pending/loading state and strong retention remain independent.
-- Retain pending package reads, bulk read admission and move-only leases, cache
-  misses, and write/batch/scene publication reports. Their state and partial
-  effects are not equivalent to a success flag.
-- Error enums selected here are not reflected declarations; `ESourceHintBase`
-  is reflected and unchanged. Retain sentinel enum values until each family has
-  completed its embedded/default-state audit; expected branch state must never
-  depend on them. Forward declarations requiring migration include preparation
-  and volume-settings results, plus asset-read declarations in AssetWriteResult,
-  PackageResourceError, AssetSubsystemFwd and PropertyView.
-- Registry discovery confirms AssetImportDataTests, AssetBulkContainerTests,
-  AssetPackageTests, AssetPackageReloadTests, AssetReferenceStoreTests,
-  CookedMeshLoadingTests, TextureTests, TextureImportWorkflowTests, StaticMeshTests,
-  AssetImportTests, SceneImportTests and EditorAssetWorkflowTests as relevant
-  direct-hosted targets. GPU qualification is not implied by this API migration.
-  Batch consumer edits and static audits before compilation; reuse unchanged
-  passing evidence and reserve `all` for shared API stage acceptance.
+The inventory covered all six source/test roots declared by `Durin.dworkspace`:
+Engine, Sandbox and RoadWeaver. The initial selected-result/loading search reached
+151 files. Each selected API and its consumers migrated together; ownership,
+publication, scheduling, persistence format and retry policy stayed unchanged.
+
+Stage 3 retained `FAssetReadResult` for codec/inspection callbacks, pending
+skeleton bindings, registry operations and explicit residency release. These are
+not parallel overloads of the completed-load APIs. Error sentinel enumerators
+were retained for existing embedded/default states; expected success does not
+inspect them. Stage 4 retained publication, cache and admission reports, with
+only the scene bool/out-report pair replaced by a returned report.
+
+Registry-selected semantic targets and each stage's shared `all` gate are
+recorded below. Qualification targets received compilation coverage where their
+call sites changed; this migration did not qualify GPU behavior.
 
 ### Stage 0: Confirm contracts and migration boundaries
 
@@ -324,12 +230,28 @@ Changed-document validation passed.
 
 Dependency: Stages 1–4 complete with evidence-backed decisions.
 
-- [ ] Search all project source/test roots for old signatures, dead result shells,
+- [x] Search all project source/test roots for old signatures, dead result shells,
   success-only error inspection, and duplicated logging introduced by adapters.
-- [ ] Move implemented contracts to their owning Runtime/Editor documentation;
+- [x] Move implemented contracts to their owning Runtime/Editor documentation;
   keep this plan as execution history rather than a second API specification.
-- [ ] Record validation and retained interfaces; complete the plan only when all
+- [x] Record validation and retained interfaces; complete the plan only when all
   selected migrations and required gates pass.
+
+Stage 5 audit: searched the six workspace source/test roots for obsolete selected
+wrapper declarations and forward declarations, source-hint result shells, and
+old output-value loading/import signatures; none remain. Retained aliases are
+expected types with live consumers. Reviewed expected error access and adapter
+logging at import, load, async, source/import-data and resource boundaries; no
+new success-branch error access or duplicate logging was identified. Retained
+codec and registry `FAssetReadResult` consumers remain intentional.
+
+Corrected stale contract prose about cleared failure outputs, error-sentinel
+success and separate transient-mesh outputs. Storage inspection now documents
+owned vectors with no partial failed value; cache/pending/bulk reports have
+explicit retention contracts. Replaced the plan's duplicate API inventory and
+design specification with domain links and historical boundary decisions.
+Changed-document and all-plan validation passed. Stage 5 has no runtime changes;
+all earlier relevant passing build/test evidence is reused.
 
 ## Validation and Handoff
 

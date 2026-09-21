@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v10 placement, package
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-21
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -103,13 +103,12 @@ bytes. The persistent source retains its original reflected type and four wire
 fields; moving their C++ declarations does not rename package declaring identity.
 See [StaticMesh source ownership](StaticMeshBuilding.md).
 
-The three Editor Bulk storage-inspection APIs return
-`FEditorBulkDataStorageResult` without diagnostic-output overloads. Their errors
-own object identity, nested field names, depth/version and count/size bounds,
+The three Editor Bulk storage-inspection APIs return expected owned vectors of
+`FPackageBulkStorageDescriptor` or `FFilePath`, with `FEditorBulkDataStorageError`.
+Their errors own object identity, nested field names, depth/version and count/size bounds,
 Archive code/path and filesystem path/error as applicable. Descriptor inspection
-still clears its output first and may retain descriptors collected before a later
-failure; companion-path inspection clears output before validation. Pending asset
-and prepared-resource results retain `BulkStorageCause`; UI and command adapters
+exposes a vector only on success; partially collected descriptors and paths
+are not returned on failure. Pending asset and prepared-resource results retain `BulkStorageCause`; UI and command adapters
 format explicitly.
 
 ## Package-Resource Ownership
@@ -137,8 +136,8 @@ copy against the package summary, field digests, ranges, and padding before
 returning a handle. The caller must keep the supplied view stable during the
 call. Subsequent lazy reads share bounded views of that owned allocation and
 never open a file or consult the global resource manager. Creation failure
-clears the output handle. Metadata and segment validators and owned creation
-return `FPackageBulkDataResult` without diagnostic outputs, retaining typed
+returns an error with no handle. Metadata and segment validators return expected
+void; owned creation returns an expected `FPackageResourceHandle`, retaining typed
 reasons, owned summary/entry snapshots, bounds, padding offsets and actual
 digests. Pending preparation and registration results retain `BulkCause` and
 format explicitly with `FormatPackageBulkDataError`. The owner must retire the resource before task-service
@@ -163,8 +162,8 @@ request, then becomes Retired. Package unload retires the resource before
 withdrawing object publication; Engine shutdown retires all resources before
 filesystem and task services stop.
 
-`RegisterLoosePackage` returns an owned resource or a registration failure with
-its validation/shutdown stage and typed error, without a Message field.
+`RegisterLoosePackage` returns expected `FPackageResourceHandle` or a registration
+failure with its validation/shutdown stage and typed error, without a Message field.
 Generation errors own their physical path and file-I/O or Bulk validation cause,
 including extent, digest, field and exact padding-offset facts. Registration keeps
 the primary generation failure. Registration never restores or deletes sibling
@@ -173,6 +172,11 @@ as `ResourceRegistrationCause`, with explicit formatting at pending boundaries. 
 an internal contract violation; invalid disk metadata remains a normal failure.
 The registration and read mechanisms do not log each propagated error; asset
 operation boundaries decide presentation and recovery.
+
+`FPackageResourceReadResult` retains `Pending` separately from terminal outcomes;
+readiness and cancellation belong to its request. `FBulkDataReadResult` retains
+admission state and the move-only read lease. Neither result is an error-only
+wrapper, and neither is replaced with expected void.
 
 The backend reports InvalidRange, MissingSegment, TruncatedSegment,
 SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read

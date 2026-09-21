@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-21
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -78,8 +78,8 @@ file and accidentally combine bytes from different source revisions.
 The shared encoded-source capture returns a typed result with owned logical and
 physical file identity, size/limit context and file-system causes. Size inspection,
 limit rejection, timestamp inspection, read failure and capture-time mutation are
-distinct cases. A failed capture clears the snapshot; success publishes one byte
-buffer and its matching hash. Pending family string contracts explicitly format
+distinct cases. Capture returns an expected owned snapshot; failure has no value,
+while success owns one byte buffer and its matching hash. Pending family string contracts explicitly format
 this result until their surrounding rebuild contracts migrate.
 
 Relative Scene dependencies resolve from the root source directory. Containment
@@ -89,6 +89,15 @@ part of the same immutable closure.
 
 See [Source File Workflows](../Guides/SourceFileWorkflows.md) for the editor
 interaction and portability rules.
+
+`MakeSourceHint` returns expected `FSourceHint` containing the inseparable base
+and hint; `ResolveSourceHint` returns expected `FFilePath`. Both retain
+`FSourceHintError`, including owned diagnostic paths. Import-data validators
+return expected void with `FAssetImportDataError`; `InspectAssetImportInfo`
+returns an expected owned `FAssetImportInfo`. Optional source hints remain
+optional inputs. Expected success never inspects a sentinel error code, and
+callers access `error()` only after failure. Buffers and prepared values move
+into their owners; expected itself adds no ownership or rollback policy.
 
 ## Standalone Factory Import
 
@@ -166,16 +175,16 @@ entries for presentation. StaticMesh settings rejection and Texture2D source-hin
 or compilation rejection retain their Engine-owned typed causes, including nested
 settings, build, import and save context. Remaining internal string producers still require
 migration; the text entry is an explicit transitional contract.
-Texture2D source translation returns a typed result retaining the Core decode
-cause or dimensions/channel context for size, image-construction and authored-source
-publication rejection. It clears its output on entry and failure. Pending Scene,
-rebuild string contracts explicitly format at their adapters. Texture2D preparation
-returns typed path/format/capture/translation failures with owned filename and
-nested causes, clearing its prepared output on failure. Its factory retains
+Texture2D source translation returns `expected<FTextureSource,
+FTexture2DTranslationError>`, retaining Core decode causes and dimension/channel
+context on failure. Preparation returns an expected owned
+`FPreparedTexture2DImport` with typed path/format/capture/translation failures.
+Neither failure branch exposes an output value. String presentation contracts
+format the owned filename and nested causes at their adapters. The factory retains
 `FTexture2DFactoryError`; asynchronous file import transports the typed preparation
 cause to the game-thread presentation boundary before formatting it. Worker
 exception diagnostics remain a separate pending contract. Texture2D source-file
-submission and public reimport APIs now retain typed package/mount/source-hint,
+submission returns expected void for admission and retains typed package/mount/source-hint,
 capture, translation and compilation causes. Factory reimport results retain
 submission or terminal compilation details through the manager callback. Admission
 failure still invokes no compilation completion; accepted requests retain the
@@ -185,19 +194,18 @@ directly. Invalid usage, quality, alpha mode or threshold retains the requested
 settings in the Engine input cause; unchanged values remain successful no-ops,
 and rebuild rejection preserves its original compilation error.
 
-Volume import settings expose `Validate()` with an AssetForgeBuiltins-owned error
-code and a copy of the rejected settings. Import format, dimensions, tile-cell
+Volume import settings expose expected-void `Validate()` with an
+AssetForgeBuiltins-owned error code and a copy of the rejected settings. Import format, dimensions, tile-cell
 capacity and atlas/volume budgets are distinct cases. The remaining string-based
 adapters format only at pending contracts. The VolumeTexture factory retains its
 settings or rebuild error as `FVolumeTextureFactoryError`, so AssetTools consumers
 can inspect the nested cause after package cleanup.
-`TranslateVolumeTextureAtlasSource` returns a typed result with nested settings
-and Core image-decode causes, owned filename, and expected/actual atlas dimensions.
+`TranslateVolumeTextureAtlasSource` returns expected owned
+`FVolumeTextureSourceData` with nested settings and Core image-decode causes, owned filename, and expected/actual atlas dimensions.
 Signature, decode, dimensions, bulk publication and normalized-layout failures
-are distinct. The source output is cleared on entry and published only on success;
-the rebuild result retains the translation cause directly.
-Volume rebuild and public reimport results derive success from their own error
-code and retain object/source identity, mount classification, source-hint,
+are distinct. Failure has no source value; the rebuild error retains the
+translation cause directly. Volume rebuild and public reimport return expected
+void and retain object/source identity, mount classification, source-hint,
 capture, translation, import-data and save causes. Build failures retain the
 complete current build outcome; its diagnostic contract and the reimport
 framework string adapters remain pending migrations. `FReimportResult` retains
@@ -207,8 +215,8 @@ VolumeTexture reimport propagates its concrete rebuild error to the final callba
 StaticMesh reimport retains the complete compilation diagnostic through
 `FStaticMeshFactoryError`, including request identity, terminal disposition, phase
 and nested completion causes. Cancellation does not publish new provenance.
-StaticMesh rebuild and public reimport return `FStaticMeshRebuildResult`, deriving
-success from the error code and preserving settings, mount, source-hint, capture,
+StaticMesh rebuild and public reimport return the expected-void alias
+`FStaticMeshRebuildResult`, preserving settings, mount, source-hint, capture,
 source initialization, import validation, submission and terminal completion
 causes. Synchronous saves retain their asset result within the completion cause.
 Factory import and reimport admission retain this same error through
@@ -217,16 +225,17 @@ import data/source and source count, retaining object identity and actual count.
 Reimport path resolution and file inspection retain system errors instead of throwing
 past the result boundary. Geometry decoding retains the existing scene diagnostic
 collection; that diagnostic contract remains pending migration. Failed decoding
-leaves resident data and provenance unchanged. Transient creation returns the same
-typed result with a separate mesh output, cleared on entry and published only
-after successful rebuilding. Rejection retains the requested object name and
+leaves resident data and provenance unchanged. Transient creation returns an
+expected `DStaticMesh*` with the same rebuild error; the pointer is available
+only after successful rebuilding. Rejection retains the requested object name and
 source filename, nested rebuild cause and any path/file system error; the failed
 private object is marked as garbage before returning.
 The outer status/message contract remains transitional. Existing publication order
 and save disposition are preserved; save causes retain the full asset result.
-Atlas inspection derives success from its Core decode error and retains the
-file/system cause directly. Dimensions, channel suggestions and layout confidence
-remain independent inspection facts; `FormatVolumeTextureAtlasInspection` renders
+Atlas inspection returns expected `FVolumeTextureAtlasInspection` or a Core
+image-decode error retaining the file/system cause. A valid atlas with no
+confident layout remains a successful inspection. Dimensions, channel suggestions
+and layout confidence remain independent inspection facts; `FormatVolumeTextureAtlasInspection` renders
 failure or advisory text without storing prose or a separate success flag.
 
 `FAssetImportRequest` carries an explicit top-level destination, source filename,

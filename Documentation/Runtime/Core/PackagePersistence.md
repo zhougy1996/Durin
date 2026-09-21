@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-21
 
 ## Ownership and Entry Points
 

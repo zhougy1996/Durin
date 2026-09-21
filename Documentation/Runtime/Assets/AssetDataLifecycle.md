@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-21
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -315,6 +315,13 @@ producer, bounds, structure, and checksums. Native artifacts such as shader
 SPIR-V and reflection sidecars may retain their own strict file grammar beneath
 a namespaced subtree. Every DDC entry remains disposable and its authored inputs
 remain authoritative.
+
+`FCacheGetResult` and `FCachePutResult` retain backend-neutral status reports.
+Lookup distinguishes a normal `Miss` from `Hit`, invalid input, size rejection,
+corruption and storage failure. Put distinguishes `Stored` from rejection or
+storage failure. Their boolean conversions mean hit/stored only; a false lookup
+is not necessarily an error. Cache diagnostics can accompany a successful asset
+build, so these reports are not converted to asset expected failures.
 
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:
