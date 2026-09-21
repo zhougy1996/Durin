@@ -25,10 +25,16 @@ pipeline-specific enum. `GetBufferTextureCopyFootprint` returns the byte count a
 Other data output parameters retain their existing publication behavior. Binding visitors can have visited a valid prefix before
 failure.
 
-`FormatRHIError` overloads format the relevant enums and context structures at
+`ToString` overloads format the relevant enums and context structures at
 assertions, logs, and other presentation boundaries. Read `error()` only after
 failure. Semantic tests assert codes and context, not English substrings. Do not
 add a general message constructor or use formatted text for branching.
+
+Validation error types and their `ToString` declarations live next to the owning
+interfaces in `RHIResources.h` and `RHIShaderParameters.h`. Implementations are
+centralized in `RHIErrorStrings.cpp`. Enum overloads return static diagnostic
+descriptions as `std::string_view`; context overloads return an owning
+`std::string` containing the description and available context fields.
 
 ## Creation and executor failures
 

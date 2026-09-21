@@ -1628,7 +1628,7 @@ namespace Durin::VulkanRHI
 		FRHITextureCreateDesc Oversized = Texture2D;
 		Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
 		const auto TextureCreateDescResult = ValidateTextureCreateDesc(Oversized);
-		ASSERT_TRUE(TextureCreateDescResult) << FormatRHIError(TextureCreateDescResult.error());
+		ASSERT_TRUE(TextureCreateDescResult) << ToString(TextureCreateDescResult.error());
 		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
@@ -1831,14 +1831,14 @@ namespace Durin::VulkanRHI
 					{
 						auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities());
 						if (!Key)
-							throw std::runtime_error(FormatRHIError(Key.error()));
+							throw std::runtime_error(std::string(ToString(Key.error())));
 						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(*Key), "BackgroundCompute");
 					}
 					else
 					{
 						auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities());
 						if (!Key)
-							throw std::runtime_error(FormatRHIError(Key.error()));
+							throw std::runtime_error(std::string(ToString(Key.error())));
 						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(*Key), "BackgroundGraphics");
 					}
 				}));

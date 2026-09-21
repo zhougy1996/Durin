@@ -69,7 +69,7 @@ namespace Durin
 			Uniform, ERHIBufferViewType::Uniform);
 		EXPECT_EQ(Default, (FRHIBufferViewDesc{0, 256, ERHIBufferViewType::Uniform, EPixelFormat::Unknown}));
 		const auto BufferViewDescResult = ValidateBufferViewDesc(&Uniform, Default);
-		EXPECT_TRUE(BufferViewDescResult) << FormatRHIError(BufferViewDescResult.error());
+		EXPECT_TRUE(BufferViewDescResult) << ToString(BufferViewDescResult.error());
 
 		FRHIBufferViewDesc Invalid = Default;
 		Invalid.Size = 0;
@@ -90,7 +90,7 @@ namespace Durin
 			"Structured", 96, 12, EBufferUsageFlags::StructuredBuffer));
 		const auto BufferViewDescResult5 = ValidateBufferViewDesc(&Structured,
 			{12, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown});
-		EXPECT_TRUE(BufferViewDescResult5) << FormatRHIError(BufferViewDescResult5.error());
+		EXPECT_TRUE(BufferViewDescResult5) << ToString(BufferViewDescResult5.error());
 		const auto BufferViewDescResult6 = ValidateBufferViewDesc(&Structured,
 			{4, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown});
 		ASSERT_FALSE(BufferViewDescResult6);
@@ -99,7 +99,7 @@ namespace Durin
 			"Formatted", 64, 0, EBufferUsageFlags::FormattedBuffer));
 		const auto BufferViewDescResult7 = ValidateBufferViewDesc(&Formatted,
 			{4, 16, ERHIBufferViewType::Formatted, EPixelFormat::R32_FLOAT});
-		EXPECT_TRUE(BufferViewDescResult7) << FormatRHIError(BufferViewDescResult7.error());
+		EXPECT_TRUE(BufferViewDescResult7) << ToString(BufferViewDescResult7.error());
 		const auto BufferViewDescResult8 = ValidateBufferViewDesc(&Formatted,
 			{0, 16, ERHIBufferViewType::Formatted, EPixelFormat::BC1_UNORM});
 		ASSERT_FALSE(BufferViewDescResult8);
@@ -116,7 +116,7 @@ namespace Durin
 		EXPECT_EQ(Default.Range, (FRHITextureSubresourceRange{
 			ERHITextureAspect::Color, 0, 4, 0, 1}));
 		const auto TextureViewDescResult = ValidateTextureViewDesc(&Texture, Default);
-		EXPECT_TRUE(TextureViewDescResult) << FormatRHIError(TextureViewDescResult.error());
+		EXPECT_TRUE(TextureViewDescResult) << ToString(TextureViewDescResult.error());
 
 		FRHITextureViewDesc Invalid = Default;
 		Invalid.Format = EPixelFormat::BGRA8_UNORM;
@@ -140,13 +140,13 @@ namespace Durin
 			Cube, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(CubeDefault.Dimension, ERHITextureViewDimension::TextureCube);
 		const auto TextureViewDescResult5 = ValidateTextureViewDesc(&Cube, CubeDefault);
-		EXPECT_TRUE(TextureViewDescResult5) << FormatRHIError(TextureViewDescResult5.error());
+		EXPECT_TRUE(TextureViewDescResult5) << ToString(TextureViewDescResult5.error());
 		FRHITextureViewDesc Face = CubeDefault;
 		Face.Dimension = ERHITextureViewDimension::Texture2D;
 		Face.Range.FirstArrayLayer = 5;
 		Face.Range.NumArrayLayers = 1;
 		const auto TextureViewDescResult6 = ValidateTextureViewDesc(&Cube, Face);
-		EXPECT_TRUE(TextureViewDescResult6) << FormatRHIError(TextureViewDescResult6.error());
+		EXPECT_TRUE(TextureViewDescResult6) << ToString(TextureViewDescResult6.error());
 	}
 
 	TEST(FRHIResourceViewValidationTests, RetainsParentResources)
@@ -186,7 +186,7 @@ namespace Durin
 			ERHITextureAspect::Depth, 0, 1, 0, 3}));
 		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture2DArray);
 		const auto TextureViewDescResult = ValidateTextureViewDesc(&Shadow, Sampled);
-		EXPECT_TRUE(TextureViewDescResult) << FormatRHIError(TextureViewDescResult.error());
+		EXPECT_TRUE(TextureViewDescResult) << ToString(TextureViewDescResult.error());
 		for (uint32 Layer = 0; Layer < 3; ++Layer)
 		{
 			FRHITextureViewDesc Attachment = MakeDefaultTextureViewDesc(
@@ -197,7 +197,7 @@ namespace Durin
 			EXPECT_EQ(Attachment.Range, (FRHITextureSubresourceRange{
 				ERHITextureAspect::Depth, 0, 1, Layer, 1}));
 			const auto TextureViewDescResult2 = ValidateTextureViewDesc(&Shadow, Attachment);
-			EXPECT_TRUE(TextureViewDescResult2) << FormatRHIError(TextureViewDescResult2.error());
+			EXPECT_TRUE(TextureViewDescResult2) << ToString(TextureViewDescResult2.error());
 		}
 
 		FRHITexture SampleOnly(FRHITextureCreateDesc::Create2D(

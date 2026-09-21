@@ -1205,7 +1205,7 @@ namespace Durin
 				const auto ValidationResult = ValidateTexture2DUpdate(
 					Desc, MipIndex, ArraySlice, Region, InSourcePitch);
 				checkf(ValidationResult,
-					"Invalid RHI texture upload: {}", FormatRHIError(ValidationResult.error()));
+					"Invalid RHI texture upload: {}", ToString(ValidationResult.error()));
 #endif
 
 				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
@@ -1285,7 +1285,7 @@ namespace Durin
 				const auto ValidationResult = ValidateTexture3DUpdate(Desc, MipIndex, Region,
 					InSourceRowPitch, InSourceDepthPitch);
 				checkf(ValidationResult,
-					"Invalid RHI volume texture upload: {}", FormatRHIError(ValidationResult.error()));
+					"Invalid RHI volume texture upload: {}", ToString(ValidationResult.error()));
 #endif
 
 				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
@@ -1972,7 +1972,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferTransitions(Transitions);
 		checkf(ValidationResult,
-			"Invalid RHI buffer transition batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI buffer transition batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FBufferTransitionCommand>(Transitions);
 	}
@@ -1986,7 +1986,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureTransitions(Transitions);
 		checkf(ValidationResult,
-			"Invalid RHI texture transition batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI texture transition batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FTextureTransitionCommand>(Transitions);
 	}
@@ -1999,7 +1999,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferCopies(Source, Destination, Regions);
 		checkf(ValidationResult,
-			"Invalid RHI buffer copy batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI buffer copy batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FCopyBufferCommand>(Source, Destination, Regions);
 	}
@@ -2012,7 +2012,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferToTextureCopies(Source, Destination, Regions);
 		checkf(ValidationResult,
-			"Invalid RHI buffer-to-texture copy batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI buffer-to-texture copy batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FCopyBufferToTextureCommand>(Source, Destination, Regions);
 	}
@@ -2025,7 +2025,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureToBufferCopies(Source, Destination, Regions);
 		checkf(ValidationResult,
-			"Invalid RHI texture-to-buffer copy batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI texture-to-buffer copy batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FCopyTextureToBufferCommand>(Source, Destination, Regions);
 	}
@@ -2038,7 +2038,7 @@ namespace Durin
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCopies(Source, Destination, Regions);
 		checkf(ValidationResult,
-			"Invalid RHI texture copy batch: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI texture copy batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FCopyTextureCommand>(Source, Destination, Regions);
 	}

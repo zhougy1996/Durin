@@ -50,7 +50,7 @@ namespace Durin
 			FRHIBufferCopyRegion{0, 32, 16},
 			FRHIBufferCopyRegion{16, 48, 16}};
 		const auto BufferCopiesResult = ValidateBufferCopies(&Source, &Destination, Regions);
-		EXPECT_TRUE(BufferCopiesResult) << FormatRHIError(BufferCopiesResult.error());
+		EXPECT_TRUE(BufferCopiesResult) << ToString(BufferCopiesResult.error());
 		Regions[1].DestinationOffset = 40;
 		const auto BufferCopiesResult2 = ValidateBufferCopies(&Source, &Destination, Regions);
 		ASSERT_FALSE(BufferCopiesResult2);
@@ -69,7 +69,7 @@ namespace Durin
 		ASSERT_FALSE(BufferCopiesResult4);
 		const auto BufferCopiesResult5 = ValidateBufferCopies(&Aliased, &Aliased,
 			std::array{FRHIBufferCopyRegion{0, 64, 16}});
-		EXPECT_TRUE(BufferCopiesResult5) << FormatRHIError(BufferCopiesResult5.error());
+		EXPECT_TRUE(BufferCopiesResult5) << ToString(BufferCopiesResult5.error());
 	}
 
 	TEST(FRHITransferValidationTests, ValidatesCompressedBufferTextureLayoutsAndEdges)
@@ -86,10 +86,10 @@ namespace Durin
 			.TextureExtent = {7, 7, 1}};
 		const auto BufferToTextureCopiesResult = ValidateBufferToTextureCopies(&Source, &Texture,
 			std::span(&Region, 1));
-		EXPECT_TRUE(BufferToTextureCopiesResult) << FormatRHIError(BufferToTextureCopiesResult.error());
+		EXPECT_TRUE(BufferToTextureCopiesResult) << ToString(BufferToTextureCopiesResult.error());
 		const auto TextureToBufferCopiesResult = ValidateTextureToBufferCopies(&Texture, &Destination,
 			std::span(&Region, 1));
-		EXPECT_TRUE(TextureToBufferCopiesResult) << FormatRHIError(TextureToBufferCopiesResult.error());
+		EXPECT_TRUE(TextureToBufferCopiesResult) << ToString(TextureToBufferCopiesResult.error());
 
 		Region.TextureOffset.X = 1;
 		const auto BufferToTextureCopiesResult2 = ValidateBufferToTextureCopies(&Source, &Texture,
@@ -110,7 +110,7 @@ namespace Durin
 		Region.BufferImageHeight = 8;
 		const auto BufferToTextureCopiesResult4 = ValidateBufferToTextureCopies(&Source, &Texture,
 			std::span(&Region, 1));
-		EXPECT_TRUE(BufferToTextureCopiesResult4) << FormatRHIError(BufferToTextureCopiesResult4.error());
+		EXPECT_TRUE(BufferToTextureCopiesResult4) << ToString(BufferToTextureCopiesResult4.error());
 	}
 
 	TEST(FRHITransferValidationTests, ValidatesExactTextureCopiesAndRejectsConversion)
@@ -132,7 +132,7 @@ namespace Durin
 				.DestinationMip = 1, .DestinationFirstArrayLayer = 5,
 				.Extent = {4, 4, 1}}};
 		const auto TextureCopiesResult = ValidateTextureCopies(&Source, &Destination, Regions);
-		EXPECT_TRUE(TextureCopiesResult) << FormatRHIError(TextureCopiesResult.error());
+		EXPECT_TRUE(TextureCopiesResult) << ToString(TextureCopiesResult.error());
 		Regions[1].DestinationFirstArrayLayer = 4;
 		Regions[1].DestinationMip = 0;
 		const auto TextureCopiesResult2 = ValidateTextureCopies(&Source, &Destination, Regions);

@@ -1203,7 +1203,7 @@ namespace Durin::VulkanRHI
 		auto ValidationResult = BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities());
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.error()));
+			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), ToString(ValidationResult.error()));
 			return nullptr;
 		}
 		auto& Key = *ValidationResult;
@@ -1246,7 +1246,7 @@ namespace Durin::VulkanRHI
 		auto ValidationResult = BuildComputePipelineStateKey(Initializer, RHIGetCapabilities());
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.error()));
+			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), ToString(ValidationResult.error()));
 			return nullptr;
 		}
 		auto& Key = *ValidationResult;

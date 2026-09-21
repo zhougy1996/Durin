@@ -69,7 +69,7 @@ namespace Durin
 		EXPECT_EQ(Whole.Offset, 0u);
 		EXPECT_EQ(Whole.Size, 256u);
 		const auto BufferTransitionResult = ValidateBufferTransition(Whole);
-		EXPECT_TRUE(BufferTransitionResult) << FormatRHIError(BufferTransitionResult.error());
+		EXPECT_TRUE(BufferTransitionResult) << ToString(BufferTransitionResult.error());
 
 		FRHIBufferTransition Invalid = Whole;
 		Invalid.Size = 0;
@@ -101,7 +101,7 @@ namespace Durin
 			FRHIBufferTransition{&Buffer, 0, 16, ERHIAccess::Discard, ERHIAccess::VertexBufferRead},
 			FRHIBufferTransition{&Buffer, 16, 16, ERHIAccess::Discard, ERHIAccess::VertexBufferRead}};
 		const auto BufferTransitionsResult = ValidateBufferTransitions(Transitions);
-		EXPECT_TRUE(BufferTransitionsResult) << FormatRHIError(BufferTransitionsResult.error());
+		EXPECT_TRUE(BufferTransitionsResult) << ToString(BufferTransitionsResult.error());
 		Transitions[1].Offset = 15;
 		const auto BufferTransitionsResult2 = ValidateBufferTransitions(Transitions);
 		ASSERT_FALSE(BufferTransitionsResult2);
@@ -129,12 +129,12 @@ namespace Durin
 		EXPECT_EQ(Whole.Range, (FRHITextureSubresourceRange{
 			ERHITextureAspect::Color, 0, 4, 0, 4}));
 		const auto TextureTransitionResult = ValidateTextureTransition(Whole);
-		EXPECT_TRUE(TextureTransitionResult) << FormatRHIError(TextureTransitionResult.error());
+		EXPECT_TRUE(TextureTransitionResult) << ToString(TextureTransitionResult.error());
 
 		FRHITextureTransition Edge = Whole;
 		Edge.Range = {ERHITextureAspect::Color, 3, 1, 3, 1};
 		const auto TextureTransitionResult2 = ValidateTextureTransition(Edge);
-		EXPECT_TRUE(TextureTransitionResult2) << FormatRHIError(TextureTransitionResult2.error());
+		EXPECT_TRUE(TextureTransitionResult2) << ToString(TextureTransitionResult2.error());
 		Edge.Range.NumMips = 2;
 		const auto TextureTransitionResult3 = ValidateTextureTransition(Edge);
 		ASSERT_FALSE(TextureTransitionResult3);
@@ -162,7 +162,7 @@ namespace Durin
 			FRHITextureTransition{&Texture, {ERHITextureAspect::Stencil, 0, 1, 0, 1},
 				ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite}};
 		const auto TextureTransitionsResult = ValidateTextureTransitions(Transitions);
-		EXPECT_TRUE(TextureTransitionsResult) << FormatRHIError(TextureTransitionsResult.error());
+		EXPECT_TRUE(TextureTransitionsResult) << ToString(TextureTransitionsResult.error());
 		Transitions[1].Range.Aspects = ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
 		const auto TextureTransitionsResult2 = ValidateTextureTransitions(Transitions);
 		ASSERT_FALSE(TextureTransitionsResult2);
@@ -199,11 +199,11 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::DepthStencilReadWrite};
 		const auto TextureTransitionResult = ValidateTextureTransition(FirstWrite);
-		EXPECT_TRUE(TextureTransitionResult) << FormatRHIError(TextureTransitionResult.error());
+		EXPECT_TRUE(TextureTransitionResult) << ToString(TextureTransitionResult.error());
 		const auto TextureTransitionResult2 = ValidateTextureTransition(FirstRead);
-		EXPECT_TRUE(TextureTransitionResult2) << FormatRHIError(TextureTransitionResult2.error());
+		EXPECT_TRUE(TextureTransitionResult2) << ToString(TextureTransitionResult2.error());
 		const auto TextureTransitionResult3 = ValidateTextureTransition(Rewrite);
-		EXPECT_TRUE(TextureTransitionResult3) << FormatRHIError(TextureTransitionResult3.error());
+		EXPECT_TRUE(TextureTransitionResult3) << ToString(TextureTransitionResult3.error());
 
 		FRHITexture Invalid(FRHITextureCreateDesc::Create2D(
 			"InvalidShadow", 16, 16, EPixelFormat::D32)

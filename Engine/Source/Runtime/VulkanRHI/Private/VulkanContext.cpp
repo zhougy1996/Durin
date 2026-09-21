@@ -379,7 +379,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan buffer copy replay: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid Vulkan buffer copy replay: {}", ToString(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
@@ -408,7 +408,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferToTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan buffer-to-texture replay: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid Vulkan buffer-to-texture replay: {}", ToString(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);
@@ -418,7 +418,7 @@ namespace Durin::VulkanRHI
 		{
 #if DO_CHECK
 			const auto Footprint = GetBufferTextureCopyFootprint(*Destination, Region);
-			checkf(Footprint, "Invalid Vulkan copy footprint: {}", FormatRHIError(Footprint.error()));
+			checkf(Footprint, "Invalid Vulkan copy footprint: {}", ToString(Footprint.error()));
 			ERHIAccess Tracked = ERHIAccess::None;
 			checkf(Source->GetStateTracker().Validate(Region.BufferOffset, *Footprint,
 				ERHIAccess::TransferRead, Tracked), "Vulkan buffer-to-texture source is not in TransferRead.");
@@ -448,7 +448,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureToBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan texture-to-buffer replay: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid Vulkan texture-to-buffer replay: {}", ToString(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
@@ -458,7 +458,7 @@ namespace Durin::VulkanRHI
 		{
 #if DO_CHECK
 			const auto Footprint = GetBufferTextureCopyFootprint(*Source, Region);
-			checkf(Footprint, "Invalid Vulkan copy footprint: {}", FormatRHIError(Footprint.error()));
+			checkf(Footprint, "Invalid Vulkan copy footprint: {}", ToString(Footprint.error()));
 			ERHIAccess Tracked = ERHIAccess::None;
 			const FRHITextureSubresourceRange Range{Region.TextureAspect, Region.TextureMip, 1,
 				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers};
@@ -488,7 +488,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan texture copy replay: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid Vulkan texture copy replay: {}", ToString(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);

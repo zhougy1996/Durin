@@ -27,7 +27,7 @@ namespace Durin
 		EXPECT_EQ(Desc.Extent, FIntPoint(16, 16));
 
 		const auto TextureCreateDescResult = ValidateTextureCreateDesc(Desc);
-		EXPECT_TRUE(TextureCreateDescResult) << FormatRHIError(TextureCreateDescResult.error());
+		EXPECT_TRUE(TextureCreateDescResult) << ToString(TextureCreateDescResult.error());
 	}
 
 	TEST(FRHITextureTests, RejectsInvalidCubeDescriptions)
@@ -71,7 +71,7 @@ namespace Durin
 		{
 			const auto TextureCreateDescResult = ValidateTextureCreateDesc(Case.Desc);
 			ASSERT_EQ(TextureCreateDescResult.has_value(), Case.bValid);
-			if (!Case.bValid) EXPECT_EQ(TextureCreateDescResult.error(), Case.Code) << FormatRHIError(TextureCreateDescResult.error());
+			if (!Case.bValid) EXPECT_EQ(TextureCreateDescResult.error(), Case.Code) << ToString(TextureCreateDescResult.error());
 		}
 	}
 
@@ -80,7 +80,7 @@ namespace Durin
 		auto ExpectRejected = [](const FRHITextureCreateDesc& Desc, ERHITextureCreateError Expected) {
 			const auto TextureCreateDescResult = ValidateTextureCreateDesc(Desc);
 			ASSERT_FALSE(TextureCreateDescResult);
-			EXPECT_EQ(TextureCreateDescResult.error(), Expected) << FormatRHIError(TextureCreateDescResult.error());
+			EXPECT_EQ(TextureCreateDescResult.error(), Expected) << ToString(TextureCreateDescResult.error());
 		};
 		ExpectRejected(FRHITextureCreateDesc::Create2D("Samples").SetNumSamples(3).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::InvalidSampleCount);
 		ExpectRejected(FRHITextureCreateDesc::Create2D("Mips").SetExtent(4).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::TooManyMips);
@@ -98,7 +98,7 @@ namespace Durin
 		const FUpdateTextureRegion2D FullMip(0, 0, 0, 0, 4, 4);
 
 		const auto Texture2DUpdateResult = ValidateTexture2DUpdate(Desc, 1, 5, FullMip, 16);
-		EXPECT_TRUE(Texture2DUpdateResult) << FormatRHIError(Texture2DUpdateResult.error());
+		EXPECT_TRUE(Texture2DUpdateResult) << ToString(Texture2DUpdateResult.error());
 		const auto Texture2DUpdateResult2 = ValidateTexture2DUpdate(Desc, 4, 0, FullMip, 16);
 		ASSERT_FALSE(Texture2DUpdateResult2);
 		EXPECT_EQ(Texture2DUpdateResult2.error(), ERHITextureUploadError::MipOutOfBounds);
@@ -124,11 +124,11 @@ namespace Durin
 
 		const FUpdateTextureRegion2D FullMip(0, 0, 0, 0, 10, 6);
 		const auto Texture2DUpdateResult = ValidateTexture2DUpdate(Desc, 0, 0, FullMip, 24);
-		EXPECT_TRUE(Texture2DUpdateResult) << FormatRHIError(Texture2DUpdateResult.error());
+		EXPECT_TRUE(Texture2DUpdateResult) << ToString(Texture2DUpdateResult.error());
 
 		const FUpdateTextureRegion2D TailMip(0, 0, 0, 0, 5, 3);
 		const auto Texture2DUpdateResult2 = ValidateTexture2DUpdate(Desc, 1, 0, TailMip, 16);
-		EXPECT_TRUE(Texture2DUpdateResult2) << FormatRHIError(Texture2DUpdateResult2.error());
+		EXPECT_TRUE(Texture2DUpdateResult2) << ToString(Texture2DUpdateResult2.error());
 
 		const FUpdateTextureRegion2D MisalignedOffset(2, 0, 0, 0, 4, 4);
 		const auto Texture2DUpdateResult3 = ValidateTexture2DUpdate(Desc, 0, 0, MisalignedOffset, 8);
@@ -151,22 +151,22 @@ namespace Durin
 				| ETextureCreateFlags::SourceCopy
 				| ETextureCreateFlags::DestinationCopy);
 		const auto TextureCreateDescResult = ValidateTextureCreateDesc(Desc);
-		EXPECT_TRUE(TextureCreateDescResult) << FormatRHIError(TextureCreateDescResult.error());
+		EXPECT_TRUE(TextureCreateDescResult) << ToString(TextureCreateDescResult.error());
 		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
 		EXPECT_EQ(Texture->GetSizeZ(), 3u);
 		const FRHITextureViewDesc Sampled = MakeDefaultTextureViewDesc(
 			*Texture, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture3D);
 		const auto TextureViewDescResult = ValidateTextureViewDesc(Texture, Sampled);
-		EXPECT_TRUE(TextureViewDescResult) << FormatRHIError(TextureViewDescResult.error());
+		EXPECT_TRUE(TextureViewDescResult) << ToString(TextureViewDescResult.error());
 		FRHITextureViewDesc Storage = MakeDefaultTextureViewDesc(
 			*Texture, ERHITextureViewUsage::Storage);
 		const auto TextureViewDescResult2 = ValidateTextureViewDesc(Texture, Storage);
-		EXPECT_TRUE(TextureViewDescResult2) << FormatRHIError(TextureViewDescResult2.error());
+		EXPECT_TRUE(TextureViewDescResult2) << ToString(TextureViewDescResult2.error());
 
 		const FUpdateTextureRegion3D Region(1, 1, 0, 2, 1, 1, 3, 3, 2);
 		const auto Texture3DUpdateResult = ValidateTexture3DUpdate(Desc, 0, Region, 24, 96);
-		EXPECT_TRUE(Texture3DUpdateResult) << FormatRHIError(Texture3DUpdateResult.error());
+		EXPECT_TRUE(Texture3DUpdateResult) << ToString(Texture3DUpdateResult.error());
 		const auto Texture3DUpdateResult2 = ValidateTexture3DUpdate(Desc, 0, Region, 19, 96);
 		ASSERT_FALSE(Texture3DUpdateResult2);
 		EXPECT_EQ(Texture3DUpdateResult2.error(), ERHIVolumeUploadError::InsufficientRowPitch);
@@ -193,14 +193,14 @@ namespace Durin
 			.TextureNumArrayLayers = 1, .TextureOffset = {1, 0, 1},
 			.TextureExtent = {3, 3, 2}};
 		const auto BufferTextureCopyFootprintResult = GetBufferTextureCopyFootprint(*Texture, Region);
-		ASSERT_TRUE(BufferTextureCopyFootprintResult) << FormatRHIError(BufferTextureCopyFootprintResult.error());
+		ASSERT_TRUE(BufferTextureCopyFootprintResult) << ToString(BufferTextureCopyFootprintResult.error());
 		EXPECT_EQ(*BufferTextureCopyFootprintResult, 56u);
 		TRefCountPtr<FRHIBuffer> Buffer = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create("VolumeBuffer", 56, 1,
 				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
 		const auto BufferToTextureCopiesResult = ValidateBufferToTextureCopies(Buffer, Texture,
 			std::span<const FRHIBufferTextureCopyRegion>(&Region, 1));
-		EXPECT_TRUE(BufferToTextureCopiesResult) << FormatRHIError(BufferToTextureCopiesResult.error());
+		EXPECT_TRUE(BufferToTextureCopiesResult) << ToString(BufferToTextureCopiesResult.error());
 	}
 
 	TEST(FRHITextureTests, ResolvesDocumentedPrincipalAxesAndEdgeDirections)

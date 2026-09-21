@@ -258,7 +258,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
 		checkf(ValidationResult,
-			"Invalid RHI texture create description: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
 #endif
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!RHIIsTextureSupported(NormalizedDesc))
@@ -302,7 +302,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
 		checkf(ValidationResult,
-			"Invalid RHI texture create description: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
 #endif
 		const FRHICapabilities* Capabilities = RHIGetCapabilities();
 		if (Capabilities == nullptr) return false;
@@ -399,7 +399,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateBufferViewDesc(Buffer, Desc);
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Failed to create Vulkan buffer view: {}", FormatRHIError(ValidationResult.error()));
+			DURIN_ERROR("Failed to create Vulkan buffer view: {}", ToString(ValidationResult.error()));
 			return nullptr;
 		}
 		if (Desc.Type == ERHIBufferViewType::Formatted)
@@ -432,7 +432,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateTextureViewDesc(Texture, Desc);
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Failed to create Vulkan texture view: {}", FormatRHIError(ValidationResult.error()));
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", ToString(ValidationResult.error()));
 			return nullptr;
 		}
 		FTextureViewRHIRef Result;
@@ -511,7 +511,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateTexture2DUpdate(TextureDesc, MipIndex, ArraySlice, UpdateRegion, SourcePitch);
 		checkf(ValidationResult,
 			"Invalid RHI texture upload: {}",
-			FormatRHIError(ValidationResult.error()));
+			ToString(ValidationResult.error()));
 #endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
@@ -599,7 +599,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateTexture3DUpdate(TextureDesc, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch);
 		checkf(ValidationResult,
-			"Invalid RHI volume texture upload: {}", FormatRHIError(ValidationResult.error()));
+			"Invalid RHI volume texture upload: {}", ToString(ValidationResult.error()));
 #endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);

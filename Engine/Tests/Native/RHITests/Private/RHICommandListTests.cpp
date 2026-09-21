@@ -1768,9 +1768,9 @@ namespace Durin
 		std::expected<FComputePipelineStateKey, ERHIComputePipelineError> FirstKey;
 		std::expected<FComputePipelineStateKey, ERHIComputePipelineError> SecondKey;
 		ASSERT_TRUE((FirstKey = BuildComputePipelineStateKey(First, nullptr)))
-			<< FormatRHIError(FirstKey.error());
+			<< ToString(FirstKey.error());
 		ASSERT_TRUE((SecondKey = BuildComputePipelineStateKey(Second, nullptr)))
-			<< FormatRHIError(SecondKey.error());
+			<< ToString(SecondKey.error());
 		EXPECT_TRUE(First.IsValid());
 		EXPECT_TRUE(Second.IsValid());
 		EXPECT_EQ(First.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot, 3u);
@@ -2311,14 +2311,14 @@ namespace Durin
 
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> FirstKey;
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> SecondKey;
-		ASSERT_TRUE((FirstKey = BuildGraphicsPipelineStateKey(First, nullptr))) << FormatRHIError(FirstKey.error());
-		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << FormatRHIError(SecondKey.error());
+		ASSERT_TRUE((FirstKey = BuildGraphicsPipelineStateKey(First, nullptr))) << ToString(FirstKey.error());
+		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << ToString(SecondKey.error());
 		EXPECT_EQ(*FirstKey, *SecondKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*FirstKey),
 			FGraphicsPipelineStateKeyHasher{}(*SecondKey));
 
 		Second.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
-		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << FormatRHIError(SecondKey.error());
+		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << ToString(SecondKey.error());
 		EXPECT_NE(*FirstKey, *SecondKey);
 	}
 
@@ -2346,8 +2346,8 @@ namespace Durin
 
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> PositiveKey;
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> NegativeKey;
-		ASSERT_TRUE((PositiveKey = BuildGraphicsPipelineStateKey(Positive, nullptr))) << FormatRHIError(PositiveKey.error());
-		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << FormatRHIError(NegativeKey.error());
+		ASSERT_TRUE((PositiveKey = BuildGraphicsPipelineStateKey(Positive, nullptr))) << ToString(PositiveKey.error());
+		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << ToString(NegativeKey.error());
 		EXPECT_TRUE(Positive.IsValid());
 		EXPECT_TRUE(Negative.IsValid());
 		EXPECT_EQ(*PositiveKey, *NegativeKey);
@@ -2355,7 +2355,7 @@ namespace Durin
 			FGraphicsPipelineStateKeyHasher{}(*NegativeKey));
 
 		Negative.RasterizerState.DepthBiasSlopeFactor = -1.0f;
-		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << FormatRHIError(NegativeKey.error());
+		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << ToString(NegativeKey.error());
 		EXPECT_EQ(*PositiveKey, *NegativeKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*PositiveKey),
 			FGraphicsPipelineStateKeyHasher{}(*NegativeKey));
@@ -2401,10 +2401,10 @@ namespace Durin
 				.Type = ERHIBindingType::Sampler}};
 		const auto ShaderParameterUpdateResult = ValidateShaderParameterUpdate(Layout,
 			EShaderStageFlags::Fragment, Resources);
-		EXPECT_TRUE(ShaderParameterUpdateResult) << FormatRHIError(ShaderParameterUpdateResult.error());
+		EXPECT_TRUE(ShaderParameterUpdateResult) << ToString(ShaderParameterUpdateResult.error());
 		const auto ShaderBindingCompletenessResult = ValidateShaderBindingCompleteness(Layout, Resources);
 		EXPECT_TRUE(ShaderBindingCompletenessResult)
-			<< FormatRHIError(ShaderBindingCompletenessResult.error());
+			<< ToString(ShaderBindingCompletenessResult.error());
 
 		Resources[1].ArrayElement = 2;
 		const auto ShaderParameterUpdateResult2 = ValidateShaderParameterUpdate(Layout,
@@ -2452,7 +2452,7 @@ namespace Durin
 				const FRHIShaderParameterResource&) {
 					VisitedElements.push_back(Element.ArrayElement);
 				}, &Visits);
-		EXPECT_TRUE(VisitOrderedBindingsResult) << FormatRHIError(VisitOrderedBindingsResult.error());
+		EXPECT_TRUE(VisitOrderedBindingsResult) << ToString(VisitOrderedBindingsResult.error());
 		EXPECT_EQ(Visits, 64u);
 		EXPECT_EQ(VisitedElements.size(), 64u);
 		EXPECT_EQ(VisitedElements.front(), 0u);

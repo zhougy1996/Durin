@@ -1,6 +1,9 @@
 #pragma once
 
-#include "RHIValidation.h"
+#include <expected>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "RHIResources.h"
 
@@ -69,6 +72,34 @@ namespace Durin
 		uint32 Offset = 0;
 		uint32 Size = 0;
 	};
+
+	enum class ERHIShaderBindingError : uint8
+	{
+		InvalidStage,
+		SetOutOfRange,
+		IncompatibleBinding,
+		MissingBinding,
+		UnexpectedBinding,
+		NullResource,
+		TypeMismatch,
+		ArrayElementOutOfRange,
+		StageMismatch,
+	};
+
+	RHI_API auto ToString(ERHIShaderBindingError Error) -> std::string_view;
+
+	struct FRHIShaderBindingError
+	{
+		ERHIShaderBindingError Code;
+		std::optional<uint32> Index;
+		std::optional<uint32> SetIndex;
+		std::optional<uint32> BindingIndex;
+		std::optional<uint32> ArrayElement;
+		std::optional<ERHIBindingType> ExpectedBindingType;
+		std::optional<ERHIBindingType> ActualBindingType;
+	};
+
+	RHI_API auto ToString(const FRHIShaderBindingError& Error) -> std::string;
 
 	RHI_API auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
 		EShaderStageFlags ShaderStage,
