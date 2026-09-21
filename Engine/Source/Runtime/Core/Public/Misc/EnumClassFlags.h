@@ -1,18 +1,20 @@
 #pragma once
 
+#include <utility>
+
 // Defines all bitwise operators for enum classes so it can be (mostly) used as a regular flags enum
 #define ENUM_CLASS_FLAGS(Enum) \
 	inline Enum& operator|=(Enum& Lhs, Enum Rhs) \
 	{ \
-		return Lhs = (Enum)((__underlying_type(Enum))Lhs | (__underlying_type(Enum))Rhs); \
+		return Lhs = static_cast<Enum>(std::to_underlying(Lhs) | std::to_underlying(Rhs)); \
 	} \
-	inline Enum& operator&=(Enum& Lhs, Enum Rhs) { return Lhs = (Enum)((__underlying_type(Enum))Lhs & (__underlying_type(Enum))Rhs); } \
-	inline Enum& operator^=(Enum& Lhs, Enum Rhs) { return Lhs = (Enum)((__underlying_type(Enum))Lhs ^ (__underlying_type(Enum))Rhs); } \
-	inline constexpr Enum operator|(Enum Lhs, Enum Rhs) { return (Enum)((__underlying_type(Enum))Lhs | (__underlying_type(Enum))Rhs); } \
-	inline constexpr Enum operator&(Enum Lhs, Enum Rhs) { return (Enum)((__underlying_type(Enum))Lhs & (__underlying_type(Enum))Rhs); } \
-	inline constexpr Enum operator^(Enum Lhs, Enum Rhs) { return (Enum)((__underlying_type(Enum))Lhs ^ (__underlying_type(Enum))Rhs); } \
-	inline constexpr bool operator!(Enum E) { return !(__underlying_type(Enum))E; } \
-	inline constexpr Enum operator~(Enum E) { return (Enum) ~(__underlying_type(Enum))E; }
+	inline Enum& operator&=(Enum& Lhs, Enum Rhs) { return Lhs = static_cast<Enum>(std::to_underlying(Lhs) & std::to_underlying(Rhs)); } \
+	inline Enum& operator^=(Enum& Lhs, Enum Rhs) { return Lhs = static_cast<Enum>(std::to_underlying(Lhs) ^ std::to_underlying(Rhs)); } \
+	inline constexpr Enum operator|(Enum Lhs, Enum Rhs) { return static_cast<Enum>(std::to_underlying(Lhs) | std::to_underlying(Rhs)); } \
+	inline constexpr Enum operator&(Enum Lhs, Enum Rhs) { return static_cast<Enum>(std::to_underlying(Lhs) & std::to_underlying(Rhs)); } \
+	inline constexpr Enum operator^(Enum Lhs, Enum Rhs) { return static_cast<Enum>(std::to_underlying(Lhs) ^ std::to_underlying(Rhs)); } \
+	inline constexpr bool operator!(Enum E) { return !std::to_underlying(E); } \
+	inline constexpr Enum operator~(Enum E) { return static_cast<Enum>(~std::to_underlying(E)); }
 
 // Friends all bitwise operators for enum classes so the definition can be kept private / protected.
 #define FRIEND_ENUM_CLASS_FLAGS(Enum) \
@@ -30,28 +32,24 @@ namespace Durin
 	template<typename Enum>
 	constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)
 	{
-		using UnderlyingType = __underlying_type(Enum);
-		return (static_cast<UnderlyingType>(Flags) & static_cast<UnderlyingType>(Contains)) == static_cast<UnderlyingType>(Contains);
+		return (std::to_underlying(Flags) & std::to_underlying(Contains)) == std::to_underlying(Contains);
 	}
 
 	template<typename Enum>
 	constexpr bool EnumHasAnyFlags(Enum Flags, Enum Contains)
 	{
-		using UnderlyingType = __underlying_type(Enum);
-		return (static_cast<UnderlyingType>(Flags) & static_cast<UnderlyingType>(Contains)) != 0;
+		return (std::to_underlying(Flags) & std::to_underlying(Contains)) != 0;
 	}
 
 	template<typename Enum>
 	void EnumAddFlags(Enum& Flags, Enum FlagsToAdd)
 	{
-		using UnderlyingType = __underlying_type(Enum);
-		Flags = static_cast<Enum>(static_cast<UnderlyingType>(Flags) | static_cast<UnderlyingType>(FlagsToAdd));
+		Flags = static_cast<Enum>(std::to_underlying(Flags) | std::to_underlying(FlagsToAdd));
 	}
 
 	template<typename Enum>
 	void EnumRemoveFlags(Enum& Flags, Enum FlagsToRemove)
 	{
-		using UnderlyingType = __underlying_type(Enum);
-		Flags = static_cast<Enum>(static_cast<UnderlyingType>(Flags) & ~static_cast<UnderlyingType>(FlagsToRemove));
+		Flags = static_cast<Enum>(std::to_underlying(Flags) & ~std::to_underlying(FlagsToRemove));
 	}
 } // namespace Durin
