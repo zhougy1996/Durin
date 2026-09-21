@@ -5,7 +5,6 @@
 #include "Asset/CookedMeshProducts.h"
 #include "DObject/ObjectKey.h"
 #include "EngineAPI.h"
-#include "Templates/MoveOnlyFunction.h"
 #include "Threading/Task.h"
 
 namespace Durin
@@ -96,14 +95,14 @@ namespace Durin
 		explicit operator bool() const { return Error.Code == ECookedMeshLoadError::None; }
 	};
 
-	using FCookedMeshWorker = Durin::Private::TMoveOnlyFunction<FCookedMeshWorkerResult(
+	using FCookedMeshWorker = std::move_only_function<FCookedMeshWorkerResult(
 		std::span<const FSharedByteBuffer>, const FTaskCancellationToken&)>;
 	using FCookedMeshCurrentPredicate = std::function<bool(
 		const DObject&, const FCookedMeshLoadIdentity&)>;
-	using FCookedMeshPublisher = Durin::Private::TMoveOnlyFunction<FCookedMeshLoadResult(
+	using FCookedMeshPublisher = std::move_only_function<FCookedMeshLoadResult(
 		DObject&, const FCookedMeshLoadIdentity&,
 		std::unique_ptr<ICookedMeshDetachedProduct>)>;
-	using FCookedMeshTerminalCallback = Durin::Private::TMoveOnlyFunction<void(
+	using FCookedMeshTerminalCallback = std::move_only_function<void(
 		DObject&, const FCookedMeshLoadIdentity&, ECookedMeshTerminalState,
 		const FCookedMeshLoadError&)>;
 

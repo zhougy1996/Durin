@@ -578,7 +578,7 @@ namespace Durin
 			std::weak_ptr<FTaskScheduler> InScheduler,
 			std::shared_ptr<FTaskSchedulerLifetimeAccounting> InLifetimeAccounting,
 			std::unique_ptr<Private::FMoveOnlyTaskFunction> InFunction,
-			std::function<void(ETaskState)>&& InCompletionFunction,
+			std::move_only_function<void(ETaskState)>&& InCompletionFunction,
 			const FTaskCancellationToken& InCancellationToken,
 			const std::vector<std::shared_ptr<FTaskStateData>>& InPrerequisites,
 			uint64 InParentTaskId,
@@ -645,7 +645,7 @@ namespace Durin
 		}
 
 		auto InitializeOwnership(std::unique_ptr<Private::FMoveOnlyTaskFunction>& Function,
-			std::function<void(ETaskState)>& Completion) -> void
+			std::move_only_function<void(ETaskState)>& Completion) -> void
 		{
 			std::lock_guard Lock(Mutex);
 			PendingFunction = std::move(Function);
@@ -977,7 +977,7 @@ namespace Durin
 
 	private:
 		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
-		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, std::function<void(ETaskState)>& OutCompletionFunction, std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
+		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, std::move_only_function<void(ETaskState)>& OutCompletionFunction, std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void;
 
 		uint64 TaskId = 0;
@@ -989,7 +989,7 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable CV;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
-		std::function<void(ETaskState)> CompletionFunction;
+		std::move_only_function<void(ETaskState)> CompletionFunction;
 		bool bHasResultStorage = false;
 		bool bAdmissionPending = true;
 		size_t ReservedDependents = 0;
@@ -1383,7 +1383,7 @@ namespace Durin
 		auto Submit(
 			const char* Name,
 			std::unique_ptr<Private::FMoveOnlyTaskFunction>& FunctionOwner,
-			std::function<void(ETaskState)>&& CompletionFunction,
+			std::move_only_function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
 			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success,
 			bool bAggregatePrerequisites = false,
@@ -1471,7 +1471,7 @@ namespace Durin
 						weak_from_this(),
 						LifetimeAccounting,
 						nullptr,
-						std::function<void(ETaskState)>{},
+						std::move_only_function<void(ETaskState)>{},
 						Options.CancellationToken,
 						PrerequisiteStates,
 						GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
@@ -2664,7 +2664,7 @@ namespace Durin
 		ETaskState TerminalState,
 		std::string InDiagnostic,
 		std::vector<std::shared_ptr<FTaskStateData>>& OutDependents,
-		std::function<void(ETaskState)>& OutCompletionFunction,
+		std::move_only_function<void(ETaskState)>& OutCompletionFunction,
 		std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction,
 		ETaskTerminalReason InReason,
 		uint64 InDirectBlockingTaskId
@@ -2706,7 +2706,7 @@ namespace Durin
 		uint64 InDirectBlockingTaskId) -> bool
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
-		std::function<void(ETaskState)> Function;
+		std::move_only_function<void(ETaskState)> Function;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		{
 			std::lock_guard Lock(Mutex);
@@ -2880,7 +2880,7 @@ namespace Durin
 	auto FTaskStateData::RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason, uint64 InDirectBlockingTaskId) -> bool
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
-		std::function<void(ETaskState)> Function;
+		std::move_only_function<void(ETaskState)> Function;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		bool bPublishedTerminal = false;
 		std::shared_ptr<FTaskStateData> InnerToCancel;
@@ -2920,7 +2920,7 @@ namespace Durin
 	auto FTaskStateData::MarkSucceeded() -> void
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
-		std::function<void(ETaskState)> Function;
+		std::move_only_function<void(ETaskState)> Function;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		ETaskState TerminalState = ETaskState::Succeeded;
 		{
@@ -3476,7 +3476,7 @@ namespace Durin
 		auto TryLaunchCancelableTaskWithCompletion(
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
-			std::function<void(ETaskState)>&& CompletionFunction,
+			std::move_only_function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
 			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>
 		try
@@ -3549,7 +3549,7 @@ namespace Durin
 			const FTaskHandle& Predecessor,
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
-			std::function<void(ETaskState)>&& CompletionFunction,
+			std::move_only_function<void(ETaskState)>&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
 			ETaskDependencyKind DependencyKind,
 			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>

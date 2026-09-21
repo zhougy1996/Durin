@@ -41,7 +41,7 @@ namespace Durin
 		{
 			FTimerHandle Handle;
 			FWeakObjectPtr Owner;
-			std::function<void(DObject*)> Callback;
+			std::move_only_function<void(DObject*)> Callback;
 			double Deadline = 0.0;
 			double Interval = 0.0;
 			double Remaining = 0.0;
@@ -104,7 +104,7 @@ namespace Durin
 	FTimerManager::~FTimerManager() = default;
 
 	auto FTimerManager::Add(double Delay, double Interval, bool bNextFrame, DObject* Owner,
-		std::function<void(DObject*)> Callback) -> FTimerHandle
+		std::move_only_function<void(DObject*)> Callback) -> FTimerHandle
 	{
 		RequireTimerThread();
 		auto& S = *State;
@@ -127,29 +127,29 @@ namespace Durin
 		return Timer->Handle;
 	}
 
-	auto FTimerManager::SetTimer(double Delay, std::function<void()> Callback, double Interval) -> FTimerHandle
+	auto FTimerManager::SetTimer(double Delay, std::move_only_function<void()> Callback, double Interval) -> FTimerHandle
 	{
 		RequireTimerThread();
 		if (!Callback) return {};
-		return Add(Delay, Interval, false, nullptr, [Callback = std::move(Callback)](DObject*) { Callback(); });
+		return Add(Delay, Interval, false, nullptr, [Callback = std::move(Callback)](DObject*) mutable { Callback(); });
 	}
-	auto FTimerManager::SetTimerForNextTick(std::function<void()> Callback) -> FTimerHandle
+	auto FTimerManager::SetTimerForNextTick(std::move_only_function<void()> Callback) -> FTimerHandle
 	{
 		RequireTimerThread();
 		if (!Callback) return {};
-		return Add(0.0, 0.0, true, nullptr, [Callback = std::move(Callback)](DObject*) { Callback(); });
+		return Add(0.0, 0.0, true, nullptr, [Callback = std::move(Callback)](DObject*) mutable { Callback(); });
 	}
-	auto FTimerManager::SetTimerForObject(DObject* Owner, double Delay, std::function<void(DObject&)> Callback, double Interval) -> FTimerHandle
+	auto FTimerManager::SetTimerForObject(DObject* Owner, double Delay, std::move_only_function<void(DObject&)> Callback, double Interval) -> FTimerHandle
 	{
 		RequireTimerThread();
 		if (!Owner || !Callback) return {};
-		return Add(Delay, Interval, false, Owner, [Callback = std::move(Callback)](DObject* Target) { Callback(*Target); });
+		return Add(Delay, Interval, false, Owner, [Callback = std::move(Callback)](DObject* Target) mutable { Callback(*Target); });
 	}
-	auto FTimerManager::SetTimerForObjectNextTick(DObject* Owner, std::function<void(DObject&)> Callback) -> FTimerHandle
+	auto FTimerManager::SetTimerForObjectNextTick(DObject* Owner, std::move_only_function<void(DObject&)> Callback) -> FTimerHandle
 	{
 		RequireTimerThread();
 		if (!Owner || !Callback) return {};
-		return Add(0.0, 0.0, true, Owner, [Callback = std::move(Callback)](DObject* Target) { Callback(*Target); });
+		return Add(0.0, 0.0, true, Owner, [Callback = std::move(Callback)](DObject* Target) mutable { Callback(*Target); });
 	}
 	auto FTimerManager::ClearTimer(FTimerHandle Handle) -> bool
 	{

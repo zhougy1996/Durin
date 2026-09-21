@@ -480,7 +480,9 @@ namespace Durin
 		}));
 		ASSERT_TRUE(BlockingTaskStarted.WaitFor(1.0));
 
-		ASSERT_TRUE(Pool.Enqueue("DiscardedTask", []() {}, [&]() { DiscardCount.fetch_add(1, std::memory_order::acq_rel); }));
+		ASSERT_TRUE(Pool.Enqueue("DiscardedTask", []() {}, [Count = std::make_unique<uint32>(1), &DiscardCount]() {
+			DiscardCount.fetch_add(*Count, std::memory_order::acq_rel);
+		}));
 
 		std::thread DestroyThread([&]() {
 			Pool.Destroy(false);
@@ -2216,7 +2218,28 @@ namespace Durin
 
 
 
-	TEST(FTaskMoveOnlyCallableTests, ErasureMovesInlineAndHeapTargetsAndDestroysExactlyOnce)
+	TEST(FTaskMoveOnlyCallableTests, CompletionOwnsUniqueCaptureUntilTerminalPublication)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		std::atomic<int> Calls = 0, Destroyed = 0;
+		auto Delete = [&Destroyed](int* Value) { delete Value; ++Destroyed; };
+		auto Admission = Private::TryLaunchCancelableTaskWithCompletion("UniqueCompletion",
+			[](const FTaskCancellationToken&) {},
+			[Capture = std::unique_ptr<int, decltype(Delete)>(new int(7), Delete), &Calls](ETaskState State) {
+				EXPECT_EQ(ETaskState::Succeeded, State);
+				EXPECT_EQ(7, *Capture);
+				++Calls;
+			}, {});
+		ASSERT_TRUE(Admission.HasValue());
+		auto Task = std::move(Admission).TakeValue();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+		EXPECT_EQ(1, Calls.load());
+		EXPECT_EQ(1, Destroyed.load());
+	}
+
+	TEST(FTaskMoveOnlyCallableTests, ErasureTransfersOwnershipAndDestroysExactlyOnce)
 	{
 		struct FTrackedCallable
 		{
@@ -2236,26 +2259,24 @@ namespace Durin
 			auto operator()() -> void {}
 		};
 
-		using FMoveOnlyVoidFunction = Private::TMoveOnlyFunction<void()>;
+		using FMoveOnlyVoidFunction = std::move_only_function<void()>;
 		FMoveOnlyVoidFunction Empty;
 		EXPECT_FALSE(static_cast<bool>(Empty));
 
-		auto InlineValue = std::make_unique<int>(7);
-		int* InlineAddress = InlineValue.get();
-		FMoveOnlyVoidFunction Inline([Value = std::move(InlineValue), &InlineAddress]() {
-			EXPECT_EQ(InlineAddress, Value.get());
+		auto ValueOwner = std::make_unique<int>(7);
+		int* ValueAddress = ValueOwner.get();
+		FMoveOnlyVoidFunction Small([Value = std::move(ValueOwner), &ValueAddress]() {
+			EXPECT_EQ(ValueAddress, Value.get());
 		});
-		FMoveOnlyVoidFunction MovedInline(std::move(Inline));
-		EXPECT_FALSE(static_cast<bool>(Inline));
-		ASSERT_TRUE(static_cast<bool>(MovedInline));
-		MovedInline();
+		FMoveOnlyVoidFunction MovedSmall(std::move(Small));
+		ASSERT_TRUE(static_cast<bool>(MovedSmall));
+		MovedSmall();
 
 		auto DestructionCount = std::make_shared<std::atomic<uint32>>(0);
 		{
-			FMoveOnlyVoidFunction Heap{FTrackedCallable(DestructionCount)};
-			FMoveOnlyVoidFunction MovedHeap(std::move(Heap));
-			EXPECT_FALSE(static_cast<bool>(Heap));
-			MovedHeap();
+			FMoveOnlyVoidFunction Large{FTrackedCallable(DestructionCount)};
+			FMoveOnlyVoidFunction MovedLarge(std::move(Large));
+			MovedLarge();
 		}
 		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));
 

@@ -45,6 +45,33 @@ namespace
 	};
 }
 
+TEST_F(FWorldTimerTests, UniqueCapturesSurviveRepeatsAndReleaseOnClear)
+{
+	auto& Timers = World->GetTimerManager();
+	int Calls = 0, Destroyed = 0, NextCalls = 0, ObjectCalls = 0;
+	auto Delete = [&Destroyed](int* Value) { delete Value; ++Destroyed; };
+	auto Repeating = Timers.SetTimer(0.0,
+		[Value = std::unique_ptr<int, decltype(Delete)>(new int(0), Delete), &Calls]() {
+			Calls = ++*Value;
+		}, 1.0);
+	Timers.SetTimerForNextTick([Value = std::make_unique<int>(7), &NextCalls] { NextCalls += *Value; });
+	Timers.SetTimerForObject(World, 0.0,
+		[Value = std::make_unique<int>(3), &ObjectCalls](Durin::DObject&) { ObjectCalls += *Value; });
+	Timers.SetTimerForObjectNextTick(World,
+		[Value = std::make_unique<int>(5), &ObjectCalls](Durin::DObject&) { ObjectCalls += *Value; });
+	Tick();
+	EXPECT_EQ(1, Calls);
+	EXPECT_EQ(7, NextCalls);
+	EXPECT_EQ(8, ObjectCalls);
+	EXPECT_EQ(0, Destroyed);
+	Tick(1.0f);
+	EXPECT_EQ(2, Calls);
+	EXPECT_TRUE(Timers.ClearTimer(Repeating));
+	EXPECT_EQ(1, Destroyed);
+	Tick(1.0f);
+	EXPECT_EQ(2, Calls);
+}
+
 TEST_F(FWorldTimerTests, DelayLoopAndNextFrameSharePauseStepAndScale)
 {
 	auto& Timers = World->GetTimerManager();
