@@ -317,6 +317,7 @@ namespace Durin
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
 		PackageSavePrivate::PollAsyncSaves();
+		ProcessAsyncLoading();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		GFrameCounter++;
 
@@ -391,6 +392,7 @@ namespace Durin
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
 		(void)DPackage::DrainAsyncSaves();
 		if (GEngine) GEngine->PrepareForShutdown();
+		CancelAsyncLoading();
 
 #if DURIN_WITH_EDITOR
 		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))

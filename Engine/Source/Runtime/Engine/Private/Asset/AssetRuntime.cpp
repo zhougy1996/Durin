@@ -1,6 +1,8 @@
 #include "DObject/PackagePersistence.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
+#include "AssetAsyncLoadInternal.h"
+#include "Asset/AsyncLoad.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetMutationRegistryInternal.h"
@@ -615,19 +617,33 @@ namespace Durin
 		}
 		FAssetLoadReport LocalReport{.PackagePath = Path};
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
-		FByteBuffer Bytes;
-		if (PhysicalPath.empty()) return Error(EAssetReadError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
-		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetReadError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
-		++GActivePackageFileReadCount;
-		std::filesystem::path BulkPath(PhysicalPath);
-		BulkPath.replace_extension(".dbulk");
-		std::error_code BulkError;
+		FByteBuffer FileBytes;
+		FByteView Bytes;
 		uint64 PhysicalBulkBytes = 0;
-		if (std::filesystem::is_regular_file(BulkPath, BulkError))
-			PhysicalBulkBytes = std::filesystem::file_size(BulkPath, BulkError);
-		if (BulkError && BulkError != std::errc::no_such_file_or_directory)
-			return Error(EAssetReadError::IoError,
-				std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
+		if (PhysicalPath.empty()) return Error(EAssetReadError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
+		if (AsyncInputs)
+		{
+			const auto It = AsyncInputs->find(Path);
+			if (It == AsyncInputs->end() || It->second.PhysicalPath != PhysicalPath)
+				return Error(EAssetReadError::StaleData, "Async load dependency is outside the captured package closure.");
+			if (!It->second.Result) return It->second.Result;
+			Bytes = It->second.Bytes;
+			PhysicalBulkBytes = It->second.BulkBytes;
+		}
+		else
+		{
+			if (!FFileHelper::LoadFileToArray(FileBytes, PhysicalPath)) return Error(EAssetReadError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+			Bytes = FileBytes;
+			std::filesystem::path BulkPath(PhysicalPath);
+			BulkPath.replace_extension(".dbulk");
+			std::error_code BulkError;
+			if (std::filesystem::is_regular_file(BulkPath, BulkError))
+				PhysicalBulkBytes = std::filesystem::file_size(BulkPath, BulkError);
+			if (BulkError && BulkError != std::errc::no_such_file_or_directory)
+				return Error(EAssetReadError::IoError,
+					std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
+		}
+		++GActivePackageFileReadCount;
 		const AssetPrivate::FAssetPackageReadContext HeaderContext{
 			.PackageBytes = Bytes, .PackagePath = Path,
 			.PhysicalPackageBytes = Bytes.size(),
@@ -860,6 +876,7 @@ namespace Durin
 	{
 		if (!AssetPrivate::FAssetLiveLoadGuard::Check("Shutdown", "")) return;
 		StopAcceptingRequests();
+		CancelAsyncLoading();
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
 		if (auto Drain = DPackage::DrainAsyncSaves(); !Drain)
 		{ DURIN_ERROR("Asset shutdown could not drain saves: {}", Drain.Message); return; }

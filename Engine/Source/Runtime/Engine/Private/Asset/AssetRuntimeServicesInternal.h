@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	struct FAsyncPackageInput;
+	class FAsyncAssetLoadService;
 	// Owns incomplete load components and coordinates completed package residency.
 	class FAssetLoadService
 	{
@@ -103,8 +105,10 @@ namespace Durin
 		std::vector<std::shared_ptr<FPendingLoad>> CompletionStack;
 		uint64 NextLoadIndex = 0;
 		uint32 LoadDepth = 0;
+		const std::unordered_map<FPackagePath, FAsyncPackageInput>* AsyncInputs = nullptr;
 
 		friend class FAssetMutationCoordinator;
+		friend class FAsyncAssetLoadService;
 	};
 
 	// Coordinates persistent asset mutations across catalog, residency, and disk.

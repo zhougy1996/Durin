@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-21
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -128,6 +128,51 @@ uses rooted `/Cpp/<ModuleName>` packages and is never serialized as `.dasset`.
 follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
+
+`Asset/AsyncLoad.h` provides `LoadPackageAsync(FPackagePath)` and
+`RequestAsyncLoad(FObjectPath/FTopLevelAssetPath)`. Both return a shared
+`FAsyncLoadHandle`; submission, observation, cancellation, callbacks and handle
+destruction belong to GameThread. Successful handles strongly retain their
+package and selected object. Object readiness does not imply compilation or
+render-resource readiness. Releasing all caller handles does not cancel a
+queued request; use `Cancel()` to withdraw that consumer explicitly.
+`IsPackageLoading` continues to describe incomplete live object construction;
+use the handle state to observe a queued or reading async request. A synchronous
+load may complete the same package while its async read is pending; publication
+then reuses that resident package.
+
+Requests are deferred, including resident hits and ordinary errors. Guarded or
+shutdown admission instead returns a failed handle immediately without invoking
+the callback. The engine loop pumps `ProcessAsyncLoading`; standalone tools and
+tests must pump it explicitly. Completion callbacks run on a later pump after
+input file leases have been released, may enqueue more requests, and never run
+inside a recursive pump. `Cancel()` suppresses undelivered callbacks, including
+for an already completed request, without cancelling other consumers of the
+same package. Dropping a successful handle releases its strong references;
+ordinary Standalone package residency still follows the unload contract below.
+
+The initial implementation coalesces active requests for the same root package,
+starts higher-priority pending requests first, and limits detached reads to two
+closures with at most 256 MiB of main-package bytes each. BlockingIO tasks read
+the catalog dependency closure under package file read leases. Read errors in
+unused dependencies do not fail a root whose live serializer discards those
+fields. Publication rejects a changed catalog revision with `StaleData`; callers
+may retry. An actual dependency outside the captured closure also fails instead
+of falling back to synchronous main-package file reading.
+
+GameThread still performs codec decoding, object construction, value restoration,
+bulk-resource registration/validation, and component validation/PostLoad through
+the ordinary loader. These stages preserve cycle and rollback semantics but are
+not yet interruptible. The default pump budget is 2 ms and one completion unit;
+it is checked between units, not inside a package component or callback. This
+API therefore removes main-package file reads from GameThread, but does not
+promise a hard frame-time bound or eliminate synchronous work inside PostLoad.
+
+`CancelAsyncLoading()` cancels pending requests and undelivered callbacks and
+drains accepted reads; it is a blocking teardown/tool boundary, not a UI wait.
+Launch calls it after consumer detachment and before UI/module and task teardown.
+`ShutdownAssetManager()` also drains async loading before retiring package
+resources; shutdown invalidates previously loaded objects as usual.
 
 The internal DAST codec accepts dependency bindings for package and exact-object
 resolution. Ordinary loading supplies loader-only bindings and transfers
