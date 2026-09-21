@@ -102,3 +102,11 @@ else()
 			Private/AssetImportTests.cpp
 	)
 endif()
+
+durin_add_native_test(PackageBulkQualificationTests
+	KIND qualification
+	DOMAINS asset-package
+	MODULES engine
+	SOURCES Private/PackageBulkQualificationTests.cpp
+	LIBRARIES Core CoreDObject Engine
+)

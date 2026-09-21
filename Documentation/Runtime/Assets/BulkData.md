@@ -322,14 +322,18 @@ validation retain their full integrity checks.
 
 ## Qualification Budget
 
-`FPackageAssetTests.V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets` freezes a
-4 MiB uncompressed external field and enforces bounded metadata load, first
-access, and save. Metadata load retains zero payload bytes and issues no range
-request; admission reads exactly one segment extent with at most 64 KiB
-validation scratch. First access returns one owned 4 MiB buffer through one
-exact request; ordinary save preserves a 4 MiB headerless segment; unload
-returns the resource count to zero. These are regression ceilings, not hardware
-benchmarks.
+`FPackageAssetTests.FieldBulkClosurePreservesLazyReadsAndBoundedScratch`
+checks a 4 MiB uncompressed external field without wall-clock acceptance gates.
+Metadata load retains zero payload bytes and issues no range request; admission
+reads exactly one segment extent with at most 64 KiB validation scratch. First
+access returns one owned 4 MiB buffer through one exact request; ordinary save
+preserves a 4 MiB headerless segment; unload returns the resource count to zero.
+
+`FPackageBulkQualificationTests.FieldBulkClosureMeetsBoundedLooseFixtureBudgets`
+retains the metadata-load, first-access, and save timing ceilings in the separate
+`PackageBulkQualificationTests` qualification target. Run it explicitly with
+`DevTool test PackageBulkQualificationTests --mode qualification`; routine selections do
+not enforce these machine-load-sensitive timing ceilings.
 
 ## Related Documentation
 

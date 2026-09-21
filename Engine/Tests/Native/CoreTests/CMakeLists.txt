@@ -163,3 +163,11 @@ else()
 			Private/DynamicDllUnloadFailureQualificationTests.cpp
 	)
 endif()
+
+durin_add_native_test(BinaryEnvelopeQualificationTests
+	KIND qualification
+	DOMAINS core
+	MODULES core
+	SOURCES Private/BinaryEnvelopeQualificationTests.cpp
+	LIBRARIES Core
+)

@@ -1,121 +1,6 @@
-#include "AssetCompatibilityAudit.h"
-#include "Misc/Paths.h"
-#include "Misc/MountPaths.h"
-#include "Misc/MountPathTestSupport.h"
-#include "Threading/ThreadEvent.h"
+#include "AssetCompatibilityAuditTestSupport.h"
 
-#include "NativeTestSupport.h"
-
-#include <gtest/gtest.h>
-
-#include <chrono>
-#include <iostream>
-
-namespace
-{
-	auto MakePath(std::string_view Value) -> Durin::FPackagePath
-	{
-		Durin::FPackagePath Path;
-		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Path));
-		return Path;
-	}
-
-	auto MakeData(std::string_view Path, uintmax_t Size = 10, int64 Ticks = 20)
-		-> Durin::FAssetData
-	{
-		Durin::FPackagePath AssetPath = MakePath(Path);
-		return {
-			.PackagePath = AssetPath,
-			.PhysicalPath = std::format("C:/fixtures/{}.dasset", AssetPath.GetPackageName()),
-			.FileSize = Size,
-			.LastWriteTimeTicks = Ticks,
-		};
-	}
-
-	auto MakeCompletedRecord(const Durin::FAssetPackageCompatibilityProbeInput& Input)
-		-> Durin::FAssetPackageCompatibilityProbeResult
-	{
-		return {
-			.Status = Durin::EAssetCompatibilityProbeStatus::Completed,
-			.Record = Durin::FAssetPackageCompatibilityRecord{
-				.PackagePath = Input.PackagePath,
-				.PhysicalPath = Input.PhysicalPath,
-				.Fingerprint = {
-					.FileSize = Input.ExpectedFileSize,
-					.LastWriteTimeTicks = Input.ExpectedLastWriteTimeTicks,
-				},
-				.Inspection = Durin::EAssetCompatibilityInspection::Ready,
-				.Compatibility = Durin::EAssetPackageCompatibility::Compatible,
-			},
-		};
-	}
-
-	template<typename TPredicate>
-	auto WaitUntil(TPredicate&& Predicate) -> bool
-	{
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-		while (std::chrono::steady_clock::now() < Deadline)
-		{
-			Durin::PumpGameThreadDeferredWork();
-			if (Predicate()) return true;
-			std::this_thread::yield();
-		}
-		return Predicate();
-	}
-
-	class FAssetCompatibilityAuditTests : public testing::Test
-	{
-	protected:
-		void SetUp() override
-		{
-			if (!Durin::GIsGameThreadIdInitialized)
-			{
-				Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-				Durin::GIsGameThreadIdInitialized = true;
-			}
-			Root = Durin::Testing::GetTestWorkDirectory() / "AssetCompatibilityAudit";
-			std::filesystem::create_directories(Root);
-			const std::array Definitions{
-				Durin::FMountPoint{
-					.VirtualRoot = "/AuditTests/",
-					.Owner = Durin::EMountOwner::ActiveProject,
-					.Root = Root,
-					.bAutoScan = true}};
-			Mounts = std::make_unique<Durin::Testing::FScopedMountRegistryFixture>(Definitions);
-			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
-			const Durin::FTaskSchedulerDiagnostics Diagnostics =
-				Durin::GetTaskSchedulerDiagnostics();
-			bRestoreScheduler = Diagnostics.bRunning;
-			PreviousConfig.NumWorkerThreads = Diagnostics.WorkerCount;
-			PreviousConfig.MaxNonterminalTasks = Diagnostics.TaskReservationCapacity;
-			bRestoreDeferredExecutor =
-				Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
-			Durin::ShutdownTaskScheduler(false);
-			ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
-			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-		}
-
-		void TearDown() override
-		{
-			Durin::ShutdownTaskScheduler(true);
-			if (bRestoreScheduler && !Durin::InitializeTaskScheduler(PreviousConfig))
-			{
-				ADD_FAILURE() << "Failed to restore the native-test task scheduler.";
-			}
-			if (bRestoreDeferredExecutor && !Durin::InitializeGameThreadDeferredExecutor())
-			{
-				ADD_FAILURE() << "Failed to restore the native-test deferred executor.";
-			}
-			Mounts.reset();
-		}
-
-		std::filesystem::path Root;
-		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;
-		Durin::FTaskSchedulerConfig PreviousConfig;
-		bool bRestoreScheduler = false;
-		bool bRestoreDeferredExecutor = false;
-	};
-}
+using FAssetCompatibilityAuditTests = FAssetCompatibilityAuditFixture;
 
 TEST_F(FAssetCompatibilityAuditTests, RemainsIdleUntilAnExplicitRunAndSortsPresentationByPath)
 {
@@ -159,19 +44,13 @@ TEST_F(FAssetCompatibilityAuditTests, CancellationPublishesNoPartialRecordForThe
 
 	ASSERT_TRUE(Model.RunAudit(Assets, {}));
 	ASSERT_TRUE(WaitUntil([&] { return Started.load(); }));
-	const auto CancelStarted = std::chrono::steady_clock::now();
 	Model.CancelAndDrain();
-	const auto CancellationLatency = std::chrono::steady_clock::now() - CancelStarted;
 
 	EXPECT_EQ(Model.GetState(), Durin::Editor::EAssetCompatibilityAuditState::Cancelled);
 	EXPECT_EQ(Model.GetProgress().Completed, 0u);
 	const auto* Record = Model.FindRecord(Data.PackagePath);
 	ASSERT_NE(Record, nullptr);
 	EXPECT_EQ(Record->Inspection, Durin::EAssetCompatibilityInspection::NotChecked);
-	EXPECT_LT(CancellationLatency, std::chrono::seconds(1));
-	std::cout << "[ QUALIFICATION ] asset_compatibility cancellation_us="
-		<< std::chrono::duration_cast<std::chrono::microseconds>(CancellationLatency).count()
-		<< '\n';
 }
 
 TEST_F(FAssetCompatibilityAuditTests, IdleTickKeepsPresentationCacheStableUntilCatalogDataChanges)
@@ -200,47 +79,6 @@ TEST_F(FAssetCompatibilityAuditTests, IdleTickKeepsPresentationCacheStableUntilC
 	const auto& ChangedPresentation = Model.GetPresentationRecords();
 	ASSERT_EQ(ChangedPresentation.size(), 1u);
 	EXPECT_EQ(ChangedPresentation.front().Fingerprint.FileSize, Changed.FileSize);
-}
-
-TEST_F(FAssetCompatibilityAuditTests, RepresentativeCorpusMeasuresWorkerAndMailboxCosts)
-{
-	constexpr uint32 PackageCount = 32;
-	std::atomic_uint32_t ProbeCount = 0;
-	Durin::Editor::FAssetCompatibilityAuditModel Model(
-		[&ProbeCount](const auto& Input, const auto&, const auto&) {
-			++ProbeCount;
-			return MakeCompletedRecord(Input);
-		});
-	std::unordered_map<Durin::FPackagePath, Durin::FAssetData> Assets;
-	for (uint32 Index = 0; Index < PackageCount; ++Index)
-	{
-		const auto Data = MakeData(std::format("/AuditTests/Qualification{:02}", Index));
-		Assets.emplace(Data.PackagePath, Data);
-	}
-
-	const auto WorkerStarted = std::chrono::steady_clock::now();
-	ASSERT_TRUE(Model.RunAudit(Assets, {}));
-	std::chrono::steady_clock::duration PeakMailboxDuration{};
-	ASSERT_TRUE(WaitUntil([&] {
-		const auto TickStarted = std::chrono::steady_clock::now();
-		Model.Tick(Assets);
-		PeakMailboxDuration = std::max(
-			PeakMailboxDuration, std::chrono::steady_clock::now() - TickStarted);
-		return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed;
-	}));
-	const auto WorkerDuration = std::chrono::steady_clock::now() - WorkerStarted;
-
-	EXPECT_EQ(Model.GetState(), Durin::Editor::EAssetCompatibilityAuditState::Completed);
-	EXPECT_EQ(Model.GetProgress().Completed, PackageCount);
-	EXPECT_EQ(ProbeCount.load(), PackageCount);
-	EXPECT_LT(WorkerDuration, std::chrono::seconds(3));
-	EXPECT_LT(PeakMailboxDuration, std::chrono::milliseconds(100));
-	std::cout << "[ QUALIFICATION ] asset_compatibility packages=" << PackageCount
-		<< " worker_us="
-		<< std::chrono::duration_cast<std::chrono::microseconds>(WorkerDuration).count()
-		<< " peak_mailbox_tick_us="
-		<< std::chrono::duration_cast<std::chrono::microseconds>(PeakMailboxDuration).count()
-		<< '\n';
 }
 
 TEST_F(FAssetCompatibilityAuditTests, ReconciliationIsPathKeyedAndMarksOnlyChangedFingerprintsStale)

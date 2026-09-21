@@ -117,3 +117,12 @@ durin_add_native_test(RenderContractTests
 	LIBRARIES Core RHI RenderCore
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 )
+
+durin_add_native_test(RDGQualificationTests
+	KIND qualification
+	DOMAINS renderer
+	MODULES rendercore rhi
+	SOURCES Private/RDGQualificationTests.cpp
+	LIBRARIES Core RHI RenderCore
+	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}"
+)

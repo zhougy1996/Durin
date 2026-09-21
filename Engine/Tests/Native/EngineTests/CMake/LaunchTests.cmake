@@ -70,6 +70,30 @@ durin_add_native_test(LaunchProcessBoundaryTests
 	TARGET_LOCK_RATIONALE "Serializes child processes that share the configured launcher binary."
 )
 
+if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
+	durin_add_native_test(LaunchStartupCharacterizationTests
+		KIND characterization
+		DOMAINS launch
+		MODULES launch
+		STACKS process
+		TIMEOUT 90
+		SERIAL
+		SOURCES Private/Launch/LaunchStartupCharacterizationTests.cpp
+		DEPENDENCIES DurinLauncher
+		COMPILE_DEFINITIONS
+			DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
+			DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject"
+		HEAVY_RUNTIME_RATIONALE "Characterizes full runtime startup, normal bounded exit, and terminal startup-command failures in isolated children."
+		RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+		TARGET_LOCK_RATIONALE "Serializes child processes that share the configured launcher binary."
+	)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "Full macOS startup characterization requires explicit application-test admission."
+		SOURCES Private/Launch/LaunchStartupCharacterizationTests.cpp
+	)
+endif()
+
 if(NOT APPLE)
 	durin_exclude_native_test_sources(
 		RATIONALE

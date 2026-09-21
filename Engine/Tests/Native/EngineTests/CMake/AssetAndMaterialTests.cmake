@@ -825,3 +825,15 @@ set(_durin_texture_test_libraries
 	Renderer
 	DurinEd
 )
+
+durin_add_native_test(AssetCompatibilityAuditQualificationTests
+	KIND qualification
+	DOMAINS asset-workflow
+	MODULES asset-maintenance main-frame
+	STACKS editor
+	SOURCES Private/Editor/AssetCompatibilityAuditQualificationTests.cpp
+	INCLUDE_DIRECTORIES "${_durin_main_frame_private}"
+	LIBRARIES Core Engine AssetMaintenance MainFrame
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Measures the editor compatibility audit worker and presentation mailbox."
+)

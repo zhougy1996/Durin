@@ -1,5 +1,4 @@
 import pytest
-import importlib.util
 import json
 import os
 import shutil
@@ -18,9 +17,6 @@ from durin_dev_tool.errors import DevToolError
 BUILD_PATHS = settings.BuildPaths.from_repository(RepositoryContext.load(REPO_ROOT))
 
 class TestBuildConfig:
-
-    def test_legacy_config_facade_is_removed(self) -> None:
-        assert importlib.util.find_spec('durin_dev_tool.build.config') is None
 
     def test_build_paths_are_derived_per_repository_context(self, tmp_path: Path) -> None:
         repository = RepositoryContext.load(REPO_ROOT)

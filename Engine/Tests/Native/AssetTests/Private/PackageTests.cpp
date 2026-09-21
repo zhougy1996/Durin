@@ -1,3 +1,4 @@
+#include "BulkPackageTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2DBuild.h"
@@ -693,57 +694,6 @@ namespace
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
 	};
 
-	class DBulkPackageAssetForTest : public Durin::DObject
-	{
-	public:
-		explicit DBulkPackageAssetForTest(
-			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
-			: DObject(Initializer), Payload(Durin::FGuid{0x55112233, 0x44556677,
-				0x8899aabb, 0xccddeeff})
-		{
-		}
-
-		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
-		{
-			new (X.GetObj()) DBulkPackageAssetForTest(X);
-		}
-
-		static auto StaticClassNoRegister() -> Durin::DClass*
-		{
-			static Durin::DClass* Class = nullptr;
-			if (!Class)
-			{
-				Class = new Durin::DClass(Durin::EC_StaticConstructor,
-					"DBulkPackageAssetForTest", sizeof(DBulkPackageAssetForTest),
-					alignof(DBulkPackageAssetForTest), Durin::EObjectFlags::NoFlags,
-					Durin::EClassFlags::None, Durin::EClassCastFlags::DClass,
-					(Durin::DClass::ClassConstructorType)
-						Durin::InternalConstructor<DBulkPackageAssetForTest>);
-				Class->SetSuperStructBase(Durin::DObject::StaticClass());
-				Class->Register(Durin::DClass::StaticClass, "",
-					"DBulkPackageAssetForTest");
-			}
-			return Class;
-		}
-
-		static auto StaticClass() -> Durin::DClass*
-		{
-			static const Durin::DurinCodeGen::FBulkDataPropertyParams PayloadProp =
-				Durin::DurinCodeGen::FBulkDataPropertyParams::Create<
-					Durin::FEditorBulkData>(
-						"Payload", Durin::EPropertyFlags::None, 1,
-						STRUCT_OFFSET_UINT16(DBulkPackageAssetForTest, Payload));
-			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
-				&PayloadProp};
-			static const Durin::DurinCodeGen::FClassParams Params = {
-				&StaticClassNoRegister, "Tests::DBulkPackageAssetForTest",
-				"DBulkPackageAssetForTest", Properties, std::size(Properties)};
-			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
-			return Class;
-		}
-
-		Durin::FEditorBulkData Payload;
-	};
 
 	auto GetMigratingValueStructNoRegister() -> Durin::DStruct*
 	{
@@ -3956,18 +3906,14 @@ TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt
 	}
 }
 
-TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
+TEST(FPackageAssetTests, FieldBulkClosurePreservesLazyReadsAndBoundedScratch)
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	using namespace Durin;
 	constexpr uint64 PayloadBytes = 4ull * 1024ull * 1024ull;
-	constexpr double MetadataLoadBudgetMilliseconds = 500.0;
-	constexpr double FirstAccessBudgetMilliseconds = 500.0;
-	constexpr double SaveBudgetMilliseconds = 2000.0;
 
 	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldBulkQualification", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldBulkReadContract", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	Durin::FByteBuffer Payload(static_cast<size_t>(PayloadBytes));
@@ -3986,14 +3932,10 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	EXPECT_EQ(std::filesystem::file_size(SegmentPath), PayloadBytes);
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 0u);
 
-	const auto MetadataStart = std::chrono::steady_clock::now();
 	DObject* LoadedObject = nullptr;
 	ASSERT_TRUE(LoadObject(MakeFormerMainObjectPath(Path), LoadedObject));
-	const double MetadataMilliseconds = std::chrono::duration<double, std::milli>(
-		std::chrono::steady_clock::now() - MetadataStart).count();
 	auto* Loaded = Cast<DBulkPackageAssetForTest>(LoadedObject);
 	ASSERT_NE(Loaded, nullptr);
-	EXPECT_LT(MetadataMilliseconds, MetadataLoadBudgetMilliseconds);
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 1u);
 	const FPackageResourceHandle Resource =
@@ -4006,12 +3948,8 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	EXPECT_EQ(MetadataReadStats.RequestCount, 0u);
 	EXPECT_EQ(MetadataReadStats.RequestedBytes, 0u);
 
-	const auto AccessStart = std::chrono::steady_clock::now();
 	const FPackageResourceReadResult LoadedPayload = Loaded->Payload.GetPayload().Wait();
-	const double AccessMilliseconds = std::chrono::duration<double, std::milli>(
-		std::chrono::steady_clock::now() - AccessStart).count();
 	ASSERT_TRUE(LoadedPayload) << Durin::FormatPackageResourceReadError(LoadedPayload);
-	EXPECT_LT(AccessMilliseconds, FirstAccessBudgetMilliseconds);
 	EXPECT_EQ(LoadedPayload.Buffer.GetSize(), PayloadBytes);
 	EXPECT_TRUE(std::ranges::equal(LoadedPayload.Buffer.GetBytes(), Payload));
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
@@ -4020,22 +3958,9 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	EXPECT_EQ(AccessReadStats.RequestCount, 1u);
 	EXPECT_EQ(AccessReadStats.RequestedBytes, PayloadBytes);
 
-	const auto SaveStart = std::chrono::steady_clock::now();
 	ASSERT_TRUE(SavePackage(Loaded->GetPackage()));
-	const double SaveMilliseconds = std::chrono::duration<double, std::milli>(
-		std::chrono::steady_clock::now() - SaveStart).count();
-	EXPECT_LT(SaveMilliseconds, SaveBudgetMilliseconds);
 	EXPECT_EQ(std::filesystem::file_size(SegmentPath), PayloadBytes);
 
-	std::cout << "FieldBulkQualification payload_bytes=" << PayloadBytes
-		<< " segment_bytes=" << std::filesystem::file_size(SegmentPath)
-		<< " resident_field_bytes=0"
-		<< " validation_bytes=" << MetadataReadStats.ValidationBytesRead
-		<< " validation_peak_scratch=" << MetadataReadStats.PeakValidationScratchBytes
-		<< " range_request_bytes=" << AccessReadStats.RequestedBytes
-		<< " metadata_load_ms=" << MetadataMilliseconds
-		<< " first_access_ms=" << AccessMilliseconds
-		<< " save_ms=" << SaveMilliseconds << '\n';
 	EXPECT_TRUE(UnloadPackage(Path));
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 0u);
 }
