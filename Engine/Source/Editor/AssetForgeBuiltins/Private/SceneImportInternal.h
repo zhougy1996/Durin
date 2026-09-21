@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneSourceSnapshot.h"
+#include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "ImportedSceneInternal.h"
@@ -11,8 +12,12 @@ namespace Durin::AssetForge::Builtins
 {
 	enum class ESceneOutputKind : uint8
 	{
-		StaticMesh, MaterialInstance, Texture2D
+		StaticMesh, Material, MaterialInstance, Texture2D
 	};
+	inline auto IsSceneMaterial(ESceneOutputKind Kind) -> bool
+	{
+		return Kind == ESceneOutputKind::Material || Kind == ESceneOutputKind::MaterialInstance;
+	}
 	enum class ESceneTextureDerivation : uint8
 	{
 		None, Red, Green, Blue, Alpha, ScaledNormal, ScaledColor, ScaledOcclusion
@@ -33,6 +38,9 @@ namespace Durin::AssetForge::Builtins
 		float TextureDerivationScale = 1.0f;
 		FVector3f TextureDerivationColorScale{1.0f};
 		std::vector<FSceneMaterialTextureBinding> TextureBindings;
+		TStrongObjectPtr<DMaterial> Parent;
+		bool bStandardPBRParent = false;
+		TStrongObjectPtr<DMaterialInterface> PreservedMaterial;
 	};
 	// Carries decoded scene data and stable output descriptors into product construction.
 	struct FSceneImportPlan
@@ -52,6 +60,10 @@ namespace Durin::AssetForge::Builtins
 		FByteBuffer GeneratedSourceBytes;
 		uint64 SourceFileSize = 0;
 	};
+	auto ConfigureSceneMaterials(FSceneImportPlan& Plan,
+		std::vector<FImportOutputSummary>& Outputs, std::string_view Source,
+		const FPackagePath& Destination, const FSceneMaterialImportOptions& Options,
+		std::vector<FSceneMaterialPreview>& Preview, std::string& Error) -> bool;
 	auto MakeSceneSurfaceRoles(const FSceneImportPlan& Plan, const FSceneOutputData& Output)
 		-> std::array<FImportedSurfaceRole, 8>;
 

@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -282,15 +282,44 @@ The importer:
 - binds material and texture relationships in dependency order;
 - commits packages in dependency order, preserving successful packages when a later package fails.
 
-Scene materials share the imported-surface root graph. The importer applies only
-source blend mode, cutoff and two-sided overrides through
-`SetParentAndPropertyOverrides`; shading and depth policy remain inherited.
-Every numeric and texture parameter application is checked. The importer finishes
-all prepared material owners as one selected batch and rejects non-current or
-failed variants through candidate abandonment before publication. A failed root
-default variant does not itself reject an independently valid child variant.
-Reimport replaces outputs with matching source/output identities and preserves
-unrelated assets and shared structural parents.
+Scene material policy is explicit. `FSceneMaterialImportOptions` defaults to
+CreateMaterials: the importer publishes editable `DMaterial` graphs under the
+selected destination's `Materials/M_<source name>`. CreateInstances publishes
+`Materials/MI_<source name>` against an explicitly selected existing `DMaterial`.
+An import-wide selection can be overridden by stable source-material identity.
+No new shared `Materials/ImportedParents` assets are generated.
+
+`PreviewSceneMaterials` captures and decodes the source without publishing
+assets, lists resolved paths/modes/parents, and reports compatibility per material.
+The mapping contract accepts the built-in full PBR Metallic/Roughness template
+and compatible imported PBR graphs with stable parameter IDs. The full template
+receives all factors, textures and UV parameters, resetting absent maps to their
+canonical fallbacks. Its additive emissive input receives zero when source
+emissive factors were already baked into the image. Its opacity input reads the
+original base-color alpha; compact imported graphs use the derived red mask. It validates parameter types, the Surface domain, and actual
+sampling, channel and UV graph structure, allowing different parameter defaults
+and presentation metadata. Arbitrary custom graphs are rejected rather than
+silently losing source properties. Selected parents are not edited or saved.
+Instances override source blend mode, cutoff and two-sided properties; shading
+and depth policy remain inherited. Every parameter application is checked.
+Prepared material candidates must finish compilation before publication.
+
+Matching source/output receipts identify reimport outputs independently of
+filenames. Ordinary reimport updates geometry and textures but retains complete
+existing materials, including graph edits, parent references, values and asset
+types. Mesh bindings are preserved by unique source slot name (unnamed or duplicate
+slots fall back to matching name and source index). Stored materials are not included in `SavedPackages`.
+`bRebuildExistingMaterials` explicitly replaces material edits and mesh bindings
+from the current source and selections. Asset-type changes are rejected and
+require another destination. Legacy imported instances and their existing
+parents remain supported. This conservative policy does not attempt a three-way
+parameter merge without a source/edit baseline.
+
+Base-material parameter schemas contain native texture references in addition
+to reflected graph defaults. Scene publication and package reload include
+`MakeMaterialReferenceReplacementParticipant` to prepare, validate, and commit
+those references together. Failed publication leaves the old schema intact;
+successful publication refreshes material render bindings before retirement.
 
 Scene constructs private candidate packages from CoreDObject package/object
 primitives. It does not call single-object `IAssetTools`: doing so would assign
@@ -305,9 +334,10 @@ Its boolean conversion checks `bSucceeded`; cancellation and rejection still
 return diagnostics and any output summaries already produced. Output summaries
 are planned identities, not proof that their packages were saved.
 A persistence failure stops publication and discards only unpublished candidates.
-`FSceneImportResult::SavedPackages` identifies the committed generated parents
-and outputs even on failure; `bPersisted` is true only for a completely saved
-scene. A retry can reuse the successful parents and replace matching outputs.
+`FSceneImportResult::SavedPackages` identifies committed outputs even on failure;
+`bPersisted` is true only when the requested scene import finishes successfully.
+A retry preserves existing materials by default and replaces matching geometry
+and texture outputs.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation

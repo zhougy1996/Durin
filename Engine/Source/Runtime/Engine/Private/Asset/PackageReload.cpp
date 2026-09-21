@@ -523,6 +523,7 @@ namespace Durin
 				Pairs.push_back({Packages[Index], Graphs[Index].GetPackage()});
 			std::vector<std::shared_ptr<IObjectReplacementParticipant>> Participants(
 				Request.Participants.begin(), Request.Participants.end());
+			Participants.push_back(MakeMaterialReferenceReplacementParticipant());
 			if (Injected(Request, EPackageReloadFaultPoint::PrepareReferences)
 				|| Injected(Request, EPackageReloadFaultPoint::PrepareNativeParticipant)
 				|| Injected(Request, EPackageReloadFaultPoint::PrepareHistory)

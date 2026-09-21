@@ -2,6 +2,8 @@
 
 #include "Import/AssetDestinationValidation.h"
 #include "Asset/Asset.h"
+#include "Asset/AssetPicker.h"
+#include "Materials/Material.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
@@ -17,6 +19,9 @@ namespace Durin::Editor::Level
 	{
 		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
+		MaterialOptions = {};
+		MaterialPreview = {};
+		bMaterialPreviewDirty = true;
 		DestinationDirectory.Reset(InDestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -55,16 +60,23 @@ namespace Durin::Editor::Level
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Coordinate system");
+		ImGui::BeginGroup();
 		Coordinates.Draw();
+		ImGui::EndGroup();
+		if (ImGui::IsItemEdited()) bMaterialPreviewDirty = true;
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
+		const std::string PreviousDirectory(DestinationDirectory.GetPath());
 		if (DestinationDirectory.DrawRow("Output directory", "##SceneImportDirectory",
 			"/Project/Imported/SceneName", "Choose...", BrowseButtonWidth))
 			BrowseDestinationDirectory();
+		if (PreviousDirectory != DestinationDirectory.GetPath()) bMaterialPreviewDirty = true;
 		const FContentDirectoryValidation DestinationValidation = DestinationDirectory.Inspect();
 		const auto SettingsValidation = Coordinates.GetSettings().Validate();
 		const bool bImportSettingsValid = SettingsValidation.Succeeded();
 		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
+		DrawMaterials(DestinationValidation.DirectoryPath,
+			DestinationValidation && bSourceExists && bSupportedSource && bImportSettingsValid);
 
 		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bSourceExists && bSupportedSource)
@@ -84,9 +96,10 @@ namespace Durin::Editor::Level
 		else if (!bSupportedSource) ValidationMessage = "Scene import supports FBX, glTF, and GLB files.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
 		else if (!DestinationValidation) ValidationMessage = FormatContentDirectoryValidation(DestinationValidation);
+		else if (bMaterialPreviewDirty) ValidationMessage = "Preview materials to validate the current selections.";
+		else if (!MaterialPreview.bSucceeded) ValidationMessage = MaterialPreview.Message;
 		DrawImportDialogWarning(ValidationMessage);
-		ImGui::TextWrapped("Importing the same source again replaces edits to its generated meshes, textures, and material instances. "
-			"Keep custom assets outside the import output directory.");
+		ImGui::TextWrapped("Reimport updates meshes and textures. Existing materials and mesh material bindings are preserved unless Rebuild materials is enabled.");
 
 		ImGui::Spacing();
 		ImGui::Separator();
@@ -124,6 +137,9 @@ namespace Durin::Editor::Level
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(),
 			std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
 		Coordinates.Reset();
+		MaterialOptions.Overrides.clear();
+		MaterialPreview = {};
+		bMaterialPreviewDirty = true;
 		const std::string SceneName = StringUtils::SanitizeFileName(
 			std::filesystem::path(Result.FilePath).stem().generic_string(), "Scene");
 		const FProjectInfo* Project = GetCurrentProject();
@@ -136,6 +152,7 @@ namespace Durin::Editor::Level
 		(void)DestinationDirectory.Browse("Choose a Scene Output Directory",
 			"The selected directory path is too long for the import form.",
 			"Scene outputs must be saved inside a package-enabled mount.", Callbacks);
+		bMaterialPreviewDirty = true;
 	}
 
 	auto FSceneImportDialog::Import() -> bool
@@ -149,9 +166,10 @@ namespace Durin::Editor::Level
 		}
 		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;
 		auto Result = AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
-			Coordinates.GetSettings());
+			Coordinates.GetSettings(), {}, {}, MaterialOptions);
 		if (!Result)
 		{
+			bMaterialPreviewDirty = true;
 			if (!Result.SavedPackages.empty())
 				Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 			SetError(Result.Message.empty() ? "Scene import failed." : std::move(Result.Message));
@@ -161,6 +179,81 @@ namespace Durin::Editor::Level
 		for (const AssetForge::FImportOutputSummary& Output : Result.Outputs)
 			UnloadPackage(Output.AssetPath);
 		return true;
+	}
+
+	auto FSceneImportDialog::DrawMaterials(const FPackagePath& Directory, bool bCanPreview) -> void
+	{
+		using namespace AssetForge::Builtins;
+		ImGui::SeparatorText("Materials");
+		const auto DrawSelection = [&](FSceneMaterialSelection& Selection) {
+			int Mode = static_cast<int>(Selection.Mode);
+			if (ImGui::Combo("Mode", &Mode, "Create Materials\0Create Material Instances\0"))
+			{
+				Selection.Mode = static_cast<ESceneMaterialImportMode>(Mode);
+				bMaterialPreviewDirty = true;
+			}
+			if (Selection.Mode == ESceneMaterialImportMode::CreateInstances)
+			{
+				ImGui::TextUnformatted("Parent material");
+				const auto Picker = AssetPicker::Draw({
+					.RequiredClass = DMaterial::StaticClass(),
+					.ClassPolicy = EAssetClassPolicy::Exact,
+					.AssignmentMode = EAssetAssignmentMode::AssetPath,
+					.CurrentSelectionPath = Selection.ParentMaterialPath,
+					.SearchText = ParentSearch,
+					.AssignPathSelection = [&](std::string_view Path, std::string&) {
+						Selection.ParentMaterialPath = Path;
+						bMaterialPreviewDirty = true;
+						return true;
+					}});
+				if (!Picker.Error.empty()) SetError(Picker.Error);
+				ImGui::TextDisabled("Mapping: standard PBR or compatible imported PBR (automatic)");
+			}
+		};
+		DrawSelection(MaterialOptions.Default);
+		if (ImGui::Checkbox("Rebuild materials from source (replace material edits and bindings)",
+			&MaterialOptions.bRebuildExistingMaterials)) bMaterialPreviewDirty = true;
+		if (!MaterialPreview.Materials.empty())
+		{
+			ImGui::BeginChild("SceneMaterials", ImVec2(0, MonaImGui::ScaleUI(240)), ImGuiChildFlags_Borders);
+			for (const auto& Row : MaterialPreview.Materials)
+			{
+				ImGui::PushID(Row.StableIdentity.c_str());
+				ImGui::SeparatorText(Row.SourceName.empty() ? "Unnamed material" : Row.SourceName.c_str());
+				ImGui::TextWrapped("%s", Row.AssetPath.ToString().c_str());
+				ImGui::TextWrapped("%s", bMaterialPreviewDirty ? "Selections changed; refresh preview." : Row.Message.c_str());
+				if (Row.bPreserved && !MaterialOptions.bRebuildExistingMaterials)
+				{
+					ImGui::TextDisabled("Existing %s", Row.Selection.Mode == ESceneMaterialImportMode::CreateInstances ? "Material Instance" : "Material");
+					if (!Row.Selection.ParentMaterialPath.empty()) ImGui::TextWrapped("Parent: %s", Row.Selection.ParentMaterialPath.c_str());
+				}
+				else
+				{
+					auto Override = std::ranges::find(MaterialOptions.Overrides, Row.StableIdentity, &FSceneMaterialOverride::StableIdentity);
+					bool bOverride = Override != MaterialOptions.Overrides.end();
+					if (ImGui::Checkbox("Override default", &bOverride))
+					{
+						if (bOverride)
+						{
+							MaterialOptions.Overrides.push_back({Row.StableIdentity, MaterialOptions.Default});
+							Override = std::prev(MaterialOptions.Overrides.end());
+						}
+						else MaterialOptions.Overrides.erase(Override);
+						bMaterialPreviewDirty = true;
+					}
+					if (bOverride) DrawSelection(Override->Selection);
+				}
+				ImGui::PopID();
+			}
+			ImGui::EndChild();
+		}
+		ImGui::BeginDisabled(!bCanPreview);
+		if (ImGui::Button("Preview / refresh materials"))
+		{
+			MaterialPreview = PreviewSceneMaterials(SourcePathBuffer.data(), Directory, Coordinates.GetSettings(), MaterialOptions);
+			bMaterialPreviewDirty = false;
+		}
+		ImGui::EndDisabled();
 	}
 
 	auto FSceneImportDialog::SetError(std::string Message) const -> void

@@ -4,7 +4,7 @@ Summary: Explain how built-in importers select, persist, reimport, and diagnose 
 
 Modules: AssetTools, DurinEd, AssetForgeBuiltins
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-22
 
 Durin imports from ordinary files selected with the platform file chooser.
 Source files do not need to live beneath an Asset mount, and the editor does
@@ -77,9 +77,23 @@ before any peer output is published.
 
 The importer creates only populated type directories beneath the selected
 destination, such as `Meshes`, `Materials`, and `Textures`. Sources containing
-skins or animation channels are rejected before publication. No generated asset is primary. Scene is
-creation-only: import a revised source into a fresh destination; there is no
-whole-scene reimport, generated-output repair, or reconciliation workflow.
+skins or animation channels are rejected before publication. No generated asset is primary.
+
+Under **Materials**, choose **Create Materials** (default) for editable local
+`M_` assets, or **Create Material Instances** and select an existing parent for
+local `MI_` assets. The importer does not create shared `ImportedParents`.
+Use **Preview / refresh materials** to inspect each source material's path and
+compatibility. **Override default** lets individual materials use another mode
+or parent. Mapping automatically recognizes the standard PBR Metallic/Roughness template
+and compatible imported PBR graphs. A parent with unsupported sampling, channel or UV wiring must be replaced or the row
+changed to Create Materials. Names alone do not establish compatibility.
+
+To import a revised scene, select the same source and destination. Geometry and
+textures update; existing materials, parent choices, edits and mesh bindings are
+preserved. Enable **Rebuild materials from source** only to replace those edits
+and bindings using the displayed selections. Changing an existing Material to a
+Material Instance (or the reverse) requires a different destination. There is no
+whole-scene asset or automatic obsolete-output cleanup.
 
 ## Reimport
 

@@ -207,22 +207,22 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			== Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
 			TexturePath = Output.AssetPath;
 		else if (Output.AssetClassName
-			== Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+			== Durin::DMaterial::StaticClass()->GetQualifiedName().ToString())
 			MaterialPath = Output.AssetPath;
 	}
 	ASSERT_TRUE(MeshPath.IsValid());
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
-	Durin::DMaterialInstance* LiveMaterial = nullptr;
+	Durin::DMaterial* LiveMaterial = nullptr;
 	{
-		auto LoadedValue = Durin::LoadObject<Durin::DMaterialInstance>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		auto LoadedValue = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
 		LiveMaterial = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(LiveMaterial, nullptr);
-	ASSERT_NE(LiveMaterial->GetParent(), nullptr);
-	StandardPath = LiveMaterial->GetParent()->GetPackage()->GetPackagePathIdentity();
-	EXPECT_TRUE(StandardPath.GetView().starts_with("/SceneImportVulkan/Materials/ImportedParents/Surface_v1_"));
+	EXPECT_EQ(LiveMaterial->GetParent(), nullptr);
+	StandardPath = MaterialPath;
+	EXPECT_TRUE(StandardPath.GetView().starts_with(DestinationDirectory.ToString() + "/Materials/M_"));
 	ASSERT_TRUE(Durin::FindAssetExact(StandardPath));
 	Durin::DTexture2D* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
@@ -231,7 +231,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
-	ASSERT_TRUE(Durin::UnloadPackage(StandardPath));
 
 	const Durin::FPackagePath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
@@ -507,7 +506,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ReloadedMesh->GetMaterialSlot(0);
 	ASSERT_NE(Slot, nullptr);
 	auto* ReloadedMaterial =
-		Durin::Cast<Durin::DMaterialInstance>(Slot->DefaultMaterial.Get());
+		Durin::Cast<Durin::DMaterial>(Slot->DefaultMaterial.Get());
 	ASSERT_NE(ReloadedMaterial, nullptr);
 	Durin::DTexture2D* ReloadedTexture = nullptr;
 	ASSERT_TRUE(ReloadedMaterial->GetTextureParameterValue(
@@ -519,7 +518,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));
 	EXPECT_EQ(ImportedFactor, Durin::FVector3(0.5, 0.75, 0.25));
 	auto* ReloadedParentMaterial =
-		Durin::Cast<Durin::DMaterial>(ReloadedMaterial->GetParent());
+		ReloadedMaterial;
 	ASSERT_NE(ReloadedParentMaterial, nullptr);
 	Durin::DObject* ReloadedParentCompilationObject = ReloadedParentMaterial;
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
@@ -549,16 +548,18 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::DMaterialInstance* FailedResourceMaterial =
 		Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr, "FailedResourceControl");
-	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial->GetParent()));
+	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial));
 	ASSERT_TRUE(TextureOnly->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
 	ASSERT_TRUE(TextureOnly->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(1.0, 1.0, 1.0)));
-	ASSERT_TRUE(FactorOnly->SetParent(ReloadedMaterial->GetParent()));
+	ASSERT_TRUE(FactorOnly->SetParent(ReloadedMaterial));
+	ASSERT_TRUE(FactorOnly->SetTextureParameterValue(
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr));
 	ASSERT_TRUE(FactorOnly->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));
 	ASSERT_TRUE(FailedResourceMaterial->SetParent(
-		ReloadedMaterial->GetParent()));
+		ReloadedMaterial));
 	Durin::FMaterialSamplerState FailedSampler;
 	FailedSampler.AddressU =
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
@@ -692,12 +693,12 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMesh);
 		const auto* PbrSlot = PbrMesh->GetMaterialSlot(0);
 		ASSERT_NE(PbrSlot, nullptr);
-		auto* PbrMaterial = Durin::Cast<Durin::DMaterialInstance>(PbrSlot->DefaultMaterial.Get());
+		auto* PbrMaterial = Durin::Cast<Durin::DMaterial>(PbrSlot->DefaultMaterial.Get());
 		ASSERT_NE(PbrMaterial, nullptr);
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMaterial);
 		const auto PbrProgram = PbrMaterial->GetAcceptedCompiledProgram();
 		ASSERT_NE(PbrProgram, nullptr);
-		auto* PbrParent = Durin::Cast<Durin::DMaterial>(PbrMaterial->GetParent());
+		auto* PbrParent = PbrMaterial;
 		ASSERT_NE(PbrParent, nullptr);
 		const auto& PbrGraph = PbrParent->GetExpressionCollection();
 		EXPECT_EQ(std::ranges::count_if(PbrGraph.Expressions,
@@ -722,14 +723,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			<< " generated_bytes=" << ImportedProgram->GeneratedSource.size() << '\n';
 		ASSERT_TRUE(Durin::UnloadPackage(PbrMeshPath));
 		for (const auto& Output : PbrImport.Outputs)
-			if (Output.AssetClassName == Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+			if (Output.AssetClassName == Durin::DMaterial::StaticClass()->GetQualifiedName().ToString())
 				ASSERT_TRUE(Durin::UnloadPackage(Output.AssetPath));
 		for (const auto& Output : PbrImport.Outputs)
 			if (Output.AssetClassName == Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
 				ASSERT_TRUE(Durin::UnloadPackage(Output.AssetPath));
 		ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(PbrMeshPath));
 		for (const auto& Output : PbrImport.Outputs)
-			if (Output.AssetClassName == Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+			if (Output.AssetClassName == Durin::DMaterial::StaticClass()->GetQualifiedName().ToString())
 				ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Output.AssetPath));
 		for (const auto& Output : PbrImport.Outputs)
 			if (Output.AssetClassName == Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
@@ -764,13 +765,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
-	ASSERT_TRUE(Durin::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::UnloadPackage(LODContractPath));
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MeshPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MaterialPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TexturePath));
-	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(StandardPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LODContractPath));
 	Durin::FPackagePath StudioPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/DefaultStudioCube", StudioPath));

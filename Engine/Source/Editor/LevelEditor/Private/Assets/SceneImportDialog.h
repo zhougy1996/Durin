@@ -23,11 +23,16 @@ namespace Durin::Editor::Level
 		auto BrowseDestinationDirectory() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
+		auto DrawMaterials(const FPackagePath& Directory, bool bCanPreview) -> void;
 
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDirectoryModel DestinationDirectory;
 		FImportDialogModalState ModalState;
 		std::array<char, 512> SourcePathBuffer{};
 		FMeshCoordinateImportModel Coordinates;
+		AssetForge::Builtins::FSceneMaterialImportOptions MaterialOptions;
+		AssetForge::Builtins::FSceneMaterialPreviewResult MaterialPreview;
+		std::array<char, 128> ParentSearch{};
+		bool bMaterialPreviewDirty = true;
 	};
 } // namespace Durin::Editor::Level

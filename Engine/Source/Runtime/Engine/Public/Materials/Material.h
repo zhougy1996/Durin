@@ -15,6 +15,9 @@
 
 namespace Durin
 {
+	class IObjectReplacementParticipant;
+	// Rebinds native parameter-schema texture references alongside reflected graph owners.
+	ENGINE_API auto MakeMaterialReferenceReplacementParticipant() -> std::shared_ptr<IObjectReplacementParticipant>;
 	// Accepted writes distinguish unchanged sanitized state from an actual edit.
 	enum class EMaterialGraphPresentationResult : uint8
 	{
@@ -88,6 +91,7 @@ namespace Durin
 
 	private:
 		friend struct FMaterialExpressionEditing;
+		friend class FMaterialReferenceReplacementParticipant;
 		FMaterialGraphChangeSource GraphChanges;
 		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
