@@ -2,7 +2,7 @@
 
 #include "Renderers/DeferredDirectionalLightingRendering.h"
 #include "Renderers/SceneColorRendering.h"
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

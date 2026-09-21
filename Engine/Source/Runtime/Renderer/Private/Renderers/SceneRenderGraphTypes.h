@@ -2,7 +2,7 @@
 
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

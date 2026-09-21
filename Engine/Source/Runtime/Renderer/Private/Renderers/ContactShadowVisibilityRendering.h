@@ -2,7 +2,7 @@
 
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/GBufferRendering.h"
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RDGDefinitions.h"
+#include "RDG/RDGDefinitions.h"
 #include "RHICompletion.h"
 #include <concepts>
 #include <expected>

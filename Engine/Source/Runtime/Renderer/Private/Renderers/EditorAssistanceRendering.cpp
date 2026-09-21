@@ -1,5 +1,5 @@
 #include "Renderers/EditorAssistanceRendering.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"

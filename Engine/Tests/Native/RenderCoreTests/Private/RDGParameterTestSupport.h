@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

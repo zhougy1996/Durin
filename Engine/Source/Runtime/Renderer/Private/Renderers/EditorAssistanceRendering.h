@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Renderers/PostProcessRendering.h"
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

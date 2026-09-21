@@ -179,7 +179,7 @@ are relative to `Engine/Source/Runtime/`.
 
 | Consumer and pre-migration evidence | Migration owner and completion authority |
 | --- | --- |
-| `RenderCore/Private/RDG.cpp`, `FRDGBuilder::Record`: validates all allocated backings before callbacks, resolves logical barriers once, publishes retained extraction references after recording | RDG owns immutable batch/dependency/handoff records and a separate prepared-resource table. Prepare every retained backing and transition object before graph commands can submit. Preserve this all-or-nothing preparation boundary. |
+| `RenderCore/Private/RDG/RDG.cpp`, `FRDGBuilder::Record`: validates all allocated backings before callbacks, resolves logical barriers once, publishes retained extraction references after recording | RDG owns immutable batch/dependency/handoff records and a separate prepared-resource table. Prepare every retained backing and transition object before graph commands can submit. Preserve this all-or-nothing preparation boundary. |
 | `RHI/Private/RHICommandList.cpp`: typed commands retain resources and copied bytes; executor calls `Group.ReleaseBatches()` after replay/events | RHI batches retain recorded resources before submission. Transfer a deduplicated resource-use bundle to the active backend payload before releasing replay storage, including commands replayed without `SubmitToGPU`. CPU serial completion remains a CPU-only authority. |
 | `VulkanRHI/Private/VulkanContext.cpp`, `GetPayload`/`Finalize`; `VulkanQueue.cpp`, `SubmitPayloads` | Context owns unsubmitted payloads. Queue submission transfers payload ownership to a per-physical-queue tracker only after native acceptance. Preallocate the tracker entry and all ownership storage before the native call so an allocation exception cannot orphan accepted GPU work. |
 | `VulkanRHI/Private/VulkanCompletion.cpp`: one contiguous scalar watermark and fence deque | Each physical queue owns an independent timeline and in-flight deque. Only observed completion of that queue advances its successful GPU progress. Reservation/cancellation state is separate from GPU progress. |
@@ -562,8 +562,8 @@ its relevant code, configuration, or environment.
 
 ## Owning Code and References
 
-- [RDG public records](../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
-  and [compiler/recording](../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp).
+- [RDG public records](../../Engine/Source/Runtime/RenderCore/Public/RDG/RDG.h)
+  and [compiler/recording](../../Engine/Source/Runtime/RenderCore/Private/RDG/RDG.cpp).
 - [RHI command submission](../../Engine/Source/Runtime/RHI/Public/RHICommandList.h)
   and [implementation](../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp).
 - [Vulkan completion](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)

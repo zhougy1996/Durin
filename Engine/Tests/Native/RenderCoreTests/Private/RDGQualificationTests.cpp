@@ -1,5 +1,5 @@
 #include "../../RDGTestAccess.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 #include "RDGParameterTestSupport.h"
 #include <gtest/gtest.h>
 #include <chrono>

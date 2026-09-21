@@ -5,7 +5,7 @@
 #include "EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
-#include "RDGDiagnostics.h"
+#include "RDG/RDGDiagnostics.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"

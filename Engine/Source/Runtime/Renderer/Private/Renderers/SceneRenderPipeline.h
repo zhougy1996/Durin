@@ -5,7 +5,7 @@
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRenderGraphTypes.h"
-#include "RDGDiagnostics.h"
+#include "RDG/RDGDiagnostics.h"
 
 namespace Durin
 {

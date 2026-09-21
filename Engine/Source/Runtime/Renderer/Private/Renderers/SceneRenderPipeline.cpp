@@ -6,7 +6,7 @@
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"

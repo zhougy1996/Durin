@@ -1,6 +1,6 @@
 #include "RDGParameterTestSupport.h"
 #include "../../RDGTestAccess.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 
 #include "RHICommandList.h"
 #include "RHIContext.h"

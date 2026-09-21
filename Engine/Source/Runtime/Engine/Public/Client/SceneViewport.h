@@ -2,7 +2,7 @@
 
 #include "Client/Viewport.h"
 #include "Rendering/ViewportDisplaySource.h"
-#include "RDGDiagnostics.h"
+#include "RDG/RDGDiagnostics.h"
 #include "ViewRenderStatistics.h"
 #include "SceneViewState.h"
 

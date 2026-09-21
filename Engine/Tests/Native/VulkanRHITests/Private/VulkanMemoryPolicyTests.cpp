@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 
 #include "PCH.VulkanRHI.h"
 #include "DynamicRHI.h"

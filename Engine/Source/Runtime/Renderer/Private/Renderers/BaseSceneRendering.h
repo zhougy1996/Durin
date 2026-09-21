@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Renderers/DeferredDirectionalLightingRendering.h"
-#include "RDGParameters.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin
 {

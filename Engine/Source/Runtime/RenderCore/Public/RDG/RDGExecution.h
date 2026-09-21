@@ -1,7 +1,7 @@
 #pragma once
 
-#include "RDGAllocator.h"
-#include "RDGParameters.h"
+#include "RDG/RDGAllocator.h"
+#include "RDG/RDGParameters.h"
 #include <concepts>
 #include <expected>
 #include <limits>

@@ -1,5 +1,5 @@
 #include "Renderers/ContactShadowVisibilityRendering.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 
 #include "Renderers/DirectionalShadowRendering.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "RDGAllocator.h"
+#include "RDG/RDGAllocator.h"
 
 #include <memory>
 #include <span>

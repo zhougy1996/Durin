@@ -8,7 +8,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 #include "InlineRHITestScope.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"

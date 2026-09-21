@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "RDGDiagnostics.h"
+#include "RDG/RDGDiagnostics.h"
 #include "RHIResources.h"
 #include "RHI.h"
 #include "RHICommandList.h"

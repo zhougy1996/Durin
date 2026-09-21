@@ -1,9 +1,9 @@
 #pragma once
 
-#include "RDGAllocator.h"
-#include "RDGDiagnostics.h"
-#include "RDGExecution.h"
-#include "RDGParameters.h"
+#include "RDG/RDGAllocator.h"
+#include "RDG/RDGDiagnostics.h"
+#include "RDG/RDGExecution.h"
+#include "RDG/RDGParameters.h"
 #include <concepts>
 #include <functional>
 #include <memory>

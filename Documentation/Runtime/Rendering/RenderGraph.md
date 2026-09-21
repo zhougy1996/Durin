@@ -8,20 +8,20 @@ Last reviewed: 2026-09-22
 
 ## Ownership Boundary
 
-Public headers follow the contracts they expose. Include `RDG.h` when authoring
+Public headers follow the contracts they expose. Include `RDG/RDG.h` when authoring
 or executing a graph through `FRDGBuilder`; narrower consumers use:
 
-- `RDGDefinitions.h` for shared enums, resource descriptions, and graph handles.
-- `RDGParameters.h` for parameter wrappers, metadata/layout construction,
+- `RDG/RDGDefinitions.h` for shared enums, resource descriptions, and graph handles.
+- `RDG/RDGParameters.h` for parameter wrappers, metadata/layout construction,
   resolution, shader scopes, and metadata errors.
-- `RDGAllocator.h` for allocation requests, results, retirement, and allocator errors.
-- `RDGExecution.h` for compilation/preparation/execution errors and results,
+- `RDG/RDGAllocator.h` for allocation requests, results, retirement, and allocator errors.
+- `RDG/RDGExecution.h` for compilation/preparation/execution errors and results,
   budgets, dependencies, barriers, and the logical execution plan.
-- `RDGDiagnostics.h` for owning captures and observational statistics.
+- `RDG/RDGDiagnostics.h` for owning captures and observational statistics.
 
 Errors belong to the contract that produces them; shared definitions do not
-collect error domains. `RDG.h` includes these contracts, preserving the complete
-graph-authoring entry point. Narrower headers do not include `RDG.h`.
+collect error domains. `RDG/RDG.h` includes these contracts, preserving the complete
+graph-authoring entry point. Narrower headers do not include `RDG/RDG.h`.
 
 `FRDGBuilder` owns declarations, parameters, typed values, callbacks, compiled
 records, and retained resource references for one graph execution. Handles are
@@ -426,7 +426,7 @@ and caches either the completed immutable layout or its validation error.
 Error contexts retain names, indices, ranges, and expected/actual descriptions;
 no diagnostic borrows builder metadata or physical resource pointers.
 `ToString` overloads are declared beside their error types and implemented in
-`RDGErrorStrings.cpp`. Enum overloads return static `std::string_view` text;
+`RDG/RDGErrorStrings.cpp`. Enum overloads return static `std::string_view` text;
 structured-error overloads return `std::string` with owned context and causes.
 Callers check the result before formatting `Result.error()` at logs, assertions,
 and UI boundaries; there is no formatter for `std::expected` itself.

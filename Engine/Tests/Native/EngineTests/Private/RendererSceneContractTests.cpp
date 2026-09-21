@@ -1,5 +1,5 @@
 #include "../../RDGTestAccess.h"
-#include "RDG.h"
+#include "RDG/RDG.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
