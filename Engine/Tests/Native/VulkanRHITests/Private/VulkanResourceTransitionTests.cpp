@@ -37,7 +37,7 @@ namespace Durin::VulkanRHI
 			{
 				if (bFail)
 				{
-					return std::unexpected(FRDGAllocationError{ERDGError::AllocatorFailure});
+					return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocatorFailure});
 				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
@@ -49,7 +49,7 @@ namespace Durin::VulkanRHI
 							Request.ResourceId + 1);
 					if (!bPublished)
 					{
-						return std::unexpected(FRDGAllocationError{ERDGError::AllocationPublicationFailed});
+						return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocationPublicationFailed});
 					}
 				}
 
@@ -486,7 +486,7 @@ namespace Durin::VulkanRHI
 			EXPECT_FALSE(bExecuted);
 			EXPECT_TRUE(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(RejectedBuilder).empty());
 			EXPECT_EQ(AllocationError.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
-			EXPECT_EQ(AllocationError.error().GetCode(), ERDGError::AllocatorFailure);
+			EXPECT_TRUE(HasRDGTestReason(AllocationError.error(), ERDGAllocationError::AllocatorFailure));
 
 			FRDGBuilder Builder;
 			const auto GraphBuffer = Builder.CreateBuffer(

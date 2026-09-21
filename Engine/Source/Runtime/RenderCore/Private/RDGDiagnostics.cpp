@@ -23,186 +23,179 @@ namespace Durin
 		}
 	}
 
-	auto GetRDGErrorCategory(ERDGError Code) -> ERDGErrorCategory
+	auto GetRDGErrorCategory(ERDGMetadataError) -> ERDGErrorCategory
+	{ return ERDGErrorCategory::InvalidParameterMetadata; }
+
+	auto FormatRDGError(ERDGMetadataError Reason) -> std::string
 	{
-		switch (Code)
+		switch (Reason)
 		{
-		case ERDGError::AllocatorFailure:
-		case ERDGError::AllocationPublicationFailed:
-		case ERDGError::PhysicalAllocationFailed:
-		case ERDGError::AllocatorMissing:
-		case ERDGError::QueueTransferFailed:
-		case ERDGError::AllocationBudgetExceeded:
-		case ERDGError::AllocationRetrySuppressed:
-		case ERDGError::AllocationKindInvalid:
-		case ERDGError::AllocationRetryDeferred:
-		case ERDGError::AllocationRetirementPending:
-			return ERDGErrorCategory::AllocationFailed;
-		case ERDGError::StructuralLimit:
-			return ERDGErrorCategory::SafetyLimitExceeded;
-		case ERDGError::AllocationMissing:
-			return ERDGErrorCategory::MissingAllocation;
-		case ERDGError::BufferAllocationIncompatible:
-		case ERDGError::TextureAllocationIncompatible:
-			return ERDGErrorCategory::IncompatibleAllocation;
-		case ERDGError::MetadataNull:
-		case ERDGError::MetadataNameEmpty:
-		case ERDGError::MetadataLayoutMismatch:
-		case ERDGError::MetadataNestingLimit:
-		case ERDGError::MemberNameEmpty:
-		case ERDGError::MemberNameDuplicate:
-		case ERDGError::MemberLayoutEmpty:
-		case ERDGError::MemberOffsetInvalid:
-		case ERDGError::NestedMetadataInvalid:
-		case ERDGError::UnexpectedNestedMetadata:
-		case ERDGError::WrapperLayoutMismatch:
-		case ERDGError::OptionalLayoutMismatch:
-		case ERDGError::DeclarationSemanticsInvalid:
-		case ERDGError::ShaderBindingNameEmpty:
-		case ERDGError::ShaderBindingDuplicate:
-		case ERDGError::ShaderDeclarationIncompatible:
-		case ERDGError::ShaderBindingAuthorityMissing:
-		case ERDGError::NestedShaderBindingDuplicate:
-		case ERDGError::ParameterLayoutMismatch:
-			return ERDGErrorCategory::InvalidParameterMetadata;
-		case ERDGError::ResourceHandleInvalid:
-		case ERDGError::FinalAccessInvalid:
-		case ERDGError::RequiredAccessInvalid:
-		case ERDGError::PassAccessIncompatible:
-		case ERDGError::UseAccessMismatch:
-		case ERDGError::ReadDiscardInvalid:
-		case ERDGError::ManagedResultAccessInvalid:
-		case ERDGError::BufferRangeInvalid:
-		case ERDGError::TextureRangeInvalid:
-		case ERDGError::UsesOverlap:
-		case ERDGError::ResourceNameEmpty:
-		case ERDGError::PhysicalResourceMissing:
-		case ERDGError::ExternalFinalAccessMissing:
-		case ERDGError::ResourceNameDuplicate:
-		case ERDGError::PassNameEmpty:
-		case ERDGError::PassNameDuplicate:
-		case ERDGError::ProducerHandleInvalid:
-		case ERDGError::ValueWriterCount:
-		case ERDGError::ValueStorageInvalid:
-		case ERDGError::ValueTypeNameChanged:
-		case ERDGError::ValueTypeNameReused:
-		case ERDGError::ExternalContractConflict:
-		case ERDGError::TextureExtractionHandleInvalid:
-		case ERDGError::TextureExtractionInvalid:
-		case ERDGError::TextureExtractionDuplicate:
-		case ERDGError::BufferExtractionHandleInvalid:
-		case ERDGError::BufferExtractionInvalid:
-		case ERDGError::BufferExtractionDuplicate:
-		case ERDGError::ParameterAllocationInvalid:
-		case ERDGError::ParameterAllocationSubmitted:
-		case ERDGError::PassHandleInvalid:
-		case ERDGError::ManualUseOnParameterizedPass:
-		case ERDGError::RootHandleInvalid:
-		case ERDGError::AsyncPassInvalid:
-		case ERDGError::ValueDirectionInvalid:
-		case ERDGError::ValueHandleInvalid:
-			return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGError::DependencyNotForward:
-		case ERDGError::ConsumerHandleInvalid:
-			return ERDGErrorCategory::InvalidDependency;
-		case ERDGError::BufferProducerMissing:
-		case ERDGError::ResourceProducerMissing:
-			return ERDGErrorCategory::MissingProducer;
-		case ERDGError::BuilderConsumed:
-		case ERDGError::CompilationIncomplete:
-		case ERDGError::PreparationIncomplete:
-		case ERDGError::StorageIncomplete:
-		case ERDGError::RecordingIncomplete:
-			return ERDGErrorCategory::InvalidState;
+		case ERDGMetadataError::MetadataNull: return "metadata null";
+		case ERDGMetadataError::MetadataNameEmpty: return "metadata name empty";
+		case ERDGMetadataError::MetadataLayoutMismatch: return "metadata layout mismatch";
+		case ERDGMetadataError::MetadataNestingLimit: return "metadata nesting limit";
+		case ERDGMetadataError::MemberNameEmpty: return "member name empty";
+		case ERDGMetadataError::MemberNameDuplicate: return "member name duplicate";
+		case ERDGMetadataError::MemberLayoutEmpty: return "member layout empty";
+		case ERDGMetadataError::MemberOffsetInvalid: return "member offset invalid";
+		case ERDGMetadataError::NestedMetadataInvalid: return "nested metadata invalid";
+		case ERDGMetadataError::UnexpectedNestedMetadata: return "unexpected nested metadata";
+		case ERDGMetadataError::WrapperLayoutMismatch: return "wrapper layout mismatch";
+		case ERDGMetadataError::OptionalLayoutMismatch: return "optional layout mismatch";
+		case ERDGMetadataError::DeclarationSemanticsInvalid: return "declaration semantics invalid";
+		case ERDGMetadataError::ShaderBindingNameEmpty: return "shader binding name empty";
+		case ERDGMetadataError::ShaderBindingDuplicate: return "shader binding duplicate";
+		case ERDGMetadataError::ShaderDeclarationIncompatible: return "shader declaration incompatible";
+		case ERDGMetadataError::ShaderBindingAuthorityMissing: return "shader binding authority missing";
+		case ERDGMetadataError::NestedShaderBindingDuplicate: return "nested shader binding duplicate";
+		case ERDGMetadataError::ParameterLayoutMismatch: return "parameter layout mismatch";
+		}
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGUseError Reason) -> ERDGErrorCategory
+	{
+		switch (Reason)
+		{
+		case ERDGUseError::ResourceHandleInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::FinalAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::RequiredAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::PassAccessIncompatible: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::UseAccessMismatch: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::ReadDiscardInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::ManagedResultAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::BufferRangeInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::TextureRangeInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::UsesOverlap: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGUseError::BufferProducerMissing: return ERDGErrorCategory::MissingProducer;
+		case ERDGUseError::ResourceProducerMissing: return ERDGErrorCategory::MissingProducer;
 		}
 		return ERDGErrorCategory::InvalidState;
 	}
 
-	auto FormatRDGError(ERDGError Code) -> std::string
+	auto FormatRDGError(ERDGUseError Reason) -> std::string
 	{
-		std::string Text;
-		switch (Code)
+		switch (Reason)
 		{
-		case ERDGError::MetadataNull: Text = "metadata null"; break;
-		case ERDGError::MetadataNameEmpty: Text = "metadata name empty"; break;
-		case ERDGError::MetadataLayoutMismatch: Text = "metadata layout mismatch"; break;
-		case ERDGError::MetadataNestingLimit: Text = "metadata nesting limit"; break;
-		case ERDGError::MemberNameEmpty: Text = "member name empty"; break;
-		case ERDGError::MemberNameDuplicate: Text = "member name duplicate"; break;
-		case ERDGError::MemberLayoutEmpty: Text = "member layout empty"; break;
-		case ERDGError::MemberOffsetInvalid: Text = "member offset invalid"; break;
-		case ERDGError::NestedMetadataInvalid: Text = "nested metadata invalid"; break;
-		case ERDGError::UnexpectedNestedMetadata: Text = "unexpected nested metadata"; break;
-		case ERDGError::WrapperLayoutMismatch: Text = "wrapper layout mismatch"; break;
-		case ERDGError::OptionalLayoutMismatch: Text = "optional layout mismatch"; break;
-		case ERDGError::DeclarationSemanticsInvalid: Text = "declaration semantics invalid"; break;
-		case ERDGError::ShaderBindingNameEmpty: Text = "shader binding name empty"; break;
-		case ERDGError::ShaderBindingDuplicate: Text = "shader binding duplicate"; break;
-		case ERDGError::ShaderDeclarationIncompatible: Text = "shader declaration incompatible"; break;
-		case ERDGError::ShaderBindingAuthorityMissing: Text = "shader binding authority missing"; break;
-		case ERDGError::NestedShaderBindingDuplicate: Text = "nested shader binding duplicate"; break;
-		case ERDGError::ResourceHandleInvalid: Text = "resource handle invalid"; break;
-		case ERDGError::FinalAccessInvalid: Text = "final access invalid"; break;
-		case ERDGError::RequiredAccessInvalid: Text = "required access invalid"; break;
-		case ERDGError::PassAccessIncompatible: Text = "pass access incompatible"; break;
-		case ERDGError::UseAccessMismatch: Text = "use access mismatch"; break;
-		case ERDGError::ReadDiscardInvalid: Text = "read discard invalid"; break;
-		case ERDGError::ManagedResultAccessInvalid: Text = "managed result access invalid"; break;
-		case ERDGError::BufferRangeInvalid: Text = "buffer range invalid"; break;
-		case ERDGError::TextureRangeInvalid: Text = "texture range invalid"; break;
-		case ERDGError::UsesOverlap: Text = "uses overlap"; break;
-		case ERDGError::StructuralLimit: Text = "structural limit"; break;
-		case ERDGError::DependencyNotForward: Text = "dependency not forward"; break;
-		case ERDGError::ResourceNameEmpty: Text = "resource name empty"; break;
-		case ERDGError::PhysicalResourceMissing: Text = "physical resource missing"; break;
-		case ERDGError::ExternalFinalAccessMissing: Text = "external final access missing"; break;
-		case ERDGError::ResourceNameDuplicate: Text = "resource name duplicate"; break;
-		case ERDGError::PassNameEmpty: Text = "pass name empty"; break;
-		case ERDGError::PassNameDuplicate: Text = "pass name duplicate"; break;
-		case ERDGError::ProducerHandleInvalid: Text = "producer handle invalid"; break;
-		case ERDGError::ValueWriterCount: Text = "value writer count"; break;
-		case ERDGError::BufferProducerMissing: Text = "buffer producer missing"; break;
-		case ERDGError::ResourceProducerMissing: Text = "resource producer missing"; break;
-		case ERDGError::BuilderConsumed: Text = "builder consumed"; break;
-		case ERDGError::CompilationIncomplete: Text = "compilation incomplete"; break;
-		case ERDGError::PreparationIncomplete: Text = "preparation incomplete"; break;
-		case ERDGError::ParameterLayoutMismatch: Text = "parameter layout mismatch"; break;
-		case ERDGError::ValueStorageInvalid: Text = "value storage invalid"; break;
-		case ERDGError::ValueTypeNameChanged: Text = "value type name changed"; break;
-		case ERDGError::ValueTypeNameReused: Text = "value type name reused"; break;
-		case ERDGError::ExternalContractConflict: Text = "external contract conflict"; break;
-		case ERDGError::TextureExtractionHandleInvalid: Text = "texture extraction handle invalid"; break;
-		case ERDGError::TextureExtractionInvalid: Text = "texture extraction invalid"; break;
-		case ERDGError::TextureExtractionDuplicate: Text = "texture extraction duplicate"; break;
-		case ERDGError::BufferExtractionHandleInvalid: Text = "buffer extraction handle invalid"; break;
-		case ERDGError::BufferExtractionInvalid: Text = "buffer extraction invalid"; break;
-		case ERDGError::BufferExtractionDuplicate: Text = "buffer extraction duplicate"; break;
-		case ERDGError::ParameterAllocationInvalid: Text = "parameter allocation invalid"; break;
-		case ERDGError::ParameterAllocationSubmitted: Text = "parameter allocation submitted"; break;
-		case ERDGError::PassHandleInvalid: Text = "pass handle invalid"; break;
-		case ERDGError::ManualUseOnParameterizedPass: Text = "manual use on parameterized pass"; break;
-		case ERDGError::RootHandleInvalid: Text = "root handle invalid"; break;
-		case ERDGError::AsyncPassInvalid: Text = "async pass invalid"; break;
-		case ERDGError::ConsumerHandleInvalid: Text = "consumer handle invalid"; break;
-		case ERDGError::ValueDirectionInvalid: Text = "value direction invalid"; break;
-		case ERDGError::ValueHandleInvalid: Text = "value handle invalid"; break;
-		case ERDGError::StorageIncomplete: Text = "storage incomplete"; break;
-		case ERDGError::AllocatorFailure: Text = "allocator failure"; break;
-		case ERDGError::AllocationMissing: Text = "allocation missing"; break;
-		case ERDGError::TextureAllocationIncompatible: Text = "texture allocation incompatible"; break;
-		case ERDGError::BufferAllocationIncompatible: Text = "buffer allocation incompatible"; break;
-		case ERDGError::AllocatorMissing: Text = "allocator missing"; break;
-		case ERDGError::QueueTransferFailed: Text = "queue transfer failed"; break;
-		case ERDGError::RecordingIncomplete: Text = "recording incomplete"; break;
-		case ERDGError::AllocationBudgetExceeded: Text = "allocation budget exceeded"; break;
-		case ERDGError::AllocationRetrySuppressed: Text = "allocation retry suppressed"; break;
-		case ERDGError::AllocationKindInvalid: Text = "allocation kind invalid"; break;
-		case ERDGError::AllocationRetryDeferred: Text = "allocation retry deferred"; break;
-		case ERDGError::AllocationRetirementPending: Text = "allocation retirement pending"; break;
-		case ERDGError::PhysicalAllocationFailed: Text = "physical allocation failed"; break;
-		case ERDGError::AllocationPublicationFailed: Text = "allocation publication failed"; break;
+		case ERDGUseError::ResourceHandleInvalid: return "resource handle invalid";
+		case ERDGUseError::FinalAccessInvalid: return "final access invalid";
+		case ERDGUseError::RequiredAccessInvalid: return "required access invalid";
+		case ERDGUseError::PassAccessIncompatible: return "pass access incompatible";
+		case ERDGUseError::UseAccessMismatch: return "use access mismatch";
+		case ERDGUseError::ReadDiscardInvalid: return "read discard invalid";
+		case ERDGUseError::ManagedResultAccessInvalid: return "managed result access invalid";
+		case ERDGUseError::BufferRangeInvalid: return "buffer range invalid";
+		case ERDGUseError::TextureRangeInvalid: return "texture range invalid";
+		case ERDGUseError::UsesOverlap: return "uses overlap";
+		case ERDGUseError::BufferProducerMissing: return "buffer producer missing";
+		case ERDGUseError::ResourceProducerMissing: return "resource producer missing";
 		}
-		return Text;
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGIdentityError) -> ERDGErrorCategory
+	{ return ERDGErrorCategory::InvalidDeclaration; }
+
+	auto FormatRDGError(ERDGIdentityError Reason) -> std::string
+	{
+		switch (Reason)
+		{
+		case ERDGIdentityError::ResourceNameEmpty: return "resource name empty";
+		case ERDGIdentityError::PhysicalResourceMissing: return "physical resource missing";
+		case ERDGIdentityError::ExternalFinalAccessMissing: return "external final access missing";
+		case ERDGIdentityError::ResourceNameDuplicate: return "resource name duplicate";
+		case ERDGIdentityError::PassNameEmpty: return "pass name empty";
+		case ERDGIdentityError::PassNameDuplicate: return "pass name duplicate";
+		case ERDGIdentityError::ValueWriterCount: return "value writer count";
+		case ERDGIdentityError::ValueStorageInvalid: return "value storage invalid";
+		case ERDGIdentityError::ValueTypeNameChanged: return "value type name changed";
+		case ERDGIdentityError::ValueTypeNameReused: return "value type name reused";
+		case ERDGIdentityError::TextureExtractionHandleInvalid: return "texture extraction handle invalid";
+		case ERDGIdentityError::TextureExtractionInvalid: return "texture extraction invalid";
+		case ERDGIdentityError::TextureExtractionDuplicate: return "texture extraction duplicate";
+		case ERDGIdentityError::BufferExtractionHandleInvalid: return "buffer extraction handle invalid";
+		case ERDGIdentityError::BufferExtractionInvalid: return "buffer extraction invalid";
+		case ERDGIdentityError::BufferExtractionDuplicate: return "buffer extraction duplicate";
+		case ERDGIdentityError::ParameterAllocationInvalid: return "parameter allocation invalid";
+		case ERDGIdentityError::ParameterAllocationSubmitted: return "parameter allocation submitted";
+		case ERDGIdentityError::PassHandleInvalid: return "pass handle invalid";
+		case ERDGIdentityError::ManualUseOnParameterizedPass: return "manual use on parameterized pass";
+		case ERDGIdentityError::RootHandleInvalid: return "root handle invalid";
+		case ERDGIdentityError::AsyncPassInvalid: return "async pass invalid";
+		case ERDGIdentityError::ValueDirectionInvalid: return "value direction invalid";
+		case ERDGIdentityError::ValueHandleInvalid: return "value handle invalid";
+		case ERDGIdentityError::FinalAccessInvalid: return "final access invalid";
+		}
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGDependencyError Reason) -> ERDGErrorCategory
+	{
+		switch (Reason)
+		{
+		case ERDGDependencyError::DependencyNotForward: return ERDGErrorCategory::InvalidDependency;
+		case ERDGDependencyError::ProducerHandleInvalid: return ERDGErrorCategory::InvalidDeclaration;
+		case ERDGDependencyError::ConsumerHandleInvalid: return ERDGErrorCategory::InvalidDependency;
+		}
+		return ERDGErrorCategory::InvalidState;
+	}
+
+	auto FormatRDGError(ERDGDependencyError Reason) -> std::string
+	{
+		switch (Reason)
+		{
+		case ERDGDependencyError::DependencyNotForward: return "dependency not forward";
+		case ERDGDependencyError::ProducerHandleInvalid: return "producer handle invalid";
+		case ERDGDependencyError::ConsumerHandleInvalid: return "consumer handle invalid";
+		}
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGStateError) -> ERDGErrorCategory
+	{ return ERDGErrorCategory::InvalidState; }
+
+	auto FormatRDGError(ERDGStateError Reason) -> std::string
+	{
+		switch (Reason)
+		{
+		case ERDGStateError::BuilderConsumed: return "builder consumed";
+		case ERDGStateError::CompilationIncomplete: return "compilation incomplete";
+		case ERDGStateError::PreparationIncomplete: return "preparation incomplete";
+		case ERDGStateError::StorageIncomplete: return "storage incomplete";
+		case ERDGStateError::RecordingIncomplete: return "recording incomplete";
+		}
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGPreparationError) -> ERDGErrorCategory
+	{ return ERDGErrorCategory::AllocationFailed; }
+
+	auto FormatRDGError(ERDGPreparationError Reason) -> std::string
+	{
+		switch (Reason)
+		{
+		case ERDGPreparationError::AllocatorMissing: return "allocator missing";
+		case ERDGPreparationError::QueueTransferFailed: return "queue transfer failed";
+		}
+		return "unknown RDG error";
+	}
+
+	auto GetRDGErrorCategory(ERDGAllocationError) -> ERDGErrorCategory
+	{ return ERDGErrorCategory::AllocationFailed; }
+
+	auto FormatRDGError(ERDGAllocationError Reason) -> std::string
+	{
+		switch (Reason)
+		{
+		case ERDGAllocationError::AllocatorFailure: return "allocator failure";
+		case ERDGAllocationError::AllocationRetrySuppressed: return "allocation retry suppressed";
+		case ERDGAllocationError::AllocationKindInvalid: return "allocation kind invalid";
+		case ERDGAllocationError::AllocationRetryDeferred: return "allocation retry deferred";
+		case ERDGAllocationError::AllocationRetirementPending: return "allocation retirement pending";
+		case ERDGAllocationError::PhysicalAllocationFailed: return "physical allocation failed";
+		case ERDGAllocationError::AllocationPublicationFailed: return "allocation publication failed";
+		}
+		return "unknown RDG error";
 	}
 
 	namespace
@@ -210,10 +203,7 @@ namespace Durin
 		template<typename T>
 		auto AppendContext(std::string& Text, const T& Context) -> void
 		{
-			if constexpr (requires { std::variant_size<T>::value; })
-				std::visit([&](const auto& Value) { AppendContext(Text, Value); }, Context);
-
-			else if constexpr (std::is_same_v<T, FRDGMetadataErrorContext>)
+			if constexpr (std::is_same_v<T, FRDGMetadataErrorContext>)
 				Text += std::format(": struct='{}' member='{}' other='{}' binding='{}' index={} size={}/{} alignment={}/{} offset={} array={} depth={}",
 					Context.StructName, Context.MemberName, Context.OtherMemberName, Context.BindingName,
 					Context.MemberIndex, Context.ActualSize, Context.ExpectedSize, Context.ActualAlignment,
@@ -231,15 +221,15 @@ namespace Durin
 			else if constexpr (std::is_same_v<T, FRDGIdentityErrorContext>)
 				Text += std::format(": name='{}' other='{}' type='{}' index={} other-index={} expected={} actual={}",
 					Context.Name, Context.OtherName, Context.TypeName, Context.Index, Context.OtherIndex, Context.Expected, Context.Actual);
-			else if constexpr (std::is_same_v<T, FRDGDependencyErrorContext>)
+			else if constexpr (std::is_same_v<T, FRDGDependencyError>)
 				Text += std::format(": producer={} consumer={}", Context.Producer, Context.Consumer);
-			else if constexpr (std::is_same_v<T, FRDGLimitErrorContext>)
+			else if constexpr (std::is_same_v<T, FRDGLimitError>)
 				Text += std::format(": {} actual={} limit={}", LimitName(Context.Dimension), Context.Actual, Context.Limit);
-			else if constexpr (std::is_same_v<T, FRDGAllocationErrorContext>)
-				Text += std::format(": resource={}", Context.ResourceId);
-			else if constexpr (std::is_same_v<T, FRDGBufferAllocationErrorContext>)
+			else if constexpr (std::is_same_v<T, FRDGMissingAllocationError> || std::is_same_v<T, FRDGAllocationFailure>)
+				if (Context.ResourceId != UINT32_MAX) Text += std::format(": resource={}", Context.ResourceId);
+			else if constexpr (std::is_same_v<T, FRDGBufferAllocationError>)
 			{
-				Text += std::format(": resource={}", Context.ResourceId);
+				if (Context.ResourceId != UINT32_MAX) Text += std::format(": resource={}", Context.ResourceId);
 				auto Append = [&](std::string_view Label, const FRHIBufferDesc& Buffer) {
 					Text += std::format(" {}=(size={},stride={},usage={})", Label,
 						Buffer.Size, Buffer.Stride, static_cast<uint64>(Buffer.Usage));
@@ -247,9 +237,9 @@ namespace Durin
 				Append("expected", Context.Expected);
 				Append("actual", Context.Actual);
 			}
-			else if constexpr (std::is_same_v<T, FRDGTextureAllocationErrorContext>)
+			else if constexpr (std::is_same_v<T, FRDGTextureAllocationError>)
 			{
-				Text += std::format(": resource={}", Context.ResourceId);
+				if (Context.ResourceId != UINT32_MAX) Text += std::format(": resource={}", Context.ResourceId);
 				auto Append = [&](std::string_view Label, const FRHITextureDesc& Texture) {
 					Text += std::format(" {}=(dimension={},extent={}x{},depth={},array={},mips={},samples={},format={},flags={})",
 						Label, static_cast<uint32>(Texture.Dimension), Texture.Extent.x, Texture.Extent.y,
@@ -259,7 +249,7 @@ namespace Durin
 				Append("expected", Context.Expected);
 				Append("actual", Context.Actual);
 			}
-			else if constexpr (std::is_same_v<T, FRDGExternalConflictContext>)
+			else if constexpr (std::is_same_v<T, FRDGExternalConflictError>)
 			{
 				for (const auto* Contract : {&Context.Canonical, &Context.Requested})
 					Text += std::format(": name='{}' kind={} texture=(dimension={},extent={}x{},depth={},array={},mips={},samples={},format={},flags={}) buffer=(size={},stride={},usage={}) access={}/{}",
@@ -274,35 +264,64 @@ namespace Durin
 		template<typename T>
 		auto FormatDetail(const T& Error) -> std::string
 		{
-			auto Text = FormatRDGError(Error.Code);
-			AppendContext(Text, Error.Context);
+			auto Text = FormatRDGError(Error.Reason);
+			if constexpr (requires { Error.Context; }) AppendContext(Text, Error.Context);
+			else AppendContext(Text, Error);
 			return Text;
 		}
 	}
 
 	auto FormatRDGError(const FRDGMetadataError& Error) -> std::string { return FormatDetail(Error); }
-	auto FormatRDGError(const FRDGCompileError& Error) -> std::string { return FormatDetail(Error); }
+	auto FormatRDGError(const FRDGUseError& Error) -> std::string { return FormatDetail(Error); }
+	auto FormatRDGError(const FRDGIdentityError& Error) -> std::string { return FormatDetail(Error); }
+	auto FormatRDGError(const FRDGDependencyError& Error) -> std::string { return FormatDetail(Error); }
 	auto FormatRDGError(const FRDGLimitError& Error) -> std::string
 	{
-		auto Text = FormatRDGError(Error.GetCode());
-		AppendContext(Text, static_cast<const FRDGLimitErrorContext&>(Error));
+		std::string Text = "structural limit";
+		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGAllocationError& Error) -> std::string
+	auto FormatRDGError(const FRDGExternalConflictError& Error) -> std::string
+	{
+		std::string Text = "external contract conflict";
+		AppendContext(Text, Error);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGMissingAllocationError& Error) -> std::string
+	{
+		std::string Text = "allocation missing";
+		AppendContext(Text, Error);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGTextureAllocationError& Error) -> std::string
+	{
+		std::string Text = "texture allocation incompatible";
+		AppendContext(Text, Error);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGBufferAllocationError& Error) -> std::string
+	{
+		std::string Text = "buffer allocation incompatible";
+		AppendContext(Text, Error);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGAllocationBudgetError& Error) -> std::string
+	{
+		auto Text = std::format("allocation budget exceeded: allocation-bytes actual={} limit={}", Error.Actual, Error.Limit);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGAllocationFailure& Error) -> std::string
 	{
 		auto Text = FormatDetail(Error);
 		if (Error.Cause.HasError()) Text += ": " + FormatRHICreationError(Error.Cause);
 		return Text;
 	}
+	auto FormatRDGError(const FRDGCompileError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
+	auto FormatRDGError(const FRDGAllocationError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
 	auto FormatRDGError(const FRDGPreparationError& Error) -> std::string
-	{
-		return std::visit([](const auto& Detail) {
-			using T = std::decay_t<decltype(Detail)>;
-			if constexpr (std::same_as<T, ERDGError> || std::same_as<T, FRDGAllocationError>)
-				return FormatRDGError(Detail);
-			else return FormatDetail(Detail);
-		}, Error.Detail);
-	}
+	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
 	auto FormatRDGError(const FRDGExecutionError& Error) -> std::string
 	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
 }

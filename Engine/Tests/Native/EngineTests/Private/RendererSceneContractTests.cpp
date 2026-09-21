@@ -1410,8 +1410,8 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesCompileFail
 	ASSERT_EQ(Captures.size(), 1u);
 	EXPECT_FALSE(Captures[0].bCompiled);
 	EXPECT_EQ(Durin::GetRDGExecutionStatus(Captures[0].ExecutionResult.value()), Durin::ERDGExecutionStatus::CompileFailed);
-	EXPECT_EQ(Captures[0].ExecutionResult.value().error().GetCode(), Durin::ERDGError::PassNameEmpty);
-	EXPECT_EQ(ExplicitCapture.ExecutionResult.value().error().GetCode(), Captures[0].ExecutionResult.value().error().GetCode());
+	EXPECT_TRUE(Durin::HasRDGTestReason(Captures[0].ExecutionResult.value().error(), Durin::ERDGIdentityError::PassNameEmpty));
+	EXPECT_EQ(FormatRDGError(ExplicitCapture.ExecutionResult.value().error()), FormatRDGError(Captures[0].ExecutionResult.value().error()));
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
@@ -2558,8 +2558,8 @@ namespace Durin::Tests
 			};
 			const auto First = Execute();
 			const auto Retry = Execute();
-			EXPECT_EQ(First.error().GetCode(), ERDGError::PhysicalAllocationFailed);
-			EXPECT_EQ(Retry.error().GetCode(), ERDGError::AllocationRetrySuppressed);
+			EXPECT_TRUE(HasRDGTestReason(First.error(), ERDGAllocationError::PhysicalAllocationFailed));
+			EXPECT_TRUE(HasRDGTestReason(Retry.error(), ERDGAllocationError::AllocationRetrySuppressed));
 			EXPECT_EQ(RHI.Creates, 1u);
 			for (const auto* Result : {&First, &Retry})
 			{

@@ -21,6 +21,18 @@ namespace Durin
 		}
 	}
 
+	// Compare only a reason from the requested domain; unrelated alternatives fail.
+	template<typename E, typename R>
+	auto HasRDGTestReason(const E& Error, R Reason) -> bool
+	{
+		if constexpr (std::same_as<E, R>) return Error == Reason;
+		else if constexpr (requires { std::variant_size<E>::value; })
+			return std::visit([&](const auto& Value) { return HasRDGTestReason(Value, Reason); }, Error);
+		else if constexpr (requires { Error.Detail; }) return HasRDGTestReason(Error.Detail, Reason);
+		else if constexpr (requires { Error.Reason == Reason; }) return Error.Reason == Reason;
+		else return false;
+	}
+
 	// Test-only access to the production compiler; success seals the builder.
 	class FRDGBuilderTestAccessor final
 	{

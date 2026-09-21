@@ -384,8 +384,14 @@ path. Uncomposed and manual uses retain their previous capture form.
 Results use domain-specific `std::expected` aliases, including
 `FRDGMetadataResult`, `FRDGCompileResult`, `FRDGAllocationResult`,
 `FRDGPreparationResult`, and `FRDGExecutionResult`. There is no universal
-`FRDGResult` or `FRDGError`. Metadata, use, and identity validators carry their
-own concrete context. Budget errors contain only the exceeded dimension,
+`FRDGResult`, `FRDGError`, global `ERDGError`, or generic diagnostic wrapper.
+Metadata, use, identity, dependency, and allocation failures have domain-local
+reason enums with fixed context types. Single-meaning failures (limits, external
+contract conflicts, missing backing, and incompatible backing) are concrete
+error types without an additional code. Aggregation variants contain complete
+errors rather than an independently selected code and context. Callers inspect
+the relevant alternative or domain reason; categories and text are derived.
+Structural budget errors contain only the exceeded dimension,
 actual count, and limit; helpers that construct them return an error value,
 not a potentially successful result. Tracking-layout construction returns its
 owned value with a budget error and has no output parameter.
@@ -405,12 +411,16 @@ no diagnostic borrows builder metadata or physical resource pointers.
 `FormatRDGError` formats these values at logs, assertions, and UI boundaries.
 A retained result remains usable after graph destruction.
 
-`FRDGAllocator::Allocate` returns `FRDGAllocationResult`. Its error contains
-allocation-specific context and a concrete `FRHICreationError` cause. It does
-not carry unrelated Shader or RenderResource error alternatives. Its output
+`FRDGAllocator::Allocate` returns `FRDGAllocationResult`. Its error distinguishes
+a byte-budget failure from `FRDGAllocationFailure`, which carries a resource
+identity, allocation reason, and concrete `FRHICreationError` cause. Local
+allocation steps use only the latter error; aggregation occurs on return from
+the allocator. It does not carry unrelated Shader or RenderResource error
+alternatives. Its output
 table also carries allocation statistics on failure; the output parameter is
 retained for that diagnostic contract. Preparation adds backing compatibility
-and queue preparation failures, while preserving allocation causes and codes.
+and queue preparation failures, while preserving allocation causes and domain
+reasons.
 Renderer allocation retains native status even when a later attempt is
 suppressed, and publishes a complete batch only after all resources validate.
 The retry, rollback, retirement, extraction, and execution-state rules apply.

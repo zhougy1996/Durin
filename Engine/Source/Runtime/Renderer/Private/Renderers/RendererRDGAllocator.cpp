@@ -340,8 +340,8 @@ namespace Durin
 		{
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return std::unexpected(FRDGAllocationError{ERDGError::AllocationBudgetExceeded,
-				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}});
+			return std::unexpected(FRDGAllocationBudgetError{
+				RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes});
 		}
 
 		struct FCandidate final
@@ -381,12 +381,13 @@ namespace Durin
 			RemoveNewEntries(State->Textures, PreserveSequence);
 			RemoveNewEntries(State->Buffers, PreserveSequence);
 		};
-		auto Fail = [&](ERDGError Reason, decltype(FRDGAllocationError::Context) Context = {}, FRHICreationError Cause = {},
-			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> std::unexpected<FRDGAllocationError> {
+		using FAllocationStepResult = std::expected<void, FRDGAllocationFailure>;
+		auto Fail = [&](ERDGAllocationError Reason, uint32 ResourceId = UINT32_MAX, FRHICreationError Cause = {},
+			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> std::unexpected<FRDGAllocationFailure> {
 			Rollback(PreserveSequence);
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return std::unexpected(FRDGAllocationError{Reason, std::move(Context), std::move(Cause)});
+			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId, std::move(Cause)});
 		};
 
 		// Reserve the entire reusable set before eviction, including later requests
@@ -397,7 +398,7 @@ namespace Durin
 		// Cursors live only during planning, before any bucket can be mutated.
 		std::unordered_map<const void*, std::set<size_t>::const_iterator> BucketCursors;
 		auto PlanCandidate = [&](const auto& Entries, const auto& Key,
-			uint64 LogicalBytes, uint32 ResourceId) -> FRDGAllocationResult {
+			uint64 LogicalBytes, uint32 ResourceId) -> FAllocationStepResult {
 			const auto BucketIt = Entries.Buckets.find(Key);
 			if (BucketIt != Entries.Buckets.end())
 			{
@@ -424,8 +425,8 @@ namespace Durin
 						*Failed.FailedGeneration, Generation, RetryDependencies)
 						&& (Failed.Failure.Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
 							|| Now < Failed.NextRetryTime))
-						return Fail(ERDGError::AllocationRetrySuppressed,
-							FRDGAllocationErrorContext{.ResourceId = ResourceId}, Failed.Failure);
+						return Fail(ERDGAllocationError::AllocationRetrySuppressed,
+							ResourceId, Failed.Failure);
 				}
 			}
 			PlannedAllocationIds.push_back(0);
@@ -436,7 +437,7 @@ namespace Durin
 		{
 			const auto& Request = Requests[RequestIndex];
 			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
-			FRDGAllocationResult PlanResult;
+			FAllocationStepResult PlanResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
@@ -448,12 +449,12 @@ namespace Durin
 				PlanResult = PlanCandidate(State->Buffers,
 					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
 						Request.BufferDesc.Usage}, LogicalBytes, Request.ResourceId);
-			else return Fail(ERDGError::AllocationKindInvalid,
-				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
+			else return Fail(ERDGAllocationError::AllocationKindInvalid,
+				Request.ResourceId);
 			if (!PlanResult.has_value()) return PlanResult;
 		}
 		if (MissingBytes != 0 && Now < State->NextRetryTime)
-			return Fail(ERDGError::AllocationRetryDeferred);
+			return Fail(ERDGAllocationError::AllocationRetryDeferred);
 
 		auto EvictUntil = [&](uint64 Limit) {
 			if (State->RetainedBytes <= Limit) return;
@@ -501,7 +502,7 @@ namespace Durin
 		const auto PreviousEvictions = State->Evictions;
 		EvictUntil(FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes);
 		if (State->RetainedBytes > FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes)
-			return Fail(ERDGError::AllocationRetirementPending);
+			return Fail(ERDGAllocationError::AllocationRetirementPending);
 		if (MissingBytes != 0
 			&& (State->Evictions != PreviousEvictions || State->bNeedsCollection))
 		{
@@ -514,7 +515,7 @@ namespace Durin
 		auto ReserveCandidate = [&](auto& Entries, const auto& Key,
 			uint64 LogicalBytes,
 			const FRDGAllocationRequest& Request, auto CreatePhysical,
-			auto AssignPhysical, FCandidate& Candidate) -> FRDGAllocationResult {
+			auto AssignPhysical, FCandidate& Candidate) -> FAllocationStepResult {
 			auto* It = Entries.Find(Candidate.AllocationId);
 			Candidate.bReuseHit = It != nullptr;
 			if (Candidate.bReuseHit) ++State->ReuseHits;
@@ -544,8 +545,8 @@ namespace Durin
 						It->NextRetryTime = std::chrono::steady_clock::now() + Delay;
 						State->NextRetryTime = It->NextRetryTime;
 					}
-					return Fail(ERDGError::PhysicalAllocationFailed,
-						FRDGAllocationErrorContext{.ResourceId = Request.ResourceId}, Failure, It->Sequence);
+					return Fail(ERDGAllocationError::PhysicalAllocationFailed,
+						Request.ResourceId, Failure, It->Sequence);
 				}
 				CreatedAllocationIds.insert(It->Sequence + 1);
 				Entries.Materialize(*It, std::move(*Physical));
@@ -571,7 +572,7 @@ namespace Durin
 			FCandidate Candidate{.ResourceId = Request.ResourceId,
 				.AllocationId = PlannedAllocationIds[RequestIndex],
 				.bExtracted = Request.bExtracted};
-			FRDGAllocationResult ReserveResult;
+			FAllocationStepResult ReserveResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
@@ -601,8 +602,8 @@ namespace Durin
 						OutCandidate.Buffer = Buffer;
 					}, Candidate);
 			}
-			else return Fail(ERDGError::AllocationKindInvalid,
-				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
+			else return Fail(ERDGAllocationError::AllocationKindInvalid,
+				Request.ResourceId);
 			if (!ReserveResult.has_value())
 			{
 				// Pressure may come from outside this pool even below its ceiling.
@@ -626,8 +627,8 @@ namespace Durin
 					std::move(Candidate.Buffer), Candidate.AllocationId,
 					Candidate.bReuseHit ? "reuse-hit" : "reuse-miss");
 			if (!bPublished)
-				return Fail(ERDGError::AllocationPublicationFailed,
-					FRDGAllocationErrorContext{.ResourceId = Candidate.ResourceId});
+				return Fail(ERDGAllocationError::AllocationPublicationFailed,
+					Candidate.ResourceId);
 		}
 
 		// Detach exports before any graph callback can allocate another batch.

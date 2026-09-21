@@ -23,7 +23,7 @@ namespace Durin
 		IncompatibleAllocation
 	};
 
-	enum class ERDGError : uint8
+	enum class ERDGMetadataError : uint8
 	{
 		MetadataNull,
 		MetadataNameEmpty,
@@ -43,6 +43,11 @@ namespace Durin
 		ShaderDeclarationIncompatible,
 		ShaderBindingAuthorityMissing,
 		NestedShaderBindingDuplicate,
+		ParameterLayoutMismatch,
+	};
+
+	enum class ERDGUseError : uint8
+	{
 		ResourceHandleInvalid,
 		FinalAccessInvalid,
 		RequiredAccessInvalid,
@@ -53,26 +58,23 @@ namespace Durin
 		BufferRangeInvalid,
 		TextureRangeInvalid,
 		UsesOverlap,
-		StructuralLimit,
-		DependencyNotForward,
+		BufferProducerMissing,
+		ResourceProducerMissing,
+	};
+
+	enum class ERDGIdentityError : uint8
+	{
+		FinalAccessInvalid,
 		ResourceNameEmpty,
 		PhysicalResourceMissing,
 		ExternalFinalAccessMissing,
 		ResourceNameDuplicate,
 		PassNameEmpty,
 		PassNameDuplicate,
-		ProducerHandleInvalid,
 		ValueWriterCount,
-		BufferProducerMissing,
-		ResourceProducerMissing,
-		BuilderConsumed,
-		CompilationIncomplete,
-		PreparationIncomplete,
-		ParameterLayoutMismatch,
 		ValueStorageInvalid,
 		ValueTypeNameChanged,
 		ValueTypeNameReused,
-		ExternalContractConflict,
 		TextureExtractionHandleInvalid,
 		TextureExtractionInvalid,
 		TextureExtractionDuplicate,
@@ -85,18 +87,35 @@ namespace Durin
 		ManualUseOnParameterizedPass,
 		RootHandleInvalid,
 		AsyncPassInvalid,
-		ConsumerHandleInvalid,
 		ValueDirectionInvalid,
 		ValueHandleInvalid,
+	};
+
+	enum class ERDGDependencyError : uint8
+	{
+		DependencyNotForward,
+		ProducerHandleInvalid,
+		ConsumerHandleInvalid,
+	};
+
+	enum class ERDGStateError : uint8
+	{
+		BuilderConsumed,
+		CompilationIncomplete,
+		PreparationIncomplete,
 		StorageIncomplete,
-		AllocatorFailure,
-		AllocationMissing,
-		TextureAllocationIncompatible,
-		BufferAllocationIncompatible,
+		RecordingIncomplete,
+	};
+
+	enum class ERDGPreparationError : uint8
+	{
 		AllocatorMissing,
 		QueueTransferFailed,
-		RecordingIncomplete,
-		AllocationBudgetExceeded,
+	};
+
+	enum class ERDGAllocationError : uint8
+	{
+		AllocatorFailure,
 		AllocationRetrySuppressed,
 		AllocationKindInvalid,
 		AllocationRetryDeferred,
@@ -109,7 +128,7 @@ namespace Durin
 	enum class ERDGPassType : uint8;
 	enum class ERDGUse : uint8;
 
-	// Context alternatives own names and value descriptions; no graph or RHI pointers.
+	// Diagnostic records own names and value descriptions; no graph or RHI pointers.
 	struct FRDGMetadataErrorContext
 	{
 		std::string StructName, MemberName, OtherMemberName, BindingName;
@@ -134,12 +153,10 @@ namespace Durin
 		std::string Name, OtherName, TypeName;
 		uint64 Index = 0, OtherIndex = 0, Expected = 0, Actual = 0;
 	};
-	struct FRDGDependencyErrorContext { uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX; };
 	enum class ERDGLimit : uint8
 	{
 		Passes, Resources, Uses, Dependencies, RangeCells, RangeCellCandidates, CellVisits, TextureTransitions, BufferTransitions, AllocationBytes
 	};
-	struct FRDGLimitErrorContext { ERDGLimit Dimension; uint64 Actual = 0, Limit = 0; };
 	struct FRDGResourceContractContext
 	{
 		std::string Name;
@@ -148,106 +165,155 @@ namespace Durin
 		FRHIBufferDesc Buffer;
 		ERHIAccess InitialAccess = ERHIAccess::None, FinalAccess = ERHIAccess::None;
 	};
-	struct FRDGExternalConflictContext { FRDGResourceContractContext Canonical, Requested; };
-	struct FRDGAllocationErrorContext
+	// Each reason enum belongs to one diagnostic domain.
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGMetadataError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGUseError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGIdentityError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGDependencyError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGStateError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGPreparationError Reason) -> ERDGErrorCategory;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGAllocationError Reason) -> ERDGErrorCategory;
+	struct FRDGMetadataError
+	{
+		ERDGMetadataError Reason;
+		FRDGMetadataErrorContext Context{};
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
+	};
+	struct FRDGUseError
+	{
+		ERDGUseError Reason;
+		FRDGUseErrorContext Context{};
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
+	};
+	struct FRDGIdentityError
+	{
+		ERDGIdentityError Reason;
+		FRDGIdentityErrorContext Context{};
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
+	};
+	struct FRDGDependencyError
+	{
+		ERDGDependencyError Reason;
+		uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX;
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
+	};
+	using FRDGMetadataResult = std::expected<void, FRDGMetadataError>;
+
+	struct FRDGLimitError
+	{
+		ERDGLimit Dimension;
+		uint64 Actual = 0, Limit = 0;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::SafetyLimitExceeded; }
+	};
+	struct FRDGExternalConflictError
+	{
+		FRDGResourceContractContext Canonical, Requested;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::InvalidDeclaration; }
+	};
+	struct FRDGMissingAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::MissingAllocation; }
 	};
-	struct FRDGTextureAllocationErrorContext
+	struct FRDGTextureAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHITextureDesc Expected, Actual;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::IncompatibleAllocation; }
 	};
-	struct FRDGBufferAllocationErrorContext
+	struct FRDGBufferAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHIBufferDesc Expected, Actual;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::IncompatibleAllocation; }
 	};
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGError Code) -> ERDGErrorCategory;
-
-	// Concrete validators carry only the context they can produce.
-	template<typename TContext>
-	struct TRDGDiagnosticError
+	struct FRDGAllocationBudgetError
 	{
-		ERDGError Code;
-		TContext Context{};
-		auto GetCode() const -> ERDGError { return Code; }
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
-	};
-	using FRDGMetadataError = TRDGDiagnosticError<FRDGMetadataErrorContext>;
-	using FRDGUseError = TRDGDiagnosticError<FRDGUseErrorContext>;
-	using FRDGIdentityError = TRDGDiagnosticError<FRDGIdentityErrorContext>;
-	using FRDGDependencyError = TRDGDiagnosticError<
-		std::variant<FRDGDependencyErrorContext, FRDGLimitErrorContext>>;
-	using FRDGMetadataResult = std::expected<void, FRDGMetadataError>;
-
-	// Limits have one failure meaning; no independent code or cause is needed.
-	struct FRDGLimitError : FRDGLimitErrorContext
-	{
-		auto GetCode() const -> ERDGError { return ERDGError::StructuralLimit; }
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::SafetyLimitExceeded; }
+		uint64 Actual = 0, Limit = 0;
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::AllocationFailed; }
 	};
 	using FRDGLimitResult = std::expected<void, FRDGLimitError>;
 
-	// Compiler aggregation excludes allocator failures and backend causes.
+	struct FRDGAllocationFailure
+	{
+		ERDGAllocationError Reason;
+		uint32 ResourceId = UINT32_MAX;
+		FRHICreationError Cause;
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
+	};
+	// Aggregate complete errors only at the operation that can produce them.
 	struct FRDGCompileError
 	{
-		using FContext = std::variant<std::monostate, FRDGMetadataErrorContext,
-			FRDGUseErrorContext, FRDGIdentityErrorContext, FRDGDependencyErrorContext,
-			FRDGLimitErrorContext, FRDGExternalConflictContext>;
-		ERDGError Code;
-		FContext Context;
-		FRDGCompileError(ERDGError InCode, FContext InContext = {})
-			: Code(InCode), Context(std::move(InContext)) {}
-		template<typename TContext> requires std::constructible_from<FContext, TContext>
-		FRDGCompileError(TRDGDiagnosticError<TContext> Error)
-			: Code(Error.Code), Context(std::move(Error.Context)) {}
-		FRDGCompileError(FRDGDependencyError Error)
-			: Code(Error.Code), Context(std::visit([](auto&& Value) -> FContext {
-				return std::move(Value); }, std::move(Error.Context))) {}
-		FRDGCompileError(FRDGLimitError Error)
-			: Code(Error.GetCode()), Context(static_cast<FRDGLimitErrorContext>(Error)) {}
-		auto GetCode() const -> ERDGError { return Code; }
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
+		using FDetail = std::variant<ERDGStateError, FRDGMetadataError, FRDGUseError,
+			FRDGIdentityError, FRDGDependencyError, FRDGLimitError, FRDGExternalConflictError>;
+		FDetail Detail;
+		template<typename T> requires std::constructible_from<FDetail, T>
+		FRDGCompileError(T Error) : Detail(std::move(Error)) {}
+		FRDGCompileError(std::variant<FRDGDependencyError, FRDGLimitError> Error)
+			: Detail(std::visit([](auto&& Value) -> FDetail { return std::move(Value); }, std::move(Error))) {}
+		auto GetCategory() const -> ERDGErrorCategory
+		{
+			return std::visit([](const auto& Error) {
+				if constexpr (std::is_enum_v<std::decay_t<decltype(Error)>>) return GetRDGErrorCategory(Error);
+				else return Error.GetCategory();
+			}, Detail);
+		}
 	};
 	using FRDGCompileResult = std::expected<void, FRDGCompileError>;
 
 	struct FRDGAllocationError
 	{
-		ERDGError Code;
-		std::variant<std::monostate, FRDGAllocationErrorContext, FRDGLimitErrorContext> Context;
-		FRHICreationError Cause;
-		auto GetCode() const -> ERDGError { return Code; }
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
+		using FDetail = std::variant<FRDGAllocationFailure, FRDGAllocationBudgetError>;
+		FDetail Detail;
+		template<typename T> requires std::constructible_from<FDetail, T>
+		FRDGAllocationError(T Error) : Detail(std::move(Error)) {}
+		auto GetCategory() const -> ERDGErrorCategory
+		{
+			return std::visit([](const auto& Error) {
+				return Error.GetCategory();
+			}, Detail);
+		}
 	};
 	using FRDGAllocationResult = std::expected<void, FRDGAllocationError>;
-	using FRDGTextureAllocationError = TRDGDiagnosticError<FRDGTextureAllocationErrorContext>;
-	using FRDGBufferAllocationError = TRDGDiagnosticError<FRDGBufferAllocationErrorContext>;
 
 	struct FRDGPreparationError
 	{
-		using FDetail = std::variant<ERDGError, FRDGAllocationError,
-			FRDGTextureAllocationError, FRDGBufferAllocationError>;
+		using FDetail = std::variant<ERDGStateError, ERDGPreparationError, FRDGAllocationError,
+			FRDGMissingAllocationError, FRDGTextureAllocationError, FRDGBufferAllocationError>;
 		FDetail Detail;
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGPreparationError(T Error) : Detail(std::move(Error)) {}
-		auto GetCode() const -> ERDGError
+		auto GetCategory() const -> ERDGErrorCategory
 		{
-			return std::visit([](const auto& Error) -> ERDGError {
-				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGError>) return Error;
-				else return Error.GetCode();
+			return std::visit([](const auto& Error) {
+				if constexpr (std::is_enum_v<std::decay_t<decltype(Error)>>) return GetRDGErrorCategory(Error);
+				else return Error.GetCategory();
 			}, Detail);
 		}
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(GetCode()); }
 	};
 	using FRDGPreparationResult = std::expected<void, FRDGPreparationError>;
 
-	RENDERCORE_API auto FormatRDGError(ERDGError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGMetadataError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGUseError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGIdentityError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGDependencyError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGStateError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGPreparationError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(ERDGAllocationError Error) -> std::string;
 	RENDERCORE_API auto FormatRDGError(const FRDGMetadataError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGUseError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGIdentityError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGDependencyError& Error) -> std::string;
 	RENDERCORE_API auto FormatRDGError(const FRDGCompileError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGLimitError& Error) -> std::string;
 	RENDERCORE_API auto FormatRDGError(const FRDGAllocationError& Error) -> std::string;
 	RENDERCORE_API auto FormatRDGError(const FRDGPreparationError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGLimitError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGExternalConflictError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGMissingAllocationError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGTextureAllocationError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGBufferAllocationError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGAllocationBudgetError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGAllocationFailure& Error) -> std::string;
 	template<typename T, typename E>
 	auto FormatRDGError(const std::expected<T, E>& Result) -> std::string
 	{ return Result ? std::string{} : FormatRDGError(Result.error()); }
@@ -1455,18 +1521,17 @@ namespace Durin
 	// Only Execute combines phase errors. The active alternative identifies the phase.
 	struct FRDGExecutionError
 	{
-		using FDetail = std::variant<ERDGError, FRDGCompileError, FRDGPreparationError>;
+		using FDetail = std::variant<ERDGStateError, FRDGCompileError, FRDGPreparationError>;
 		FDetail Detail;
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGExecutionError(T Error) : Detail(std::move(Error)) {}
-		auto GetCode() const -> ERDGError
+		auto GetCategory() const -> ERDGErrorCategory
 		{
-			return std::visit([](const auto& Error) -> ERDGError {
-				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGError>) return Error;
-				else return Error.GetCode();
+			return std::visit([](const auto& Error) {
+				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGStateError>) return GetRDGErrorCategory(Error);
+				else return Error.GetCategory();
 			}, Detail);
 		}
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(GetCode()); }
 		auto GetStatus() const -> ERDGExecutionStatus
 		{
 			if (std::holds_alternative<FRDGCompileError>(Detail)) return ERDGExecutionStatus::CompileFailed;
