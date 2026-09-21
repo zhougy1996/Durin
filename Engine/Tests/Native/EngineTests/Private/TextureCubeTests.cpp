@@ -27,6 +27,7 @@
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
+#include "Asset/AssetCompilingManager.h"
 
 #include <gtest/gtest.h>
 
@@ -182,6 +183,8 @@ namespace
 	auto InitializeCubeMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
+		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+			EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "TextureCubeImports";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;
@@ -472,6 +475,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
@@ -533,6 +537,7 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetOutput(), Durin::ETextureCubeOutput::HDR);
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	ASSERT_TRUE(Loaded->HasPlatformData());
 	for (size_t Face = 0; Face < Durin::TextureCubeFaceCount; ++Face)
 	{
@@ -736,6 +741,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));

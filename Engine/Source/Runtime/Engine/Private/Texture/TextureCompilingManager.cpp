@@ -39,13 +39,16 @@ namespace Durin
 
 		auto EstimateBuildBytes(const FTexture2DCompilationWork& Request) -> uint64
 		{
+			if (Request.PlatformCache) return Request.PlatformCache->EstimatedBytes;
 			uint64 PixelCount = SaturatingMultiply(Request.EstimatedWidth, Request.EstimatedHeight);
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
 			if (WorkingBytes == 0)
 				WorkingBytes = std::max<uint64>(
 					SaturatingMultiply(SourceBytes(Request.Build.SourceMips), 3),
 					64ull * 1024ull * 1024ull);
-			return SaturatingAdd(SourceBytes(Request.Build.SourceMips), WorkingBytes);
+			return SaturatingAdd(Request.Build.DeferredSource
+				? Request.Build.DeferredSource->GetDecodedPayloadSize()
+				: SourceBytes(Request.Build.SourceMips), WorkingBytes);
 		}
 
 		auto PlatformDataBytes(const FTexturePlatformData& PlatformData) -> uint64
@@ -90,7 +93,8 @@ namespace Durin
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
 			if (!Completion || IsObjectKeyNull(Request.Owner)
-				|| Request.AssetIdentity.empty() || Request.Build.SourceMips.empty()
+				|| Request.AssetIdentity.empty() || (Request.Build.SourceMips.empty()
+					&& !Request.Build.DeferredSource && !Request.PlatformCache)
 				|| Request.Build.SourceIdentity.IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
@@ -275,6 +279,18 @@ namespace Durin
 			}
 
 			SetPhase(RequestState, ETexture2DCompilationPhase::Preparing);
+			if (RequestState->Request.PlatformCache)
+			{
+				Result.InputIdentity.SourceIdentity = RequestState->Request.Build.SourceIdentity;
+				Result.PlatformCache = RequestState->Request.PlatformCache->Build();
+				Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled
+					: Result.PlatformCache && Result.PlatformCache->Error.empty()
+						? ETexture2DCompilationPhase::UploadPending : ETexture2DCompilationPhase::Failed;
+				if (Result.Phase == ETexture2DCompilationPhase::Failed)
+					Result.Error = {.Code = ETexture2DCompilationError::BuildFailed};
+				Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
+				return Result;
+			}
 			if (Cancel())
 			{
 				Result.Phase = ETexture2DCompilationPhase::Cancelled;
@@ -373,20 +389,23 @@ namespace Durin
 			return !Iterator->second->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
 		}
 
-		auto Pump(uint32 MaximumCount) -> uint32
+		auto Pump(uint32 MaximumCount,
+			std::optional<FClock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> uint32
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 			const auto Self = shared_from_this();
 			uint32 Count = 0;
 			while (Count < MaximumCount)
 			{
+				if (Deadline && FClock::now() >= *Deadline) break;
 				Admit();
 				std::shared_ptr<FRequestState> Ready;
 				{
 					std::lock_guard Lock(Mutex);
 					for (const auto& [Id, RequestState] : Requests)
 					{
-						if (!RequestState->bDelivered && IsReady(*RequestState)) { Ready = RequestState; break; }
+						if ((!OnlyRequest || OnlyRequest == Id)
+							&& !RequestState->bDelivered && IsReady(*RequestState)) { Ready = RequestState; break; }
 					}
 					if (!Ready) break;
 					// Detach before invoking callbacks, which may submit or shut down the manager.
@@ -420,6 +439,7 @@ namespace Durin
 					Ready->Task = {};
 					Ready->RejectedResult.reset();
 					Ready->Request.Build = {};
+					Ready->Request.PlatformCache.reset();
 					require(PendingRequestCount > 0);
 					--PendingRequestCount;
 					CompletedOrder.push_back(Ready->Diagnostic.RequestId);
@@ -611,9 +631,10 @@ namespace Durin
 		QueueState->PhaseHookForTests = std::move(Hook);
 	}
 
-	auto FTextureCompilingManager::PumpWorkCompletions(uint32 MaximumCount) -> uint32
+	auto FTextureCompilingManager::PumpWorkCompletions(uint32 MaximumCount,
+		std::optional<std::chrono::steady_clock::time_point> Deadline, uint64 OnlyRequest) -> uint32
 	{
-		return QueueState ? QueueState->Pump(MaximumCount) : 0;
+		return QueueState ? QueueState->Pump(MaximumCount, Deadline, OnlyRequest) : 0;
 	}
 
 	auto FTextureCompilingManager::StartWorkAdmission() -> FAssetCompilerStartResult

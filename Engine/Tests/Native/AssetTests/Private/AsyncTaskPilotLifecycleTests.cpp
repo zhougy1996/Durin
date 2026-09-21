@@ -101,7 +101,7 @@ namespace
 				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
 				++SaturatedCompleted;
 			}));
-		FAssetCompilingManager::Get().ProcessAsyncTasks({});
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		EXPECT_EQ(0u, SaturatedCompleted);
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{

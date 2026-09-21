@@ -42,6 +42,14 @@ namespace Durin
 		ENGINE_API ~DTexture() override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
+		// Authored 2D/cube data: schedules cache lookup/build without reading source pixels.
+		// Volume textures currently use the synchronous implementation.
+		// Repeated calls while installed or pending are no-ops. Cooked data stays lazy.
+		ENGINE_API auto BeginCachePlatformData() -> void;
+		// CPU compilation completion, including failure; does not imply GPU readiness.
+		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
+		// Explicit blocking boundary. Returns CPU-data success; GPU upload remains asynchronous.
+		ENGINE_API auto FinishCachePlatformData() -> bool;
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto GetSource() const -> const FTextureSource& { return Source; }
@@ -105,7 +113,7 @@ namespace Durin
 
 		// Drops installed CPU data for lazy cooked loading; leaves published GPU resources intact.
 		virtual auto ResetPlatformData() -> void = 0;
-		// Builds authored data synchronously with load-time mutation policy and updates resources.
+		// Begins authored caching with load-time mutation policy and updates resources on completion.
 		// Logs failures locally, including the texture path.
 		virtual auto BuildPlatformDataForLoad() -> void = 0;
 
@@ -135,6 +143,7 @@ namespace Durin
 		ETextureResourceUpdateState LastUpdateState = ETextureResourceUpdateState::Idle;
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;
+		bool bCacheRequestCurrent = false;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

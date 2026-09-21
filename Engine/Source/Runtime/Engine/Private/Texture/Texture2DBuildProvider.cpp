@@ -114,7 +114,12 @@ namespace Durin
 	{
 		OutProduct = {};
 		OutIdentity = {};
-		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Validation)
+		if (Request.DeferredSource && (!Request.SourceMips.empty()
+			|| !Request.DeferredSource->IsValid() || Request.DeferredSource->GetOwner()
+			|| Request.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
+			|| Request.DeferredSource->GetIdentity() != Request.SourceIdentity))
+			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::MissingSourceIdentity}};
+		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Request.DeferredSource && !Validation)
 			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
@@ -170,13 +175,21 @@ namespace Durin
 						{.Code = ETexture2DBuildError::Cancelled}};
 				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
+				FTexture2DBuildRequest Decoded;
+				if (Request.DeferredSource)
+				{
+					Decoded = MakeTexture2DBuildRequest(*Request.DeferredSource, Request.Settings);
+					if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
+						return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
+							{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+				}
 				FTexture2DBuildMetrics RecipeMetrics;
 				const FTexture2DRecipeExecutionControl RecipeControl{
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
 				const FTexture2DBuildResult RecipeResult = Provider.Build({
-					.SourceMips = Request.SourceMips,
+					.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},

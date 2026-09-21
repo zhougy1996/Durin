@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-22
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -111,25 +111,19 @@ includes the imported source-content hash, usage, explicit color-space choice,
 maximum resolution, compression quality, alpha-mip policy and threshold, target
 platform, and texture-builder version.
 
-`PostLoad` first validates persisted source provenance and compares an available
-source's size and stable last-write time with the package fingerprint. An
-unchanged source can restore the checksummed, versioned platform payload without
-reopening or decoding the image. When the cheap fingerprint changes, the
-project-local `DerivedDataCache/SourceFingerprints/Index.bin` maps the current
-source path, size, and timestamp to a previously verified content hash. A cold
-entry hashes the source once and persists that observation. If the verified
-hash still matches the package, loading reuses platform data without dirtying
-the asset; subsequent launches reuse the fingerprint index. Only a real content
-hash change rebuilds the source and dirties the package. If source is
-unavailable, the persisted exact content hash can still restore a matching warm
-object without invoking the decoder. Missing, incompatible, corrupt, truncated,
-oversized, or invalid cache data is a non-fatal miss and rebuilds from source.
-Atomic cache persistence failure does not discard valid in-memory platform data.
+`PostLoad` validates persisted source metadata and submits a detached immutable
+source snapshot. `CopyTornOff()` removes the live owner and isolates the decoded
+cache while retaining immutable bulk storage. Worker DDC lookup uses the saved
+content identity; a hit avoids source payload reads, decompression and hashing.
+A miss recovers source pixels and builds platform mips on the worker. Missing,
+incompatible, corrupt or invalid cache data is a non-fatal miss. Atomic cache
+persistence failure does not discard valid in-memory platform data.
 
-An editor DDC miss no longer decodes or compresses in `PostLoad`. It submits an
-immutable request and returns with the asset in a queued or running readiness
-phase. A warm validated DDC hit and cooked-runtime loading remain synchronous
-and behaviorally unchanged. Save and cook can only observe committed asset
+Both warm DDC reads and cold builds return from authored Texture2D/TextureCube
+`PostLoad` in a pending CPU readiness phase. Thumbnails poll
+`IsAsyncCacheComplete()` before inspecting platform data. Cook and reload use
+`FinishCachePlatformData()` explicitly; cooked-runtime lazy payload behavior
+remains unchanged. Save and cook can only observe committed asset
 state; the Texture Editor requires an explicit Wait for Build or Cancel Build
 decision instead of serializing a pending candidate.
 
@@ -182,7 +176,7 @@ from lifecycle status, including full expected/actual build identities and impor
 validation/save causes. Import metadata publication has no diagnostic output.
 Pending edit/import contracts format with `FormatTexture2DCompilationError`.
 
-Engine registers `DTexture2D` to the `Durin.Texture` typed manager in its
+Engine registers `DTexture` to the `Durin.Texture` manager in its
 [asset-compilation aggregate](../Assets/AssetCompilation.md). Editor-enabled
 Engine computes Texture keys, validates DDC Get results, invokes TextureBuild's
 pure synchronous provider only on a miss, and performs best-effort Put. The
@@ -195,11 +189,12 @@ waiting; an already admitted job is never preempted. A single valid request
 larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
-Each request carries owned source mip images, content identity, all build
+Each request carries owned source mip images or a detached deferred source, content identity, all build
 settings, Win64/Game target identity, scheduling identity,
 and a manager-owned monotonic request serial. Key computation and a warm DDC
-lookup use source metadata and content identity only. Input assembly captures the decoded images before queue admission. On a miss,
-workers consume those images to generate mips, compress,
+lookup use source metadata and content identity only. Explicit edit requests can
+carry decoded images; authored PostLoad defers payload recovery until a worker
+cache miss. Workers consume those images to generate mips, compress,
 validate, and atomically persist DDC data before placing a move-only result in
 the manager mailbox. Worker results and diagnostic snapshots retain
 `FTexture2DCompilationError`, including nested build/input causes and task state;
@@ -211,10 +206,12 @@ edits explicitly cancel outstanding work; cancellation plus serial validation is
 the live-object mutation boundary.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
-the aggregate with a 64-item normal-frame budget. The manager mailbox
+the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative
+deadline checked between completion applications. The manager mailbox
 remains the durable owner of large move-only results and does not depend on
 deferred-executor admission for wakeup. `WaitForTexture2DCompilation` waits until its
-request reaches the mailbox and then pumps without the normal-frame item budget.
+request reaches the mailbox and then applies only that request without the
+normal-frame budget.
 Shutdown likewise drains all callbacks before the process task scheduler
 closes. Every callback is GameThread-only and the compiling manager's request
 serial and input-identity comparison prevent stale publication.

@@ -41,6 +41,26 @@ namespace Durin
 	static_assert(std::is_move_constructible_v<Tasks::FTask>);
 	static_assert(!std::is_copy_constructible_v<Tasks::FTask>);
 
+	TEST(FTaskCompositionTests, InheritedExecutorAdmissionRemainsAChildDuringDrain)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		std::atomic_bool Entered = false, Release = false;
+		auto Parent = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
+			Entered.store(true);
+			while (!Release.load()) std::this_thread::yield();
+			auto Read = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 42; });
+			return Read.GetResult();
+		});
+		while (!Entered.load()) std::this_thread::yield();
+		Group.Close(ETaskScopeCloseMode::Drain);
+		Release.store(true);
+		EXPECT_EQ(Parent.GetResult(), 42);
+		EXPECT_EQ(WaitForTaskGroupForTest(Group, 5.0), ETaskScopeWaitResult::Quiescent);
+	}
+
 	TEST(FTaskCompositionTests, SchedulerCompletionSourceSignalsDuringDrainAndCancel)
 	{
 		EnsureGameThreadForTaskTest();

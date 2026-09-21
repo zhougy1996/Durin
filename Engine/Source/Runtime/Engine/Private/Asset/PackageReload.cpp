@@ -163,8 +163,7 @@ namespace Durin
 						}
 					}
 					if (auto* Texture = Cast<DTexture>(Object);
-						Texture && (!Texture->HasPlatformData()
-							|| !Texture->FinishReloadResourcePreparation()))
+						Texture && !Texture->FinishReloadResourcePreparation())
 					{
 						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 							Stage::PrepareRuntimeProducts, {},

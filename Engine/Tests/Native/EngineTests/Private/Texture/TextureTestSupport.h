@@ -26,6 +26,8 @@
 
 inline auto InitializeTextureImportMount() -> void
 {
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureImports";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;

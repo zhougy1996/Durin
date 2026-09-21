@@ -14,6 +14,9 @@
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
+#include "Texture/TexturePlatformCache.h"
+#include "Texture/TextureDerivedDataCache.h"
+#include "Texture/TextureDerivedDataKey.h"
 
 namespace Durin
 {
@@ -22,10 +25,37 @@ namespace Durin
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
-		auto MakeTextureCubeBuildRequest(const DTextureCube& Texture,
+		struct FCubeCacheResult final : FTexturePlatformCacheResult
+		{
+			std::unique_ptr<FTextureCubePlatformData> Data;
+			auto Apply(DTexture& Texture) -> void override
+			{
+				Cast<DTextureCube>(&Texture)->SetPlatformData(std::move(Data));
+				Texture.UpdateResource();
+			}
+		};
+		struct FCubeCacheInput final : FTexturePlatformCacheInput
+		{
+			explicit FCubeCacheInput(const DTextureCube& Texture)
+				: Width(Texture.GetOriginalSourceWidth()), Height(Texture.GetOriginalSourceHeight()),
+				FaceDimension(Texture.GetPanoramaFaceDimension()), Exposure(Texture.GetPanoramaExposureEV()),
+				bSRGB(Texture.IsSRGB()), Output(Texture.GetOutput())
+			{
+				Source = Texture.GetSource().CopyTornOff();
+				EstimatedBytes = Source.GetDecodedPayloadSize() * 4
+					+ static_cast<uint64>(FaceDimension) * FaceDimension * 6 * 32;
+			}
+			uint32 Width, Height, FaceDimension;
+			float Exposure;
+			bool bSRGB;
+			ETextureCubeOutput Output;
+			auto Build() const -> std::unique_ptr<FTexturePlatformCacheResult> override;
+		};
+
+		auto MakeTextureCubeBuildRequest(const FCubeCacheInput& Input,
 			FTextureCubeBuildRequest& OutRequest, std::string& OutError) -> bool
 		{
-			const FTextureSource& Source = Texture.GetSource();
+			const FTextureSource& Source = Input.Source;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube)
 			{
 				FTextureCubeDecodedFaces Faces = ReadTextureCubeFaces(Source);
@@ -34,9 +64,9 @@ namespace Durin
 					.DecodedFaces = std::move(Faces),
 					.SourceIdentity = Source.GetIdentity(),
 					.SourceLayout = ETextureCubeSourceLayout::SixFaces,
-					.OriginalSourceWidth = Texture.GetOriginalSourceWidth(),
-					.OriginalSourceHeight = Texture.GetOriginalSourceHeight(),
-					.Settings = {.bSRGB = Texture.IsSRGB()}};
+					.OriginalSourceWidth = Input.Width,
+					.OriginalSourceHeight = Input.Height,
+					.Settings = {.bSRGB = Input.bSRGB}};
 				return true;
 			}
 			if (Source.GetKind() != ETextureSourceKind::LongLatCube) return false;
@@ -49,8 +79,8 @@ namespace Durin
 			}
 			const auto& Info = View.GetInfo();
 			FTextureCubePanoramaBuildInput Panorama;
-			Panorama.Settings = {.FaceDimension = Texture.GetPanoramaFaceDimension(),
-				.ExposureEV = Texture.GetPanoramaExposureEV(), .Output = Texture.GetOutput()};
+			Panorama.Settings = {.FaceDimension = Input.FaceDimension,
+				.ExposureEV = Input.Exposure, .Output = Input.Output};
 			if (Info.Format == Image::ERawImageFormat::RGBA32F)
 			{
 				FTextureCubePanoramaFloatImage Image;
@@ -81,6 +111,54 @@ namespace Durin
 			}
 			OutRequest.Input = std::move(Panorama);
 			return true;
+		}
+
+		auto FCubeCacheInput::Build() const -> std::unique_ptr<FTexturePlatformCacheResult>
+		{
+			auto Result = std::make_unique<FCubeCacheResult>();
+#if DURIN_WITH_EDITOR
+			// Existing canonical six-face and HDR panorama identities can query DDC
+			// before reading pixels. Noncanonical panorama input still normalizes on the worker.
+			const bool bHDR = Source.GetKind() == ETextureSourceKind::LongLatCube
+				&& Output == ETextureCubeOutput::HDR && Source.GetSourceChannelCount() == 4
+				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
+			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
+			{
+				FModularFeatureRegistry::Get().InvokeSingle<ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider) {
+					const auto Descriptor = Provider.GetDescriptor();
+					if (!Descriptor.IsValid()) return false;
+					const auto Hash = Source.GetIdentity();
+					std::string Error;
+					const auto Key = BuildTextureCubeDerivedDataKey({
+						.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama : ETextureCubeBuildSourceLayout::SixFaces,
+						.FaceContentHashes = {Hash, Hash, Hash, Hash, Hash, Hash},
+						.PanoramaContentHash = bHDR ? Hash : FXxHash128{},
+						.FaceDimension = bHDR ? FaceDimension : 0,
+						.ExposureEV = bHDR && Exposure != 0.0f ? Exposure : 0.0f,
+						.bSRGB = bSRGB, .BuilderVersion = Descriptor.BuilderVersion,
+						.ProjectionVersion = Descriptor.ProjectionVersion,
+						.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, Error);
+					if (!Key.IsValid()) return false;
+					auto Data = std::make_unique<FTextureCubePlatformData>();
+					TextureDerivedDataCache::FOperationDiagnostic Diagnostic;
+					if (TextureDerivedDataCache::Load(Key, ECookTargetPlatform::Win64, ECookTargetProfile::Game,
+						*Data, Diagnostic) != TextureDerivedDataCache::ELoadResult::Hit) return false;
+					Result->Data = std::move(Data);
+					return true;
+				});
+				if (Result->Data) return Result;
+			}
+#endif
+			FTextureCubeBuildRequest Request;
+			if (!MakeTextureCubeBuildRequest(*this, Request, Result->Error))
+			{
+				if (Result->Error.empty()) Result->Error = "Invalid cube source payload.";
+				return Result;
+			}
+			auto Built = InvokeTextureCubeBuildProvider(Request);
+			if (Built) Result->Data = std::move(Built.Value->Product.PlatformData);
+			else Result->Error = Built.Outcome.Diagnostic.empty() ? "Cube platform build failed." : Built.Outcome.Diagnostic;
+			return Result;
 		}
 
 		auto ValidateCubeSourceData(const FTextureCubeDecodedFaces& SourceData, std::string& OutError) -> bool
@@ -232,7 +310,7 @@ namespace Durin
 	{
 		std::string Error;
 		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(*this, Request, Error))
+		if (!MakeTextureCubeBuildRequest(FCubeCacheInput(*this), Request, Error))
 		{
 			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
 			return false;
@@ -245,17 +323,8 @@ namespace Durin
 
 	auto DTextureCube::BuildPlatformDataForLoad() -> void
 	{
-		std::string Error;
-		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(*this, Request, Error))
-		{
-			if (Error.empty()) Error = "TextureCube source data is missing or invalid.";
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-			return;
-		}
-		const auto Result = BuildTextureCubeSynchronously(*this, Request,
-			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
-		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.Diagnostic);
+		if (!SubmitTexturePlatformCache(*this, std::make_shared<FCubeCacheInput>(*this)))
+			DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
 	}
 
 	auto DTextureCube::LoadCookedPlatformData() -> bool

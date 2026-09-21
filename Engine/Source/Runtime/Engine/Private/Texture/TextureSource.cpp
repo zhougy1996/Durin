@@ -426,6 +426,14 @@ namespace Durin
 		return Result;
 	}
 
+	auto FTextureSource::CopyTornOff() const -> FTextureSource
+	{
+		FTextureSource Copy = *this;
+		Copy.Owner = nullptr;
+		Copy.MipDataState = std::make_shared<FMipDataState>();
+		return Copy;
+	}
+
 	auto FTextureSource::GetMipData() const -> FMipData
 	{
 		if (!IsValid()) return {};

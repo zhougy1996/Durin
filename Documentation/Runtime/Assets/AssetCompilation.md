@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -34,7 +34,7 @@ Aggregate diagnostic snapshots contain counters, lifecycle state and compiler
 observations; they have no unused message collection.
 
 The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMaterialInstance`, and
-`Durin.Texture`, routed from `DTexture2D`, and `Durin.StaticMesh`, routed from
+`Durin.Texture`, routed from `DTexture`, and `Durin.StaticMesh`, routed from
 `DStaticMesh`. Optional modules may register additional
 compilers and class routes while the aggregate is accepting requests. Runtime Engine does not require
 TextureBuild or DerivedDataCache in Game: editor-enabled Engine optionally links
@@ -75,8 +75,9 @@ reserved for actual global barriers.
 Package reload applies that exact sequence to only the old target graph before
 candidate construction. Candidate objects have new handles and therefore cannot
 consume late results addressed to the old generation. Texture2D uses the typed
-asynchronous route for ordinary edits but reload PostLoad uses its synchronous
-build boundary; VolumeTexture remains on its actual synchronous provider path.
+asynchronous route for ordinary edits and PostLoad. Reload explicitly finishes
+the candidate's platform cache before checking its render resource;
+VolumeTexture remains on its synchronous provider path.
 Material candidates use their independent request generations and selected finish.
 Reload never drains unrelated compiler work through `FinishAllCompilation`.
 
@@ -111,8 +112,8 @@ the aggregate before Core closes task admission.
 
 Provider modules do not own those scopes or return concrete asynchronous tasks.
 Engine enters the single family-specific Texture provider modular feature for
-one synchronous value-only call. Only Texture2D places that call on an
-Engine-owned worker; VolumeTexture and TextureCube remain synchronous.
+one synchronous value-only call. Texture2D and TextureCube PostLoad place that
+call on an Engine-owned worker; VolumeTexture remains synchronous.
 Provider owner retirement closes
 new admission and waits for calls already inside the feature gate; no provider
 callback, task, deleter, or result lifetime escapes the call.
@@ -168,7 +169,24 @@ the modular-feature call lifetime described above.
 
 Recipe providers, DDC ownership, and typed build application are defined by
 [Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).
-TextureCube and VolumeTexture stay synchronous and do not register class routes.
+The texture manager routes `DTexture`, sharing its queue and limits between
+Texture2D and TextureCube. VolumeTexture currently builds synchronously and has
+no outstanding compilation to finish. Authored PostLoad submits detached source
+metadata; DDC reads, source payload reads/decompression and recipe work happen
+on workers. Warm supported cache hits do not recover the source pixels.
+
+`DTexture::BeginCachePlatformData()` starts caching and is idempotent for an
+installed or pending current request. `IsAsyncCacheComplete()` observes terminal
+CPU state, including failure, and does not imply GPU readiness.
+`FinishCachePlatformData()` explicitly waits and applies this object's result,
+returning whether usable CPU platform data is available. Cook and reload use
+this blocking boundary; thumbnails poll and retain their placeholder instead.
+
+The editor calls `ProcessAsyncTasks(true)` with a shared 2 ms deadline and the
+normal completion-count limit. Texture delivery checks that deadline between
+results. A single apply cannot be preempted, so this is a cooperative budget.
+Selected finish applies only the selected request, even when unrelated results
+are ready.
 
 ### Texture2D Completion
 

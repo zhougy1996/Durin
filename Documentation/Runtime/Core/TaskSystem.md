@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 ## Construction And Acceptance
 
@@ -18,6 +18,10 @@ otherwise it inherits the executing task scope, or participates in the
 scheduler lifetime when submitted outside a task. `FTaskGroup` owns
 an explicit scope or borrows an existing module scope without taking its drain
 responsibility. Group construction requires a running scheduler.
+`LaunchTask(Executor, Options, Callable)` also supports inherited scope admission
+for a selected executor. Nested submissions count as children of the executing
+task. Package payload reads use this form to retain caller ownership while
+dispatching file work to BlockingIO.
 `FTaskScopeToken::CanLaunchFromCurrentContext()` exposes context compatibility
 for domain admission: ordinary caller threads and tasks already executing in
 that scope are compatible; a foreign executing task is not. This read-only

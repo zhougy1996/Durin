@@ -150,6 +150,8 @@ namespace Durin
 			FAssetCompilingManagerRegistration Registration) -> FAssetCompilerRegistrationResult;
 		ENGINE_API auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params = {})
 			-> FAssetCompileProcessResult;
+		// Editor tick convenience: a shared 2ms soft deadline, checked between completions.
+		ENGINE_API auto ProcessAsyncTasks(bool bLimitExecutionTime) -> FAssetCompileProcessResult;
 		ENGINE_API auto GetNumRemainingAssets() const -> uint64;
 		ENGINE_API auto FinishCompilationForObjects(std::span<DObject* const> Objects)
 			-> FAssetCompileProcessResult;

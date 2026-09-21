@@ -318,7 +318,7 @@ namespace Durin
 		PumpGameThreadDeferredWork();
 		PackageSavePrivate::PollAsyncSaves();
 		ProcessAsyncLoading();
-		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		FAssetCompilingManager::Get().ProcessAsyncTasks(true);
 		GFrameCounter++;
 
 		auto& Application = Mona::FMonaApplication::Get();

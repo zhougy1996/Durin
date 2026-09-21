@@ -223,6 +223,8 @@ namespace Durin
 			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto Reset() -> void;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
+		// Metadata-only snapshot with independent decoded residency and no live owner.
+		ENGINE_API auto CopyTornOff() const -> FTextureSource;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
 			uint32 MipIndex) const -> FTextureSourceMipInfo;
 		ENGINE_API auto GetMipData() const -> FMipData;

@@ -108,6 +108,7 @@ namespace Durin::Editor::Material
 			}
 			for (DTexture2D* Texture : GetTextureDependencies(*Material))
 			{
+				if (!Texture->IsAsyncCacheComplete()) return Revision;
 				if (!Texture->HasPlatformData())
 				{
 					OutError = "A referenced material texture is not built.";

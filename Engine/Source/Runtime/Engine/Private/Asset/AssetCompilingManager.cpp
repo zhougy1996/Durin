@@ -317,6 +317,13 @@ namespace Durin
 		Publish(CompilerName, Result);
 	}
 
+	auto FAssetCompilingManager::ProcessAsyncTasks(bool bLimitExecutionTime) -> FAssetCompileProcessResult
+	{
+		FAssetCompileProcessParams Params;
+		if (bLimitExecutionTime) Params.Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+		return ProcessAsyncTasks(Params);
+	}
+
 	auto FAssetCompilingManager::ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 		-> FAssetCompileProcessResult
 	{
@@ -499,7 +506,7 @@ namespace Durin
 		}
 		auto TextureRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Texture"),
-			.AssetClasses = {DTexture2D::StaticClass()},
+			.AssetClasses = {DTexture::StaticClass()},
 			.Manager = AssetPrivate::CreateTextureCompilingManager()});
 		if (!TextureRegistration)
 		{

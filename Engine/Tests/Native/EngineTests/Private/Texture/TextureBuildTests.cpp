@@ -652,6 +652,65 @@ TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
 	EXPECT_EQ(Diagnostics.InFlightEstimatedBytes, 0u);
 }
 
+TEST(FTexture2DTests, PlatformCacheIsDeferredIdempotentAndFinishesOnlySelectedTexture)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	struct FDrainRequests
+	{
+		~FDrainRequests() { Durin::FAssetCompilingManager::Get().FinishAllCompilation(); }
+	} DrainRequests;
+	auto MakeTexture = [](const char* Name, uint32 Width) {
+		Durin::FPackagePath Path;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(std::format("/TextureImportTests/{}", Name), Path));
+		auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+			Durin::CreatePackage(Path), Durin::FName(Name));
+		Durin::Image::FImage Image;
+		EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = Width, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(Width * 4), Image));
+		Durin::FTextureSource Source;
+		EXPECT_TRUE(Source.Init2D(Image.GetView(), 4));
+		Texture->SetSource(std::move(Source));
+		Texture->BeginCachePlatformData();
+		return Texture;
+	};
+	auto* First = MakeTexture("DeferredCacheFirst", 2);
+	auto* Second = MakeTexture("DeferredCacheSecond", 4);
+	EXPECT_FALSE(First->IsAsyncCacheComplete());
+	EXPECT_FALSE(First->HasPlatformData());
+	const auto RequestId = Durin::GetTexture2DCompilationDiagnostic(*First).RequestId;
+	First->BeginCachePlatformData();
+	EXPECT_EQ(RequestId, Durin::GetTexture2DCompilationDiagnostic(*First).RequestId);
+	const auto ReadyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Durin::GetTexture2DCompilationManagerDiagnostics().PendingCompletionCount < 2
+		&& std::chrono::steady_clock::now() < ReadyDeadline) std::this_thread::yield();
+	ASSERT_GE(Durin::GetTexture2DCompilationManagerDiagnostics().PendingCompletionCount, 2u);
+	Durin::FAssetCompileProcessParams Expired;
+	Expired.Deadline = std::chrono::steady_clock::now();
+	Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(Expired);
+	EXPECT_FALSE(First->HasPlatformData());
+	ASSERT_TRUE(First->FinishCachePlatformData());
+	EXPECT_TRUE(First->IsAsyncCacheComplete());
+	EXPECT_FALSE(Second->IsAsyncCacheComplete());
+	EXPECT_FALSE(Second->HasPlatformData());
+	ASSERT_TRUE(Second->FinishCachePlatformData());
+	EXPECT_EQ(First->GetPlatformData()->Mips.front().Width, 2u);
+	EXPECT_EQ(Second->GetPlatformData()->Mips.front().Width, 4u);
+	const auto* Installed = First->GetPlatformData();
+	First->BeginCachePlatformData();
+	EXPECT_EQ(Installed, First->GetPlatformData());
+
+	First->SetSource(Second->GetSource().CopyTornOff());
+	First->BeginCachePlatformData();
+	// Invalidating a pending request must allow a replacement immediately.
+	First->SetSource(Second->GetSource().CopyTornOff());
+	First->BeginCachePlatformData();
+	ASSERT_TRUE(First->FinishCachePlatformData());
+	EXPECT_EQ(First->GetPlatformData()->Mips.front().Width, 4u);
+}
+
 TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 {
 	InitializeDObjectSystem();
@@ -1468,6 +1527,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(LoadedTexture, nullptr);
 	EXPECT_EQ(LoadedTexture->GetSource().GetIdentity(), ImportedIdentity);
+	EXPECT_FALSE(LoadedTexture->IsAsyncCacheComplete());
+	EXPECT_FALSE(LoadedTexture->HasPlatformData());
+	ASSERT_TRUE(LoadedTexture->FinishCachePlatformData());
 	EXPECT_TRUE(LoadedTexture->HasPlatformData());
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -1480,7 +1542,8 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	const Durin::FPackageResourceHandle WarmResource =
 		Durin::GetPackageResourceManager().FindPackage(AssetPath.ToString());
 	ASSERT_TRUE(WarmResource);
-	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
+	ASSERT_TRUE(LoadedTexture->FinishCachePlatformData());
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
 	const auto WarmInput = LoadedTexture->CreateBuildRequest({});
 	EXPECT_EQ(WarmInput.SourceIdentity, ImportedIdentity);
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
@@ -1710,6 +1773,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Loaded, nullptr);
 		EXPECT_EQ(Loaded->GetUsage(), Preset.Usage);
+		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 		EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Preset.PixelFormat);
 		ExpectPixelNear(DecodeFirstCompressedPixel(Preset.PixelFormat,
 			Loaded->GetPlatformData()->Mips.back().Pixels), Preset.ExpectedPixel);
@@ -1788,6 +1852,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
+		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetMaxResolution(), 4u);
@@ -2057,6 +2122,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
+		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->IsSRGB());

@@ -7,6 +7,7 @@
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/TexturePlatformCache.h"
 
 namespace Durin
 {
@@ -20,6 +21,7 @@ namespace Durin
 		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 		bool bSourceDecoderInvoked = false;
+		std::shared_ptr<const FTexturePlatformCacheInput> PlatformCache;
 	};
 
 	struct FTexture2DCompilationWorkResult
@@ -38,6 +40,7 @@ namespace Durin
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 		bool bSourceDecoderInvoked = false;
+		std::unique_ptr<FTexturePlatformCacheResult> PlatformCache;
 	};
 
 	struct FTextureCompilingManagerConfig
@@ -82,8 +85,10 @@ namespace Durin
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto GetManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
-		auto HasPending(const DTexture2D& Texture) const -> bool;
-		auto Wait(DTexture2D& Texture, double TimeoutSeconds) -> bool;
+		auto HasPending(const DTexture& Texture) const -> bool;
+		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;
+		auto SubmitPlatformCache(DTexture& Texture,
+			std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool;
 		auto SetPhaseHookForTests(
 			std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 
@@ -99,14 +104,16 @@ namespace Durin
 		auto GetQueuedWorkCount() const -> uint32;
 		auto GetRunningWorkCount() const -> uint32;
 		auto GetWorkManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
-		auto PumpWorkCompletions(uint32 MaximumCount) -> uint32;
+		auto PumpWorkCompletions(uint32 MaximumCount,
+			std::optional<std::chrono::steady_clock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> uint32;
 		auto WaitForWork(uint64 RequestId, double TimeoutSeconds) -> bool;
 		auto StartWorkAdmission() -> FAssetCompilerStartResult;
 		auto StopWorkAdmission() -> void;
 		auto ShutdownWorkQueue() -> void;
 		auto ApplyCompletion(FTexture2DCompilationWorkResult&& Result) -> void;
-		auto PumpCompletions(uint32 MaximumCount) -> FAssetCompileProcessResult;
-		auto Cancel(DTexture2D& Texture) -> bool;
+		auto PumpCompletions(uint32 MaximumCount,
+			std::optional<std::chrono::steady_clock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> FAssetCompileProcessResult;
+		auto Cancel(DTexture& Texture) -> bool;
 
 		std::shared_ptr<FQueueState> QueueState;
 		std::shared_ptr<FCompilationState> CompilationState;

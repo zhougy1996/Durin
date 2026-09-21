@@ -19,6 +19,9 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
+		// Metadata-only input for loaded assets. Read only on a cache miss; never
+		// supply this together with SourceMips. Must be detached from a live owner.
+		std::optional<FTextureSource> DeferredSource;
 	};
 
 	// Captures owned image values synchronously; no texture or package handles enter workers.

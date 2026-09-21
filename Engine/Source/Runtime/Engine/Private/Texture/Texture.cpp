@@ -14,6 +14,7 @@
 #include "RenderingThread.h"
 #include "RHICommandList.h"
 #include "Texture/TextureRenderResource.h"
+#include "Texture/TexturePlatformCache.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 #include "RenderingThread.h"
@@ -73,7 +74,29 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': invalid or unsupported texture source.", GetObjectPath());
 			return;
 		}
+		BeginCachePlatformData();
+	}
+
+	auto DTexture::BeginCachePlatformData() -> void
+	{
+		CheckGameThread();
+		if (!bAcceptingRenderResourceBuilds || IsPendingKill() || HasPlatformData()
+			|| (bCacheRequestCurrent && !IsAsyncCacheComplete()) || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		bCacheRequestCurrent = true;
 		BuildPlatformDataForLoad();
+	}
+
+	auto DTexture::IsAsyncCacheComplete() const -> bool
+	{
+		CheckGameThread();
+		return !HasPendingTextureCompilation(*this);
+	}
+
+	auto DTexture::FinishCachePlatformData() -> bool
+	{
+		CheckGameThread();
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return EnsurePlatformDataLoadedBlocking();
+		return FinishTextureCompilation(*this);
 	}
 
 	auto DTexture::ContributeToCook(FCookContext& Context,
@@ -86,6 +109,7 @@ namespace Durin
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 		if (!HasPlatformData()) PostLoad();
+		if (!FinishCachePlatformData()) return Reject(ECookContributionError::PlatformData);
 		if (!HasPlatformData()) return Reject(ECookContributionError::PlatformData);
 		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
 		if (!Added)
@@ -99,6 +123,7 @@ namespace Durin
 
 	auto DTexture::BeginDestroy() -> void
 	{
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		bAcceptingRenderResourceBuilds = false;
 		ReleaseRenderResources();
 		Super::BeginDestroy();
@@ -146,6 +171,7 @@ namespace Durin
 	auto DTexture::FinishReloadResourcePreparation() -> bool
 	{
 		CheckGameThread();
+		if (!FinishCachePlatformData()) return false;
 		if (!GDynamicRHI) return HasPlatformData();
 		if (PendingUpdate)
 		{
@@ -187,6 +213,7 @@ namespace Durin
 	auto DTexture::InvalidateAuthoredBuild() -> void
 	{
 		CheckGameThread();
+		bCacheRequestCurrent = false;
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		ResetPlatformData();
 		CookedPlatformData = {};

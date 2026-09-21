@@ -39,6 +39,7 @@ namespace Durin::Editor::Texture
 				OutError = "The TextureCube asset is unavailable.";
 				return;
 			}
+			if (!TextureCube->IsAsyncCacheComplete()) return;
 			if (!TextureCube->HasPlatformData())
 			{
 				OutError = "The TextureCube has no installed platform data.";

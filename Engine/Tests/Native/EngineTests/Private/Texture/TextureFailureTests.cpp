@@ -103,11 +103,13 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->HasPlatformData());
+	EXPECT_FALSE(Loaded->FinishCachePlatformData());
 	EXPECT_FALSE(Loaded->EnsurePlatformDataLoadedBlocking());
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Loaded->GetPackage());
 
 	Modules.LoadModuleChecked("TextureBuild");
 	Loaded->PostLoad();
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_TRUE(Loaded->HasPlatformData());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
@@ -177,7 +179,8 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	EXPECT_TRUE(Texture->HasPlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), RetainedPlatformData);
-	EXPECT_NE(Texture->GetPlatformDataShared(), RetainedPlatformDataIdentity);
+	// Repeated PostLoad/BeginCache calls preserve already-installed platform data.
+	EXPECT_EQ(Texture->GetPlatformDataShared(), RetainedPlatformDataIdentity);
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 
 	WriteTextureFixture(CopiedSource);

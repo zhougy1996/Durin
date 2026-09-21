@@ -112,16 +112,17 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		if (const auto Built = BuildTexture2DSynchronously(*this, CreateBuildRequest({
+		if (const auto Built = SubmitTexture2DCompilation(*this, {.Build = {.Settings = {
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
 				.AlphaCoverageThreshold = AlphaCoverageThreshold,
 				.MaxResolution = MaxResolution,
-				.bSRGB = bSRGB}), {
+				.bSRGB = bSRGB}, .SourceIdentity = GetSource().GetIdentity(),
+				.DeferredSource = GetSource().CopyTornOff()}, .ResultApplication = {
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
-			.bSourceDecoderInvoked = false}); !Built)
+			.bSourceDecoderInvoked = false}}); !Built)
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.Error));
 	}
 

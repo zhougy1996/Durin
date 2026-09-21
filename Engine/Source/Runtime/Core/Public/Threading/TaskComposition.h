@@ -340,6 +340,14 @@ namespace Durin::Tasks
 		return Detail::LaunchTaskImpl(Group.GetToken(), 0, Executor, Options, std::forward<F>(Function));
 	}
 
+	// Inherit the executing task's scope for nested work, including blocking I/O.
+	template<typename F>
+	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	{
+		return Detail::LaunchTaskImpl(Options.Scope,
+			Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId(), Executor, Options, std::forward<F>(Function));
+	}
+
 	// Worker root in the scheduler lifetime or an explicitly borrowed owner scope.
 	// Owners must stop submission before closing their scope or the scheduler.
 	template<typename F>

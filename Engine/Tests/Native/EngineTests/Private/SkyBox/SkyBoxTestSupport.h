@@ -117,6 +117,8 @@ namespace
 	auto InitializeSkyBoxAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
+		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+			EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";

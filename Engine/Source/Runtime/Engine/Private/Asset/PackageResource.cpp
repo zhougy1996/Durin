@@ -15,6 +15,13 @@ namespace Durin
 		struct FPackageTaskLifetime
 		{
 			FTaskScope Scope = CreateTaskScope();
+			auto GetAdmissionToken() const -> FTaskScopeToken
+			{
+				// Nested reads participate in their caller's scope. A fresh package
+				// scope would cross the executing task's ownership boundary.
+				const auto Token = Scope.GetToken();
+				return Token.CanLaunchFromCurrentContext() ? Token : FTaskScopeToken{};
+			}
 			~FPackageTaskLifetime() { Scope.Close(ETaskScopeCloseMode::Drain); }
 		};
 
@@ -611,8 +618,8 @@ namespace Durin
 		else
 		{
 			State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
-			Tasks::FTaskGroup Group(State->Lifetime->Scope.GetToken());
-			State->Bind(Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
+			Options.Scope = State->Lifetime->GetAdmissionToken();
+			State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
 				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }));
 		}
 		return FPackageResourceRequest(std::move(State));
@@ -644,11 +651,11 @@ namespace Durin
 			Requests.push_back(State);
 		}
 		auto Self = shared_from_this();
-		Tasks::FTaskGroup Group(State->Lifetime->Scope.GetToken());
 		Tasks::FTaskExecutionOptions Options;
+		Options.Scope = State->Lifetime->GetAdmissionToken();
 		Options.DebugName = "PackageResource.ReadRange";
 		Options.Attribution = PackageResourceAttribution();
-		State->Bind(Tasks::LaunchTask(Group, Tasks::ETaskExecutor::BlockingIO, Options,
+		State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, Options,
 			[Self = std::move(Self), State, Offset, Size](Tasks::FTaskContext& Context) {
 				if (Context.GetCancellationToken().IsCancellationRequested()
 					|| State->bCancelled.load(std::memory_order_acquire))

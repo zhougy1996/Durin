@@ -48,7 +48,7 @@ namespace Durin
 	{
 struct FAssetState
 		{
-			TWeakObjectPtr<DTexture2D> Texture;
+			TWeakObjectPtr<DTexture> Texture;
 			uint64 RequestSerial = 0;
 			uint64 ActiveRequestId = 0;
 			uint64 LastRequestId = 0;
@@ -155,7 +155,7 @@ struct FAssetState
 		FTexture2DCompilationWorkResult&& Result) -> void
 	{
 		CheckGameThread();
-		TWeakObjectPtr<DTexture2D> WeakTexture;
+		TWeakObjectPtr<DTexture> WeakTexture;
 		FTexture2DResultApplicationContext ResultApplicationContext;
 		FTexture2DCompilationCompletion Completion;
 		bool bInputMismatch = false;
@@ -166,7 +166,7 @@ struct FAssetState
 				CompilationState->FindLocked(Result.Owner);
 			if (!State || State->RequestSerial != Result.RequestSerial
 				|| State->ActiveRequestId != Result.RequestId) return;
-			bInputMismatch = Result.Phase == ETexture2DCompilationPhase::UploadPending
+			bInputMismatch = !Result.PlatformCache && Result.Phase == ETexture2DCompilationPhase::UploadPending
 				&& !MatchesRequestedInput(State->InputIdentity, Result.InputIdentity);
 			ExpectedInput = State->InputIdentity;
 			WeakTexture = State->Texture;
@@ -179,7 +179,7 @@ struct FAssetState
 				Result.Phase == ETexture2DCompilationPhase::Failed || bInputMismatch;
 			CompilationState->RetainCompletedLocked(Result.Owner);
 		}
-		DTexture2D* Texture = WeakTexture.Get();
+		DTexture* Texture = WeakTexture.Get();
 		if (!Texture || FObjectKey(Texture) != Result.Owner)
 		{
 			if (Completion) Completion({
@@ -195,6 +195,19 @@ struct FAssetState
 					.ExpectedInput = std::make_shared<FTexture2DBuildInputIdentity>(ExpectedInput),
 					.ActualInput = std::make_shared<FTexture2DBuildInputIdentity>(Result.InputIdentity)},
 				.PersistenceDiagnostic = Result.PersistenceDiagnostic});
+			return;
+		}
+		if (Result.PlatformCache)
+		{
+			const bool bSucceeded = Result.Phase == ETexture2DCompilationPhase::UploadPending
+				&& Texture->GetSource().GetIdentity() == ExpectedInput.SourceIdentity;
+			if (bSucceeded) Result.PlatformCache->Apply(*Texture);
+			else if (!Result.PlatformCache->Error.empty())
+				DURIN_ERROR("Texture cache failed for {}: {}", Result.AssetIdentity, Result.PlatformCache->Error);
+			std::lock_guard Lock(CompilationState->Mutex);
+			if (auto* State = CompilationState->FindLocked(Result.Owner))
+				State->bLastRequestFailed = !bSucceeded;
+			if (bSucceeded) CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
 			return;
 		}
 		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
@@ -217,7 +230,7 @@ struct FAssetState
 			.DerivedDataKey = std::move(Result.DerivedDataKey),
 			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
 			.Origin = Result.Origin};
-		if (const auto Applied = ApplyTexture2DBuildResult(*Texture, Result.InputIdentity.SourceIdentity, Settings,
+		if (const auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture), Result.InputIdentity.SourceIdentity, Settings,
 			std::move(Product), ResultApplicationContext); !Applied)
 		{
 			{
@@ -247,11 +260,12 @@ struct FAssetState
 			.PersistenceDiagnostic = PersistenceDiagnostic});
 	}
 
-	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount)
+	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount,
+		std::optional<std::chrono::steady_clock::time_point> Deadline, uint64 OnlyRequest)
 		-> FAssetCompileProcessResult
 	{
 		FAssetCompileProcessResult Result;
-		Result.ProcessedCompletionCount = PumpWorkCompletions(MaximumCount);
+		Result.ProcessedCompletionCount = PumpWorkCompletions(MaximumCount, Deadline, OnlyRequest);
 		std::lock_guard Lock(CompilationState->Mutex);
 		Result.SuccessfullyCompiledAssets =
 			std::move(CompilationState->SuccessfullyAppliedTextures);
@@ -262,7 +276,7 @@ struct FAssetState
 	auto FTextureCompilingManager::ProcessAsyncTasks(
 		const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
 	{
-		return PumpCompletions(Params.MaximumCompletions);
+		return PumpCompletions(Params.MaximumCompletions, Params.Deadline);
 	}
 
 	auto FTextureCompilingManager::FinishCompilationForObjects(
@@ -271,7 +285,7 @@ struct FAssetState
 		FAssetCompileProcessResult Aggregate;
 		for (DObject* Object : Objects)
 		{
-			auto* Texture = Cast<DTexture2D>(Object);
+			auto* Texture = Cast<DTexture>(Object);
 			if (!IsValid(Texture)) continue;
 			uint64 RequestId = 0;
 			const FObjectKey Owner = FObjectKey(Texture);
@@ -285,7 +299,7 @@ struct FAssetState
 			if (RequestId == 0) continue;
 			WaitForWork(RequestId, 300.0);
 			AppendProcessResult(
-				Aggregate, PumpCompletions(std::numeric_limits<uint32>::max()));
+				Aggregate, PumpCompletions(1, {}, RequestId));
 		}
 		return Aggregate;
 	}
@@ -294,7 +308,7 @@ struct FAssetState
 		std::span<DObject* const> Objects) -> void
 	{
 		for (DObject* Object : Objects)
-			if (auto* Texture = Cast<DTexture2D>(Object); IsValid(Texture)) Cancel(*Texture);
+			if (auto* Texture = Cast<DTexture>(Object); IsValid(Texture)) Cancel(*Texture);
 	}
 
 	auto FTextureCompilingManager::FinishAllCompilation()
@@ -326,7 +340,12 @@ struct FAssetState
 		FTexture2DCompilationCompletion Completion) -> FTexture2DCompilationOperationResult
 	{
 		CheckGameThread();
-		if (const auto Validation = ValidateTexture2DSourceMips(Request.Build.SourceMips); !Validation)
+		if (Request.Build.DeferredSource && (!Request.Build.SourceMips.empty()
+			|| !Request.Build.DeferredSource->IsValid() || Request.Build.DeferredSource->GetOwner()
+			|| Request.Build.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
+			|| Request.Build.DeferredSource->GetIdentity() != Request.Build.SourceIdentity))
+			return {.Error = {.Code = ETexture2DCompilationError::InvalidSource}};
+		if (const auto Validation = ValidateTexture2DSourceMips(Request.Build.SourceMips); !Request.Build.DeferredSource && !Validation)
 			return {.Error = {.Code = ETexture2DCompilationError::InvalidSource,
 				.InputCause = Validation.Error, .ObjectPath = Texture.GetObjectPath()}};
 		if (Request.Build.SourceIdentity.IsZero())
@@ -366,7 +385,7 @@ struct FAssetState
 			if (RequestSerial == 0) RequestSerial = ++State.RequestSerial;
 			PreviousRequestId = State.ActiveRequestId;
 			if (PreviousRequestId != 0) SupersededCompletion = std::move(State.Completion);
-			State.Texture = TWeakObjectPtr<DTexture2D>(&Texture);
+			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
 			State.ActiveRequestId = 0;
 			State.bLastRequestFailed = false;
 			State.ResultApplicationContext = std::move(Request.ResultApplication);
@@ -385,8 +404,8 @@ struct FAssetState
 		}
 		if (PreviousRequestId != 0) CancelWork(PreviousRequestId);
 
-		const uint32 Width = Request.Build.SourceMips.front().GetInfo().Width;
-		const uint32 Height = Request.Build.SourceMips.front().GetInfo().Height;
+		const uint32 Width = Request.Build.DeferredSource ? Request.Build.DeferredSource->GetWidth() : Request.Build.SourceMips.front().GetInfo().Width;
+		const uint32 Height = Request.Build.DeferredSource ? Request.Build.DeferredSource->GetHeight() : Request.Build.SourceMips.front().GetInfo().Height;
 		const uint64 RequestId = SubmitWork({
 			.AssetIdentity = Identity,
 			.Build = std::move(Request.Build),
@@ -465,17 +484,70 @@ struct FAssetState
 		return Result;
 	}
 
-	auto FTextureCompilingManager::HasPending(const DTexture2D& Texture) const -> bool
+	auto FTextureCompilingManager::SubmitPlatformCache(DTexture& Texture,
+		std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool
+	{
+		CheckGameThread();
+		if (!CompilationState || !FAssetCompilingManager::Get().IsAcceptingRequests()
+			|| !Input || !Input->Source.IsValid() || Input->Source.GetOwner()) return false;
+		const FObjectKey Owner(&Texture);
+		if (IsObjectKeyNull(Owner)) return false;
+		uint64 Serial;
+		uint64 PreviousId;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			auto& State = CompilationState->Assets[Owner];
+			PreviousId = State.ActiveRequestId;
+			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
+			Serial = ++State.RequestSerial;
+			State.InputIdentity = {.SourceIdentity = Input->Source.GetIdentity()};
+			State.bLastRequestFailed = false;
+		}
+		if (PreviousId) CancelWork(PreviousId);
+		const uint64 Id = SubmitWork({.AssetIdentity = Texture.GetObjectPath(),
+			.Build = {.SourceIdentity = Input->Source.GetIdentity()}, .Owner = Owner,
+			.RequestSerial = Serial, .PlatformCache = std::move(Input)},
+			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			auto& State = CompilationState->Assets[Owner];
+			State.ActiveRequestId = Id;
+			State.bLastRequestFailed = Id == 0;
+			if (!Id) CompilationState->RetainCompletedLocked(Owner);
+		}
+		return Id != 0;
+	}
+
+	auto SubmitTexturePlatformCache(DTexture& Texture,
+		std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool
+	{
+		const auto Manager = GetTextureCompilingManager();
+		return Manager && Manager->SubmitPlatformCache(Texture, std::move(Input));
+	}
+
+	auto HasPendingTextureCompilation(const DTexture& Texture) -> bool
+	{
+		const auto Manager = GetTextureCompilingManager();
+		return Manager && Manager->HasPending(Texture);
+	}
+
+	auto FinishTextureCompilation(DTexture& Texture) -> bool
+	{
+		const auto Manager = GetTextureCompilingManager();
+		return Manager ? Manager->Wait(Texture, 300.0) : Texture.HasPlatformData();
+	}
+
+	auto FTextureCompilingManager::HasPending(const DTexture& Texture) const -> bool
 	{
 		if (!CompilationState) return false;
 		std::lock_guard Lock(CompilationState->Mutex);
 		const FCompilationState::FAssetState* State =
 			CompilationState->FindLocked(FObjectKey(
-				const_cast<DTexture2D*>(&Texture)));
+				const_cast<DTexture*>(&Texture)));
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
-	auto FTextureCompilingManager::Cancel(DTexture2D& Texture) -> bool
+	auto FTextureCompilingManager::Cancel(DTexture& Texture) -> bool
 	{
 		if (!CompilationState) return false;
 		uint64 RequestId = 0;
@@ -489,7 +561,7 @@ struct FAssetState
 	}
 
 	auto FTextureCompilingManager::Wait(
-		DTexture2D& Texture, double TimeoutSeconds) -> bool
+		DTexture& Texture, double TimeoutSeconds) -> bool
 	{
 		if (!CompilationState) return false;
 		uint64 RequestId = 0;

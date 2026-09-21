@@ -157,6 +157,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 		Loaded = Load.value_or(nullptr);
 	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
 	ASSERT_NE(Loaded, nullptr);
+	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_TRUE(Loaded->HasPlatformData());
 	Durin::FCookContext Cook(
 		Durin::ECookTargetPlatform::Win64,

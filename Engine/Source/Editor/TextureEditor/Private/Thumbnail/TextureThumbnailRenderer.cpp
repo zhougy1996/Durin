@@ -37,13 +37,15 @@ namespace Durin::Editor::Texture
 				{
 					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedObject());
 					if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
+					if (!Texture.Get()->IsAsyncCacheComplete())
+						return {.State = EThumbnailRendererSessionState::WaitingForResources};
 					AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
 					Platform = Texture.Get()->GetPlatformDataShared();
 					Options.Usage = Texture.Get()->GetUsage();
 					bAssetLoaded = true;
 				}
 				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
-				if (Texture.Get()->IsResourceUpdatePending())
+				if (!Texture.Get()->IsAsyncCacheComplete() || Texture.Get()->IsResourceUpdatePending())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (!Texture.Get()->HasUsableResource())
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
