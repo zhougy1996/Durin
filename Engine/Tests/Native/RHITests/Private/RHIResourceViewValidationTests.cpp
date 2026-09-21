@@ -68,34 +68,41 @@ namespace Durin
 		const FRHIBufferViewDesc Default = MakeDefaultBufferViewDesc(
 			Uniform, ERHIBufferViewType::Uniform);
 		EXPECT_EQ(Default, (FRHIBufferViewDesc{0, 256, ERHIBufferViewType::Uniform, EPixelFormat::Unknown}));
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateBufferViewDesc(&Uniform, Default))) << FormatRHIError(Error.error());
+		const auto BufferViewDescResult = ValidateBufferViewDesc(&Uniform, Default);
+		EXPECT_TRUE(BufferViewDescResult) << FormatRHIError(BufferViewDescResult.error());
 
 		FRHIBufferViewDesc Invalid = Default;
 		Invalid.Size = 0;
-		ASSERT_FALSE((Error = ValidateBufferViewDesc(&Uniform, Invalid)));
+		const auto BufferViewDescResult2 = ValidateBufferViewDesc(&Uniform, Invalid);
+		ASSERT_FALSE(BufferViewDescResult2);
 		Invalid = Default;
 		Invalid.Offset = 16;
 		Invalid.Size = 256;
-		ASSERT_FALSE((Error = ValidateBufferViewDesc(&Uniform, Invalid)));
+		const auto BufferViewDescResult3 = ValidateBufferViewDesc(&Uniform, Invalid);
+		ASSERT_FALSE(BufferViewDescResult3);
 		Invalid = Default;
 		Invalid.Offset = 1;
 		Invalid.Size = 16;
-		ASSERT_FALSE((Error = ValidateBufferViewDesc(&Uniform, Invalid)));
+		const auto BufferViewDescResult4 = ValidateBufferViewDesc(&Uniform, Invalid);
+		ASSERT_FALSE(BufferViewDescResult4);
 
 		FRHIBuffer Structured(FRHIBufferCreateDesc::Create(
 			"Structured", 96, 12, EBufferUsageFlags::StructuredBuffer));
-		EXPECT_TRUE((Error = ValidateBufferViewDesc(&Structured,
-			{12, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown}))) << FormatRHIError(Error.error());
-		ASSERT_FALSE((Error = ValidateBufferViewDesc(&Structured,
-			{4, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown})));
+		const auto BufferViewDescResult5 = ValidateBufferViewDesc(&Structured,
+			{12, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown});
+		EXPECT_TRUE(BufferViewDescResult5) << FormatRHIError(BufferViewDescResult5.error());
+		const auto BufferViewDescResult6 = ValidateBufferViewDesc(&Structured,
+			{4, 36, ERHIBufferViewType::StructuredStorage, EPixelFormat::Unknown});
+		ASSERT_FALSE(BufferViewDescResult6);
 
 		FRHIBuffer Formatted(FRHIBufferCreateDesc::Create(
 			"Formatted", 64, 0, EBufferUsageFlags::FormattedBuffer));
-		EXPECT_TRUE((Error = ValidateBufferViewDesc(&Formatted,
-			{4, 16, ERHIBufferViewType::Formatted, EPixelFormat::R32_FLOAT}))) << FormatRHIError(Error.error());
-		ASSERT_FALSE((Error = ValidateBufferViewDesc(&Formatted,
-			{0, 16, ERHIBufferViewType::Formatted, EPixelFormat::BC1_UNORM})));
+		const auto BufferViewDescResult7 = ValidateBufferViewDesc(&Formatted,
+			{4, 16, ERHIBufferViewType::Formatted, EPixelFormat::R32_FLOAT});
+		EXPECT_TRUE(BufferViewDescResult7) << FormatRHIError(BufferViewDescResult7.error());
+		const auto BufferViewDescResult8 = ValidateBufferViewDesc(&Formatted,
+			{0, 16, ERHIBufferViewType::Formatted, EPixelFormat::BC1_UNORM});
+		ASSERT_FALSE(BufferViewDescResult8);
 	}
 
 	TEST(FRHIResourceViewValidationTests, ValidatesTextureUsageDimensionAndSubresources)
@@ -108,18 +115,21 @@ namespace Durin
 			Texture, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(Default.Range, (FRHITextureSubresourceRange{
 			ERHITextureAspect::Color, 0, 4, 0, 1}));
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateTextureViewDesc(&Texture, Default))) << FormatRHIError(Error.error());
+		const auto TextureViewDescResult = ValidateTextureViewDesc(&Texture, Default);
+		EXPECT_TRUE(TextureViewDescResult) << FormatRHIError(TextureViewDescResult.error());
 
 		FRHITextureViewDesc Invalid = Default;
 		Invalid.Format = EPixelFormat::BGRA8_UNORM;
-		ASSERT_FALSE((Error = ValidateTextureViewDesc(&Texture, Invalid)));
+		const auto TextureViewDescResult2 = ValidateTextureViewDesc(&Texture, Invalid);
+		ASSERT_FALSE(TextureViewDescResult2);
 		Invalid = Default;
 		Invalid.Range.NumMips = 0;
-		ASSERT_FALSE((Error = ValidateTextureViewDesc(&Texture, Invalid)));
+		const auto TextureViewDescResult3 = ValidateTextureViewDesc(&Texture, Invalid);
+		ASSERT_FALSE(TextureViewDescResult3);
 		Invalid = Default;
 		Invalid.Range.Aspects = ERHITextureAspect::Depth;
-		ASSERT_FALSE((Error = ValidateTextureViewDesc(&Texture, Invalid)));
+		const auto TextureViewDescResult4 = ValidateTextureViewDesc(&Texture, Invalid);
+		ASSERT_FALSE(TextureViewDescResult4);
 
 		FRHITexture Cube(FRHITextureCreateDesc::CreateCube("Cube")
 			.SetExtent(16)
@@ -129,12 +139,14 @@ namespace Durin
 		const FRHITextureViewDesc CubeDefault = MakeDefaultTextureViewDesc(
 			Cube, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(CubeDefault.Dimension, ERHITextureViewDimension::TextureCube);
-		EXPECT_TRUE((Error = ValidateTextureViewDesc(&Cube, CubeDefault))) << FormatRHIError(Error.error());
+		const auto TextureViewDescResult5 = ValidateTextureViewDesc(&Cube, CubeDefault);
+		EXPECT_TRUE(TextureViewDescResult5) << FormatRHIError(TextureViewDescResult5.error());
 		FRHITextureViewDesc Face = CubeDefault;
 		Face.Dimension = ERHITextureViewDimension::Texture2D;
 		Face.Range.FirstArrayLayer = 5;
 		Face.Range.NumArrayLayers = 1;
-		EXPECT_TRUE((Error = ValidateTextureViewDesc(&Cube, Face))) << FormatRHIError(Error.error());
+		const auto TextureViewDescResult6 = ValidateTextureViewDesc(&Cube, Face);
+		EXPECT_TRUE(TextureViewDescResult6) << FormatRHIError(TextureViewDescResult6.error());
 	}
 
 	TEST(FRHIResourceViewValidationTests, RetainsParentResources)
@@ -168,13 +180,13 @@ namespace Durin
 			.SetFormat(EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::ShaderResource));
-		FRHIOperationResult Error;
 		const FRHITextureViewDesc Sampled = MakeDefaultTextureViewDesc(
 			Shadow, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(Sampled.Range, (FRHITextureSubresourceRange{
 			ERHITextureAspect::Depth, 0, 1, 0, 3}));
 		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture2DArray);
-		EXPECT_TRUE((Error = ValidateTextureViewDesc(&Shadow, Sampled))) << FormatRHIError(Error.error());
+		const auto TextureViewDescResult = ValidateTextureViewDesc(&Shadow, Sampled);
+		EXPECT_TRUE(TextureViewDescResult) << FormatRHIError(TextureViewDescResult.error());
 		for (uint32 Layer = 0; Layer < 3; ++Layer)
 		{
 			FRHITextureViewDesc Attachment = MakeDefaultTextureViewDesc(
@@ -184,15 +196,17 @@ namespace Durin
 			Attachment.Range.NumArrayLayers = 1;
 			EXPECT_EQ(Attachment.Range, (FRHITextureSubresourceRange{
 				ERHITextureAspect::Depth, 0, 1, Layer, 1}));
-			EXPECT_TRUE((Error = ValidateTextureViewDesc(&Shadow, Attachment))) << FormatRHIError(Error.error());
+			const auto TextureViewDescResult2 = ValidateTextureViewDesc(&Shadow, Attachment);
+			EXPECT_TRUE(TextureViewDescResult2) << FormatRHIError(TextureViewDescResult2.error());
 		}
 
 		FRHITexture SampleOnly(FRHITextureCreateDesc::Create2D(
 			"SampleOnlyDepth", 16, 16, EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::ShaderResource));
-		ASSERT_FALSE((Error = ValidateTextureViewDesc(
+		const auto TextureViewDescResult3 = ValidateTextureViewDesc(
 			&SampleOnly,
 			MakeDefaultTextureViewDesc(
-				SampleOnly, ERHITextureViewUsage::DepthStencilAttachment))));
+				SampleOnly, ERHITextureViewUsage::DepthStencilAttachment));
+		ASSERT_FALSE(TextureViewDescResult3);
 	}
 } // namespace Durin

@@ -5,19 +5,29 @@ Modules: RHI, VulkanRHI, RenderCore
 
 ## Validation results
 
-`TRHIResult<T>` is an alias for `std::expected<T, FRHIError>`;
-`FRHIOperationResult` names its `void` specialization for validation without a
-value. Success is represented by the expected value, not an error sentinel.
-`FRHIError` retains a discriminated union of validation domains and numeric
-locations for batch and binding failures. Read `error()` only after failure.
+Validation interfaces use `std::expected<T, E>` with operation-specific errors.
+There is no global RHI validation error union or universal result alias. Texture,
+view, upload, and pipeline validation use their own error enums directly. Shader
+binding errors retain binding locations and type-mismatch context. Batch
+transition and copy errors retain element indices; copy operations combine only
+the copy, region, and footprint causes that their diagnostics need.
 
-Pipeline key builders return the validated key as the expected value. Other
-data output parameters retain their operation-specific publication behavior;
-for example, binding visitors can have visited a valid prefix before failure.
+Error detail stops at the boundary that consumes it. Internal access-shape checks
+return `bool`; transition validation reports `InvalidAccess` in its own domain.
+Pipeline admission reports `InvalidDescription` rather than publishing internal
+validation details through the asynchronous request. Creation recovery errors
+remain a separate contract because callers use their classification to recover.
 
-`FormatRHIError` formats errors at assertions, logs, and other presentation
-boundaries. Semantic tests assert codes and context, not English substrings.
-Do not add a general message constructor or use formatted text for branching.
+Pipeline `IsValid()` predicates share the checks used by key builders without
+constructing or canonicalizing a key. Key builders return a validated key or the
+pipeline-specific enum. Other data output parameters retain their existing
+publication behavior. Binding visitors can have visited a valid prefix before
+failure.
+
+`FormatRHIError` overloads format the relevant enums and context structures at
+assertions, logs, and other presentation boundaries. Read `error()` only after
+failure. Semantic tests assert codes and context, not English substrings. Do not
+add a general message constructor or use formatted text for branching.
 
 ## Creation and executor failures
 

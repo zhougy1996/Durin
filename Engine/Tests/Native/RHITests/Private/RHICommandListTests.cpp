@@ -1765,12 +1765,15 @@ namespace Durin
 		FComputePipelineStateInitializer Second = First;
 		std::ranges::reverse(
 			Second.PipelineLayout.BindingLayouts[0].BindingLayouts);
-		TRHIResult<FComputePipelineStateKey> FirstKey;
-		TRHIResult<FComputePipelineStateKey> SecondKey;
+		std::expected<FComputePipelineStateKey, ERHIComputePipelineError> FirstKey;
+		std::expected<FComputePipelineStateKey, ERHIComputePipelineError> SecondKey;
 		ASSERT_TRUE((FirstKey = BuildComputePipelineStateKey(First, nullptr)))
 			<< FormatRHIError(FirstKey.error());
 		ASSERT_TRUE((SecondKey = BuildComputePipelineStateKey(Second, nullptr)))
 			<< FormatRHIError(SecondKey.error());
+		EXPECT_TRUE(First.IsValid());
+		EXPECT_TRUE(Second.IsValid());
+		EXPECT_EQ(First.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot, 3u);
 		EXPECT_EQ(*FirstKey, *SecondKey);
 		EXPECT_EQ(FComputePipelineStateKeyHasher{}(*FirstKey),
 			FComputePipelineStateKeyHasher{}(*SecondKey));
@@ -1779,17 +1782,20 @@ namespace Durin
 		Invalid.ComputeShader = nullptr;
 		ASSERT_FALSE((FirstKey = BuildComputePipelineStateKey(
 			Invalid, nullptr)));
+		EXPECT_FALSE(Invalid.IsValid());
 		Invalid = First;
 		Invalid.PipelineLayout.BindingLayouts[0].BindingLayouts[0].StageFlags =
 			EShaderStageFlags::Fragment;
 		ASSERT_FALSE((FirstKey = BuildComputePipelineStateKey(
 			Invalid, nullptr)));
+		EXPECT_FALSE(Invalid.IsValid());
 		Invalid = First;
 		Invalid.PipelineLayout.PushConstantRanges = {
 			{EShaderStageFlags::Compute, 0, 8},
 			{EShaderStageFlags::Compute, 4, 8}};
 		ASSERT_FALSE((FirstKey = BuildComputePipelineStateKey(
 			Invalid, nullptr)));
+		EXPECT_FALSE(Invalid.IsValid());
 	}
 
 	TEST(FRHICommandListTests, RejectsInvalidComputePipelineCombinations)
@@ -2303,8 +2309,8 @@ namespace Durin
 		Second.RenderTargetLayout.ColorAttachments[1].RenderTarget.Format =
 			EPixelFormat::BGRA8_UNORM;
 
-		TRHIResult<FGraphicsPipelineStateKey> FirstKey;
-		TRHIResult<FGraphicsPipelineStateKey> SecondKey;
+		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> FirstKey;
+		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> SecondKey;
 		ASSERT_TRUE((FirstKey = BuildGraphicsPipelineStateKey(First, nullptr))) << FormatRHIError(FirstKey.error());
 		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << FormatRHIError(SecondKey.error());
 		EXPECT_EQ(*FirstKey, *SecondKey);
@@ -2338,10 +2344,12 @@ namespace Durin
 		Negative.RasterizerState.DepthBiasClamp = -0.0f;
 		Negative.RasterizerState.DepthBiasSlopeFactor = -0.0f;
 
-		TRHIResult<FGraphicsPipelineStateKey> PositiveKey;
-		TRHIResult<FGraphicsPipelineStateKey> NegativeKey;
+		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> PositiveKey;
+		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> NegativeKey;
 		ASSERT_TRUE((PositiveKey = BuildGraphicsPipelineStateKey(Positive, nullptr))) << FormatRHIError(PositiveKey.error());
 		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << FormatRHIError(NegativeKey.error());
+		EXPECT_TRUE(Positive.IsValid());
+		EXPECT_TRUE(Negative.IsValid());
 		EXPECT_EQ(*PositiveKey, *NegativeKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*PositiveKey),
 			FGraphicsPipelineStateKeyHasher{}(*NegativeKey));
@@ -2371,9 +2379,10 @@ namespace Durin
 		Attachment.Format = EPixelFormat::RGBA8_UNORM;
 		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
 		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
-		TRHIResult<FGraphicsPipelineStateKey> Key;
+		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> Key;
 		ASSERT_FALSE((Key = BuildGraphicsPipelineStateKey(Initializer, nullptr)));
-		EXPECT_EQ(Key.error().Code, FRHIError::FCode{ERHIGraphicsPipelineError::InconsistentVertexStream});
+		EXPECT_FALSE(Initializer.IsValid());
+		EXPECT_EQ(Key.error(), ERHIGraphicsPipelineError::InconsistentVertexStream);
 	}
 
 	TEST(FRHICommandListTests, ReflectedBindingArraysValidateUpdateAndCompleteness)
@@ -2390,29 +2399,33 @@ namespace Durin
 				.Resource = reinterpret_cast<FRHIResource*>(uintptr_t{2}),
 				.SetIndex = 0, .BindingIndex = 3, .ArrayElement = 1,
 				.Type = ERHIBindingType::Sampler}};
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources))) << FormatRHIError(Error.error());
-		EXPECT_TRUE((Error = ValidateShaderBindingCompleteness(Layout, Resources)))
-			<< FormatRHIError(Error.error());
+		const auto ShaderParameterUpdateResult = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources);
+		EXPECT_TRUE(ShaderParameterUpdateResult) << FormatRHIError(ShaderParameterUpdateResult.error());
+		const auto ShaderBindingCompletenessResult = ValidateShaderBindingCompleteness(Layout, Resources);
+		EXPECT_TRUE(ShaderBindingCompletenessResult)
+			<< FormatRHIError(ShaderBindingCompletenessResult.error());
 
 		Resources[1].ArrayElement = 2;
-		ASSERT_FALSE((Error = ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources)));
-		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIShaderBindingError::ArrayElementOutOfRange});
-		EXPECT_EQ(Error.error().Index, 1u);
-		EXPECT_EQ(Error.error().SetIndex, 0u);
-		EXPECT_EQ(Error.error().BindingIndex, 3u);
-		EXPECT_EQ(Error.error().ArrayElement, 2u);
+		const auto ShaderParameterUpdateResult2 = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources);
+		ASSERT_FALSE(ShaderParameterUpdateResult2);
+		EXPECT_EQ(ShaderParameterUpdateResult2.error().Code, ERHIShaderBindingError::ArrayElementOutOfRange);
+		EXPECT_EQ(ShaderParameterUpdateResult2.error().Index, 1u);
+		EXPECT_EQ(ShaderParameterUpdateResult2.error().SetIndex, 0u);
+		EXPECT_EQ(ShaderParameterUpdateResult2.error().BindingIndex, 3u);
+		EXPECT_EQ(ShaderParameterUpdateResult2.error().ArrayElement, 2u);
 		Resources[1].ArrayElement = 0;
-		ASSERT_FALSE((Error = ValidateShaderBindingCompleteness(Layout, Resources)));
+		const auto ShaderBindingCompletenessResult2 = ValidateShaderBindingCompleteness(Layout, Resources);
+		ASSERT_FALSE(ShaderBindingCompletenessResult2);
 		Resources[1].ArrayElement = 1;
 		Resources[1].Type = ERHIBindingType::Texture;
-		ASSERT_FALSE((Error = ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources)));
-		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIShaderBindingError::TypeMismatch});
-		EXPECT_EQ(Error.error().ExpectedBindingType, ERHIBindingType::Sampler);
-		EXPECT_EQ(Error.error().ActualBindingType, ERHIBindingType::Texture);
+		const auto ShaderParameterUpdateResult3 = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources);
+		ASSERT_FALSE(ShaderParameterUpdateResult3);
+		EXPECT_EQ(ShaderParameterUpdateResult3.error().Code, ERHIShaderBindingError::TypeMismatch);
+		EXPECT_EQ(ShaderParameterUpdateResult3.error().ExpectedBindingType, ERHIBindingType::Sampler);
+		EXPECT_EQ(ShaderParameterUpdateResult3.error().ActualBindingType, ERHIBindingType::Texture);
 	}
 
 	TEST(FRHICommandListTests, BindingCompletenessUsesOneOrderedLinearWalk)
@@ -2433,13 +2446,13 @@ namespace Durin
 
 		uint64 Visits = 0;
 		std::vector<uint32> VisitedElements;
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+		const auto VisitOrderedBindingsResult = RHIShaderParameterValidationInternal::VisitOrderedBindings(
 			Layout, Resources,
 			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
 				const FRHIShaderParameterResource&) {
 					VisitedElements.push_back(Element.ArrayElement);
-				}, &Visits))) << FormatRHIError(Error.error());
+				}, &Visits);
+		EXPECT_TRUE(VisitOrderedBindingsResult) << FormatRHIError(VisitOrderedBindingsResult.error());
 		EXPECT_EQ(Visits, 64u);
 		EXPECT_EQ(VisitedElements.size(), 64u);
 		EXPECT_EQ(VisitedElements.front(), 0u);
@@ -2447,18 +2460,20 @@ namespace Durin
 
 		Resources[31].Resource = nullptr;
 		Visits = 0;
-		ASSERT_FALSE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, &Visits)));
+		const auto VisitOrderedBindingsResult2 = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, &Visits);
+		ASSERT_FALSE(VisitOrderedBindingsResult2);
 		EXPECT_EQ(Visits, 32u);
-		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIShaderBindingError::NullResource});
+		EXPECT_EQ(VisitOrderedBindingsResult2.error().Code, ERHIShaderBindingError::NullResource);
 
 		Resources[31].Resource = reinterpret_cast<FRHIResource*>(uintptr_t{32});
 		Resources.push_back(Resources.back());
 		Resources.back().ArrayElement = 64;
 		Visits = 0;
-		ASSERT_FALSE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, &Visits)));
+		const auto VisitOrderedBindingsResult3 = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, &Visits);
+		ASSERT_FALSE(VisitOrderedBindingsResult3);
 		EXPECT_EQ(Visits, 65u);
-		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIShaderBindingError::UnexpectedBinding});
+		EXPECT_EQ(VisitOrderedBindingsResult3.error().Code, ERHIShaderBindingError::UnexpectedBinding);
 	}
 } // namespace Durin

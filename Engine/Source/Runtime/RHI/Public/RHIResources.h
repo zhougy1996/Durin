@@ -571,7 +571,7 @@ namespace Durin
 	};
 
 	// Validates the backend-neutral constraints required before creating a texture.
-	RHI_API auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc) -> FRHIOperationResult;
+	RHI_API auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc) -> std::expected<void, ERHITextureCreateError>;
 
 	// Validates one two-dimensional mip/slice upload, including block-compressed alignment constraints.
 	RHI_API auto ValidateTexture2DUpdate(
@@ -579,7 +579,7 @@ namespace Durin
 		uint32 MipIndex,
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
-		uint32 SourcePitch) -> FRHIOperationResult;
+		uint32 SourcePitch) -> std::expected<void, ERHITextureUploadError>;
 
 	// Validates one volume-mip upload, including row/depth pitches and block geometry.
 	RHI_API auto ValidateTexture3DUpdate(
@@ -587,7 +587,7 @@ namespace Durin
 		uint32 MipIndex,
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
-		uint32 SourceDepthPitch) -> FRHIOperationResult;
+		uint32 SourceDepthPitch) -> std::expected<void, ERHIVolumeUploadError>;
 
 	// Resolves a nonzero Durin-space direction to the documented cube face and top-left-origin image UV.
 	RHI_API auto ResolveTextureCubeFaceUv(
@@ -810,10 +810,10 @@ namespace Durin
 
 	RHI_API auto GetTextureAspects(EPixelFormat Format) -> ERHITextureAspect;
 	RHI_API auto GetTextureLayoutForAccess(ERHIAccess Access, ERHITextureLayout& OutLayout) -> bool;
-	RHI_API auto ValidateBufferTransition(const FRHIBufferTransition& Transition) -> FRHIOperationResult;
-	RHI_API auto ValidateTextureTransition(const FRHITextureTransition& Transition) -> FRHIOperationResult;
-	RHI_API auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions) -> FRHIOperationResult;
-	RHI_API auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions) -> FRHIOperationResult;
+	RHI_API auto ValidateBufferTransition(const FRHIBufferTransition& Transition) -> std::expected<void, ERHIBufferTransitionError>;
+	RHI_API auto ValidateTextureTransition(const FRHITextureTransition& Transition) -> std::expected<void, ERHITextureTransitionError>;
+	RHI_API auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions) -> std::expected<void, FRHIBufferTransitionError>;
+	RHI_API auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions) -> std::expected<void, FRHITextureTransitionError>;
 
 	// Describes one render-pass attachment's format and load/store transitions.
 	struct FRHIAttachmentLayout
@@ -1469,7 +1469,7 @@ namespace Durin
 	// Validates and canonicalizes one complete graphics initializer.
 	RHI_API auto BuildGraphicsPipelineStateKey(
 		const FGraphicsPipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities) -> TRHIResult<FGraphicsPipelineStateKey>;
+		const FRHICapabilities* Capabilities) -> std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError>;
 
 	// Canonical immutable identity used by compute-pipeline caches.
 	struct FComputePipelineStateKey
@@ -1488,7 +1488,7 @@ namespace Durin
 	// Validates and canonicalizes one complete compute initializer.
 	RHI_API auto BuildComputePipelineStateKey(
 		const FComputePipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities) -> TRHIResult<FComputePipelineStateKey>;
+		const FRHICapabilities* Capabilities) -> std::expected<FComputePipelineStateKey, ERHIComputePipelineError>;
 
 	// Describes the byte size, element stride, and allowed usages of a buffer.
 	struct FRHIBufferDesc
@@ -1717,10 +1717,10 @@ namespace Durin
 		ERHITextureViewUsage Usage) -> FRHITextureViewDesc;
 	RHI_API auto ValidateBufferViewDesc(
 		const FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> FRHIOperationResult;
+		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>;
 	RHI_API auto ValidateTextureViewDesc(
 		const FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> FRHIOperationResult;
+		const FRHITextureViewDesc& Desc) -> std::expected<void, ERHITextureViewError>;
 
 	// Names one exact nonempty byte range copied between two buffers.
 	struct FRHIBufferCopyRegion
@@ -1786,15 +1786,15 @@ namespace Durin
 	};
 
 	RHI_API auto ValidateBufferCopies(FRHIBuffer* Source, FRHIBuffer* Destination,
-		std::span<const FRHIBufferCopyRegion> Regions) -> FRHIOperationResult;
+		std::span<const FRHIBufferCopyRegion> Regions) -> std::expected<void, FRHIBufferCopyError>;
 	RHI_API auto ValidateBufferToTextureCopies(FRHIBuffer* Source, FRHITexture* Destination,
-		std::span<const FRHIBufferTextureCopyRegion> Regions) -> FRHIOperationResult;
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> std::expected<void, FRHIBufferTextureCopyError>;
 	RHI_API auto ValidateTextureToBufferCopies(FRHITexture* Source, FRHIBuffer* Destination,
-		std::span<const FRHIBufferTextureCopyRegion> Regions) -> FRHIOperationResult;
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> std::expected<void, FRHIBufferTextureCopyError>;
 	RHI_API auto ValidateTextureCopies(FRHITexture* Source, FRHITexture* Destination,
-		std::span<const FRHITextureCopyRegion> Regions) -> FRHIOperationResult;
+		std::span<const FRHITextureCopyRegion> Regions) -> std::expected<void, FRHITextureCopyError>;
 	RHI_API auto GetBufferTextureCopyFootprint(const FRHITexture& Texture,
-		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> FRHIOperationResult;
+		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>;
 
 	// Represents a backend graphics pipeline compatible with a fixed render-target layout.
 	class FRHIGraphicsPipelineState : public FRHIResource

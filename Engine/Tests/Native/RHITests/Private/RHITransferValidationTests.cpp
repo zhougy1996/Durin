@@ -11,7 +11,7 @@ namespace Durin
 		uint64 Footprint = 123;
 		auto Result = GetBufferTextureCopyFootprint(Texture, Region, Footprint);
 		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.error().Code, FRHIError::FCode{ERHICopyFootprintError::OffsetAlignment});
+		EXPECT_EQ(Result.error(), ERHICopyFootprintError::OffsetAlignment);
 		EXPECT_EQ(Footprint, 123u);
 		Region.BufferOffset = 0;
 		Result = GetBufferTextureCopyFootprint(Texture, Region, Footprint);
@@ -28,23 +28,27 @@ namespace Durin
 		std::array Regions{
 			FRHIBufferCopyRegion{0, 32, 16},
 			FRHIBufferCopyRegion{16, 48, 16}};
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateBufferCopies(&Source, &Destination, Regions))) << FormatRHIError(Error.error());
+		const auto BufferCopiesResult = ValidateBufferCopies(&Source, &Destination, Regions);
+		EXPECT_TRUE(BufferCopiesResult) << FormatRHIError(BufferCopiesResult.error());
 		Regions[1].DestinationOffset = 40;
-		ASSERT_FALSE((Error = ValidateBufferCopies(&Source, &Destination, Regions)));
-		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIBufferCopyError::OverlappingDestinations});
-		EXPECT_EQ(Error.error().Index, 1u);
-		EXPECT_EQ(Error.error().OtherIndex, 0u);
+		const auto BufferCopiesResult2 = ValidateBufferCopies(&Source, &Destination, Regions);
+		ASSERT_FALSE(BufferCopiesResult2);
+		EXPECT_EQ(BufferCopiesResult2.error().Code, ERHIBufferCopyError::OverlappingDestinations);
+		EXPECT_EQ(BufferCopiesResult2.error().Index, 1u);
+		EXPECT_EQ(BufferCopiesResult2.error().OtherIndex, 0u);
 		Regions[1] = {120, 64, 16};
-		ASSERT_FALSE((Error = ValidateBufferCopies(&Source, &Destination, Regions)));
+		const auto BufferCopiesResult3 = ValidateBufferCopies(&Source, &Destination, Regions);
+		ASSERT_FALSE(BufferCopiesResult3);
 
 		FRHIBuffer Aliased(FRHIBufferCreateDesc::Create(
 			"Aliased", 128, 4,
 			EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
-		ASSERT_FALSE((Error = ValidateBufferCopies(&Aliased, &Aliased,
-			std::array{FRHIBufferCopyRegion{0, 8, 16}})));
-		EXPECT_TRUE((Error = ValidateBufferCopies(&Aliased, &Aliased,
-			std::array{FRHIBufferCopyRegion{0, 64, 16}}))) << FormatRHIError(Error.error());
+		const auto BufferCopiesResult4 = ValidateBufferCopies(&Aliased, &Aliased,
+			std::array{FRHIBufferCopyRegion{0, 8, 16}});
+		ASSERT_FALSE(BufferCopiesResult4);
+		const auto BufferCopiesResult5 = ValidateBufferCopies(&Aliased, &Aliased,
+			std::array{FRHIBufferCopyRegion{0, 64, 16}});
+		EXPECT_TRUE(BufferCopiesResult5) << FormatRHIError(BufferCopiesResult5.error());
 	}
 
 	TEST(FRHITransferValidationTests, ValidatesCompressedBufferTextureLayoutsAndEdges)
@@ -59,23 +63,33 @@ namespace Durin
 		FRHIBufferTextureCopyRegion Region{
 			.BufferOffset = 0,
 			.TextureExtent = {7, 7, 1}};
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateBufferToTextureCopies(&Source, &Texture,
-			std::span(&Region, 1)))) << FormatRHIError(Error.error());
-		EXPECT_TRUE((Error = ValidateTextureToBufferCopies(&Texture, &Destination,
-			std::span(&Region, 1)))) << FormatRHIError(Error.error());
+		const auto BufferToTextureCopiesResult = ValidateBufferToTextureCopies(&Source, &Texture,
+			std::span(&Region, 1));
+		EXPECT_TRUE(BufferToTextureCopiesResult) << FormatRHIError(BufferToTextureCopiesResult.error());
+		const auto TextureToBufferCopiesResult = ValidateTextureToBufferCopies(&Texture, &Destination,
+			std::span(&Region, 1));
+		EXPECT_TRUE(TextureToBufferCopiesResult) << FormatRHIError(TextureToBufferCopiesResult.error());
 
 		Region.TextureOffset.X = 1;
-		ASSERT_FALSE((Error = ValidateBufferToTextureCopies(&Source, &Texture,
-			std::span(&Region, 1))));
+		const auto BufferToTextureCopiesResult2 = ValidateBufferToTextureCopies(&Source, &Texture,
+			std::span(&Region, 1));
+		ASSERT_FALSE(BufferToTextureCopiesResult2);
+		EXPECT_EQ(BufferToTextureCopiesResult2.error().Code,
+			FRHIBufferTextureCopyError::FCode{ERHITextureCopyRegionError::BoxOutOfBounds});
+		EXPECT_EQ(BufferToTextureCopiesResult2.error().Index, 0u);
 		Region.TextureOffset.X = 0;
 		Region.BufferRowLength = 7;
-		ASSERT_FALSE((Error = ValidateBufferToTextureCopies(&Source, &Texture,
-			std::span(&Region, 1))));
+		const auto BufferToTextureCopiesResult3 = ValidateBufferToTextureCopies(&Source, &Texture,
+			std::span(&Region, 1));
+		ASSERT_FALSE(BufferToTextureCopiesResult3);
+		EXPECT_EQ(BufferToTextureCopiesResult3.error().Code,
+			FRHIBufferTextureCopyError::FCode{ERHICopyFootprintError::BlockAlignment});
+		EXPECT_EQ(BufferToTextureCopiesResult3.error().Index, 0u);
 		Region.BufferRowLength = 8;
 		Region.BufferImageHeight = 8;
-		EXPECT_TRUE((Error = ValidateBufferToTextureCopies(&Source, &Texture,
-			std::span(&Region, 1)))) << FormatRHIError(Error.error());
+		const auto BufferToTextureCopiesResult4 = ValidateBufferToTextureCopies(&Source, &Texture,
+			std::span(&Region, 1));
+		EXPECT_TRUE(BufferToTextureCopiesResult4) << FormatRHIError(BufferToTextureCopiesResult4.error());
 	}
 
 	TEST(FRHITransferValidationTests, ValidatesExactTextureCopiesAndRejectsConversion)
@@ -96,17 +110,19 @@ namespace Durin
 			FRHITextureCopyRegion{.SourceMip = 1, .SourceFirstArrayLayer = 3,
 				.DestinationMip = 1, .DestinationFirstArrayLayer = 5,
 				.Extent = {4, 4, 1}}};
-		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateTextureCopies(&Source, &Destination, Regions))) << FormatRHIError(Error.error());
+		const auto TextureCopiesResult = ValidateTextureCopies(&Source, &Destination, Regions);
+		EXPECT_TRUE(TextureCopiesResult) << FormatRHIError(TextureCopiesResult.error());
 		Regions[1].DestinationFirstArrayLayer = 4;
 		Regions[1].DestinationMip = 0;
-		ASSERT_FALSE((Error = ValidateTextureCopies(&Source, &Destination, Regions)));
+		const auto TextureCopiesResult2 = ValidateTextureCopies(&Source, &Destination, Regions);
+		ASSERT_FALSE(TextureCopiesResult2);
 
 		FRHITexture Different(FRHITextureCreateDesc::Create2D(
 			"Different", 8, 8, EPixelFormat::BGRA8_UNORM)
 			.SetFlags(ETextureCreateFlags::DestinationCopy));
-		ASSERT_FALSE((Error = ValidateTextureCopies(&Source, &Different,
-			std::span(Regions).first(1))));
+		const auto TextureCopiesResult3 = ValidateTextureCopies(&Source, &Different,
+			std::span(Regions).first(1));
+		ASSERT_FALSE(TextureCopiesResult3);
 	}
 
 	TEST(FRHITransferValidationTests, RejectsMissingTransferIntent)
@@ -115,8 +131,8 @@ namespace Durin
 			"Source", 16, 4, EBufferUsageFlags::None));
 		FRHIBuffer Destination(FRHIBufferCreateDesc::Create(
 			"Destination", 16, 4, EBufferUsageFlags::DestinationCopy));
-		FRHIOperationResult Error;
-		ASSERT_FALSE((Error = ValidateBufferCopies(&Source, &Destination,
-			std::span<const FRHIBufferCopyRegion>{})));
+		const auto BufferCopiesResult = ValidateBufferCopies(&Source, &Destination,
+			std::span<const FRHIBufferCopyRegion>{});
+		ASSERT_FALSE(BufferCopiesResult);
 	}
 } // namespace Durin

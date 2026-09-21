@@ -7,14 +7,6 @@
 namespace Durin
 {
 	enum class ERHIBindingType : uint8;
-	enum class ERHIAccessError : uint8
-	{
-		DiscardAfter,
-		NoneAfter,
-		CombinedDiscard,
-		UnknownBits,
-		ExclusiveState,
-	};
 
 	enum class ERHIShaderBindingError : uint8
 	{
@@ -68,6 +60,7 @@ namespace Durin
 		InvalidResourceType,
 		EmptyRange,
 		RangeOutOfBounds,
+		InvalidAccess,
 		IncompatibleUsage,
 		OverlappingRanges,
 	};
@@ -82,6 +75,7 @@ namespace Durin
 		MipOutOfBounds,
 		LayerOutOfBounds,
 		IndeterminateLayout,
+		InvalidAccess,
 		IncompatibleUsage,
 		IncompatibleAspects,
 		OverlappingRanges,
@@ -259,29 +253,11 @@ namespace Durin
 		FootprintOverflow,
 	};
 
-	// Engine-owned failures carry semantic codes and locations, never prose.
-	struct FRHIError
+	// Context is local to the operation that needs it. Scalar failures use enums.
+	struct FRHIShaderBindingError
 	{
-		using FCode = std::variant<
-			ERHIAccessError,
-			ERHIShaderBindingError,
-			ERHIGraphicsPipelineError,
-			ERHIComputePipelineError,
-			ERHIBufferTransitionError,
-			ERHITextureTransitionError,
-			ERHIBufferViewError,
-			ERHITextureViewError,
-			ERHITextureCopyRegionError,
-			ERHICopyFootprintError,
-			ERHIBufferCopyError,
-			ERHIBufferTextureCopyError,
-			ERHITextureCopyError,
-			ERHITextureCreateError,
-			ERHITextureUploadError,
-			ERHIVolumeUploadError>;
-		FCode Code;
+		ERHIShaderBindingError Code;
 		std::optional<uint32> Index;
-		std::optional<uint32> OtherIndex;
 		std::optional<uint32> SetIndex;
 		std::optional<uint32> BindingIndex;
 		std::optional<uint32> ArrayElement;
@@ -289,10 +265,61 @@ namespace Durin
 		std::optional<ERHIBindingType> ActualBindingType;
 	};
 
-	template<typename T = void>
-	using TRHIResult = std::expected<T, FRHIError>;
-	using FRHIOperationResult = TRHIResult<>;
+	struct FRHIBufferTransitionError
+	{
+		ERHIBufferTransitionError Code;
+		std::optional<uint32> Index;
+		std::optional<uint32> OtherIndex;
+	};
 
-	// Presentation boundary only: logging, assertions and user interfaces.
-	RHI_API auto FormatRHIError(const FRHIError& Error) -> std::string;
+	struct FRHITextureTransitionError
+	{
+		ERHITextureTransitionError Code;
+		std::optional<uint32> Index;
+		std::optional<uint32> OtherIndex;
+	};
+
+	struct FRHIBufferCopyError
+	{
+		ERHIBufferCopyError Code;
+		std::optional<uint32> Index;
+		std::optional<uint32> OtherIndex;
+	};
+
+	struct FRHIBufferTextureCopyError
+	{
+		using FCode = std::variant<ERHIBufferTextureCopyError, ERHITextureCopyRegionError, ERHICopyFootprintError>;
+		FCode Code;
+		std::optional<uint32> Index;
+	};
+
+	struct FRHITextureCopyError
+	{
+		using FCode = std::variant<ERHITextureCopyError, ERHITextureCopyRegionError>;
+		FCode Code;
+		std::optional<uint32> Index;
+	};
+
+	// Presentation boundaries format only the error types they consume.
+	RHI_API auto FormatRHIError(ERHIShaderBindingError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIGraphicsPipelineError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIComputePipelineError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIBufferTransitionError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureTransitionError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIBufferViewError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureViewError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureCopyRegionError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHICopyFootprintError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIBufferCopyError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIBufferTextureCopyError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureCopyError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureCreateError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHITextureUploadError Error) -> std::string;
+	RHI_API auto FormatRHIError(ERHIVolumeUploadError Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHIShaderBindingError& Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHIBufferTransitionError& Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHITextureTransitionError& Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHIBufferCopyError& Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHIBufferTextureCopyError& Error) -> std::string;
+	RHI_API auto FormatRHIError(const FRHITextureCopyError& Error) -> std::string;
 }

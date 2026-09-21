@@ -72,7 +72,7 @@ namespace Durin
 
 	RHI_API auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
 		EShaderStageFlags ShaderStage,
-		std::span<const FRHIShaderParameterResource> Resources) -> FRHIOperationResult;
+		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
 	RHI_API auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
-		std::span<const FRHIShaderParameterResource> Resources) -> FRHIOperationResult;
+		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
 } // namespace Durin

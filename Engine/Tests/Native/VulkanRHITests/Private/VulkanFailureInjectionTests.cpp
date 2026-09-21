@@ -1612,8 +1612,8 @@ namespace Durin::VulkanRHI
 
 		FRHITextureCreateDesc Oversized = Texture2D;
 		Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
-		FRHIOperationResult ValidationError;
-		ASSERT_TRUE((ValidationError = ValidateTextureCreateDesc(Oversized))) << FormatRHIError(ValidationError.error());
+		const auto TextureCreateDescResult = ValidateTextureCreateDesc(Oversized);
+		ASSERT_TRUE(TextureCreateDescResult) << FormatRHIError(TextureCreateDescResult.error());
 		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);

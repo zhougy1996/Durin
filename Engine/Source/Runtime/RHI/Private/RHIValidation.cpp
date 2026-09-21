@@ -6,18 +6,6 @@ namespace Durin
 	namespace
 	{
 
-		auto DescribeError(ERHIAccessError Code) -> std::string_view
-		{
-			switch (Code)
-			{
-			case ERHIAccessError::DiscardAfter: return "Discard access is valid only as expected-before state.";
-			case ERHIAccessError::NoneAfter: return "Required-after access must not be None.";
-			case ERHIAccessError::CombinedDiscard: return "Discard access must not be combined with another state.";
-			case ERHIAccessError::UnknownBits: return "Access contains an unknown state bit.";
-			case ERHIAccessError::ExclusiveState: return "Write-capable and presentation access states are exclusive.";
-			}
-			return {};
-		}
 
 		auto DescribeError(ERHIShaderBindingError Code) -> std::string_view
 		{
@@ -81,6 +69,7 @@ namespace Durin
 		{
 			switch (Code)
 			{
+			case ERHIBufferTransitionError::InvalidAccess: return "Transition access state is invalid.";
 			case ERHIBufferTransitionError::NullResource: return "Buffer transition resource is null.";
 			case ERHIBufferTransitionError::InvalidResourceType: return "Buffer transition resource type is invalid.";
 			case ERHIBufferTransitionError::EmptyRange: return "Buffer transition size must be nonzero.";
@@ -95,6 +84,7 @@ namespace Durin
 		{
 			switch (Code)
 			{
+			case ERHITextureTransitionError::InvalidAccess: return "Transition access state is invalid.";
 			case ERHITextureTransitionError::NullResource: return "Texture transition resource is null.";
 			case ERHITextureTransitionError::InvalidResourceType: return "Texture transition resource type is invalid.";
 			case ERHITextureTransitionError::EmptyAspects: return "Texture transition aspects must be nonempty.";
@@ -323,16 +313,108 @@ namespace Durin
 		}
 	}
 
-	auto FormatRHIError(const FRHIError& Error) -> std::string
+	auto FormatRHIError(ERHIShaderBindingError Error) -> std::string
 	{
-		std::string Text(std::visit([](auto Code) { return DescribeError(Code); }, Error.Code));
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIGraphicsPipelineError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIComputePipelineError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIBufferTransitionError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureTransitionError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIBufferViewError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureViewError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureCopyRegionError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHICopyFootprintError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIBufferCopyError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIBufferTextureCopyError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureCopyError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureCreateError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHITextureUploadError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(ERHIVolumeUploadError Error) -> std::string
+	{
+		return std::string(DescribeError(Error));
+	}
+	auto FormatRHIError(const FRHIShaderBindingError& Error) -> std::string
+	{
+		std::string Text = FormatRHIError(Error.Code);
 		if (Error.Index) Text += std::format(" index={}", *Error.Index);
-		if (Error.OtherIndex) Text += std::format(" other={}", *Error.OtherIndex);
 		if (Error.SetIndex) Text += std::format(" set={}", *Error.SetIndex);
 		if (Error.BindingIndex) Text += std::format(" binding={}", *Error.BindingIndex);
 		if (Error.ArrayElement) Text += std::format(" element={}", *Error.ArrayElement);
 		if (Error.ExpectedBindingType) Text += std::format(" expected-type={}", static_cast<uint32>(*Error.ExpectedBindingType));
 		if (Error.ActualBindingType) Text += std::format(" actual-type={}", static_cast<uint32>(*Error.ActualBindingType));
+		return Text;
+	}
+	auto FormatRHIError(const FRHIBufferTransitionError& Error) -> std::string
+	{
+		std::string Text = FormatRHIError(Error.Code);
+		if (Error.Index) Text += std::format(" index={}", *Error.Index);
+		if (Error.OtherIndex) Text += std::format(" other={}", *Error.OtherIndex);
+		return Text;
+	}
+	auto FormatRHIError(const FRHITextureTransitionError& Error) -> std::string
+	{
+		std::string Text = FormatRHIError(Error.Code);
+		if (Error.Index) Text += std::format(" index={}", *Error.Index);
+		if (Error.OtherIndex) Text += std::format(" other={}", *Error.OtherIndex);
+		return Text;
+	}
+	auto FormatRHIError(const FRHIBufferCopyError& Error) -> std::string
+	{
+		std::string Text = FormatRHIError(Error.Code);
+		if (Error.Index) Text += std::format(" index={}", *Error.Index);
+		if (Error.OtherIndex) Text += std::format(" other={}", *Error.OtherIndex);
+		return Text;
+	}
+	auto FormatRHIError(const FRHIBufferTextureCopyError& Error) -> std::string
+	{
+		std::string Text = std::visit([](auto Code) { return FormatRHIError(Code); }, Error.Code);
+		if (Error.Index) Text += std::format(" index={}", *Error.Index);
+		return Text;
+	}
+	auto FormatRHIError(const FRHITextureCopyError& Error) -> std::string
+	{
+		std::string Text = std::visit([](auto Code) { return FormatRHIError(Code); }, Error.Code);
+		if (Error.Index) Text += std::format(" index={}", *Error.Index);
 		return Text;
 	}
 	auto FRHICreationError::GetSemanticFingerprint() const -> size_t

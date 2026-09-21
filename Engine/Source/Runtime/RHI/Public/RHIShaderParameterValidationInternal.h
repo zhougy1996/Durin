@@ -29,7 +29,7 @@ namespace Durin::RHIShaderParameterValidationInternal
 	auto VisitOrderedBindings(const FPipelineLayoutDesc& Layout,
 		std::span<const FRHIShaderParameterResource> Resources,
 		FVisitor&& Visitor,
-		uint64* ValidationVisits = nullptr) -> FRHIOperationResult
+		uint64* ValidationVisits = nullptr) -> std::expected<void, FRHIShaderBindingError>
 	{
 		size_t ResourceIndex = 0;
 		for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
@@ -52,7 +52,7 @@ namespace Durin::RHIShaderParameterValidationInternal
 							? ERHIShaderBindingError::MissingBinding
 							: !Resources[ResourceIndex].Resource ? ERHIShaderBindingError::NullResource
 							: ERHIShaderBindingError::TypeMismatch;
-						FRHIError Error{Code, static_cast<uint32>(ResourceIndex)};
+						FRHIShaderBindingError Error{Code, static_cast<uint32>(ResourceIndex)};
 						Error.SetIndex = SetIndex;
 						Error.BindingIndex = Binding.Slot;
 						Error.ArrayElement = ArrayElement;
@@ -71,7 +71,7 @@ namespace Durin::RHIShaderParameterValidationInternal
 		if (ResourceIndex != Resources.size())
 		{
 			if (ValidationVisits) ++*ValidationVisits;
-			FRHIError Error{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
+			FRHIShaderBindingError Error{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
 			Error.SetIndex = Resources[ResourceIndex].SetIndex;
 			Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
 			Error.ArrayElement = Resources[ResourceIndex].ArrayElement;

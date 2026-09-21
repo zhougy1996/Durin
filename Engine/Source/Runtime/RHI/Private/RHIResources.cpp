@@ -184,30 +184,13 @@ namespace Durin
 			return Value != 0 && (Value & (Value - 1)) == 0;
 		}
 
-		auto IsValidAccessShape(ERHIAccess Access, bool bExpected) -> FRHIOperationResult
+		auto IsValidAccessShape(ERHIAccess Access, bool bExpected) -> bool
 		{
-			if (Access == ERHIAccess::Discard)
-			{
-				return bExpected ? FRHIOperationResult{} : FRHIOperationResult{std::unexpected(FRHIError{ERHIAccessError::DiscardAfter})};
-			}
-			if (Access == ERHIAccess::None)
-			{
-				return bExpected ? FRHIOperationResult{} : FRHIOperationResult{std::unexpected(FRHIError{ERHIAccessError::NoneAfter})};
-			}
-			if (EnumHasAnyFlags(Access, ERHIAccess::Discard))
-			{
-				return std::unexpected(FRHIError{ERHIAccessError::CombinedDiscard});
-			}
+			if (Access == ERHIAccess::Discard || Access == ERHIAccess::None) return bExpected;
+			if (EnumHasAnyFlags(Access, ERHIAccess::Discard)) return false;
 			const ERHIAccess KnownMask = ReadAccessMask | ExclusiveAccessMask;
-			if ((static_cast<uint32>(Access) & ~static_cast<uint32>(KnownMask)) != 0)
-			{
-				return std::unexpected(FRHIError{ERHIAccessError::UnknownBits});
-			}
-			if (EnumHasAnyFlags(Access, ExclusiveAccessMask) && !IsSingleBit(Access))
-			{
-				return std::unexpected(FRHIError{ERHIAccessError::ExclusiveState});
-			}
-			return {};
+			if ((static_cast<uint32>(Access) & ~static_cast<uint32>(KnownMask)) != 0) return false;
+			return !EnumHasAnyFlags(Access, ExclusiveAccessMask) || IsSingleBit(Access);
 		}
 
 		auto BufferUsageAdmits(EBufferUsageFlags Usage, ERHIAccess Access) -> bool
@@ -281,29 +264,19 @@ namespace Durin
 		}
 	}
 
-	auto FGraphicsPipelineStateInitializer::IsValid() const -> bool
-	{
-		return BuildGraphicsPipelineStateKey(*this, nullptr).has_value();
-	}
-
-	auto FComputePipelineStateInitializer::IsValid() const -> bool
-	{
-		return BuildComputePipelineStateKey(*this, nullptr).has_value();
-	}
-
 	auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
 		EShaderStageFlags ShaderStage,
-		std::span<const FRHIShaderParameterResource> Resources) -> FRHIOperationResult
+		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>
 	{
 		if (ShaderStage != EShaderStageFlags::Vertex
 			&& ShaderStage != EShaderStageFlags::Fragment
 			&& ShaderStage != EShaderStageFlags::Compute)
-			return std::unexpected(FRHIError{ERHIShaderBindingError::InvalidStage});
+			return std::unexpected(FRHIShaderBindingError{ERHIShaderBindingError::InvalidStage});
 		for (uint32 Index = 0; Index < Resources.size(); ++Index)
 		{
 			const auto& Resource = Resources[Index];
 			auto Fail = [&](ERHIShaderBindingError Code) {
-				FRHIError Error{Code, Index};
+				FRHIShaderBindingError Error{Code, Index};
 				Error.SetIndex = Resource.SetIndex;
 				Error.BindingIndex = Resource.BindingIndex;
 				Error.ArrayElement = Resource.ArrayElement;
@@ -329,21 +302,16 @@ namespace Durin
 	}
 
 	auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
-		std::span<const FRHIShaderParameterResource> Resources) -> FRHIOperationResult
+		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>
 	{
 		return RHIShaderParameterValidationInternal::VisitOrderedBindings(
 			Layout, Resources, [](const auto&, const auto&) {});
 	}
 
-	auto BuildGraphicsPipelineStateKey(
+	static auto ValidateGraphicsPipelineInitializer(
 		const FGraphicsPipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities) -> TRHIResult<FGraphicsPipelineStateKey>
+		const FRHICapabilities* Capabilities) -> std::expected<void, ERHIGraphicsPipelineError>
 	{
-		const auto CanonicalizeNumericFloat = [](float Value) {
-			// Accepted key floats use numeric equality. Collapse both signed-zero
-			// representations so their byte-wise hash has the same identity.
-			return Value == 0.0f ? 0.0f : Value;
-		};
 		const auto IsCompareValid = [](ERHIDepthCompareOp Op) {
 			return Op < ERHIDepthCompareOp::Count;
 		};
@@ -377,17 +345,17 @@ namespace Durin
 			|| !IsCompareValid(Initializer.DepthStencilState.CompareOp)
 			|| !IsStencilFaceValid(Initializer.DepthStencilState.FrontFace)
 			|| !IsStencilFaceValid(Initializer.DepthStencilState.BackFace))
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidFixedState});
+			return std::unexpected(ERHIGraphicsPipelineError::InvalidFixedState);
 		for (const FRHIColorBlendState& Blend : Initializer.ColorBlendStates)
 			if (!IsBlendValid(Blend))
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidBlendState});
+				return std::unexpected(ERHIGraphicsPipelineError::InvalidBlendState);
 
 		if (!Initializer.BoundShaders.VertexShader
 			|| !Initializer.BoundShaders.FragmentShader)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::MissingShaders});
+			return std::unexpected(ERHIGraphicsPipelineError::MissingShaders);
 		if (Initializer.BoundShaders.VertexShader->GetFrequency() != EShaderFrequency::Vertex
 			|| Initializer.BoundShaders.FragmentShader->GetFrequency() != EShaderFrequency::Fragment)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::ShaderStageMismatch});
+			return std::unexpected(ERHIGraphicsPipelineError::ShaderStageMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
 			std::unordered_set<uint32> Slots;
@@ -399,7 +367,7 @@ namespace Durin
 						& ~static_cast<uint32>(KnownStages)) != 0
 					|| Binding.Type > ERHIBindingType::StorageImage
 					|| Binding.ArraySize == 0 || !Slots.insert(Binding.Slot).second)
-					return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidReflectedLayout});
+					return std::unexpected(ERHIGraphicsPipelineError::InvalidReflectedLayout);
 			}
 		}
 		for (const FPushConstantRange& Range : Initializer.PipelineLayout.PushConstantRanges)
@@ -409,28 +377,27 @@ namespace Durin
 				|| (Range.Offset % 4) != 0 || (Range.Size % 4) != 0
 				|| (static_cast<uint32>(Range.StageFlags)
 					& ~static_cast<uint32>(KnownStages)) != 0)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidPushConstants});
+				return std::unexpected(ERHIGraphicsPipelineError::InvalidPushConstants);
 		}
 
 		if (!Initializer.RenderTargetLayout.IsValid())
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidRenderTargets});
+			return std::unexpected(ERHIGraphicsPipelineError::InvalidRenderTargets);
 		const uint8 RasterSamples = Initializer.RenderTargetLayout.NumColorRenderTargets > 0
 			? Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.NumSamples
 			: Initializer.RenderTargetLayout.DepthStencilAttachment.NumSamples;
 		if (Initializer.MultisampleState.RasterSamples != RasterSamples)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::SampleCountMismatch});
+			return std::unexpected(ERHIGraphicsPipelineError::SampleCountMismatch);
 		if ((Initializer.DepthStencilState.bEnableTest
 			|| Initializer.DepthStencilState.bEnableWrite
 			|| Initializer.DepthStencilState.bEnableStencil)
 			&& !Initializer.RenderTargetLayout.bHasDepthStencil)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::MissingDepthAttachment});
+			return std::unexpected(ERHIGraphicsPipelineError::MissingDepthAttachment);
 		if (Initializer.DepthStencilState.bEnableStencil
 			&& !GetPixelFormatInfo(Initializer.RenderTargetLayout.DepthStencilAttachment.Format).bHasStencil)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::MissingStencilAttachment});
+			return std::unexpected(ERHIGraphicsPipelineError::MissingStencilAttachment);
 
 		if (!Initializer.VertexDeclaration)
-			return std::unexpected(FRHIError{ERHIGraphicsPipelineError::MissingVertexDeclaration});
-		std::vector<FRHIVertexElementIdentity> VertexElements;
+			return std::unexpected(ERHIGraphicsPipelineError::MissingVertexDeclaration);
 		std::unordered_set<uint32> Attributes;
 		std::unordered_map<uint8, std::pair<uint16,
 			FRHIVertexElementIdentity::EInputRate>> Streams;
@@ -443,43 +410,61 @@ namespace Durin
 				|| ElementSize == 0
 				|| static_cast<uint32>(Element.Offset) + ElementSize > Element.Stride
 				|| !Attributes.insert(Element.AttributeIndex).second)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InvalidVertexDeclaration});
+				return std::unexpected(ERHIGraphicsPipelineError::InvalidVertexDeclaration);
 			const auto [StreamIt, bInserted] = Streams.emplace(Element.StreamIndex,
 				std::pair{Element.Stride, Element.InputRate});
 			if (!bInserted && StreamIt->second != std::pair{Element.Stride, Element.InputRate})
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::InconsistentVertexStream});
-			for (const FRHIVertexElementIdentity& Existing : VertexElements)
+				return std::unexpected(ERHIGraphicsPipelineError::InconsistentVertexStream);
+			for (const FVertexElement& Existing : Initializer.VertexDeclaration->GetElements())
 			{
+				if (&Existing == &Element) break;
 				const uint32 ExistingSize = GetVertexElementSize(Existing.Type);
 				if (Existing.StreamIndex == Element.StreamIndex
 					&& Element.Offset < Existing.Offset + ExistingSize
 					&& Existing.Offset < Element.Offset + ElementSize)
-					return std::unexpected(FRHIError{ERHIGraphicsPipelineError::OverlappingVertexElements});
+					return std::unexpected(ERHIGraphicsPipelineError::OverlappingVertexElements);
 			}
-			VertexElements.push_back({Element.StreamIndex, Element.Offset,
-				Element.Type, Element.AttributeIndex, Element.Stride,
-				Element.InputRate});
 		}
 
 		if (Capabilities)
 		{
 			if (Initializer.RenderTargetLayout.NumColorRenderTargets > Capabilities->MaxColorAttachments)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::TooManyColorAttachments});
+				return std::unexpected(ERHIGraphicsPipelineError::TooManyColorAttachments);
 			const ERHISampleCountFlags SampleFlag = SampleCountFlag(RasterSamples);
 			if (!EnumHasAllFlags(Capabilities->ColorSampleCounts, SampleFlag)
 				|| (Initializer.RenderTargetLayout.bHasDepthStencil
 					&& !EnumHasAllFlags(Capabilities->DepthSampleCounts, SampleFlag)))
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::UnsupportedSampleCount});
+				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedSampleCount);
 			if (Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
 				&& !Capabilities->bSupportsNonSolidFill)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::UnsupportedFillMode});
+				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedFillMode);
 			if (Initializer.RasterizerState.bEnableDepthClamp
 				&& !Capabilities->bSupportsDepthClamp)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::UnsupportedDepthClamp});
+				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedDepthClamp);
 			if (Initializer.RasterizerState.LineWidth != 1.0f
 				&& !Capabilities->bSupportsWideLines)
-				return std::unexpected(FRHIError{ERHIGraphicsPipelineError::UnsupportedWideLines});
+				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedWideLines);
 		}
+
+		return {};
+	}
+
+	auto FGraphicsPipelineStateInitializer::IsValid() const -> bool
+	{
+		return ValidateGraphicsPipelineInitializer(*this, nullptr).has_value();
+	}
+
+	auto BuildGraphicsPipelineStateKey(
+		const FGraphicsPipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities) -> std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError>
+	{
+		if (auto Validation = ValidateGraphicsPipelineInitializer(Initializer, Capabilities); !Validation)
+			return std::unexpected(Validation.error());
+		const auto CanonicalizeNumericFloat = [](float Value) {
+			// Accepted key floats use numeric equality. Collapse both signed-zero
+			// representations so their byte-wise hash has the same identity.
+			return Value == 0.0f ? 0.0f : Value;
+		};
 
 		FGraphicsPipelineStateKey Key;
 		Key.VertexShaderHash = Initializer.BoundShaders.VertexShader->GetHash();
@@ -495,7 +480,12 @@ namespace Durin
 		if (Key.RenderTargetLayout.bHasDepthStencil)
 			Key.RenderTargetLayout.DepthStencilAttachment =
 				Initializer.RenderTargetLayout.DepthStencilAttachment;
-		Key.VertexElements = std::move(VertexElements);
+		for (const FVertexElement& Element : Initializer.VertexDeclaration->GetElements())
+		{
+			if (Element.Type == EVertexElementType::None) break;
+			Key.VertexElements.push_back({Element.StreamIndex, Element.Offset,
+				Element.Type, Element.AttributeIndex, Element.Stride, Element.InputRate});
+		}
 		Key.PipelineLayout = Initializer.PipelineLayout;
 		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
 			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
@@ -627,14 +617,14 @@ namespace Durin
 		return static_cast<size_t>(Builder.Finalize().HashValue);
 	}
 
-	auto BuildComputePipelineStateKey(
+	static auto ValidateComputePipelineInitializer(
 		const FComputePipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities) -> TRHIResult<FComputePipelineStateKey>
+		const FRHICapabilities* Capabilities) -> std::expected<void, ERHIComputePipelineError>
 	{
 		if (!Initializer.ComputeShader)
-			return std::unexpected(FRHIError{ERHIComputePipelineError::MissingShader});
+			return std::unexpected(ERHIComputePipelineError::MissingShader);
 		if (Initializer.ComputeShader->GetFrequency() != EShaderFrequency::Compute)
-			return std::unexpected(FRHIError{ERHIComputePipelineError::ShaderStageMismatch});
+			return std::unexpected(ERHIComputePipelineError::ShaderStageMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
 			std::unordered_set<uint32> Slots;
@@ -644,7 +634,7 @@ namespace Durin
 					|| Binding.Type > ERHIBindingType::StorageImage
 					|| Binding.ArraySize == 0
 					|| !Slots.insert(Binding.Slot).second)
-					return std::unexpected(FRHIError{ERHIComputePipelineError::InvalidReflectedLayout});
+					return std::unexpected(ERHIComputePipelineError::InvalidReflectedLayout);
 			}
 		}
 		for (size_t Index = 0;
@@ -654,7 +644,7 @@ namespace Durin
 				Initializer.PipelineLayout.PushConstantRanges[Index];
 			if (Range.StageFlags != EShaderStageFlags::Compute || Range.Size == 0
 				|| (Range.Offset % 4) != 0 || (Range.Size % 4) != 0)
-				return std::unexpected(FRHIError{ERHIComputePipelineError::InvalidPushConstants});
+				return std::unexpected(ERHIComputePipelineError::InvalidPushConstants);
 			for (size_t OtherIndex = Index + 1;
 				OtherIndex < Initializer.PipelineLayout.PushConstantRanges.size();
 				++OtherIndex)
@@ -662,13 +652,28 @@ namespace Durin
 				const FPushConstantRange& Other =
 					Initializer.PipelineLayout.PushConstantRanges[OtherIndex];
 				if (RangesOverlap(Range.Offset, Range.Size, Other.Offset, Other.Size))
-					return std::unexpected(FRHIError{ERHIComputePipelineError::OverlappingPushConstants});
+					return std::unexpected(ERHIComputePipelineError::OverlappingPushConstants);
 			}
 		}
 		if (Capabilities && std::ranges::any_of(
 			Capabilities->MaxComputeWorkGroupCount,
 			[](uint32 Limit) { return Limit == 0; }))
-			return std::unexpected(FRHIError{ERHIComputePipelineError::MissingDispatchLimits});
+			return std::unexpected(ERHIComputePipelineError::MissingDispatchLimits);
+
+		return {};
+	}
+
+	auto FComputePipelineStateInitializer::IsValid() const -> bool
+	{
+		return ValidateComputePipelineInitializer(*this, nullptr).has_value();
+	}
+
+	auto BuildComputePipelineStateKey(
+		const FComputePipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities) -> std::expected<FComputePipelineStateKey, ERHIComputePipelineError>
+	{
+		if (auto Validation = ValidateComputePipelineInitializer(Initializer, Capabilities); !Validation)
+			return std::unexpected(Validation.error());
 
 		FComputePipelineStateKey Key;
 		Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
@@ -752,65 +757,63 @@ namespace Durin
 			.ExpectedBefore = ExpectedBefore, .RequiredAfter = RequiredAfter};
 	}
 
-	auto ValidateBufferTransition(const FRHIBufferTransition& Transition) -> FRHIOperationResult
+	auto ValidateBufferTransition(const FRHIBufferTransition& Transition) -> std::expected<void, ERHIBufferTransitionError>
 	{
-		FRHIOperationResult Validation;
-		if (Transition.Buffer == nullptr) return std::unexpected(FRHIError{ERHIBufferTransitionError::NullResource});
-		if (Transition.Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(FRHIError{ERHIBufferTransitionError::InvalidResourceType});
-		if (Transition.Size == 0) return std::unexpected(FRHIError{ERHIBufferTransitionError::EmptyRange});
+		if (Transition.Buffer == nullptr) return std::unexpected(ERHIBufferTransitionError::NullResource);
+		if (Transition.Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(ERHIBufferTransitionError::InvalidResourceType);
+		if (Transition.Size == 0) return std::unexpected(ERHIBufferTransitionError::EmptyRange);
 		const uint64 ResourceSize = Transition.Buffer->GetSize();
 		if (Transition.Offset > ResourceSize || Transition.Size > ResourceSize - Transition.Offset)
-			return std::unexpected(FRHIError{ERHIBufferTransitionError::RangeOutOfBounds});
-		if (!(Validation = IsValidAccessShape(Transition.ExpectedBefore, true))
-			|| !(Validation = IsValidAccessShape(Transition.RequiredAfter, false))) return Validation;
+			return std::unexpected(ERHIBufferTransitionError::RangeOutOfBounds);
+		if (!IsValidAccessShape(Transition.ExpectedBefore, true)
+			|| !IsValidAccessShape(Transition.RequiredAfter, false))
+			return std::unexpected(ERHIBufferTransitionError::InvalidAccess);
 		if (!BufferUsageAdmits(Transition.Buffer->GetUsage(), Transition.ExpectedBefore)
 			|| !BufferUsageAdmits(Transition.Buffer->GetUsage(), Transition.RequiredAfter))
-			return std::unexpected(FRHIError{ERHIBufferTransitionError::IncompatibleUsage});
+			return std::unexpected(ERHIBufferTransitionError::IncompatibleUsage);
 		return {};
 	}
 
-	auto ValidateTextureTransition(const FRHITextureTransition& Transition) -> FRHIOperationResult
+	auto ValidateTextureTransition(const FRHITextureTransition& Transition) -> std::expected<void, ERHITextureTransitionError>
 	{
-		FRHIOperationResult Validation;
-		if (Transition.Texture == nullptr) return std::unexpected(FRHIError{ERHITextureTransitionError::NullResource});
-		if (Transition.Texture->GetResourceType() != ERHIResourceType::Texture) return std::unexpected(FRHIError{ERHITextureTransitionError::InvalidResourceType});
-		if (Transition.Range.Aspects == ERHITextureAspect::None) return std::unexpected(FRHIError{ERHITextureTransitionError::EmptyAspects});
+		if (Transition.Texture == nullptr) return std::unexpected(ERHITextureTransitionError::NullResource);
+		if (Transition.Texture->GetResourceType() != ERHIResourceType::Texture) return std::unexpected(ERHITextureTransitionError::InvalidResourceType);
+		if (Transition.Range.Aspects == ERHITextureAspect::None) return std::unexpected(ERHITextureTransitionError::EmptyAspects);
 		constexpr ERHITextureAspect KnownAspects = ERHITextureAspect::Color | ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
 		if ((static_cast<uint8>(Transition.Range.Aspects) & ~static_cast<uint8>(KnownAspects)) != 0
 			|| !EnumHasAllFlags(GetTextureAspects(Transition.Texture->GetFormat()), Transition.Range.Aspects))
-			return std::unexpected(FRHIError{ERHITextureTransitionError::UnsupportedAspects});
+			return std::unexpected(ERHITextureTransitionError::UnsupportedAspects);
 		if (Transition.Range.NumMips == 0 || Transition.Range.NumArrayLayers == 0)
-			return std::unexpected(FRHIError{ERHITextureTransitionError::EmptyRange});
+			return std::unexpected(ERHITextureTransitionError::EmptyRange);
 		if (Transition.Range.FirstMip > Transition.Texture->GetNumMips()
 			|| Transition.Range.NumMips > Transition.Texture->GetNumMips() - Transition.Range.FirstMip)
-			return std::unexpected(FRHIError{ERHITextureTransitionError::MipOutOfBounds});
+			return std::unexpected(ERHITextureTransitionError::MipOutOfBounds);
 		if (Transition.Range.FirstArrayLayer > Transition.Texture->GetArraySize()
 			|| Transition.Range.NumArrayLayers > Transition.Texture->GetArraySize() - Transition.Range.FirstArrayLayer)
-			return std::unexpected(FRHIError{ERHITextureTransitionError::LayerOutOfBounds});
-		if (!(Validation = IsValidAccessShape(Transition.ExpectedBefore, true))
-			|| !(Validation = IsValidAccessShape(Transition.RequiredAfter, false))) return Validation;
+			return std::unexpected(ERHITextureTransitionError::LayerOutOfBounds);
+		if (!IsValidAccessShape(Transition.ExpectedBefore, true)
+			|| !IsValidAccessShape(Transition.RequiredAfter, false))
+			return std::unexpected(ERHITextureTransitionError::InvalidAccess);
 		ERHITextureLayout IgnoredLayout;
 		if (!GetTextureLayoutForAccess(Transition.ExpectedBefore, IgnoredLayout)
 			|| !GetTextureLayoutForAccess(Transition.RequiredAfter, IgnoredLayout))
-			return std::unexpected(FRHIError{ERHITextureTransitionError::IndeterminateLayout});
+			return std::unexpected(ERHITextureTransitionError::IndeterminateLayout);
 		if (!TextureUsageAdmits(*Transition.Texture, Transition.ExpectedBefore)
 			|| !TextureUsageAdmits(*Transition.Texture, Transition.RequiredAfter))
-			return std::unexpected(FRHIError{ERHITextureTransitionError::IncompatibleUsage});
+			return std::unexpected(ERHITextureTransitionError::IncompatibleUsage);
 		if (!TextureAspectsAdmit(Transition.Range.Aspects, Transition.ExpectedBefore)
 			|| !TextureAspectsAdmit(Transition.Range.Aspects, Transition.RequiredAfter))
-			return std::unexpected(FRHIError{ERHITextureTransitionError::IncompatibleAspects});
+			return std::unexpected(ERHITextureTransitionError::IncompatibleAspects);
 		return {};
 	}
 
-	auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions) -> FRHIOperationResult
+	auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions) -> std::expected<void, FRHIBufferTransitionError>
 	{
-		FRHIOperationResult Validation;
 		for (size_t Index = 0; Index < Transitions.size(); ++Index)
 		{
-			if (!(Validation = ValidateBufferTransition(Transitions[Index])))
+			if (auto Validation = ValidateBufferTransition(Transitions[Index]); !Validation)
 			{
-				Validation.error().Index = static_cast<uint32>(Index);
-				return Validation;
+				return std::unexpected(FRHIBufferTransitionError{Validation.error(), static_cast<uint32>(Index)});
 			}
 			for (size_t OtherIndex = 0; OtherIndex < Index; ++OtherIndex)
 			{
@@ -818,22 +821,20 @@ namespace Durin
 					&& RangesOverlap(Transitions[Index].Offset, Transitions[Index].Size,
 						Transitions[OtherIndex].Offset, Transitions[OtherIndex].Size))
 				{
-					return std::unexpected(FRHIError{ERHIBufferTransitionError::OverlappingRanges, static_cast<uint32>(Index), static_cast<uint32>(OtherIndex)});
+					return std::unexpected(FRHIBufferTransitionError{ERHIBufferTransitionError::OverlappingRanges, static_cast<uint32>(Index), static_cast<uint32>(OtherIndex)});
 				}
 			}
 		}
 		return {};
 	}
 
-	auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions) -> FRHIOperationResult
+	auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions) -> std::expected<void, FRHITextureTransitionError>
 	{
-		FRHIOperationResult Validation;
 		for (size_t Index = 0; Index < Transitions.size(); ++Index)
 		{
-			if (!(Validation = ValidateTextureTransition(Transitions[Index])))
+			if (auto Validation = ValidateTextureTransition(Transitions[Index]); !Validation)
 			{
-				Validation.error().Index = static_cast<uint32>(Index);
-				return Validation;
+				return std::unexpected(FRHITextureTransitionError{Validation.error(), static_cast<uint32>(Index)});
 			}
 			for (size_t OtherIndex = 0; OtherIndex < Index; ++OtherIndex)
 			{
@@ -845,7 +846,7 @@ namespace Durin
 					B.Range.FirstArrayLayer, B.Range.NumArrayLayers);
 				if (A.Texture == B.Texture && bAspectOverlap && bMipOverlap && bLayerOverlap)
 				{
-					return std::unexpected(FRHIError{ERHITextureTransitionError::OverlappingRanges, static_cast<uint32>(Index), static_cast<uint32>(OtherIndex)});
+					return std::unexpected(FRHITextureTransitionError{ERHITextureTransitionError::OverlappingRanges, static_cast<uint32>(Index), static_cast<uint32>(OtherIndex)});
 				}
 			}
 		}
@@ -887,93 +888,93 @@ namespace Durin
 
 	auto ValidateBufferViewDesc(
 		const FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc) -> FRHIOperationResult
+		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>
 	{
-		if (Buffer == nullptr) return std::unexpected(FRHIError{ERHIBufferViewError::NullParent});
-		if (Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(FRHIError{ERHIBufferViewError::InvalidParentType});
-		if (Desc.Size == 0) return std::unexpected(FRHIError{ERHIBufferViewError::EmptyRange});
+		if (Buffer == nullptr) return std::unexpected(ERHIBufferViewError::NullParent);
+		if (Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(ERHIBufferViewError::InvalidParentType);
+		if (Desc.Size == 0) return std::unexpected(ERHIBufferViewError::EmptyRange);
 		if (Desc.Offset > Buffer->GetSize() || Desc.Size > Buffer->GetSize() - Desc.Offset)
-			return std::unexpected(FRHIError{ERHIBufferViewError::RangeOutOfBounds});
+			return std::unexpected(ERHIBufferViewError::RangeOutOfBounds);
 
 		const EBufferUsageFlags Usage = Buffer->GetUsage();
 		switch (Desc.Type)
 		{
 		case ERHIBufferViewType::Uniform:
-			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(FRHIError{ERHIBufferViewError::UniformFormat});
+			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(ERHIBufferViewError::UniformFormat);
 			if (!EnumHasAnyFlags(Usage, EBufferUsageFlags::UniformBuffer))
-				return std::unexpected(FRHIError{ERHIBufferViewError::UniformUsage});
+				return std::unexpected(ERHIBufferViewError::UniformUsage);
 			if ((Desc.Offset % 16) != 0 || (Desc.Size % 16) != 0)
-				return std::unexpected(FRHIError{ERHIBufferViewError::UniformAlignment});
+				return std::unexpected(ERHIBufferViewError::UniformAlignment);
 			break;
 		case ERHIBufferViewType::StructuredStorage:
-			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(FRHIError{ERHIBufferViewError::StructuredFormat});
+			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(ERHIBufferViewError::StructuredFormat);
 			if (!EnumHasAnyFlags(Usage, EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess))
-				return std::unexpected(FRHIError{ERHIBufferViewError::StructuredUsage});
+				return std::unexpected(ERHIBufferViewError::StructuredUsage);
 			if (Buffer->GetStride() == 0 || (Desc.Offset % Buffer->GetStride()) != 0
 				|| (Desc.Size % Buffer->GetStride()) != 0)
-				return std::unexpected(FRHIError{ERHIBufferViewError::StructuredAlignment});
+				return std::unexpected(ERHIBufferViewError::StructuredAlignment);
 			break;
 		case ERHIBufferViewType::ByteAddressStorage:
-			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(FRHIError{ERHIBufferViewError::ByteAddressFormat});
+			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(ERHIBufferViewError::ByteAddressFormat);
 			if (!EnumHasAnyFlags(Usage, EBufferUsageFlags::ByteAddressBuffer))
-				return std::unexpected(FRHIError{ERHIBufferViewError::ByteAddressUsage});
+				return std::unexpected(ERHIBufferViewError::ByteAddressUsage);
 			if ((Desc.Offset % 4) != 0 || (Desc.Size % 4) != 0)
-				return std::unexpected(FRHIError{ERHIBufferViewError::ByteAddressAlignment});
+				return std::unexpected(ERHIBufferViewError::ByteAddressAlignment);
 			break;
 		case ERHIBufferViewType::Formatted:
 		{
 			if (!EnumHasAnyFlags(Usage, EBufferUsageFlags::FormattedBuffer))
-				return std::unexpected(FRHIError{ERHIBufferViewError::FormattedUsage});
+				return std::unexpected(ERHIBufferViewError::FormattedUsage);
 			const FPixelFormatInfo& Format = GetPixelFormatInfo(Desc.Format);
 			if (Desc.Format == EPixelFormat::Unknown || Format.BlockSize != 1
 				|| Format.BytesPerBlock == 0 || Format.Kind == EPixelFormatKind::DepthStencil)
-				return std::unexpected(FRHIError{ERHIBufferViewError::InvalidFormattedFormat});
+				return std::unexpected(ERHIBufferViewError::InvalidFormattedFormat);
 			if ((Desc.Offset % Format.BytesPerBlock) != 0 || (Desc.Size % Format.BytesPerBlock) != 0)
-				return std::unexpected(FRHIError{ERHIBufferViewError::FormattedAlignment});
+				return std::unexpected(ERHIBufferViewError::FormattedAlignment);
 			break;
 		}
 		default:
-			return std::unexpected(FRHIError{ERHIBufferViewError::InvalidType});
+			return std::unexpected(ERHIBufferViewError::InvalidType);
 		}
 		return {};
 	}
 
 	auto ValidateTextureViewDesc(
 		const FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc) -> FRHIOperationResult
+		const FRHITextureViewDesc& Desc) -> std::expected<void, ERHITextureViewError>
 	{
-		if (Texture == nullptr) return std::unexpected(FRHIError{ERHITextureViewError::NullParent});
-		if (Texture->GetResourceType() != ERHIResourceType::Texture) return std::unexpected(FRHIError{ERHITextureViewError::InvalidParentType});
-		if (Desc.Format != Texture->GetFormat()) return std::unexpected(FRHIError{ERHITextureViewError::FormatMismatch});
+		if (Texture == nullptr) return std::unexpected(ERHITextureViewError::NullParent);
+		if (Texture->GetResourceType() != ERHIResourceType::Texture) return std::unexpected(ERHITextureViewError::InvalidParentType);
+		if (Desc.Format != Texture->GetFormat()) return std::unexpected(ERHITextureViewError::FormatMismatch);
 		if (Desc.Range.Aspects == ERHITextureAspect::None)
-			return std::unexpected(FRHIError{ERHITextureViewError::EmptyAspects});
+			return std::unexpected(ERHITextureViewError::EmptyAspects);
 		constexpr ERHITextureAspect KnownAspects = ERHITextureAspect::Color
 			| ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
 		if ((static_cast<uint8>(Desc.Range.Aspects) & ~static_cast<uint8>(KnownAspects)) != 0
 			|| !EnumHasAllFlags(GetTextureAspects(Texture->GetFormat()), Desc.Range.Aspects))
-			return std::unexpected(FRHIError{ERHITextureViewError::UnsupportedAspects});
+			return std::unexpected(ERHITextureViewError::UnsupportedAspects);
 		if (Desc.Range.NumMips == 0 || Desc.Range.NumArrayLayers == 0)
-			return std::unexpected(FRHIError{ERHITextureViewError::EmptyRange});
+			return std::unexpected(ERHITextureViewError::EmptyRange);
 		if (Desc.Range.FirstMip > Texture->GetNumMips()
 			|| Desc.Range.NumMips > Texture->GetNumMips() - Desc.Range.FirstMip)
-			return std::unexpected(FRHIError{ERHITextureViewError::MipOutOfBounds});
+			return std::unexpected(ERHITextureViewError::MipOutOfBounds);
 		if (Desc.Range.FirstArrayLayer > Texture->GetArraySize()
 			|| Desc.Range.NumArrayLayers > Texture->GetArraySize() - Desc.Range.FirstArrayLayer)
-			return std::unexpected(FRHIError{ERHITextureViewError::LayerOutOfBounds});
+			return std::unexpected(ERHITextureViewError::LayerOutOfBounds);
 
 		if (Desc.Dimension == ERHITextureViewDimension::TextureCube)
 		{
 			if (Texture->GetDimension() != ETextureDimension::TextureCube
 				|| Desc.Range.FirstArrayLayer != 0
 				|| Desc.Range.NumArrayLayers != TextureCubeFaceCount)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidCubeRange});
+				return std::unexpected(ERHITextureViewError::InvalidCubeRange);
 		}
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture3D)
 		{
 			if (Texture->GetDimension() != ETextureDimension::Texture3D
 				|| Desc.Range.FirstArrayLayer != 0
 				|| Desc.Range.NumArrayLayers != 1)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidVolumeRange});
+				return std::unexpected(ERHITextureViewError::InvalidVolumeRange);
 		}
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture2D)
 		{
@@ -981,16 +982,16 @@ namespace Durin
 				&& Texture->GetDimension() != ETextureDimension::Texture2DArray
 				&& Texture->GetDimension() != ETextureDimension::TextureCube)
 				|| Desc.Range.NumArrayLayers != 1)
-				return std::unexpected(FRHIError{ERHITextureViewError::Invalid2DRange});
+				return std::unexpected(ERHITextureViewError::Invalid2DRange);
 		}
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture2DArray)
 		{
 			if (Texture->GetDimension() != ETextureDimension::Texture2DArray)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidArrayParent});
+				return std::unexpected(ERHITextureViewError::InvalidArrayParent);
 		}
 		else
 		{
-			return std::unexpected(FRHIError{ERHITextureViewError::UnsupportedDimension});
+			return std::unexpected(ERHITextureViewError::UnsupportedDimension);
 		}
 
 		const ETextureCreateFlags Flags = Texture->GetFlags();
@@ -998,43 +999,43 @@ namespace Durin
 		{
 		case ERHITextureViewUsage::Sampled:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::ShaderResource))
-				return std::unexpected(FRHIError{ERHITextureViewError::SampledUsage});
+				return std::unexpected(ERHITextureViewError::SampledUsage);
 			break;
 		case ERHITextureViewUsage::Storage:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::Storage))
-				return std::unexpected(FRHIError{ERHITextureViewError::StorageUsage});
+				return std::unexpected(ERHITextureViewError::StorageUsage);
 			if (Texture->GetNumSamples() != 1
 				|| (Desc.Dimension != ERHITextureViewDimension::Texture2D
 					&& Desc.Dimension != ERHITextureViewDimension::Texture3D)
 				|| Desc.Range.Aspects != ERHITextureAspect::Color)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidStorageRange});
+				return std::unexpected(ERHITextureViewError::InvalidStorageRange);
 			break;
 		case ERHITextureViewUsage::ColorAttachment:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
-				return std::unexpected(FRHIError{ERHITextureViewError::ColorAttachmentUsage});
+				return std::unexpected(ERHITextureViewError::ColorAttachmentUsage);
 			if (Desc.Dimension != ERHITextureViewDimension::Texture2D
 				|| Desc.Range.Aspects != ERHITextureAspect::Color
 				|| Desc.Range.NumMips != 1 || Desc.Range.NumArrayLayers != 1)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidColorAttachmentRange});
+				return std::unexpected(ERHITextureViewError::InvalidColorAttachmentRange);
 			break;
 		case ERHITextureViewUsage::DepthStencilAttachment:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::DepthStencilTargetable))
-				return std::unexpected(FRHIError{ERHITextureViewError::DepthAttachmentUsage});
+				return std::unexpected(ERHITextureViewError::DepthAttachmentUsage);
 			if (Desc.Dimension != ERHITextureViewDimension::Texture2D
 				|| EnumHasAnyFlags(Desc.Range.Aspects, ERHITextureAspect::Color)
 				|| Desc.Range.NumMips != 1 || Desc.Range.NumArrayLayers != 1)
-				return std::unexpected(FRHIError{ERHITextureViewError::InvalidDepthAttachmentRange});
+				return std::unexpected(ERHITextureViewError::InvalidDepthAttachmentRange);
 			break;
 		case ERHITextureViewUsage::TransferSource:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback))
-				return std::unexpected(FRHIError{ERHITextureViewError::TransferSourceUsage});
+				return std::unexpected(ERHITextureViewError::TransferSourceUsage);
 			break;
 		case ERHITextureViewUsage::TransferDestination:
 			if (!EnumHasAnyFlags(Flags, ETextureCreateFlags::DestinationCopy))
-				return std::unexpected(FRHIError{ERHITextureViewError::TransferDestinationUsage});
+				return std::unexpected(ERHITextureViewError::TransferDestinationUsage);
 			break;
 		default:
-			return std::unexpected(FRHIError{ERHITextureViewError::InvalidUsage});
+			return std::unexpected(ERHITextureViewError::InvalidUsage);
 		}
 		return {};
 	}
@@ -1055,32 +1056,32 @@ namespace Durin
 			uint32 FirstLayer,
 			uint32 NumLayers,
 			const FRHITextureOffset3D& Offset,
-			const FRHITextureExtent3D& Extent) -> FRHIOperationResult
+			const FRHITextureExtent3D& Extent) -> std::expected<void, ERHITextureCopyRegionError>
 		{
 			if (!IsSingleCopyAspect(Aspect) || !EnumHasAllFlags(GetTextureAspects(Texture.GetFormat()), Aspect))
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::UnsupportedAspect});
+				return std::unexpected(ERHITextureCopyRegionError::UnsupportedAspect);
 			if (Aspect != ERHITextureAspect::Color)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::UnsupportedDepthStencil});
-			if (Mip >= Texture.GetNumMips()) return std::unexpected(FRHIError{ERHITextureCopyRegionError::MipOutOfBounds});
+				return std::unexpected(ERHITextureCopyRegionError::UnsupportedDepthStencil);
+			if (Mip >= Texture.GetNumMips()) return std::unexpected(ERHITextureCopyRegionError::MipOutOfBounds);
 			if (NumLayers == 0 || FirstLayer > Texture.GetArraySize()
 				|| NumLayers > Texture.GetArraySize() - FirstLayer)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::LayerOutOfBounds});
+				return std::unexpected(ERHITextureCopyRegionError::LayerOutOfBounds);
 			const bool bTexture3D = Texture.GetDimension() == ETextureDimension::Texture3D;
 			if (Offset.X < 0 || Offset.Y < 0 || Offset.Z < 0)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::NegativeOffset});
+				return std::unexpected(ERHITextureCopyRegionError::NegativeOffset);
 			if (Extent.Width == 0 || Extent.Height == 0 || Extent.Depth == 0)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::EmptyExtent});
+				return std::unexpected(ERHITextureCopyRegionError::EmptyExtent);
 			if (Texture.GetDimension() != ETextureDimension::Texture2D
 				&& Texture.GetDimension() != ETextureDimension::TextureCube
 				&& !bTexture3D)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::UnsupportedDimension});
+				return std::unexpected(ERHITextureCopyRegionError::UnsupportedDimension);
 			if (bTexture3D)
 			{
 				if (FirstLayer != 0 || NumLayers != 1)
-					return std::unexpected(FRHIError{ERHITextureCopyRegionError::InvalidVolumeLayer});
+					return std::unexpected(ERHITextureCopyRegionError::InvalidVolumeLayer);
 			}
 			else if (Offset.Z != 0 || Extent.Depth != 1)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::Invalid2DDepth});
+				return std::unexpected(ERHITextureCopyRegionError::Invalid2DDepth);
 			const uint32 MipWidth = std::max(1u, Texture.GetSizeX() >> Mip);
 			const uint32 MipHeight = std::max(1u, Texture.GetSizeY() >> Mip);
 			const uint32 MipDepth = std::max(1u, Texture.GetSizeZ() >> Mip);
@@ -1090,20 +1091,20 @@ namespace Durin
 			if (X > MipWidth || Extent.Width > MipWidth - X
 				|| Y > MipHeight || Extent.Height > MipHeight - Y
 				|| Z > MipDepth || Extent.Depth > MipDepth - Z)
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::BoxOutOfBounds});
+				return std::unexpected(ERHITextureCopyRegionError::BoxOutOfBounds);
 			const uint32 BlockSize = GetPixelFormatInfo(Texture.GetFormat()).BlockSize;
-			if (BlockSize == 0) return std::unexpected(FRHIError{ERHITextureCopyRegionError::InvalidBlockLayout});
+			if (BlockSize == 0) return std::unexpected(ERHITextureCopyRegionError::InvalidBlockLayout);
 			if ((X % BlockSize) != 0 || (Y % BlockSize) != 0
 				|| ((Extent.Width % BlockSize) != 0 && X + Extent.Width != MipWidth)
 				|| ((Extent.Height % BlockSize) != 0 && Y + Extent.Height != MipHeight))
-				return std::unexpected(FRHIError{ERHITextureCopyRegionError::BlockAlignment});
+				return std::unexpected(ERHITextureCopyRegionError::BlockAlignment);
 			return {};
 		}
 
 		auto GetBufferTextureFootprint(
 			const FRHITexture& Texture,
 			const FRHIBufferTextureCopyRegion& Region,
-			uint64& OutSize) -> FRHIOperationResult
+			uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>
 		{
 			const FPixelFormatInfo& Format = GetPixelFormatInfo(Texture.GetFormat());
 			const uint32 RowLength = Region.BufferRowLength != 0
@@ -1111,26 +1112,27 @@ namespace Durin
 			const uint32 ImageHeight = Region.BufferImageHeight != 0
 				? Region.BufferImageHeight : Region.TextureExtent.Height;
 			if (RowLength < Region.TextureExtent.Width || ImageHeight < Region.TextureExtent.Height)
-				return std::unexpected(FRHIError{ERHICopyFootprintError::LayoutTooSmall});
+				return std::unexpected(ERHICopyFootprintError::LayoutTooSmall);
 			if ((Region.BufferRowLength != 0 && (RowLength % Format.BlockSize) != 0)
 				|| (Region.BufferImageHeight != 0 && (ImageHeight % Format.BlockSize) != 0))
-				return std::unexpected(FRHIError{ERHICopyFootprintError::BlockAlignment});
+				return std::unexpected(ERHICopyFootprintError::BlockAlignment);
 			if ((Region.BufferOffset % Format.BytesPerBlock) != 0)
-				return std::unexpected(FRHIError{ERHICopyFootprintError::OffsetAlignment});
+				return std::unexpected(ERHICopyFootprintError::OffsetAlignment);
 			const uint64 BlocksPerRow = (static_cast<uint64>(RowLength) + Format.BlockSize - 1) / Format.BlockSize;
 			const uint64 BlockRows = (static_cast<uint64>(ImageHeight) + Format.BlockSize - 1) / Format.BlockSize;
 			if (BlocksPerRow > std::numeric_limits<uint64>::max() / Format.BytesPerBlock)
-				return std::unexpected(FRHIError{ERHICopyFootprintError::RowPitchOverflow});
+				return std::unexpected(ERHICopyFootprintError::RowPitchOverflow);
 			const uint64 RowPitch = BlocksPerRow * Format.BytesPerBlock;
 			if (BlockRows > std::numeric_limits<uint64>::max() / RowPitch)
-				return std::unexpected(FRHIError{ERHICopyFootprintError::ImagePitchOverflow});
+				return std::unexpected(ERHICopyFootprintError::ImagePitchOverflow);
 			const uint64 ImagePitch = BlockRows * RowPitch;
 			const uint64 ImageCount = Texture.GetDimension() == ETextureDimension::Texture3D
 				? Region.TextureExtent.Depth : Region.TextureNumArrayLayers;
 			if (ImageCount > std::numeric_limits<uint64>::max() / ImagePitch)
-				return std::unexpected(FRHIError{ERHICopyFootprintError::FootprintOverflow});
+				return std::unexpected(ERHICopyFootprintError::FootprintOverflow);
 			OutSize = ImageCount * ImagePitch;
-			return OutSize != 0 ? FRHIOperationResult{} : FRHIOperationResult{std::unexpected(FRHIError{ERHICopyFootprintError::EmptyFootprint})};
+			if (OutSize == 0) return std::unexpected(ERHICopyFootprintError::EmptyFootprint);
+			return {};
 		}
 
 		auto TextureBoxesOverlap(
@@ -1149,33 +1151,33 @@ namespace Durin
 	}
 
 	auto GetBufferTextureCopyFootprint(const FRHITexture& Texture,
-		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> FRHIOperationResult
+		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>
 	{
 		return GetBufferTextureFootprint(Texture, Region, OutSize);
 	}
 
 	auto ValidateBufferCopies(FRHIBuffer* Source, FRHIBuffer* Destination,
-		std::span<const FRHIBufferCopyRegion> Regions) -> FRHIOperationResult
+		std::span<const FRHIBufferCopyRegion> Regions) -> std::expected<void, FRHIBufferCopyError>
 	{
-		if (!Source || !Destination) return std::unexpected(FRHIError{ERHIBufferCopyError::NullResource});
+		if (!Source || !Destination) return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::NullResource});
 		if (!EnumHasAnyFlags(Source->GetUsage(), EBufferUsageFlags::SourceCopy))
-			return std::unexpected(FRHIError{ERHIBufferCopyError::SourceUsage});
+			return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::SourceUsage});
 		if (!EnumHasAnyFlags(Destination->GetUsage(), EBufferUsageFlags::DestinationCopy))
-			return std::unexpected(FRHIError{ERHIBufferCopyError::DestinationUsage});
+			return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::DestinationUsage});
 		for (size_t Index = 0; Index < Regions.size(); ++Index)
 		{
 			const auto& Region = Regions[Index];
-			if (Region.Size == 0) return std::unexpected(FRHIError{ERHIBufferCopyError::EmptyRange, static_cast<uint32>(Index)});
+			if (Region.Size == 0) return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::EmptyRange, static_cast<uint32>(Index)});
 			if (Region.SourceOffset > Source->GetSize() || Region.Size > Source->GetSize() - Region.SourceOffset)
-				return std::unexpected(FRHIError{ERHIBufferCopyError::SourceOutOfBounds, static_cast<uint32>(Index)});
+				return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::SourceOutOfBounds, static_cast<uint32>(Index)});
 			if (Region.DestinationOffset > Destination->GetSize()
 				|| Region.Size > Destination->GetSize() - Region.DestinationOffset)
-				return std::unexpected(FRHIError{ERHIBufferCopyError::DestinationOutOfBounds, static_cast<uint32>(Index)});
+				return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::DestinationOutOfBounds, static_cast<uint32>(Index)});
 			for (size_t Other = 0; Other < Index; ++Other)
 			{
 				if (RangesOverlap(Region.DestinationOffset, Region.Size,
 					Regions[Other].DestinationOffset, Regions[Other].Size))
-					return std::unexpected(FRHIError{ERHIBufferCopyError::OverlappingDestinations, static_cast<uint32>(Index), static_cast<uint32>(Other)});
+					return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::OverlappingDestinations, static_cast<uint32>(Index), static_cast<uint32>(Other)});
 			}
 		}
 		if (Source == Destination)
@@ -1183,7 +1185,7 @@ namespace Durin
 			for (const auto& A : Regions)
 				for (const auto& B : Regions)
 					if (RangesOverlap(A.SourceOffset, A.Size, B.DestinationOffset, B.Size))
-						return std::unexpected(FRHIError{ERHIBufferCopyError::AliasedRanges});
+						return std::unexpected(FRHIBufferCopyError{ERHIBufferCopyError::AliasedRanges});
 		}
 		return {};
 	}
@@ -1191,51 +1193,48 @@ namespace Durin
 	static auto ValidateBufferTextureCopies(
 		FRHIBuffer* Buffer, FRHITexture* Texture,
 		std::span<const FRHIBufferTextureCopyRegion> Regions,
-		bool bBufferIsSource) -> FRHIOperationResult
+		bool bBufferIsSource) -> std::expected<void, FRHIBufferTextureCopyError>
 	{
-		FRHIOperationResult Validation;
-		if (!Buffer || !Texture) return std::unexpected(FRHIError{ERHIBufferTextureCopyError::NullResource});
-		if (Texture->GetNumSamples() != 1) return std::unexpected(FRHIError{ERHIBufferTextureCopyError::MultisampledTexture});
+		if (!Buffer || !Texture) return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::NullResource});
+		if (Texture->GetNumSamples() != 1) return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::MultisampledTexture});
 		if (bBufferIsSource)
 		{
 			if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::SourceCopy))
-				return std::unexpected(FRHIError{ERHIBufferTextureCopyError::BufferSourceUsage});
+				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::BufferSourceUsage});
 			if (!EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::DestinationCopy))
-				return std::unexpected(FRHIError{ERHIBufferTextureCopyError::TextureDestinationUsage});
+				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::TextureDestinationUsage});
 		}
 		else
 		{
 			if (!EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback))
-				return std::unexpected(FRHIError{ERHIBufferTextureCopyError::TextureSourceUsage});
+				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::TextureSourceUsage});
 			if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::DestinationCopy))
-				return std::unexpected(FRHIError{ERHIBufferTextureCopyError::BufferDestinationUsage});
+				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::BufferDestinationUsage});
 		}
 		std::vector<std::pair<uint64, uint64>> BufferRanges;
 		BufferRanges.reserve(Regions.size());
 		for (size_t Index = 0; Index < Regions.size(); ++Index)
 		{
 			const auto& Region = Regions[Index];
-			if (!(Validation = ValidateCopyTextureRegion(*Texture, Region.TextureAspect, Region.TextureMip,
+			if (auto Validation = ValidateCopyTextureRegion(*Texture, Region.TextureAspect, Region.TextureMip,
 				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers,
-				Region.TextureOffset, Region.TextureExtent)))
+				Region.TextureOffset, Region.TextureExtent); !Validation)
 			{
-				Validation.error().Index = static_cast<uint32>(Index);
-				return Validation;
+				return std::unexpected(FRHIBufferTextureCopyError{Validation.error(), static_cast<uint32>(Index)});
 			}
 			uint64 Footprint = 0;
-			if (!(Validation = GetBufferTextureFootprint(*Texture, Region, Footprint)))
+			if (auto Validation = GetBufferTextureFootprint(*Texture, Region, Footprint); !Validation)
 			{
-				Validation.error().Index = static_cast<uint32>(Index);
-				return Validation;
+				return std::unexpected(FRHIBufferTextureCopyError{Validation.error(), static_cast<uint32>(Index)});
 			}
 			if (Region.BufferOffset > Buffer->GetSize() || Footprint > Buffer->GetSize() - Region.BufferOffset)
-				return std::unexpected(FRHIError{ERHIBufferTextureCopyError::BufferOutOfBounds, static_cast<uint32>(Index)});
+				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::BufferOutOfBounds, static_cast<uint32>(Index)});
 			BufferRanges.emplace_back(Region.BufferOffset, Footprint);
 			for (size_t Other = 0; Other < Index; ++Other)
 			{
 				if (!bBufferIsSource && RangesOverlap(Region.BufferOffset, Footprint,
 					BufferRanges[Other].first, BufferRanges[Other].second))
-					return std::unexpected(FRHIError{ERHIBufferTextureCopyError::OverlappingBufferDestinations, static_cast<uint32>(Index)});
+					return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::OverlappingBufferDestinations, static_cast<uint32>(Index)});
 				const auto& Previous = Regions[Other];
 				if (bBufferIsSource && Region.TextureAspect == Previous.TextureAspect
 					&& Region.TextureMip == Previous.TextureMip
@@ -1243,42 +1242,42 @@ namespace Durin
 						Region.TextureOffset, Region.TextureExtent,
 						Previous.TextureFirstArrayLayer, Previous.TextureNumArrayLayers,
 						Previous.TextureOffset, Previous.TextureExtent))
-					return std::unexpected(FRHIError{ERHIBufferTextureCopyError::OverlappingTextureDestinations, static_cast<uint32>(Index)});
+					return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::OverlappingTextureDestinations, static_cast<uint32>(Index)});
 			}
 		}
 		return {};
 	}
 
 	auto ValidateBufferToTextureCopies(FRHIBuffer* Source, FRHITexture* Destination,
-		std::span<const FRHIBufferTextureCopyRegion> Regions) -> FRHIOperationResult
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> std::expected<void, FRHIBufferTextureCopyError>
 	{
 		return ValidateBufferTextureCopies(Source, Destination, Regions, true);
 	}
 
 	auto ValidateTextureToBufferCopies(FRHITexture* Source, FRHIBuffer* Destination,
-		std::span<const FRHIBufferTextureCopyRegion> Regions) -> FRHIOperationResult
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> std::expected<void, FRHIBufferTextureCopyError>
 	{
 		return ValidateBufferTextureCopies(Destination, Source, Regions, false);
 	}
 
 	auto ValidateTextureCopies(FRHITexture* Source, FRHITexture* Destination,
-		std::span<const FRHITextureCopyRegion> Regions) -> FRHIOperationResult
+		std::span<const FRHITextureCopyRegion> Regions) -> std::expected<void, FRHITextureCopyError>
 	{
-		FRHIOperationResult Validation;
-		if (!Source || !Destination) return std::unexpected(FRHIError{ERHITextureCopyError::NullResource});
+		std::expected<void, ERHITextureCopyRegionError> Validation;
+		if (!Source || !Destination) return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::NullResource});
 		if (!EnumHasAnyFlags(Source->GetFlags(), ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback))
-			return std::unexpected(FRHIError{ERHITextureCopyError::SourceUsage});
+			return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::SourceUsage});
 		if (!EnumHasAnyFlags(Destination->GetFlags(), ETextureCreateFlags::DestinationCopy))
-			return std::unexpected(FRHIError{ERHITextureCopyError::DestinationUsage});
+			return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::DestinationUsage});
 		if (Source->GetFormat() != Destination->GetFormat())
-			return std::unexpected(FRHIError{ERHITextureCopyError::FormatMismatch});
+			return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::FormatMismatch});
 		if (Source->GetNumSamples() != 1 || Destination->GetNumSamples() != 1)
-			return std::unexpected(FRHIError{ERHITextureCopyError::MultisampledTexture});
+			return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::MultisampledTexture});
 		for (size_t Index = 0; Index < Regions.size(); ++Index)
 		{
 			const auto& Region = Regions[Index];
 			if (Region.SourceAspect != Region.DestinationAspect)
-				return std::unexpected(FRHIError{ERHITextureCopyError::AspectMismatch, static_cast<uint32>(Index)});
+				return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::AspectMismatch, static_cast<uint32>(Index)});
 			if (!(Validation = ValidateCopyTextureRegion(*Source, Region.SourceAspect, Region.SourceMip,
 				Region.SourceFirstArrayLayer, Region.NumArrayLayers,
 				Region.SourceOffset, Region.Extent))
@@ -1286,8 +1285,7 @@ namespace Durin
 					Region.DestinationMip, Region.DestinationFirstArrayLayer,
 					Region.NumArrayLayers, Region.DestinationOffset, Region.Extent)))
 			{
-				Validation.error().Index = static_cast<uint32>(Index);
-				return Validation;
+				return std::unexpected(FRHITextureCopyError{Validation.error(), static_cast<uint32>(Index)});
 			}
 			for (size_t Other = 0; Other < Index; ++Other)
 			{
@@ -1298,7 +1296,7 @@ namespace Durin
 						Region.DestinationOffset, Region.Extent,
 						Previous.DestinationFirstArrayLayer, Previous.NumArrayLayers,
 						Previous.DestinationOffset, Previous.Extent))
-					return std::unexpected(FRHIError{ERHITextureCopyError::OverlappingDestinations, static_cast<uint32>(Index)});
+					return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::OverlappingDestinations, static_cast<uint32>(Index)});
 			}
 		}
 		if (Source == Destination)
@@ -1309,60 +1307,60 @@ namespace Durin
 						&& TextureBoxesOverlap(A.SourceFirstArrayLayer, A.NumArrayLayers,
 							A.SourceOffset, A.Extent, B.DestinationFirstArrayLayer,
 							B.NumArrayLayers, B.DestinationOffset, B.Extent))
-						return std::unexpected(FRHIError{ERHITextureCopyError::AliasedRegions});
+						return std::unexpected(FRHITextureCopyError{ERHITextureCopyError::AliasedRegions});
 		}
 		return {};
 	}
 
-	auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc) -> FRHIOperationResult
+	auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc) -> std::expected<void, ERHITextureCreateError>
 	{
 
-		if (CreateDesc.Extent.x <= 0 || CreateDesc.Extent.y <= 0) return std::unexpected(FRHIError{ERHITextureCreateError::EmptyExtent});
-		if (CreateDesc.Depth == 0) return std::unexpected(FRHIError{ERHITextureCreateError::EmptyDepth});
-		if (CreateDesc.ArraySize == 0) return std::unexpected(FRHIError{ERHITextureCreateError::EmptyArray});
-		if (CreateDesc.NumMips == 0) return std::unexpected(FRHIError{ERHITextureCreateError::EmptyMips});
-		if (CreateDesc.NumSamples == 0) return std::unexpected(FRHIError{ERHITextureCreateError::EmptySamples});
-		if (CreateDesc.Format == EPixelFormat::Unknown) return std::unexpected(FRHIError{ERHITextureCreateError::UnknownFormat});
+		if (CreateDesc.Extent.x <= 0 || CreateDesc.Extent.y <= 0) return std::unexpected(ERHITextureCreateError::EmptyExtent);
+		if (CreateDesc.Depth == 0) return std::unexpected(ERHITextureCreateError::EmptyDepth);
+		if (CreateDesc.ArraySize == 0) return std::unexpected(ERHITextureCreateError::EmptyArray);
+		if (CreateDesc.NumMips == 0) return std::unexpected(ERHITextureCreateError::EmptyMips);
+		if (CreateDesc.NumSamples == 0) return std::unexpected(ERHITextureCreateError::EmptySamples);
+		if (CreateDesc.Format == EPixelFormat::Unknown) return std::unexpected(ERHITextureCreateError::UnknownFormat);
 		if (CreateDesc.NumSamples != 1 && CreateDesc.NumSamples != 2
 			&& CreateDesc.NumSamples != 4 && CreateDesc.NumSamples != 8
 			&& CreateDesc.NumSamples != 16)
 		{
-			return std::unexpected(FRHIError{ERHITextureCreateError::InvalidSampleCount});
+			return std::unexpected(ERHITextureCreateError::InvalidSampleCount);
 		}
 
 		switch (CreateDesc.Dimension)
 		{
 		case ETextureDimension::Texture2D:
-			if (CreateDesc.Depth != 1) return std::unexpected(FRHIError{ERHITextureCreateError::Invalid2DDepth});
-			if (CreateDesc.ArraySize != 1) return std::unexpected(FRHIError{ERHITextureCreateError::Invalid2DArraySize});
+			if (CreateDesc.Depth != 1) return std::unexpected(ERHITextureCreateError::Invalid2DDepth);
+			if (CreateDesc.ArraySize != 1) return std::unexpected(ERHITextureCreateError::Invalid2DArraySize);
 			break;
 		case ETextureDimension::Texture2DArray:
-			if (CreateDesc.Depth != 1) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidArrayDepth});
+			if (CreateDesc.Depth != 1) return std::unexpected(ERHITextureCreateError::InvalidArrayDepth);
 			break;
 		case ETextureDimension::Texture3D:
-			if (CreateDesc.ArraySize != 1) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidVolumeArraySize});
-			if (CreateDesc.NumSamples != 1) return std::unexpected(FRHIError{ERHITextureCreateError::MultisampledVolume});
+			if (CreateDesc.ArraySize != 1) return std::unexpected(ERHITextureCreateError::InvalidVolumeArraySize);
+			if (CreateDesc.NumSamples != 1) return std::unexpected(ERHITextureCreateError::MultisampledVolume);
 			if (EnumHasAnyFlags(CreateDesc.Flags,
 				ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ResolveTargetable
 				| ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::CPUReadback))
-				return std::unexpected(FRHIError{ERHITextureCreateError::UnsupportedVolumeUsage});
+				return std::unexpected(ERHITextureCreateError::UnsupportedVolumeUsage);
 			if (GetPixelFormatInfo(CreateDesc.Format).Kind == EPixelFormatKind::DepthStencil)
-				return std::unexpected(FRHIError{ERHITextureCreateError::InvalidVolumeFormat});
+				return std::unexpected(ERHITextureCreateError::InvalidVolumeFormat);
 			break;
 		case ETextureDimension::TextureCube:
-			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return std::unexpected(FRHIError{ERHITextureCreateError::NonSquareCube});
-			if (CreateDesc.ArraySize != TextureCubeFaceCount) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidCubeLayers});
-			if (CreateDesc.Depth != 1) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidCubeDepth});
+			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return std::unexpected(ERHITextureCreateError::NonSquareCube);
+			if (CreateDesc.ArraySize != TextureCubeFaceCount) return std::unexpected(ERHITextureCreateError::InvalidCubeLayers);
+			if (CreateDesc.Depth != 1) return std::unexpected(ERHITextureCreateError::InvalidCubeDepth);
 			break;
 		case ETextureDimension::TextureCubeArray:
-			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return std::unexpected(FRHIError{ERHITextureCreateError::NonSquareCubeArray});
-			if (CreateDesc.Depth != 1) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidCubeArrayDepth});
-			if (CreateDesc.ArraySize % TextureCubeFaceCount != 0) return std::unexpected(FRHIError{ERHITextureCreateError::InvalidCubeArrayLayers});
+			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return std::unexpected(ERHITextureCreateError::NonSquareCubeArray);
+			if (CreateDesc.Depth != 1) return std::unexpected(ERHITextureCreateError::InvalidCubeArrayDepth);
+			if (CreateDesc.ArraySize % TextureCubeFaceCount != 0) return std::unexpected(ERHITextureCreateError::InvalidCubeArrayLayers);
 			break;
 		default:
-			return std::unexpected(FRHIError{ERHITextureCreateError::InvalidDimension});
+			return std::unexpected(ERHITextureCreateError::InvalidDimension);
 		}
 
 		const uint32 MaxDimension = CreateDesc.Dimension == ETextureDimension::Texture3D
@@ -1370,27 +1368,27 @@ namespace Durin
 			: std::max(static_cast<uint32>(CreateDesc.Extent.x), static_cast<uint32>(CreateDesc.Extent.y));
 		uint32 MaximumMipCount = 1;
 		for (uint32 Remaining = MaxDimension; Remaining > 1; Remaining >>= 1) ++MaximumMipCount;
-		if (CreateDesc.NumMips > MaximumMipCount) return std::unexpected(FRHIError{ERHITextureCreateError::TooManyMips});
-		if (CreateDesc.NumSamples != 1 && CreateDesc.NumMips != 1) return std::unexpected(FRHIError{ERHITextureCreateError::MultisampledMips});
+		if (CreateDesc.NumMips > MaximumMipCount) return std::unexpected(ERHITextureCreateError::TooManyMips);
+		if (CreateDesc.NumSamples != 1 && CreateDesc.NumMips != 1) return std::unexpected(ERHITextureCreateError::MultisampledMips);
 		if ((CreateDesc.Dimension == ETextureDimension::Texture3D
 			|| CreateDesc.Dimension == ETextureDimension::TextureCube
 			|| CreateDesc.Dimension == ETextureDimension::TextureCubeArray)
 			&& CreateDesc.NumSamples != 1)
 		{
-			return std::unexpected(FRHIError{ERHITextureCreateError::MultisampledDimension});
+			return std::unexpected(ERHITextureCreateError::MultisampledDimension);
 		}
 
 		const bool bDepthStencil = EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		const bool bColorOrResolve = EnumHasAnyFlags(CreateDesc.Flags,
 			ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable);
 		if (bDepthStencil && (bColorOrResolve || EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage)))
-			return std::unexpected(FRHIError{ERHITextureCreateError::ConflictingDepthUsage});
+			return std::unexpected(ERHITextureCreateError::ConflictingDepthUsage);
 		if (CreateDesc.NumSamples != 1 && EnumHasAnyFlags(CreateDesc.Flags,
 			ETextureCreateFlags::Storage | ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ResolveTargetable))
-			return std::unexpected(FRHIError{ERHITextureCreateError::MultisampledUsage});
+			return std::unexpected(ERHITextureCreateError::MultisampledUsage);
 
 		const uint64 SubresourceCount = static_cast<uint64>(CreateDesc.NumMips) * CreateDesc.ArraySize;
-		if (SubresourceCount > std::numeric_limits<uint32>::max()) return std::unexpected(FRHIError{ERHITextureCreateError::TooManySubresources});
+		if (SubresourceCount > std::numeric_limits<uint32>::max()) return std::unexpected(ERHITextureCreateError::TooManySubresources);
 		return {};
 	}
 
@@ -1400,26 +1398,26 @@ namespace Durin
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch
-	) -> FRHIOperationResult
+	) -> std::expected<void, ERHITextureUploadError>
 	{
 
-		if (MipIndex >= TextureDesc.NumMips) return std::unexpected(FRHIError{ERHITextureUploadError::MipOutOfBounds});
-		if (ArraySlice >= TextureDesc.ArraySize) return std::unexpected(FRHIError{ERHITextureUploadError::LayerOutOfBounds});
-		if (UpdateRegion.SrcX < 0 || UpdateRegion.SrcY < 0) return std::unexpected(FRHIError{ERHITextureUploadError::NegativeOffset});
-		if (UpdateRegion.Width == 0 || UpdateRegion.Height == 0) return std::unexpected(FRHIError{ERHITextureUploadError::EmptyExtent});
+		if (MipIndex >= TextureDesc.NumMips) return std::unexpected(ERHITextureUploadError::MipOutOfBounds);
+		if (ArraySlice >= TextureDesc.ArraySize) return std::unexpected(ERHITextureUploadError::LayerOutOfBounds);
+		if (UpdateRegion.SrcX < 0 || UpdateRegion.SrcY < 0) return std::unexpected(ERHITextureUploadError::NegativeOffset);
+		if (UpdateRegion.Width == 0 || UpdateRegion.Height == 0) return std::unexpected(ERHITextureUploadError::EmptyExtent);
 
 		const uint32 MipWidth = std::max(1u, static_cast<uint32>(TextureDesc.Extent.x) >> MipIndex);
 		const uint32 MipHeight = std::max(1u, static_cast<uint32>(TextureDesc.Extent.y) >> MipIndex);
 		if (static_cast<uint64>(UpdateRegion.DestX) + UpdateRegion.Width > MipWidth
 			|| static_cast<uint64>(UpdateRegion.DestY) + UpdateRegion.Height > MipHeight)
 		{
-			return std::unexpected(FRHIError{ERHITextureUploadError::BoxOutOfBounds});
+			return std::unexpected(ERHITextureUploadError::BoxOutOfBounds);
 		}
 
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(TextureDesc.Format);
 		if (FormatInfo.BytesPerBlock == 0 || FormatInfo.BlockSize == 0)
 		{
-			return std::unexpected(FRHIError{ERHITextureUploadError::InvalidBlockLayout});
+			return std::unexpected(ERHITextureUploadError::InvalidBlockLayout);
 		}
 
 		const uint32 BlockSize = FormatInfo.BlockSize;
@@ -1427,18 +1425,18 @@ namespace Durin
 			|| static_cast<uint32>(UpdateRegion.SrcX) % BlockSize != 0
 			|| static_cast<uint32>(UpdateRegion.SrcY) % BlockSize != 0)
 		{
-			return std::unexpected(FRHIError{ERHITextureUploadError::OffsetAlignment});
+			return std::unexpected(ERHITextureUploadError::OffsetAlignment);
 		}
 		if ((UpdateRegion.Width % BlockSize != 0 && UpdateRegion.DestX + UpdateRegion.Width != MipWidth)
 			|| (UpdateRegion.Height % BlockSize != 0 && UpdateRegion.DestY + UpdateRegion.Height != MipHeight))
 		{
-			return std::unexpected(FRHIError{ERHITextureUploadError::ExtentAlignment});
+			return std::unexpected(ERHITextureUploadError::ExtentAlignment);
 		}
 
 		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
 		const uint64 RegionBlocksWide = (static_cast<uint64>(UpdateRegion.Width) + BlockSize - 1) / BlockSize;
 		const uint64 RequiredPitch = (SourceBlockX + RegionBlocksWide) * FormatInfo.BytesPerBlock;
-		if (RequiredPitch > SourcePitch) return std::unexpected(FRHIError{ERHITextureUploadError::InsufficientPitch});
+		if (RequiredPitch > SourcePitch) return std::unexpected(ERHITextureUploadError::InsufficientPitch);
 		return {};
 	}
 
@@ -1447,52 +1445,52 @@ namespace Durin
 		uint32 MipIndex,
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
-		uint32 SourceDepthPitch) -> FRHIOperationResult
+		uint32 SourceDepthPitch) -> std::expected<void, ERHIVolumeUploadError>
 	{
 		if (TextureDesc.Dimension != ETextureDimension::Texture3D)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::InvalidDimension});
+			return std::unexpected(ERHIVolumeUploadError::InvalidDimension);
 		if (MipIndex >= TextureDesc.NumMips)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::MipOutOfBounds});
+			return std::unexpected(ERHIVolumeUploadError::MipOutOfBounds);
 		if (UpdateRegion.SrcX < 0 || UpdateRegion.SrcY < 0 || UpdateRegion.SrcZ < 0)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::NegativeOffset});
+			return std::unexpected(ERHIVolumeUploadError::NegativeOffset);
 		if (UpdateRegion.Width == 0 || UpdateRegion.Height == 0 || UpdateRegion.Depth == 0)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::EmptyExtent});
+			return std::unexpected(ERHIVolumeUploadError::EmptyExtent);
 		const uint32 MipWidth = std::max(1u, static_cast<uint32>(TextureDesc.Extent.x) >> MipIndex);
 		const uint32 MipHeight = std::max(1u, static_cast<uint32>(TextureDesc.Extent.y) >> MipIndex);
 		const uint32 MipDepth = std::max(1u, static_cast<uint32>(TextureDesc.Depth) >> MipIndex);
 		if (static_cast<uint64>(UpdateRegion.DestX) + UpdateRegion.Width > MipWidth
 			|| static_cast<uint64>(UpdateRegion.DestY) + UpdateRegion.Height > MipHeight
 			|| static_cast<uint64>(UpdateRegion.DestZ) + UpdateRegion.Depth > MipDepth)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::BoxOutOfBounds});
+			return std::unexpected(ERHIVolumeUploadError::BoxOutOfBounds);
 
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(TextureDesc.Format);
 		if (FormatInfo.BytesPerBlock == 0 || FormatInfo.BlockSize == 0)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::InvalidBlockLayout});
+			return std::unexpected(ERHIVolumeUploadError::InvalidBlockLayout);
 		const uint32 BlockSize = FormatInfo.BlockSize;
 		if ((UpdateRegion.DestX % BlockSize) != 0 || (UpdateRegion.DestY % BlockSize) != 0
 			|| (static_cast<uint32>(UpdateRegion.SrcX) % BlockSize) != 0
 			|| (static_cast<uint32>(UpdateRegion.SrcY) % BlockSize) != 0)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::OffsetAlignment});
+			return std::unexpected(ERHIVolumeUploadError::OffsetAlignment);
 		if ((UpdateRegion.Width % BlockSize != 0 && UpdateRegion.DestX + UpdateRegion.Width != MipWidth)
 			|| (UpdateRegion.Height % BlockSize != 0 && UpdateRegion.DestY + UpdateRegion.Height != MipHeight))
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::ExtentAlignment});
+			return std::unexpected(ERHIVolumeUploadError::ExtentAlignment);
 		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
 		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / BlockSize;
 		const uint64 RegionBlocksWide = (static_cast<uint64>(UpdateRegion.Width) + BlockSize - 1) / BlockSize;
 		const uint64 RegionBlockRows = (static_cast<uint64>(UpdateRegion.Height) + BlockSize - 1) / BlockSize;
 		const uint64 RequiredRowPitch = (SourceBlockX + RegionBlocksWide) * FormatInfo.BytesPerBlock;
 		if (RequiredRowPitch > SourceRowPitch)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::InsufficientRowPitch});
+			return std::unexpected(ERHIVolumeUploadError::InsufficientRowPitch);
 		if (SourceBlockY > std::numeric_limits<uint64>::max() / SourceRowPitch)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::RowOffsetOverflow});
+			return std::unexpected(ERHIVolumeUploadError::RowOffsetOverflow);
 		const uint64 RequiredDepthPitch = (SourceBlockY + RegionBlockRows) * SourceRowPitch;
 		if (RequiredDepthPitch > SourceDepthPitch)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::InsufficientDepthPitch});
+			return std::unexpected(ERHIVolumeUploadError::InsufficientDepthPitch);
 		const uint64 SourceZ = static_cast<uint32>(UpdateRegion.SrcZ);
 		if (SourceZ > std::numeric_limits<uint64>::max() / SourceDepthPitch
 			|| UpdateRegion.Depth - 1 > (std::numeric_limits<uint64>::max()
 				- SourceZ * SourceDepthPitch) / SourceDepthPitch)
-			return std::unexpected(FRHIError{ERHIVolumeUploadError::FootprintOverflow});
+			return std::unexpected(ERHIVolumeUploadError::FootprintOverflow);
 		return {};
 	}
 

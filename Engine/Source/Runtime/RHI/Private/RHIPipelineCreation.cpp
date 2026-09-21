@@ -264,10 +264,10 @@ namespace Durin
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			try
 			{
-				using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
-				TRHIResult<TKey> Valid;
-				if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, &Capabilities);
-				else Valid = BuildComputePipelineStateKey(Initializer, &Capabilities);
+				auto Valid = [&] {
+					if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, &Capabilities);
+					else return BuildComputePipelineStateKey(Initializer, &Capabilities);
+				}();
 				if (!Valid) return Reject(ERHIPipelineRequestRejection::InvalidDescription);
 				auto& NativeKey = *Valid;
 				FRHIPipelineCreationResult Ready;
