@@ -49,12 +49,17 @@ namespace Durin::Editor::Texture
 		struct FPreparation
 		{
 			std::shared_ptr<AssetForge::Builtins::FPreparedTexture2DImport> Data;
-			std::optional<AssetForge::Builtins::FTexture2DPreparationError> Cause;
-			std::string ExceptionDiagnostic;
+			std::string Message;
 			double PreparationMilliseconds = 0;
 		};
+		static auto PrepareFile(const std::string& Filename) -> FPreparation;
+		struct FCompletion
+		{
+			bool bSucceeded = false;
+			std::string Message;
+		};
 		std::future<FPreparation> Preparation;
-		std::shared_ptr<std::optional<FTexture2DCompilationResult>> Completion;
+		std::shared_ptr<std::optional<FCompletion>> Completion;
 		TStrongObjectPtr<DTexture2D> Active;
 		std::unique_ptr<FAssetSaveOperation> DiskSave;
 		bool bSaveStarted = false;
