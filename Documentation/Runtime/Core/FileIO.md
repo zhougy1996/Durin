@@ -4,10 +4,34 @@ Summary: Define physical-path validation, byte I/O, and atomic file-publication 
 
 Modules: Core
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-21
 
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
+
+## Result-Based File Interfaces
+
+`Misc/FilePath.h` defines `Durin::FFilePath` as an alias of
+`std::filesystem::path` for physical paths, not mounted or asset identities.
+`Misc/FileIO.h` introduces `Durin::FFileIO` alongside the existing `FFileHelper`
+API so consumers can migrate independently. New operations return
+`std::expected<T, FFileError>`; writes and exact range reads use `void` as `T`.
+Errors preserve the operation, system error category/code, physical path and,
+where applicable, a related path and byte range. `ToString()` formats diagnostic
+text without logging. Callers own severity, recovery and final presentation.
+
+Ordinary reads and writes do not retry. Whole-file reads return bytes only on
+success; `ReadAt` can modify part of the caller's buffer before failure. Text
+loads preserve exact bytes, including embedded NULs. Hashing uses bounded memory.
+`FileExists` returns a successful `false` for a missing path; its result's bool
+conversion means the query succeeded, not that the path exists.
+
+Ordinary writes create parent directories and truncate existing files; failures
+may leave partial bytes. Exclusive and atomic operations currently adapt the
+existing publication machinery, retaining its cleanup and bounded retry policy.
+This additive stage does not migrate legacy callers, publication transactions,
+or change the legacy helper logging and retry behavior. Allocation failures can
+still throw. No disk-durability guarantee is added to ordinary writes.
 
 ## Synchronous Random Reads
 

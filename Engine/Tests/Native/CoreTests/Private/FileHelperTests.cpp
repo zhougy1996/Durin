@@ -1,4 +1,5 @@
 #include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -58,6 +59,88 @@ namespace
 		}
 		return Parent / FileNamePath;
 	}
+}
+
+TEST(FFileIOTests, ReturnsValuesAndExactTextWithoutOutputParameters)
+{
+	using namespace Durin;
+	static_assert(std::is_same_v<FFilePath, std::filesystem::path>);
+	const FFilePath Path = TestRoot("ResultValues") / "Nested" / "Text.bin";
+	const std::string Text("a\0b\r\n", 5);
+	const auto Bytes = std::as_bytes(std::span(Text));
+	auto Saved = FFileIO::SaveArrayToFile(Bytes, Path);
+	ASSERT_TRUE(Saved) << Saved.error().ToString();
+	auto Loaded = FFileIO::LoadFileToString(Path);
+	ASSERT_TRUE(Loaded) << Loaded.error().ToString();
+	EXPECT_EQ(*Loaded, Text);
+	auto Hash = FFileIO::HashFileXx128(Path);
+	ASSERT_TRUE(Hash) << Hash.error().ToString();
+	EXPECT_EQ(*Hash, FXxHash128::HashBuffer(Bytes));
+	auto File = FFileIO::OpenRead(Path);
+	ASSERT_TRUE(File) << File.error().ToString();
+	std::array<std::byte, 2> Part{};
+	ASSERT_TRUE((*File)->ReadAt(1, Part));
+	EXPECT_EQ(Part[0], std::byte{0});
+	EXPECT_EQ(Part[1], std::byte{'b'});
+	auto Invalid = (*File)->ReadAt(5, Part);
+	ASSERT_FALSE(Invalid);
+	ASSERT_TRUE(Invalid.error().Range);
+	EXPECT_EQ(Invalid.error().Range->Offset, 5u);
+	EXPECT_EQ(Invalid.error().NativeError, std::errc::result_out_of_range);
+	File->reset();
+	ASSERT_TRUE(FFileIO::SaveArrayToFile({}, Path));
+	auto Empty = FFileIO::LoadFileToArray(Path);
+	ASSERT_TRUE(Empty);
+	EXPECT_TRUE(Empty->empty());
+}
+
+TEST(FFileIOTests, DistinguishesMissingFilesFromQueryFailure)
+{
+	using namespace Durin;
+	const FFilePath Root = TestRoot("ResultErrors");
+	const FFilePath Missing = Root / "Missing.bin";
+	auto Exists = FFileIO::FileExists(Missing);
+	ASSERT_TRUE(Exists);
+	EXPECT_FALSE(*Exists);
+	auto Loaded = FFileIO::LoadFileToArray(Missing);
+	ASSERT_FALSE(Loaded);
+	EXPECT_EQ(Loaded.error().Operation, FFileIO::EFileOperation::OpenRead);
+	EXPECT_EQ(Loaded.error().NativeError, std::errc::no_such_file_or_directory);
+	EXPECT_EQ(Loaded.error().Path, std::filesystem::absolute(Missing).lexically_normal());
+	EXPECT_NE(Loaded.error().ToString().find("Missing.bin"), std::string::npos);
+	// Overlong components fail as an inspection error, not successful absence.
+	auto Invalid = FFileIO::FileExists(Root / std::string(300, 'x'));
+	EXPECT_FALSE(Invalid);
+	const FFilePath Blocker = Root / "Blocker";
+	ASSERT_TRUE(FFileIO::SaveArrayToFile({}, Blocker));
+	auto Saved = FFileIO::SaveArrayToFile({}, Blocker / "Child");
+	ASSERT_FALSE(Saved);
+	EXPECT_EQ(Saved.error().Operation, FFileIO::EFileOperation::CreateParentDirectories);
+	EXPECT_TRUE(Saved.error().NativeError);
+}
+
+TEST(FFileIOTests, PublicationResultsPreserveExistingBytes)
+{
+	using namespace Durin;
+	const FFilePath Root = TestRoot("ResultPublication");
+	const FFilePath Path = Root / "Value.bin";
+	const FByteBuffer Bytes(64 * 1024 + 3, std::byte{0x53});
+	ASSERT_TRUE(FFileIO::SaveArrayToNewFile(Bytes, Path));
+	auto Existing = FFileIO::SaveArrayToNewFile({}, Path);
+	ASSERT_FALSE(Existing);
+	EXPECT_EQ(Existing.error().Operation, FFileIO::EFileOperation::CreateTemporaryFile);
+	auto Loaded = FFileIO::LoadFileToArray(Path);
+	ASSERT_TRUE(Loaded);
+	EXPECT_EQ(*Loaded, Bytes);
+	ASSERT_TRUE(FFileIO::SaveArrayToFileAtomically(Bytes, Root / "Atomic.bin"));
+	ASSERT_TRUE(FFileIO::CopyFileAtomically(Path, Root / "Copy.bin"));
+	Loaded = FFileIO::LoadFileToArray(Root / "Copy.bin");
+	ASSERT_TRUE(Loaded);
+	EXPECT_EQ(*Loaded, Bytes);
+	auto Failed = FFileIO::SaveArrayToFileAtomically(Bytes, Root);
+	ASSERT_FALSE(Failed);
+	EXPECT_EQ(Failed.error().Operation, FFileIO::EFileOperation::ReplaceDestination);
+	EXPECT_TRUE(std::filesystem::is_directory(Root));
 }
 
 TEST(FFileHelperTests, ExclusivelyCreatesCompleteBytes)

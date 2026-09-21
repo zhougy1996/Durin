@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreAPI.h"
+#include "Misc/FilePath.h"
 #include "Hash/XxHash.h"
 
 namespace Durin
@@ -11,13 +12,13 @@ namespace Durin
 		uintmax_t Size = 0;
 		std::filesystem::file_time_type Time{};
 		auto operator==(const FFilePublicationStamp&) const -> bool = default;
-		CORE_API static auto Inspect(const std::filesystem::path& Path, FFilePublicationStamp& Out) -> bool;
+		CORE_API static auto Inspect(const FFilePath& Path, FFilePublicationStamp& Out) -> bool;
 	};
 	// No format knowledge. A replacement retains its backup until explicit finalization.
 	// Multiple file replacements are not crash-atomic.
 	struct FFileReplacement
 	{
-		std::filesystem::path Destination, Staged, Backup;
+		FFilePath Destination, Staged, Backup;
 		bool bBackedUp = false;
 		bool bPublished = false;
 		CORE_API auto Publish(std::string& Error) -> bool;
