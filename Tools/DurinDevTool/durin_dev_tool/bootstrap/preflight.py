@@ -106,7 +106,7 @@ def check_msvc_version(environment: Mapping[str, str]) -> str | None:
     if version < MINIMUM_MSVC_TOOLS:
         return (
             f"MSVC Build Tools {version_text} is installed; Durin requires 14.44 or newer "
-            "(Visual Studio 2022 17.14) for its C++20 standard library, including std::format_string."
+            "(Visual Studio 2022 17.14) for its C++23 build and standard library, including std::format_string."
         )
     return None
 

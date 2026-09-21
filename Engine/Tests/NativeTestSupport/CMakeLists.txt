@@ -23,7 +23,7 @@ if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 	target_include_directories(DurinNativeTestApplicationProtocol PUBLIC
 		"${CMAKE_CURRENT_SOURCE_DIR}/Private/MacOS"
 	)
-	target_compile_features(DurinNativeTestApplicationProtocol PUBLIC cxx_std_20)
+	target_compile_features(DurinNativeTestApplicationProtocol PUBLIC cxx_std_23)
 	set_target_properties(DurinNativeTestApplicationProtocol PROPERTIES
 		FOLDER "Tests/Infrastructure"
 	)
@@ -41,7 +41,7 @@ if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 	add_executable(DurinNativeTestApplicationProbe
 		Private/MacOS/NativeTestApplicationProbe.cpp
 	)
-	target_compile_features(DurinNativeTestApplicationProbe PRIVATE cxx_std_20)
+	target_compile_features(DurinNativeTestApplicationProbe PRIVATE cxx_std_23)
 	set_target_properties(DurinNativeTestApplicationProbe PROPERTIES
 		FOLDER "Tests/Infrastructure"
 	)

@@ -44,7 +44,7 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
 
     args = [
         "-x", "c++",
-        "-std=c++20",
+        "-std=c++23",
         "-ferror-limit=0",
         "-w",
         "-D_DHT_PARSER=1",

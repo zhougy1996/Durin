@@ -119,7 +119,7 @@ endif()
 # coexist with compiler jobs without multiplying machine-wide parallelism.
 set_property(GLOBAL APPEND PROPERTY JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE})
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)

@@ -23,7 +23,7 @@ linked worktree with `DevTool worktree prepare`.
   `REG_DWORD 1`; restart Windows after changing it. Setup and DurinDevTool report a
   missing policy but never change machine state.
 - Visual Studio 2022 or newer with the **Desktop development with C++** workload, x64 MSVC tools, a Windows SDK, and the English language pack.
-- MSVC Build Tools 14.44 or newer (Visual Studio 2022 17.14). Durin uses C++20 standard-library features including `std::format_string`, `std::format`, and `std::source_location`.
+- MSVC Build Tools 14.44 or newer (Visual Studio 2022 17.14). Durin builds in C++23 mode; CMake selects the compiler's corresponding standard flag. Standard-library features used by Durin include `std::format_string`, `std::format`, and `std::source_location`.
 - Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 

@@ -6,8 +6,8 @@ include(GoogleTest)
 
 add_executable(LauncherProbe Probe.cpp)
 add_executable(LauncherAdapter Launcher.cpp)
-target_compile_features(LauncherProbe PRIVATE cxx_std_20)
-target_compile_features(LauncherAdapter PRIVATE cxx_std_20)
+target_compile_features(LauncherProbe PRIVATE cxx_std_23)
+target_compile_features(LauncherAdapter PRIVATE cxx_std_23)
 set_property(TARGET LauncherProbe PROPERTY TEST_LAUNCHER
 	"$<TARGET_FILE:LauncherAdapter>"
 	"--log"
