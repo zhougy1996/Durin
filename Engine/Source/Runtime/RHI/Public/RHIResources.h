@@ -964,7 +964,67 @@ namespace Durin
 		FClearValueBinding DepthStencilClearValue{1.0f, 0u};
 	};
 
-	using FVertexDeclarationElementList = std::array<struct FVertexElement, MaxVertexElementCount>;
+	// Stores one canonical vertex element without backend object identity.
+	struct FRHIVertexElementIdentity
+	{
+		uint8 StreamIndex = 0;
+		uint8 Offset = 0;
+		EVertexElementType Type = EVertexElementType::None;
+		uint8 AttributeIndex = 0;
+		uint16 Stride = 0;
+		enum class EInputRate : uint8
+		{
+			Vertex,
+			Instance,
+			Count,
+		};
+		EInputRate InputRate = EInputRate::Vertex;
+
+		auto operator==(const FRHIVertexElementIdentity&) const -> bool = default;
+	};
+
+	// Maps one vertex-buffer field to the shader attribute that consumes it.
+	struct FVertexElement
+	{
+		// The vertex stream index this element comes from.
+		uint8 StreamIndex;
+		// The offset in bytes of this element in the vertex stream.
+		uint8 Offset;
+		// The data type of this element.
+		EVertexElementType Type = EVertexElementType::None;
+		// The attribute index this element will be consumed as in shader. eg: for HLSL, this is the value specified in the semantic, for GLSL, this is the location.
+		uint8 AttributeIndex;
+
+		uint16 Stride;
+		FRHIVertexElementIdentity::EInputRate InputRate =
+			FRHIVertexElementIdentity::EInputRate::Vertex;
+
+		FVertexElement() = default;
+		FVertexElement(uint8 InStreamIndex, uint8 InOffset, EVertexElementType InType,
+			uint8 InAttributeIndex, uint16 InStride,
+			FRHIVertexElementIdentity::EInputRate InInputRate =
+				FRHIVertexElementIdentity::EInputRate::Vertex)
+			: StreamIndex(InStreamIndex)
+			, Offset(InOffset)
+			, Type(InType)
+			, AttributeIndex(InAttributeIndex)
+			, Stride(InStride)
+			, InputRate(InInputRate)
+		{
+		}
+
+		bool operator==(const FVertexElement& Other) const
+		{
+			return StreamIndex == Other.StreamIndex
+				   && Offset == Other.Offset
+				   && Type == Other.Type
+				   && AttributeIndex == Other.AttributeIndex
+				   && Stride == Other.Stride
+				   && InputRate == Other.InputRate;
+		}
+	};
+
+	using FVertexDeclarationElementList = std::array<FVertexElement, MaxVertexElementCount>;
 
 	// Represents the backend mapping from vertex streams to shader attributes.
 	class FRHIVertexDeclaration : public FRHIResource
@@ -1399,25 +1459,6 @@ namespace Durin
 		FPipelineLayoutDesc PipelineLayout;
 
 		RHI_API auto IsValid() const -> bool;
-	};
-
-	// Stores one canonical vertex element without backend object identity.
-	struct FRHIVertexElementIdentity
-	{
-		uint8 StreamIndex = 0;
-		uint8 Offset = 0;
-		EVertexElementType Type = EVertexElementType::None;
-		uint8 AttributeIndex = 0;
-		uint16 Stride = 0;
-		enum class EInputRate : uint8
-		{
-			Vertex,
-			Instance,
-			Count,
-		};
-		EInputRate InputRate = EInputRate::Vertex;
-
-		auto operator==(const FRHIVertexElementIdentity&) const -> bool = default;
 	};
 
 	// Describes one non-indexed direct draw, including instancing.
