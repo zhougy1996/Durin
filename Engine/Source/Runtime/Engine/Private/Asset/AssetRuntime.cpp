@@ -107,6 +107,11 @@ namespace Durin
 			return Current;
 		}
 
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
+		{
+			return {Code, std::move(Message)};
+		}
+
 		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult;
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
@@ -880,11 +885,11 @@ namespace Durin
 	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
 		-> FAssetWriteResult
 	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return Result;
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return AssetWriteResultFromRead(Result);
 		if (bAcceptingRequests)
 		{
 			if (RuntimeConfiguration == Configuration) return {};
-			return Error(EAssetReadError::InUse,
+			return Error(EAssetWriteError::InUse,
 				"Asset runtime configuration cannot be replaced while Engine Asset is initialized.");
 		}
 		check(GetResidentAssetPackages().empty());

@@ -67,7 +67,7 @@ namespace Durin
 			std::span<const std::filesystem::path> Roots,
 			std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetWriteResult;
 		auto Validate() const -> FAssetWriteResult;
-		auto Delete(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
+		auto Delete(const FAssetDeletionCommit& Commit, std::vector<std::filesystem::path>& AffectedFiles) -> FAssetWriteResult;
 	};
 
 	FAssetDeletionOperation::FAssetDeletionOperation() = default;
@@ -103,9 +103,11 @@ namespace Durin
 
 	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult
 	{
-		const FAssetWriteResult Result = State ? State->Delete(Commit)
+		std::vector<std::filesystem::path> AffectedFiles;
+		const FAssetWriteResult Result = State ? State->Delete(Commit, AffectedFiles)
 			: Error(EAssetWriteError::StaleData, "The asset deletion operation is not prepared.");
 		FAssetOperationResult Operation = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Delete, Result);
+		Operation.AffectedFiles = std::move(AffectedFiles);
 		for (const auto& Entry : GetEntries())
 			Operation.AffectedAssets.push_back(Entry.RegistryEntry.PackagePath);
 		for (const auto& Warning : GetWarnings())
@@ -115,7 +117,7 @@ namespace Durin
 	}
 
 	auto FAssetDeletionOperation::FState::Delete(
-		const FAssetDeletionCommit& Commit) -> FAssetWriteResult
+		const FAssetDeletionCommit& Commit, std::vector<std::filesystem::path>& AffectedFiles) -> FAssetWriteResult
 	{
 		if (!bPrepared || bExecuted)
 			return Error(EAssetWriteError::StaleData,
@@ -141,8 +143,11 @@ namespace Durin
 		Result = ReleasePackagesForRemoval(Packages, RegistryRevision);
 		if (!Result) return Result;
 		bExecuted = true;
-		const FAssetWriteResult DeleteResult = Commit.Delete();
+		const FAssetWriteResult DeleteResult = Commit.Delete(AffectedFiles);
 		RecordRemovedFiles();
+		for (const auto& File : RemovedFiles) AffectedFiles.emplace_back(File);
+		std::ranges::sort(AffectedFiles);
+		AffectedFiles.erase(std::ranges::unique(AffectedFiles).begin(), AffectedFiles.end());
 		if (!DeleteResult)
 		{
 			std::vector<FPackagePath> Paths;
@@ -154,14 +159,7 @@ namespace Durin
 				.Message = std::format(
 					"AssetDeletionFailed: deletion stopped; inspect partial changes before preparing another operation. {}",
 					DeleteResult.Message),
-				.Effect = EAssetWriteEffect::PartiallyWritten,
-				.AffectedFiles = [&] {
-					auto Files = DeleteResult.AffectedFiles;
-					for (const auto& File : RemovedFiles) Files.emplace_back(File);
-					std::ranges::sort(Files);
-					Files.erase(std::ranges::unique(Files).begin(), Files.end());
-					return Files;
-				}()};
+				.Effect = EAssetWriteEffect::PartiallyWritten};
 		}
 		Result = PublishPackageRemoval(Packages, RegistryRevision);
 		if (!Result)
@@ -452,7 +450,7 @@ namespace Durin
 
 		if (!SortedPaths.empty())
 		{
-			const FAssetWriteResult Captured = CaptureAssetReferenceStores(ReferenceStores);
+			const FAssetWriteResult Captured = AssetWriteResultFromRead(CaptureAssetReferenceStores(ReferenceStores));
 			if (!Captured)
 				AddBlocker(EAssetDeletionBlocker::ReferenceStoreInspectionFailed,
 					SortedPaths.front(), {}, {}, Captured.Message);
@@ -617,7 +615,7 @@ namespace Durin
 		{
 			FAssetReferenceStoreCapture Stores;
 			const auto Captured = CaptureAssetReferenceStores(Stores);
-			if (!Captured) return Captured;
+			if (!Captured) return AssetWriteResultFromRead(Captured);
 			if (Stores != ReferenceStores)
 				return Error(EAssetWriteError::InUse, "External reference owners changed after confirmation.");
 		}

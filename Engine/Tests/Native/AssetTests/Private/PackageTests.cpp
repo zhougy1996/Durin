@@ -1547,14 +1547,14 @@ namespace
 			OutContribution = {
 				.Fingerprint = std::string(ExpectedFingerprint),
 				.Rewrites = {Rewrites.front()},
-				.Revalidate = [this, PrePath] { return Path == PrePath ? Durin::FAssetReadResult{} : Durin::FAssetReadResult{Durin::EAssetReadError::StaleData, "Memory reference store changed."}; },
+				.Revalidate = [this, PrePath] { return Path == PrePath ? Durin::FAssetWriteResult{} : Durin::FAssetWriteResult{Durin::EAssetWriteError::StaleData, "Memory reference store changed."}; },
 				.Apply = [this, PostPath] {
 					Path = PostPath;
-					return Durin::FAssetReadResult{}; },
+					return Durin::FAssetWriteResult{}; },
 				.Restore = [this, PrePath] {
 					Path = PrePath;
-					return Durin::FAssetReadResult{}; },
-				.Verify = [this, PostPath] { return Path == PostPath ? Durin::FAssetReadResult{} : Durin::FAssetReadResult{Durin::EAssetReadError::StaleData, "Memory reference store verification failed."}; }
+					return Durin::FAssetWriteResult{}; },
+				.Verify = [this, PostPath] { return Path == PostPath ? Durin::FAssetWriteResult{} : Durin::FAssetWriteResult{Durin::EAssetWriteError::StaleData, "Memory reference store verification failed."}; }
 			};
 			return {};
 		}
@@ -3180,6 +3180,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	const auto Rejected = Read();
 	EXPECT_EQ(Rejected.Error, EAssetReadError::MissingDependency);
 	static_assert(!std::is_convertible_v<FAssetWriteResult, FAssetReadResult>);
+	static_assert(!std::is_convertible_v<FAssetReadResult, FAssetWriteResult>);
 	EXPECT_NE(Rejected.Message.find("Rejected private dependency."), std::string::npos);
 	// Internal references use the supplied skeleton table even without a resolver.
 	Bindings = {};
@@ -5106,7 +5107,7 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 		Durin::FByteBuffer Sentinel{std::byte{9}, std::byte{8}, std::byte{7}};
 		const auto Result =
 			Durin::SerializeAssetPackageBytes(Source->GetPackage(), Sentinel);
-		EXPECT_EQ(Result.Error, ExpectedError);
+		EXPECT_EQ(Durin::AssetWriteResultFromEncoding(Result).Error, ExpectedError);
 		EXPECT_EQ(Sentinel, (Durin::FByteBuffer{std::byte{9}, std::byte{8}, std::byte{7}}));
 	};
 	ExpectAtomicFailure([&] { Source->bSkipSuper = true; },
@@ -6960,7 +6961,7 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::PartiallyWritten);
-	EXPECT_FALSE(Result.RecoveryLocation.empty());
+	EXPECT_FALSE(Job.GetLastResultDetails().BackupLocations.empty());
 	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(OldPath)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
@@ -6995,22 +6996,25 @@ TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
 	const auto Interrupted = Job.Execute();
+	const auto Details = Job.GetLastResultDetails();
+	ASSERT_FALSE(Details.BackupLocations.empty());
+	const auto BackupLocation = Details.BackupLocations.front();
 	ASSERT_EQ(Interrupted.Effect, Durin::EAssetWriteEffect::PartiallyWritten);
-	ASSERT_FALSE(Interrupted.AffectedFiles.empty());
-	ASSERT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
-	EXPECT_FALSE(std::filesystem::exists(Interrupted.RecoveryLocation / "journal"));
+	ASSERT_FALSE(Details.AffectedFiles.empty());
+	ASSERT_TRUE(std::filesystem::is_directory(BackupLocation));
+	EXPECT_FALSE(std::filesystem::exists(BackupLocation / "journal"));
 	const auto SourceFile = Durin::FindAssetExact(SourcePath)->PhysicalPath;
 	Durin::FByteBuffer BeforeRestart;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeRestart, SourceFile));
 	Job = {};
-	EXPECT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
+	EXPECT_TRUE(std::filesystem::is_directory(BackupLocation));
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::InitializeAssetManager());
 	Durin::FByteBuffer AfterRestart;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRestart, SourceFile));
 	EXPECT_EQ(AfterRestart, BeforeRestart);
-	EXPECT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
+	EXPECT_TRUE(std::filesystem::is_directory(BackupLocation));
 }
 
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)
@@ -7260,7 +7264,7 @@ TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndRejectsSecondExecutio
 	EXPECT_EQ(Rejected.Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
 	EXPECT_EQ(SharedJob.GetState(), Durin::EAssetMutationJobState::Failed);
-	EXPECT_EQ(Job.GetLastResultDetails().Result.AffectedFiles, Result.AffectedFiles);
+	EXPECT_EQ(Job.GetLastResultDetails().AffectedFiles, Details.AffectedFiles);
 	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
 	Job = {};
 	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
@@ -7553,7 +7557,7 @@ namespace
 			Durin::FByteBuffer AfterBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
 			const auto StorePathAfterFailure = Store.Path;
-			const auto Effects = Job.GetLastResultDetails().Result.AffectedFiles;
+			const auto Effects = Job.GetLastResultDetails().AffectedFiles;
 			if (FailurePoints[Index] == Durin::EAssetRedirectorFixupFailurePoint::PublishPackage)
 			{
 				EXPECT_EQ(AfterBytes, BeforeBytes);
@@ -7571,7 +7575,7 @@ namespace
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRejectedBytes, OwnerFile));
 			EXPECT_EQ(AfterRejectedBytes, AfterBytes);
 			EXPECT_EQ(Store.Path, StorePathAfterFailure);
-			EXPECT_EQ(Job.GetLastResultDetails().Result.AffectedFiles, Effects);
+			EXPECT_EQ(Job.GetLastResultDetails().AffectedFiles, Effects);
 			ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 			StoreRegistration.Reset();
 			ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
@@ -9738,7 +9742,6 @@ TEST(FPackageAssetTests, CancelledProtectedSaveDoesNotPublishAndAllowsRetry)
 	const auto& Result = Save.GetResult();
 	EXPECT_EQ(Result.Error, EAssetWriteError::Cancelled);
 	EXPECT_EQ(Result.Effect, EAssetWriteEffect::None);
-	EXPECT_TRUE(Result.RecoveryLocation.empty());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ(FindAssetExact(Path).Data, Metadata);
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, Metadata->PhysicalPath));

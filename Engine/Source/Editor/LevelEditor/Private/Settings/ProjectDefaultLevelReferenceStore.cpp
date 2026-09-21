@@ -169,8 +169,8 @@ namespace Durin::Editor::Level
 	{
 		OutContribution = {};
 		FCapturedProjectDefaultLevel PreState;
-		FAssetWriteResult Result = CaptureProjectDefaultLevel(
-			ProjectResolver, PreState);
+		FAssetWriteResult Result = AssetWriteResultFromRead(CaptureProjectDefaultLevel(
+			ProjectResolver, PreState));
 		if (!Result) return Result;
 		if (ExpectedFingerprint != PreState.Fingerprint
 			|| Rewrites.size() != 1
@@ -220,7 +220,7 @@ namespace Durin::Editor::Level
 			.Revalidate = [SettingsFile, PreFingerprint, PrePath, ResolveProject] {
 				FCapturedProjectDefaultLevel Current;
 				FAssetWriteResult CurrentResult =
-					CaptureProjectDefaultLevel(ResolveProject, Current);
+					AssetWriteResultFromRead(CaptureProjectDefaultLevel(ResolveProject, Current));
 				if (!CurrentResult) return CurrentResult;
 				return Current.SettingsFile == SettingsFile
 					&& Current.Fingerprint == PreFingerprint
@@ -245,7 +245,7 @@ namespace Durin::Editor::Level
 			.Verify = [SettingsFile, PostFingerprint, PostPath, ResolveProject] {
 				FCapturedProjectDefaultLevel Current;
 				FAssetWriteResult CurrentResult =
-					CaptureProjectDefaultLevel(ResolveProject, Current);
+					AssetWriteResultFromRead(CaptureProjectDefaultLevel(ResolveProject, Current));
 				if (!CurrentResult) return CurrentResult;
 				return Current.SettingsFile == SettingsFile
 					&& Current.Fingerprint == PostFingerprint

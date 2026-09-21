@@ -20,6 +20,8 @@ namespace Durin
 	{
 		FAssetWriteResult Result;
 		uint64 RegistryRevision = 0;
+		std::vector<std::filesystem::path> AffectedFiles;
+		std::vector<std::filesystem::path> BackupLocations;
 		std::vector<FPackagePath> RewrittenPaths;
 		std::vector<FPackagePath> RetainedPaths;
 		std::vector<FPackagePath> DeletedPaths;

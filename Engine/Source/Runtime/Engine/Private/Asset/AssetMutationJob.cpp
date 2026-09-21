@@ -27,7 +27,7 @@ namespace Durin
 
 	auto FAssetMutationJob::Execute() -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (!State)
 			return Error(EAssetWriteError::StaleData,
 				"The asset mutation job is empty.");

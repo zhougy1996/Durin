@@ -4,6 +4,9 @@
 
 namespace Durin
 {
+	struct FAssetReadResult;
+	namespace ObjectPackage { struct FPackageWriterResult; }
+
 	enum class EAssetWriteError : uint8
 	{
 		None, InvalidPath, AlreadyExists, NotFound, IoError, InvalidData,
@@ -20,11 +23,10 @@ namespace Durin
 		EAssetWriteError Error = EAssetWriteError::None;
 		std::string Message;
 		EAssetWriteEffect Effect = EAssetWriteEffect::None;
-		std::string FailedParticipant;
-		// Retained backup/staging data for manual repair, never a replay locator.
-		std::filesystem::path RecoveryLocation;
-		std::vector<std::filesystem::path> AffectedFiles;
 		auto Succeeded() const -> bool { return Error == EAssetWriteError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
+	// Explicit boundary: a read failure rejects preparation without write effects.
+	ENGINE_API auto AssetWriteResultFromRead(const FAssetReadResult& Result) -> FAssetWriteResult;
+	ENGINE_API auto AssetWriteResultFromEncoding(const ObjectPackage::FPackageWriterResult& Result) -> FAssetWriteResult;
 }

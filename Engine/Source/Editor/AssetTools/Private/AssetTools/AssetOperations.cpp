@@ -47,7 +47,14 @@ namespace Durin
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
 			const FAssetWriteResult Committed = Job.Execute();
-			if (!Committed) return AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
+			if (!Committed)
+			{
+				auto Result = AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
+				const auto Details = Job.GetLastResultDetails();
+				Result.AffectedFiles = Details.AffectedFiles;
+				if (!Details.BackupLocations.empty()) Result.RecoveryLocation = Details.BackupLocations.front();
+				return Result;
+			}
 			FAssetOperationResult Result{
 				.Kind = Kind,
 				.Persistence = EAssetOperationPersistenceState::Persisted,
@@ -152,8 +159,8 @@ namespace Durin
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The source top-level asset path is invalid.");
 		DObject* SourceAsset = nullptr;
-		FAssetWriteResult EngineResult = LoadObject(
-			SourceObjectPath, nullptr, SourceAsset);
+		FAssetWriteResult EngineResult = AssetWriteResultFromRead(LoadObject(
+			SourceObjectPath, nullptr, SourceAsset));
 		if (!EngineResult)
 			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
 		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;
@@ -189,9 +196,9 @@ namespace Durin
 			{
 				FAssetOperationResult Failure = AssetToolsPrivate::FromEngineResult(
 					EAssetOperationKind::Duplicate, EngineResult);
-				const FAssetWriteResult Cleanup = UnloadPackage(
+				const FAssetWriteResult Cleanup = AssetWriteResultFromRead(UnloadPackage(
 					DestinationPackagePath,
-					EAssetPackageUnloadPolicy::DiscardUnsaved);
+					EAssetPackageUnloadPolicy::DiscardUnsaved));
 				if (!Cleanup)
 				{
 					Failure.State = EAssetOperationTerminalState::RecoveryRequired;

@@ -90,7 +90,7 @@ namespace Durin
 			Delta.Removes.push_back(Entry.PackagePath);
 			Delta.ReferenceInvalidations.push_back(Entry.PackagePath);
 		}
-		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
+		return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta))));
 	}
 
 }

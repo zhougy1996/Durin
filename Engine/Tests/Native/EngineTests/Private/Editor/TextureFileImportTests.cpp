@@ -500,7 +500,6 @@ TEST_F(FTextureImportQueueTests, DirectSaveFailureFencesOnlyDestructiveOutputAnd
 		ASSERT_EQ(Results->size(), 1u);
 		EXPECT_FALSE(Results->front());
 		EXPECT_EQ(Results->front().Effect, FailIndex == 0 ? EAssetWriteEffect::None : EAssetWriteEffect::PartiallyWritten);
-		EXPECT_EQ(Results->front().AffectedFiles.size(), FailIndex);
 		EXPECT_EQ(IsAssetRegistryProjectionFenced(Path), FailIndex != 0);
 		EXPECT_TRUE(Package->IsDirty());
 		Private::SetDirectPackageWriteFailureForTests({});

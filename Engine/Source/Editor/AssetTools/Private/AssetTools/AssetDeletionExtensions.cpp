@@ -75,8 +75,8 @@ namespace Durin
 			if (OutHasContributor) *OutHasContributor = true;
 			// Custom contributors retain the complete field-inspection contract.
 			FAssetPackageInspection Inspection;
-			const FAssetWriteResult InspectionResult = InspectAssetPackage(
-				Data.PhysicalPath, Data.PackagePath, Inspection);
+			const FAssetWriteResult InspectionResult = AssetWriteResultFromRead(InspectAssetPackage(
+				Data.PhysicalPath, Data.PackagePath, Inspection));
 			if (!InspectionResult) return InspectionResult;
 			FAssetDeleteContribution Contribution;
 			FAssetWriteResult Result = It->second.Contributor(Data, Inspection, Contribution);

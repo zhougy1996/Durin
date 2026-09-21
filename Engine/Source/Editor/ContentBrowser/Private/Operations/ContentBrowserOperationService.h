@@ -125,7 +125,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	private:
 		auto ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities = nullptr) -> bool;
-		auto DeletePhysicalRoots() -> FAssetWriteResult;
+		auto DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult;
 		auto Fail(std::string Message) -> bool;
 
 		FContentDeletionPlanPtr Plan;
@@ -140,7 +140,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	struct FContentBrowserOperationResult
 	{
 		FContentBrowserOperationResult() = default;
-		FContentBrowserOperationResult(FAssetReadResult InStatus) : Status(static_cast<FAssetWriteResult>(InStatus)) {}
+		FContentBrowserOperationResult(FAssetReadResult InStatus) : Status(AssetWriteResultFromRead(InStatus)) {}
 		FContentBrowserOperationResult(FAssetWriteResult InStatus) : Status(std::move(InStatus)) {}
 		FContentBrowserOperationResult(EAssetWriteError Error, std::string Message)
 			: Status{Error, std::move(Message)} {}

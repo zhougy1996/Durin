@@ -1,33 +1,42 @@
 #include "Asset/AssetWriteResult.h"
 #include "Asset/AssetReadResult.h"
+#include "DObject/PackageFormat.h"
 
 namespace Durin
 {
-	FAssetReadResult::operator FAssetWriteResult() const
+	auto AssetWriteResultFromEncoding(const ObjectPackage::FPackageWriterResult& Result) -> FAssetWriteResult
 	{
-		switch (Error)
+		if (Result) return {};
+		return {Result.Reason == ObjectPackage::EPackageWriterReason::UnsupportedVersion
+			? EAssetWriteError::UnsupportedVersion : EAssetWriteError::InvalidData,
+			ObjectPackage::FormatPackageError(Result)};
+	}
+
+	auto AssetWriteResultFromRead(const FAssetReadResult& Result) -> FAssetWriteResult
+	{
+		switch (Result.Error)
 		{
-		case EAssetReadError::None: return {EAssetWriteError::None, Message};
-		case EAssetReadError::InvalidPath: return {EAssetWriteError::InvalidPath, Message};
-		case EAssetReadError::AlreadyExists: return {EAssetWriteError::AlreadyExists, Message};
-		case EAssetReadError::NotFound: return {EAssetWriteError::NotFound, Message};
-		case EAssetReadError::IoError: return {EAssetWriteError::IoError, Message};
-		case EAssetReadError::CorruptFile: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::UnsupportedVersion: return {EAssetWriteError::UnsupportedVersion, Message};
-		case EAssetReadError::UnknownClass: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::TypeMismatch: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::MissingDependency: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::CircularDependency: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::InvalidObjectGraph: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::UnsupportedProperty: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::InvalidPackageType: return {EAssetWriteError::InvalidData, Message};
-		case EAssetReadError::InUse: return {EAssetWriteError::InUse, Message};
-		case EAssetReadError::StaleData: return {EAssetWriteError::StaleData, Message};
-		case EAssetReadError::ShuttingDown: return {EAssetWriteError::ShuttingDown, Message};
-		case EAssetReadError::Cancelled: return {EAssetWriteError::Cancelled, Message};
-		case EAssetReadError::ProjectionPending: return {EAssetWriteError::ProjectionPending, Message};
+		case EAssetReadError::None: return {EAssetWriteError::None, Result.Message};
+		case EAssetReadError::InvalidPath: return {EAssetWriteError::InvalidPath, Result.Message};
+		case EAssetReadError::AlreadyExists: return {EAssetWriteError::AlreadyExists, Result.Message};
+		case EAssetReadError::NotFound: return {EAssetWriteError::NotFound, Result.Message};
+		case EAssetReadError::IoError: return {EAssetWriteError::IoError, Result.Message};
+		case EAssetReadError::CorruptFile: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::UnsupportedVersion: return {EAssetWriteError::UnsupportedVersion, Result.Message};
+		case EAssetReadError::UnknownClass: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::TypeMismatch: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::MissingDependency: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::CircularDependency: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::InvalidObjectGraph: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::UnsupportedProperty: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::InvalidPackageType: return {EAssetWriteError::InvalidData, Result.Message};
+		case EAssetReadError::InUse: return {EAssetWriteError::InUse, Result.Message};
+		case EAssetReadError::StaleData: return {EAssetWriteError::StaleData, Result.Message};
+		case EAssetReadError::ShuttingDown: return {EAssetWriteError::ShuttingDown, Result.Message};
+		case EAssetReadError::Cancelled: return {EAssetWriteError::Cancelled, Result.Message};
+		case EAssetReadError::ProjectionPending: return {EAssetWriteError::ProjectionPending, Result.Message};
 		}
-		return {EAssetWriteError::InvalidData, Message};
+		return {EAssetWriteError::InvalidData, Result.Message};
 	}
 
 }

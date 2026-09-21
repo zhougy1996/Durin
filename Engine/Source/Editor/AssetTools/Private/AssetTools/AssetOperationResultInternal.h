@@ -24,10 +24,7 @@ namespace Durin::AssetToolsPrivate
 		FAssetOperationResult Operation{
 			.Kind = Kind,
 			.State = State,
-			.Message = Result.Message,
-			.FailedParticipant = Result.FailedParticipant,
-			.RecoveryLocation = Result.RecoveryLocation,
-			.AffectedFiles = Result.AffectedFiles};
+			.Message = Result.Message};
 		Operation.AffectedAssets.assign(Affected.begin(), Affected.end());
 		return Operation;
 	}

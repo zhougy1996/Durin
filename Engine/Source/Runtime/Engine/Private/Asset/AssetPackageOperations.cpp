@@ -207,11 +207,11 @@ namespace Durin
 
 		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetWriteResult
 		{
-			if (IsPackageLoading(Path)) return Error(EAssetReadError::InUse, "An incomplete package cannot be saved.");
+			if (IsPackageLoading(Path)) return Error(EAssetWriteError::InUse, "An incomplete package cannot be saved.");
 			const FMountLookupResult Mount =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
 			if (!Mount)
-				return Error(EAssetReadError::InvalidPath,
+				return Error(EAssetWriteError::InvalidPath,
 					std::format("Package {} does not use a registered content mount.",
 						Path.ToString()));
 			if (!Mount.Mount->bContentWritable)
@@ -573,13 +573,14 @@ namespace Durin
 			DPackage* Package,
 			FByteBuffer& OutBytes,
 			FPackageFile* OutFile = nullptr,
-			const FAssetPackageSerializationOptions& Options = {}) -> FAssetWriteResult
+			const FAssetPackageSerializationOptions& Options = {}) -> ObjectPackage::FPackageWriterResult
 		{
 			const AssetPrivate::FAssetPackageCodec* Codec =
 				AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
 			if (!Codec)
-				return Error(EAssetReadError::UnsupportedVersion,
-					"The ordinary asset package writer is unavailable.");
+				return {.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput,
+					.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion,
+					.Message = "The ordinary asset package writer is unavailable."};
 			FAssetPackageSerializationOptions EffectiveOptions = Options;
 			std::vector<FPackageBulkStoragePayload> BulkPayloads;
 			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &BulkPayloads;
@@ -591,7 +592,7 @@ namespace Durin
 			// Codec::Write already validates its encoded closure before returning it.
 			FPackagePath PackagePath;
 			if (!Package || !FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
-				return Error(EAssetReadError::InvalidPath, "Package path is invalid.");
+				return {.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput, .Message = "Package path is invalid."};
 			if (OutFile)
 			{
 				OutFile->BulkBytes = std::move(Closure.BulkBytes);
@@ -602,7 +603,7 @@ namespace Durin
 					.PackagePath = PackagePath,
 					.PhysicalPackageBytes = Closure.PackageBytes.size()};
 				if (auto HeaderResult = Codec->ReadHeader(Context, Header); !HeaderResult)
-					return HeaderResult;
+					return {.Failure = ObjectPackage::EPackageWriterFailure::InvalidInput, .Message = HeaderResult.Message};
 				OutFile->FormatVersion = Header.FormatVersion;
 				OutFile->TopLevelAssets = ProjectTopLevelAssetData(Header);
 				OutFile->AssetClassName = std::move(Header.AssetClassName);
@@ -680,7 +681,7 @@ namespace Durin
 	auto SerializeAssetPackageBytes(
 		DPackage* Package,
 		FByteBuffer& OutBytes,
-		const FAssetPackageSerializationOptions& Options) -> FAssetWriteResult
+		const FAssetPackageSerializationOptions& Options) -> ObjectPackage::FPackageWriterResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
 	}
@@ -689,7 +690,7 @@ namespace Durin
 		DPackage* Package,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes,
-		const FAssetPackageSerializationOptions& Options) -> FAssetWriteResult
+		const FAssetPackageSerializationOptions& Options) -> ObjectPackage::FPackageWriterResult
 	{
 		FPackageFile File;
 		auto Result = BuildPackageBytes(Package, OutBytes, &File, Options);
@@ -706,13 +707,17 @@ namespace Durin
 			if (!Result) Out.Error = Result.Error == EPackageWriteError::StaleData ? EAssetWriteError::StaleData
 				: Result.Error == EPackageWriteError::CorruptFile ? EAssetWriteError::InvalidData : EAssetWriteError::IoError;
 			Out.Message = std::move(Result.Message);
-			Out.AffectedFiles = std::move(Result.AffectedFiles);
+			// File diagnostics remain owned by the physical package writer.
+			if (!Result)
+				for (const auto& File : Result.AffectedFiles)
+					DURIN_ERROR("Affected package file: {}", File.string());
 			if (Result.State == EPackageWriteState::PartiallyWritten)
 				Out.Effect = EAssetWriteEffect::PartiallyWritten;
 			if (Result.State == EPackageWriteState::RecoveryRequired
 				|| (!Result && Result.State == EPackageWriteState::Committed))
 				Out.Effect = EAssetWriteEffect::ContentUncertain;
-			if (!Result.RecoveryFiles.empty()) Out.RecoveryLocation = Result.RecoveryFiles.front();
+			for (const auto& File : Result.RecoveryFiles)
+				Out.Message += std::format("; retained package backup: {}", File.string());
 			return Out;
 		}
 		auto BeginAssetWrite(const std::filesystem::path& Destination, FByteBuffer Bytes, FByteBuffer Bulk,
@@ -746,7 +751,7 @@ namespace Durin
 			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out, bool bDirect = false) -> FAssetWriteResult
 		{
 			if (auto Result = ValidatePackageWriteAdmission(Path); !Result) return Result;
-			if (auto Result = ValidateSaveVersion(Path); !Result) return Result;
+			if (auto Result = ValidateSaveVersion(Path); !Result) return AssetWriteResultFromRead(Result);
 			FPreparedPackageSave Prepared;
 			Prepared.Package = Package;
 			Prepared.Path = Path;
@@ -762,7 +767,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
 			AssetPrivate::FScopedBulkSaveRetention RetainSources(bDirect);
-			if (auto Result = BuildPackageBytes(Package, Bytes, &Prepared.File, Serialization); !Result) return Result;
+			if (auto Result = BuildPackageBytes(Package, Bytes, &Prepared.File, Serialization); !Result) return AssetWriteResultFromEncoding(Result);
 			if (Package->GetEditRevision() != Prepared.Revision || Package->GetPackagePathIdentity() != Prepared.Path
 				|| GetPhysicalPath(Prepared.Path) != Prepared.Destination.generic_string())
 				return Error(EAssetWriteError::StaleData, "Package or destination changed during capture.");
@@ -808,7 +813,6 @@ namespace Durin
 			{
 				Failure.Effect = Rollback.Effect;
 				Failure.Message += "; rollback: " + Rollback.Message;
-				Failure.RecoveryLocation = Rollback.RecoveryLocation;
 			}
 			return Failure;
 		}
@@ -817,11 +821,11 @@ namespace Durin
 			IPackageWriteOperation& Write, const FAssetBundleSaveOptions& Options,
 			const FAssetRegistryPublication& Expected) -> FAssetWriteResult
 		{
-			if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Guard;
+			if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
 			if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 				return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 			if (auto Admission = ValidatePackageWriteAdmission(Path); !Admission) return Admission;
-			if (auto Version = ValidateSaveVersion(Path); !Version) return Version;
+			if (auto Version = ValidateSaveVersion(Path); !Version) return AssetWriteResultFromRead(Version);
 			if (Package->GetEditRevision() != Revision || Package->GetPackagePathIdentity() != Path)
 				return Error(EAssetWriteError::StaleData, "Package changed during save preparation.");
 			if (Options.RootPackage && Options.RootPackage != Package)
@@ -837,7 +841,7 @@ namespace Durin
 				return RollbackAssetWrite(Write, Error(EAssetWriteError::IoError, "Cannot inspect committed package."));
 			const bool Inject = Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, 1);
 			auto RegistryResult = Inject ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
-				: AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(File, Path, Destination, Stamp.Size, Stamp.Time)}, Expected));
+				: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(File, Path, Destination, Stamp.Size, Stamp.Time)}, Expected)));
 			if (!RegistryResult && Options.bRollbackOnRegistryFailure) return RollbackAssetWrite(Write, RegistryResult);
 			if (FindResidentPackage(Path) == Package) Package->MarkAsPublished();
 			if (Package->GetEditRevision() == Revision) Package->ClearDirty();
@@ -847,7 +851,7 @@ namespace Durin
 				FenceAssetRegistryProjection(std::span(&Path, 1));
 				RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 				RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-				if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
+				if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; }
 				return RegistryResult;
 			}
 			return Finalized;
@@ -900,7 +904,7 @@ namespace Durin
 			return {};
 		}
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard)
-		{ OutResult = Guard; return {}; }
+		{ OutResult = AssetWriteResultFromRead(Guard); return {}; }
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 		{ OutResult = Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
 		auto Operation = std::shared_ptr<FProtectedAssetSave>(new FProtectedAssetSave());
@@ -999,7 +1003,7 @@ namespace Durin
 	{
 		if (Flags == SAVE_None) return SavePackage(Package, Mode);
 		if (Flags != SAVE_Async) return Error(EAssetWriteError::InvalidData, "Unknown package save flags.");
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Guard;
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 			return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (!FAssetRuntimeState::Get().IsAcceptingRequests()) return Error(EAssetWriteError::ShuttingDown, "Asset runtime is shutting down.");
@@ -1024,7 +1028,7 @@ namespace Durin
 					Result = Error(EAssetWriteError::IoError, "Direct write task failed; the closure requires reconciliation.");
 					Result.Effect = Data->bStarted ? EAssetWriteEffect::PartiallyWritten : EAssetWriteEffect::None;
 					auto Bulk = Prepared.Destination; Bulk.replace_extension(".dbulk");
-					Result.AffectedFiles = {Bulk, Prepared.Destination};
+					DURIN_ERROR("Direct save may have affected {} and {}", Bulk.string(), Prepared.Destination.string());
 				}
 				if (Result)
 				{
@@ -1036,8 +1040,8 @@ namespace Durin
 						Result = Error(EAssetWriteError::StaleData, "Written package identity or destination changed before publication.");
 					else
 						Result = bFailPublication ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
-							: AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.File,
-							Path, Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication()));
+							: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.File,
+							Path, Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication())));
 					if (!Result) Result.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 					else
 					{
@@ -1054,7 +1058,6 @@ namespace Durin
 				if (!Result)
 				{
 					DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
-					for (const auto& File : Result.AffectedFiles) DURIN_ERROR("Affected package file: {}", File.string());
 				}
 				if (Sink) Sink(Path, Result);
 			});
@@ -1065,7 +1068,7 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetWriteResult
 	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Result) return Result;
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Result) return AssetWriteResultFromRead(Result);
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.SavePackagesAtomically(Packages, Options);
 	}
@@ -1073,7 +1076,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::SavePackagesAtomically(
 		std::span<DPackage* const> Packages, const FAssetBundleSaveOptions& Options) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (Packages.empty()) return Error(EAssetWriteError::InvalidData, "An asset bundle must contain at least one package.");
 		if (Options.PreparedPublication && !Options.bRollbackOnRegistryFailure)
 			return Error(EAssetWriteError::InvalidData, "Prepared publication requires rollback on Registry failure.");
@@ -1131,7 +1134,7 @@ namespace Durin
 		}
 		const bool Inject = Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, StagedPackages.size());
 		auto RegistryResult = Inject ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
-			: AssetPrivate::ToAssetResult(AssetsSaved(std::move(Metadata), Expected));
+			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved(std::move(Metadata), Expected)));
 		if (!RegistryResult && Options.bRollbackOnRegistryFailure) return Rollback(RegistryResult);
 		FAssetWriteResult Finalized;
 		for (auto& Staged : StagedPackages)
@@ -1146,7 +1149,7 @@ namespace Durin
 			FenceAssetRegistryProjection(Fenced);
 			RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 			RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
+			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; }
 			return RegistryResult;
 		}
 		return Finalized;
@@ -1160,7 +1163,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::AdmitAssetPackageToCatalog(
 		const FPackagePath& Path) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (!Path.IsValid())
 			return Error(EAssetWriteError::InvalidPath, "The asset admission path is invalid.");
 		if (Durin::FindAssetExact(Path) || FindResidentPackage(Path))
@@ -1173,7 +1176,7 @@ namespace Durin
 		FAssetPackageHeader Header;
 		if (FAssetRegistryResult Result = ReadAssetPackageHeader(
 			PhysicalPath, Path, Header); !Result)
-			return AssetPrivate::ToAssetResult(std::move(Result));
+			return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(std::move(Result)));
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetWriteError::InUse, "Package output is being written.");
 		FByteBuffer Bytes;
@@ -1181,9 +1184,9 @@ namespace Durin
 			return Error(EAssetWriteError::IoError,
 				"The asset package could not be read for admission validation.");
 		FByteBuffer BulkBytes;
-		if (FAssetWriteResult Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
+		if (FAssetWriteResult Result = AssetWriteResultFromRead(LoadPackageBulkBytes(PhysicalPath, BulkBytes)); !Result)
 			return Result;
-		if (FAssetWriteResult Result = ValidateAssetPackageBytes(Bytes, Path, BulkBytes); !Result)
+		if (FAssetWriteResult Result = AssetWriteResultFromRead(ValidateAssetPackageBytes(Bytes, Path, BulkBytes)); !Result)
 			return Result;
 		std::error_code ErrorCode;
 		const auto LastWriteTime = std::filesystem::last_write_time(
@@ -1199,7 +1202,7 @@ namespace Durin
 		const auto Expected = CaptureAssetRegistryPublication();
 		if (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
 			return Error(EAssetWriteError::StaleData, "Asset metadata cannot publish while the reference index is incomplete.");
-		return AssetPrivate::ToAssetResult(AssetsSaved({FAssetData{
+		return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved({FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
 			.TopLevelAssets = ProjectTopLevelAssetData(Header),
@@ -1215,7 +1218,7 @@ namespace Durin
 			.BulkSegmentDigest = Header.BulkSegmentDigest,
 			.FileSize = FileSize,
 			.LastWriteTime = LastWriteTime,
-			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)}}, Expected));
+			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)}}, Expected)));
 	}
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool
@@ -1479,9 +1482,9 @@ namespace Durin
 		OutBulkBytes.clear();
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
-			return Result;
+			return AssetWriteResultFromRead(Result);
 		if (!Codec->bCanMutate)
-			return Error(EAssetReadError::UnsupportedVersion,
+			return Error(EAssetWriteError::UnsupportedVersion,
 				"Cook canonicalization requires package mutation capability.");
 		FByteBuffer RelocatedBytes;
 		FByteBuffer RelocatedBulkBytes;
@@ -1492,8 +1495,8 @@ namespace Durin
 				.PackagePath = SourcePackagePath,
 				.PhysicalPackageBytes = Bytes.size()};
 			AssetPrivate::FAssetPackageEncodedClosure Relocated;
-			auto RelocateResult = Codec->Relocate(
-				SourceContext, OutputPackagePath, Relocated);
+			auto RelocateResult = AssetWriteResultFromEncoding(Codec->Relocate(
+				SourceContext, OutputPackagePath, Relocated));
 			if (!RelocateResult) return RelocateResult;
 			RelocatedBytes = std::move(Relocated.PackageBytes);
 			RelocatedBulkBytes = std::move(Relocated.BulkBytes);
@@ -1505,13 +1508,13 @@ namespace Durin
 			.PackagePath = OutputPackagePath, .PhysicalPackageBytes = Bytes.size()};
 		FAssetPackageHeader Header;
 		auto Result = Codec->ReadHeader(Context, Header);
-		if (!Result) return Result;
+		if (!Result) return AssetWriteResultFromRead(Result);
 		if (Header.EntryKind != EAssetRegistryEntryKind::Asset)
-			return Error(EAssetReadError::InvalidPackageType,
+			return Error(EAssetWriteError::InvalidData,
 				"CookCanonicalizationRedirectorPackage: redirector packages are uncooked-only.");
 		std::vector<FAssetReferenceEdge> References;
 		Result = Codec->ExtractReferences(Context, References);
-		if (!Result) return Result;
+		if (!Result) return AssetWriteResultFromRead(Result);
 
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
 		auto ResolveReference = [&](const FPackagePath& Path,
@@ -1552,13 +1555,13 @@ namespace Durin
 		for (const FPackagePath& Dependency : Header.Dependencies)
 		{
 			Result = ResolveReference(Dependency, {}, "package dependency table");
-			if (!Result) return Result;
+			if (!Result) return AssetWriteResultFromRead(Result);
 		}
 		for (const FAssetReferenceEdge& Reference : References)
 		{
 			Result = ResolveReference(Reference.TargetPath.GetPackagePath(), Reference.ExpectedClass,
 				Reference.DisplayRoute);
-			if (!Result) return Result;
+			if (!Result) return AssetWriteResultFromRead(Result);
 		}
 		if (Mappings.empty())
 		{
@@ -1576,10 +1579,10 @@ namespace Durin
 
 	auto FAssetMutationCoordinator::SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
 		if (RuntimeConfiguration.IsCooked()) return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
-			return Error(EAssetReadError::InvalidPackageType, "A live persistent package is required.");
+			return Error(EAssetWriteError::InvalidData, "A live persistent package is required.");
 		const auto Expected = CaptureAssetRegistryPublication();
 		FPreparedPackageSave Prepared;
 		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Mode, Prepared); !Result) return Result;

@@ -98,9 +98,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		return true;
 	}
 
-	auto FContentDeletionOperation::DeletePhysicalRoots() -> FAssetWriteResult
+	auto FContentDeletionOperation::DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult
 	{
-		std::vector<std::filesystem::path> RemovedPaths;
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
@@ -119,7 +118,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				return {.Error = EAssetWriteError::IoError, .Message = std::format(
 					"Could not permanently delete {}: {}",
 					Path.generic_string(), Error.message()),
-					.Effect = EAssetWriteEffect::PartiallyWritten, .AffectedFiles = std::move(RemovedPaths)};
+					.Effect = EAssetWriteEffect::PartiallyWritten};
 		}
 		return {};
 	}
@@ -137,7 +136,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (bStarted || !Plan || !Plan->CanExecute())
 			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
 		Result = AssetOperation.Delete({
-			.Delete = [this] { return DeletePhysicalRoots(); },
+			.Delete = [this](auto& RemovedPaths) { return DeletePhysicalRoots(RemovedPaths); },
 			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
 				return ValidatePhysicalState(&Identities)
 					? FAssetWriteResult{} : FAssetWriteResult{EAssetWriteError::StaleData, Details};

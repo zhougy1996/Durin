@@ -27,7 +27,7 @@ namespace Durin::Testing
 			if (!Data) return {EAssetWriteError::NotFound, "The fixture package is not registered."};
 			FAssetPackageInspection Inspection;
 			const auto Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
-			if (!Inspected) return Inspected;
+			if (!Inspected) return AssetWriteResultFromRead(Inspected);
 			std::vector<std::filesystem::path> Companions;
 			if (const auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions); !Storage)
 				return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
@@ -118,7 +118,7 @@ namespace Durin::Testing
 		DObject* DestinationObject = nullptr;
 		auto Result = LoadObject(
 			DestinationObjectPath, nullptr, DestinationObject);
-		if (!Result) return Result;
+		if (!Result) return AssetWriteResultFromRead(Result);
 
 		// Build serialization fixtures through reflection without adding a runtime test API.
 		FProperty* DestinationProperty =

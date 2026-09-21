@@ -47,14 +47,12 @@ namespace Durin::AssetPrivate
 			EAssetMutationPublicationRole::RealAsset;
 		bool bPreExists = false;
 		bool bPostExists = false;
-		std::filesystem::path StagedPrePath;
 		std::filesystem::path StagedPostPath;
-		FXxHash128 StagedPreHash;
 		FXxHash128 StagedPostHash;
 		FAssetPackageFingerprint ExpectedPreFingerprint;
 	};
 
-	// Retains staged inputs and in-process progress for one authored mutation.
+	// Owns immutable publication inputs and the observed file ledger for one execution.
 	// Partially published operations retain backup roots for manual repair only.
 	struct FAssetMutationStaging
 	{

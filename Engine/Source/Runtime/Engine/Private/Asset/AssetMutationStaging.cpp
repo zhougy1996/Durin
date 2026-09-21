@@ -209,11 +209,23 @@ namespace Durin::AssetPrivate
 			.Role = Request.Role,
 			.bPreExists = Request.bPreExists,
 			.bPostExists = Request.bPostExists};
-		if (Request.bPreExists)
-			Entry.StagedPreHash = FXxHash128::HashBuffer(Request.PreBytes);
 		if (Request.bPostExists)
 		{
 			Entry.StagedPostHash = FXxHash128::HashBuffer(Request.PostBytes);
+		}
+
+		std::string PathError;
+		const FMountPoint* Mount = nullptr;
+		if (!IsWritableRelocationPath(Normalized, Mount, PathError))
+			return Error(EAssetWriteError::ReadOnlyMode, std::move(PathError));
+		if (Request.bPreExists && IsReadOnlyMutationInput(Normalized))
+			return Error(EAssetWriteError::ReadOnlyMode, std::format(
+				"Asset mutation input is read-only: {}.", Key));
+		if (Request.bPreExists)
+		{
+			FAssetWriteResult Result = AssetWriteResultFromRead(MakePackageFingerprint(
+				Key, Request.PreBytes, Entry.ExpectedPreFingerprint));
+			if (!Result) return Result;
 		}
 
 		if (const auto Existing = Staging.EntryIndices.find(Key);
@@ -226,7 +238,7 @@ namespace Durin::AssetPrivate
 				&& ExistingEntry.Role == Entry.Role
 				&& ExistingEntry.bPreExists == Entry.bPreExists
 				&& ExistingEntry.bPostExists == Entry.bPostExists
-				&& ExistingEntry.StagedPreHash == Entry.StagedPreHash
+				&& ExistingEntry.ExpectedPreFingerprint.ContentHash == Entry.ExpectedPreFingerprint.ContentHash
 				&& ExistingEntry.StagedPostHash == Entry.StagedPostHash;
 			if (Request.DuplicatePolicy
 					== EMutationStagingDuplicatePolicy::ReuseEquivalent
@@ -237,20 +249,6 @@ namespace Durin::AssetPrivate
 			}
 			return Error(EAssetWriteError::AlreadyExists, std::format(
 				"Asset mutation participants claim the same file {}.", Key));
-		}
-
-		std::string PathError;
-		const FMountPoint* Mount = nullptr;
-		if (!IsWritableRelocationPath(Normalized, Mount, PathError))
-			return Error(EAssetWriteError::ReadOnlyMode, std::move(PathError));
-		if (Request.bPreExists && IsReadOnlyMutationInput(Normalized))
-			return Error(EAssetWriteError::ReadOnlyMode, std::format(
-				"Asset mutation input is read-only: {}.", Key));
-		if (Request.bPreExists)
-		{
-			FAssetWriteResult Result = MakePackageFingerprint(
-				Key, Request.PreBytes, Entry.ExpectedPreFingerprint);
-			if (!Result) return Result;
 		}
 
 		const size_t Index = Staging.Entries.size();
@@ -285,11 +283,11 @@ namespace Durin::AssetPrivate
 			Staging.Roots.push_back(Root);
 		}
 
-		Entry.StagedPrePath = Root / std::format("pre-{:08}", Index);
+		const auto BackupPath = Root / std::format("pre-{:08}", Index);
 		Entry.StagedPostPath = Root / std::format("post-{:08}", Index);
 		auto CleanupStagedEntry = [&] {
 			std::error_code CleanupError;
-			std::filesystem::remove(Entry.StagedPrePath, CleanupError);
+			std::filesystem::remove(BackupPath, CleanupError);
 			CleanupError.clear();
 			std::filesystem::remove(Entry.StagedPostPath, CleanupError);
 			if (!bCreatedRoot) return;
@@ -300,7 +298,7 @@ namespace Durin::AssetPrivate
 		if (Request.bPreExists)
 		{
 			FAssetWriteResult Result = SaveRelocationBytes(
-				Entry.StagedPrePath, Request.PreBytes);
+				BackupPath, Request.PreBytes);
 			if (!Result)
 			{
 				CleanupStagedEntry();
@@ -338,7 +336,7 @@ namespace Durin::AssetPrivate
 			return {};
 		}
 		FByteBuffer Bytes;
-		FAssetWriteResult Result = LoadRelocationBytes(Entry.StagedPostPath, Bytes);
+		FAssetWriteResult Result = AssetWriteResultFromRead(LoadRelocationBytes(Entry.StagedPostPath, Bytes));
 		if (!Result) return Result;
 		std::error_code DirectoryError;
 		std::filesystem::create_directories(

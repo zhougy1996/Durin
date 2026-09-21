@@ -27,14 +27,14 @@ TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
 	const auto& Codec = TaggedPackage::GetCodec();
 	const FAssetPackageEncodedClosure Sentinel{{std::byte{7}}, {std::byte{9}}};
 	auto Closure = Sentinel;
-	FAssetWriteResult WriterFailure;
+	ObjectPackage::FPackageWriterResult WriterFailure;
 	{
 		const std::array Mappings{
 			FAssetRedirectorWriteMapping{Source, Destination},
 			FAssetRedirectorWriteMapping{Source, Destination}};
 		WriterFailure = Codec.WriteRedirector(Path, Mappings, Closure);
 	}
-	EXPECT_EQ(WriterFailure.Error, EAssetWriteError::InvalidData);
+	EXPECT_EQ(WriterFailure.Failure, EPackageWriterFailure::DuplicateIdentity);
 
 	EXPECT_EQ(Closure.PackageBytes, Sentinel.PackageBytes);
 	EXPECT_EQ(Closure.BulkBytes, Sentinel.BulkBytes);
@@ -44,12 +44,12 @@ TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
 	ASSERT_TRUE(Written) << Written.Message;
 
 	const auto SavedClosure = Closure;
-	FAssetWriteResult ReaderFailure;
+	ObjectPackage::FPackageWriterResult ReaderFailure;
 	{
 		FByteBuffer Corrupt(BinaryEnvelopePreambleBytes, std::byte{0});
 		ReaderFailure = Codec.Relocate({.PackageBytes = Corrupt, .PackagePath = Path}, Path, Closure);
 	}
-	EXPECT_EQ(ReaderFailure.Error, EAssetWriteError::InvalidData);
+	EXPECT_EQ(ReaderFailure.Failure, EPackageWriterFailure::InvalidInput);
 
 	EXPECT_EQ(Closure.PackageBytes, SavedClosure.PackageBytes);
 	EXPECT_EQ(Closure.BulkBytes, SavedClosure.BulkBytes);
@@ -78,7 +78,7 @@ TEST(FPackageAssetTests, PackageSerializationFailurePreservesOutputAcrossRetry)
 	} Cleanup{Asset->GetPackage()};
 	const std::string ObjectPath = Asset->GetObjectPath();
 	FByteBuffer Bytes{std::byte{7}};
-	FAssetWriteResult Failure;
+	ObjectPackage::FPackageWriterResult Failure;
 	{
 		auto Overrides = std::make_shared<FObjectSaveOverrides>();
 		ASSERT_TRUE(Overrides->AddObjectOmission(*Asset));
@@ -86,7 +86,7 @@ TEST(FPackageAssetTests, PackageSerializationFailurePreservesOutputAcrossRetry)
 		Options.SaveOverrides = Overrides;
 		Failure = SerializeAssetPackageBytes(Asset->GetPackage(), Bytes, Options);
 	}
-	EXPECT_EQ(Failure.Error, EAssetWriteError::InvalidData);
+	EXPECT_EQ(Failure.Failure, ObjectPackage::EPackageWriterFailure::InvalidInput);
 
 	EXPECT_EQ(Bytes, (FByteBuffer{std::byte{7}}));
 	const auto Saved = SerializeAssetPackageBytes(Asset->GetPackage(), Bytes);

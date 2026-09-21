@@ -102,8 +102,9 @@ saving and mutation return `FAssetWriteResult` with `EAssetWriteError`.
 Read cancellation and pending Registry projection have explicit classifications.
 Write preparation failures retain their full diagnostic text; object/field
 validation failures use `InvalidData` at the write boundary. Only write results
-carry observed write effects and retained backup locations. AssetRegistry owns its own
-result contract; Engine formats its diagnostic at the adaptation boundary.
+carry observed write effects. Mutation ledgers and backup roots are kept in
+`FAssetMutationResultDetails`; physical save details stay with the package writer.
+AssetRegistry owns its result contract; Engine adapts it explicitly.
 Both read and write results expose their presentation text through `Message`.
 Cook inputs and contributor callbacks use their Cook-owned result types.
 
@@ -281,6 +282,11 @@ those owned stages; interrupted publication retains backups for manual repair.
 No locator directory or persistent journal is written. Runtime initialization
 neither scans `Saved/AssetMutationRecovery` nor replays interrupted operations.
 Legacy records are left untouched and do not block startup.
+Staging keeps the original file fingerprint for conflict detection and the
+prepared output hash for duplicate-participant checks and pre-publication
+validation. The fingerprint also supplies the original byte hash; no second
+original hash or post-publication fingerprint is stored. Original backup paths
+are local to preparation, while before images remain on disk for manual repair.
 
 `FAssetMutationJob` owns execution state: Empty, Prepared, Executing, Completed,
 or Failed. Copies share the same single execution. Result details carry errors
@@ -294,8 +300,8 @@ restoration before preparing a new operation.
 
 `FAssetWriteResult::Effect` describes observed effects independently of its error
 code: partial writes, uncertain content, or committed content with Registry
-projection lag. It does not indicate retryability. A recovery location identifies
-retained staging or backup data, never a replayable operation record.
+projection lag. It does not indicate retryability. Mutation details expose
+`AffectedFiles` and all retained `BackupLocations`, never a replayable record.
 
 ## Deletion And Fix-Up
 

@@ -5,7 +5,7 @@
 #include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/PackageSchema.h"
 #include "Asset/AssetReadResult.h"
-#include "Asset/AssetWriteResult.h"
+#include "DObject/PackageFormat.h"
 #include "Asset/PackageResource.h"
 
 namespace Durin
@@ -74,17 +74,17 @@ namespace Durin::AssetPrivate
 			const std::function<FAssetReadResult(DPackage*)>&,
 			const std::function<void(DPackage*)>&) -> FAssetReadResult = nullptr;
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
-			const FAssetPackageSerializationOptions&) -> FAssetWriteResult = nullptr;
+			const FAssetPackageSerializationOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*RewriteReferences)(
 			const FAssetPackageReadContext&, std::span<const FAssetRedirectorFixupMapping>,
-			uint64, FAssetPackageEncodedClosure&) -> FAssetWriteResult = nullptr;
+			uint64, FAssetPackageEncodedClosure&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*Relocate)(
 			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)
-			-> FAssetWriteResult = nullptr;
+			-> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*WriteRedirector)(
 			const FPackagePath&, std::span<const FAssetRedirectorWriteMapping>,
 			FAssetPackageEncodedClosure&)
-			-> FAssetWriteResult = nullptr;
+			-> ObjectPackage::FPackageWriterResult = nullptr;
 	};
 
 	ENGINE_API auto FindAssetPackageReader(

@@ -32,8 +32,6 @@ namespace Durin
 		ProjectionPending
 	};
 
-	struct FAssetWriteResult;
-
 	struct FAssetReadResult
 	{
 		EAssetReadError Error = EAssetReadError::None;
@@ -41,7 +39,5 @@ namespace Durin
 
 		auto Succeeded() const -> bool { return Error == EAssetReadError::None; }
 		explicit operator bool() const { return Succeeded(); }
-		// A failed read can reject write preparation; it cannot report write progress.
-		ENGINE_API operator FAssetWriteResult() const;
 	};
 }

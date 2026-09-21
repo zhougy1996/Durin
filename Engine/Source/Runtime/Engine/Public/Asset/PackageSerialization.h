@@ -84,13 +84,13 @@ namespace Durin
 		DPackage* Package,
 		FByteBuffer& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}
-	) -> FAssetWriteResult;
+	) -> ObjectPackage::FPackageWriterResult;
 	ENGINE_API auto SerializeAssetPackageClosure(
 		DPackage* Package,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options = {}
-	) -> FAssetWriteResult;
+	) -> ObjectPackage::FPackageWriterResult;
 	ENGINE_API auto SavePackagesAtomically(
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}

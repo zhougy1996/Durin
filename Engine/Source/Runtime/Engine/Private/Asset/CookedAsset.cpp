@@ -552,7 +552,7 @@ namespace Durin
 			Package, PackageBytes, Segment, Options);
 		if (!Result)
 			return {{.Code = ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
-				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = Result.Message}};
+				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = ObjectPackage::FormatPackageError(Result)}};
 		FPackageBulkSegmentSummary Summary{
 			.Extent = Segment.size(),
 			.Digest = Segment.empty() ? FXxHash128{} : FXxHash128::HashBuffer(Segment)};

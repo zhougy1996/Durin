@@ -15,6 +15,11 @@ namespace Durin
 
 	namespace
 	{
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
+		{
+			return {Code, std::move(Message)};
+		}
+
 		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
 		{
 			return {Code, std::move(Message)};
@@ -862,18 +867,18 @@ namespace Durin
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
-			return Result;
+			return AssetWriteResultFromRead(Result);
 		if (!Codec->bCanMutate)
-			return Error(EAssetReadError::UnsupportedVersion,
+			return Error(EAssetWriteError::UnsupportedVersion,
 				"Reference rewrite requires package mutation capability.");
 		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		auto Result = Codec->RewriteReferences(
+		auto Result = AssetWriteResultFromEncoding(Codec->RewriteReferences(
 			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()},
-			Mappings, ExpectedRewriteCount, Closure);
+			Mappings, ExpectedRewriteCount, Closure));
 		if (!Result) return Result;
 		if (!std::ranges::equal(Closure.BulkBytes, BulkBytes))
-			return Error(EAssetReadError::CorruptFile,
+			return Error(EAssetWriteError::InvalidData,
 				"Reference rewrite unexpectedly changed the package bulk closure.");
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
