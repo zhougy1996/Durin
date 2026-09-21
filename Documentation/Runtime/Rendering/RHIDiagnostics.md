@@ -59,17 +59,31 @@ the recoverable contract. Cache exhaustion remains explicitly classified.
 `FRHIThreadWorkResult` carries a typed thread error. Unknown exceptions have a
 code; opaque exception-boundary text uses `FromExternalException`, which retains
 at most 4096 bytes. Thread state, synchronous results, and statistics snapshots
-retain the typed error; only presentation callers format it. Initialization
+retain the typed error; only presentation callers format it. The `ToString`
+overload is declared in `RHIThread.h` and implemented in `RHIErrorStrings.cpp`. Initialization
 rollback failures are logged separately and do not replace or extend the primary
 initialization error. Validation-layer callback messages remain external diagnostics.
 
 ## Vulkan configuration
 
-Instance negotiation and device evaluation retain structured rejection lists,
-including requirement identifiers and numeric version or limit context.
-Swapchain selection returns `TVulkanResult<FVulkanSwapchainConfiguration>`,
-an alias of `std::expected<T, FVulkanError>`, and publishes a configuration only
-on success. The infallible instance
-extension request builder returns data directly. `FormatVulkanError` and
-`FormatVulkanErrors` are presentation adapters, including the existing startup
-exception boundary; text emptiness does not determine operation success.
+Instance negotiation retains `FVulkanInstanceNegotiationError` in
+`VulkanExtensions.h`, with an operation-specific code, requirement identifier,
+and numeric version context. Physical-device evaluation in `VulkanDevice.h`
+retains human-readable rejection reasons instead of structured error codes.
+An empty rejection list means a candidate is suitable; callers never parse the
+text. Evaluation does not log, since rejecting one candidate can be normal.
+If all candidates are unsuitable, the startup boundary logs each device and
+reason directly, then throws a short initialization failure. There is no
+aggregate device-report formatter or duplicated candidate arrays.
+
+Swapchain selection uses `EVulkanSwapchainSelectionError` in `VulkanSwapchain.h`
+and returns `std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError>`.
+It publishes a configuration only on success. There is no universal Vulkan
+error type or result alias. The infallible instance extension request builder
+returns data directly.
+
+`ToString` declarations live beside their error types; implementations are
+centralized in `VulkanErrorStrings.cpp`. Enum conversions return static
+`std::string_view` descriptions and context conversions return `std::string`.
+`FormatVulkanInstanceNegotiationErrors` joins instance rejection diagnostics at
+the startup exception boundary. Formatted text is not a success indicator.

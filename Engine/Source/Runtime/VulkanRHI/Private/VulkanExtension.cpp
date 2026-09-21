@@ -65,7 +65,7 @@ namespace Durin::VulkanRHI
 		Result.ApiVersion = std::min(Input.LoaderApiVersion, MaximumApiVersion);
 		if (Input.LoaderApiVersion < MinimumApiVersion)
 		{
-			Result.Errors.push_back({EVulkanError::LoaderVersionTooOld, {}, Input.LoaderApiVersion, MinimumApiVersion});
+			Result.Errors.push_back({EVulkanInstanceNegotiationError::LoaderVersionTooOld, {}, Input.LoaderApiVersion, MinimumApiVersion});
 			return Result;
 		}
 
@@ -96,7 +96,7 @@ namespace Durin::VulkanRHI
 				Name, EVulkanRequirementClass::PlatformRequired, true, true);
 			if (!Requirement.bSupported)
 			{
-				Result.Errors.push_back({EVulkanError::MissingInstanceExtension, Requirement.Name});
+				Result.Errors.push_back({EVulkanInstanceNegotiationError::MissingInstanceExtension, Requirement.Name});
 			}
 		}
 		if (!Result.IsSuccess()) return Result;

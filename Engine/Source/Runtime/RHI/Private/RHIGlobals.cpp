@@ -132,7 +132,7 @@ namespace Durin
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
 				if (!InitResult.IsCompleted())
 				{
-					LastRHIInitializationDiagnostic = FormatRHIThreadError(InitResult.Error);
+					LastRHIInitializationDiagnostic = ToString(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI on RHI thread: {}",
 						LastRHIInitializationDiagnostic);
@@ -148,7 +148,7 @@ namespace Durin
 					InitializeBackendWithRollback(Context);
 				if (!InitResult.IsSuccess())
 				{
-					LastRHIInitializationDiagnostic = FormatRHIThreadError(InitResult.Error);
+					LastRHIInitializationDiagnostic = ToString(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI inline: {}",
 						LastRHIInitializationDiagnostic);

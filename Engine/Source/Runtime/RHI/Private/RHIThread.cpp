@@ -174,17 +174,6 @@ namespace Durin
 		return {{ERHIThreadFailure::ExternalException, std::string(Diagnostic.substr(0, 4096))}};
 	}
 
-	auto FormatRHIThreadError(const FRHIThreadError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case ERHIThreadFailure::None: return {};
-		case ERHIThreadFailure::ExternalException: return Error.ExternalDiagnostic;
-		case ERHIThreadFailure::UnknownException: return "RHI thread work failed with an unknown exception.";
-		case ERHIThreadFailure::PriorFailure: return "RHI thread already failed.";
-		}
-		return {};
-	}
 
 	FRHIThread::FRHIThread()
 		: State(std::make_shared<FState>())

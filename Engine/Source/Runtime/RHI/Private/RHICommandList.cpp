@@ -2820,7 +2820,7 @@ namespace Durin
 				"RHI command-list submission rejected (result {}, state {}, failure '{}').",
 				static_cast<uint32>(Submission.Result),
 				static_cast<uint32>(ThreadStats.AdmissionState),
-				FormatRHIThreadError(ThreadStats.Error));
+				ToString(ThreadStats.Error));
 			std::terminate();
 		}
 		return Submission.Serial;

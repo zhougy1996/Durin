@@ -1,5 +1,6 @@
 #include "RHIResources.h"
 #include "RHIShaderParameters.h"
+#include "RHIThread.h"
 
 namespace Durin
 {
@@ -390,4 +391,16 @@ namespace Durin
 		if (Error.NativeCode) Text += std::format(" native={}", *Error.NativeCode);
 		return Text;
 	}
+	auto ToString(const FRHIThreadError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ERHIThreadFailure::None: return {};
+		case ERHIThreadFailure::ExternalException: return Error.ExternalDiagnostic;
+		case ERHIThreadFailure::UnknownException: return "RHI thread work failed with an unknown exception.";
+		case ERHIThreadFailure::PriorFailure: return "RHI thread already failed.";
+		}
+		return {};
+	}
+
 }

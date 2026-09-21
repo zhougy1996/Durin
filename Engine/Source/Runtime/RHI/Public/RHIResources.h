@@ -22,6 +22,16 @@ namespace Durin
 	struct FRHICapabilities;
 	class FTextureReference;
 
+	// Creation failures describe candidate recovery, never executor/device recovery.
+	enum class ERHIResourceCreationFailure : uint8
+	{
+		None,
+		Unknown,
+		OutOfMemory,
+		ResourceExhausted,
+		UnsupportedDescriptor,
+	};
+
 	// Shared recoverable failure details for resource and pipeline creation.
 	enum class ERHICreationFailureSource : uint8
 	{

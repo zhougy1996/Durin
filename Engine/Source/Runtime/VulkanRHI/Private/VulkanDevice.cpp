@@ -53,29 +53,29 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanPhysicalDeviceCandidateEvaluation Result;
 		if (Input.ApiVersion < VK_API_VERSION_1_1)
-			Result.RejectionReasons.push_back({EVulkanError::DeviceVersionTooOld, {}, Input.ApiVersion, VK_API_VERSION_1_1});
+			Result.RejectionReasons.push_back(std::format("device API version is below Vulkan 1.1 actual={} required={}", Input.ApiVersion, VK_API_VERSION_1_1));
 		if (!HasExtension(Input.AvailableExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
-			Result.RejectionReasons.push_back({EVulkanError::MissingSwapchainExtension});
+			Result.RejectionReasons.emplace_back("missing platform required extension VK_KHR_swapchain");
 		constexpr std::string_view PortabilitySubsetExtension =
 			"VK_KHR_portability_subset";
 		if (Input.bRequirePortabilitySubset
 			&& !HasExtension(Input.AvailableExtensions, PortabilitySubsetExtension))
-			Result.RejectionReasons.push_back({EVulkanError::MissingPortabilitySubset});
+			Result.RejectionReasons.emplace_back("missing platform required extension VK_KHR_portability_subset");
 		if (!Input.bFillModeNonSolid)
-			Result.RejectionReasons.push_back({EVulkanError::MissingFillModeNonSolid});
+			Result.RejectionReasons.emplace_back("missing required fillModeNonSolid feature");
 		if (!Input.bIndependentBlend)
-			Result.RejectionReasons.push_back({EVulkanError::MissingIndependentBlend});
+			Result.RejectionReasons.emplace_back("missing required independentBlend feature");
 		if (!Input.bShaderDrawParameters)
-			Result.RejectionReasons.push_back({EVulkanError::MissingShaderDrawParameters});
+			Result.RejectionReasons.emplace_back("missing required shaderDrawParameters feature");
 		if (Input.MaxImageDimension2D == 0)
-			Result.RejectionReasons.push_back({EVulkanError::InvalidImageDimension2D});
+			Result.RejectionReasons.emplace_back("maxImageDimension2D is zero");
 		if (Input.MaxImageDimensionCube == 0)
-			Result.RejectionReasons.push_back({EVulkanError::InvalidImageDimensionCube});
+			Result.RejectionReasons.emplace_back("maxImageDimensionCube is zero");
 		if (Input.MaxImageArrayLayers < TextureCubeFaceCount)
-			Result.RejectionReasons.push_back({EVulkanError::InsufficientArrayLayers, {}, Input.MaxImageArrayLayers, TextureCubeFaceCount});
+			Result.RejectionReasons.push_back(std::format("maxImageArrayLayers is below six actual={} required={}", Input.MaxImageArrayLayers, TextureCubeFaceCount));
 		if (std::ranges::any_of(Input.MaxComputeWorkGroupCount,
 			[](uint32 Limit) { return Limit == 0; }))
-			Result.RejectionReasons.push_back({EVulkanError::InvalidComputeWorkGroupCount});
+			Result.RejectionReasons.emplace_back("maxComputeWorkGroupCount contains a zero limit");
 		for (uint32 Index = 0; Index < Input.QueueFamilies.size(); ++Index)
 		{
 			const FVulkanQueueFamilyCandidate& Queue = Input.QueueFamilies[Index];
@@ -88,8 +88,9 @@ namespace Durin::VulkanRHI
 			}
 		}
 		if (Result.GraphicsPresentQueueFamilyIndex < 0)
-			Result.RejectionReasons.push_back({Input.bRequirePresentation
-				? EVulkanError::MissingPresentationQueue : EVulkanError::MissingGraphicsComputeQueue});
+			Result.RejectionReasons.emplace_back(Input.bRequirePresentation
+				? "no queue family provides graphics, compute, and presentation for the startup surface"
+				: "no queue family provides graphics and compute");
 		if (!Result.IsSuitable()) return Result;
 		Result.ComputeQueueFamilyIndex = Result.GraphicsPresentQueueFamilyIndex;
 		Result.bEnableTimelineSemaphores = Input.bTimelineSemaphoreFeature
@@ -149,29 +150,6 @@ namespace Durin::VulkanRHI
 				Right.VendorId, Right.DeviceId, Right.DeviceName};
 	}
 
-	auto FormatVulkanPhysicalDeviceRejectionDiagnostic(
-		std::span<const FVulkanPhysicalDeviceCandidateInput> Inputs,
-		std::span<const FVulkanPhysicalDeviceCandidateEvaluation> Evaluations)
-		-> std::string
-	{
-		check(Inputs.size() == Evaluations.size());
-		std::string Diagnostic = "Vulkan physical-device selection failed:";
-		const size_t DeviceCount = std::min<size_t>(Inputs.size(), 16);
-		for (size_t DeviceIndex = 0; DeviceIndex < DeviceCount; ++DeviceIndex)
-		{
-			Diagnostic += std::format(" [{}] {}:", DeviceIndex,
-				Inputs[DeviceIndex].DeviceName.substr(0, 256));
-			const auto& Reasons = Evaluations[DeviceIndex].RejectionReasons;
-			const size_t ReasonCount = std::min<size_t>(Reasons.size(), 8);
-			for (size_t ReasonIndex = 0; ReasonIndex < ReasonCount; ++ReasonIndex)
-				Diagnostic += std::format(" {}", FormatVulkanError(Reasons[ReasonIndex]).substr(0, 256));
-			if (Reasons.size() > ReasonCount)
-				Diagnostic += std::format(" (+{} reasons)", Reasons.size() - ReasonCount);
-		}
-		if (Inputs.size() > DeviceCount)
-			Diagnostic += std::format(" (+{} devices)", Inputs.size() - DeviceCount);
-		return Diagnostic;
-	}
 
 	FDeferredDeletionQueue::FDeferredDeletionQueue(FVulkanDevice* InDevice)
 		: Device(InDevice)

@@ -522,7 +522,7 @@ namespace Durin::VulkanRHI
 		}
 		NegotiationInput.bRequestDiagnostics = ValidationPolicy.bRequestDiagnostics;
 		FVulkanInstanceNegotiationResult Negotiation = NegotiateVulkanInstance(NegotiationInput);
-		if (!Negotiation.IsSuccess()) throw std::runtime_error(FormatVulkanErrors(Negotiation.Errors));
+		if (!Negotiation.IsSuccess()) throw std::runtime_error(FormatVulkanInstanceNegotiationErrors(Negotiation.Errors));
 		for (const FVulkanRequirementState& Requirement : Negotiation.Requirements)
 		{
 			if (!Requirement.bRequested || Requirement.bActivated
@@ -771,16 +771,10 @@ namespace Durin::VulkanRHI
 			if (Candidate.Evaluation.IsSuitable()) SuitableCandidates.push_back(&Candidate);
 		if (SuitableCandidates.empty())
 		{
-			std::vector<FVulkanPhysicalDeviceCandidateInput> Inputs;
-			std::vector<FVulkanPhysicalDeviceCandidateEvaluation> Evaluations;
-			Inputs.reserve(Candidates.size());
-			Evaluations.reserve(Candidates.size());
 			for (const FNativeCandidate& Candidate : Candidates)
-			{
-				Inputs.push_back(Candidate.Input);
-				Evaluations.push_back(Candidate.Evaluation);
-			}
-			throw std::runtime_error(FormatVulkanPhysicalDeviceRejectionDiagnostic(Inputs, Evaluations));
+				for (const std::string& Reason : Candidate.Evaluation.RejectionReasons)
+					DURIN_ERROR("Vulkan device '{}': {}", Candidate.Input.DeviceName, Reason);
+			throw std::runtime_error("No suitable Vulkan physical device was found. See the rejection reasons in the log.");
 		}
 		std::ranges::sort(SuitableCandidates, [](const FNativeCandidate* Left, const FNativeCandidate* Right) {
 			return IsVulkanPhysicalDeviceCandidatePreferred(Left->Input, Right->Input);

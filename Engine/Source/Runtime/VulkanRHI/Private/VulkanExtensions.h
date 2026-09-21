@@ -1,5 +1,8 @@
 #pragma once
-#include "VulkanResult.h"
+
+#include <string>
+#include <string_view>
+#include <span>
 
 #include "VulkanRHIAPI.h"
 
@@ -45,13 +48,35 @@ namespace Durin::VulkanRHI
 		bool bEnablePortabilityEnumeration = false;
 	};
 
+	enum class EVulkanInstanceNegotiationError : uint8
+	{
+		LoaderVersionTooOld,
+		MissingInstanceExtension,
+	};
+
+	VULKANRHI_API auto ToString(EVulkanInstanceNegotiationError Error) -> std::string_view;
+
+	struct FVulkanInstanceNegotiationError
+	{
+		EVulkanInstanceNegotiationError Code;
+		// Identifiers and numeric facts, not diagnostic prose.
+		std::string Requirement;
+		uint32 Actual = 0;
+		uint32 Required = 0;
+	};
+
+	VULKANRHI_API auto ToString(const FVulkanInstanceNegotiationError& Error) -> std::string;
+
+	VULKANRHI_API auto FormatVulkanInstanceNegotiationErrors(
+		std::span<const FVulkanInstanceNegotiationError> Errors) -> std::string;
+
 	struct FVulkanInstanceNegotiationResult
 	{
 		uint32 ApiVersion = 0;
 		std::vector<FVulkanRequirementState> Requirements;
 		std::vector<std::string> EnabledExtensions;
 		std::vector<std::string> EnabledLayers;
-		std::vector<FVulkanError> Errors;
+		std::vector<FVulkanInstanceNegotiationError> Errors;
 
 		auto IsSuccess() const -> bool { return Errors.empty(); }
 	};

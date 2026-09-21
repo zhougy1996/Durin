@@ -1,4 +1,6 @@
 #pragma once
+
+#include <string>
 #include "RHICompletion.h"
 #include "Backend/RHICompletionBackend.h"
 
@@ -46,7 +48,8 @@ namespace Durin::VulkanRHI
 
 	struct FVulkanPhysicalDeviceCandidateEvaluation
 	{
-		std::vector<FVulkanError> RejectionReasons;
+		// Human-readable startup diagnostics; callers do not parse these reasons.
+		std::vector<std::string> RejectionReasons;
 		std::vector<std::string> EnabledExtensions;
 		int32 GraphicsPresentQueueFamilyIndex = -1;
 		int32 ComputeQueueFamilyIndex = -1;
@@ -64,10 +67,7 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto IsVulkanPhysicalDeviceCandidatePreferred(
 		const FVulkanPhysicalDeviceCandidateInput& Left,
 		const FVulkanPhysicalDeviceCandidateInput& Right) -> bool;
-	VULKANRHI_API auto FormatVulkanPhysicalDeviceRejectionDiagnostic(
-		std::span<const FVulkanPhysicalDeviceCandidateInput> Inputs,
-		std::span<const FVulkanPhysicalDeviceCandidateEvaluation> Evaluations)
-		-> std::string;
+
 
 	class FVulkanDevice;
 	class FVulkanDynamicRHI;

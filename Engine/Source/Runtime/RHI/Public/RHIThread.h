@@ -48,7 +48,7 @@ namespace Durin
 		// Opaque exception-boundary text only; bounded by FromExternalException.
 		std::string ExternalDiagnostic;
 	};
-	RHI_API auto FormatRHIThreadError(const FRHIThreadError& Error) -> std::string;
+	RHI_API auto ToString(const FRHIThreadError& Error) -> std::string;
 	struct FRHIThreadWorkResult
 	{
 		FRHIThreadError Error;
