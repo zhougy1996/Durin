@@ -102,7 +102,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto AddError(FSceneImportResult& Result, EImportDiagnosticCategory Category,
 			std::string Phase, std::string Message,
-			std::string OutputIdentity = {}) -> bool
+			std::string OutputIdentity = {}) -> FSceneImportResult
 		{
 			Result.Diagnostics.push_back({
 				.Severity = EImportDiagnosticSeverity::Error,
@@ -111,7 +111,7 @@ namespace Durin::AssetForge::Builtins
 				.OutputIdentity = std::move(OutputIdentity),
 				.Message = Message});
 			Result.Message = std::move(Message);
-			return false;
+			return std::move(Result);
 		}
 
 		auto IsCanceled(const std::function<bool()>& Predicate) -> bool
@@ -287,72 +287,71 @@ namespace Durin::AssetForge::Builtins
 		std::string_view SourceFile,
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		FSceneImportResult& OutResult,
 		const std::function<bool()>& IsCancellationRequested,
-		const FSceneImportPublicationOptions& PublicationOptions) -> bool
+		const FSceneImportPublicationOptions& PublicationOptions) -> FSceneImportResult
 	{
-		OutResult = {};
+		FSceneImportResult Result;
 		::Durin::AssetForge::Builtins::Private::FScopedSceneImportCancellation CancellationScope(
 			IsCancellationRequested);
 		const auto SettingsValidation = Settings.Validate();
 		if (SourceFile.empty() || !DestinationDirectory.IsValid() || !SettingsValidation)
-			return AddError(OutResult, EImportDiagnosticCategory::InvalidRequest,
+			return AddError(Result, EImportDiagnosticCategory::InvalidRequest,
 				"scene-request", SourceFile.empty() || !DestinationDirectory.IsValid()
 					? "Scene import request is invalid." : FormatStaticMeshImportSettingsError(SettingsValidation.Error));
 		if (IsCanceled(IsCancellationRequested))
-			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+			return AddError(Result, EImportDiagnosticCategory::Canceled,
 				"scene-capture", "Scene import was canceled before source capture.");
 
 		const std::string RootFilename = std::filesystem::absolute(
 			SourceFile).lexically_normal().generic_string();
 		FSourceSnapshotBuilder SnapshotBuilder(IsCancellationRequested);
-		if (!SnapshotBuilder.CaptureRootFilename(RootFilename, OutResult.Diagnostics)
+		if (!SnapshotBuilder.CaptureRootFilename(RootFilename, Result.Diagnostics)
 			|| !SnapshotBuilder.DiscoverSourceDependencies(
 				[](std::span<const FSourceSnapshotEntry> Sources,
 					FDependencyRequestSink& Sink,
 					std::vector<FImportDiagnostic>& Diagnostics) {
 					return DiscoverSceneImportDependencies(Sources, Sink, Diagnostics);
-				}, OutResult.Diagnostics))
-			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
+				}, Result.Diagnostics))
+			return AddError(Result, EImportDiagnosticCategory::InvalidSource,
 				"scene-capture", "Scene source closure could not be captured.");
-		auto Snapshot = SnapshotBuilder.Freeze(OutResult.Diagnostics);
+		auto Snapshot = SnapshotBuilder.Freeze(Result.Diagnostics);
 		if (!Snapshot)
-			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
+			return AddError(Result, EImportDiagnosticCategory::InvalidSource,
 				"scene-capture", "Scene source closure could not be finalized.");
 		if (IsCanceled(IsCancellationRequested))
-			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+			return AddError(Result, EImportDiagnosticCategory::Canceled,
 				"scene-translation", "Scene import was canceled before translation.");
 
 		FSceneImportPlan Data;
 		if (!BuildScenePlan(*Snapshot, DestinationDirectory, Settings,
-			Data, OutResult.Outputs, OutResult.Diagnostics, OutResult.Message))
+			Data, Result.Outputs, Result.Diagnostics, Result.Message))
 		{
-			if (!OutResult.Diagnostics.empty()
-				&& !OutResult.Diagnostics.back().Message.empty())
-				OutResult.Message = OutResult.Diagnostics.back().Message;
-			return false;
+			if (!Result.Diagnostics.empty()
+				&& !Result.Diagnostics.back().Message.empty())
+				Result.Message = Result.Diagnostics.back().Message;
+			return Result;
 		}
 		std::vector<size_t> OutputOrder;
-		if (!MakeStableOutputOrder(Data, OutputOrder, OutResult.Message))
-			return AddError(OutResult, EImportDiagnosticCategory::DependencyCycle,
-				"scene-order", OutResult.Message);
+		if (!MakeStableOutputOrder(Data, OutputOrder, Result.Message))
+			return AddError(Result, EImportDiagnosticCategory::DependencyCycle,
+				"scene-order", Result.Message);
 		std::vector<FPreparedSceneOutput> Prepared;
 		Prepared.reserve(Data.Outputs.size());
 		const FSourceSnapshotEntry* Root = Snapshot->FindSource("root");
 		if (!Root)
-			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
+			return AddError(Result, EImportDiagnosticCategory::InvalidSource,
 				"scene-build", "Scene root source is unavailable.");
 		for (const size_t Index : OutputOrder)
 		{
 			if (IsCanceled(IsCancellationRequested))
-				return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+				return AddError(Result, EImportDiagnosticCategory::Canceled,
 					"scene-build", "Scene import was canceled during product construction.");
 			const FSceneOutputData& Descriptor = Data.Outputs[Index];
 			const auto Summary = std::ranges::find(
-				OutResult.Outputs, Descriptor.StableIdentity,
+				Result.Outputs, Descriptor.StableIdentity,
 				&FImportOutputSummary::StableIdentity);
-			if (Summary == OutResult.Outputs.end())
-				return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
+			if (Summary == Result.Outputs.end())
+				return AddError(Result, EImportDiagnosticCategory::InvalidPlan,
 					"scene-build", "Scene output mapping is incomplete.", Descriptor.StableIdentity);
 			FPreparedSceneOutput& Output = Prepared.emplace_back();
 			Output.Descriptor = &Descriptor;
@@ -362,26 +361,26 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (!BuildSceneImportTextureProduct(*Snapshot, Data, Descriptor,
 					IsCancellationRequested, Output.Texture, Error))
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
 				if (const auto Initialized = Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene)); !Initialized)
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", FormatStaticMeshSourceError(Initialized.Error), Descriptor.StableIdentity);
 				const auto Outcome = BuildStaticMeshAuthoredCandidate({
 					.Source = Output.StaticMeshSource}, Output.StaticMesh,
 					{.ShouldCancel = IsCancellationRequested});
 				if (!Outcome)
-					return AddError(OutResult, Outcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
+					return AddError(Result, Outcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
 						? EImportDiagnosticCategory::Canceled : EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", FormatStaticMeshAuthoredBuildError(Outcome.Error), Descriptor.StableIdentity);
 			}
 		}
 
 		if (IsCanceled(IsCancellationRequested))
-			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+			return AddError(Result, EImportDiagnosticCategory::Canceled,
 				"scene-publication", "Scene import was canceled before publication.");
 		std::lock_guard PublicationLock(GetScenePublicationMutex());
 		// Match receipts in the destination before considering generated filenames.
@@ -404,7 +403,7 @@ namespace Durin::AssetForge::Builtins
 				!(Object = LoadObject<DObject>(ObjectPath).value_or(nullptr))) continue;
 			const auto Identity = GetSceneOutputIdentity(Object, RootFilename);
 			if (!Identity.empty() && !ExistingOutputs.emplace(Identity, Object).second)
-				return AddError(OutResult, EImportDiagnosticCategory::Collision,
+				return AddError(Result, EImportDiagnosticCategory::Collision,
 					"scene-publication", "Multiple saved outputs claim the same scene identity.", Identity);
 		}
 		for (FPreparedSceneOutput& Output : Prepared)
@@ -419,7 +418,7 @@ namespace Durin::AssetForge::Builtins
 					: Output.Descriptor->Kind == ESceneOutputKind::StaticMesh
 						? Cast<DStaticMesh>(Output.Previous) != nullptr : Cast<DTexture2D>(Output.Previous) != nullptr;
 				if (!bTypeMatches || Output.Previous->GetPackage()->GetTopLevelAssets().size() != 1)
-					return AddError(OutResult, EImportDiagnosticCategory::Collision,
+					return AddError(Result, EImportDiagnosticCategory::Collision,
 						"scene-publication", "The previous scene output has an incompatible package shape.", Output.Descriptor->StableIdentity);
 			}
 			else if (FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
@@ -433,10 +432,10 @@ namespace Durin::AssetForge::Builtins
 					!FPackagePath::TryCreate(Output.AssetPath.ToString() + "_" +
 						FXxHash128::HashBuffer(std::as_bytes(std::span(Output.Descriptor->StableIdentity))).ToString(), Output.AssetPath) ||
 					FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
-					return AddError(OutResult, EImportDiagnosticCategory::Collision,
+					return AddError(Result, EImportDiagnosticCategory::Collision,
 						"scene-publication", "Scene output path is occupied by an unrelated output.", Output.Descriptor->StableIdentity);
 			}
-			std::ranges::find(OutResult.Outputs, Output.Descriptor->StableIdentity,
+			std::ranges::find(Result.Outputs, Output.Descriptor->StableIdentity,
 				&FImportOutputSummary::StableIdentity)->AssetPath = Output.AssetPath;
 		}
 
@@ -446,7 +445,7 @@ namespace Durin::AssetForge::Builtins
 			if (!CreateCandidate(Output, Error))
 			{
 				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+				return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 					"scene-materialization", std::move(Error), Output.Descriptor->StableIdentity);
 			}
 			const FSceneOutputData& Descriptor = *Output.Descriptor;
@@ -460,7 +459,7 @@ namespace Durin::AssetForge::Builtins
 				if (!PackageResolution)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", PackageResolution.Message,
 						Descriptor.StableIdentity);
 				}
@@ -471,7 +470,7 @@ namespace Durin::AssetForge::Builtins
 				if (auto Hint = MakeSourceHint(SourcePhysicalPath, PackagePath.generic_string()); !Hint)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", FormatSourceHintError(Hint.error()), Descriptor.StableIdentity);
 				}
 				else { HintBase = Hint->Base; SourceHint = std::move(Hint->Hint); }
@@ -483,13 +482,13 @@ namespace Durin::AssetForge::Builtins
 				if (!PlatformData->IsValid())
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", "Texture platform data is invalid.", Descriptor.StableIdentity);
 				}
 				if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", FormatTexture2DInputError(Validation.Error), Descriptor.StableIdentity);
 				}
 				Texture->SetSource(Output.Texture.SourceData);
@@ -515,7 +514,7 @@ namespace Durin::AssetForge::Builtins
 				if (!ImportData || !Validation)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", !ImportData
 							? "Scene texture import data could not be published." : FormatAssetImportDataError(Validation.error()),
 						Descriptor.StableIdentity);
@@ -533,7 +532,7 @@ namespace Durin::AssetForge::Builtins
 				if (!ImportData)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", "Scene mesh import data could not be created.", Descriptor.StableIdentity);
 				}
 				ImportData->SourceIdentity = RootFilename;
@@ -542,7 +541,7 @@ namespace Durin::AssetForge::Builtins
 					CaptureStaticMeshReconciliation(*Mesh), true, {}, ImportData); !Applied)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", FormatStaticMeshApplicationError(Applied.Error), Descriptor.StableIdentity);
 				}
 			}
@@ -630,7 +629,7 @@ namespace Durin::AssetForge::Builtins
 				if (Imported == Data.Scene.Materials.end() || !Standard)
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
+					return AddError(Result, EImportDiagnosticCategory::MissingDependency,
 						"scene-dependency-binding", Error.empty()
 							? "Scene material dependency is unavailable." : std::move(Error),
 						Descriptor.StableIdentity);
@@ -649,7 +648,7 @@ namespace Durin::AssetForge::Builtins
 				if (!Material || !Material->SetParentAndPropertyOverrides(Standard, Overrides))
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
+					return AddError(Result, EImportDiagnosticCategory::MissingDependency,
 						"scene-dependency-binding", "Scene material parent could not be applied.",
 						Descriptor.StableIdentity);
 				}
@@ -681,14 +680,14 @@ namespace Durin::AssetForge::Builtins
 					if (const auto Applied = Material->SetParameterValue(Owner.ParameterId, Value); !Applied)
 					{
 						Abandon(Prepared);
-						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+						return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 							"scene-material-parameters", FormatMaterialError(Applied.Error), Descriptor.StableIdentity);
 					}
 				}
 				if (!Material->SetImportProvenance(std::move(Receipt)))
 				{
 					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+					return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 						"scene-material-parameters", "Scene material import receipt is invalid.", Descriptor.StableIdentity);
 				}
 			}
@@ -704,7 +703,7 @@ namespace Durin::AssetForge::Builtins
 							SlotIndex, Error))
 						{
 							Abandon(Prepared);
-							return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
+							return AddError(Result, EImportDiagnosticCategory::MissingDependency,
 								"scene-dependency-binding", Error.empty()
 									? "Scene material dependency is unavailable." : std::move(Error),
 								Descriptor.StableIdentity);
@@ -717,7 +716,7 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidateCandidate(Output, Error))
 			{
 				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+				return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 					"scene-validation", Error.empty()
 						? "Scene candidate has no validated runtime data." : std::move(Error),
 					Descriptor.StableIdentity);
@@ -738,7 +737,7 @@ namespace Durin::AssetForge::Builtins
 			if (!Parent->CompileEdits())
 			{
 				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+				return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 					"scene-material-compile", "Generated surface parent could not be compiled.");
 			}
 			Materials.push_back(Parent);
@@ -751,7 +750,7 @@ namespace Durin::AssetForge::Builtins
 				 Instance->GetMaterialCompileStatus().State == EMaterialCompileState::NeverRequested) && !RequestMaterialRecompile(*Instance))
 			{
 				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+				return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 					"scene-material-compile", "Private material candidate could not be compiled.");
 			}
 		FAssetCompilingManager::Get().FinishCompilationForObjects(Materials);
@@ -767,7 +766,7 @@ namespace Durin::AssetForge::Builtins
 				Material->GetObjectPath(), static_cast<uint32>(Material->GetMaterialCompileStatus().State))
 				: Durin::FormatMaterialError(Diagnostics.front().Source.Error);
 			Abandon(Prepared);
-			return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+			return AddError(Result, EImportDiagnosticCategory::ValidationFailure,
 				"scene-material-compile", Message);
 		}
 
@@ -777,7 +776,7 @@ namespace Durin::AssetForge::Builtins
 		if (IsCanceled(IsCancellationRequested))
 		{
 			Abandon(Prepared);
-			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+			return AddError(Result, EImportDiagnosticCategory::Canceled,
 				"scene-publication", "Scene import was canceled before persistence.");
 		}
 		std::vector<FObjectReplacementPackagePair> Pairs;
@@ -828,13 +827,13 @@ namespace Durin::AssetForge::Builtins
 			{
 				Publication.Abort();
 				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::PersistenceFailure,
+				return AddError(Result, EImportDiagnosticCategory::PersistenceFailure,
 					"scene-persistence", std::format("Saved {} of {} packages; {}: {}",
-						OutResult.SavedPackages.size(), Pairs.size(), Pair.Prepared->GetPackagePath(),
+						Result.SavedPackages.size(), Pairs.size(), Pair.Prepared->GetPackagePath(),
 						!PersistenceResult ? PersistenceResult.Message : FormatObjectReplacementError(Published.Error)));
 			}
 			Pair.Prepared->MarkAsPublished();
-			OutResult.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
+			Result.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
 			if (Pair.Current)
 			{
 				// Refresh consumers after each publication, including on partial imports.
@@ -855,9 +854,9 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		GeneratedParents.bRetain = true;
-		OutResult.bSucceeded = true;
-		OutResult.bPersisted = true;
-		OutResult.Message.clear();
-		return true;
+		Result.bSucceeded = true;
+		Result.bPersisted = true;
+		Result.Message.clear();
+		return Result;
 	}
 }

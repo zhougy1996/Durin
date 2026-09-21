@@ -148,9 +148,9 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;
-		AssetForge::Builtins::FSceneImportResult Result;
-		if (!AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
-			Coordinates.GetSettings(), Result))
+		auto Result = AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
+			Coordinates.GetSettings());
+		if (!Result)
 		{
 			if (!Result.SavedPackages.empty())
 				Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());

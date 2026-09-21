@@ -156,6 +156,26 @@ retains its manual-repair and projection-pending dispositions. Asset mutation
 jobs execute once; Engine does not persist journals or replay
 interrupted jobs at startup.
 
+### Writer Outcome Reports
+
+`FPackageWriteResult` remains a report: its boolean conversion checks `Error`,
+while `State`, `RecoveryFiles` and `AffectedFiles` describe observed effects.
+A successful phase is not necessarily a committed save.
+
+| Producer / outcome | State and payload | Interpretation |
+| --- | --- | --- |
+| Protected admission or staging succeeds | `NotCommitted`, no recovery files | Prepared bytes have not replaced destinations. |
+| Protected commit succeeds | `Committed` | Backups remain until finalization or rollback. |
+| Protected commit fails and restoration succeeds | `NotCommitted`, original error | Previous destination content was restored. |
+| Rollback cannot restore a member | `RecoveryRequired`, error and retained `RecoveryFiles` | Manual recovery may be necessary; failure does not imply unchanged files. |
+| Finalize fails to release a backup | `Committed`, error and retained `RecoveryFiles` | Content was committed even though cleanup failed. |
+| Direct writer fails before attempting output | `NotCommitted`, error | No destination write was attempted. |
+| Direct writer fails after attempting output | `PartiallyWritten`, error and `AffectedFiles` | Attempted files may be truncated or removed; no rollback or recovery backups exist. |
+| Direct writer finishes all output | `Committed` | `AffectedFiles` is cleared; subsequent commit/finalize observes this result. |
+
+Keep these payloads on both boolean branches. Neither a void expected value nor
+an error-only wrapper represents the phase and physical effects together.
+
 ## Detached Direct Writer Primitives
 
 Core also provides `GetDirectFilePackageWriter` for detached output. Its `Stage`

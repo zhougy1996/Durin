@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0–3 are complete. Execution is paused at the user's request before Stage 4.
+Stages 0–4 are complete. Stage 5 contract publication and final audit are next.
 Stage 1 validation: Win64-Debug-DurinEditor `all` build passed; TextureTests
 (125), TextureImportWorkflowTests (21), StaticMeshTests (126), AssetImportTests
 (14), and SceneImportTests (10) passed, 296 cases total. The inspection failure
@@ -276,16 +276,30 @@ coverage for changed call sites. The final compile log is
 
 ### Stage 4: Review publication outcomes without losing partial results
 
+Decision: retain asset, physical writer, batch and scene outcome reports. Only
+`ImportSceneAssets` changes shape: return its complete report by value, preserving
+all report fields on early exits and partial publication. All workspace callers
+can consume the returned report. One failure-injection fixture observed the old
+output argument during execution; it now inspects live destination packages
+independently, keeping the pre-publication visibility assertion meaningful.
+Physical and business state tables belong to
+[package persistence](../Runtime/Core/PackagePersistence.md#writer-outcome-reports)
+and [asset packages](../Runtime/Assets/AssetPackages.md#production-save-and-load).
+No expected conversion of publication reports is selected. Cache hit/miss and
+put outcomes, pending package-resource requests, and bulk acquired/empty/busy/
+retired/read-failed admission retain their existing state models and ownership.
+
+
 Dependency: Stages 0 and 3 provide the new error boundary.
 
-- [ ] Trace success and failure construction for asset writes, package writer
+- [x] Trace success and failure construction for asset writes, package writer
   phases, batch saving, and scene import. Document a state table covering committed,
   projection-pending, partially written, recovery-required, and uncertain outcomes.
-- [ ] Preserve `Effect`, `State`, `RecoveryFiles`, `AffectedFiles`, `SavedPackages`,
+- [x] Preserve `Effect`, `State`, `RecoveryFiles`, `AffectedFiles`, `SavedPackages`,
   `FailedPackage`, outputs, and diagnostics wherever meaningful on either branch.
-- [ ] Review `ImportSceneAssets`' redundant bool plus `OutResult`; prefer a returned
+- [x] Review `ImportSceneAssets`' redundant bool plus `OutResult`; prefer a returned
   report value if all consumers support it, without removing partial-success facts.
-- [ ] Record explicit retention decisions for cache outcomes, pending package reads,
+- [x] Record explicit retention decisions for cache outcomes, pending package reads,
   bulk admission, and publication reports. Any selected expected conversion must
   first define complete success and failure payloads and update this plan.
 
@@ -294,6 +308,17 @@ If publication-facing code changes, validate relevant PackageWriterContractTests
 AssetSaveReadinessTests, AssetPackageTests, and SceneImportTests, including existing
 failure-injection/rollback cases, plus the shared API build gate. Retention alone
 does not require rerunning unchanged runtime tests.
+
+Validation: Win64-Debug-DurinEditor `all` passed
+(`20260921-231432-204690-50268-cmake.log`). PackageWriterContractTests (20),
+AssetSaveReadinessTests (3), AssetPackageTests (189), and SceneImportTests (10)
+passed, 222 cases total; XML reports are under the profile's NativeTestResults.
+SceneImportVulkanTests compiled (`20260921-231757-022270-49236-cmake.log`);
+GPU execution was not selected because rendering behavior is unchanged.
+The final SceneImportTests run additionally verifies retained cancellation and
+rejection diagnostics; an initial new assertion used the wrong enum namespace,
+corrected before the passing run. Runtime code did not change after the all build.
+Changed-document validation passed.
 
 ### Stage 5: Close the migration and publish contracts
 

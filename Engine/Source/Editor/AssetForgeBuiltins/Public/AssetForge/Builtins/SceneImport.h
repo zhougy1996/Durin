@@ -35,11 +35,10 @@ namespace Durin::AssetForge::Builtins
 
 	// Reimports matching source/output identities from source, discarding edits to
 	// generated outputs. Unrelated assets and shared structural parents are never overwritten.
-	ASSETFORGEBUILTINS_API auto ImportSceneAssets(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ImportSceneAssets(
 		std::string_view SourceFile,
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		FSceneImportResult& OutResult,
 		const std::function<bool()>& IsCancellationRequested = {},
-		const FSceneImportPublicationOptions& PublicationOptions = {}) -> bool;
+		const FSceneImportPublicationOptions& PublicationOptions = {}) -> FSceneImportResult;
 }

@@ -188,10 +188,10 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	Durin::AssetForge::Builtins::FSceneImportResult Executed;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ImportSceneAssets(
+	auto Executed = Durin::AssetForge::Builtins::ImportSceneAssets(
 		MountedScene.generic_string(),
-		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(), Executed))
+		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(Executed)
 		<< Executed.Message;
 	ASSERT_EQ(Executed.Outputs.size(), 3u);
 	Durin::FPackagePath MeshPath;
@@ -672,12 +672,12 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		}
 		// Retain the actual importer output for packed source channels, independent
 		// derived textures, transformed UV1, normal strength and masked rendering.
-		Durin::AssetForge::Builtins::FSceneImportResult PbrImport;
-		ASSERT_TRUE(Durin::AssetForge::Builtins::ImportSceneAssets(
+		auto PbrImport = Durin::AssetForge::Builtins::ImportSceneAssets(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "StaticModelMaterials/ImportedPbrContract.gltf").generic_string(),
 			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"),
-			Durin::FStaticMeshImportSettings::MakeDurin(), PbrImport)) << PbrImport.Message;
+			Durin::FStaticMeshImportSettings::MakeDurin());
+		ASSERT_TRUE(PbrImport) << PbrImport.Message;
 		Durin::FPackagePath PbrMeshPath;
 		for (const auto& Output : PbrImport.Outputs)
 			if (Output.AssetClassName == Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString())

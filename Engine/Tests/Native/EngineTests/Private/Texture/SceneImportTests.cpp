@@ -119,10 +119,10 @@ namespace
 	auto RunScene(const FSceneFixture& Fixture)
 		-> Durin::AssetForge::Builtins::FSceneImportResult
 	{
-		Durin::AssetForge::Builtins::FSceneImportResult Result;
-		EXPECT_TRUE(Durin::AssetForge::Builtins::ImportSceneAssets(
+		auto Result = Durin::AssetForge::Builtins::ImportSceneAssets(
 			Fixture.Source, Fixture.DestinationDirectory,
-			Durin::FStaticMeshImportSettings::MakeDurin(), Result)) << Result.Message;
+			Durin::FStaticMeshImportSettings::MakeDurin());
+		EXPECT_TRUE(Result) << Result.Message;
 		return Result;
 	}
 }
@@ -261,25 +261,25 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
 	{
 		bool bReached = false;
-		FSceneImportResult Failed;
-		EXPECT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-			FStaticMeshImportSettings::MakeDurin(), Failed, {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+		auto Failed = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+			FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
 				EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
 				EXPECT_EQ(Dependent->GetParent(), Previous);
 				if (Phase != Failure) return false;
 				bReached = true;
 				return true;
-			}})) << Failed.Message;
+			}});
+		EXPECT_FALSE(Failed) << Failed.Message;
 		ASSERT_TRUE(bReached) << Failed.Message;
 		EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
 		EXPECT_EQ(Dependent->GetParent(), Previous);
 		for (const auto& [Path, Bytes] : SavedBytes) EXPECT_EQ(Read(FindAssetExact(Path)->PhysicalPath), Bytes);
 	}
-	FSceneImportResult Partial;
-	ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), Partial, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
+	auto Partial = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
 			return Phase == EAssetBundleSavePhase::PublishRootPackage;
-		}}));
+		}});
+	ASSERT_FALSE(Partial);
 	ASSERT_FALSE(Partial.SavedPackages.empty());
 	EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
 	EXPECT_NE(Dependent->GetParent(), Previous);
@@ -324,9 +324,9 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 		std::filesystem::path(Fixture.Source).filename();
 	std::filesystem::create_directories(OtherSource.parent_path());
 	std::ofstream(OtherSource) << OriginalSource;
-	FSceneImportResult Collision;
-	EXPECT_FALSE(ImportSceneAssets(OtherSource.generic_string(), Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), Collision));
+	auto Collision = ImportSceneAssets(OtherSource.generic_string(), Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Collision);
 	EXPECT_FALSE(Collision.bPersisted);
 	EXPECT_EQ(Consumer->GetMaterial(), Material);
 }
@@ -359,16 +359,18 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 	for (const auto Failure : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::StagePackage,
 		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
 	{
-		FSceneImportResult Failed;
 		bool bInjected = false;
-		ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-			FStaticMeshImportSettings::MakeDurin(), Failed, {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+		auto Failed = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+			FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
 				EXPECT_EQ(FindResidentPackage(ParentPath), nullptr);
-				for (const auto& Output : Failed.Outputs) EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
+				for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+					if (auto* Package = Cast<DPackage>(Object))
+						EXPECT_FALSE(Package->GetPackagePath().starts_with(Fixture.DestinationDirectory.ToString() + "/"));
 				if (Phase != Failure) return false;
 				bInjected = true;
 				return true;
-			}}));
+			}});
+		ASSERT_FALSE(Failed);
 		EXPECT_TRUE(bInjected);
 		EXPECT_FALSE(Failed.bSucceeded);
 		EXPECT_FALSE(Failed.bPersisted);
@@ -380,11 +382,11 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
 		}
 	}
-	FSceneImportResult Partial;
-	ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), Partial, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
+	auto Partial = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
 			return Phase == EAssetBundleSavePhase::PublishRootPackage;
-		}}));
+		}});
+	ASSERT_FALSE(Partial);
 	ASSERT_FALSE(Partial.SavedPackages.empty());
 	EXPECT_FALSE(Partial.bPersisted);
 	EXPECT_TRUE(FindAssetExact(ParentPath));
@@ -543,9 +545,9 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 	auto* Parent = Cast<DMaterial>(Instance->GetParent());
 	ASSERT_NE(Parent, nullptr);
 	const auto Revision = Parent->GetPackage()->GetEditRevision();
-	FSceneImportResult Second;
-	ASSERT_TRUE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
-		FStaticMeshImportSettings::MakeDurin(), Second)) << Second.Message;
+	auto Second = ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
+		FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(Second) << Second.Message;
 	for (const auto& Output : Second.Outputs)
 		if (Output.Role == "MaterialInstance")
 		{
@@ -568,9 +570,9 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 	auto Changed = Original;
 	Changed.AmbientOcclusion.SetConstant({.3f});
 	ASSERT_TRUE(ApplyOutputs(Changed));
-	FSceneImportResult Rejected;
-	EXPECT_FALSE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
-		FStaticMeshImportSettings::MakeDurin(), Rejected));
+	auto Rejected = ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
+		FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Rejected);
 	EXPECT_NE(Rejected.Message.find("modified"), std::string::npos);
 	EXPECT_EQ(Parent->GetExpressionOutputs(), Changed);
 	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindAssetExact(Output.AssetPath));
@@ -584,11 +586,11 @@ TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialP
 	ASSERT_TRUE(Source.is_open());
 	Source << R"({"asset":{"version":"2.0"},"materials":[{"name":"MustNotPublish"}],"skins":[]})";
 	Source.close();
-	Durin::AssetForge::Builtins::FSceneImportResult Imported;
-	EXPECT_FALSE(Durin::AssetForge::Builtins::ImportSceneAssets(
+	auto Imported = Durin::AssetForge::Builtins::ImportSceneAssets(
 		Fixture.Source, Fixture.DestinationDirectory,
-		Durin::FStaticMeshImportSettings::MakeDurin(), Imported));
+		Durin::FStaticMeshImportSettings::MakeDurin());
 	EXPECT_FALSE(Imported);
+	EXPECT_FALSE(Imported.Diagnostics.empty());
 	EXPECT_TRUE(Imported.Outputs.empty());
 	EXPECT_FALSE(Durin::FindAssetExact(MakeAssetPath(
 		"/SceneImportTests/SceneImport/Unsupported/Materials/MustNotPublish")));
@@ -597,11 +599,12 @@ TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialP
 TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
 {
 	const FSceneFixture Fixture = InitializeFixture("Scheduled");
-	Durin::AssetForge::Builtins::FSceneImportResult Result;
-	EXPECT_FALSE(Durin::AssetForge::Builtins::ImportSceneAssets(
+	auto Result = Durin::AssetForge::Builtins::ImportSceneAssets(
 		Fixture.Source, Fixture.DestinationDirectory,
-		Durin::FStaticMeshImportSettings::MakeDurin(), Result, [] { return true; }));
+		Durin::FStaticMeshImportSettings::MakeDurin(), [] { return true; });
 	EXPECT_FALSE(Result);
+	ASSERT_FALSE(Result.Diagnostics.empty());
+	EXPECT_EQ(Result.Diagnostics.back().Category, Durin::AssetForge::EImportDiagnosticCategory::Canceled);
 	EXPECT_FALSE(Durin::FindAssetExact(
 		MakeAssetPath("/SceneImportTests/SceneImport/Scheduled/StaticMeshes/Scheduled")));
 }

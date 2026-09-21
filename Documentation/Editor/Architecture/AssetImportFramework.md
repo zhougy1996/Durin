@@ -291,6 +291,10 @@ texture preparation still reuse their family build adapters below that
 publication boundary. Engine exposes no generic `CreateAsset` materialization
 seam.
 
+`ImportSceneAssets` returns a complete `FSceneImportResult` report by value.
+Its boolean conversion checks `bSucceeded`; cancellation and rejection still
+return diagnostics and any output summaries already produced. Output summaries
+are planned identities, not proof that their packages were saved.
 A persistence failure stops publication and discards only unpublished candidates.
 `FSceneImportResult::SavedPackages` identifies the committed generated parents
 and outputs even on failure; `bPersisted` is true only for a completely saved

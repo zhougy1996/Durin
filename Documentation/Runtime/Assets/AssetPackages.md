@@ -414,6 +414,27 @@ restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
 
+`FAssetWriteResult` and `FAssetBatchSaveResult` remain publication reports.
+Their boolean conversion alone does not describe the resulting content:
+
+| Outcome | Report evidence | Caller interpretation |
+| --- | --- | --- |
+| Complete synchronous save | No error; `Effect == None` | The full save finished; `None` is not a universal assertion that no writes occurred. |
+| Rejection before commit or successful rollback | Error; `Effect == None` | This operation reports no remaining write effect. |
+| Ordinary Registry publication failure after commit | Error; `ContentCommittedProjectionPending` | Valid committed bytes remain, with projection fenced for reconciliation. |
+| Direct output failure after writing starts | Error; `PartiallyWritten` | Old bytes are not restored; completion cannot be treated as rejection before I/O. |
+| Failed restoration or failed committed-writer finalization | Error; `ContentUncertain` | The business adapter conservatively preserves uncertainty and recovery diagnostics. |
+| Later batch member fails | `SavedPackages`, `FailedPackage`, and `Result` | Earlier members stay committed. The failed member can itself have a nonempty `Effect` and need not appear in `SavedPackages`. |
+
+Physical writer reports retain recovery/affected paths as described in
+[writer outcome reports](../Core/PackagePersistence.md#writer-outcome-reports).
+The existing Engine adapter appends recovery paths to the message and logs
+failed affected-file paths; it does not expose those vectors as asset fields.
+A Registry failure combined with finalization failure keeps projection-pending
+as its effect and appends the finalization diagnostic. Read/encoding rejection
+adapters produce no write effect. These reports do not authorize retries or
+promise rollback.
+
 Admission-only `SavePackage(..., SAVE_Async)` instead writes final files directly,
 without rollback. Its return value does not confirm persistence; partial writes
 fence the projection and retain Dirty. See the authoritative
