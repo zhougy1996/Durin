@@ -36,9 +36,9 @@ namespace Durin
 	CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
 
 	class FTaskCancellationToken;
-	using FParallelForFunction = std::function<void(uint64)>;
+	using FParallelForFunction = std::move_only_function<void(uint64)>;
 	class FParallelForCancellationToken;
-	using FCancelableParallelForFunction = std::function<void(uint64, const FParallelForCancellationToken&)>;
+	using FCancelableParallelForFunction = std::move_only_function<void(uint64, const FParallelForCancellationToken&)>;
 
 	class FTaskCancellationState;
 	class FTaskGenerationState;
@@ -690,6 +690,7 @@ namespace Durin
 	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>;
 
 	// Executes [0, Num) in bounded contiguous chunks and includes the calling thread.
+	// Chunks invoke the same owned callable concurrently; captures must support concurrent access.
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;
 	CORE_API auto ParallelForCancelable(const char* Name, uint64 Num, FCancelableParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;
 

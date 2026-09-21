@@ -1674,6 +1674,53 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, RetainedTask.GetState());
 	}
 
+	TEST(FParallelForTests, PolicyWrapperOwnsUniqueCapturesForSerialAndParallelExecution)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (const auto Policy : {Tasks::EParallelForPolicy::Serial, Tasks::EParallelForPolicy::ExplicitBatch})
+		{
+			std::atomic<uint64> Sum = 0;
+			std::atomic<uint32> Destroyed = 0;
+			auto Delete = [&Destroyed](uint64* Value) { delete Value; ++Destroyed; };
+			const auto Result = Tasks::ParallelFor("UniqueParallelCapture", 131,
+				[Value = std::unique_ptr<uint64, decltype(Delete)>(new uint64(7), Delete), &Sum](uint64 Index) {
+					Sum.fetch_add(Index + *Value, std::memory_order_relaxed);
+				}, {.Policy = Policy, .BatchSize = 1});
+			EXPECT_EQ(ETaskState::Succeeded, Result.State);
+			EXPECT_EQ(Policy == Tasks::EParallelForPolicy::Serial ? 1u : 3u, Result.ChunkCount);
+			EXPECT_EQ(131u * 130u / 2u + 131u * 7u, Sum.load());
+			EXPECT_EQ(1u, Destroyed.load());
+		}
+	}
+
+	TEST(FParallelForTests, CancelableUniqueCapturesReleaseAfterCancellationAndFailure)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (const bool bThrow : {false, true})
+		{
+			FTaskCancellationSource Cancellation;
+			std::atomic<uint32> Destroyed = 0;
+			auto Delete = [&Destroyed](uint64* Value) { delete Value; ++Destroyed; };
+			FParallelForOptions Options;
+			Options.MinBatchSize = 1;
+			Options.CancellationToken = Cancellation.GetToken();
+			const auto Result = ParallelForCancelable("UniqueCancelableCapture", 131,
+				[Value = std::unique_ptr<uint64, decltype(Delete)>(new uint64(0), Delete), &Cancellation, bThrow]
+				(uint64 Index, const FParallelForCancellationToken&) {
+					if (Index != *Value) return;
+					if (bThrow) throw std::runtime_error("unique capture failure");
+					Cancellation.RequestCancellation();
+				}, Options);
+			EXPECT_EQ(bThrow ? ETaskState::Failed : ETaskState::Canceled, Result.State);
+			EXPECT_EQ(3u, Result.ChunkCount);
+			EXPECT_EQ(1u, Destroyed.load());
+		}
+	}
+
 	TEST(FParallelForTests, CoversEdgeUnevenAndLargeRangesWithBoundedChunks)
 	{
 		ShutdownTaskScheduler(false);
