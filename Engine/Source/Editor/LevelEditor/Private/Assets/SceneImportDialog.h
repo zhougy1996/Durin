@@ -34,5 +34,9 @@ namespace Durin::Editor::Level
 		AssetForge::Builtins::FSceneMaterialPreviewResult MaterialPreview;
 		std::array<char, 128> ParentSearch{};
 		bool bMaterialPreviewDirty = true;
+		std::unique_ptr<AssetForge::Builtins::FSceneImportSession> Session;
+		bool bImporting = false;
+		bool bReportedCompletion = false;
+		bool bCloseWhenFinished = false;
 	};
 } // namespace Durin::Editor::Level

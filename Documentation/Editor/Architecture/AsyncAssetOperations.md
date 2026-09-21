@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-22
 
 ## Ownership Layers
 
@@ -18,8 +18,8 @@ Asynchronous asset work crosses three independent concerns:
 Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
 preparation and explicit setter application or delegates only build work to its typed family
-domain. Scene performs direct synchronous orchestration around private captured
-values and does not create a generic import job or operation handle.
+domain. Scene uses a family-specific `FSceneImportSession` around private captured
+values. It does not introduce a generic import job framework.
 
 Texture2D adapters consume the GameThread terminal result defined by
 [Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
@@ -37,6 +37,42 @@ and serial records are settled once on the owner thread. Shutdown stops new
 requests, cancels or drains accepted tasks, then releases captures and module
 code. Thumbnail decoding retains the unique result until this owner-side reap;
 current serials alone may publish an upload.
+
+## Scene Import Sessions
+
+LevelEditor owns a `FSceneImportSession` and advances it each frame. Selecting a
+source starts detached capture, dependency discovery and scene decoding. The Ready
+phase exposes material configuration using the retained source snapshot and parsed
+scene; destination and material changes do not decode geometry again. Coordinate
+changes create a new session. Before building, the worker rehashes the captured
+closure and rejects changed or missing sources. Preparation retains one bounded
+source closure per session and builds products serially to avoid unbounded parallel
+texture memory growth.
+
+Workers construct only detached mesh and texture products. Material policy, asset
+lookup, candidate creation, dependency binding and graph publication remain on
+GameThread. The session yields between candidate operations and observes material
+completion with `HasPendingMaterialCompilation`, including canceled requests awaiting
+owner-side reap. It does not finish pending compilation from normal UI ticks.
+
+Private-package persistence uses `FPreparedAssetSave`: capture on GameThread,
+background protected staging, then prepare and commit reference replacement on
+GameThread. Graph preparation happens after staging because its membership snapshot
+must not span unrelated object creation during disk I/O. Each committed package is
+final; cancellation or failure includes earlier successes in `SavedPackages`.
+Reference refresh and render fences settle before retiring replaced graphs.
+
+Progress reports the active phase, activity and available work counts. Cancellation
+keeps ticking through worker completion and unpublished candidate cleanup. Closing
+the active progress view requests cancellation; host destruction cancels and drains
+at its teardown safe point before module or compiler teardown. Worker captures never
+refer to widgets. The compatibility `ImportSceneAssets` entry point runs the same
+pipeline without yielding for synchronous/headless callers.
+
+Source decoding, product construction, compilation waits and staged writes are
+nonblocking in the interactive path. Material policy checks, individual package
+capture and atomic graph commit remain owner-thread operations; the session does
+not claim a hard frame-time bound for a single large package.
 
 ## Compensating Operation Contract
 

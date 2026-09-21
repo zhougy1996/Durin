@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -192,7 +192,18 @@ or rollback. Dropping the task does not cancel publication. The old public
 `FAsyncPackageSave::Begin` / `Complete` protocol is removed. Completion options,
 including optional Registry-failure rollback, are copied at submission.
 
-Both contracts capture the root and hard-dependency catalog participants. Hard
+Private scene candidates use `FPreparedAssetSave` for protected staging. `Begin`
+pins and captures a private asset package on GameThread, then submits detached
+staging through the shared save owner. `IsReady` observes owner-side completion.
+After readiness, the caller prepares `FObjectGraphReplacement` and calls `Commit`
+inside its synchronous persistence callback. Commit checks publication ownership,
+captured root/dependency identities, package revision and destination, then uses
+the ordinary protected commit and Registry rollback policy. Discarding a ready
+operation removes staging files without publishing. The caller must keep its
+private graph alive and settle staging before abandoning the graph. Graph
+replacement must not be prepared across the asynchronous staging interval.
+
+Both ordinary contracts capture the root and hard-dependency catalog participants. Hard
 dependencies must retain catalog presence, physical path, top-level identities,
 classes and redirect destinations, and must not be projection-fenced. Dependency
 content metadata changes do not invalidate that identity snapshot. Soft references

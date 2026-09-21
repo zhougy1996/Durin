@@ -48,6 +48,7 @@
 
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 
 namespace
 {
@@ -188,9 +189,30 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	auto Executed = Durin::AssetForge::Builtins::ImportSceneAssets(
-		MountedScene.generic_string(),
-		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin());
+	Durin::AssetForge::Builtins::FSceneImportResult Executed;
+	{
+		using namespace Durin::AssetForge::Builtins;
+		FSceneImportSession Session(MountedScene.generic_string(), DestinationDirectory,
+			Durin::FStaticMeshImportSettings::MakeDurin());
+		const auto AdvanceTo = [&](ESceneImportPhase Phase) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+			while (std::chrono::steady_clock::now() < Deadline)
+			{
+				Durin::PumpGameThreadDeferredWork();
+				Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
+				Session.Tick();
+				if (Session.GetProgress().Phase == Phase) return true;
+				if (Session.GetProgress().Phase == ESceneImportPhase::Completed) return false;
+				std::this_thread::yield();
+			}
+			return false;
+		};
+		ASSERT_TRUE(AdvanceTo(ESceneImportPhase::Ready)) << Session.GetResult().Message;
+		ASSERT_TRUE(Session.PreviewMaterials(DestinationDirectory, {}).bSucceeded);
+		ASSERT_TRUE(Session.BeginImport(DestinationDirectory, {}));
+		ASSERT_TRUE(AdvanceTo(ESceneImportPhase::Completed)) << Session.GetResult().Message;
+		Executed = Session.GetResult();
+	}
 	ASSERT_TRUE(Executed)
 		<< Executed.Message;
 	ASSERT_EQ(Executed.Outputs.size(), 3u);
@@ -512,6 +534,15 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(ReloadedMaterial->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
 	ASSERT_NE(ReloadedTexture, nullptr);
+	// Authored texture reload rebuilds platform data asynchronously before upload.
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedTexture);
+	const auto TextureDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (ReloadedTexture->IsResourceUpdatePending() && std::chrono::steady_clock::now() < TextureDeadline)
+	{
+		Durin::PumpGameThreadDeferredWork();
+		std::this_thread::yield();
+	}
+	ASSERT_TRUE(ReloadedTexture->HasUsableResource()) << ReloadedTexture->GetResourceUpdateError();
 	EXPECT_TRUE(ReloadedTexture->IsSRGB());
 	Durin::FVector3 ImportedFactor;
 	ASSERT_TRUE(ReloadedMaterial->GetVectorParameterValue(

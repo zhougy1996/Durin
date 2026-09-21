@@ -851,6 +851,77 @@ namespace Durin
 		}
 	}
 
+	struct FPreparedAssetSave::FState
+	{
+		TStrongObjectPtr<DPackage> Package;
+		FPreparedPackageSave Prepared;
+		FSaveParticipants Participants;
+		FAssetBundleSaveOptions Options;
+		FAssetWriteResult StagingResult;
+		std::optional<FAssetWriteResult> Result;
+		bool bReady = false;
+	};
+
+	FPreparedAssetSave::FPreparedAssetSave() : State(std::make_unique<FState>()) {}
+	FPreparedAssetSave::~FPreparedAssetSave() { check(IsInGameThread()); }
+	auto FPreparedAssetSave::IsReady() const -> bool { check(IsInGameThread()); return State->bReady; }
+	auto FPreparedAssetSave::Begin(DPackage* Package, const FAssetBundleSaveOptions& Options,
+		FAssetWriteResult& Admission) -> std::shared_ptr<FPreparedAssetSave>
+	{
+		check(IsInGameThread());
+		if (!Package || !Package->IsAssetPackage() || !Package->IsGraphPrivate()
+			|| Options.PreparedPublication || !Options.bRollbackOnRegistryFailure
+			|| (Options.RootPackage && Options.RootPackage != Package))
+		{ Admission = Error(EAssetWriteError::InvalidData, "Prepared staging requires a private asset package and rollback policy."); return {}; }
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard)
+		{ Admission = AssetWriteResultFromRead(Guard); return {}; }
+		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
+		{ Admission = Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
+		if (auto Check = PackageSavePrivate::CheckAsyncAdmission(); !Check)
+		{ Admission = Error(EAssetWriteError::ShuttingDown, Check.Message); return {}; }
+		const auto Expected = CaptureAssetRegistryPublication();
+		if (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
+		{ Admission = Error(EAssetWriteError::StaleData, "Prepared publication requires a complete Registry projection."); return {}; }
+		auto Operation = std::shared_ptr<FPreparedAssetSave>(new FPreparedAssetSave());
+		auto& Data = *Operation->State;
+		Data.Package = Package;
+		Data.Options = Options;
+		Admission = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Options.Mode, Data.Prepared);
+		if (!Admission) return {};
+		Data.Options.ShouldFail = [Inject = Options.ShouldFail, bHasBulk = Data.Prepared.File.BulkSegmentExtent != 0](EAssetBundleSavePhase Phase, size_t Index) {
+			return Inject && (Phase != EAssetBundleSavePhase::PublishCompanion || bHasBulk) && Inject(Phase, Index);
+		};
+		Data.Participants.emplace(Data.Prepared.Path, FindAssetExact(Data.Prepared.Path).Data);
+		for (const auto& Dependency : Data.Prepared.File.Dependencies)
+			Data.Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
+		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data.Prepared.DetachedBytes,
+			[Operation] { Operation->State->StagingResult = ToAssetWriteResult(Operation->State->Prepared.Write->Stage()); },
+			[Operation](bool bSucceeded) {
+				if (!bSucceeded) Operation->State->StagingResult = Error(EAssetWriteError::IoError, "Prepared save staging failed.");
+				Operation->State->bReady = true;
+			});
+		if (!Submitted) { Admission = Error(EAssetWriteError::InUse, Submitted.Message); return {}; }
+		Admission = {};
+		return Operation;
+	}
+	auto FPreparedAssetSave::Commit(const FObjectGraphReplacement& Publication) -> FAssetWriteResult
+	{
+		check(IsInGameThread());
+		auto& Data = *State;
+		if (!Data.bReady) return Error(EAssetWriteError::InUse, "Prepared save staging is unfinished.");
+		if (Data.Result) return *Data.Result;
+		if (!Data.StagingResult) return *(Data.Result = Data.StagingResult);
+		auto* Package = Data.Prepared.Package;
+		const auto Expected = CaptureAssetRegistryPublication();
+		if (!Publication.OwnsPreparedPackage(*Package)
+			|| SaveParticipantsChanged(Data.Participants, Data.Prepared.Path)
+			|| GetPhysicalPath(Data.Prepared.Path) != Data.Prepared.Destination.generic_string()
+			|| !Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty())
+			return *(Data.Result = Error(EAssetWriteError::StaleData, "Prepared save participants changed during staging."));
+		return *(Data.Result = FinishOrdinarySave(Package, Data.Prepared.Path, Data.Prepared.Revision,
+			Data.Prepared.File, Data.Prepared.Destination, *Data.Prepared.Write, Data.Options, Expected));
+	}
+
 	class FProtectedAssetSave
 	{
 	public:

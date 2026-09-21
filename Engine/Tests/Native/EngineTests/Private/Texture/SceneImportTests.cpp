@@ -28,6 +28,8 @@
 #include "../Materials/StandardMaterialFunctionTestFixture.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
+#include "Threading/TaskComposition.h"
+#include <thread>
 
 namespace
 {
@@ -38,6 +40,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 		}
 		auto TearDown() -> void override
 		{
@@ -126,6 +129,127 @@ namespace
 		EXPECT_TRUE(Result) << Result.Message;
 		return Result;
 	}
+}
+
+namespace
+{
+	auto AdvanceSceneSession(Durin::AssetForge::Builtins::FSceneImportSession& Session,
+		Durin::AssetForge::Builtins::ESceneImportPhase Target) -> bool
+	{
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		while (std::chrono::steady_clock::now() < Deadline)
+		{
+			Durin::PumpGameThreadDeferredWork();
+			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(false);
+			Session.Tick();
+			if (Session.GetProgress().Phase == Target) return true;
+			if (Session.GetProgress().Phase == Durin::AssetForge::Builtins::ESceneImportPhase::Completed) return false;
+			std::this_thread::yield();
+		}
+		return false;
+	}
+}
+
+TEST(FSceneImportTests, AsyncSessionPublishesAndReimports)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncSession");
+	for (int Pass = 0; Pass != 2; ++Pass)
+	{
+		FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready)) << Session.GetResult().Message;
+		ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
+		ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
+		ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Saving)) << Session.GetResult().Message;
+		// Normal editor frames may create unrelated objects while disk staging runs.
+		TStrongObjectPtr<DStaticMeshComponent> Unrelated(NewObject<DStaticMeshComponent>(nullptr,
+			FName(Pass == 0 ? "AsyncUnrelatedFirst" : "AsyncUnrelatedSecond")));
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+		ASSERT_TRUE(Session.GetResult()) << Session.GetResult().Message;
+		EXPECT_TRUE(Session.GetResult().bPersisted);
+		EXPECT_FALSE(Session.GetResult().SavedPackages.empty());
+	}
+}
+
+TEST(FSceneImportTests, AsyncSessionRejectsChangedSourceAfterReusablePreview)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncStaleSource");
+	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	std::ofstream(Fixture.Source, std::ios::app) << "\n ";
+	// Preview reads cached scene values, even after the physical source changes.
+	ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
+	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	EXPECT_FALSE(Session.GetResult());
+	EXPECT_TRUE(Session.GetResult().SavedPackages.empty());
+	EXPECT_NE(Session.GetResult().Message.find("changed"), std::string::npos);
+}
+
+TEST(FSceneImportTests, AsyncSessionCancelsBeforePublication)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncCancel");
+	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+	Session.Tick();
+	Session.Cancel();
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	EXPECT_FALSE(Session.GetResult());
+	EXPECT_TRUE(Session.GetResult().SavedPackages.empty());
+}
+
+TEST(FSceneImportTests, AsyncSessionReportsPartialPersistence)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncPartial");
+	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}, {
+		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t Index) {
+			return Index == 1 && Phase == EAssetBundleSavePhase::PublishRegistry;
+		}}));
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	EXPECT_FALSE(Session.GetResult());
+	EXPECT_EQ(Session.GetResult().SavedPackages.size(), 1u) << Session.GetResult().Message;
+	for (const auto& Path : Session.GetResult().SavedPackages) EXPECT_TRUE(FindAssetExact(Path));
+}
+
+TEST(FSceneImportTests, AsyncSessionCancelsStagedSaveAndAllowsRetry)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncStagedCancel");
+	{
+		FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+		ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Saving));
+		Session.Cancel();
+		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+		EXPECT_FALSE(Session.GetResult());
+		EXPECT_TRUE(Session.GetResult().SavedPackages.empty());
+	}
+	EXPECT_TRUE(RunScene(Fixture));
+}
+
+TEST(FSceneImportTests, AsyncSessionDestructionDrainsPreparation)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("AsyncDestruction");
+	{
+		FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+		Session.Tick();
+	}
+	EXPECT_TRUE(RunScene(Fixture));
 }
 
 TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)

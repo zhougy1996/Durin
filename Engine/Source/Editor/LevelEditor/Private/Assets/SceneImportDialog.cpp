@@ -17,6 +17,11 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::Open(std::string_view InDestinationDirectory) -> void
 	{
+		if (bImporting) return;
+		if (Session && Session->GetProgress().Phase != AssetForge::Builtins::ESceneImportPhase::Ready
+			&& Session->GetProgress().Phase != AssetForge::Builtins::ESceneImportPhase::Completed) return;
+		Session.reset();
+		bImporting = bReportedCompletion = bCloseWhenFinished = false;
 		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
 		MaterialOptions = {};
@@ -28,12 +33,52 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
+		using AssetForge::Builtins::ESceneImportPhase;
+		if (Session) Session->Tick();
 		ModalState.OpenPopupIfRequested("Import Scene Source");
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
 		if (!ImGui::BeginPopupModal("Import Scene Source", nullptr,
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize
 				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
+		if (Session && Session->GetProgress().Phase == ESceneImportPhase::Completed && !bReportedCompletion)
+		{
+			bReportedCompletion = true;
+			bImporting = false;
+			const auto& Result = Session->GetResult();
+			if (!Result.SavedPackages.empty()) Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
+			if (!Result && (!bCloseWhenFinished || !Result.SavedPackages.empty()))
+				SetError(Result.SavedPackages.empty() ? Result.Message
+					: std::format("{} package(s) saved before import stopped. {}", Result.SavedPackages.size(), Result.Message));
+			if (Result || bCloseWhenFinished)
+			{
+				ImGui::CloseCurrentPopup();
+				ImGui::EndPopup();
+				return;
+			}
+			bImporting = false;
+		}
+		if (Session && Session->GetProgress().Phase != ESceneImportPhase::Ready
+			&& Session->GetProgress().Phase != ESceneImportPhase::Completed)
+		{
+			const auto& Progress = Session->GetProgress();
+			constexpr const char* PhaseNames[] = {"Reading scene", "Configure materials", "Building assets",
+				"Preparing assets", "Compiling materials", "Saving assets", "Finishing", "Completed"};
+			ImGui::TextUnformatted(PhaseNames[static_cast<size_t>(Progress.Phase)]);
+			ImGui::TextUnformatted(Progress.Activity.c_str());
+			if (Progress.Total)
+			{
+				ImGui::ProgressBar(static_cast<float>(Progress.Completed) / static_cast<float>(Progress.Total));
+				ImGui::Text("%zu / %zu", Progress.Completed, Progress.Total);
+			}
+			else ImGui::TextDisabled("Working%s", static_cast<int>(ImGui::GetTime() * 3) % 3 == 0 ? "." : static_cast<int>(ImGui::GetTime() * 3) % 3 == 1 ? ".." : "...");
+			ImGui::BeginDisabled(Progress.bCancellationRequested);
+			if (ImGui::Button("Cancel")) { Session->Cancel(); bCloseWhenFinished = true; }
+			ImGui::EndDisabled();
+			if (Progress.bCancellationRequested) ImGui::TextDisabled("Canceling; finishing the current safe step...");
+			ImGui::EndPopup();
+			return;
+		}
 
 		ImGui::TextUnformatted("Import the assets described by an FBX or glTF Scene source.");
 		ImGui::TextDisabled("Outputs are peer assets grouped by type inside one destination directory.");
@@ -63,7 +108,7 @@ namespace Durin::Editor::Level
 		ImGui::BeginGroup();
 		Coordinates.Draw();
 		ImGui::EndGroup();
-		if (ImGui::IsItemEdited()) bMaterialPreviewDirty = true;
+		if (ImGui::IsItemEdited()) { bMaterialPreviewDirty = true; Session.reset(); }
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		const std::string PreviousDirectory(DestinationDirectory.GetPath());
@@ -75,8 +120,14 @@ namespace Durin::Editor::Level
 		const auto SettingsValidation = Coordinates.GetSettings().Validate();
 		const bool bImportSettingsValid = SettingsValidation.Succeeded();
 		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
+		if (!Session && bSourceExists && bSupportedSource && bImportSettingsValid && DestinationValidation)
+		{
+			Session = std::make_unique<AssetForge::Builtins::FSceneImportSession>(
+				SourcePathBuffer.data(), DestinationValidation.DirectoryPath, Coordinates.GetSettings());
+			bReportedCompletion = bImporting = false;
+		}
 		DrawMaterials(DestinationValidation.DirectoryPath,
-			DestinationValidation && bSourceExists && bSupportedSource && bImportSettingsValid);
+			bAllowAssetMutation && DestinationValidation && bSourceExists && bSupportedSource && bImportSettingsValid);
 
 		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bSourceExists && bSupportedSource)
@@ -96,7 +147,8 @@ namespace Durin::Editor::Level
 		else if (!bSupportedSource) ValidationMessage = "Scene import supports FBX, glTF, and GLB files.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
 		else if (!DestinationValidation) ValidationMessage = FormatContentDirectoryValidation(DestinationValidation);
-		else if (bMaterialPreviewDirty) ValidationMessage = "Preview materials to validate the current selections.";
+		else if (!Session || Session->GetProgress().Phase != ESceneImportPhase::Ready) ValidationMessage = "Scene preparation is not ready.";
+		else if (bMaterialPreviewDirty) ValidationMessage = "Validating material selections...";
 		else if (!MaterialPreview.bSucceeded) ValidationMessage = MaterialPreview.Message;
 		DrawImportDialogWarning(ValidationMessage);
 		ImGui::TextWrapped("Reimport updates meshes and textures. Existing materials and mesh material bindings are preserved unless Rebuild materials is enabled.");
@@ -106,10 +158,14 @@ namespace Durin::Editor::Level
 		if (!bAllowAssetMutation) DrawImportDialogWarning("Asset imports are unavailable during Play.");
 		ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
 		if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f))
-			&& Import()) ImGui::CloseCurrentPopup();
+			&& !bImporting) (void)Import();
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
+		if (MonaImGui::DialogButton("Cancel", true))
+		{
+			if (Session) Session->Cancel();
+			ImGui::CloseCurrentPopup();
+		}
 		ImGui::EndPopup();
 	}
 
@@ -134,6 +190,8 @@ namespace Durin::Editor::Level
 			return;
 		}
 		SourcePathBuffer.fill(0);
+		Session.reset();
+		bImporting = bReportedCompletion = bCloseWhenFinished = false;
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(),
 			std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
 		Coordinates.Reset();
@@ -165,20 +223,8 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;
-		auto Result = AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
-			Coordinates.GetSettings(), {}, {}, MaterialOptions);
-		if (!Result)
-		{
-			bMaterialPreviewDirty = true;
-			if (!Result.SavedPackages.empty())
-				Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-			SetError(Result.Message.empty() ? "Scene import failed." : std::move(Result.Message));
-			return false;
-		}
-		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-		for (const AssetForge::FImportOutputSummary& Output : Result.Outputs)
-			UnloadPackage(Output.AssetPath);
-		return true;
+		bImporting = Session && Session->BeginImport(OutputDirectory, MaterialOptions);
+		return bImporting;
 	}
 
 	auto FSceneImportDialog::DrawMaterials(const FPackagePath& Directory, bool bCanPreview) -> void
@@ -247,13 +293,17 @@ namespace Durin::Editor::Level
 			}
 			ImGui::EndChild();
 		}
-		ImGui::BeginDisabled(!bCanPreview);
-		if (ImGui::Button("Preview / refresh materials"))
+		if (bCanPreview && bMaterialPreviewDirty && Session
+			&& Session->GetProgress().Phase == ESceneImportPhase::Ready)
 		{
-			MaterialPreview = PreviewSceneMaterials(SourcePathBuffer.data(), Directory, Coordinates.GetSettings(), MaterialOptions);
+			MaterialPreview = Session->PreviewMaterials(Directory, MaterialOptions);
 			bMaterialPreviewDirty = false;
 		}
-		ImGui::EndDisabled();
+		if (Session && Session->GetProgress().Phase == ESceneImportPhase::Completed && ImGui::Button("Retry preparation"))
+		{
+			Session.reset();
+			bMaterialPreviewDirty = true;
+		}
 	}
 
 	auto FSceneImportDialog::SetError(std::string Message) const -> void

@@ -1129,6 +1129,15 @@ namespace Durin
 		return Manager && Manager->GetState().IsAccepting();
 	}
 
+	auto HasPendingMaterialCompilation(const DMaterialInterface& Material) -> bool
+	{
+		CheckMaterialCompileGameThread();
+		const auto Manager = GetMaterialCompilingManager();
+		const auto State = Material.GetMaterialCompileStatus().State;
+		return (Manager && Manager->GetState().HasOwner(FWeakObjectPtr(const_cast<DMaterialInterface*>(&Material))))
+			|| State == EMaterialCompileState::Deferred || State == EMaterialCompileState::Scheduled;
+	}
+
 	auto GetMaterialCompilationDiagnostics()
 		-> FMaterialCompilationDiagnostics
 	{

@@ -76,6 +76,23 @@ namespace Durin
 		FTaskCancellationToken Cancellation;
 		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
 	};
+	// Owner-thread coordinator for private graph persistence. After IsReady(),
+	// prepare graph replacement and call Commit only inside its TryCommit callback.
+	// Staging never changes live files or publishes objects. Dropping a ready save
+	// discards its stages. A failed Commit retains the ordinary rollback semantics.
+	class FPreparedAssetSave final
+	{
+	public:
+		ENGINE_API static auto Begin(DPackage* Package, const FAssetBundleSaveOptions& Options,
+			FAssetWriteResult& Admission) -> std::shared_ptr<FPreparedAssetSave>;
+		ENGINE_API ~FPreparedAssetSave();
+		ENGINE_API auto IsReady() const -> bool;
+		ENGINE_API auto Commit(const FObjectGraphReplacement& Publication) -> FAssetWriteResult;
+	private:
+		FPreparedAssetSave();
+		struct FState;
+		std::unique_ptr<FState> State;
+	};
 	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetWriteResult&)>;
 	ENGINE_API auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void;
 	namespace AssetPrivate { ENGINE_API auto SetAsyncSavePublicationFailureForTests(bool bFail) -> void; }

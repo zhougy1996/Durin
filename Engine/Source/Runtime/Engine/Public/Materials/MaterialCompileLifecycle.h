@@ -174,6 +174,8 @@ namespace Durin
 	};
 
 	ENGINE_API auto IsMaterialCompilationAcceptingRequests() -> bool;
+	// GameThread-only observation including canceled work awaiting owner-side reap.
+	ENGINE_API auto HasPendingMaterialCompilation(const DMaterialInterface& Material) -> bool;
 	ENGINE_API auto GetMaterialCompilationDiagnostics()
 		-> FMaterialCompilationDiagnostics;
 
