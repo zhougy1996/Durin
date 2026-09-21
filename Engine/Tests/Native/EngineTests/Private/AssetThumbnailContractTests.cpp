@@ -1610,9 +1610,9 @@ namespace Durin
 			.ObjectExtension = ".png"});
 		Durin::FByteBuffer Encoded;
 		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
-		Image::FDecodedImage Decoded;
-		const auto DecodeResult = Image::DecodeImageFromMemory(Encoded, Decoded);
-		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromMemory(Encoded);
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.error());
+		auto Decoded = std::move(*DecodeResult);
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
 		const auto ExpectedPixels = std::as_bytes(std::span{Pixels});
@@ -1926,9 +1926,9 @@ namespace Durin
 		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
 		FByteBuffer Encoded;
 		ASSERT_EQ(Store.Load(Job.ScheduledJob.CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
-		Image::FDecodedImage Decoded;
-		const auto DecodeResult = Image::DecodeImageFromMemory(Encoded, Decoded);
-		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromMemory(Encoded);
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.error());
+		auto Decoded = std::move(*DecodeResult);
 		EXPECT_EQ(Decoded.Pixels, Pixels);
 	}
 

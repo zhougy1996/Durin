@@ -36,6 +36,22 @@ types retain file diagnostics without adding lower-layer logging. Publication
 transaction coordination remains unchanged. Allocation failures can still throw.
 No disk-durability guarantee is added to ordinary writes.
 
+JSON/YAML `Parse` returns `expected<void, FJsonParseError/FYamlParseError>`.
+`LoadFromFile` accepts `FFilePath` and returns a load error whose `Cause` is a
+variant of `FFileError` and the corresponding parse error. Callers can inspect
+the native missing-file code without parsing diagnostic text; `ToString()`
+formats either cause, including source coordinates for parse failures. A read
+failure preserves the previous document; a parse failure invalidates it.
+
+`FFileFingerprintCache::Get` returns `expected<FFileFingerprint, FFileError>`;
+successful cached and freshly computed fingerprints have the same value shape.
+Its reuse API still distinguishes current, stale and failed checks. Source
+capture returns `expected<FEncodedSourceSnapshot, FEncodedSourceError>` and
+retains size, timestamp, limit and change-detection checks. Image decoding uses
+the value-returning contract in [Core Image Codec](ImageCodec.md). These wrappers
+do not log. Cache business statuses and package transaction results retain their
+existing recovery and publication semantics.
+
 ## Synchronous Random Reads
 
 `FFileHelper::OpenRead()` returns one uniquely owned `IFileHandle` for a

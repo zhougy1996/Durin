@@ -599,10 +599,10 @@ namespace Durin::AssetForge::Builtins
 			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool
 		{
-			Image::FDecodedImage Image;
-			const auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, Image);
-			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes);
+			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 			if (!DecodeResult) return false;
+			auto Image = std::move(*DecodeResult);
 			if (Image.Width > std::numeric_limits<uint16>::max()
 				|| Image.Height > std::numeric_limits<uint16>::max())
 			{

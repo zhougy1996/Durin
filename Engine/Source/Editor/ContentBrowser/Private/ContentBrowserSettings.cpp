@@ -62,10 +62,9 @@ namespace Durin::Editor::ContentBrowser
 		if (std::filesystem::exists(SettingsPath))
 		{
 			FYamlDocument Document;
-			FYamlParseError Error;
-			if (!Document.LoadFromFile(SettingsPath, &Error))
+			if (const auto Loaded = Document.LoadFromFile(SettingsPath); !Loaded)
 			{
-				if (OutWarning) *OutWarning = Error.Message;
+				if (OutWarning) *OutWarning = Loaded.error().ToString();
 				return false;
 			}
 			Settings = LoadValues(Document.GetRootView());

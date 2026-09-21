@@ -880,40 +880,35 @@ namespace Durin
 
 	auto FJsonDocument::operator=(FJsonDocument&& Other) noexcept -> FJsonDocument& = default;
 
-	auto FJsonDocument::Parse(std::string_view JsonText, FJsonParseError* OutError) -> bool
+	auto FJsonLoadError::ToString() const -> std::string
+	{
+		if (const auto* File = std::get_if<FFileIO::FFileError>(&Cause)) return File->ToString();
+		const auto& Parse = std::get<FJsonParseError>(Cause);
+		return std::format("{} (line {}, column {})", Parse.Message, Parse.Line, Parse.Column);
+	}
+
+	auto FJsonDocument::Parse(std::string_view JsonText) -> std::expected<void, FJsonParseError>
 	{
 		Reset();
 
-		if (OutError)
-		{
-			*OutError = {};
-		}
+		FJsonParseError Error;
 
 		yyjson_read_err ReadError{};
 		Impl->ImmutableDocument = yyjson_read_opts(const_cast<char*>(JsonText.data()), JsonText.size(), YYJSON_READ_NOFLAG, nullptr, &ReadError);
 		if (!Impl->ImmutableDocument)
 		{
-			PopulateParseError(OutError, ReadError, JsonText);
-			return false;
+			PopulateParseError(&Error, ReadError, JsonText);
+			return std::unexpected(std::move(Error));
 		}
 
-		return true;
+		return {};
 	}
 
-	auto FJsonDocument::LoadFromFile(std::string_view FileName, FJsonParseError* OutError) -> bool
+	auto FJsonDocument::LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FJsonLoadError>
 	{
-		auto JsonText = FFileIO::LoadFileToString(FFilePath(FileName));
-		if (!JsonText)
-		{
-			if (OutError)
-			{
-				*OutError = {};
-				OutError->Message = std::format("Failed to load JSON file: {}", JsonText.error().ToString());
-			}
-			return false;
-		}
-
-		return Parse(*JsonText, OutError);
+		auto Text = FFileIO::LoadFileToString(FilePath);
+		if (!Text) return std::unexpected(FJsonLoadError{std::move(Text.error())});
+		return Parse(*Text).transform_error([](FJsonParseError Error) { return FJsonLoadError{std::move(Error)}; });
 	}
 
 	auto FJsonDocument::Reset() -> void

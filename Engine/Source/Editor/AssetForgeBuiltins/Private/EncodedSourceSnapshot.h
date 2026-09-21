@@ -11,7 +11,7 @@ namespace Durin::AssetForge::Builtins
 	struct FEncodedSourceSnapshot
 	{
 		std::string Filename;
-		std::filesystem::path PhysicalPath;
+		FFilePath PhysicalPath;
 		std::shared_ptr<const FByteBuffer> Bytes;
 		FXxHash128 ContentHash{};
 		uint64 FileSize = 0;
@@ -28,26 +28,19 @@ namespace Durin::AssetForge::Builtins
 	{
 		EEncodedSourceError Code = EEncodedSourceError::None;
 		std::string Filename;
-		std::filesystem::path PhysicalPath;
+		FFilePath PhysicalPath;
 		uint64 MaximumEncodedBytes = 0;
 		uint64 SizeBefore = 0;
 		uint64 SizeAfter = 0;
 		uint64 BytesRead = 0;
-		std::error_code SystemError;
 		std::optional<FFileIO::FFileError> FileError;
-	};
-	struct FEncodedSourceResult
-	{
-		FEncodedSourceError Error;
-		explicit operator bool() const { return Error.Code == EEncodedSourceError::None; }
 	};
 	ASSETFORGEBUILTINS_API auto FormatEncodedSourceError(const FEncodedSourceError& Error) -> std::string;
 
-	ASSETFORGEBUILTINS_API auto CaptureEncodedSource(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto CaptureEncodedSource(
 		std::string Filename,
-		const std::filesystem::path& PhysicalPath,
-		FEncodedSourceSnapshot& OutSnapshot,
-		uint64 MaximumEncodedBytes = std::numeric_limits<uint64>::max()) -> FEncodedSourceResult;
+		const FFilePath& PhysicalPath,
+		uint64 MaximumEncodedBytes = std::numeric_limits<uint64>::max()) -> std::expected<FEncodedSourceSnapshot, FEncodedSourceError>;
 	auto UseCapturedSource(
 		const FSourceSnapshotEntry& Source,
 		FEncodedSourceSnapshot& OutSnapshot) -> void;

@@ -157,12 +157,13 @@ namespace Durin::AssetForge::Builtins
 			{
 				return {.Error = {.Code = ETexture2DSubmissionError::SourceFile, .ObjectPath = Texture.GetObjectPath(), .Filename = PhysicalPath.generic_string()}};
 			}
-			FEncodedSourceSnapshot Snapshot;
-			if (const auto Captured = CaptureEncodedSource(
-				PhysicalPath.generic_string(), PhysicalPath, Snapshot,
-				64ull * 1'024ull * 1'024ull); !Captured)
+			auto Captured = CaptureEncodedSource(
+				PhysicalPath.generic_string(), PhysicalPath,
+				64ull * 1'024ull * 1'024ull);
+			if (!Captured)
 				return {.Error = {.Code = ETexture2DSubmissionError::Capture, .ObjectPath = Texture.GetObjectPath(),
-				.Filename = Filename, .CaptureCause = std::make_shared<FEncodedSourceError>(Captured.Error)}};
+				.Filename = Filename, .CaptureCause = std::make_shared<FEncodedSourceError>(Captured.error())}};
+			auto Snapshot = std::move(*Captured);
 			if (SelectedPhysicalPath)
 			{
 				if (const auto Hint = MakeSourceHint(
@@ -276,11 +277,12 @@ namespace Durin::AssetForge::Builtins
 		if (Error) return {.Error = {.Code = ETexture2DPreparationError::Path, .Filename = std::string(Filename), .SystemError = Error}};
 		if (!IsTexture2DSourceExtension(Input.extension().generic_string()))
 			return {.Error = {.Code = ETexture2DPreparationError::Format, .Filename = std::string(Filename)}};
-		FEncodedSourceSnapshot Snapshot;
-		if (const auto Captured = CaptureEncodedSource(Input.generic_string(), Input, Snapshot,
-			64ull * 1'024ull * 1'024ull); !Captured)
+		auto Captured = CaptureEncodedSource(Input.generic_string(), Input,
+			64ull * 1'024ull * 1'024ull);
+		if (!Captured)
 			return {.Error = {.Code = ETexture2DPreparationError::Capture, .Filename = std::string(Filename),
-				.CaptureCause = std::make_shared<FEncodedSourceError>(Captured.Error)}};
+				.CaptureCause = std::make_shared<FEncodedSourceError>(Captured.error())}};
+		auto Snapshot = std::move(*Captured);
 		if (const auto Translated = TranslateTexture2DSource(Snapshot.GetBytes(), OutPrepared.Source); !Translated)
 			return {.Error = {.Code = ETexture2DPreparationError::Translation, .Filename = std::string(Filename),
 				.TranslationCause = Translated.Error}};
@@ -508,10 +510,9 @@ namespace Durin::AssetForge::Builtins
 		FTextureSource& OutSourceData) -> FTexture2DTranslationResult
 	{
 		OutSourceData = {};
-		Image::FDecodedImage DecodedImage;
-		const auto Decoded = Image::DecodeImageFromMemory(EncodedBytes, DecodedImage,
-			{.MaximumDecodedPixels = 16384ull * 16384ull});
-		if (!Decoded) return {.Error = {.Code = ETexture2DTranslationError::Decode, .DecodeCause = Decoded.Error}};
+		auto Decoded = Image::DecodeImageFromMemory(EncodedBytes, {.MaximumDecodedPixels = 16384ull * 16384ull});
+		if (!Decoded) return {.Error = {.Code = ETexture2DTranslationError::Decode, .DecodeCause = Decoded.error()}};
+		auto DecodedImage = std::move(*Decoded);
 		auto Fail = [&](ETexture2DTranslationError Code) -> FTexture2DTranslationResult {
 			return {.Error = {.Code = Code, .Width = DecodedImage.Width, .Height = DecodedImage.Height,
 				.SourceChannelCount = DecodedImage.SourceChannelCount}};

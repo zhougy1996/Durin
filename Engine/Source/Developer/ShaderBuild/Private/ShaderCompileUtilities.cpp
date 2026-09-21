@@ -34,20 +34,19 @@ namespace Durin::ShaderCompileUtilities
 
 		for (const std::string& DependencyPath : InDependencyPaths)
 		{
-			FFileFingerprint Fingerprint;
-			std::string FingerprintDiagnostic;
-			if (!FileFingerprintCache.TryGet(DependencyPath, Fingerprint, FingerprintDiagnostic))
+			auto Fingerprint = FileFingerprintCache.Get(DependencyPath);
+			if (!Fingerprint)
 			{
-				return {.Error = FShaderError::FromFileFingerprint(DependencyPath, FingerprintDiagnostic)};
+				return {.Error = FShaderError::FromFileFingerprint(DependencyPath, Fingerprint.error().ToString())};
 			}
 
 			std::string VirtualPath;
 			if (!FShaderPaths::TryMakeVirtualSourcePath(
-				Fingerprint.NormalizedPath, VirtualPath))
+				Fingerprint->NormalizedPath, VirtualPath))
 			{
-				return {.Error = {.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint.NormalizedPath}};
+				return {.Error = {.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint->NormalizedPath}};
 			}
-			OutMetaData.Dependencies.push_back(std::move(Fingerprint));
+			OutMetaData.Dependencies.push_back(std::move(*Fingerprint));
 			OutMetaData.PortableDependencies.push_back({
 				.VirtualPath = std::move(VirtualPath),
 				.ContentHash = OutMetaData.Dependencies.back().ContentHash});

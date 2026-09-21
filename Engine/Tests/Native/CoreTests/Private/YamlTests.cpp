@@ -19,18 +19,43 @@ namespace
 	TEST(FYamlDocumentTests, MissingFilePreservesIoDiagnostic)
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
+
 		const auto Path = MakeYamlTestPath("MissingFileDiagnostic.yaml");
 		ASSERT_FALSE(std::filesystem::exists(Path));
-		ASSERT_FALSE(Document.LoadFromFile(Path.string(), &Error));
-		EXPECT_NE(Error.Message.find("open for reading"), std::string::npos);
-		EXPECT_NE(Error.Message.find(Path.filename().string()), std::string::npos);
+		const auto Loaded = Document.LoadFromFile(Path);
+		ASSERT_FALSE(Loaded);
+		ASSERT_TRUE(std::holds_alternative<Durin::FFileIO::FFileError>(Loaded.error().Cause));
+		EXPECT_EQ(std::get<Durin::FFileIO::FFileError>(Loaded.error().Cause).NativeError, std::errc::no_such_file_or_directory);
+		EXPECT_NE(Loaded.error().ToString().find("open for reading"), std::string::npos);
+		EXPECT_NE(Loaded.error().ToString().find(Path.filename().string()), std::string::npos);
+	}
+
+	TEST(FYamlDocumentTests, LoadDistinguishesParseFailureAndPreservesDocumentOnReadFailure)
+	{
+		Durin::FYamlDocument Document;
+		ASSERT_TRUE(Document.Parse("value: 17\n"));
+		const auto Path = MakeYamlTestPath("MalformedExpected.yaml");
+		const auto MissingPath = Path.string() + ".missing";
+		ASSERT_FALSE(std::filesystem::exists(MissingPath));
+		ASSERT_FALSE(Document.LoadFromFile(MissingPath));
+		EXPECT_EQ(Document.GetRootView().GetView("value").GetInt(), 17);
+		const std::string_view Text = "value: 1\nbroken: [1, 2,";
+		ASSERT_TRUE(Durin::FFileIO::SaveArrayToFile(std::as_bytes(std::span(Text)), Path));
+		const auto Loaded = Document.LoadFromFile(Path);
+		ASSERT_FALSE(Loaded);
+		ASSERT_TRUE(std::holds_alternative<Durin::FYamlParseError>(Loaded.error().Cause));
+		const auto& Error = std::get<Durin::FYamlParseError>(Loaded.error().Cause);
+		EXPECT_NE(Error.Code, 0);
+		EXPECT_GT(Error.Line, 0u);
+		EXPECT_FALSE(Document.IsValid());
+		EXPECT_NE(Loaded.error().ToString().find("line"), std::string::npos);
+		ASSERT_TRUE(Document.Parse("value: 2\n"));
+		EXPECT_TRUE(Document.IsValid());
 	}
 
 	TEST(FYamlDocumentTests, ParseObjectAndDefaults)
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
 
 		ASSERT_TRUE(Document.Parse(R"(name: yaml smoke test
 version: 7
@@ -43,8 +68,7 @@ features:
   - parse
   - 12
   - false
-)", &Error));
-		EXPECT_EQ(Error.Code, 0);
+)"));
 
 		const auto Root = Document.GetRootView();
 		ASSERT_TRUE(Root.IsMap());
@@ -82,10 +106,8 @@ features:
 	TEST(FYamlDocumentTests, LoadFromFileAndAppConfigTemplate)
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
 
-		ASSERT_TRUE(Document.LoadFromFile(MakeYamlTestDataPath("Sample.yaml").string(), &Error));
-		EXPECT_EQ(Error.Code, 0);
+		ASSERT_TRUE(Document.LoadFromFile(MakeYamlTestDataPath("Sample.yaml").string()));
 
 		const auto Root = Document.GetRootView();
 		ASSERT_TRUE(Root.IsMap());
@@ -93,8 +115,7 @@ features:
 		EXPECT_EQ(Root.GetView("version").GetInt(), 7);
 
 		Durin::FYamlDocument AppConfigDocument;
-		ASSERT_TRUE(AppConfigDocument.LoadFromFile(MakeYamlTestDataPath("TP_DurinEditor.yaml").string(), &Error));
-		EXPECT_EQ(Error.Code, 0);
+		ASSERT_TRUE(AppConfigDocument.LoadFromFile(MakeYamlTestDataPath("TP_DurinEditor.yaml").string()));
 
 		const auto AppConfig = AppConfigDocument.GetRootView();
 		const auto Logging = AppConfig.GetView("Core").GetView("Logging");
@@ -152,9 +173,8 @@ features:
 		ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
 
 		Durin::FYamlDocument ReloadedDocument;
-		Durin::FYamlParseError Error;
-		ASSERT_TRUE(ReloadedDocument.LoadFromFile(OutputPath.string(), &Error));
-		EXPECT_EQ(Error.Code, 0);
+
+		ASSERT_TRUE(ReloadedDocument.LoadFromFile(OutputPath.string()));
 
 		const auto ReloadedRoot = ReloadedDocument.GetRootView();
 		EXPECT_EQ(ReloadedRoot.GetView("name").GetString(), "writer");
@@ -177,11 +197,11 @@ features:
 	TEST(FYamlDocumentTests, ModifyParsedScalarsAndRoundTrip)
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
+
 		ASSERT_TRUE(Document.Parse(R"(Editor:
   DefaultLevel: /Game/Levels/TestLevel
   Enabled: false
-)", &Error));
+)"));
 
 		Durin::FYamlNodeRef Editor = Document.GetMutableRoot().GetRef("Editor");
 		ASSERT_TRUE(Editor.IsMap());
@@ -192,7 +212,7 @@ features:
 		ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
 
 		Durin::FYamlDocument ReloadedDocument;
-		ASSERT_TRUE(ReloadedDocument.LoadFromFile(OutputPath.string(), &Error));
+		ASSERT_TRUE(ReloadedDocument.LoadFromFile(OutputPath.string()));
 		const Durin::FYamlNodeView ReloadedEditor = ReloadedDocument.GetRootView().GetView("Editor");
 		EXPECT_EQ(ReloadedEditor.GetView("DefaultLevel").GetString(), "/Game/Levels/NewLevel");
 		EXPECT_TRUE(ReloadedEditor.GetView("Enabled").GetBool());
@@ -204,9 +224,10 @@ features:
 	TEST(FYamlDocumentTests, InvalidYamlReportsLocation)
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
 
-		EXPECT_FALSE(Document.Parse("broken: [1, 2,", &Error));
+		const auto Parsed = Document.Parse("broken: [1, 2,");
+		ASSERT_FALSE(Parsed);
+		const auto& Error = Parsed.error();
 		EXPECT_NE(Error.Code, 0);
 		EXPECT_FALSE(Error.Message.empty());
 		EXPECT_GT(Error.BytePosition, 0U);

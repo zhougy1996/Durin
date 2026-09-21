@@ -3,6 +3,7 @@
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"
 #include "Misc/CoreMiscDefines.h"
+#include "Misc/FileIO.h"
 
 namespace Durin
 {
@@ -37,7 +38,7 @@ namespace Durin
 		CORE_API FFileFingerprintCache();
 		CORE_API ~FFileFingerprintCache();
 
-		CORE_API auto TryGet(std::string_view FilePath, FFileFingerprint& OutFingerprint, std::string& OutErrorMessage) -> bool;
+		[[nodiscard]] CORE_API auto Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileIO::FFileError>;
 		// Reuses a persisted content hash when size and modification time still match.
 		CORE_API auto TryReuse(const FFileFingerprint& StoredFingerprint)
 			-> FFileFingerprintReuseResult;

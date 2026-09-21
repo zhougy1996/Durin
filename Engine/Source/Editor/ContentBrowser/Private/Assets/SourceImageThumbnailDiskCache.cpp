@@ -54,12 +54,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto DecodeCachedPng(FByteView Bytes, uint32 MaximumDimension,
 			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
-			Image::FDecodedImage Image;
-			const auto DecodeResult = Image::DecodeImageFromMemory(Bytes, Image,
-				{MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4});
-			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			auto DecodeResult = Image::DecodeImageFromMemory(Bytes, {MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4});
+			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 			if (!DecodeResult)
 				return false;
+			auto Image = std::move(*DecodeResult);
 			if (Image.Width == 0 || Image.Height == 0 || Image.Width > MaximumDimension || Image.Height > MaximumDimension)
 			{
 				OutError = "Cached thumbnail dimensions are invalid.";

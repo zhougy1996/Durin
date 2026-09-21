@@ -20,14 +20,12 @@ namespace Durin::Editor::MainFrame
 			std::string& OutError
 		) -> bool
 		{
-			FJsonParseError ParseError;
-			if (OutDocument.LoadFromFile(ManifestPath.generic_string(), &ParseError)) return true;
+			const auto Loaded = OutDocument.LoadFromFile(ManifestPath);
+			if (Loaded) return true;
 			OutError = std::format(
-				"Could not read Tracy manifest \"{}\": {} (line {}, column {}).",
+				"Could not read Tracy manifest \"{}\": {}.",
 				ManifestPath.generic_string(),
-				ParseError.Message.empty() ? "file is missing or unreadable" : ParseError.Message,
-				ParseError.Line,
-				ParseError.Column
+				Loaded.error().ToString()
 			);
 			return false;
 		}

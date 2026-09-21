@@ -113,33 +113,61 @@ TEST(FFileIOTests, ReadWrappersPreserveSharingFailure)
 	ASSERT_NE(Native, INVALID_HANDLE_VALUE);
 	std::unique_ptr<void, decltype(&CloseHandle)> Lock(Native, &CloseHandle);
 	FJsonDocument Json;
-	FJsonParseError JsonError;
-	EXPECT_FALSE(Json.LoadFromFile(Path.string(), &JsonError));
+
+	const auto JsonResult = Json.LoadFromFile(Path);
+	ASSERT_FALSE(JsonResult);
 	FYamlDocument Yaml;
-	FYamlParseError YamlError;
-	EXPECT_FALSE(Yaml.LoadFromFile(Path.string(), &YamlError));
+
+	const auto YamlResult = Yaml.LoadFromFile(Path);
+	ASSERT_FALSE(YamlResult);
 	FFileFingerprintCache Cache;
-	FFileFingerprint Fingerprint;
-	std::string FingerprintError;
-	EXPECT_FALSE(Cache.TryGet(Path.string(), Fingerprint, FingerprintError));
+
+	const auto Fingerprint = Cache.Get(Path);
+	ASSERT_FALSE(Fingerprint);
 	EXPECT_EQ(Cache.GetContentReadCount(), 0u);
-	Image::FDecodedImage DecodedImage;
-	const auto Decoded = Image::DecodeImageFromFile(Path.string(), DecodedImage);
+	auto Decoded = Image::DecodeImageFromFile(Path.string());
 	ASSERT_FALSE(Decoded);
-	EXPECT_EQ(Decoded.Error.Code, Image::EImageDecodeError::FileRead);
-	ASSERT_TRUE(Decoded.Error.FileError);
-	EXPECT_EQ(Decoded.Error.FileError->NativeError.value(), ERROR_SHARING_VIOLATION);
-	for (const auto& Diagnostic : {JsonError.Message, YamlError.Message, FingerprintError,
-		Image::FormatImageDecodeError(Decoded.Error)})
+	EXPECT_EQ(Decoded.error().Code, Image::EImageDecodeError::FileRead);
+	ASSERT_TRUE(Decoded.error().FileError);
+	EXPECT_EQ(Decoded.error().FileError->NativeError.value(), ERROR_SHARING_VIOLATION);
+	for (const auto& Diagnostic : {JsonResult.error().ToString(), YamlResult.error().ToString(), Fingerprint.error().ToString(),
+		Image::FormatImageDecodeError(Decoded.error())})
 	{
 		EXPECT_NE(Diagnostic.find("open for reading"), std::string::npos);
 		EXPECT_NE(Diagnostic.find("Locked.bin"), std::string::npos);
 	}
 	Lock.reset();
-	ASSERT_TRUE(Cache.TryGet(Path.string(), Fingerprint, FingerprintError));
-	EXPECT_EQ(Fingerprint.ContentHash, FXxHash64::HashBuffer(Bytes));
+	const auto Unlocked = Cache.Get(Path);
+	ASSERT_TRUE(Unlocked);
+	EXPECT_EQ(Unlocked->ContentHash, FXxHash64::HashBuffer(Bytes));
 }
 #endif
+
+TEST(FFileIOTests, FingerprintReturnsValuesAndPreservesCacheHits)
+{
+	using namespace Durin;
+	const auto Path = Durin::Testing::GetTestWorkDirectory() / "FingerprintExpected.bin";
+	const FByteBuffer Bytes{std::byte{1}, std::byte{2}};
+	ASSERT_TRUE(FFileIO::SaveArrayToFile(Bytes, Path));
+	FFileFingerprintCache Cache;
+	const auto First = Cache.Get(Path);
+	ASSERT_TRUE(First);
+	const auto Cached = Cache.Get(Path);
+	ASSERT_TRUE(Cached);
+	EXPECT_EQ(Cached->ContentHash, First->ContentHash);
+	EXPECT_EQ(Cache.GetContentReadCount(), 1u);
+	const FByteBuffer Changed{std::byte{3}, std::byte{4}, std::byte{5}};
+	ASSERT_TRUE(FFileIO::SaveArrayToFile(Changed, Path));
+	const auto Updated = Cache.Get(Path);
+	ASSERT_TRUE(Updated);
+	EXPECT_EQ(Updated->ContentHash, FXxHash64::HashBuffer(Changed));
+	EXPECT_EQ(Cache.GetContentReadCount(), 2u);
+	std::filesystem::remove(Path);
+	const auto Missing = Cache.Get(Path);
+	ASSERT_FALSE(Missing);
+	EXPECT_EQ(Missing.error().NativeError, std::errc::no_such_file_or_directory);
+	EXPECT_EQ(Cache.GetContentReadCount(), 2u);
+}
 
 TEST(FFileIOTests, DistinguishesMissingFilesFromQueryFailure)
 {

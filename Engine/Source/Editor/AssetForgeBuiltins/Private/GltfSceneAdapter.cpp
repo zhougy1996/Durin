@@ -266,10 +266,9 @@ namespace Durin::AssetForge::Builtins::Private
 				return false;
 			}
 		}
-		FJsonParseError ParseError;
-		if (!OutSource.Document.Parse(JsonText, &ParseError))
+		if (const auto Parsed = OutSource.Document.Parse(JsonText); !Parsed)
 		{
-			OutError = std::format("glTF JSON is invalid: {}", ParseError.Message);
+			OutError = std::format("glTF JSON is invalid: {}", Parsed.error().Message);
 			return false;
 		}
 		return OutSource.Document.GetRootView().IsObject();

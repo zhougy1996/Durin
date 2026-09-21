@@ -78,10 +78,12 @@ namespace Durin::AssetForge::Builtins
 				OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
 				OutSource.HintBase, OutSource.Filename); !Hint)
 			{ OutError = FormatSourceHintError(Hint.Error); return false; }
-			const auto Captured = CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
-				OutSource.Snapshot, MaximumTextureCubeEncodedBytes);
-			OutError = FormatEncodedSourceError(Captured.Error);
-			return static_cast<bool>(Captured);
+			auto Captured = CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
+				MaximumTextureCubeEncodedBytes);
+			if (!Captured) { OutError = FormatEncodedSourceError(Captured.error()); return false; }
+			OutSource.Snapshot = std::move(*Captured);
+			OutError.clear();
+			return true;
 		}
 
 		auto PublishCubeImportData(DTextureCube& Texture,
@@ -422,12 +424,11 @@ namespace Durin::AssetForge::Builtins
 			OutSource = NormalizePanorama(std::move(Panorama));
 			return true;
 		}
-		Image::FDecodedImage Panorama;
-		const auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, Panorama,
-			{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels});
-		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, {.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels});
+		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 		if (!DecodeResult)
 			return false;
+		auto Panorama = std::move(*DecodeResult);
 		OutSource = NormalizePanorama(std::move(Panorama));
 		return true;
 	}
@@ -440,13 +441,11 @@ namespace Durin::AssetForge::Builtins
 		OutSource = {};
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			Image::FDecodedImage Decoded;
-			const auto DecodeResult = Image::DecodeImageFromMemory(EncodedFaces[Index], Decoded,
-				{.MaximumDecodedPixels = 16384ull * 16384ull});
-			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			auto DecodeResult = Image::DecodeImageFromMemory(EncodedFaces[Index], {.MaximumDecodedPixels = 16384ull * 16384ull});
+			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 			if (!DecodeResult
-				|| !Image::FImage::TryCreate({.Width = Decoded.Width, .Height = Decoded.Height,
-					.Format = Image::ERawImageFormat::RGBA8}, std::move(Decoded.Pixels),
+				|| !Image::FImage::TryCreate({.Width = DecodeResult->Width, .Height = DecodeResult->Height,
+					.Format = Image::ERawImageFormat::RGBA8}, std::move(DecodeResult->Pixels),
 					OutSource.Faces[Index], &OutError))
 			{
 				OutError = std::format("{} TextureCube face decode failed: {}",
@@ -454,15 +453,15 @@ namespace Durin::AssetForge::Builtins
 				OutSource = {};
 				return false;
 			}
-			if (Decoded.Width > 16384 || Decoded.Height > 16384)
+			if (DecodeResult->Width > 16384 || DecodeResult->Height > 16384)
 			{
 				OutError = std::format("{} TextureCube face dimensions {}x{} exceed the 16384 pixel limit.",
-					FaceNames[Index], Decoded.Width, Decoded.Height);
+					FaceNames[Index], DecodeResult->Width, DecodeResult->Height);
 				OutSource = {};
 				return false;
 			}
-			OutSource.SourceChannelCounts[Index] = Decoded.SourceChannelCount;
-			if (Decoded.bHasTransparency)
+			OutSource.SourceChannelCounts[Index] = DecodeResult->SourceChannelCount;
+			if (DecodeResult->bHasTransparency)
 				OutSource.TransparencyMask |= static_cast<uint8>(1u << Index);
 		}
 		return true;

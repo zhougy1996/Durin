@@ -18,31 +18,22 @@ namespace Durin
 		return InPath.lexically_normal().generic_string();
 	}
 
-	auto FFileFingerprintCache::TryGet(std::string_view FilePath, FFileFingerprint& OutFingerprint, std::string& OutErrorMessage) -> bool
+	auto FFileFingerprintCache::Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileIO::FFileError>
 	{
-		const std::string NormalizedPath = NormalizePath(std::filesystem::path(std::string(FilePath)));
+		const std::string NormalizedPath = NormalizePath(FilePath);
 
 		std::error_code ErrorCode;
-		if (!std::filesystem::exists(NormalizedPath, ErrorCode))
-		{
-			OutErrorMessage = ErrorCode
-				? std::format("Failed to stat file {}: {}", NormalizedPath, ErrorCode.message())
-				: std::format("File does not exist: {}", NormalizedPath);
-			return false;
-		}
 
 		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			OutErrorMessage = std::format("Failed to query file timestamp {}: {}", NormalizedPath, ErrorCode.message());
-			return false;
+			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
 		}
 
 		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			OutErrorMessage = std::format("Failed to query file size {}: {}", NormalizedPath, ErrorCode.message());
-			return false;
+			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, NormalizedPath});
 		}
 
 		{
@@ -52,11 +43,7 @@ namespace Durin
 				const FEntry& CachedFingerprint = FoundIt->second;
 				if (CachedFingerprint.LastWriteTime == LastWriteTime && CachedFingerprint.FileSize == FileSize)
 				{
-					OutFingerprint.NormalizedPath = NormalizedPath;
-					OutFingerprint.LastWriteTime = CachedFingerprint.LastWriteTime;
-					OutFingerprint.FileSize = CachedFingerprint.FileSize;
-					OutFingerprint.ContentHash = CachedFingerprint.ContentHash;
-					return true;
+					return FFileFingerprint{NormalizedPath, CachedFingerprint.LastWriteTime, CachedFingerprint.FileSize, CachedFingerprint.ContentHash};
 				}
 			}
 		}
@@ -64,8 +51,7 @@ namespace Durin
 		auto FileBytes = FFileIO::LoadFileToArray(NormalizedPath);
 		if (!FileBytes)
 		{
-			OutErrorMessage = FileBytes.error().ToString();
-			return false;
+			return std::unexpected(std::move(FileBytes.error()));
 		}
 
 		FEntry NewEntry;
@@ -79,11 +65,7 @@ namespace Durin
 			++ContentReadCount;
 		}
 
-		OutFingerprint.NormalizedPath = NormalizedPath;
-		OutFingerprint.LastWriteTime = NewEntry.LastWriteTime;
-		OutFingerprint.FileSize = NewEntry.FileSize;
-		OutFingerprint.ContentHash = NewEntry.ContentHash;
-		return true;
+		return FFileFingerprint{NormalizedPath, NewEntry.LastWriteTime, NewEntry.FileSize, NewEntry.ContentHash};
 	}
 
 	auto FFileFingerprintCache::TryReuse(const FFileFingerprint& StoredFingerprint)

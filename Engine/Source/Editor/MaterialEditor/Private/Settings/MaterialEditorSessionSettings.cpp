@@ -11,10 +11,9 @@ namespace Durin::Editor::Material
 		const std::string FilePath = FPaths::LaunchConfigsDir() + FileName;
 		if (!std::filesystem::exists(FilePath)) return true;
 		FYamlDocument Document;
-		FYamlParseError Error;
-		if (!Document.LoadFromFile(FilePath, &Error))
+		if (const auto Loaded = Document.LoadFromFile(FilePath); !Loaded)
 		{
-			DURIN_WARN("Failed to load material editor session settings: {}", Error.Message);
+			DURIN_WARN("Failed to load material editor session settings: {}", Loaded.error().ToString());
 			return false;
 		}
 

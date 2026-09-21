@@ -31,11 +31,10 @@ namespace Durin
 			}
 
 			FJsonDocument Descriptor;
-			FJsonParseError ParseError;
-			if (!Descriptor.LoadFromFile(Entry.ProjectFile, &ParseError))
+			if (const auto Loaded = Descriptor.LoadFromFile(Entry.ProjectFile); !Loaded)
 			{
 				Entry.Status = ERecentProjectStatus::Invalid;
-				Entry.Error = ParseError.Message;
+				Entry.Error = Loaded.error().ToString();
 				return;
 			}
 
@@ -70,10 +69,9 @@ namespace Durin
 		if (bHistoryExists)
 		{
 			FYamlDocument Document;
-			FYamlParseError ParseError;
-			if (!Document.LoadFromFile(HistoryFile, &ParseError))
+			if (const auto Loaded = Document.LoadFromFile(HistoryFile); !Loaded)
 			{
-				SetError(OutError, std::format("Could not load project history '{}': {}", HistoryFile, ParseError.Message));
+				SetError(OutError, std::format("Could not load project history '{}': {}", HistoryFile, Loaded.error().ToString()));
 				return false;
 			}
 

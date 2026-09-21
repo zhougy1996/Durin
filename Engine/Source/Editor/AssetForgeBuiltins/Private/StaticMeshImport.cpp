@@ -22,7 +22,6 @@ namespace Durin::AssetForge::Builtins
 	{
 		constexpr uint64 MaximumStaticMeshEncodedBytes = 512ull * 1024ull * 1024ull;
 
-
 		auto IsSupportedExtension(std::string_view Extension) -> bool
 		{
 			const std::string Lower = StringUtils::FoldAscii(Extension);
@@ -134,10 +133,11 @@ namespace Durin::AssetForge::Builtins
 					Filename = PhysicalPath.generic_string();
 				}
 			}
-			FEncodedSourceSnapshot Snapshot;
-			if (const auto Captured = CaptureEncodedSource(Filename, PhysicalPath, Snapshot,
-				MaximumStaticMeshEncodedBytes); !Captured)
-			{ Error.CaptureCause = std::make_shared<FEncodedSourceError>(Captured.Error); return Reject(EStaticMeshRebuildError::Capture); }
+			auto Captured = CaptureEncodedSource(Filename, PhysicalPath,
+				MaximumStaticMeshEncodedBytes);
+			if (!Captured)
+			{ Error.CaptureCause = std::make_shared<FEncodedSourceError>(Captured.error()); return Reject(EStaticMeshRebuildError::Capture); }
+			auto Snapshot = std::move(*Captured);
 			FImportedSceneData Scene;
 			if (!ImportGeometryFromMemory(Snapshot.GetBytes(),
 				PhysicalPath.extension().generic_string(), Scene,

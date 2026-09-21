@@ -113,16 +113,15 @@ namespace Durin::Editor
 						FByteBuffer Encoded;
 						if (Store.Load(Key, Encoded) == EThumbnailObjectLoadResult::Hit)
 						{
-							Image::FDecodedImage Decoded;
 							std::string Error;
 							const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
-							if (Image::DecodeImageFromMemory(Encoded, Decoded,
-									{.MaximumEncodedBytes = Encoded.size(), .MaximumDecodedPixels = PixelCount})
-								&& Decoded.Width == Output.Width && Decoded.Height == Output.Height
-								&& Decoded.Pixels.size() == PixelCount * 4)
+							if (auto Decoded = Image::DecodeImageFromMemory(Encoded,
+									{.MaximumEncodedBytes = Encoded.size(), .MaximumDecodedPixels = PixelCount}); Decoded
+								&& Decoded->Width == Output.Width && Decoded->Height == Output.Height
+								&& Decoded->Pixels.size() == PixelCount * 4)
 							{
 								Result.bHit = true;
-								Result.Pixels = std::move(Decoded.Pixels);
+								Result.Pixels = std::move(Decoded->Pixels);
 							}
 							else
 							{

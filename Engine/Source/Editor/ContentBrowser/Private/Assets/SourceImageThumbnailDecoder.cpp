@@ -55,10 +55,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return false;
 		}
 
-		Image::FDecodedImage SourceImage;
-		const auto DecodeResult = Image::DecodeImageFromFile(FilePath, SourceImage, ThumbnailDecodeLimits);
-		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromFile(FilePath, ThumbnailDecodeLimits);
+		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 		if (!DecodeResult) return false;
+		auto SourceImage = std::move(*DecodeResult);
 
 		const uint32 SourceWidth = SourceImage.Width;
 		const uint32 SourceHeight = SourceImage.Height;

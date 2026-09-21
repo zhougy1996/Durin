@@ -119,8 +119,8 @@ TEST(FSourceFileContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	const std::filesystem::path Path =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences" / "UnifiedMountContract.json";
 	Durin::FJsonDocument Contract;
-	Durin::FJsonParseError ParseError;
-	ASSERT_TRUE(Contract.LoadFromFile(Path.generic_string(), &ParseError)) << ParseError.Message;
+	const auto Loaded = Contract.LoadFromFile(Path.generic_string());
+	ASSERT_TRUE(Loaded) << Loaded.error().ToString();
 
 	const Durin::FJsonNodeView Mounts = Contract.GetRootView().GetView("Mounts");
 	ASSERT_TRUE(Mounts.IsArray());

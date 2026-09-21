@@ -28,10 +28,10 @@ namespace Durin::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsLDRPrincipalAxesSeamAndPoles)
 	{
-		Image::FDecodedImage Decoded;
 		std::string Error;
-		const auto DecodeResult = Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded);
-		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"));
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.error());
+		auto Decoded = std::move(*DecodeResult);
 		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height,
 			.SourceChannelCount = Decoded.SourceChannelCount,

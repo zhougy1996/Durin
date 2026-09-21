@@ -39,6 +39,16 @@ TEST(FProjectGameSettingsTests, MissingFileAndMissingPairSelectLifecycleOnlyPlay
 	EXPECT_FALSE(Resolution.HasNativeGameplay());
 }
 
+TEST(FProjectGameSettingsTests, UnreadableFileIsAnIoErrorRatherThanMalformedYaml)
+{
+	const auto File = MakeSettingsFile("Directory");
+	ASSERT_TRUE(std::filesystem::create_directory(File));
+	Durin::FProjectGameSettings Settings;
+	const auto Result = Durin::FProjectGameSettingsStore(File).Load(Settings);
+	EXPECT_EQ(Result.Error, Durin::EProjectGameSettingsError::IoError);
+	EXPECT_NE(Result.Message.find("Project.yaml"), std::string::npos);
+}
+
 TEST(FProjectGameSettingsTests, ReadsOnlyTheGameSectionAndRequiresCompleteNativePair)
 {
 	const std::filesystem::path File = MakeSettingsFile("Schema");
@@ -82,8 +92,8 @@ TEST(FProjectGameSettingsTests, DefaultLevelUpdatePreservesNativeAndUnrelatedSet
 			"/Game/Levels/New");
 	ASSERT_TRUE(Save) << Save.Message;
 	Durin::FYamlDocument Document;
-	Durin::FYamlParseError Error;
-	ASSERT_TRUE(Document.LoadFromFile(File.generic_string(), &Error)) << Error.Message;
+	const auto Loaded = Document.LoadFromFile(File.generic_string());
+	ASSERT_TRUE(Loaded) << Loaded.error().ToString();
 	const Durin::FYamlNodeView Game = Document.GetRootView().GetView("Game");
 	EXPECT_EQ(Game.GetView("DefaultLevel").GetString(), "/Game/Levels/New");
 	EXPECT_EQ(Game.GetView("NativeModule").GetString(), "Sandbox");

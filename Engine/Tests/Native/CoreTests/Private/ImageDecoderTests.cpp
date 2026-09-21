@@ -107,9 +107,9 @@ namespace Durin::Image
 
 	TEST(FImageDecoderTests, DecodesMemoryToUnscaledRgba8)
 	{
-		FDecodedImage Image;
-		const auto Decoded = DecodeImageFromMemory(std::as_bytes(std::span{TransparentPngBytes}), Image);
-		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.Error);
+		auto Decoded = DecodeImageFromMemory(std::as_bytes(std::span{TransparentPngBytes}));
+		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.error());
+		auto Image = std::move(*Decoded);
 		EXPECT_EQ(Image.Width, 2u);
 		EXPECT_EQ(Image.Height, 1u);
 		EXPECT_EQ(Image.SourceChannelCount, 4u);
@@ -125,9 +125,9 @@ namespace Durin::Image
 	{
 		const std::filesystem::path Path = WriteFixture(
 			"CoreTransparent.png", std::as_bytes(std::span{TransparentPngBytes}));
-		FDecodedImage Image;
-		const auto Decoded = DecodeImageFromFile(Path.generic_string(), Image);
-		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.Error);
+		auto Decoded = DecodeImageFromFile(Path.generic_string());
+		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.error());
+		auto Image = std::move(*Decoded);
 		EXPECT_EQ(Image.Width, 2u);
 		EXPECT_EQ(Image.Height, 1u);
 		EXPECT_TRUE(Image.bHasTransparency);
@@ -135,33 +135,25 @@ namespace Durin::Image
 
 	TEST(FImageDecoderTests, RejectsEmptyAndCorruptDataWithoutPartialOutput)
 	{
-		FDecodedImage Image;
-		Image.Pixels = {std::byte{255}};
-		Image.Width = 1;
-		const auto Empty = DecodeImageFromMemory({}, Image);
-		EXPECT_FALSE(Empty);
-		EXPECT_TRUE(Image.Pixels.empty());
-		EXPECT_EQ(Image.Width, 0u);
-		EXPECT_EQ(Empty.Error.Code, EImageDecodeError::Empty);
+		auto Empty = DecodeImageFromMemory({});
+		ASSERT_FALSE(Empty);
+		EXPECT_EQ(Empty.error().Code, EImageDecodeError::Empty);
 
 		constexpr uint8 CorruptBytes[] = {1, 2, 3, 4, 5};
-		const auto Corrupt = DecodeImageFromMemory(std::as_bytes(std::span{CorruptBytes}), Image);
-		EXPECT_FALSE(Corrupt);
-		EXPECT_TRUE(Image.Pixels.empty());
-		EXPECT_EQ(Corrupt.Error.Code, EImageDecodeError::InvalidImage);
+		auto Corrupt = DecodeImageFromMemory(std::as_bytes(std::span{CorruptBytes}));
+		ASSERT_FALSE(Corrupt);
+		EXPECT_EQ(Corrupt.error().Code, EImageDecodeError::InvalidImage);
 	}
 
 	TEST(FImageDecoderTests, RejectsImagesOutsideCallerLimitsBeforeDecoding)
 	{
-		FDecodedImage Image;
 		FImageDecodeLimits Limits;
 		Limits.MaximumEncodedBytes = 8;
-		const auto EncodedLimit = DecodeImageFromMemory(
-			std::as_bytes(std::span{TransparentPngBytes}), Image, Limits);
-		EXPECT_FALSE(EncodedLimit);
-		EXPECT_EQ(EncodedLimit.Error.Code, EImageDecodeError::EncodedLimit);
-		EXPECT_EQ(EncodedLimit.Error.Limits.MaximumEncodedBytes, 8u);
-		EXPECT_EQ(EncodedLimit.Error.EncodedBytes, sizeof(TransparentPngBytes));
+		auto EncodedLimit = DecodeImageFromMemory(std::as_bytes(std::span{TransparentPngBytes}), Limits);
+		ASSERT_FALSE(EncodedLimit);
+		EXPECT_EQ(EncodedLimit.error().Code, EImageDecodeError::EncodedLimit);
+		EXPECT_EQ(EncodedLimit.error().Limits.MaximumEncodedBytes, 8u);
+		EXPECT_EQ(EncodedLimit.error().EncodedBytes, sizeof(TransparentPngBytes));
 
 		const auto TransparentBytes = std::as_bytes(std::span{TransparentPngBytes});
 		Durin::FByteBuffer OversizedPng(TransparentBytes.begin(), TransparentBytes.end());
@@ -176,36 +168,33 @@ namespace Durin::Image
 		OversizedPng[23] = std::byte{0};
 		Limits.MaximumEncodedBytes = 32ull * 1024ull * 1024ull;
 		Limits.MaximumDecodedPixels = 16ull * 1024ull * 1024ull;
-		const auto PixelLimit = DecodeImageFromMemory(OversizedPng, Image, Limits);
-		EXPECT_FALSE(PixelLimit);
-		EXPECT_EQ(PixelLimit.Error.Code, EImageDecodeError::PixelLimit);
-		EXPECT_EQ(PixelLimit.Error.Width, 8192);
-		EXPECT_EQ(PixelLimit.Error.Height, 8192);
-		EXPECT_EQ(PixelLimit.Error.Limits.MaximumDecodedPixels, 16ull * 1024ull * 1024ull);
-		EXPECT_TRUE(Image.Pixels.empty());
+		auto PixelLimit = DecodeImageFromMemory(OversizedPng, Limits);
+		ASSERT_FALSE(PixelLimit);
+		EXPECT_EQ(PixelLimit.error().Code, EImageDecodeError::PixelLimit);
+		EXPECT_EQ(PixelLimit.error().Width, 8192);
+		EXPECT_EQ(PixelLimit.error().Height, 8192);
+		EXPECT_EQ(PixelLimit.error().Limits.MaximumDecodedPixels, 16ull * 1024ull * 1024ull);
 	}
 
 	TEST(FImageDecoderTests, RetainsFileFailureIdentityAndSystemCause)
 	{
 		const std::array<std::byte, 2> Bytes{std::byte{1}, std::byte{2}};
 		const auto Path = WriteFixture("InvalidImage.png", Bytes);
-		FDecodedImage Image;
+
 		std::string Filename = Path.generic_string();
-		const auto Invalid = DecodeImageFromFile(Filename, Image);
+		auto Invalid = DecodeImageFromFile(Filename);
 		Filename.clear();
-		EXPECT_FALSE(Invalid);
-		EXPECT_EQ(Invalid.Error.Code, EImageDecodeError::InvalidImage);
-		EXPECT_EQ(Invalid.Error.Filename, Path.generic_string());
-		EXPECT_EQ(Invalid.Error.EncodedBytes, Bytes.size());
-		Image.Width = 1;
-		Image.Pixels = {std::byte{1}};
-		const auto Missing = DecodeImageFromFile(Path.generic_string() + ".missing", Image);
-		EXPECT_FALSE(Missing);
-		EXPECT_EQ(Missing.Error.Code, EImageDecodeError::FileStat);
-		EXPECT_TRUE(Missing.Error.SystemError);
-		EXPECT_EQ(Missing.Error.Filename, Path.generic_string() + ".missing");
-		EXPECT_EQ(Image.Width, 0u);
-		EXPECT_TRUE(Image.Pixels.empty());
+		ASSERT_FALSE(Invalid);
+		EXPECT_EQ(Invalid.error().Code, EImageDecodeError::InvalidImage);
+		EXPECT_EQ(Invalid.error().Filename, Path.generic_string());
+		EXPECT_EQ(Invalid.error().EncodedBytes, Bytes.size());
+
+		auto Missing = DecodeImageFromFile(Path.generic_string() + ".missing");
+		ASSERT_FALSE(Missing);
+		EXPECT_EQ(Missing.error().Code, EImageDecodeError::FileStat);
+		ASSERT_TRUE(Missing.error().FileError);
+		EXPECT_EQ(Missing.error().FileError->NativeError, std::errc::no_such_file_or_directory);
+		EXPECT_EQ(Missing.error().Filename, Path.generic_string() + ".missing");
 	}
 
 	TEST(FImageEncoderTests, EncodesCompressedRgba8ThatRoundTripsThroughCore)
@@ -225,9 +214,9 @@ namespace Durin::Image
 		ASSERT_TRUE(EncodeRgba8Png(Pixels, Width, Height, Encoded));
 		EXPECT_LT(Encoded.size(), Pixels.size() / 4);
 
-		FDecodedImage Decoded;
-		const auto Result = DecodeImageFromMemory(Encoded, Decoded);
-		ASSERT_TRUE(Result) << Durin::Image::FormatImageDecodeError(Result.Error);
+		auto Result = DecodeImageFromMemory(Encoded);
+		ASSERT_TRUE(Result) << Durin::Image::FormatImageDecodeError(Result.error());
+		auto Decoded = std::move(*Result);
 		EXPECT_EQ(Decoded.Width, Width);
 		EXPECT_EQ(Decoded.Height, Height);
 		EXPECT_EQ(Decoded.Pixels, Pixels);

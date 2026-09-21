@@ -321,38 +321,6 @@ namespace Durin
 			return Callbacks;
 		}
 
-		auto PopulateParseError(FYamlParseError* OutError, const FYamlParseException& InException) -> void
-		{
-			if (!OutError)
-			{
-				return;
-			}
-
-			*OutError = InException.Error;
-		}
-
-		auto PopulateLoadError(FYamlParseError* OutError, const FFileIO::FFileError& Error) -> void
-		{
-			if (!OutError)
-			{
-				return;
-			}
-
-			*OutError = {};
-			OutError->Message = std::format("Failed to load YAML file: {}", Error.ToString());
-		}
-
-		auto PopulateUnhandledError(FYamlParseError* OutError, const std::exception& InException) -> void
-		{
-			if (!OutError)
-			{
-				return;
-			}
-
-			*OutError = {};
-			OutError->Code = 1;
-			OutError->Message = InException.what();
-		}
 	} // namespace
 
 	auto FYamlNodeView::IsValid() const -> bool
@@ -809,72 +777,48 @@ namespace Durin
 
 	auto FYamlDocument::operator=(FYamlDocument&& Other) noexcept -> FYamlDocument& = default;
 
-	auto FYamlDocument::Parse(std::string_view YamlText, FYamlParseError* OutError) -> bool
+	auto FYamlLoadError::ToString() const -> std::string
 	{
-		Impl->Reset();
-
-		if (OutError)
-		{
-			*OutError = {};
-		}
-
-		Impl->SourceText.assign(YamlText);
-
-		try
-		{
-			ryml::parse_in_arena(c4::csubstr{}, c4::to_csubstr(Impl->SourceText), &Impl->Tree, c4::yml::ParserOptions{}.locations(true));
-			Impl->bIsValid = true;
-			return true;
-		}
-		catch (const FYamlParseException& Exception)
-		{
-			PopulateParseError(OutError, Exception);
-		}
-		catch (const std::exception& Exception)
-		{
-			PopulateUnhandledError(OutError, Exception);
-		}
-
-		Impl->Reset();
-		return false;
+		if (const auto* File = std::get_if<FFileIO::FFileError>(&Cause)) return File->ToString();
+		const auto& Parse = std::get<FYamlParseError>(Cause);
+		return std::format("{} (line {}, column {})", Parse.Message, Parse.Line, Parse.Column);
 	}
 
-	auto FYamlDocument::LoadFromFile(std::string_view FilePath, FYamlParseError* OutError) -> bool
+	auto FYamlDocument::ParseSource(std::string Text, std::string SourceName) -> std::expected<void, FYamlParseError>
 	{
-		auto YamlText = FFileIO::LoadFileToString(FFilePath(FilePath));
-		if (!YamlText)
-		{
-			PopulateLoadError(OutError, YamlText.error());
-			return false;
-		}
-
 		Impl->Reset();
-
-		if (OutError)
-		{
-			*OutError = {};
-		}
-
-		Impl->SourceText = std::move(*YamlText);
-		Impl->SourceName.assign(FilePath);
-
+		Impl->SourceText = std::move(Text);
+		Impl->SourceName = std::move(SourceName);
+		FYamlParseError Error;
 		try
 		{
 			ryml::parse_in_arena(c4::to_csubstr(Impl->SourceName), c4::to_csubstr(Impl->SourceText), &Impl->Tree, c4::yml::ParserOptions{}.locations(true));
 			Impl->bIsValid = true;
-			return true;
+			return {};
 		}
 		catch (const FYamlParseException& Exception)
 		{
-			PopulateParseError(OutError, Exception);
+			Error = Exception.Error;
 		}
 		catch (const std::exception& Exception)
 		{
-			PopulateUnhandledError(OutError, Exception);
+			Error = {.Code = 1, .Message = Exception.what()};
 		}
-
 		Impl->Reset();
-		return false;
+		return std::unexpected(std::move(Error));
+	}
+
+	auto FYamlDocument::Parse(std::string_view YamlText) -> std::expected<void, FYamlParseError>
+	{
+		return ParseSource(std::string(YamlText), {});
+	}
+
+	auto FYamlDocument::LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FYamlLoadError>
+	{
+		auto Text = FFileIO::LoadFileToString(FilePath);
+		if (!Text) return std::unexpected(FYamlLoadError{std::move(Text.error())});
+		return ParseSource(std::move(*Text), FilePath.generic_string())
+			.transform_error([](FYamlParseError Error) { return FYamlLoadError{std::move(Error)}; });
 	}
 
 	auto FYamlDocument::Reset() -> void

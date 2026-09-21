@@ -37,10 +37,9 @@ namespace Durin::Editor::MainFrame
 		if (!std::filesystem::exists(HostPath)) return true;
 
 		FYamlDocument Document;
-		FYamlParseError Error;
-		if (!Document.LoadFromFile(HostPath, &Error))
+		if (const auto Loaded = Document.LoadFromFile(HostPath); !Loaded)
 		{
-			DURIN_WARN("Failed to load editor host settings: {}", Error.Message);
+			DURIN_WARN("Failed to load editor host settings: {}", Loaded.error().ToString());
 			return false;
 		}
 		LoadDisplaySettings(Document.GetRootView().GetView("Display"), *this);

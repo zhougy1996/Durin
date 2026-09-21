@@ -3,6 +3,8 @@
 #include "CoreAPI.h"
 #include "CoreFwd.h"
 #include "Misc/CoreTypes.h"
+#include "Misc/FileIO.h"
+#include <variant>
 
 namespace Durin
 {
@@ -14,6 +16,12 @@ namespace Durin
 		size_t Line = 0;
 		size_t Column = 0;
 		std::string Message;
+	};
+
+	struct FYamlLoadError
+	{
+		std::variant<FFileIO::FFileError, FYamlParseError> Cause;
+		CORE_API auto ToString() const -> std::string;
 	};
 
 	struct FYamlNodeAccess;
@@ -159,8 +167,8 @@ namespace Durin
 		CORE_API FYamlDocument(FYamlDocument&& Other) noexcept;
 		CORE_API auto operator=(FYamlDocument&& Other) noexcept -> FYamlDocument&;
 
-		CORE_API auto Parse(std::string_view YamlText, FYamlParseError* OutError = nullptr) -> bool;
-		CORE_API auto LoadFromFile(std::string_view FilePath, FYamlParseError* OutError = nullptr) -> bool;
+		[[nodiscard]] CORE_API auto Parse(std::string_view YamlText) -> std::expected<void, FYamlParseError>;
+		[[nodiscard]] CORE_API auto LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FYamlLoadError>;
 		CORE_API auto Reset() -> void;
 
 		CORE_API auto IsValid() const -> bool;
@@ -171,6 +179,7 @@ namespace Durin
 		CORE_API auto SaveToFile(std::string_view FilePath) const -> bool;
 
 	private:
+		auto ParseSource(std::string Text, std::string SourceName) -> std::expected<void, FYamlParseError>;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

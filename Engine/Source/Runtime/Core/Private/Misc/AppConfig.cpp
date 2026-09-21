@@ -20,11 +20,10 @@ namespace Durin
 		FYamlDocument& AppConfigDocument = GetAppConfigDocument();
 		check(!AppConfigDocument.IsValid());
 
-		FYamlParseError ParseError;
-		if (!AppConfigDocument.LoadFromFile(ConfigFile, &ParseError))
+		if (const auto Loaded = AppConfigDocument.LoadFromFile(ConfigFile); !Loaded)
 		{
 			GAppConfigRoot = {};
-			DURIN_ERROR("Failed to load application config file {}: {}", ConfigFile, ParseError.Message);
+			DURIN_ERROR("Failed to load application config file {}: {}", ConfigFile, Loaded.error().ToString());
 			return false;
 		}
 

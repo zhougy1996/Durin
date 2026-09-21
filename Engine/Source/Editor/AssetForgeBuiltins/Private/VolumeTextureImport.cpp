@@ -173,11 +173,11 @@ namespace Durin::AssetForge::Builtins
 		auto CaptureVolumeSource(std::string Filename,
 			const std::filesystem::path& PhysicalPath,
 			FEncodedSourceSnapshot& OutSnapshot,
-			FVolumeTextureCapturedSource& Out) -> FEncodedSourceResult
+			FVolumeTextureCapturedSource& Out) -> std::expected<void, FEncodedSourceError>
 		{
-			if (const auto Captured = CaptureEncodedSource(Filename, PhysicalPath,
-				OutSnapshot, MaximumTexturePayloadBytes); !Captured)
-				return Captured;
+			auto Captured = CaptureEncodedSource(Filename, PhysicalPath, MaximumTexturePayloadBytes);
+			if (!Captured) return std::unexpected(std::move(Captured.error()));
+			OutSnapshot = std::move(*Captured);
 			Out = {.Filename = std::move(Filename),
 				.ContentHash = OutSnapshot.ContentHash,
 				.Bytes = OutSnapshot.GetBytes()};
@@ -257,10 +257,10 @@ namespace Durin::AssetForge::Builtins
 	auto InspectVolumeTextureAtlasSource(
 		std::string_view FilePath) -> FVolumeTextureAtlasInspection
 	{
-		Image::FDecodedImage Image;
-		const auto DecodeResult = Image::DecodeImageFromFile(FilePath, Image);
+		auto DecodeResult = Image::DecodeImageFromFile(FilePath);
 		if (!DecodeResult)
-			return {.Error = DecodeResult.Error};
+			return {.Error = DecodeResult.error()};
+		auto Image = std::move(*DecodeResult);
 
 		FVolumeTextureAtlasInspection Result;
 		Result.AtlasWidth = Image.Width;
@@ -327,14 +327,13 @@ namespace Durin::AssetForge::Builtins
 		}
 		const uint64 ExpectedWidth = static_cast<uint64>(Settings.SliceWidth) * Settings.TilesX;
 		const uint64 ExpectedHeight = static_cast<uint64>(Settings.SliceHeight) * Settings.TilesY;
-		Image::FDecodedImage Image;
-		const auto DecodeResult = Image::DecodeImageFromMemory(Source.Bytes, Image,
-			{.MaximumDecodedPixels = ExpectedWidth * ExpectedHeight});
+		auto DecodeResult = Image::DecodeImageFromMemory(Source.Bytes, {.MaximumDecodedPixels = ExpectedWidth * ExpectedHeight});
 		if (!DecodeResult)
 		{
 			return {.Error = {.Code = EVolumeTextureTranslationError::Decode, .Filename = Source.Filename,
-				.ExpectedWidth = ExpectedWidth, .ExpectedHeight = ExpectedHeight, .DecodeCause = DecodeResult.Error}};
+				.ExpectedWidth = ExpectedWidth, .ExpectedHeight = ExpectedHeight, .DecodeCause = DecodeResult.error()}};
 		}
+		auto Image = std::move(*DecodeResult);
 		if (Image.Width != ExpectedWidth || Image.Height != ExpectedHeight)
 		{
 			return {.Error = {.Code = EVolumeTextureTranslationError::Dimensions, .Filename = Source.Filename,
@@ -449,7 +448,7 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureCapturedSource Captured;
 			if (const auto Capture = CaptureVolumeSource(Filename, PhysicalPath, Snapshot, Captured); !Capture)
 				return {.Error = {.Code = EVolumeTextureRebuildError::Capture, .ObjectPath = Texture.GetObjectPath(),
-					.Filename = Filename, .CaptureCause = std::make_shared<FEncodedSourceError>(Capture.Error)}};
+					.Filename = Filename, .CaptureCause = std::make_shared<FEncodedSourceError>(Capture.error())}};
 			FVolumeTextureSourceData SourceData;
 			if (const auto Translated = TranslateVolumeTextureAtlasSource(
 				Captured, Settings, SourceData); !Translated)

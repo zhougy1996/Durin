@@ -20,14 +20,15 @@ namespace Durin
 
 		auto LoadDocument(const std::filesystem::path& File, FYamlDocument& Document) -> FProjectGameSettingsResult
 		{
-			std::error_code ExistsError;
-			const bool bExists = std::filesystem::exists(File, ExistsError);
-			if (ExistsError)
-				return Failure(EProjectGameSettingsError::IoError, std::format("Could not inspect project game settings '{}': {}", File.generic_string(), ExistsError.message()));
-			if (!bExists) return {};
-			FYamlParseError ParseError;
-			if (!Document.LoadFromFile(File.generic_string(), &ParseError))
-				return Failure(EProjectGameSettingsError::MalformedYaml, std::format("Project game settings '{}' are malformed: {}", File.generic_string(), ParseError.Message));
+			if (const auto Loaded = Document.LoadFromFile(File); !Loaded)
+			{
+				if (const auto* FileError = std::get_if<FFileIO::FFileError>(&Loaded.error().Cause))
+				{
+					if (FileError->NativeError == std::errc::no_such_file_or_directory) return {};
+					return Failure(EProjectGameSettingsError::IoError, std::format("Could not read project game settings '{}': {}", File.generic_string(), FileError->ToString()));
+				}
+				return Failure(EProjectGameSettingsError::MalformedYaml, std::format("Project game settings '{}' are malformed: {}", File.generic_string(), Loaded.error().ToString()));
+			}
 			if (!Document.GetRootView().IsMap())
 				return Failure(EProjectGameSettingsError::InvalidRoot, std::format("Project game settings '{}' must contain a YAML map at the root.", File.generic_string()));
 			return {};

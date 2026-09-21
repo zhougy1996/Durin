@@ -3,6 +3,8 @@
 #include "CoreAPI.h"
 #include "CoreFwd.h"
 #include "Misc/CoreTypes.h"
+#include "Misc/FileIO.h"
+#include <variant>
 
 namespace Durin
 {
@@ -15,6 +17,12 @@ namespace Durin
 		size_t Column = 0;
 		size_t Character = 0;
 		std::string Message;
+	};
+
+	struct FJsonLoadError
+	{
+		std::variant<FFileIO::FFileError, FJsonParseError> Cause;
+		CORE_API auto ToString() const -> std::string;
 	};
 
 	// Identifies how a mutable JSON node is linked to its parent.
@@ -208,8 +216,8 @@ namespace Durin
 		CORE_API FJsonDocument(FJsonDocument&& Other) noexcept;
 		CORE_API auto operator=(FJsonDocument&& Other) noexcept -> FJsonDocument&;
 
-		CORE_API auto Parse(std::string_view JsonText, FJsonParseError* OutError = nullptr) -> bool;
-		CORE_API auto LoadFromFile(std::string_view FileName, FJsonParseError* OutError = nullptr) -> bool;
+		[[nodiscard]] CORE_API auto Parse(std::string_view JsonText) -> std::expected<void, FJsonParseError>;
+		[[nodiscard]] CORE_API auto LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FJsonLoadError>;
 		CORE_API auto Reset() -> void;
 
 		CORE_API auto IsValid() const -> bool;

@@ -468,9 +468,8 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		FJsonDocument Contract;
-		FJsonParseError ParseError;
-		ASSERT_TRUE(Contract.LoadFromFile(
-			TestDataPath("StaticModelMaterials/ExpectedNormalized.json"), &ParseError)) << ParseError.Message;
+		const auto Loaded = Contract.LoadFromFile(TestDataPath("StaticModelMaterials/ExpectedNormalized.json"));
+		ASSERT_TRUE(Loaded) << Loaded.error().ToString();
 		const FJsonNodeView Root = Contract.GetRootView();
 		EXPECT_EQ(Root.GetView("contractVersion").GetInt(), 1);
 		const FJsonNodeView Fixtures = Root.GetView("fixtures");

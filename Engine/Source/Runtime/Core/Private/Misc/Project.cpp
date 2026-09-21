@@ -141,10 +141,9 @@ namespace Durin
 		if (Requested.empty()) return true;
 		const std::string Normalized = Normalize(Requested);
 		FJsonDocument Descriptor;
-		FJsonParseError ParseError;
-		if (!Descriptor.LoadFromFile(Normalized, &ParseError))
+		if (const auto Loaded = Descriptor.LoadFromFile(Normalized); !Loaded)
 		{
-			if (OutError) *OutError = std::format("Invalid project descriptor '{}': {}", Normalized, ParseError.Message);
+			if (OutError) *OutError = std::format("Invalid project descriptor '{}': {}", Normalized, Loaded.error().ToString());
 			return false;
 		}
 		const FJsonNodeView Root = Descriptor.GetRootView();

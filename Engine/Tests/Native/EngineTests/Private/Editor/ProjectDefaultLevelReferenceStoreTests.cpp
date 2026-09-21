@@ -128,10 +128,8 @@ namespace
 	auto LoadSettings(const FDefaultLevelScenario& Scenario) -> Durin::FYamlDocument
 	{
 		Durin::FYamlDocument Document;
-		Durin::FYamlParseError Error;
-		EXPECT_TRUE(Document.LoadFromFile(
-			(Scenario.Root / "Configs" / "Project.yaml").generic_string(),
-			&Error)) << Error.Message;
+		const auto Loaded = Document.LoadFromFile(Scenario.Root / "Configs" / "Project.yaml");
+		EXPECT_TRUE(Loaded) << Loaded.error().ToString();
 		return Document;
 	}
 }

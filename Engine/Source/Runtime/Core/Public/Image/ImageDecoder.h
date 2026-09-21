@@ -26,13 +26,7 @@ namespace Durin::Image
 		int32 Height = 0;
 		FImageDecodeLimits Limits;
 		std::string Filename;
-		std::error_code SystemError;
 		std::optional<FFileIO::FFileError> FileError;
-	};
-	struct FImageDecodeResult
-	{
-		FImageDecodeError Error;
-		explicit operator bool() const { return Error.Code == EImageDecodeError::None; }
 	};
 	CORE_API auto FormatImageDecodeError(const FImageDecodeError& Error) -> std::string;
 
@@ -46,10 +40,10 @@ namespace Durin::Image
 
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
 	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
-	CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes, FDecodedImage& OutImage,
-		const FImageDecodeLimits& Limits = {}) -> FImageDecodeResult;
-	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage,
-		const FImageDecodeLimits& Limits = {}) -> FImageDecodeResult;
+	[[nodiscard]] CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes,
+		const FImageDecodeLimits& Limits = {}) -> std::expected<FDecodedImage, FImageDecodeError>;
+	[[nodiscard]] CORE_API auto DecodeImageFromFile(std::string_view FilePath,
+		const FImageDecodeLimits& Limits = {}) -> std::expected<FDecodedImage, FImageDecodeError>;
 	CORE_API auto DecodeGrayscale16PngFromMemory(
 		FByteView EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,

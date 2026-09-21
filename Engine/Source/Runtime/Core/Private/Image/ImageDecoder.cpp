@@ -211,21 +211,21 @@ namespace Durin::Image
 		case EImageDecodeError::EncodedLimit: return "The encoded image is too large.";
 		case EImageDecodeError::InvalidImage: return "The image is unsupported or corrupt.";
 		case EImageDecodeError::PixelLimit: return "The decoded image is too large.";
-		case EImageDecodeError::FileStat: return "Unable to open the image file.";
+		case EImageDecodeError::FileStat: return Error.FileError ? Error.FileError->ToString() : "Unable to inspect the image file.";
 		case EImageDecodeError::FileSize: return "The image file is empty or too large.";
 		case EImageDecodeError::FileRead: return Error.FileError ? Error.FileError->ToString() : "Unable to read the image file.";
 		}
 		return {};
 	}
 
-	auto DecodeImageFromMemory(FByteView EncodedBytes, FDecodedImage& OutImage, const FImageDecodeLimits& Limits) -> FImageDecodeResult
+	auto DecodeImageFromMemory(FByteView EncodedBytes, const FImageDecodeLimits& Limits) -> std::expected<FDecodedImage, FImageDecodeError>
 	{
-		OutImage = {};
+		FDecodedImage OutImage;
 		int Width = 0;
 		int Height = 0;
-		auto Fail = [&](EImageDecodeError Code) -> FImageDecodeResult {
-			return {.Error = {.Code = Code, .EncodedBytes = EncodedBytes.size(),
-				.Width = Width, .Height = Height, .Limits = Limits}};
+		auto Fail = [&](EImageDecodeError Code) -> std::expected<FDecodedImage, FImageDecodeError> {
+			return std::unexpected(FImageDecodeError{.Code = Code, .EncodedBytes = EncodedBytes.size(),
+				.Width = Width, .Height = Height, .Limits = Limits});
 		};
 		if (EncodedBytes.empty())
 		{
@@ -272,35 +272,34 @@ namespace Durin::Image
 				break;
 			}
 		}
-		return {};
+		return OutImage;
 	}
 
-	auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, const FImageDecodeLimits& Limits) -> FImageDecodeResult
+	auto DecodeImageFromFile(std::string_view FilePath, const FImageDecodeLimits& Limits) -> std::expected<FDecodedImage, FImageDecodeError>
 	{
-		OutImage = {};
-
 		std::error_code ErrorCode;
 		const uintmax_t FileSize = std::filesystem::file_size(std::filesystem::path(FilePath), ErrorCode);
 		if (ErrorCode)
 		{
-			return {.Error = {.Code = EImageDecodeError::FileStat, .Limits = Limits,
-				.Filename = std::string(FilePath), .SystemError = ErrorCode}};
+			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileStat, .Limits = Limits,
+				.Filename = std::string(FilePath),
+				.FileError = FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, FFilePath(FilePath)}});
 		}
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes || FileSize > static_cast<uintmax_t>(std::numeric_limits<int>::max()))
 		{
-			return {.Error = {.Code = EImageDecodeError::FileSize, .EncodedBytes = FileSize,
-				.Limits = Limits, .Filename = std::string(FilePath)}};
+			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileSize, .EncodedBytes = FileSize,
+				.Limits = Limits, .Filename = std::string(FilePath)});
 		}
 
 		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
 		if (!EncodedBytes)
 		{
-			return {.Error = {.Code = EImageDecodeError::FileRead, .EncodedBytes = FileSize,
+			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileRead, .EncodedBytes = FileSize,
 				.Limits = Limits, .Filename = std::string(FilePath),
-				.SystemError = EncodedBytes.error().NativeError, .FileError = std::move(EncodedBytes.error())}};
+				.FileError = std::move(EncodedBytes.error())});
 		}
-		auto Result = DecodeImageFromMemory(*EncodedBytes, OutImage, Limits);
-		if (!Result) Result.Error.Filename = FilePath;
+		auto Result = DecodeImageFromMemory(*EncodedBytes, Limits);
+		if (!Result) Result.error().Filename = FilePath;
 		return Result;
 	}
 

@@ -21,12 +21,11 @@ namespace Durin::Editor::Level
 	auto FLevelEditorSessionSettings::Load() -> bool
 	{
 		FYamlDocument Document;
-		FYamlParseError Error;
 		const std::string FilePath = FPaths::LaunchConfigsDir() + SessionSettingsFileName;
 		if (!std::filesystem::exists(FilePath)) return true;
-		if (!Document.LoadFromFile(FilePath, &Error))
+		if (const auto Loaded = Document.LoadFromFile(FilePath); !Loaded)
 		{
-			DURIN_WARN("Failed to load level editor session settings: {}", Error.Message);
+			DURIN_WARN("Failed to load level editor session settings: {}", Loaded.error().ToString());
 			return false;
 		}
 

@@ -100,15 +100,12 @@ namespace Durin::Editor::MainFrame
 
 	auto FEditorBrandTexture::Load(std::string& OutError) -> bool
 	{
-		Image::FDecodedImage Image;
 		const std::string SourcePath = FPaths::EngineContentDir() + "Editor/Branding/DurinEditorLogoUI.png";
-		const auto DecodeResult = Image::DecodeImageFromFile(
-				SourcePath,
-				Image,
-				{256ull * 1024ull, 256ull * 256ull});
-		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		auto DecodeResult = Image::DecodeImageFromFile(SourcePath, {256ull * 1024ull, 256ull * 256ull});
+		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
 		if (!DecodeResult)
 			return false;
+		auto Image = std::move(*DecodeResult);
 		if (Image.Width == 0 || Image.Height == 0)
 		{
 			OutError = "The editor branding image has no pixels.";
