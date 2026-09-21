@@ -556,14 +556,14 @@ namespace Durin
 				const FCacheGetResult Result = DerivedData::GetCache().Get({
 					Key,
 					ShaderDerivedData::MaximumValueBytes});
-				if (Result.Status != ECacheGetStatus::Hit)
+				if (!Result)
 				{
-					if (Result.Status == ECacheGetStatus::ValueTooLarge
-						|| Result.Status == ECacheGetStatus::Corrupt)
+					if (Result.error().Code == ECacheError::ValueTooLarge
+						|| Result.error().Code == ECacheError::Corrupt)
 						DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
 					return false;
 				}
-				if (const auto DecodeResult = ShaderDerivedData::Decode(Result.Value.GetBytes(), Options, OutOutput); !DecodeResult)
+				if (const auto DecodeResult = ShaderDerivedData::Decode(Result->GetBytes(), Options, OutOutput); !DecodeResult)
 				{
 					DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
 					DURIN_WARN("Shader DDC value was rejected: {}", FormatShaderError(DecodeResult.Error));
@@ -597,7 +597,7 @@ namespace Durin
 				if (!Put)
 				{
 					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
-					DURIN_WARN("Shader DDC store failed: {}", Put.Diagnostic);
+					DURIN_WARN("Shader DDC store failed: {}", Put.error().Diagnostic);
 				}
 			}
 

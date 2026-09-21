@@ -35,13 +35,13 @@ namespace Durin::AssetDerivedDataCache
 		OutDiagnostic.DurationNanoseconds = static_cast<uint64>(
 			std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - Start).count());
-		if (Result.Status != ECacheGetStatus::Hit)
+		if (!Result)
 		{
-			OutDiagnostic.Code = Result.Status == ECacheGetStatus::Miss ? EAssetCacheError::None : EAssetCacheError::Read;
-			OutDiagnostic.ReadCause = std::make_shared<FCacheGetResult>(std::move(Result));
+			OutDiagnostic.Code = Result.error().Code == ECacheError::Miss ? EAssetCacheError::None : EAssetCacheError::Read;
+			OutDiagnostic.ReadCause = std::make_shared<FCacheError>(std::move(Result.error()));
 			return ELoadResult::Miss;
 		}
-		OutBytes = std::move(Result.Value);
+		OutBytes = std::move(*Result);
 		return ELoadResult::Hit;
 	}
 
@@ -69,7 +69,7 @@ namespace Durin::AssetDerivedDataCache
 		OutDiagnostic.Key = Key;
 		OutDiagnostic.MaximumValueBytes = MaximumValueBytes;
 		const auto Start = std::chrono::steady_clock::now();
-		const FCachePutResult Result = GetCache().Put({
+		FCachePutResult Result = GetCache().Put({
 			.Key = *Key.AsCacheKey(),
 			.Value = Bytes,
 			.MaximumValueBytes = MaximumValueBytes});
@@ -79,7 +79,7 @@ namespace Durin::AssetDerivedDataCache
 		if (!Result)
 		{
 			OutDiagnostic.Code = EAssetCacheError::Write;
-			OutDiagnostic.WriteCause = std::make_shared<FCachePutResult>(Result);
+			OutDiagnostic.WriteCause = std::make_shared<FCacheError>(std::move(Result.error()));
 			return false;
 		}
 		return true;

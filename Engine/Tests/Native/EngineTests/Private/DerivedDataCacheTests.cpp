@@ -66,8 +66,8 @@ TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 	ASSERT_TRUE(Cache.Put({Key, Second, 1024}));
 
 	const FCacheGetResult Get = Cache.Get({Key, 1024});
-	ASSERT_EQ(Get.Status, ECacheGetStatus::Hit);
-	EXPECT_TRUE(std::ranges::equal(Get.Value.GetBytes(), Second));
+	ASSERT_TRUE(Get);
+	EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), Second));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Directory.Root / "Test" / "Objects" / "aa" / (std::string(32, 'a') + ".bin")));
 }
@@ -99,8 +99,16 @@ TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 	EXPECT_EQ(FCacheKey::FromString(Bucket, HashKey.ToString()), HashKey);
 	const FCacheKey Key = MakeKey(Bucket, 'b');
 	const Durin::FByteBuffer Value = Bytes({1, 2, 3, 4});
-	EXPECT_EQ(Cache.Put({Key, Value, 3}).Status, ECachePutStatus::ValueTooLarge);
-	EXPECT_EQ(Cache.Get({Key, 3}).Status, ECacheGetStatus::Miss);
+	{
+		const auto Result = Cache.Put({Key, Value, 3});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::ValueTooLarge);
+	}
+	{
+		const auto Result = Cache.Get({Key, 3});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::Miss);
+	}
 	EXPECT_FALSE(std::filesystem::exists(Directory.Root / "escape.bin"));
 }
 
@@ -135,8 +143,12 @@ TEST(FDerivedDataCacheTests, BucketIsPartOfTheRecordIdentity)
 	const FByteBuffer Second = Bytes({2});
 	ASSERT_TRUE(Cache.Put({FirstKey, First, 1}));
 	ASSERT_TRUE(Cache.Put({SecondKey, Second, 1}));
-	EXPECT_TRUE(std::ranges::equal(Cache.Get({FirstKey, 1}).Value.GetBytes(), First));
-	EXPECT_TRUE(std::ranges::equal(Cache.Get({SecondKey, 1}).Value.GetBytes(), Second));
+	const auto FirstGet = Cache.Get({FirstKey, 1});
+	const auto SecondGet = Cache.Get({SecondKey, 1});
+	ASSERT_TRUE(FirstGet);
+	ASSERT_TRUE(SecondGet);
+	EXPECT_TRUE(std::ranges::equal(FirstGet->GetBytes(), First));
+	EXPECT_TRUE(std::ranges::equal(SecondGet->GetBytes(), Second));
 }
 
 TEST(FDerivedDataCacheTests, InternsBucketNamesAcrossThreads)
@@ -172,9 +184,9 @@ TEST(FDerivedDataCacheTests, RejectsContentThatDoesNotMatchStoredHash)
 	Stored.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Stored, Path));
 	const FCacheGetResult Result = Cache.Get({Key, Value.size()});
-	EXPECT_EQ(Result.Status, ECacheGetStatus::Corrupt);
-	EXPECT_TRUE(Result.Value.IsEmpty());
-	EXPECT_FALSE(Result.Diagnostic.empty());
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
+	EXPECT_FALSE(Result.error().Diagnostic.empty());
 }
 
 TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
@@ -185,11 +197,18 @@ TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
 	const FCacheKey Key = MakeKey(Bucket, 'c');
 	const Durin::FByteBuffer Value(8, std::byte{1});
 	ASSERT_TRUE(Cache.Put({Key, Value, 8}));
-	EXPECT_EQ(Cache.Get({Key, 4}).Status, ECacheGetStatus::ValueTooLarge);
+	{
+		const auto Result = Cache.Get({Key, 4});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::ValueTooLarge);
+	}
 	const auto DirectoryEntry = Directory.Root / "Test" / "Objects" / "dd" / (std::string(32, 'd') + ".bin");
 	std::filesystem::create_directories(DirectoryEntry);
-	EXPECT_EQ(Cache.Get({MakeKey(Bucket, 'd'), 8}).Status,
-		ECacheGetStatus::StorageFailure);
+	{
+		const auto Result = Cache.Get({MakeKey(Bucket, 'd'), 8});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
+	}
 }
 
 TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
@@ -206,9 +225,9 @@ TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 			const auto& Value = Index % 2 ? First : Second;
 			EXPECT_TRUE(Cache.Put({Key, Value, 1024}));
 			const FCacheGetResult Get = Cache.Get({Key, 1024});
-			ASSERT_EQ(Get.Status, ECacheGetStatus::Hit);
-			EXPECT_TRUE(std::ranges::equal(Get.Value.GetBytes(), First)
-				|| std::ranges::equal(Get.Value.GetBytes(), Second));
+			ASSERT_TRUE(Get);
+			EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), First)
+				|| std::ranges::equal(Get->GetBytes(), Second));
 		});
 	for (std::thread& Thread : Threads) Thread.join();
 }
@@ -229,8 +248,7 @@ TEST(FDerivedDataCacheTests, PutNeverEvictsExistingEntries)
 	{
 		const FCacheKey Key = FCacheKey::FromString(Bucket,
 			std::format("{:032x}", Index + 1));
-		EXPECT_EQ(Cache.Get({Key, Value.size()}).Status,
-			ECacheGetStatus::Hit);
+		EXPECT_TRUE(Cache.Get({Key, Value.size()}));
 	}
 }
 
@@ -252,7 +270,7 @@ TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 				Bucket, std::format("{:032x}", Index + 1));
 			if (!Cache.Put({Key, Value, Value.size()})) return false;
 			const FCacheGetResult Get = Cache.Get({Key, Value.size()});
-			return Get && std::ranges::equal(Get.Value.GetBytes(), Value);
+			return Get && std::ranges::equal(Get->GetBytes(), Value);
 		}));
 	}
 	Start.count_down();
@@ -267,10 +285,16 @@ TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Value, Blocker));
 	const FCacheBucket Bucket = FCacheBucket::FromString("blocked/Bucket");
 	FDerivedDataCache& Cache = DerivedData::GetCache();
-	EXPECT_EQ(Cache.Put({MakeKey(Bucket, '1'), Value, 1024}).Status,
-		ECachePutStatus::StorageFailure);
-	EXPECT_EQ(Cache.Get({MakeKey(Bucket, '1'), 1024}).Status,
-		ECacheGetStatus::StorageFailure);
+	{
+		const auto Result = Cache.Put({MakeKey(Bucket, '1'), Value, 1024});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
+	}
+	{
+		const auto Result = Cache.Get({MakeKey(Bucket, '1'), 1024});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
+	}
 }
 
 #if defined(_WIN32)
@@ -281,7 +305,11 @@ TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'a');
 	const Durin::FByteBuffer Value = Bytes({1, 2, 3});
-	EXPECT_EQ(Cache.Get({Key, 1024}).Status, ECacheGetStatus::Miss);
+	{
+		const auto Result = Cache.Get({Key, 1024});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::Miss);
+	}
 	ASSERT_TRUE(Cache.Put({Key, Value, 1024}));
 	const Durin::FFilePath Path = Directory.Root / "Test" / "Objects"
 		/ "aa" / (std::string(32, 'a') + ".bin");
@@ -291,18 +319,20 @@ TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 	{
 		std::unique_ptr<void, decltype(&CloseHandle)> LockedFile(File, &CloseHandle);
 		const auto Get = Cache.Get({Key, 1024});
-		EXPECT_EQ(Get.Status, ECacheGetStatus::StorageFailure);
-		EXPECT_NE(Get.Diagnostic.find("open for reading"), std::string::npos);
-		EXPECT_NE(Get.Diagnostic.find(Path.generic_string()), std::string::npos);
-		EXPECT_NE(Get.Diagnostic.find(std::format(":{}:", ERROR_SHARING_VIOLATION)), std::string::npos);
+		ASSERT_FALSE(Get);
+		EXPECT_EQ(Get.error().Code, ECacheError::StorageFailure);
+		EXPECT_NE(Get.error().Diagnostic.find("open for reading"), std::string::npos);
+		EXPECT_NE(Get.error().Diagnostic.find(Path.generic_string()), std::string::npos);
+		EXPECT_NE(Get.error().Diagnostic.find(std::format(":{}:", ERROR_SHARING_VIOLATION)), std::string::npos);
 		const auto Put = Cache.Put({Key, Bytes({4, 5}), 1024});
-		EXPECT_EQ(Put.Status, ECachePutStatus::StorageFailure);
-		EXPECT_NE(Put.Diagnostic.find("replace destination"), std::string::npos);
-		EXPECT_NE(Put.Diagnostic.find(Path.generic_string()), std::string::npos);
+		ASSERT_FALSE(Put);
+		EXPECT_EQ(Put.error().Code, ECacheError::StorageFailure);
+		EXPECT_NE(Put.error().Diagnostic.find("replace destination"), std::string::npos);
+		EXPECT_NE(Put.error().Diagnostic.find(Path.generic_string()), std::string::npos);
 	}
 	const auto Get = Cache.Get({Key, 1024});
-	ASSERT_EQ(Get.Status, ECacheGetStatus::Hit);
-	EXPECT_TRUE(std::ranges::equal(Get.Value.GetBytes(), Value));
+	ASSERT_TRUE(Get);
+	EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), Value));
 }
 #endif
 
@@ -321,8 +351,11 @@ TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverRead)
 	std::filesystem::create_symlink(Outside, Link, Error);
 	if (Error) GTEST_SKIP() << "Host cannot create a test symlink: " << Error.message();
 	FDerivedDataCache& Cache = DerivedData::GetCache();
-	EXPECT_EQ(Cache.Get({Key, 1024}).Status,
-		ECacheGetStatus::StorageFailure);
+	{
+		const auto Result = Cache.Get({Key, 1024});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
+	}
 	EXPECT_TRUE(std::filesystem::exists(Outside));
 	EXPECT_TRUE(std::filesystem::is_symlink(Link));
 }

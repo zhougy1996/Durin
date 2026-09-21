@@ -183,7 +183,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_TRUE(Request.Source.IsValid());
 	EXPECT_EQ(Product.CacheDiagnostics.Read.Code, EAssetCacheError::Read);
 	ASSERT_NE(Product.CacheDiagnostics.Read.ReadCause, nullptr);
-	EXPECT_EQ(Product.CacheDiagnostics.Read.ReadCause->Status, DerivedData::ECacheGetStatus::Corrupt);
+	EXPECT_EQ(Product.CacheDiagnostics.Read.ReadCause->Code, DerivedData::ECacheError::Corrupt);
 	EXPECT_TRUE(Error.empty());
 	Request.Reconciliation.MaterialSlots.clear();
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product)) << Error;
@@ -229,7 +229,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_LE(Durin::FormatStaticMeshCacheDiagnostics(Collision.CacheDiagnostics).size(), 2048u);
 	EXPECT_EQ(Collision.CacheDiagnostics.Write.Code, EAssetCacheError::Write);
 	ASSERT_NE(Collision.CacheDiagnostics.Write.WriteCause, nullptr);
-	EXPECT_EQ(Collision.CacheDiagnostics.Write.WriteCause->Status, DerivedData::ECachePutStatus::StorageFailure);
+	EXPECT_EQ(Collision.CacheDiagnostics.Write.WriteCause->Code, DerivedData::ECacheError::StorageFailure);
 	FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
@@ -1739,7 +1739,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CacheAdapterRetainsReadWriteStatusAndR
 	EXPECT_EQ(AssetDerivedDataCache::Load(Key, MaximumStaticMeshPayloadBytes, Bytes, Diagnostic),
 		AssetDerivedDataCache::ELoadResult::Miss);
 	ASSERT_TRUE(Diagnostic.ReadCause);
-	EXPECT_EQ(Diagnostic.ReadCause->Status, DerivedData::ECacheGetStatus::StorageFailure);
+	EXPECT_EQ(Diagnostic.ReadCause->Code, DerivedData::ECacheError::StorageFailure);
 	EXPECT_FALSE(Diagnostic.WriteCause);
 	EXPECT_EQ(Diagnostic.Key, Key);
 	EXPECT_EQ(Diagnostic.MaximumValueBytes, MaximumStaticMeshPayloadBytes);
@@ -1747,7 +1747,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CacheAdapterRetainsReadWriteStatusAndR
 	EXPECT_FALSE(AssetDerivedDataCache::Store(Key, Payload, MaximumStaticMeshPayloadBytes, Diagnostic));
 	EXPECT_FALSE(Diagnostic.ReadCause);
 	ASSERT_TRUE(Diagnostic.WriteCause);
-	EXPECT_EQ(Diagnostic.WriteCause->Status, DerivedData::ECachePutStatus::StorageFailure);
+	EXPECT_EQ(Diagnostic.WriteCause->Code, DerivedData::ECacheError::StorageFailure);
 	EXPECT_EQ(Diagnostic.Key, Key);
 	EXPECT_EQ(Diagnostic.MaximumValueBytes, MaximumStaticMeshPayloadBytes);
 }
@@ -2029,7 +2029,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, FailedCache.Render->Origin);
 	EXPECT_EQ(FailedCache.PersistenceDiagnostic.Render.Write.Code, EAssetCacheError::Write);
 	ASSERT_NE(FailedCache.PersistenceDiagnostic.Render.Write.WriteCause, nullptr);
-	EXPECT_EQ(FailedCache.PersistenceDiagnostic.Render.Write.WriteCause->Status, DerivedData::ECachePutStatus::StorageFailure);
+	EXPECT_EQ(FailedCache.PersistenceDiagnostic.Render.Write.WriteCause->Code, DerivedData::ECacheError::StorageFailure);
 	EXPECT_EQ(FailedCache.Error.Code, EStaticMeshCompletionError::None);
 	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size() + FailedCache.Descriptor.ProducerIdentity.size(), 4096u);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());

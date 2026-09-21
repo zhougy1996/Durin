@@ -316,12 +316,14 @@ SPIR-V and reflection sidecars may retain their own strict file grammar beneath
 a namespaced subtree. Every DDC entry remains disposable and its authored inputs
 remain authoritative.
 
-`FCacheGetResult` and `FCachePutResult` retain backend-neutral status reports.
-Lookup distinguishes a normal `Miss` from `Hit`, invalid input, size rejection,
-corruption and storage failure. Put distinguishes `Stored` from rejection or
-storage failure. Their boolean conversions mean hit/stored only; a false lookup
-is not necessarily an error. Cache diagnostics can accompany a successful asset
-build, so these reports are not converted to asset expected failures.
+`FCacheGetResult` and `FCachePutResult` are `std::expected` aliases with a shared
+`FCacheError` carrying a backend-neutral code and diagnostic. Successful lookup
+returns immutable `FSharedByteBuffer` bytes; successful put returns `void`.
+Lookup failures distinguish a normal `Miss` from invalid input, size rejection,
+corruption and storage failure. Put reports rejection or storage failure.
+Asset cache diagnostics retain only the error object. A `Miss` remains a normal
+rebuild trigger, and cache failures can accompany a successful asset build, so
+these failures do not become asset operation failures.
 
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:

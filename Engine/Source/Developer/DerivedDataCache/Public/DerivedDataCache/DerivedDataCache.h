@@ -3,6 +3,7 @@
 #include "DerivedDataCacheAPI.h"
 #include "Hash/XxHash.h"
 #include "Serialization/SharedByteBuffer.h"
+#include <expected>
 
 namespace Durin::DerivedData
 {
@@ -41,15 +42,20 @@ namespace Durin::DerivedData
 		FXxHash128 Hash;
 	};
 
-	// Classifies a synchronous cache lookup without interpreting entry bytes.
-	enum class ECacheGetStatus : uint8
+	// Classifies cache failures; Miss is a normal lookup outcome, not a storage error.
+	enum class ECacheError : uint8
 	{
-		Hit,
 		Miss,
 		InvalidRequest,
 		ValueTooLarge,
 		Corrupt,
 		StorageFailure
+	};
+
+	struct FCacheError
+	{
+		ECacheError Code;
+		std::string Diagnostic;
 	};
 
 	// Supplies the logical identity and caller-enforced read bound for one lookup.
@@ -60,22 +66,7 @@ namespace Durin::DerivedData
 	};
 
 	// Returns immutable bytes only for a successful cache hit.
-	struct FCacheGetResult
-	{
-		ECacheGetStatus Status = ECacheGetStatus::Miss;
-		FSharedByteBuffer Value;
-		std::string Diagnostic;
-		explicit operator bool() const { return Status == ECacheGetStatus::Hit; }
-	};
-
-	// Classifies synchronous immutable entry publication.
-	enum class ECachePutStatus : uint8
-	{
-		Stored,
-		InvalidRequest,
-		ValueTooLarge,
-		StorageFailure
-	};
+	using FCacheGetResult = std::expected<FSharedByteBuffer, FCacheError>;
 
 	// Borrows entry bytes only for the duration of a synchronous put call.
 	struct FCachePutRequest
@@ -86,12 +77,7 @@ namespace Durin::DerivedData
 	};
 
 	// Reports publication outcome without exposing backend details.
-	struct FCachePutResult
-	{
-		ECachePutStatus Status = ECachePutStatus::StorageFailure;
-		std::string Diagnostic;
-		explicit operator bool() const { return Status == ECachePutStatus::Stored; }
-	};
+	using FCachePutResult = std::expected<void, FCacheError>;
 
 	// Provides synchronous backend-neutral access to process derived data.
 	class FDerivedDataCache
