@@ -3,7 +3,7 @@
 #include "TextureTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"

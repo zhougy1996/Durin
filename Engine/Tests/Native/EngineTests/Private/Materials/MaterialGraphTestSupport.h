@@ -25,7 +25,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialProgramCompiler.h"

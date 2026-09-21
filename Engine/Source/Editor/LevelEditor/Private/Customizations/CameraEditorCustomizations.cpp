@@ -5,7 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Engine/Level.h"
 #include "Math/Operations.h"
 #include "Workspace/LevelEditorContext.h"

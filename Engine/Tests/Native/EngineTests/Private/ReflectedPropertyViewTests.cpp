@@ -1,5 +1,5 @@
-#include "Editor/PropertyView.h"
-#include "Editor/PropertyValueDraft.h"
+#include "PropertyEditor/PropertyView.h"
+#include "PropertyEditor/PropertyValueDraft.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -13,8 +13,8 @@
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Editor/Transaction.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transaction.h"
+#include "Transactions/Transactor.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"

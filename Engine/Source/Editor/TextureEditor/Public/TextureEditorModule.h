@@ -2,7 +2,7 @@
 
 #include "Modules/ModuleManager.h"
 #include "TextureEditorAPI.h"
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 
 namespace Durin::Editor
 {

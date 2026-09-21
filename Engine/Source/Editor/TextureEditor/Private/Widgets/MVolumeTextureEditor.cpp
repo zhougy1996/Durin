@@ -3,7 +3,7 @@
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Diagnostics/TexturePayloadInspection.h"
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"

@@ -2,7 +2,7 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "MaterialEditorModule.h"
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 
 #include "Materials/MaterialTestSupport.h"
 

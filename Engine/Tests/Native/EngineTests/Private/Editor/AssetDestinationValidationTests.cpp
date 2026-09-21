@@ -1,5 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"

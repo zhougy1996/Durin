@@ -2,7 +2,7 @@
 #include "EngineTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Materials/Material.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 #include "NativeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "imgui_internal.h"

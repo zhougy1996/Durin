@@ -1,10 +1,10 @@
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 
 #include "Asset/Asset.h"
-#include "AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnail.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Editor/AssetDragDrop.h"
+#include "Asset/AssetDragDrop.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaCoreGlobals.h"

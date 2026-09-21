@@ -2,7 +2,7 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include <variant>
 

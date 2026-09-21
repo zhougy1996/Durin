@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 
 namespace Durin::RoadNet::Editor
 {

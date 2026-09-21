@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "Asset/MutationExtensions.h"
 #include "MaterialEditorAPI.h"
 

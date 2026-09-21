@@ -6,7 +6,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"

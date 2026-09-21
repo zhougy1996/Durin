@@ -3,7 +3,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 #include "Asset/SourceHint.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "AssetForge/Builtins/TextureCubeFactory.h"

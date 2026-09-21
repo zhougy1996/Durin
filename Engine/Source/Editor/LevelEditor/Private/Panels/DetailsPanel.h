@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Panels/DetailsComponentTree.h"
 #include "Panels/LevelEditorPanel.h"
 

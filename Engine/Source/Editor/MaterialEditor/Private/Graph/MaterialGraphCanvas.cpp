@@ -6,10 +6,10 @@
 #include "MaterialGraphEditSession.h"
 #include "MaterialGraphEditInternals.h"
 
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "MonaImGui.h"
 #include "Asset/Asset.h"
-#include "Editor/AssetDragDrop.h"
+#include "Asset/AssetDragDrop.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
 namespace Durin::Editor::Material

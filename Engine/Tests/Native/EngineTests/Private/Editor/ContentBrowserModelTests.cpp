@@ -12,7 +12,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

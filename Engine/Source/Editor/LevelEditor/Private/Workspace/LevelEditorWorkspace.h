@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/WorkspaceTypes.h"
+#include "Workspace/WorkspaceTypes.h"
 
 namespace Durin::Editor::Level::Workspace
 {

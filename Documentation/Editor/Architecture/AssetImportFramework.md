@@ -432,7 +432,7 @@ dual-write route. Package baseline and future migration policy are defined by
 
 - [`ContentBrowserContracts.h`](../../../Engine/Source/Editor/ContentBrowser/Public/ContentBrowser/ContentBrowserContracts.h)
 - [`IAssetTools.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
-- [`EditorReimportHandler.h`](../../../Engine/Source/Editor/DurinEd/Public/EditorReimportHandler.h)
+- [`EditorReimportHandler.h`](../../../Engine/Source/Editor/DurinEd/Public/Import/EditorReimportHandler.h)
 - [`Factory.h`](../../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)
 - [`SceneDirectImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
 - [`Texture2DImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)

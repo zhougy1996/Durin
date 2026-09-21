@@ -1,4 +1,4 @@
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/WorkspaceRootWindow.h"
 
 #include "Asset/PackageReload.h"
 
@@ -7,11 +7,11 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Transaction.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transaction.h"
+#include "Transactions/Transactor.h"
 
-#include "Editor/WorkspaceManager.h"
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceManager.h"
+#include "Workspace/WorkspaceUI.h"
 
 namespace Durin::Editor
 {

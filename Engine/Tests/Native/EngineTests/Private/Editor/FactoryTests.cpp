@@ -1,6 +1,6 @@
 #include "Factories/Factory.h"
 #include "AssetTools/IAssetTools.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Load.h"

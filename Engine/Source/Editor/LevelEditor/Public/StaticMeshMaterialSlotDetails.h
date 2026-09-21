@@ -1,7 +1,7 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 
 namespace Durin
 {

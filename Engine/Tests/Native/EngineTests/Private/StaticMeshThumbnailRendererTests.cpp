@@ -11,7 +11,7 @@
 #include "Asset/AssetCook.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

@@ -9,7 +9,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin

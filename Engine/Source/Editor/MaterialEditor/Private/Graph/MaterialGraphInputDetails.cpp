@@ -5,7 +5,7 @@
 #include "MaterialExpressionParameters.h"
 #include "MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Texture/Texture2D.h"
 #include <cmath>
 

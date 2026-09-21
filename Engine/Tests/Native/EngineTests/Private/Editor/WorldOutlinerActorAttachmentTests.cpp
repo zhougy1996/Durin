@@ -4,7 +4,7 @@
 #include "Actors/CameraActor.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Engine/Level.h"
 #include "Panels/ActorAttachmentTransaction.h"
 #include "NativeDObjectTestSupport.h"

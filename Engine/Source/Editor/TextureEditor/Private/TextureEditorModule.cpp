@@ -3,7 +3,7 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "ContentBrowser/TextureCubeDetails.h"
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -22,7 +22,7 @@
 #include "MonaImGui.h"
 #include "Asset/Load.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Notification.h"
+#include "Notifications/Notification.h"
 
 namespace Durin
 {

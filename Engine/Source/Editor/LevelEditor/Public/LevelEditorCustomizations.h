@@ -2,7 +2,7 @@
 
 #include "LevelEditorAPI.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "SceneView.h"
 #include "LevelEditorSelection.h"
 

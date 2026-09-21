@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Editor/EditorSubsystem.h"
-#include "Editor/Notification.h"
+#include "Notifications/Notification.h"
 #include "EditorNotificationSubsystem.gen.h"
 
 namespace Durin

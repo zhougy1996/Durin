@@ -3,7 +3,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/Property.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Math/Operations.h"
 #include "Misc/StringHelper.h"
 #include "SceneViewProjection.h"

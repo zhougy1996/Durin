@@ -4,7 +4,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Editor/PropertyEditing.h"
+#include "PropertyEditor/PropertyEditing.h"
 #include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 

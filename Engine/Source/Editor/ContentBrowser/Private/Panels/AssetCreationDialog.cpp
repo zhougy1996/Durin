@@ -1,6 +1,6 @@
 #include "Panels/AssetCreationDialog.h"
 
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "MonaImGui.h"
 
 namespace Durin::Editor::ContentBrowser::Private

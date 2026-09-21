@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/Property.h"
-#include "Editor/PropertyEditing.h"
+#include "PropertyEditor/PropertyEditing.h"
 
 namespace Durin::Editor
 {

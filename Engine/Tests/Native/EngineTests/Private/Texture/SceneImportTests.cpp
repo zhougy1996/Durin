@@ -20,7 +20,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/DObjectArray.h"
 #include "Materials/MaterialProgramCompiler.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"

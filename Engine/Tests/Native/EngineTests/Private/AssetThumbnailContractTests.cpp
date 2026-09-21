@@ -14,7 +14,7 @@
 #include "Editor/DurinEd/Private/Thumbnail/AssetThumbnailGeneration.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
-#include "AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnail.h"
 
 namespace Durin
 {

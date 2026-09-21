@@ -4,7 +4,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxPlacement.h"
 

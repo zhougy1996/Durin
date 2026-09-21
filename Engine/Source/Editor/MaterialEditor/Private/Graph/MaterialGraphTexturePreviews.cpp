@@ -2,7 +2,7 @@
 #include "MaterialGraphEditSession.h"
 #include "Asset/Asset.h"
 #include "TexturePreview.h"
-#include "Editor/AssetDragDrop.h"
+#include "Asset/AssetDragDrop.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Texture/Texture2D.h"

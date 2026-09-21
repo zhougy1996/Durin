@@ -1,6 +1,6 @@
 #include "Panels/DetailsPanel.h"
 #include "Panels/DetailsPanelTargeting.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -8,7 +8,7 @@
 #include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceUI.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorHelpers.h"
 #include "Workspace/LevelEditorWorkspace.h"

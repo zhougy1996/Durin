@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "DurinEdAPI.h"
 #include "StaticMesh/StaticMesh.h"
 

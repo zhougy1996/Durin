@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Materials/MaterialTypes.h"
 #include "DObject/WeakObjectPtr.h"
 

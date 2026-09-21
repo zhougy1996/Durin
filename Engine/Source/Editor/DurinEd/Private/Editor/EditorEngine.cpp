@@ -1,8 +1,8 @@
 #include "Editor/EditorEngine.h"
-#include "Editor/Notification.h"
-#include "Editor/EditorNotificationSubsystem.h"
-#include "Editor/Transaction.h"
-#include "Editor/Transactor.h"
+#include "Notifications/Notification.h"
+#include "Notifications/EditorNotificationSubsystem.h"
+#include "Transactions/Transaction.h"
+#include "Transactions/Transactor.h"
 #include "Preview/PreviewMeshResources.h"
 
 #include "Asset/Mutation.h"

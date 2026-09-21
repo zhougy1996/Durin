@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnail.h"
 #include "AssetRegistry/Catalog.h"
 #include "Threading/Task.h"
 

@@ -5,7 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/MaterialInterface.h"

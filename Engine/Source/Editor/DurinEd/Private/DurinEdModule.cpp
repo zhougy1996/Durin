@@ -1,5 +1,5 @@
 #include "Modules/ModuleManager.h"
-#include "Editor/EditorNotificationSubsystem.h"
+#include "Notifications/EditorNotificationSubsystem.h"
 
 namespace Durin
 {

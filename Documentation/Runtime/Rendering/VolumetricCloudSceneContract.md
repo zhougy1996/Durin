@@ -124,4 +124,4 @@ presentation and volume previews are defined by
 - `Engine/Source/Runtime/Engine/Public/Components/VolumetricCloudComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Rendering/VolumetricCloudSceneProxy.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
-- `Engine/Source/Editor/DurinEd/Private/Editor/PropertyView.cpp`
+- `Engine/Source/Editor/DurinEd/Private/PropertyEditor/PropertyView.cpp`

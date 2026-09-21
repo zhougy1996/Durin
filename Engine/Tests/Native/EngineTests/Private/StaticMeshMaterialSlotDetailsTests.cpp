@@ -8,7 +8,7 @@
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "EngineTestSupport.h"
 #include "LevelEditorCustomizations.h"

@@ -1,8 +1,8 @@
 #include "Widgets/EditorNotificationOverlay.h"
 
 #include "Editor/EditorEngine.h"
-#include "Editor/Notification.h"
-#include "Editor/Transaction.h"
+#include "Notifications/Notification.h"
+#include "Transactions/Transaction.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Logging/LogMacros.h"
 #include "MonaImGui.h"

@@ -1,5 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 
 
 #include "EngineTestSupport.h"

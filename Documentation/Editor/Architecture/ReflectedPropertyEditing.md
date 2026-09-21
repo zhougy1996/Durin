@@ -549,11 +549,11 @@ and hidden-window editor startup is part of final validation.
 Engine/Source/Runtime/CoreDObject/Public/DObject/PropertyChange.h
 Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h
 Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h
-Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h
-Engine/Source/Editor/DurinEd/Public/Editor/PropertyView.h
-Engine/Source/Editor/DurinEd/Public/Editor/TransactionObjectRecord.h
-Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h
-Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h
+Engine/Source/Editor/DurinEd/Public/PropertyEditor/PropertyEditing.h
+Engine/Source/Editor/DurinEd/Public/PropertyEditor/PropertyView.h
+Engine/Source/Editor/DurinEd/Public/Transactions/TransactionObjectRecord.h
+Engine/Source/Editor/DurinEd/Public/Transactions/Transactor.h
+Engine/Source/Editor/DurinEd/Public/Transactions/Transaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
 Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
 Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp

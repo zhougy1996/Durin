@@ -1,4 +1,4 @@
-#include "Editor/TransactionRecord.h"
+#include "Transactions/TransactionRecord.h"
 
 #include "DObject/Class.h"
 #include "DObject/Object.h"

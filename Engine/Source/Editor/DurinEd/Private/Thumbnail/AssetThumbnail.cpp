@@ -1,4 +1,4 @@
-#include "AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnail.h"
 
 #include "Thumbnail/ThumbnailManager.h"
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/PropertyChange.h"
-#include "Editor/TransactionRecord.h"
+#include "Transactions/TransactionRecord.h"
 
 namespace Durin::Editor
 {

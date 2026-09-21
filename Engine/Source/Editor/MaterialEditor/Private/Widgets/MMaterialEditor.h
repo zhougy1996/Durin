@@ -1,11 +1,11 @@
 #pragma once
 
 #include "Asset/MutationExtensions.h"
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
-#include "Editor/PropertyView.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
 
 namespace Durin

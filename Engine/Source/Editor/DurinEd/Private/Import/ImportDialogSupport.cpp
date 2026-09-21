@@ -1,4 +1,4 @@
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"

@@ -1,8 +1,8 @@
 #include "Materials/MaterialDiagnostic.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 
 #include "Editor/EditorEngine.h"
-#include "Editor/PropertyEditing.h"
+#include "PropertyEditor/PropertyEditing.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"

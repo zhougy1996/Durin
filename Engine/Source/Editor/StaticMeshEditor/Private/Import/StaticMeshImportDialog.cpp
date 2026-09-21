@@ -2,7 +2,7 @@
 
 #include "AssetTools/IAssetTools.h"
 #include "Asset/PackageSerialization.h"
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "Asset/Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "EditorReimportHandler.h"
+#include "Import/EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include <variant>

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "StaticMeshEditorAPI.h"
 #include "Widgets/StaticMeshPreview.h"
 

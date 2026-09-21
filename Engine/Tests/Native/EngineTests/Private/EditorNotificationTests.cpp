@@ -1,4 +1,4 @@
-#include "Editor/Notification.h"
+#include "Notifications/Notification.h"
 
 #include <gtest/gtest.h>
 

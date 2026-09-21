@@ -2,7 +2,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
 using namespace Durin::Editor::ContentBrowser::Private;

@@ -3,7 +3,7 @@
 #include "MaterialGraphOperations.h"
 #include "Materials/MaterialFunction.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 
 // Private helpers shared by material graph commands, layout, and edit sessions.
 namespace Durin::Editor::Material::GraphEditInternals

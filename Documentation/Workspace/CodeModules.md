@@ -38,6 +38,16 @@ direction.
 
 ## Editor Modules
 
+Within `DurinEd`, `Public/` and `Private/` use matching responsibility folders:
+`Editor/` for engine, host, and subsystem lifecycle; `Workspace/` for documents
+and workspace UI; `Transactions/` for history; `PropertyEditor/` for reflected
+editing; `Notifications/` for notifications; `Asset/` for retention, pickers,
+and drag/drop; `Import/` for import helpers and reimport contracts; and `Async/`
+for compensating operations. `Factories/`, `Preview/`, `Thumbnail/`, and
+`Source/` retain their dedicated responsibilities. Place new files with their
+owning feature rather than in the module root or the lifecycle-only `Editor/`
+folder. Module entrypoints and API export headers remain at the root.
+
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |

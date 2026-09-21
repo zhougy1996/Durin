@@ -1,11 +1,11 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphValueTypes.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
 #include "Asset/Asset.h"
 #include "DObject/Class.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Misc/StringHelper.h"
 
 namespace Durin::Editor::Material

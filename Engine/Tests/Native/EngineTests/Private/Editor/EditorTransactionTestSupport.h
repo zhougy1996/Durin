@@ -2,7 +2,7 @@
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin::Tests
 {

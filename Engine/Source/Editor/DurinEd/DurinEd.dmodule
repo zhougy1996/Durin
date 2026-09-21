@@ -17,9 +17,9 @@
     ],
 	"ReflectHeaders": [
         "Public/Editor/EditorSubsystem.h",
-        "Public/Editor/EditorNotificationSubsystem.h",
+        "Public/Notifications/EditorNotificationSubsystem.h",
 		"Public/Factories/Factory.h",
-		"Public/Editor/Transactor.h",
+		"Public/Transactions/Transactor.h",
 		"Public/Editor/EditorEngine.h",
 		"Public/Thumbnail/ThumbnailManager.h"
 	]

@@ -1,5 +1,5 @@
-#include "Editor/TransactionRecord.h"
-#include "Editor/Transactor.h"
+#include "Transactions/TransactionRecord.h"
+#include "Transactions/Transactor.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

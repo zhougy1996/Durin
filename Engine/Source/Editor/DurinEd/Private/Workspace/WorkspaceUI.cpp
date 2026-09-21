@@ -1,6 +1,6 @@
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceUI.h"
 
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 
 namespace Durin::Editor::WorkspaceUI
 {

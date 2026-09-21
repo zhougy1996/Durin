@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DurinEdAPI.h"
-#include "Editor/Workspace.h"
+#include "Workspace/Workspace.h"
 #include "Asset/MutationExtensions.h"
 
 namespace Durin::Editor

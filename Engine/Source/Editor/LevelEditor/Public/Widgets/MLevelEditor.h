@@ -3,8 +3,8 @@
 #include "LevelEditorAPI.h"
 #include "LevelEditorContentBrowserCallbacks.h"
 #include "DObject/SoftObjectPtr.h"
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "Threading/Task.h"
 
 namespace Durin

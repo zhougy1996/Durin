@@ -1,4 +1,4 @@
-#include "Editor/EditorNotificationSubsystem.h"
+#include "Notifications/EditorNotificationSubsystem.h"
 #include "Editor/EditorEngine.h"
 
 namespace Durin

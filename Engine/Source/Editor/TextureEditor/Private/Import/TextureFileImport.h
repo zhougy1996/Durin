@@ -4,7 +4,7 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/StrongObjectPtr.h"
 #include <future>
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 
 namespace Durin::Editor::Texture
 {

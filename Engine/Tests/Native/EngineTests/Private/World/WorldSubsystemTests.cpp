@@ -1,7 +1,7 @@
 #include "Threading/TaskComposition.h"
 #include "WorldTestSupport.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorNotificationSubsystem.h"
+#include "Notifications/EditorNotificationSubsystem.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Collision/CollisionDebugSubsystem.h"
 

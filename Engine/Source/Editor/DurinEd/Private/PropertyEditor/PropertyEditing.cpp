@@ -1,6 +1,6 @@
-#include "Editor/PropertyEditing.h"
+#include "PropertyEditor/PropertyEditing.h"
 
-#include "Editor/PropertyValueDraft.h"
+#include "PropertyEditor/PropertyValueDraft.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"

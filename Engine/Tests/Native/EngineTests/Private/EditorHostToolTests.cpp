@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceUI.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanelLayout.h"
 

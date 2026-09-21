@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/Package.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin::Editor::Level
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/Import/ImportDialogSupport.h"
+#include "Import/ImportDialogSupport.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::StaticMesh

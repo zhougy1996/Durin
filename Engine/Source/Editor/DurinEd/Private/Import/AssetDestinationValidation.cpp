@@ -1,5 +1,5 @@
 #include "Misc/MountPaths.h"
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 
 #include "Asset/Asset.h"
 #include "DObject/Package.h"

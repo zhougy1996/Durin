@@ -8,7 +8,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DynamicRHI.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"

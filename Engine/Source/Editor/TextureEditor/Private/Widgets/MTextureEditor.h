@@ -2,9 +2,9 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Texture/Texture.h"
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
-#include "Editor/PropertyView.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
+#include "PropertyEditor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
 #include "TexturePreview.h"

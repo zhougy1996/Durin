@@ -3,9 +3,9 @@
 #include "DurinEdAPI.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "DObject/Object.h"
-#include "Editor/Transaction.h"
-#include "Editor/TransactionObjectRecord.h"
-#include "Editor/TransactionRecord.h"
+#include "Transactions/Transaction.h"
+#include "Transactions/TransactionObjectRecord.h"
+#include "Transactions/TransactionRecord.h"
 #include "Asset/PackageReload.h"
 
 #include "Transactor.gen.h"

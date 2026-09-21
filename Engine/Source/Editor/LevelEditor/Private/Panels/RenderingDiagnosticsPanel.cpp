@@ -1,7 +1,7 @@
 #include "Panels/RenderingDiagnosticsPanel.h"
 
 #include "Client/SceneViewport.h"
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceUI.h"
 #include "EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"

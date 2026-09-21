@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DurinEdAPI.h"
-#include "Editor/WorkspaceTypes.h"
+#include "Workspace/WorkspaceTypes.h"
 
 namespace Durin { class DPackage; }
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Editor/PropertyEditing.h"
-#include "Editor/Transaction.h"
-#include "Editor/Transactor.h"
+#include "PropertyEditor/PropertyEditing.h"
+#include "Transactions/Transaction.h"
+#include "Transactions/Transactor.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Class.h"

@@ -13,10 +13,10 @@
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Transaction.h"
-#include "Editor/WorkspaceManager.h"
+#include "Transactions/Transaction.h"
+#include "Workspace/WorkspaceManager.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::Editor::Material

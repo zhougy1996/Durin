@@ -1,7 +1,7 @@
 #include "MaterialGraphDocument.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Misc/StringHelper.h"
 #include "MaterialExpressionInputs.h"
 

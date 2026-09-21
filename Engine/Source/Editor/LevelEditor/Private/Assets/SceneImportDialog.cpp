@@ -1,6 +1,6 @@
 #include "Assets/SceneImportDialog.h"
 
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "Asset/Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"

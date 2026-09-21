@@ -25,7 +25,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
-#include "Editor/Transaction.h"
+#include "Transactions/Transaction.h"
 #include "SceneView.h"
 #include "NativeTestSupport.h"
 #include "Settings/LevelViewportSessionSettings.h"

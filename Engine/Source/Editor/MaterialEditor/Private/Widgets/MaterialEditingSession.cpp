@@ -5,7 +5,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "DObject/Class.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::Editor::Material

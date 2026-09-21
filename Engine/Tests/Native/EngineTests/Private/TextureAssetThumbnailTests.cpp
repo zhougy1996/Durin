@@ -3,7 +3,7 @@
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "TextureEditorModule.h"
 #include "VolumeTexturePreview.h"
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 

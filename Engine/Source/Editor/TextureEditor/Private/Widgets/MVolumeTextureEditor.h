@@ -2,8 +2,8 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Texture/Texture.h"
-#include "Editor/Workspace.h"
-#include "Editor/WorkspaceRootWindow.h"
+#include "Workspace/Workspace.h"
+#include "Workspace/WorkspaceRootWindow.h"
 #include "TexturePreview.h"
 #include "VolumeTexturePreview.h"
 

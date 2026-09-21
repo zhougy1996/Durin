@@ -5,7 +5,7 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
-#include "Editor/Import/AssetDestinationValidation.h"
+#include "Import/AssetDestinationValidation.h"
 #include "Misc/StringConvert.h"
 #include "Asset/AssetCompilingManager.h"
 

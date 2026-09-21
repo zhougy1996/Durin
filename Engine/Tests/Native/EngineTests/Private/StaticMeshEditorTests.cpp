@@ -1,4 +1,4 @@
-#include "Editor/WorkspaceManager.h"
+#include "Workspace/WorkspaceManager.h"
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Misc/Paths.h"

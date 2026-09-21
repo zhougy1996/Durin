@@ -3,7 +3,7 @@
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
 #include "Editor/EditorSubsystem.h"
-#include "Editor/Transactor.h"
+#include "Transactions/Transactor.h"
 
 #include "EditorEngine.gen.h"
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Editor/WorkspaceTypes.h"
-#include "Editor/WorkspaceUI.h"
+#include "Workspace/WorkspaceTypes.h"
+#include "Workspace/WorkspaceUI.h"
 #include "MonaImGuiWidgets.h"
 
 namespace Durin::Editor::Material::Workspace

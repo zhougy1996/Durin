@@ -1,5 +1,5 @@
-#include "Editor/PropertyView.h"
-#include "Editor/PropertyValueDraft.h"
+#include "PropertyEditor/PropertyView.h"
+#include "PropertyEditor/PropertyValueDraft.h"
 
 #include "Asset/Asset.h"
 #include "Asset/EditorBulkData.h"
@@ -11,7 +11,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "DObject/Package.h"
-#include "Editor/AssetPicker.h"
+#include "Asset/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
