@@ -35,7 +35,6 @@ namespace Durin
 
 	CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
 
-	using FTaskFunction = std::function<void()>;
 	class FTaskCancellationToken;
 	using FParallelForFunction = std::function<void(uint64)>;
 	class FParallelForCancellationToken;
@@ -170,28 +169,14 @@ namespace Durin
 		CORE_API auto MakeTaskResultAccounting(const FTaskHandle& Task) -> FTaskResultAccounting;
 		using FMoveOnlyTaskFunction = std::move_only_function<void(const FTaskCancellationToken&)>;
 
-		template<typename F, typename... Args>
-		concept CTaskInvocable = std::is_move_constructible_v<std::decay_t<F>>
-			&& std::is_destructible_v<std::decay_t<F>>
-			&& std::is_invocable_v<std::decay_t<F>&, Args...>;
-
-		template<typename F, typename... Args>
-		concept CTaskResultInvocable = CTaskInvocable<F, Args...>
-			&& (std::is_void_v<std::invoke_result_t<std::decay_t<F>&, Args...>>
-				|| (std::is_object_v<std::invoke_result_t<std::decay_t<F>&, Args...>>
-					&& !std::is_reference_v<std::invoke_result_t<std::decay_t<F>&, Args...>>));
-
-		template<typename T, typename F, typename... Args>
-		concept CExactTaskResultInvocable = CTaskInvocable<F, Args...>
-			&& std::same_as<std::remove_cvref_t<std::invoke_result_t<std::decay_t<F>&, Args...>>, T>;
+		using FTaskCompletionFunction = std::move_only_function<void(ETaskState)>;
 
 		struct FTaskHandleFactory;
 		struct FUniqueTaskAccess;
 		// Reports rejection before acceptance; accepted work can still fail during execution.
-		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, std::move_only_function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
-		CORE_API auto TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::move_only_function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
+		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
+		CORE_API auto TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
 		CORE_API auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes, bool bQueueOnSaturation = false) -> std::optional<Tasks::FTaskAdmissionError>;
-		CORE_API auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		// Native-test seam for pausing after the raw terminal transition and before completion publication.
 		// Injects bad_alloc at checkpoints 1-5 before acceptance or 6 during dispatch; zero disables it.
 		CORE_API auto SetTaskAdmissionAllocationFailureForTests(int32 Checkpoint) -> void;
@@ -588,10 +573,9 @@ namespace Durin
 
 		friend class FTaskScheduler;
 		friend struct Private::FTaskRuntimeAccess;
-		friend CORE_API auto Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::move_only_function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
-		friend CORE_API auto Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::move_only_function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
+		friend CORE_API auto Private::TryLaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, Private::FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
+		friend CORE_API auto Private::TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, Private::FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>;
 		friend CORE_API auto Private::MakeTaskResultAccounting(const FTaskHandle& Task) -> Private::FTaskResultAccounting;
-		friend CORE_API auto Private::MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 
@@ -603,7 +587,7 @@ namespace Durin
 		// Binding this preallocated internal hook never admits another scheduled node.
 		struct FTaskTerminalHook
 		{
-			std::move_only_function<void(ETaskState)> Function;
+			FTaskCompletionFunction Function;
 			std::shared_ptr<FTaskTerminalHook> Next;
 		};
 		struct FTaskRuntimeAccess

@@ -17,7 +17,7 @@ namespace Durin
 		template<typename F>
 		auto SubmitKernelTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle
 		{
-			if constexpr (std::same_as<std::decay_t<F>, FTaskFunction>)
+			if constexpr (std::same_as<std::decay_t<F>, std::function<void()>>)
 				if (!Function) return SubmitCancelableKernelTask(Name, Private::FMoveOnlyTaskFunction{}, Options);
 			return SubmitCancelableKernelTask(Name,
 				[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); }, Options);
