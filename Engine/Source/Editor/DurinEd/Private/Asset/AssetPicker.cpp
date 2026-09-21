@@ -1,7 +1,7 @@
 #include "Asset/AssetPicker.h"
 
 #include "Asset/Asset.h"
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Asset/AssetDragDrop.h"
@@ -21,16 +21,18 @@ namespace Durin::Editor::AssetPicker
 		auto RequestThumbnail(const FTopLevelAssetCatalogEntry& Entry) -> FAssetThumbnailView
 		{
 			if (!Entry) return {};
-			FAssetThumbnail Thumbnail({
+			auto& Pool = GetDefaultThumbnailManager().GetSharedPool();
+			Pool.Request({
 				.AssetPath = Entry.Asset->AssetPath,
 				.PackagePath = Entry.Package->PackagePath,
 				.AssetClassName = Entry.Asset->AssetClassName,
 				.PackageFormatVersion = Entry.Package->FormatVersion,
 				.FileSize = static_cast<uint64>(Entry.Package->FileSize),
-				.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks});
-			Thumbnail.Request(EAssetThumbnailPriority::Visible);
-			// The shared pool pins visible requests until the next host frame.
-			return Thumbnail.GetView();
+				.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks}, EAssetThumbnailPriority::Visible);
+			// Immediate-mode pickers use the pool's per-frame visibility pin. A local
+			// FAssetThumbnail would cancel pending generation when its last reference
+			// is destroyed on return. The pool retains results under its cache budgets.
+			return Pool.Find(Entry.Asset->AssetPath);
 		}
 
 		auto DrawThumbnail(const FAssetThumbnailView& View, ImVec2 Position, float Size) -> void

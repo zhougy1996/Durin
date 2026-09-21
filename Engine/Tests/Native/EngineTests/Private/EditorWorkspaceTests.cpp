@@ -30,6 +30,22 @@
 
 namespace
 {
+	// Admission-only renderer: the picker must leave generation queued after Draw.
+	class FPickerThumbnailRenderer final : public Durin::Editor::DThumbnailRenderer
+	{
+	public:
+		auto GetRegistration() const -> Durin::Editor::FThumbnailRenderingInfo override
+		{
+			return {"Durin::DMaterial", "PickerThumbnailTest", 1};
+		}
+		auto CaptureGenerationRequest(const Durin::Editor::FAssetThumbnailRequest&,
+			uint64, Durin::Editor::FAssetThumbnailGenerationRequest&, std::string&) -> bool override
+		{
+			ADD_FAILURE() << "This test must not execute thumbnail generation.";
+			return false;
+		}
+	};
+
 	class FAppliedPackageEdit final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
@@ -908,6 +924,12 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		.FormatVersion = 10, .ObjectCount = 1});
 	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 10});
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+	std::string ThumbnailError;
+	auto& ThumbnailManager = Editor::GetDefaultThumbnailManager();
+	auto Registration = ThumbnailManager.RegisterScoped(
+		std::make_unique<FPickerThumbnailRenderer>(), ThumbnailError);
+	ASSERT_TRUE(Registration) << ThumbnailError;
+	auto& ThumbnailPool = ThumbnailManager.GetSharedPool();
 	ImGuiContext* Context = ImGui::CreateContext();
 	ImGuiIO& IO = ImGui::GetIO();
 	IO.IniFilename = nullptr;
@@ -918,6 +940,9 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 	std::array<char, 64> Search{};
 	for (int Frame = 0; Frame < 3; ++Frame)
 	{
+		ThumbnailPool.BeginFrame();
+		if (Frame > 1)
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, Editor::EAssetThumbnailState::Queued);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowSize(ImVec2(400.0f, 300.0f));
 		ImGui::Begin("AssetPickerLayoutTest");
@@ -932,6 +957,14 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		ImGui::End();
 		ImGui::Render();
 		EXPECT_EQ(Context->ErrorCountCurrentFrame, 0);
+		// ImGui uses the first popup frame to measure its auto-fit layout;
+		// visible rows start submitting requests on the following frame.
+		if (Frame > 0)
+		{
+			EXPECT_EQ(ThumbnailPool.Find(AssetPath).State, Editor::EAssetThumbnailState::Queued);
+			EXPECT_EQ(ThumbnailPool.GetStats().QueuedJobs, 1u);
+		}
+		EXPECT_EQ(ThumbnailPool.GetStats().Referencers, 0u);
 	}
 	EXPECT_EQ(Editor::GetDefaultThumbnailManager().GetSharedPool().GetStats().RetainedEntries, 1u);
 	ImGui::DestroyContext(Context);
