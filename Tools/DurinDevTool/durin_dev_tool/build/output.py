@@ -160,8 +160,10 @@ class BuildOutput:
                     (ControlType.CURSOR_UP, 1),
                     (ControlType.ERASE_IN_LINE, 2),
                 ])
-            self.console.control(Control(*controls))
-            self.console.print(Text(visible), end="", soft_wrap=True)
+            # Buffer clearing and replacement together to avoid a blank frame.
+            with self.console:
+                self.console.control(Control(*controls))
+                self.console.print(Text(visible), end="", soft_wrap=True)
         self.console.file.flush()
         self._progress_width = cell_len(visible)
 

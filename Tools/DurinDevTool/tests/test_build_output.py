@@ -119,6 +119,19 @@ class TestOutput:
         assert '\n' not in stdout.getvalue()
         assert '\x1b' not in stdout.getvalue()
 
+    def test_progress_clear_and_text_share_one_terminal_write(self) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            output = BuildOutput(stdout=stdout, force_terminal=True)
+        output.console.legacy_windows = False
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            stdout, 'write', wraps=stdout.write,
+        ) as write:
+            output.child_output('[1/2] Building first.cpp\n')
+        write.assert_called_once()
+        assert '\x1b[2K' in write.call_args.args[0]
+        assert write.call_args.args[0].endswith('[1/2] Building first.cpp')
+
     def test_progress_clears_rows_reflowed_by_terminal_resize(self) -> None:
         stdout = io.StringIO()
         with mock.patch.dict(os.environ, {}, clear=True):
