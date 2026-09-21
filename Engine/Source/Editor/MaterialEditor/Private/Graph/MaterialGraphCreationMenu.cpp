@@ -204,7 +204,12 @@ namespace Durin::Editor::Material
 					bActivateSelection = true;
 				}
 				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("%s\n%s", Action.Description.c_str(), Entry ? FormatInputSignature(*Entry).c_str() : Action.Name.c_str());
+				{
+					if (const auto* FunctionPath = std::get_if<std::string>(&Action.Payload))
+						ImGui::SetTooltip("%s", FunctionPath->c_str());
+					else
+						ImGui::SetTooltip("%s\n%s", Action.Description.c_str(), Entry ? FormatInputSignature(*Entry).c_str() : Action.Name.c_str());
+				}
 				if (CreationMenu->Selection == static_cast<int32>(EntryIndex)
 					&& PreviousSelection != CreationMenu->Selection)
 					ImGui::SetScrollHereY();

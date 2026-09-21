@@ -1,6 +1,7 @@
 #include "MaterialGraphDocument.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
+#include "Editor/AssetPicker.h"
 #include "Misc/StringHelper.h"
 #include "MaterialExpressionInputs.h"
 
@@ -25,7 +26,9 @@ namespace Durin::Editor::Material
 	}
 	auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction
 	{
-		return {.Id = "function:" + Path, .Name = Path, .Category = "Material Functions",
+		return {.Id = "function:" + Path,
+			.Name = AssetPicker::GetAssetPathDisplayName(Path, EAssetPathDisplayMode::AssetName),
+			.Category = "Material Functions",
 			.Keywords = "function call " + Path, .Payload = std::move(Path)};
 	}
 	auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction
