@@ -290,7 +290,7 @@ namespace Durin
 		{
 		public:
 			bool bFail = false;
-			FRDGError Failure{ERDGError::AllocatorFailure};
+			FRDGAllocationError Failure{ERDGError::AllocatorFailure};
 			bool bOmitResources = false;
 			uint32 AllocationCount = 0;
 			std::function<void()> OnAllocate;
@@ -303,7 +303,7 @@ namespace Durin
 
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 				FRDGAllocatedResources& OutResources)
-				-> FRDGResult override
+				-> FRDGAllocationResult override
 			{
 				if (OnAllocate) OnAllocate();
 				LastRequests.assign(Requests.begin(), Requests.end());
@@ -330,7 +330,7 @@ namespace Durin
 								? TextureOverride : MakeRefCount<FRHITexture>(Desc));
 						CreatedTextures.push_back(Texture);
 						if (!OutResources.SetTexture(Request.ResourceId,
-							std::move(Texture), AllocationCount)) return std::unexpected(FRDGError{ERDGError::AllocationPublicationFailed});
+							std::move(Texture), AllocationCount)) return std::unexpected(FRDGAllocationError{ERDGError::AllocationPublicationFailed});
 					}
 					else
 					{
@@ -341,7 +341,7 @@ namespace Durin
 									FRHIBufferCreateDesc::Create("TestRDG",
 										Request.BufferDesc)));
 						if (!OutResources.SetBuffer(Request.ResourceId,
-							std::move(Buffer), AllocationCount)) return std::unexpected(FRDGError{ERDGError::AllocationPublicationFailed});
+							std::move(Buffer), AllocationCount)) return std::unexpected(FRDGAllocationError{ERDGError::AllocationPublicationFailed});
 					}
 				}
 
@@ -871,15 +871,15 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseValue(Builder, Pass, Value, ERDGUse::Write);
 			}
 			const auto Result = Builder.Execute(GetCommandList());
-			ASSERT_EQ(Result.Status, ERDGExecutionStatus::Recorded) << FormatRDGError(Result.Result);
+			ASSERT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::Recorded) << FormatRDGError(Result);
 			EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Recorded);
 			const auto Capture = Builder.Capture();
-			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 			EXPECT_EQ(Calls, Shape == 0 ? 0 : 1);
-			EXPECT_EQ(Builder.Capture().ExecutionResult.Status, ERDGExecutionStatus::Recorded);
-			EXPECT_TRUE(Builder.Capture().ExecutionResult.Result.has_value());
-			EXPECT_EQ(Builder.GetExecutionResult().Status, Result.Status);
-			EXPECT_EQ(Builder.GetExecutionResult().Result.has_value(), Result.Result.has_value());
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Capture().ExecutionResult.value()), ERDGExecutionStatus::Recorded);
+			EXPECT_TRUE(Builder.Capture().ExecutionResult.value().has_value());
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.GetExecutionResult().value()), Durin::GetRDGExecutionStatus(Result));
+			EXPECT_EQ(Builder.GetExecutionResult().value().has_value(), Result.has_value());
 			EXPECT_EQ(Builder.Capture().Dump, Capture.Dump);
 			EXPECT_EQ(Builder.GetStatistics().ExecuteMicroseconds, Capture.Statistics.ExecuteMicroseconds);
 		}
@@ -890,24 +890,24 @@ namespace Durin
 		FRDGCapture Capture;
 		{
 			FRDGBuilder Builder;
-			EXPECT_EQ(Builder.Capture().ExecutionResult.Result.error().Code, ERDGError::ExecutionNotStarted);
+			EXPECT_FALSE(Builder.Capture().ExecutionResult.has_value());
 			FRDGBuilderTestAccessor::AddPass(Builder, "Duplicate", ERDGPassType::Copy);
 			FRDGBuilderTestAccessor::AddPass(Builder, "Duplicate", ERDGPassType::Copy);
 			const auto Result = Builder.Execute(GetCommandList());
-			ASSERT_EQ(Result.Status, ERDGExecutionStatus::CompileFailed);
-			ASSERT_EQ(Result.Result.error().Code, ERDGError::PassNameDuplicate);
-			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
+			ASSERT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed);
+			ASSERT_EQ(Result.error().GetCode(), ERDGError::PassNameDuplicate);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 			Capture = Builder.Capture();
 		}
 		EXPECT_FALSE(Capture.bCompiled);
 		EXPECT_TRUE(Capture.Passes.empty());
-		EXPECT_EQ(Capture.ExecutionResult.Status, ERDGExecutionStatus::CompileFailed);
-		EXPECT_EQ(Capture.ExecutionResult.Result.error().Code, ERDGError::PassNameDuplicate);
-		const auto* Context = std::get_if<FRDGIdentityErrorContext>(&Capture.ExecutionResult.Result.error().Context);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Capture.ExecutionResult.value()), ERDGExecutionStatus::CompileFailed);
+		EXPECT_EQ(Capture.ExecutionResult.value().error().GetCode(), ERDGError::PassNameDuplicate);
+		const auto* Context = FindRDGTestDetail<FRDGIdentityErrorContext>(Capture.ExecutionResult.value().error());
 		ASSERT_NE(Context, nullptr);
 		EXPECT_EQ(Context->Name, "Duplicate");
 		EXPECT_EQ(Context->Index, 1u);
-		EXPECT_NE(FormatRDGError(Capture.ExecutionResult.Result).find("Duplicate"), std::string::npos);
+		EXPECT_NE(FormatRDGError(*Capture.ExecutionResult).find("Duplicate"), std::string::npos);
 	}
 
 	TEST_F(FRDGTests, PhaseTimingsSeparatePreparationRecordingAndFailedCompilation)
@@ -929,7 +929,7 @@ namespace Durin
 			Allocator.bFail = FailAllocation;
 			Allocator.OnAllocate = [] { std::this_thread::sleep_for(std::chrono::milliseconds(2)); };
 
-			EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).IsSuccess(), !FailAllocation);
+			EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).has_value(), !FailAllocation);
 			const auto Stats = Builder.GetStatistics();
 			EXPECT_GE(Stats.Phases.PreparationMicroseconds, 1000u);
 			if (FailAllocation) EXPECT_EQ(Stats.Phases.RecordingMicroseconds, 0u);
@@ -942,12 +942,12 @@ namespace Durin
 				+ Stats.Phases.CullingMicroseconds + Stats.Phases.PlanMicroseconds);
 			EXPECT_EQ(Builder.Capture().Statistics.Phases.PreparationMicroseconds,
 				Stats.Phases.PreparationMicroseconds);
-			EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 			EXPECT_EQ(Builder.GetStatistics().Phases.RecordingMicroseconds, Stats.Phases.RecordingMicroseconds);
 		}
 		FRDGBuilder Invalid;
 		Invalid.CreateToken("");
-		EXPECT_EQ(Invalid.Execute(GetCommandList()).Status, ERDGExecutionStatus::CompileFailed);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Invalid.Execute(GetCommandList())), ERDGExecutionStatus::CompileFailed);
 		const auto Stats = Invalid.GetStatistics();
 		EXPECT_GE(Stats.CompileMicroseconds, Stats.Phases.ValidationMicroseconds);
 		EXPECT_EQ(Stats.Phases.RangeMicroseconds, 0u);
@@ -966,9 +966,9 @@ namespace Durin
 				int& InDestructions) : Destructions(InDestructions)
 			{
 				const auto Result = Builder.Execute(Commands);
-				EXPECT_EQ(Result.Status, ERDGExecutionStatus::CompileFailed);
-				EXPECT_EQ(Result.Result.error().Code, ERDGError::StorageIncomplete);
-				EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::InvalidState);
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed);
+				EXPECT_EQ(Result.error().GetCode(), ERDGError::StorageIncomplete);
+				EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::InvalidState);
 			}
 			~FReentrantValue() { ++Destructions; }
 			int& Destructions;
@@ -985,7 +985,7 @@ namespace Durin
 			EXPECT_FALSE(Builder.Capture().bCompiled);
 			EXPECT_EQ(Calls, 0);
 			EXPECT_EQ(Destructions, 0);
-			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 		}
 		EXPECT_EQ(Destructions, 1);
 	}
@@ -997,14 +997,14 @@ namespace Durin
 		FTestRDGAllocator Allocator;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_EQ(Result.Status, ERDGExecutionStatus::CompileFailed);
+		ASSERT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed);
 		EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
 		EXPECT_FALSE(Builder.Capture().bCompiled);
 		EXPECT_TRUE(Builder.Capture().Passes.empty());
 		EXPECT_TRUE(Builder.GetDependencies().empty());
 		EXPECT_TRUE(Allocator.LastRequests.empty());
-		EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
-		EXPECT_EQ(Builder.GetExecutionResult().Result.error().Code, Result.Result.error().Code);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
+		EXPECT_EQ(Builder.GetExecutionResult().value().error().GetCode(), Result.error().GetCode());
 		EXPECT_DEATH(Builder.CreateToken("Late"), "require Building state");
 	}
 
@@ -1013,10 +1013,10 @@ namespace Durin
 		FRDGBuilder Builder;
 		FRDGBuilderTestAccessor::AddPass(Builder, "Diagnostic", ERDGPassType::Copy);
 		const auto Evidence = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Evidence.IsSuccess()) << FormatRDGError(Evidence.Result);
+		ASSERT_TRUE(Evidence.has_value()) << FormatRDGError(Evidence);
 		EXPECT_TRUE(Builder.Capture().bCompiled);
-		EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
-		EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
+		EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 	}
 
 	TEST_F(FRDGTests, FinalizedDeclarationsRejectLateMutation)
@@ -1025,7 +1025,7 @@ namespace Durin
 		const auto Token = Builder.CreateToken("Token");
 		const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write", ERDGPassType::Copy);
 		FRDGBuilderTestAccessor::UseToken(Builder, Pass, Token, ERDGUse::Write);
-		ASSERT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).has_value());
 		EXPECT_DEATH(FRDGBuilderTestAccessor::AddPass(Builder, "Late", ERDGPassType::Copy), "require Building state");
 		EXPECT_DEATH(Builder.CreateValue<int>("Late", "int"), "require Building state");
 		EXPECT_DEATH(Builder.AllocParameters<FNestedGraphParameters>(), "require Building state");
@@ -1053,7 +1053,7 @@ namespace Durin
 			EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Preparing);
 			const auto Before = Builder.Capture();
 			const auto CommandCount = GetCommandList().GetNumRecordedCommands();
-			EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 			EXPECT_EQ(Builder.Capture().Dump, Before.Dump);
 			EXPECT_EQ(GetCommandList().GetNumRecordedCommands(), CommandCount);
 			EXPECT_FALSE(Extraction);
@@ -1063,15 +1063,15 @@ namespace Durin
 			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 				++Calls;
 				EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Recording);
-				EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 				EXPECT_FALSE(Extraction);
 			});
 		FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
-		ASSERT_TRUE(Builder.Execute(GetCommandList(), &Allocator).IsSuccess());
+		ASSERT_TRUE(Builder.Execute(GetCommandList(), &Allocator).has_value());
 		EXPECT_EQ(AllocatorCalls, 1);
 		EXPECT_EQ(Calls, 1);
 		EXPECT_TRUE(Extraction);
-		EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 		EXPECT_EQ(AllocatorCalls, 1);
 		EXPECT_EQ(Calls, 1);
 	}
@@ -1089,7 +1089,7 @@ namespace Durin
 				[&](FRHICommandListImmediate&, const FRDGPassResources&) { Builder.EnablePassCulling(); });
 			FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 			if (InAllocator) Allocator.OnAllocate = [&] { Builder.CreateToken("Late"); };
-			EXPECT_DEATH(Builder.Execute(GetCommandList(), &Allocator), "require Building state");
+			EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList(), &Allocator)), "require Building state");
 		}
 	}
 
@@ -1122,12 +1122,12 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseValue(Builder, Pass, Value, ERDGUse::Write);
 				const auto CommandsBefore = GetCommandList().GetNumRecordedCommands();
 				const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-				ASSERT_EQ(Result.Status, ERDGExecutionStatus::PreparationFailed);
+				ASSERT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::PreparationFailed);
 				const auto ExpectedError = Failure == 1 ? ERDGErrorCategory::MissingAllocation
 					: Failure == 2 ? ERDGErrorCategory::IncompatibleAllocation : ERDGErrorCategory::AllocationFailed;
-				EXPECT_EQ(Result.Result.error().GetCategory(), ExpectedError);
-				EXPECT_FALSE(Result.Result.has_value());
-				if (Failure == 3) EXPECT_EQ(Result.Result.error().Code, ERDGError::AllocationRetrySuppressed);
+				EXPECT_EQ(Result.error().GetCategory(), ExpectedError);
+				EXPECT_FALSE(Result.has_value());
+				if (Failure == 3) EXPECT_EQ(Result.error().GetCode(), ERDGError::AllocationRetrySuppressed);
 				EXPECT_EQ(GetCommandList().GetNumRecordedCommands(), CommandsBefore);
 				EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
 				EXPECT_EQ(Calls, 0);
@@ -1136,16 +1136,16 @@ namespace Durin
 				Capture = Builder.Capture();
 				ASSERT_TRUE(Capture.bCompiled);
 				EXPECT_FALSE(Capture.Transitions.empty());
-				EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 				EXPECT_EQ(Builder.Capture().Dump, Capture.Dump);
-				EXPECT_EQ(Builder.GetExecutionResult().Result.error().Code, Result.Result.error().Code);
-				EXPECT_EQ(Builder.GetExecutionResult().Result.error().GetCategory(), ExpectedError);
+				EXPECT_EQ(Builder.GetExecutionResult().value().error().GetCode(), Result.error().GetCode());
+				EXPECT_EQ(Builder.GetExecutionResult().value().error().GetCategory(), ExpectedError);
 			}
 			EXPECT_EQ(Destructions, 1);
 			EXPECT_FALSE(Capture.Passes.empty());
-			EXPECT_EQ(Capture.ExecutionResult.Status, ERDGExecutionStatus::PreparationFailed);
-			EXPECT_FALSE(Capture.ExecutionResult.IsSuccess());
-			EXPECT_FALSE(FormatRDGError(Capture.ExecutionResult.Result).empty());
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Capture.ExecutionResult.value()), ERDGExecutionStatus::PreparationFailed);
+			EXPECT_FALSE(Capture.ExecutionResult.value().has_value());
+			EXPECT_FALSE(FormatRDGError(*Capture.ExecutionResult).empty());
 		}
 	}
 
@@ -1166,7 +1166,7 @@ namespace Durin
 				FTestRDGAllocator Allocator;
 				if (InAllocator) Allocator.OnAllocate = [] { std::this_thread::sleep_for(std::chrono::milliseconds(2)); throw std::runtime_error("allocator"); };
 
-				EXPECT_THROW(Builder.Execute(GetCommandList(), &Allocator), std::runtime_error);
+				EXPECT_THROW(static_cast<void>(Builder.Execute(GetCommandList(), &Allocator)), std::runtime_error);
 				const auto Stats = Builder.GetStatistics();
 				EXPECT_GE(InAllocator ? Stats.Phases.PreparationMicroseconds
 					: Stats.Phases.RecordingMicroseconds, 1000u);
@@ -1176,7 +1176,7 @@ namespace Durin
 				EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
 				EXPECT_EQ(Destructions, 0);
 				EXPECT_TRUE(Builder.Capture().bCompiled);
-				EXPECT_EQ(Builder.Execute(GetCommandList(), &Allocator).Status, ERDGExecutionStatus::InvalidState);
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList(), &Allocator)), ERDGExecutionStatus::InvalidState);
 			}
 			EXPECT_EQ(Destructions, 1);
 		}
@@ -1191,12 +1191,12 @@ namespace Durin
 		const auto Write = FRDGBuilderTestAccessor::AddPass(First, "Write", ERDGPassType::Graphics);
 		FRDGBuilderTestAccessor::UseColorAttachment(First, Write, FirstTexture, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
-		ASSERT_TRUE(First.Execute(GetCommandList()).IsSuccess());
+		ASSERT_TRUE(First.Execute(GetCommandList()).has_value());
 		ASSERT_EQ(First.GetPasses()[0].Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(First.GetPasses()[0].Barriers.GetTextureTransitions()[0].ExpectedBefore, ERHIAccess::GraphicsShaderRead);
 		const auto Before = First.Capture();
 		const auto CommandCount = GetCommandList().GetNumRecordedCommands();
-		EXPECT_EQ(First.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(First.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 		EXPECT_EQ(First.Capture().Dump, Before.Dump);
 		EXPECT_EQ(GetCommandList().GetNumRecordedCommands(), CommandCount);
 		FRDGBuilder Second;
@@ -1204,7 +1204,7 @@ namespace Durin
 			ERHIAccess::TransferRead, ERHIAccess::GraphicsShaderRead);
 		const auto Read = FRDGBuilderTestAccessor::AddPass(Second, "Read", ERDGPassType::Graphics);
 		FRDGBuilderTestAccessor::UseTexture(Second, Read, SecondTexture, WholeColor(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
-		ASSERT_TRUE(Second.Execute(GetCommandList()).IsSuccess());
+		ASSERT_TRUE(Second.Execute(GetCommandList()).has_value());
 		ASSERT_EQ(Second.GetPasses()[0].Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Second.GetPasses()[0].Barriers.GetTextureTransitions()[0].ExpectedBefore, ERHIAccess::TransferRead);
 		EXPECT_EQ(Second.GetPasses()[0].Barriers.GetTextureTransitions()[0].RequiredAfter, ERHIAccess::GraphicsShaderRead);
@@ -1270,7 +1270,7 @@ namespace Durin
 			});
 
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Uses.size(), 2u);
 		EXPECT_EQ(Capture.Uses[0].ParameterPath,
@@ -1284,7 +1284,7 @@ namespace Durin
 		}
 		EXPECT_NE(Capture.Dump.find("shader-binding=Textures"),
 			std::string::npos);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_TRUE(bExecuted);
 	}
 
@@ -1296,8 +1296,8 @@ namespace Durin
 			FMalformedComposedAccessParameters>();
 		EXPECT_FALSE(Parameters);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().Code, ERDGError::ShaderDeclarationIncompatible);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::ShaderDeclarationIncompatible);
 	}
 
 	TEST_F(FRDGTests,
@@ -1333,7 +1333,7 @@ namespace Durin
 					GraphShaderParameters, nullptr, nullptr);
 			});
 
-		EXPECT_DEATH(Builder.Execute(GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 			"array extent does not match");
 	}
 
@@ -1362,7 +1362,7 @@ namespace Durin
 					GraphShaderParameters, nullptr, nullptr);
 			});
 
-		EXPECT_DEATH(Builder.Execute(GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 			"is unavailable for required shader");
 	}
 
@@ -1396,9 +1396,9 @@ namespace Durin
 				});
 			return Builder.Execute(GetCommandList());
 		};
-		EXPECT_DEATH(MakeResult(false),
+		EXPECT_DEATH(static_cast<void>(MakeResult(false)),
 			"has no composed graph member");
-		EXPECT_DEATH(MakeResult(true),
+		EXPECT_DEATH(static_cast<void>(MakeResult(true)),
 			"domain is incompatible");
 	}
 
@@ -1426,7 +1426,7 @@ namespace Durin
 				const FComposedComputeBufferParameters&,
 				const FRDGParameterResolver&) {});
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Uses.size(), 2u);
 		EXPECT_EQ(Capture.Uses[0].BufferOffset, 16u);
@@ -1494,7 +1494,7 @@ namespace Durin
 			EXPECT_FALSE(Assigned.IsValid());
 		}
 		const auto Result = Builder.Execute(GetCommandList());
-		EXPECT_EQ(Result.Status, ERDGExecutionStatus::Recorded) << FormatRDGError(Result.Result);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::Recorded) << FormatRDGError(Result);
 		EXPECT_EQ(Calls, Parameters.size());
 	}
 
@@ -1504,9 +1504,9 @@ namespace Durin
 		auto Parameters = Builder.AllocParameters<FMalformedGraphParameters>();
 		EXPECT_FALSE(Parameters.IsValid());
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().Code, ERDGError::MemberOffsetInvalid);
-		const auto& Context = std::get<FRDGMetadataErrorContext>(Result.Result.error().Context);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::MemberOffsetInvalid);
+		const auto& Context = (*FindRDGTestDetail<FRDGMetadataErrorContext>(Result.error()));
 		EXPECT_EQ(Context.StructName, "FMalformedGraphParameters");
 		EXPECT_EQ(Context.MemberName, "Texture");
 	}
@@ -1553,7 +1553,7 @@ namespace Durin
 		EXPECT_EQ(&InvalidFirst, &InvalidSecond);
 		EXPECT_FALSE(InvalidFirst.has_value());
 		EXPECT_EQ(InvalidFirst.error().GetCategory(), ERDGErrorCategory::InvalidParameterMetadata);
-		EXPECT_EQ(InvalidFirst.error().Code, ERDGError::MemberOffsetInvalid);
+		EXPECT_EQ(InvalidFirst.error().GetCode(), ERDGError::MemberOffsetInvalid);
 	}
 
 	TEST_F(FRDGTests, DestroysUncompiledParametersExactlyOnceInReverseOrder)
@@ -1582,7 +1582,7 @@ namespace Durin
 			Builder.SetBudget({.MaxPasses = 0});
 			FRDGBuilderTestAccessor::AddPass(Builder, "Rejected", ERDGPassType::Graphics);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_FALSE(Result.has_value());
 			EXPECT_TRUE(Parameters.IsValid());
 			EXPECT_TRUE(DestructionOrder.empty());
 		}
@@ -1598,7 +1598,7 @@ namespace Durin
 		{
 			FRDGBuilder Builder;
 			Parameters = Builder.AllocParameters<FFirstLifetimeGraphParameters>();
-			EXPECT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+			EXPECT_TRUE(Builder.Execute(GetCommandList()).has_value());
 			EXPECT_TRUE(Parameters.IsValid());
 			EXPECT_TRUE(DestructionOrder.empty());
 		}
@@ -1621,7 +1621,7 @@ namespace Durin
 			const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "UseMissingBacking", ERDGPassType::Graphics);
 			FRDGBuilderTestAccessor::UseColorAttachment(Builder, Pass, Texture, WholeColor(),
 				ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
-			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::PreparationFailed);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::PreparationFailed);
 			EXPECT_TRUE(Parameters.IsValid());
 			EXPECT_TRUE(DestructionOrder.empty());
 		}
@@ -1712,7 +1712,7 @@ namespace Durin
 			}
 
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			return Builder.Capture();
 		};
 
@@ -1776,7 +1776,7 @@ namespace Durin
 			EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "ForeignHandle",
 				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ResourceHandleInvalid);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ResourceHandleInvalid);
 		}
 
 		{
@@ -1789,7 +1789,7 @@ namespace Durin
 			EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "InvalidRange",
 				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::TextureRangeInvalid);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::TextureRangeInvalid);
 		}
 
 		{
@@ -1803,17 +1803,17 @@ namespace Durin
 				EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "Overlap",
 					ERDGPassType::Graphics,
 					std::move(Parameters)).IsValid());
-				return FRDGBuilderTestAccessor::Compile(Builder).Result;
+				return FRDGBuilderTestAccessor::Compile(Builder);
 			};
 			const auto Error = BuildOverlapError();
-			EXPECT_EQ(Error.error().Code, ERDGError::UsesOverlap);
-			const auto& Context = std::get<FRDGUseErrorContext>(Error.error().Context);
+			EXPECT_EQ(Error.error().GetCode(), ERDGError::UsesOverlap);
+			const auto& Context = (*FindRDGTestDetail<FRDGUseErrorContext>(Error.error()));
 			EXPECT_EQ(Context.PassName, "Overlap");
 			EXPECT_EQ(Context.ParameterPath, "FTwoTextureGraphParameters.Textures[1]");
 			EXPECT_EQ(Context.OtherParameterPath, "FTwoTextureGraphParameters.Textures[0]");
 			EXPECT_EQ(Context.UseIndex, 1u);
 			EXPECT_EQ(Context.OtherUseIndex, 0u);
-			EXPECT_EQ(BuildOverlapError().error().Code, Error.error().Code);
+			EXPECT_EQ(BuildOverlapError().error().GetCode(), Error.error().GetCode());
 		}
 
 		{
@@ -1825,7 +1825,7 @@ namespace Durin
 			EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "WrongDomain",
 				ERDGPassType::Compute, std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::PassAccessIncompatible);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::PassAccessIncompatible);
 		}
 	}
 
@@ -1839,7 +1839,7 @@ namespace Durin
 				ASSERT_TRUE(FRDGBuilderTestAccessor::AddPass(Builder, "Duplicate", ERDGPassType::Graphics,
 					std::move(Parameters)).IsValid());
 			}
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::PassNameDuplicate);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::PassNameDuplicate);
 		}
 		{
 			FRDGBuilder Builder;
@@ -1848,7 +1848,7 @@ namespace Durin
 				std::move(Parameters));
 			ASSERT_TRUE(Pass.IsValid());
 			Builder.AddPassDependency(Pass, Pass);
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::DependencyNotForward);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::DependencyNotForward);
 		}
 		{
 			FRDGBuilder Builder;
@@ -1858,8 +1858,8 @@ namespace Durin
 			ASSERT_TRUE(FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Graphics,
 				std::move(Parameters)).IsValid());
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
-			EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+			EXPECT_FALSE(Result.has_value());
+			EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 		}
 	}
 
@@ -1908,8 +1908,8 @@ namespace Durin
 				}
 				Declarations[Index](Builder, Pass, {});
 				const auto Evidence = FRDGBuilderTestAccessor::Compile(Builder);
-				EXPECT_FALSE(Evidence.IsSuccess());
-				EXPECT_EQ(Evidence.Result.error().Code, bParameterized
+				EXPECT_FALSE(Evidence.has_value());
+				EXPECT_EQ(Evidence.error().GetCode(), bParameterized
 					? ERDGError::ManualUseOnParameterizedPass : ERDGError::PassHandleInvalid);
 			}
 	}
@@ -1926,7 +1926,7 @@ namespace Durin
 			ASSERT_TRUE(Pass.IsValid());
 			FRDGBuilderTestAccessor::UseToken(Builder, Pass, Token, ERDGUse::Write);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ManualUseOnParameterizedPass);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ManualUseOnParameterizedPass);
 		}
 
 		{
@@ -1940,7 +1940,7 @@ namespace Durin
 			EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Graphics,
 				std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ParameterAllocationInvalid);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ParameterAllocationInvalid);
 		}
 
 		{
@@ -1952,7 +1952,7 @@ namespace Durin
 			EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Other, "ForeignAllocation",
 				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Other);
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ParameterAllocationInvalid);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ParameterAllocationInvalid);
 		}
 	}
 
@@ -1972,7 +1972,7 @@ namespace Durin
 				bExecuted = true;
 			});
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
+		EXPECT_FALSE(Result.has_value());
 		EXPECT_FALSE(bExecuted);
 	}
 
@@ -1987,7 +1987,7 @@ namespace Durin
 			ERDGPassType::Graphics, std::move(Parameters));
 		ASSERT_TRUE(Pass.IsValid());
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(Builder.Capture().Uses.size(), 128u);
 		EXPECT_EQ(Builder.Capture().Uses.back().ParameterPath,
 			"FLargeTokenGraphParameters.Tokens[127]");
@@ -2040,8 +2040,8 @@ namespace Durin
 		Allocator.TextureOverrides.emplace(3, ManagedTexture);
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
@@ -2069,8 +2069,8 @@ namespace Durin
 			});
 
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 	}
 
 	TEST_F(FRDGTests, ParameterResolverSupportsComputeAndCopyDomains)
@@ -2101,8 +2101,8 @@ namespace Durin
 		});
 
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(CallbackCount, 2u);
 	}
 
@@ -2134,7 +2134,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::AddPass(Builder, "SecondPass", ERDGPassType::Graphics,
 			std::move(SecondParameters));
 
-		EXPECT_DEATH(Builder.Execute(GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 			"pass 'FirstPass'.*requested capability 'texture'");
 	}
 
@@ -2157,7 +2157,7 @@ namespace Durin
 				else Resolver.GetTexture(ForeignOptional);
 			});
 
-		EXPECT_DEATH(Builder.Execute(GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 			"not declared by the executing pass parameters");
 
 		// An empty optional is nullable only when that exact optional object is a
@@ -2176,8 +2176,8 @@ namespace Durin
 				Resolver.GetTexture(ForeignOptional);
 			});
 
-		EXPECT_DEATH(OptionalBuilder.Execute(
-			GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(OptionalBuilder.Execute(
+			GetCommandList())),
 			"not declared by the executing pass parameters");
 	}
 
@@ -2196,14 +2196,14 @@ namespace Durin
 					const FRDGParameterResolver&) { bExecuted = true; });
 
 			const auto Result = Builder.Execute(GetCommandList());
-			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 			const auto Capture = Builder.Capture();
 			EXPECT_TRUE(Capture.Passes.empty());
 			ASSERT_EQ(Capture.Parameters.size(), 1u);
 			EXPECT_EQ(Capture.Parameters[0].PassDeclarationIndex, 0u);
 			EXPECT_EQ(Capture.Parameters[0].FieldPath,
 				"FNestedGraphParameters.Completion");
-			EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_FALSE(bExecuted);
 		}
 		{
@@ -2223,11 +2223,11 @@ namespace Durin
 			Allocator.bOmitResources = true;
 
 			const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-			FRDGResult Error;
-			Error = Result.Result;
-			EXPECT_FALSE(Result.IsSuccess()) << FormatRDGError(Result.Result);
-			EXPECT_EQ(Error.error().Code, ERDGError::AllocationMissing);
+			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+			FRDGExecutionResult Error;
+			Error = Result;
+			EXPECT_FALSE(Result.has_value()) << FormatRDGError(Result);
+			EXPECT_EQ(Error.error().GetCode(), ERDGError::AllocationMissing);
 			EXPECT_FALSE(bExecuted);
 		}
 	}
@@ -2282,7 +2282,7 @@ namespace Durin
 			};
 
 			const auto Result = Builder.Execute(Commands, &Allocator);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_EQ(Allocator.AllocationCount, 4u);
 			ASSERT_EQ(Builder.GetPasses().size(), 3u);
 			ASSERT_EQ(Plan.size(), 4u);
@@ -2355,9 +2355,9 @@ namespace Durin
 		Allocator.TextureOverrides.emplace(0, Texture);
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ExpectCapturedBarriersMatchPlan(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 3u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Independent");
 		EXPECT_EQ(Builder.GetPasses()[1].Name, "Produce");
@@ -2392,7 +2392,7 @@ namespace Durin
 			ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetDependencies().size(), 2u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
@@ -2430,7 +2430,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseTexture(Builder, Consume, Texture, Mip, NextUse,
 				ERHIAccess::ComputeShaderReadWrite);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			ExpectCapturedBarriersMatchPlan(Builder);
 			const auto& Pass = Builder.GetPasses()[1];
 			ASSERT_EQ(Pass.Barriers.GetBufferTransitions().size(), 1u);
@@ -2466,7 +2466,7 @@ namespace Durin
 				ERHIAccess::ComputeShaderRead);
 		}
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		for (const auto& Pass : Builder.GetPasses())
 		{
 			EXPECT_TRUE(Pass.Barriers.GetBufferTransitions().empty());
@@ -2486,7 +2486,7 @@ namespace Durin
 		// The internal transition must not consume the one-barrier budget needed at exit.
 		Builder.SetBudget({.MaxTextureTransitions = 1});
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
 		EXPECT_TRUE(Builder.GetPasses()[0].Barriers.GetTextureTransitions().empty());
 		ASSERT_EQ(Builder.GetFinalBarriers().GetTextureTransitions().size(), 1u);
@@ -2516,7 +2516,7 @@ namespace Durin
 			ERHIRenderTargetLoadAction::Load, ERHIRenderTargetStoreAction::Store,
 			ERHIAccess::ColorAttachmentReadWrite);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses()[0].Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_TRUE(Builder.GetPasses()[0].Barriers.GetTextureTransitions()[0].bDiscardContents);
 		const auto& Transitions = Builder.GetPasses()[1].Barriers.GetTextureTransitions();
@@ -2534,9 +2534,9 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(MissingProducer, Read, Logical, WholeColor(),
 			ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 		auto Missing = FRDGBuilderTestAccessor::Compile(MissingProducer);
-		EXPECT_FALSE(Missing.IsSuccess());
-		EXPECT_EQ(Missing.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
-		EXPECT_EQ(Missing.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_FALSE(Missing.has_value());
+		EXPECT_EQ(Missing.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_EQ(Missing.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 
 		FRDGBuilder ForeignOwner;
 		const auto Foreign = CreateTestTexture(ForeignOwner, "Foreign", Texture);
@@ -2545,9 +2545,9 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(ForeignUse, Pass, Foreign, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Invalid = FRDGBuilderTestAccessor::Compile(ForeignUse);
-		EXPECT_FALSE(Invalid.IsSuccess());
-		EXPECT_EQ(Invalid.Result.error().Code, ERDGError::ResourceHandleInvalid);
-		EXPECT_EQ(Invalid.Result.error().GetCategory(), ERDGErrorCategory::InvalidDeclaration);
+		EXPECT_FALSE(Invalid.has_value());
+		EXPECT_EQ(Invalid.error().GetCode(), ERDGError::ResourceHandleInvalid);
+		EXPECT_EQ(Invalid.error().GetCategory(), ERDGErrorCategory::InvalidDeclaration);
 
 		FRDGBuilder Cyclic;
 		const auto A = FRDGBuilderTestAccessor::AddPass(Cyclic, "A", ERDGPassType::Compute);
@@ -2555,17 +2555,17 @@ namespace Durin
 		Cyclic.AddPassDependency(A, B);
 		Cyclic.AddPassDependency(B, A);
 		auto Cycle = FRDGBuilderTestAccessor::Compile(Cyclic);
-		EXPECT_FALSE(Cycle.IsSuccess());
-		EXPECT_EQ(Cycle.Result.error().Code, ERDGError::DependencyNotForward);
-		EXPECT_EQ(Cycle.Result.error().GetCategory(), ERDGErrorCategory::InvalidDependency);
+		EXPECT_FALSE(Cycle.has_value());
+		EXPECT_EQ(Cycle.error().GetCode(), ERDGError::DependencyNotForward);
+		EXPECT_EQ(Cycle.error().GetCategory(), ERDGErrorCategory::InvalidDependency);
 
 		FRDGBuilder SelfDependent;
 		const auto Self = FRDGBuilderTestAccessor::AddPass(SelfDependent,
 			"Self", ERDGPassType::Compute);
 		SelfDependent.AddPassDependency(Self, Self);
 		auto SelfCycle = FRDGBuilderTestAccessor::Compile(SelfDependent);
-		EXPECT_FALSE(SelfCycle.IsSuccess());
-		EXPECT_EQ(SelfCycle.Result.error().Code, ERDGError::DependencyNotForward);
+		EXPECT_FALSE(SelfCycle.has_value());
+		EXPECT_EQ(SelfCycle.error().GetCode(), ERDGError::DependencyNotForward);
 	}
 
 	TEST_F(FRDGTests, ResourceUseSlicesPreserveInterleavedUsesAndEmptyResources)
@@ -2585,7 +2585,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseToken(Builder, Last, A, ERDGUse::Read);
 		FRDGBuilderTestAccessor::UseToken(Builder, Last, B, ERDGUse::Read);
 		Builder.MarkPassRoot(Last);
-		ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+		ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Passes.size(), 2u);
 		EXPECT_EQ(Capture.Passes[0].DeclarationIndex, 0u);
@@ -2630,7 +2630,7 @@ namespace Durin
 			Builder.AddPassDependency(Second, Right);
 			Builder.MarkPassRoot(Left);
 			Builder.MarkPassRoot(Right);
-			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 			ASSERT_EQ(Builder.GetPasses().size(), bCull ? 4u : 5u);
 			uint32 Position = 0;
 			for (uint32 Index = 0; Index < 5; ++Index)
@@ -2660,7 +2660,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseBuffer(Builder, Update, Buffer, 0, 64, ERDGUse::ReadWrite,
 			ERHIAccess::ComputeShaderReadWrite);
 		Builder.MarkPassRoot(Update);
-		ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+		ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 		ASSERT_EQ(Builder.GetPasses().size(), 2u);
 		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind, ERDGDependencyKind::Value);
@@ -2675,7 +2675,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseToken(Builder, Read, Token, ERDGUse::Read);
 		FRDGBuilderTestAccessor::UseToken(Builder, Write, Token, ERDGUse::Write);
 		Builder.AddPassDependency(Read, Write);
-		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCategory(), ERDGErrorCategory::MissingProducer);
 		EXPECT_TRUE(Builder.GetPasses().empty());
 	}
 
@@ -2700,7 +2700,7 @@ namespace Durin
 						const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 						const double Milliseconds = std::chrono::duration<double, std::milli>(
 							std::chrono::steady_clock::now() - Start).count();
-						ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+						ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 						const uint32 Expected = !bCull ? Count : !bRoot || Count == 0 ? 0 : bChain ? Count : 1;
 						ASSERT_EQ(Builder.GetPasses().size(), Expected);
 						for (uint32 Index = 0; Index < Expected; ++Index)
@@ -2724,7 +2724,7 @@ namespace Durin
 				const auto Invalid = bForeign ? Foreign : FRDGPassHandle{};
 				Builder.AddPassDependency(bInvalidConsumer ? Local : Invalid,
 					bInvalidConsumer ? Invalid : Local);
-				EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, bInvalidConsumer
+				EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), bInvalidConsumer
 					? ERDGError::ConsumerHandleInvalid : ERDGError::ProducerHandleInvalid);
 				EXPECT_TRUE(Builder.GetPasses().empty());
 			}
@@ -2735,7 +2735,7 @@ namespace Durin
 			const auto First = FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Compute);
 			const auto Second = FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Compute);
 			Builder.AddPassDependency(bSelf ? First : Second, First);
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::DependencyNotForward);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::DependencyNotForward);
 			EXPECT_TRUE(Builder.GetPasses().empty());
 		}
 	}
@@ -2752,8 +2752,8 @@ namespace Durin
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().Code, ERDGError::TextureRangeInvalid);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::TextureRangeInvalid);
 	}
 
 	TEST_F(FRDGTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
@@ -2768,7 +2768,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Mip1, Chain, {ERHITextureAspect::Color, 1, 1, 0, 1},
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto Disjoint = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Disjoint.IsSuccess()) << FormatRDGError(Disjoint.Result);
+		ASSERT_TRUE(Disjoint.has_value()) << FormatRDGError(Disjoint);
 		EXPECT_TRUE(Builder.GetDependencies().empty());
 
 		FRDGBuilder Partial;
@@ -2781,7 +2781,7 @@ namespace Durin
 			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		auto Overlap = FRDGBuilderTestAccessor::Compile(Partial);
-		ASSERT_TRUE(Overlap.IsSuccess()) << FormatRDGError(Overlap.Result);
+		ASSERT_TRUE(Overlap.has_value()) << FormatRDGError(Overlap);
 		ASSERT_EQ(Partial.GetDependencies().size(), 1u);
 		EXPECT_EQ(Partial.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
@@ -2808,7 +2808,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseTexture(Builder, Read, Texture, Whole,
 				ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_EQ(Builder.GetStatistics().TextureTransitions, 2u);
 			EXPECT_EQ(Builder.GetStatistics().TextureTransitionSubresources, 60u);
 			EXPECT_FALSE(Builder.GetStatistics().bTextureTransitionRegressionBudgetExceeded);
@@ -2843,7 +2843,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseTexture(Builder, Read, Texture,
 				{ERHITextureAspect::Color, 0, 2, 0, 2}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			const auto& Plan = Builder.GetExecutionPlan();
 			for (const auto& Handoff : Plan.Handoffs)
 			{
@@ -2871,8 +2871,8 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Read, Target, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 	}
 
 	TEST_F(FRDGTests, PreservesExternalInitialAndFinalStates)
@@ -2883,7 +2883,7 @@ namespace Durin
 		const auto Compute = FRDGBuilderTestAccessor::AddPass(Builder, "Compute", ERDGPassType::Compute);
 		FRDGBuilderTestAccessor::UseTexture(Builder, Compute, External, WholeColor(), ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses()[0].Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Builder.GetPasses()[0].Barriers.GetTextureTransitions()[0].ExpectedBefore,
 			ERHIAccess::GraphicsShaderRead);
@@ -2902,8 +2902,8 @@ namespace Durin
 			ERHIRenderTargetLoadAction::Load,
 			ERHIRenderTargetStoreAction::Store);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 	}
 
 	TEST_F(FRDGTests, DumpAndDependenciesAreDeterministic)
@@ -2922,7 +2922,7 @@ namespace Durin
 					ERHIAccess::ComputeShaderReadWrite, Index == 0);
 			}
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			return Builder.Capture();
 		};
 		auto First = CompileFixture();
@@ -2946,7 +2946,7 @@ namespace Durin
 		const auto Consumer = FRDGBuilderTestAccessor::AddPass(Builder, "Consumer", ERDGPassType::Graphics);
 		FRDGBuilderTestAccessor::UseToken(Builder, Consumer, Value, ERDGUse::Read);
 		Builder.MarkPassRoot(Consumer, "external-effect");
-		ASSERT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).has_value());
 		const auto Before = Builder.Capture();
 		ASSERT_EQ(Before.ExecutionPlan.Batches.size(), 3u);
 		EXPECT_EQ(Before.Passes[0].DeclarationIndex, 1u);
@@ -2986,7 +2986,7 @@ namespace Durin
 				Builder.SetPassAsyncComputeEligible(C0);
 				Builder.SetPassAsyncComputeEligible(C1);
 				Builder.AddPassDependency(G0, C0);
-				ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+				ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 				const auto& Plan = Builder.GetExecutionPlan();
 				ASSERT_EQ(Plan.Batches.size(), 5u);
 				EXPECT_EQ(Plan.Batches[0].Queue, ERDGQueueAssignment::Graphics);
@@ -3030,7 +3030,7 @@ namespace Durin
 				bWrite ? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeShaderRead, bWrite);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto& Plan = Builder.GetExecutionPlan();
 		const auto Handoff = std::ranges::find_if(Plan.Handoffs, [](const auto& Item) { return Item.Consumer.Index == 4; });
 		ASSERT_NE(Handoff, Plan.Handoffs.end());
@@ -3056,7 +3056,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64,
 				ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			const auto& Plan = Builder.GetExecutionPlan();
 			ASSERT_EQ(Plan.Handoffs.size(), bEnabled ? 2u : 0u);
 			if (bEnabled)
@@ -3086,14 +3086,14 @@ namespace Durin
 			const auto Pass = FRDGBuilderTestAccessor::AddPass(bForeign ? Other : Builder,
 				"Invalid", bForeign ? ERDGPassType::Compute : ERDGPassType::Graphics);
 			Builder.SetPassAsyncComputeEligible(Pass);
-			EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+			EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 		}
 	}
 
 	TEST_F(FRDGTests, EmptyGraphHasNoSyntheticSubmission)
 	{
 		FRDGBuilder Builder;
-		ASSERT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).has_value());
 		EXPECT_TRUE(Builder.GetExecutionPlan().Batches.empty());
 		EXPECT_TRUE(Builder.GetExecutionPlan().Dependencies.empty());
 		EXPECT_TRUE(Builder.GetExecutionPlan().Handoffs.empty());
@@ -3123,7 +3123,7 @@ namespace Durin
 			ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 2u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Produce");
 		EXPECT_EQ(Builder.GetPasses()[1].Name, "Present");
@@ -3153,7 +3153,7 @@ namespace Durin
 		EXPECT_EQ(FirstTexture, SecondTexture);
 		EXPECT_EQ(FirstBuffer, SecondBuffer);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Resources.size(), 2u);
 		EXPECT_EQ(Capture.Resources[0].Name, "First");
@@ -3174,32 +3174,32 @@ namespace Durin
 		Duplicate.RegisterExternalTexture(Texture, "First", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		Duplicate.RegisterExternalTexture(Texture, "Second", ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto DuplicateResult = FRDGBuilderTestAccessor::Compile(Duplicate);
-		EXPECT_FALSE(DuplicateResult.IsSuccess());
-		EXPECT_EQ(DuplicateResult.Result.error().Code, ERDGError::ExternalContractConflict);
-		EXPECT_EQ(std::get<FRDGExternalConflictContext>(DuplicateResult.Result.error().Context).Requested.Name, "Second");
+		EXPECT_FALSE(DuplicateResult.has_value());
+		EXPECT_EQ(DuplicateResult.error().GetCode(), ERDGError::ExternalContractConflict);
+		EXPECT_EQ((*FindRDGTestDetail<FRDGExternalConflictContext>(DuplicateResult.error())).Requested.Name, "Second");
 
 		FRDGBuilder BufferConflict;
 		BufferConflict.RegisterExternalBuffer(Buffer, "CanonicalBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
 		BufferConflict.RegisterExternalBuffer(Buffer, "ConflictingBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::TransferRead);
 		auto BufferConflictResult = FRDGBuilderTestAccessor::Compile(BufferConflict);
-		EXPECT_FALSE(BufferConflictResult.IsSuccess());
-		EXPECT_EQ(std::get<FRDGExternalConflictContext>(BufferConflictResult.Result.error().Context).Canonical.Name, "CanonicalBuffer");
-		EXPECT_EQ(std::get<FRDGExternalConflictContext>(BufferConflictResult.Result.error().Context).Requested.Name, "ConflictingBuffer");
+		EXPECT_FALSE(BufferConflictResult.has_value());
+		EXPECT_EQ((*FindRDGTestDetail<FRDGExternalConflictContext>(BufferConflictResult.error())).Canonical.Name, "CanonicalBuffer");
+		EXPECT_EQ((*FindRDGTestDetail<FRDGExternalConflictContext>(BufferConflictResult.error())).Requested.Name, "ConflictingBuffer");
 
 		FRDGBuilder NullExternal;
 		const auto NullHandle = NullExternal.RegisterExternalTexture({}, "Null", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_TRUE(NullHandle.IsValid());
 		auto NullResult = FRDGBuilderTestAccessor::Compile(NullExternal);
-		EXPECT_FALSE(NullResult.IsSuccess());
-		EXPECT_EQ(NullResult.Result.error().Code, ERDGError::PhysicalResourceMissing);
+		EXPECT_FALSE(NullResult.has_value());
+		EXPECT_EQ(NullResult.error().GetCode(), ERDGError::PhysicalResourceMissing);
 
 		FRDGBuilder Domain;
 		const auto External = Domain.RegisterExternalTexture(Texture, "Shared", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Copy = FRDGBuilderTestAccessor::AddPass(Domain, "Copy", ERDGPassType::Copy);
 		FRDGBuilderTestAccessor::UseTexture(Domain, Copy, External, WholeColor(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 		auto DomainResult = FRDGBuilderTestAccessor::Compile(Domain);
-		EXPECT_FALSE(DomainResult.IsSuccess());
-		EXPECT_EQ(DomainResult.Result.error().Code, ERDGError::PassAccessIncompatible);
+		EXPECT_FALSE(DomainResult.has_value());
+		EXPECT_EQ(DomainResult.error().GetCode(), ERDGError::PassAccessIncompatible);
 	}
 
 	TEST_F(FRDGTests, DiscardAndDontCareStorePreserveRetainedTextureAccess)
@@ -3222,7 +3222,7 @@ namespace Durin
 			ERHIAccess::ComputeShaderReadWrite, true);
 		Builder.MarkPassRoot(Rewrite, "replacement");
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 3u);
 		const auto& ClearTransitions = Builder.GetPasses()[1].Barriers.GetTextureTransitions();
 		ASSERT_EQ(ClearTransitions.size(), 1u);
@@ -3252,7 +3252,7 @@ namespace Durin
 			ERHIAccess::ComputeShaderRead);
 		Builder.MarkPassRoot(Consume, "output");
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 2u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Replacement");
 		EXPECT_TRUE(Builder.GetCullingDecisions()[0].bCulled);
@@ -3274,7 +3274,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseBuffer(Builder, Unused, Culled, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Resources.size(), 2u);
 		EXPECT_EQ(Capture.Resources[0].Preparation, "requested");
@@ -3297,7 +3297,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Pass, Declared, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 
-		EXPECT_DEATH(Builder.Execute(GetCommandList()),
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 			"undeclared texture");
 	}
 
@@ -3315,7 +3315,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Consume, Target, WholeColor(), ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ExpectCapturedBarriersMatchPlan(Builder);
 		ASSERT_EQ(Builder.GetPasses()[0].Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_TRUE(Builder.GetPasses()[0].Barriers.GetTextureTransitions()[0].bDiscardContents);
@@ -3343,12 +3343,12 @@ namespace Durin
 		Allocator.bOmitResources = true;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		FRDGResult Error;
-		Error = Result.Result;
-		EXPECT_FALSE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		FRDGExecutionResult Error;
+		Error = Result;
+		EXPECT_FALSE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_FALSE(bExecuted);
-		EXPECT_EQ(Error.error().Code, ERDGError::AllocationMissing);
+		EXPECT_EQ(Error.error().GetCode(), ERDGError::AllocationMissing);
 	}
 
 	TEST_F(FRDGTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
@@ -3384,12 +3384,12 @@ namespace Durin
 		EXPECT_FALSE(FirstExtraction);
 		EXPECT_FALSE(SecondExtraction);
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 3u);
 
-		FRDGResult Error;
-		Error = Result.Result;
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		FRDGExecutionResult Error;
+		Error = Result;
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(Allocator.AllocationCount, 2u);
 		ASSERT_TRUE(FirstExtraction);
 		ASSERT_TRUE(SecondExtraction);
@@ -3431,8 +3431,8 @@ namespace Durin
 		FTestRDGAllocator Allocator;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Allocator.LastRequests.size(), 3u);
 		EXPECT_TRUE(Allocator.LastRequests[0].bExtracted);
 		EXPECT_TRUE(Allocator.LastRequests[1].bExtracted);
@@ -3469,13 +3469,13 @@ namespace Durin
 		Allocator.bFail = true;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		FRDGResult Error;
-		Error = Result.Result;
-		EXPECT_FALSE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		FRDGExecutionResult Error;
+		Error = Result;
+		EXPECT_FALSE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_FALSE(bExecuted);
 		EXPECT_EQ(Destination.GetReference(), Original.GetReference());
-		EXPECT_EQ(Error.error().Code, ERDGError::AllocatorFailure);
+		EXPECT_EQ(Error.error().GetCode(), ERDGError::AllocatorFailure);
 	}
 
 	TEST_F(FRDGTests, ExternalRegistrationRetainsPhysicalResource)
@@ -3495,9 +3495,9 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 
 			const auto Result = Builder.Execute(GetCommandList());
-			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 			EXPECT_GT(Texture.GetRefCount(), InitialReferences);
-			EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		}
 		EXPECT_EQ(Texture.GetRefCount(), InitialReferences);
 	}
@@ -3528,14 +3528,14 @@ namespace Durin
 		Allocator.TextureOverrides.emplace(1, AllocatedTexture);
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Resources.size(), 2u);
 		EXPECT_EQ(Capture.Resources[0].AllocationDisposition, "external");
 		EXPECT_EQ(Capture.Resources[0].PhysicalAllocationId, 0u);
 		EXPECT_EQ(Capture.Resources[1].AllocationDisposition, "allocated");
 		EXPECT_NE(Capture.Resources[1].PhysicalAllocationId, 0u);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto ExecutedCapture = Builder.Capture();
 		EXPECT_EQ(ExecutedCapture.Resources[1].AllocationDisposition, "allocated");
 		EXPECT_NE(ExecutedCapture.Resources[1].PhysicalAllocationId, 0u);
@@ -3567,9 +3567,9 @@ namespace Durin
 							: ERHIRenderTargetStoreAction::DontCare);
 				}
 				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-				EXPECT_FALSE(Result.IsSuccess());
-				EXPECT_EQ(std::get<FRDGUseErrorContext>(Result.Result.error().Context).PassName, "RDG.Export");
-				EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+				EXPECT_FALSE(Result.has_value());
+				EXPECT_EQ((*FindRDGTestDetail<FRDGUseErrorContext>(Result.error())).PassName, "RDG.Export");
+				EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 				EXPECT_EQ(Destination.GetReference(), Previous);
 			}
 	}
@@ -3592,11 +3592,11 @@ namespace Durin
 				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 				EXPECT_FALSE(Builder.Capture().bCompiled);
 				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-				EXPECT_EQ(Result.IsSuccess(), !bFail) << FormatRDGError(Result.Result);
+				EXPECT_EQ(Result.has_value(), !bFail) << FormatRDGError(Result);
 				EXPECT_EQ(Builder.HasCompiledPlan(), !bFail);
 				EXPECT_FALSE(Destination);
 				if (bFail)
-					EXPECT_EQ(Result.Result.error().Code, ERDGError::StructuralLimit);
+					EXPECT_EQ(Result.error().GetCode(), ERDGError::StructuralLimit);
 				Capture = Builder.Capture();
 			}
 			EXPECT_EQ(Capture.bCompiled, !bFail);
@@ -3641,17 +3641,17 @@ namespace Durin
 				FTestRDGAllocator Allocator;
 
 				const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-				EXPECT_EQ(Result.IsSuccess(), WrittenSize == 64) << FormatRDGError(Result.Result);
-				if (Result.IsSuccess())
+				EXPECT_EQ(Result.has_value(), WrittenSize == 64) << FormatRDGError(Result);
+				if (Result.has_value())
 				{
 					EXPECT_EQ(Builder.GetPasses().back().Name, "RDG.Export");
 					EXPECT_EQ(Builder.GetResourceLifetimes()[0].LastPass, 1u);
 					EXPECT_EQ(Builder.GetDependencies().size(), 1u);
-					ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+					ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 					EXPECT_TRUE(Destination);
 				}
 				else
-					EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+					EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 			}
 	}
 
@@ -3676,13 +3676,13 @@ namespace Durin
 				FBufferRHIRef Destination;
 				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-				EXPECT_EQ(Result.IsSuccess(), bCloseGap) << FormatRDGError(Result.Result);
+				EXPECT_EQ(Result.has_value(), bCloseGap) << FormatRDGError(Result);
 				if (bCloseGap) EXPECT_EQ(Builder.GetPasses().size(), 4u);
 				else
 				{
-					EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
-					EXPECT_EQ(std::get<FRDGUseErrorContext>(Result.Result.error().Context).ResourceName, "PartialOutput");
-					EXPECT_EQ(std::get<FRDGUseErrorContext>(Result.Result.error().Context).BufferSize, 64u);
+					EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+					EXPECT_EQ((*FindRDGTestDetail<FRDGUseErrorContext>(Result.error())).ResourceName, "PartialOutput");
+					EXPECT_EQ((*FindRDGTestDetail<FRDGUseErrorContext>(Result.error())).BufferSize, 64u);
 				}
 			}
 	}
@@ -3707,8 +3707,8 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, ReadOffset, 16,
 					ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-				EXPECT_EQ(Result.IsSuccess(), bInitialize && ReadOffset == 0) << FormatRDGError(Result.Result);
-				if (!Result.IsSuccess()) EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+				EXPECT_EQ(Result.has_value(), bInitialize && ReadOffset == 0) << FormatRDGError(Result);
+				if (!Result.has_value()) EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 			}
 	}
 
@@ -3726,7 +3726,7 @@ namespace Durin
 		FBufferRHIRef Destination;
 		Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(Builder.GetPasses().size(), 2u);
 		ExpectCapturedBarriersMatchPlan(Builder);
 	}
@@ -3750,7 +3750,7 @@ namespace Durin
 				FBufferRHIRef Destination;
 				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+				ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 				const bool bRetainFirst = bRootFirst || WrittenSize != 64;
 				EXPECT_EQ(Builder.GetPasses().size(), bRetainFirst ? 3u : 2u);
 				EXPECT_EQ(Builder.GetPasses()[0].Name, bRetainFirst ? "First" : "Overwrite");
@@ -3781,7 +3781,7 @@ namespace Durin
 		}
 		Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 4u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Write0");
 		EXPECT_EQ(Builder.GetPasses()[1].Name, "Write1");
@@ -3807,8 +3807,8 @@ namespace Durin
 				ERHIAccess::ComputeShaderReadWrite, true);
 			Builder.QueueBufferExtraction(Buffer, &Destination, Access);
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
-			EXPECT_EQ(Result.Result.error().Code, Access == ERHIAccess::None || Access == ERHIAccess::Discard
+			EXPECT_FALSE(Result.has_value());
+			EXPECT_EQ(Result.error().GetCode(), Access == ERHIAccess::None || Access == ERHIAccess::Discard
 				? ERDGError::BufferExtractionInvalid : ERDGError::FinalAccessInvalid);
 			EXPECT_FALSE(Destination);
 		}
@@ -3824,8 +3824,8 @@ namespace Durin
 			ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
 		Builder.QueueTextureExtraction(Handle, &Destination, ERHIAccess::GraphicsShaderRead);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
 	}
 
 	TEST_F(FRDGTests, ExternalExtractionRoundTripPublishesAfterExecution)
@@ -3844,13 +3844,13 @@ namespace Durin
 
 		EXPECT_FALSE(Extracted);
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 1u);
 		const auto& Export = Builder.GetPasses()[0];
 		ASSERT_EQ(Export.Barriers.GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Export.Barriers.GetTextureTransitions()[0].RequiredAfter, ERHIAccess::ComputeShaderRead);
 		EXPECT_FALSE(Builder.GetResourceLifetimes()[0].bCulled);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(Extracted.GetReference(), Texture.GetReference());
 	}
 
@@ -3870,8 +3870,8 @@ namespace Durin
 		Builder.QueueTextureExtraction(Texture, &Second,
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().Code, ERDGError::TextureExtractionDuplicate);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::TextureExtractionDuplicate);
 		EXPECT_FALSE(First);
 		EXPECT_FALSE(Second);
 	}
@@ -3892,10 +3892,10 @@ namespace Durin
 		FTestRDGAllocator Allocator;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		FRDGResult Error;
-		Error = Result.Result;
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		FRDGExecutionResult Error;
+		Error = Result;
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_TRUE(Extracted);
 		EXPECT_EQ(Extracted->GetDesc().Size, 64u);
 	}
@@ -3920,12 +3920,12 @@ namespace Durin
 		TextureAllocator.TextureOverride = TextureBacking;
 
 		const auto TextureResult = TextureBuilder.Execute(GetCommandList(), &TextureAllocator);
-		ASSERT_TRUE(TextureBuilder.HasCompiledPlan()) << FormatRDGError(TextureResult.Result);
-		FRDGResult Error;
-		Error = TextureResult.Result;
-		EXPECT_FALSE(TextureResult.IsSuccess()) << FormatRDGError(TextureResult.Result);
-		EXPECT_EQ(Error.error().Code, ERDGError::TextureAllocationIncompatible);
-		const auto& TextureError = std::get<FRDGTextureAllocationErrorContext>(Error.error().Context);
+		ASSERT_TRUE(TextureBuilder.HasCompiledPlan()) << FormatRDGError(TextureResult);
+		FRDGExecutionResult Error;
+		Error = TextureResult;
+		EXPECT_FALSE(TextureResult.has_value()) << FormatRDGError(TextureResult);
+		EXPECT_EQ(Error.error().GetCode(), ERDGError::TextureAllocationIncompatible);
+		const auto& TextureError = (*FindRDGTestDetail<FRDGTextureAllocationErrorContext>(Error.error()));
 		EXPECT_EQ(TextureError.Expected.Flags, ETextureCreateFlags::RenderTargetable);
 		EXPECT_EQ(TextureError.Actual.Flags, ETextureCreateFlags::ShaderResource);
 
@@ -3944,11 +3944,11 @@ namespace Durin
 		BufferAllocator.BufferOverride = BufferBacking;
 
 		const auto BufferResult = BufferBuilder.Execute(GetCommandList(), &BufferAllocator);
-		ASSERT_TRUE(BufferBuilder.HasCompiledPlan()) << FormatRDGError(BufferResult.Result);
-		Error = BufferResult.Result;
-		EXPECT_FALSE(BufferResult.IsSuccess()) << FormatRDGError(BufferResult.Result);
-		EXPECT_EQ(Error.error().Code, ERDGError::BufferAllocationIncompatible);
-		const auto& BufferError = std::get<FRDGBufferAllocationErrorContext>(Error.error().Context);
+		ASSERT_TRUE(BufferBuilder.HasCompiledPlan()) << FormatRDGError(BufferResult);
+		Error = BufferResult;
+		EXPECT_FALSE(BufferResult.has_value()) << FormatRDGError(BufferResult);
+		EXPECT_EQ(Error.error().GetCode(), ERDGError::BufferAllocationIncompatible);
+		const auto& BufferError = (*FindRDGTestDetail<FRDGBufferAllocationErrorContext>(Error.error()));
 		EXPECT_EQ(BufferError.Expected.Usage, EBufferUsageFlags::UnorderedAccess);
 		EXPECT_EQ(BufferError.Actual.Usage, EBufferUsageFlags::StructuredBuffer);
 	}
@@ -3975,10 +3975,10 @@ namespace Durin
 		TextureAllocator.TextureOverride = TextureBacking;
 
 		const auto TextureResult = TextureBuilder.Execute(GetCommandList(), &TextureAllocator);
-		ASSERT_TRUE(TextureBuilder.HasCompiledPlan()) << FormatRDGError(TextureResult.Result);
-		FRDGResult Error;
-		Error = TextureResult.Result;
-		EXPECT_TRUE(TextureResult.IsSuccess()) << FormatRDGError(TextureResult.Result);
+		ASSERT_TRUE(TextureBuilder.HasCompiledPlan()) << FormatRDGError(TextureResult);
+		FRDGExecutionResult Error;
+		Error = TextureResult;
+		EXPECT_TRUE(TextureResult.has_value()) << FormatRDGError(TextureResult);
 
 		static const auto BufferBacking = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create(
@@ -3997,9 +3997,9 @@ namespace Durin
 		BufferAllocator.BufferOverride = BufferBacking;
 
 		const auto BufferResult = BufferBuilder.Execute(GetCommandList(), &BufferAllocator);
-		ASSERT_TRUE(BufferBuilder.HasCompiledPlan()) << FormatRDGError(BufferResult.Result);
-		Error = BufferResult.Result;
-		EXPECT_TRUE(BufferResult.IsSuccess()) << FormatRDGError(BufferResult.Result);
+		ASSERT_TRUE(BufferBuilder.HasCompiledPlan()) << FormatRDGError(BufferResult);
+		Error = BufferResult;
+		EXPECT_TRUE(BufferResult.has_value()) << FormatRDGError(BufferResult);
 	}
 
 	TEST_F(FRDGTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
@@ -4011,7 +4011,7 @@ namespace Durin
 		Builder.MarkPassRoot(Timestamp, "timestamp");
 		FRDGBuilderTestAccessor::AddPass(Builder, "Unused", ERDGPassType::Graphics);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 1u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Timestamp");
 	}
@@ -4029,7 +4029,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseToken(Builder, Render, Output, ERDGUse::Write);
 		Builder.MarkPassRoot(Render, "present");
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 2u);
 		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Cause, "Prepared");
@@ -4089,7 +4089,7 @@ namespace Durin
 		Allocator.TextureOverrides.emplace(4, DepthTexture);
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 		const FRDGCapture Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Passes.size(), 1u);
 		EXPECT_EQ(Capture.Passes[0].Name, "Scene.GBuffer");
@@ -4145,7 +4145,7 @@ namespace Durin
 		}
 		ASSERT_EQ(Capture.CullingDecisions.size(), 1u);
 		EXPECT_EQ(Capture.CullingDecisions[0].Reason, "gbuffer-pilot");
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
@@ -4173,22 +4173,23 @@ namespace Durin
 		Allocator.bOmitResources = true;
 
 		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-		FRDGResult Error;
-		Error = Result.Result;
-		EXPECT_FALSE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+		FRDGExecutionResult Error;
+		Error = Result;
+		EXPECT_FALSE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_FALSE(bExecuted);
-		EXPECT_EQ(Error.error().Code, ERDGError::AllocationMissing);
+		EXPECT_EQ(Error.error().GetCode(), ERDGError::AllocationMissing);
 	}
 
 	namespace
 	{
-		auto ExpectLimit(const FRDGResult& Result, ERDGLimit Dimension,
+		template<typename E>
+		auto ExpectLimit(const std::expected<void, E>& Result, ERDGLimit Dimension,
 			uint64 Actual, uint64 Limit) -> void
 		{
 			EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::SafetyLimitExceeded);
-			EXPECT_EQ(Result.error().Code, ERDGError::StructuralLimit);
-			const auto* Context = std::get_if<FRDGLimitErrorContext>(&Result.error().Context);
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::StructuralLimit);
+			const auto* Context = FindRDGTestDetail<FRDGLimitErrorContext>(Result.error());
 			ASSERT_NE(Context, nullptr);
 			EXPECT_EQ(Context->Dimension, Dimension);
 			EXPECT_EQ(Context->Actual, Actual);
@@ -4198,17 +4199,17 @@ namespace Durin
 
 	TEST_F(FRDGTests, OwnedDiagnosticsSurviveGraphDestruction)
 	{
-		FRDGResult Result;
+		FRDGCompileResult Result;
 		{
 			FRDGBuilder Builder;
 			const auto Token = Builder.CreateToken("RetainedTokenName");
 			const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "RetainedPassName", ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseToken(Builder, Pass, Token, ERDGUse::Read);
-			Result = FRDGBuilderTestAccessor::Compile(Builder).Result;
+			Result = FRDGBuilderTestAccessor::Compile(Builder);
 		}
 		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::MissingProducer);
-		EXPECT_EQ(Result.error().Code, ERDGError::ResourceProducerMissing);
-		const auto& Context = std::get<FRDGUseErrorContext>(Result.error().Context);
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::ResourceProducerMissing);
+		const auto& Context = (*FindRDGTestDetail<FRDGUseErrorContext>(Result.error()));
 		EXPECT_EQ(Context.PassName, "RetainedPassName");
 		EXPECT_EQ(Context.ResourceName, "RetainedTokenName");
 		EXPECT_EQ(Context.PassIndex, 0u);
@@ -4217,7 +4218,7 @@ namespace Durin
 
 	TEST_F(FRDGTests, AllocationCauseSurvivesAllocatorAndGraphDestruction)
 	{
-		FRDGResult Result;
+		FRDGExecutionResult Result;
 		{
 			FRDGBuilder Builder;
 			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
@@ -4232,69 +4233,62 @@ namespace Durin
 				FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory,
 					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7}};
 
-			Result = Builder.Execute(GetCommandList(), &Allocator).Result;
+			Result = Builder.Execute(GetCommandList(), &Allocator);
 		}
-		EXPECT_EQ(Result.error().Code, ERDGError::PhysicalAllocationFailed);
-		EXPECT_EQ(std::get<FRDGAllocationErrorContext>(Result.error().Context).ResourceId, 0u);
-		const auto& Cause = std::get<FRHICreationError>(Result.error().Cause);
+		EXPECT_EQ(Result.error().GetCode(), ERDGError::PhysicalAllocationFailed);
+		EXPECT_EQ((*FindRDGTestDetail<FRDGAllocationErrorContext>(Result.error())).ResourceId, 0u);
+		const auto& Cause = (*FindRDGTestDetail<FRHICreationError>(Result.error()));
 		EXPECT_EQ(Cause.Failure, ERHIResourceCreationFailure::OutOfMemory);
 		EXPECT_EQ(Cause.Source, ERHICreationFailureSource::NativeBackend);
 		EXPECT_EQ(Cause.NativeCode, -7);
 	}
 
-	TEST_F(FRDGTests, ExpectedSeparatesSuccessFromOwnedFailure)
+	TEST_F(FRDGTests, ExpectedSeparatesSuccessAndExecutionPhase)
 	{
-		FRDGResult Result;
+		FRDGExecutionResult Result;
 		EXPECT_TRUE(Result.has_value());
 		EXPECT_TRUE(FormatRDGError(Result).empty());
-		Result = std::unexpected(FRDGError{ERDGError::PhysicalAllocationFailed});
-		ASSERT_FALSE(Result.has_value());
-		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
-		Result = std::unexpected(FRDGError{ERDGError::ResourceHandleInvalid});
+		FRDGBuilder Builder;
+		EXPECT_FALSE(Builder.GetExecutionResult().has_value());
+		Result = std::unexpected(FRDGExecutionError{FRDGCompileError{ERDGError::ResourceHandleInvalid}});
+		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed);
 		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::InvalidDeclaration);
+		Result = std::unexpected(FRDGExecutionError{FRDGPreparationError{
+			FRDGAllocationError{ERDGError::PhysicalAllocationFailed}}});
+		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::PreparationFailed);
+		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
 		Result = {};
 		EXPECT_TRUE(Result.has_value());
-		EXPECT_EQ(FRDGExecutionResult{}.Result.error().Code, ERDGError::ExecutionNotStarted);
+		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::Recorded);
 	}
 
 	TEST_F(FRDGTests, DiagnosticFormattingUsesStructuredContext)
 	{
-		EXPECT_TRUE(FormatRDGError(FRDGResult{}).empty());
-		const FRDGError Result{ERDGError::StructuralLimit,
-			FRDGLimitErrorContext{ERDGLimit::Passes, 2, 1}};
-		EXPECT_EQ(FormatRDGError(Result), "structural limit: passes actual=2 limit=1");
+		const FRDGLimitError Error{{ERDGLimit::Passes, 2, 1}};
+		EXPECT_EQ(FormatRDGError(Error), "structural limit: passes actual=2 limit=1");
 	}
 
 	TEST_F(FRDGTests, AllocationFormattingOnlyShowsRelevantContext)
 	{
-		FRDGError Result{ERDGError::AllocationMissing,
+		const FRDGAllocationError Missing{ERDGError::AllocationMissing,
 			FRDGAllocationErrorContext{.ResourceId = 3}};
-		EXPECT_EQ(FormatRDGError(Result), "allocation missing: resource=3");
-		Result = {ERDGError::BufferAllocationIncompatible,
+		EXPECT_EQ(FormatRDGError(Missing), "allocation missing: resource=3");
+		const FRDGPreparationError Mismatch{FRDGBufferAllocationError{ERDGError::BufferAllocationIncompatible,
 			FRDGBufferAllocationErrorContext{.ResourceId = 3,
 				.Expected = FRHIBufferDesc(64, 4, EBufferUsageFlags::None),
-				.Actual = FRHIBufferDesc(32, 4, EBufferUsageFlags::None)}};
-		EXPECT_EQ(FormatRDGError(Result),
+				.Actual = FRHIBufferDesc(32, 4, EBufferUsageFlags::None)}}};
+		EXPECT_EQ(FormatRDGError(Mismatch),
 			"buffer allocation incompatible: resource=3 expected=(size=64,stride=4,usage=0) actual=(size=32,stride=4,usage=0)");
 	}
 
-	TEST_F(FRDGTests, DiagnosticFormattingPreservesNestedCauses)
+	TEST_F(FRDGTests, DiagnosticFormattingPreservesNativeCause)
 	{
 		const auto Native = FRHICreationError{
 			.Failure = ERHIResourceCreationFailure::OutOfMemory,
 			.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7};
-		FRDGError Result{ERDGError::PhysicalAllocationFailed,
+		const FRDGAllocationError Error{ERDGError::PhysicalAllocationFailed,
 			FRDGAllocationErrorContext{.ResourceId = 3}, Native};
-		EXPECT_NE(FormatRDGError(Result).find(FormatRHICreationError(Native)), std::string::npos);
-
-		FRenderResourceCreateError Resource;
-		Resource.Cause = FShaderError::FromFileSystem("/Owned/Source",
-			std::make_error_code(std::errc::permission_denied));
-		const auto ShaderText = FormatShaderError(std::get<FShaderError>(Resource.Cause));
-		Result.Cause = std::move(Resource);
-		EXPECT_NE(FormatRDGError(Result).find(ShaderText), std::string::npos);
-		EXPECT_EQ(std::get<FShaderError>(std::get<FRenderResourceCreateError>(Result.Cause).Cause)
-			.FileError->NativeError, std::make_error_code(std::errc::permission_denied));
+		EXPECT_NE(FormatRDGError(Error).find(FormatRHICreationError(Native)), std::string::npos);
 	}
 
 	TEST_F(FRDGTests, EnforcesDeterministicStructuralBudgets)
@@ -4304,9 +4298,9 @@ namespace Durin
 		FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Graphics);
 		FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Graphics);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_EQ(Result.Result.error().GetCategory(), ERDGErrorCategory::SafetyLimitExceeded);
-		ExpectLimit(Result.Result, ERDGLimit::Passes, 2, 1);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().GetCategory(), ERDGErrorCategory::SafetyLimitExceeded);
+		ExpectLimit(Result, ERDGLimit::Passes, 2, 1);
 	}
 
 	TEST_F(FRDGTests, BoundsRangeExpansionAndVisitsBeforeDependencyCompilation)
@@ -4324,7 +4318,7 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseTexture(Builder, Pass, Texture, {ERHITextureAspect::Color, Index, 1, Index, 1},
 					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 			}
-			return FRDGBuilderTestAccessor::Compile(Builder).Result;
+			return FRDGBuilderTestAccessor::Compile(Builder);
 		};
 		ExpectLimit(Compile({.MaxResources = 0}), ERDGLimit::Resources, 1, 0);
 		ExpectLimit(Compile({.MaxUses = 3}), ERDGLimit::Uses, 4, 3);
@@ -4352,7 +4346,7 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseBuffer(Builder, Read, Buffer, Index * 16, 8, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 			}
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			const auto Capture = Builder.Capture();
 			EXPECT_EQ(Capture.Dependencies.size(), 3 * Count - 2);
 			ASSERT_EQ(Capture.Uses.size(), 2u * Count);
@@ -4384,7 +4378,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Overwrite, Texture, {ERHITextureAspect::Depth, 0, 1, 0, 1},
 			ERDGUse::Write, ERHIAccess::DepthStencilReadWrite, true);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		EXPECT_EQ(Capture.Dependencies.size(), 2u);
 		ASSERT_EQ(Capture.Uses.size(), 4u);
@@ -4423,7 +4417,7 @@ namespace Durin
 				ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		EXPECT_EQ(Capture.Dependencies.size(), Layers * Mips);
 		ASSERT_EQ(Capture.Uses.size(), 2u * Layers * Mips);
@@ -4462,7 +4456,7 @@ namespace Durin
 					ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		EXPECT_EQ(Capture.Dependencies.size(), 64u * 4);
 		EXPECT_EQ(Capture.Uses.size(), 64u * 32);
@@ -4486,7 +4480,7 @@ namespace Durin
 			const auto Read = FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseToken(Builder, Write, Token, ERDGUse::Write);
 			FRDGBuilderTestAccessor::UseToken(Builder, Read, Token, ERDGUse::Read);
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::StructuralLimit);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::StructuralLimit);
 		}
 		for (bool bTexture : {false, true})
 		{
@@ -4512,7 +4506,7 @@ namespace Durin
 			}
 			// Layout and hazard visits (plus buffer coverage) precede the first transition.
 			// Permit that transition visit, but no later use visit.
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::StructuralLimit);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::StructuralLimit);
 		}
 	}
 
@@ -4528,7 +4522,7 @@ namespace Durin
 				ERHIAccess::ComputeShaderReadWrite, true);
 			FTextureRHIRef Destination;
 			Builder.QueueTextureExtraction(Texture, &Destination, ERHIAccess::ComputeShaderRead);
-			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.error().Code, ERDGError::StructuralLimit);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).error().GetCode(), ERDGError::StructuralLimit);
 		}
 		FRDGBuilder Builder;
 		Builder.SetBudget({.MaxDependencies = 1});
@@ -4543,7 +4537,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseToken(Builder, Read, Token, ERDGUse::Read);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_EQ(Builder.GetDependencies().size(), 1u);
 	}
 
@@ -4557,7 +4551,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Graphics);
 		FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Graphics);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const FRDGStatistics Statistics = Builder.GetStatistics();
 		EXPECT_TRUE(Statistics.bPassRegressionBudgetExceeded);
 		EXPECT_TRUE(Statistics.IsStructuralRegressionBudgetExceeded());
@@ -4584,7 +4578,7 @@ namespace Durin
 			};
 
 			const auto Execution = Builder.Execute(GetCommandList(), &Allocator);
-			ASSERT_TRUE(Execution.IsSuccess()) << FormatRDGError(Execution.Result);
+			ASSERT_TRUE(Execution.has_value()) << FormatRDGError(Execution);
 			EXPECT_EQ(FRDGBuilderTestAccessor::HasDiagnostics(Builder), bInspectDuringAllocation);
 			const auto Capture = Builder.Capture();
 			ASSERT_EQ(Capture.Resources.size(), 1u);
@@ -4615,7 +4609,7 @@ namespace Durin
 			auto* Payload = &Parameters.Get();
 			FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Graphics, std::move(Parameters));
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
 			// Mutating the payload after submission cannot change the declared capabilities.
 			Payload->Textures[0] = Payload->Textures[1];
@@ -4655,7 +4649,7 @@ namespace Durin
 				ERHIAccess::ComputeShaderReadWrite, true);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		std::array<std::array<uint32, 6>, 6> Versions{};
 		size_t ExpectedIndex = 0;
@@ -4706,7 +4700,7 @@ namespace Durin
 				ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		}
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Uses.size(), Ranges.size());
 		ASSERT_EQ(Capture.Transitions.size(), Ranges.size());
@@ -4740,7 +4734,7 @@ namespace Durin
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		Builder.MarkPassRoot(Mixed);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetPasses().size(), 2u);
 		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind, ERDGDependencyKind::Value);
@@ -4776,7 +4770,7 @@ namespace Durin
 		FRDGBuilderTestAccessor::UseTexture(Builder, Culled, Texture,
 			{ERHITextureAspect::Color, 3, 1, 0, 1}, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetFinalBarriers().GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Builder.GetFinalBarriers().GetTextureTransitions()[0].Range.FirstMip, 1u);
 		ASSERT_EQ(Builder.GetExecutionPlan().Handoffs.size(), 2u);
@@ -4792,12 +4786,12 @@ namespace Durin
 		Resources.CreateToken("Duplicate");
 		Resources.CreateToken("Between");
 		Resources.CreateToken("Duplicate");
-		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Resources).Result.error().Code, ERDGError::ResourceNameDuplicate);
+		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Resources).error().GetCode(), ERDGError::ResourceNameDuplicate);
 		FRDGBuilder Passes;
 		FRDGBuilderTestAccessor::AddPass(Passes, "Duplicate", ERDGPassType::Compute);
 		FRDGBuilderTestAccessor::AddPass(Passes, "Between", ERDGPassType::Compute);
 		FRDGBuilderTestAccessor::AddPass(Passes, "Duplicate", ERDGPassType::Compute);
-		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Passes).Result.error().Code, ERDGError::PassNameDuplicate);
+		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Passes).error().GetCode(), ERDGError::PassNameDuplicate);
 	}
 
 	TEST_F(FRDGTests, ReaderFanoutRetainsEveryExecutionDependency)
@@ -4814,7 +4808,7 @@ namespace Durin
 		const auto Overwrite = FRDGBuilderTestAccessor::AddPass(Builder, "Overwrite", ERDGPassType::Compute);
 		FRDGBuilderTestAccessor::UseToken(Builder, Overwrite, Token, ERDGUse::Write);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
 		const auto Dependencies = Builder.GetDependencies();
 		EXPECT_EQ(Dependencies.size(), 256u);
@@ -4847,7 +4841,7 @@ namespace Durin
 				ERDGPassType::Graphics, std::move(Read));
 			Builder.MarkPassRoot(Consume, "present");
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			Capture = Builder.Capture();
 			EXPECT_EQ(Capture.Dump, Builder.Dump());
 		}
@@ -4897,7 +4891,7 @@ namespace Durin
 		Builder.MarkPassRoot(Consume, "publish");
 
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
@@ -4906,7 +4900,7 @@ namespace Durin
 		ASSERT_EQ(Capture.Resources.size(), 1u);
 		EXPECT_EQ(Capture.Resources[0].ValueType, "scene-result");
 		EXPECT_EQ(Capture.Uses.size(), 2u);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		EXPECT_TRUE(bProduced);
 		EXPECT_TRUE(bConsumed);
 	}
@@ -4936,7 +4930,7 @@ namespace Durin
 		Builder.MarkPassRoot(ReadPass, "publish");
 
 		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Uses.size(), 2u);
 		ASSERT_EQ(Capture.Parameters.size(), 2u);
@@ -4949,7 +4943,7 @@ namespace Durin
 			"FTypedValueWriteParameters.Output");
 		EXPECT_EQ(Capture.Uses[1].ParameterPath,
 			"FTypedValueReadParameters.Input");
-		EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
 	}
 
 	TEST_F(FRDGTests, TypedValuesRejectInvalidWriterAndTypeContracts)
@@ -4962,8 +4956,8 @@ namespace Durin
 				ERDGPassType::Graphics);
 			FRDGBuilderTestAccessor::UseValue(Builder, Read, Value, ERDGUse::Read);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ValueWriterCount);
+			EXPECT_FALSE(Result.has_value());
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ValueWriterCount);
 		}
 		{
 			FRDGBuilder Builder;
@@ -4976,8 +4970,8 @@ namespace Durin
 				FRDGBuilderTestAccessor::UseValue(Builder, Pass, Value, ERDGUse::Write);
 			}
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ValueWriterCount);
+			EXPECT_FALSE(Result.has_value());
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ValueWriterCount);
 		}
 		{
 			FRDGBuilder Builder;
@@ -4988,8 +4982,8 @@ namespace Durin
 				ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseValue(Builder, Pass, Wrong, ERDGUse::Write);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_FALSE(Result.IsSuccess());
-			EXPECT_EQ(Result.Result.error().Code, ERDGError::ValueHandleInvalid);
+			EXPECT_FALSE(Result.has_value());
+			EXPECT_EQ(Result.error().GetCode(), ERDGError::ValueHandleInvalid);
 		}
 	}
 
@@ -5008,7 +5002,7 @@ namespace Durin
 			FRDGBuilder Builder;
 			Builder.CreateValue<FTypedValuePayload>("CompileFailure", "tracked",
 				&CompileFailureDestructions);
-			EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+			EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
 			EXPECT_EQ(CompileFailureDestructions, 0);
 		}
 		EXPECT_EQ(CompileFailureDestructions, 1);
@@ -5023,7 +5017,7 @@ namespace Durin
 				ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseValue(Builder, Write, Value, ERDGUse::Write);
 			auto Result = Builder.Execute(GetCommandList());
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_EQ(GraphDestructions, 0);
 			EXPECT_EQ(GraphDestructions, 0);
 		}
@@ -5039,7 +5033,7 @@ namespace Durin
 				ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseValue(Builder, Write, Value, ERDGUse::Write);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			EXPECT_TRUE(Builder.GetPasses().empty());
 			EXPECT_EQ(CulledDestructions, 0);
 		}
@@ -5066,11 +5060,11 @@ namespace Durin
 			Allocator.bFail = true;
 
 			const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result.Result);
-			FRDGResult Error;
-			Error = Result.Result;
-			EXPECT_FALSE(Result.IsSuccess()) << FormatRDGError(Result.Result);
-			EXPECT_EQ(Error.error().Code, ERDGError::AllocatorFailure);
+			ASSERT_TRUE(Builder.HasCompiledPlan()) << FormatRDGError(Result);
+			FRDGExecutionResult Error;
+			Error = Result;
+			EXPECT_FALSE(Result.has_value()) << FormatRDGError(Result);
+			EXPECT_EQ(Error.error().GetCode(), ERDGError::AllocatorFailure);
 			EXPECT_EQ(AllocationFailureDestructions, 0);
 		}
 		EXPECT_EQ(AllocationFailureDestructions, 1);
@@ -5091,7 +5085,7 @@ namespace Durin
 			FRDGBuilderTestAccessor::UseValue(Builder, Write, Value, ERDGUse::Write);
 			Builder.MarkPassRoot(Write, "publish");
 
-			EXPECT_DEATH(Builder.Execute(GetCommandList()),
+			EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 				"wrong-direction capability");
 		}
 		{
@@ -5111,7 +5105,7 @@ namespace Durin
 				});
 			Builder.MarkPassRoot(Write, "publish");
 
-			EXPECT_DEATH(Builder.Execute(GetCommandList()),
+			EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())),
 				"not declared by the executing pass parameters");
 		}
 	}
@@ -5134,7 +5128,7 @@ namespace Durin
 				ERDGPassType::Graphics, std::move(Parameters));
 			Builder.MarkPassRoot(Pass, "publish");
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+			ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 			const auto Capture = Builder.Capture();
 			ASSERT_EQ(Capture.Resources.size(), 1u);
 			EXPECT_EQ(Capture.Resources[0].Name, "Selected.Environment");

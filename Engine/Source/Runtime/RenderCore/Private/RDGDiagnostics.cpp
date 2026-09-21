@@ -23,7 +23,7 @@ namespace Durin
 		}
 	}
 
-	auto FRDGError::GetCategory() const -> ERDGErrorCategory
+	auto GetRDGErrorCategory(ERDGError Code) -> ERDGErrorCategory
 	{
 		switch (Code)
 		{
@@ -113,18 +113,16 @@ namespace Durin
 		case ERDGError::PreparationIncomplete:
 		case ERDGError::StorageIncomplete:
 		case ERDGError::RecordingIncomplete:
-		case ERDGError::ExecutionNotStarted:
 			return ERDGErrorCategory::InvalidState;
 		}
 		return ERDGErrorCategory::InvalidState;
 	}
 
-	auto FormatRDGError(const FRDGError& Result) -> std::string
+	auto FormatRDGError(ERDGError Code) -> std::string
 	{
 		std::string Text;
-		switch (Result.Code)
+		switch (Code)
 		{
-		case ERDGError::ExecutionNotStarted: Text = "graph execution not started"; break;
 		case ERDGError::MetadataNull: Text = "metadata null"; break;
 		case ERDGError::MetadataNameEmpty: Text = "metadata name empty"; break;
 		case ERDGError::MetadataLayoutMismatch: Text = "metadata layout mismatch"; break;
@@ -204,8 +202,18 @@ namespace Durin
 		case ERDGError::PhysicalAllocationFailed: Text = "physical allocation failed"; break;
 		case ERDGError::AllocationPublicationFailed: Text = "allocation publication failed"; break;
 		}
-		std::visit([&]<typename T>(const T& Context) {
-			if constexpr (std::is_same_v<T, FRDGMetadataErrorContext>)
+		return Text;
+	}
+
+	namespace
+	{
+		template<typename T>
+		auto AppendContext(std::string& Text, const T& Context) -> void
+		{
+			if constexpr (requires { std::variant_size<T>::value; })
+				std::visit([&](const auto& Value) { AppendContext(Text, Value); }, Context);
+
+			else if constexpr (std::is_same_v<T, FRDGMetadataErrorContext>)
 				Text += std::format(": struct='{}' member='{}' other='{}' binding='{}' index={} size={}/{} alignment={}/{} offset={} array={} depth={}",
 					Context.StructName, Context.MemberName, Context.OtherMemberName, Context.BindingName,
 					Context.MemberIndex, Context.ActualSize, Context.ExpectedSize, Context.ActualAlignment,
@@ -262,11 +270,39 @@ namespace Durin
 						Contract->Buffer.Size, Contract->Buffer.Stride, static_cast<uint64>(Contract->Buffer.Usage),
 						static_cast<uint64>(Contract->InitialAccess), static_cast<uint64>(Contract->FinalAccess));
 			}
-		}, Result.Context);
-		if (const auto* Resource = std::get_if<FRenderResourceCreateError>(&Result.Cause))
-			Text += ": " + FormatRenderResourceCreateError(*Resource);
-		else if (const auto* RHI = std::get_if<FRHICreationError>(&Result.Cause))
-			Text += ": " + FormatRHICreationError(*RHI);
+		}
+		template<typename T>
+		auto FormatDetail(const T& Error) -> std::string
+		{
+			auto Text = FormatRDGError(Error.Code);
+			AppendContext(Text, Error.Context);
+			return Text;
+		}
+	}
+
+	auto FormatRDGError(const FRDGMetadataError& Error) -> std::string { return FormatDetail(Error); }
+	auto FormatRDGError(const FRDGCompileError& Error) -> std::string { return FormatDetail(Error); }
+	auto FormatRDGError(const FRDGLimitError& Error) -> std::string
+	{
+		auto Text = FormatRDGError(Error.GetCode());
+		AppendContext(Text, static_cast<const FRDGLimitErrorContext&>(Error));
 		return Text;
 	}
+	auto FormatRDGError(const FRDGAllocationError& Error) -> std::string
+	{
+		auto Text = FormatDetail(Error);
+		if (Error.Cause.HasError()) Text += ": " + FormatRHICreationError(Error.Cause);
+		return Text;
+	}
+	auto FormatRDGError(const FRDGPreparationError& Error) -> std::string
+	{
+		return std::visit([](const auto& Detail) {
+			using T = std::decay_t<decltype(Detail)>;
+			if constexpr (std::same_as<T, ERDGError> || std::same_as<T, FRDGAllocationError>)
+				return FormatRDGError(Detail);
+			else return FormatDetail(Detail);
+		}, Error.Detail);
+	}
+	auto FormatRDGError(const FRDGExecutionError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
 }

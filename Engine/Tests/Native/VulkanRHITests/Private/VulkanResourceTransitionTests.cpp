@@ -33,11 +33,11 @@ namespace Durin::VulkanRHI
 
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 				FRDGAllocatedResources& OutResources)
-				-> FRDGResult override
+				-> FRDGAllocationResult override
 			{
 				if (bFail)
 				{
-					return std::unexpected(FRDGError{ERDGError::AllocatorFailure});
+					return std::unexpected(FRDGAllocationError{ERDGError::AllocatorFailure});
 				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
@@ -49,7 +49,7 @@ namespace Durin::VulkanRHI
 							Request.ResourceId + 1);
 					if (!bPublished)
 					{
-						return std::unexpected(FRDGError{ERDGError::AllocationPublicationFailed});
+						return std::unexpected(FRDGAllocationError{ERDGError::AllocationPublicationFailed});
 					}
 				}
 
@@ -475,18 +475,18 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseBuffer(RejectedBuilder, RejectedPass, RejectedBuffer, 0, 64,
 				ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
-			FRDGResult AllocationError;
+			FRDGExecutionResult AllocationError;
 			{
 				FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
 
 				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedAllocator);
-				EXPECT_EQ(Rejected.Status, ERDGExecutionStatus::PreparationFailed);
-				AllocationError = Rejected.Result;
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Rejected), ERDGExecutionStatus::PreparationFailed);
+				AllocationError = Rejected;
 			}
 			EXPECT_FALSE(bExecuted);
 			EXPECT_TRUE(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(RejectedBuilder).empty());
 			EXPECT_EQ(AllocationError.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
-			EXPECT_EQ(AllocationError.error().Code, ERDGError::AllocatorFailure);
+			EXPECT_EQ(AllocationError.error().GetCode(), ERDGError::AllocatorFailure);
 
 			FRDGBuilder Builder;
 			const auto GraphBuffer = Builder.CreateBuffer(
@@ -512,8 +512,8 @@ namespace Durin::VulkanRHI
 				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
 
 				const auto Result = Builder.Execute(Commands, &Allocator);
-				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
-				EXPECT_EQ(Builder.Execute(Commands, &Allocator).Status, ERDGExecutionStatus::InvalidState);
+				ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+				EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(Commands, &Allocator)), ERDGExecutionStatus::InvalidState);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);
@@ -541,7 +541,7 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseTexture(Compact, CompactWrite, CompactTexture,
 				{ERHITextureAspect::Color, 0, 2, 0, 1}, ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			const auto CompactResult = Compact.Execute(Commands);
-			ASSERT_TRUE(CompactResult.IsSuccess()) << FormatRDGError(CompactResult.Result);
+			ASSERT_TRUE(CompactResult.has_value()) << FormatRDGError(CompactResult);
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitions, 2u);
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitionSubresources, 4u);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
@@ -556,12 +556,12 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseBuffer(Next, Rewrite, External, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
-			ASSERT_TRUE(Handoff.IsSuccess()) << FormatRDGError(Handoff.Result);
+			ASSERT_TRUE(Handoff.has_value()) << FormatRDGError(Handoff);
 			ASSERT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions().size(), 1u);
 			EXPECT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions()[0].ExpectedBefore,
 				ERHIAccess::VertexBufferRead);
 			const auto CommandCount = Commands.GetNumRecordedCommands();
-			EXPECT_EQ(Next.Execute(Commands).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Durin::GetRDGExecutionStatus(Next.Execute(Commands)), ERDGExecutionStatus::InvalidState);
 			EXPECT_EQ(Commands.GetNumRecordedCommands(), CommandCount);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);

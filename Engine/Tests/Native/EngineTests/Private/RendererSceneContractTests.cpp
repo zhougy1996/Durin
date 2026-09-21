@@ -580,7 +580,7 @@ TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedPr
 			});
 		Graph.MarkPassRoot(Consumer, "test output");
 		const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Execution.IsSuccess()) << FormatRDGError(Execution.Result);
+		ASSERT_TRUE(Execution.has_value()) << FormatRDGError(Execution);
 		EXPECT_EQ(ProducerCalls, bRequested ? 1u : 0u);
 		EXPECT_EQ(ConsumerCalls, 1u);
 		EXPECT_EQ(Graph.GetStatistics().ScheduledPasses, bRequested ? 2u : 1u);
@@ -1373,15 +1373,15 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		Durin::FRHICommandListExecutor Executor;
 		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
+		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
 		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	GObservedRenderGraphCaptures = nullptr;
 	ASSERT_EQ(Captures.size(), 1u);
 	EXPECT_EQ(ExplicitCapture.Dump, Captures[0].Dump);
-	EXPECT_TRUE(ExplicitCapture.ExecutionResult.IsSuccess());
-	EXPECT_TRUE(Captures[0].ExecutionResult.IsSuccess());
+	EXPECT_TRUE(ExplicitCapture.ExecutionResult.value().has_value());
+	EXPECT_TRUE(Captures[0].ExecutionResult.value().has_value());
 	ASSERT_EQ(Captures[0].Passes.size(), 1u);
 	EXPECT_EQ(Captures[0].Passes[0].Name, "Scene.FinalOutput");
 	EXPECT_EQ(Captures[0].Passes[0].ParameterStructName, "FInspectionOutputParameters");
@@ -1402,16 +1402,16 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesCompileFail
 		Durin::FRDGBuilderTestAccessor::AddPass(Builder, "", Durin::ERDGPassType::Copy);
 		Durin::FRHICommandListExecutor Executor;
 		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
-		EXPECT_EQ(Result.Status, Durin::ERDGExecutionStatus::CompileFailed);
+		EXPECT_EQ(Durin::GetRDGExecutionStatus(Result), Durin::ERDGExecutionStatus::CompileFailed);
 		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	GObservedRenderGraphCaptures = nullptr;
 	ASSERT_EQ(Captures.size(), 1u);
 	EXPECT_FALSE(Captures[0].bCompiled);
-	EXPECT_EQ(Captures[0].ExecutionResult.Status, Durin::ERDGExecutionStatus::CompileFailed);
-	EXPECT_EQ(Captures[0].ExecutionResult.Result.error().Code, Durin::ERDGError::PassNameEmpty);
-	EXPECT_EQ(ExplicitCapture.ExecutionResult.Result.error().Code, Captures[0].ExecutionResult.Result.error().Code);
+	EXPECT_EQ(Durin::GetRDGExecutionStatus(Captures[0].ExecutionResult.value()), Durin::ERDGExecutionStatus::CompileFailed);
+	EXPECT_EQ(Captures[0].ExecutionResult.value().error().GetCode(), Durin::ERDGError::PassNameEmpty);
+	EXPECT_EQ(ExplicitCapture.ExecutionResult.value().error().GetCode(), Captures[0].ExecutionResult.value().error().GetCode());
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
@@ -2469,7 +2469,7 @@ namespace Durin::Tests
 		public:
 			explicit FUnpublishedAllocator(FRendererRDGAllocator& InPool) : Pool(InPool) {}
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-				FRDGAllocatedResources& Resources) -> FRDGResult override
+				FRDGAllocatedResources& Resources) -> FRDGAllocationResult override
 			{
 				std::vector<FRDGAllocationRequest> Copies(Requests.begin(), Requests.end());
 				for (auto& Copy : Copies) Copy.Retirement = std::make_shared<FRDGAllocationRetirement>();
@@ -2525,7 +2525,7 @@ namespace Durin::Tests
 			}
 
 			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
-			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << FormatRDGError(Result.Result);
+			EXPECT_NE(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed) << FormatRDGError(Result);
 			return Builder.Capture();
 		}
 
@@ -2554,17 +2554,17 @@ namespace Durin::Tests
 				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
 					ERHIAccess::ComputeShaderReadWrite, true);
 
-				return Builder.Execute(CommandList, &Allocator).Result;
+				return Builder.Execute(CommandList, &Allocator);
 			};
 			const auto First = Execute();
 			const auto Retry = Execute();
-			EXPECT_EQ(First.error().Code, ERDGError::PhysicalAllocationFailed);
-			EXPECT_EQ(Retry.error().Code, ERDGError::AllocationRetrySuppressed);
+			EXPECT_EQ(First.error().GetCode(), ERDGError::PhysicalAllocationFailed);
+			EXPECT_EQ(Retry.error().GetCode(), ERDGError::AllocationRetrySuppressed);
 			EXPECT_EQ(RHI.Creates, 1u);
 			for (const auto* Result : {&First, &Retry})
 			{
 				EXPECT_EQ(Result->error().GetCategory(), ERDGErrorCategory::AllocationFailed);
-				const auto* Cause = std::get_if<FRHICreationError>(&Result->error().Cause);
+				const auto* Cause = FindRDGTestDetail<FRHICreationError>(Result->error());
 				ASSERT_NE(Cause, nullptr);
 				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);
 				EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);

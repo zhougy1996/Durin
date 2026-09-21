@@ -3,7 +3,7 @@
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
 #include "RHICompletion.h"
-#include "RenderResourceCreation.h"
+#include "RHICreationError.h"
 
 #include <expected>
 
@@ -25,7 +25,6 @@ namespace Durin
 
 	enum class ERDGError : uint8
 	{
-		ExecutionNotStarted,
 		MetadataNull,
 		MetadataNameEmpty,
 		MetadataLayoutMismatch,
@@ -164,26 +163,93 @@ namespace Durin
 		uint32 ResourceId = UINT32_MAX;
 		FRHIBufferDesc Expected, Actual;
 	};
-	using FRDGErrorContext = std::variant<std::monostate, FRDGMetadataErrorContext,
-		FRDGUseErrorContext, FRDGIdentityErrorContext, FRDGDependencyErrorContext,
-		FRDGLimitErrorContext, FRDGExternalConflictContext, FRDGAllocationErrorContext,
-		FRDGTextureAllocationErrorContext, FRDGBufferAllocationErrorContext>;
-	using FRDGErrorCause = std::variant<std::monostate, FRenderResourceCreateError, FRHICreationError>;
+	RENDERCORE_API auto GetRDGErrorCategory(ERDGError Code) -> ERDGErrorCategory;
 
-	struct FRDGError final
+	// Concrete validators carry only the context they can produce.
+	template<typename TContext>
+	struct TRDGDiagnosticError
 	{
-		FRDGError(ERDGError InCode, FRDGErrorContext InContext = {}, FRDGErrorCause InCause = {})
-			: Code(InCode), Context(std::move(InContext)), Cause(std::move(InCause)) {}
-
 		ERDGError Code;
-		FRDGErrorContext Context;
-		FRDGErrorCause Cause;
-		RENDERCORE_API auto GetCategory() const -> ERDGErrorCategory;
+		TContext Context{};
+		auto GetCode() const -> ERDGError { return Code; }
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
 	};
-	using FRDGResult = std::expected<void, FRDGError>;
-	RENDERCORE_API auto FormatRDGError(const FRDGError& Error) -> std::string;
+	using FRDGMetadataError = TRDGDiagnosticError<FRDGMetadataErrorContext>;
+	using FRDGUseError = TRDGDiagnosticError<FRDGUseErrorContext>;
+	using FRDGIdentityError = TRDGDiagnosticError<FRDGIdentityErrorContext>;
+	using FRDGDependencyError = TRDGDiagnosticError<
+		std::variant<FRDGDependencyErrorContext, FRDGLimitErrorContext>>;
+	using FRDGMetadataResult = std::expected<void, FRDGMetadataError>;
 
-	inline auto FormatRDGError(const FRDGResult& Result) -> std::string
+	// Limits have one failure meaning; no independent code or cause is needed.
+	struct FRDGLimitError : FRDGLimitErrorContext
+	{
+		auto GetCode() const -> ERDGError { return ERDGError::StructuralLimit; }
+		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::SafetyLimitExceeded; }
+	};
+	using FRDGLimitResult = std::expected<void, FRDGLimitError>;
+
+	// Compiler aggregation excludes allocator failures and backend causes.
+	struct FRDGCompileError
+	{
+		using FContext = std::variant<std::monostate, FRDGMetadataErrorContext,
+			FRDGUseErrorContext, FRDGIdentityErrorContext, FRDGDependencyErrorContext,
+			FRDGLimitErrorContext, FRDGExternalConflictContext>;
+		ERDGError Code;
+		FContext Context;
+		FRDGCompileError(ERDGError InCode, FContext InContext = {})
+			: Code(InCode), Context(std::move(InContext)) {}
+		template<typename TContext> requires std::constructible_from<FContext, TContext>
+		FRDGCompileError(TRDGDiagnosticError<TContext> Error)
+			: Code(Error.Code), Context(std::move(Error.Context)) {}
+		FRDGCompileError(FRDGDependencyError Error)
+			: Code(Error.Code), Context(std::visit([](auto&& Value) -> FContext {
+				return std::move(Value); }, std::move(Error.Context))) {}
+		FRDGCompileError(FRDGLimitError Error)
+			: Code(Error.GetCode()), Context(static_cast<FRDGLimitErrorContext>(Error)) {}
+		auto GetCode() const -> ERDGError { return Code; }
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
+	};
+	using FRDGCompileResult = std::expected<void, FRDGCompileError>;
+
+	struct FRDGAllocationError
+	{
+		ERDGError Code;
+		std::variant<std::monostate, FRDGAllocationErrorContext, FRDGLimitErrorContext> Context;
+		FRHICreationError Cause;
+		auto GetCode() const -> ERDGError { return Code; }
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Code); }
+	};
+	using FRDGAllocationResult = std::expected<void, FRDGAllocationError>;
+	using FRDGTextureAllocationError = TRDGDiagnosticError<FRDGTextureAllocationErrorContext>;
+	using FRDGBufferAllocationError = TRDGDiagnosticError<FRDGBufferAllocationErrorContext>;
+
+	struct FRDGPreparationError
+	{
+		using FDetail = std::variant<ERDGError, FRDGAllocationError,
+			FRDGTextureAllocationError, FRDGBufferAllocationError>;
+		FDetail Detail;
+		template<typename T> requires std::constructible_from<FDetail, T>
+		FRDGPreparationError(T Error) : Detail(std::move(Error)) {}
+		auto GetCode() const -> ERDGError
+		{
+			return std::visit([](const auto& Error) -> ERDGError {
+				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGError>) return Error;
+				else return Error.GetCode();
+			}, Detail);
+		}
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(GetCode()); }
+	};
+	using FRDGPreparationResult = std::expected<void, FRDGPreparationError>;
+
+	RENDERCORE_API auto FormatRDGError(ERDGError Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGMetadataError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGCompileError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGLimitError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGAllocationError& Error) -> std::string;
+	RENDERCORE_API auto FormatRDGError(const FRDGPreparationError& Error) -> std::string;
+	template<typename T, typename E>
+	auto FormatRDGError(const std::expected<T, E>& Result) -> std::string
 	{ return Result ? std::string{} : FormatRDGError(Result.error()); }
 
 	class FRHICommandListImmediate;
@@ -501,7 +567,7 @@ namespace Durin
 
 	// Caches either the immutable layout or its deterministic validation error.
 	using FRDGParameterLayoutBuildResult =
-		std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGError>;
+		std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGMetadataError>;
 
 	RENDERCORE_API auto BuildRDGParameterLayout(
 		const FRDGParametersMetadata* Metadata,
@@ -1119,7 +1185,7 @@ namespace Durin
 		virtual auto SupportsAsyncCompute() const -> bool { return false; }
 		virtual auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 			FRDGAllocatedResources& OutResources)
-			-> FRDGResult = 0;
+			-> FRDGAllocationResult = 0;
 	};
 
 	// Records one immutable dependency edge in compiler diagnostics.
@@ -1386,19 +1452,38 @@ namespace Durin
 		Building, Compiling, Preparing, Recording, Recorded, Failed
 	};
 
-	// Owns the recoverable result of one execution attempt.
-	struct FRDGExecutionResult final
+	// Only Execute combines phase errors. The active alternative identifies the phase.
+	struct FRDGExecutionError
 	{
-		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		FRDGResult Result = std::unexpected(FRDGError{ERDGError::ExecutionNotStarted});
-		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
+		using FDetail = std::variant<ERDGError, FRDGCompileError, FRDGPreparationError>;
+		FDetail Detail;
+		template<typename T> requires std::constructible_from<FDetail, T>
+		FRDGExecutionError(T Error) : Detail(std::move(Error)) {}
+		auto GetCode() const -> ERDGError
+		{
+			return std::visit([](const auto& Error) -> ERDGError {
+				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGError>) return Error;
+				else return Error.GetCode();
+			}, Detail);
+		}
+		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(GetCode()); }
+		auto GetStatus() const -> ERDGExecutionStatus
+		{
+			if (std::holds_alternative<FRDGCompileError>(Detail)) return ERDGExecutionStatus::CompileFailed;
+			if (std::holds_alternative<FRDGPreparationError>(Detail)) return ERDGExecutionStatus::PreparationFailed;
+			return ERDGExecutionStatus::InvalidState;
+		}
 	};
+	using FRDGExecutionResult = std::expected<void, FRDGExecutionError>;
+	inline auto GetRDGExecutionStatus(const FRDGExecutionResult& Result) -> ERDGExecutionStatus
+	{ return Result ? ERDGExecutionStatus::Recorded : Result.error().GetStatus(); }
+	RENDERCORE_API auto FormatRDGError(const FRDGExecutionError& Error) -> std::string;
 
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
 	struct FRDGCapture final
 	{
 		// Original execution report; rejected repeated attempts do not replace it.
-		FRDGExecutionResult ExecutionResult;
+		std::optional<FRDGExecutionResult> ExecutionResult;
 		// False before execution or after compilation failure; compiled arrays are empty.
 		bool bCompiled = false;
 		FRDGBudget Budget;
@@ -1612,8 +1697,8 @@ namespace Durin
 		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
 			FRDGAllocator* Allocator = nullptr) -> FRDGExecutionResult;
 		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
-		// Duplicate execution leaves this original report unchanged.
-		RENDERCORE_API auto GetExecutionResult() const -> const FRDGExecutionResult&;
+		// Absent before Execute. Duplicate execution leaves the original report unchanged.
+		RENDERCORE_API auto GetExecutionResult() const -> const std::optional<FRDGExecutionResult>&;
 		RENDERCORE_API auto HasCompiledPlan() const -> bool;
 		RENDERCORE_API auto GetPasses() const -> std::span<const FRDGCompiledPass>;
 		RENDERCORE_API auto GetDependencies() const -> std::span<const FRDGDependency>;
@@ -1699,11 +1784,11 @@ namespace Durin
 		RENDERCORE_API auto RequireBuilding() const -> void;
 		// Test-only runtime evidence in logical batch order, never a graph-success proof.
 		RENDERCORE_API auto GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>;
-		auto Compile() -> FRDGResult;
+		auto Compile() -> FRDGCompileResult;
 		auto EnsureDiagnostics() const -> void;
-		RENDERCORE_API auto CompileForTesting() -> FRDGResult;
+		RENDERCORE_API auto CompileForTesting() -> FRDGCompileResult;
 		auto Record(FRHICommandListImmediate& CommandList,
-			FRDGAllocator* Allocator) -> FRDGResult;
+			FRDGAllocator* Allocator) -> FRDGPreparationResult;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
 		struct FDiagnostics;

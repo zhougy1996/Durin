@@ -55,7 +55,7 @@ namespace Durin
 		auto Release_RenderThread() -> void;
 		auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 			FRDGAllocatedResources& OutResources)
-			-> FRDGResult override;
+			-> FRDGAllocationResult override;
 
 	private:
 		struct FState;

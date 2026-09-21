@@ -392,13 +392,13 @@ namespace Durin
 				Budget.RegressionMaxTextureTransitions, Statistics.TextureTransitionSubresources);
 			Observation.bReportedRegressionOverage = true;
 		}
-		const bool Executed = Result.IsSuccess();
+		const bool Executed = Result.has_value();
 		if (!Executed
 			&& !std::exchange(Observation.bReportedExecutionFailure, true))
 		{
 			DURIN_WARN("Scene render graph {} failed: {}",
-				Result.Status == ERDGExecutionStatus::CompileFailed ? "compilation" : "execution",
-				FormatRDGError(Result.Result));
+				Durin::GetRDGExecutionStatus(Result) == ERDGExecutionStatus::CompileFailed ? "compilation" : "execution",
+				FormatRDGError(Result));
 		}
 		PublishSceneRenderGraphCapture(
 			Graph, OutRenderGraphCapture);

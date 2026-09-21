@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 ## Ownership Boundary
 
@@ -36,14 +36,15 @@ retirement rules still apply.
 The thread-confined lifecycle is Building -> Compiling -> Preparing -> Recording
 -> Recorded, with terminal Failed on supported failures or C++ unwinding. Every
 execution attempt consumes Building, including compile and preparation failure.
-`FRDGExecutionResult` distinguishes CompileFailed, PreparationFailed, Recorded,
-and InvalidState. Its `Result` is an `FRDGResult` (`std::expected<void, FRDGError>`).
-Success has no error payload; failure owns an `FRDGError` whose `Code` identifies
-one specific failure. `GetCategory()` derives `ERDGErrorCategory` from that code;
-no independent category or reason is stored.
-Internal validation, compilation, dependency insertion, recording, and allocation
-propagate this same typed result and its owned context. Success never depends on
-diagnostic text.
+`Execute` returns `FRDGExecutionResult`, an alias for
+`std::expected<void, FRDGExecutionError>`. Success has no diagnostic payload.
+Only this boundary combines compile, preparation, and execution-state errors;
+`GetRDGExecutionStatus()` derives CompileFailed, PreparationFailed, Recorded,
+or InvalidState from the result and its active error alternative. There is no
+independently stored execution status. `GetExecutionResult()` and Capture hold
+an optional original result: absence means Execute has not started, including
+when only the native test compiler has run. Diagnostic text never determines
+success.
 Recorded means CPU recording succeeded, not GPU completion.
 A second or reentrant Execute returns InvalidState before allocations, commands,
 callbacks, or extraction, without changing the original execution report or
@@ -380,30 +381,41 @@ path. Uncomposed and manual uses retain their previous capture form.
 
 ## Diagnostics and Budgets
 
-`FRDGResult` uses `std::expected` to distinguish success from an owned error.
-`FRDGError::Code` identifies failure and `GetCategory()` derives classification;
-there is no success error code. Parameter layout construction returns
-`std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGError>` and caches
-either the completed immutable layout or its validation error. The execution
-report retains its phase status and starts with `ExecutionNotStarted`, so a
-builder that has not executed is never reported as successful.
-Failures carry owned context alternatives for metadata, pass/resource uses,
-identities, dependencies, limits, external contracts, and allocations. Context
-retains names, indices, byte/subresource ranges, and expected/actual descriptions;
+Results use domain-specific `std::expected` aliases, including
+`FRDGMetadataResult`, `FRDGCompileResult`, `FRDGAllocationResult`,
+`FRDGPreparationResult`, and `FRDGExecutionResult`. There is no universal
+`FRDGResult` or `FRDGError`. Metadata, use, and identity validators carry their
+own concrete context. Budget errors contain only the exceeded dimension,
+actual count, and limit; helpers that construct them return an error value,
+not a potentially successful result. Tracking-layout construction returns its
+owned value with a budget error and has no output parameter.
+
+Generic range iteration propagates its visitor's result type. Execution-state
+traversal returns a continuation boolean; the compiler keeps any transition
+budget diagnostic at the call site. Inspection of an already compiled plan
+checks internal invariants locally instead of propagating recoverable errors.
+Compilation aggregates declaration and dependency diagnostics only; allocation
+errors and backend causes do not enter metadata validation or compiler results.
+
+Parameter layout construction returns
+`std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGMetadataError>`
+and caches either the completed immutable layout or its validation error.
+Error contexts retain names, indices, ranges, and expected/actual descriptions;
 no diagnostic borrows builder metadata or physical resource pointers.
-`FormatRDGError` formats these values only at logs, assertions, and UI boundaries.
-A retained result remains usable after graph reset or destruction.
+`FormatRDGError` formats these values at logs, assertions, and UI boundaries.
+A retained result remains usable after graph destruction.
 
-`FRDGAllocator::Allocate` returns an `FRDGResult` with typed resource or RHI
-causes. Its output table also carries allocation statistics on failure; this
-output parameter is retained for that diagnostic contract. Preparation forwards
-the result without formatting or replacing the error code.
-Renderer allocation retains native status even when a later attempt is suppressed,
-and publishes a complete allocation batch only after all resources validate.
-The existing retry, rollback, resource-retirement and execution-state rules apply.
-
-Nested causes format through the owning Shader/resource/RHI formatter at the
-final RDG presentation boundary. Capture dependency `Cause` strings, allocation
+`FRDGAllocator::Allocate` returns `FRDGAllocationResult`. Its error contains
+allocation-specific context and a concrete `FRHICreationError` cause. It does
+not carry unrelated Shader or RenderResource error alternatives. Its output
+table also carries allocation statistics on failure; the output parameter is
+retained for that diagnostic contract. Preparation adds backing compatibility
+and queue preparation failures, while preserving allocation causes and codes.
+Renderer allocation retains native status even when a later attempt is
+suppressed, and publishes a complete batch only after all resources validate.
+The retry, rollback, retirement, extraction, and execution-state rules apply.
+Native causes format through the RHI formatter at the RDG presentation boundary.
+Capture dependency `Cause` strings, allocation
 observation tags, and resource names describe graph identities; they are not
 error codes or error transport. Console-command messages and Core modular-feature
 retirement messages likewise remain owned by their separate contracts.
@@ -470,8 +482,8 @@ produce equal text. `Capture()` copies that dump plus pointer-free
 pass/resource/parameter/use/transition records, dependencies, lifetimes,
 culling decisions, statistics, and the original `ExecutionResult` into an owning
 value that remains valid after graph destruction. Rejected repeated execution
-attempts do not replace this report. Before execution it reports
-`ExecutionNotStarted`; compile and preparation failures retain their typed error
+attempts do not replace this report. Before execution the optional report is
+empty; compile and preparation failures retain their typed error
 and owned context. Renderer capture publication includes compile failures as
 well as preparation failures and successful recordings. Compile timing is
 available through `GetStatistics().CompileMicroseconds`.

@@ -275,7 +275,7 @@ namespace Durin
         const auto Result=Graph.Execute(Commands,&Allocator);
         Commands.EndGPUTimingQuery(Query);
         Commands.SwitchPipeline(ERHIPipeline::Graphics);
-        if (!Result.IsSuccess()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
+        if (!Result.has_value()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
         if (Lut) State->Lut=std::move(Lut);
         // RDG guarantees every face and mip was recorded. Subsequent consumers use
         // the same ordered RHI timeline; this is not a CPU claim of GPU completion.

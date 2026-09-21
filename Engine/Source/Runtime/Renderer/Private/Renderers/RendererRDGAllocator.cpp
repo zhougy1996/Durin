@@ -286,7 +286,7 @@ namespace Durin
 
 	auto FRendererRDGAllocator::Allocate(
 		std::span<const FRDGAllocationRequest> Requests,
-		FRDGAllocatedResources& OutResources) -> FRDGResult
+		FRDGAllocatedResources& OutResources) -> FRDGAllocationResult
 	{
 		check(IsInRenderingThread());
 		const auto& Generation = Coordinator.GetGeneration_RenderThread();
@@ -340,7 +340,7 @@ namespace Durin
 		{
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return std::unexpected(FRDGError{ERDGError::AllocationBudgetExceeded,
+			return std::unexpected(FRDGAllocationError{ERDGError::AllocationBudgetExceeded,
 				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}});
 		}
 
@@ -381,12 +381,12 @@ namespace Durin
 			RemoveNewEntries(State->Textures, PreserveSequence);
 			RemoveNewEntries(State->Buffers, PreserveSequence);
 		};
-		auto Fail = [&](ERDGError Reason, FRDGErrorContext Context = {}, FRDGErrorCause Cause = {},
-			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> FRDGResult {
+		auto Fail = [&](ERDGError Reason, decltype(FRDGAllocationError::Context) Context = {}, FRHICreationError Cause = {},
+			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> std::unexpected<FRDGAllocationError> {
 			Rollback(PreserveSequence);
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return std::unexpected(FRDGError{Reason, std::move(Context), std::move(Cause)});
+			return std::unexpected(FRDGAllocationError{Reason, std::move(Context), std::move(Cause)});
 		};
 
 		// Reserve the entire reusable set before eviction, including later requests
@@ -397,7 +397,7 @@ namespace Durin
 		// Cursors live only during planning, before any bucket can be mutated.
 		std::unordered_map<const void*, std::set<size_t>::const_iterator> BucketCursors;
 		auto PlanCandidate = [&](const auto& Entries, const auto& Key,
-			uint64 LogicalBytes, uint32 ResourceId) -> FRDGResult {
+			uint64 LogicalBytes, uint32 ResourceId) -> FRDGAllocationResult {
 			const auto BucketIt = Entries.Buckets.find(Key);
 			if (BucketIt != Entries.Buckets.end())
 			{
@@ -436,7 +436,7 @@ namespace Durin
 		{
 			const auto& Request = Requests[RequestIndex];
 			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
-			FRDGResult PlanResult;
+			FRDGAllocationResult PlanResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
@@ -514,7 +514,7 @@ namespace Durin
 		auto ReserveCandidate = [&](auto& Entries, const auto& Key,
 			uint64 LogicalBytes,
 			const FRDGAllocationRequest& Request, auto CreatePhysical,
-			auto AssignPhysical, FCandidate& Candidate) -> FRDGResult {
+			auto AssignPhysical, FCandidate& Candidate) -> FRDGAllocationResult {
 			auto* It = Entries.Find(Candidate.AllocationId);
 			Candidate.bReuseHit = It != nullptr;
 			if (Candidate.bReuseHit) ++State->ReuseHits;
@@ -571,7 +571,7 @@ namespace Durin
 			FCandidate Candidate{.ResourceId = Request.ResourceId,
 				.AllocationId = PlannedAllocationIds[RequestIndex],
 				.bExtracted = Request.bExtracted};
-			FRDGResult ReserveResult;
+			FRDGAllocationResult ReserveResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
