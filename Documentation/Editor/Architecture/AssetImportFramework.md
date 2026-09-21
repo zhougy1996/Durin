@@ -400,6 +400,12 @@ configure a concrete factory and call `IAssetTools`; Scene calls its private
 multi-output transaction. Terminal diagnostics and post-save Content Browser
 refresh/reveal remain host presentation concerns.
 
+`DurinEd` supplies shared path text state and input-row presentation through
+`FImportDialogPathModel`. Asset and directory models retain their separate
+validation and file/folder browsing policies. Mesh coordinate controls used by
+StaticMesh and Scene imports live in `Import/MeshCoordinateImportModel.h`, so
+generic import-dialog helpers do not include static-mesh settings.
+
 ## Persistence, Cooking, And Runtime Closure
 
 Concrete editor-only import data stores optional common source hints plus only

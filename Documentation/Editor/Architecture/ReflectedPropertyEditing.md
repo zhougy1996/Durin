@@ -296,7 +296,6 @@ Apply(proposal)
 Commit()
   notify Committed
   end the scoped record
-  install one ID-only legacy ordering bridge
 
 Cancel()
   if changed, restore through the same generic hook path

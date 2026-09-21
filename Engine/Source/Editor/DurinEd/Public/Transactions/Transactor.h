@@ -111,7 +111,7 @@ namespace Durin::Editor
 	{
 		BeginState, RecordScope, RecordOrder, ExecuteState, MissingCustom,
 		UpdateScope, UpdateOrder, MissingRecord, CloseScope, CloseOrder, UndoState,
-		UndoHead, RedoState, RedoHead, ResetState, RemoveState, CompletionIdentity,
+		UndoHead, RedoState, RedoHead, ResetState, CompletionIdentity,
 		ModuleName, ModulePending, ModuleRecording, LimitsState, ZeroLimits, RedoLimits
 	};
 	struct FTransactorRejection
@@ -135,7 +135,7 @@ namespace Durin::Editor
 	{
 		Unsupported, InactiveModify, InvalidObject, InactiveRecord, InactiveUpdate,
 		CaptureBefore, PrepareRecord, ExpiredObject, CaptureAfter, FinalizeRecord,
-		EntryAccounting, RetainedAccounting, ByteLimit, RemovalAccounting,
+		EntryAccounting, RetainedAccounting, ByteLimit,
 		ModuleAccounting, InconsistentAccounting
 	};
 	struct FTransactorFailure
@@ -304,8 +304,6 @@ namespace Durin
 		DURINED_API virtual auto Redo(Editor::FTransactionId ExpectedId)
 			-> Editor::FTransactorResult;
 		DURINED_API virtual auto Reset() -> Editor::FTransactorResult;
-		DURINED_API virtual auto RemoveTransaction(Editor::FTransactionId TransactionId)
-			-> Editor::FTransactorResult;
 		DURINED_API virtual auto SetTransactionCompletion(
 			Editor::FTransactionId TransactionId,
 			Editor::FTransactionDeferredCompletion Completion) -> Editor::FTransactorResult;
@@ -372,8 +370,6 @@ namespace Durin
 		DURINED_API auto Redo(Editor::FTransactionId ExpectedId)
 			-> Editor::FTransactorResult override;
 		DURINED_API auto Reset() -> Editor::FTransactorResult override;
-		DURINED_API auto RemoveTransaction(Editor::FTransactionId TransactionId)
-			-> Editor::FTransactorResult override;
 		DURINED_API auto SetTransactionCompletion(
 			Editor::FTransactionId TransactionId,
 			Editor::FTransactionDeferredCompletion Completion) -> Editor::FTransactorResult override;

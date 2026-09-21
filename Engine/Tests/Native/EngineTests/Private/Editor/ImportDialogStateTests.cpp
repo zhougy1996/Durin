@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "Import/ImportDialogSupport.h"
+#include "Import/MeshCoordinateImportModel.h"
 
 
 #include "EngineTestSupport.h"
@@ -88,6 +89,41 @@ TEST(FImportDialogDirectoryModelTests, SuggestsSceneDirectoryAndPreservesManualP
 	Directory.SuggestPath(
 		Directory.MakeSuggestedPath("Character", "/Project/Scenes/"));
 	EXPECT_EQ(Directory.GetPath(), "/Project/ManualScene");
+
+	const std::string TooLong(FImportDialogDirectoryModel::DirectoryPathCapacity, 'x');
+	EXPECT_FALSE(Directory.SetPath(TooLong));
+	EXPECT_EQ(Directory.GetPath(), "/Project/ManualScene");
+}
+
+namespace
+{
+	template<typename TModel>
+	class FImportDialogPathModelTests : public testing::Test {};
+	using FPathModels = testing::Types<FImportDialogDestinationModel, FImportDialogDirectoryModel>;
+	TYPED_TEST_SUITE(FImportDialogPathModelTests, FPathModels);
+
+	TYPED_TEST(FImportDialogPathModelTests, ResetClearsManualStateAndUsesFallbackDirectory)
+	{
+		TypeParam Model;
+		Model.Reset("/Project/Chosen");
+		ASSERT_TRUE(Model.SetPath("/Project/Manual"));
+		Model.Reset();
+		EXPECT_TRUE(Model.GetPath().empty());
+		Model.SuggestPath(Model.MakeSuggestedPath("First", "/Project/Fallback/"));
+		EXPECT_EQ(Model.GetPath(), "/Project/Fallback/First");
+		Model.SuggestPath(Model.MakeSuggestedPath("Second", "/Project/Fallback/"));
+		EXPECT_EQ(Model.GetPath(), "/Project/Fallback/Second");
+	}
+
+	TYPED_TEST(FImportDialogPathModelTests, AcceptsMaximumLengthAndRejectsOverflowWithoutChangingPath)
+	{
+		TypeParam Model;
+		const std::string Maximum(TypeParam::PathCapacity - 1, 'x');
+		ASSERT_TRUE(Model.SetPath(Maximum));
+		EXPECT_EQ(Model.GetPath(), Maximum);
+		EXPECT_FALSE(Model.SetPath(Maximum + "x"));
+		EXPECT_EQ(Model.GetPath(), Maximum);
+	}
 }
 
 TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)

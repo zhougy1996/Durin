@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Import/ImportDialogSupport.h"
+#include "Import/MeshCoordinateImportModel.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 

@@ -43,7 +43,6 @@ namespace Durin::Editor
 		case ETransactorRejectionReason::RedoState: return "Redo requires an idle transactor.";
 		case ETransactorRejectionReason::RedoHead: return "The expected transaction is not the Redo head.";
 		case ETransactorRejectionReason::ResetState: return "Reset requires an idle transactor.";
-		case ETransactorRejectionReason::RemoveState: return "Transaction removal requires an idle transactor.";
 		case ETransactorRejectionReason::CompletionIdentity: return "The transaction is not awaiting deferred completion.";
 		case ETransactorRejectionReason::ModuleName: return "A module name is required.";
 		case ETransactorRejectionReason::ModulePending: return "A deferred custom change from the module is still pending.";
@@ -93,7 +92,6 @@ namespace Durin::Editor
 			case ETransactorFailure::EntryAccounting: Message = "Transaction byte accounting overflowed."; break;
 			case ETransactorFailure::RetainedAccounting: Message = "Retained transaction byte accounting overflowed."; break;
 			case ETransactorFailure::ByteLimit: Message = "The transaction exceeded the owned-byte limit."; break;
-			case ETransactorFailure::RemovalAccounting: Message = "Retained transaction byte accounting overflowed after removal."; break;
 			case ETransactorFailure::ModuleAccounting: Message = "Retained transaction byte accounting overflowed during module drain."; break;
 			case ETransactorFailure::InconsistentAccounting: Message = "Retained transaction byte accounting is inconsistent."; break;
 			}
@@ -786,7 +784,6 @@ namespace Durin
 	auto DTransactor::Redo() -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Redo(FTransactionId) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Reset() -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::RemoveTransaction(FTransactionId) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::SetTransactionCompletion(FTransactionId, FTransactionDeferredCompletion) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::IsTransactionPending(FTransactionId) const -> bool { return false; }
 	auto DTransactor::GetTransactionDetails(FTransactionId, ETransactionOperation) const -> std::string { return {}; }
@@ -1236,31 +1233,6 @@ namespace Durin
 		State = ETransactorState::Idle;
 		if (TransactionCompletion)
 			std::exchange(TransactionCompletion, {})({});
-	}
-
-	auto DTransBuffer::RemoveTransaction(FTransactionId TransactionId) -> FTransactorResult
-	{
-		CheckThread();
-		if (State != ETransactorState::Idle)
-			return Reject(ETransactorRejectionReason::RemoveState, TransactionId);
-		const auto It = std::ranges::find(History, TransactionId, &FTransaction::GetId);
-		if (It == History.end())
-			return {.Code = ETransactorResultCode::NoOp, .TransactionId = TransactionId};
-		const size_t Index = static_cast<size_t>(std::distance(History.begin(), It));
-		QueueEvent(ETransactionEventType::Discarded, *It,
-			"The legacy property-history bridge released the transaction.");
-		History.erase(It);
-		if (Index < Cursor) --Cursor;
-		if (!RecalculateOwnedBytes())
-		{
-			History.clear();
-			Cursor = 0;
-			OwnedBytes = 0;
-			return {.Code = ETransactorResultCode::Failed,
-				.TransactionId = TransactionId,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::RemovalAccounting}};
-		}
-		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = TransactionId};
 	}
 
 	auto DTransBuffer::SetTransactionCompletion(

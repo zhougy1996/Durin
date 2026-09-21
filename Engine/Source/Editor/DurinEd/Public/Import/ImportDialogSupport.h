@@ -2,7 +2,6 @@
 
 #include "Import/AssetDestinationValidation.h"
 #include "DurinEdAPI.h"
-#include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor
 {
@@ -22,59 +21,52 @@ namespace Durin::Editor
 		DURINED_API auto NotifyImportedDirectory(std::string_view DirectoryPath) const -> void;
 	};
 
-	// Owns editable asset-destination state and its suggestion and browse rules.
-	class FImportDialogDestinationModel
+	// Shared text state and presentation for virtual asset and directory paths.
+	class FImportDialogPathModel
 	{
 	public:
-		static constexpr size_t AssetPathCapacity = 256;
+		static constexpr size_t PathCapacity = 256;
 
 		DURINED_API auto Reset(std::string_view PreferredDirectory = {}) -> void;
-		auto GetPathBuffer() -> std::array<char, AssetPathCapacity>& { return AssetPathBuffer; }
-		auto GetPathBuffer() const -> const std::array<char, AssetPathCapacity>& { return AssetPathBuffer; }
-		auto GetPath() const -> std::string_view { return AssetPathBuffer.data(); }
-		DURINED_API auto MakeSuggestedPath(std::string_view AssetName,
+		auto GetPath() const -> std::string_view { return PathBuffer.data(); }
+		DURINED_API auto MakeSuggestedPath(std::string_view Name,
 			std::string_view FallbackDirectory) const -> std::string;
 		DURINED_API auto SuggestPath(std::string_view SuggestedPath) -> void;
-		DURINED_API auto SetPath(std::string_view AssetPath) -> bool;
-		DURINED_API auto Inspect(FAssetDestinationOccupancyQuery OccupancyQuery = nullptr) const
-			-> FAssetDestinationValidation;
-
+		DURINED_API auto SetPath(std::string_view Path) -> bool;
 		DURINED_API auto DrawRow(const char* Label, const char* InputId, const char* Hint,
 			const char* BrowseLabel, float BrowseButtonWidth) -> bool;
-		DURINED_API auto Browse(std::string_view Title, std::string_view DefaultFileName,
-			std::string_view TooLongMessage, std::string_view OutsideMountMessage,
-			const FImportDialogCallbacks& Callbacks) -> bool;
+
+	protected:
+		std::array<char, PathCapacity> PathBuffer{};
 
 	private:
 		std::string PreferredDirectory;
-		std::array<char, AssetPathCapacity> AssetPathBuffer{};
 		std::string LastSuggestedPath;
 	};
 
-	// Owns an editable virtual asset directory for multi-output imports.
-	class FImportDialogDirectoryModel
+	// Adds asset validation and file browsing to the shared path model.
+	class FImportDialogDestinationModel : public FImportDialogPathModel
 	{
 	public:
-		static constexpr size_t DirectoryPathCapacity = 256;
+		static constexpr size_t AssetPathCapacity = PathCapacity;
+		auto GetPathBuffer() -> std::array<char, AssetPathCapacity>& { return PathBuffer; }
+		auto GetPathBuffer() const -> const std::array<char, AssetPathCapacity>& { return PathBuffer; }
+		DURINED_API auto Inspect(FAssetDestinationOccupancyQuery OccupancyQuery = nullptr) const
+			-> FAssetDestinationValidation;
+		DURINED_API auto Browse(std::string_view Title, std::string_view DefaultFileName,
+			std::string_view TooLongMessage, std::string_view OutsideMountMessage,
+			const FImportDialogCallbacks& Callbacks) -> bool;
+	};
 
-		DURINED_API auto Reset(std::string_view PreferredDirectory = {}) -> void;
-		auto GetPath() const -> std::string_view { return DirectoryPathBuffer.data(); }
-		DURINED_API auto MakeSuggestedPath(std::string_view DirectoryName,
-			std::string_view FallbackDirectory) const -> std::string;
-		DURINED_API auto SuggestPath(std::string_view SuggestedPath) -> void;
-		DURINED_API auto SetPath(std::string_view DirectoryPath) -> bool;
+	// Adds directory validation and folder browsing for multi-output imports.
+	class FImportDialogDirectoryModel : public FImportDialogPathModel
+	{
+	public:
+		static constexpr size_t DirectoryPathCapacity = PathCapacity;
 		DURINED_API auto Inspect() const -> FContentDirectoryValidation;
-
-		DURINED_API auto DrawRow(const char* Label, const char* InputId, const char* Hint,
-			const char* BrowseLabel, float BrowseButtonWidth) -> bool;
 		DURINED_API auto Browse(std::string_view Title, std::string_view TooLongMessage,
 			std::string_view OutsideMountMessage,
 			const FImportDialogCallbacks& Callbacks) -> bool;
-
-	private:
-		std::string PreferredDirectory;
-		std::array<char, DirectoryPathCapacity> DirectoryPathBuffer{};
-		std::string LastSuggestedPath;
 	};
 
 	// Tracks an immediate-mode import popup's deferred open request.
@@ -86,27 +78,6 @@ namespace Durin::Editor
 
 	private:
 		bool bOpenRequested = false;
-	};
-
-	class FMeshCoordinateImportModel
-	{
-	public:
-		enum class EPreset : uint8
-		{
-			Durin,
-			YUpNegativeZForward,
-			Custom
-		};
-
-		DURINED_API auto Reset() -> void;
-		DURINED_API auto SetPreset(EPreset InPreset) -> void;
-		DURINED_API auto Draw() -> void;
-		auto GetSettings() -> FStaticMeshImportSettings& { return Settings; }
-		auto GetSettings() const -> const FStaticMeshImportSettings& { return Settings; }
-
-	private:
-		FStaticMeshImportSettings Settings = FStaticMeshImportSettings::MakeDurin();
-		EPreset Preset = EPreset::Durin;
 	};
 
 	DURINED_API auto DrawImportDialogWarning(std::string_view Message) -> void;

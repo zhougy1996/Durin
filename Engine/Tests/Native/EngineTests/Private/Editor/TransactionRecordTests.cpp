@@ -847,7 +847,7 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 	EXPECT_EQ(Buffer->GetRedoCount(), 0u);
 }
 
-TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
+TEST(FTransBufferTests, ExpectedIdsPreserveHistoryPosition)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "AddressedTransBuffer");
@@ -875,12 +875,12 @@ TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
 		Durin::Editor::ETransactorResultCode::Rejected);
 	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
 
-	ASSERT_TRUE(Buffer->RemoveTransaction(First.TransactionId));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
-	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
-	EXPECT_EQ(Buffer->RemoveTransaction(First.TransactionId).Code,
-		Durin::Editor::ETransactorResultCode::NoOp);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	ASSERT_TRUE(Buffer->Redo(Second.TransactionId));
+	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoCount(), 2u);
+	EXPECT_EQ(Buffer->GetRedoCount(), 0u);
 }
 
 TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesOfCursor)
