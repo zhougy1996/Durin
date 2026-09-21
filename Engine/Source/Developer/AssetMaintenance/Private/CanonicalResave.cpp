@@ -321,10 +321,6 @@ namespace Durin
 					std::as_bytes(std::span(BeforeBytes)),
 					PackagePlan.PhysicalPath, nullptr);
 				const bool bBulkRestored = RestoreFileSnapshot(BulkSnapshot);
-				std::filesystem::path BackupPath = BulkPath;
-				BackupPath += EditorBulkDataCompanionBackupSuffix;
-				std::error_code BackupError;
-				std::filesystem::remove(BackupPath, BackupError);
 				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
 				const FAssetRegistryResult RegistryRestored =
 					PublishAssetRegistryPublication(std::move(RegistrySnapshot));

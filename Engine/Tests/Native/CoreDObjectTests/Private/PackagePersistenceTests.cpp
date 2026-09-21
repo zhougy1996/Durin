@@ -318,6 +318,7 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 	for (const auto& Entry : std::filesystem::directory_iterator(Root))
 		if (Entry.path().filename().string().find(".package-save-") != std::string::npos)
 		{
+			EXPECT_TRUE(Entry.path().filename().string().ends_with(".stage.tmp"));
 			FByteBuffer Bytes;
 			ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Entry.path()));
 			ASSERT_FALSE(Bytes.empty());
@@ -563,11 +564,12 @@ TEST_F(FPackagePersistenceTests, FailedRollbackRetainsBackupAndReportsRecoveryRe
 	EXPECT_EQ(Result.CommitState, EPackageCommitState::RecoveryRequired);
 	ASSERT_FALSE(Result.RecoveryFiles.empty());
 	EXPECT_TRUE(std::filesystem::exists(Result.RecoveryFiles.front()));
+	EXPECT_EQ(Result.RecoveryFiles.front().extension(), ".tmp");
 	EXPECT_EQ(Result.Error, EPackageSaveError::IoError);
 	EXPECT_TRUE(Package->IsDirty());
 	bool HasBackup = false;
 	for (const auto& Entry : std::filesystem::directory_iterator(Root))
-		HasBackup |= Entry.path().extension() == ".backup";
+		HasBackup |= Entry.path().filename().string().ends_with(".backup.tmp");
 	EXPECT_TRUE(HasBackup);
 }
 TEST_F(FPackagePersistenceTests, FilteredSnapshotsPreserveAuthoredDirtyState)
@@ -639,7 +641,7 @@ TEST_F(FPackagePersistenceTests, FinalizeFailureRetainsCommittedResultAndRecover
 	ASSERT_TRUE(Save->CommitStaged());
 	std::filesystem::path Backup;
 	for (const auto& Entry : std::filesystem::directory_iterator(Root))
-		if (Entry.path().extension() == ".backup") Backup = Entry.path();
+		if (Entry.path().filename().string().ends_with(".backup.tmp")) Backup = Entry.path();
 	ASSERT_FALSE(Backup.empty());
 	// A nonempty directory deterministically makes backup deletion fail.
 	ASSERT_TRUE(std::filesystem::remove(Backup));

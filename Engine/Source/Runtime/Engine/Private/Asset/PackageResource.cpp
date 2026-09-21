@@ -772,12 +772,7 @@ namespace Durin
 			return Error.BulkCause ? FormatPackageBulkDataError(*Error.BulkCause) : "Package bulk metadata is invalid.";
 		case EPackageResourceRegistrationError::ShuttingDown: return "Package resource manager is shut down.";
 		case EPackageResourceRegistrationError::InvalidGeneration:
-			return "Loose package bulk segment does not match the package generation: " + Generation(Error.PrimaryCause)
-				+ " Backup validation failed: " + Generation(Error.BackupCause);
-		case EPackageResourceRegistrationError::RecoveryPublication:
-			return "Loose package bulk backup recovery failed: " + Error.PublicationError.ToString();
-		case EPackageResourceRegistrationError::RecoveredGeneration:
-			return "Recovered loose package bulk segment failed validation: " + Generation(Error.RecoveredCause);
+			return "Loose package bulk segment does not match the package generation: " + Generation(Error.PrimaryCause);
 		}
 		return "Package resource registration failed.";
 	}
@@ -801,27 +796,11 @@ namespace Durin
 		}
 		std::filesystem::path SegmentPath = PackagePath;
 		SegmentPath.replace_extension(".dbulk");
-		std::filesystem::path BackupPath = SegmentPath;
-		BackupPath += ".durin-backup";
-		std::error_code Error;
 		FPackageResourceReadStats ValidationStats;
 		const auto Primary = ValidateLoosePackageGeneration(SegmentPath, Summary, Entries, ValidationStats);
 		if (!Primary)
-		{
-			const auto Backup = ValidateLoosePackageGeneration(BackupPath, Summary, Entries, ValidationStats);
-			if (!Backup)
-				return {.Error = {.Code = EPackageResourceRegistrationError::InvalidGeneration, .Path = PackagePath,
-						.PrimaryCause = Primary.Error, .BackupCause = Backup.Error}};
-			FFileHelper::FAtomicFileError PublicationError;
-			if (!FFileHelper::CopyFileAtomically(BackupPath, SegmentPath, &PublicationError))
-				return {.Error = {.Code = EPackageResourceRegistrationError::RecoveryPublication, .Path = PackagePath,
-						.PublicationError = std::move(PublicationError), .PrimaryCause = Primary.Error}};
-			const auto Recovered = ValidateLoosePackageGeneration(SegmentPath, Summary, Entries, ValidationStats);
-			if (!Recovered)
-				return {.Error = {.Code = EPackageResourceRegistrationError::RecoveredGeneration, .Path = PackagePath,
-						.PrimaryCause = Primary.Error, .RecoveredCause = Recovered.Error}};
-		}
-		std::filesystem::remove(BackupPath, Error);
+			return {.Error = {.Code = EPackageResourceRegistrationError::InvalidGeneration, .Path = PackagePath,
+				.PrimaryCause = Primary.Error}};
 
 		auto Resource = std::make_shared<FLoosePackageResource>(
 			SegmentPath, Summary.Extent, ValidationStats);

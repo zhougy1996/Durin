@@ -11,6 +11,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/TexturePlatformDataTestFixtures.h"
+#include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
 #include <future>
@@ -254,7 +255,7 @@ TEST_F(FTextureImportQueueTests, SavePathsRejectUnsupportedVersionBeforeStaging)
 	Package->MarkDirty();
 	// Rejected saves must leave existing files untouched, including asynchronous Begin().
 	const auto Bulk = Root / "Content/save.dbulk";
-	const auto Backup = std::filesystem::path(Bulk.string() + std::string(EditorBulkDataCompanionBackupSuffix));
+	const auto Backup = std::filesystem::path(Bulk.string() + std::string(".durin-backup"));
 	std::filesystem::rename(Bulk, Backup);
 	EXPECT_EQ(SavePackage(Package).Error, EAssetWriteError::UnsupportedVersion);
 	DPackage* Packages[] = {Package};
@@ -286,7 +287,8 @@ TEST_F(FTextureImportQueueTests, SaveTransactionsIgnoreUnownedStagingAndBackups)
 		std::vector<std::filesystem::path> Leftovers;
 		for (const auto& Extension : {".dasset", ".dbulk"})
 			for (const auto& Suffix : {".bundle-stage", ".bundle-backup", ".durin-backup",
-				".save-abandoned.stage", ".save-abandoned.backup"})
+				".save-abandoned.stage", ".save-abandoned.backup",
+				".save-abandoned.stage.tmp", ".save-abandoned.backup.tmp"})
 				Leftovers.push_back(Root / "Content" / (Name + Extension + Suffix));
 		const FByteBuffer UnownedBytes(3, std::byte{0x7f});
 		for (const auto& File : Leftovers) ASSERT_TRUE(FFileHelper::SaveArrayToFile(UnownedBytes, File));

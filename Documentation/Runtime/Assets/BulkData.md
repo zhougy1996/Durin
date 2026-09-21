@@ -163,11 +163,11 @@ withdrawing object publication; Engine shutdown retires all resources before
 filesystem and task services stop.
 
 `RegisterLoosePackage` returns an owned resource or a registration failure with
-its validation/recovery/shutdown stage and typed error, without a Message field.
+its validation/shutdown stage and typed error, without a Message field.
 Generation errors own their physical path and file-I/O or Bulk validation cause,
 including extent, digest, field and exact padding-offset facts. Registration keeps
-primary, backup and recovered-generation failures separately; atomic recovery
-also retains its structured publication error. Asset results retain this context
+the primary generation failure. Registration never restores or deletes sibling
+files, including legacy `.durin-backup` files. Asset results retain this context
 as `ResourceRegistrationCause`, with explicit formatting at pending boundaries. Empty logical package identity is
 an internal contract violation; invalid disk metadata remains a normal failure.
 The registration and read mechanisms do not log each propagated error; asset
@@ -303,8 +303,13 @@ follow [Asset Cooking and Publication](Cooking.md).
 
 Move, duplicate, inventory, orphan detection, source-control closure,
 and canonical resave derive companion ownership from validated v10 Registry and
-Bulk Directory facts. A suffix scan is never authority. Atomic temporaries and
-`.durin-backup` files are recovery state, not authored companions. Git LFS
+Bulk Directory facts. A suffix scan is never authority. Atomic writes use unique `.tmp` siblings.
+Package transactions use unique
+`.stage.tmp` and `.backup.tmp` siblings for new bytes and rollback state respectively.
+They are not authored companions. Success removes owned transaction files;
+failed rollback retains backups and reports their paths for explicit repair.
+Readers never infer recovery from a filename, and writers never clean up files
+owned by another transaction (including legacy backup names). Git LFS
 pointer text, absent content, truncated companions, and partial clones fail
 closure validation and never publish a live package.
 

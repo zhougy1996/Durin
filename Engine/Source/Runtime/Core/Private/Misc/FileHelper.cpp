@@ -180,7 +180,7 @@ namespace Durin
 				const uint64 ProcessId = static_cast<uint64>(getpid());
 #endif
 				return Destination.parent_path()
-					/ std::format(".durin-tmp-{:08x}-{:016x}", ProcessId, UniquenessToken.fetch_add(1, std::memory_order_relaxed));
+					/ std::format(".durin-tmp-{:08x}-{:016x}.tmp", ProcessId, UniquenessToken.fetch_add(1, std::memory_order_relaxed));
 			}
 
 #if defined(_WIN32)

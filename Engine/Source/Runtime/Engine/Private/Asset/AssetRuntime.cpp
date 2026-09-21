@@ -701,8 +701,8 @@ namespace Durin
 				);
 				if (!Registration)
 				{
-					const EAssetReadError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown ? EAssetReadError::ShuttingDown : Registration.Error.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetReadError::IoError :
-																																																										EAssetReadError::CorruptFile;
+					const EAssetReadError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown
+						? EAssetReadError::ShuttingDown : EAssetReadError::CorruptFile;
 					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error)};
 				}
 				Record.bOwnResource = true;

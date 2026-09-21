@@ -266,12 +266,15 @@ does not silently sever call bindings.
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
 v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
 Directory bind a nonempty external segment. Relocation, duplication, and Save publish that companion with the `.dasset`. Atomic
-temporaries and `.durin-backup` files are recovery state and never mutation
-participants.
+temporaries and transaction backups end in `.tmp` and are never authored
+mutation participants. Legacy backup siblings are neither restored nor removed
+by readers; see [bulk publication ownership](BulkData.md#publication-and-companion-ownership).
 
 Stale jobs, read-only participants, collisions, and preparation failures leave
 authority unchanged. Failures after publication report the affected files and
-retain staging backups for manual repair. Jobs never resume partially completed
+retain staging backups for manual repair. Mutation staging stores `pre-*.tmp`
+and `post-*.tmp` payloads under its owned operation directory; `owner` is the
+ownership marker used to guard directory cleanup. Jobs never resume partially completed
 work; a new operation must analyze the current content. Registry-only lag returns
 `ContentCommittedProjectionPending`, fences affected paths, and never rolls back
 valid package bytes.

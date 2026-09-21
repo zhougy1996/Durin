@@ -274,10 +274,10 @@ namespace Durin
 		if (Package->GetEditRevision() != Data.Revision || Package->GetPackagePathIdentity() != Data.Identity)
 		{ Admission = Fail(EPackageSaveError::StaleData, "Package changed during capture."); return {}; }
 		const std::string Suffix = ".package-save-" + FGuid::NewGuid().ToString();
-		MainFile.Staged = MainFile.Destination.string() + Suffix;
-		MainFile.Backup = MainFile.Staged.string() + ".backup";
-		BulkFile.Backup = BulkFile.Destination.string() + Suffix + ".backup";
-		if (!Bulk.empty()) BulkFile.Staged = BulkFile.Destination.string() + Suffix;
+		MainFile.Staged = MainFile.Destination.string() + Suffix + ".stage.tmp";
+		MainFile.Backup = MainFile.Destination.string() + Suffix + ".backup.tmp";
+		BulkFile.Backup = BulkFile.Destination.string() + Suffix + ".backup.tmp";
+		if (!Bulk.empty()) BulkFile.Staged = BulkFile.Destination.string() + Suffix + ".stage.tmp";
 		std::vector<FPackageWriteFile> Files;
 		Data.DetachedBytes = Bytes.size() + Bulk.size();
 		Files.push_back({std::move(BulkFile), BulkStamp, std::move(Bulk)});

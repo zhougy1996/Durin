@@ -1470,7 +1470,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	std::filesystem::path Backup = Companions.front();
-	Backup += Durin::EditorBulkDataCompanionBackupSuffix;
+	Backup += ".durin-backup";
 	std::filesystem::copy_file(Companions.front(), Backup,
 		std::filesystem::copy_options::overwrite_existing);
 	auto CorruptBytes = CompanionBytes;
@@ -1478,13 +1478,15 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		CorruptBytes, Companions.front()));
 	LoadedTexture = nullptr;
-	const auto Recovered =
+	const auto Rejected =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), LoadedTexture);
-	ASSERT_TRUE(Recovered) << Recovered.Message;
-	EXPECT_EQ(LoadedTexture->GetSource().GetIdentity(), ImportedIdentity);
-	EXPECT_FALSE(std::filesystem::exists(Backup));
-
-	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	EXPECT_FALSE(Rejected);
+	EXPECT_EQ(LoadedTexture, nullptr);
+	EXPECT_TRUE(std::filesystem::exists(Backup));
+	Durin::FByteBuffer AfterRejectedLoad;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRejectedLoad, Companions.front()));
+	EXPECT_EQ(AfterRejectedLoad, CorruptBytes);
+	ASSERT_TRUE(std::filesystem::remove(Backup));
 	ASSERT_TRUE(std::filesystem::remove(Companions.front()));
 	LoadedTexture = nullptr;
 	const auto Missing =

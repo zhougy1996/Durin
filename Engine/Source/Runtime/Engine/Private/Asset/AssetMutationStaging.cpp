@@ -283,8 +283,8 @@ namespace Durin::AssetPrivate
 			Staging.Roots.push_back(Root);
 		}
 
-		const auto BackupPath = Root / std::format("pre-{:08}", Index);
-		Entry.StagedPostPath = Root / std::format("post-{:08}", Index);
+		const auto BackupPath = Root / std::format("pre-{:08}.tmp", Index);
+		Entry.StagedPostPath = Root / std::format("post-{:08}.tmp", Index);
 		auto CleanupStagedEntry = [&] {
 			std::error_code CleanupError;
 			std::filesystem::remove(BackupPath, CleanupError);

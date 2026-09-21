@@ -3774,8 +3774,9 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 		Durin::Testing::GetTestWorkDirectory() / "Assets";
 	EXPECT_TRUE(std::filesystem::exists(Root / "V8FirstFailure.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "V8FirstFailure.dbulk"));
-	EXPECT_FALSE(std::filesystem::exists(
-		Root / "V8FirstFailure.dbulk.durin-backup"));
+	for (const auto& Entry : std::filesystem::directory_iterator(Root))
+		if (Entry.path().filename().string().starts_with("V8FirstFailure."))
+			EXPECT_NE(Entry.path().extension(), ".tmp");
 	EXPECT_TRUE(Durin::IsAssetRegistryProjectionFenced(Path));
 	Durin::DPackage* BlockedPackage = nullptr;
 	Durin::FAssetLoadReport BlockedReport;
@@ -3833,7 +3834,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
 	EXPECT_EQ(Companions.front().filename(), "V6ExternalClosure.dbulk");
 	std::filesystem::path BackupPath = Companions.front();
-	BackupPath += Durin::EditorBulkDataCompanionBackupSuffix;
+	BackupPath += ".durin-backup";
 	EXPECT_FALSE(std::filesystem::exists(BackupPath));
 	std::filesystem::copy_file(
 		Companions.front(), BackupPath,
@@ -3942,7 +3943,9 @@ TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt
 		const auto Saved = bBundle ? SavePackagesAtomically(Unit) : SavePackage(Asset->GetPackage());
 		ASSERT_TRUE(Saved) << Saved.Message;
 		EXPECT_FALSE(std::filesystem::exists(Bulk));
-		EXPECT_FALSE(std::filesystem::exists(Bulk.string() + std::string(EditorBulkDataCompanionBackupSuffix)));
+		for (const auto& Entry : std::filesystem::directory_iterator(Bulk.parent_path()))
+			if (Entry.path().filename().string().starts_with(Bulk.stem().string() + "."))
+				EXPECT_NE(Entry.path().extension(), ".tmp");
 		EXPECT_FALSE(Asset->GetPackage()->IsDirty());
 		ASSERT_TRUE(UnloadPackage(Path));
 		DBulkPackageAssetForTest* Reloaded = nullptr;
@@ -7123,6 +7126,9 @@ TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
 				OperationRoot = Entry.path();
 			}
 		ASSERT_FALSE(OperationRoot.empty());
+		for (const auto& Entry : std::filesystem::directory_iterator(OperationRoot))
+			if (Entry.path().filename() != "owner")
+				EXPECT_EQ(Entry.path().extension(), ".tmp");
 		const std::string OperationDirectory =
 			OperationRoot.filename().generic_string();
 		ASSERT_TRUE(OperationDirectory.starts_with("operation-"));

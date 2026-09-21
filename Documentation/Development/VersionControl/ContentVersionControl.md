@@ -157,8 +157,7 @@ Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
 self-contained. Ordinary DAST v9 packages keep large authored fields in a raw
 `.dbulk`; `.dasset` remains ordinary Git and the segment remains LFS. A submit
-must include the package and every newly referenced stable companion. Hidden
-`.dbulk.durin-backup` and atomic temporary files are
+must include the package and every newly referenced stable companion. Unique `.tmp` staging, rollback-backup, and atomic temporary files are
 transaction state and must never be submitted. Revisit
 `.dasset` LFS only if a separately qualified route begins embedding large
 render data.

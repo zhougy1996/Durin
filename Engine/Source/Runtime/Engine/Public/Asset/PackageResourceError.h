@@ -80,17 +80,14 @@ namespace Durin
 	enum class EPackageResourceRegistrationError : uint8
 	{
 		None, PackageBusy, EmptySegment, InvalidMetadata, ShuttingDown,
-		InvalidGeneration, RecoveryPublication, RecoveredGeneration,
+		InvalidGeneration,
 	};
 	struct FPackageResourceRegistrationError
 	{
 		EPackageResourceRegistrationError Code = EPackageResourceRegistrationError::None;
 		std::filesystem::path Path;
-		FFileHelper::FAtomicFileError PublicationError;
 		std::optional<FPackageBulkDataError> BulkCause;
 		std::optional<FPackageGenerationError> PrimaryCause;
-		std::optional<FPackageGenerationError> BackupCause;
-		std::optional<FPackageGenerationError> RecoveredCause;
 	};
 	ENGINE_API auto FormatPackageResourceRegistrationError(const FPackageResourceRegistrationError& Error) -> std::string;
 }

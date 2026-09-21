@@ -373,9 +373,6 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	ASSERT_TRUE(Registration3.Error.PrimaryCause->BulkCause);
 	EXPECT_EQ(Registration3.Error.PrimaryCause->BulkCause->Code, EPackageBulkDataError::FieldDigestMismatch);
 	EXPECT_EQ(Registration3.Error.PrimaryCause->BulkCause->Index, 0u);
-	ASSERT_TRUE(Registration3.Error.BackupCause);
-	ASSERT_TRUE(Registration3.Error.BackupCause->FileCause);
-	EXPECT_EQ(Registration3.Error.BackupCause->FileCause->Operation, FFileHelper::EFileIoOperation::OpenRead);
 
 	Segment[7] ^= std::byte{0x01};
 	ASSERT_GT(SecondOffset, FirstSize);
@@ -1043,7 +1040,7 @@ TEST(FEditorBulkStorageTests, OrphanInspectionRetainsFilesystemCauseAndCandidate
 	EXPECT_TRUE(Paths.empty());
 }
 
-TEST(FPackageResourceTests, GenerationFailureOwnsCausesAcrossSuccessfulBackupRecovery)
+TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 {
 	const auto Root = Durin::Testing::GetTestWorkDirectory() / "TypedResourceRecovery";
 	std::filesystem::create_directories(Root);
@@ -1068,14 +1065,18 @@ TEST(FPackageResourceTests, GenerationFailureOwnsCausesAcrossSuccessfulBackupRec
 	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Code, EPackageBulkDataError::ExtentMismatch);
 	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Actual, 2u);
 	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Expected, Bytes.size());
-	ASSERT_TRUE(Failed.Error.BackupCause);
-	ASSERT_TRUE(Failed.Error.BackupCause->FileCause);
-	EXPECT_EQ(Failed.Error.BackupCause->Path, BackupPath);
-	EXPECT_EQ(Failed.Error.BackupCause->FileCause->Path, BackupPath);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, BackupPath));
+	const auto StillInvalid = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
+	EXPECT_EQ(StillInvalid.Error.Code, EPackageResourceRegistrationError::InvalidGeneration);
+	EXPECT_TRUE(std::filesystem::exists(BackupPath));
+	FByteBuffer Unchanged;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Unchanged, SegmentPath));
+	EXPECT_EQ(Unchanged, MakeBytes({1, 2}));
+	// Repair is explicit; registration only validates and publishes the resource.
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, SegmentPath));
 	const auto Recovered = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
 	ASSERT_TRUE(Recovered) << FormatPackageResourceRegistrationError(Recovered.Error);
-	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+	EXPECT_TRUE(std::filesystem::exists(BackupPath));
 	const auto Read = Recovered.Resource->ReadRange(0, Bytes.size());
 	ASSERT_TRUE(Read);
 	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Bytes));
