@@ -424,7 +424,7 @@ in [Texture Cube Workflow](../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
 - `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
-- `Engine/Source/Runtime/Engine/Public/SceneInterface.h`
+- `Engine/Source/Runtime/Engine/Public/Rendering/SceneInterface.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
 - `Engine/Shaders/Slang/SkyBox.slang`

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"

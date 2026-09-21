@@ -4,7 +4,7 @@
 #include "Engine/Actor.h"
 #include "Math/Operations.h"
 #include "Rendering/ProceduralSkySceneProxy.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 
 namespace Durin
 {

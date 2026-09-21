@@ -4,7 +4,7 @@
 #include "Client/SceneViewport.h"
 #include "Client/ViewportClient.h"
 #include "Engine/Engine.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "Engine/World.h"
 #include "Math/Vector.h"
 #include "MonaImGui.h"

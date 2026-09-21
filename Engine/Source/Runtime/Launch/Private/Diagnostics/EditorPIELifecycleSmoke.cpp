@@ -8,7 +8,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "Mona.h"
 #include "Widgets/MWindow.h"
 #include "Window/GenericWindow.h"

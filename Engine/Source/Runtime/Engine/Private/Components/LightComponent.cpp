@@ -1,7 +1,7 @@
 #include "Components/LightComponent.h"
 
 #include "Engine/Actor.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Math/Operations.h"
 #include "Rendering/LightSceneProxy.h"
 

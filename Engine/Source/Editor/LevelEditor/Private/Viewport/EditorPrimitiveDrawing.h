@@ -1,7 +1,7 @@
 #pragma once
 
 #include "LevelEditorCustomizations.h"
-#include "PrimitiveDrawInterface.h"
+#include "Rendering/PrimitiveDrawInterface.h"
 
 namespace Durin::Editor::Level
 {

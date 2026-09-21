@@ -1,4 +1,4 @@
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Engine/World.h"
 #include "WorldOperation.h"
 

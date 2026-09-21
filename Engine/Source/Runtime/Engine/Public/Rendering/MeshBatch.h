@@ -3,7 +3,7 @@
 #include "GeometrySubmission.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
-#include "PrimitiveComponentId.h"
+#include "Rendering/PrimitiveComponentId.h"
 #include "VertexFactory.h"
 
 namespace Durin

@@ -8,7 +8,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Engine/TickFunction.h"
 #include "Math/Box.h"
-#include "PrimitiveComponentId.h"
+#include "Rendering/PrimitiveComponentId.h"
 
 #include "Level.gen.h"
 

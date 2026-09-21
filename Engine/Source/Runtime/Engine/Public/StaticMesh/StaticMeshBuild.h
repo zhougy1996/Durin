@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Asset/AssetCacheDiagnostic.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"

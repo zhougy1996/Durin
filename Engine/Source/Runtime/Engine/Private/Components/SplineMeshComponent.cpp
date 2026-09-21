@@ -7,7 +7,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Engine/Level.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Materials/MaterialInterface.h"
 #include "Spline/SplineMeshDeformer.h"
 #include "StaticMesh/StaticMesh.h"

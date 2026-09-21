@@ -1,7 +1,7 @@
 #include "Engine/Engine.h"
 
 #include "Asset/CookedMeshLoadManager.h"
-#include "PrimitiveDrawInterface.h"
+#include "Rendering/PrimitiveDrawInterface.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "CoreGlobals.h"
@@ -23,7 +23,7 @@
 #include "Window/GenericWindow.h"
 
 #include "DynamicRHI.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 

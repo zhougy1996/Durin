@@ -3,7 +3,7 @@
 #if DURIN_WITH_EDITOR
 
 #include "DerivedDataCache/DerivedDataCache.h"
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Asset/AssetCacheDiagnostic.h"
 
 namespace Durin::AssetDerivedDataCache

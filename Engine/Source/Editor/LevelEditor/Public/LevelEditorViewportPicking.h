@@ -3,7 +3,7 @@
 #include "LevelEditorAPI.h"
 #include "LevelEditorSelection.h"
 #include "DObject/WeakObjectPtr.h"
-#include "PrimitiveComponentId.h"
+#include "Rendering/PrimitiveComponentId.h"
 #include "SceneView.h"
 
 namespace Durin

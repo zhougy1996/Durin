@@ -4,7 +4,7 @@
 #include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 
 namespace Durin
 {

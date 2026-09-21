@@ -8,7 +8,7 @@
 #include "Components/SkyLightComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "Rendering/SkyLightSceneProxy.h"
 #include "RenderingThread.h"
 #include "RHI.h"

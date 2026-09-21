@@ -6,7 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 
 namespace Durin
 {

@@ -3,7 +3,7 @@
 #include "IRendererModule.h"
 
 #include "Engine/Engine.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "Misc/Time.h"
 #include "Mona.h"
 #include "Profiling/Profiling.h"

@@ -1,6 +1,6 @@
 #include "Materials/MaterialInterface.h"
 #include "MaterialCompileRetryQueue.h"
-#include "ObjectCacheContext.h"
+#include "Materials/ObjectCacheContext.h"
 #include "MaterialLoadedQueryDiagnostics.h"
 
 #include "Asset/Asset.h"

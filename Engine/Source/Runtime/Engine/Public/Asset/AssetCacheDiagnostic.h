@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Serialization/Archive.h"
 
 namespace Durin

@@ -7,7 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "IRendererModule.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Math/Operations.h"
 #include "Preview/PreviewScene.h"
 #include "RHICommandList.h"

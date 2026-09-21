@@ -28,7 +28,7 @@
 #include "Modules/ModuleManager.h"
 #include "Profiling/Profiling.h"
 
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "EngineFrame.h"
 #include "EngineFramePhases.h"
 #include "RuntimeStorage.h"

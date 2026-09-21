@@ -8,7 +8,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Hash/XxHash.h"
-#include "ObjectCacheContext.h"
+#include "Materials/ObjectCacheContext.h"
 
 #include <iostream>
 

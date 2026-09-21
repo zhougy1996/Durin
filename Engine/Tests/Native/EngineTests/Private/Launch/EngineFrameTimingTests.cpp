@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 
 namespace Durin
 {

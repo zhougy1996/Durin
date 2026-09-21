@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "SceneView.h"
 #include "MonaImGui.h"
 #include "ThirdParty/ImGui/imgui.h"

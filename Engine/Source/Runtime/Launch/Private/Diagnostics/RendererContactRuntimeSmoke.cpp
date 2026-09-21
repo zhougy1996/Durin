@@ -4,7 +4,7 @@
 #include "Client/ViewportClient.h"
 #include "Console/ConsoleCommand.h"
 #include "Engine/Engine.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "Mona.h"
 #include "Widgets/MWindow.h"
 

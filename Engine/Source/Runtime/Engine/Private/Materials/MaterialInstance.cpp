@@ -1,6 +1,6 @@
 #include "MaterialParameterMutation.h"
 #include "Components/PropertyEditValidation.h"
-#include "ObjectCacheContext.h"
+#include "Materials/ObjectCacheContext.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialCustomVersion.h"

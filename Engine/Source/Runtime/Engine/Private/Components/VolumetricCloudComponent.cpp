@@ -3,7 +3,7 @@
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
 

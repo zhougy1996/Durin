@@ -2,7 +2,7 @@
 #include "Components/SceneComponent.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"
-#include "PrimitiveComponentId.h"
+#include "Rendering/PrimitiveComponentId.h"
 
 #include "PrimitiveComponent.gen.h"
 

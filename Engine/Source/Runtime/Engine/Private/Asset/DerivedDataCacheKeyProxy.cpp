@@ -1,4 +1,4 @@
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 
 #if DURIN_WITH_EDITOR
 #include "DerivedDataCache/DerivedDataCache.h"

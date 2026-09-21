@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "PrimitiveDrawInterface.h"
+#include "Rendering/PrimitiveDrawInterface.h"
 #include "SceneView.h"
 
 namespace Durin

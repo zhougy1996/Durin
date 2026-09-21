@@ -4,7 +4,7 @@
 #include "Math/Operations.h"
 #include "Engine/Actor.h"
 #include "Rendering/SkyLightSceneProxy.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin

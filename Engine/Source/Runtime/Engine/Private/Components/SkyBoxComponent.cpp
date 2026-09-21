@@ -3,7 +3,7 @@
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Rendering/SkyBoxSceneProxy.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin

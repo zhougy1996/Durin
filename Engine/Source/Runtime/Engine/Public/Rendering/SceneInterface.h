@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "PrimitiveComponentId.h"
+#include "Rendering/PrimitiveComponentId.h"
 
 namespace Durin
 {

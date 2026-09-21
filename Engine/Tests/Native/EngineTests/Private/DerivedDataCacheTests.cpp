@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "DerivedDataCache/DerivedDataCache.h"
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"

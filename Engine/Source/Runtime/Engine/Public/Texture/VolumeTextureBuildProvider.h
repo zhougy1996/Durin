@@ -2,7 +2,7 @@
 
 #include "Asset/AssetCacheDiagnostic.h"
 
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureBuildOutcome.h"
 #include "Modules/ModularFeature.h"

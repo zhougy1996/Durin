@@ -1,5 +1,5 @@
 #include "Materials/MaterialObjectValidation.h"
-#include "ObjectCacheContext.h"
+#include "Materials/ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "MaterialExpressionOwnership.h"
 #include "Materials/MaterialExpressionBuild.h"

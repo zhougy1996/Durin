@@ -2,7 +2,7 @@
 
 #if DURIN_WITH_EDITOR
 
-#include "DerivedDataCacheKeyProxy.h"
+#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin

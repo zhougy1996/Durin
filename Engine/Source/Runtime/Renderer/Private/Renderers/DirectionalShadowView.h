@@ -4,7 +4,7 @@
 
 #include "Math/Box.h"
 #include "Rendering/LightSceneProxy.h"
-#include "LightComponentId.h"
+#include "Rendering/LightComponentId.h"
 #include "SceneView.h"
 
 #include <array>

@@ -9,7 +9,7 @@
 #include "Rendering/SkyLightSceneProxy.h"
 #include "Rendering/ProceduralSkySceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
-#include "SceneInterface.h"
+#include "Rendering/SceneInterface.h"
 
 namespace Durin
 {

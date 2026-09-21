@@ -2,7 +2,7 @@
 
 #include "Client/SceneViewport.h"
 #include "Workspace/WorkspaceUI.h"
-#include "EngineGlobals.h"
+#include "Engine/EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
 #include "RDG/RDGDiagnostics.h"

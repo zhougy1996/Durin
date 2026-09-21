@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Components/SceneComponent.h"
-#include "LightComponentId.h"
+#include "Rendering/LightComponentId.h"
 
 #ifdef _DHT_PARSER
 namespace Durin

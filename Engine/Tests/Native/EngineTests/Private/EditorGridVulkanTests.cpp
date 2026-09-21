@@ -11,7 +11,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
-#include "PrimitiveDrawInterface.h"
+#include "Rendering/PrimitiveDrawInterface.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
