@@ -49,8 +49,10 @@ Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
 it defaults to collapsed and never dirties level or asset packages.
 
 Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
-Overview separates the smoothed wall-clock frame interval into game-thread work
-and the measured end-of-frame render synchronization wait. The latter is a
+Overview labels the smoothed wall-clock frame interval minus the measured
+end-of-frame render synchronization wait as `Frame excl. render sync`. This
+remainder includes other waits and scheduling delays; it does not measure
+game-thread CPU work. The separate `Render sync wait` metric is a
 pacing boundary that may include render-thread, RHI, GPU, Present, or VSync
 backlog; it is not presented as pure VSync time. Overview also reports
 graph-budget values. The three frame-timing values publish one synchronized

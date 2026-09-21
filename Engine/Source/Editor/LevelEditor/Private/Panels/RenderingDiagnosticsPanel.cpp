@@ -212,9 +212,10 @@ namespace Durin::Editor::Level
 			DrawValueRow("Frame interval", std::format("{:.2f} ms",
 				Timing.FrameIntervalMilliseconds),
 				"Wall-clock interval between completed engine frames, including work and waits.");
-			DrawValueRow("Game-thread work", std::format("{:.2f} ms",
+			DrawValueRow("Frame excl. render sync", std::format("{:.2f} ms",
 				Timing.GameThreadWorkMilliseconds),
-				"Frame interval outside the measured end-of-frame render synchronization wait.");
+				"Frame interval minus the measured end-of-frame render synchronization wait. "
+				"Includes other waits and scheduling delays; not measured game-thread CPU work.");
 			DrawValueRow("Render sync wait", std::format("{:.2f} ms",
 				Timing.RenderSyncWaitMilliseconds),
 				"Time blocked on render-thread pacing; may include RHI, GPU, Present, and VSync backlog.");
