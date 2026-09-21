@@ -9,6 +9,7 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/AssertionMacros.h"
 #include "MonaImGui.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Workspace/LevelEditorContext.h"
@@ -48,7 +49,8 @@ namespace Durin::Editor::Level
 				if (ObjectProperty->GetObjectPropertyValue(Element) != nullptr) break;
 				--Count;
 			}
-			Property.Resize(Container, Count, ArrayIndex);
+			const auto Resized = Property.Resize(Container, Count, ArrayIndex);
+			requiref(Resized.has_value(), "Failed to trim material overrides: {}", ToString(Resized.error()));
 		}
 
 		// Adds resolved material-slot editing to static-mesh component details.
@@ -226,7 +228,8 @@ namespace Durin::Editor::Level
 				auto& Object = *static_cast<FObjectProperty*>(Array.GetInner());
 				if (Material && Array.Num(ScratchContainer, ScratchArrayIndex) <= SlotIndex)
 				{
-					Array.Resize(ScratchContainer, static_cast<uint64>(SlotIndex) + 1, ScratchArrayIndex);
+					const auto Resized = Array.Resize(ScratchContainer, static_cast<uint64>(SlotIndex) + 1, ScratchArrayIndex);
+					requiref(Resized.has_value(), "Failed to grow material overrides: {}", ToString(Resized.error()));
 				}
 				if (SlotIndex >= Array.Num(ScratchContainer, ScratchArrayIndex)) return;
 				Object.SetObjectPropertyValue(
@@ -260,7 +263,8 @@ namespace Durin::Editor::Level
 		Target.Kind = EPropertyChangeKind::ArrayRemove;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
 			[](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-				static_cast<FArrayProperty*>(ScratchProperty)->Resize(ScratchContainer, 0, ScratchArrayIndex);
+				const auto Resized = static_cast<FArrayProperty*>(ScratchProperty)->Resize(ScratchContainer, 0, ScratchArrayIndex);
+				requiref(Resized.has_value(), "Failed to clear material overrides: {}", ToString(Resized.error()));
 			}, false);
 	}
 

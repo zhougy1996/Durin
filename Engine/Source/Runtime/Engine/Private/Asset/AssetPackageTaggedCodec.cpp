@@ -598,8 +598,10 @@ namespace Durin::AssetPrivate::TaggedPackage
 				const auto* Class = Catalog.FindClass(Export.ClassName);
 				ObjectPackage::FPackageIndex ExportIndex;
 				std::string ObjectPath;
-				ObjectPackage::FPackageIndex::TryExport(Index, ExportIndex);
-				Linker.TryResolvePath(ExportIndex, ObjectPath);
+				if (!ObjectPackage::FPackageIndex::TryExport(Index, ExportIndex)
+					|| !Linker.TryResolvePath(ExportIndex, ObjectPath))
+					return Error(EAssetReadError::CorruptFile,
+						"DAST export topology cannot resolve an object path.");
 				if (!Class)
 				{
 					Record.Status = EPackageSchemaStatus::Unsupported;

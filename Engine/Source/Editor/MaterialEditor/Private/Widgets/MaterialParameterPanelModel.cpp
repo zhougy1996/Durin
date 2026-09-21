@@ -4,6 +4,7 @@
 #include "DObject/Class.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Misc/AssertionMacros.h"
 
 namespace Durin::Editor::Material
 {
@@ -92,7 +93,8 @@ namespace Durin::Editor::Material
 						Property.GetMutableElementPtr(Container, MoveIndex, ArrayIndex));
 					*Destination = std::move(*Source);
 				}
-				Property.Resize(Container, Count - 1, ArrayIndex);
+				const auto Resized = Property.Resize(Container, Count - 1, ArrayIndex);
+				requiref(Resized.has_value(), "Failed to remove material parameter override: {}", ToString(Resized.error()));
 				return;
 			}
 		}
@@ -255,7 +257,8 @@ namespace Durin::Editor::Material
 					if (bEnabled)
 					{
 						const uint64 Count = ScratchProperty.Num(ScratchContainer, ScratchArrayIndex);
-						ScratchProperty.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
+						const auto Resized = ScratchProperty.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
+						requiref(Resized.has_value(), "Failed to add material parameter override: {}", ToString(Resized.error()));
 						auto* Override = static_cast<TRecord*>(
 							ScratchProperty.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex));
 						Override->ParameterId = Id;
