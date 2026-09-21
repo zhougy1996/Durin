@@ -87,7 +87,7 @@ namespace Durin::Editor::Level
 			if (const auto CopyResult = CopyEditableObjectProperties(Source, Duplicate, ReferenceMap); !CopyResult)
 			{
 				Actor->DestroyInstanceComponent(Duplicate);
-				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), FormatObjectPropertyCopyError(CopyResult.Error)));
+				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), ToString(CopyResult.error())));
 				return;
 			}
 			if (auto* SourceScene = Cast<DSceneComponent>(Source); SourceScene)

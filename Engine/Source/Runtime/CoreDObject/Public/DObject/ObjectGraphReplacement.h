@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
@@ -38,13 +39,7 @@ namespace Durin
 		auto HasError() const -> bool { return Code != EObjectReplacementError::None; }
 	};
 
-	struct FObjectReplacementMapResult
-	{
-		FObjectReplacementMapError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatObjectReplacementMapError(const FObjectReplacementMapError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FObjectReplacementMapError& Error) -> std::string;
 
 	enum class EObjectReplacementReason : uint8
 	{
@@ -115,14 +110,9 @@ namespace Durin
 		uint64 ExpectedRevision = 0;
 		size_t ParticipantIndex = 0;
 		std::string Message;
+		std::variant<std::monostate, FPropertyValueError, FObjectReplacementMapError, EContainerOpResult> Cause;
 	};
-	struct FObjectReplacementResult
-	{
-		FObjectReplacementError Error;
-		auto Succeeded() const -> bool { return Error.Code == EObjectReplacementError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatObjectReplacementError(const FObjectReplacementError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FObjectReplacementError& Error) -> std::string;
 
 	// Current stays registered until Prepared and every reference plan can commit together.
 	// A null Current denotes a new package; its reserved path remains invisible until commit.
@@ -149,7 +139,7 @@ namespace Durin
 			DObject* Replacement = nullptr;
 		};
 		COREDOBJECT_API auto Build(std::span<const FObjectReplacementPackagePair> Packages,
-			const FObjectReplacementBudget& Budget = {}) -> FObjectReplacementMapResult;
+			const FObjectReplacementBudget& Budget = {}) -> std::expected<void, FObjectReplacementMapError>;
 		COREDOBJECT_API auto Find(DObject* Previous) const -> const FEntry*;
 		auto GetEntries() const -> std::span<const FEntry> { return Entries; }
 		auto GetPreparedObjects() const -> std::span<DObject* const> { return PreparedObjects; }
@@ -167,7 +157,7 @@ namespace Durin
 	{
 	public:
 		virtual ~IObjectReplacementParticipant() = default;
-		virtual auto Prepare(const FObjectReplacementMap& Map) -> FObjectReplacementResult = 0;
+		virtual auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> = 0;
 		virtual auto Validate() const -> bool = 0;
 		virtual auto CoversNativeReferences(const DObject& Owner) const -> bool = 0;
 		// Counts exact old-generation FStrongObjectPtr owners rebound by this participant.
@@ -205,13 +195,13 @@ namespace Durin
 		auto operator=(const FObjectGraphReplacement&) -> FObjectGraphReplacement& = delete;
 		COREDOBJECT_API auto Prepare(std::span<const FObjectReplacementPackagePair> Packages,
 			std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants = {},
-			const FObjectReplacementBudget& Budget = {}) -> FObjectReplacementResult;
+			const FObjectReplacementBudget& Budget = {}) -> std::expected<void, FObjectReplacementError>;
 		// Revalidates and consumes the prepared writes without yielding to an observer.
 		// Optional persistence runs after final validation and before the non-failing
 		// memory commit. It must be synchronous, must not mutate object graphs or
 		// reenter replacement/GC, and must roll back its own writes on failure.
 		COREDOBJECT_API auto TryCommit(
-			const std::function<FObjectReplacementResult()>& Persist = {}) -> FObjectReplacementResult;
+			const std::function<std::expected<void, FObjectReplacementError>()>& Persist = {}) -> std::expected<void, FObjectReplacementError>;
 		COREDOBJECT_API auto Abort() noexcept -> void;
 		// False means a participant or new external strong reference still retains the old graph.
 		COREDOBJECT_API auto Retire() -> bool;

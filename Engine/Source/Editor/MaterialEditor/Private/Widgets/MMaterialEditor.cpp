@@ -291,7 +291,7 @@ namespace Durin::Editor::Material
 		std::string PathError;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
-			PathError = Durin::FormatObjectError(PathValidation.Error);
+			PathError = Durin::ToString(PathValidation.error());
 			SetError(std::move(PathError));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
@@ -943,7 +943,7 @@ namespace Durin::Editor::Material
 					if (It == Expressions.end()) return;
 					// Copy the concrete owner so texture-sample inputs and node identity survive metadata edits.
 					TStrongObjectPtr<DMaterialExpressionParameter> Candidate(
-						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None).Object));
+						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None).value()));
 					if (!Candidate)
 					{
 						SetError("The parameter definition is invalid.");

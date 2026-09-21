@@ -200,7 +200,7 @@ namespace Durin
 		}
 	}
 
-	auto DStaticMesh::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DStaticMesh::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (Context.bCooked && CookedRenderData.GetMetadata().LogicalSize == 0)

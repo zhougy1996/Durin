@@ -98,7 +98,7 @@ namespace Durin::Editor::Level
 				std::string PathError;
 				if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, OutState.Path); !PathValidation)
 				{
-					PathError = Durin::FormatObjectError(PathValidation.Error);
+					PathError = Durin::ToString(PathValidation.error());
 					return StoreError(
 						EAssetReadError::InvalidPath,
 						std::format("Project default level is invalid: {}",

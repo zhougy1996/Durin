@@ -369,7 +369,7 @@ namespace Durin
 			if (Result.ShaderCause) return FormatShaderError(*Result.ShaderCause);
 			return Result.Stage == ECookOperationStage::Discovery ? "CookCancelledBeforeDiscovery" : "CookCancelledBeforePackagePreparation";
 		case ECookRunError::ProjectSettingsFailed: return Result.SettingsCause ? std::format("CookProjectSettingsFailed: {}", Result.SettingsCause->Message) : "Cook project settings failed.";
-		case ECookRunError::InvalidDefaultLevel: return std::format("CookInvalidDefaultLevel: {}: {}", Result.AssetIdentity, Result.DefaultLevelCause ? FormatObjectError(*Result.DefaultLevelCause) : "Invalid path");
+		case ECookRunError::InvalidDefaultLevel: return std::format("CookInvalidDefaultLevel: {}: {}", Result.AssetIdentity, Result.DefaultLevelCause ? ToString(*Result.DefaultLevelCause) : "Invalid path");
 		case ECookRunError::InputFailed: return Result.InputFailure.ToString();
 		case ECookRunError::LoadInjectedFailure:
 		case ECookRunError::PrepareInjectedFailure:
@@ -450,7 +450,7 @@ namespace Durin
 				if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, DefaultLevel); !PathValidation)
 				{
 					OutResult.AssetIdentity = Settings.DefaultLevel;
-					OutResult.DefaultLevelCause = std::make_shared<FObjectError>(PathValidation.Error);
+					OutResult.DefaultLevelCause = std::make_shared<FObjectPathError>(PathValidation.error());
 					return Finish(ECookRunStatus::Failed, ECookRunError::InvalidDefaultLevel);
 				}
 				Roots.push_back(std::move(DefaultLevel));

@@ -109,10 +109,10 @@ namespace Durin
 	struct TDStructOpsTraits<AssetStructTest::FDefaultReferenceValue> : TDStructOpsTraitsBase<AssetStructTest::FDefaultReferenceValue>
 	{
 		static constexpr bool bWithPostDeserialize = true;
-		static auto PostDeserialize(AssetStructTest::FDefaultReferenceValue&, FDStructPostDeserializeContext& Context) -> FObjectValidationResult
+		static auto PostDeserialize(AssetStructTest::FDefaultReferenceValue&, FDStructPostDeserializeContext& Context) -> std::expected<void, FObjectValidationError>
 		{
 			++AssetStructTest::DefaultReferenceCallbacks;
-			if (AssetStructTest::RejectDefaultReference) return {{.Code = EObjectValidationError::StructRejected}};
+			if (AssetStructTest::RejectDefaultReference) return std::unexpected(Durin::FObjectValidationError{.Code = EObjectValidationError::StructRejected});
 			return {};
 		}
 	};
@@ -134,13 +134,13 @@ namespace Durin
 		}
 
 		static auto PostDeserialize(AssetStructTest::FCodecSource&,
-			FDStructPostDeserializeContext& Context) -> FObjectValidationResult
+			FDStructPostDeserializeContext& Context) -> std::expected<void, FObjectValidationError>
 		{
 			++AssetStructTest::CodecPostDeserializeCount;
 			AssetStructTest::CodecPostDeserializeSource = Context.Source;
 			AssetStructTest::CodecPostDeserializeVersion = Context.SourceVersion;
 			if (!AssetStructTest::RejectCodecPostDeserialize) return {};
-			return {{.Code = EObjectValidationError::StructRejected}};
+			return std::unexpected(Durin::FObjectValidationError{.Code = EObjectValidationError::StructRejected});
 		}
 	};
 
@@ -158,11 +158,11 @@ namespace Durin
 		static constexpr bool bWithPostDeserialize = true;
 
 		static auto PostDeserialize(AssetStructTest::FMigratingValue& Value,
-			FDStructPostDeserializeContext& Context) -> FObjectValidationResult
+			FDStructPostDeserializeContext& Context) -> std::expected<void, FObjectValidationError>
 		{
 			++AssetStructTest::MigrationPostDeserializeCount;
 			if (AssetStructTest::RejectMigrationPostDeserialize)
-				return FObjectValidationResult{{.Code = EObjectValidationError::StructRejected}};
+				return std::unexpected(Durin::FObjectValidationError{.Code = EObjectValidationError::StructRejected});
 			if (Context.WasDeprecatedPropertyLoaded(FName("Value_DEPRECATED")))
 				Value.Value = static_cast<float>(Value.Value_DEPRECATED) * 10.0f;
 			return {};
@@ -576,15 +576,15 @@ namespace
 		inline static uint32 GraphValidationCount = 0;
 		inline static uint32 GraphPostLoadCount = 0;
 		inline static bool bLastValidationPrivate = false;
-		auto ValidateLoadedObjectGraph(const Durin::FObjectGraphLoadContext& Context) const -> Durin::FObjectValidationResult override
+		auto ValidateLoadedObjectGraph(const Durin::FObjectGraphLoadContext& Context) const -> std::expected<void, Durin::FObjectValidationError> override
 		{
 			if (!bValidateGraphForTest) return {};
 			++GraphValidationCount;
 			bLastValidationPrivate = Context.bPrivateGraph;
 			if (!Context.bCooked && (Graph.empty() || !Graph[0] || Graph[0]->SchemaVersion != RuntimeValue))
 			{
-				return {{.Code = Durin::EObjectValidationError::InvalidOwnedGraph, .ObjectPath = GetObjectPath(),
-					.Actual = Graph.empty() || !Graph[0] ? 0 : Graph[0]->SchemaVersion, .Expected = static_cast<uint64>(RuntimeValue)}};
+				return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::InvalidOwnedGraph, .ObjectPath = GetObjectPath(),
+					.Actual = Graph.empty() || !Graph[0] ? 0 : Graph[0]->SchemaVersion, .Expected = static_cast<uint64>(RuntimeValue)});
 			}
 			return {};
 		}
@@ -2577,7 +2577,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOl
 	FObjectGraphReplacement Replacement;
 	const FObjectReplacementPackagePair Pair{Previous, Candidate};
 	const auto Prepared = Replacement.Prepare(std::span{&Pair, 1});
-	ASSERT_TRUE(Prepared) << FormatObjectReplacementError(Prepared.Error);
+	ASSERT_TRUE(Prepared) << ToString(Prepared.error());
 	ASSERT_TRUE(Replacement.TryCommit());
 	EXPECT_TRUE(WeakPrevious.IsValid());
 	EXPECT_TRUE(Previous->IsGraphPrivate());
@@ -3039,7 +3039,7 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 	}
 	ASSERT_EQ(Asset->GetAuthoredOverrideEntries().size(), 1u);
 	EXPECT_EQ(CompareAuthoredOverridePaths(Asset->GetAuthoredOverrideEntries()[0].Path, Parent), std::strong_ordering::equal);
-	auto* Duplicate = DuplicateObject(Asset, nullptr, "SparseReplacementCopy").Object;
+	auto* Duplicate = DuplicateObject(Asset, nullptr, "SparseReplacementCopy").value();
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 1u);
 	MarkObjectHierarchyAsGarbage(Duplicate);
@@ -3196,9 +3196,9 @@ TEST(FPackageAssetTests, PreparedSavedGraphsTransferToReplacementAndSurviveOwner
 	}
 	FObjectGraphReplacement Replacement;
 	const auto Prepared = Replacement.Prepare(Pairs);
-	ASSERT_TRUE(Prepared) << FormatObjectReplacementError(Prepared.Error);
+	ASSERT_TRUE(Prepared) << ToString(Prepared.error());
 	const auto Committed = Replacement.TryCommit();
-	ASSERT_TRUE(Committed) << FormatObjectReplacementError(Committed.Error);
+	ASSERT_TRUE(Committed) << ToString(Committed.error());
 	Graphs.clear();
 	EXPECT_TRUE(Replacement.Retire());
 	CollectGarbage();
@@ -5989,35 +5989,35 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 	const int32 Replacement = 91;
 	Durin::TObjectPtr<Durin::DObject> ReplacementExternal = Foreign;
 	auto Overrides = std::make_shared<Durin::FObjectSaveOverrides>();
-	Durin::FSaveOverrideResult OverrideResult;
+	std::expected<void, Durin::FSaveOverrideError> OverrideResult;
 	ASSERT_TRUE((OverrideResult = Overrides->AddPropertyValue(
-		*Asset, *ValueProperty, Replacement))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*Asset, *ValueProperty, Replacement))) << Durin::ToString(OverrideResult.error());
 	ASSERT_TRUE((OverrideResult = Overrides->AddPropertyOmission(
-		*Asset, *LabelProperty))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*Asset, *LabelProperty))) << Durin::ToString(OverrideResult.error());
 	ASSERT_TRUE((OverrideResult = Overrides->AddPropertyOmission(
-		*Asset, *ChildProperty))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*Asset, *ChildProperty))) << Durin::ToString(OverrideResult.error());
 	ASSERT_TRUE((OverrideResult = Overrides->AddPropertyValue(
-		*Asset, *ExternalProperty, ReplacementExternal))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*Asset, *ExternalProperty, ReplacementExternal))) << Durin::ToString(OverrideResult.error());
 	ASSERT_TRUE((OverrideResult = Overrides->AddObjectOmission(
-		*Asset->DefaultChild.Get()))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*Asset->DefaultChild.Get()))) << Durin::ToString(OverrideResult.error());
 	EXPECT_FALSE((OverrideResult = Overrides->AddPropertyOmission(
 		*Asset, *ValueProperty)));
-	EXPECT_EQ(OverrideResult.Error.Code, Durin::ESaveOverrideError::PropertyConflict);
-	EXPECT_EQ(OverrideResult.Error.PropertyName, "Value");
+	EXPECT_EQ(OverrideResult.error().Code, Durin::ESaveOverrideError::PropertyConflict);
+	EXPECT_EQ(OverrideResult.error().PropertyName, "Value");
 	const uint64 WrongType = 91;
 	Durin::FObjectSaveOverrides TypeMismatchOverrides;
 	EXPECT_FALSE((OverrideResult = TypeMismatchOverrides.AddPropertyValue(
 		*Asset, *ValueProperty, WrongType)));
-	EXPECT_EQ(OverrideResult.Error.Code, Durin::ESaveOverrideError::StorageMismatch);
-	EXPECT_EQ(OverrideResult.Error.ExpectedSize, sizeof(int32));
-	EXPECT_EQ(OverrideResult.Error.ActualSize, sizeof(uint64));
+	EXPECT_EQ(OverrideResult.error().Code, Durin::ESaveOverrideError::StorageMismatch);
+	EXPECT_EQ(OverrideResult.error().ExpectedSize, sizeof(int32));
+	EXPECT_EQ(OverrideResult.error().ActualSize, sizeof(uint64));
 	EXPECT_TRUE(TypeMismatchOverrides.IsEmpty());
 	const uint32 SameSizeWrongType = 91;
 	EXPECT_FALSE((OverrideResult = TypeMismatchOverrides.AddPropertyValue(
 		*Asset, *ValueProperty, SameSizeWrongType)));
-	EXPECT_EQ(OverrideResult.Error.Code, Durin::ESaveOverrideError::StorageMismatch);
-	EXPECT_EQ(OverrideResult.Error.ExpectedKind, Durin::DurinCodeGen::EPropertyGenFlags::Int32);
-	EXPECT_EQ(OverrideResult.Error.ActualKind, Durin::DurinCodeGen::EPropertyGenFlags::UInt32);
+	EXPECT_EQ(OverrideResult.error().Code, Durin::ESaveOverrideError::StorageMismatch);
+	EXPECT_EQ(OverrideResult.error().ExpectedKind, Durin::DurinCodeGen::EPropertyGenFlags::Int32);
+	EXPECT_EQ(OverrideResult.error().ActualKind, Durin::DurinCodeGen::EPropertyGenFlags::UInt32);
 	EXPECT_TRUE(TypeMismatchOverrides.IsEmpty());
 
 	Durin::FAssetPackageSerializationOptions Options;
@@ -6077,7 +6077,7 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 	DSoftPackageAssetForTest::FSoftReference ReplacementSoft(MakeFormerMainObjectPath(ForeignPath));
 	auto SoftOverrides = std::make_shared<Durin::FObjectSaveOverrides>();
 	ASSERT_TRUE((OverrideResult = SoftOverrides->AddPropertyValue(
-		*SoftOwner, *DirectProperty, ReplacementSoft))) << Durin::FormatSaveOverrideError(OverrideResult.Error);
+		*SoftOwner, *DirectProperty, ReplacementSoft))) << Durin::ToString(OverrideResult.error());
 	Durin::FAssetPackageSerializationOptions SoftOptions;
 	SoftOptions.SaveOverrides = std::move(SoftOverrides);
 	Durin::FByteBuffer SoftBytes;
@@ -6355,7 +6355,7 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	EXPECT_FALSE(DImportMetadataOwnerForTest::bLastValidationPrivate);
 	ASSERT_EQ(Owner->Graph[0]->SchemaVersion, 7u);
 	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
-	auto* ValidCopy = DuplicateObject(Owner, nullptr, "ValidGraphCopy").Object;
+	auto* ValidCopy = DuplicateObject(Owner, nullptr, "ValidGraphCopy").value();
 	ASSERT_NE(ValidCopy, nullptr);
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 1u);
 	MarkObjectHierarchyAsGarbage(ValidCopy);
@@ -6363,16 +6363,16 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
 	const auto InvalidCopy = DuplicateObject(Owner, nullptr, "InvalidGraphCopy");
 	EXPECT_FALSE(InvalidCopy);
-	EXPECT_EQ(InvalidCopy.Object, nullptr);
-	EXPECT_EQ(InvalidCopy.Error.Code, EObjectGraphError::Validation);
+	EXPECT_FALSE(InvalidCopy.has_value());
+	EXPECT_EQ(InvalidCopy.error().Code, EObjectGraphError::Validation);
 
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	FByteBuffer GraphBytes;
 	ASSERT_TRUE(SaveObjectGraphToMemory(Owner, GraphBytes));
 	const auto GraphLoad = LoadObjectGraphFromMemory(GraphBytes);
 	EXPECT_FALSE(GraphLoad);
-	EXPECT_EQ(GraphLoad.Object, nullptr);
-	EXPECT_EQ(GraphLoad.Error.Code, EObjectGraphError::Validation);
+	EXPECT_FALSE(GraphLoad.has_value());
+	EXPECT_EQ(GraphLoad.error().Code, EObjectGraphError::Validation);
 
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
@@ -6489,7 +6489,7 @@ TEST(FPackageAssetTests, PolymorphicEditorGraphDuplicatesAppliesAndStripsDescend
 	EXPECT_EQ(Derived->GetOuter(), Owner);
 	EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Derived, EObjectQueryScope::LiveOnly).size(), 1u);
 
-	auto* Working = DuplicateObject(Owner, nullptr, "WorkingGraph").Object;
+	auto* Working = DuplicateObject(Owner, nullptr, "WorkingGraph").value();
 	ASSERT_NE(Working, nullptr);
 	ASSERT_EQ(Working->Graph.size(), 2u);
 	auto* WorkingDerived = Cast<DReplayImportMetadataForTest>(Working->Graph[1].Get());
@@ -6502,7 +6502,7 @@ TEST(FPackageAssetTests, PolymorphicEditorGraphDuplicatesAppliesAndStripsDescend
 	std::vector<TObjectPtr<DImportMetadataForTest>> Candidate;
 	for (const auto& Expression : Working->Graph)
 	{
-		auto* Copy = DuplicateObject(Expression.Get(), Owner, Expression->GetFName()).Object;
+		auto* Copy = DuplicateObject(Expression.Get(), Owner, Expression->GetFName()).value();
 		ASSERT_NE(Copy, nullptr);
 		Candidate.emplace_back(Copy);
 	}

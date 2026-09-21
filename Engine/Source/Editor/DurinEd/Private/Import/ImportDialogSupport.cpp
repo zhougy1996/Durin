@@ -101,12 +101,12 @@ namespace Durin::Editor
 		Request.DefaultFileName = DefaultFileName;
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			const FMountLookupResult Lookup =
+			const auto Lookup =
 				FMountPaths::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
 			if (Lookup)
 				Request.InitialDirectory =
-					Lookup.Mount->GetContentDir().generic_string();
+					Lookup->Mount->GetContentDir().generic_string();
 		}
 
 		const FFileDialogResult Result = SaveFileDialog(Request);
@@ -149,11 +149,11 @@ namespace Durin::Editor
 			Request.InitialDirectory = Current.PhysicalPath.generic_string();
 		else if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			const FMountLookupResult Lookup =
+			const auto Lookup =
 				FMountPaths::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
+				Request.InitialDirectory = Lookup->Mount->GetContentDir().generic_string();
 		}
 
 		const FFileDialogResult Result = OpenFolderDialog(Request);

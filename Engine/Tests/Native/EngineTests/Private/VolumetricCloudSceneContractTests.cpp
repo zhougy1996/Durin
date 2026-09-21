@@ -393,7 +393,7 @@ TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndPe
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
 	auto* Loaded = Durin::Cast<Durin::AVolumetricCloudActor>(
-		Durin::LoadObjectGraphFromMemory(Bytes).Object
+		Durin::LoadObjectGraphFromMemory(Bytes).value()
 	);
 	ASSERT_NE(Loaded, nullptr);
 	auto* LoadedComponent = Loaded->GetVolumetricCloudComponent();

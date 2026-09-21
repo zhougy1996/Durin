@@ -84,12 +84,12 @@ namespace Durin
 	}
 
 
-	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 			return RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
 		if (Context.bCooked)
-			return CookedProgramData.GetMetadata().LogicalSize != 0 ? FObjectValidationResult{}
+			return CookedProgramData.GetMetadata().LogicalSize != 0 ? std::expected<void, FObjectValidationError>{}
 				: RejectMaterialObjectGraph(GetObjectPath(), EMaterialCookError::ProgramUnavailable);
 		std::vector<FMaterialParameterDefinition> Schema;
 		if (const auto Validation = DeriveExpressionParameterSchema(ExpressionCollection, Schema); !Validation)

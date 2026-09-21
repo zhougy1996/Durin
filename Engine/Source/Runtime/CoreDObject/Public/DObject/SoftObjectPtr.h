@@ -1,12 +1,29 @@
 #pragma once
+#include <expected>
 
 #include "DObject/AssetPath.h"
 #include "DObject/WeakObjectPtr.h"
 
-	namespace Durin
+namespace Durin
+{
+	enum class ESoftObjectError : uint8
 	{
-		class DClass;
-		class FAssetLoadService;
+		InvalidObjectPath, NullLoadedObject, PackageObject, TransientObject, ClassMismatch,
+		UnpackagedObject, LoadedPathMismatch, AuthoredPathMismatch, ResolvedPathMismatch,
+	};
+
+	struct FSoftObjectError
+	{
+		ESoftObjectError Code = ESoftObjectError::NullLoadedObject;
+		std::string Subject;
+		std::string Expected;
+		std::string Actual;
+		std::optional<FObjectPathError> PathCause;
+	};
+	COREDOBJECT_API auto ToString(const FSoftObjectError& Error) -> std::string;
+
+	class DClass;
+	class FAssetLoadService;
 
 	enum class ESoftObjectPtrState : uint8 { Null, Pending, Valid, Stale };
 	COREDOBJECT_API auto GetSoftObjectCacheEpoch() -> uint64;
@@ -25,8 +42,8 @@
 		auto operator=(std::nullptr_t) -> FSoftObjectPtr& { Reset(); return *this; }
 
 		COREDOBJECT_API auto SetPath(FObjectPath InPath) -> void;
-		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> FObjectOperationResult;
-		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> FObjectOperationResult;
+		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> std::expected<void, FSoftObjectError>;
+		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> std::expected<void, FSoftObjectError>;
 		COREDOBJECT_API auto Get(const DClass* ExpectedClass = nullptr) const -> DObject*;
 		COREDOBJECT_API auto GetState(const DClass* ExpectedClass = nullptr) const -> ESoftObjectPtrState;
 		auto IsLoaded(const DClass* ExpectedClass = nullptr) const -> bool { return Get(ExpectedClass) != nullptr; }
@@ -38,7 +55,7 @@
 		friend auto operator<=>(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> std::strong_ordering { return Left.AuthoredPath <=> Right.AuthoredPath; }
 
 	private:
-		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> FObjectOperationResult;
+		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>;
 		auto ResetCache() -> void { WeakObject.Reset(); CacheEpoch = 0; }
 		FObjectPath AuthoredPath;
 		FWeakObjectPtr WeakObject;
@@ -57,8 +74,8 @@
 		auto operator=(std::nullptr_t) -> TSoftObjectPtr& { Reset(); return *this; }
 		auto operator=(T* InObject) -> TSoftObjectPtr& { (void)TrySetObject(InObject); return *this; }
 		auto SetPath(FObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
-		auto TrySetObject(T* InObject) -> FObjectOperationResult { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass()); }
-		auto TrySetLoadedObject(T* InObject) -> FObjectOperationResult { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass()); }
+		auto TrySetObject(T* InObject) -> std::expected<void, FSoftObjectError> { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass()); }
+		auto TrySetLoadedObject(T* InObject) -> std::expected<void, FSoftObjectError> { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass()); }
 		auto Get() const -> T* { return FromDObject(SoftObjectPtr.Get(GetExpectedClass())); }
 		auto GetState() const -> ESoftObjectPtrState { return SoftObjectPtr.GetState(GetExpectedClass()); }
 		auto IsLoaded() const -> bool { return Get() != nullptr; }

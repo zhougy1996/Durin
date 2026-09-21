@@ -5,7 +5,7 @@
 #include <variant>
 #include "DObject/ContainerOps.h"
 #include "DObject/ObjectValidation.h"
-#include "DObject/ObjectDiagnostic.h"
+#include "DObject/AssetPath.h"
 
 namespace Durin
 {
@@ -27,13 +27,7 @@ namespace Durin
 		size_t ValueAlignment = 0;
 		auto HasError() const -> bool { return Code != EPropertyValueError::None; }
 	};
-	struct FPropertyValueResult
-	{
-		FPropertyValueError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatPropertyValueError(const FPropertyValueError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FPropertyValueError& Error) -> std::string;
 
 	enum class EReflectedMapKeyError : uint8
 	{
@@ -59,14 +53,11 @@ namespace Durin
 		auto HasError() const -> bool { return Code != EReflectedMapKeyError::None; }
 	};
 
-	struct FReflectedMapKeyResult
-	{
-		FReflectedMapKeyError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
 
-	COREDOBJECT_API auto FormatReflectedMapKeyError(const FReflectedMapKeyError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FReflectedMapKeyError& Error) -> std::string;
+	using FObjectArchiveValueCause = std::variant<std::monostate, FObjectPathError,
+		FPropertyValueError, FReflectedMapKeyError, FObjectValidationError>;
+
 	enum class EPropertySnapshotError : uint8
 	{
 		None, NullProperty, NullContainer, MissingStruct, MissingArrayOperations,
@@ -91,14 +82,9 @@ namespace Durin
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string Message;
 		auto HasError() const -> bool { return Code != EPropertySnapshotError::None; }
+		FObjectArchiveValueCause Cause;
 	};
-	struct FPropertySnapshotResult
-	{
-		FPropertySnapshotError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatPropertySnapshotError(const FPropertySnapshotError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FPropertySnapshotError& Error) -> std::string;
 	enum class EObjectPropertyCopyError : uint8
 	{
 		None, InvalidObjects, UnmappedDefaultReference, ContainerTraversal, ValueCopy,
@@ -123,14 +109,10 @@ namespace Durin
 		uint64 ExpectedCount = 0;
 		std::string Message;
 		std::optional<FPropertySnapshotError> RollbackCause;
+		std::variant<std::monostate, FObjectPathError, FPropertyValueError,
+			FReflectedMapKeyError, FObjectValidationError, FPropertySnapshotError, EContainerOpResult> Cause;
 	};
-	struct FObjectPropertyCopyResult
-	{
-		FObjectPropertyCopyError Error;
-		auto Succeeded() const -> bool { return Error.Code == EObjectPropertyCopyError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatObjectPropertyCopyError(const FObjectPropertyCopyError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FObjectPropertyCopyError& Error) -> std::string;
 
 	enum class EPropertyEditValueError : uint8
 	{
@@ -148,13 +130,7 @@ namespace Durin
 		FPropertyMetadataNumber Minimum;
 		FPropertyMetadataNumber Maximum;
 	};
-	struct FPropertyEditValueResult
-	{
-		FPropertyEditValueError Error;
-		auto Succeeded() const -> bool { return Error.Code == EPropertyEditValueError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatPropertyEditValueError(const FPropertyEditValueError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FPropertyEditValueError& Error) -> std::string;
 
 	enum class EPropertyContainerOperation : uint8 { Resize, Insert, RenameKey };
 	enum class EPropertyContainerRequirement : uint8 { None, DefaultConstruct, Destroy, CopyConstruct, CopyAssign };
@@ -171,12 +147,6 @@ namespace Durin
 		uint64 CurrentCount = 0;
 		uint64 RequestedCount = 0;
 	};
-	struct FPropertyContainerResult
-	{
-		FPropertyContainerError Error;
-		auto Succeeded() const -> bool { return Error.Code == EContainerOpResult::Success; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatPropertyContainerError(const FPropertyContainerError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FPropertyContainerError& Error) -> std::string;
 
 }

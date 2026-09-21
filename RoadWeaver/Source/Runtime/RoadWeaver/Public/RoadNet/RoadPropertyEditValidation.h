@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "RoadNet/RoadSurface.h"
 #include <variant>
 
@@ -19,7 +20,7 @@ namespace Durin::RoadNet
 	};
 	template<typename TError>
 	auto RejectRoadPropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal, TError Error)
-		-> FObjectValidationResult
+		-> std::expected<void, FObjectValidationError>
 	{
 		auto Cause = std::make_shared<FRoadPropertyEditCause>();
 		Cause->Error = std::move(Error);

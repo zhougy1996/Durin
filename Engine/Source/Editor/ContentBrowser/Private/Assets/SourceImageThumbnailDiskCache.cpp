@@ -55,7 +55,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
 			auto DecodeResult = Image::DecodeImageFromMemory(Bytes, {MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4});
-			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+			OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 			if (!DecodeResult)
 				return false;
 			auto Image = std::move(*DecodeResult);

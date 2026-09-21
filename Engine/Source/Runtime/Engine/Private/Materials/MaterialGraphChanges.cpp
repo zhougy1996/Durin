@@ -84,7 +84,7 @@ namespace Durin
 					for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 					{
 						FPropertyValueSnapshotPayload Payload;
-						State.bValid &= CapturePropertyValuePayload(Property, Expression.Get(), Index, Payload).Succeeded();
+						State.bValid &= CapturePropertyValuePayload(Property, Expression.Get(), Index, Payload).has_value();
 						Node.Properties.push_back(std::move(Payload));
 					}
 				});

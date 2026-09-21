@@ -70,6 +70,21 @@ result value: request readiness, binding, cancellation and waiting remain on
 needs it. Rejected waits remain caller-local failures and do not change the
 eventual request outcome.
 
+## Mounted Path Results
+
+`FMountPaths` lookup, resolution/classification, and dependency checks return
+`expected<FMountLookup/FMountPath/FMountDependency, FMountPathError>`.
+Success values contain only resolved path or dependency data. Failures retain
+`EMountPathError`, requested paths, a discovered mount when available, and the
+native `std::error_code`. Mount pointers retain the registry lifetime on both
+branches. Missing files remain errors only when `RequireFile` was requested.
+`ToString` lives in `Paths.cpp`; import destination reports can retain mount
+identity even when its physical root is unavailable.
+
+Startup registry publication/default configuration still exposes its existing
+boolean and textual diagnostic adapter. Its callers display configuration
+errors; they do not branch on generated strings.
+
 ## Synchronous Random Reads
 
 `FFileHelper::OpenRead()` returns an expected, uniquely owned `IFileHandle` for a

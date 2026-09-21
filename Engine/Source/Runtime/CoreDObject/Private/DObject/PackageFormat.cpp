@@ -243,14 +243,14 @@ namespace Durin::ObjectPackage
 				FPackageIndex PackageIndex;
 				const bool bIndexOk = bImports ? FPackageIndex::TryImport(Index, PackageIndex)
 					: FPackageIndex::TryExport(Index, PackageIndex);
-				const auto PathResult = bIndexOk ? Linker.TryResolvePath(PackageIndex, Out[Index]) : FLinkerResult{};
+				const auto PathResult = bIndexOk ? Linker.TryResolvePath(PackageIndex, Out[Index]) : std::expected<void, FLinkerError>{};
 				if (!bIndexOk || !PathResult
 					|| Out[Index].empty())
 					return Fail(Diagnostic,
-						PathResult.Error.Code == ELinkerError::OuterCycle
+						!PathResult && PathResult.error().Code == ELinkerError::OuterCycle
 							? EPackageWriterFailure::InvalidTopology : EPackageWriterFailure::InvalidIndex,
 						EPackageWriterReason::UnresolvedTablePath,
-						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]", FormatLinkerError(PathResult.Error));
+						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]", PathResult ? std::string{} : ToString(PathResult.error()));
 			}
 			return true;
 		}
@@ -418,7 +418,7 @@ namespace Durin::ObjectPackage
 					{
 						FByteBuffer Token;
 						if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, Path, FormatCanonicalMapKeyError(Result.Error));
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, Path, ToString(Result.error()));
 						Entries.push_back({Index, std::move(Token)});
 					}
 					std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -803,7 +803,7 @@ namespace Durin::ObjectPackage
 				{
 					FByteBuffer Token;
 					if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, std::string(Path), FormatCanonicalMapKeyError(Result.Error));
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, std::string(Path), ToString(Result.error()));
 					Entries.push_back({Index, std::move(Token)});
 				}
 				std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -1158,11 +1158,10 @@ namespace Durin::ObjectPackage
 			FBinaryEnvelopePreamble Preamble{
 				.FormatId = DastFormatId, .FormatVersion = FormatVersion,
 				.RequiredFeatures = 0, .HeaderBytes = HeaderBytes, .FileBytes = Cursor};
-			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
-			if (!EncodeBinaryEnvelopePreamble(Preamble,
-				std::span(Bytes).first(BinaryEnvelopePreambleBytes), &EnvelopeDiagnostic))
+			std::expected<void, EBinaryEnvelopeError> EnvelopeDiagnostic;
+			if (!(EnvelopeDiagnostic = EncodeBinaryEnvelopePreamble(Preamble, std::span(Bytes).first(BinaryEnvelopePreambleBytes))))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
+					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.error()));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset, uint32(bRedirect ? 1 : 0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 4, uint32(0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 8, uint64(DirectoryOffset));
@@ -1182,10 +1181,9 @@ namespace Durin::ObjectPackage
 				WriteLittleEndianAt(Bytes, Base + 40, uint64(0));
 				std::copy(Section.Bytes.begin(), Section.Bytes.end(), Bytes.begin() + static_cast<ptrdiff_t>(Section.Offset));
 			}
-			if (!FinalizeBinaryEnvelopeHeader(std::span(Bytes).first(static_cast<size_t>(HeaderBytes)), Cursor,
-				{DastMaximumHeaderBytes, DastMaximumPackageBytes}, &EnvelopeDiagnostic))
+			if (!(EnvelopeDiagnostic = FinalizeBinaryEnvelopeHeader(std::span(Bytes).first(static_cast<size_t>(HeaderBytes)), Cursor, {DastMaximumHeaderBytes, DastMaximumPackageBytes})))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
+					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.error()));
 			Out = std::move(Bytes);
 			return true;
 		}

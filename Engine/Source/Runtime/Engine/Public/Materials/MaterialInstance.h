@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Materials/MaterialInterface.h"
 #include "Texture/Texture2D.h"
@@ -71,9 +72,9 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:

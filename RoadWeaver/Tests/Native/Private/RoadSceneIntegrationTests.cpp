@@ -182,9 +182,9 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 	int Notifications = 0;
 	const auto Listener = Asset->AddMutationListener([&] { ++Notifications; });
 	const auto Validation = Asset->PreEditChangeProperty(Proposal);
-	EXPECT_EQ(Validation.Error.Code, EObjectValidationError::PropertyRejected);
-	EXPECT_EQ(Validation.Error.PropertyName, "Definition");
-	const auto Cause = std::dynamic_pointer_cast<const FRoadPropertyEditCause>(Validation.Error.Cause);
+	EXPECT_EQ(Validation.error().Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Validation.error().PropertyName, "Definition");
+	const auto Cause = std::dynamic_pointer_cast<const FRoadPropertyEditCause>(Validation.error().Cause);
 	ASSERT_TRUE(Cause);
 	const auto* DefinitionError = std::get_if<FRoadDefinitionError>(&Cause->Error);
 	ASSERT_NE(DefinitionError, nullptr);

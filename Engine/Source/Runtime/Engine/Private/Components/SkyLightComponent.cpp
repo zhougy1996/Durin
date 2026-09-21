@@ -159,7 +159,7 @@ namespace Durin
 	auto DSkyLightComponent::Recapture() -> void { ++RequestSerial; Publish(); }
 	auto DSkyLightComponent::RefreshReloadedAssetBindings() -> void { ++SourceEpoch; Publish(); }
 
-	auto DSkyLightComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DSkyLightComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty

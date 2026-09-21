@@ -47,7 +47,7 @@ namespace Durin::Editor
 		EAssetDestinationError Error = EAssetDestinationError::None;
 		std::string RequestedPath;
 		EMountPathError MountCause = EMountPathError::None;
-		std::optional<FObjectError> PathCause;
+		std::optional<FObjectPathError> PathCause;
 
 		auto AssetExists() const -> bool
 		{
@@ -74,7 +74,7 @@ namespace Durin::Editor
 		EContentDirectoryError Error = EContentDirectoryError::None;
 		std::string RequestedPath;
 		EMountPathError MountCause = EMountPathError::None;
-		std::optional<FObjectError> PathCause;
+		std::optional<FObjectPathError> PathCause;
 
 		explicit operator bool() const
 		{

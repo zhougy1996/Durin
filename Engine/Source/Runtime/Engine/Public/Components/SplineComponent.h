@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Components/SceneComponent.h"
 #include "Misc/EnumClassFlags.h"
@@ -70,7 +71,7 @@ namespace Durin
 
 		ENGINE_API auto UpdateSpline(ESplineChangeFlags ChangeFlags = ESplineChangeFlags::Build) -> void;
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:

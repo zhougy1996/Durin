@@ -32,7 +32,7 @@ namespace
 	{
 		std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>> Result;
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).Object);
+			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
 		return Result;
 	}
 	auto PublishFunctionExpressions(Durin::DMaterialFunction& Function,

@@ -31,25 +31,25 @@ namespace Durin
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
 
-		auto Fail(E Code, R Reason) -> FObjectReplacementResult
+		auto Fail(E Code, R Reason) -> std::expected<void, FObjectReplacementError>
 		{
-			return {{.Code = Code, .Reason = Reason}};
+			return std::unexpected(FObjectReplacementError{.Code = Code, .Reason = Reason});
 		}
 
-		auto PropertyContext(FObjectReplacementResult Result, FProperty* P, uint32 Index,
-			DObject* Owner = nullptr) -> FObjectReplacementResult
+		auto PropertyContext(std::expected<void, FObjectReplacementError> Result, FProperty* P, uint32 Index,
+			DObject* Owner = nullptr) -> std::expected<void, FObjectReplacementError>
 		{
 			if (Result) return Result;
-			if (Owner) Result.Error.ObjectPath = Owner->GetObjectPath();
+			if (Owner) Result.error().ObjectPath = Owner->GetObjectPath();
 			if (P)
 			{
 				const auto Name = P->NamePrivate.ToString();
-				if (Result.Error.PropertyName.empty())
+				if (Result.error().PropertyName.empty())
 				{
-					Result.Error.PropertyName = Name;
-					Result.Error.ArrayIndex = Index;
+					Result.error().PropertyName = Name;
+					Result.error().ArrayIndex = Index;
 				}
-				Result.Error.Route.insert(Result.Error.Route.begin(), std::format("{}[{}]", Name, Index));
+				Result.error().Route.insert(Result.error().Route.begin(), std::format("{}[{}]", Name, Index));
 			}
 			return Result;
 		}
@@ -178,14 +178,14 @@ namespace Durin
 		// Mutates detached storage only. Map keys are copied before modification and
 		// inserted into a separate index; no const key is ever modified in place.
 		auto RewriteValue(FProperty* P, void* Container, uint32 Index,
-			const FObjectReplacementMap& Map) -> FObjectReplacementResult;
+			const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError>;
 		auto Rewrite(FProperty* P, void* Container, uint32 Index,
-			const FObjectReplacementMap& Map) -> FObjectReplacementResult
+			const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError>
 		{
 			return PropertyContext(RewriteValue(P, Container, Index, Map), P, Index);
 		}
 		auto RewriteValue(FProperty* P, void* Container, uint32 Index,
-			const FObjectReplacementMap& Map) -> FObjectReplacementResult
+			const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError>
 		{
 			if (!HasReferenceMetadata(P)) return {};
 			if (P->GetKind() == K::Object)
@@ -200,7 +200,7 @@ namespace Durin
 			else if (P->GetKind() == K::Struct)
 			{
 				auto* Struct = static_cast<FStructProperty*>(P);
-				FObjectReplacementResult Result;
+				std::expected<void, FObjectReplacementError> Result;
 				Struct->GetStruct()->ForEachProperty([&](FProperty* Field) {
 					for (uint32 I = 0; Result && I < Field->GetArrayDim(); ++I)
 						Result = Rewrite(Field, P->GetValuePtr(Container, Index), I, Map);
@@ -212,16 +212,16 @@ namespace Durin
 				auto* Array = static_cast<FArrayProperty*>(P);
 				if (!Array->HasArrayOps() || !Array->GetOps().VisitMutable)
 					return Fail(E::Unsupported, R::ArrayMutableTraversal);
-				struct FContext { FProperty* Inner; const FObjectReplacementMap& Map; FObjectReplacementResult Result; }
+				struct FContext { FProperty* Inner; const FObjectReplacementMap& Map; std::expected<void, FObjectReplacementError> Result; }
 					Context{Array->GetInner(), Map, {}};
 				const auto Result = Array->VisitMutableElements(Container, [](void* Raw, uint64 ElementIndex, void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
 					C.Result = Rewrite(C.Inner, Value, 0, C.Map);
-					if (!C.Result) C.Result.Error.Route.insert(C.Result.Error.Route.begin(), std::to_string(ElementIndex));
+					if (!C.Result) C.Result.error().Route.insert(C.Result.error().Route.begin(), std::to_string(ElementIndex));
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ArrayTraversal, .Message = std::format("Container operation failed: {}", static_cast<uint32>(Result))}};
+				if (Result != EContainerOpResult::Success) return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::ArrayTraversal, .Cause = Result});
 			}
 			else if (P->GetKind() == K::Map)
 			{
@@ -232,9 +232,9 @@ namespace Durin
 					return Fail(E::Unsupported, R::MapTransactionalOperations);
 				void* Detached = nullptr;
 				if (const auto Created = Ops.CreateDetached(&Detached); Created != EContainerOpResult::Success)
-					return {{.Code = E::AllocationFailure, .Reason = R::MapAllocation, .Message = std::format("Container allocation failed: {}", static_cast<uint32>(Created))}};
+					return std::unexpected(FObjectReplacementError{.Code = E::AllocationFailure, .Reason = R::MapAllocation, .Cause = Created});
 				std::unique_ptr<void, decltype(Ops.DestroyDetached)> Storage(Detached, Ops.DestroyDetached);
-				struct FContext { FMapProperty* Property; const FObjectReplacementMap& Map; void* Storage; FObjectReplacementResult Result; }
+				struct FContext { FMapProperty* Property; const FObjectReplacementMap& Map; void* Storage; std::expected<void, FObjectReplacementError> Result; }
 					Context{Property, Map, Detached, {}};
 				const auto Result = Property->VisitEntries(Container, [](void* Raw, const void* Key, const void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
@@ -243,19 +243,19 @@ namespace Durin
 					if (Copied) Copied = VCopy.CopyConstruct(C.Property->GetValueProp(), C.Property->GetValueProp()->GetValuePtr(Value));
 					if (!Copied)
 					{
-						C.Result = {{.Code = E::Unsupported, .Reason = R::MapValueCopy, .Message = FormatPropertyValueError(Copied.Error)}}; return false;
+						C.Result = std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::MapValueCopy, .Cause = Copied.error()}); return false;
 					}
 					C.Result = Rewrite(C.Property->GetKeyProp(), KCopy.GetContainer(), 0, C.Map);
 					if (C.Result) C.Result = Rewrite(C.Property->GetValueProp(), VCopy.GetContainer(), 0, C.Map);
 					if (!C.Result) return false;
 					const auto Insert = C.Property->GetOps().InsertCopy(C.Storage, KCopy.GetValue(), VCopy.GetValue());
 					if (Insert != EContainerOpResult::Success)
-						C.Result = {{.Code = Insert == EContainerOpResult::DuplicateKey ? E::MapCollision : E::Unsupported,
-							.Reason = R::MapInsertion, .Message = std::format("Container insertion failed: {}", static_cast<uint32>(Insert))}};
+						C.Result = std::unexpected(FObjectReplacementError{.Code = Insert == EContainerOpResult::DuplicateKey ? E::MapCollision : E::Unsupported,
+							.Reason = R::MapInsertion, .Cause = Insert});
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::MapTraversal, .Message = std::format("Container operation failed: {}", static_cast<uint32>(Result))}};
+				if (Result != EContainerOpResult::Success) return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::MapTraversal, .Cause = Result});
 				const auto Commit = Ops.Commit(P->GetValuePtr(Container, Index), Detached);
 				require(Commit == EContainerOpResult::Success);
 			}
@@ -270,13 +270,13 @@ namespace Durin
 	}
 
 	auto FObjectReplacementMap::Build(std::span<const FObjectReplacementPackagePair> Packages,
-		const FObjectReplacementBudget& Budget) -> FObjectReplacementMapResult
+		const FObjectReplacementBudget& Budget) -> std::expected<void, FObjectReplacementMapError>
 	{
 		CheckThread();
 		using R = EObjectReplacementMapReason;
 		size_t PackageIndex = 0;
 		auto Failure = [&](E Code, R Reason, const DObject* Object = nullptr,
-			uint64 ActualCount = 0, uint64 MaximumCount = 0) -> FObjectReplacementMapResult {
+			uint64 ActualCount = 0, uint64 MaximumCount = 0) -> std::expected<void, FObjectReplacementMapError> {
 			FObjectReplacementMapError Error;
 			Error.Code = Code;
 			Error.Reason = Reason;
@@ -284,7 +284,7 @@ namespace Durin
 			Error.ActualCount = ActualCount;
 			Error.MaximumCount = MaximumCount;
 			if (Object) Error.ObjectPath = Object->GetObjectPath();
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		};
 		FObjectReplacementMap Candidate;
 		if (Packages.empty() || Packages.size() > Budget.MaximumPackages)
@@ -321,8 +321,8 @@ namespace Durin
 				if (Replacement && !Replacement->IsA(Object->GetClass()))
 				{
 					auto Result = Failure(E::IncompatibleType, R::IncompatibleType, Object);
-					Result.Error.ExpectedType = Object->GetClass()->GetQualifiedName().ToString();
-					Result.Error.ActualType = Replacement->GetClass()->GetQualifiedName().ToString();
+					Result.error().ExpectedType = Object->GetClass()->GetQualifiedName().ToString();
+					Result.error().ActualType = Replacement->GetClass()->GetQualifiedName().ToString();
 					return Result;
 				}
 				Candidate.Indices.emplace(Object, Candidate.Entries.size());
@@ -335,7 +335,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FormatObjectReplacementMapError(const FObjectReplacementMapError& Error) -> std::string
+	auto ToString(const FObjectReplacementMapError& Error) -> std::string
 	{
 		switch (Error.Reason)
 		{
@@ -350,8 +350,15 @@ namespace Durin
 		return {};
 	}
 
-	auto FormatObjectReplacementError(const FObjectReplacementError& Error) -> std::string
+	auto ToString(const FObjectReplacementError& Error) -> std::string
 	{
+		if (!std::holds_alternative<std::monostate>(Error.Cause))
+			return std::visit([](const auto& Cause) -> std::string {
+				using T = std::decay_t<decltype(Cause)>;
+				if constexpr (std::is_same_v<T, std::monostate>) return {};
+				else if constexpr (std::is_same_v<T, EContainerOpResult>) return std::format("Container operation failed: {}", static_cast<uint32>(Cause));
+				else return ToString(Cause);
+			}, Error.Cause);
 		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Reason)
 		{
@@ -418,23 +425,23 @@ namespace Durin
 		uint64 MaximumSlots = 0;
 
 		auto ScanProperty(DObject* Owner, FProperty* P, void* Container, uint32 Index,
-			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth = 0) -> FObjectReplacementResult
+			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth = 0) -> std::expected<void, FObjectReplacementError>
 		{
 			return PropertyContext(ScanPropertyValue(Owner, P, Container, Index, Map,
 				bDetachedAncestor, Changed, Depth), P, Index, Owner);
 		}
 		auto ScanPropertyValue(DObject* Owner, FProperty* P, void* Container, uint32 Index,
-			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth) -> FObjectReplacementResult
+			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth) -> std::expected<void, FObjectReplacementError>
 		{
-			if (!P || Depth > 64) return {{.Code = E::Unsupported, .Reason = R::ReferenceMetadata,
-				.ActualCount = Depth, .MaximumCount = 64}};
+			if (!P || Depth > 64) return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::ReferenceMetadata,
+				.ActualCount = Depth, .MaximumCount = 64});
 			if (!HasReferenceMetadata(P)) return {};
 			if (P->GetKind() == K::Object)
 			{
 				auto* Property = static_cast<FObjectProperty*>(P);
 				DObject* Value = Property->GetObjectPropertyValue(Container, Index);
-				if (Edges.size() >= MaximumSlots) return {{.Code = E::BudgetExceeded, .Reason = R::ReferenceBudget,
-					.ActualCount = Edges.size() + 1, .MaximumCount = MaximumSlots}};
+				if (Edges.size() >= MaximumSlots) return std::unexpected(FObjectReplacementError{.Code = E::BudgetExceeded, .Reason = R::ReferenceBudget,
+					.ActualCount = Edges.size() + 1, .MaximumCount = MaximumSlots});
 				Edges.push_back({Owner, P, P->GetValuePtr(Container, Index), Value});
 				if (const auto* Entry = Map.Find(Value))
 				{
@@ -442,9 +449,9 @@ namespace Durin
 					if (Owner->IsTemplateObject()) return Fail(E::Unsupported, R::TemplateReference);
 					if (!Entry->Replacement) return Fail(E::UnmappedReference, R::ExternalUnmappedReference);
 					if (P->GetReferencedClass() && !Entry->Replacement->IsA(P->GetReferencedClass()))
-						return {{.Code = E::IncompatibleType, .Reason = R::ReferenceType,
+						return std::unexpected(FObjectReplacementError{.Code = E::IncompatibleType, .Reason = R::ReferenceType,
 							.ExpectedType = P->GetReferencedClass()->GetQualifiedName().ToString(),
-							.ActualType = Entry->Replacement->GetClass()->GetQualifiedName().ToString()}};
+							.ActualType = Entry->Replacement->GetClass()->GetQualifiedName().ToString()});
 					Changed = true;
 					if (!bDetachedAncestor) Slots.push_back({Property, Container, Index, Entry->Replacement});
 				}
@@ -454,7 +461,7 @@ namespace Durin
 			{
 				auto* Type = static_cast<FStructProperty*>(P)->GetStruct();
 				if (!Type) return Fail(E::Unsupported, R::StructMetadata);
-				FObjectReplacementResult Result;
+				std::expected<void, FObjectReplacementError> Result;
 				bool StructChanged = false;
 				Type->ForEachProperty([&](FProperty* Field) {
 					for (uint32 I = 0; Result && I < Field->GetArrayDim(); ++I)
@@ -471,7 +478,7 @@ namespace Durin
 			struct FContext
 			{
 				FImpl& Plan; DObject* Owner; FProperty* P; const FObjectReplacementMap& Map;
-				bool& Changed; FObjectReplacementResult Result; uint32 Depth;
+				bool& Changed; std::expected<void, FObjectReplacementError> Result; uint32 Depth;
 			} Context{*this, Owner, P, Map, LocalChanged, {}, Depth};
 			EContainerOpResult Traversal;
 			if (P->GetKind() == K::Array)
@@ -483,7 +490,7 @@ namespace Durin
 					auto& C = *static_cast<FContext*>(Raw);
 					C.Result = C.Plan.ScanProperty(C.Owner, static_cast<FArrayProperty*>(C.P)->GetInner(),
 						const_cast<void*>(Value), 0, C.Map, true, C.Changed, C.Depth + 1);
-					if (!C.Result) C.Result.Error.Route.insert(C.Result.Error.Route.begin(), std::to_string(ElementIndex));
+					if (!C.Result) C.Result.error().Route.insert(C.Result.error().Route.begin(), std::to_string(ElementIndex));
 					return bool(C.Result);
 				}, &Context, Index);
 			}
@@ -501,7 +508,7 @@ namespace Durin
 				}, &Context, Index);
 			}
 			if (!Context.Result) return Context.Result;
-			if (Traversal != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ReferenceTraversal, .Message = std::format("Reference traversal failed: {}", static_cast<uint32>(Traversal))}};
+			if (Traversal != EContainerOpResult::Success) return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::ReferenceTraversal, .Cause = Traversal});
 			Changed |= LocalChanged;
 			if (!LocalChanged || bDetachedAncestor) return {};
 			const bool bCanCommit = P->GetKind() == K::Array
@@ -511,7 +518,7 @@ namespace Durin
 			FContainerWrite Write{P, Container, Index, {}, {}};
 			auto Copied = Write.Before.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
 			if (Copied) Copied = Write.After.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
-			if (!Copied) return {{.Code = E::Unsupported, .Reason = R::ContainerCopy, .Message = FormatPropertyValueError(Copied.Error)}};
+			if (!Copied) return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::ContainerCopy, .Cause = Copied.error()});
 			if (!Equal(P, Container, Index, Write.Before.GetContainer(), Index))
 				return Fail(E::Unsupported, R::ContainerComparison);
 			auto Result = RewriteValue(P, Write.After.GetContainer(), Index, Map);
@@ -521,13 +528,13 @@ namespace Durin
 		}
 
 		auto Scan(const FObjectReplacementMap& Map,
-			std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants) -> FObjectReplacementResult
+			std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants) -> std::expected<void, FObjectReplacementError>
 		{
 			for (DObject* Owner : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 			{
 				if (!IsValid(Owner) || Map.Find(Owner)) continue;
 				const size_t Begin = Edges.size();
-				FObjectReplacementResult Result;
+				std::expected<void, FObjectReplacementError> Result;
 				bool Changed = false;
 				Owner->GetClass()->ForEachProperty([&](FProperty* P) {
 					for (uint32 I = 0; Result && I < P->GetArrayDim(); ++I)
@@ -550,7 +557,7 @@ namespace Durin
 					return Pair.second > Reflected[Pair.first];
 				});
 				if (Native && !std::ranges::any_of(Participants, [&](const auto& P) { return P->CoversNativeReferences(*Owner); }))
-					return FObjectReplacementResult{{.Code = E::Unsupported, .Reason = R::NativeOwnerParticipant, .ObjectPath = Owner->GetObjectPath()}};
+					return std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::NativeOwnerParticipant, .ObjectPath = Owner->GetObjectPath()});
 			}
 			return {};
 		}
@@ -585,15 +592,15 @@ namespace Durin
 		std::vector<uint64> PackageRevisions;
 		uint64 ArrayRevision = 0;
 
-		auto CheckStrongOwners(E Code, R Reason) const -> FObjectReplacementResult
+		auto CheckStrongOwners(E Code, R Reason) const -> std::expected<void, FObjectReplacementError>
 		{
 			for (const auto& Entry : Map.GetEntries())
 			{
 				uint64 Claimed = 1; // This operation pins every live object once.
 				for (const auto& P : Participants) Claimed += P->GetStrongReferenceCount(*Entry.Previous);
 				const uint64 Actual = Private::GetStrongObjectReferenceCount(FObjectKey(Entry.Previous));
-				if (Actual != Claimed) return {{.Code = Code, .Reason = Reason,
-					.ObjectPath = Entry.Previous->GetObjectPath(), .ActualCount = Actual, .ExpectedCount = Claimed}};
+				if (Actual != Claimed) return std::unexpected(FObjectReplacementError{.Code = Code, .Reason = Reason,
+					.ObjectPath = Entry.Previous->GetObjectPath(), .ActualCount = Actual, .ExpectedCount = Claimed});
 			}
 			return {};
 		}
@@ -615,14 +622,14 @@ namespace Durin
 
 	auto FObjectGraphReplacement::Prepare(std::span<const FObjectReplacementPackagePair> Packages,
 		std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants,
-		const FObjectReplacementBudget& Budget) -> FObjectReplacementResult
+		const FObjectReplacementBudget& Budget) -> std::expected<void, FObjectReplacementError>
 	{
 		CheckThread();
 		if (GReplacementActive || Impl->State != FImpl::EState::Empty) return Fail(E::Busy, R::AlreadyActive);
 		FExecutionScope Execution;
 		GReplacementActive = true;
 		size_t PreparedParticipants = 0;
-		auto Reject = [&](FObjectReplacementResult Result) {
+		auto Reject = [&](std::expected<void, FObjectReplacementError> Result) {
 			for (const auto& Pair : Impl->Packages) if (!Pair.Current) Pair.Prepared->ReleasePreparedPackageRegistration();
 			while (PreparedParticipants) Impl->Participants[--PreparedParticipants]->Abort();
 			Impl->Pins.clear();
@@ -634,21 +641,21 @@ namespace Durin
 		try
 		{
 			const auto MapResult = Impl->Map.Build(Packages, Budget);
-			if (!MapResult) return Reject({{.Code = MapResult.Error.Code,
-				.Reason = R::ReplacementMap, .Message = FormatObjectReplacementMapError(MapResult.Error)}});
-			FObjectReplacementResult Result;
+			if (!MapResult) return Reject(std::unexpected(FObjectReplacementError{.Code = MapResult.error().Code,
+				.Reason = R::ReplacementMap, .Cause = MapResult.error()}));
+			std::expected<void, FObjectReplacementError> Result;
 			Impl->Budget = Budget;
 			Impl->Packages.assign(Packages.begin(), Packages.end());
 			for (const auto& Pair : Packages)
 				if (!Pair.Current && !Pair.Prepared->ReservePreparedPackageRegistration())
-					return Reject(FObjectReplacementResult{{.Code = E::InvalidGraph, .Reason = R::PackageReservation, .ObjectPath = Pair.Prepared->GetPackagePath()}});
+					return Reject(std::unexpected(FObjectReplacementError{.Code = E::InvalidGraph, .Reason = R::PackageReservation, .ObjectPath = Pair.Prepared->GetPackagePath()}));
 			Impl->Participants.assign(Participants.begin(), Participants.end());
 			std::unordered_set<const IObjectReplacementParticipant*> Unique;
 			for (const auto& P : Impl->Participants)
 				if (!P || !Unique.insert(P.get()).second) return Reject(Fail(E::InvalidGraph, R::InvalidParticipant));
 			for (const auto& Entry : Impl->Map.GetEntries())
 				if (Entry.Previous->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-					return Reject(FObjectReplacementResult{{.Code = E::Unsupported, .Reason = R::RootedObject, .ObjectPath = Entry.Previous->GetObjectPath()}});
+					return Reject(std::unexpected(FObjectReplacementError{.Code = E::Unsupported, .Reason = R::RootedObject, .ObjectPath = Entry.Previous->GetObjectPath()}));
 			const auto PreparedObjects = Impl->Map.GetPreparedObjects();
 			const std::unordered_set<DObject*> PreparedSet(PreparedObjects.begin(), PreparedObjects.end());
 			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
@@ -669,7 +676,7 @@ namespace Durin
 				Result = P->Prepare(Impl->Map);
 				if (!Result)
 				{
-					Result.Error.ParticipantIndex = PreparedParticipants - 1;
+					Result.error().ParticipantIndex = PreparedParticipants - 1;
 					return Reject(std::move(Result));
 				}
 			}
@@ -685,23 +692,23 @@ namespace Durin
 		catch (...) { return Reject(Fail(E::ParticipantRejected, R::PrepareException)); }
 	}
 
-	auto FObjectGraphReplacement::TryCommit(const std::function<FObjectReplacementResult()>& Persist) -> FObjectReplacementResult
+	auto FObjectGraphReplacement::TryCommit(const std::function<std::expected<void, FObjectReplacementError>()>& Persist) -> std::expected<void, FObjectReplacementError>
 	{
 		CheckThread();
 		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return Fail(E::Busy, R::NotPrepared);
 		FExecutionScope Execution;
 		try
 		{
-			if (GDObjectArray.GetRevision() != Impl->ArrayRevision) return {{.Code = E::Stale, .Reason = R::ObjectMembershipChanged,
-				.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision}};
+			if (GDObjectArray.GetRevision() != Impl->ArrayRevision) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectMembershipChanged,
+				.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision});
 			for (const auto& [Handle, Path] : Impl->Identities)
 			{
 				DObject* Object = ResolveObjectKey(Handle);
-				if (!IsValid(Object) || Object->GetObjectPath() != Path) return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::ObjectIdentityChanged, .ObjectPath = Path}};
+				if (!IsValid(Object) || Object->GetObjectPath() != Path) return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectIdentityChanged, .ObjectPath = Path});
 			}
 			for (const auto& Entry : Impl->Map.GetEntries())
 				if (Entry.Previous->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-					return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::ObjectRootChanged, .ObjectPath = Entry.Previous->GetObjectPath()}};
+					return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ObjectRootChanged, .ObjectPath = Entry.Previous->GetObjectPath()});
 			for (size_t I = 0; I < Impl->Packages.size(); ++I)
 			{
 				const auto& Pair = Impl->Packages[I];
@@ -709,11 +716,11 @@ namespace Durin
 					|| !Pair.Prepared->IsPreparedAssetPackage()
 					|| (Pair.Current && Pair.Current->GetEditRevision() != Impl->PackageRevisions[I * 2])
 					|| Pair.Prepared->GetEditRevision() != Impl->PackageRevisions[I * 2 + 1])
-					return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::PackageChanged, .ObjectPath = Pair.Prepared->GetPackagePath()}};
+					return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::PackageChanged, .ObjectPath = Pair.Prepared->GetPackagePath()});
 			}
 			for (size_t I = 0; I < Impl->Participants.size(); ++I)
-				if (!Impl->Participants[I]->Validate()) return {{.Code = E::Stale,
-					.Reason = R::ParticipantChanged, .ParticipantIndex = I}};
+				if (!Impl->Participants[I]->Validate()) return std::unexpected(FObjectReplacementError{.Code = E::Stale,
+					.Reason = R::ParticipantChanged, .ParticipantIndex = I});
 			if (auto Owners = Impl->CheckStrongOwners(E::Stale, R::StrongOwnerChanged); !Owners) return Owners;
 			FObjectReferenceReplacementPlan Fresh;
 			Fresh.Impl->MaximumSlots = Impl->Budget.MaximumReferenceSlots;
@@ -724,8 +731,8 @@ namespace Durin
 				if (!Equal(Write.Property, Write.Container, Write.Index, Write.Before.GetContainer(), Write.Index))
 					return PropertyContext(Fail(E::Stale, R::ContainerChanged), Write.Property, Write.Index);
 			if (GDObjectArray.GetRevision() != Impl->ArrayRevision)
-				return {{.Code = E::Stale, .Reason = R::ValidationMutation,
-					.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision}};
+				return std::unexpected(FObjectReplacementError{.Code = E::Stale, .Reason = R::ValidationMutation,
+					.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision});
 			if (auto Owners = Impl->CheckStrongOwners(E::Stale, R::ValidationMutation); !Owners) return Owners;
 			// All fallible traversal, copies, collision checks and participant validation precede this call.
 			if (Persist)

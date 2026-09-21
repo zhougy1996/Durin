@@ -115,12 +115,12 @@ namespace Durin::Editor::Material
 			FObjectPath BoxPath;
 			if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
 			{
-				Error = FormatObjectError(Validation.Error);
+				Error = ToString(Validation.error());
 				return;
 			}
 			if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(FPreviewMeshResources::BoxAssetPath, BoxPath); !Validation)
 			{
-				Error = FormatObjectError(Validation.Error);
+				Error = ToString(Validation.error());
 				return;
 			}
 			if (!::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)

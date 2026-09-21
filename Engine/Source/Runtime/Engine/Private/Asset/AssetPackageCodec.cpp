@@ -25,20 +25,20 @@ namespace Durin::AssetPrivate
 					.SupportedRequiredFeatures = 0,
 					.Limits = PackageEnvelopeLimits}};
 				FBinaryFormatRegistry Result;
-				const bool bCreated = FBinaryFormatRegistry::Create(Descriptors, Result);
+				const auto bCreated = FBinaryFormatRegistry::Create(Descriptors, Result);
 				require(bCreated);
 				return Result;
 			}();
 			return Registry;
 		}
 
-		auto EnvelopeError(const FBinaryEnvelopeDiagnostic& Diagnostic) -> FAssetReadResult
+		auto EnvelopeError(EBinaryEnvelopeError Error) -> FAssetReadResult
 		{
-			const bool bUnsupported = Diagnostic.Error == EBinaryEnvelopeError::UnknownFormat
-				|| Diagnostic.Error == EBinaryEnvelopeError::UnsupportedFormatVersion
-				|| Diagnostic.Error == EBinaryEnvelopeError::UnsupportedRequiredFeatures;
+			const bool bUnsupported = Error == EBinaryEnvelopeError::UnknownFormat
+				|| Error == EBinaryEnvelopeError::UnsupportedFormatVersion
+				|| Error == EBinaryEnvelopeError::UnsupportedRequiredFeatures;
 			return {bUnsupported ? EAssetReadError::UnsupportedVersion : EAssetReadError::CorruptFile,
-				std::string(Diagnostic.Message)};
+				std::string(Durin::ToString(Error))};
 		}
 		auto ReadAssetPackageFormatVersion(
 			FByteView Bytes, uint32& OutFormatVersion,
@@ -63,18 +63,15 @@ namespace Durin::AssetPrivate
 			if (Magic != DurfMagic)
 				return {EAssetReadError::CorruptFile, "Invalid asset magic."};
 			FBinaryEnvelopePreamble EnvelopePreamble;
-			FBinaryEnvelopeDiagnostic Diagnostic;
+			std::expected<void, EBinaryEnvelopeError> Diagnostic;
 			const uint64 FileBytes = PhysicalFileBytes == 0 ? Bytes.size() : PhysicalFileBytes;
-			if (!ParseBinaryEnvelopePrefix(
-				Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
-				return EnvelopeError(Diagnostic);
+			if (!(Diagnostic = ParseBinaryEnvelopePrefix(Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble)))
+				return EnvelopeError(Diagnostic.error());
 			if (EnvelopePreamble.HeaderBytes > Bytes.size())
 				return {EAssetReadError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
 			FValidatedBinaryEnvelope Envelope;
-			if (!ValidateBinaryEnvelopeHeader(
-				Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes,
-				PackageEnvelopeLimits, GetPackageFormatRegistry(), Envelope, &Diagnostic))
-				return EnvelopeError(Diagnostic);
+			if (!(Diagnostic = ValidateBinaryEnvelopeHeader(Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes, PackageEnvelopeLimits, GetPackageFormatRegistry(), Envelope)))
+				return EnvelopeError(Diagnostic.error());
 			OutFormatVersion = Envelope.Preamble.FormatVersion;
 			return {};
 		}
@@ -146,9 +143,8 @@ namespace Durin::AssetPrivate
 				std::format("Unsupported legacy DAST prefix version {}.", LegacyVersion)};
 		}
 		FBinaryEnvelopePreamble Preamble;
-		FBinaryEnvelopeDiagnostic Diagnostic;
-		if (!ParseBinaryEnvelopePrefix(Prefix, Source.GetSize(), PackageEnvelopeLimits,
-			Preamble, &Diagnostic)) return EnvelopeError(Diagnostic);
+		std::expected<void, EBinaryEnvelopeError> Diagnostic;
+		if (!(Diagnostic = ParseBinaryEnvelopePrefix(Prefix, Source.GetSize(), PackageEnvelopeLimits, Preamble))) return EnvelopeError(Diagnostic.error());
 		if (Preamble.HeaderBytes > std::numeric_limits<size_t>::max())
 			return {EAssetReadError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
 		if (IsCancelled && IsCancelled())

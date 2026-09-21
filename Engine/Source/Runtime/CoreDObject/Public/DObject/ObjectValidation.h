@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "CoreDObjectAPI.h"
 
 namespace Durin
@@ -30,20 +31,14 @@ namespace Durin
 		std::shared_ptr<const IObjectValidationCause> Cause;
 		std::string Message;
 	};
-	struct FObjectValidationResult
+	inline auto RejectLoadedObjectGraph(std::string ObjectPath, std::string Message) -> std::expected<void, FObjectValidationError>
 	{
-		FObjectValidationError Error;
-		auto Succeeded() const -> bool { return Error.Code == EObjectValidationError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	inline auto RejectLoadedObjectGraph(std::string ObjectPath, std::string Message) -> FObjectValidationResult
-	{
-		return {{.Code = EObjectValidationError::ModuleRejected,
-			.ObjectPath = std::move(ObjectPath), .Message = std::move(Message)}};
+		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::ModuleRejected,
+			.ObjectPath = std::move(ObjectPath), .Message = std::move(Message)});
 	}
 	class DObject;
 	struct FPropertyEditProposal;
 	COREDOBJECT_API auto RejectPropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal,
-		EPropertyEditRejection Reason, std::shared_ptr<const IObjectValidationCause> Cause = {}) -> FObjectValidationResult;
-	COREDOBJECT_API auto FormatObjectValidationError(const FObjectValidationError& Error) -> std::string;
+		EPropertyEditRejection Reason, std::shared_ptr<const IObjectValidationCause> Cause = {}) -> std::expected<void, FObjectValidationError>;
+	COREDOBJECT_API auto ToString(const FObjectValidationError& Error) -> std::string;
 }

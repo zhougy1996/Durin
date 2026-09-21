@@ -116,29 +116,29 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto FLinkerTables::TryResolvePath(FPackageIndex Index, std::string& Out) const -> FLinkerResult
+	auto FLinkerTables::TryResolvePath(FPackageIndex Index, std::string& Out) const -> std::expected<void, FLinkerError>
 	{
 		std::vector<FPackageIndex> Chain;
 		FPackageIndex Current = Index;
 		while (!Current.IsNull())
 		{
 			if (Chain.size() > Imports.size() + Exports.size())
-				return {{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()}};
+				return std::unexpected(FLinkerError{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()});
 			if (std::ranges::find(Chain, Current) != Chain.end())
-				return {{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()}};
+				return std::unexpected(FLinkerError{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()});
 			Chain.push_back(Current);
 			if (Current.IsImport())
 			{
 				const FPackageImport* Import = nullptr;
 				if (!TryGetImport(Current, Import))
-					return {{ELinkerError::ImportIndexOutOfRange, Index, Current, Imports.size()}};
+					return std::unexpected(FLinkerError{ELinkerError::ImportIndexOutOfRange, Index, Current, Imports.size()});
 				Current = Import->Outer;
 			}
 			else
 			{
 				const FPackageExport* Export = nullptr;
 				if (!TryGetExport(Current, Export))
-					return {{ELinkerError::ExportIndexOutOfRange, Index, Current, Exports.size()}};
+					return std::unexpected(FLinkerError{ELinkerError::ExportIndexOutOfRange, Index, Current, Exports.size()});
 				Current = Export->Outer;
 			}
 		}
@@ -161,7 +161,7 @@ namespace Durin::ObjectPackage
 		return {};
 	}
 
-	auto FormatLinkerError(const FLinkerError& Error) -> std::string
+	auto ToString(const FLinkerError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{

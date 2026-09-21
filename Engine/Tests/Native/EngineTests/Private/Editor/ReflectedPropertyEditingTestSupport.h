@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "PropertyEditor/PropertyEditing.h"
 #include "Transactions/Transaction.h"
@@ -103,14 +104,14 @@ namespace
 			: DObject(Initializer)
 		{}
 
-		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> Durin::FObjectValidationResult override
+		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> override
 		{
 			++PreChangeCount;
 			LastProposalPhase = Proposal.Phase;
 			LastProposalOrigin = Proposal.Origin;
 			LastProposalKind = Proposal.Kind;
 			bLastProposalHadLeaf = Proposal.DraftLeafContainer != nullptr;
-			return PreChange ? PreChange(Proposal) : Durin::FObjectValidationResult{};
+			return PreChange ? PreChange(Proposal) : std::expected<void, Durin::FObjectValidationError>{};
 		}
 
 		auto PostEditChangeProperty(const Durin::FPropertyChangedEvent& Event) -> void override
@@ -130,7 +131,7 @@ namespace
 		}
 
 		std::vector<FCapturedChange> Changes;
-		std::function<Durin::FObjectValidationResult(Durin::FPropertyEditProposal&)> PreChange;
+		std::function<std::expected<void, Durin::FObjectValidationError>(Durin::FPropertyEditProposal&)> PreChange;
 		uint32 PreChangeCount = 0;
 		Durin::EPropertyChangePhase LastProposalPhase = Durin::EPropertyChangePhase::Interactive;
 		Durin::EPropertyChangeOrigin LastProposalOrigin = Durin::EPropertyChangeOrigin::Edit;
@@ -235,7 +236,7 @@ namespace
 		auto Get() const -> DEditObserver* { return ManagedObject; }
 
 		std::vector<FCapturedChange>& Changes;
-		std::function<Durin::FObjectValidationResult(Durin::FPropertyEditProposal&)>& PreChange;
+		std::function<std::expected<void, Durin::FObjectValidationError>(Durin::FPropertyEditProposal&)>& PreChange;
 	};
 
 	auto MakeValueProperty() -> std::unique_ptr<Durin::FNumericProperty>

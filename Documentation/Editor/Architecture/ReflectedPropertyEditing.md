@@ -130,7 +130,7 @@ does not silently clamp an older stored value.
 ## Object Notification Contract
 
 `DObject::PreEditChangeProperty(FPropertyEditProposal&)` returns
-`FObjectValidationResult` from synchronous validation and normalization. Rejections
+`std::expected<void, FObjectValidationError>` from synchronous validation and normalization. Rejections
 own the object/property identity and reason; Engine and RoadWeaver retain their
 module-owned typed causes. Pending editor result adapters format explicitly. The proposal
 contains the complete mutable detached snapshot root, a resolved draft leaf,
@@ -257,7 +257,7 @@ must first demonstrate that this split is impossible before a new policy
 contract is introduced.
 
 Interactive validation may defer publication while domain work completes.
-Deferred completion carries `FObjectValidationResult`; the session logs its
+Deferred completion carries `std::expected<void, FObjectValidationError>`; the session logs its
 formatted cause on rejection and never branches on text. Texture2D owns the
 object/property identity and nested compilation cause before scheduling work,
 so deferred failure context does not borrow proposal storage. Cancellation

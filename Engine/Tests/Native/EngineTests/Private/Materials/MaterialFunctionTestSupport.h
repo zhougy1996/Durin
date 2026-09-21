@@ -56,7 +56,7 @@ namespace
 		FFunctionTestExpressions Graph;
 		Graph.Signature = Function.GetFunctionSignature();
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).Object);
+			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
 		return Graph;
 	}
 
@@ -114,7 +114,7 @@ namespace
 		using namespace Durin;
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
 		for (const auto& Expression : Caller.GetExpressionCollection().Expressions)
-			Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
+			Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
 		const FGuid CallId{0x538d091e, 1, 2, static_cast<uint32>(Expressions.size() + 1)};
 		const auto& Output = Callee.GetFunctionSignature().Outputs[0];
 		auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>(CallId);

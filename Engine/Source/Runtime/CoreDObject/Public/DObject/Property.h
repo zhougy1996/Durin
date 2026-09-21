@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/PropertyDiagnostic.h"
@@ -135,12 +136,12 @@ namespace Durin
 			return IdenticalBulkDataValueFunction(Left, Right);
 		}
 
-		COREDOBJECT_API auto InitializeValue(void* Memory) const -> FPropertyValueResult;
+		COREDOBJECT_API auto InitializeValue(void* Memory) const -> std::expected<void, FPropertyValueError>;
 		COREDOBJECT_API auto DestroyValue(void* Memory) const -> void;
 		COREDOBJECT_API auto CopyConstructValue(
-			void* Destination, const void* Source) const -> FPropertyValueResult;
+			void* Destination, const void* Source) const -> std::expected<void, FPropertyValueError>;
 		COREDOBJECT_API auto CopyAssignValue(
-			void* Destination, const void* Source) const -> FPropertyValueResult;
+			void* Destination, const void* Source) const -> std::expected<void, FPropertyValueError>;
 
 		template<typename T>
 		auto ContainerPtrToValuePtr(void* Container, uint32 ArrayIndex = 0) const -> T*
@@ -190,11 +191,11 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FReflectedValueStorage&& Other) noexcept -> FReflectedValueStorage&;
 
 		COREDOBJECT_API auto DefaultConstruct(
-			const FProperty* InProperty, uint32 InArrayIndex = 0) -> FPropertyValueResult;
+			const FProperty* InProperty, uint32 InArrayIndex = 0) -> std::expected<void, FPropertyValueError>;
 		COREDOBJECT_API auto CopyConstruct(
 			const FProperty* InProperty, const void* SourceValue,
-			uint32 InArrayIndex = 0) -> FPropertyValueResult;
-		COREDOBJECT_API auto CopyAssign(const void* SourceValue) -> FPropertyValueResult;
+			uint32 InArrayIndex = 0) -> std::expected<void, FPropertyValueError>;
+		COREDOBJECT_API auto CopyAssign(const void* SourceValue) -> std::expected<void, FPropertyValueError>;
 		COREDOBJECT_API auto Reset() -> void;
 
 		auto IsLive() const -> bool { return bLive; }
@@ -204,8 +205,8 @@ namespace Durin
 		auto GetArrayIndex() const -> uint32 { return ArrayIndex; }
 
 	private:
-		auto Allocate(const FProperty* InProperty, uint32 InArrayIndex) -> FPropertyValueResult;
-		auto Fail(EPropertyValueError Code, EPropertyValueOperation Operation, uint32 RequestedIndex) const -> FPropertyValueResult;
+		auto Allocate(const FProperty* InProperty, uint32 InArrayIndex) -> std::expected<void, FPropertyValueError>;
+		auto Fail(EPropertyValueError Code, EPropertyValueOperation Operation, uint32 RequestedIndex) const -> std::expected<void, FPropertyValueError>;
 
 		const FProperty* Property = nullptr;
 		uint32 ArrayIndex = 0;
@@ -220,7 +221,7 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex = 0
-	) -> FPropertyEditValueResult;
+	) -> std::expected<void, FPropertyEditValueError>;
 
 	// Distinguishes an authored value difference from unavailable comparison semantics.
 	enum class EPropertyIdentityResult : uint8

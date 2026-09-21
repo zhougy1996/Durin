@@ -57,8 +57,8 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Object, Property), "Validated Edit", Transactions.Get()));
 
-	Object->PreChange = [](Durin::FPropertyEditProposal&) -> Durin::FObjectValidationResult {
-		return {{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected}};
+	Object->PreChange = [](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
+		return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected});
 	};
 	std::string Error;
 	Object->Value = 19;
@@ -73,7 +73,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	EXPECT_TRUE(Object->Changes.empty());
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 
-	Object->PreChange = [Property](Durin::FPropertyEditProposal& Proposal) -> Durin::FObjectValidationResult {
+	Object->PreChange = [Property](Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> {
 		auto* Value = Property->ContainerPtrToValuePtr<int32>(Proposal.DraftLeafContainer, Proposal.DraftLeafArrayIndex);
 		*Value = std::clamp(*Value, 0, 10);
 		return {};
@@ -102,7 +102,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 	const Durin::FPropertyValueSnapshot NestedProposal = CaptureValue(Property.get(), Container, 6);
 	Durin::Editor::EPropertyEditResult NestedResult = Durin::Editor::EPropertyEditResult::Changed;
 	std::string NestedError;
-	Object.PreChange = [&](Durin::FPropertyEditProposal&) -> Durin::FObjectValidationResult {
+	Object.PreChange = [&](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
 		const auto EditResult2 = Session.Apply(NestedProposal);
 		NestedError = EditResult2.Message;
 		NestedResult = EditResult2.GetStatus();
@@ -172,8 +172,8 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
 	FManagedEditObserver Object;
-	Object.PreChange = [](Durin::FPropertyEditProposal&) -> Durin::FObjectValidationResult {
-		return {{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected}};
+	Object.PreChange = [](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
+		return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected});
 	};
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
@@ -197,10 +197,10 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	FValueContainer Container{5};
 	FManagedEditObserver Object;
 	bool bAllowRestore = false;
-	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal) -> Durin::FObjectValidationResult {
+	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> {
 		if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
 		{
-			return {{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected}};
+			return std::unexpected(Durin::FObjectValidationError{.Code = Durin::EObjectValidationError::PropertyRejected, .PropertyReason = Durin::EPropertyEditRejection::Rejected});
 		}
 		return {};
 	};

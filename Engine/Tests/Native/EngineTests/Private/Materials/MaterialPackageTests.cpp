@@ -160,7 +160,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	EXPECT_FALSE(ContainsSerializedField(Linker, "ExpressionOutputs"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "Program"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "FunctionCalls"));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions").Object);
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions").value());
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Duplicate));
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions.front().Get(), Material->GetExpressionCollection().Expressions.front().Get());
 	MarkObjectHierarchyAsGarbage(Duplicate);
@@ -298,7 +298,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	auto* Instance = NewObject<DMaterialInstance>(Base->GetPackage(), "Overrides");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), .25f));
-	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides").Object);
+	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides").value());
 	ASSERT_NE(Copy, nullptr);
 	float Opacity = 0;
 	ASSERT_TRUE(Copy->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
@@ -397,7 +397,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		{
 			EXPECT_EQ(Function->GetFunctionSignature(), ExpectedSignature);
 			EXPECT_EQ(Function->GetExpressionCollection().Expressions.size(), ExpectedExpressionCount);
-			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None).Object);
+			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None).value());
 			ASSERT_NE(Copy, nullptr);
 			EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), Function->GetExpressionCollection().Expressions.size());
 			EXPECT_EQ(Copy->GetFunctionSignature(), ExpectedSignature);

@@ -49,7 +49,7 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto ValidateScalarMetadata(const FPropertyMetadata& Metadata, const void* Value) -> FPropertyEditValueResult
+		auto ValidateScalarMetadata(const FPropertyMetadata& Metadata, const void* Value) -> std::expected<void, FPropertyEditValueError>
 		{
 			const T Current = *static_cast<const T*>(Value);
 			FPropertyEditValueError Error{.Minimum = Metadata.ClampMin, .Maximum = Metadata.ClampMax};
@@ -67,13 +67,14 @@ namespace Durin
 				&& Current < MetadataNumberAs<T>(Metadata.ClampMin)) Error.Code = EPropertyEditValueError::BelowMinimum;
 			if (Error.Code == EPropertyEditValueError::None && Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None
 				&& Current > MetadataNumberAs<T>(Metadata.ClampMax)) Error.Code = EPropertyEditValueError::AboveMaximum;
-			return {std::move(Error)};
+			if (Error.Code == EPropertyEditValueError::None) return {};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto ValidateMetadataValue(const FProperty* Property, const FPropertyMetadata& Metadata,
-			const void* Value) -> FPropertyEditValueResult
+			const void* Value) -> std::expected<void, FPropertyEditValueError>
 		{
-			auto Result = [&]() -> FPropertyEditValueResult {
+			auto Result = [&]() -> std::expected<void, FPropertyEditValueError> {
 				switch (Property->GetKind())
 				{
 				case DurinCodeGen::EPropertyGenFlags::Int8: return ValidateScalarMetadata<int8>(Metadata, Value);
@@ -89,8 +90,8 @@ namespace Durin
 				case DurinCodeGen::EPropertyGenFlags::Struct:
 				{
 					auto* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
-					if (!Struct) return {{.Code = EPropertyEditValueError::MissingStruct}};
-					FPropertyEditValueResult Nested;
+					if (!Struct) return std::unexpected(FPropertyEditValueError{.Code = EPropertyEditValueError::MissingStruct});
+					std::expected<void, FPropertyEditValueError> Nested;
 					Struct->ForEachProperty([&](FProperty* Field) {
 						if (Nested && Field) Nested = ValidateMetadataValue(Field, Metadata, Field->GetValuePtr(Value));
 					}, false);
@@ -101,14 +102,14 @@ namespace Durin
 			}();
 			if (!Result)
 			{
-				if (Result.Error.PropertyName.empty()) Result.Error.PropertyName = Property->NamePrivate.ToString();
-				Result.Error.Route.insert(Result.Error.Route.begin(), Property->NamePrivate.ToString());
+				if (Result.error().PropertyName.empty()) Result.error().PropertyName = Property->NamePrivate.ToString();
+				Result.error().Route.insert(Result.error().Route.begin(), Property->NamePrivate.ToString());
 			}
 			return Result;
 		}
 	}
 
-	auto FormatPropertyEditValueError(const FPropertyEditValueError& Error) -> std::string
+	auto ToString(const FPropertyEditValueError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{
@@ -122,12 +123,12 @@ namespace Durin
 	}
 
 	auto ValidatePropertyEditValue(const FProperty* Property, const void* Container,
-		uint32 ArrayIndex) -> FPropertyEditValueResult
+		uint32 ArrayIndex) -> std::expected<void, FPropertyEditValueError>
 	{
-		FPropertyEditValueResult Result;
-		if (!Property) Result.Error.Code = EPropertyEditValueError::NullProperty;
-		else if (!Container) Result.Error.Code = EPropertyEditValueError::NullContainer;
-		else if (ArrayIndex >= Property->GetArrayDim()) Result.Error.Code = EPropertyEditValueError::InvalidArrayIndex;
+		std::expected<void, FPropertyEditValueError> Result;
+		if (!Property) Result = std::unexpected(FPropertyEditValueError{.Code = EPropertyEditValueError::NullProperty});
+		else if (!Container) Result = std::unexpected(FPropertyEditValueError{.Code = EPropertyEditValueError::NullContainer});
+		else if (ArrayIndex >= Property->GetArrayDim()) Result = std::unexpected(FPropertyEditValueError{.Code = EPropertyEditValueError::InvalidArrayIndex});
 		else
 		{
 			const auto& Metadata = Property->GetTypedMetadata();
@@ -137,11 +138,11 @@ namespace Durin
 		}
 		if (!Result)
 		{
-			Result.Error.ArrayIndex = ArrayIndex;
+			Result.error().ArrayIndex = ArrayIndex;
 			if (Property)
 			{
-				Result.Error.ArrayDim = Property->GetArrayDim();
-				if (Result.Error.PropertyName.empty()) Result.Error.PropertyName = Property->NamePrivate.ToString();
+				Result.error().ArrayDim = Property->GetArrayDim();
+				if (Result.error().PropertyName.empty()) Result.error().PropertyName = Property->NamePrivate.ToString();
 			}
 		}
 		return Result;
@@ -202,7 +203,7 @@ namespace Durin
 		}
 
 		auto PropertyValueFailure(const FProperty* Property, EPropertyValueError Code,
-			EPropertyValueOperation Operation, uint32 ArrayIndex = 0) -> FPropertyValueResult
+			EPropertyValueOperation Operation, uint32 ArrayIndex = 0) -> std::expected<void, FPropertyValueError>
 		{
 			FPropertyValueError Error;
 			Error.Code = Code;
@@ -217,12 +218,12 @@ namespace Durin
 				if (const auto* Struct = GetPropertyStruct(Property))
 					Error.StructName = Struct->GetQualifiedName().ToString();
 			}
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto ContainerFailure(const FProperty* Property, EPropertyContainerOperation Operation,
 			uint32 Index, EContainerOpResult Code, const FProperty* ValueProperty = nullptr,
-			EPropertyContainerRequirement Requirement = EPropertyContainerRequirement::None) -> FPropertyContainerResult
+			EPropertyContainerRequirement Requirement = EPropertyContainerRequirement::None) -> std::expected<void, FPropertyContainerError>
 		{
 			FPropertyContainerError Error{.Code = Code, .Operation = Operation, .Requirement = Requirement,
 				.PropertyName = Property->NamePrivate.ToString(), .ArrayIndex = Index, .ArrayDim = Property->GetArrayDim()};
@@ -231,7 +232,7 @@ namespace Durin
 				Error.ValuePropertyName = ValueProperty->NamePrivate.ToString();
 				if (auto* Struct = GetPropertyStruct(ValueProperty)) Error.StructName = Struct->GetQualifiedName().ToString();
 			}
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		struct FPropertyIdentityContext
@@ -316,7 +317,7 @@ namespace Durin
 			FIdentityMapEntry Entry{Key, Value, {}};
 			if (const auto Result = BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.KeyToken); !Result)
 			{
-				Context.Error = Result.Error;
+				Context.Error = Result.error();
 				Context.bSucceeded = false;
 				return false;
 			}
@@ -818,7 +819,7 @@ namespace Durin
 		return CopyAssignValueFunction != nullptr;
 	}
 
-	auto FProperty::InitializeValue(void* Memory) const -> FPropertyValueResult
+	auto FProperty::InitializeValue(void* Memory) const -> std::expected<void, FPropertyValueError>
 	{
 		if (!Memory) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::DefaultConstruct);
 		if (!CanDefaultConstructValue() || !CanDestroyValue())
@@ -879,7 +880,7 @@ namespace Durin
 		}
 	}
 
-	auto FProperty::CopyConstructValue(void* Destination, const void* Source) const -> FPropertyValueResult
+	auto FProperty::CopyConstructValue(void* Destination, const void* Source) const -> std::expected<void, FPropertyValueError>
 	{
 		if (!Destination || !Source) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::CopyConstruct);
 		if (!CanCopyConstructValue() || !CanDestroyValue())
@@ -898,7 +899,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FProperty::CopyAssignValue(void* Destination, const void* Source) const -> FPropertyValueResult
+	auto FProperty::CopyAssignValue(void* Destination, const void* Source) const -> std::expected<void, FPropertyValueError>
 	{
 		if (!Destination || !Source) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::CopyAssign);
 		if (!CanCopyAssignValue())
@@ -953,7 +954,7 @@ namespace Durin
 		return *this;
 	}
 
-	auto FReflectedValueStorage::Allocate(const FProperty* InProperty, uint32 InArrayIndex) -> FPropertyValueResult
+	auto FReflectedValueStorage::Allocate(const FProperty* InProperty, uint32 InArrayIndex) -> std::expected<void, FPropertyValueError>
 	{
 		Property = InProperty;
 		using C = EPropertyValueError;
@@ -971,7 +972,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FReflectedValueStorage::DefaultConstruct(const FProperty* InProperty, uint32 InArrayIndex) -> FPropertyValueResult
+	auto FReflectedValueStorage::DefaultConstruct(const FProperty* InProperty, uint32 InArrayIndex) -> std::expected<void, FPropertyValueError>
 	{
 		using C = EPropertyValueError;
 		constexpr auto Op = EPropertyValueOperation::DefaultConstruct;
@@ -983,7 +984,7 @@ namespace Durin
 		if (auto Result = Allocate(InProperty, InArrayIndex); !Result) return Result;
 		if (auto Result = Property->InitializeValue(Value); !Result)
 		{
-			Result.Error.ArrayIndex = InArrayIndex;
+			Result.error().ArrayIndex = InArrayIndex;
 			Reset();
 			return Result;
 		}
@@ -992,7 +993,7 @@ namespace Durin
 	}
 
 	auto FReflectedValueStorage::CopyConstruct(const FProperty* InProperty, const void* SourceValue,
-		uint32 InArrayIndex) -> FPropertyValueResult
+		uint32 InArrayIndex) -> std::expected<void, FPropertyValueError>
 	{
 		using C = EPropertyValueError;
 		constexpr auto Op = EPropertyValueOperation::CopyConstruct;
@@ -1005,7 +1006,7 @@ namespace Durin
 		if (auto Result = Allocate(InProperty, InArrayIndex); !Result) return Result;
 		if (auto Result = Property->CopyConstructValue(Value, SourceValue); !Result)
 		{
-			Result.Error.ArrayIndex = InArrayIndex;
+			Result.error().ArrayIndex = InArrayIndex;
 			Reset();
 			return Result;
 		}
@@ -1013,7 +1014,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FReflectedValueStorage::CopyAssign(const void* SourceValue) -> FPropertyValueResult
+	auto FReflectedValueStorage::CopyAssign(const void* SourceValue) -> std::expected<void, FPropertyValueError>
 	{
 		using C = EPropertyValueError;
 		constexpr auto Op = EPropertyValueOperation::CopyAssign;
@@ -1021,7 +1022,7 @@ namespace Durin
 		if (!SourceValue) return Fail(C::NullValue, Op, ArrayIndex);
 		if (!Property->CanCopyAssignValue()) return Fail(C::UnavailableOperation, Op, ArrayIndex);
 		auto Result = Property->CopyAssignValue(Value, SourceValue);
-		if (!Result) Result.Error.ArrayIndex = ArrayIndex;
+		if (!Result) Result.error().ArrayIndex = ArrayIndex;
 		return Result;
 	}
 
@@ -1038,12 +1039,12 @@ namespace Durin
 	}
 
 	auto FReflectedValueStorage::Fail(EPropertyValueError Code, EPropertyValueOperation Operation,
-		uint32 RequestedIndex) const -> FPropertyValueResult
+		uint32 RequestedIndex) const -> std::expected<void, FPropertyValueError>
 	{
 		return PropertyValueFailure(Property, Code, Operation, RequestedIndex);
 	}
 
-	auto FormatPropertyValueError(const FPropertyValueError& Error) -> std::string
+	auto ToString(const FPropertyValueError& Error) -> std::string
 	{
 		if (!Error.HasError()) return {};
 		if (Error.Code == EPropertyValueError::CopyFailed)
@@ -1630,7 +1631,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FormatPropertyContainerError(const FPropertyContainerError& Error) -> std::string
+	auto ToString(const FPropertyContainerError& Error) -> std::string
 	{
 		if (Error.Code == EContainerOpResult::Success) return {};
 		std::string_view Requirement;
@@ -1649,12 +1650,12 @@ namespace Durin
 		return std::format("Reflected container '{}' operation failed, code={}.", Error.PropertyName, static_cast<uint32>(Error.Code));
 	}
 
-	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex) const -> FPropertyContainerResult
+	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex) const -> std::expected<void, FPropertyContainerError>
 	{
 		using R = EPropertyContainerRequirement;
 		auto Fail = [&](EContainerOpResult Code, R Requirement = R::None) {
 			auto Result = ContainerFailure(this, EPropertyContainerOperation::Resize, ArrayIndex, Code, Inner, Requirement);
-			Result.Error.RequestedCount = Num;
+			Result.error().RequestedCount = Num;
 			return Result;
 		};
 		if (!Container || !Inner) return Fail(EContainerOpResult::InvalidInput);
@@ -1662,11 +1663,11 @@ namespace Durin
 		if (!HasArrayOps()) return Fail(EContainerOpResult::Unsupported);
 		uint64 CurrentNum = 0;
 		if (auto Code = GetNum(Container, CurrentNum, ArrayIndex); Code != EContainerOpResult::Success) return Fail(Code);
-		FPropertyContainerResult Result;
+		std::expected<void, FPropertyContainerError> Result;
 		if (Num != CurrentNum && !Inner->CanDestroyValue()) Result = Fail(EContainerOpResult::Unsupported, R::Destroy);
 		else if (Num > CurrentNum && !Inner->CanDefaultConstructValue()) Result = Fail(EContainerOpResult::Unsupported, R::DefaultConstruct);
 		else if (auto Code = ResizeChecked(Container, Num, ArrayIndex); Code != EContainerOpResult::Success) Result = Fail(Code);
-		if (!Result) Result.Error.CurrentCount = CurrentNum;
+		if (!Result) Result.error().CurrentCount = CurrentNum;
 		return Result;
 	}
 	FMapProperty::FMapProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
@@ -1764,7 +1765,7 @@ namespace Durin
 		requiref(ClearChecked(Container, ArrayIndex) == EContainerOpResult::Success,
 			"Map Clear capability is unavailable.");
 	}
-	auto FMapProperty::Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex) const -> FPropertyContainerResult
+	auto FMapProperty::Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex) const -> std::expected<void, FPropertyContainerError>
 	{
 		using R = EPropertyContainerRequirement;
 		auto Fail = [&](EContainerOpResult Code, const FProperty* ValueProperty = nullptr, R Requirement = R::None) {
@@ -1780,7 +1781,7 @@ namespace Durin
 		if (GetPropertyStruct(ValueProp) && !ValueProp->CanCopyAssignValue())
 			return Fail(EContainerOpResult::Unsupported, ValueProp, R::CopyAssign);
 		const auto Code = InsertChecked(Container, Key, Value, ArrayIndex);
-		return Code == EContainerOpResult::Success ? FPropertyContainerResult{} : Fail(Code);
+		return Code == EContainerOpResult::Success ? std::expected<void, FPropertyContainerError>{} : Fail(Code);
 	}
 
 	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool
@@ -1788,7 +1789,7 @@ namespace Durin
 		const void* Value = nullptr;
 		return FindValue(Container, Key, &Value, ArrayIndex) == EContainerOpResult::Success;
 	}
-	auto FMapProperty::RenameKey(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex) const -> FPropertyContainerResult
+	auto FMapProperty::RenameKey(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex) const -> std::expected<void, FPropertyContainerError>
 	{
 		using R = EPropertyContainerRequirement;
 		auto Fail = [&](EContainerOpResult Code, const FProperty* ValueProperty = nullptr, R Requirement = R::None) {
@@ -1802,7 +1803,7 @@ namespace Durin
 		if (GetPropertyStruct(KeyProp) && !KeyProp->CanCopyAssignValue())
 			return Fail(EContainerOpResult::Unsupported, KeyProp, R::CopyAssign);
 		const auto Code = RenameKeyChecked(Container, OldKey, NewKey, ArrayIndex);
-		return Code == EContainerOpResult::Success ? FPropertyContainerResult{} : Fail(Code);
+		return Code == EContainerOpResult::Success ? std::expected<void, FPropertyContainerError>{} : Fail(Code);
 	}
 
 	auto FMapProperty::Remove(void* Container, const void* Key, uint32 ArrayIndex) const -> bool { return RemoveChecked(Container, Key, ArrayIndex) == EContainerOpResult::Success; }
@@ -1810,7 +1811,7 @@ namespace Durin
 	namespace
 	{
 		auto FailCanonicalToken(EReflectedMapKeyError Code, const FProperty* Property,
-			uint32 ArrayIndex = 0) -> FReflectedMapKeyResult
+			uint32 ArrayIndex = 0) -> std::expected<void, FReflectedMapKeyError>
 		{
 			FReflectedMapKeyError Error;
 			Error.Code = Code;
@@ -1822,7 +1823,7 @@ namespace Durin
 				Error.ArrayDim = Property->GetArrayDim();
 				Error.Route.push_back({Error.PropertyName, ArrayIndex});
 			}
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto CanonicalKind(DurinCodeGen::EPropertyGenFlags Kind)
@@ -1854,7 +1855,7 @@ namespace Durin
 		}
 
 		auto AppendCanonicalProperty(const FProperty* Property, const void* Container,
-			uint32 ArrayIndex, ObjectPackage::FCanonicalMapKeyWriter& Writer) -> FReflectedMapKeyResult
+			uint32 ArrayIndex, ObjectPackage::FCanonicalMapKeyWriter& Writer) -> std::expected<void, FReflectedMapKeyError>
 		{
 			using EWidth = ObjectPackage::ECanonicalIntegerWidth;
 			if (!Property) return FailCanonicalToken(EReflectedMapKeyError::NullProperty, Property, ArrayIndex);
@@ -1915,7 +1916,7 @@ namespace Durin
 				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
 					return FailCanonicalToken(EReflectedMapKeyError::IncompleteStructEquality, Property, ArrayIndex);
 				uint32 Ordinal = 0;
-				FReflectedMapKeyResult Result;
+				std::expected<void, FReflectedMapKeyError> Result;
 				Struct->ForEachProperty([&](FProperty* Field) {
 					const uint32 FieldOrdinal = Ordinal++;
 					if (!Result || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
@@ -1923,7 +1924,7 @@ namespace Durin
 					{
 						Writer.WriteStructField(FieldOrdinal, FieldIndex);
 						Result = AppendCanonicalProperty(Field, Value, FieldIndex, Writer);
-						if (!Result) Result.Error.Route.insert(Result.Error.Route.begin(),
+						if (!Result) Result.error().Route.insert(Result.error().Route.begin(),
 							{Property->NamePrivate.ToString(), ArrayIndex});
 					}
 				}, false);
@@ -1939,7 +1940,7 @@ namespace Durin
 		const void* Container,
 		uint32 ArrayIndex,
 		FByteBuffer& OutToken
-	) -> FReflectedMapKeyResult
+	) -> std::expected<void, FReflectedMapKeyError>
 	{
 		ObjectPackage::FCanonicalMapKeyWriter Writer;
 		if (auto Result = AppendCanonicalProperty(Property, Container, ArrayIndex, Writer); !Result) return Result;
@@ -1947,7 +1948,7 @@ namespace Durin
 		return {};
 	}
 
-	auto ValidateCanonicalMapKeyProperty(const FProperty* Property) -> FReflectedMapKeyResult
+	auto ValidateCanonicalMapKeyProperty(const FProperty* Property) -> std::expected<void, FReflectedMapKeyError>
 	{
 		if (!Property) return FailCanonicalToken(EReflectedMapKeyError::NullProperty, Property);
 		switch (Property->GetKind())
@@ -1978,12 +1979,12 @@ namespace Durin
 				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
 				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
 					return FailCanonicalToken(EReflectedMapKeyError::IncompleteStructEquality, Property);
-				FReflectedMapKeyResult Result;
+				std::expected<void, FReflectedMapKeyError> Result;
 				Struct->ForEachProperty([&](FProperty* Field) {
 					if (Result && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
 					{
 						Result = ValidateCanonicalMapKeyProperty(Field);
-						if (!Result) Result.Error.Route.insert(Result.Error.Route.begin(),
+						if (!Result) Result.error().Route.insert(Result.error().Route.begin(),
 							{Property->NamePrivate.ToString(), 0});
 					}
 				}, false);
@@ -1994,7 +1995,7 @@ namespace Durin
 		}
 	}
 
-	auto FormatReflectedMapKeyError(const FReflectedMapKeyError& Error) -> std::string
+	auto ToString(const FReflectedMapKeyError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{

@@ -158,7 +158,7 @@ namespace Durin::Editor::Material
 				Replacement->Id = Expression->Id;
 				if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
 				{
-					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).Object);
+					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
 					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
 					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(FormatMaterialError(Applied.Error)); return; }
 					Submit(Document.ReplaceExpression(*Copy.Get(), &Transactions));

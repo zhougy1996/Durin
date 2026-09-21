@@ -43,7 +43,7 @@ namespace Durin
 
 		auto GetRelocationPhysicalPath(const FPackagePath& Path) -> std::string
 		{
-			const FAssetPathResult Resolved =
+			const auto Resolved =
 				FMountPaths::ResolveAssetPath(
 					Path.GetView(), EMountPathExistence::AllowMissing);
 			if (!Resolved)
@@ -51,9 +51,9 @@ namespace Durin
 					"AssetSystem",
 					"Failed to resolve asset path {}: {}",
 					Path.ToString(),
-					Resolved.Message);
+					(Resolved ? std::string{} : Durin::ToString(Resolved.error())));
 			return Resolved
-				? Resolved.PhysicalPath.generic_string() + ".dasset"
+				? Resolved->PhysicalPath.generic_string() + ".dasset"
 				: std::string{};
 		}
 

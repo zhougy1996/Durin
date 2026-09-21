@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectMacros.h"
@@ -147,7 +148,7 @@ namespace Durin
 		// and final publication. May inspect owned objects; must not load or mutate assets.
 		// A typed failure rejects the load, duplicate, or prepared batch as a whole.
 		COREDOBJECT_API virtual auto ValidateLoadedObjectGraph(
-			const FObjectGraphLoadContext& Context) const -> FObjectValidationResult;
+			const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>;
 
 		// Exposes source-package versions only while authored PostLoad migration runs.
 		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;
@@ -158,7 +159,7 @@ namespace Durin
 		COREDOBJECT_API auto ClearLoadedDeprecatedProperties() -> void;
 
 		// Validates or normalizes detached reflected storage before a live write.
-		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult;
+		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>;
 
 		// Editor mutation state stays outside DObject; this synchronous hook only
 		// lets the object refresh state derived from a successfully changed value.

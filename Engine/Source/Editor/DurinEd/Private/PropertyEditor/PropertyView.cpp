@@ -24,17 +24,17 @@ namespace Durin::Editor
 	{
 		using StringUtils::ContainsInsensitive;
 
-		auto AcceptPropertyResult(const FPropertyValueResult& Result, std::string& OutError) -> bool
+		auto AcceptPropertyResult(const std::expected<void, FPropertyValueError>& Result, std::string& OutError) -> bool
 		{
 			if (Result) return true;
-			OutError = FormatPropertyValueError(Result.Error);
+			OutError = ToString(Result.error());
 			return false;
 		}
 
-		auto AcceptPropertyResult(const FPropertySnapshotResult& Result, std::string& OutError) -> bool
+		auto AcceptPropertyResult(const std::expected<void, FPropertySnapshotError>& Result, std::string& OutError) -> bool
 		{
 			if (Result) return true;
-			OutError = FormatPropertySnapshotError(Result.Error);
+			OutError = ToString(Result.error());
 			return false;
 		}
 
@@ -270,8 +270,8 @@ namespace Durin::Editor
 		auto FormatProposedPropertyValueResult(const FProposedPropertyValueResult& Result) -> std::string
 		{
 			if (Result.DraftCause) return FormatPropertyValueDraftError(*Result.DraftCause);
-			if (Result.ValidationCause) return FormatPropertyEditValueError(*Result.ValidationCause);
-			if (Result.ArrayCause) return FormatPropertyContainerError(*Result.ArrayCause);
+			if (Result.ValidationCause) return ToString(*Result.ValidationCause);
+			if (Result.ArrayCause) return ToString(*Result.ArrayCause);
 			if (Result.ContainerCause != EContainerOpResult::Success)
 				return std::format("Reflected map {} failed (result {}).",
 					Result.Operation == EPropertyChangeKind::MapInsert ? "insertion"
@@ -292,7 +292,7 @@ namespace Durin::Editor
 			if (auto Written = WriteProposed(DraftValue, &Draft); !Written) return Written;
 			auto Validation = ValidatePropertyEditValue(
 				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex());
-			if (!Validation) return {.ValidationCause = std::move(Validation.Error)};
+			if (!Validation) return {.ValidationCause = std::move(Validation.error())};
 			auto Result = Draft.Capture(OutSnapshot);
 			if (!Result) return {.DraftCause = std::move(Result.Error)};
 			return {};
@@ -1029,8 +1029,8 @@ namespace Durin::Editor
 						return true;
 					}
 					const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, SelectedPath);
-					if (!PathValidation) Error = FormatObjectError(PathValidation.Error);
-					return PathValidation.Succeeded();
+					if (!PathValidation) Error = ToString(PathValidation.error());
+					return PathValidation.has_value();
 				},
 				.TrailingAction = LoadAction,
 				.AdditionalTrailingActions = AdditionalActions,
@@ -1147,7 +1147,7 @@ namespace Durin::Editor
 			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
 				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) -> FProposedPropertyValueResult {
 					auto Mutated = Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
-					if (!Mutated) return {.ArrayCause = std::move(Mutated.Error)};
+					if (!Mutated) return {.ArrayCause = std::move(Mutated.error())};
 					return {};
 				}, Proposed); !Captured)
 			{

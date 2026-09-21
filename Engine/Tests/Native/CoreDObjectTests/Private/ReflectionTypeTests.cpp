@@ -191,7 +191,7 @@ namespace Durin
 		static auto PostDeserialize(
 			StructOpsTest::FCustomOps&,
 			FDStructPostDeserializeContext&
-		) -> FObjectValidationResult { return {}; }
+		) -> std::expected<void, FObjectValidationError> { return {}; }
 		static auto CollectReferences(
 			StructOpsTest::FCustomOps&,
 			FReferenceCollector&
@@ -2601,8 +2601,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(DefaultObject->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
 		Durin::FByteBuffer SerializedDefault;
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
-		EXPECT_EQ(Durin::DuplicateObject(
-			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate")).Object, nullptr);
+		EXPECT_FALSE(Durin::DuplicateObject(
+			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate")));
 		Durin::CollectGarbage();
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(DefaultObject));
 		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
@@ -3052,7 +3052,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		auto* NewOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("LedgerDuplicateOuter"));
 		const DDefaultGraphOwnerForTest* ConstInstance = Instance;
-		auto* Duplicate = Durin::DuplicateObject(ConstInstance, NewOuter).Object;
+		auto* Duplicate = Durin::DuplicateObject(ConstInstance, NewOuter).value();
 		ASSERT_NE(Duplicate, nullptr);
 		EXPECT_EQ(Duplicate->GetFName(), Instance->GetFName());
 		EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 2u);
@@ -4222,17 +4222,17 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const std::string OtherKey = "Other";
 		ASSERT_TRUE(Property->Insert(Owner, &OtherKey, &InitialValue));
 		const auto Collision = Property->RenameKey(Owner, &RenamedKey, &OtherKey);
-		EXPECT_EQ(Collision.Error.Code, Durin::EContainerOpResult::DuplicateKey);
-		EXPECT_EQ(Collision.Error.Operation, Durin::EPropertyContainerOperation::RenameKey);
-		EXPECT_EQ(Collision.Error.PropertyName, "DirectMap");
+		EXPECT_EQ(Collision.error().Code, Durin::EContainerOpResult::DuplicateKey);
+		EXPECT_EQ(Collision.error().Operation, Durin::EPropertyContainerOperation::RenameKey);
+		EXPECT_EQ(Collision.error().PropertyName, "DirectMap");
 		EXPECT_EQ(Owner->DirectMap.at(RenamedKey).Get(), ReferencedObject);
 		EXPECT_EQ(Owner->DirectMap.size(), 2u);
 		const auto Missing = Property->RenameKey(Owner, &InitialKey, &OtherKey);
-		EXPECT_EQ(Missing.Error.Code, Durin::EContainerOpResult::NotFound);
+		EXPECT_EQ(Missing.error().Code, Durin::EContainerOpResult::NotFound);
 		const auto InvalidIndex = Property->Insert(Owner, &InitialKey, &InitialValue, 1);
-		EXPECT_EQ(InvalidIndex.Error.Code, Durin::EContainerOpResult::OutOfRange);
-		EXPECT_EQ(InvalidIndex.Error.ArrayIndex, 1u);
-		EXPECT_EQ(InvalidIndex.Error.ArrayDim, 1u);
+		EXPECT_EQ(InvalidIndex.error().Code, Durin::EContainerOpResult::OutOfRange);
+		EXPECT_EQ(InvalidIndex.error().ArrayIndex, 1u);
+		EXPECT_EQ(InvalidIndex.error().ArrayDim, 1u);
 		EXPECT_EQ(Owner->DirectMap.size(), 2u);
 		EXPECT_TRUE(Property->Remove(Owner, &OtherKey));
 		EXPECT_TRUE(Property->Remove(Owner, &RenamedKey));
@@ -4350,18 +4350,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			V1Bytes[5] = V1Bytes[6] = V1Bytes[7] = std::byte{0};
 			const auto OldVersion = Durin::LoadObjectGraphFromMemory(V1Bytes);
 			EXPECT_FALSE(OldVersion);
-			EXPECT_EQ(OldVersion.Object, nullptr);
-			EXPECT_EQ(OldVersion.Error.Code, Durin::EObjectGraphError::Header);
-			EXPECT_EQ(OldVersion.Error.Version, 1u);
-			EXPECT_EQ(OldVersion.Error.ExpectedVersion, 2u);
+			EXPECT_FALSE(OldVersion.has_value());
+			EXPECT_EQ(OldVersion.error().Code, Durin::EObjectGraphError::Header);
+			EXPECT_EQ(OldVersion.error().Version, 1u);
+			EXPECT_EQ(OldVersion.error().ExpectedVersion, 2u);
 
 			auto TrailingBytes = Bytes;
 			TrailingBytes.push_back(std::byte{0x7F});
 			const auto Trailing = Durin::LoadObjectGraphFromMemory(TrailingBytes);
 			EXPECT_FALSE(Trailing);
-			EXPECT_EQ(Trailing.Object, nullptr);
-			EXPECT_EQ(Trailing.Error.Code, Durin::EObjectGraphError::TrailingBytes);
-			EXPECT_EQ(Trailing.Error.RemainingBytes, 1u);
+			EXPECT_FALSE(Trailing.has_value());
+			EXPECT_EQ(Trailing.error().Code, Durin::EObjectGraphError::TrailingBytes);
+			EXPECT_EQ(Trailing.error().RemainingBytes, 1u);
 
 			auto InvalidReferenceBytes = Bytes;
 			auto ReadUint64 = [&InvalidReferenceBytes](size_t Offset) {
@@ -4385,9 +4385,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd), std::byte{0});
 			const auto InvalidReference = Durin::LoadObjectGraphFromMemory(InvalidReferenceBytes);
 			EXPECT_FALSE(InvalidReference);
-			EXPECT_EQ(InvalidReference.Object, nullptr);
-			EXPECT_EQ(InvalidReference.Error.Code, Durin::EObjectGraphError::PropertyRead);
-			EXPECT_TRUE(InvalidReference.Error.ArchiveCode.has_value());
+			EXPECT_FALSE(InvalidReference.has_value());
+			EXPECT_EQ(InvalidReference.error().Code, Durin::EObjectGraphError::PropertyRead);
+			EXPECT_TRUE(InvalidReference.error().ArchiveCode.has_value());
 		}
 		Durin::MarkAsGarbage(Owner);
 		Durin::MarkAsGarbage(ReferencedObject);
@@ -4398,7 +4398,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		const auto Loaded = Durin::LoadObjectGraphFromMemory(Bytes);
 		ASSERT_TRUE(Loaded);
-		Durin::DObject* LoadedRoot = Loaded.Object;
+		Durin::DObject* LoadedRoot = Loaded.value();
 		ASSERT_NE(LoadedRoot, nullptr);
 		EXPECT_EQ(LoadedRoot->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
 		auto* LoadedOwner = Durin::Cast<DLifecycleReferenceOwnerForTest>(LoadedRoot);
@@ -4466,8 +4466,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FByteBuffer Bytes = {std::byte{0xC0}, std::byte{0xDE}};
 		const auto WriteFailure = Durin::SaveObjectGraphToMemory(Owner, Bytes);
 		EXPECT_FALSE(WriteFailure);
-		EXPECT_EQ(WriteFailure.Error.Code, Durin::EObjectGraphError::PropertyWrite);
-		EXPECT_TRUE(WriteFailure.Error.ArchiveCode.has_value());
+		EXPECT_EQ(WriteFailure.error().Code, Durin::EObjectGraphError::PropertyWrite);
+		EXPECT_TRUE(WriteFailure.error().ArchiveCode.has_value());
 		EXPECT_EQ(Bytes, (Durin::FByteBuffer{std::byte{0xC0}, std::byte{0xDE}}));
 		ASSERT_EQ(Owner->SerializePurposes.size(), 2u);
 		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
@@ -4478,8 +4478,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Owner->SerializePurposes.clear();
 		const auto DiscoveryFailure = Durin::SaveObjectGraphToMemory(Owner, Bytes);
 		EXPECT_FALSE(DiscoveryFailure);
-		EXPECT_EQ(DiscoveryFailure.Error.Code, Durin::EObjectGraphError::Discovery);
-		EXPECT_TRUE(DiscoveryFailure.Error.ArchiveCode.has_value());
+		EXPECT_EQ(DiscoveryFailure.error().Code, Durin::EObjectGraphError::Discovery);
+		EXPECT_TRUE(DiscoveryFailure.error().ArchiveCode.has_value());
 		EXPECT_EQ(Bytes, (Durin::FByteBuffer{std::byte{0xC0}, std::byte{0xDE}}));
 		ASSERT_EQ(Owner->SerializePurposes.size(), 1u);
 		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
@@ -4514,7 +4514,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
 		auto* Duplicate = Durin::Cast<DLifecycleReferenceOwnerForTest>(
 			Durin::DuplicateObject(Source, NewOuter, Durin::FName("DuplicateArchiveResult"),
-				&Duplicates).Object);
+				&Duplicates).value());
 		ASSERT_NE(Duplicate, nullptr);
 		ASSERT_TRUE(Duplicates.contains(Inner));
 		auto* DuplicateInner = Durin::Cast<DLifecycleReferenceOwnerForTest>(Duplicates[Inner]);
@@ -4544,10 +4544,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const auto Failed = Durin::DuplicateObject(FailingSource, NewOuter,
 			Durin::FName("DuplicateArchiveFailedResult"), &Duplicates);
 		EXPECT_FALSE(Failed);
-		EXPECT_EQ(Failed.Object, nullptr);
-		EXPECT_EQ(Failed.Error.Code, Durin::EObjectGraphError::PropertyWrite);
-		EXPECT_TRUE(Failed.Error.ArchiveCode.has_value());
-		EXPECT_FALSE(Failed.Error.ObjectName.empty());
+		EXPECT_FALSE(Failed.has_value());
+		EXPECT_EQ(Failed.error().Code, Durin::EObjectGraphError::PropertyWrite);
+		EXPECT_TRUE(Failed.error().ArchiveCode.has_value());
+		EXPECT_FALSE(Failed.error().ObjectName.empty());
 		EXPECT_TRUE(Duplicates.empty());
 		Durin::CollectGarbage();
 		auto RemainingInners = Durin::GDObjectArray.GetObjectsWithOuter(NewOuter, Durin::EObjectQueryScope::LiveOnly);
@@ -4830,45 +4830,45 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PathDiagnostic", Package));
 		const auto OriginalPackage = Package;
 		const auto Relative = FPackagePath::TryCreateWithDiagnostic("relative", Package);
-		EXPECT_EQ(std::get<EObjectPathError>(Relative.Error.Code), EObjectPathError::NotAbsolute);
-		EXPECT_EQ(Relative.Error.Subject, "relative");
+		EXPECT_EQ(Relative.error().Code, EObjectPathError::NotAbsolute);
+		EXPECT_EQ(Relative.error().Subject, "relative");
 		EXPECT_EQ(Package, OriginalPackage);
 		const auto UnknownMount = FPackagePath::TryCreateWithDiagnostic("/__UnregisteredDiagnosticMount/Asset", Package);
-		EXPECT_EQ(std::get<EObjectPathError>(UnknownMount.Error.Code), EObjectPathError::MountLookupFailed);
-		EXPECT_EQ(UnknownMount.Error.MountError, EMountPathError::UnknownMount);
+		EXPECT_EQ(UnknownMount.error().Code, EObjectPathError::MountLookupFailed);
+		EXPECT_EQ(UnknownMount.error().MountError, EMountPathError::UnknownMount);
 		EXPECT_EQ(Package, OriginalPackage);
 		const auto EmptySegment = FPackagePath::TryCreateWithDiagnostic("/CoreTests//Asset", Package);
-		EXPECT_EQ(std::get<EObjectPathError>(EmptySegment.Error.Code), EObjectPathError::EmptyComponent);
-		EXPECT_EQ(EmptySegment.Error.Part, EObjectPathPart::PackageSegment);
-		EXPECT_EQ(EmptySegment.Error.ComponentIndex, 1u);
+		EXPECT_EQ(EmptySegment.error().Code, EObjectPathError::EmptyComponent);
+		EXPECT_EQ(EmptySegment.error().Part, EObjectPathPart::PackageSegment);
+		EXPECT_EQ(EmptySegment.error().ComponentIndex, 1u);
 
 		FTopLevelAssetPath Asset;
 		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Package, "PathDiagnostic", Asset));
 		const auto OriginalAsset = Asset;
 		const std::string LongName(FName::MaxSize, 'x');
 		const auto TooLong = FTopLevelAssetPath::TryCreateWithDiagnostic(Package, LongName, Asset);
-		EXPECT_EQ(std::get<EObjectPathError>(TooLong.Error.Code), EObjectPathError::ComponentTooLong);
-		EXPECT_EQ(TooLong.Error.Part, EObjectPathPart::AssetName);
-		EXPECT_EQ(TooLong.Error.ActualBytes, LongName.size());
-		EXPECT_EQ(TooLong.Error.MaximumBytes, FName::MaxSize - 1);
+		EXPECT_EQ(TooLong.error().Code, EObjectPathError::ComponentTooLong);
+		EXPECT_EQ(TooLong.error().Part, EObjectPathPart::AssetName);
+		EXPECT_EQ(TooLong.error().ActualBytes, LongName.size());
+		EXPECT_EQ(TooLong.error().MaximumBytes, FName::MaxSize - 1);
 		EXPECT_EQ(Asset, OriginalAsset);
 
 		FObjectPath Object;
 		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child", Object));
 		const auto OriginalObject = Object;
 		const auto EmptyChild = FObjectPath::TryCreateWithDiagnostic("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
-		EXPECT_EQ(std::get<EObjectPathError>(EmptyChild.Error.Code), EObjectPathError::EmptySubobject);
+		EXPECT_EQ(EmptyChild.error().Code, EObjectPathError::EmptySubobject);
 		EXPECT_EQ(Object, OriginalObject);
 		std::string InvalidPath = Asset.ToString() + ":Child.Bad/Leaf";
 		const auto InvalidChild = FObjectPath::TryCreateWithDiagnostic(InvalidPath, Object);
-		EXPECT_EQ(std::get<EObjectPathError>(InvalidChild.Error.Code), EObjectPathError::ReservedSeparator);
-		EXPECT_EQ(InvalidChild.Error.ComponentIndex, 1u);
-		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
+		EXPECT_EQ(InvalidChild.error().Code, EObjectPathError::ReservedSeparator);
+		EXPECT_EQ(InvalidChild.error().ComponentIndex, 1u);
+		EXPECT_EQ(InvalidChild.error().Subject, "Bad/Leaf");
 		InvalidPath = "Changed";
-		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
+		EXPECT_EQ(InvalidChild.error().Subject, "Bad/Leaf");
 		EXPECT_EQ(Object, OriginalObject);
 		const auto InvalidUtf8 = FTopLevelAssetPath::TryCreateWithDiagnostic(Package, std::string(1, char(0xff)), Asset);
-		EXPECT_EQ(std::get<EObjectPathError>(InvalidUtf8.Error.Code), EObjectPathError::InvalidUtf8);
+		EXPECT_EQ(InvalidUtf8.error().Code, EObjectPathError::InvalidUtf8);
 		EXPECT_EQ(Asset, OriginalAsset);
 		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), Object));
 		EXPECT_EQ(Object, OriginalObject);
@@ -4877,10 +4877,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, ObjectErrorFormattingIsAnExplicitBoundary)
 	{
 		using namespace Durin;
-		EXPECT_TRUE(FormatObjectError({}).empty());
 		FPackagePath Package;
 		const auto Result = FPackagePath::TryCreateWithDiagnostic("relative", Package);
-		EXPECT_EQ(FormatObjectError(Result.Error), "Package path must be absolute.");
+		EXPECT_EQ(ToString(Result.error()), "Package path must be absolute.");
 	}
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrUsesPathIdentityAndWeakLoadedState)
@@ -4971,9 +4970,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Reader.IsError());
 		EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::InvalidPath);
 		EXPECT_EQ(Value, Original);
-		const auto* Cause = std::get_if<FObjectError>(&Reader.GetValueFailureCause());
+		const auto* Cause = std::get_if<FObjectPathError>(&Reader.GetValueFailureCause());
 		ASSERT_NE(Cause, nullptr);
-		EXPECT_EQ(std::get<EObjectPathError>(Cause->Code), EObjectPathError::NotAbsolute);
+		EXPECT_EQ(Cause->Code, EObjectPathError::NotAbsolute);
 		EXPECT_EQ(Cause->Part, EObjectPathPart::Package);
 		EXPECT_EQ(Cause->Subject, "relative");
 		Invalid.clear();
@@ -4981,7 +4980,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Reader.FailPropertyValue({.Code = EPropertyValueError::NullProperty});
 		Reader.SerializeSoftObjectValue(Value);
 		EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::InvalidPath);
-		EXPECT_EQ(std::get<FObjectError>(Reader.GetValueFailureCause()).Subject, "relative");
+		EXPECT_EQ(std::get<FObjectPathError>(Reader.GetValueFailureCause()).Subject, "relative");
 		EXPECT_EQ(Value, Original);
 	}
 
@@ -4996,7 +4995,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftSnapshot.Asset", Original));
 		FSoftObjectPropertyOwnerForTest Owner;
 		Owner.Direct.SetPath(Original);
-		FPropertySnapshotResult Result;
+		std::expected<void, FPropertySnapshotError> Result;
 		{
 			FPropertyValueSnapshotPayload Payload;
 			ASSERT_TRUE(CapturePropertyValuePayload(Property, &Owner, 0, Payload));
@@ -5006,9 +5005,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Result = RestorePropertyValuePayload(Property, &Owner, 0, Payload);
 		}
 		EXPECT_FALSE(Result);
-		EXPECT_EQ(Result.Error.Code, EPropertySnapshotError::ArchiveFailure);
-		EXPECT_EQ(Result.Error.Operation, EPropertySnapshotOperation::Restore);
-		EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::InvalidPath);
+		EXPECT_EQ(Result.error().Code, EPropertySnapshotError::ArchiveFailure);
+		EXPECT_EQ(Result.error().Operation, EPropertySnapshotOperation::Restore);
+		EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::InvalidPath);
 		EXPECT_EQ(Owner.Direct.GetPath(), Original);
 
 	}
@@ -5035,10 +5034,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		const auto Result = LoadObjectGraphFromMemory(Bytes);
 		Bytes.clear();
 		EXPECT_FALSE(Result);
-		EXPECT_EQ(Result.Object, nullptr);
-		EXPECT_EQ(Result.Error.Code, EObjectGraphError::PropertyRead);
-		EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::InvalidPath);
-		EXPECT_NE(Result.Error.ArchivePath.find("SoftReference"), std::string::npos);
+		EXPECT_FALSE(Result.has_value());
+		EXPECT_EQ(Result.error().Code, EObjectGraphError::PropertyRead);
+		EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::InvalidPath);
+		EXPECT_NE(Result.error().ArchivePath.find("SoftReference"), std::string::npos);
+		const auto* PathCause = std::get_if<FObjectPathError>(&Result.error().Cause);
+		ASSERT_NE(PathCause, nullptr);
+		EXPECT_EQ(PathCause->Code, EObjectPathError::NotAbsolute);
 
 		CollectGarbage();
 		EXPECT_LE(GDObjectArray.GetNum(), Before);
@@ -5061,26 +5063,26 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
 		const Durin::FObjectPath OriginalPath = Reference.GetPath();
 		const auto NullLoaded = Reference.TrySetLoadedObject(nullptr);
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(NullLoaded.Error.Code), Durin::ESoftObjectError::NullLoadedObject);
+		EXPECT_EQ(NullLoaded.error().Code, Durin::ESoftObjectError::NullLoadedObject);
 		const auto WrongPath = Reference.TrySetLoadedObject(Inner);
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(WrongPath.Error.Code), Durin::ESoftObjectError::LoadedPathMismatch);
-		EXPECT_EQ(WrongPath.Error.Expected, OriginalPath.ToString());
-		EXPECT_EQ(WrongPath.Error.Actual, Inner->GetObjectPath());
+		EXPECT_EQ(WrongPath.error().Code, Durin::ESoftObjectError::LoadedPathMismatch);
+		EXPECT_EQ(WrongPath.error().Expected, OriginalPath.ToString());
+		EXPECT_EQ(WrongPath.error().Actual, Inner->GetObjectPath());
 		EXPECT_EQ(Reference.GetPath(), OriginalPath);
 		EXPECT_EQ(Reference.Get(), Asset);
 		const auto PackageFailure = Reference.TrySetObject(Package);
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(PackageFailure.Error.Code), Durin::ESoftObjectError::PackageObject);
+		EXPECT_EQ(PackageFailure.error().Code, Durin::ESoftObjectError::PackageObject);
 		EXPECT_TRUE(Reference.TrySetObject(Inner));
 		EXPECT_EQ(Reference.GetPath().ToString(),
 			"/CoreTests/SoftObjectValidation.SoftObjectValidation:Inner");
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
 		const auto ClassFailure = Reference.TrySetObject(Asset, Durin::DPackage::StaticClass());
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(ClassFailure.Error.Code), Durin::ESoftObjectError::ClassMismatch);
-		EXPECT_EQ(ClassFailure.Error.Subject, Asset->GetObjectPath());
-		EXPECT_EQ(ClassFailure.Error.Expected, Durin::DPackage::StaticClass()->GetQualifiedName().ToString());
-		EXPECT_EQ(ClassFailure.Error.Actual, Asset->GetClass()->GetQualifiedName().ToString());
+		EXPECT_EQ(ClassFailure.error().Code, Durin::ESoftObjectError::ClassMismatch);
+		EXPECT_EQ(ClassFailure.error().Subject, Asset->GetObjectPath());
+		EXPECT_EQ(ClassFailure.error().Expected, Durin::DPackage::StaticClass()->GetQualifiedName().ToString());
+		EXPECT_EQ(ClassFailure.error().Actual, Asset->GetClass()->GetQualifiedName().ToString());
 		Durin::DObject* Unpackaged = Durin::NewObject<Durin::DObject>(nullptr, "UnpackagedSoftObject");
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(Reference.TrySetObject(Unpackaged).Error.Code), Durin::ESoftObjectError::UnpackagedObject);
+		EXPECT_EQ(Reference.TrySetObject(Unpackaged).error().Code, Durin::ESoftObjectError::UnpackagedObject);
 
 		auto* TransientType = new Durin::DStruct(
 			Durin::EC_StaticConstructor,
@@ -5090,7 +5092,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			1,
 			Durin::EObjectFlags::Transient
 		);
-		EXPECT_EQ(std::get<Durin::ESoftObjectError>(Reference.TrySetObject(TransientType).Error.Code), Durin::ESoftObjectError::TransientObject);
+		EXPECT_EQ(Reference.TrySetObject(TransientType).error().Code, Durin::ESoftObjectError::TransientObject);
 		delete TransientType;
 
 		EXPECT_EQ(Reference.GetPath(), OriginalPath);
@@ -6229,9 +6231,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Durin::ValidatePropertyEditValue(&UnsignedProperty, &Value));
 		Value = 9'007'199'254'740'992ULL;
 		const auto Below = Durin::ValidatePropertyEditValue(&UnsignedProperty, &Value);
-		EXPECT_EQ(Below.Error.Code, Durin::EPropertyEditValueError::BelowMinimum);
-		EXPECT_EQ(Below.Error.Current.Unsigned, Value);
-		EXPECT_EQ(Below.Error.Minimum.Unsigned, 9'007'199'254'740'993ULL);
+		EXPECT_EQ(Below.error().Code, Durin::EPropertyEditValueError::BelowMinimum);
+		EXPECT_EQ(Below.error().Current.Unsigned, Value);
+		EXPECT_EQ(Below.error().Minimum.Unsigned, 9'007'199'254'740'993ULL);
 
 		Durin::FNumericProperty FloatProperty(
 			Durin::FFieldVariant(), Durin::FName("Float"), Durin::EObjectFlags::NoFlags,
@@ -6244,15 +6246,15 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FloatProperty.SetTypedMetadata(&FloatMetadata);
 		float FloatValue = std::numeric_limits<float>::quiet_NaN();
 		const auto NonFinite = Durin::ValidatePropertyEditValue(&FloatProperty, &FloatValue);
-		EXPECT_EQ(NonFinite.Error.Code, Durin::EPropertyEditValueError::NonFinite);
-		EXPECT_TRUE(std::isnan(NonFinite.Error.Current.Float));
+		EXPECT_EQ(NonFinite.error().Code, Durin::EPropertyEditValueError::NonFinite);
+		EXPECT_TRUE(std::isnan(NonFinite.error().Current.Float));
 		FloatValue = 1.0f;
 		EXPECT_TRUE(Durin::ValidatePropertyEditValue(&FloatProperty, &FloatValue));
 	}
 
 	TEST(FCoreDObjectReflectionTests, PropertyEditValidationOwnsNestedFailureContext)
 	{
-		Durin::FPropertyEditValueResult Failure;
+		std::expected<void, Durin::FPropertyEditValueError> Failure;
 		{
 			Durin::DStruct Struct(Durin::EC_StaticConstructor, "Tests::FEditBounds", "FEditBounds",
 				sizeof(int32), alignof(int32), Durin::EObjectFlags::Transient);
@@ -6270,24 +6272,24 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			int32 Values[] = {5, 0};
 			Failure = Durin::ValidatePropertyEditValue(&Parent, Values, 1);
 			const auto Invalid = Durin::ValidatePropertyEditValue(&Parent, Values, 2);
-			EXPECT_EQ(Invalid.Error.Code, Durin::EPropertyEditValueError::InvalidArrayIndex);
-			EXPECT_EQ(Invalid.Error.ArrayIndex, 2u);
-			EXPECT_EQ(Invalid.Error.ArrayDim, 2u);
-			EXPECT_EQ(Durin::ValidatePropertyEditValue(nullptr, Values).Error.Code,
+			EXPECT_EQ(Invalid.error().Code, Durin::EPropertyEditValueError::InvalidArrayIndex);
+			EXPECT_EQ(Invalid.error().ArrayIndex, 2u);
+			EXPECT_EQ(Invalid.error().ArrayDim, 2u);
+			EXPECT_EQ(Durin::ValidatePropertyEditValue(nullptr, Values).error().Code,
 				Durin::EPropertyEditValueError::NullProperty);
-			EXPECT_EQ(Durin::ValidatePropertyEditValue(&Parent, nullptr).Error.Code,
+			EXPECT_EQ(Durin::ValidatePropertyEditValue(&Parent, nullptr).error().Code,
 				Durin::EPropertyEditValueError::NullContainer);
 			EXPECT_EQ(Values[0], 5);
 			EXPECT_EQ(Values[1], 0);
 		}
-		EXPECT_EQ(Failure.Error.Code, Durin::EPropertyEditValueError::BelowMinimum);
-		EXPECT_EQ(Failure.Error.PropertyName, "Count");
-		EXPECT_EQ(Failure.Error.Route, (std::vector<std::string>{"Parent", "Count"}));
-		EXPECT_EQ(Failure.Error.ArrayIndex, 1u);
-		EXPECT_EQ(Failure.Error.ArrayDim, 2u);
-		EXPECT_EQ(Failure.Error.Current.Signed, 0);
-		EXPECT_EQ(Failure.Error.Minimum.Signed, 1);
-		EXPECT_EQ(Failure.Error.Maximum.Signed, 10);
+		EXPECT_EQ(Failure.error().Code, Durin::EPropertyEditValueError::BelowMinimum);
+		EXPECT_EQ(Failure.error().PropertyName, "Count");
+		EXPECT_EQ(Failure.error().Route, (std::vector<std::string>{"Parent", "Count"}));
+		EXPECT_EQ(Failure.error().ArrayIndex, 1u);
+		EXPECT_EQ(Failure.error().ArrayDim, 2u);
+		EXPECT_EQ(Failure.error().Current.Signed, 0);
+		EXPECT_EQ(Failure.error().Minimum.Signed, 1);
+		EXPECT_EQ(Failure.error().Maximum.Signed, 10);
 	}
 
 	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)
@@ -6544,7 +6546,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationDefersUnavailableCapabilitiesToUse)
 	{
-		Durin::FPropertyValueResult ValueResult;
+		std::expected<void, Durin::FPropertyValueError> ValueResult;
 		EnsureDObjectInitialized();
 		Durin::DStruct* OwnerStruct = GetUnavailableStructPropertyOwner();
 		auto* DeletedDefault = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("DeletedDefault", false));
@@ -6564,8 +6566,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		std::string Error;
 		EXPECT_FALSE((ValueResult = DeletedDefault->InitializeValue(UnchangedStorage.data())));
 		EXPECT_EQ(UnchangedStorage, OriginalStorage);
-		EXPECT_EQ(ValueResult.Error.Operation, Durin::EPropertyValueOperation::DefaultConstruct);
-		EXPECT_EQ(ValueResult.Error.Code, Durin::EPropertyValueError::UnavailableOperation);
+		EXPECT_EQ(ValueResult.error().Operation, Durin::EPropertyValueOperation::DefaultConstruct);
+		EXPECT_EQ(ValueResult.error().Code, Durin::EPropertyValueError::UnavailableOperation);
 
 		StructOpsTest::FMoveOnly Destination;
 		Destination.Value = 7;
@@ -6574,8 +6576,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Error.clear();
 		EXPECT_FALSE((ValueResult = MoveOnly->CopyAssignValue(&Destination, &Source)));
 		EXPECT_EQ(Destination.Value, 7);
-		EXPECT_EQ(ValueResult.Error.Operation, Durin::EPropertyValueOperation::CopyAssign);
-		EXPECT_EQ(ValueResult.Error.Code, Durin::EPropertyValueError::UnavailableOperation);
+		EXPECT_EQ(ValueResult.error().Operation, Durin::EPropertyValueOperation::CopyAssign);
+		EXPECT_EQ(ValueResult.error().Code, Durin::EPropertyValueError::UnavailableOperation);
 	}
 
 #if DO_CHECK

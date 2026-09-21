@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/Archive.h"
@@ -115,31 +116,25 @@ namespace Durin
 		uint32 ArrayDim = 0;
 		DurinCodeGen::EPropertyGenFlags ExpectedKind = DurinCodeGen::EPropertyGenFlags::None;
 		DurinCodeGen::EPropertyGenFlags ActualKind = DurinCodeGen::EPropertyGenFlags::None;
-		std::string Message;
+		std::variant<std::monostate, FPropertyValueError, FPropertySnapshotError> Cause;
 		auto HasError() const -> bool { return Code != ESaveOverrideError::None; }
 	};
-	struct FSaveOverrideResult
-	{
-		FSaveOverrideError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatSaveOverrideError(const FSaveOverrideError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FSaveOverrideError& Error) -> std::string;
 
 	// Validates and owns all non-mutating object/property changes for one package save.
 	class FObjectSaveOverrides
 	{
 	public:
 		COREDOBJECT_API auto AddObjectOmission(
-			const DObject& Object) -> FSaveOverrideResult;
+			const DObject& Object) -> std::expected<void, FSaveOverrideError>;
 		COREDOBJECT_API auto AddPropertyOmission(
-			const DObject& Object, const FProperty& Property) -> FSaveOverrideResult;
+			const DObject& Object, const FProperty& Property) -> std::expected<void, FSaveOverrideError>;
 
 		template<typename T>
 		auto AddPropertyValue(
 			const DObject& Object,
 			const FProperty& Property,
-			const T& Replacement) -> FSaveOverrideResult
+			const T& Replacement) -> std::expected<void, FSaveOverrideError>
 		{
 			return AddPropertyValueRaw(
 				Object, Property, &Replacement, sizeof(T), alignof(T),
@@ -161,7 +156,7 @@ namespace Durin
 			size_t ReplacementAlignment,
 			DurinCodeGen::EPropertyGenFlags ReplacementKind,
 			const DStruct* ReplacementStruct,
-			const DClass* ReplacementClass) -> FSaveOverrideResult;
+			const DClass* ReplacementClass) -> std::expected<void, FSaveOverrideError>;
 		auto FindMutableObject(const DObject& Object) -> FObjectSaveOverride*;
 
 		std::vector<FObjectSaveOverride> Objects;

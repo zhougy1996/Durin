@@ -181,9 +181,9 @@ namespace Durin
 		{
 			std::filesystem::path Path(PhysicalPath);
 			Path.replace_extension();
-			const FAssetPathResult Classified = FMountPaths::ClassifyAssetPath(Path);
+			const auto Classified = FMountPaths::ClassifyAssetPath(Path);
 			return Classified && FPackagePath::TryCreate(
-				Classified.NormalizedVirtualPath, OutPath);
+				Classified->NormalizedVirtualPath, OutPath);
 		}
 
 		auto ValidateAssetPackageClosure(FByteView Bytes,
@@ -200,16 +200,16 @@ namespace Durin
 		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetWriteResult
 		{
 			if (IsPackageLoading(Path)) return Error(EAssetWriteError::InUse, "An incomplete package cannot be saved.");
-			const FMountLookupResult Mount =
+			const auto Mount =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
 			if (!Mount)
 				return Error(EAssetWriteError::InvalidPath,
 					std::format("Package {} does not use a registered content mount.",
 						Path.ToString()));
-			if (!Mount.Mount->bContentWritable)
+			if (!Mount->Mount->bContentWritable)
 				return Error(EAssetWriteError::ReadOnlyMode,
 					std::format("Content mount {} is read-only.",
-						Mount.Mount->VirtualRoot));
+						Mount->Mount->VirtualRoot));
 			return {};
 		}
 
@@ -243,12 +243,12 @@ namespace Durin
 					Context.GetCookRoot(), Path.GetView(), CookedPath)) return {};
 				return CookedPath.generic_string();
 			}
-			const FAssetPathResult Resolved =
+			const auto Resolved =
 				FMountPaths::ResolveAssetPath(Path.GetView(), EMountPathExistence::AllowMissing);
 			if (!Resolved)
 				DURIN_WARN_CATEGORY(
-					"AssetSystem", "Failed to resolve asset path {}: {}", Path.ToString(), Resolved.Message);
-			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
+					"AssetSystem", "Failed to resolve asset path {}: {}", Path.ToString(), (Resolved ? std::string{} : Durin::ToString(Resolved.error())));
+			return Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 
 		auto DecodeByteToolValue(
@@ -336,7 +336,7 @@ namespace Durin
 				FObjectPath Path;
 				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 				{
-					return Error(EAssetReadError::InvalidPath, FormatObjectError(PathValidation.Error));
+					return Error(EAssetReadError::InvalidPath, ToString(PathValidation.error()));
 				}
 				Reference->SetPath(std::move(Path));
 				return {};
@@ -375,8 +375,8 @@ namespace Durin
 				FReflectedValueStorage Storage;
 				if (!([&] {
 					const auto ValueResult = Storage.DefaultConstruct(StorageProperty, 0);
-					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
+					if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+					return ValueResult.has_value();
 				}()))
 					return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
 				std::string StructName;
@@ -424,16 +424,16 @@ namespace Durin
 					auto Validation = Struct->GetOps().PostDeserialize(StructValue, Context);
 					if (!Validation)
 					{
-						Validation.Error.StructName = Struct->GetQualifiedName().ToString();
-						Validation.Error.SourceVersion = SourceVersion;
-						auto Result = Error(EAssetReadError::CorruptFile, FormatObjectValidationError(Validation.Error));
+						Validation.error().StructName = Struct->GetQualifiedName().ToString();
+						Validation.error().SourceVersion = SourceVersion;
+						auto Result = Error(EAssetReadError::CorruptFile, ToString(Validation.error()));
 						return Result;
 					}
 				}
 				if (!([&] {
 					const auto ValueResult = Property->CopyAssignValue(Property->GetValuePtr(Container, ArrayIndex), StructValue);
-					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
+					if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+					return ValueResult.has_value();
 				}()))
 					return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
 				return {};
@@ -502,13 +502,13 @@ namespace Durin
 				if (Num > 0
 					&& (!([&] {
 						const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
-						StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-						return ValueResult.Succeeded();
+						if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+						return ValueResult.has_value();
 					}())
 						|| !([&] {
 							const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
-							StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-							return ValueResult.Succeeded();
+							if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+							return ValueResult.has_value();
 						}())))
 					return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
 				for (uint64 Index = 0; Index < Num; ++Index)
@@ -519,13 +519,13 @@ namespace Durin
 						ValueStorage.Reset();
 						if (!([&] {
 							const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
-							StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-							return ValueResult.Succeeded();
+							if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+							return ValueResult.has_value();
 						}())
 							|| !([&] {
 								const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
-								StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-								return ValueResult.Succeeded();
+								if (!ValueResult) StorageError = Durin::ToString(ValueResult.error());
+								return ValueResult.has_value();
 							}()))
 							return Error(EAssetReadError::UnsupportedProperty, std::move(StorageError));
 					}

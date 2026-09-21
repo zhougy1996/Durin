@@ -448,7 +448,7 @@ namespace Durin::AssetPrivate
 					if (const auto Result = ObjectPackage::BuildCanonicalMapKeyToken(
 						Type.Children[0], Value.Elements[Index], Token); !Result)
 						return LinkerApplyFail(Diagnostic, EAssetReadError::CorruptFile,
-							ObjectPackage::FormatCanonicalMapKeyError(Result.Error));
+							ObjectPackage::ToString(Result.error()));
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
 						Entries, Diagnostic)) return false;
@@ -993,7 +993,7 @@ namespace Durin::AssetPrivate
 							if (!NeedsDefaults.contains(Object)) continue;
 							const auto CopyResult = InitializeObjectFromDefaults(Template, Object, References);
 							if (!CopyResult)
-								return {EAssetReadError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + FormatObjectPropertyCopyError(CopyResult.Error)};
+								return {EAssetReadError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + ToString(CopyResult.error())};
 							Initialized.insert(Object);
 						}
 				}
@@ -1142,7 +1142,7 @@ namespace Durin::AssetPrivate
 				if (!Validation)
 				{
 					FAssetReadResult Result{EAssetReadError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
-						Object->GetObjectPath(), FormatObjectValidationError(Validation.Error))};
+						Object->GetObjectPath(), ToString(Validation.error()))};
 					return Result;
 				}
 			}

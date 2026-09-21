@@ -396,17 +396,17 @@ namespace Durin
 			FPackagePath Path;
 			if (const auto Validation = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), Path); !Validation)
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
-					Reason::InvalidIdentity, {.Message = FormatObjectError(Validation.Error)}));
+					Reason::InvalidIdentity, {.Message = ToString(Validation.error())}));
 			if (Package->IsNewlyCreated())
 				return Finish(MakeResult(Status::Failed, Failure::Unsaved, Stage::Preflight, Path,
 					Reason::UnsavedPackage));
 			const auto Resolved = FMountPaths::ResolveAssetPath(Path.GetView(), EMountPathExistence::AllowMissing);
 			if (!Resolved)
 				return Finish(MakeResult(Status::Failed, Failure::IoError, Stage::Preflight, Path,
-					Reason::InvalidIdentity, {.Message = FormatObjectError(FObjectError{
+					Reason::InvalidIdentity, {.Message = ToString(FObjectPathError{
 						.Code = EObjectPathError::MountLookupFailed, .Part = EObjectPathPart::Package,
-						.Subject = Path.ToString(), .MountError = Resolved.Error})}));
-			const std::filesystem::path File(Resolved.PhysicalPath.generic_string() + ".dasset");
+						.Subject = Path.ToString(), .MountError = Resolved.error().Code})}));
+			const std::filesystem::path File(Resolved->PhysicalPath.generic_string() + ".dasset");
 			std::error_code FileError;
 			const bool bExists = std::filesystem::exists(File, FileError);
 			if (FileError || !bExists)
@@ -546,8 +546,8 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
-				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
-					Stage::PrepareReferences, {}, Reason::Replacement, {.Message = FormatObjectReplacementError(ReplaceResult.Error)}));
+				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.error().Code),
+					Stage::PrepareReferences, {}, Reason::Replacement, {.Message = ToString(ReplaceResult.error())}));
 			}
 			for (size_t SourceIndex = 0; SourceIndex < Sources.size(); ++SourceIndex)
 			{
@@ -589,8 +589,8 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
-				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
-					Stage::Commit, {}, Reason::Replacement, {.Message = FormatObjectReplacementError(ReplaceResult.Error)}));
+				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.error().Code),
+					Stage::Commit, {}, Reason::Replacement, {.Message = ToString(ReplaceResult.error())}));
 			}
 
 			State->Result = {.Status = Status::Pending};

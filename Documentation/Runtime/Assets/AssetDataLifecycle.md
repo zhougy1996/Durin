@@ -64,7 +64,7 @@ implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 
 Engine's DAST adapters classify and format CoreDObject failures at explicit
 boundaries. `FAssetReadResult` carries a read classification and owned diagnostic
-text. Package capture keeps `FPackageCaptureResult`; codec encoding and
+text. Package capture keeps `std::expected<void, FPackageCaptureError>`; codec encoding and
 `SerializeAssetPackageBytes/Closure` return the existing
 `ObjectPackage::FPackageWriterResult`. Failed encoding leaves the caller's output
 closure unchanged. Live capture and linker mutation share one encode-and-read-back

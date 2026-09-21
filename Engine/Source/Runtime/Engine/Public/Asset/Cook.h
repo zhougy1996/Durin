@@ -22,7 +22,7 @@ namespace Durin
 	struct FCookCaptureResult;
 	struct FProjectGameSettingsResult;
 	struct FShaderError;
-	struct FObjectError;
+	struct FObjectPathError;
 	enum class ECookManifestEntryKind : uint8
 	{
 		CookedPackage = 1,
@@ -219,7 +219,7 @@ namespace Durin
 		uint64 Retained = 0;
 		uint64 MaximumRetained = 0;
 		std::optional<FFileError> FileCause;
-		std::shared_ptr<const FObjectError> PathCause;
+		std::shared_ptr<const FObjectPathError> PathCause;
 		std::string Member;
 		uint64 Expected = 0;
 		FXxHash128 ExpectedDigest;
@@ -294,7 +294,7 @@ namespace Durin
 		std::shared_ptr<const FCookPublishResult> PublicationCause;
 		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
 		std::shared_ptr<const FProjectGameSettingsResult> SettingsCause;
-		std::shared_ptr<const FObjectError> DefaultLevelCause;
+		std::shared_ptr<const FObjectPathError> DefaultLevelCause;
 		std::shared_ptr<const FShaderError> ShaderCause;
 		std::shared_ptr<const FCookCaptureResult> CaptureCause;
 		std::shared_ptr<const FCookContributionResult> ContributionCause;

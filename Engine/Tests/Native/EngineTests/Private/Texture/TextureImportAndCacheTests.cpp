@@ -25,11 +25,11 @@ namespace
 		const std::filesystem::path& Source,
 		std::string_view AssetPath) -> std::string
 	{
-		const Durin::FAssetPathResult Resolved =
+		const auto Resolved =
 			Durin::FMountPaths::ResolveAssetPath(
 				AssetPath, Durin::EMountPathExistence::AllowMissing);
 		if (!Resolved) return {};
-		std::filesystem::path PackagePath = Resolved.PhysicalPath;
+		std::filesystem::path PackagePath = Resolved->PhysicalPath;
 		PackagePath += ".dasset";
 		std::string Hint;
 		std::string Error;
@@ -154,11 +154,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_TRUE(Loaded->HasPlatformData());
 	std::string ExpectedFilename;
 	std::string FilenameError;
-	const Durin::FAssetPathResult PhysicalPackage =
+	const auto PhysicalPackage =
 		Durin::FMountPaths::ResolveAssetPath(
 			AssetPath.GetView(), Durin::EMountPathExistence::AllowMissing);
-	ASSERT_TRUE(PhysicalPackage) << PhysicalPackage.Message;
-	std::filesystem::path PhysicalPackagePath = PhysicalPackage.PhysicalPath;
+	ASSERT_TRUE(PhysicalPackage) << (PhysicalPackage ? std::string{} : Durin::ToString(PhysicalPackage.error()));
+	std::filesystem::path PhysicalPackagePath = PhysicalPackage->PhysicalPath;
 	PhysicalPackagePath += ".dasset";
 	Durin::ESourceHintBase ExpectedBase;
 	{

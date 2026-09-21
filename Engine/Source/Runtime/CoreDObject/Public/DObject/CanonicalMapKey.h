@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/PackageLinker.h"
@@ -78,18 +79,12 @@ namespace Durin::ObjectPackage
 		auto HasError() const -> bool { return Code != ECanonicalMapKeyError::None; }
 	};
 
-	struct FCanonicalMapKeyResult
-	{
-		FCanonicalMapKeyError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
 
-	COREDOBJECT_API auto FormatCanonicalMapKeyError(const FCanonicalMapKeyError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FCanonicalMapKeyError& Error) -> std::string;
 
 	// Builds one detached canonical token and replaces output only after complete success.
 	COREDOBJECT_API auto BuildCanonicalMapKeyToken(
 		const FSerializedType& Type,
 		const FSerializedValue& Value,
-		FByteBuffer& OutToken) -> FCanonicalMapKeyResult;
+		FByteBuffer& OutToken) -> std::expected<void, FCanonicalMapKeyError>;
 }

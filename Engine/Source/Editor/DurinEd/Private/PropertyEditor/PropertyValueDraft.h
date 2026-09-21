@@ -40,13 +40,13 @@ namespace Durin::Editor
 			FPropertyValueSnapshotPayload Current;
 			if (const auto Result = CapturePropertyValuePayload(Property, Target.SnapshotContainer, ArrayIndex, Current); !Result)
 			{
-				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error).Error;
+				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.error()).Error;
 				return;
 			}
 			if (const auto Result = Storage.DefaultConstruct(Property, ArrayIndex); !Result)
 			{
 				InitializationError = Reject(EPropertyValueDraftError::Storage).Error;
-				InitializationError.ValueCause = Result.Error;
+				InitializationError.ValueCause = Result.error();
 				return;
 			}
 			Memory = Storage.GetContainer();
@@ -65,7 +65,7 @@ namespace Durin::Editor
 		{
 			if (!IsValid()) return {InitializationError};
 			const auto Result = RestorePropertyValuePayload(Property, Memory, ArrayIndex, Snapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Restore, Result.Error);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Restore, Result.error());
 		}
 
 		auto Resolve(const FPropertyEditTarget& Source, const FProperty*& OutProperty,
@@ -98,14 +98,14 @@ namespace Durin::Editor
 		{
 			if (!IsValid()) return {InitializationError};
 			const auto Result = CapturePropertyValuePayload(Property, Memory, ArrayIndex, OutSnapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
 		}
 
 		auto Capture(FPropertyValueSnapshot& OutSnapshot) const -> FPropertyValueDraftResult
 		{
 			if (!IsValid()) return {InitializationError};
 			const auto Result = CapturePropertyValue(Property, Memory, ArrayIndex, OutSnapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
 		}
 
 	private:

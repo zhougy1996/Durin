@@ -46,7 +46,7 @@ namespace Durin::Editor
 			FPropertyValueSnapshotPayload StoredKey;
 			if (const auto Result = CapturePropertyValuePayload(Context.KeyProperty, Key, 0, StoredKey); !Result)
 			{
-				Context.Error = Result.Error;
+				Context.Error = Result.error();
 				return false;
 			}
 			if (StoredKey == *Context.TargetKey)
@@ -59,14 +59,14 @@ namespace Durin::Editor
 		}
 
 		auto CaptureTargetValue(const FPropertyEditTarget& Target,
-			FPropertyValueSnapshotPayload& OutSnapshot) -> FPropertySnapshotResult
+			FPropertyValueSnapshotPayload& OutSnapshot) -> std::expected<void, FPropertySnapshotError>
 		{
 			return CapturePropertyValuePayload(Target.SnapshotProperty, Target.SnapshotContainer,
 				Target.SnapshotArrayIndex, OutSnapshot);
 		}
 
 		auto RestoreTargetValue(const FPropertyEditTarget& Target,
-			const FPropertyValueSnapshotPayload& Snapshot) -> FPropertySnapshotResult
+			const FPropertyValueSnapshotPayload& Snapshot) -> std::expected<void, FPropertySnapshotError>
 		{
 			return RestorePropertyValuePayload(Target.SnapshotProperty, Target.SnapshotContainer,
 				Target.SnapshotArrayIndex, Snapshot);
@@ -131,7 +131,7 @@ namespace Durin::Editor
 			if (const auto Capture = CaptureTargetValue(Target, Before); !Capture)
 			{
 				auto Result = Reject(EPropertyMutationError::CaptureBefore);
-				Result.Error.SnapshotCause = Capture.Error;
+				Result.Error.SnapshotCause = Capture.error();
 				return Result;
 			}
 			FPropertyValueDraft Draft(Target);
@@ -165,14 +165,14 @@ namespace Durin::Editor
 				if (const auto Validation = Extension.PreEdit(*Target.Object, Proposal); !Validation)
 				{
 					auto Result = Reject(EPropertyMutationError::ExtensionValidation);
-					Result.Error.ValidationCause = Validation.Error;
+					Result.Error.ValidationCause = Validation.error();
 					return Result;
 				}
 			}
 			if (const auto Validation = Target.Object->PreEditChangeProperty(Proposal); !Validation)
 			{
 				auto Result = Reject(EPropertyMutationError::ObjectValidation);
-				Result.Error.ValidationCause = Validation.Error;
+				Result.Error.ValidationCause = Validation.error();
 				return Result;
 			}
 
@@ -192,21 +192,21 @@ namespace Durin::Editor
 				auto Result = Reject(Code);
 				Result.Error.SnapshotCause = Cause;
 				const auto Rollback = RestoreTargetValue(Target, Before);
-				if (!Rollback) Result.Error.RollbackCause = Rollback.Error;
+				if (!Rollback) Result.Error.RollbackCause = Rollback.error();
 				if (OutAppliedValue)
 				{
 					if (Rollback) *OutAppliedValue = Before;
 					else if (const auto Capture = CaptureTargetValue(Target, *OutAppliedValue); !Capture)
-						Result.Error.RecoveryCaptureCause = Capture.Error;
+						Result.Error.RecoveryCaptureCause = Capture.error();
 				}
 				return Result;
 			};
 			if (const auto Publication = RestoreTargetValue(Target, Normalized); !Publication)
-				return Recover(EPropertyMutationError::Publication, Publication.Error);
+				return Recover(EPropertyMutationError::Publication, Publication.error());
 
 			FPropertyValueSnapshotPayload Applied;
 			if (const auto Capture = CaptureTargetValue(Target, Applied); !Capture)
-				return Recover(EPropertyMutationError::CaptureAfter, Capture.Error);
+				return Recover(EPropertyMutationError::CaptureAfter, Capture.error());
 			if (OutAppliedValue) *OutAppliedValue = std::move(Applied);
 			return {};
 		}
@@ -303,13 +303,13 @@ namespace Durin::Editor
 			if (const auto Publication = RestoreTargetValue(Target, ProposedValue); !Publication)
 			{
 				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::Publication).Error;
-				Result.Error.SnapshotCause = Publication.Error;
+				Result.Error.SnapshotCause = Publication.error();
 				return Result;
 			}
 			if (const auto Capture = CaptureTargetValue(Target, Result.AppliedValue); !Capture)
 			{
 				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::CaptureAfter).Error;
-				Result.Error.SnapshotCause = Capture.Error;
+				Result.Error.SnapshotCause = Capture.error();
 				return Result;
 			}
 			Result.bChanged = true;
@@ -358,8 +358,8 @@ namespace Durin::Editor
 
 	auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string
 	{
-		if (Error.SnapshotCause) return FormatPropertySnapshotError(*Error.SnapshotCause);
-		if (Error.ValueCause) return FormatPropertyValueError(*Error.ValueCause);
+		if (Error.SnapshotCause) return ToString(*Error.SnapshotCause);
+		if (Error.ValueCause) return ToString(*Error.ValueCause);
 		if (Error.PathCause) return FormatPropertyEditPathError(*Error.PathCause);
 		switch (Error.Code)
 		{
@@ -376,8 +376,8 @@ namespace Durin::Editor
 	{
 		std::string Message;
 		if (Error.DraftCause) Message = FormatPropertyValueDraftError(*Error.DraftCause);
-		else if (Error.SnapshotCause) Message = FormatPropertySnapshotError(*Error.SnapshotCause);
-		else if (Error.ValidationCause) Message = FormatObjectValidationError(*Error.ValidationCause);
+		else if (Error.SnapshotCause) Message = ToString(*Error.SnapshotCause);
+		else if (Error.ValidationCause) Message = ToString(*Error.ValidationCause);
 		else switch (Error.Code)
 		{
 		case EPropertyMutationError::None: break;
@@ -386,8 +386,8 @@ namespace Durin::Editor
 		case EPropertyMutationError::DeferredUnavailable: Message = "The reflected-property caller cannot retain deferred validation."; break;
 		default: Message = "The reflected-property mutation failed."; break;
 		}
-		if (Error.RollbackCause) Message += std::format(" Rollback also failed: {}", FormatPropertySnapshotError(*Error.RollbackCause));
-		if (Error.RecoveryCaptureCause) Message += std::format(" Recovery capture also failed: {}", FormatPropertySnapshotError(*Error.RecoveryCaptureCause));
+		if (Error.RollbackCause) Message += std::format(" Rollback also failed: {}", ToString(*Error.RollbackCause));
+		if (Error.RecoveryCaptureCause) Message += std::format(" Recovery capture also failed: {}", ToString(*Error.RecoveryCaptureCause));
 		return Message;
 	}
 
@@ -418,7 +418,7 @@ namespace Durin::Editor
 
 	auto FormatPropertyEditPathError(const FPropertyEditPathError& Error) -> std::string
 	{
-		if (Error.SnapshotCause) return FormatPropertySnapshotError(*Error.SnapshotCause);
+		if (Error.SnapshotCause) return ToString(*Error.SnapshotCause);
 		switch (Error.Code)
 		{
 		case EPropertyEditPathError::None: return {};
@@ -934,7 +934,7 @@ namespace Durin::Editor
 			: InDescription;
 		if (const auto Capture = CaptureTargetValue(Target, OriginalValue); !Capture)
 		{
-			auto Result = Reject(FormatPropertySnapshotError(Capture.Error));
+			auto Result = Reject(ToString(Capture.error()));
 			Reset();
 			return Result;
 		}
@@ -1023,7 +1023,7 @@ namespace Durin::Editor
 			FPropertyValueSnapshotPayload DeferredValue = std::move(Result.Deferred.ProposedValue);
 			FPropertyEditDeferredCancel Cancel = Result.Deferred.Action(
 				[OwnerState, DeferredValue = std::move(DeferredValue)](
-					FObjectValidationResult Validation) mutable {
+					std::expected<void, FObjectValidationError> Validation) mutable {
 					FPropertyEditSession* Owner = nullptr;
 					{
 						std::lock_guard Lock(OwnerState->Mutex);
@@ -1054,7 +1054,7 @@ namespace Durin::Editor
 	}
 
 	auto FPropertyEditSession::CompleteDeferredEdit(
-		FObjectValidationResult Validation,
+		std::expected<void, FObjectValidationError> Validation,
 		FPropertyValueSnapshotPayload ProposedValue) -> void
 	{
 		if (!bActive || !bDeferredPending) return;
@@ -1068,7 +1068,7 @@ namespace Durin::Editor
 		bDeferredPending = false;
 		if (!Validation)
 		{
-			DURIN_ERROR("Deferred reflected-property edit failed: {}", FormatObjectValidationError(Validation.Error));
+			DURIN_ERROR("Deferred reflected-property edit failed: {}", ToString(Validation.error()));
 			Reset();
 			return;
 		}

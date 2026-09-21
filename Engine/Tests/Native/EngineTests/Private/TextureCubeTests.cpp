@@ -99,8 +99,8 @@ namespace
 		const auto Resolved = Durin::FMountPaths::ResolveAssetPath(
 			Texture.GetPackage()->GetPackagePath(),
 			Durin::EMountPathExistence::AllowMissing);
-		if (!Resolved) { OutError = Resolved.Message; return false; }
-		std::filesystem::path PackagePath = Resolved.PhysicalPath;
+		if (!Resolved) { OutError = (Resolved ? std::string{} : Durin::ToString(Resolved.error())); return false; }
+		std::filesystem::path PackagePath = Resolved->PhysicalPath;
 		PackagePath += ".dasset";
 		const Durin::FSourceFile* Source = nullptr;
 		if (const auto* ImportData = Texture.GetAssetImportData())

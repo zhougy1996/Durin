@@ -109,7 +109,7 @@ namespace Durin
 				{
 					StartupError = std::format(
 						"Project Game.DefaultLevel '{}' is not a valid package path: {}",
-						Settings.DefaultLevel, FormatObjectError(PathValidation.Error));
+						Settings.DefaultLevel, ToString(PathValidation.error()));
 					DURIN_WARN("{}", StartupError);
 				}
 			}

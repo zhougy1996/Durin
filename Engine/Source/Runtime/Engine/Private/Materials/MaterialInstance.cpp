@@ -143,7 +143,7 @@ namespace Durin
 		{
 			auto Rejection = RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
 			if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar))
-				ObjectArchive->FailValidation(std::move(Rejection.Error));
+				ObjectArchive->FailValidation(std::move(Rejection.error()));
 			else Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Validation.Error));
 		}
 	}
@@ -172,7 +172,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (bDynamicInstance) return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::ModuleRejected);
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
@@ -499,7 +499,7 @@ namespace Durin
 			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
-	auto DMaterialInstance::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DMaterialInstance::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (bDynamicInstance || (Parent && Parent->IsDynamicInstance()))
 			return RejectLoadedObjectGraph(GetObjectPath(), "Dynamic material instances cannot participate in persistent object graphs.");

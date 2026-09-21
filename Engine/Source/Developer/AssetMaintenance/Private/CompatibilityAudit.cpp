@@ -277,7 +277,7 @@ namespace Durin
 					if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Mount.VirtualRoot + Relative.generic_string(),
 						PackagePath); !PathValidation)
 					{
-						PathError = FormatObjectError(PathValidation.Error);
+						PathError = ToString(PathValidation.error());
 						Result.Status = EAssetPackageSnapshotStatus::Failed;
 						Result.Error = std::format("Invalid mounted package path '{}': {}",
 							It->path().generic_string(), PathError);

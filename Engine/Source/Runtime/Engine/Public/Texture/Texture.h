@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "EngineAPI.h"
 #include "Asset/AssetImportData.h"
@@ -39,7 +40,7 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 

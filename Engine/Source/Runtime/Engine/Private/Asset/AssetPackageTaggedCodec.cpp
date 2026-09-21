@@ -568,11 +568,11 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (!Source.ReadAt(0, Main, &ReadError))
 				return Error(EAssetReadError::IoError, std::move(ReadError));
 			FByteBuffer Bulk;
-			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+			const auto Resolved = FMountPaths::ResolveAssetPath(
 				Path.GetView(), EMountPathExistence::AllowMissing);
 			if (Resolved)
 			{
-				std::filesystem::path BulkPath = Resolved.PhysicalPath;
+				std::filesystem::path BulkPath = Resolved->PhysicalPath;
 				BulkPath.replace_extension(".dbulk");
 				std::error_code Ec;
 				if (std::filesystem::is_regular_file(BulkPath, Ec))
@@ -716,8 +716,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
 				Options, Linker); !Result)
 			{
-				auto Failure = EncodingError(FormatPackageCaptureError(Result.Error));
-				if (GetPackageCaptureSaveError(Result.Error) == EPackageSaveError::UnsupportedVersion)
+				auto Failure = EncodingError(ToString(Result.error()));
+				if (GetPackageCaptureSaveError(Result.error()) == EPackageSaveError::UnsupportedVersion)
 					Failure.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion;
 				return Failure;
 			}

@@ -83,7 +83,7 @@ namespace Durin::Editor
 			case ETransactorFailure::CaptureAfter:
 				Message = std::format("{} '{}': {}", Error.Code == ETransactorFailure::CaptureBefore
 					? "Unable to capture" : "Unable to capture the final value of",
-					Error.Member, Error.SnapshotCause ? FormatPropertySnapshotError(*Error.SnapshotCause) : std::string{}); break;
+					Error.Member, Error.SnapshotCause ? ToString(*Error.SnapshotCause) : std::string{}); break;
 			case ETransactorFailure::PrepareRecord:
 			case ETransactorFailure::FinalizeRecord:
 				Message = std::format("{} '{}': {}", Error.Code == ETransactorFailure::PrepareRecord
@@ -198,7 +198,7 @@ namespace Durin::Editor
 			return Error.MemberCause ? FormatTransactionSnapshotError(*Error.MemberCause) : "The graph member is unavailable.";
 		case ETransactionCustomError::MembershipChanged: return "The graph participants changed outside history.";
 		case ETransactionCustomError::PropertyRestore:
-			return Error.PropertyCause ? FormatPropertySnapshotError(*Error.PropertyCause) : "The graph property could not be restored.";
+			return Error.PropertyCause ? ToString(*Error.PropertyCause) : "The graph property could not be restored.";
 		case ETransactionCustomError::TargetUnavailable: return "The custom transaction target is unavailable.";
 		case ETransactionCustomError::PresentationWrite: return "The graph presentation rejected replay.";
 		case ETransactionCustomError::MaterialWrite:
@@ -616,7 +616,7 @@ namespace Durin::Editor
 					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 						.FailureCause = FTransactorFailure{.Code = ETransactorFailure::CaptureBefore,
 							.Owner = FObjectKey(Object), .Member = Property->NamePrivate.ToString(),
-							.ArrayIndex = ArrayIndex, .SnapshotCause = Capture.Error}};
+							.ArrayIndex = ArrayIndex, .SnapshotCause = Capture.error()}};
 					return;
 				}
 				FTransactionObjectRecord ObjectRecord;
@@ -690,7 +690,7 @@ namespace Durin::Editor
 					.FailureCause = FTransactorFailure{.Code = ETransactorFailure::CaptureAfter,
 						.Owner = FObjectKey(Modified->Target.Object),
 						.Member = Modified->Target.MemberProperty->NamePrivate.ToString(),
-						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .SnapshotCause = Capture.Error}};
+						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .SnapshotCause = Capture.error()}};
 			}
 			FTransactionObjectRecord Record;
 			if (const auto Capture = FTransactionObjectRecord::Capture(Modified->Target,
@@ -1617,10 +1617,10 @@ namespace Durin
 			std::span<DPackage* const> InPackages)
 			: Transactor(InTransactor), Packages(InPackages.begin(), InPackages.end()) {}
 
-		auto Prepare(const FObjectReplacementMap& Map) -> FObjectReplacementResult override
+		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
 		{
 			if (Transactor.State != Editor::ETransactorState::Idle)
-				return {{.Code = EObjectReplacementError::Busy, .Reason = EObjectReplacementReason::ParticipantBusy}};
+				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy, .Reason = EObjectReplacementReason::ParticipantBusy});
 			TransactionIds.clear();
 			OtherPackages.clear();
 			for (const Editor::FTransaction& Transaction : Transactor.History)
@@ -1639,8 +1639,8 @@ namespace Durin
 			{
 				const auto* Entry = Map.Find(Package);
 				if (!Entry || !Entry->Replacement)
-					return {{.Code = EObjectReplacementError::UnmappedReference, .Reason = EObjectReplacementReason::ParticipantUnmappedPackage,
-						.ObjectPath = Package ? Package->GetPackagePath() : std::string{}}};
+					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference, .Reason = EObjectReplacementReason::ParticipantUnmappedPackage,
+						.ObjectPath = Package ? Package->GetPackagePath() : std::string{}});
 			}
 			return {};
 		}

@@ -353,7 +353,7 @@ namespace Durin::RoadNet
 		return true;
 	}
 
-	auto DRoadNet::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DRoadNet::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (SchemaVersion != RoadNetSchemaVersion)
@@ -386,7 +386,7 @@ namespace Durin::RoadNet
 		NotifyMutation();
 	}
 
-	auto DRoadNet::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DRoadNet::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (bPublishing) { return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::ReentrantEdit); }

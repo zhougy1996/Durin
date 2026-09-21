@@ -111,14 +111,14 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return false;
-		const FAssetPathResult Resolved =
+		const auto Resolved =
 			FMountPaths::ResolveAssetPath(DirectoryPath);
 		if (!Resolved)
 		{
-			SetError(Resolved.Message);
+			SetError((Resolved ? std::string{} : Durin::ToString(Resolved.error())));
 			return false;
 		}
-		if (!NavigateToPhysical(Resolved.PhysicalPath.generic_string()))
+		if (!NavigateToPhysical(Resolved->PhysicalPath.generic_string()))
 		{
 			SetError(
 				"The requested directory is not part of an automatically scanned Content Browser mount.");

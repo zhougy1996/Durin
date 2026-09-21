@@ -29,7 +29,7 @@ namespace Durin::Image
 		std::string Filename;
 		std::optional<FFileError> FileError;
 	};
-	CORE_API auto FormatImageDecodeError(const FImageDecodeError& Error) -> std::string;
+	CORE_API auto ToString(const FImageDecodeError& Error) -> std::string;
 
 	// Bounds Radiance HDR input and its decoded linear RGB working set.
 	struct FRadianceHDRDecodeLimits
@@ -39,6 +39,72 @@ namespace Durin::Image
 		uint32 MaximumDimension = 16384;
 	};
 
+	enum class EGrayscale16DecodeError : uint8
+	{
+		EncodedLimit,
+		InvalidSignature,
+		InvalidHeader,
+		UnsupportedSampleFormat,
+		UnsupportedEncoding,
+		PixelLimit,
+		InvalidImage,
+		FileStat,
+		FileSize,
+		FileRead
+	};
+	struct FGrayscale16DecodeError
+	{
+		EGrayscale16DecodeError Code = EGrayscale16DecodeError::EncodedLimit;
+		uint64 EncodedBytes = 0;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		FImageDecodeLimits Limits;
+		std::string Filename;
+		std::optional<FFileError> FileError;
+	};
+	CORE_API auto ToString(const FGrayscale16DecodeError& Error) -> std::string;
+
+	enum class ERadianceHDRDecodeError : uint8
+	{
+		TruncatedScanline,
+		ZeroLengthPacket,
+		RunExceedsWidth,
+		TruncatedRun,
+		LiteralExceedsWidth,
+		TruncatedLiteral,
+		InvalidRepeat,
+		RepeatExceedsWidth,
+		TruncatedOldScanline,
+		Empty,
+		EncodedLimit,
+		InvalidSignature,
+		InvalidHeader,
+		MissingFormat,
+		MissingResolution,
+		UnsupportedOrientation,
+		DimensionLimit,
+		PixelLimit,
+		TruncatedScanlineHeader,
+		ScanlineWidthMismatch,
+		InvalidChannel,
+		TrailingBytes,
+		FileStat,
+		FileSize,
+		FileRead
+	};
+	struct FRadianceHDRDecodeError
+	{
+		ERadianceHDRDecodeError Code = ERadianceHDRDecodeError::TruncatedScanline;
+		uint64 EncodedBytes = 0;
+		uint64 Offset = 0;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		FRadianceHDRDecodeLimits Limits;
+		std::string Filename;
+		std::optional<FFileError> FileError;
+	};
+	CORE_API auto ToString(const FRadianceHDRDecodeError& Error) -> std::string;
+
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
 	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
 	[[nodiscard]] CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes,
@@ -47,16 +113,12 @@ namespace Durin::Image
 		const FImageDecodeLimits& Limits = {}) -> std::expected<FDecodedImage, FImageDecodeError>;
 	CORE_API auto DecodeGrayscale16PngFromMemory(
 		FByteView EncodedBytes,
-		FDecodedGrayscale16Image& OutImage,
-		std::string& OutError,
-		const FImageDecodeLimits& Limits = {}) -> bool;
+		const FImageDecodeLimits& Limits = {}) -> std::expected<FDecodedGrayscale16Image, FGrayscale16DecodeError>;
 	CORE_API auto DecodeGrayscale16PngFromFile(
 		std::string_view FilePath,
-		FDecodedGrayscale16Image& OutImage,
-		std::string& OutError,
-		const FImageDecodeLimits& Limits = {}) -> bool;
-	CORE_API auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, FDecodedFloatImage& OutImage,
-		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
-	CORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
-		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
+		const FImageDecodeLimits& Limits = {}) -> std::expected<FDecodedGrayscale16Image, FGrayscale16DecodeError>;
+	CORE_API auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, const FRadianceHDRDecodeLimits& Limits = {})
+		-> std::expected<FDecodedFloatImage, FRadianceHDRDecodeError>;
+	CORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, const FRadianceHDRDecodeLimits& Limits = {})
+		-> std::expected<FDecodedFloatImage, FRadianceHDRDecodeError>;
 } // namespace Durin::Image

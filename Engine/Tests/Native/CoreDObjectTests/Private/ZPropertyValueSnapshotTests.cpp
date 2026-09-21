@@ -167,11 +167,11 @@ namespace Durin
 		static auto PostDeserialize(
 			StructConsumerTest::FCustomArchiveValue& Value,
 			FDStructPostDeserializeContext& Context
-		) -> FObjectValidationResult
+		) -> std::expected<void, FObjectValidationError>
 		{
 			++PostDeserializeCount;
 			LastSource = Context.Source;
-			if (Value.Value < 0) return FObjectValidationResult{{.Code = EObjectValidationError::StructRejected}};
+			if (Value.Value < 0) return std::unexpected(Durin::FObjectValidationError{.Code = EObjectValidationError::StructRejected});
 			Value.Derived = Value.Value * 2;
 			return {};
 		}
@@ -265,7 +265,7 @@ namespace
 
 	TEST(FPropertyValueSnapshotTests, RestoresScalarStringAndNameValues)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		Durin::FNumericProperty ValueProperty(
 			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
@@ -291,15 +291,15 @@ namespace
 		Durin::FPropertyValueSnapshot NameSnapshot;
 		std::string Error;
 
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&NameProperty, &Owner, 0, NameSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&NameProperty, &Owner, 0, NameSnapshot))) << Durin::ToString(SnapshotResult.error());
 		Owner.Value = 91;
 		Owner.Label = "after";
 		Owner.Name = Durin::FName("AfterName");
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&NameProperty, &Owner, 0, NameSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&NameProperty, &Owner, 0, NameSnapshot))) << Durin::ToString(SnapshotResult.error());
 
 		EXPECT_EQ(Owner.Value, 17);
 		EXPECT_EQ(Owner.Label, "before");
@@ -307,12 +307,12 @@ namespace
 		Durin::FPropertyValueSnapshot Duplicate = LabelSnapshot;
 		EXPECT_EQ(Duplicate, LabelSnapshot);
 		EXPECT_FALSE((SnapshotResult = Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, LabelSnapshot)));
-		EXPECT_EQ(SnapshotResult.Error.Code, Durin::EPropertySnapshotError::IncompatibleType);
+		EXPECT_EQ(SnapshotResult.error().Code, Durin::EPropertySnapshotError::IncompatibleType);
 	}
 
 	TEST(FPropertyValueSnapshotTests, RestoresDirectNestedAndArrayGuidValuesByteForByte)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		Durin::FGuidProperty GuidProperty(
 			Durin::FFieldVariant(), Durin::FName("Guid"), Durin::EObjectFlags::NoFlags,
@@ -361,16 +361,16 @@ namespace
 		Durin::FPropertyValueSnapshot DirectSnapshot, ArraySnapshot, NestedSnapshot;
 		std::string Error;
 
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot))) << Durin::ToString(SnapshotResult.error());
 		EXPECT_EQ(DirectSnapshot.GetBytes().size(), sizeof(Durin::FGuid));
 		Owner.Guid = {};
 		Owner.Guids = {Durin::FGuid(9, 9, 9, 9)};
 		NestedOwner.Nested.Value = {};
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot))) << Durin::ToString(SnapshotResult.error());
 
 		EXPECT_EQ(Owner.Guid, Direct);
 		EXPECT_EQ(Owner.Guids, Array);
@@ -379,7 +379,7 @@ namespace
 
 	TEST(FPropertyValueSnapshotTests, RestoresIntrinsicStructsDirectlyAndThroughTransformAndArray)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
 		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_FTransform();
@@ -420,16 +420,16 @@ namespace
 		Durin::FPropertyValueSnapshot TransformSnapshot;
 		Durin::FPropertyValueSnapshot VectorsSnapshot;
 		std::string Error;
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot))) << Durin::ToString(SnapshotResult.error());
 
 		Owner.Vector = Durin::FVector3(0.0);
 		Owner.Transform = Durin::FTransform();
 		Owner.Vectors = {Durin::FVector3(99.0)};
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot))) << Durin::ToString(SnapshotResult.error());
 
 		auto ExpectVectorBits = [](const Durin::FVector3& Actual, const Durin::FVector3& ExpectedValue) {
 			EXPECT_EQ(std::bit_cast<uint64>(Actual.x), std::bit_cast<uint64>(ExpectedValue.x));
@@ -447,7 +447,7 @@ namespace
 
 	TEST(FPropertyValueSnapshotTests, KeepsNestedObjectReferencesAliveUntilReleased)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		Durin::FArrayProperty ReferencesProperty(
 			Durin::FFieldVariant(), Durin::FName("References"), Durin::EObjectFlags::NoFlags,
@@ -475,7 +475,7 @@ namespace
 		Owner.References = {First, Second, First};
 		Durin::FPropertyValueSnapshot Snapshot;
 		std::string Error;
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&ReferencesProperty, &Owner, 0, Snapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&ReferencesProperty, &Owner, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 		ASSERT_EQ(Snapshot.GetReferencedObjects().size(), 2u);
 		Durin::FPropertyValueSnapshot SnapshotCopy = Snapshot;
 		Snapshot = {};
@@ -484,7 +484,7 @@ namespace
 		Durin::CollectGarbage();
 		ASSERT_TRUE(ContainsObject(First));
 		ASSERT_TRUE(ContainsObject(Second));
-		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&ReferencesProperty, &Owner, 0, SnapshotCopy))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::RestorePropertyValue(&ReferencesProperty, &Owner, 0, SnapshotCopy))) << Durin::ToString(SnapshotResult.error());
 		ASSERT_EQ(Owner.References.size(), 3u);
 		EXPECT_EQ(Owner.References[0].Get(), First);
 		EXPECT_EQ(Owner.References[1].Get(), Second);
@@ -499,7 +499,7 @@ namespace
 
 	TEST(FPropertyValueSnapshotTests, RetentionNeutralPayloadDoesNotRootHardReferences)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		struct FObjectOwner
 		{
@@ -524,7 +524,7 @@ namespace
 		FObjectOwner Owner{Referenced};
 		Durin::FPropertyValueSnapshotPayload Payload;
 		std::string Error;
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(&Property, &Owner, 0, Payload))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(&Property, &Owner, 0, Payload))) << Durin::ToString(SnapshotResult.error());
 		ASSERT_EQ(Payload.GetReferencedObjectKeys().size(), 1u);
 		EXPECT_EQ(Payload.GetReferencedObjectKeys().front(), Handle);
 
@@ -532,14 +532,14 @@ namespace
 		Durin::CollectGarbage();
 		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 		EXPECT_FALSE((SnapshotResult = Durin::RestorePropertyValuePayload(&Property, &Owner, 0, Payload)));
-		EXPECT_EQ(SnapshotResult.Error.Code, Durin::EPropertySnapshotError::UnresolvedReference);
-		EXPECT_EQ(SnapshotResult.Error.ActualCount, 1u);
-		EXPECT_EQ(SnapshotResult.Error.ExpectedCount, 1u);
+		EXPECT_EQ(SnapshotResult.error().Code, Durin::EPropertySnapshotError::UnresolvedReference);
+		EXPECT_EQ(SnapshotResult.error().ActualCount, 1u);
+		EXPECT_EQ(SnapshotResult.error().ExpectedCount, 1u);
 	}
 
 	TEST(FReflectedStructConsumerTests, ManagedStoragePairsLifetimesAndSeparatesCopyModes)
 	{
-		Durin::FPropertyValueResult ValueResult;
+		std::expected<void, Durin::FPropertyValueError> ValueResult;
 		using StructConsumerTest::FLifetimeTracked;
 		FLifetimeTracked::ResetCounts();
 		FLifetimeTracked Source;
@@ -557,20 +557,20 @@ namespace
 
 		std::string Error;
 		Durin::FReflectedValueStorage DefaultStorage;
-		ASSERT_TRUE((ValueResult = DefaultStorage.DefaultConstruct(&Property, 0))) << Durin::FormatPropertyValueError(ValueResult.Error);
+		ASSERT_TRUE((ValueResult = DefaultStorage.DefaultConstruct(&Property, 0))) << Durin::ToString(ValueResult.error());
 		EXPECT_TRUE(DefaultStorage.IsLive());
 		EXPECT_EQ(reinterpret_cast<uintptr_t>(DefaultStorage.GetValue()) % alignof(FLifetimeTracked), 0u);
 		EXPECT_EQ(FLifetimeTracked::DefaultConstructCount, 2);
 		EXPECT_FALSE((ValueResult = DefaultStorage.DefaultConstruct(&Property, 0)));
-		EXPECT_EQ(ValueResult.Error.Code, Durin::EPropertyValueError::StorageAlreadyLive);
+		EXPECT_EQ(ValueResult.error().Code, Durin::EPropertyValueError::StorageAlreadyLive);
 		EXPECT_EQ(FLifetimeTracked::DefaultConstructCount, 2);
 
 		Durin::FReflectedValueStorage CopyStorage;
-		ASSERT_TRUE((ValueResult = CopyStorage.CopyConstruct(&Property, &Source, 0))) << Durin::FormatPropertyValueError(ValueResult.Error);
+		ASSERT_TRUE((ValueResult = CopyStorage.CopyConstruct(&Property, &Source, 0))) << Durin::ToString(ValueResult.error());
 		EXPECT_EQ(FLifetimeTracked::CopyConstructCount, 1);
 		EXPECT_EQ(static_cast<FLifetimeTracked*>(CopyStorage.GetValue())->Value, 37);
 		Source.Value = 91;
-		ASSERT_TRUE((ValueResult = DefaultStorage.CopyAssign(&Source))) << Durin::FormatPropertyValueError(ValueResult.Error);
+		ASSERT_TRUE((ValueResult = DefaultStorage.CopyAssign(&Source))) << Durin::ToString(ValueResult.error());
 		EXPECT_EQ(FLifetimeTracked::CopyAssignCount, 1);
 		EXPECT_EQ(static_cast<FLifetimeTracked*>(DefaultStorage.GetValue())->Value, 91);
 
@@ -581,7 +581,7 @@ namespace
 
 TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnchanged)
 	{
-		Durin::FPropertyValueResult ValueResult;
+		std::expected<void, Durin::FPropertyValueError> ValueResult;
 		using StructConsumerTest::FNoDefault;
 		Durin::DStruct Struct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FNoDefault"), Durin::FName("FNoDefault"),
@@ -605,17 +605,17 @@ TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnch
 		EXPECT_FALSE(Resize);
 		EXPECT_EQ(Values.size(), 1u);
 		EXPECT_EQ(Values[0].Value, 7);
-		EXPECT_EQ(Resize.Error.Requirement, Durin::EPropertyContainerRequirement::DefaultConstruct);
-		EXPECT_EQ(Resize.Error.CurrentCount, 1u);
-		EXPECT_EQ(Resize.Error.RequestedCount, 2u);
+		EXPECT_EQ(Resize.error().Requirement, Durin::EPropertyContainerRequirement::DefaultConstruct);
+		EXPECT_EQ(Resize.error().CurrentCount, 1u);
+		EXPECT_EQ(Resize.error().RequestedCount, 2u);
 		EXPECT_TRUE(Array.Resize(&Values, 0));
 		EXPECT_TRUE(Values.empty());
 
 		Durin::FReflectedValueStorage Storage;
 		EXPECT_FALSE((ValueResult = Storage.DefaultConstruct(&Inner, 0)));
 		EXPECT_EQ(Storage.GetContainer(), nullptr);
-		EXPECT_EQ(ValueResult.Error.Code, Durin::EPropertyValueError::UnavailableOperation);
-		EXPECT_EQ(ValueResult.Error.Operation, Durin::EPropertyValueOperation::DefaultConstruct);
+		EXPECT_EQ(ValueResult.error().Code, Durin::EPropertyValueError::UnavailableOperation);
+		EXPECT_EQ(ValueResult.error().Operation, Durin::EPropertyValueOperation::DefaultConstruct);
 
 		Durin::DStruct MoveOnlyStruct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FMoveOnly"), Durin::FName("FMoveOnly"),
@@ -645,8 +645,8 @@ TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnch
 		const auto Insert = Map.Insert(&MapValue, &MapKey, &ProposedValue);
 		EXPECT_FALSE(Insert);
 		EXPECT_TRUE(MapValue.empty());
-		EXPECT_EQ(Insert.Error.Requirement, Durin::EPropertyContainerRequirement::CopyConstruct);
-		EXPECT_EQ(Insert.Error.ValuePropertyName, "Map_Value");
+		EXPECT_EQ(Insert.error().Requirement, Durin::EPropertyContainerRequirement::CopyConstruct);
+		EXPECT_EQ(Insert.error().ValuePropertyName, "Map_Value");
 	}
 
 TEST(FReflectedContainerOpsTests, ArchiveLoadingRollsBackFailureAndRejectsDuplicateKeys)
@@ -858,7 +858,7 @@ TEST(FReflectedContainerOpsTests, ArchiveLoadingRollsBackFailureAndRejectsDuplic
 
 	TEST(FReflectedContainerOpsTests, ContainerCopyFailureLeavesStorageAndDestinationIntact)
 	{
-		Durin::FPropertyValueResult ValueResult;
+		std::expected<void, Durin::FPropertyValueError> ValueResult;
 		using FElement = StructConsumerTest::FThrowingContainerElement;
 		using FArray = std::vector<FElement>;
 		using FMap = std::unordered_map<int32, FElement>;
@@ -876,7 +876,7 @@ TEST(FReflectedContainerOpsTests, ArchiveLoadingRollsBackFailureAndRejectsDuplic
 			std::string Error;
 			EXPECT_FALSE((ValueResult = Failed.CopyConstruct(&A, &Source, 0)));
 			EXPECT_FALSE(Failed.IsLive());
-			EXPECT_EQ(ValueResult.Error.Code, Durin::EPropertyValueError::CopyFailed);
+			EXPECT_EQ(ValueResult.error().Code, Durin::EPropertyValueError::CopyFailed);
 			EXPECT_EQ(FElement::Live, 2);
 			FElement::CopiesBeforeFailure = -1;
 			Durin::FReflectedValueStorage Destination;
@@ -978,7 +978,7 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 
 	TEST(FReflectedStructConsumerTests, LogicalEqualityUsesFieldsAssociationsAndExactFloatingBits)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		Durin::FNumericProperty DoubleProperty(
 			Durin::FFieldVariant(), Durin::FName("Double"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(double),
@@ -1061,8 +1061,8 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 		Durin::FPropertyValueSnapshot LeftSnapshot;
 		Durin::FPropertyValueSnapshot RightSnapshot;
 		std::string Error;
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&MapProperty, &LeftMap, 0, LeftSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&MapProperty, &RightMap, 0, RightSnapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&MapProperty, &LeftMap, 0, LeftSnapshot))) << Durin::ToString(SnapshotResult.error());
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&MapProperty, &RightMap, 0, RightSnapshot))) << Durin::ToString(SnapshotResult.error());
 		EXPECT_EQ(LeftSnapshot, RightSnapshot);
 		EXPECT_EQ(LeftSnapshot.GetBytes(), RightSnapshot.GetBytes());
 	}
@@ -1227,7 +1227,7 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 
 	TEST(FReflectedStructConsumerTests, HiddenReferencesAreCollectedAndRootedBySnapshots)
 	{
-		Durin::FPropertySnapshotResult SnapshotResult;
+		std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 		EnsureSnapshotTestsInitialized();
 		using FHiddenReference = StructConsumerTest::FHiddenReference;
 		Durin::DStruct Struct(
@@ -1245,7 +1245,7 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 		Durin::FPropertyValueSnapshot Snapshot;
 		std::string Error;
 
-		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&Property, &Value, 0, Snapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+		ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValue(&Property, &Value, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 		ASSERT_EQ(Snapshot.GetReferencedObjects().size(), 1u);
 		EXPECT_EQ(Snapshot.GetReferencedObjects()[0], Referenced);
 		EXPECT_EQ(Durin::TDStructOpsTraits<FHiddenReference>::CollectCount, 1);
@@ -1329,44 +1329,44 @@ TEST(FReflectedStructConsumerTests, TypedStorageFailureOwnsContextAndPreservesLi
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
-	FPropertyValueResult Saved;
+	std::expected<void, FPropertyValueError> Saved;
 	{
 		FNumericProperty Property({}, "TemporaryValue", EObjectFlags::NoFlags,
 			EPropertyFlags::None, 2, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 		FReflectedValueStorage Storage;
 		Saved = Storage.DefaultConstruct(&Property, 5);
 		ASSERT_FALSE(Saved);
-		EXPECT_EQ(Saved.Error.Code, EPropertyValueError::InvalidArrayIndex);
-		EXPECT_EQ(Saved.Error.Operation, EPropertyValueOperation::Storage);
+		EXPECT_EQ(Saved.error().Code, EPropertyValueError::InvalidArrayIndex);
+		EXPECT_EQ(Saved.error().Operation, EPropertyValueOperation::Storage);
 		EXPECT_FALSE(Storage.IsLive());
 		EXPECT_EQ(Storage.GetContainer(), nullptr);
 		EXPECT_EQ(Storage.GetArrayIndex(), 0u);
 		ASSERT_TRUE(Storage.DefaultConstruct(&Property, 1));
 		*static_cast<int32*>(Storage.GetValue()) = 73;
 		const auto Again = Storage.DefaultConstruct(&Property, 0);
-		EXPECT_EQ(Again.Error.Code, EPropertyValueError::StorageAlreadyLive);
+		EXPECT_EQ(Again.error().Code, EPropertyValueError::StorageAlreadyLive);
 		EXPECT_EQ(*static_cast<int32*>(Storage.GetValue()), 73);
 		EXPECT_EQ(Storage.GetArrayIndex(), 1u);
 		const auto Null = Storage.CopyAssign(nullptr);
-		EXPECT_EQ(Null.Error.Code, EPropertyValueError::NullValue);
-		EXPECT_EQ(Null.Error.ArrayIndex, 1u);
+		EXPECT_EQ(Null.error().Code, EPropertyValueError::NullValue);
+		EXPECT_EQ(Null.error().ArrayIndex, 1u);
 		EXPECT_EQ(*static_cast<int32*>(Storage.GetValue()), 73);
 	}
-	EXPECT_EQ(Saved.Error.PropertyName, "TemporaryValue");
-	EXPECT_EQ(Saved.Error.ArrayIndex, 5u);
-	EXPECT_EQ(Saved.Error.ArrayDim, 2u);
-	EXPECT_EQ(Saved.Error.ValueSize, sizeof(int32));
-	EXPECT_EQ(Saved.Error.ValueAlignment, alignof(int32));
+	EXPECT_EQ(Saved.error().PropertyName, "TemporaryValue");
+	EXPECT_EQ(Saved.error().ArrayIndex, 5u);
+	EXPECT_EQ(Saved.error().ArrayDim, 2u);
+	EXPECT_EQ(Saved.error().ValueSize, sizeof(int32));
+	EXPECT_EQ(Saved.error().ValueAlignment, alignof(int32));
 	FReflectedValueStorage Empty;
-	EXPECT_EQ(Empty.DefaultConstruct(nullptr).Error.Code, EPropertyValueError::NullProperty);
-	EXPECT_EQ(Empty.CopyAssign(nullptr).Error.Code, EPropertyValueError::StorageNotLive);
+	EXPECT_EQ(Empty.DefaultConstruct(nullptr).error().Code, EPropertyValueError::NullProperty);
+	EXPECT_EQ(Empty.CopyAssign(nullptr).error().Code, EPropertyValueError::StorageNotLive);
 }
 
 TEST(FPropertyValueSnapshotTests, TypedSnapshotValidationOwnsContextAndPreservesOutputs)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
-	FPropertySnapshotResult Saved;
+	std::expected<void, FPropertySnapshotError> Saved;
 	{
 		FNumericProperty Property({}, "TemporarySnapshot", EObjectFlags::NoFlags,
 			EPropertyFlags::None, 1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
@@ -1375,30 +1375,30 @@ TEST(FPropertyValueSnapshotTests, TypedSnapshotValidationOwnsContextAndPreserves
 		ASSERT_TRUE(CapturePropertyValuePayload(&Property, &Value, 0, Payload));
 		const auto Bytes = Payload.GetBytes();
 		Saved = CapturePropertyValuePayload(&Property, &Value, 7, Payload);
-		EXPECT_EQ(Saved.Error.Code, EPropertySnapshotError::InvalidArrayIndex);
-		EXPECT_EQ(Saved.Error.Operation, EPropertySnapshotOperation::Capture);
+		EXPECT_EQ(Saved.error().Code, EPropertySnapshotError::InvalidArrayIndex);
+		EXPECT_EQ(Saved.error().Operation, EPropertySnapshotOperation::Capture);
 		EXPECT_EQ(Payload.GetBytes(), Bytes);
-		EXPECT_EQ(CapturePropertyValuePayload(nullptr, &Value, 0, Payload).Error.Code,
+		EXPECT_EQ(CapturePropertyValuePayload(nullptr, &Value, 0, Payload).error().Code,
 			EPropertySnapshotError::NullProperty);
-		EXPECT_EQ(CapturePropertyValuePayload(&Property, nullptr, 0, Payload).Error.Code,
+		EXPECT_EQ(CapturePropertyValuePayload(&Property, nullptr, 0, Payload).error().Code,
 			EPropertySnapshotError::NullContainer);
 		Value = 91;
 		const auto Restore = RestorePropertyValuePayload(&Property, &Value, 3, Payload);
-		EXPECT_EQ(Restore.Error.Code, EPropertySnapshotError::InvalidArrayIndex);
-		EXPECT_EQ(Restore.Error.Operation, EPropertySnapshotOperation::Restore);
+		EXPECT_EQ(Restore.error().Code, EPropertySnapshotError::InvalidArrayIndex);
+		EXPECT_EQ(Restore.error().Operation, EPropertySnapshotOperation::Restore);
 		EXPECT_EQ(Value, 91);
 		EXPECT_EQ(Payload.GetBytes(), Bytes);
 		// A malformed payload retains a distinct trailing-byte cause.
 		const_cast<FByteBuffer&>(Payload.GetBytes()).push_back(std::byte{0});
 		const auto Trailing = RestorePropertyValuePayload(&Property, &Value, 0, Payload);
-		EXPECT_EQ(Trailing.Error.Code, EPropertySnapshotError::TrailingBytes);
-		EXPECT_EQ(Trailing.Error.ArchiveCode, EArchiveFailureCode::TrailingData);
-		EXPECT_EQ(Trailing.Error.ActualCount, 1u);
-		EXPECT_EQ(Trailing.Error.ExpectedCount, 0u);
+		EXPECT_EQ(Trailing.error().Code, EPropertySnapshotError::TrailingBytes);
+		EXPECT_EQ(Trailing.error().ArchiveCode, EArchiveFailureCode::TrailingData);
+		EXPECT_EQ(Trailing.error().ActualCount, 1u);
+		EXPECT_EQ(Trailing.error().ExpectedCount, 0u);
 	}
-	EXPECT_EQ(Saved.Error.PropertyName, "TemporarySnapshot");
-	EXPECT_EQ(Saved.Error.ArrayIndex, 7u);
-	EXPECT_EQ(Saved.Error.ArrayDim, 1u);
+	EXPECT_EQ(Saved.error().PropertyName, "TemporarySnapshot");
+	EXPECT_EQ(Saved.error().ArrayIndex, 7u);
+	EXPECT_EQ(Saved.error().ArrayDim, 1u);
 }
 
 TEST(FPropertyValueSnapshotTests, SnapshotRestoreFailurePreservesDestination)
@@ -1429,8 +1429,8 @@ TEST(FPropertyValueSnapshotTests, SnapshotRestoreFailurePreservesDestination)
 	Destination.try_emplace(5, 71);
 	const auto Result = RestorePropertyValuePayload(&Map, &Destination, 0, Payload);
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, EPropertySnapshotError::ArchiveFailure);
-	EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::UnsupportedOperation);
+	EXPECT_EQ(Result.error().Code, EPropertySnapshotError::ArchiveFailure);
+	EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::UnsupportedOperation);
 	ASSERT_EQ(Destination.size(), 1u);
 	EXPECT_EQ(Destination.at(5).Value, 71);
 }
@@ -1452,8 +1452,8 @@ TEST(FPropertyValueSnapshotTests, SnapshotRejectsInvalidMapKey)
 	FPropertyValueSnapshotPayload Payload;
 	const auto Result = CapturePropertyValuePayload(&Map, &Input, 0, Payload);
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, EPropertySnapshotError::InvalidMapKey);
-	EXPECT_EQ(Result.Error.PropertyName, "UnsupportedKeyMap");
+	EXPECT_EQ(Result.error().Code, EPropertySnapshotError::InvalidMapKey);
+	EXPECT_EQ(Result.error().PropertyName, "UnsupportedKeyMap");
 	EXPECT_FALSE(Payload.IsValid());
 }
 
@@ -1470,14 +1470,14 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideCopyFailureDoesNotPublishEntry)
 	FObjectSaveOverrides Overrides;
 	const auto Result = Overrides.AddPropertyValue(Object, Property, int32{17});
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, ESaveOverrideError::ValueCopyFailed);
-	EXPECT_EQ(Result.Error.PropertyName, "Value");
-	EXPECT_EQ(Result.Error.ObjectPath, Object.GetObjectPath());
+	EXPECT_EQ(Result.error().Code, ESaveOverrideError::ValueCopyFailed);
+	EXPECT_EQ(Result.error().PropertyName, "Value");
+	EXPECT_EQ(Result.error().ObjectPath, Object.GetObjectPath());
 	EXPECT_TRUE(Overrides.IsEmpty());
 	EXPECT_EQ(Overrides.FindObject(Object), nullptr);
 	ASSERT_TRUE(Overrides.AddObjectOmission(Object));
 	const auto Conflict = Overrides.AddObjectOmission(Object);
-	EXPECT_EQ(Conflict.Error.Code, ESaveOverrideError::ObjectConflict);
+	EXPECT_EQ(Conflict.error().Code, ESaveOverrideError::ObjectConflict);
 	EXPECT_EQ(Overrides.GetObjects().size(), 1u);
 }
 
@@ -1500,7 +1500,7 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideSnapshotFailureDoesNotPublishEntry
 	FObjectSaveOverrides Overrides;
 	const auto Result = Overrides.AddPropertyValue(Object, Property, FUnreflectedValue{17});
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, ESaveOverrideError::SnapshotFailed);
+	EXPECT_EQ(Result.error().Code, ESaveOverrideError::SnapshotFailed);
 	EXPECT_TRUE(Overrides.IsEmpty());
 	EXPECT_EQ(Overrides.FindObject(Object), nullptr);
 }
@@ -1509,7 +1509,7 @@ TEST(FPropertyValueSnapshotTests, ObjectCopyValidationOwnsTypeContext)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
-	FObjectPropertyCopyResult Result;
+	std::expected<void, FObjectPropertyCopyError> Result;
 	{
 		DClass SourceClass(EC_StaticConstructor, "Tests::CopySource", sizeof(DObject), alignof(DObject),
 			EObjectFlags::Transient, EClassFlags::None, EClassCastFlags::DClass, nullptr);
@@ -1518,16 +1518,16 @@ TEST(FPropertyValueSnapshotTests, ObjectCopyValidationOwnsTypeContext)
 		DObject Source(&SourceClass, nullptr, "Source");
 		DObject Destination(&DestinationClass, nullptr, "Destination");
 		Result = CopyEditableObjectProperties(&Source, &Destination, {});
-		EXPECT_EQ(Result.Error.SourcePath, Source.GetObjectPath());
-		EXPECT_EQ(Result.Error.DestinationPath, Destination.GetObjectPath());
+		EXPECT_EQ(Result.error().SourcePath, Source.GetObjectPath());
+		EXPECT_EQ(Result.error().DestinationPath, Destination.GetObjectPath());
 	}
-	EXPECT_EQ(Result.Error.Code, EObjectPropertyCopyError::InvalidObjects);
-	EXPECT_EQ(Result.Error.Operation, EObjectPropertyCopyOperation::Editable);
-	EXPECT_EQ(Result.Error.SourceType, "Tests::CopySource");
-	EXPECT_EQ(Result.Error.DestinationType, "Tests::CopyDestination");
+	EXPECT_EQ(Result.error().Code, EObjectPropertyCopyError::InvalidObjects);
+	EXPECT_EQ(Result.error().Operation, EObjectPropertyCopyOperation::Editable);
+	EXPECT_EQ(Result.error().SourceType, "Tests::CopySource");
+	EXPECT_EQ(Result.error().DestinationType, "Tests::CopyDestination");
 	const auto Missing = InitializeObjectFromDefaults(nullptr, nullptr, {});
-	EXPECT_EQ(Missing.Error.Code, EObjectPropertyCopyError::InvalidObjects);
-	EXPECT_EQ(Missing.Error.Operation, EObjectPropertyCopyOperation::Defaults);
+	EXPECT_EQ(Missing.error().Code, EObjectPropertyCopyError::InvalidObjects);
+	EXPECT_EQ(Missing.error().Operation, EObjectPropertyCopyOperation::Defaults);
 }
 
 TEST(FPropertyValueSnapshotTests, DefaultCopyRejectsUnavailablePropertyLifecycle)
@@ -1541,8 +1541,8 @@ TEST(FPropertyValueSnapshotTests, DefaultCopyRejectsUnavailablePropertyLifecycle
 	Class.ChildProperties = &Property;
 	DObject Source(&Class, nullptr, "Source"), Destination(&Class, nullptr, "Destination");
 	const auto Result = InitializeObjectFromDefaults(&Source, &Destination, {});
-	EXPECT_EQ(Result.Error.Code, EObjectPropertyCopyError::ValueCopy);
-	EXPECT_EQ(Result.Error.PropertyName, "Unavailable");
+	EXPECT_EQ(Result.error().Code, EObjectPropertyCopyError::ValueCopy);
+	EXPECT_EQ(Result.error().PropertyName, "Unavailable");
 }
 
 TEST(FPropertyValueSnapshotTests, EditableCopyFailureRollsBackEarlierFields)
@@ -1567,9 +1567,9 @@ TEST(FPropertyValueSnapshotTests, EditableCopyFailureRollsBackEarlierFields)
 	Source.Value = 99;
 	Destination.Value = 7;
 	const auto Result = CopyEditableObjectProperties(&Source, &Destination, {});
-	EXPECT_EQ(Result.Error.Code, EObjectPropertyCopyError::Snapshot);
-	EXPECT_EQ(Result.Error.PropertyName, "Opaque");
-	EXPECT_FALSE(Result.Error.RollbackCause.has_value());
+	EXPECT_EQ(Result.error().Code, EObjectPropertyCopyError::Snapshot);
+	EXPECT_EQ(Result.error().PropertyName, "Opaque");
+	EXPECT_FALSE(Result.error().RollbackCause.has_value());
 	EXPECT_EQ(Destination.Value, 7);
 	EXPECT_EQ(Source.Value, 99);
 }

@@ -181,7 +181,7 @@ namespace Durin
 			: Result.State == EPackageWriteState::RecoveryRequired ? EPackageCommitState::RecoveryRequired
 			: Result.State == EPackageWriteState::PartiallyWritten ? EPackageCommitState::PartiallyWritten
 			: EPackageCommitState::NotCommitted;
-		return {Error, std::move(Result.Message), State, std::move(Result.RecoveryFiles), std::move(Result.AffectedFiles)};
+		return {Error, std::move(Result.Message), State, std::move(Result.RecoveryFiles), std::move(Result.AffectedFiles), std::move(Result.FileCause)};
 	}
 	struct FPackageSaveOperation::FState
 	{
@@ -264,7 +264,8 @@ namespace Durin
 		const auto CaptureResult = Data.Context.Capture(Package, Linker);
 		if (!CaptureResult)
 		{
-			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.Error), FormatPackageCaptureError(CaptureResult.Error));
+			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.error()), ToString(CaptureResult.error()));
+			Admission.CaptureCause = CaptureResult.error();
 			return {};
 		}
 		ObjectPackage::FPackageWriterResult Diagnostic;

@@ -73,7 +73,7 @@ namespace Durin::Image
 		}
 
 		auto DecodeRadianceNewScanline(FByteView Bytes, size_t& Offset, uint32 Width,
-			std::vector<std::array<uint8, 4>>& OutScanline, std::string& OutError) -> bool
+			std::vector<std::array<uint8, 4>>& OutScanline) -> std::expected<void, ERadianceHDRDecodeError>
 		{
 			for (uint32 Channel = 0; Channel < 4; ++Channel)
 			{
@@ -82,27 +82,23 @@ namespace Durin::Image
 				{
 					if (Offset >= Bytes.size())
 					{
-						OutError = "Radiance HDR scanline payload is truncated.";
-						return false;
+						return std::unexpected(ERadianceHDRDecodeError::TruncatedScanline);
 					}
 					const uint8 Packet = ToUint8(Bytes[Offset++]);
 					if (Packet == 0)
 					{
-						OutError = "Radiance HDR scanline contains a zero-length packet.";
-						return false;
+						return std::unexpected(ERadianceHDRDecodeError::ZeroLengthPacket);
 					}
 					if (Packet > 128)
 					{
 						const uint32 Count = Packet - 128;
 						if (Count > Width - X)
 						{
-							OutError = "Radiance HDR scanline run exceeds its declared width.";
-							return false;
+							return std::unexpected(ERadianceHDRDecodeError::RunExceedsWidth);
 						}
 						if (Offset >= Bytes.size())
 						{
-							OutError = "Radiance HDR scanline run payload is truncated.";
-							return false;
+							return std::unexpected(ERadianceHDRDecodeError::TruncatedRun);
 						}
 						const uint8 Value = ToUint8(Bytes[Offset++]);
 						for (uint32 Index = 0; Index < Count; ++Index) OutScanline[X++][Channel] = Value;
@@ -112,24 +108,21 @@ namespace Durin::Image
 						const uint32 Count = Packet;
 						if (Count > Width - X)
 						{
-							OutError = "Radiance HDR scanline literal exceeds its declared width.";
-							return false;
+							return std::unexpected(ERadianceHDRDecodeError::LiteralExceedsWidth);
 						}
 						if (Count > Bytes.size() - Offset)
 						{
-							OutError = "Radiance HDR scanline literal payload is truncated.";
-							return false;
+							return std::unexpected(ERadianceHDRDecodeError::TruncatedLiteral);
 						}
 						for (uint32 Index = 0; Index < Count; ++Index) OutScanline[X++][Channel] = ToUint8(Bytes[Offset++]);
 					}
 				}
 			}
-			return true;
+			return {};
 		}
 
 		auto DecodeRadianceOldScanline(FByteView Bytes, size_t& Offset, uint32 Width,
-			const std::array<uint8, 4>& FirstToken, std::vector<std::array<uint8, 4>>& OutScanline,
-			std::string& OutError) -> bool
+			const std::array<uint8, 4>& FirstToken, std::vector<std::array<uint8, 4>>& OutScanline) -> std::expected<void, ERadianceHDRDecodeError>
 		{
 			uint32 X = 0;
 			uint32 RepeatShift = 0;
@@ -140,14 +133,12 @@ namespace Durin::Image
 				{
 					if (X == 0 || RepeatShift > 24)
 					{
-						OutError = "Radiance HDR old scanline contains an invalid repeat packet.";
-						return false;
+						return std::unexpected(ERadianceHDRDecodeError::InvalidRepeat);
 					}
 					const uint64 Count = static_cast<uint64>(Token[3]) << RepeatShift;
 					if (Count == 0 || Count > Width - X)
 					{
-						OutError = "Radiance HDR old scanline repeat exceeds its declared width.";
-						return false;
+						return std::unexpected(ERadianceHDRDecodeError::RepeatExceedsWidth);
 					}
 					const std::array<uint8, 4> Previous = OutScanline[X - 1];
 					for (uint64 Index = 0; Index < Count; ++Index) OutScanline[X++] = Previous;
@@ -162,14 +153,13 @@ namespace Durin::Image
 				if (X == Width) break;
 				if (Bytes.size() - Offset < 4)
 				{
-					OutError = "Radiance HDR old scanline payload is truncated.";
-					return false;
+					return std::unexpected(ERadianceHDRDecodeError::TruncatedOldScanline);
 				}
 				for (size_t Index = 0; Index < Token.size(); ++Index)
 					Token[Index] = ToUint8(Bytes[Offset + Index]);
 				Offset += 4;
 			}
-			return true;
+			return {};
 		}
 
 		auto DecodeRGBE(const std::array<uint8, 4>& RGBE, float* OutRGB) -> bool
@@ -202,7 +192,7 @@ namespace Durin::Image
 		return LowercaseExtension(Extension) == ".hdr";
 	}
 
-	auto FormatImageDecodeError(const FImageDecodeError& Error) -> std::string
+	auto ToString(const FImageDecodeError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{
@@ -303,56 +293,104 @@ namespace Durin::Image
 		return Result;
 	}
 
+	auto ToString(const FGrayscale16DecodeError& Error) -> std::string
+	{
+		if (Error.FileError) return Error.FileError->ToString();
+		std::string_view Reason;
+		switch (Error.Code)
+		{
+		case EGrayscale16DecodeError::EncodedLimit: Reason = "The encoded grayscale16 PNG exceeds the configured limit."; break;
+		case EGrayscale16DecodeError::InvalidSignature: Reason = "The grayscale16 source is not a complete PNG header."; break;
+		case EGrayscale16DecodeError::InvalidHeader: Reason = "The grayscale16 PNG IHDR is missing or invalid."; break;
+		case EGrayscale16DecodeError::UnsupportedSampleFormat: Reason = "Grayscale16 decoding requires PNG color type 0 with exactly 16 bits per sample."; break;
+		case EGrayscale16DecodeError::UnsupportedEncoding: Reason = "Grayscale16 decoding requires standard PNG compression/filtering and non-interlaced rows."; break;
+		case EGrayscale16DecodeError::PixelLimit: Reason = "The decoded grayscale16 dimensions exceed the configured limit."; break;
+		case EGrayscale16DecodeError::InvalidImage: Reason = "The grayscale16 PNG is malformed or could not be decoded losslessly."; break;
+		case EGrayscale16DecodeError::FileStat: Reason = "Image file metadata is unavailable."; break;
+		case EGrayscale16DecodeError::FileSize: Reason = "Image file is empty or exceeds the configured limit."; break;
+		case EGrayscale16DecodeError::FileRead: Reason = "Image file could not be read."; break;
+		}
+		return Error.Filename.empty() ? std::string(Reason) : std::format("{}: {}", Error.Filename, Reason);
+	}
+
+	auto ToString(const FRadianceHDRDecodeError& Error) -> std::string
+	{
+		if (Error.FileError) return Error.FileError->ToString();
+		std::string_view Reason;
+		switch (Error.Code)
+		{
+		case ERadianceHDRDecodeError::TruncatedScanline: Reason = "Radiance HDR scanline payload is truncated."; break;
+		case ERadianceHDRDecodeError::ZeroLengthPacket: Reason = "Radiance HDR scanline contains a zero-length packet."; break;
+		case ERadianceHDRDecodeError::RunExceedsWidth: Reason = "Radiance HDR scanline run exceeds its declared width."; break;
+		case ERadianceHDRDecodeError::TruncatedRun: Reason = "Radiance HDR scanline run payload is truncated."; break;
+		case ERadianceHDRDecodeError::LiteralExceedsWidth: Reason = "Radiance HDR scanline literal exceeds its declared width."; break;
+		case ERadianceHDRDecodeError::TruncatedLiteral: Reason = "Radiance HDR scanline literal payload is truncated."; break;
+		case ERadianceHDRDecodeError::InvalidRepeat: Reason = "Radiance HDR old scanline contains an invalid repeat packet."; break;
+		case ERadianceHDRDecodeError::RepeatExceedsWidth: Reason = "Radiance HDR old scanline repeat exceeds its declared width."; break;
+		case ERadianceHDRDecodeError::TruncatedOldScanline: Reason = "Radiance HDR old scanline payload is truncated."; break;
+		case ERadianceHDRDecodeError::Empty: Reason = "Radiance HDR data is empty."; break;
+		case ERadianceHDRDecodeError::EncodedLimit: Reason = "Radiance HDR encoded data exceeds the configured limit."; break;
+		case ERadianceHDRDecodeError::InvalidSignature: Reason = "Radiance HDR signature is missing or invalid."; break;
+		case ERadianceHDRDecodeError::InvalidHeader: Reason = "Radiance HDR header is truncated or too large."; break;
+		case ERadianceHDRDecodeError::MissingFormat: Reason = "Radiance HDR FORMAT=32-bit_rle_rgbe declaration is missing."; break;
+		case ERadianceHDRDecodeError::MissingResolution: Reason = "Radiance HDR resolution line is missing."; break;
+		case ERadianceHDRDecodeError::UnsupportedOrientation: Reason = "Radiance HDR resolution must use nonzero '-Y height +X width' orientation."; break;
+		case ERadianceHDRDecodeError::DimensionLimit: Reason = "Radiance HDR dimensions exceed the configured limit."; break;
+		case ERadianceHDRDecodeError::PixelLimit: Reason = "Radiance HDR decoded pixels exceed the configured limit."; break;
+		case ERadianceHDRDecodeError::TruncatedScanlineHeader: Reason = "Radiance HDR scanline header is truncated."; break;
+		case ERadianceHDRDecodeError::ScanlineWidthMismatch: Reason = "Radiance HDR scanline width does not match the resolution."; break;
+		case ERadianceHDRDecodeError::InvalidChannel: Reason = "Radiance HDR decoded a negative or nonfinite channel."; break;
+		case ERadianceHDRDecodeError::TrailingBytes: Reason = "Radiance HDR payload contains trailing bytes."; break;
+		case ERadianceHDRDecodeError::FileStat: Reason = "Image file metadata is unavailable."; break;
+		case ERadianceHDRDecodeError::FileSize: Reason = "Image file is empty or exceeds the configured limit."; break;
+		case ERadianceHDRDecodeError::FileRead: Reason = "Image file could not be read."; break;
+		}
+		return Error.Filename.empty() ? std::string(Reason) : std::format("{}: {}", Error.Filename, Reason);
+	}
+
 	auto DecodeGrayscale16PngFromMemory(
 		FByteView EncodedBytes,
-		FDecodedGrayscale16Image& OutImage,
-		std::string& OutError,
-		const FImageDecodeLimits& Limits) -> bool
+		const FImageDecodeLimits& Limits) -> std::expected<FDecodedGrayscale16Image, FGrayscale16DecodeError>
 	{
-		OutImage = {};
-		OutError.clear();
+		uint32 Width = 0, Height = 0;
+		auto Fail = [&](EGrayscale16DecodeError Code) {
+			return std::unexpected(FGrayscale16DecodeError{.Code = Code,
+				.EncodedBytes = EncodedBytes.size(), .Width = Width, .Height = Height, .Limits = Limits});
+		};
 		constexpr std::array<std::byte, 8> Signature{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		if (EncodedBytes.size() > Limits.MaximumEncodedBytes
 			|| EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
 		{
-			OutError = "The encoded grayscale16 PNG exceeds the configured limit.";
-			return false;
+			return Fail(EGrayscale16DecodeError::EncodedLimit);
 		}
 		if (EncodedBytes.size() < 33
 			|| !std::equal(Signature.begin(), Signature.end(), EncodedBytes.begin()))
 		{
-			OutError = "The grayscale16 source is not a complete PNG header.";
-			return false;
+			return Fail(EGrayscale16DecodeError::InvalidSignature);
 		}
 		uint32 IhdrSize = 0;
-		uint32 Width = 0;
-		uint32 Height = 0;
 		if (!ReadPngU32(EncodedBytes, 8, IhdrSize) || IhdrSize != 13
 			|| std::memcmp(EncodedBytes.data() + 12, "IHDR", 4) != 0
 			|| !ReadPngU32(EncodedBytes, 16, Width)
 			|| !ReadPngU32(EncodedBytes, 20, Height))
 		{
-			OutError = "The grayscale16 PNG IHDR is missing or invalid.";
-			return false;
+			return Fail(EGrayscale16DecodeError::InvalidHeader);
 		}
 		if (EncodedBytes[24] != std::byte{16} || EncodedBytes[25] != std::byte{0})
 		{
-			OutError = "Grayscale16 decoding requires PNG color type 0 with exactly 16 bits per sample.";
-			return false;
+			return Fail(EGrayscale16DecodeError::UnsupportedSampleFormat);
 		}
 		if (EncodedBytes[26] != std::byte{0} || EncodedBytes[27] != std::byte{0} || EncodedBytes[28] != std::byte{0})
 		{
-			OutError = "Grayscale16 decoding requires standard PNG compression/filtering and non-interlaced rows.";
-			return false;
+			return Fail(EGrayscale16DecodeError::UnsupportedEncoding);
 		}
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (Width == 0 || Height == 0 || PixelCount > Limits.MaximumDecodedPixels
 			|| PixelCount > std::numeric_limits<size_t>::max() / sizeof(uint16))
 		{
-			OutError = "The decoded grayscale16 dimensions exceed the configured limit.";
-			return false;
+			return Fail(EGrayscale16DecodeError::PixelLimit);
 		}
 
 		int DecodedWidth = 0;
@@ -365,64 +403,60 @@ namespace Durin::Image
 			|| DecodedHeight != static_cast<int>(Height) || Channels != 1)
 		{
 			if (Decoded) stbi_image_free(Decoded);
-			OutError = "The grayscale16 PNG is malformed or could not be decoded losslessly.";
-			return false;
+			return Fail(EGrayscale16DecodeError::InvalidImage);
 		}
 		FDecodedGrayscale16Image Candidate;
 		Candidate.Width = Width;
 		Candidate.Height = Height;
 		Candidate.Samples.assign(Decoded, Decoded + static_cast<size_t>(PixelCount));
 		stbi_image_free(Decoded);
-		OutImage = std::move(Candidate);
-		return true;
+		return Candidate;
 	}
 
-	auto DecodeGrayscale16PngFromFile(
-		std::string_view FilePath,
-		FDecodedGrayscale16Image& OutImage,
-		std::string& OutError,
-		const FImageDecodeLimits& Limits) -> bool
+	auto DecodeGrayscale16PngFromFile(std::string_view FilePath, const FImageDecodeLimits& Limits)
+		-> std::expected<FDecodedGrayscale16Image, FGrayscale16DecodeError>
 	{
-		OutImage = {};
-		std::error_code ErrorCode;
-		const uintmax_t FileSize = std::filesystem::file_size(
-			std::filesystem::path(FilePath), ErrorCode);
-		if (ErrorCode || FileSize == 0 || FileSize > Limits.MaximumEncodedBytes)
-		{
-			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
-			return false;
-		}
-		auto EncodedBytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
-		if (!EncodedBytes)
-		{
-			OutError = EncodedBytes.error().ToString();
-			return false;
-		}
-		return DecodeGrayscale16PngFromMemory(*EncodedBytes, OutImage, OutError, Limits);
+		std::error_code NativeError;
+		const auto FileSize = std::filesystem::file_size(FFilePath(FilePath), NativeError);
+		if (NativeError) return std::unexpected(FGrayscale16DecodeError{.Code = EGrayscale16DecodeError::FileStat,
+			.Limits = Limits, .Filename = std::string(FilePath),
+			.FileError = FFileError{.Operation = EFileOperation::QuerySize,
+				.NativeError = NativeError, .Path = FFilePath(FilePath)}});
+		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes
+			|| FileSize > std::numeric_limits<size_t>::max())
+			return std::unexpected(FGrayscale16DecodeError{.Code = EGrayscale16DecodeError::FileSize,
+				.EncodedBytes = FileSize, .Limits = Limits, .Filename = std::string(FilePath)});
+		auto Bytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
+		if (!Bytes) return std::unexpected(FGrayscale16DecodeError{.Code = EGrayscale16DecodeError::FileRead,
+			.EncodedBytes = FileSize, .Limits = Limits, .Filename = std::string(FilePath), .FileError = Bytes.error()});
+		auto Result = DecodeGrayscale16PngFromMemory(*Bytes, Limits);
+		if (!Result) Result.error().Filename = FilePath;
+		return Result;
 	}
 
-	auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, FDecodedFloatImage& OutImage,
-		std::string& OutError, const FRadianceHDRDecodeLimits& Limits) -> bool
+	auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, const FRadianceHDRDecodeLimits& Limits)
+		-> std::expected<FDecodedFloatImage, FRadianceHDRDecodeError>
 	{
-		OutImage = {};
-		OutError.clear();
+		size_t Offset = 0;
+		uint32 Width = 0, Height = 0;
+		auto Fail = [&](ERadianceHDRDecodeError Code) {
+			return std::unexpected(FRadianceHDRDecodeError{.Code = Code,
+				.EncodedBytes = EncodedBytes.size(), .Offset = Offset,
+				.Width = Width, .Height = Height, .Limits = Limits});
+		};
 		if (EncodedBytes.empty())
 		{
-			OutError = "Radiance HDR data is empty.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::Empty);
 		}
 		if (EncodedBytes.size() > Limits.MaximumEncodedBytes)
 		{
-			OutError = "Radiance HDR encoded data exceeds the configured limit.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::EncodedLimit);
 		}
 
-		size_t Offset = 0;
 		std::string_view Line;
 		if (!ReadRadianceLine(EncodedBytes, Offset, Line) || (Line != "#?RADIANCE" && Line != "#?RGBE"))
 		{
-			OutError = "Radiance HDR signature is missing or invalid.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::InvalidSignature);
 		}
 
 		bool bFoundFormat = false;
@@ -430,41 +464,33 @@ namespace Durin::Image
 		{
 			if (Offset > MaximumRadianceHeaderBytes || !ReadRadianceLine(EncodedBytes, Offset, Line))
 			{
-				OutError = "Radiance HDR header is truncated or too large.";
-				return false;
+				return Fail(ERadianceHDRDecodeError::InvalidHeader);
 			}
 			if (Line.empty()) break;
 			if (Line == "FORMAT=32-bit_rle_rgbe") bFoundFormat = true;
 		}
 		if (!bFoundFormat)
 		{
-			OutError = "Radiance HDR FORMAT=32-bit_rle_rgbe declaration is missing.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::MissingFormat);
 		}
 		if (!ReadRadianceLine(EncodedBytes, Offset, Line))
 		{
-			OutError = "Radiance HDR resolution line is missing.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::MissingResolution);
 		}
 
-		uint32 Width = 0;
-		uint32 Height = 0;
 		if (!ParseRadianceResolution(Line, Width, Height))
 		{
-			OutError = "Radiance HDR resolution must use nonzero '-Y height +X width' orientation.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::UnsupportedOrientation);
 		}
 		if (Width > Limits.MaximumDimension || Height > Limits.MaximumDimension)
 		{
-			OutError = "Radiance HDR dimensions exceed the configured limit.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::DimensionLimit);
 		}
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (PixelCount > Limits.MaximumDecodedPixels
 			|| PixelCount > std::numeric_limits<size_t>::max() / HDRChannelCount / sizeof(float))
 		{
-			OutError = "Radiance HDR decoded pixels exceed the configured limit.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::PixelLimit);
 		}
 
 		FDecodedFloatImage Decoded;
@@ -476,8 +502,7 @@ namespace Durin::Image
 		{
 			if (EncodedBytes.size() - Offset < 4)
 			{
-				OutError = "Radiance HDR scanline header is truncated.";
-				return false;
+				return Fail(ERadianceHDRDecodeError::TruncatedScanlineHeader);
 			}
 			std::array<uint8, 4> Header;
 			for (size_t Index = 0; Index < Header.size(); ++Index)
@@ -491,59 +516,49 @@ namespace Durin::Image
 				const uint32 ScanlineWidth = (static_cast<uint32>(Header[2]) << 8) | Header[3];
 				if (ScanlineWidth != Width)
 				{
-					OutError = "Radiance HDR scanline width does not match the resolution.";
-					return false;
+					return Fail(ERadianceHDRDecodeError::ScanlineWidthMismatch);
 				}
-				if (!DecodeRadianceNewScanline(EncodedBytes, Offset, Width, Scanline, OutError)) return false;
+				if (auto Result = DecodeRadianceNewScanline(EncodedBytes, Offset, Width, Scanline); !Result)
+					return Fail(Result.error());
 			}
-			else if (!DecodeRadianceOldScanline(EncodedBytes, Offset, Width, Header, Scanline, OutError))
-			{
-				return false;
-			}
+			else if (auto Result = DecodeRadianceOldScanline(EncodedBytes, Offset, Width, Header, Scanline); !Result)
+				return Fail(Result.error());
 
 			for (uint32 X = 0; X < Width; ++X)
 			{
 				float* Pixel = Decoded.Pixels.data() + (static_cast<size_t>(Y) * Width + X) * HDRChannelCount;
 				if (!DecodeRGBE(Scanline[X], Pixel))
 				{
-					OutError = "Radiance HDR decoded a negative or nonfinite channel.";
-					return false;
+					return Fail(ERadianceHDRDecodeError::InvalidChannel);
 				}
 			}
 		}
 		if (Offset != EncodedBytes.size())
 		{
-			OutError = "Radiance HDR payload contains trailing bytes.";
-			return false;
+			return Fail(ERadianceHDRDecodeError::TrailingBytes);
 		}
-		OutImage = std::move(Decoded);
-		return true;
+		return Decoded;
 	}
 
-	auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
-		std::string& OutError, const FRadianceHDRDecodeLimits& Limits) -> bool
+	auto DecodeRadianceHDRFromFile(std::string_view FilePath, const FRadianceHDRDecodeLimits& Limits)
+		-> std::expected<FDecodedFloatImage, FRadianceHDRDecodeError>
 	{
-		OutImage = {};
-		OutError.clear();
-		std::error_code ErrorCode;
-		const uintmax_t FileSize = std::filesystem::file_size(std::filesystem::path(FilePath), ErrorCode);
-		if (ErrorCode)
-		{
-			OutError = "Unable to open the Radiance HDR file.";
-			return false;
-		}
+		std::error_code NativeError;
+		const auto FileSize = std::filesystem::file_size(FFilePath(FilePath), NativeError);
+		if (NativeError) return std::unexpected(FRadianceHDRDecodeError{.Code = ERadianceHDRDecodeError::FileStat,
+			.Limits = Limits, .Filename = std::string(FilePath),
+			.FileError = FFileError{.Operation = EFileOperation::QuerySize,
+				.NativeError = NativeError, .Path = FFilePath(FilePath)}});
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes
-			|| FileSize > static_cast<uintmax_t>(std::numeric_limits<size_t>::max()))
-		{
-			OutError = "The Radiance HDR file is empty or too large.";
-			return false;
-		}
-		auto EncodedBytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
-		if (!EncodedBytes)
-		{
-			OutError = EncodedBytes.error().ToString();
-			return false;
-		}
-		return DecodeRadianceHDRFromMemory(*EncodedBytes, OutImage, OutError, Limits);
+			|| FileSize > std::numeric_limits<size_t>::max())
+			return std::unexpected(FRadianceHDRDecodeError{.Code = ERadianceHDRDecodeError::FileSize,
+				.EncodedBytes = FileSize, .Limits = Limits, .Filename = std::string(FilePath)});
+		auto Bytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
+		if (!Bytes) return std::unexpected(FRadianceHDRDecodeError{.Code = ERadianceHDRDecodeError::FileRead,
+			.EncodedBytes = FileSize, .Limits = Limits, .Filename = std::string(FilePath), .FileError = Bytes.error()});
+		auto Result = DecodeRadianceHDRFromMemory(*Bytes, Limits);
+		if (!Result) Result.error().Filename = FilePath;
+		return Result;
 	}
+
 } // namespace Durin::Image

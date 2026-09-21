@@ -252,7 +252,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded, nullptr);
-	auto* Copy = DuplicateObject(Loaded, nullptr, "CollisionCopy").Object;
+	auto* Copy = DuplicateObject(Loaded, nullptr, "CollisionCopy").value();
 	ASSERT_NE(Copy, nullptr);
 	for (auto* Current : {Loaded, Copy})
 	{

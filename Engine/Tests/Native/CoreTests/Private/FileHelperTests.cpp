@@ -130,7 +130,7 @@ TEST(FFileHelperTests, ReadWrappersPreserveSharingFailure)
 	ASSERT_TRUE(Decoded.error().FileError);
 	EXPECT_EQ(Decoded.error().FileError->NativeError.value(), ERROR_SHARING_VIOLATION);
 	for (const auto& Diagnostic : {JsonResult.error().ToString(), YamlResult.error().ToString(), Fingerprint.error().ToString(),
-		Image::FormatImageDecodeError(Decoded.error())})
+		Image::ToString(Decoded.error())})
 	{
 		EXPECT_NE(Diagnostic.find("open for reading"), std::string::npos);
 		EXPECT_NE(Diagnostic.find("Locked.bin"), std::string::npos);

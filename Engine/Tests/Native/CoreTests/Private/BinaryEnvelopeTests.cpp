@@ -62,29 +62,27 @@ TEST(FBinaryEnvelopeTests, PrefixAndCompleteValidationAreSuccessAtomicAndBounded
 	const FBinaryEnvelopePreamble PreambleSentinel{
 		.FormatId = SecondFormatId, .FormatVersion = 99, .HeaderBytes = 64, .FileBytes = 64};
 	FBinaryEnvelopePreamble Preamble = PreambleSentinel;
-	FBinaryEnvelopeDiagnostic Diagnostic;
-	EXPECT_FALSE(ParseBinaryEnvelopePrefix(
-		std::span(Bytes).first(63), 64, TestLimits, Preamble, &Diagnostic));
-	EXPECT_EQ(Diagnostic.Error, EBinaryEnvelopeError::Truncated);
+	std::expected<void, EBinaryEnvelopeError> Diagnostic;
+	ASSERT_FALSE((Diagnostic = ParseBinaryEnvelopePrefix(std::span(Bytes).first(63), 64, TestLimits, Preamble)));
+	EXPECT_EQ(Diagnostic.error(), EBinaryEnvelopeError::Truncated);
 	EXPECT_EQ(Preamble.FormatId, PreambleSentinel.FormatId);
 
-	ASSERT_TRUE(ParseBinaryEnvelopePrefix(Bytes, 64, TestLimits, Preamble, &Diagnostic));
+	ASSERT_TRUE((Diagnostic = ParseBinaryEnvelopePrefix(Bytes, 64, TestLimits, Preamble)));
 	EXPECT_EQ(Preamble.HeaderBytes, 64);
-	EXPECT_EQ(Diagnostic.Error, EBinaryEnvelopeError::None);
+	EXPECT_TRUE(Diagnostic);
 
 	const std::array Descriptors{MakeDescriptor()};
 	const FBinaryFormatRegistry Registry = MakeRegistry(Descriptors);
 	FValidatedBinaryEnvelope Output{.Preamble = PreambleSentinel};
 	Durin::FByteBuffer Corrupt = Bytes;
 	Corrupt[0] ^= std::byte{1};
-	EXPECT_FALSE(ValidateBinaryEnvelopeHeader(
-		Corrupt, 64, TestLimits, Registry, Output, &Diagnostic));
-	EXPECT_EQ(Diagnostic.Error, EBinaryEnvelopeError::InvalidMagic);
+	ASSERT_FALSE((Diagnostic = ValidateBinaryEnvelopeHeader(Corrupt, 64, TestLimits, Registry, Output)));
+	EXPECT_EQ(Diagnostic.error(), EBinaryEnvelopeError::InvalidMagic);
 	EXPECT_EQ(Output.Preamble.FormatId, PreambleSentinel.FormatId);
 
 	std::array<std::byte, 63> Destination;
 	std::ranges::fill(Destination, std::byte{0x5a});
-	EXPECT_FALSE(EncodeBinaryEnvelopePreamble(Preamble, Destination, &Diagnostic));
+	ASSERT_FALSE((Diagnostic = EncodeBinaryEnvelopePreamble(Preamble, Destination)));
 	EXPECT_TRUE(std::ranges::all_of(Destination,
 		[](std::byte Byte) { return Byte == std::byte{0x5a}; }));
 }
@@ -94,12 +92,12 @@ TEST(FBinaryEnvelopeTests, RegistryRejectsInvalidAndDuplicateDescriptorsInEither
 	FBinaryFormatRegistry Sentinel;
 	const std::array Initial{MakeDescriptor()};
 	ASSERT_TRUE(FBinaryFormatRegistry::Create(Initial, Sentinel));
-	FBinaryEnvelopeDiagnostic Diagnostic;
+	std::expected<void, EBinaryEnvelopeError> Diagnostic;
 
 	auto ExpectRejected = [&](std::span<const FBinaryFormatDescriptor> Descriptors,
 		EBinaryEnvelopeError Error) {
-		EXPECT_FALSE(FBinaryFormatRegistry::Create(Descriptors, Sentinel, &Diagnostic));
-		EXPECT_EQ(Diagnostic.Error, Error);
+		ASSERT_FALSE((Diagnostic = FBinaryFormatRegistry::Create(Descriptors, Sentinel)));
+		EXPECT_EQ(Diagnostic.error(), Error);
 		EXPECT_NE(Sentinel.Find(FirstFormatId), nullptr);
 	};
 
@@ -155,15 +153,15 @@ TEST(FBinaryEnvelopeTests, RegistryRejectsInvalidAndDuplicateDescriptorsInEither
 
 TEST(FBinaryEnvelopeTests, PrefixDiagnosticsCoverVersionsLimitsIdentityAndExtremeExtents)
 {
-	FBinaryEnvelopeDiagnostic Diagnostic;
+	std::expected<void, EBinaryEnvelopeError> Diagnostic;
 	FBinaryEnvelopePreamble Output{
 		.FormatId = SecondFormatId, .FormatVersion = 99, .HeaderBytes = 64, .FileBytes = 64};
 	const FBinaryEnvelopePreamble Sentinel = Output;
 	auto ExpectError = [&](const Durin::FByteBuffer& Bytes, uint64 PhysicalBytes,
 		const FBinaryEnvelopeLimits& Limits, EBinaryEnvelopeError Error) {
 		Output = Sentinel;
-		EXPECT_FALSE(ParseBinaryEnvelopePrefix(Bytes, PhysicalBytes, Limits, Output, &Diagnostic));
-		EXPECT_EQ(Diagnostic.Error, Error);
+		ASSERT_FALSE((Diagnostic = ParseBinaryEnvelopePrefix(Bytes, PhysicalBytes, Limits, Output)));
+		EXPECT_EQ(Diagnostic.error(), Error);
 		EXPECT_EQ(Output.FormatId, Sentinel.FormatId);
 	};
 
@@ -196,14 +194,13 @@ TEST(FBinaryEnvelopeTests, VersionFeaturesExtentsIdentityAndHashFailClosed)
 {
 	const std::array Descriptors{MakeDescriptor()};
 	const FBinaryFormatRegistry Registry = MakeRegistry(Descriptors);
-	FBinaryEnvelopeDiagnostic Diagnostic;
+	std::expected<void, EBinaryEnvelopeError> Diagnostic;
 	FValidatedBinaryEnvelope Output;
 
 	auto ExpectError = [&](const Durin::FByteBuffer& Bytes, uint64 PhysicalBytes,
 		EBinaryEnvelopeError Error) {
-		EXPECT_FALSE(ValidateBinaryEnvelopeHeader(
-			Bytes, PhysicalBytes, TestLimits, Registry, Output, &Diagnostic));
-		EXPECT_EQ(Diagnostic.Error, Error);
+		ASSERT_FALSE((Diagnostic = ValidateBinaryEnvelopeHeader(Bytes, PhysicalBytes, TestLimits, Registry, Output)));
+		EXPECT_EQ(Diagnostic.error(), Error);
 	};
 
 	ExpectError(ReferenceEncode(SecondFormatId, 3, 0, {}, 64), 64,
@@ -234,16 +231,11 @@ TEST(FBinaryEnvelopeTests, DeterministicPreambleMutationIsBoundedAndStable)
 	{
 		Durin::FByteBuffer Mutated = Golden;
 		Mutated[Offset] ^= std::byte{0x5a};
-		FBinaryEnvelopeDiagnostic FirstDiagnostic;
-		FBinaryEnvelopeDiagnostic SecondDiagnostic;
 		FValidatedBinaryEnvelope FirstOutput = Sentinel;
 		FValidatedBinaryEnvelope SecondOutput = Sentinel;
-		const bool bFirst = ValidateBinaryEnvelopeHeader(
-			Mutated, Mutated.size(), TestLimits, Registry, FirstOutput, &FirstDiagnostic);
-		const bool bSecond = ValidateBinaryEnvelopeHeader(
-			Mutated, Mutated.size(), TestLimits, Registry, SecondOutput, &SecondDiagnostic);
+		const auto bFirst = ValidateBinaryEnvelopeHeader(Mutated, Mutated.size(), TestLimits, Registry, FirstOutput);
+		const auto bSecond = ValidateBinaryEnvelopeHeader(Mutated, Mutated.size(), TestLimits, Registry, SecondOutput);
 		EXPECT_EQ(bFirst, bSecond) << Offset;
-		EXPECT_EQ(FirstDiagnostic.Error, SecondDiagnostic.Error) << Offset;
 		if (!bFirst)
 		{
 			EXPECT_EQ(FirstOutput.Preamble.FormatId, SecondFormatId) << Offset;
@@ -272,22 +264,16 @@ TEST(FBinaryEnvelopeTests, ExtendedFrontMatterMutationAndFinalizationRemainBound
 		Bytes[Offset] ^= static_cast<std::byte>((State >> 24) | 1);
 		FValidatedBinaryEnvelope First;
 		FValidatedBinaryEnvelope Second;
-		FBinaryEnvelopeDiagnostic FirstDiagnostic;
-		FBinaryEnvelopeDiagnostic SecondDiagnostic;
-		const bool bFirst = ValidateBinaryEnvelopeHeader(
-			Bytes, 512, TestLimits, Registry, First, &FirstDiagnostic);
-		const bool bSecond = ValidateBinaryEnvelopeHeader(
-			Bytes, 512, TestLimits, Registry, Second, &SecondDiagnostic);
+		const auto bFirst = ValidateBinaryEnvelopeHeader(Bytes, 512, TestLimits, Registry, First);
+		const auto bSecond = ValidateBinaryEnvelopeHeader(Bytes, 512, TestLimits, Registry, Second);
 		EXPECT_EQ(bFirst, bSecond);
-		EXPECT_EQ(FirstDiagnostic.Error, SecondDiagnostic.Error);
 	}
 
 	Durin::FByteBuffer FailedFinalization = Golden;
 	ReferenceWrite<uint64>(FailedFinalization, 40, 513);
 	const Durin::FByteBuffer Sentinel = FailedFinalization;
-	FBinaryEnvelopeDiagnostic Diagnostic;
-	EXPECT_FALSE(FinalizeBinaryEnvelopeHeader(
-		FailedFinalization, 512, TestLimits, &Diagnostic));
+	std::expected<void, EBinaryEnvelopeError> Diagnostic;
+	ASSERT_FALSE((Diagnostic = FinalizeBinaryEnvelopeHeader(FailedFinalization, 512, TestLimits)));
 	EXPECT_EQ(FailedFinalization, Sentinel);
 }
 

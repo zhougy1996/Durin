@@ -293,15 +293,15 @@ namespace Durin
 	}
 
 	auto RejectPropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal,
-		EPropertyEditRejection Reason, std::shared_ptr<const IObjectValidationCause> Cause) -> FObjectValidationResult
+		EPropertyEditRejection Reason, std::shared_ptr<const IObjectValidationCause> Cause) -> std::expected<void, FObjectValidationError>
 	{
-		return {{.Code = EObjectValidationError::PropertyRejected, .ObjectPath = Object.GetObjectPath(),
+		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected, .ObjectPath = Object.GetObjectPath(),
 			.PropertyReason = Reason,
 			.PropertyName = Proposal.MemberProperty ? Proposal.MemberProperty->NamePrivate.ToString() : std::string{},
-			.Cause = std::move(Cause)}};
+			.Cause = std::move(Cause)});
 	}
 
-	auto FormatObjectValidationError(const FObjectValidationError& Error) -> std::string
+	auto ToString(const FObjectValidationError& Error) -> std::string
 	{
 		if (Error.Code == EObjectValidationError::None) return {};
 		if (!Error.Message.empty()) return Error.Message;
@@ -327,7 +327,7 @@ namespace Durin
 		return "Object graph validation failed.";
 	}
 
-	auto DObject::ValidateLoadedObjectGraph(const FObjectGraphLoadContext&) const -> FObjectValidationResult
+	auto DObject::ValidateLoadedObjectGraph(const FObjectGraphLoadContext&) const -> std::expected<void, FObjectValidationError>
 	{
 		return {};
 	}
@@ -365,7 +365,7 @@ namespace Durin
 		LoadedDeprecatedProperties.clear();
 	}
 
-	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		(void)Proposal;
 		return {};

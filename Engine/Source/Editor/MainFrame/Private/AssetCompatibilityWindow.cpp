@@ -344,13 +344,13 @@ namespace Durin::Editor::MainFrame
 		ImGui::SeparatorText("Details");
 		if (!Record) { ImGui::TextDisabled("Select a package to inspect its findings."); return; }
 		ImGui::TextUnformatted(Record->PackagePath.ToString().c_str());
-		const FMountLookupResult Mount =
+		const auto Mount =
 			FMountPaths::FindMountForVirtualPath(Record->PackagePath.GetView());
 		if (Mount)
 		{
 			ImGui::SameLine();
-			ImGui::TextDisabled("%s mount; content writes %s", MountOwnerName(Mount.Mount->Owner),
-				Mount.Mount->bContentWritable ? "writable" : "read-only");
+			ImGui::TextDisabled("%s mount; content writes %s", MountOwnerName(Mount->Mount->Owner),
+				Mount->Mount->bContentWritable ? "writable" : "read-only");
 		}
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Copy Diagnostics")) CopySelectedDiagnostics();
@@ -387,11 +387,11 @@ namespace Durin::Editor::MainFrame
 					std::vector<FPackagePath> Packages;
 					for (const auto& Candidate : Audit.GetPresentationRecords())
 						if (IsCanonicalResaveRecommended(Candidate)
-							&& Candidate.PackagePath.GetView().starts_with(Mount.Mount->VirtualRoot))
+							&& Candidate.PackagePath.GetView().starts_with(Mount->Mount->VirtualRoot))
 							Packages.push_back(Candidate.PackagePath);
 					FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
 					PreviewCanonicalResave(std::move(Selection),
-						std::format("mount {}", Mount.Mount->VirtualRoot));
+						std::format("mount {}", Mount->Mount->VirtualRoot));
 				}
 			}
 			ImGui::EndDisabled();

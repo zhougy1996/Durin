@@ -273,7 +273,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
 		{.Nodes = {{NodeId, 100, -200}, {Material->GetOutputNode()->Id, 420, -30}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	DMaterial* Duplicate = Cast<DMaterial>(DuplicateObject(
-		Material, nullptr, "PresentationDuplicate").Object);
+		Material, nullptr, "PresentationDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetMaterialGraphPresentation(),
 		Material->GetMaterialGraphPresentation());
@@ -765,7 +765,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 		const auto* Original = FindExpression<DMaterialExpression>(*Material, Created.GeneratedNodeIds.front());
 		ASSERT_NE(Original, nullptr);
 		ASSERT_EQ(Original->GetAuthoredInputCount(), Entry.AcceptedInputTypes.size());
-		TStrongObjectPtr<DMaterialExpression> Target(DuplicateObject(Original, nullptr, NAME_None).Object);
+		TStrongObjectPtr<DMaterialExpression> Target(DuplicateObject(Original, nullptr, NAME_None).value());
 		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Target.Get()))
 			std::ranges::fill(Swizzle->Components, 0);
 		for (uint32 Pin = 0; Pin < Entry.AcceptedInputTypes.size(); ++Pin)
@@ -1207,7 +1207,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenam
 	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({OwnerId}), true, Transactions.Get()));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
-	TStrongObjectPtr<DMaterialExpression> DuplicateOwner(DuplicateObject(Material->GetExpressionCollection().Expressions.front().Get(), nullptr, NAME_None).Object);
+	TStrongObjectPtr<DMaterialExpression> DuplicateOwner(DuplicateObject(Material->GetExpressionCollection().Expressions.front().Get(), nullptr, NAME_None).value());
 	DuplicateOwner->Id = FGuid::NewGuid();
 	ASSERT_TRUE(Document.CreateExpression(*DuplicateOwner.Get()));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
@@ -1274,7 +1274,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		ASSERT_NE(FirstDefinition, nullptr);
 		ASSERT_NE(SecondDefinition, nullptr);
 		EXPECT_NE(FirstDefinition->Name, SecondDefinition->Name);
-		TStrongObjectPtr<DMaterialExpression> SharedNode(DuplicateObject(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get(), nullptr, NAME_None).Object);
+		TStrongObjectPtr<DMaterialExpression> SharedNode(DuplicateObject(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get(), nullptr, NAME_None).value());
 		Cast<DMaterialExpressionParameter>(SharedNode.Get())->Metadata.Id = FirstDefinition->Id;
 		EXPECT_FALSE(FMaterialGraphDocument(*Material).ReplaceExpression(*SharedNode.Get(), Transactions.Get()));
 		EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get())->Metadata.Id, Second.AffectedParameterIds.front());
@@ -2322,7 +2322,7 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Transactions->Redo());
 
 	TStrongObjectPtr<DMaterialExpressionScalarParameter> Edit(Cast<DMaterialExpressionScalarParameter>(
-		DuplicateObject(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get(), nullptr, NAME_None).Object));
+		DuplicateObject(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get(), nullptr, NAME_None).value()));
 	Edit->Metadata.GroupName = "Shared Group";
 	ASSERT_TRUE(Document.ReplaceExpression(*Edit.Get(), Transactions.Get()));
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.front().Get())->Metadata.GroupName, FName("Shared Group"));
@@ -2402,7 +2402,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 
 	const auto* Existing = Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Existing, nullptr);
-	TStrongObjectPtr<DMaterialExpressionParameter> Invalid(DuplicateObject(Existing, nullptr, NAME_None).Object);
+	TStrongObjectPtr<DMaterialExpressionParameter> Invalid(DuplicateObject(Existing, nullptr, NAME_None).value());
 	Invalid->Metadata.Name = NAME_None;
 	const auto BeforeInvalid = CaptureExpressions(*Target);
 	const auto InvalidResult = FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get());
@@ -3739,7 +3739,7 @@ TEST(FMaterialGraphOperationsTests, CreationErrorsReportPathFailureAndAllowRetry
 	EXPECT_FALSE(Failed.Message.empty());
 	FTopLevelAssetPath Path;
 	const auto Expected = FTopLevelAssetPath::TryCreateWithDiagnostic("invalid-relative-function", Path);
-	EXPECT_NE(Failed.Message.find(FormatObjectError(Expected.Error)), std::string::npos);
+	EXPECT_NE(Failed.Message.find(ToString(Expected.error())), std::string::npos);
 	Action.Payload = std::string("changed-request");
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());

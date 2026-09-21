@@ -1,4 +1,6 @@
 #pragma once
+#include <expected>
+#include "Misc/FileError.h"
 #include "CoreDObjectAPI.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/DefaultDeltaPlan.h"
@@ -71,14 +73,10 @@ namespace Durin
 		uint64 Expected = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string Message;
+		std::variant<std::monostate, FObjectPathError, FPropertyValueError,
+			FPropertySnapshotError, FObjectValidationError, FReflectedMapKeyError, FDefaultDeltaDiagnostic> Cause;
 	};
-	struct FPackageCaptureResult
-	{
-		FPackageCaptureError Error;
-		auto Succeeded() const -> bool { return Error.Reason == EPackageCaptureReason::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
-	COREDOBJECT_API auto FormatPackageCaptureError(const FPackageCaptureError& Error) -> std::string;
+	COREDOBJECT_API auto ToString(const FPackageCaptureError& Error) -> std::string;
 	COREDOBJECT_API auto GetPackageCaptureSaveError(const FPackageCaptureError& Error) -> EPackageSaveError;
 	enum class EPackageCommitState : uint8 { NotCommitted, Committed, RecoveryRequired, PartiallyWritten };
 	struct FPackageSaveResult
@@ -88,6 +86,8 @@ namespace Durin
 		EPackageCommitState CommitState = EPackageCommitState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
 		std::vector<std::filesystem::path> AffectedFiles;
+		std::optional<FFileError> FileCause;
+		std::optional<FPackageCaptureError> CaptureCause;
 		auto Succeeded() const -> bool { return Error == EPackageSaveError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
@@ -103,5 +103,5 @@ namespace Durin
 	// GameThread capture. Does not validate catalog dependencies or publish assets.
 	COREDOBJECT_API auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FPackageCaptureResult;
+		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> std::expected<void, FPackageCaptureError>;
 }

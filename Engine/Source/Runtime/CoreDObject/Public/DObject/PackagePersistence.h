@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "DObject/PackageCapture.h"
 #include "Misc/PackageWriter.h"
 #include "Threading/TaskComposition.h"
@@ -36,7 +37,7 @@ namespace Durin
 			-> Tasks::TTask<FPackageSaveResult>;
 		auto Capture(DPackage* Package, ObjectPackage::FLinkerTables& OutLinker,
 			uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) const
-			-> FPackageCaptureResult
+			-> std::expected<void, FPackageCaptureError>
 		{
 			return CapturePackageLinker(Package, Options.Mode == EPackageSaveMode::Complete
 				? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, Options.Capture, OutLinker, FormatVersion);

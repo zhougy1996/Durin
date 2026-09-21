@@ -28,7 +28,7 @@ namespace Durin::Editor::Texture
 
 		auto PrepareTexture2DPropertyEdit(
 			DObject& Object,
-			FPropertyEditProposal& Proposal) -> FObjectValidationResult
+			FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 		{
 			DTexture2D* Texture = Cast<DTexture2D>(&Object);
 			if (!Texture || !Proposal.MemberProperty
@@ -142,14 +142,14 @@ namespace Durin::Editor::Texture
 			const TWeakObjectPtr<DTexture2D> WeakTexture(Texture);
 			auto MakeDeferredResult = [ObjectPath = Object.GetObjectPath(),
 				PropertyName = Proposal.MemberProperty->NamePrivate.ToString()](
-				FTexture2DCompilationError Error) -> FObjectValidationResult {
+				FTexture2DCompilationError Error) -> std::expected<void, FObjectValidationError> {
 				if (!Error.HasError()) return {};
 				auto Cause = std::make_shared<FTexture2DPropertyEditCause>();
 				Cause->Code = ETexture2DPropertyEditError::Compilation;
 				Cause->CompilationCause = std::move(Error);
-				return {.Error = {.Code = EObjectValidationError::PropertyRejected,
+				return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
 					.ObjectPath = ObjectPath, .PropertyReason = EPropertyEditRejection::ModuleRejected,
-					.PropertyName = PropertyName, .Cause = std::move(Cause)}};
+					.PropertyName = PropertyName, .Cause = std::move(Cause)});
 			};
 			if (!Proposal.Defer(
 				[WeakTexture, Settings, MakeDeferredResult](FPropertyEditDeferredCompletion Completion) {

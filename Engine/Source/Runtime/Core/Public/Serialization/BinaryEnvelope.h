@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"
@@ -31,12 +32,7 @@ namespace Durin
 		DestinationTooSmall
 	};
 
-	// Carries a stable failure category and diagnostic text without owning input bytes.
-	struct FBinaryEnvelopeDiagnostic
-	{
-		EBinaryEnvelopeError Error = EBinaryEnvelopeError::None;
-		std::string_view Message;
-	};
+	CORE_API auto ToString(EBinaryEnvelopeError Error) -> std::string_view;
 
 	// Bounds common front-matter discovery before any declared extent is trusted.
 	struct FBinaryEnvelopeLimits
@@ -74,8 +70,7 @@ namespace Durin
 		// Replaces OutRegistry only when every descriptor and cross-descriptor identity is valid.
 		CORE_API static auto Create(
 			std::span<const FBinaryFormatDescriptor> Descriptors,
-			FBinaryFormatRegistry& OutRegistry,
-			FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
+			FBinaryFormatRegistry& OutRegistry) -> std::expected<void, EBinaryEnvelopeError>;
 
 		[[nodiscard]] CORE_API auto Find(const FGuid& FormatId) const
 			-> const FBinaryFormatDescriptor*;
@@ -91,14 +86,12 @@ namespace Durin
 		FByteView PrefixBytes,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& Limits,
-		FBinaryEnvelopePreamble& OutPreamble,
-		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FBinaryEnvelopePreamble& OutPreamble) -> std::expected<void, EBinaryEnvelopeError>;
 
 	// Publishes an encoded preamble only after all values and destination bounds validate.
 	CORE_API auto EncodeBinaryEnvelopePreamble(
 		const FBinaryEnvelopePreamble& Preamble,
-		FMutableByteView Destination,
-		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FMutableByteView Destination) -> std::expected<void, EBinaryEnvelopeError>;
 
 	// Holds validated common values and non-owning views into the caller-owned front matter.
 	struct FValidatedBinaryEnvelope
@@ -115,13 +108,11 @@ namespace Durin
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& DiscoveryLimits,
 		const FBinaryFormatRegistry& Registry,
-		FValidatedBinaryEnvelope& OutEnvelope,
-		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FValidatedBinaryEnvelope& OutEnvelope) -> std::expected<void, EBinaryEnvelopeError>;
 
 	// Writes only the hash field after the complete declared front matter validates.
 	CORE_API auto FinalizeBinaryEnvelopeHeader(
 		FMutableByteView FrontMatter,
 		uint64 PhysicalFileBytes,
-		const FBinaryEnvelopeLimits& Limits,
-		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
+		const FBinaryEnvelopeLimits& Limits) -> std::expected<void, EBinaryEnvelopeError>;
 }

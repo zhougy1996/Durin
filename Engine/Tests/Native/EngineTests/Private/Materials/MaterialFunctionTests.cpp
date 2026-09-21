@@ -880,7 +880,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	Outer.Signature.Inputs[0].Default.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 	Outer.Signature.Outputs = Graph.Signature.Outputs;
 	const FGuid CallId{32, 1, 1, 1};
-	Outer.Expressions.emplace_back(DuplicateObject(TextureInput.Get(), nullptr, NAME_None).Object);
+	Outer.Expressions.emplace_back(DuplicateObject(TextureInput.Get(), nullptr, NAME_None).value());
 	auto InnerCall = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>(CallId);
 	InnerCall->Function = Leaf;
 	InnerCall->Inputs = {{Graph.Signature.Inputs[0].Id, EMaterialProgramValueType::Texture2D, {TextureId}}};

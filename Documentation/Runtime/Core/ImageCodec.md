@@ -31,8 +31,8 @@ LDR output is top-left-origin RGBA8 with the source channel count and derived
 transparency fact. Radiance output is top-left-origin finite nonnegative linear
 RGB float data and accepts only `-Y height +X width`. Grayscale16 PNG output is
 top-left-origin row-major unsigned samples and requires color type 0, 16-bit
-samples, standard compression/filtering, and non-interlaced rows. LDR failures
-return only an error; Radiance and grayscale16 failures clear their output value.
+samples, standard compression/filtering, and non-interlaced rows. All three
+decoder families return only an error on failure, with no partial image value.
 
 The LDR `DecodeImageFromMemory` and `DecodeImageFromFile` APIs return
 `std::expected<FDecodedImage, FImageDecodeError>`, owning pixels only on success.
@@ -40,9 +40,16 @@ Failures retain encoded size, decoded header dimensions, caller limits, and an
 owned filename for file calls. File inspection and reading share one optional
 `FFileError` cause, preserving the operation, path and native error without a
 duplicate system-error field.
-`FormatImageDecodeError` is the presentation adapter. Import and thumbnail
-contracts that still expose strings call this adapter explicitly. Radiance and
-grayscale16 diagnostics remain separate pending migrations.
+Local `ToString` overloads in `ImageDecoder.cpp` are the presentation adapters.
+Import and thumbnail contracts that still expose strings call them explicitly.
+Grayscale PNG returns `expected<FDecodedGrayscale16Image, FGrayscale16DecodeError>`;
+Radiance returns `expected<FDecodedFloatImage, FRadianceHDRDecodeError>`.
+Their format-specific codes distinguish malformed headers, unsupported encoding,
+limit failures and truncated packets. Errors retain encoded byte count, decoded
+dimensions, caller limits, owned filename and an optional native file cause;
+Radiance also retains the parser byte offset. Scanline helpers propagate enums
+without constructing diagnostic text. Successful decode values own their pixels;
+callers that replace existing image state decide when to publish the value.
 
 Raw image formats cover G8, G16, RG8, RGBA8, RGBA16, R16F, RGBA16F, R32F,
 and RGBA32F. Byte-size computation rejects zero or overflowing extents and

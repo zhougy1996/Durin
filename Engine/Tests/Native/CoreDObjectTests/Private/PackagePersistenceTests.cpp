@@ -692,20 +692,20 @@ TEST_F(FPackagePersistenceTests, CaptureValidationPreservesOutputAndOverrideIden
 	ObjectPackage::FLinkerTables Linker;
 	Linker.Names.push_back("sentinel");
 	const auto Missing = Context.Capture(nullptr, Linker);
-	EXPECT_EQ(Missing.Error.Reason, EPackageCaptureReason::MissingAssets);
+	EXPECT_EQ(Missing.error().Reason, EPackageCaptureReason::MissingAssets);
 	Context.Options.Capture.bCooking = true;
 	const auto Target = Context.Capture(Package, Linker);
-	EXPECT_EQ(Target.Error.Reason, EPackageCaptureReason::CookTarget);
+	EXPECT_EQ(Target.error().Reason, EPackageCaptureReason::CookTarget);
 	Context.Options.Capture.bCooking = false;
 	auto Overrides = std::make_shared<FObjectSaveOverrides>();
 	ASSERT_TRUE(Overrides->AddObjectOmission(*Asset));
 	Context.Options.Capture.SaveOverrides = Overrides;
 	const auto Omitted = Context.Capture(Package, Linker);
-	EXPECT_EQ(Omitted.Error.Reason, EPackageCaptureReason::OmittedAsset);
-	EXPECT_EQ(Omitted.Error.ObjectPath, Asset->GetObjectPath());
+	EXPECT_EQ(Omitted.error().Reason, EPackageCaptureReason::OmittedAsset);
+	EXPECT_EQ(Omitted.error().ObjectPath, Asset->GetObjectPath());
 	Overrides.reset();
 	Context.Options.Capture.SaveOverrides.reset();
-	EXPECT_EQ(Omitted.Error.ObjectPath, Asset->GetObjectPath());
+	EXPECT_EQ(Omitted.error().ObjectPath, Asset->GetObjectPath());
 	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
 }
 
@@ -719,10 +719,10 @@ TEST_F(FPackagePersistenceTests, CaptureRetainsArchiveContextAndSaveAdmissionCau
 	ObjectPackage::FLinkerTables Linker;
 	Linker.Names.push_back("sentinel");
 	const auto Result = Context.Capture(Package, Linker);
-	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::RawOutsideField);
-	EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::MalformedSerializer);
-	EXPECT_EQ(Result.Error.ObjectPath, Asset->GetObjectPath());
-	EXPECT_FALSE(Result.Error.ArchivePath.empty());
+	EXPECT_EQ(Result.error().Reason, EPackageCaptureReason::RawOutsideField);
+	EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::MalformedSerializer);
+	EXPECT_EQ(Result.error().ObjectPath, Asset->GetObjectPath());
+	EXPECT_FALSE(Result.error().ArchivePath.empty());
 	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
 	FPackageSaveResult Admission;
 	EXPECT_FALSE(Package->SaveAsync(Admission, Context).IsValid());
@@ -739,7 +739,7 @@ TEST_F(FPackagePersistenceTests, CaptureRejectsPropertyFailure)
 	};
 	ObjectPackage::FLinkerTables Linker;
 	const auto Result = FSavePackageContext{Options}.Capture(Package, Linker);
-	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::ArchiveFailure);
+	EXPECT_EQ(Result.error().Reason, EPackageCaptureReason::ArchiveFailure);
 }
 
 TEST_F(FPackagePersistenceTests, CaptureRetainsBulkBoundsAndFrozenManifestFailure)
@@ -754,9 +754,9 @@ TEST_F(FPackagePersistenceTests, CaptureRetainsBulkBoundsAndFrozenManifestFailur
 	};
 	ObjectPackage::FLinkerTables Linker;
 	const auto Bulk = FSavePackageContext{Options}.Capture(Package, Linker);
-	EXPECT_EQ(Bulk.Error.Reason, EPackageCaptureReason::BulkMetadata);
-	EXPECT_EQ(Bulk.Error.Actual, 0u);
-	EXPECT_EQ(Bulk.Error.Expected, 9u);
+	EXPECT_EQ(Bulk.error().Reason, EPackageCaptureReason::BulkMetadata);
+	EXPECT_EQ(Bulk.error().Actual, 0u);
+	EXPECT_EQ(Bulk.error().Expected, 9u);
 	Asset->CaptureHook = [](FArchive& Ar) {
 		if (Ar.GetPurpose() != EArchivePurpose::AuthoredPackage) return;
 		auto* ObjectArchive = RequireObjectArchive(Ar);
@@ -766,7 +766,7 @@ TEST_F(FPackagePersistenceTests, CaptureRetainsBulkBoundsAndFrozenManifestFailur
 		int32 Value = 2; Ar << Value;
 	};
 	const auto Manifest = FSavePackageContext{Options}.Capture(Package, Linker);
-	EXPECT_EQ(Manifest.Error.Reason, EPackageCaptureReason::EmissionMutation);
+	EXPECT_EQ(Manifest.error().Reason, EPackageCaptureReason::EmissionMutation);
 }
 
 TEST_F(FPackagePersistenceTests, CapturePreservesOutputOnDefaultDeltaFailure)
@@ -780,6 +780,6 @@ TEST_F(FPackagePersistenceTests, CapturePreservesOutputOnDefaultDeltaFailure)
 	ObjectPackage::FLinkerTables Linker;
 	Linker.Names.push_back("sentinel");
 	const auto Result = Context.Capture(Package, Linker);
-	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::DefaultDelta);
+	EXPECT_EQ(Result.error().Reason, EPackageCaptureReason::DefaultDelta);
 	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
 }

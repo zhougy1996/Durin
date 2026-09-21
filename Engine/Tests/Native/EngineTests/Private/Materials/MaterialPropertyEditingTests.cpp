@@ -14,7 +14,7 @@ TEST(FMaterialPropertyEditingTests, OwnedParametersShareIdentityAndRejectConflic
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	const auto Definition = Material->GetParameterDefinitions().front();
-	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None).Object));
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None).value()));
 	Duplicate->Id = FGuid::NewGuid();
 	const std::array<DMaterialExpression*, 2> Duplicated{Owner.Get(), Duplicate.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Duplicated, {}));
@@ -415,7 +415,7 @@ TEST(FMaterialPropertyEditingTests, PositionalMaterialOverridesResolveDefaultsAn
 	Component->SetStaticMesh(Mesh);
 	EXPECT_EQ(Component->GetMaterial(1), Second);
 	auto* Duplicate = Durin::Cast<Durin::DStaticMeshComponent>(
-		Durin::DuplicateObject(Component, nullptr, "SparseOverrideDuplicate").Object);
+		Durin::DuplicateObject(Component, nullptr, "SparseOverrideDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetMaterial(1), Second);

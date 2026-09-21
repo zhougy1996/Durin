@@ -131,9 +131,9 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	Proposal.DraftRootProperty = Property;
 	Proposal.DraftRootContainer = Instance;
 	const auto Edit = Instance->PreEditChangeProperty(Proposal);
-	EXPECT_EQ(Edit.Error.Code, EObjectValidationError::PropertyRejected);
-	EXPECT_EQ(Edit.Error.PropertyName, "VectorParameterValues");
-	const auto EditCause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Edit.Error.Cause);
+	EXPECT_EQ(Edit.error().Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Edit.error().PropertyName, "VectorParameterValues");
+	const auto EditCause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Edit.error().Cause);
 	ASSERT_TRUE(EditCause);
 	const auto* MaterialError = std::get_if<FMaterialError>(&EditCause->Error);
 	ASSERT_NE(MaterialError, nullptr);
@@ -205,7 +205,7 @@ TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwn
 	EXPECT_FALSE(AssetInstance->SetParent(First));
 	FPropertyEditProposal Proposal;
 	EXPECT_FALSE(First->PreEditChangeProperty(Proposal));
-	EXPECT_EQ(DuplicateObject(First, nullptr, "ForbiddenDynamicCopy").Object, nullptr);
+	EXPECT_FALSE(DuplicateObject(First, nullptr, "ForbiddenDynamicCopy"));
 	ASSERT_TRUE(First->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
 	EXPECT_FLOAT_EQ(GetMaterialBinding(First->GetRenderData()).Roughness, Original);
 	EXPECT_FALSE(Base->GetPackage()->IsDirty());
@@ -425,7 +425,7 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	EXPECT_EQ(Child->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Opaque);
 	ASSERT_TRUE(Child->SetParent(Root));
 	EXPECT_FALSE(Child->GetStaticProperties().bTwoSided);
-	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(Durin::DuplicateObject(Child, nullptr, "PropertyDuplicate").Object);
+	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(Durin::DuplicateObject(Child, nullptr, "PropertyDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetPropertyOverrides(), ChildOverrides);
 	Durin::MarkAsGarbage(Duplicate);
@@ -927,7 +927,7 @@ TEST(FMaterialInstanceTests, DuplicateInstancePreservesParentAndNestedTextureOve
 	ASSERT_TRUE(Source->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 
 	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(
-		Durin::DuplicateObject(Source, nullptr, "DuplicateOverrideResult").Object);
+		Durin::DuplicateObject(Source, nullptr, "DuplicateOverrideResult").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetParent(), Base);
 	EXPECT_TRUE(Duplicate->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture));

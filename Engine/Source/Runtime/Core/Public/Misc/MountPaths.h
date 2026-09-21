@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreAPI.h"
 
@@ -47,34 +48,34 @@ namespace Durin
 			return (Root / ContentPath).lexically_normal();
 		}
 	};
-	struct FMountLookupResult
+	struct FMountLookup
 	{
 		const FMountPoint* Mount = nullptr;
 		std::string NormalizedVirtualPath;
 		std::filesystem::path RelativePath;
-		EMountPathError Error = EMountPathError::None;
-		std::string Message;
-		explicit operator bool() const { return Error == EMountPathError::None && Mount != nullptr; }
 	};
-	struct FMountPathResult
+	struct FMountPath
 	{
 		const FMountPoint* Mount = nullptr;
 		std::string NormalizedVirtualPath;
 		std::filesystem::path RelativePath;
 		std::filesystem::path PhysicalPath;
-		EMountPathError Error = EMountPathError::None;
-		std::string Message;
-		explicit operator bool() const { return Error == EMountPathError::None && Mount != nullptr; }
 	};
-	struct FAssetPathResult : FMountPathResult {};
-	struct FMountPolicyResult
+	struct FMountDependency
 	{
 		const FMountPoint* ReferencingMount = nullptr;
 		const FMountPoint* ReferencedMount = nullptr;
-		EMountPathError Error = EMountPathError::None;
-		std::string Message;
-		explicit operator bool() const { return Error == EMountPathError::None; }
 	};
+	// Mount pointers have the same registry lifetime as successful lookups.
+	struct FMountPathError
+	{
+		EMountPathError Code = EMountPathError::InvalidVirtualPath;
+		const FMountPoint* Mount = nullptr;
+		std::string Path;
+		std::string ReferencedPath;
+		std::error_code SystemError;
+	};
+	CORE_API auto ToString(const FMountPathError& Error) -> std::string;
 
 	class FMountPaths
 	{
@@ -82,12 +83,12 @@ namespace Durin
 		FMountPaths() = delete;
 		inline static constexpr std::string_view ProjectContentMountRoot = "/Game/";
 		static CORE_API auto GetRegisteredMountPoints() -> std::span<const FMountPoint>;
-		static CORE_API auto FindMountForVirtualPath(std::string_view VirtualPath) -> FMountLookupResult;
+		static CORE_API auto FindMountForVirtualPath(std::string_view VirtualPath) -> std::expected<FMountLookup, FMountPathError>;
 		static CORE_API auto ResolveAssetPath(std::string_view VirtualPath,
-			EMountPathExistence Existence = EMountPathExistence::AllowMissing) -> FAssetPathResult;
-		static CORE_API auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult;
+			EMountPathExistence Existence = EMountPathExistence::AllowMissing) -> std::expected<FMountPath, FMountPathError>;
+		static CORE_API auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> std::expected<FMountPath, FMountPathError>;
 		static CORE_API auto CheckMountDependency(std::string_view ReferencingVirtualPath,
-			std::string_view ReferencedVirtualPath) -> FMountPolicyResult;
+			std::string_view ReferencedVirtualPath) -> std::expected<FMountDependency, FMountPathError>;
 		static CORE_API auto PublishMountRegistry(std::span<const FMountPoint> Definitions,
 			std::string* OutError = nullptr) -> bool;
 		static CORE_API auto ValidateDefaultMountPoints(std::string* OutError = nullptr) -> bool;

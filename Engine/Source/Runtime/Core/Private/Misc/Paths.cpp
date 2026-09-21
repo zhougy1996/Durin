@@ -123,27 +123,6 @@ namespace Durin
 			return true;
 		}
 
-		auto FailLookup(EMountPathError Error, std::string Message) -> FMountLookupResult
-		{
-			return {.Error = Error, .Message = std::move(Message)};
-		}
-
-		template<typename TResult>
-		auto FailPath(
-			const FMountLookupResult& Lookup,
-			EMountPathError Error,
-			std::string Message
-		) -> TResult
-		{
-			TResult Result;
-			Result.Mount = Lookup.Mount;
-			Result.NormalizedVirtualPath = Lookup.NormalizedVirtualPath;
-			Result.RelativePath = Lookup.RelativePath;
-			Result.Error = Error;
-			Result.Message = std::move(Message);
-			return Result;
-		}
-
 		auto ValidateVirtualRoot(std::string_view Root, std::string* OutError) -> bool
 		{
 			if (Root.size() < 3 || Root.front() != '/' || Root.back() != '/' || Root.find('\\') != std::string_view::npos)
@@ -235,64 +214,42 @@ namespace Durin
 			return Resolved.lexically_normal();
 		}
 
-		template<typename TResult>
-		auto ResolveMountPath(
-			std::string_view VirtualPath,
-			EMountPathExistence Existence
-		) -> TResult
+		auto ResolveMountPath(std::string_view VirtualPath, EMountPathExistence Existence)
+			-> std::expected<FMountPath, FMountPathError>
 		{
-			const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(VirtualPath);
-			if (!Lookup) return FailPath<TResult>(Lookup, Lookup.Error, Lookup.Message);
-			const std::filesystem::path Root = Lookup.Mount->GetContentDir();
-
+			const auto Lookup = FMountPaths::FindMountForVirtualPath(VirtualPath);
+			if (!Lookup) return std::unexpected(Lookup.error());
+			const std::filesystem::path Root = Lookup->Mount->GetContentDir();
+			auto Fail = [&](EMountPathError Code, std::error_code SystemError = {}) {
+				return std::unexpected(FMountPathError{.Code = Code, .Mount = Lookup->Mount,
+					.Path = std::string(VirtualPath), .SystemError = SystemError});
+			};
 			std::error_code Error;
 			if (!std::filesystem::exists(Root, Error))
-			{
-				return FailPath<TResult>(
-					Lookup,
-					Error ? EMountPathError::IoFailure : EMountPathError::UnavailableRoot,
-					Error ? Error.message() : "The requested mount root is unavailable.");
-			}
-
+				return Fail(Error ? EMountPathError::IoFailure : EMountPathError::UnavailableRoot, Error);
 			const std::filesystem::path CanonicalMountRoot = CanonicalRoot(Root, Error);
-			if (Error) return FailPath<TResult>(Lookup, EMountPathError::IoFailure, Error.message());
-			const std::filesystem::path Candidate = (Root / Lookup.RelativePath).lexically_normal();
+			if (Error) return Fail(EMountPathError::IoFailure, Error);
+			const std::filesystem::path Candidate = (Root / Lookup->RelativePath).lexically_normal();
 			const std::filesystem::path CanonicalCandidate = CanonicalCandidateForContainment(Candidate, Error);
-			if (Error || CanonicalCandidate.empty())
-				return FailPath<TResult>(Lookup, EMountPathError::IoFailure, Error ? Error.message() : "Failed to resolve physical path.");
-			if (!IsPathWithin(CanonicalMountRoot, CanonicalCandidate))
-				return FailPath<TResult>(Lookup, EMountPathError::EscapedRoot, "Physical path escapes its mount root.");
+			if (Error || CanonicalCandidate.empty()) return Fail(EMountPathError::IoFailure, Error);
+			if (!IsPathWithin(CanonicalMountRoot, CanonicalCandidate)) return Fail(EMountPathError::EscapedRoot);
 			if (Existence == EMountPathExistence::RequireFile && !std::filesystem::is_regular_file(Candidate, Error))
 			{
-				if (Error == std::errc::no_such_file_or_directory
-					|| Error == std::errc::not_a_directory) Error.clear();
-				return FailPath<TResult>(
-					Lookup,
-					Error ? EMountPathError::IoFailure : EMountPathError::MissingFile,
-					Error ? Error.message() : "The requested file does not exist.");
+				if (Error == std::errc::no_such_file_or_directory || Error == std::errc::not_a_directory) Error.clear();
+				return Fail(Error ? EMountPathError::IoFailure : EMountPathError::MissingFile, Error);
 			}
-
-			TResult Result;
-			Result.Mount = Lookup.Mount;
-			Result.NormalizedVirtualPath = Lookup.NormalizedVirtualPath;
-			Result.RelativePath = Lookup.RelativePath;
-			Result.PhysicalPath = Candidate;
-			return Result;
+			return FMountPath{.Mount = Lookup->Mount, .NormalizedVirtualPath = Lookup->NormalizedVirtualPath,
+				.RelativePath = Lookup->RelativePath, .PhysicalPath = Candidate};
 		}
 
-		template<typename TResult>
-		auto ClassifyMountPath(const std::filesystem::path& PhysicalPath) -> TResult
+		auto ClassifyMountPath(const std::filesystem::path& PhysicalPath)
+			-> std::expected<FMountPath, FMountPathError>
 		{
 			std::error_code Error;
 			const std::filesystem::path Candidate = CanonicalCandidateForContainment(PhysicalPath, Error);
 			if (Error || Candidate.empty())
-			{
-				TResult Result;
-				Result.Error = EMountPathError::IoFailure;
-				Result.Message = Error ? Error.message() : "Failed to classify physical path.";
-				return Result;
-			}
-
+				return std::unexpected(FMountPathError{.Code = EMountPathError::IoFailure,
+					.Path = PhysicalPath.generic_string(), .SystemError = Error});
 			const FMountPoint* Best = nullptr;
 			std::filesystem::path BestRoot;
 			for (const FMountPoint& Mount : MountPoints)
@@ -308,24 +265,13 @@ namespace Durin
 					BestRoot = CanonicalMountRoot;
 				}
 			}
-			if (!Best)
-			{
-				TResult Result;
-				Result.Error = EMountPathError::UnknownMount;
-				Result.Message = "Physical path is outside every registered mount root.";
-				return Result;
-			}
-
+			if (!Best) return std::unexpected(FMountPathError{.Code = EMountPathError::UnknownMount,
+				.Path = PhysicalPath.generic_string()});
 			std::filesystem::path Relative = Candidate.lexically_relative(BestRoot);
 			if (Relative == ".") Relative.clear();
-			TResult Result;
-			Result.Mount = Best;
-			Result.RelativePath = Relative;
-			Result.NormalizedVirtualPath = Relative.empty()
-				? Best->VirtualRoot
-				: Best->VirtualRoot + Relative.generic_string();
-			Result.PhysicalPath = PhysicalPath.lexically_normal();
-			return Result;
+			return FMountPath{.Mount = Best,
+				.NormalizedVirtualPath = Relative.empty() ? Best->VirtualRoot : Best->VirtualRoot + Relative.generic_string(),
+				.RelativePath = Relative, .PhysicalPath = PhysicalPath.lexically_normal()};
 		}
 
 		auto ParseProjectMounts(std::vector<FMountPoint>& Definitions, std::string* OutError) -> bool
@@ -476,11 +422,11 @@ namespace Durin
 
 	auto FMountPaths::GetRegisteredMountPoints() -> std::span<const FMountPoint> { return MountPoints; }
 
-	auto FMountPaths::FindMountForVirtualPath(std::string_view VirtualPath) -> FMountLookupResult
+	auto FMountPaths::FindMountForVirtualPath(std::string_view VirtualPath) -> std::expected<FMountLookup, FMountPathError>
 	{
 		if (VirtualPath.empty() || VirtualPath.front() != '/' || VirtualPath.find('\\') != std::string_view::npos)
-			return FailLookup(EMountPathError::InvalidVirtualPath, "Virtual path must be absolute and use forward slashes.");
-		if (VirtualPath.back() == '/') return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path must name an entry.");
+			return std::unexpected(FMountPathError{.Code = EMountPathError::InvalidVirtualPath, .Path = std::string(VirtualPath)});
+		if (VirtualPath.back() == '/') return std::unexpected(FMountPathError{.Code = EMountPathError::InvalidRelativePath, .Path = std::string(VirtualPath)});
 
 		const std::string FoldedPath = FoldAscii(VirtualPath);
 		for (const FMountPoint& Mount : MountPoints)
@@ -488,7 +434,7 @@ namespace Durin
 			const std::string FoldedRoot = FoldAscii(Mount.VirtualRoot);
 			if (!FoldedPath.starts_with(FoldedRoot)) continue;
 			const std::string_view RelativeText = VirtualPath.substr(Mount.VirtualRoot.size());
-			if (RelativeText.empty()) return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path has no relative entry.");
+			if (RelativeText.empty()) return std::unexpected(FMountPathError{.Code = EMountPathError::InvalidRelativePath, .Path = std::string(VirtualPath)});
 			size_t Start = 0;
 			while (Start < RelativeText.size())
 			{
@@ -496,51 +442,61 @@ namespace Durin
 				const std::string_view Segment = RelativeText.substr(
 					Start, End == std::string_view::npos ? RelativeText.size() - Start : End - Start);
 				if (Segment.empty() || Segment == "." || Segment == "..")
-					return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path contains an invalid segment.");
+					return std::unexpected(FMountPathError{.Code = EMountPathError::InvalidRelativePath, .Path = std::string(VirtualPath)});
 				Start = End == std::string_view::npos ? RelativeText.size() : End + 1;
 			}
-			return {
+			return FMountLookup{
 				.Mount = &Mount,
 				.NormalizedVirtualPath = Mount.VirtualRoot + std::string(RelativeText),
 				.RelativePath = std::filesystem::path(RelativeText)};
 		}
-		return FailLookup(EMountPathError::UnknownMount, "Virtual path does not use a registered mount.");
+		return std::unexpected(FMountPathError{.Code = EMountPathError::UnknownMount, .Path = std::string(VirtualPath)});
 	}
 
-	auto FMountPaths::ResolveAssetPath(std::string_view VirtualPath, EMountPathExistence Existence) -> FAssetPathResult
+	auto FMountPaths::ResolveAssetPath(std::string_view VirtualPath, EMountPathExistence Existence) -> std::expected<FMountPath, FMountPathError>
 	{
-		return ResolveMountPath<FAssetPathResult>(VirtualPath, Existence);
+		return ResolveMountPath(VirtualPath, Existence);
 	}
 
-	auto FMountPaths::ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult
+	auto FMountPaths::ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> std::expected<FMountPath, FMountPathError>
 	{
-		return ClassifyMountPath<FAssetPathResult>(PhysicalPath);
+		return ClassifyMountPath(PhysicalPath);
 	}
 
-	auto FMountPaths::CheckMountDependency(
-		std::string_view ReferencingVirtualPath,
-		std::string_view ReferencedVirtualPath
-	) -> FMountPolicyResult
+	auto FMountPaths::CheckMountDependency(std::string_view ReferencingVirtualPath,
+		std::string_view ReferencedVirtualPath) -> std::expected<FMountDependency, FMountPathError>
 	{
-		const FMountLookupResult Referencing = FMountPaths::FindMountForVirtualPath(ReferencingVirtualPath);
-		const FMountLookupResult Referenced = FMountPaths::FindMountForVirtualPath(ReferencedVirtualPath);
-		FMountPolicyResult Result{
-			.ReferencingMount = Referencing.Mount,
-			.ReferencedMount = Referenced.Mount};
-		if (!Referencing || !Referenced)
+		const auto Referencing = FindMountForVirtualPath(ReferencingVirtualPath);
+		if (!Referencing) return std::unexpected(Referencing.error());
+		const auto Referenced = FindMountForVirtualPath(ReferencedVirtualPath);
+		if (!Referenced) return std::unexpected(Referenced.error());
+		if (FoldAscii(Referencing->Mount->VirtualRoot) == FoldAscii(Referenced->Mount->VirtualRoot)
+			|| std::ranges::any_of(Referencing->Mount->Dependencies, [&](const std::string& Dependency) {
+				return FoldAscii(Dependency) == FoldAscii(Referenced->Mount->VirtualRoot);
+			})) return FMountDependency{Referencing->Mount, Referenced->Mount};
+		return std::unexpected(FMountPathError{.Code = EMountPathError::ForbiddenDependency,
+			.Mount = Referencing->Mount, .Path = std::string(ReferencingVirtualPath),
+			.ReferencedPath = std::string(ReferencedVirtualPath)});
+	}
+
+	auto ToString(const FMountPathError& Error) -> std::string
+	{
+		std::string_view Reason;
+		switch (Error.Code)
 		{
-			Result.Error = !Referencing ? Referencing.Error : Referenced.Error;
-			Result.Message = !Referencing ? Referencing.Message : Referenced.Message;
-			return Result;
+		case EMountPathError::None: return {};
+		case EMountPathError::InvalidVirtualPath: Reason = "Invalid absolute virtual path"; break;
+		case EMountPathError::UnknownMount: Reason = "Path is outside registered mounts"; break;
+		case EMountPathError::UnavailableRoot: Reason = "Mount root is unavailable"; break;
+		case EMountPathError::InvalidRelativePath: Reason = "Invalid relative path entry"; break;
+		case EMountPathError::EscapedRoot: Reason = "Physical path escapes its mount root"; break;
+		case EMountPathError::MissingFile: Reason = "Requested file does not exist"; break;
+		case EMountPathError::ForbiddenDependency: return std::format("Mount dependency is forbidden: '{}' -> '{}'.", Error.Path, Error.ReferencedPath);
+		case EMountPathError::ReadOnlyMount: Reason = "Mount is read-only"; break;
+		case EMountPathError::IoFailure: Reason = "Mount path I/O failed"; break;
 		}
-		if (FoldAscii(Referencing.Mount->VirtualRoot) == FoldAscii(Referenced.Mount->VirtualRoot)
-			|| std::ranges::any_of(Referencing.Mount->Dependencies, [&](const std::string& Dependency) {
-				return FoldAscii(Dependency) == FoldAscii(Referenced.Mount->VirtualRoot);
-			})) return Result;
-		Result.Error = EMountPathError::ForbiddenDependency;
-		Result.Message = std::format(
-			"Mount {} may not depend on {}.", Referencing.Mount->VirtualRoot, Referenced.Mount->VirtualRoot);
-		return Result;
+		return Error.SystemError ? std::format("{}: '{}': {}.", Reason, Error.Path, Error.SystemError.message())
+			: std::format("{}: '{}'.", Reason, Error.Path);
 	}
 
 	auto FMountPaths::PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool

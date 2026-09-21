@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Asset/BulkData.h"
 #include "Materials/MaterialInterface.h"
@@ -37,7 +38,7 @@ namespace Durin
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		auto GetMaterialGraphPresentation() const
 			-> const FMaterialGraphPresentation&
 		{

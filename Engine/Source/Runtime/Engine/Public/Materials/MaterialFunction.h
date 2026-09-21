@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Materials/MaterialFunctionInterface.h"
 #include "Materials/MaterialExpressions.h"
@@ -34,7 +35,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
 
 	private:

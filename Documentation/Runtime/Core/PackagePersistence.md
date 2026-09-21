@@ -33,19 +33,19 @@ file descriptors and buffers without recapturing objects.
 
 `CapturePackageLinker` captures reflected and native archive fields into the
 existing canonical DAST v10 linker representation. It and `FSavePackageContext::Capture`
-return `FPackageCaptureResult` without diagnostic output parameters. Errors own
+return `std::expected<void, FPackageCaptureError>` without diagnostic output parameters. Errors own
 object/field identities, routes and numeric bounds, retain path, default-delta,
 property-value and snapshot causes, and preserve Archive code/path. Capture
 publishes the Linker only on success. Internal container adaptation rejects missing
-child descriptors and propagates recursive failures. `FormatPackageCaptureError`
+child descriptors and propagates recursive failures. `ToString`
 owns prose; pending save admission retains `CaptureCause`, while the pending Engine
 asset adapter formats explicitly.
 
 `FObjectSaveOverrides` owns
-non-mutating omissions/replacements. Its mutation APIs return `FSaveOverrideResult`
+non-mutating omissions/replacements. Its mutation APIs return `std::expected<void, FSaveOverrideError>`
 with owned object/property identities, exact layout/type mismatch facts, and
 typed property-value or snapshot causes. Failed replacement preparation publishes
-no new object entry or property override. `FormatSaveOverrideError` owns prose.
+no new object entry or property override. `ToString` owns prose.
 `FPackageCaptureOptions` supplies generic
 archive targets, property filters and per-export redirect metadata. Engine adapts
 its cook enums and concrete redirector objects at this boundary. Bulk capture
@@ -160,7 +160,12 @@ interrupted jobs at startup.
 
 `FPackageWriteResult` remains a report: its boolean conversion checks `Error`,
 while `State`, `RecoveryFiles` and `AffectedFiles` describe observed effects.
-A successful phase is not necessarily a committed save.
+A successful phase is not necessarily a committed save. Staging and directory
+creation failures retain `FileCause` with operation, physical path and native
+error. CoreDObject carries it into `FPackageSaveResult`; capture failures also
+retain `CaptureCause`. `Message` remains a presentation snapshot for the
+external/custom writer protocol and string-only publication adapters. Typed
+causes supplement that report without discarding commit or recovery evidence.
 
 | Producer / outcome | State and payload | Interpretation |
 | --- | --- | --- |

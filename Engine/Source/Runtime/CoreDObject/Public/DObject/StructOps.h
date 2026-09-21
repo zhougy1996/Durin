@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectValidation.h"
@@ -68,7 +69,7 @@ namespace Durin
 		using FZeroConstruct = void (*)(void* Destination);
 		using FIdentical = bool (*)(const void* Left, const void* Right);
 		using FSerialize = void (*)(FArchive& Archive, void* Value);
-		using FPostDeserialize = FObjectValidationResult (*)(void* Value, FDStructPostDeserializeContext& Context);
+		using FPostDeserialize = std::expected<void, FObjectValidationError> (*)(void* Value, FDStructPostDeserializeContext& Context);
 		using FCollectReferences = void (*)(void* Value, FReferenceCollector& Collector);
 
 		uint32 Version = DStructOpsVersion;
@@ -176,7 +177,7 @@ namespace Durin
 		template<typename T, typename Traits>
 		concept CValidDStructPostDeserializeTrait = requires
 		{
-			static_cast<FObjectValidationResult (*)(T&, FDStructPostDeserializeContext&)>(&Traits::PostDeserialize);
+			static_cast<std::expected<void, FObjectValidationError> (*)(T&, FDStructPostDeserializeContext&)>(&Traits::PostDeserialize);
 		};
 
 		template<typename T, typename Traits>
@@ -228,7 +229,7 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto PostDeserializeDStruct(void* Value, FDStructPostDeserializeContext& Context) -> FObjectValidationResult
+		auto PostDeserializeDStruct(void* Value, FDStructPostDeserializeContext& Context) -> std::expected<void, FObjectValidationError>
 		{
 			return TDStructOpsTraits<T>::PostDeserialize(*static_cast<T*>(Value), Context);
 		}
@@ -334,7 +335,7 @@ namespace Durin
 			if constexpr (Traits::bWithPostDeserialize)
 			{
 				constexpr bool bValid = CValidDStructPostDeserializeTrait<T, Traits>;
-				static_assert(bValid, "TDStructOpsTraits<T>::PostDeserialize must have signature FObjectValidationResult(T&, FDStructPostDeserializeContext&).");
+				static_assert(bValid, "TDStructOpsTraits<T>::PostDeserialize must have signature std::expected<void, FObjectValidationError>(T&, FDStructPostDeserializeContext&).");
 				if constexpr (bValid)
 				{
 					Ops.Flags |= EDStructOpsFlags::PostDeserialize;

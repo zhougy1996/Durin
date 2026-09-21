@@ -1,11 +1,36 @@
 #pragma once
+#include <expected>
 
 #include "CoreDObjectAPI.h"
 #include "Misc/Name.h"
-#include "DObject/ObjectDiagnostic.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin
 {
+	enum class EObjectPathError : uint8
+	{
+		EmptyComponent, ComponentTooLong, InvalidUtf8, ReservedSeparator,
+		NotAbsolute, InternedNameTooLong, PathTooLong, MissingPackageName,
+		PackageSuffix, MountLookupFailed, SubobjectSuffix,
+		AssetSeparator, MissingPackagePath, MultipleSubobjectSeparators,
+		EmptySubobject,
+	};
+
+	enum class EObjectPathPart : uint8 { Package, PackageSegment, Asset, AssetName, Object, Subobject };
+
+	// Owned identities allow a path failure to outlive its input views.
+	struct FObjectPathError
+	{
+		EObjectPathError Code = EObjectPathError::NotAbsolute;
+		EObjectPathPart Part = EObjectPathPart::Object;
+		std::string Subject;
+		size_t ActualBytes = 0;
+		size_t MaximumBytes = 0;
+		size_t ComponentIndex = 0;
+		EMountPathError MountError = EMountPathError::None;
+	};
+	COREDOBJECT_API auto ToString(const FObjectPathError& Error) -> std::string;
+
 	inline constexpr size_t MaximumObjectPathComponentBytes = 1024;
 	inline constexpr size_t MaximumObjectPathBytes = 1024 * 1024;
 
@@ -16,10 +41,10 @@ namespace Durin
 	{
 	public:
 		FPackagePath() = default;
-		static auto TryCreate(std::string_view InPath, FPackagePath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).Succeeded(); }
-		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult;
+		static auto TryCreate(std::string_view InPath, FPackagePath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
+		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FPackagePath& OutPath) -> std::expected<void, FObjectPathError>;
 		COREDOBJECT_API static auto TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> bool;
-		static auto IsValid(std::string_view InPath) -> bool { return Validate(InPath).Succeeded(); }
+		static auto IsValid(std::string_view InPath) -> bool { return Validate(InPath).has_value(); }
 		auto IsValid() const -> bool { return !Path.IsNone(); }
 		COREDOBJECT_API auto ToString() const -> std::string;
 		COREDOBJECT_API auto GetView() const -> std::string_view;
@@ -27,7 +52,7 @@ namespace Durin
 		auto operator==(const FPackagePath&) const -> bool = default;
 		COREDOBJECT_API auto operator<=>(const FPackagePath& Other) const -> std::strong_ordering;
 	private:
-		COREDOBJECT_API static auto Validate(std::string_view InPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto Validate(std::string_view InPath) -> std::expected<void, FObjectPathError>;
 		explicit FPackagePath(FName InPath) : Path(std::move(InPath)) {}
 		FName Path;
 		friend struct std::hash<FPackagePath>;
@@ -38,10 +63,10 @@ namespace Durin
 	{
 	public:
 		FTopLevelAssetPath() = default;
-		static auto TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).Succeeded(); }
-		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> FObjectOperationResult;
-		static auto TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPackagePath, InAssetName, OutPath).Succeeded(); }
-		COREDOBJECT_API static auto TryCreateWithDiagnostic(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> FObjectOperationResult;
+		static auto TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
+		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>;
+		static auto TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPackagePath, InAssetName, OutPath).has_value(); }
+		COREDOBJECT_API static auto TryCreateWithDiagnostic(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>;
 		auto IsValid() const -> bool { return PackagePath.IsValid() && !AssetName.IsNone(); }
 		auto GetPackagePath() const -> const FPackagePath& { return PackagePath; }
 		COREDOBJECT_API auto GetAssetName() const -> std::string_view;
@@ -84,8 +109,8 @@ namespace Durin
 	{
 	public:
 		FObjectPath() = default;
-		static auto TryCreate(std::string_view InPath, FObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).Succeeded(); }
-		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FObjectPath& OutPath) -> FObjectOperationResult;
+		static auto TryCreate(std::string_view InPath, FObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
+		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FObjectPath& OutPath) -> std::expected<void, FObjectPathError>;
 		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FObjectPath& OutPath) -> bool;
 		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FObjectPath& OutPath) -> bool;
 		auto IsValid() const -> bool { return AssetPath.IsValid(); }

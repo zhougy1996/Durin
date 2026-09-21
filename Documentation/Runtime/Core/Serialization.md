@@ -61,7 +61,11 @@ and hash mismatches before returning non-owning common and format-header views.
 Registry construction copies descriptors, rejects invalid or duplicate IDs and
 debug names independent of input order, and has no global registration or
 constructor-order authority. Encoding, finalization, parsing, registry creation,
-and validation replace caller outputs or destination bytes only on success.
+and validation return `expected<void, EBinaryEnvelopeError>` and replace caller
+outputs or destination bytes only on success. There is no separate diagnostic
+output parameter; `ToString` is implemented locally in `BinaryEnvelope.cpp`.
+Payload test adapters retain `FArchiveFailure` directly instead of collapsing
+archive errors into the removed `FDecodeResult`/`EDecodeError` categories.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
@@ -144,9 +148,9 @@ values, strings, names, GUIDs, enum storage, and Struct field framing. Both the
 live reflected-property entry and construct-free decoded values use this
 writer. Token construction is transactional: an unsupported type or invalid
 shape leaves the caller's prior output unchanged. The live reflected APIs return
-`FReflectedMapKeyResult`, with typed failure reasons, owned property identities,
+`std::expected<void, FReflectedMapKeyError>`, with typed failure reasons, owned property identities,
 array bounds, and an outer-to-inner property/index route. The detached package
-API returns `FCanonicalMapKeyResult`. Neither API accepts diagnostic string
+API returns `std::expected<void, FCanonicalMapKeyError>`. Neither API accepts diagnostic string
 outputs; Archive, snapshot, and Engine adapters format at their result boundaries.
 
 `DObject/PackageFormat.h` owns construct-free DAST freezing, writing, and bounded
@@ -252,7 +256,7 @@ The semantic reflected-value layer is shared by object graphs, duplication,
 property snapshots, editable copying, and authored-package Archives. Hard
 references are delegated to the selected Archive and are never persisted as
 process addresses. Soft references transfer only their bounded logical path.
-Invalid decoded soft-reference paths retain an owned `FObjectError` in
+Invalid decoded soft-reference paths retain an owned `FObjectPathError` in
 `FObjectArchive` and through snapshot, property-copy, and graph results, alongside
 the Archive code and field path. The destination path remains unchanged.
 Serializers keep their `void` contract: the Archive records the first failure
@@ -406,7 +410,7 @@ Structs use the shared reflected save-selected field walk by default. A declared
 for every Archive purpose and is invoked exactly once per value. Loading decodes into managed storage initialized according to the explicit
 Struct baseline described above. After the complete field walk
 or custom serializer succeeds, an optional `PostDeserialize` callback receives
-the Archive purpose and source format version and returns `FObjectValidationResult`.
+the Archive purpose and source format version and returns `std::expected<void, FObjectValidationError>`.
 The context has no error-text slot or text rejection helper. `FDStructOps` version 2
 requires this typed callback signature. Failures retain the Struct identity,
 source version and module-owned cause through Archive/snapshot results. Only successful repair is
@@ -420,13 +424,13 @@ to complete reflected traversal.
 
 ### Transient Object Graphs and Duplication
 
-`SaveObjectGraphToMemory` and `LoadObjectGraphFromMemory` return
-`FObjectGraphResult`; success derives from `FObjectGraphError::Code`. Load
-publishes its root through `Object` only on success. Failures retain owned object
-and class identities, record ids, byte counts, header versions, and underlying
+`SaveObjectGraphToMemory` returns `std::expected<void, FObjectGraphError>`;
+`LoadObjectGraphFromMemory` returns `std::expected<DObject*, FObjectGraphError>`.
+A successful load owns a non-null root value. Failures retain owned object and
+class identities, record ids, byte counts, header versions, and underlying
 Archive/property/map/graph-validation causes. Failed saves preserve the caller
-byte buffer; failed loads retire all candidates. `FormatObjectGraphError` is an
-explicit presentation boundary.
+byte buffer; failed loads retire all candidates. The local `ToString` overload
+is the presentation boundary.
 
 Object-graph v2 saving first runs a Discovery Archive over the same virtual
 `DObject::Serialize` entries used for emission. Scope includes the root,
@@ -442,7 +446,7 @@ Loading validates the v2 header and all record bounds, creates every object
 skeleton before resolving reference ids, then invokes each object's virtual
 serializer exactly once. Once all values and Outer links are restored, each
 object's read-only `ValidateLoadedObjectGraph` hook may reject invariants requiring
-populated children. The hook returns `FObjectValidationResult`, with owned object
+populated children. The hook returns `std::expected<void, FObjectValidationError>`, with owned object
 identity and an optional module-owned typed `IObjectValidationCause`. Material
 adapters preserve their typed error and complete program diagnostics; the Core
 framework has no Engine dependency. Formatting is explicit at presentation or
@@ -451,9 +455,8 @@ format is process-local engine plumbing and has no v1 reader or migration path;
 long-lived content uses the independently versioned, field-tagged `.dasset`
 contract documented in [Asset Packages](../Assets/AssetPackages.md).
 
-`DuplicateObject(...)` returns `TObjectGraphResult<T>` (or `FObjectGraphResult`
-for the untyped overload), with success derived from its error code and the
-duplicate in `Object`. Failures retain Archive/property causes, authored override
+`DuplicateObject(...)` returns `std::expected<T*, FObjectGraphError>` (with
+`DObject*` for the untyped overload). Success contains the non-null duplicate. Failures retain Archive/property causes, authored override
 reason/path, or the complete graph-validation cause. The optional source-to-copy
 map is cleared on entry and published only after success. Material graph command
 and program errors retain an owned duplication cause; pending asset-operation
@@ -467,31 +470,33 @@ becomes null. After all values and authored ledgers are copied, graph-validation
 hooks run before any duplicate PostLoad notification. A rejection retires the
 whole duplicate graph. Any failure retires the incomplete duplicate graph.
 `FProperty` value construction/copy and `FReflectedValueStorage` operations return
-`FPropertyValueResult`. Errors own property and Struct names, the requested array
+`std::expected<void, FPropertyValueError>`. Errors own property and Struct names, the requested array
 index and dimension, layout facts, and the failed operation. Missing inputs,
 unavailable operations, invalid storage, and copy exceptions are distinct codes.
 No diagnostic-output overload remains. Copy failure context survives detached
 storage cleanup; failed attempts to construct into live storage preserve its
 value. Pending Archive and editor contracts format explicitly at their adapters.
 
-Property snapshot capture/restore APIs return `FPropertySnapshotResult`, with
+Property snapshot capture/restore APIs return `std::expected<void, FPropertySnapshotError>`, with
 owned validation context, operation and array indices, exact reference-table
-failure reasons/counts, and Archive code/path context. The Archive retains its first local failure; snapshot and copy boundaries
-materialize its diagnostic text while the Archive is alive, without copying a
-nested cause tree. `FormatPropertySnapshotError` presents that owned text. Capture
+failure reasons/counts, and Archive code/path context. The Archive retains its first local failure. Snapshot and copy boundaries
+retain its owned typed value cause when available; opaque archive text is copied
+only when there is no typed cause. `ToString` formats these operation-specific
+causes at presentation boundaries. The legacy Archive string adapter remains
+available to consumers requiring text. Capture
 publishes its payload only on success; restore retains the existing detached
 Struct/container commit and hard-reference resolution rules. Shared property
 error records live in `DObject/PropertyDiagnostic.h`.
 
 `InitializeObjectFromDefaults` and `CopyEditableObjectProperties` return
-`FObjectPropertyCopyResult`, without string error outputs. They retain owned
-source/destination types and identities, nested reference routes, and diagnostic
-text captured from property-value, snapshot, container and Archive failures. Default initialization
+`std::expected<void, FObjectPropertyCopyError>`, without string error outputs. They retain owned
+source/destination types and identities, nested reference routes, and typed
+property-value, snapshot, container and Archive causes. Default initialization
 still delegates graph rollback to its caller. Editable copying restores earlier
 fields on failure, retains the original failure plus the first rollback failure,
 and marks the destination dirty only on success. The first rollback failure
 remains a separate optional snapshot outcome. Engine/editor callers
-format explicitly with `FormatObjectPropertyCopyError`.
+format explicitly with `ToString`.
 
 Property snapshots and editable copies operate on selected values rather than
 pretending to serialize a complete object; snapshots root their captured hard

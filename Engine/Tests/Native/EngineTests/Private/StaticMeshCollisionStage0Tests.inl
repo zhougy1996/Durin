@@ -59,7 +59,7 @@ namespace
 	auto DecodeCollisionPayload(
 		FByteView Bytes,
 		EStaticMeshTargetPlatform Platform,
-		FStaticMeshCollisionPayloadData& OutPayload) -> FDecodeResult
+		FStaticMeshCollisionPayloadData& OutPayload) -> std::expected<void, FArchiveFailure>
 	{
 		FStaticMeshCollisionPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes,
@@ -67,9 +67,7 @@ namespace
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		Candidate.Serialize(Ar);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
-			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
-				? EDecodeError::Incompatible : EDecodeError::Corrupt,
-				Ar.GetFailure()->Message};
+			return std::unexpected(*Ar.GetFailure());
 		OutPayload = std::move(Candidate);
 		return {};
 	}

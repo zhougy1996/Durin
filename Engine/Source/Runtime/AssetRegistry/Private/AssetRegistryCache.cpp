@@ -289,15 +289,15 @@ namespace Durin::AssetPrivate
 		OutEntries.reserve(Assets.size());
 		for (const auto& [Path, Data] : Assets)
 		{
-			const FMountLookupResult Lookup =
+			const auto Lookup =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
-			if (!Lookup || !Lookup.Mount->bAutoScan)
+			if (!Lookup || !Lookup->Mount->bAutoScan)
 			{
 				OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());
 				OutEntries.clear();
 				return false;
 			}
-			const std::string RelativeAssetPath = Lookup.RelativePath.generic_string();
+			const std::string RelativeAssetPath = Lookup->RelativePath.generic_string();
 			const std::string RelativeString = std::format("{}.dasset", RelativeAssetPath);
 			if (RelativeAssetPath.empty() || std::filesystem::path(RelativeString).is_absolute()
 				|| RelativeString.starts_with("../") || RelativeString.find("/../") != std::string::npos)
@@ -307,7 +307,7 @@ namespace Durin::AssetPrivate
 				return false;
 			}
 			OutEntries.push_back(FRegistryCacheEntry{
-				.MountRoot = Lookup.Mount->VirtualRoot,
+				.MountRoot = Lookup->Mount->VirtualRoot,
 				.RelativePath = RelativeString,
 				.TopLevelAssets = Data.TopLevelAssets,
 				.FormatVersion = Data.FormatVersion,

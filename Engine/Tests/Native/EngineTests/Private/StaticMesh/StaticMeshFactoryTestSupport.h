@@ -22,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 		std::string Error;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(AssetPath, ParsedPath); !PathValidation)
 		{
-			Error = Durin::FormatObjectError(PathValidation.Error);
+			Error = Durin::ToString(PathValidation.error());
 			return {false, std::move(Error), nullptr};
 		}
 		auto* Factory = NewObject<DStaticMeshFactory>(

@@ -680,7 +680,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	const auto Clone = [](const auto& Expressions) {
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Result;
-		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
+		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
 		return Result;
 	};
 	const auto Original = Clone(Functions.SampleNormal->GetExpressionCollection().Expressions);

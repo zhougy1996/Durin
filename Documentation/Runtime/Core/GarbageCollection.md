@@ -40,9 +40,9 @@ the candidate alive during construction. A successful `FObjectGraphReplacement::
 accepts ownership, pins live objects needed for validation, maps package-relative
 Outer/name paths, and prepares writable reference slots and detached container
 copies. Failure leaves candidate ownership with the caller. Preparation and commit return
-`FObjectReplacementResult` with a typed code/reason, owned object/property routes,
+`std::expected<void, FObjectReplacementError>` with a typed code/reason, owned object/property routes,
 reference budgets, ownership counts, participant indices and nested Map/property
-copy/container-operation causes. `FormatObjectReplacementError` owns the prose;
+copy/container-operation causes. `ToString` owns the prose;
 participant and persistence callbacks return the same typed result. A caller with
 a higher-level persistence result retains that result outside CoreDObject and
 formats it at its own boundary. The caller must

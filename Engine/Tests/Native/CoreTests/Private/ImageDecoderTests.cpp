@@ -108,7 +108,7 @@ namespace Durin::Image
 	TEST(FImageDecoderTests, DecodesMemoryToUnscaledRgba8)
 	{
 		auto Decoded = DecodeImageFromMemory(std::as_bytes(std::span{TransparentPngBytes}));
-		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.error());
+		ASSERT_TRUE(Decoded) << Durin::Image::ToString(Decoded.error());
 		auto Image = std::move(*Decoded);
 		EXPECT_EQ(Image.Width, 2u);
 		EXPECT_EQ(Image.Height, 1u);
@@ -126,7 +126,7 @@ namespace Durin::Image
 		const std::filesystem::path Path = WriteFixture(
 			"CoreTransparent.png", std::as_bytes(std::span{TransparentPngBytes}));
 		auto Decoded = DecodeImageFromFile(Path.generic_string());
-		ASSERT_TRUE(Decoded) << Durin::Image::FormatImageDecodeError(Decoded.error());
+		ASSERT_TRUE(Decoded) << Durin::Image::ToString(Decoded.error());
 		auto Image = std::move(*Decoded);
 		EXPECT_EQ(Image.Width, 2u);
 		EXPECT_EQ(Image.Height, 1u);
@@ -215,7 +215,7 @@ namespace Durin::Image
 		EXPECT_LT(Encoded.size(), Pixels.size() / 4);
 
 		auto Result = DecodeImageFromMemory(Encoded);
-		ASSERT_TRUE(Result) << Durin::Image::FormatImageDecodeError(Result.error());
+		ASSERT_TRUE(Result) << Durin::Image::ToString(Result.error());
 		auto Decoded = std::move(*Result);
 		EXPECT_EQ(Decoded.Width, Width);
 		EXPECT_EQ(Decoded.Height, Height);
@@ -237,54 +237,105 @@ namespace Durin::Image
 
 	TEST(FImageDecoderTests, DecodesOldAndNewRadianceScanlinesToLinearFloat)
 	{
-		FDecodedFloatImage Image;
-		std::string Error;
 		const Durin::FByteBuffer OldFixture = MakeOldRadianceFixture();
-		ASSERT_TRUE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error)) << Error;
-		ASSERT_EQ(Image.Pixels.size(), 6u);
-		EXPECT_EQ(Image.Width, 2u);
-		EXPECT_EQ(Image.Height, 1u);
-		EXPECT_FLOAT_EQ(Image.Pixels[0], 4.0f);
-		EXPECT_FLOAT_EQ(Image.Pixels[1], 2.0f);
-		EXPECT_FLOAT_EQ(Image.Pixels[2], 1.0f);
-		EXPECT_FLOAT_EQ(Image.Pixels[3], 0.5f);
-		EXPECT_FLOAT_EQ(Image.Pixels[4], 1.0f);
-		EXPECT_FLOAT_EQ(Image.Pixels[5], 0.25f);
+		auto Image = DecodeRadianceHDRFromMemory(OldFixture);
+		ASSERT_TRUE(Image) << ToString(Image.error());
+		ASSERT_EQ(Image->Pixels.size(), 6u);
+		EXPECT_EQ(Image->Width, 2u);
+		EXPECT_EQ(Image->Height, 1u);
+		EXPECT_FLOAT_EQ(Image->Pixels[0], 4.0f);
+		EXPECT_FLOAT_EQ(Image->Pixels[1], 2.0f);
+		EXPECT_FLOAT_EQ(Image->Pixels[2], 1.0f);
+		EXPECT_FLOAT_EQ(Image->Pixels[3], 0.5f);
+		EXPECT_FLOAT_EQ(Image->Pixels[4], 1.0f);
+		EXPECT_FLOAT_EQ(Image->Pixels[5], 0.25f);
 
 		const Durin::FByteBuffer NewFixture = MakeNewRadianceFixture();
-		ASSERT_TRUE(DecodeRadianceHDRFromMemory(NewFixture, Image, Error)) << Error;
-		ASSERT_EQ(Image.Pixels.size(), 24u);
+		Image = DecodeRadianceHDRFromMemory(NewFixture);
+		ASSERT_TRUE(Image) << ToString(Image.error());
+		ASSERT_EQ(Image->Pixels.size(), 24u);
 		for (size_t Pixel = 0; Pixel < 8; ++Pixel)
 		{
-			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3], 1.0f);
-			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3 + 1], 2.0f);
-			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3 + 2], 4.0f);
+			EXPECT_FLOAT_EQ(Image->Pixels[Pixel * 3], 1.0f);
+			EXPECT_FLOAT_EQ(Image->Pixels[Pixel * 3 + 1], 2.0f);
+			EXPECT_FLOAT_EQ(Image->Pixels[Pixel * 3 + 2], 4.0f);
 		}
 	}
 
 	TEST(FImageDecoderTests, RejectsMalformedTruncatedAndOversizedRadianceWithoutPartialOutput)
 	{
-		FDecodedFloatImage Image;
-		Image.Pixels = {1.0f};
-		Image.Width = 1;
-		std::string Error;
 		constexpr uint8 Corrupt[] = {1, 2, 3, 4};
-		EXPECT_FALSE(DecodeRadianceHDRFromMemory(
-			std::as_bytes(std::span{Corrupt}), Image, Error));
-		EXPECT_TRUE(Image.Pixels.empty());
-		EXPECT_NE(Error.find("signature"), std::string::npos);
+		auto Result = DecodeRadianceHDRFromMemory(std::as_bytes(std::span{Corrupt}));
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ERadianceHDRDecodeError::InvalidSignature);
+		EXPECT_EQ(Result.error().EncodedBytes, sizeof(Corrupt));
 
 		Durin::FByteBuffer Truncated = MakeNewRadianceFixture();
 		Truncated.pop_back();
-		EXPECT_FALSE(DecodeRadianceHDRFromMemory(Truncated, Image, Error));
-		EXPECT_TRUE(Image.Pixels.empty());
-		EXPECT_NE(Error.find("truncated"), std::string::npos) << Error;
+		Result = DecodeRadianceHDRFromMemory(Truncated);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ERadianceHDRDecodeError::TruncatedRun);
+		EXPECT_EQ(Result.error().Offset, Truncated.size());
 
 		FRadianceHDRDecodeLimits Limits;
 		Limits.MaximumDecodedPixels = 1;
 		const Durin::FByteBuffer OldFixture = MakeOldRadianceFixture();
-		EXPECT_FALSE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error, Limits));
-		EXPECT_TRUE(Image.Pixels.empty());
-		EXPECT_NE(Error.find("configured limit"), std::string::npos);
+		Result = DecodeRadianceHDRFromMemory(OldFixture, Limits);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ERadianceHDRDecodeError::PixelLimit);
+		EXPECT_EQ(Result.error().Width, 2u);
+		EXPECT_EQ(Result.error().Height, 1u);
+		EXPECT_EQ(Result.error().Limits.MaximumDecodedPixels, 1u);
+	}
+
+	TEST(FImageDecoderTests, FileDecodeErrorsRetainNativePathAndOperation)
+	{
+		const auto Missing = Durin::Testing::GetTestWorkDirectory() / "Missing-image-input";
+		const auto Hdr = DecodeRadianceHDRFromFile(Missing.generic_string());
+		ASSERT_FALSE(Hdr);
+		EXPECT_EQ(Hdr.error().Code, ERadianceHDRDecodeError::FileStat);
+		ASSERT_TRUE(Hdr.error().FileError);
+		EXPECT_EQ(Hdr.error().FileError->Operation, EFileOperation::QuerySize);
+		EXPECT_EQ(Hdr.error().FileError->Path, Missing);
+		EXPECT_TRUE(Hdr.error().FileError->NativeError);
+		const auto Gray = DecodeGrayscale16PngFromFile(Missing.generic_string());
+		ASSERT_FALSE(Gray);
+		EXPECT_EQ(Gray.error().Code, EGrayscale16DecodeError::FileStat);
+		ASSERT_TRUE(Gray.error().FileError);
+		EXPECT_EQ(Gray.error().FileError->Path, Missing);
+		EXPECT_TRUE(Gray.error().FileError->NativeError);
+	}
+
+	TEST(FImageDecoderTests, Grayscale16PreservesSamplesAndRejectsWrongFormatsBeforePublication)
+	{
+		// Independent PNG fixture: one row with 0x0000, 0x1234 and 0xffff samples.
+		constexpr uint8 Bytes[] = {
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+			0, 0, 0, 3, 0, 0, 0, 1, 16, 0, 0, 0, 0, 110, 27, 151,
+			43, 0, 0, 0, 15, 73, 68, 65, 84, 120, 156, 99, 96, 96, 16, 50,
+			249, 255, 31, 0, 3, 232, 2, 69, 213, 143, 72, 72, 0, 0, 0, 0,
+			73, 69, 78, 68, 174, 66, 96, 130};
+		const auto View = std::as_bytes(std::span{Bytes});
+		auto Result = DecodeGrayscale16PngFromMemory(View);
+		ASSERT_TRUE(Result) << ToString(Result.error());
+		EXPECT_EQ(Result->Width, 3u);
+		EXPECT_EQ(Result->Height, 1u);
+		EXPECT_EQ(Result->Samples, (std::vector<uint16>{0x0000, 0x1234, 0xffff}));
+		const auto File = WriteFixture("gray16.png", View);
+		const auto FromFile = DecodeGrayscale16PngFromFile(File.generic_string());
+		ASSERT_TRUE(FromFile) << ToString(FromFile.error());
+		EXPECT_EQ(FromFile->Samples, Result->Samples);
+
+		Result = DecodeGrayscale16PngFromMemory(View, {.MaximumDecodedPixels = 2});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, EGrayscale16DecodeError::PixelLimit);
+		EXPECT_EQ(Result.error().Width, 3u);
+		EXPECT_EQ(Result.error().Limits.MaximumDecodedPixels, 2u);
+		Result = DecodeGrayscale16PngFromMemory(std::as_bytes(std::span{TransparentPngBytes}));
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, EGrayscale16DecodeError::UnsupportedSampleFormat);
+		Result = DecodeGrayscale16PngFromMemory(View.first(32));
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, EGrayscale16DecodeError::InvalidSignature);
 	}
 } // namespace Durin::Image

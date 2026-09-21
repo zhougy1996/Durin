@@ -453,17 +453,17 @@ namespace Durin::AssetForge::Builtins
 			{
 				const FXxHash128 SourceHash = Output.Texture.EncodedSourceHash;
 				const std::string SourcePhysicalPath = Output.Texture.SourceFilename;
-				const FAssetPathResult PackageResolution =
+				const auto PackageResolution =
 					FMountPaths::ResolveAssetPath(
 						Output.AssetPath.GetView(), EMountPathExistence::AllowMissing);
 				if (!PackageResolution)
 				{
 					Abandon(Prepared);
 					return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", PackageResolution.Message,
+						"scene-materialization", (PackageResolution ? std::string{} : Durin::ToString(PackageResolution.error())),
 						Descriptor.StableIdentity);
 				}
-				std::filesystem::path PackagePath = PackageResolution.PhysicalPath;
+				std::filesystem::path PackagePath = PackageResolution->PhysicalPath;
 				PackagePath += ".dasset";
 				std::string SourceHint;
 				ESourceHintBase HintBase;
@@ -570,7 +570,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Name = "Surface_v1_" + FXxHash128::HashBuffer(std::as_bytes(std::span(Recipe.CanonicalKey))).ToString();
 			FPackagePath Path;
 			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::string(Destination.substr(0, MountEnd)) +
-				"/Materials/ImportedParents/" + Name, Path); !PathValidation) { Error = FormatObjectError(PathValidation.Error); return nullptr; }
+				"/Materials/ImportedParents/" + Name, Path); !PathValidation) { Error = ToString(PathValidation.error()); return nullptr; }
 			DMaterial* Parent = nullptr;
 			const auto Local = std::ranges::find_if(GeneratedParents.Packages, [&](const DPackage* Package) {
 				return Package->GetPackagePathIdentity() == Path;
@@ -583,7 +583,7 @@ namespace Durin::AssetForge::Builtins
 				FObjectPath ObjectPath;
 				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path.ToString() + "." + Name, ObjectPath); !PathValidation)
 				{
-					Error = FormatObjectError(PathValidation.Error);
+					Error = ToString(PathValidation.error());
 					return nullptr;
 				}
 				if (!(Parent = LoadObject<DMaterial>(ObjectPath).value_or(nullptr))) return nullptr;
@@ -816,10 +816,10 @@ namespace Durin::AssetForge::Builtins
 					},
 					.bRollbackOnRegistryFailure = true,
 					.PreparedPublication = &Publication};
-				Published = Publication.TryCommit([&]() -> FObjectReplacementResult {
+				Published = Publication.TryCommit([&]() -> std::expected<void, FObjectReplacementError> {
 					PersistenceResult = SavePackages(std::span(&Pair.Prepared, 1), SaveOptions).Result;
-					if (!PersistenceResult) return {{.Code = EObjectReplacementError::ParticipantRejected,
-						.Reason = EObjectReplacementReason::PersistenceRejected}};
+					if (!PersistenceResult) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::ParticipantRejected,
+						.Reason = EObjectReplacementReason::PersistenceRejected});
 					return {};
 				});
 			}
@@ -830,7 +830,7 @@ namespace Durin::AssetForge::Builtins
 				return AddError(Result, EImportDiagnosticCategory::PersistenceFailure,
 					"scene-persistence", std::format("Saved {} of {} packages; {}: {}",
 						Result.SavedPackages.size(), Pairs.size(), Pair.Prepared->GetPackagePath(),
-						!PersistenceResult ? PersistenceResult.Message : FormatObjectReplacementError(Published.Error)));
+						!PersistenceResult ? PersistenceResult.Message : ToString(Published.error())));
 			}
 			Pair.Prepared->MarkAsPublished();
 			Result.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());

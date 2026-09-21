@@ -25,7 +25,7 @@ namespace
 	{
 		Durin::FByteBuffer Result;
 		const auto Status = Package::BuildCanonicalMapKeyToken({.Kind = Kind}, Value, Result);
-		EXPECT_TRUE(Status) << Package::FormatCanonicalMapKeyError(Status.Error);
+		EXPECT_TRUE(Status) << Package::ToString(Status.error());
 		return Result;
 	}
 
@@ -247,9 +247,9 @@ TEST(FPackageLinkerContractTests, CheckedTablesResolvePathsAndRejectInvalidTopol
 	Tables.Exports.front().Outer = Child;
 	const auto Cycle = Tables.TryResolvePath(Child, Path);
 	EXPECT_FALSE(Cycle);
-	EXPECT_EQ(Cycle.Error.Code, Package::ELinkerError::OuterCycle);
-	EXPECT_EQ(Cycle.Error.RequestedIndex, Child);
-	EXPECT_EQ(Cycle.Error.FailedIndex, Child);
+	EXPECT_EQ(Cycle.error().Code, Package::ELinkerError::OuterCycle);
+	EXPECT_EQ(Cycle.error().RequestedIndex, Child);
+	EXPECT_EQ(Cycle.error().FailedIndex, Child);
 	EXPECT_EQ(Path, "/Game/External.External");
 }
 
@@ -361,10 +361,10 @@ TEST(FPackageLinkerContractTests, CanonicalTokenFailureIsAtomic)
 	const auto Result = Package::BuildCanonicalMapKeyToken(
 		{.Kind = Package::EValueKind::Map}, {}, TokenBytes);
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, Package::ECanonicalMapKeyError::UnsupportedType);
-	EXPECT_EQ(Result.Error.Kind, Package::EValueKind::Map);
+	EXPECT_EQ(Result.error().Code, Package::ECanonicalMapKeyError::UnsupportedType);
+	EXPECT_EQ(Result.error().Kind, Package::EValueKind::Map);
 	EXPECT_EQ(TokenBytes, Bytes({0xaa}));
-	EXPECT_TRUE(Result.Error.ValueRoute.empty());
+	EXPECT_TRUE(Result.error().ValueRoute.empty());
 }
 
 TEST(FPackageLinkerContractTests, LinkerErrorsRetainRequestedAndFailedIndices)
@@ -378,30 +378,29 @@ TEST(FPackageLinkerContractTests, LinkerErrorsRetainRequestedAndFailedIndices)
 	std::string Path = "sentinel";
 	const auto ExportFailure = Tables.TryResolvePath(Root, Path);
 	ASSERT_FALSE(ExportFailure);
-	EXPECT_EQ(ExportFailure.Error.Code, Package::ELinkerError::ExportIndexOutOfRange);
-	EXPECT_EQ(ExportFailure.Error.RequestedIndex, Root);
-	EXPECT_EQ(ExportFailure.Error.FailedIndex, MissingExport);
-	EXPECT_EQ(ExportFailure.Error.TableSize, 1u);
+	EXPECT_EQ(ExportFailure.error().Code, Package::ELinkerError::ExportIndexOutOfRange);
+	EXPECT_EQ(ExportFailure.error().RequestedIndex, Root);
+	EXPECT_EQ(ExportFailure.error().FailedIndex, MissingExport);
+	EXPECT_EQ(ExportFailure.error().TableSize, 1u);
 	EXPECT_EQ(Path, "sentinel");
 
 	Tables.Exports.front().Outer = MissingImport;
 	const auto ImportFailure = Tables.TryResolvePath(Root, Path);
 	ASSERT_FALSE(ImportFailure);
-	EXPECT_EQ(ImportFailure.Error.Code, Package::ELinkerError::ImportIndexOutOfRange);
-	EXPECT_EQ(ImportFailure.Error.RequestedIndex, Root);
-	EXPECT_EQ(ImportFailure.Error.FailedIndex, MissingImport);
-	EXPECT_EQ(ImportFailure.Error.TableSize, 0u);
+	EXPECT_EQ(ImportFailure.error().Code, Package::ELinkerError::ImportIndexOutOfRange);
+	EXPECT_EQ(ImportFailure.error().RequestedIndex, Root);
+	EXPECT_EQ(ImportFailure.error().FailedIndex, MissingImport);
+	EXPECT_EQ(ImportFailure.error().TableSize, 0u);
 	EXPECT_EQ(Path, "sentinel");
 
 	Tables.Exports.front().Outer = Package::FPackageIndex::Null();
 	const auto Success = Tables.TryResolvePath(Root, Path);
-	EXPECT_TRUE(Success);
-	EXPECT_FALSE(Success.Error.HasError());
+	EXPECT_TRUE(Success.has_value());
 	EXPECT_EQ(Path, "Root");
 	EXPECT_TRUE(Tables.TryResolvePath(Package::FPackageIndex::Null(), Path));
 	EXPECT_TRUE(Path.empty());
 	// Previously returned failures own their context and survive table changes.
-	EXPECT_EQ(ExportFailure.Error.FailedIndex, MissingExport);
+	EXPECT_EQ(ExportFailure.error().FailedIndex, MissingExport);
 }
 
 TEST(FPackageLinkerContractTests, CanonicalErrorsRetainNestedRouteAndValue)
@@ -416,21 +415,21 @@ TEST(FPackageLinkerContractTests, CanonicalErrorsRetainNestedRouteAndValue)
 	Durin::FByteBuffer Output = Bytes({0xaa});
 	const auto Result = Package::BuildCanonicalMapKeyToken(Type, Value, Output);
 	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Error.Code, E::SignedOutOfRange);
-	EXPECT_EQ(Result.Error.Kind, K::I8);
-	EXPECT_EQ(Result.Error.SignedValue, 128);
-	EXPECT_EQ(Result.Error.ValueRoute, (std::vector<size_t>{1, 1}));
+	EXPECT_EQ(Result.error().Code, E::SignedOutOfRange);
+	EXPECT_EQ(Result.error().Kind, K::I8);
+	EXPECT_EQ(Result.error().SignedValue, 128);
+	EXPECT_EQ(Result.error().ValueRoute, (std::vector<size_t>{1, 1}));
 	EXPECT_EQ(Output, Bytes({0xaa}));
 
 	Value.Elements[1].Elements.pop_back();
 	const auto Shape = Package::BuildCanonicalMapKeyToken(Type, Value, Output);
 	ASSERT_FALSE(Shape);
-	EXPECT_EQ(Shape.Error.Code, E::FixedArrayShape);
-	EXPECT_EQ(Shape.Error.ValueRoute, (std::vector<size_t>{1}));
-	EXPECT_EQ(Shape.Error.ActualCount, 1u);
-	EXPECT_EQ(Shape.Error.ExpectedCount, 2u);
+	EXPECT_EQ(Shape.error().Code, E::FixedArrayShape);
+	EXPECT_EQ(Shape.error().ValueRoute, (std::vector<size_t>{1}));
+	EXPECT_EQ(Shape.error().ActualCount, 1u);
+	EXPECT_EQ(Shape.error().ExpectedCount, 2u);
 	EXPECT_EQ(Output, Bytes({0xaa}));
-	EXPECT_EQ(Result.Error.ValueRoute, (std::vector<size_t>{1, 1}));
+	EXPECT_EQ(Result.error().ValueRoute, (std::vector<size_t>{1, 1}));
 }
 
 TEST(FPackageLinkerContractTests, CanonicalErrorsClassifyScalarAndLayoutFailures)
@@ -453,26 +452,25 @@ TEST(FPackageLinkerContractTests, CanonicalErrorsClassifyScalarAndLayoutFailures
 		Durin::FByteBuffer Output = Bytes({0xaa});
 		const auto Result = Package::BuildCanonicalMapKeyToken(Case.Type, Case.Value, Output);
 		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.Error.Code, Case.Code);
-		EXPECT_EQ(Result.Error.Kind, Case.Type.Kind);
-		EXPECT_EQ(Result.Error.TypeParameter, Case.Type.Parameter);
-		EXPECT_EQ(Result.Error.SignedValue, Case.Value.Signed);
-		EXPECT_EQ(Result.Error.UnsignedValue, Case.Value.Unsigned);
+		EXPECT_EQ(Result.error().Code, Case.Code);
+		EXPECT_EQ(Result.error().Kind, Case.Type.Kind);
+		EXPECT_EQ(Result.error().TypeParameter, Case.Type.Parameter);
+		EXPECT_EQ(Result.error().SignedValue, Case.Value.Signed);
+		EXPECT_EQ(Result.error().UnsignedValue, Case.Value.Unsigned);
 		EXPECT_EQ(Output, Bytes({0xaa}));
 	}
 	Durin::FByteBuffer Output;
 	const auto Success = Package::BuildCanonicalMapKeyToken({.Kind = K::Bool}, {}, Output);
-	EXPECT_TRUE(Success);
-	EXPECT_FALSE(Success.Error.HasError());
+	EXPECT_TRUE(Success.has_value());
 }
 
 TEST(FPackageLinkerContractTests, TypedErrorFormattingIsAnExplicitBoundary)
 {
-	EXPECT_TRUE(Package::FormatLinkerError({}).empty());
-	EXPECT_TRUE(Package::FormatCanonicalMapKeyError({}).empty());
-	EXPECT_EQ(Package::FormatLinkerError({.Code = Package::ELinkerError::OuterCycle}),
+	EXPECT_TRUE(Package::ToString(Package::FLinkerError{}).empty());
+	EXPECT_TRUE(Package::ToString(Package::FCanonicalMapKeyError{}).empty());
+	EXPECT_EQ(Package::ToString(Package::FLinkerError{.Code = Package::ELinkerError::OuterCycle}),
 		"Package Outer topology contains a cycle.");
-	EXPECT_EQ(Package::FormatCanonicalMapKeyError({.Code = Package::ECanonicalMapKeyError::UnsupportedType}),
+	EXPECT_EQ(Package::ToString(Package::FCanonicalMapKeyError{.Code = Package::ECanonicalMapKeyError::UnsupportedType}),
 		"CanonicalMapKeyUnsupported: value type is not canonicalizable.");
 }
 
@@ -511,30 +509,30 @@ TEST(FPackageLinkerContractTests, LiveMapKeyErrorsOwnContextAndPreserveOutput)
 	FByteBuffer Output = Bytes({0xaa});
 	const auto Original = Output;
 	int32 Value = 7;
-	FReflectedMapKeyResult Saved;
+	std::expected<void, FReflectedMapKeyError> Saved;
 	{
 		FNumericProperty Property(FFieldVariant(), FName("TemporaryKey"), EObjectFlags::NoFlags,
 			EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 		Saved = BuildCanonicalMapKeyToken(&Property, &Value, 3, Output);
 		ASSERT_FALSE(Saved);
-		EXPECT_EQ(Saved.Error.Code, EReflectedMapKeyError::InvalidArrayIndex);
-		EXPECT_EQ(Saved.Error.Kind, DurinCodeGen::EPropertyGenFlags::Int32);
-		EXPECT_EQ(Saved.Error.ArrayIndex, 3u);
-		EXPECT_EQ(Saved.Error.ArrayDim, 1u);
+		EXPECT_EQ(Saved.error().Code, EReflectedMapKeyError::InvalidArrayIndex);
+		EXPECT_EQ(Saved.error().Kind, DurinCodeGen::EPropertyGenFlags::Int32);
+		EXPECT_EQ(Saved.error().ArrayIndex, 3u);
+		EXPECT_EQ(Saved.error().ArrayDim, 1u);
 		EXPECT_EQ(Output, Original);
 		const auto MissingValue = BuildCanonicalMapKeyToken(&Property, nullptr, 0, Output);
-		EXPECT_EQ(MissingValue.Error.Code, EReflectedMapKeyError::NullContainer);
+		EXPECT_EQ(MissingValue.error().Code, EReflectedMapKeyError::NullContainer);
 		EXPECT_EQ(Output, Original);
 		ASSERT_TRUE(BuildCanonicalMapKeyToken(&Property, &Value, 0, Output));
 		EXPECT_NE(Output, Original);
 	}
-	EXPECT_EQ(Saved.Error.PropertyName, "TemporaryKey");
-	ASSERT_EQ(Saved.Error.Route.size(), 1u);
-	EXPECT_EQ(Saved.Error.Route.front().PropertyName, "TemporaryKey");
-	EXPECT_EQ(Saved.Error.Route.front().ArrayIndex, 3u);
-	EXPECT_EQ(ValidateCanonicalMapKeyProperty(nullptr).Error.Code, EReflectedMapKeyError::NullProperty);
+	EXPECT_EQ(Saved.error().PropertyName, "TemporaryKey");
+	ASSERT_EQ(Saved.error().Route.size(), 1u);
+	EXPECT_EQ(Saved.error().Route.front().PropertyName, "TemporaryKey");
+	EXPECT_EQ(Saved.error().Route.front().ArrayIndex, 3u);
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(nullptr).error().Code, EReflectedMapKeyError::NullProperty);
 	const auto Published = Output;
-	EXPECT_EQ(BuildCanonicalMapKeyToken(nullptr, &Value, 0, Output).Error.Code,
+	EXPECT_EQ(BuildCanonicalMapKeyToken(nullptr, &Value, 0, Output).error().Code,
 		EReflectedMapKeyError::NullProperty);
 	EXPECT_EQ(Output, Published);
 }
@@ -548,22 +546,22 @@ TEST(FPackageLinkerContractTests, LiveMapKeyErrorsClassifyUnsupportedDescriptors
 	uint64 Value = 0;
 	FEnumProperty Enum(FFieldVariant(), FName("UnknownEnum"), EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::Enum, nullptr, nullptr);
-	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Enum).Error.Code, EReflectedMapKeyError::UnknownEnumStorage);
-	EXPECT_EQ(BuildCanonicalMapKeyToken(&Enum, &Value, 0, Output).Error.Code,
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Enum).error().Code, EReflectedMapKeyError::UnknownEnumStorage);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Enum, &Value, 0, Output).error().Code,
 		EReflectedMapKeyError::UnknownEnumStorage);
 	EXPECT_EQ(Output, Original);
 	DStruct Incomplete(EC_StaticConstructor, FName("Tests::IncompleteMapKey"), FName("IncompleteMapKey"),
 		sizeof(Value), alignof(uint64), EObjectFlags::Transient);
 	FStructProperty Struct(FFieldVariant(), FName("IncompleteStruct"), EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, &Incomplete);
-	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Struct).Error.Code, EReflectedMapKeyError::IncompleteStructEquality);
-	EXPECT_EQ(BuildCanonicalMapKeyToken(&Struct, &Value, 0, Output).Error.Code,
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Struct).error().Code, EReflectedMapKeyError::IncompleteStructEquality);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Struct, &Value, 0, Output).error().Code,
 		EReflectedMapKeyError::IncompleteStructEquality);
 	EXPECT_EQ(Output, Original);
 	FNumericProperty Unsupported(FFieldVariant(), FName("Unsupported"), EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::None, nullptr);
-	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Unsupported).Error.Code, EReflectedMapKeyError::UnsupportedKind);
-	EXPECT_EQ(BuildCanonicalMapKeyToken(&Unsupported, &Value, 0, Output).Error.Code,
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Unsupported).error().Code, EReflectedMapKeyError::UnsupportedKind);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Unsupported, &Value, 0, Output).error().Code,
 		EReflectedMapKeyError::UnsupportedKind);
 	EXPECT_EQ(Output, Original);
 }
@@ -572,8 +570,8 @@ TEST(FPackageLinkerContractTests, LiveMapKeyErrorsRetainNestedRoutes)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	using namespace Durin;
-	FReflectedMapKeyResult Built;
-	FReflectedMapKeyResult Validated;
+	std::expected<void, FReflectedMapKeyError> Built;
+	std::expected<void, FReflectedMapKeyError> Validated;
 	{
 		FDStructOps Ops;
 		Ops.Flags = EDStructOpsFlags::AuthoredFieldsComplete;
@@ -594,13 +592,13 @@ TEST(FPackageLinkerContractTests, LiveMapKeyErrorsRetainNestedRoutes)
 	for (const auto* Result : {&Built, &Validated})
 	{
 		ASSERT_FALSE(*Result);
-		EXPECT_EQ(Result->Error.Code, EReflectedMapKeyError::UnknownEnumStorage);
-		EXPECT_EQ(Result->Error.PropertyName, "UnknownEnum");
-		ASSERT_EQ(Result->Error.Route.size(), 2u);
-		EXPECT_EQ(Result->Error.Route[0].PropertyName, "Root");
-		EXPECT_EQ(Result->Error.Route[1].PropertyName, "UnknownEnum");
-		EXPECT_EQ(Result->Error.Route[1].ArrayIndex, 0u);
+		EXPECT_EQ(Result->error().Code, EReflectedMapKeyError::UnknownEnumStorage);
+		EXPECT_EQ(Result->error().PropertyName, "UnknownEnum");
+		ASSERT_EQ(Result->error().Route.size(), 2u);
+		EXPECT_EQ(Result->error().Route[0].PropertyName, "Root");
+		EXPECT_EQ(Result->error().Route[1].PropertyName, "UnknownEnum");
+		EXPECT_EQ(Result->error().Route[1].ArrayIndex, 0u);
 	}
-	EXPECT_EQ(Built.Error.Route[0].ArrayIndex, 1u);
-	EXPECT_EQ(Validated.Error.Route[0].ArrayIndex, 0u);
+	EXPECT_EQ(Built.error().Route[0].ArrayIndex, 1u);
+	EXPECT_EQ(Validated.error().Route[0].ArrayIndex, 0u);
 }

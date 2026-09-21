@@ -343,13 +343,13 @@ namespace Durin
 			SourceLevel, NewPlayWorld,
 			FName(std::format("{}_PIE", SourceLevel->GetName())),
 			&EditorToPlayObjects);
-		DLevel* PlayLevel = Duplicated.Object;
+		DLevel* PlayLevel = Duplicated.value();
 		if (!PlayLevel)
 		{
 			NewPlayWorld->Shutdown();
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = Editor::EPlayState::Stopped;
-			if (OutError) *OutError = FormatObjectGraphError(Duplicated.Error);
+			if (OutError) *OutError = ToString(Duplicated.error());
 			return false;
 		}
 		DClass* GameModeClass = GameModeOverride.value_or(nullptr);
@@ -679,7 +679,7 @@ namespace Durin
 					if (DPackage* Package = EditorLevel->GetPackage())
 						Trans->InvalidateSavedState(*Package);
 				}
-				if (OutError) *OutError = FormatObjectPropertyCopyError(CopyResult.Error);
+				if (OutError) *OutError = ToString(CopyResult.error());
 				return false;
 			}
 			bCopiedAny = true;

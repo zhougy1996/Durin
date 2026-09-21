@@ -112,12 +112,12 @@ namespace Durin::Private
 		for (auto* Expression : Expressions)
 		{
 			const auto Duplicated = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
-			auto* Copy = Duplicated.Object;
+			auto* Copy = Duplicated.value();
 			if (!Copy)
 			{
 				FMaterialProgramValidationResult Result;
 				FMaterialError Error(EMaterialExpressionError::UnableDuplicateExpressionCandidate);
-				Error.DuplicationCause = std::make_shared<FObjectGraphError>(Duplicated.Error);
+				Error.DuplicationCause = std::make_shared<FObjectGraphError>(Duplicated.error());
 				Result.Diagnostics.push_back({.Error = std::move(Error)});
 				return Result;
 			}

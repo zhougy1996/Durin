@@ -78,7 +78,7 @@ namespace Durin::Editor::ContentBrowser
 				Opened = Path;
 				EXPECT_EQ(ClassName, DLevel::StaticClass()->GetQualifiedName().ToString());
 				FObjectPath ObjectPath;
-				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, ObjectPath); !PathValidation) { OpenError = Durin::FormatObjectError(PathValidation.Error); return false; }
+				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, ObjectPath); !PathValidation) { OpenError = Durin::ToString(PathValidation.error()); return false; }
 				const auto Result = LoadObject<DLevel>(ObjectPath);
 				OpenedLevel = Result.value_or(nullptr);
 				OpenError = (Result ? std::string{} : Result.error().Message);

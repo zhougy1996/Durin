@@ -98,10 +98,10 @@ namespace Durin
 	{
 		auto ResolveAuthoredPackagePath(const FPackagePath& Path) -> std::string
 		{
-			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+			const auto Resolved = FMountPaths::ResolveAssetPath(
 				Path.GetView(), EMountPathExistence::AllowMissing);
 			return Resolved
-				? Resolved.PhysicalPath.generic_string() + ".dasset"
+				? Resolved->PhysicalPath.generic_string() + ".dasset"
 				: std::string{};
 		}
 

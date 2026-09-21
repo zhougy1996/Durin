@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
@@ -259,7 +260,7 @@ namespace Durin
 	struct TDStructOpsTraits<FTextureSource> : TDStructOpsTraitsBase<FTextureSource>
 	{
 		static constexpr bool bWithPostDeserialize = true;
-		static auto PostDeserialize(FTextureSource& Value, FDStructPostDeserializeContext&) -> FObjectValidationResult
+		static auto PostDeserialize(FTextureSource& Value, FDStructPostDeserializeContext&) -> std::expected<void, FObjectValidationError>
 		{
 			Value.MipDataState = std::make_shared<FTextureSource::FMipDataState>();
 			return {};

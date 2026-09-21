@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "DObject/PackageCapture.h"
 
 #include "AssetSubsystemFwd.h"
@@ -112,7 +113,7 @@ namespace Durin::AssetPrivate
 		EDefaultDeltaMode DeltaMode,
 		const FAssetPackageSerializationOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FPackageCaptureResult;
+		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> std::expected<void, FPackageCaptureError>;
 
 	auto ApplyLivePackageLinker(
 		ObjectPackage::FLinkerTables Linker,

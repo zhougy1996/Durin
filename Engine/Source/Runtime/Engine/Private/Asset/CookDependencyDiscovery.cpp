@@ -30,7 +30,7 @@ namespace Durin
 		case ECookInputError::DeclarationCount: return std::format("Cook declaration limit exceeded: package={}, count={}, maximum={}", Failure.Package.ToString(), Failure.Actual, Failure.Maximum);
 		case ECookInputError::DeclarationName: return std::format("Invalid Cook declaration name: package={}, name={}, bytes={}, maximum={}", Failure.Package.ToString(), Failure.Name, Failure.Actual, Failure.Maximum);
 		case ECookInputError::DuplicateDeclaration: return std::format("Duplicate Cook declaration: package={}, kind={}, name={}", Failure.Package.ToString(), static_cast<uint32>(Failure.Kind), Failure.Name);
-		case ECookInputError::PackageDeclaration: return std::format("Invalid declared build package '{}': {}", Failure.Name, Failure.PathCause ? FormatObjectError(*Failure.PathCause) : "Unexpected file or value payload");
+		case ECookInputError::PackageDeclaration: return std::format("Invalid declared build package '{}': {}", Failure.Name, Failure.PathCause ? ToString(*Failure.PathCause) : "Unexpected file or value payload");
 		case ECookInputError::ExternalDeclaration: return std::format("Invalid external file declaration '{}': file={}, value bytes={}", Failure.Name, Failure.File.string(), Failure.Actual);
 		case ECookInputError::ValueDeclaration: return std::format("Invalid Cook value declaration '{}': file={}, value bytes={}, maximum={}", Failure.Name, Failure.File.string(), Failure.Actual, Failure.Maximum);
 		case ECookInputError::ValueStorage: return std::format("Cook declared value storage limit exceeded: name={}, requested={}, retained={}, maximum={}", Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
@@ -450,7 +450,7 @@ namespace Durin::AssetPrivate
 								if (const auto Validated = FPackagePath::TryCreateWithDiagnostic(Declaration.LogicalName, Dependency); !Validated)
 								{
 									auto Cause = Reject(ECookInputError::PackageDeclaration);
-									Cause.PathCause = std::make_shared<FObjectError>(Validated.Error);
+									Cause.PathCause = std::make_shared<FObjectPathError>(Validated.error());
 									return Fail(std::move(Cause));
 								}
 								if (auto Result = Resolve(Dependency, Final); !Result) return Result;

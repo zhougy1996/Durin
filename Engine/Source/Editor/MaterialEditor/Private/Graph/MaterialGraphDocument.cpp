@@ -34,7 +34,7 @@ namespace Durin::Editor::Material
 		{
 			FTopLevelAssetPath Path;
 			if (const auto Parsed = FTopLevelAssetPath::TryCreateWithDiagnostic(Name, Path); !Parsed)
-				return {.Message = "The material function path is invalid. " + FormatObjectError(Parsed.Error)};
+				return {.Message = "The material function path is invalid. " + ToString(Parsed.error())};
 			DMaterialFunctionInterface* Function = nullptr;
 			if (auto Loaded = LoadObject<DMaterialFunctionInterface>(Path); !Loaded)
 				return {.Message = "Unable to load the material function. " + (Loaded ? std::string{} : Loaded.error().Message)};
@@ -438,8 +438,8 @@ namespace Durin::Editor::Material
 		if (std::ranges::any_of(State.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; }))
 			return RejectCommand("The expression GUID already exists.");
 		const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
-		auto* Copy = Duplicated.Object;
-		if (!Copy) return RejectCommand(FormatObjectGraphError(Duplicated.Error));
+		auto* Copy = Duplicated.value();
+		if (!Copy) return RejectCommand(ToString(Duplicated.error()));
 		State.Expressions.emplace_back(Copy);
 		if (!Copy->Id.IsValid()) Copy->Id = FGuid::NewGuid();
 		const auto Id = Copy->Id;
@@ -468,8 +468,8 @@ namespace Durin::Editor::Material
 		const auto Existing = std::ranges::find_if(State.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; });
 		if (Existing == State.Expressions.end()) return RejectCommand("The expression no longer exists.");
 		const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
-		auto* Copy = Duplicated.Object;
-		if (!Copy) return RejectCommand(FormatObjectGraphError(Duplicated.Error));
+		auto* Copy = Duplicated.value();
+		if (!Copy) return RejectCommand(ToString(Duplicated.error()));
 		TStrongObjectPtr<DMaterialExpression> Replacement(Copy);
 		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Copy))
 			if (const auto Error = ResolveParameterExpression(State, *Parameter,

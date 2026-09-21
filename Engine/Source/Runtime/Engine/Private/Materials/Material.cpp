@@ -297,8 +297,8 @@ namespace Durin
 			const auto Validation = ValidateLoadedObjectGraph({});
 			if (!Validation)
 			{
-				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.Error);
-				else Ar.Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Validation.Error));
+				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.error());
+				else Ar.Fail(EArchiveFailureCode::InvalidData, ToString(Validation.error()));
 			}
 		}
 	}

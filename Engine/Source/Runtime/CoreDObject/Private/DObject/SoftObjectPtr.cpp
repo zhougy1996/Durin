@@ -9,16 +9,16 @@ namespace Durin
 	{
 		std::atomic<uint64> GSoftObjectCacheEpoch = 1;
 		auto FailSoftObject(ESoftObjectError Code, std::string Subject = {},
-			std::string Expected = {}, std::string Actual = {}) -> FObjectOperationResult
+			std::string Expected = {}, std::string Actual = {}) -> std::expected<void, FSoftObjectError>
 		{
-			FObjectError Error;
+			FSoftObjectError Error;
 			Error.Code = Code;
 			Error.Subject = std::move(Subject);
 			Error.Expected = std::move(Expected);
 			Error.Actual = std::move(Actual);
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
-		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath) -> FObjectOperationResult
+		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath) -> std::expected<void, FSoftObjectError>
 		{
 			if (!Object) return FailSoftObject(ESoftObjectError::NullLoadedObject);
 			if (Cast<DPackage>(Object)) return FailSoftObject(ESoftObjectError::PackageObject, Object->GetObjectPath());
@@ -26,7 +26,10 @@ namespace Durin
 			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(ESoftObjectError::ClassMismatch, Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString(), Object->GetClass()->GetQualifiedName().ToString());
 			DPackage* Package = Object->GetPackage();
 			if (!Package || !Package->IsAssetPackage()) return FailSoftObject(ESoftObjectError::UnpackagedObject, Object->GetObjectPath());
-			return FObjectPath::TryCreateWithDiagnostic(Object->GetObjectPath(), OutPath);
+			if (auto Path = FObjectPath::TryCreateWithDiagnostic(Object->GetObjectPath(), OutPath); !Path)
+				return std::unexpected(FSoftObjectError{.Code = ESoftObjectError::InvalidObjectPath,
+					.Subject = Object->GetObjectPath(), .PathCause = std::move(Path.error())});
+			return {};
 		}
 	}
 
@@ -43,19 +46,19 @@ namespace Durin
 		if (this != &Other) { AuthoredPath = std::move(Other.AuthoredPath); WeakObject = Other.WeakObject; CacheEpoch = Other.CacheEpoch; Other.Reset(); } return *this;
 	}
 	auto FSoftObjectPtr::SetPath(FObjectPath InPath) -> void { AuthoredPath = std::move(InPath); ResetCache(); }
-	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass) -> FObjectOperationResult
+	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
 	{
 		if (!InObject) { Reset(); return {}; }
 		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
 		AuthoredPath = ObjectPath; WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
 	}
-	auto FSoftObjectPtr::TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass) -> FObjectOperationResult
+	auto FSoftObjectPtr::TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
 	{
 		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
 		if (!AuthoredPath.IsValid() || AuthoredPath != ObjectPath) return FailSoftObject(ESoftObjectError::LoadedPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), ObjectPath.ToString());
 		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
 	}
-	auto FSoftObjectPtr::TrySetResolvedObject(DObject* InObject, const FObjectPath& InAuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> FObjectOperationResult
+	auto FSoftObjectPtr::TrySetResolvedObject(DObject* InObject, const FObjectPath& InAuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> std::expected<void, FSoftObjectError>
 	{
 		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
 		if (!AuthoredPath.IsValid() || AuthoredPath != InAuthoredPath) return FailSoftObject(ESoftObjectError::AuthoredPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), InAuthoredPath.ToString());
@@ -75,4 +78,21 @@ namespace Durin
 		if (CacheEpoch == 0) return ESoftObjectPtrState::Pending;
 		return Get(ExpectedClass) ? ESoftObjectPtrState::Valid : ESoftObjectPtrState::Stale;
 	}
+	auto ToString(const FSoftObjectError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ESoftObjectError::InvalidObjectPath: return Error.PathCause ? ToString(*Error.PathCause) : "The soft object has an invalid path.";
+		case ESoftObjectError::NullLoadedObject: return "A loaded soft-object cache cannot be null.";
+		case ESoftObjectError::PackageObject: return "A package cannot be assigned as a soft object.";
+		case ESoftObjectError::TransientObject: return "A transient object cannot be assigned as a soft object.";
+		case ESoftObjectError::ClassMismatch: return std::format("Object {} is not a {} (actual class {}).", Error.Subject, Error.Expected, Error.Actual);
+		case ESoftObjectError::UnpackagedObject: return "An unpackaged object cannot be assigned as a soft object.";
+		case ESoftObjectError::LoadedPathMismatch: return "The loaded object does not match the stored soft-object path.";
+		case ESoftObjectError::AuthoredPathMismatch: return "The resolved object does not match the authored soft-object path.";
+		case ESoftObjectError::ResolvedPathMismatch: return "The resolved object does not match the exact resolved object path.";
+		}
+		return "Unknown object error.";
+	}
+
 }

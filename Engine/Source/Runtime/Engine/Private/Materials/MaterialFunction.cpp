@@ -38,7 +38,7 @@ namespace Durin
 		return Body;
 	}
 
-	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (Context.bCooked) return {};
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
@@ -79,8 +79,8 @@ namespace Durin
 			const auto Validation = ValidateLoadedObjectGraph({});
 			if (!Validation)
 			{
-				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.Error);
-				else Ar.Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Validation.Error));
+				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.error());
+				else Ar.Fail(EArchiveFailureCode::InvalidData, ToString(Validation.error()));
 			}
 		}
 	}

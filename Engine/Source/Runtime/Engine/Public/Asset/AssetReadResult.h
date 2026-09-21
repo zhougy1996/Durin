@@ -5,8 +5,8 @@
 #include "Asset/EditorBulkDataStorageError.h"
 #include "DObject/ObjectValidation.h"
 #include "AssetRegistry/RegistryResult.h"
-#include "DObject/AssetPath.h"
-#include "DObject/ObjectDiagnostic.h"
+#include "DObject/SoftObjectPtr.h"
+#include "DObject/SoftObjectPtr.h"
 
 #include <expected>
 
@@ -43,7 +43,7 @@ namespace Durin
 		std::string Message;
 		FObjectPath ResolvedPath;
 		bool bRedirected = false;
-		std::optional<FObjectError> ObjectCause;
+		std::optional<FSoftObjectError> ObjectCause;
 		std::optional<FPackageResourceRegistrationError> ResourceCause;
 		std::optional<FEditorBulkDataStorageError> StorageCause;
 	};

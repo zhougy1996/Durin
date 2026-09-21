@@ -68,17 +68,17 @@ Use `TryCreateWithDiagnostic` at input boundaries that need to report failure
 details. Deferred project-content and subobject-composition factories expose only
 success; they have no diagnostic consumer. `FPackagePath::IsValid(text)` is a
 boolean predicate. Both factory forms share validation and preserve
-the output on failure. Diagnostic factories and soft-reference
-assignment return `FObjectOperationResult`.
-Its `FObjectError` discriminates path and soft-object error codes; success is an
-absent code. Failures own their subject and expected/actual identities, retain
-component indices and byte limits where relevant, and preserve `EMountPathError`
-for mount lookup failures. Failed factories do not publish output paths; failed
-soft-reference assignment leaves authored identity and loaded-cache state intact.
+the output on failure. Diagnostic factories return
+`std::expected<void, FObjectPathError>`; soft-reference assignment returns
+`std::expected<void, FSoftObjectError>`. Path errors own the subject, component
+index, byte limits and mount classification. Soft-object errors own the expected
+and actual identities and retain a path cause only when object-path construction
+fails. Failed factories do not publish output paths; failed soft-reference
+assignment leaves authored identity and loaded-cache state intact.
 `TrySetObject(nullptr)` remains a successful reset, while a null loaded-cache
-assignment fails. `FormatObjectError` generates prose at UI, logging, command,
-and adapters to framework interfaces that still require strings. Semantic tests
-assert codes and context, not formatted text.
+assignment fails. `ToString` overloads in `AssetPath.cpp` and `SoftObjectPtr.cpp`
+generate prose at UI, logging, command, and legacy string adapters. Semantic tests
+assert codes and context.
 
 Package, asset, and subobject identities compare case-sensitively by canonical
 UTF-8 spelling. Factories reject invalid separators, empty components, and
@@ -334,13 +334,13 @@ custom versions, imports, exports, property tags, provenance, values, and BulkDa
 placement facts. `FPackageIndex` represents null/import/export identity without
 exposing wire arithmetic.
 
-`FLinkerTables::TryResolvePath` returns `FLinkerResult` with a typed cause,
+`FLinkerTables::TryResolvePath` returns `std::expected<void, FLinkerError>` with a typed cause,
 requested/failed package indices, and the relevant table size. Detached
-`ObjectPackage::BuildCanonicalMapKeyToken` returns `FCanonicalMapKeyResult`
+`ObjectPackage::BuildCanonicalMapKeyToken` returns `std::expected<void, FCanonicalMapKeyError>`
 with the failing kind, type parameter, value/count context, and an owned
-outer-to-inner field/array route. Both derive success from their error and
-publish output only on success. `FormatLinkerError` and
-`FormatCanonicalMapKeyError` generate text at presentation or legacy adapters;
+outer-to-inner field/array route. Both publish output only on success. Their
+`ToString` overloads are implemented in `PackageLinker.cpp` and
+`CanonicalMapKey.cpp` and generate text at presentation or legacy adapters;
 neither migrated API accepts an error output parameter.
 
 The closed value domain covers scalar integers and floats, Bool, String, Name,
@@ -602,10 +602,11 @@ registration/reference commit occur in one GameThread call, so a failure in a
 later package cannot publish an earlier package. Strong references are rewritten,
 weak handles retain generation safety, soft paths remain unchanged, and unrelated
 referencer packages are not dirtied. `FObjectReplacementMap::Build` returns
-`FObjectReplacementMapResult` with typed reasons, the failing package index,
+`std::expected<void, FObjectReplacementMapError>` with typed reasons, the failing package index,
 budget counts, and owned object/type identities. Failed construction preserves
 the previous mapping. The graph coordinator keeps its own failure code/reason
-and formats lower-level failures before their temporary state is destroyed.
+and retains owned Map/property/container causes until a presentation caller
+formats them.
 
 The returned operation remains `Pending` only while the committed old graph waits
 for participant retirement. Callers keep it alive and use `Poll` or `Wait`; only a

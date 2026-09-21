@@ -33,7 +33,7 @@ namespace Durin::Editor
 		switch (Result.Error)
 		{
 		case EAssetDestinationError::None: return {};
-		case EAssetDestinationError::Path: return Result.PathCause ? FormatObjectError(*Result.PathCause) : "Invalid asset destination path.";
+		case EAssetDestinationError::Path: return Result.PathCause ? ToString(*Result.PathCause) : "Invalid asset destination path.";
 		case EAssetDestinationError::Mount: return "Choose a destination inside a package-enabled mount.";
 		case EAssetDestinationError::ReadOnly: return "Choose a destination inside a content-writable mount.";
 		case EAssetDestinationError::RegistryAsset: return "An asset already exists at this path. Choose another destination or delete the existing asset first.";
@@ -53,27 +53,27 @@ namespace Durin::Editor
 	{
 		FAssetDestinationValidation Result{.RequestedPath = std::string(VirtualPath)};
 		const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(VirtualPath, Result.AssetPath);
-		Result.bAssetPathValid = PathValidation.Succeeded();
+		Result.bAssetPathValid = PathValidation.has_value();
 		if (!PathValidation)
 		{
 			Result.Error = EAssetDestinationError::Path;
-			Result.PathCause = PathValidation.Error;
+			Result.PathCause = PathValidation.error();
 		}
 		if (!Result.bAssetPathValid) return Result;
 
-		const FAssetPathResult Resolved =
+		const auto Resolved =
 			FMountPaths::ResolveAssetPath(Result.AssetPath.GetView());
-		Result.Mount = Resolved.Mount;
+		Result.Mount = Resolved ? Resolved->Mount : Resolved.error().Mount;
 		if (!Resolved)
 		{
 			Result.Error = EAssetDestinationError::Mount;
-			Result.MountCause = Resolved.Error;
+			Result.MountCause = Resolved.error().Code;
 			return Result;
 		}
 
 		Result.bMountedDestination = true;
 		Result.bContentWritable = Result.Mount->bContentWritable;
-		Result.PhysicalPath = Resolved.PhysicalPath.generic_string() + ".dasset";
+		Result.PhysicalPath = Resolved->PhysicalPath.generic_string() + ".dasset";
 		if (!Result.bContentWritable)
 		{
 			Result.Error = EAssetDestinationError::ReadOnly;
@@ -104,18 +104,18 @@ namespace Durin::Editor
 		FAssetDestinationOccupancyQuery OccupancyQuery
 	) -> FAssetDestinationValidation
 	{
-		const FAssetPathResult Classified =
+		const auto Classified =
 			FMountPaths::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FAssetDestinationValidation Result;
 			Result.Error = EAssetDestinationError::Mount;
 			Result.RequestedPath = PhysicalPath.generic_string();
-			Result.MountCause = Classified.Error;
+			Result.MountCause = Classified.error().Code;
 			return Result;
 		}
 
-		std::filesystem::path VirtualPath(Classified.NormalizedVirtualPath);
+		std::filesystem::path VirtualPath(Classified->NormalizedVirtualPath);
 		VirtualPath.replace_extension();
 		return InspectAssetDestination(VirtualPath.generic_string(), OccupancyQuery);
 	}
@@ -125,7 +125,7 @@ namespace Durin::Editor
 		switch (Result.Error)
 		{
 		case EContentDirectoryError::None: return {};
-		case EContentDirectoryError::Path: return Result.PathCause ? FormatObjectError(*Result.PathCause) : "Invalid content directory path.";
+		case EContentDirectoryError::Path: return Result.PathCause ? ToString(*Result.PathCause) : "Invalid content directory path.";
 		case EContentDirectoryError::Mount: return "Choose a directory inside a package-enabled mount.";
 		case EContentDirectoryError::ReadOnly: return "Choose a directory inside a content-writable mount.";
 		}
@@ -137,27 +137,27 @@ namespace Durin::Editor
 	{
 		FContentDirectoryValidation Result{.RequestedPath = std::string(VirtualPath)};
 		const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(VirtualPath, Result.DirectoryPath);
-		Result.bDirectoryPathValid = PathValidation.Succeeded();
+		Result.bDirectoryPathValid = PathValidation.has_value();
 		if (!PathValidation)
 		{
 			Result.Error = EContentDirectoryError::Path;
-			Result.PathCause = PathValidation.Error;
+			Result.PathCause = PathValidation.error();
 		}
 		if (!Result.bDirectoryPathValid) return Result;
 
-		const FAssetPathResult Resolved =
+		const auto Resolved =
 			FMountPaths::ResolveAssetPath(Result.DirectoryPath.GetView());
-		Result.Mount = Resolved.Mount;
+		Result.Mount = Resolved ? Resolved->Mount : Resolved.error().Mount;
 		if (!Resolved)
 		{
 			Result.Error = EContentDirectoryError::Mount;
-			Result.MountCause = Resolved.Error;
+			Result.MountCause = Resolved.error().Code;
 			return Result;
 		}
 
 		Result.bMountedDestination = true;
 		Result.bContentWritable = Result.Mount->bContentWritable;
-		Result.PhysicalPath = Resolved.PhysicalPath;
+		Result.PhysicalPath = Resolved->PhysicalPath;
 		if (!Result.bContentWritable)
 			Result.Error = EContentDirectoryError::ReadOnly;
 		return Result;
@@ -166,16 +166,16 @@ namespace Durin::Editor
 	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
 		-> FContentDirectoryValidation
 	{
-		const FAssetPathResult Classified =
+		const auto Classified =
 			FMountPaths::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FContentDirectoryValidation Result;
 			Result.Error = EContentDirectoryError::Mount;
 			Result.RequestedPath = PhysicalPath.generic_string();
-			Result.MountCause = Classified.Error;
+			Result.MountCause = Classified.error().Code;
 			return Result;
 		}
-		return InspectContentDirectory(Classified.NormalizedVirtualPath);
+		return InspectContentDirectory(Classified->NormalizedVirtualPath);
 	}
 } // namespace Durin::Editor

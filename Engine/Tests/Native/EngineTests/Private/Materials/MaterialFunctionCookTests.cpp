@@ -154,7 +154,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(Recipe.Graph.Apply(*Material));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedNormalParent").Object);
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedNormalParent").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Duplicate));
 	MarkAsGarbage(Duplicate);

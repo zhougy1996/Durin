@@ -167,8 +167,8 @@ namespace Durin::AssetForge::Builtins
 			if (!DirectoryName.empty()) OutputPath /= DirectoryName;
 			OutputPath /= Leaf;
 			const auto Validation = FPackagePath::TryCreateWithDiagnostic(OutputPath.generic_string(), OutPath);
-			if (!Validation) OutError = FormatObjectError(Validation.Error);
-			return Validation.Succeeded();
+			if (!Validation) OutError = ToString(Validation.error());
+			return Validation.has_value();
 		}
 
 		auto StableSuffix(std::string_view Value) -> std::string
@@ -600,7 +600,7 @@ namespace Durin::AssetForge::Builtins
 			std::string& OutError) -> bool
 		{
 			auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes);
-			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+			OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 			if (!DecodeResult) return false;
 			auto Image = std::move(*DecodeResult);
 			if (Image.Width > std::numeric_limits<uint16>::max()

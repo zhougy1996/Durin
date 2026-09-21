@@ -299,7 +299,7 @@ namespace Durin
 		}
 	}
 
-	auto DLevel::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DLevel::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		for (const auto& Actor : Actors)

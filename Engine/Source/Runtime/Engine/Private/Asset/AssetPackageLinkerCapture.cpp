@@ -8,7 +8,7 @@ namespace Durin::AssetPrivate
 {
  auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
   const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-  uint32 FormatVersion) -> FPackageCaptureResult
+  uint32 FormatVersion) -> std::expected<void, FPackageCaptureError>
  {
   FSavePackageContext SaveContext;
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
@@ -27,7 +27,7 @@ namespace Durin::AssetPrivate
     FObjectPath Path;
     if (!Destination || Destination == Asset || !Destination->GetPackage()
      || !FObjectPath::TryCreate(Destination->GetObjectPath(), Path))
-     return {.Error = {.Reason = EPackageCaptureReason::AssetIdentity, .Message = "Redirector destination is invalid."}};
+     return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::AssetIdentity, .Message = "Redirector destination is invalid."});
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
   return SaveContext.Capture(Package, OutLinker, FormatVersion);

@@ -33,11 +33,11 @@ namespace Durin::AssetForge::Builtins
 				OutError = "TextureCube source capture requires an owning package.";
 				return false;
 			}
-			const FAssetPathResult Resolved =
+			const auto Resolved =
 				FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
 					EMountPathExistence::AllowMissing);
-			if (!Resolved) { OutError = Resolved.Message; return false; }
-			OutPath = Resolved.PhysicalPath;
+			if (!Resolved) { OutError = (Resolved ? std::string{} : Durin::ToString(Resolved.error())); return false; }
+			OutPath = Resolved->PhysicalPath;
 			OutPath += ".dasset";
 			return true;
 		}
@@ -416,15 +416,19 @@ namespace Durin::AssetForge::Builtins
 		}
 		if (Image::IsRadianceHDRExtension(ExtensionHint))
 		{
-			Image::FDecodedFloatImage Panorama;
-			if (!Image::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError,
-				{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels}))
+			auto Panorama = Image::DecodeRadianceHDRFromMemory(EncodedBytes,
+				{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels});
+			if (!Panorama)
+			{
+				OutError = Image::ToString(Panorama.error());
 				return false;
-			OutSource = NormalizePanorama(std::move(Panorama));
+			}
+			OutError.clear();
+			OutSource = NormalizePanorama(std::move(*Panorama));
 			return true;
 		}
 		auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, {.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels});
-		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+		OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 		if (!DecodeResult)
 			return false;
 		auto Panorama = std::move(*DecodeResult);
@@ -441,7 +445,7 @@ namespace Durin::AssetForge::Builtins
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			auto DecodeResult = Image::DecodeImageFromMemory(EncodedFaces[Index], {.MaximumDecodedPixels = 16384ull * 16384ull});
-			OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+			OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 			if (!DecodeResult
 				|| !Image::FImage::TryCreate({.Width = DecodeResult->Width, .Height = DecodeResult->Height,
 					.Format = Image::ERawImageFormat::RGBA8}, std::move(DecodeResult->Pixels),

@@ -444,7 +444,7 @@ namespace Durin::Editor::AssetPicker
 						DropError = "The dragged asset payload is not terminated.";
 					else if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(*Path, DroppedPath); !PathValidation)
 					{
-						DropError = Durin::FormatObjectError(PathValidation.Error);
+						DropError = Durin::ToString(PathValidation.error());
 					}
 					else if (!MatchesPathPrefix(*Path, Config.PathPrefixFilter))
 						DropError = "The dragged asset is outside the allowed path.";

@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "DObject/Object.h"
 #include "RoadNet/RoadNetTypes.h"
@@ -81,9 +82,9 @@ namespace Durin::RoadNet
 			FDefinition InDefinition, std::string& OutError) -> bool;
 		// Explicit edit: publish final fitted geometry and reconciled stationing together.
 		ROADWEAVER_API auto FitToSurface(const FRoadSurface& Operation, std::string& OutError) -> bool;
-		ROADWEAVER_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ROADWEAVER_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ROADWEAVER_API auto PostLoad() -> void override;
-		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Owning-thread observers run after publication; reentrant mutations are rejected.
 		ROADWEAVER_API auto AddMutationListener(std::function<void()> Listener) -> uint64;

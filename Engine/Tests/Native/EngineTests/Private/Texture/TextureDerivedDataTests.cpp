@@ -1,3 +1,4 @@
+#include <expected>
 #include "Texture/Texture2DBuildProvider.h"
 #include "TextureTestSupport.h"
 
@@ -63,7 +64,7 @@ namespace
 	auto LoadPlatformDataValue(
 		Durin::FByteView Bytes,
 		std::unique_ptr<Durin::FTexturePlatformData>& OutPlatformData)
-		-> Durin::FDecodeResult
+		-> std::expected<void, Durin::FArchiveFailure>
 	{
 		auto Candidate = std::make_unique<Durin::FTexturePlatformData>();
 		Durin::FCanonicalMemoryReader Ar(
@@ -72,14 +73,7 @@ namespace
 		if (!Ar.IsError()) Durin::RequireArchiveEnd(Ar);
 		if (Ar.IsError())
 		{
-			return {
-				.Code = Ar.GetFailure()
-					&& (Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedVersion
-					|| Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedTarget
-					|| Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedType)
-					? Durin::EDecodeError::Incompatible
-					: Durin::EDecodeError::Corrupt,
-				.Message = std::string(Ar.GetError())};
+			return std::unexpected(*Ar.GetFailure());
 		}
 		OutPlatformData = std::move(Candidate);
 		return {};
@@ -174,9 +168,9 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
-		const Durin::FDecodeResult DecodeResult =
+		const std::expected<void, Durin::FArchiveFailure> DecodeResult =
 			LoadPlatformDataValue(First, Actual);
-		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
+		ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 		ASSERT_NE(Actual, nullptr);
 		ExpectPlatformDataEqual(*Actual, Expected);
 	}
@@ -211,36 +205,36 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 
 	auto WrongProfile = Bytes;
 	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::ECookTargetProfile::EditorValidation));
-	Durin::FDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
-	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Incompatible);
+	std::expected<void, Durin::FArchiveFailure> DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
+	ASSERT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::UnsupportedTarget);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;
 	Corrupt.back() ^= std::byte{0xff};
 	DecodeResult = LoadPlatformDataValue(Corrupt, Existing);
-	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Corrupt);
+	ASSERT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::InvalidData);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto WrongRange = Bytes;
 	WriteU32(WrongRange, Durin::TexturePayloadHeaderSize + 16, 1);
 	DecodeResult = LoadPlatformDataValue(WrongRange, Existing);
-	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Corrupt);
+	ASSERT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::InvalidData);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto UnsupportedSchema = Bytes;
 	WriteU32(UnsupportedSchema, 4, Durin::TexturePayloadSchemaVersion + 1);
 	DecodeResult = LoadPlatformDataValue(UnsupportedSchema, Existing);
-	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Incompatible);
+	ASSERT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::UnsupportedVersion);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto DifferentBuilder = Bytes;
 	WriteU32(DifferentBuilder, 8, Durin::Texture2DPayloadProducerVersion + 17);
 	DecodeResult = LoadPlatformDataValue(DifferentBuilder, Existing);
-	EXPECT_TRUE(DecodeResult) << DecodeResult.Message;
+	EXPECT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	EXPECT_NE(Existing.get(), ExistingAddress);
 }
 

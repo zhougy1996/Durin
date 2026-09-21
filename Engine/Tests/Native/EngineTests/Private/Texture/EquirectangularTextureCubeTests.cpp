@@ -30,7 +30,7 @@ namespace Durin::TextureCubeBuilder
 	{
 		std::string Error;
 		auto DecodeResult = Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"));
-		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.error());
+		ASSERT_TRUE(DecodeResult) << Durin::Image::ToString(DecodeResult.error());
 		auto Decoded = std::move(*DecodeResult);
 		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height,
@@ -71,11 +71,11 @@ namespace Durin::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsRadianceGoldenValuesAndExposure)
 	{
-		Image::FDecodedFloatImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Image::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"), Decoded, Error)) << Error;
-		FTexturePanoramaFloatImage Panorama{.Pixels = std::move(Decoded.Pixels),
-			.Width = Decoded.Width, .Height = Decoded.Height};
+		auto Decoded = Image::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"));
+		ASSERT_TRUE(Decoded) << Image::ToString(Decoded.error());
+		FTexturePanoramaFloatImage Panorama{.Pixels = std::move(Decoded->Pixels),
+			.Width = Decoded->Width, .Height = Decoded->Height};
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;

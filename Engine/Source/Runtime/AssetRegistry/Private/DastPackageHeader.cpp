@@ -36,12 +36,11 @@ namespace Durin
 	{
 		OutHeader = {};
 		FBinaryEnvelopePreamble Preamble;
-		FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
-		if (!ParseBinaryEnvelopePrefix(FrontMatter, PhysicalFileBytes,
-			EnvelopeLimits, Preamble, &EnvelopeDiagnostic))
+		std::expected<void, EBinaryEnvelopeError> EnvelopeDiagnostic;
+		if (!(EnvelopeDiagnostic = ParseBinaryEnvelopePrefix(FrontMatter, PhysicalFileBytes, EnvelopeLimits, Preamble)))
 			return Error(EAssetRegistryError::CorruptFile,
 				{.Reason = EAssetRegistryFailure::Envelope, .Actual = FrontMatter.size(),
-					.Expected = PhysicalFileBytes, .EnvelopeCause = EnvelopeDiagnostic.Error});
+					.Expected = PhysicalFileBytes, .EnvelopeCause = EnvelopeDiagnostic.error()});
 		if (Preamble.FormatId != ObjectPackage::DastFormatId
 			|| !ObjectPackage::IsSupportedPackageReaderVersion(Preamble.FormatVersion))
 			return Error(EAssetRegistryError::UnsupportedVersion,

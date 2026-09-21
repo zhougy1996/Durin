@@ -160,7 +160,7 @@ namespace Durin::PackagePrivate
 				CaptureFailure.Reason = Reason;
 				CaptureFailure.ArchiveCode = Code;
 				if (CurrentDObject && CaptureFailure.ObjectPath.empty()) CaptureFailure.ObjectPath = CurrentDObject->GetObjectPath();
-				Fail(Code, FormatPackageCaptureError(CaptureFailure));
+				Fail(Code, ToString(CaptureFailure));
 			}
 
 			auto TakePackage() -> FCapturedPackage
@@ -319,7 +319,7 @@ namespace Durin::PackagePrivate
 						if (!ExternalPackage || !PathResult)
 						{
 							CaptureFailure.ObjectPath = Value->GetObjectPath();
-							if (!PathResult) CaptureFailure.Message = FormatObjectError(PathResult.Error);
+							if (!PathResult) CaptureFailure.Cause = PathResult.error();
 							FailCapture(EPackageCaptureReason::InvalidHardReference, EArchiveFailureCode::InvalidObjectReference);
 							return;
 						}
@@ -385,14 +385,14 @@ namespace Durin::PackagePrivate
 					const auto ValueResult = Value.Storage.DefaultConstruct(&Property, ArrayIndex);
 					if (!ValueResult)
 					{
-						CaptureFailure.Message = FormatPropertyValueError(ValueResult.Error);
+						CaptureFailure.Cause = ValueResult.error();
 						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
 						return EArchivePropertySaveDisposition::Omit;
 					}
 					const auto SnapshotResult = RestorePropertyValue(&Property, Value.Storage.GetContainer(), ArrayIndex, It->Replacement);
 					if (!SnapshotResult)
 					{
-						CaptureFailure.Message = FormatPropertySnapshotError(SnapshotResult.Error);
+						CaptureFailure.Cause = SnapshotResult.error();
 						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
 						return EArchivePropertySaveDisposition::Omit;
 					}
@@ -560,7 +560,7 @@ namespace Durin::PackagePrivate
 			}
 		};
 
-		auto TranslateArchiveFailure(const FAuthoredCaptureArchive& Archive) -> FPackageCaptureResult
+		auto TranslateArchiveFailure(const FAuthoredCaptureArchive& Archive) -> std::expected<void, FPackageCaptureError>
 		{
 			const FArchiveFailure* Failure = Archive.GetFailure();
 			if (!Failure) return {};
@@ -568,11 +568,10 @@ namespace Durin::PackagePrivate
 			if (Error.Reason == EPackageCaptureReason::None) Error.Reason = EPackageCaptureReason::ArchiveFailure;
 			Error.ArchiveCode = Failure->Code;
 			Error.ArchivePath = Failure->Path;
-			// Capture the first Archive diagnostic while its callback context is alive.
-			if (Error.Message.empty()) Error.Message = Failure->Message;
-			Error.Message = std::format("{} (object '{}', archive '{}')",
-				Error.Message, Error.ObjectPath, Error.ArchivePath);
-			return {std::move(Error)};
+			if (std::holds_alternative<std::monostate>(Error.Cause))
+				std::visit([&](const auto& Cause) { Error.Cause = Cause; }, Archive.GetValueFailureCause());
+			if (Error.Message.empty() && std::holds_alternative<std::monostate>(Error.Cause)) Error.Message = Failure->Message;
+			return std::unexpected(std::move(Error));
 		}
 
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
@@ -651,7 +650,7 @@ namespace Durin::PackagePrivate
 			bool bCapturePayload,
 			uint32 TargetFormatVersion,
 			FXxHash128 ContainerHash,
-			FCapturedPackage& OutPackage) -> FPackageCaptureResult
+			FCapturedPackage& OutPackage) -> std::expected<void, FPackageCaptureError>
 		{
 			FAuthoredCaptureArchive Archive(
 				ObjectIds, Options, bCapturePayload, TargetFormatVersion, ContainerHash);
@@ -1063,7 +1062,7 @@ namespace Durin::PackagePrivate
 					FObjectPath Path;
 					if (const auto PathResult = FObjectPath::TryCreateWithDiagnostic(Out.Text, Path); !PathResult)
 					{
-						Invalid(); OutError.Message = FormatObjectError(PathResult.Error); return false;
+						Invalid(); OutError.Cause = PathResult.error(); return false;
 					}
 					Linker.Names.push_back(Out.Text);
 					Linker.Summary.SoftPackageDependencies.push_back(Path.GetPackagePath());
@@ -1161,7 +1160,7 @@ namespace Durin::PackagePrivate
 						InternalReferenceIds[SourceIndex] - 1, Export) || !PathResult)
 				{
 					OutError = {.Reason = EPackageCaptureReason::AssetIdentity, .ObjectPath = Asset->GetObjectPath()};
-					if (!PathResult) OutError.Message = FormatObjectError(PathResult.Error);
+					if (!PathResult) OutError.Cause = PathResult.error();
 					return false;
 				}
 				if (const auto It = Options.RedirectDestinations.find(Asset);
@@ -1264,8 +1263,15 @@ namespace Durin
 		return Message;
 	}
 
-	auto FormatPackageCaptureError(const FPackageCaptureError& Error) -> std::string
+	auto ToString(const FPackageCaptureError& Error) -> std::string
 	{
+		if (!std::holds_alternative<std::monostate>(Error.Cause))
+			return std::visit([](const auto& Cause) -> std::string {
+				using T = std::decay_t<decltype(Cause)>;
+				if constexpr (std::is_same_v<T, std::monostate>) return {};
+				else if constexpr (std::is_same_v<T, FDefaultDeltaDiagnostic>) return FormatCaptureDeltaFailure(Cause);
+				else return ToString(Cause);
+			}, Error.Cause);
 		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Reason)
 		{
@@ -1338,27 +1344,27 @@ namespace Durin
 
 	auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& InputOptions,
-		ObjectPackage::FLinkerTables& OutLinker, uint32 FormatVersion) -> FPackageCaptureResult
+		ObjectPackage::FLinkerTables& OutLinker, uint32 FormatVersion) -> std::expected<void, FPackageCaptureError>
 	{
 		check(IsInGameThread());
 		const auto& Options = InputOptions;
 		if (Package && !Package->IsAssetPackage())
 		{
-			return {{.Reason = EPackageCaptureReason::PackageType}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::PackageType});
 		}
 		if (!Package || Package->GetTopLevelAssets().empty())
 		{
-			return {{.Reason = EPackageCaptureReason::MissingAssets}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::MissingAssets});
 		}
 		if (Options.bCooking
 			&& (Options.Target.Platform.empty() || Options.Target.Profile.empty()))
 		{
-			return {{.Reason = EPackageCaptureReason::CookTarget}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::CookTarget});
 		}
 		FPackagePath PackagePath;
 		if (const auto PathResult = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), PackagePath); !PathResult)
 		{
-			return {{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Message = FormatObjectError(PathResult.Error)}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Cause = PathResult.error()});
 		}
 
 		std::vector<DObject*> FrozenObjects;
@@ -1370,7 +1376,7 @@ namespace Durin
 			std::vector<DClass*> Classes;
 			for (DObject* Object : FrozenObjects) Classes.push_back(Object->GetClass());
 			if (!Private::CreateClassDefaultObjectsForBatch(Classes))
-				return {{.Reason = EPackageCaptureReason::ClassDefaults}};
+				return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ClassDefaults});
 		}
 		if (Options.SaveOverrides)
 		{
@@ -1379,7 +1385,7 @@ namespace Durin
 				if (!Override.Object
 					|| std::ranges::find(FrozenObjects, Override.Object) == FrozenObjects.end())
 				{
-					return {{.Reason = EPackageCaptureReason::OverrideOutsideGraph, .ObjectPath = Override.Object ? Override.Object->GetObjectPath() : std::string{}}};
+					return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::OverrideOutsideGraph, .ObjectPath = Override.Object ? Override.Object->GetObjectPath() : std::string{}});
 				}
 			}
 			for (DObject* Asset : Package->GetTopLevelAssets())
@@ -1387,7 +1393,7 @@ namespace Durin
 					Options.SaveOverrides->FindObject(*Asset);
 					RootOverride && RootOverride->bOmitObject)
 				{
-					return {{.Reason = EPackageCaptureReason::OmittedAsset, .ObjectPath = Asset->GetObjectPath()}};
+					return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::OmittedAsset, .ObjectPath = Asset->GetObjectPath()});
 				}
 		}
 		std::vector<DObject*> Objects;
@@ -1397,7 +1403,7 @@ namespace Durin
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		PackagePrivate::FCapturedPackage Discovery;
-		FPackageCaptureResult Result = PackagePrivate::CapturePackage(
+		std::expected<void, FPackageCaptureError> Result = PackagePrivate::CapturePackage(
 			Objects, ObjectIds, Options, false,
 			FormatVersion, {}, Discovery);
 		if (!Result)
@@ -1406,14 +1412,14 @@ namespace Durin
 		}
 		if (!PackagePrivate::HasFrozenPackageGraph(Package, FrozenObjects))
 		{
-			return {{.Reason = EPackageCaptureReason::DiscoveryMutation}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DiscoveryMutation});
 		}
 		if (Options.bCooking
 			&& !Options.bRetainEditorOnlyData)
 		{
 			if (!PackagePrivate::PruneUnreachableCookedObjects(Discovery, Objects))
 			{
-				return {{.Reason = EPackageCaptureReason::CookGraph}};
+				return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::CookGraph});
 			}
 			ObjectIds.clear();
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
@@ -1432,7 +1438,7 @@ namespace Durin
 				return Payload.Descriptor.LogicalByteCount > PackagePrivate::PackageBulkExternalThreshold;
 			}) && ContainerHash.IsZero())
 		{
-			return {{.Reason = EPackageCaptureReason::BulkIdentity}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::BulkIdentity});
 		}
 		PackagePrivate::FCapturedPackage Captured;
 		Result = PackagePrivate::CapturePackage(
@@ -1445,7 +1451,7 @@ namespace Durin
 		if (!PackagePrivate::HasFrozenPackageGraph(Package, FrozenObjects)
 			|| !PackagePrivate::EqualManifest(Discovery, Captured))
 		{
-			return {{.Reason = EPackageCaptureReason::EmissionMutation}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::EmissionMutation});
 		}
 
 		FDefaultDeltaPlan DeltaPlan;
@@ -1478,7 +1484,7 @@ namespace Durin
 		}
 		if (!bDeltaBuilt)
 		{
-			return {{.Reason = EPackageCaptureReason::DefaultDelta, .Message = FormatCaptureDeltaFailure(DeltaDiagnostic)}};
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DefaultDelta, .Cause = DeltaDiagnostic});
 		}
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
 			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
@@ -1488,7 +1494,7 @@ namespace Durin
 		if (!PackagePrivate::BuildLinkerTables(Captured, Options, PackagePath, Objects,
 				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError, FormatVersion))
 		{
-			return {std::move(LinkerError)};
+			return std::unexpected(std::move(LinkerError));
 		}
 		return {};
 	}

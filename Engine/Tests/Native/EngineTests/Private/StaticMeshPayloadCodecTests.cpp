@@ -1,3 +1,4 @@
+#include <expected>
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
@@ -165,7 +166,7 @@ namespace
 	auto DecodePayload(
 		Durin::FByteView Bytes,
 		EStaticMeshTargetPlatform Platform,
-		FStaticMeshPayloadData& OutPayload) -> FDecodeResult
+		FStaticMeshPayloadData& OutPayload) -> std::expected<void, FArchiveFailure>
 	{
 		FStaticMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes,
@@ -173,9 +174,7 @@ namespace
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		Candidate.Serialize(Ar);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
-			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
-				? EDecodeError::Incompatible : EDecodeError::Corrupt,
-				Ar.GetFailure()->Message};
+			return std::unexpected(*Ar.GetFailure());
 		OutPayload = std::move(Candidate);
 		return {};
 	}
@@ -234,16 +233,16 @@ namespace
 
 	auto ExpectDecodeFailure(
 		const Durin::FByteBuffer& Bytes,
-		EDecodeError ExpectedCode = EDecodeError::None) -> void
+		std::optional<EArchiveFailureCode> ExpectedCode = std::nullopt) -> void
 	{
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
 		const uint32 SentinelSlotCount = Sentinel.MaterialSlotCount;
-		const FDecodeResult Result =
+		const std::expected<void, FArchiveFailure> Result =
 			DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
-		EXPECT_FALSE(Result);
-		if (ExpectedCode != EDecodeError::None)
-			EXPECT_EQ(Result.Code, ExpectedCode);
-		EXPECT_FALSE(Result.Message.empty());
+		ASSERT_FALSE(Result);
+		if (ExpectedCode.has_value())
+			EXPECT_EQ(Result.error().Code, *ExpectedCode);
+		EXPECT_FALSE(Result.error().Message.empty());
 		EXPECT_EQ(Sentinel.MaterialSlotCount, SentinelSlotCount);
 	}
 
@@ -429,9 +428,9 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		EXPECT_EQ(ReadU64(First, 48), First.size());
 
 		FStaticMeshPayloadData Decoded;
-		const FDecodeResult DecodeResult =
+		const std::expected<void, FArchiveFailure> DecodeResult =
 			DecodePayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
-		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
+		ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 		ExpectEquivalent(Decoded, Fixture);
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -453,9 +452,9 @@ TEST(FStaticMeshPayloadCodecTests,
 		EXPECT_EQ(First, Second);
 
 		FStaticMeshPayloadData Decoded;
-		const FDecodeResult Result = DecodePayload(
+		const std::expected<void, FArchiveFailure> Result = DecodePayload(
 			First, EStaticMeshTargetPlatform::Win64, Decoded);
-		ASSERT_TRUE(Result) << Result.Message;
+		ASSERT_TRUE(Result) << Result.error().Message;
 		ExpectEquivalent(Decoded, Fixture);
 		ASSERT_EQ(Decoded.LODs.size(), LODCount);
 		EXPECT_GT(Decoded.LODs.front().Indices.size(),
@@ -518,9 +517,9 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 	const Durin::FByteBuffer Bytes = Encode(Fixture);
 
 	FStaticMeshPayloadData Decoded;
-	const FDecodeResult DecodeResult =
+	const std::expected<void, FArchiveFailure> DecodeResult =
 		DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
-	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
+	ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	ExpectEquivalent(Decoded, Fixture);
 
 	std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -834,11 +833,11 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	Durin::FByteBuffer PreviousSchema = Valid;
 	WriteU32(PreviousSchema, 4, StaticMeshPayloadSchemaVersion - 1);
 	Rehash(PreviousSchema);
-	ExpectDecodeFailure(PreviousSchema, EDecodeError::Incompatible);
+	ExpectDecodeFailure(PreviousSchema, EArchiveFailureCode::UnsupportedVersion);
 	Durin::FByteBuffer FutureSchema = Valid;
 	WriteU32(FutureSchema, 4, StaticMeshPayloadSchemaVersion + 1);
 	Rehash(FutureSchema);
-	ExpectDecodeFailure(FutureSchema, EDecodeError::Incompatible);
+	ExpectDecodeFailure(FutureSchema, EArchiveFailureCode::UnsupportedVersion);
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumValues)
@@ -933,13 +932,13 @@ TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRe
 	const Durin::FByteBuffer Valid = Encode(MakeSingleSectionFixture());
 	const Durin::FByteBuffer Optional = AddUnknownOptionalChunk(Valid, false);
 	FStaticMeshPayloadData Decoded;
-	const FDecodeResult DecodeResult =
+	const std::expected<void, FArchiveFailure> DecodeResult =
 		DecodePayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
-	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
+	ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	ExpectEquivalent(Decoded, MakeSingleSectionFixture());
 
 	ExpectDecodeFailure(
-		AddUnknownOptionalChunk(Valid, true), EDecodeError::Incompatible);
+		AddUnknownOptionalChunk(Valid, true), EArchiveFailureCode::UnsupportedVersion);
 }
 
 TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublishingBytes)
@@ -1232,7 +1231,7 @@ TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsModeAndPolicy)
 	FStaticMeshCookedProduct Product;
 	const auto Result = DecodeStaticMeshCookedProduct({}, Bytes, {},
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
-	EXPECT_FALSE(Result);
+	ASSERT_FALSE(Result);
 	Payload = {};
 	Bytes.clear();
 	EXPECT_EQ(Result.Error.Code, ECookedMeshProductError::CollisionMetadata);

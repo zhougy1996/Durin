@@ -93,7 +93,7 @@ namespace Durin
 		return StaticMesh != nullptr ? StaticMesh->GetNumMaterialSlots() : 0;
 	}
 
-	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};

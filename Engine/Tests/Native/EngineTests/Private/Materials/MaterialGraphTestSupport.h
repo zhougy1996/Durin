@@ -81,7 +81,7 @@ namespace
 		FExpressionGraphSnapshot Result;
 		Result.Outputs = Material.GetExpressionOutputs();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
+			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
 		return Result;
 	}
 
@@ -90,7 +90,7 @@ namespace
 		FExpressionGraphSnapshot Result;
 		Result.Signature = Function.GetFunctionSignature();
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
+			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
 		return Result;
 	}
 

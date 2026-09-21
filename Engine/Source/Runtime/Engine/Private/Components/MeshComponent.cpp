@@ -94,7 +94,7 @@ namespace Durin
 		return GetMaterialOverride(SlotIndex) != nullptr;
 	}
 
-	auto DMeshComponent::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DMeshComponent::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (const auto Validation = ValidateOverrideMaterials(OverrideMaterials); !Validation)
@@ -122,7 +122,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};

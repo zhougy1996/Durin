@@ -1020,7 +1020,7 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	std::string Error;
 	const auto Geometry = Mesh->GetSource().AcquireGeometry().Geometry;
 	ASSERT_TRUE(Geometry) << Error;
-	auto* Duplicate = Cast<DStaticMesh>(DuplicateObject(Mesh, nullptr, "ResidencyDuplicate").Object);
+	auto* Duplicate = Cast<DStaticMesh>(DuplicateObject(Mesh, nullptr, "ResidencyDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSource().GetIdentity(), Mesh->GetSource().GetIdentity());
 	Mesh->GetSource().ReleaseGeometry();

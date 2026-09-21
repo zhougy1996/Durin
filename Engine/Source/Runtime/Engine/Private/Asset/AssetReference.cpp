@@ -299,7 +299,7 @@ namespace Durin
 			std::string PathError;
 			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, SoftPath); !PathValidation)
 			{
-				PathError = Durin::FormatObjectError(PathValidation.Error);
+				PathError = Durin::ToString(PathValidation.error());
 				return Error(EAssetReadError::InvalidPath, std::format(
 					"SoftReferenceInvalidPath: {} contains '{}': {}",
 					PropertyPath, PathString, PathError));
@@ -369,7 +369,7 @@ namespace Durin
 			{
 				FReflectedValueStorage KeyStorage;
 				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
-					return Error(EAssetReadError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
+					return Error(EAssetReadError::UnsupportedProperty, ToString(Result.error()));
 				auto KeyResult = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),
@@ -385,7 +385,7 @@ namespace Durin
 				FByteBuffer KeyToken;
 				if (const auto Result = BuildCanonicalMapKeyToken(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken); !Result)
-					return Error(EAssetReadError::TypeMismatch, FormatReflectedMapKeyError(Result.Error));
+					return Error(EAssetReadError::TypeMismatch, ToString(Result.error()));
 				if (KeyToken.size() > MaximumReferenceRouteTokenBytes)
 					return Error(EAssetReadError::CorruptFile,
 						"AssetReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
@@ -733,7 +733,7 @@ namespace Durin
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
 			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
-				PathError = Durin::FormatObjectError(PathValidation.Error);
+				PathError = Durin::ToString(PathValidation.error());
 				return Error(EAssetReadError::InvalidPath, std::move(PathError));
 			}
 			if (const FPackagePath* Destination = FindFixupDestination(
@@ -777,7 +777,7 @@ namespace Durin
 				const size_t KeyOffset = Reader.Offset;
 				FReflectedValueStorage KeyStorage;
 				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
-					return Error(EAssetReadError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
+					return Error(EAssetReadError::UnsupportedProperty, ToString(Result.error()));
 				auto Result = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),

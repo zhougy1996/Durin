@@ -56,7 +56,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		auto DecodeResult = Image::DecodeImageFromFile(FilePath, ThumbnailDecodeLimits);
-		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+		OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 		if (!DecodeResult) return false;
 		auto SourceImage = std::move(*DecodeResult);
 

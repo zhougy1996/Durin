@@ -31,14 +31,14 @@ namespace Durin::ObjectPackage
 
 		auto Fail(ECanonicalMapKeyError Code, const FSerializedType& Type,
 			const FSerializedValue& Value, size_t ActualCount = 0, size_t ExpectedCount = 0)
-			-> FCanonicalMapKeyResult
+			-> std::expected<void, FCanonicalMapKeyError>
 		{
-			return {{Code, Type.Kind, Type.Parameter, Value.Signed, Value.Unsigned, ActualCount, ExpectedCount}};
+			return std::unexpected(FCanonicalMapKeyError{Code, Type.Kind, Type.Parameter, Value.Signed, Value.Unsigned, ActualCount, ExpectedCount});
 		}
 
-		auto At(FCanonicalMapKeyResult Result, size_t Index) -> FCanonicalMapKeyResult
+		auto At(std::expected<void, FCanonicalMapKeyError> Result, size_t Index) -> std::expected<void, FCanonicalMapKeyError>
 		{
-			Result.Error.ValueRoute.insert(Result.Error.ValueRoute.begin(), Index);
+			Result.error().ValueRoute.insert(Result.error().ValueRoute.begin(), Index);
 			return Result;
 		}
 
@@ -104,10 +104,10 @@ namespace Durin::ObjectPackage
 		}
 
 		auto AppendValue(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult;
+			FCanonicalMapKeyWriter& Writer) -> std::expected<void, FCanonicalMapKeyError>;
 
 		auto AppendIntrinsic(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
+			FCanonicalMapKeyWriter& Writer) -> std::expected<void, FCanonicalMapKeyError>
 		{
 			Writer.WriteType(ECanonicalMapKeyKind::Struct);
 			if (Type.Parameter == 5)
@@ -152,7 +152,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto AppendStruct(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
+			FCanonicalMapKeyWriter& Writer) -> std::expected<void, FCanonicalMapKeyError>
 		{
 			if (Type.Children.size() != Value.Elements.size())
 				return Fail(ECanonicalMapKeyError::StructFieldCount, Type, Value, Value.Elements.size(), Type.Children.size());
@@ -182,7 +182,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto AppendValue(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
+			FCanonicalMapKeyWriter& Writer) -> std::expected<void, FCanonicalMapKeyError>
 		{
 			if (Type.Kind == EValueKind::Intrinsic) return AppendIntrinsic(Type, Value, Writer);
 			if (Type.Kind == EValueKind::Struct) return AppendStruct(Type, Value, Writer);
@@ -303,7 +303,7 @@ namespace Durin::ObjectPackage
 	}
 
 	auto BuildCanonicalMapKeyToken(const FSerializedType& Type, const FSerializedValue& Value,
-		FByteBuffer& OutToken) -> FCanonicalMapKeyResult
+		FByteBuffer& OutToken) -> std::expected<void, FCanonicalMapKeyError>
 	{
 		FCanonicalMapKeyWriter Writer;
 		if (auto Result = AppendValue(Type, Value, Writer); !Result) return Result;
@@ -311,7 +311,7 @@ namespace Durin::ObjectPackage
 		return {};
 	}
 
-	auto FormatCanonicalMapKeyError(const FCanonicalMapKeyError& Error) -> std::string
+	auto ToString(const FCanonicalMapKeyError& Error) -> std::string
 	{
 		switch (Error.Code)
 		{

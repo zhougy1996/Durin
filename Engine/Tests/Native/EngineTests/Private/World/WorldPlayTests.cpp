@@ -34,7 +34,7 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
 	auto* PlayLevel = Durin::DuplicateObject(
-		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel").Object;
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel").value();
 	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::AStaticMeshActor>(PlayLevel->FindActorByName("Mesh"));
@@ -79,7 +79,7 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	Durin::DWorld* PlayWorld = CreateEmptyWorld(nullptr, Durin::EWorldType::PlayInEditor);
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
 	auto* PlayLevel = Durin::DuplicateObject(
-		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay).Object;
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay).value();
 	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::ASplineMeshActor>(PlayLevel->FindActorByName("SplinePath"));
@@ -124,7 +124,7 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
 	auto* PlayLevel = Durin::DuplicateObject(
-		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay).Object;
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay).value();
 	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::ACameraActor>(EditorToPlay.at(EditorActor));
@@ -137,7 +137,7 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 	std::unordered_map<Durin::DObject*, Durin::DObject*> PlayToEditor;
 	for (const auto& [EditorObject, PlayObject] : EditorToPlay) PlayToEditor.emplace(PlayObject, EditorObject);
 	const auto CopyResult = Durin::CopyEditableObjectProperties(PlayCamera, EditorActor->GetCameraComponent(), PlayToEditor);
-	ASSERT_TRUE(CopyResult) << Durin::FormatObjectPropertyCopyError(CopyResult.Error);
+	ASSERT_TRUE(CopyResult) << Durin::ToString(CopyResult.error());
 	EditorActor->GetRootComponent()->UpdateComponentToWorld();
 	ExpectVectorNear(EditorActor->GetActorTransform().Translation, {4.0, 5.0, 6.0});
 	EXPECT_NEAR(EditorActor->GetCameraComponent()->GetFieldOfViewDegrees(), 92.0f, 1.e-6f);

@@ -9,8 +9,8 @@ namespace Durin::Editor
 {
 	auto FormatTransactionSnapshotError(const FTransactionSnapshotError& Error) -> std::string
 	{
-		if (Error.SnapshotCause) return FormatPropertySnapshotError(*Error.SnapshotCause);
-		if (Error.ValueCause) return FormatPropertyValueError(*Error.ValueCause);
+		if (Error.SnapshotCause) return ToString(*Error.SnapshotCause);
+		if (Error.ValueCause) return ToString(*Error.ValueCause);
 		switch (Error.Code)
 		{
 		case ETransactionSnapshotError::None: return {};
@@ -149,7 +149,7 @@ namespace Durin::Editor
 		if (const auto Result = CapturePropertyValuePayload(MemberProperty, InTarget, ArrayIndex, Snapshot.Payload); !Result)
 		{
 			Error.Code = ETransactionSnapshotError::Capture;
-			Error.SnapshotCause = Result.Error;
+			Error.SnapshotCause = Result.error();
 			return {Error};
 		}
 		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
@@ -187,9 +187,9 @@ namespace Durin::Editor
 			.ExpectedKind = Property->GetKind(), .ActualKind = Property->GetKind()};
 		FReflectedValueStorage Storage;
 		if (const auto Result = Storage.DefaultConstruct(Property, Member.GetArrayIndex()); !Result)
-		{ Error.Code = ETransactionSnapshotError::Storage; Error.ValueCause = Result.Error; return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::Storage; Error.ValueCause = Result.error(); return {Error}; }
 		if (const auto Result = RestorePropertyValuePayload(Property, Storage.GetContainer(), Member.GetArrayIndex(), Payload); !Result)
-		{ Error.Code = ETransactionSnapshotError::Restore; Error.SnapshotCause = Result.Error; return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::Restore; Error.SnapshotCause = Result.error(); return {Error}; }
 		OutStorage = std::move(Storage);
 		return {};
 	}

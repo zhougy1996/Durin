@@ -39,7 +39,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				}
 				const auto Restored = RestorePropertyValuePayload(Resolved.Property, Object(), Index(), (bBefore ? Before : After).GetPayload());
 				if (!Restored) return {{.Code = ETransactionCustomError::PropertyRestore,
-					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.Error)}};
+					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.error())}};
 				return {};
 			}
 		};
@@ -200,7 +200,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				if (ArePropertyValuesIdentical(P, &Source, Index, &Target, Index)) continue;
 				Modify(Target);
 				const auto Copied = P->CopyAssignValue(P->GetValuePtr(&Target, Index), P->GetValuePtr(&Source, Index));
-				if (!Copied && Result) Result = RejectCommand("Unable to update the expression properties. " + FormatPropertyValueError(Copied.Error));
+				if (!Copied && Result) Result = RejectCommand("Unable to update the expression properties. " + ToString(Copied.error()));
 			}
 		});
 		return Result;

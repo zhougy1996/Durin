@@ -645,7 +645,7 @@ namespace
 				Durin::FPackagePath Path;
 				if (const auto PathValidation = Durin::FPackagePath::TryCreateWithDiagnostic(Value, Path); !PathValidation)
 				{
-					OutError = Durin::FormatObjectError(PathValidation.Error);
+					OutError = Durin::ToString(PathValidation.error());
 					OutError = std::format("invalid scope '{}': {}", Value, OutError);
 					return 2;
 				}
@@ -841,7 +841,7 @@ namespace
 			std::string Error;
 			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Value, Path); !PathValidation)
 			{
-				Error = Durin::FormatObjectError(PathValidation.Error);
+				Error = Durin::ToString(PathValidation.error());
 				std::cerr << "Error: invalid Cook root '" << Value << "': " << Error << '\n';
 				return 2;
 			}
@@ -854,7 +854,7 @@ namespace
 			std::string Error;
 			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Value, Path); !PathValidation)
 			{
-				Error = Durin::FormatObjectError(PathValidation.Error);
+				Error = Durin::ToString(PathValidation.error());
 				std::cerr << "Error: invalid Engine Cook root '" << Value << "': " << Error << '\n';
 				return 1;
 			}
@@ -1050,7 +1050,7 @@ int main(int ArgC, char** ArgV)
 		std::string Error;
 		if (const auto PathValidation = Durin::FPackagePath::TryCreateWithDiagnostic(Options.Scopes.front(), Path); !PathValidation)
 		{
-			Error = Durin::FormatObjectError(PathValidation.Error);
+			Error = Durin::ToString(PathValidation.error());
 			std::cerr << Error << '\n';
 			return 1;
 		}
@@ -1059,13 +1059,13 @@ int main(int ArgC, char** ArgV)
 		Durin::FTopLevelAssetPath AssetPath;
 		if (!Durin::FTopLevelAssetPath::TryCreate(Path, Path.GetPackageName(), AssetPath)) return 1;
 		const auto Destination = Durin::FMountPaths::ResolveAssetPath(Path.GetView());
-		if (!Destination || !Destination.Mount->bContentWritable)
+		if (!Destination || !Destination->Mount->bContentWritable)
 		{
-			std::cerr << "Template destination must resolve to a writable content mount: " << Destination.Message << '\n';
+			std::cerr << "Template destination must resolve to a writable content mount: " << (Destination ? std::string{} : Durin::ToString(Destination.error())) << '\n';
 			return 1;
 		}
 		std::error_code ExistsError;
-		const bool bFileExists = std::filesystem::exists(Destination.PhysicalPath.string() + ".dasset", ExistsError);
+		const bool bFileExists = std::filesystem::exists(Destination->PhysicalPath.string() + ".dasset", ExistsError);
 		if (ExistsError || bFileExists || Durin::FindAssetExact(Path) || Durin::FindResidentPackage(Path))
 		{
 			std::cerr << "Template destination is occupied or cannot be inspected: " << Path.ToString() << '\n';

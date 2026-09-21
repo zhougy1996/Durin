@@ -9,7 +9,7 @@
 
 namespace Durin::RoadNet
 {
-	auto DRoadSceneRoot::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DRoadSceneRoot::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("RelativeTransform")

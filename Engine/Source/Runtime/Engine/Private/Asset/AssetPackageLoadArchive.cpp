@@ -125,10 +125,10 @@ namespace Durin::AssetPrivate
 					std::string Reason = Failure->Message;
 					const auto Cause = std::visit([](const auto& Value) -> std::string {
 						using T = std::decay_t<decltype(Value)>;
-						if constexpr (std::is_same_v<T, FObjectError>) return FormatObjectError(Value);
-						else if constexpr (std::is_same_v<T, FPropertyValueError>) return FormatPropertyValueError(Value);
-						else if constexpr (std::is_same_v<T, FReflectedMapKeyError>) return FormatReflectedMapKeyError(Value);
-						else if constexpr (std::is_same_v<T, FObjectValidationError>) return FormatObjectValidationError(Value);
+						if constexpr (std::is_same_v<T, FObjectPathError>) return ToString(Value);
+						else if constexpr (std::is_same_v<T, FPropertyValueError>) return ToString(Value);
+						else if constexpr (std::is_same_v<T, FReflectedMapKeyError>) return ToString(Value);
+						else if constexpr (std::is_same_v<T, FObjectValidationError>) return ToString(Value);
 						else return {};
 					}, GetValueFailureCause());
 					if (!Cause.empty()) Reason += (Reason.empty() ? "" : " ") + Cause;
@@ -260,7 +260,7 @@ namespace Durin::AssetPrivate
 					if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
 					{
 						FailLoad(EArchiveFailureCode::InvalidPath,
-							{EAssetReadError::InvalidPath, std::format("Invalid dependency path '{}': {}", PathString, FormatObjectError(Validation.Error))});
+							{EAssetReadError::InvalidPath, std::format("Invalid dependency path '{}': {}", PathString, ToString(Validation.error()))});
 						return;
 					}
 					if (!Bindings.ResolveExternalObject)
@@ -318,7 +318,7 @@ namespace Durin::AssetPrivate
 				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Loaded); !PathValidation)
 				{
 					FailLoad(EArchiveFailureCode::InvalidPath,
-						{EAssetReadError::InvalidPath, std::format("Invalid soft reference '{}': {}", PathString, FormatObjectError(PathValidation.Error))});
+						{EAssetReadError::InvalidPath, std::format("Invalid soft reference '{}': {}", PathString, ToString(PathValidation.error()))});
 					return;
 				}
 				Value = std::move(Loaded);

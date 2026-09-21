@@ -955,7 +955,7 @@ namespace Durin
 					if (const auto Validation = Reference.TrySetResolvedObject(
 						LoadedObject, Reference.GetPath(), Reference.GetPath(),
 						ExpectedClass); !Validation)
-						return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = FormatObjectError(Validation.Error), .ObjectCause = Validation.Error});
+						return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()), .ObjectCause = Validation.error()});
 					return FSoftObjectResolution{
 						.State = ESoftObjectResolveState::Loaded,
 						.Object = LoadedObject,
@@ -998,8 +998,8 @@ namespace Durin
 			Object, Reference.GetPath(), Resolution.FinalPath,
 			ExpectedClass); !Validation)
 		{
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = FormatObjectError(Validation.Error),
-				.ResolvedPath = Resolution.FinalPath, .bRedirected = !Resolution.RedirectChain.empty(), .ObjectCause = Validation.Error});
+			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()),
+				.ResolvedPath = Resolution.FinalPath, .bRedirected = !Resolution.RedirectChain.empty(), .ObjectCause = Validation.error()});
 		}
 		return FSoftObjectResolution{
 			.State = ESoftObjectResolveState::Loaded,
@@ -1042,7 +1042,7 @@ namespace Durin
 		if (const auto Validation = Reference.TrySetResolvedObject(
 			*Result, Reference.GetPath(), ResolvedObjectPath,
 			ExpectedClass); !Validation)
-			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = FormatObjectError(Validation.Error), .ObjectCause = Validation.Error});
+			return std::unexpected(FAssetReadError{.Code = EAssetReadError::InvalidObjectGraph, .Message = ToString(Validation.error()), .ObjectCause = Validation.error()});
 		return Result;
 	}
 

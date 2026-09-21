@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Components/SceneComponent.h"
 
@@ -32,7 +33,7 @@ namespace Durin
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		auto GetTextureCube() const -> DTextureCube* { return TextureCube.Get(); }

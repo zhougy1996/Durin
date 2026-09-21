@@ -7,13 +7,13 @@ namespace Durin
 	namespace
 	{
 		auto FailSaveOverride(ESaveOverrideError Code, const DObject& Object,
-			const FProperty* Property = nullptr) -> FSaveOverrideResult
+			const FProperty* Property = nullptr) -> std::expected<void, FSaveOverrideError>
 		{
 			FSaveOverrideError Error;
 			Error.Code = Code;
 			Error.ObjectPath = Object.GetObjectPath();
 			if (Property) Error.PropertyName = Property->NamePrivate.ToString();
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto ObjectOwnsProperty(const DObject& Object, const FProperty& Property) -> bool
@@ -40,7 +40,7 @@ namespace Durin
 	}
 
 	auto FObjectSaveOverrides::AddObjectOmission(
-		const DObject& Object) -> FSaveOverrideResult
+		const DObject& Object) -> std::expected<void, FSaveOverrideError>
 	{
 		if (FObjectSaveOverride* Existing = FindMutableObject(Object))
 		{
@@ -54,7 +54,7 @@ namespace Durin
 	}
 
 	auto FObjectSaveOverrides::AddPropertyOmission(
-		const DObject& Object, const FProperty& Property) -> FSaveOverrideResult
+		const DObject& Object, const FProperty& Property) -> std::expected<void, FSaveOverrideError>
 	{
 		if (!ObjectOwnsProperty(Object, Property))
 			return FailSaveOverride(ESaveOverrideError::ForeignOmissionProperty, Object, &Property);
@@ -76,7 +76,7 @@ namespace Durin
 		const DObject& Object, const FProperty& Property, const void* Replacement,
 		size_t ReplacementSize, size_t ReplacementAlignment,
 		DurinCodeGen::EPropertyGenFlags ReplacementKind,
-		const DStruct* ReplacementStruct, const DClass* ReplacementClass) -> FSaveOverrideResult
+		const DStruct* ReplacementStruct, const DClass* ReplacementClass) -> std::expected<void, FSaveOverrideError>
 	{
 		if (!ObjectOwnsProperty(Object, Property))
 			return FailSaveOverride(ESaveOverrideError::ForeignReplacementProperty, Object, &Property);
@@ -86,13 +86,13 @@ namespace Durin
 			|| Property.GetKind() != ReplacementKind)
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::StorageMismatch, Object, &Property);
-			Result.Error.ExpectedSize = Property.GetValueSize();
-			Result.Error.ActualSize = ReplacementSize;
-			Result.Error.ExpectedAlignment = Property.GetValueAlignment();
-			Result.Error.ActualAlignment = ReplacementAlignment;
-			Result.Error.ArrayDim = Property.GetArrayDim();
-			Result.Error.ExpectedKind = Property.GetKind();
-			Result.Error.ActualKind = ReplacementKind;
+			Result.error().ExpectedSize = Property.GetValueSize();
+			Result.error().ActualSize = ReplacementSize;
+			Result.error().ExpectedAlignment = Property.GetValueAlignment();
+			Result.error().ActualAlignment = ReplacementAlignment;
+			Result.error().ArrayDim = Property.GetArrayDim();
+			Result.error().ExpectedKind = Property.GetKind();
+			Result.error().ActualKind = ReplacementKind;
 			return Result;
 		}
 		if (ReplacementKind == DurinCodeGen::EPropertyGenFlags::Struct
@@ -100,8 +100,8 @@ namespace Durin
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::StructMismatch, Object, &Property);
 			if (const auto* Expected = static_cast<const FStructProperty&>(Property).GetStruct())
-				Result.Error.ExpectedType = Expected->GetQualifiedName().ToString();
-			if (ReplacementStruct) Result.Error.ActualType = ReplacementStruct->GetQualifiedName().ToString();
+				Result.error().ExpectedType = Expected->GetQualifiedName().ToString();
+			if (ReplacementStruct) Result.error().ActualType = ReplacementStruct->GetQualifiedName().ToString();
 			return Result;
 		}
 		if ((ReplacementKind == DurinCodeGen::EPropertyGenFlags::Object
@@ -112,8 +112,8 @@ namespace Durin
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::ObjectWrapperMismatch, Object, &Property);
 			if (const auto* Expected = Property.GetReferencedClass())
-				Result.Error.ExpectedType = Expected->GetQualifiedName().ToString();
-			if (ReplacementClass) Result.Error.ActualType = ReplacementClass->GetQualifiedName().ToString();
+				Result.error().ExpectedType = Expected->GetQualifiedName().ToString();
+			if (ReplacementClass) Result.error().ActualType = ReplacementClass->GetQualifiedName().ToString();
 			return Result;
 		}
 		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
@@ -126,14 +126,14 @@ namespace Durin
 		if (const auto ValueResult = Storage.CopyConstruct(&Property, Replacement, 0); !ValueResult)
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::ValueCopyFailed, Object, &Property);
-			Result.Error.Message = FormatPropertyValueError(ValueResult.Error);
+			Result.error().Cause = ValueResult.error();
 			return Result;
 		}
 		FPropertyValueSnapshot Snapshot;
 		if (const auto SnapshotResult = CapturePropertyValue(&Property, Storage.GetContainer(), 0, Snapshot); !SnapshotResult)
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::SnapshotFailed, Object, &Property);
-			Result.Error.Message = FormatPropertySnapshotError(SnapshotResult.Error);
+			Result.error().Cause = SnapshotResult.error();
 			return Result;
 		}
 		if (!ObjectOverride)
@@ -148,9 +148,14 @@ namespace Durin
 		return {};
 	}
 
-	auto FormatSaveOverrideError(const FSaveOverrideError& Error) -> std::string
+	auto ToString(const FSaveOverrideError& Error) -> std::string
 	{
-		if (!Error.Message.empty()) return Error.Message;
+		if (!std::holds_alternative<std::monostate>(Error.Cause))
+			return std::visit([](const auto& Cause) -> std::string {
+				using T = std::decay_t<decltype(Cause)>;
+				if constexpr (std::is_same_v<T, std::monostate>) return {};
+				else return ToString(Cause);
+			}, Error.Cause);
 		switch (Error.Code)
 		{
 		case ESaveOverrideError::None: return {};

@@ -30,7 +30,7 @@ namespace Durin::Editor::Material
 		return true;
 	}
 
-	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> FObjectGraphResult
+	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>
 	{
 		FAuthoredState Candidate;
 		Candidate.Outputs = Material.GetExpressionOutputs();
@@ -39,8 +39,8 @@ namespace Durin::Editor::Material
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
 			const auto Duplicated = DuplicateObject(Expression.Get(), nullptr, NAME_None);
-			if (!Duplicated) return {.Error = Duplicated.Error};
-			auto* Copy = Duplicated.Object;
+			if (!Duplicated) return std::unexpected(Duplicated.error());
+			auto* Copy = Duplicated.value();
 			Candidate.Expressions.emplace_back(Copy);
 		}
 		OutState = std::move(Candidate);
@@ -79,18 +79,18 @@ namespace Durin::Editor::Material
 		SourceRevision = Source->GetPackage()->GetEditRevision();
 		if (const auto Captured = Capture(InSource, Applied); !Captured)
 		{
-			Error = FormatObjectGraphError(Captured.Error);
+			Error = ToString(Captured.error());
 			return false;
 		}
 		FPackagePath Path;
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Source->GetPackage()->GetPackagePath());
 		if (!Mount)
 		{
-			Error = Mount.Message;
+			Error = (Mount ? std::string{} : Durin::ToString(Mount.error()));
 			return false;
 		}
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__MaterialEditorPreview/{}",
-			Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), Path); !PathValidation) { Error = FormatObjectError(PathValidation.Error); return false; }
+			Mount->Mount->VirtualRoot, FGuid::NewGuid().ToString()), Path); !PathValidation) { Error = ToString(PathValidation.error()); return false; }
 		WorkingPackage = NewObject<DPackage>(DPackage::StaticClass(), nullptr,
 			NAME_None, EObjectFlags::Transient);
 		WorkingPackage->InitializeAssetPackage(Path);
@@ -197,7 +197,7 @@ namespace Durin::Editor::Material
 		FAuthoredState Candidate;
 		if (const auto Captured = Capture(*Working, Candidate); !Captured)
 		{
-			Error = FormatObjectGraphError(Captured.Error);
+			Error = ToString(Captured.error());
 			return false;
 		}
 		if (const auto Validation = ValidateMaterialStaticProperties(Candidate.Properties); !Validation)

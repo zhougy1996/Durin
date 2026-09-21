@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
@@ -330,7 +331,7 @@ namespace Durin
 		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
 		COREDOBJECT_API auto Resize(
 			void* Container, uint64 Num, uint32 ArrayIndex = 0
-		) const -> FPropertyContainerResult;
+		) const -> std::expected<void, FPropertyContainerError>;
 
 	private:
 		FProperty* Inner = nullptr;
@@ -379,11 +380,11 @@ namespace Durin
 		COREDOBJECT_API auto Clear(void* Container, uint32 ArrayIndex = 0) const -> void;
 		COREDOBJECT_API auto Insert(
 			void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0
-		) const -> FPropertyContainerResult;
+		) const -> std::expected<void, FPropertyContainerError>;
 		COREDOBJECT_API auto Contains(const void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 		COREDOBJECT_API auto RenameKey(
 			void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0
-		) const -> FPropertyContainerResult;
+		) const -> std::expected<void, FPropertyContainerError>;
 		COREDOBJECT_API auto Remove(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 
 	private:
@@ -400,8 +401,8 @@ namespace Durin
 		const void* Container,
 		uint32 ArrayIndex,
 		FByteBuffer& OutToken
-	) -> FReflectedMapKeyResult;
+	) -> std::expected<void, FReflectedMapKeyError>;
 	COREDOBJECT_API auto ValidateCanonicalMapKeyProperty(
 		const FProperty* Property
-	) -> FReflectedMapKeyResult;
+	) -> std::expected<void, FReflectedMapKeyError>;
 } // namespace Durin

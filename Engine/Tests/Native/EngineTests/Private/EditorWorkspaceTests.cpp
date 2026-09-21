@@ -160,7 +160,7 @@ namespace
 
 TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnShutdown)
 {
-	Durin::FPropertySnapshotResult SnapshotResult;
+	std::expected<void, Durin::FPropertySnapshotError> SnapshotResult;
 	Durin::Testing::InitializeDObjectSystemForTests();
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(nullptr, "TransactorOwnerEditor");
 	ASSERT_NE(Editor, nullptr);
@@ -185,7 +185,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 		Durin::Editor::FPropertyEditTarget::ForMember(Editor, TransProperty);
 	Durin::FPropertyValueSnapshotPayload Snapshot;
 	std::string Error;
-	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 	Durin::Editor::FTransactionObjectRecord Record;
 	const auto Capture = Durin::Editor::FTransactionObjectRecord::Capture(Target, Snapshot, Snapshot, Record);
 	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.Error);

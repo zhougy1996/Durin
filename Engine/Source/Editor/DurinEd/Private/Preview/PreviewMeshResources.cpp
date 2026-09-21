@@ -29,7 +29,7 @@ namespace Durin::Editor
 			std::string Error;
 			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Paths[Index], Path); !PathValidation)
 			{
-				Report(Index, FormatObjectError(PathValidation.Error));
+				Report(Index, ToString(PathValidation.error()));
 				continue;
 			}
 			if (!FAssetRetentionService::Acquire(Path, Meshes[Index], Error))

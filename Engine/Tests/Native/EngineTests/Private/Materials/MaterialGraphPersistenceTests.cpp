@@ -22,7 +22,7 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	Parameter->DefaultValue = Definition.Value.GetVector4();
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Parameter.Get()}, {}));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations").Object);
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations").value());
 	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_EQ(Duplicate->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Duplicate->GetParameterDefinitions().front(), Definition);
@@ -82,7 +82,7 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
-		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").Object);
+		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").value());
 		ASSERT_NE(Copy, nullptr);
 		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Copy), Expected);

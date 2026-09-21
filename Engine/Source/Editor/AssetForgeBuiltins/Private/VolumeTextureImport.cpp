@@ -60,8 +60,8 @@ namespace Durin::AssetForge::Builtins
 				.ObjectPath = Texture.GetObjectPath()});
 			const auto Resolved = FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(), EMountPathExistence::AllowMissing);
 			if (!Resolved) return std::unexpected(FVolumeTextureRebuildError{.Code = EVolumeTextureRebuildError::Mount,
-				.ObjectPath = Texture.GetObjectPath(), .MountCause = Resolved.Error});
-			OutPath = Resolved.PhysicalPath;
+				.ObjectPath = Texture.GetObjectPath(), .MountCause = Resolved.error().Code});
+			OutPath = Resolved->PhysicalPath;
 			OutPath += ".dasset";
 			return {};
 		}
@@ -245,7 +245,7 @@ namespace Durin::AssetForge::Builtins
 	auto FormatVolumeTextureAtlasInspection(const std::expected<FVolumeTextureAtlasInspection, Image::FImageDecodeError>& Inspection) -> std::string
 	{
 		if (!Inspection)
-			return std::format("Failed to inspect the volume atlas: {}", Image::FormatImageDecodeError(Inspection.error()));
+			return std::format("Failed to inspect the volume atlas: {}", Image::ToString(Inspection.error()));
 		if (Inspection->SuggestedLayouts.empty())
 			return "No cubic atlas layout could be inferred from the PNG dimensions.";
 		return Inspection->bHasConfidentLayout
@@ -296,7 +296,7 @@ namespace Durin::AssetForge::Builtins
 		case EVolumeTextureTranslationError::Signature: return "Volume texture atlas is not PNG data.";
 		case EVolumeTextureTranslationError::Decode:
 			return std::format("Failed to decode volume atlas '{}': {}", Error.Filename,
-				Error.DecodeCause ? Image::FormatImageDecodeError(*Error.DecodeCause) : "Image decode failed.");
+				Error.DecodeCause ? Image::ToString(*Error.DecodeCause) : "Image decode failed.");
 		case EVolumeTextureTranslationError::Dimensions:
 			return std::format("Volume atlas is {}x{}; expected {}x{} from slice size and tiles.",
 				Error.ActualWidth, Error.ActualHeight, Error.ExpectedWidth, Error.ExpectedHeight);

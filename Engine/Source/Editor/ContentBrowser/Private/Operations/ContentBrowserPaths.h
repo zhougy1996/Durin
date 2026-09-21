@@ -78,22 +78,22 @@ namespace Durin::Editor::ContentBrowser::Private
 		static auto ResolveMountPath(std::string_view PhysicalPath,
 			std::span<const FMountSnapshot> MountSnapshot) -> FMountPath
 		{
-			const FAssetPathResult Classified =
+			const auto Classified =
 				FMountPaths::ClassifyAssetPath(PhysicalPath);
 			if (!Classified) return {};
 			const std::string ClassifiedRoot =
-				ContentBrowserFilesystem::NormalizePath(Classified.Mount->GetContentDir().generic_string());
+				ContentBrowserFilesystem::NormalizePath(Classified->Mount->GetContentDir().generic_string());
 			const auto Mount = std::ranges::find_if(
 				MountSnapshot,
 				[&](const FMountSnapshot& Candidate) {
-					return Candidate.VirtualRoot == Classified.Mount->VirtualRoot
+					return Candidate.VirtualRoot == Classified->Mount->VirtualRoot
 						&& Candidate.PhysicalRoot == ClassifiedRoot;
 				});
 			if (Mount == MountSnapshot.end()) return {};
 			return {
 				.Mount = &*Mount,
 				.NormalizedPhysicalPath = ContentBrowserFilesystem::NormalizePath(PhysicalPath),
-				.VirtualPath = Classified.NormalizedVirtualPath};
+				.VirtualPath = Classified->NormalizedVirtualPath};
 		}
 
 		static auto VirtualToPhysical(std::string_view VirtualPath)
@@ -102,10 +102,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::string EntryPath(VirtualPath);
 			if (!EntryPath.ends_with('/')) EntryPath += '/';
 			EntryPath += "_directory_";
-			const FAssetPathResult Resolved =
+			const auto Resolved =
 				FMountPaths::ResolveAssetPath(EntryPath);
 			return Resolved
-				? ContentBrowserFilesystem::NormalizePath(Resolved.PhysicalPath.parent_path().generic_string())
+				? ContentBrowserFilesystem::NormalizePath(Resolved->PhysicalPath.parent_path().generic_string())
 				: std::string{};
 		}
 

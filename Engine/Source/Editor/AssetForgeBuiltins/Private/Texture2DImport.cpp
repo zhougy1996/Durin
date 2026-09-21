@@ -78,14 +78,14 @@ namespace Durin::AssetForge::Builtins
 			std::string_view PackagePath,
 			std::filesystem::path& OutPath) -> FTexture2DSubmissionResult
 		{
-			const FAssetPathResult Resolved =
+			const auto Resolved =
 				FMountPaths::ResolveAssetPath(
 					PackagePath, EMountPathExistence::AllowMissing);
 			if (!Resolved)
 			{
-				return std::unexpected(FTexture2DSubmissionError{.Code = ETexture2DSubmissionError::Mount, .PackagePath = std::string(PackagePath), .MountCause = Resolved.Error});
+				return std::unexpected(FTexture2DSubmissionError{.Code = ETexture2DSubmissionError::Mount, .PackagePath = std::string(PackagePath), .MountCause = Resolved.error().Code});
 			}
-			OutPath = Resolved.PhysicalPath;
+			OutPath = Resolved->PhysicalPath;
 			OutPath += ".dasset";
 			return {};
 		}
@@ -496,7 +496,7 @@ namespace Durin::AssetForge::Builtins
 		{
 		case ETexture2DTranslationError::None: return {};
 		case ETexture2DTranslationError::Decode:
-			return Error.DecodeCause ? Image::FormatImageDecodeError(*Error.DecodeCause) : "Texture image decode failed.";
+			return Error.DecodeCause ? Image::ToString(*Error.DecodeCause) : "Texture image decode failed.";
 		case ETexture2DTranslationError::Dimensions:
 			return std::format("Texture dimensions {}x{} exceed the 16384 pixel limit.", Error.Width, Error.Height);
 		case ETexture2DTranslationError::Image:

@@ -44,8 +44,8 @@ namespace Durin::Editor::Material
 			const auto It = std::ranges::find(Expressions, Id, [](const auto& Expression) { return Expression->Id; });
 			const auto& Position = Positions.at(Id);
 			const auto Duplicated = DuplicateObject(It->Get(), nullptr, NAME_None);
-			auto* Copy = Duplicated.Object;
-			if (!Copy) return RejectCommand(FormatObjectGraphError(Duplicated.Error));
+			auto* Copy = Duplicated.value();
+			if (!Copy) return RejectCommand(ToString(Duplicated.error()));
 			OutPayload.Nodes.push_back({TStrongObjectPtr<DMaterialExpression>(Copy), Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
 		if (Material && Selected.contains(Material->GetExpressionOutputs().Surface.ExpressionId))
@@ -154,8 +154,8 @@ namespace Durin::Editor::Material
 		for (const auto& Entry : Payload.Nodes)
 		{
 			const auto Duplicated = DuplicateObject(Entry.Expression.Get(), nullptr, NAME_None);
-			TStrongObjectPtr<DMaterialExpression> Expression(Duplicated.Object);
-			if (!Expression) return RejectCommand(FormatObjectGraphError(Duplicated.Error));
+			TStrongObjectPtr<DMaterialExpression> Expression(Duplicated.value());
+			if (!Expression) return RejectCommand(ToString(Duplicated.error()));
 			Expression->Id = Remap.at(Entry.Expression->Id);
 			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) Input->Port = PortRemap.at(Input->Port.Id);
 			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) Output->Port = PortRemap.at(Output->Port.Id);

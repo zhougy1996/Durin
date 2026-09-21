@@ -361,9 +361,9 @@ TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
 		.DraftRootContainer = Draft,
 		.DraftLeafContainer = Draft};
 	const auto Validation = Component->PreEditChangeProperty(Proposal);
-	EXPECT_EQ(Validation.Error.Code, EObjectValidationError::PropertyRejected);
-	EXPECT_EQ(Validation.Error.PropertyName, "SplineMeshParams");
-	const auto Cause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Validation.Error.Cause);
+	EXPECT_EQ(Validation.error().Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Validation.error().PropertyName, "SplineMeshParams");
+	const auto Cause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Validation.error().Cause);
 	ASSERT_TRUE(Cause);
 	const auto* SplineError = std::get_if<FSplineMeshValidationError>(&Cause->Error);
 	ASSERT_NE(SplineError, nullptr);
@@ -382,7 +382,7 @@ TEST(FSplineMeshComponentTests, DuplicateRebuildsIndependentEquivalentSnapshot)
 	Params.EndPosition = {75.0, 25.0, 10.0};
 	Source->SetSplineMeshParams(Params);
 	auto* Duplicate = Cast<DSplineMeshComponent>(
-		DuplicateObject(Source, nullptr, "SplineMeshDuplicate").Object);
+		DuplicateObject(Source, nullptr, "SplineMeshDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetSplineMeshParams(), Source->GetSplineMeshParams());
@@ -418,7 +418,7 @@ TEST(FSplineMeshComponentTests, MaterialOverridesUseStaticMeshSlotRules)
 	ASSERT_TRUE(Base->SetMaterialByName(FName("Default"), Material));
 	EXPECT_TRUE(Base->HasMaterialOverride(0));
 	EXPECT_EQ(Base->GetMaterialByName(FName("Default")), Material);
-	auto* Duplicate = Cast<DSplineMeshComponent>(DuplicateObject(Component, nullptr, "MaterialOverrideDuplicate").Object);
+	auto* Duplicate = Cast<DSplineMeshComponent>(DuplicateObject(Component, nullptr, "MaterialOverrideDuplicate").value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetMaterialOverride(0), Material);
 	Component->SetStaticMesh(nullptr);
@@ -708,7 +708,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	std::unordered_map<DObject*, DObject*> Duplicates;
 	auto* Duplicate = Cast<ASplineMeshActor>(DuplicateObject(
-		Actor, Level, "SplineMeshActorDuplicate", &Duplicates).Object);
+		Actor, Level, "SplineMeshActorDuplicate", &Duplicates).value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSplineComponent()->GetSplinePoints(),
 		Actor->GetSplineComponent()->GetSplinePoints());

@@ -253,7 +253,7 @@ namespace Durin::Editor::Level
 			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(
 					Settings.DefaultLevel, PackagePath); !PathValidation)
 			{
-				PathError = FormatObjectError(PathValidation.Error);
+				PathError = ToString(PathValidation.error());
 				DURIN_WARN("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError);
 				return false;
 			}
@@ -645,7 +645,7 @@ namespace Durin::Editor::Level
 						if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(
 								SelectionPath, AssetPath); !PathValidation)
 						{
-							OutError = FormatObjectError(PathValidation.Error);
+							OutError = ToString(PathValidation.error());
 							return false;
 						}
 						FObjectPath LevelPath;

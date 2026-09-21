@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "DObject/Archive.h"
 #include "DObject/PropertyChange.h"
@@ -20,7 +21,7 @@ namespace Durin::Editor
 {
 	struct FPropertyEditExtension
 	{
-		std::function<FObjectValidationResult(DObject&, FPropertyEditProposal&)> PreEdit;
+		std::function<std::expected<void, FObjectValidationError>(DObject&, FPropertyEditProposal&)> PreEdit;
 		std::function<void(DObject&, const FPropertyChangedEvent&)> PostEdit;
 	};
 
@@ -219,7 +220,7 @@ namespace Durin::Editor
 	private:
 		struct FDeferredOwnerState;
 		auto CompleteDeferredEdit(
-			FObjectValidationResult Validation,
+			std::expected<void, FObjectValidationError> Validation,
 			FPropertyValueSnapshotPayload ProposedValue) -> void;
 		auto UpdateTransactorRecord() -> FPropertyEditOperationResult;
 		static auto Reject(std::string Message) -> FPropertyEditOperationResult;

@@ -102,7 +102,7 @@ namespace Durin::Editor::MainFrame
 	{
 		const std::string SourcePath = FPaths::EngineContentDir() + "Editor/Branding/DurinEditorLogoUI.png";
 		auto DecodeResult = Image::DecodeImageFromFile(SourcePath, {256ull * 1024ull, 256ull * 256ull});
-		OutError = DecodeResult ? std::string{} : Image::FormatImageDecodeError(DecodeResult.error());
+		OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 		if (!DecodeResult)
 			return false;
 		auto Image = std::move(*DecodeResult);

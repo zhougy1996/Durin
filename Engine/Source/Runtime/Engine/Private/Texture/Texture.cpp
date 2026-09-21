@@ -45,13 +45,13 @@ namespace Durin
 		check(RenderResource == nullptr);
 	}
 
-	auto DTexture::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	auto DTexture::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (Context.bCooked)
-			return CookedPlatformData.GetMetadata().LogicalSize != 0 ? FObjectValidationResult{}
+			return CookedPlatformData.GetMetadata().LogicalSize != 0 ? std::expected<void, FObjectValidationError>{}
 				: RejectLoadedObjectGraph(GetObjectPath(), "Required cooked PlatformData field is missing.");
-		return Source.IsValid() ? FObjectValidationResult{}
+		return Source.IsValid() ? std::expected<void, FObjectValidationError>{}
 			: RejectLoadedObjectGraph(GetObjectPath(), "Invalid or unsupported texture source.");
 	}
 

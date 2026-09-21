@@ -167,7 +167,7 @@ File failures retain the full IO operation, native error, path, offset and size.
 Declaration validation uses distinct count, name, duplicate, package, external
 file, value, retained-storage and reserved-kind errors. These own the declaring
 package, kind/name, file and applicable byte/count bounds. Invalid package paths
-retain their complete `FObjectError`; payload-shape rejection remains separate
+retain their complete `FObjectPathError`; payload-shape rejection remains separate
 from path parsing. Declaration failure prevents contributor execution and output
 publication, while an earlier retained cause remains valid across later runs.
 Dependency discovery has no string-based failure entrypoint. Root counts and

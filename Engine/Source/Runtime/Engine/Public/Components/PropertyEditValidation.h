@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "DObject/ObjectValidation.h"
 #include "Materials/MaterialDiagnostic.h"
 #include "Spline/SplineMeshDeformer.h"
@@ -23,7 +24,7 @@ namespace Durin
 	};
 	template<typename TError>
 	auto RejectEnginePropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal, TError Error)
-		-> FObjectValidationResult
+		-> std::expected<void, FObjectValidationError>
 	{
 		auto Cause = std::make_shared<FEnginePropertyEditCause>();
 		Cause->Error = std::move(Error);

@@ -127,7 +127,7 @@ TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecy
 	EXPECT_EQ(Actor->OwnedDuringConstruction, (std::vector<bool>{true, true}));
 	std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
 	auto* Duplicate = static_cast<FNativeConstructionTestActor*>(Durin::DuplicateObject(
-		Actor, World->GetCurrentLevel(), "DuplicateConstructed", &Duplicates).Object);
+		Actor, World->GetCurrentLevel(), "DuplicateConstructed", &Duplicates).value());
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_FALSE(Duplicates.contains(First));
 	EXPECT_FALSE(Duplicates.contains(Second));

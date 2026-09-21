@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Collision/CollisionTypes.h"
 #include "DObject/StructOps.h"
@@ -56,12 +57,12 @@ namespace Durin
 	{
 		static constexpr bool bWithPostDeserialize = true;
 
-		static auto PostDeserialize(FBodyInstance& Value, FDStructPostDeserializeContext&) -> FObjectValidationResult
+		static auto PostDeserialize(FBodyInstance& Value, FDStructPostDeserializeContext&) -> std::expected<void, FObjectValidationError>
 		{
 			if (Value.LoadProfileData()) return {};
 			auto Cause = std::make_shared<FBodyInstanceValidationCause>();
 			Cause->CollisionProfileName = Value.CollisionProfileName.ToString();
-			return {{.Code = EObjectValidationError::StructRejected, .Cause = std::move(Cause)}};
+			return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::StructRejected, .Cause = std::move(Cause)});
 		}
 	};
 }

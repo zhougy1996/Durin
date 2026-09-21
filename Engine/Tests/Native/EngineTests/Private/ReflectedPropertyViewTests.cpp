@@ -119,7 +119,7 @@ namespace
 
 		static auto StaticClass() -> Durin::DClass*;
 
-		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> Durin::FObjectValidationResult override
+		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> override
 		{
 			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
 			{
@@ -800,10 +800,10 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
 	} Extension;
 	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
 			if (&Target != Object || !Reject) return {};
 			auto Result = RejectPropertyEdit(Target, Proposal, EPropertyEditRejection::IncompleteDraft);
-			Retained = Result.Error;
+			Retained = Result.error();
 			return Result;
 		},
 		.PostEdit = [&](DObject& Target, const FPropertyChangedEvent& Event) {
@@ -858,7 +858,7 @@ TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePu
 		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
 	} Extension;
 	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
 			if (&Target != Object || Proposal.Origin != EPropertyChangeOrigin::Edit
 				|| Proposal.Phase != EPropertyChangePhase::Interactive) return {};
 			EXPECT_TRUE(Proposal.Defer([&](FPropertyEditDeferredCompletion Done) {
@@ -877,9 +877,9 @@ TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePu
 	};
 	Start();
 	ASSERT_TRUE(Completion);
-	Completion({.Error = {.Code = EObjectValidationError::PropertyRejected,
+	Completion(std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
 		.ObjectPath = Object->GetObjectPath(), .PropertyReason = EPropertyEditRejection::Rejected,
-		.PropertyName = Reflection.Property->NamePrivate.ToString()}});
+		.PropertyName = Reflection.Property->NamePrivate.ToString()}));
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions.Get()->Undo());
@@ -1009,7 +1009,7 @@ TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRe
 		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
 	} Extension;
 	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Owner, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+		.PreEdit = [&](DObject& Owner, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
 			if (&Owner != Object || !Reject) return {};
 			return RejectPropertyEdit(Owner, Proposal, EPropertyEditRejection::IncompleteDraft);
 		}});

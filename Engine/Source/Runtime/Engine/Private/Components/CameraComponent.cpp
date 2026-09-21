@@ -180,7 +180,7 @@ namespace Durin
 		MarkPackageDirty();
 	}
 
-	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return {};

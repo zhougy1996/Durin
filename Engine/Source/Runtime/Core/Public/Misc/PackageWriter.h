@@ -1,5 +1,6 @@
 #pragma once
 #include "Misc/FilePublication.h"
+#include "Misc/FileError.h"
 
 namespace Durin
 {
@@ -33,6 +34,8 @@ namespace Durin
 		EPackageWriteState State = EPackageWriteState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
 		std::vector<std::filesystem::path> AffectedFiles;
+		// Message remains the external writer diagnostic snapshot; retain native detail too.
+		std::optional<FFileError> FileCause;
 		explicit operator bool() const { return Error == EPackageWriteError::None; }
 	};
 	struct FPackageWriteFile

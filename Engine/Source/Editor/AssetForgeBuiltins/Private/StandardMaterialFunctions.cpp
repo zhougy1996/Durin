@@ -170,14 +170,14 @@ namespace Durin::AssetForge::Builtins
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);
 			FPackagePath Path;
-			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("/Engine/Materials/Functions/{}", EntryNames[I]), Path); !PathValidation) { OutError = Durin::FormatObjectError(PathValidation.Error); return false; }
+			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("/Engine/Materials/Functions/{}", EntryNames[I]), Path); !PathValidation) { OutError = Durin::ToString(PathValidation.error()); return false; }
 			DMaterialFunction* Function = nullptr;
 			DPackage* Package = FindResidentPackage(Path);
 			if (Package) Function = Cast<DMaterialFunction>(Package->FindTopLevelAsset(FName(Path.GetPackageName())));
 			else if (FindAssetExact(Path))
 			{
 				FObjectPath ObjectPath;
-				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = Durin::FormatObjectError(PathValidation.Error); return false; }
+				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = Durin::ToString(PathValidation.error()); return false; }
 				const auto Loaded = LoadObject<DMaterialFunction>(ObjectPath);
 				Function = Loaded.value_or(nullptr);
 				if (!Loaded) { OutError = (Loaded ? std::string{} : Loaded.error().Message); return false; }

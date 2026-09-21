@@ -241,7 +241,7 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	EXPECT_TRUE(Durin::FMountPaths::CheckMountDependency("/Game/Asset", "/Engine/Source"));
 	EXPECT_TRUE(Durin::FMountPaths::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
 	EXPECT_EQ(
-		Durin::FMountPaths::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
+		Durin::FMountPaths::CheckMountDependency("/Engine/Asset", "/Game/Source").error().Code,
 		Durin::EMountPathError::ForbiddenDependency);
 
 	const std::string LegacyWritable = WriteProject(

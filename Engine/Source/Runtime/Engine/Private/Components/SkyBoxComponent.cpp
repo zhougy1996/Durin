@@ -30,7 +30,7 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DSkyBoxComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
+	auto DSkyBoxComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Intensity")

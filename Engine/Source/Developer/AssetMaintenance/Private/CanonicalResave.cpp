@@ -217,9 +217,9 @@ namespace Durin
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			const FMountLookupResult Mount =
+			const auto Mount =
 				FMountPaths::FindMountForVirtualPath(Record->PackagePath.GetView());
-			if (!Mount || !Mount.Mount->bContentWritable)
+			if (!Mount || !Mount->Mount->bContentWritable)
 				Package.Diagnostics.push_back("ReadOnlyMount: package is not on an content-writable mount.");
 			if (Package.bDirty)
 				Package.Diagnostics.push_back("DirtyConflict: loaded package has authored changes.");

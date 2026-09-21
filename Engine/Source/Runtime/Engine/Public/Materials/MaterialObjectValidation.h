@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 #include "DObject/ObjectValidation.h"
 #include "Materials/MaterialProgramTypes.h"
 
@@ -13,12 +14,12 @@ namespace Durin
 	};
 
 	inline auto RejectMaterialObjectGraph(std::string ObjectPath, FMaterialError Error,
-		std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> FObjectValidationResult
+		std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> std::expected<void, FObjectValidationError>
 	{
 		auto Cause = std::make_shared<FMaterialObjectValidationCause>();
 		Cause->Error = std::move(Error);
 		Cause->Diagnostics = std::move(Diagnostics);
-		return {{.Code = EObjectValidationError::ModuleRejected,
-			.ObjectPath = std::move(ObjectPath), .Cause = std::move(Cause)}};
+		return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::ModuleRejected,
+			.ObjectPath = std::move(ObjectPath), .Cause = std::move(Cause)});
 	}
 }

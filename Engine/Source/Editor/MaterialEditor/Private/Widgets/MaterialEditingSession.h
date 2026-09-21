@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/Archive.h"
@@ -37,7 +38,7 @@ namespace Durin::Editor::Material
 			FMaterialGraphPresentation Presentation;
 			auto Matches(const DMaterial& Material) const -> bool;
 		};
-		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> FObjectGraphResult;
+		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>;
 		auto ApplyCurrent(std::string& Error) -> bool;
 		auto CheckSource(std::string& Error) const -> bool;
 		TStrongObjectPtr<DMaterial> Source;

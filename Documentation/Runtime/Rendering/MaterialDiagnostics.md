@@ -56,7 +56,7 @@ diagnostics. `FMaterialError::FromExternal` preserves a bounded copy alongside a
 provider-specific error code. This is not a general string-error constructor.
 
 Object graph admission and object-aware archive serialization retain
-`FMaterialObjectValidationCause` through `FObjectValidationResult`. Material instance
+`FMaterialObjectValidationCause` through `std::expected<void, FObjectValidationError>`. Material instance
 storage distinguishes incomplete drafts, invalid or duplicate parameter IDs, and
 invalid sampling policies; failures retain the parameter ID and array index.
 Package capture preserves the same cause after source repair. Object property-edit

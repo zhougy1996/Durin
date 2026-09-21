@@ -99,8 +99,8 @@ namespace Durin::AssetForge::Builtins
 			if (const auto* Package = Mesh.GetPackage())
 			{
 				const auto Resolved = FMountPaths::ResolveAssetPath(Package->GetPackagePath(), EMountPathExistence::AllowMissing);
-				if (Resolved) { OwningPackagePath = Resolved.PhysicalPath; OwningPackagePath += ".dasset"; bPackaged = true; }
-				else if (!SelectedPhysicalPath) { Error.MountCause = Resolved.Error; return Reject(EStaticMeshRebuildError::Mount); }
+				if (Resolved) { OwningPackagePath = Resolved->PhysicalPath; OwningPackagePath += ".dasset"; bPackaged = true; }
+				else if (!SelectedPhysicalPath) { Error.MountCause = Resolved.error().Code; return Reject(EStaticMeshRebuildError::Mount); }
 			}
 			if (!SelectedPhysicalPath && !bPackaged) return Reject(EStaticMeshRebuildError::Package);
 			std::filesystem::path PhysicalPath;

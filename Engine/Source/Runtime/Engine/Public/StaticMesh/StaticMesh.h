@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Asset/CookedMeshLoading.h"
 
@@ -233,7 +234,7 @@ namespace Durin
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(

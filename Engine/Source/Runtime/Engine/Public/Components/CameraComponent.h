@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Components/SceneComponent.h"
 
@@ -90,7 +91,7 @@ namespace Durin
 		ENGINE_API auto GetProjectionSettings() const -> const FCameraProjectionSettings&;
 		ENGINE_API auto SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void;
 		ENGINE_API auto ResolveAspectRatio(float ViewportAspectRatio) const -> float;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 
 		ENGINE_API auto SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void;
 		ENGINE_API auto GetViewMatrix() const -> FMatrix;

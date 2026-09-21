@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "Engine/Actor.h"
 #include "DObject/WeakObjectPtr.h"
@@ -15,7 +16,7 @@ namespace Durin::RoadNet
 	{
 		GENERATED_BODY()
 	public:
-		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
+		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 	protected:
 		ROADWEAVER_API auto OnUpdateTransform() -> void override;
 	};

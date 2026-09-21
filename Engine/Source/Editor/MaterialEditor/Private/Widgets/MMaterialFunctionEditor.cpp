@@ -73,7 +73,7 @@ namespace Durin::Editor::Material
 	{
 		if (Find(Tab.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath Path;
-		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = Durin::FormatObjectError(PathValidation.Error); return EDocumentOpenResult::Rejected; }
+		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = Durin::ToString(PathValidation.error()); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
 		const auto Loaded = LoadObject<DMaterialFunction>(Path);
 		Function = Loaded.value_or(nullptr);
@@ -88,11 +88,11 @@ namespace Durin::Editor::Material
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
-		if (!Mount) { Error = Mount.Message; return EDocumentOpenResult::Rejected; }
+		if (!Mount) { Error = (Mount ? std::string{} : Durin::ToString(Mount.error())); return EDocumentOpenResult::Rejected; }
 		FPackagePath PreviewPath;
-		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__FunctionPreview/{}", Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), PreviewPath); !PathValidation)
+		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__FunctionPreview/{}", Mount->Mount->VirtualRoot, FGuid::NewGuid().ToString()), PreviewPath); !PathValidation)
 		{
-			Error = Durin::FormatObjectError(PathValidation.Error);
+			Error = Durin::ToString(PathValidation.error());
 			return EDocumentOpenResult::Rejected;
 		}
 		auto* Package = NewObject<DPackage>(DPackage::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient);

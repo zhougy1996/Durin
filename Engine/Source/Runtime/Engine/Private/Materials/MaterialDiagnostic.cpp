@@ -53,7 +53,7 @@ namespace Durin
 
 	auto FormatMaterialError(const FMaterialError& Error) -> std::string
 	{
-		if (Error.DuplicationCause) return FormatObjectGraphError(*Error.DuplicationCause);
+		if (Error.DuplicationCause) return ToString(*Error.DuplicationCause);
 		auto Text = std::visit([](auto Code) -> std::string {
 			using T = decltype(Code);
 			if constexpr (std::is_same_v<T, std::monostate>) return {};

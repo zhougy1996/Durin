@@ -1,4 +1,5 @@
 #pragma once
+#include <expected>
 
 #include "DObjectGlobals.h"
 #include "DObject/ObjectValidation.h"
@@ -6,7 +7,7 @@
 namespace Durin
 {
 	class FProperty;
-	using FPropertyEditDeferredCompletion = std::function<void(FObjectValidationResult)>;
+	using FPropertyEditDeferredCompletion = std::function<void(std::expected<void, FObjectValidationError>)>;
 	using FPropertyEditDeferredCancel = std::function<void()>;
 	using FPropertyEditDeferredAction = std::function<
 		FPropertyEditDeferredCancel(FPropertyEditDeferredCompletion)>;

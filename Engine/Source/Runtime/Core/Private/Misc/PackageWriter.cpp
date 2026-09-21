@@ -89,7 +89,11 @@ namespace Durin
 					{
 						bTerminal = true;
 						Cleanup();
-						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Saved.error().ToString()};
+						Result = {EPackageWriteError::IoError};
+						Result.FileCause = Ec ? FFileError{.Operation = EFileOperation::CreateParentDirectories,
+							.NativeError = Ec, .Path = File.Replacement.Destination.parent_path()} : Saved.error();
+						Result.Message = Result.FileCause->ToString();
+						return Result;
 					}
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;
@@ -237,7 +241,9 @@ namespace Durin
 					if (Ec)
 					{
 						Result.Error = EPackageWriteError::IoError;
-						Result.Message = "Cannot create direct output directory: " + R.Destination.string() + ": " + Ec.message();
+						Result.FileCause = FFileError{.Operation = EFileOperation::CreateParentDirectories,
+							.NativeError = Ec, .Path = R.Destination.parent_path()};
+						Result.Message = Result.FileCause->ToString();
 						return Result;
 					}
 					// A failed open/write/close may already have truncated the file.

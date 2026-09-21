@@ -166,7 +166,7 @@ namespace Durin
 		const auto Duplicated = DuplicateObject(
 			SourceAsset, DestinationPackage,
 			FName(DestinationAssetPath.GetAssetName()));
-		DObject* DuplicatedAsset = Duplicated.Object;
+		DObject* DuplicatedAsset = Duplicated.value();
 		if (!DuplicatedAsset
 			|| DestinationPackage->FindTopLevelAsset(
 				DuplicatedAsset->GetFName()) != DuplicatedAsset)
@@ -174,7 +174,7 @@ namespace Durin
 			MarkObjectHierarchyAsGarbage(DestinationPackage);
 			CollectGarbage();
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
-				!Duplicated ? FormatObjectGraphError(Duplicated.Error)
+				!Duplicated ? ToString(Duplicated.error())
 					: "The source object graph could not be duplicated as an asset.");
 		}
 		DestinationPackage->MarkDirty();

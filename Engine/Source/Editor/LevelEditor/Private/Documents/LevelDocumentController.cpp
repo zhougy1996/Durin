@@ -206,7 +206,7 @@ namespace Durin::Editor::Level
 		std::string PathError;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 		{
-			PathError = Durin::FormatObjectError(PathValidation.Error);
+			PathError = Durin::ToString(PathValidation.error());
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
@@ -290,7 +290,7 @@ namespace Durin::Editor::Level
 		std::string PathError;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), OldPath); !PathValidation)
 		{
-			PathError = Durin::FormatObjectError(PathValidation.Error);
+			PathError = Durin::ToString(PathValidation.error());
 			SetError(PathError);
 			return false;
 		}
@@ -300,7 +300,7 @@ namespace Durin::Editor::Level
 		FPackagePath NewPath;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(NewPathString, NewPath); !PathValidation)
 		{
-			PathError = Durin::FormatObjectError(PathValidation.Error);
+			PathError = Durin::ToString(PathValidation.error());
 			SetError(PathError);
 			return false;
 		}

@@ -41,8 +41,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		OutError = ::Durin::Editor::FormatAssetDestinationValidation(Destination);
 		if (!Destination) return false;
 		const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(Destination.AssetPath, Name.data(), OutPath);
-		if (!PathValidation) OutError = FormatObjectError(PathValidation.Error);
-		return PathValidation.Succeeded();
+		if (!PathValidation) OutError = ToString(PathValidation.error());
+		return PathValidation.has_value();
 	}
 
 	auto FAssetCreationDialog::Confirm(bool bAllowAssetMutation) -> bool
