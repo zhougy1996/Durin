@@ -27,7 +27,6 @@ namespace Durin::Editor::Material
 	class FMaterialGraphCanvas
 	{
 	public:
-		using FReportError = std::function<void(std::string)>;
 		// One immutable document binding for the canvas lifetime; never rebound on tab activation.
 		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document, FMaterialGraphEditorServices Services = {});
 		~FMaterialGraphCanvas();
@@ -66,6 +65,9 @@ namespace Durin::Editor::Material
 
 	private:
 		friend struct FMaterialGraphCanvasTestAccess;
+		auto ReportError(std::string Message) const -> void;
+		// Returns true for both Succeeded and NoChange.
+		auto CheckCommand(const FMaterialGraphCommandResult& Result) const -> bool;
 		const FMaterialGraphDocument GraphDocument;
 		const FMaterialGraphEditorServices Services;
 		struct FVisualNode;
@@ -86,13 +88,12 @@ namespace Durin::Editor::Material
 		auto HandlePointerInput(DObject& Owner, DTransactor& Transactions,
 			const FMaterialGraphView& View, const FVisualGraph& VisualGraph,
 			const ImVec2& Minimum, const ImVec2& Maximum, const ImVec2& Size,
-			const ImVec2& Mouse, bool bPointerAvailable,
-			const FReportError& ReportError) -> void;
+			const ImVec2& Mouse, bool bPointerAvailable) -> void;
 		struct FTexturePreviewState;
 		auto UpdateTexturePreviews(DMaterial& Material) -> void;
 		auto DrawTexturePreview(const FGuid& NodeId, const ImVec2& Position, float Size) -> void;
 		auto AcceptTextureDrop(DMaterial& Material, DTransactor& Transactions,
-			const ImVec2& CanvasMinimum, const FReportError& ReportError) -> void;
+			const ImVec2& CanvasMinimum) -> void;
 
 		struct FIdleInteraction {};
 		struct FMovingInteraction
@@ -146,37 +147,29 @@ namespace Durin::Editor::Material
 		auto HandleKeyboardInput(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
-			const ImVec2& Mouse, bool bInputAvailable,
-			const FReportError& ReportError) -> void;
-		auto CopyNodes(DObject& Owner, std::span<const FGuid> NodeIds,
-			const FReportError& ReportError) -> void;
+			const ImVec2& Mouse, bool bInputAvailable) -> void;
+		auto CopyNodes(DObject& Owner, std::span<const FGuid> NodeIds) -> void;
 		auto CutNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
-			std::span<const FGuid> NodeIds,
-			const FReportError& ReportError) -> void;
+			std::span<const FGuid> NodeIds) -> void;
 		auto DuplicateNodes(DObject& Owner,
-			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds,
-			const FReportError& ReportError) -> void;
+			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds) -> void;
 		auto PasteNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
-			const ImVec2& GraphPosition,
-			const FReportError& ReportError) -> void;
+			const ImVec2& GraphPosition) -> void;
 		auto RemoveNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
-			std::span<const FGuid> NodeIds,
-			const FReportError& ReportError) -> void;
+			std::span<const FGuid> NodeIds) -> void;
 		auto DrawContextMenu(DObject& Owner,
-			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
-			const FReportError& ReportError) -> void;
+			::Durin::DTransactor& Transactions, const FMaterialGraphView& View) -> void;
 		auto RememberCreation(const FMaterialGraphCreationAction& Node) -> void;
 		auto HasClipboard() const -> bool;
 		auto DrawCreationMenu(DObject& Owner,
-			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
-			const FReportError& ReportError) -> void;
+			::Durin::DTransactor& Transactions, const FMaterialGraphView& View) -> void;
 		auto ResetInteraction() -> void;
 		auto ToggleNodePins(const FGuid& NodeId) -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
 		auto PrepareDocumentView(DObject& Owner) -> void;
 		auto PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&;
 		auto HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
-			const ImVec2& Position, const FReportError& ReportError) -> bool;
+			const ImVec2& Position) -> bool;
 		auto DrawNodeHeading(const FVisualNode& Visual, ImDrawList& DrawList,
 			const DMaterial* Material = nullptr) const -> void;
 

@@ -1,6 +1,5 @@
 #include "Graph/MaterialGraphNodeDisplay.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
-#include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
@@ -220,6 +219,18 @@ namespace Durin::Editor::Material
 	FMaterialGraphCanvas::FMaterialGraphCanvas(FMaterialGraphDocument InDocument, FMaterialGraphEditorServices InServices)
 		: GraphDocument(std::move(InDocument)), Services(std::move(InServices)) {}
 	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
+
+	auto FMaterialGraphCanvas::ReportError(std::string Message) const -> void
+	{
+		if (Services.ReportError) Services.ReportError(std::move(Message));
+	}
+
+	auto FMaterialGraphCanvas::CheckCommand(const FMaterialGraphCommandResult& Result) const -> bool
+	{
+		if (!Result.HasError()) return true;
+		ReportError(FormatMaterialGraphCommandResult(Result));
+		return false;
+	}
 
 	auto FMaterialGraphCanvas::ClearSharedClipboard() -> void { GraphClipboard.reset(); }
 
@@ -460,8 +471,7 @@ namespace Durin::Editor::Material
 		const ImVec2& CanvasMinimum,
 		const ImVec2& CanvasSize,
 		const ImVec2& Mouse,
-		bool bInputAvailable,
-		const FReportError& ReportError) -> void
+		bool bInputAvailable) -> void
 	{
 		if (!bInputAvailable || !std::holds_alternative<FIdleInteraction>(Interaction)) return;
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -474,28 +484,28 @@ namespace Durin::Editor::Material
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-			CopyNodes(Owner, Selection, ReportError);
+			CopyNodes(Owner, Selection);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-			CutNodes(Owner, Transactions, Selection, ReportError);
+			CutNodes(Owner, Transactions, Selection);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-			DuplicateNodes(Owner, Transactions, Selection, ReportError);
+			DuplicateNodes(Owner, Transactions, Selection);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
 		{
 			const ImVec2 GraphPosition = Multiply(
 				Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-			PasteNodes(Owner, Transactions, GraphPosition, ReportError);
+			PasteNodes(Owner, Transactions, GraphPosition);
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-			RemoveNodes(Owner, Transactions, Selection, ReportError);
+			RemoveNodes(Owner, Transactions, Selection);
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F))
 			FrameNodes(View, CanvasSize, SelectedNodes.empty()
@@ -504,28 +514,24 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::CopyNodes(
 		DObject& Owner,
-		std::span<const FGuid> NodeIds,
-		const FReportError& ReportError) -> void
+		std::span<const FGuid> NodeIds) -> void
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Copied =
 			GraphDocument.CopySelection(NodeIds, Payload);
-		ReportCommand(Copied, ReportError);
-		if (Copied) GraphClipboard = std::move(Payload);
+		if (CheckCommand(Copied)) GraphClipboard = std::move(Payload);
 	}
 
 	auto FMaterialGraphCanvas::CutNodes(
 		DObject& Owner,
 		DTransactor& Transactions,
-		std::span<const FGuid> NodeIds,
-		const FReportError& ReportError) -> void
+		std::span<const FGuid> NodeIds) -> void
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Cut = GraphDocument.CutSelection(NodeIds, Payload, &Transactions);
-		ReportCommand(Cut, ReportError);
-		if (!Cut) return;
+		if (!CheckCommand(Cut)) return;
 		GraphClipboard = std::move(Payload);
 		SelectedNodes.clear();
 	}
@@ -533,14 +539,12 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::DuplicateNodes(
 		DObject& Owner,
 		DTransactor& Transactions,
-		std::span<const FGuid> NodeIds,
-		const FReportError& ReportError) -> void
+		std::span<const FGuid> NodeIds) -> void
 	{
 		if (NodeIds.empty()) return;
 		const auto& Document = GraphDocument;
 		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40, &Transactions);
-		ReportCommand(Duplicated, ReportError);
-		if (!Duplicated) return;
+		if (!CheckCommand(Duplicated)) return;
 		SelectedNodes.clear();
 		SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
 			Duplicated.GeneratedNodeIds.end());
@@ -549,8 +553,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::PasteNodes(
 		DObject& Owner,
 		DTransactor& Transactions,
-		const ImVec2& GraphPosition,
-		const FReportError& ReportError) -> void
+		const ImVec2& GraphPosition) -> void
 	{
 		if (!GraphClipboard) return;
 		const bool bRepeated = LastPasteAnchor && LastPasteAnchor->x == GraphPosition.x && LastPasteAnchor->y == GraphPosition.y;
@@ -558,8 +561,7 @@ namespace Durin::Editor::Material
 		const FMaterialGraphCommandResult Pasted = GraphDocument.Paste(*GraphClipboard,
 			static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset,
 			static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset, &Transactions);
-		ReportCommand(Pasted, ReportError);
-		if (!Pasted) return;
+		if (!CheckCommand(Pasted)) return;
 		LastPasteAnchor = GraphPosition;
 		RepeatedPasteCount = Offset;
 		SelectedSurfaceOutput.reset();
@@ -571,14 +573,12 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::RemoveNodes(
 		DObject& Owner,
 		DTransactor& Transactions,
-		std::span<const FGuid> NodeIds,
-		const FReportError& ReportError) -> void
+		std::span<const FGuid> NodeIds) -> void
 	{
 		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Removed =
 			GraphDocument.RemoveNodes(NodeIds, &Transactions);
-		ReportCommand(Removed, ReportError);
-		if (Removed) SelectedNodes.clear();
+		if (CheckCommand(Removed)) SelectedNodes.clear();
 	}
 
 	auto FMaterialGraphCanvas::HasClipboard() const -> bool
@@ -589,8 +589,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::DrawContextMenu(
 		DObject& Owner,
 		DTransactor& Transactions,
-		const FMaterialGraphView& View,
-		const FReportError& ReportError) -> void
+		const FMaterialGraphView& View) -> void
 	{
 		auto* SurfaceMaterial = Cast<DMaterial>(&Owner);
 		if (!ImGui::BeginPopup("MaterialGraphContext"))
@@ -623,8 +622,8 @@ namespace Durin::Editor::Material
 				{
 					if (ImGui::MenuItem(GetProgramTypeName(Type), nullptr, Edited.ResultType == Type))
 					{
-						ReportCommand(GraphDocument.SetConstantValue(
-							Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral()), &Transactions), ReportError);
+						CheckCommand(GraphDocument.SetConstantValue(
+							Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral()), &Transactions));
 					}
 				}
 				ImGui::EndMenu();
@@ -633,29 +632,29 @@ namespace Durin::Editor::Material
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
-					ReportCommand(FMaterialGraphOperations::PromoteConstantToParameter(
-						*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data()), &Transactions), ReportError);
+					CheckCommand(FMaterialGraphOperations::PromoteConstantToParameter(
+						*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data()), &Transactions));
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Copy"))
-				CopyNodes(Owner, ContextSelection, ReportError);
+				CopyNodes(Owner, ContextSelection);
 			if (ImGui::MenuItem("Duplicate"))
-				DuplicateNodes(Owner, Transactions, ContextSelection, ReportError);
+				DuplicateNodes(Owner, Transactions, ContextSelection);
 			if (ImGui::MenuItem("Cut"))
-				CutNodes(Owner, Transactions, ContextSelection, ReportError);
+				CutNodes(Owner, Transactions, ContextSelection);
 			const bool CanRemoveSelection = std::ranges::none_of(View.Nodes, [&](const auto& Node) {
 				return std::ranges::find(ContextSelection, Node.Node.Id) != ContextSelection.end()
 					&& !GraphDocument.GetSchema().CanRemove(Node.Node.bMaterialOutput);
 			});
 			if (ImGui::MenuItem("Delete", nullptr, false, CanRemoveSelection))
-				RemoveNodes(Owner, Transactions, ContextSelection, ReportError);
+				RemoveNodes(Owner, Transactions, ContextSelection);
 		}
 		else if (SurfaceMaterial && ContextSurfaceOutput)
 		{
 			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					ReportCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id), &Transactions), ReportError);
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id), &Transactions));
 			}
 			else
 			{
@@ -670,18 +669,18 @@ namespace Durin::Editor::Material
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					ReportCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput), &Transactions), ReportError);
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput), &Transactions));
 				if (ImGui::MenuItem("Reset Default"))
-					ReportCommand(FMaterialGraphOperations::ResetSurfaceDefault(
-						*SurfaceMaterial, *ContextSurfaceOutput, &Transactions), ReportError);
+					CheckCommand(FMaterialGraphOperations::ResetSurfaceDefault(
+						*SurfaceMaterial, *ContextSurfaceOutput, &Transactions));
 				if (!Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Promote to Parameter"))
-					ReportCommand(
+					CheckCommand(
 						FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
-							*SurfaceMaterial, NodeRequest, &Transactions), ReportError);
+							*SurfaceMaterial, NodeRequest, &Transactions));
 				if (ImGui::MenuItem("Add Texture"))
-					ReportCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
-						*SurfaceMaterial, NodeRequest, &Transactions), ReportError);
+					CheckCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
+						*SurfaceMaterial, NodeRequest, &Transactions));
 			}
 		}
 		ImGui::EndPopup();
@@ -738,7 +737,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphCanvas::HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
-		const ImVec2& Position, const FReportError& ReportError) -> bool
+		const ImVec2& Position) -> bool
 	{
 		const auto& IO = ImGui::GetIO();
 		if (!std::holds_alternative<FIdleInteraction>(Interaction) || IO.WantTextInput
@@ -754,8 +753,7 @@ namespace Durin::Editor::Material
 			if (Entry == Catalog.end()) continue;
 			const auto Created = GraphDocument.Create({MakeCreationAction(*Entry),
 				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
-			ReportCommand(Created, ReportError);
-			if (Created)
+			if (CheckCommand(Created))
 			{
 				SelectedNodes.clear();
 				SelectedSurfaceOutput.reset();
@@ -822,8 +820,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::HandlePointerInput(DObject& Owner, DTransactor& Transactions,
 		const FMaterialGraphView& View, const FVisualGraph& VisualGraph,
 		const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum, const ImVec2& CanvasSize,
-		const ImVec2& Mouse, bool bPointerAvailable,
-		const FReportError& ReportError) -> void
+		const ImVec2& Mouse, bool bPointerAvailable) -> void
 	{
 		const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
 		if (Hit.bPinExpansion && bPointerAvailable
@@ -846,8 +843,7 @@ namespace Durin::Editor::Material
 					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
 					const auto Created = GraphDocument.Create({MakeFunctionCreationAction(Path.ToString()),
 						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
-					ReportCommand(Created, ReportError);
-					if (Created)
+					if (CheckCommand(Created))
 					{
 						SelectedSurfaceOutput.reset();
 						SelectedNodes = {Created.GeneratedNodeIds.front()};
@@ -896,7 +892,7 @@ namespace Durin::Editor::Material
 			&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			bCreationShortcutHandled = HandleCreationShortcut(Owner, Transactions,
-				Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom), ReportError);
+				Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom));
 		}
 		const bool bOpenCreationMenuByDoubleClick = bCanvasPointerInteractionAvailable
 			&& !bCreationShortcutHandled
@@ -914,7 +910,7 @@ namespace Durin::Editor::Material
 		{
 			if (MoveSession.IsActive())
 			{
-				ReportCommand(MoveSession.Cancel(), ReportError);
+				CheckCommand(MoveSession.Cancel());
 			}
 			ResetInteraction();
 		}
@@ -948,8 +944,7 @@ namespace Durin::Editor::Material
 				{
 					const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 					const FMaterialGraphCommandResult Begun = MoveSession.Begin(Owner, Selection, &Transactions);
-					ReportCommand(Begun, ReportError);
-					if (Begun)
+					if (CheckCommand(Begun))
 					{
 						FMovingInteraction Moving{.StartMouse = Mouse};
 						for (const FVisualNode& Visual : VisualNodes)
@@ -986,8 +981,7 @@ namespace Durin::Editor::Material
 						Positions.push_back(std::move(Position));
 					}
 					const auto Applied = MoveSession.Apply(Positions);
-					ReportCommand(Applied, ReportError);
-					if (Applied)
+					if (CheckCommand(Applied))
 						for (const auto& Position : MoveSession.GetPositions())
 							if (const auto It = CachedNodeIndices.find(Position.NodeId); It != CachedNodeIndices.end())
 							{
@@ -998,7 +992,7 @@ namespace Durin::Editor::Material
 			}
 			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 			{
-				ReportCommand(MoveSession.Commit(), ReportError);
+				CheckCommand(MoveSession.Commit());
 				ResetInteraction();
 			}
 		}
@@ -1036,8 +1030,8 @@ namespace Durin::Editor::Material
 			{
 				ResetInteraction();
 				if (bPointerAvailable && HoveredInputNode)
-					ReportCommand(ConnectPin(HoveredInputNode->View->Node.Id, HoveredInputIndex,
-						SourceLink, ImGui::GetIO().KeyShift), ReportError);
+					CheckCommand(ConnectPin(HoveredInputNode->View->Node.Id, HoveredInputIndex,
+						SourceLink, ImGui::GetIO().KeyShift));
 
 				else if (bCanvasPointerInteractionAvailable && !HoveredNode
 					&& !HoveredOutput)
@@ -1077,15 +1071,15 @@ namespace Durin::Editor::Material
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 					const auto& Document = GraphDocument;
-					ReportCommand(Document.Connect(Address,
-						FMaterialGraphPinAddress::Output(Source), true, &Transactions), ReportError);
+					CheckCommand(Document.Connect(Address,
+						FMaterialGraphPinAddress::Output(Source), true, &Transactions));
 				}
 				ResetInteraction();
 			}
 		}
 
 		HandleKeyboardInput(Owner, Transactions, View, CanvasMinimum,
-			CanvasSize, Mouse, bCanvasKeyboardInteractionAvailable, ReportError);
+			CanvasSize, Mouse, bCanvasKeyboardInteractionAvailable);
 		if (bCanvasPointerInteractionAvailable
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
 			&& ImGui::IsMouseClicked(ImGuiMouseButton_Right))
@@ -1118,7 +1112,6 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::Draw(DTransactor& Transactions,
 		float Height) -> void
 	{
-		const auto& ReportError = Services.ReportError;
 		const auto& OpenFunction = Services.OpenFunction;
 		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
 		auto& Owner = *GraphDocument.GetOwner();
@@ -1135,7 +1128,7 @@ namespace Durin::Editor::Material
 			if (ImGui::Button("Auto Layout"))
 			{
 				const FMaterialGraphCommandResult Layout = GraphDocument.Layout({}, &Transactions);
-				ReportCommand(Layout, ReportError);
+				CheckCommand(Layout);
 			}
 			ImGui::SameLine();
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
@@ -1162,7 +1155,7 @@ namespace Durin::Editor::Material
 			const bool bHovered = ImGui::IsItemHovered();
 			if (Material)
 			{
-				AcceptTextureDrop(*Material, Transactions, CanvasMinimum, ReportError);
+				AcceptTextureDrop(*Material, Transactions, CanvasMinimum);
 				UpdateTexturePreviews(*Material);
 			}
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
@@ -1344,8 +1337,7 @@ namespace Durin::Editor::Material
 				&& !HoveredNode->View->FunctionPath.empty())
 				OpenFunction(HoveredNode->View->FunctionPath);
 			HandlePointerInput(Owner, Transactions, View, VisualGraph, CanvasMinimum,
-				CanvasMaximum, CanvasSize, Mouse, bHovered,
-				ReportError);
+				CanvasMaximum, CanvasSize, Mouse, bHovered);
 			if (bFrameSelectionRequested)
 				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 			if (bFrameAllRequested)
@@ -1359,8 +1351,8 @@ namespace Durin::Editor::Material
 
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 
-			DrawContextMenu(Owner, Transactions, View, ReportError);
-			DrawCreationMenu(Owner, Transactions, View, ReportError);
+			DrawContextMenu(Owner, Transactions, View);
+			DrawCreationMenu(Owner, Transactions, View);
 
 			DrawList->PopClipRect();
 		}

@@ -72,7 +72,7 @@ namespace Durin::Editor::Material
 		ImGui::GetWindowDrawList()->AddText({Position.x + 5, Position.y + Size * .4f}, IM_COL32(180, 187, 200, 255), "Texture");
 	}
 	auto FMaterialGraphCanvas::AcceptTextureDrop(DMaterial& Material, DTransactor& Transactions,
-		const ImVec2& CanvasMinimum, const FReportError& ReportError) -> void
+		const ImVec2& CanvasMinimum) -> void
 	{
 		if (!ImGui::BeginDragDropTarget()) return;
 		if (const auto* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType))
@@ -104,8 +104,7 @@ namespace Durin::Editor::Material
 						State.Presentation.Nodes.push_back({Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
 							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom)});
 						const auto Result = State.Commit("Add Texture Sample Parameter", &Transactions);
-						if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
-						else SelectedNodes = {Id};
+						if (CheckCommand(Result)) SelectedNodes = {Id};
 					}
 				}
 				else ReportError("Drop a Texture2D asset to create a sample parameter.");

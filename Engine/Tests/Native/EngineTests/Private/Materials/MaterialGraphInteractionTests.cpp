@@ -89,8 +89,7 @@ namespace Durin::Editor::Material
 		static auto Duplicate(FMaterialGraphCanvas& Canvas, DMaterial& Material,
 			DTransactor& Transactions, std::span<const FGuid> Nodes) -> void
 		{
-			Canvas.DuplicateNodes(Material, Transactions, Nodes,
-				[](const std::string& Error) { ADD_FAILURE() << Error; });
+			Canvas.DuplicateNodes(Material, Transactions, Nodes);
 		}
 		static auto Select(FMaterialGraphCanvas& Canvas,
 			std::initializer_list<FMaterialGraphCanvasNodeId> Nodes) -> void
@@ -196,7 +195,8 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		std::vector<FGuid> Generated;
 		if (bCanvas)
 		{
-			FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+			FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material),
+				{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
 			FMaterialGraphCanvasTestAccess::Duplicate(Canvas, *Material, *Transactions.Get(), Selection);
 			Generated = FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas);
 		}

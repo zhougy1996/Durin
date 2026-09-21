@@ -1,6 +1,5 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
-#include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Editor/Transaction.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
@@ -49,8 +48,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::DrawCreationMenu(
 		DObject& Owner,
 		DTransactor& Transactions,
-		const FMaterialGraphView& View,
-		const FReportError& ReportError) -> void
+		const FMaterialGraphView& View) -> void
 	{
 		auto* CreationMenu = std::get_if<FNodeCreationMenuInteraction>(&Interaction);
 		if (CreationMenu && CreationMenu->bOpenRequested)
@@ -223,7 +221,7 @@ namespace Durin::Editor::Material
 			if (HasClipboard() && ImGui::Button("Paste"))
 			{
 				const ImVec2 Position = CreationMenu->GraphPosition;
-				PasteNodes(Owner, Transactions, Position, ReportError);
+				PasteNodes(Owner, Transactions, Position);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();
@@ -233,7 +231,7 @@ namespace Durin::Editor::Material
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
 				const auto Layout = FMaterialGraphDocument(*Base).Layout({}, &Transactions);
-				ReportCommand(Layout, ReportError);
+				CheckCommand(Layout);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();
@@ -248,8 +246,7 @@ namespace Durin::Editor::Material
 			if (CreationMenu->SourceNode.IsValid()) Request.Source = FMaterialGraphPinAddress::Output(
 				{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
 			const auto Created = GraphDocument.Create(Request, &Transactions);
-			ReportCommand(Created, ReportError);
-			if (Created)
+			if (CheckCommand(Created))
 			{
 				SelectedSurfaceOutput.reset();
 				if (!Created.GeneratedNodeIds.empty()) SelectedNodes = {Created.GeneratedNodeIds.front()};

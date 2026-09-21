@@ -14,7 +14,6 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
 	{
-		const auto& ReportError = Services.ReportError;
 		auto* MaterialOwner = Cast<DMaterial>(GraphDocument.GetOwner());
 		if (!MaterialOwner) { CancelInteraction(); return; }
 		auto& Material = *MaterialOwner;
@@ -49,27 +48,23 @@ namespace Durin::Editor::Material
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
-		const auto Report = [&](const FMaterialGraphCommandResult& Result) {
-			if (!Result && ReportError) ReportError(FormatMaterialGraphCommandResult(Result));
-			return static_cast<bool>(Result);
-		};
 		if (Edited)
 		{
 			if (ParameterSession.IsActive() && (ParameterWidget != Widget || EditingParameterId != Parameter.Id))
-				Report(ParameterSession.Commit());
-			if (!ParameterSession.IsActive() && Report(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
+				CheckCommand(ParameterSession.Commit());
+			if (!ParameterSession.IsActive() && CheckCommand(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
 			{
 				ParameterWidget = Widget;
 				EditingParameterId = Parameter.Id;
 			}
-			if (ParameterSession.IsActive() && ParameterWidget == Widget) Report(ParameterSession.Apply(Value));
+			if (ParameterSession.IsActive() && ParameterWidget == Widget) CheckCommand(ParameterSession.Apply(Value));
 		}
 		if (ParameterSession.IsActive() && ParameterWidget == Widget)
 		{
 			ParameterFrame = ImGui::GetFrameCount();
 			// Escape may deactivate an ImGui input before this check; cancellation wins.
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) Report(ParameterSession.Cancel());
-			else if (Deactivated || (!Active && Edited)) Report(ParameterSession.Commit());
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CheckCommand(ParameterSession.Cancel());
+			else if (Deactivated || (!Active && Edited)) CheckCommand(ParameterSession.Commit());
 		}
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
@@ -91,7 +86,6 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
 	{
-		const auto& ReportError = Services.ReportError;
 		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
 		auto& Owner = *GraphDocument.GetOwner();
 		const auto Selection = GetSelectedProgramNodes();
@@ -132,7 +126,7 @@ namespace Durin::Editor::Material
 		}
 		bool Changed = false;
 		const auto Submit = [&](FMaterialGraphCommandResult Result) {
-			if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+			CheckCommand(Result);
 			Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 		};
 		const auto EditText = [](const char* Label, std::string& Value) {
