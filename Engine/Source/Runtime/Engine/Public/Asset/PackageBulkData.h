@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 
@@ -61,20 +63,15 @@ namespace Durin
 		uint64 Offset = 0;
 		FXxHash128 ActualDigest{};
 	};
-	struct FPackageBulkDataResult
-	{
-		FPackageBulkDataError Error;
-		auto Succeeded() const -> bool { return Error.Code == EPackageBulkDataError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FPackageBulkDataResult = std::expected<void, FPackageBulkDataError>;
 	ENGINE_API auto FormatPackageBulkDataError(const FPackageBulkDataError& Error) -> std::string;
 
-	ENGINE_API auto ValidatePackageBulkDataMetadata(
+	[[nodiscard]] ENGINE_API auto ValidatePackageBulkDataMetadata(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries) -> FPackageBulkDataResult;
 
 	// Validates exact extent, digest, declared payload ranges, and zero padding.
-	ENGINE_API auto ValidatePackageBulkDataSegment(
+	[[nodiscard]] ENGINE_API auto ValidatePackageBulkDataSegment(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
 		FByteView Segment) -> FPackageBulkDataResult;

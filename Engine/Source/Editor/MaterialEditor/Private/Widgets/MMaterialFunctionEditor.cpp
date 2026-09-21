@@ -75,8 +75,9 @@ namespace Durin::Editor::Material
 		FObjectPath Path;
 		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Tab.ResourceId, Path); !PathValidation) { Error = Durin::FormatObjectError(PathValidation.Error); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
-		const auto Loaded = LoadObject(Path, Function);
-		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
+		const auto Loaded = LoadObject<DMaterialFunction>(Path);
+		Function = Loaded.value_or(nullptr);
+		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : (Loaded ? std::string{} : Loaded.error().Message); return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
 		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),

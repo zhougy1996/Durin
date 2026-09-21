@@ -27,30 +27,19 @@ namespace Durin
 		Loaded
 	};
 
-	struct FSoftObjectResolveResult
-	{
-		FAssetReadResult Result;
-		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
-		DObject* Object = nullptr;
-		FObjectPath ResolvedPath;
-		bool bRedirected = false;
-
-		auto Succeeded() const -> bool { return Result.Succeeded(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
-
 	template<typename T>
-	struct TSoftObjectResolveResult
+	struct TSoftObjectResolution
 	{
-		FAssetReadResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		T* Object = nullptr;
 		FObjectPath ResolvedPath;
 		bool bRedirected = false;
-
-		auto Succeeded() const -> bool { return Result.Succeeded(); }
-		explicit operator bool() const { return Succeeded(); }
 	};
+
+	using FSoftObjectResolution = TSoftObjectResolution<DObject>;
+	using FSoftObjectResolveResult = std::expected<FSoftObjectResolution, FAssetReadError>;
+	template<typename T>
+	using TSoftObjectResolveResult = std::expected<TSoftObjectResolution<T>, FAssetReadError>;
 
 	enum class EAssetLoadMutationKind : uint8
 	{
@@ -143,36 +132,34 @@ namespace Durin
 		FAssetPackageLoadScope() = default;
 		FAssetPackageLoadScope(const FAssetPackageLoadScope&) = delete;
 		auto operator=(const FAssetPackageLoadScope&) -> FAssetPackageLoadScope& = delete;
-		ENGINE_API auto LoadPackage(const FPackagePath& Path, DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
-		ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
-			DObject*& OutObject, FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
-		ENGINE_API auto LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
-			DObject*& OutObject, ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
+		[[nodiscard]] ENGINE_API auto LoadPackage(const FPackagePath& Path,
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
+		[[nodiscard]] ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
+		[[nodiscard]] ENGINE_API auto LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
+			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
 
 		template<typename T>
-		auto LoadObject(const FObjectPath& Path, T*& OutObject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
+		[[nodiscard]] auto LoadObject(const FObjectPath& Path,
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
-			DObject* Object = nullptr;
-			auto Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
-			OutObject = Result ? static_cast<T*>(Object) : nullptr;
-			return Result;
+			auto Result = LoadObject(Path, T::StaticClass(), OutReport);
+			if (!Result) return std::unexpected(std::move(Result.error()));
+			return static_cast<T*>(*Result);
 		}
 
 		template<typename T>
-		auto LoadSoftObject(TSoftObjectPtr<T>& Reference, T*& OutObject,
+		[[nodiscard]] auto LoadSoftObject(TSoftObjectPtr<T>& Reference,
 			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
+			FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
-			DObject* Object = nullptr;
 			auto Result = LoadSoftObject(
-				Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport);
-			OutObject = Result ? static_cast<T*>(Object) : nullptr;
-			return Result;
+				Reference.GetBase(), T::StaticClass(), NullPolicy, OutReport);
+			if (!Result) return std::unexpected(std::move(Result.error()));
+			return static_cast<T*>(*Result);
 		}
 
 		// Rejects unsaved state and restores residency for live references, returning InUse.
@@ -192,71 +179,64 @@ namespace Durin
 		DiscardUnsaved,
 	};
 
-	ENGINE_API auto LoadPackage(
+	[[nodiscard]] ENGINE_API auto LoadPackage(
 		const FPackagePath& Path,
-		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
-	ENGINE_API auto LoadObject(
+		FAssetLoadReport* OutReport = nullptr) -> std::expected<DPackage*, FAssetReadError>;
+	[[nodiscard]] ENGINE_API auto LoadObject(
 		const FObjectPath& Path,
 		const DClass* ExpectedClass,
-		DObject*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
-	inline auto LoadObject(
+		FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>;
+	[[nodiscard]] inline auto LoadObject(
 		const FTopLevelAssetPath& Path,
 		const DClass* ExpectedClass,
-		DObject*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
+		FAssetLoadReport* OutReport = nullptr) -> std::expected<DObject*, FAssetReadError>
 	{
 		FObjectPath ObjectPath;
 		if (!FObjectPath::TryCreate(
 			Path, std::span<const std::string>{}, ObjectPath))
 		{
-			OutObject = nullptr;
-			return {EAssetReadError::InvalidPath,
-				"A top-level asset load requires a valid exact asset path."};
+			return std::unexpected(FAssetReadError{EAssetReadError::InvalidPath,
+				"A top-level asset load requires a valid exact asset path."});
 		}
-		return LoadObject(ObjectPath, ExpectedClass, OutObject, OutReport);
+		return LoadObject(ObjectPath, ExpectedClass, OutReport);
 	}
 
 	template<typename T>
-	auto LoadObject(const FObjectPath& Path, T*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
+	[[nodiscard]] auto LoadObject(const FObjectPath& Path,
+		FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
-		DObject* Object = nullptr;
-		auto Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
-		OutObject = Result ? static_cast<T*>(Object) : nullptr;
-		return Result;
+		auto Result = LoadObject(Path, T::StaticClass(), OutReport);
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return static_cast<T*>(*Result);
 	}
 
 	template<typename T>
-	auto LoadObject(const FTopLevelAssetPath& Path, T*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
+	[[nodiscard]] auto LoadObject(const FTopLevelAssetPath& Path,
+		FAssetLoadReport* OutReport = nullptr) -> std::expected<T*, FAssetReadError>
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
-		DObject* Object = nullptr;
 		auto Result = LoadObject(
-			Path, T::StaticClass(), Object, OutReport);
-		OutObject = Result ? static_cast<T*>(Object) : nullptr;
-		return Result;
+			Path, T::StaticClass(), OutReport);
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return static_cast<T*>(*Result);
 	}
 
-	ENGINE_API auto ResolveSoftObject(
+	[[nodiscard]] ENGINE_API auto ResolveSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject
 	)
 		-> FSoftObjectResolveResult;
-	ENGINE_API auto LoadSoftObject(
+	[[nodiscard]] ENGINE_API auto LoadSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
-		DObject*& OutObject,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
 		FAssetLoadReport* OutReport = nullptr
-	) -> FAssetReadResult;
+	) -> std::expected<DObject*, FAssetReadError>;
 
 	template<typename T>
-	auto ResolveSoftObject(
+	[[nodiscard]] auto ResolveSoftObject(
 		TSoftObjectPtr<T>& Reference,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject
 	)
@@ -266,30 +246,28 @@ namespace Durin
 		FSoftObjectResolveResult Result = ResolveSoftObject(
 			Reference.GetBase(), T::StaticClass(), NullPolicy
 		);
-		return {
-			.Result = std::move(Result.Result),
-			.State = Result.State,
-			.Object = static_cast<T*>(Result.Object),
-			.ResolvedPath = std::move(Result.ResolvedPath),
-			.bRedirected = Result.bRedirected
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return TSoftObjectResolution<T>{
+			.State = Result->State,
+			.Object = static_cast<T*>(Result->Object),
+			.ResolvedPath = std::move(Result->ResolvedPath),
+			.bRedirected = Result->bRedirected
 		};
 	}
 
 	template<typename T>
-	auto LoadSoftObject(
+	[[nodiscard]] auto LoadSoftObject(
 		TSoftObjectPtr<T>& Reference,
-		T*& OutObject,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
 		FAssetLoadReport* OutReport = nullptr
-	) -> FAssetReadResult
+	) -> std::expected<T*, FAssetReadError>
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
-		DObject* Object = nullptr;
 		auto Result = LoadSoftObject(
-			Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport
+			Reference.GetBase(), T::StaticClass(), NullPolicy, OutReport
 		);
-		OutObject = Result ? static_cast<T*>(Object) : nullptr;
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return static_cast<T*>(*Result);
 	}
 
 	ENGINE_API auto IsPackageLoading(const FPackagePath& Path) -> bool;

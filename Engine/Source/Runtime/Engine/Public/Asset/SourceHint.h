@@ -1,6 +1,9 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
+#include "Misc/FilePath.h"
 
 namespace Durin
 {
@@ -25,25 +28,21 @@ namespace Durin
 		std::optional<ESourceHintBase> Base;
 		std::error_code SystemError;
 	};
-	struct FSourceHintResult
+	struct FSourceHint
 	{
-		FSourceHintError Error;
-		auto Succeeded() const -> bool { return Error.Code == ESourceHintError::None; }
-		explicit operator bool() const { return Succeeded(); }
+		ESourceHintBase Base{};
+		std::string Hint;
 	};
 	ENGINE_API auto FormatSourceHintError(const FSourceHintError& Error) -> std::string;
 
 	// Classifies a captured source against an explicit or canonical default base.
-	ENGINE_API auto MakeSourceHint(
+	[[nodiscard]] ENGINE_API auto MakeSourceHint(
 		std::string_view PhysicalPath,
 		std::string_view OwningPackagePhysicalPath,
-		ESourceHintBase& OutBase,
-		std::string& OutHint,
-		std::optional<ESourceHintBase> RequestedBase = {}) -> FSourceHintResult;
+		std::optional<ESourceHintBase> RequestedBase = {}) -> std::expected<FSourceHint, FSourceHintError>;
 	// Resolves an optional hint for an explicit reimport action only.
-	ENGINE_API auto ResolveSourceHint(
+	[[nodiscard]] ENGINE_API auto ResolveSourceHint(
 		ESourceHintBase Base,
 		std::string_view Hint,
-		std::string_view OwningPackagePhysicalPath,
-		std::string& OutPhysicalPath) -> FSourceHintResult;
+		std::string_view OwningPackagePhysicalPath) -> std::expected<FFilePath, FSourceHintError>;
 }

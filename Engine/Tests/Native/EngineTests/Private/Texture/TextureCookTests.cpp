@@ -153,8 +153,9 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const auto Load =
-		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
-	ASSERT_TRUE(Load) << Load.Message;
+		Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = Load.value_or(nullptr);
+	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->HasPlatformData());
 	Durin::FCookContext Cook(
@@ -333,8 +334,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		});
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const auto LoadResult =
-		Durin::LoadObject(CookedAssetPath, CookedTexture);
-	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath);
+		CookedTexture = LoadResult.value_or(nullptr);
+	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(CookedTexture, nullptr);
 	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
 	const auto PlatformBeforeGetIdentity = CookedTexture->GetPlatformDataShared();
@@ -381,9 +383,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FPackagePath SampleMaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/SampleMaterial", SampleMaterialPath));
 	Durin::DMaterial* CookedMaterial = nullptr;
-	const auto MaterialLoad = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath), CookedMaterial);
-	ASSERT_TRUE(MaterialLoad) << MaterialLoad.Message;
+	const auto MaterialLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath));
+	CookedMaterial = MaterialLoad.value_or(nullptr);
+	ASSERT_TRUE(MaterialLoad) << (MaterialLoad ? std::string{} : MaterialLoad.error().Message);
 	ASSERT_NE(CookedMaterial, nullptr);
 	ASSERT_TRUE(CookedMaterial->GetAcceptedCompiledProgram());
 	EXPECT_EQ(CookedMaterial->GetAcceptedCompiledProgram()->Identity, ExpectedMaterialIdentity);
@@ -541,11 +543,12 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	const auto CorruptBulkLoad =
-		Durin::LoadObject(CookedAssetPath, CookedTexture);
+		Durin::LoadObject<Durin::DTexture2D>(CookedAssetPath);
+		CookedTexture = CorruptBulkLoad.value_or(nullptr);
 	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);
-	EXPECT_NE(CorruptBulkLoad.Message.find("bulk segment"), std::string::npos)
-		<< CorruptBulkLoad.Message;
+	EXPECT_NE((CorruptBulkLoad ? std::string{} : CorruptBulkLoad.error().Message).find("bulk segment"), std::string::npos)
+		<< (CorruptBulkLoad ? std::string{} : CorruptBulkLoad.error().Message);
 	ASSERT_TRUE(AssetRuntime.Restore());
 }
 

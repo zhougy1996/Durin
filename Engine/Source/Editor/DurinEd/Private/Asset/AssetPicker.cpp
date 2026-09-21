@@ -403,10 +403,11 @@ namespace Durin::Editor::AssetPicker
 						continue;
 					}
 					DObject* LoadedAsset = nullptr;
-					const auto LoadResult = LoadObject(Path, LoadedAsset);
+					const auto LoadResult = LoadObject<DObject>(Path);
+					LoadedAsset = LoadResult.value_or(nullptr);
 					if (!LoadResult || !LoadedAsset)
 					{
-						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
+						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : (LoadResult ? std::string{} : LoadResult.error().Message);
 						continue;
 					}
 					AssignObject(LoadedAsset);
@@ -467,11 +468,12 @@ namespace Durin::Editor::AssetPicker
 					else
 					{
 						DObject* LoadedAsset = nullptr;
-						const auto LoadResult = LoadObject(DroppedPath, LoadedAsset);
+						const auto LoadResult = LoadObject<DObject>(DroppedPath);
+						LoadedAsset = LoadResult.value_or(nullptr);
 						if (!LoadResult || !LoadedAsset)
 							PickerResult.Error = LoadResult
 								? "The dropped asset could not be loaded."
-								: LoadResult.Message;
+								: (LoadResult ? std::string{} : LoadResult.error().Message);
 						else if (!MatchesClass(LoadedAsset->GetClass(), Config.RequiredClass, Config.ClassPolicy))
 							PickerResult.Error = "The loaded asset does not match the required class.";
 						else AssignObject(LoadedAsset);

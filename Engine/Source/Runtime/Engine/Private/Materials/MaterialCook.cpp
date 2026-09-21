@@ -105,11 +105,12 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Encoded.Error));
 				return;
 			}
-			if (const auto Bulk = FBulkData::TryCreateDetached(Bytes, Projection); !Bulk)
+			if (auto Bulk = FBulkData::TryCreateDetached(Bytes); !Bulk)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, FormatBulkDataError(Bulk.Error));
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatBulkDataError(Bulk.error()));
 				return;
 			}
+			else { Projection = std::move(*Bulk); }
 			FieldValue = &Projection;
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterialInterface"),

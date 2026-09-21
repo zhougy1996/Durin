@@ -149,8 +149,8 @@ namespace Durin
 	auto FEditorBulkData::UpdatePayload(FSharedByteBuffer Buffer) -> FEditorBulkDataResult
 	{
 		if (Buffer.GetSize() > MaximumAuthoredBulkBytes)
-			return {.Error = {.Code = EEditorBulkDataError::PayloadSizeLimit,
-				.Actual = Buffer.GetSize(), .Expected = MaximumAuthoredBulkBytes}};
+			return std::unexpected(FEditorBulkDataError{.Code = EEditorBulkDataError::PayloadSizeLimit,
+				.Actual = Buffer.GetSize(), .Expected = MaximumAuthoredBulkBytes});
 		const FXxHash128 CandidateId = FXxHash128::HashBuffer(Buffer.GetBytes());
 		auto Expected = State.Load();
 		while (true)
@@ -166,29 +166,29 @@ namespace Durin
 		FGuid InInstanceId,
 		FXxHash128 InContentId,
 		uint64 InLogicalSize,
-		FEditorBulkDataSource InSource,
-		FEditorBulkData& OutValue) -> FEditorBulkDataResult
+		FEditorBulkDataSource InSource) -> std::expected<FEditorBulkData, FEditorBulkDataError>
 	{
 		auto Reject = [&](EEditorBulkDataError Code) {
-			return FEditorBulkDataResult{.Error = {.Code = Code,
+			return std::unexpected(FEditorBulkDataError{.Code = Code,
 				.InstanceId = InInstanceId, .ContentId = InContentId,
-				.Actual = InLogicalSize, .Expected = InSource.StoredSize}};
+				.Actual = InLogicalSize, .Expected = InSource.StoredSize});
 		};
 		if (!InInstanceId.IsValid()) return Reject(EEditorBulkDataError::InvalidInstanceIdentity);
 		if (InContentId.IsZero()) return Reject(EEditorBulkDataError::MissingContentIdentity);
 		if (InLogicalSize != InSource.StoredSize) return Reject(EEditorBulkDataError::LogicalSizeMismatch);
-		if (const auto Validation = ValidatePackageResourceRange(InSource, MaximumAuthoredBulkBytes); !Validation)
+		if (auto Validation = ValidatePackageResourceRange(InSource, MaximumAuthoredBulkBytes); !Validation)
 		{
 			auto Result = Reject(EEditorBulkDataError::InvalidRange);
-			Result.Error.RangeCause = Validation.Error;
+			Result.error().RangeCause = Validation.error();
 			return Result;
 		}
-		OutValue.State.Store(std::make_shared<const FState>(FState{
+		FEditorBulkData Value;
+		Value.State.Store(std::make_shared<const FState>(FState{
 			.InstanceId = InInstanceId,
 			.ContentId = InContentId,
 			.LogicalSize = InLogicalSize,
 			.Source = std::move(InSource)}));
-		return {};
+		return Value;
 	}
 
 	auto FEditorBulkData::Serialize(FArchive& Ar) -> void
@@ -228,16 +228,15 @@ namespace Durin
 		if (Value.StorageKind == EArchiveBulkDataStorageKind::External)
 		{
 			FEditorBulkData Candidate;
-			const auto Created = TryCreatePackageBacked(
-				Value.PayloadId, Value.ContentHash, Value.LogicalSize,
-				{.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
+			auto Created = TryCreatePackageBacked(Value.PayloadId, Value.ContentHash, Value.LogicalSize, {.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
 					.SegmentOffset = Value.SegmentOffset,
 					.StoredSize = Value.StoredSize,
-					.Alignment = Value.Alignment}, Candidate);
+					.Alignment = Value.Alignment});
+			if (Created) { Candidate = std::move(*Created); }
 			if (!Created)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
-					FormatEditorBulkDataError(Created.Error));
+					FormatEditorBulkDataError(Created.error()));
 				return;
 			}
 			State.Store(Candidate.State.Load());

@@ -99,9 +99,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/Texture2D", Texture2DPath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(Texture2DPath));
 	Durin::DTexture2D* Texture2D = nullptr;
-	const auto Texture2DLoad = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath), Texture2D);
-	ASSERT_TRUE(Texture2DLoad) << Texture2DLoad.Message;
+	const auto Texture2DLoad = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath));
+	Texture2D = Texture2DLoad.value_or(nullptr);
+	ASSERT_TRUE(Texture2DLoad) << (Texture2DLoad ? std::string{} : Texture2DLoad.error().Message);
 	ASSERT_NE(Texture2D, nullptr);
 	EXPECT_FALSE(Texture2D->GetSource().IsValid());
 	EXPECT_EQ(Texture2D->GetAssetImportData(), nullptr);
@@ -115,9 +115,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/TextureCube", TextureCubePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(TextureCubePath));
 	Durin::DTextureCube* TextureCube = nullptr;
-	const auto TextureCubeLoad = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(TextureCubePath), TextureCube);
-	ASSERT_TRUE(TextureCubeLoad) << TextureCubeLoad.Message;
+	const auto TextureCubeLoad = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TextureCubePath));
+	TextureCube = TextureCubeLoad.value_or(nullptr);
+	ASSERT_TRUE(TextureCubeLoad) << (TextureCubeLoad ? std::string{} : TextureCubeLoad.error().Message);
 	ASSERT_NE(TextureCube, nullptr);
 	EXPECT_FALSE(TextureCube->GetSource().IsValid());
 	EXPECT_EQ(TextureCube->GetAssetImportData(), nullptr);
@@ -130,9 +130,9 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/VolumeTexture", VolumePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(VolumePath));
 	Durin::DVolumeTexture* Volume = nullptr;
-	const auto VolumeLoad = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(VolumePath), Volume);
-	ASSERT_TRUE(VolumeLoad) << VolumeLoad.Message;
+	const auto VolumeLoad = Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(VolumePath));
+	Volume = VolumeLoad.value_or(nullptr);
+	ASSERT_TRUE(VolumeLoad) << (VolumeLoad ? std::string{} : VolumeLoad.error().Message);
 	ASSERT_NE(Volume, nullptr);
 	EXPECT_FALSE(Volume->GetSource().IsValid());
 	EXPECT_EQ(Volume->GetAssetImportData(), nullptr);

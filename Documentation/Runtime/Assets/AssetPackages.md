@@ -129,6 +129,22 @@ follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
+Synchronous package and object loads return `std::expected<DPackage*,
+FAssetReadError>` and `std::expected<T*, FAssetReadError>` respectively. Typed
+object calls specify `LoadObject<T>(Path)`. The returned pointer observes existing
+package residency; it does not transfer ownership or promise rollback on failure.
+`FAssetPackageLoadScope` uses the same value contract and records completed
+dependencies even when the requested root fails. Its explicit `Release()` remains
+the residency cleanup boundary.
+
+The optional caller-owned `FAssetLoadReport*` remains available on either branch,
+including mutation and canonicalization evidence emitted before a root failure.
+Existing resident-hit and early-rejection report behavior is unchanged. Read
+errors retain their category, diagnostic text, and available resource/storage or
+soft-object validation causes. Inspect `error()` only after testing failure.
+Codec status and pending-component dependency bindings remain separate from these
+completed-load values because bindings may expose incomplete package skeletons.
+
 `Asset/AsyncLoad.h` provides `LoadPackageAsync(FPackagePath)` and
 `RequestAsyncLoad(FObjectPath/FTopLevelAssetPath)`. Both return a shared
 `FAsyncLoadHandle`; submission, observation, cancellation, callbacks and handle
@@ -140,6 +156,11 @@ queued request; use `Cancel()` to withdraw that consumer explicitly.
 use the handle state to observe a queued or reading async request. A synchronous
 load may complete the same package while its async read is pending; publication
 then reuses that resident package.
+
+`GetResult()` requires `IsComplete()` and returns an expected `FAsyncLoadedAssets`
+containing the selected package/object pointers, or a typed read error. Pending
+and loading states have no terminal result. Cancellation supplies a terminal
+`Cancelled` error while preserving the existing callback-suppression policy.
 
 Requests are deferred, including resident hits and ordinary errors. Guarded or
 shutdown admission instead returns a failed handle immediately without invoking
@@ -215,6 +236,11 @@ An invalid default `FObjectPath` is the null soft-reference value; non-null
 values pass the ordinary exact-object path factory.
 `ResolveSoftObject(...)` distinguishes `Null`, `NotLoaded`, and `Loaded`
 without loading; `LoadSoftObject(...)` is the explicit typed load boundary.
+Resolution returns an expected `TSoftObjectResolution<T>` with state, pointer,
+resolved identity, and redirection flag. Allowed null and valid not-loaded
+references are successful resolutions. Loading an allowed null reference returns
+a successful null pointer. Failures carry identity/redirection diagnostics when
+resolution established them; they do not contain a success-state payload.
 Both follow catalog redirect resolution while preserving the authored soft path
 for equality, hashing, ordering, and serialization. Cache population verifies
 the exact resolved object path and expected class. `Get()` performs no lookup,

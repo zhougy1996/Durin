@@ -254,12 +254,11 @@ namespace Durin::Editor::Texture
 		const auto Start = std::chrono::steady_clock::now();
 		try
 		{
-			Result.Data = std::make_shared<AssetForge::Builtins::FPreparedTexture2DImport>();
-			if (const auto Prepared = AssetForge::Builtins::PrepareTexture2DImport(Filename, *Result.Data); !Prepared)
-			{
-				Result.Message = AssetForge::Builtins::FormatTexture2DPreparationError(Prepared.Error);
-				Result.Data.reset();
-			}
+			auto Prepared = AssetForge::Builtins::PrepareTexture2DImport(Filename);
+			if (!Prepared)
+				Result.Message = AssetForge::Builtins::FormatTexture2DPreparationError(Prepared.error());
+			else
+				Result.Data = std::make_shared<AssetForge::Builtins::FPreparedTexture2DImport>(std::move(*Prepared));
 		}
 		catch (const std::exception& Error) { Result.Data.reset(); Result.Message = Error.what(); }
 		Result.PreparationMilliseconds = std::chrono::duration<double, std::milli>(

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "Asset/PackageSerialization.h"
 #include "Hash/XxHash.h"
@@ -20,7 +22,8 @@ namespace Durin::AssetForge::Builtins
 		FByteView Bytes;
 	};
 
-	struct FVolumeTextureImportSettingsResult;
+	struct FVolumeTextureImportSettingsError;
+	using FVolumeTextureImportSettingsResult = std::expected<void, FVolumeTextureImportSettingsError>;
 
 	struct FVolumeTextureImportSettings
 	{
@@ -32,7 +35,7 @@ namespace Durin::AssetForge::Builtins
 		uint32 TilesX = 12;
 		uint32 TilesY = 12;
 
-		ASSETFORGEBUILTINS_API auto Validate() const -> FVolumeTextureImportSettingsResult;
+		[[nodiscard]] ASSETFORGEBUILTINS_API auto Validate() const -> FVolumeTextureImportSettingsResult;
 		auto GetOutputFormat() const -> EVolumeTextureFormat
 		{
 			return Channels == EVolumeTextureSourceChannels::RGBA
@@ -49,11 +52,6 @@ namespace Durin::AssetForge::Builtins
 	{
 		EVolumeTextureImportSettingsError Code = EVolumeTextureImportSettingsError::None;
 		FVolumeTextureImportSettings Settings;
-	};
-	struct FVolumeTextureImportSettingsResult
-	{
-		FVolumeTextureImportSettingsError Error;
-		explicit operator bool() const { return Error.Code == EVolumeTextureImportSettingsError::None; }
 	};
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureImportSettingsError(
 		const FVolumeTextureImportSettingsError& Error) -> std::string;
@@ -73,11 +71,7 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FVolumeTextureImportSettingsError> SettingsCause;
 		std::optional<Image::FImageDecodeError> DecodeCause;
 	};
-	struct FVolumeTextureTranslationResult
-	{
-		FVolumeTextureTranslationError Error;
-		explicit operator bool() const { return Error.Code == EVolumeTextureTranslationError::None; }
-	};
+	using FVolumeTextureTranslationResult = std::expected<FVolumeTextureSourceData, FVolumeTextureTranslationError>;
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureTranslationError(
 		const FVolumeTextureTranslationError& Error) -> std::string;
 
@@ -100,17 +94,12 @@ namespace Durin::AssetForge::Builtins
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 	};
-	struct FVolumeTextureRebuildResult
-	{
-		FVolumeTextureRebuildError Error;
-		explicit operator bool() const { return Error.Code == EVolumeTextureRebuildError::None; }
-	};
+	using FVolumeTextureRebuildResult = std::expected<void, FVolumeTextureRebuildError>;
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureRebuildError(const FVolumeTextureRebuildError& Error) -> std::string;
 
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection
 	{
-		Image::FImageDecodeError Error;
 		bool bHasConfidentLayout = false;
 		uint32 AtlasWidth = 0;
 		uint32 AtlasHeight = 0;
@@ -119,21 +108,20 @@ namespace Durin::AssetForge::Builtins
 			EVolumeTextureSourceChannels::Red;
 		std::vector<FVolumeTextureImportSettings> SuggestedLayouts;
 
-		explicit operator bool() const { return Error.Code == Image::EImageDecodeError::None; }
 	};
 
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureAtlasInspection(
-		const FVolumeTextureAtlasInspection& Inspection) -> std::string;
-	ASSETFORGEBUILTINS_API auto InspectVolumeTextureAtlasSource(
-		std::string_view FilePath) -> FVolumeTextureAtlasInspection;
-	ASSETFORGEBUILTINS_API auto TranslateVolumeTextureAtlasSource(
+		const std::expected<FVolumeTextureAtlasInspection, Image::FImageDecodeError>& Inspection) -> std::string;
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto InspectVolumeTextureAtlasSource(
+		std::string_view FilePath)
+		-> std::expected<FVolumeTextureAtlasInspection, Image::FImageDecodeError>;
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto TranslateVolumeTextureAtlasSource(
 		const FVolumeTextureCapturedSource& Source,
-		const FVolumeTextureImportSettings& Settings,
-		FVolumeTextureSourceData& OutSourceData) -> FVolumeTextureTranslationResult;
-	ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
+		const FVolumeTextureImportSettings& Settings) -> FVolumeTextureTranslationResult;
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
 		DVolumeTexture& Texture,
 		const FAssetBundleSaveOptions& SaveOptions = {}) -> FVolumeTextureRebuildResult;
-	ASSETFORGEBUILTINS_API auto ReimportVolumeTextureFromFile(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTextureFromFile(
 		DVolumeTexture& Texture,
 		std::string_view FilePath,
 		const FAssetBundleSaveOptions& SaveOptions = {}) -> FVolumeTextureRebuildResult;

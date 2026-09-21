@@ -54,10 +54,10 @@ namespace
 		-> FBulkData
 	{
 		FBulkData Result;
-		if (const auto Attached = FBulkData::TryAttach({
+		if (auto Attached = FBulkData::TryAttach({
 			.LogicalSize = 4,
-			.Range = {.Resource = Resource, .StoredSize = 4, .Alignment = 1}},
-			Result); !Attached) ADD_FAILURE() << FormatBulkDataError(Attached.Error);
+			.Range = {.Resource = Resource, .StoredSize = 4, .Alignment = 1}}); !Attached) ADD_FAILURE() << FormatBulkDataError(Attached.error());
+		else { Result = std::move(*Attached); }
 		return Result;
 	}
 

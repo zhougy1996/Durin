@@ -79,6 +79,16 @@ compensation start, cancellation, and final notification callables. The adapter
 may use typed weak object references but cannot make the generic coordinator
 retain a reflected object implicitly.
 
+`PrepareTexture2DImport` and texture source translation return `std::expected`
+with owned detached values and typed domain errors. Failure exposes no prepared
+value; decoding and validation remain silent. Texture2D reimport submission
+returns `expected<void, FTexture2DSubmissionError>` for admission only. Final
+application and save results still arrive through the existing completion
+callback. StaticMesh and VolumeTexture rebuild errors retain nested completion
+and save causes, including observed write effects; an error does not undo live
+state already applied. Transient mesh creation returns the created object pointer
+on success and preserves the existing object/garbage-collection ownership.
+
 For direct Texture2D source selection:
 
 - AssetForgeBuiltins captures the selected file without mutating it.

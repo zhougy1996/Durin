@@ -74,7 +74,7 @@ namespace Durin
 	struct FAsyncLoadHandle::FImpl
 	{
 		EAsyncLoadState State = EAsyncLoadState::Pending;
-		FAssetReadResult Result{EAssetReadError::InUse, "Async load has not completed."};
+		std::optional<std::expected<FAsyncLoadedAssets, FAssetReadError>> Result;
 		FAssetLoadReport Report;
 		FPackagePath PackagePath;
 		std::optional<FObjectPath> ObjectPath;
@@ -94,7 +94,12 @@ namespace Durin
 		return State == EAsyncLoadState::Succeeded || State == EAsyncLoadState::Failed
 			|| State == EAsyncLoadState::Cancelled;
 	}
-	auto FAsyncLoadHandle::GetResult() const -> const FAssetReadResult& { CheckAsyncLoadThread(); return Impl->Result; }
+	auto FAsyncLoadHandle::GetResult() const -> const std::expected<FAsyncLoadedAssets, FAssetReadError>&
+	{
+		CheckAsyncLoadThread();
+		check(IsComplete() && Impl->Result);
+		return *Impl->Result;
+	}
 	auto FAsyncLoadHandle::GetReport() const -> const FAssetLoadReport& { CheckAsyncLoadThread(); return Impl->Report; }
 	auto FAsyncLoadHandle::GetLoadedPackage() const -> DPackage* { CheckAsyncLoadThread(); return Impl->Package.Get(); }
 	auto FAsyncLoadHandle::GetLoadedObject() const -> DObject* { CheckAsyncLoadThread(); return Impl->Object.Get(); }
@@ -103,9 +108,9 @@ namespace Durin
 		CheckAsyncLoadThread();
 		if (IsComplete()) { Impl->Callback = {}; return; }
 		Impl->State = EAsyncLoadState::Cancelled;
-		Impl->Result = {EAssetReadError::Cancelled, "Async load request cancelled."};
-		Impl->Report.Error = Impl->Result.Error;
-		Impl->Report.ErrorMessage = Impl->Result.Message;
+		Impl->Result = std::unexpected(FAssetReadError{EAssetReadError::Cancelled, "Async load request cancelled."});
+		Impl->Report.Error = Impl->Result->error().Code;
+		Impl->Report.ErrorMessage = Impl->Result->error().Message;
 		Impl->Callback = {};
 	}
 
@@ -130,11 +135,15 @@ namespace Durin
 		{
 			if (Handle->IsComplete()) return;
 			auto& State = *Handle->Impl;
-			State.Result = std::move(Result);
-			State.Report.Error = State.Result.Error;
-			State.Report.ErrorMessage = State.Result.Message;
-			State.State = State.Result ? EAsyncLoadState::Succeeded : EAsyncLoadState::Failed;
-			if (State.Result) { State.Package = Package; State.Object = Object; }
+			State.Report.Error = Result.Error;
+			State.Report.ErrorMessage = Result.Message;
+			State.State = Result ? EAsyncLoadState::Succeeded : EAsyncLoadState::Failed;
+			if (Result)
+			{
+				State.Package = Package; State.Object = Object;
+				State.Result = FAsyncLoadedAssets{Package, Object};
+			}
+			else State.Result = std::unexpected(AssetReadErrorFromResult(Result));
 			if (State.Callback) Deliveries.push_back(Handle);
 		}
 
@@ -154,10 +163,17 @@ namespace Durin
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
 				{
-					Result = Loader.LoadObject(*State.ObjectPath, State.ExpectedClass, Object, &State.Report);
+					auto Loaded = Loader.LoadObject(*State.ObjectPath, State.ExpectedClass, &State.Report);
+					Object = Loaded.value_or(nullptr);
+					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 					Package = Object ? Object->GetPackage() : nullptr;
 				}
-				else Result = Loader.LoadPackage(State.PackagePath, Package, &State.Report);
+				else
+				{
+					auto Loaded = Loader.LoadPackage(State.PackagePath, &State.Report);
+					Package = Loaded.value_or(nullptr);
+					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);
 		}

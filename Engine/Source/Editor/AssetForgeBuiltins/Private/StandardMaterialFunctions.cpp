@@ -178,8 +178,9 @@ namespace Durin::AssetForge::Builtins
 			{
 				FObjectPath ObjectPath;
 				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(std::format("{}.{}", Path.ToString(), Path.GetPackageName()), ObjectPath); !PathValidation) { OutError = Durin::FormatObjectError(PathValidation.Error); return false; }
-				const auto Loaded = LoadObject(ObjectPath, Function);
-				if (!Loaded) { OutError = Loaded.Message; return false; }
+				const auto Loaded = LoadObject<DMaterialFunction>(ObjectPath);
+				Function = Loaded.value_or(nullptr);
+				if (!Loaded) { OutError = (Loaded ? std::string{} : Loaded.error().Message); return false; }
 				Package = Function->GetPackage();
 			}
 			if (!Package)

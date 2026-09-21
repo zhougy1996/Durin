@@ -279,8 +279,9 @@ namespace Durin
 			std::vector<std::filesystem::path> DestinationBulkFiles;
 			for (const auto& Pair : {std::pair{&SourceFile, &SourceBulkFiles},
 				std::pair{&DestinationFile, &DestinationBulkFiles}})
-				if (const auto Storage = InspectEditorBulkDataCompanionPaths(*Pair.first, BulkInspection, *Pair.second); !Storage)
-					return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
+				if (auto Storage = InspectEditorBulkDataCompanionPaths(*Pair.first, BulkInspection); !Storage)
+					return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.error())};
+				else { *Pair.second = std::move(*Storage); }
 			if (SourceBulkFiles.size() != DestinationBulkFiles.size())
 				return Error(EAssetWriteError::InvalidData, "Authored bulk relocation inspection failed.");
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
@@ -318,7 +319,9 @@ namespace Durin
 					return Error(EAssetWriteError::InvalidPath,
 						"The payload relocator asset path is invalid.");
 				DObject* AssetObject = nullptr;
-				Result = AssetWriteResultFromRead(LoadObject(AssetPath, nullptr, AssetObject));
+				auto Loaded = LoadObject(AssetPath, nullptr);
+				AssetObject = Loaded.value_or(nullptr);
+				Result = AssetWriteResultFromRead(Loaded);
 				if (!Result) return Result;
 				if (std::ranges::none_of(
 						State->LoadedPackages,

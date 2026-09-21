@@ -7,21 +7,19 @@ namespace Durin
 {
 	auto LoadPackage(
 		const FPackagePath& Path,
-		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetReadResult
+		FAssetLoadReport* OutReport) -> std::expected<DPackage*, FAssetReadError>
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadPackage(
-			Path, OutPackage, OutReport);
+			Path, OutReport);
 	}
 
 	auto LoadObject(
 		const FObjectPath& Path,
 		const DClass* ExpectedClass,
-		DObject*& OutObject,
-		FAssetLoadReport* OutReport) -> FAssetReadResult
+		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadObject(
-			Path, ExpectedClass, OutObject, OutReport);
+			Path, ExpectedClass, OutReport);
 	}
 
 	auto ResolveSoftObject(
@@ -36,12 +34,11 @@ namespace Durin
 	auto LoadSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
-		DObject*& OutObject,
 		ESoftObjectNullPolicy NullPolicy,
-		FAssetLoadReport* OutReport) -> FAssetReadResult
+		FAssetLoadReport* OutReport) -> std::expected<DObject*, FAssetReadError>
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadSoftObject(
-			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
+			Reference, ExpectedClass, NullPolicy, OutReport);
 	}
 
 	auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult

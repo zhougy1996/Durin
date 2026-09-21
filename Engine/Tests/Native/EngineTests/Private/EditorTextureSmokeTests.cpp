@@ -139,12 +139,23 @@ namespace Durin
 			FAssetLoadReport MeshReport;
 			FAssetLoadReport MaterialReport;
 			FAssetLoadReport TextureReport;
-			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), Texture, &TextureReport));
+			{
+				auto LoadedValue = LoadObject<DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), &TextureReport);
+				Texture = LoadedValue.value_or(nullptr);
+				EXPECT_TRUE(LoadedValue);
+			}
 			if (Texture)
 				EXPECT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
-			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedMaterial,
-				&MaterialReport));
-			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh, &MeshReport));
+			{
+				auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport);
+				LoadedMaterial = LoadedValue.value_or(nullptr);
+				EXPECT_TRUE(LoadedValue);
+			}
+			{
+				auto LoadedValue = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), &MeshReport);
+				Mesh = LoadedValue.value_or(nullptr);
+				EXPECT_TRUE(LoadedValue);
+			}
 			if (Mesh)
 				FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 			if (LoadedMaterial)

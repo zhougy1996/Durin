@@ -32,7 +32,7 @@ namespace Durin::Editor::Texture
 			{
 				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
 				if (!AssetLoad->IsComplete()) return {.State = EThumbnailRendererSessionState::WaitingForResources};
-				if (!AssetLoad->GetResult()) return {.Diagnostic = AssetLoad->GetResult().Message};
+				if (!AssetLoad->GetResult()) return {.Diagnostic = (AssetLoad->GetResult() ? std::string{} : AssetLoad->GetResult().error().Message)};
 				if (!bAssetLoaded)
 				{
 					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedObject());

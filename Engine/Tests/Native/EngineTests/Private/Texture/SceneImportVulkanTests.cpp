@@ -214,7 +214,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
 	Durin::DMaterialInstance* LiveMaterial = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LiveMaterial));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DMaterialInstance>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		LiveMaterial = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(LiveMaterial, nullptr);
 	ASSERT_NE(LiveMaterial->GetParent(), nullptr);
 	StandardPath = LiveMaterial->GetParent()->GetPackage()->GetPackagePathIdentity();
@@ -494,8 +498,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	const auto ReloadMeshResult =
-		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), ReloadedMesh);
-	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
+		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
+		ReloadedMesh = ReloadMeshResult.value_or(nullptr);
+	ASSERT_TRUE(ReloadMeshResult) << (ReloadMeshResult ? std::string{} : ReloadMeshResult.error().Message);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedMesh);
 	ASSERT_NE(ReloadedMesh->GetRenderData(), nullptr);
 	const Durin::FMeshMaterialSlotDefinition* Slot =
@@ -679,8 +684,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 				PbrMeshPath = Output.AssetPath;
 		ASSERT_TRUE(PbrMeshPath.IsValid());
 		Durin::DStaticMesh* PbrMesh = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(
-			Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath), PbrMesh));
+		{
+			auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath));
+			PbrMesh = LoadedValue.value_or(nullptr);
+			ASSERT_TRUE(LoadedValue);
+		}
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMesh);
 		const auto* PbrSlot = PbrMesh->GetMaterialSlot(0);
 		ASSERT_NE(PbrSlot, nullptr);

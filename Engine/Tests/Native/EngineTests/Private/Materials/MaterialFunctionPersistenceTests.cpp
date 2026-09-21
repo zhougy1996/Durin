@@ -63,7 +63,11 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 		FAIL() << Error;
 	}
 	DMaterialFunction* Reloaded = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath), Reloaded));
+	{
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath));
+		Reloaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);

@@ -304,8 +304,9 @@ namespace Durin
 					FObjectPath Path;
 					if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path)) return Error(EAssetReadError::InvalidPath, "Invalid external object reference.");
 					auto Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
-						Path, ObjectProperty->GetReferencedClass(), Value);
-					if (!Result) return Error(EAssetReadError::MissingDependency, Result.Message);
+						Path, ObjectProperty->GetReferencedClass());
+					if (!Result) return Error(EAssetReadError::MissingDependency, Result.error().Message);
+					Value = *Result;
 				}
 				else if (ReferenceKind != 0) return Error(EAssetReadError::CorruptFile, "Unknown object reference kind.");
 				if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(EAssetReadError::TypeMismatch, "Object reference class mismatch.");

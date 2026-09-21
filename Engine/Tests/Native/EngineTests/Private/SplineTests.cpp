@@ -505,7 +505,11 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 
 	Durin::DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		LoadedObject = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	auto* LoadedLevel = Durin::Cast<Durin::DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedSpline = LoadedLevel->FindActorByName("SplineActor")->FindComponentByClass<Durin::DSplineComponent>();

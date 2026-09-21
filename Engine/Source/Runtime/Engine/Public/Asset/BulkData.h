@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Asset/PackageResource.h"
 #include "Serialization/Archive.h"
@@ -28,12 +30,7 @@ namespace Durin
 		uint64 Expected = 0;
 		std::optional<FPackageResourceRangeError> RangeCause;
 	};
-	struct FBulkDataResult
-	{
-		FBulkDataError Error;
-		auto Succeeded() const -> bool { return Error.Code == EBulkDataError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FBulkDataResult = std::expected<void, FBulkDataError>;
 	ENGINE_API auto FormatBulkDataError(const FBulkDataError& Error) -> std::string;
 
 	namespace AssetPrivate { struct FBulkDataState; }
@@ -120,10 +117,10 @@ namespace Durin
 		ENGINE_API FBulkData(FBulkData&& Other) noexcept;
 		ENGINE_API auto operator=(FBulkData&& Other) noexcept -> FBulkData&;
 
-		ENGINE_API static auto TryCreateDetached(
-			FByteView Bytes, FBulkData& OutValue) -> FBulkDataResult;
-		ENGINE_API static auto TryAttach(
-			FBulkDataMetadata Metadata, FBulkData& OutValue) -> FBulkDataResult;
+		[[nodiscard]] ENGINE_API static auto TryCreateDetached(
+			FByteView Bytes) -> std::expected<FBulkData, FBulkDataError>;
+		[[nodiscard]] ENGINE_API static auto TryAttach(
+			FBulkDataMetadata Metadata) -> std::expected<FBulkData, FBulkDataError>;
 
 		ENGINE_API auto GetState() const -> EBulkDataState;
 		ENGINE_API auto GetMetadata() const -> FBulkDataMetadata;

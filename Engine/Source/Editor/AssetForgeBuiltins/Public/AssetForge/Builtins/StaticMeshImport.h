@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "Asset/PackageSerialization.h"
@@ -35,24 +37,19 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FStaticMeshSubmissionError> SubmissionCause;
 		std::optional<FStaticMeshCompilationDiagnostic> CompletionCause;
 	};
-	struct FStaticMeshRebuildResult
-	{
-		FStaticMeshRebuildError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshRebuildError::None; }
-	};
+	using FStaticMeshRebuildResult = std::expected<void, FStaticMeshRebuildError>;
 	ASSETFORGEBUILTINS_API auto FormatStaticMeshRebuildError(const FStaticMeshRebuildError& Error) -> std::string;
 
-	ASSETFORGEBUILTINS_API auto ReimportStaticMesh(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportStaticMesh(
 		DStaticMesh& Mesh,
 		const FAssetBundleSaveOptions& SaveOptions = {}) -> FStaticMeshRebuildResult;
-	ASSETFORGEBUILTINS_API auto ReimportStaticMeshFromFile(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportStaticMeshFromFile(
 		DStaticMesh& Mesh,
 		std::string_view FilePath,
 		const FAssetBundleSaveOptions& SaveOptions = {}) -> FStaticMeshRebuildResult;
-	ASSETFORGEBUILTINS_API auto CreateTransientStaticMeshFromFile(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto CreateTransientStaticMeshFromFile(
 		std::string_view FilePath,
 		DObject* Outer,
 		std::string_view ObjectName,
-		DStaticMesh*& OutMesh,
-		const FStaticMeshImportSettings& ImportSettings = {}) -> FStaticMeshRebuildResult;
+		const FStaticMeshImportSettings& ImportSettings = {}) -> std::expected<DStaticMesh*, FStaticMeshRebuildError>;
 }

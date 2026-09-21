@@ -138,7 +138,11 @@ TEST(FBulkDataTests, DetachedLocksResizeAndCopyOnWrite)
 	const Durin::FByteBuffer Bytes = MakeBytes({1, 2, 3, 4});
 	FBulkData First;
 	std::string Error;
-	ASSERT_TRUE(FBulkData::TryCreateDetached(Bytes, First));
+	{
+		auto ValueResult = FBulkData::TryCreateDetached(Bytes);
+		ASSERT_TRUE(ValueResult);
+		First = std::move(*ValueResult);
+	}
 	FBulkData Second = First;
 	Durin::FByteView Read;
 	Durin::FBulkDataReadResult ReadLease;
@@ -195,15 +199,19 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	auto Registration1 = Manager.RegisterLoosePackage(
 		"/Tests/Range", PackagePath, Summary, std::span{&Entry, 1}
 	);
-	ASSERT_TRUE(Registration1) << FormatPackageResourceRegistrationError(Registration1.Error);
-	Handle = std::move(Registration1.Resource);
+	ASSERT_TRUE(Registration1) << FormatPackageResourceRegistrationError(Registration1.error());
+	Handle = std::move((*Registration1));
 	FBulkData Value;
-	ASSERT_TRUE(FBulkData::TryAttach({
+	{
+		auto ValueResult = FBulkData::TryAttach({
 		.LogicalSize = Size,
 		.Range = {
 			.Resource = Handle,
 			.StoredSize = Size,
-			.Alignment = EditorBulkDataExternalAlignment}}, Value));
+			.Alignment = EditorBulkDataExternalAlignment}});
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Attached);
 	ASSERT_TRUE(Value.ReloadAsync().Wait()) << Error;
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Resident);
@@ -236,12 +244,20 @@ TEST(FPackageResourceTests, OwnedCaptureDetachesLazyReadsFromCallerStorage)
 	const FPackageBulkSegmentSummary Summary{.Extent = Size, .Digest = Entry.ContentId};
 	FPackageResourceHandle Handle;
 	std::string Error;
-	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle));
+	{
+		auto ValueResult = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+		ASSERT_TRUE(ValueResult);
+		Handle = std::move(*ValueResult);
+	}
 	FBulkData Value;
-	ASSERT_TRUE(FBulkData::TryAttach({
+	{
+		auto ValueResult = FBulkData::TryAttach({
 		.LogicalSize = Size,
 		.Range = {.Resource = Handle, .StoredSize = Size,
-			.Alignment = EditorBulkDataExternalAlignment}}, Value));
+			.Alignment = EditorBulkDataExternalAlignment}});
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	std::ranges::fill(Segment, std::byte{0x17});
 	Segment.clear();
 	Segment.shrink_to_fit();
@@ -268,7 +284,7 @@ TEST(FPackageResourceTests, OwnedCaptureDetachesLazyReadsFromCallerStorage)
 		[](std::byte Byte) { return Byte == std::byte{0x6a}; }));
 }
 
-TEST(FPackageResourceTests, OwnedCaptureRejectsMismatchedGenerationAndClearsOutput)
+TEST(FPackageResourceTests, OwnedCaptureRejectsMismatchedGenerationWithoutAValue)
 {
 	const uint64 Size = EditorBulkDataExternalThreshold + 1;
 	FByteBuffer Segment(static_cast<size_t>(Size), std::byte{0x6a});
@@ -281,30 +297,41 @@ TEST(FPackageResourceTests, OwnedCaptureRejectsMismatchedGenerationAndClearsOutp
 		.ContentId = FXxHash128::HashBuffer(Segment)};
 	FPackageBulkSegmentSummary Summary{.Extent = Size, .Digest = Entry.ContentId};
 	FPackageResourceHandle Handle;
-	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle));
+	{
+		auto ValueResult = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+		ASSERT_TRUE(ValueResult);
+		Handle = std::move(*ValueResult);
+	}
 	Segment[0] = std::byte{0x17};
-	const auto SegmentFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle);
+	auto SegmentFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+	if (SegmentFailure) { Handle = std::move(*SegmentFailure); }
 	EXPECT_FALSE(SegmentFailure);
-	EXPECT_EQ(SegmentFailure.Error.Code, EPackageBulkDataError::SegmentDigestMismatch);
-	EXPECT_EQ(SegmentFailure.Error.Summary.Digest, Summary.Digest);
-	EXPECT_EQ(SegmentFailure.Error.ActualDigest, FXxHash128::HashBuffer(Segment));
-	EXPECT_FALSE(Handle);
+	EXPECT_EQ(SegmentFailure.error().Code, EPackageBulkDataError::SegmentDigestMismatch);
+	EXPECT_EQ(SegmentFailure.error().Summary.Digest, Summary.Digest);
+	EXPECT_EQ(SegmentFailure.error().ActualDigest, FXxHash128::HashBuffer(Segment));
+	EXPECT_TRUE(Handle);
 	Summary.Digest = FXxHash128::HashBuffer(Segment);
-	const auto FieldFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle);
+	auto FieldFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+	if (FieldFailure) { Handle = std::move(*FieldFailure); }
 	EXPECT_FALSE(FieldFailure);
-	EXPECT_EQ(FieldFailure.Error.Code, EPackageBulkDataError::FieldDigestMismatch);
-	ASSERT_TRUE(FieldFailure.Error.Entry);
-	EXPECT_EQ(FieldFailure.Error.Entry->ContentId, Entry.ContentId);
-	EXPECT_FALSE(Handle);
+	EXPECT_EQ(FieldFailure.error().Code, EPackageBulkDataError::FieldDigestMismatch);
+	ASSERT_TRUE(FieldFailure.error().Entry);
+	EXPECT_EQ(FieldFailure.error().Entry->ContentId, Entry.ContentId);
+	EXPECT_TRUE(Handle);
 	Entry.ContentId = Summary.Digest;
-	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle));
+	{
+		auto ValueResult = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+		ASSERT_TRUE(ValueResult);
+		Handle = std::move(*ValueResult);
+	}
 	Segment.pop_back();
-	const auto ExtentFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle);
+	auto ExtentFailure = CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment);
+	if (ExtentFailure) { Handle = std::move(*ExtentFailure); }
 	EXPECT_FALSE(ExtentFailure);
-	EXPECT_EQ(ExtentFailure.Error.Code, EPackageBulkDataError::ExtentMismatch);
-	EXPECT_EQ(ExtentFailure.Error.Actual, Segment.size());
-	EXPECT_EQ(ExtentFailure.Error.Expected, Size);
-	EXPECT_FALSE(Handle);
+	EXPECT_EQ(ExtentFailure.error().Code, EPackageBulkDataError::ExtentMismatch);
+	EXPECT_EQ(ExtentFailure.error().Actual, Segment.size());
+	EXPECT_EQ(ExtentFailure.error().Expected, Size);
+	EXPECT_TRUE(Handle);
 }
 
 TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
@@ -353,8 +380,8 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	auto Registration2 = Manager.RegisterLoosePackage(
 		"/Tests/Ranges", PackagePath, Summary, Entries
 	);
-	ASSERT_TRUE(Registration2) << FormatPackageResourceRegistrationError(Registration2.Error);
-	Handle = std::move(Registration2.Resource);
+	ASSERT_TRUE(Registration2) << FormatPackageResourceRegistrationError(Registration2.error());
+	Handle = std::move((*Registration2));
 	const FPackageResourceReadStats Stats = Handle->GetReadStats();
 	EXPECT_EQ(Stats.ValidationBytesRead, Segment.size());
 	EXPECT_LE(Stats.PeakValidationScratchBytes, 64u * 1024u);
@@ -367,12 +394,12 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	auto Registration3 = Manager.RegisterLoosePackage(
 		"/Tests/BadRange", PackagePath, Summary, Entries
 	);
-	EXPECT_FALSE(Registration3) << FormatPackageResourceRegistrationError(Registration3.Error);
+	EXPECT_FALSE(Registration3) << FormatPackageResourceRegistrationError(Registration3.error());
 
-	ASSERT_TRUE(Registration3.Error.PrimaryCause);
-	ASSERT_TRUE(Registration3.Error.PrimaryCause->BulkCause);
-	EXPECT_EQ(Registration3.Error.PrimaryCause->BulkCause->Code, EPackageBulkDataError::FieldDigestMismatch);
-	EXPECT_EQ(Registration3.Error.PrimaryCause->BulkCause->Index, 0u);
+	ASSERT_TRUE(Registration3.error().PrimaryCause);
+	ASSERT_TRUE(Registration3.error().PrimaryCause->BulkCause);
+	EXPECT_EQ(Registration3.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::FieldDigestMismatch);
+	EXPECT_EQ(Registration3.error().PrimaryCause->BulkCause->Index, 0u);
 
 	Segment[7] ^= std::byte{0x01};
 	ASSERT_GT(SecondOffset, FirstSize);
@@ -382,13 +409,13 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	auto Registration4 = Manager.RegisterLoosePackage(
 		"/Tests/BadPadding", PackagePath, Summary, Entries
 	);
-	EXPECT_FALSE(Registration4) << FormatPackageResourceRegistrationError(Registration4.Error);
+	EXPECT_FALSE(Registration4) << FormatPackageResourceRegistrationError(Registration4.error());
 
-	ASSERT_TRUE(Registration4.Error.PrimaryCause);
-	ASSERT_TRUE(Registration4.Error.PrimaryCause->BulkCause);
-	EXPECT_EQ(Registration4.Error.PrimaryCause->BulkCause->Code, EPackageBulkDataError::NonzeroPadding);
-	EXPECT_EQ(Registration4.Error.PrimaryCause->BulkCause->Offset, FirstSize);
-	EXPECT_EQ(Registration4.Error.PrimaryCause->BulkCause->Actual, 1u);
+	ASSERT_TRUE(Registration4.error().PrimaryCause);
+	ASSERT_TRUE(Registration4.error().PrimaryCause->BulkCause);
+	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::NonzeroPadding);
+	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Offset, FirstSize);
+	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Actual, 1u);
 }
 
 namespace
@@ -412,11 +439,11 @@ namespace
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main, MainPath));
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
 		}
-		auto Prepare(FPreparedPackageResource& Out, uint64 Budget = 1024 * 1024,
-			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult
+		auto Prepare(uint64 Budget = 1024 * 1024,
+			const std::function<bool()>& IsCancelled = {}) -> std::expected<FPreparedPackageResource, FPreparedPackageResourceError>
 		{
 			return FPreparedPackageResource::Prepare(MainPath, FSharedByteBuffer::Copy(Main),
-				Summary, std::span{&Entry, 1}, Budget, Out, IsCancelled);
+				Summary, std::span{&Entry, 1}, Budget, IsCancelled);
 		}
 		std::filesystem::path MainPath, BulkPath;
 		FByteBuffer Main, Bulk;
@@ -430,21 +457,29 @@ TEST_F(FPreparedPackageResourceTests, SnapshotSurvivesDiskReplacementAndOwnerRel
 	FPackageResourceManager Manager;
 	FPackageResourceHandle Live;
 	auto Registration5 = Manager.RegisterLoosePackage("/Tests/Prepared", MainPath, Summary, std::span{&Entry, 1});
-	ASSERT_TRUE(Registration5) << FormatPackageResourceRegistrationError(Registration5.Error);
-	Live = std::move(Registration5.Resource);
+	ASSERT_TRUE(Registration5) << FormatPackageResourceRegistrationError(Registration5.error());
+	Live = std::move((*Registration5));
 	FPreparedPackageResource Prepared;
-	ASSERT_TRUE(Prepare(Prepared));
+	{
+		auto Result = Prepare();
+		ASSERT_TRUE(Result);
+		Prepared = std::move(*Result);
+	}
 	EXPECT_EQ(Prepared.GetRetainedBytes(), Main.size() + Bulk.size());
 	EXPECT_EQ(Manager.FindPackage("/Tests/Prepared"), Live);
 	EXPECT_FALSE(Live->IsRetired());
 	ASSERT_TRUE(Prepared.Revalidate());
 	FBulkData Payload;
-	ASSERT_TRUE(FBulkData::TryAttach({.LogicalSize = Bulk.size(),
+	{
+		auto ValueResult = FBulkData::TryAttach({.LogicalSize = Bulk.size(),
 		.Range = {.Resource = Prepared.GetBulkResource(), .StoredSize = Bulk.size(),
-			.Alignment = EditorBulkDataExternalAlignment}}, Payload));
+			.Alignment = EditorBulkDataExternalAlignment}});
+		ASSERT_TRUE(ValueResult);
+		Payload = std::move(*ValueResult);
+	}
 	Bulk[0] ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(Bulk, BulkPath));
-	EXPECT_EQ(Prepared.Revalidate().Error.Code, EPreparedPackageResourceError::Stale);
+	EXPECT_EQ(Prepared.Revalidate().error().Code, EPreparedPackageResourceError::Stale);
 	Prepared = {};
 	ASSERT_TRUE(Payload.ReloadAsync().Wait());
 	FByteView Read;
@@ -467,43 +502,51 @@ TEST_F(FPreparedPackageResourceTests, SnapshotSurvivesDiskReplacementAndOwnerRel
 TEST_F(FPreparedPackageResourceTests, RechecksMainContentInsteadOfSizeOrTimestamp)
 {
 	FPreparedPackageResource Prepared;
-	ASSERT_TRUE(Prepare(Prepared));
+	{
+		auto Result = Prepare();
+		ASSERT_TRUE(Result);
+		Prepared = std::move(*Result);
+	}
 	const auto Timestamp = std::filesystem::last_write_time(MainPath);
 	Main[0] ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main, MainPath));
 	std::filesystem::last_write_time(MainPath, Timestamp);
 	const auto Changed = Prepared.Revalidate();
-	EXPECT_EQ(Changed.Error.Code, EPreparedPackageResourceError::Stale);
-	EXPECT_EQ(Changed.Error.Reason, EPreparedPackageResourceReason::DigestChanged);
-	EXPECT_EQ(Changed.Error.Path, MainPath);
-	EXPECT_EQ(Changed.Error.ActualDigest, FXxHash128::HashBuffer(Main));
-	EXPECT_EQ(Changed.Error.ExpectedDigest, FXxHash128::HashBuffer(Prepared.GetMainBytes()));
+	EXPECT_EQ(Changed.error().Code, EPreparedPackageResourceError::Stale);
+	EXPECT_EQ(Changed.error().Reason, EPreparedPackageResourceReason::DigestChanged);
+	EXPECT_EQ(Changed.error().Path, MainPath);
+	EXPECT_EQ(Changed.error().ActualDigest, FXxHash128::HashBuffer(Main));
+	EXPECT_EQ(Changed.error().ExpectedDigest, FXxHash128::HashBuffer(Prepared.GetMainBytes()));
 	EXPECT_EQ(Prepared.GetMainBytes()[0], std::byte{1});
 }
 
 TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBackup)
 {
 	FPreparedPackageResource Prepared;
-	ASSERT_TRUE(Prepare(Prepared));
+	{
+		auto Result = Prepare();
+		ASSERT_TRUE(Result);
+		Prepared = std::move(*Result);
+	}
 	const auto Original = Prepared.GetBulkResource();
 	auto Backup = BulkPath;
 	Backup += ".durin-backup";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, Backup));
 	Bulk[0] ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
-	EXPECT_EQ(Prepare(Prepared).Error.Code, EPreparedPackageResourceError::InvalidClosure);
+	EXPECT_EQ(Prepare().error().Code, EPreparedPackageResourceError::InvalidClosure);
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 	FByteBuffer Actual;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Actual, BulkPath));
 	EXPECT_EQ(Actual, Bulk);
 	EXPECT_TRUE(std::filesystem::exists(Backup));
 	std::filesystem::remove(BulkPath);
-	const auto Missing = Prepare(Prepared);
-	EXPECT_EQ(Missing.Error.Code, EPreparedPackageResourceError::IoError);
-	EXPECT_EQ(Missing.Error.Reason, EPreparedPackageResourceReason::FileIo);
-	ASSERT_TRUE(Missing.Error.FileCause);
-	EXPECT_EQ(Missing.Error.FileCause->Operation, FFileHelper::EFileIoOperation::OpenRead);
-	EXPECT_EQ(Missing.Error.FileCause->Path, BulkPath);
+	const auto Missing = Prepare();
+	EXPECT_EQ(Missing.error().Code, EPreparedPackageResourceError::IoError);
+	EXPECT_EQ(Missing.error().Reason, EPreparedPackageResourceReason::FileIo);
+	ASSERT_TRUE(Missing.error().FileCause);
+	EXPECT_EQ(Missing.error().FileCause->Operation, FFileHelper::EFileIoOperation::OpenRead);
+	EXPECT_EQ(Missing.error().FileCause->Path, BulkPath);
 	EXPECT_FALSE(std::filesystem::exists(BulkPath));
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 }
@@ -511,24 +554,28 @@ TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBac
 TEST_F(FPreparedPackageResourceTests, RejectsBudgetAndCancellationWithoutPublishing)
 {
 	FPreparedPackageResource Prepared;
-	ASSERT_TRUE(Prepare(Prepared, Main.size() + Bulk.size()));
+	{
+		auto Result = Prepare(Main.size() + Bulk.size());
+		ASSERT_TRUE(Result);
+		Prepared = std::move(*Result);
+	}
 	const auto Original = Prepared.GetBulkResource();
-	const auto Budget = Prepare(Prepared, Main.size() + Bulk.size() - 1);
-	EXPECT_EQ(Budget.Error.Code, EPreparedPackageResourceError::BudgetExceeded);
-	EXPECT_EQ(Budget.Error.Reason, EPreparedPackageResourceReason::ClosureBudget);
-	EXPECT_EQ(Budget.Error.MainBytes, Main.size());
-	EXPECT_EQ(Budget.Error.BulkBytes, Bulk.size());
-	EXPECT_EQ(Budget.Error.MaximumBytes, Main.size() + Bulk.size() - 1);
-	EXPECT_EQ(Prepare(Prepared, 0).Error.Code, EPreparedPackageResourceError::BudgetExceeded);
-	EXPECT_EQ(Prepare(Prepared, 1024 * 1024, [] { return true; }).Error.Code,
+	const auto Budget = Prepare(Main.size() + Bulk.size() - 1);
+	EXPECT_EQ(Budget.error().Code, EPreparedPackageResourceError::BudgetExceeded);
+	EXPECT_EQ(Budget.error().Reason, EPreparedPackageResourceReason::ClosureBudget);
+	EXPECT_EQ(Budget.error().MainBytes, Main.size());
+	EXPECT_EQ(Budget.error().BulkBytes, Bulk.size());
+	EXPECT_EQ(Budget.error().MaximumBytes, Main.size() + Bulk.size() - 1);
+	EXPECT_EQ(Prepare(0).error().Code, EPreparedPackageResourceError::BudgetExceeded);
+	EXPECT_EQ(Prepare(1024 * 1024, [] { return true; }).error().Code,
 		EPreparedPackageResourceError::Cancelled);
 	uint32 Checks = 0;
-	EXPECT_EQ(Prepare(Prepared, 1024 * 1024, [&] { return ++Checks == 4; }).Error.Code,
+	EXPECT_EQ(Prepare(1024 * 1024, [&] { return ++Checks == 4; }).error().Code,
 		EPreparedPackageResourceError::Cancelled);
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 	EXPECT_TRUE(Prepared.Revalidate());
 	Summary.Extent = std::numeric_limits<uint64>::max();
-	EXPECT_EQ(Prepare(Prepared, std::numeric_limits<uint64>::max()).Error.Code,
+	EXPECT_EQ(Prepare(std::numeric_limits<uint64>::max()).error().Code,
 		EPreparedPackageResourceError::BudgetExceeded);
 }
 
@@ -536,25 +583,33 @@ TEST_F(FPreparedPackageResourceTests, ValidatesNoBulkClosureAndRejectsUnexpected
 {
 	FPreparedPackageResource Prepared;
 	const auto MainBytes = FSharedByteBuffer::Copy(Main);
-	EXPECT_EQ(FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4, Prepared).Error.Code,
+	EXPECT_EQ(FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4).error().Code,
 		EPreparedPackageResourceError::InvalidClosure);
 	std::filesystem::remove(BulkPath);
-	ASSERT_TRUE(FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4, Prepared));
+	{
+		auto ValueResult = FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4);
+		ASSERT_TRUE(ValueResult);
+		Prepared = std::move(*ValueResult);
+	}
 	EXPECT_TRUE(Prepared.GetMainBytes().SharesStorageWith(MainBytes));
 	EXPECT_FALSE(Prepared.GetBulkResource());
 	ASSERT_TRUE(Prepared.Revalidate());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
-	EXPECT_EQ(Prepared.Revalidate().Error.Code, EPreparedPackageResourceError::InvalidClosure);
+	EXPECT_EQ(Prepared.Revalidate().error().Code, EPreparedPackageResourceError::InvalidClosure);
 }
 
 TEST_F(FPreparedPackageResourceTests, RejectsMainReplacementDuringBulkCapture)
 {
 	FPreparedPackageResource Prepared;
-	ASSERT_TRUE(Prepare(Prepared));
+	{
+		auto Result = Prepare();
+		ASSERT_TRUE(Result);
+		Prepared = std::move(*Result);
+	}
 	const auto Original = Prepared.GetBulkResource();
 	uint32 Checks = 0;
 	bool bReplaced = false;
-	const auto Result = Prepare(Prepared, 1024 * 1024, [&] {
+	const auto Result = Prepare(1024 * 1024, [&] {
 		if (++Checks == 3)
 		{
 			auto Replacement = Main;
@@ -564,7 +619,7 @@ TEST_F(FPreparedPackageResourceTests, RejectsMainReplacementDuringBulkCapture)
 		return false;
 	});
 	ASSERT_TRUE(bReplaced);
-	EXPECT_EQ(Result.Error.Code, EPreparedPackageResourceError::Stale);
+	EXPECT_EQ(Result.error().Code, EPreparedPackageResourceError::Stale);
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 }
 
@@ -678,10 +733,12 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	auto Resource = std::make_shared<FTestPackageResource>();
 	FEditorBulkData PackageBacked;
 	std::string Error;
-	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
-		FGuid{5, 6, 7, 8}, FXxHash128::HashBuffer(
-			Durin::FByteBuffer(4, std::byte{0})), 4,
-		{.Resource = Resource, .StoredSize = 4}, PackageBacked));
+	{
+		auto ValueResult = FEditorBulkData::TryCreatePackageBacked(FGuid{5, 6, 7, 8}, FXxHash128::HashBuffer(
+			Durin::FByteBuffer(4, std::byte{0})), 4, {.Resource = Resource, .StoredSize = 4});
+		ASSERT_TRUE(ValueResult);
+		PackageBacked = std::move(*ValueResult);
+	}
 	EXPECT_FALSE(PackageBacked.IsMemoryResident());
 	EXPECT_EQ(PackageBacked.GetPayloadSize(), 4u);
 	EXPECT_FALSE(PackageBacked.GetPayloadId().IsZero());
@@ -731,26 +788,30 @@ TEST(FEditorBulkDataTests, RejectedPackageSourceRetainsIdentityCauseAndOriginalP
 	const FGuid RejectedInstance{5, 6, 7, 8};
 	const FXxHash128 RejectedContent = FXxHash128::HashBuffer(MakeBytes({1, 2, 3, 4}));
 	FEditorBulkDataSource Source{.Resource = std::make_shared<FTestPackageResource>(), .StoredSize = 4};
-	const auto Identity = FEditorBulkData::TryCreatePackageBacked({}, RejectedContent, 4, Source, Value);
-	EXPECT_EQ(Identity.Error.Code, EEditorBulkDataError::InvalidInstanceIdentity);
-	EXPECT_EQ(Identity.Error.ContentId, RejectedContent);
-	const auto Content = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, {}, 4, Source, Value);
-	EXPECT_EQ(Content.Error.Code, EEditorBulkDataError::MissingContentIdentity);
-	EXPECT_EQ(Content.Error.InstanceId, RejectedInstance);
-	const auto Size = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, RejectedContent, 3, Source, Value);
-	EXPECT_EQ(Size.Error.Code, EEditorBulkDataError::LogicalSizeMismatch);
-	EXPECT_EQ(Size.Error.Actual, 3u);
-	EXPECT_EQ(Size.Error.Expected, 4u);
+	auto Identity = FEditorBulkData::TryCreatePackageBacked({}, RejectedContent, 4, Source);
+	if (Identity) { Value = std::move(*Identity); }
+	EXPECT_EQ(Identity.error().Code, EEditorBulkDataError::InvalidInstanceIdentity);
+	EXPECT_EQ(Identity.error().ContentId, RejectedContent);
+	auto Content = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, {}, 4, Source);
+	if (Content) { Value = std::move(*Content); }
+	EXPECT_EQ(Content.error().Code, EEditorBulkDataError::MissingContentIdentity);
+	EXPECT_EQ(Content.error().InstanceId, RejectedInstance);
+	auto Size = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, RejectedContent, 3, Source);
+	if (Size) { Value = std::move(*Size); }
+	EXPECT_EQ(Size.error().Code, EEditorBulkDataError::LogicalSizeMismatch);
+	EXPECT_EQ(Size.error().Actual, 3u);
+	EXPECT_EQ(Size.error().Expected, 4u);
 	Source.SegmentOffset = 4;
-	const auto Range = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, RejectedContent, 4, Source, Value);
+	auto Range = FEditorBulkData::TryCreatePackageBacked(RejectedInstance, RejectedContent, 4, Source);
+	if (Range) { Value = std::move(*Range); }
 	Source = {};
-	EXPECT_EQ(Range.Error.Code, EEditorBulkDataError::InvalidRange);
-	EXPECT_EQ(Range.Error.InstanceId, RejectedInstance);
-	EXPECT_EQ(Range.Error.ContentId, RejectedContent);
-	ASSERT_TRUE(Range.Error.RangeCause);
-	EXPECT_EQ(Range.Error.RangeCause->Code, EPackageResourceRangeError::OutsideSegment);
-	EXPECT_EQ(Range.Error.RangeCause->SegmentOffset, 4u);
-	EXPECT_EQ(Range.Error.RangeCause->SegmentExtent, 4u);
+	EXPECT_EQ(Range.error().Code, EEditorBulkDataError::InvalidRange);
+	EXPECT_EQ(Range.error().InstanceId, RejectedInstance);
+	EXPECT_EQ(Range.error().ContentId, RejectedContent);
+	ASSERT_TRUE(Range.error().RangeCause);
+	EXPECT_EQ(Range.error().RangeCause->Code, EPackageResourceRangeError::OutsideSegment);
+	EXPECT_EQ(Range.error().RangeCause->SegmentOffset, 4u);
+	EXPECT_EQ(Range.error().RangeCause->SegmentExtent, 4u);
 	EXPECT_EQ(Value.GetInstanceId(), OriginalInstance);
 	EXPECT_EQ(Value.GetPayloadId(), OriginalContent);
 	EXPECT_EQ(Value.GetPayloadSize(), 2u);
@@ -763,10 +824,12 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 	auto Resource = std::make_shared<FTestPackageResource>(true);
 	FEditorBulkData Value;
 	std::string Error;
-	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
-		FGuid{21, 22, 23, 24}, FXxHash128::HashBuffer(
-			Durin::FByteBuffer(4, std::byte{0})), 4,
-		{.Resource = Resource, .StoredSize = 4}, Value));
+	{
+		auto ValueResult = FEditorBulkData::TryCreatePackageBacked(FGuid{21, 22, 23, 24}, FXxHash128::HashBuffer(
+			Durin::FByteBuffer(4, std::byte{0})), 4, {.Resource = Resource, .StoredSize = 4});
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	FPackageResourceRequest Captured = Value.GetPayload();
 	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
 	const std::array Replacement{std::byte{4}, std::byte{3}};
@@ -797,12 +860,18 @@ TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntime
 	EXPECT_FALSE(ValidatePackageResourceRange(Invalid, 4));
 
 	FEditorBulkData Editor;
-	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
-		FGuid{31, 32, 33, 34}, FXxHash128::HashBuffer(
-			Durin::FByteBuffer(4, std::byte{0})), 4, Range, Editor));
+	{
+		auto ValueResult = FEditorBulkData::TryCreatePackageBacked(FGuid{31, 32, 33, 34}, FXxHash128::HashBuffer(
+			Durin::FByteBuffer(4, std::byte{0})), 4, Range);
+		ASSERT_TRUE(ValueResult);
+		Editor = std::move(*ValueResult);
+	}
 	FBulkData Runtime;
-	ASSERT_TRUE(FBulkData::TryAttach(
-		{.LogicalSize = 4, .Range = Range}, Runtime));
+	{
+		auto ValueResult = FBulkData::TryAttach({.LogicalSize = 4, .Range = Range});
+		ASSERT_TRUE(ValueResult);
+		Runtime = std::move(*ValueResult);
+	}
 	EXPECT_EQ(Editor.GetPayloadSize(), Runtime.GetMetadata().LogicalSize);
 	EXPECT_EQ(Runtime.GetMetadata().Range.Resource, Resource);
 	EXPECT_FALSE(Editor.IsMemoryResident());
@@ -812,58 +881,65 @@ TEST(FPackageResourceRangeTests, FailuresOwnRangeFactsAndDistinguishBounds)
 {
 	auto Resource = std::make_shared<FTestPackageResource>();
 	FPackageResourceRange Range{.Resource = Resource, .StoredSize = 4};
-	EXPECT_EQ(ValidatePackageResourceRange({}, 4).Error.Code,
+	EXPECT_EQ(ValidatePackageResourceRange({}, 4).error().Code,
 		EPackageResourceRangeError::MissingResource);
 	Range.StorageFlags = 7;
-	const auto Flags = ValidatePackageResourceRange(Range, 4);
+	auto Flags = ValidatePackageResourceRange(Range, 4);
 	Range.StorageFlags = 0;
-	EXPECT_EQ(Flags.Error.Code, EPackageResourceRangeError::UnsupportedFlags);
-	EXPECT_EQ(Flags.Error.StorageFlags, 7u);
-	EXPECT_EQ(Flags.Error.SegmentExtent, 4u);
-	const auto Limit = ValidatePackageResourceRange(Range, 3);
-	EXPECT_EQ(Limit.Error.Code, EPackageResourceRangeError::SizeLimit);
-	EXPECT_EQ(Limit.Error.StoredSize, 4u);
-	EXPECT_EQ(Limit.Error.MaximumStoredSize, 3u);
+	EXPECT_EQ(Flags.error().Code, EPackageResourceRangeError::UnsupportedFlags);
+	EXPECT_EQ(Flags.error().StorageFlags, 7u);
+	EXPECT_EQ(Flags.error().SegmentExtent, 4u);
+	auto Limit = ValidatePackageResourceRange(Range, 3);
+	EXPECT_EQ(Limit.error().Code, EPackageResourceRangeError::SizeLimit);
+	EXPECT_EQ(Limit.error().StoredSize, 4u);
+	EXPECT_EQ(Limit.error().MaximumStoredSize, 3u);
 	Range.Alignment = 3;
-	EXPECT_EQ(ValidatePackageResourceRange(Range, 4).Error.Code,
+	EXPECT_EQ(ValidatePackageResourceRange(Range, 4).error().Code,
 		EPackageResourceRangeError::InvalidAlignment);
 	Range.Alignment = 2;
 	Range.SegmentOffset = 1;
-	EXPECT_EQ(ValidatePackageResourceRange(Range, 4).Error.Code,
+	EXPECT_EQ(ValidatePackageResourceRange(Range, 4).error().Code,
 		EPackageResourceRangeError::MisalignedOffset);
 	Range.SegmentOffset = 2;
-	const auto Bounds = ValidatePackageResourceRange(Range, 4);
+	auto Bounds = ValidatePackageResourceRange(Range, 4);
 	Range = {};
 	Resource.reset();
-	EXPECT_EQ(Bounds.Error.Code, EPackageResourceRangeError::OutsideSegment);
-	EXPECT_EQ(Bounds.Error.SegmentOffset, 2u);
-	EXPECT_EQ(Bounds.Error.StoredSize, 4u);
-	EXPECT_EQ(Bounds.Error.SegmentExtent, 4u);
+	EXPECT_EQ(Bounds.error().Code, EPackageResourceRangeError::OutsideSegment);
+	EXPECT_EQ(Bounds.error().SegmentOffset, 2u);
+	EXPECT_EQ(Bounds.error().StoredSize, 4u);
+	EXPECT_EQ(Bounds.error().SegmentExtent, 4u);
 }
 
 TEST(FBulkDataTests, FailedAttachmentRetainsCauseAndExistingDetachedPayload)
 {
 	FBulkData Value;
 	const auto Bytes = MakeBytes({5, 6});
-	ASSERT_TRUE(FBulkData::TryCreateDetached(Bytes, Value));
+	{
+		auto ValueResult = FBulkData::TryCreateDetached(Bytes);
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	FBulkDataMetadata Metadata{.LogicalSize = 4,
 		.Range = {.Resource = std::make_shared<FTestPackageResource>(),
 			.SegmentOffset = 4, .StoredSize = 4}};
-	const auto Bounds = FBulkData::TryAttach(Metadata, Value);
-	EXPECT_EQ(Bounds.Error.Code, EBulkDataError::InvalidRange);
-	ASSERT_TRUE(Bounds.Error.RangeCause);
-	EXPECT_EQ(Bounds.Error.RangeCause->Code, EPackageResourceRangeError::OutsideSegment);
-	EXPECT_EQ(Bounds.Error.RangeCause->SegmentOffset, 4u);
+	auto Bounds = FBulkData::TryAttach(Metadata);
+	if (Bounds) { Value = std::move(*Bounds); }
+	EXPECT_EQ(Bounds.error().Code, EBulkDataError::InvalidRange);
+	ASSERT_TRUE(Bounds.error().RangeCause);
+	EXPECT_EQ(Bounds.error().RangeCause->Code, EPackageResourceRangeError::OutsideSegment);
+	EXPECT_EQ(Bounds.error().RangeCause->SegmentOffset, 4u);
 	Metadata.LogicalSize = 3;
-	const auto Mismatch = FBulkData::TryAttach(Metadata, Value);
-	EXPECT_EQ(Mismatch.Error.Code, EBulkDataError::LogicalSizeMismatch);
-	EXPECT_EQ(Mismatch.Error.Actual, 3u);
-	EXPECT_EQ(Mismatch.Error.Expected, 4u);
+	auto Mismatch = FBulkData::TryAttach(Metadata);
+	if (Mismatch) { Value = std::move(*Mismatch); }
+	EXPECT_EQ(Mismatch.error().Code, EBulkDataError::LogicalSizeMismatch);
+	EXPECT_EQ(Mismatch.error().Actual, 3u);
+	EXPECT_EQ(Mismatch.error().Expected, 4u);
 	Metadata.LogicalSize = Metadata.Range.StoredSize = MaximumBulkDataBytes + 1;
-	const auto Limit = FBulkData::TryAttach(Metadata, Value);
-	EXPECT_EQ(Limit.Error.Code, EBulkDataError::LogicalSizeLimit);
-	EXPECT_EQ(Limit.Error.Actual, MaximumBulkDataBytes + 1);
-	EXPECT_EQ(Limit.Error.Expected, MaximumBulkDataBytes);
+	auto Limit = FBulkData::TryAttach(Metadata);
+	if (Limit) { Value = std::move(*Limit); }
+	EXPECT_EQ(Limit.error().Code, EBulkDataError::LogicalSizeLimit);
+	EXPECT_EQ(Limit.error().Actual, MaximumBulkDataBytes + 1);
+	EXPECT_EQ(Limit.error().Expected, MaximumBulkDataBytes);
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Detached);
 	EXPECT_EQ(Value.GetMetadata().LogicalSize, 2u);
 	auto Read = Value.AcquireRead();
@@ -874,7 +950,11 @@ TEST(FBulkDataTests, FailedAttachmentRetainsCauseAndExistingDetachedPayload)
 TEST(FBulkDataTests, ScopedLocksReleaseOnReturnAndRetainReplacedStorage)
 {
 	FBulkData Value;
-	ASSERT_TRUE(FBulkData::TryCreateDetached(MakeBytes({1, 2}), Value));
+	{
+		auto ValueResult = FBulkData::TryCreateDetached(MakeBytes({1, 2}));
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	const auto Visit = [&] {
 		auto Read = Value.AcquireRead();
 		EXPECT_TRUE(Read);
@@ -907,16 +987,20 @@ TEST(FPackageResourceTests, RegistrationRejectsEmptySegmentsWithOwnedDiagnostics
 {
 	FPackageResourceManager Manager;
 	const auto Empty = Manager.RegisterLoosePackage("/Tests/Empty", "Empty.dasset", {}, {});
-	EXPECT_FALSE(Empty.Resource);
-	EXPECT_EQ(Empty.Error.Code, EPackageResourceRegistrationError::EmptySegment);
-	EXPECT_EQ(Empty.Error.Path, std::filesystem::path("Empty.dasset"));
+	ASSERT_FALSE(Empty);
+	EXPECT_EQ(Empty.error().Code, EPackageResourceRegistrationError::EmptySegment);
+	EXPECT_EQ(Empty.error().Path, std::filesystem::path("Empty.dasset"));
 }
 
 TEST(FBulkDataTests, ReadFailurePreservesPackageCauseAndSupportsExplicitRetry)
 {
 	auto Resource = std::make_shared<FFailingPackageResource>();
 	FBulkData Value;
-	ASSERT_TRUE(FBulkData::TryAttach({.LogicalSize = 4, .Range = {.Resource = Resource, .StoredSize = 4}}, Value));
+	{
+		auto ValueResult = FBulkData::TryAttach({.LogicalSize = 4, .Range = {.Resource = Resource, .StoredSize = 4}});
+		ASSERT_TRUE(ValueResult);
+		Value = std::move(*ValueResult);
+	}
 	auto Failed = Value.AcquireRead();
 	EXPECT_EQ(Failed.Status, EBulkReadStatus::ReadFailed);
 	EXPECT_FALSE(Failed.Lock);
@@ -934,27 +1018,27 @@ TEST(FBulkDataTests, ReadFailurePreservesPackageCauseAndSupportsExplicitRetry)
 TEST(FPackageResourceTests, BulkMetadataFailuresRetainOwnedFieldContext)
 {
 	FPackageBulkDataEntry Entry{.FieldIndex = 3, .ContentId = {1, 2}};
-	const auto Invalid = ValidatePackageBulkDataMetadata({}, std::span{&Entry, 1});
+	auto Invalid = ValidatePackageBulkDataMetadata({}, std::span{&Entry, 1});
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error.Code, EPackageBulkDataError::NonCanonicalIndex);
-	EXPECT_EQ(Invalid.Error.Index, 0u);
-	EXPECT_EQ(Invalid.Error.Actual, 3u);
-	EXPECT_EQ(Invalid.Error.Expected, 1u);
+	EXPECT_EQ(Invalid.error().Code, EPackageBulkDataError::NonCanonicalIndex);
+	EXPECT_EQ(Invalid.error().Index, 0u);
+	EXPECT_EQ(Invalid.error().Actual, 3u);
+	EXPECT_EQ(Invalid.error().Expected, 1u);
 	Entry.FieldIndex = 1;
 	ASSERT_TRUE(ValidatePackageBulkDataMetadata({}, std::span{&Entry, 1}));
-	ASSERT_TRUE(Invalid.Error.Entry);
-	EXPECT_EQ(Invalid.Error.Entry->FieldIndex, 3u);
-	const auto Limit = ValidatePackageBulkDataMetadata({.Extent = PackageBulkDataMaximumSegmentBytes + 1}, {});
-	EXPECT_EQ(Limit.Error.Code, EPackageBulkDataError::SegmentLimit);
-	EXPECT_EQ(Limit.Error.Actual, PackageBulkDataMaximumSegmentBytes + 1);
-	EXPECT_EQ(Limit.Error.Expected, PackageBulkDataMaximumSegmentBytes);
+	ASSERT_TRUE(Invalid.error().Entry);
+	EXPECT_EQ(Invalid.error().Entry->FieldIndex, 3u);
+	auto Limit = ValidatePackageBulkDataMetadata({.Extent = PackageBulkDataMaximumSegmentBytes + 1}, {});
+	EXPECT_EQ(Limit.error().Code, EPackageBulkDataError::SegmentLimit);
+	EXPECT_EQ(Limit.error().Actual, PackageBulkDataMaximumSegmentBytes + 1);
+	EXPECT_EQ(Limit.error().Expected, PackageBulkDataMaximumSegmentBytes);
 	FPackageResourceManager Manager;
 	const auto Registered = Manager.RegisterLoosePackage("/TypedBulk", "TypedBulk.dasset",
 		{.Extent = 1, .Flags = 1}, {});
 	EXPECT_FALSE(Registered);
-	ASSERT_TRUE(Registered.Error.BulkCause);
-	EXPECT_EQ(Registered.Error.BulkCause->Code, EPackageBulkDataError::UnsupportedFlags);
-	EXPECT_EQ(Registered.Error.BulkCause->Summary.Flags, 1u);
+	ASSERT_TRUE(Registered.error().BulkCause);
+	EXPECT_EQ(Registered.error().BulkCause->Code, EPackageBulkDataError::UnsupportedFlags);
+	EXPECT_EQ(Registered.error().BulkCause->Summary.Flags, 1u);
 }
 
 TEST(FPackageResourceTests, BulkPaddingFailureRetainsExactOffsetAfterSegmentDigestValidation)
@@ -971,14 +1055,14 @@ TEST(FPackageResourceTests, BulkPaddingFailureRetainsExactOffsetAfterSegmentDige
 			.Alignment = EditorBulkDataExternalAlignment, .ContentId = Content}};
 	Bytes[static_cast<size_t>(Size)] = std::byte{17};
 	const FPackageBulkSegmentSummary Summary{.Extent = Bytes.size(), .Digest = FXxHash128::HashBuffer(Bytes)};
-	const auto Invalid = ValidatePackageBulkDataSegment(Summary, Entries, Bytes);
+	auto Invalid = ValidatePackageBulkDataSegment(Summary, Entries, Bytes);
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error.Code, EPackageBulkDataError::NonzeroPadding);
-	EXPECT_EQ(Invalid.Error.Offset, Size);
-	EXPECT_EQ(Invalid.Error.Actual, 17u);
-	EXPECT_EQ(Invalid.Error.Index, 1u);
-	ASSERT_TRUE(Invalid.Error.Entry);
-	EXPECT_EQ(Invalid.Error.Entry->FieldIndex, 2u);
+	EXPECT_EQ(Invalid.error().Code, EPackageBulkDataError::NonzeroPadding);
+	EXPECT_EQ(Invalid.error().Offset, Size);
+	EXPECT_EQ(Invalid.error().Actual, 17u);
+	EXPECT_EQ(Invalid.error().Index, 1u);
+	ASSERT_TRUE(Invalid.error().Entry);
+	EXPECT_EQ(Invalid.error().Entry->FieldIndex, 2u);
 	Bytes[static_cast<size_t>(Size)] = std::byte{0};
 	EXPECT_TRUE(ValidatePackageBulkDataSegment({.Extent = Bytes.size(), .Digest = FXxHash128::HashBuffer(Bytes)}, Entries, Bytes));
 }
@@ -996,16 +1080,15 @@ TEST(FEditorBulkStorageTests, NestedFailureOwnsObjectAndFieldRoute)
 	Inspection.Objects.push_back({.Id = 17, .ObjectPath = "/Tests/Container.Root",
 		.Fields = {{.Name = "Source", .Kind = DurinCodeGen::EPropertyGenFlags::Struct,
 			.Payload = Payload, .SourceFormatVersion = ObjectPackage::DastV10FormatVersion}}});
-	std::vector<FPackageBulkStorageDescriptor> Descriptors(1);
-	const auto Result = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors);
+	auto Result = InspectEditorBulkDataStorageDescriptors(Inspection);
+	ASSERT_FALSE(Result);
 	Inspection = {};
 	Payload.clear();
-	EXPECT_EQ(Result.Error.Code, EEditorBulkDataStorageError::InvalidDescriptor);
-	EXPECT_EQ(Result.Error.ObjectId, 17u);
-	EXPECT_EQ(Result.Error.ObjectPath, "/Tests/Container.Root");
-	EXPECT_EQ(Result.Error.FieldRoute, (std::vector<std::string>{"Source", "Payload"}));
-	EXPECT_EQ(Result.Error.Depth, 1u);
-	EXPECT_TRUE(Descriptors.empty());
+	EXPECT_EQ(Result.error().Code, EEditorBulkDataStorageError::InvalidDescriptor);
+	EXPECT_EQ(Result.error().ObjectId, 17u);
+	EXPECT_EQ(Result.error().ObjectPath, "/Tests/Container.Root");
+	EXPECT_EQ(Result.error().FieldRoute, (std::vector<std::string>{"Source", "Payload"}));
+	EXPECT_EQ(Result.error().Depth, 1u);
 }
 
 TEST(FEditorBulkStorageTests, RejectsVersionAndPreservesArchiveHeaderCause)
@@ -1013,18 +1096,17 @@ TEST(FEditorBulkStorageTests, RejectsVersionAndPreservesArchiveHeaderCause)
 	FAssetPackageInspection Inspection;
 	Inspection.Objects.push_back({.Id = 19, .Fields = {{.Name = "Payload",
 		.Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 1}}});
-	std::vector<std::filesystem::path> Paths{"sentinel"};
-	const auto Version = InspectEditorBulkDataCompanionPaths("/Tests/Bad.dasset", Inspection, Paths);
-	EXPECT_EQ(Version.Error.Code, EEditorBulkDataStorageError::UnsupportedVersion);
-	EXPECT_EQ(Version.Error.SourceFormatVersion, 1u);
-	EXPECT_EQ(Version.Error.Path, std::filesystem::path("/Tests/Bad.dasset"));
-	EXPECT_TRUE(Paths.empty());
+	auto Version = InspectEditorBulkDataCompanionPaths("/Tests/Bad.dasset", Inspection);
+	ASSERT_FALSE(Version);
+	EXPECT_EQ(Version.error().Code, EEditorBulkDataStorageError::UnsupportedVersion);
+	EXPECT_EQ(Version.error().SourceFormatVersion, 1u);
+	EXPECT_EQ(Version.error().Path, std::filesystem::path("/Tests/Bad.dasset"));
 	Inspection.Objects.front().Fields.front().Kind = DurinCodeGen::EPropertyGenFlags::Struct;
-	std::vector<FPackageBulkStorageDescriptor> Descriptors;
-	const auto Header = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors);
-	EXPECT_EQ(Header.Error.Code, EEditorBulkDataStorageError::InvalidStructHeader);
-	ASSERT_TRUE(Header.Error.ArchiveCode);
-	EXPECT_EQ(*Header.Error.ArchiveCode, EArchiveFailureCode::TruncatedPayload);
+	auto Header = InspectEditorBulkDataStorageDescriptors(Inspection);
+	ASSERT_FALSE(Header);
+	EXPECT_EQ(Header.error().Code, EEditorBulkDataStorageError::InvalidStructHeader);
+	ASSERT_TRUE(Header.error().ArchiveCode);
+	EXPECT_EQ(*Header.error().ArchiveCode, EArchiveFailureCode::TruncatedPayload);
 }
 
 TEST(FEditorBulkStorageTests, OrphanInspectionRetainsFilesystemCauseAndCandidate)
@@ -1032,12 +1114,11 @@ TEST(FEditorBulkStorageTests, OrphanInspectionRetainsFilesystemCauseAndCandidate
 	const auto PackagePath = std::filesystem::path(__FILE__) / "child.dasset";
 	auto Expected = PackagePath;
 	Expected.replace_extension(".dbulk");
-	std::vector<std::filesystem::path> Paths{"sentinel"};
-	const auto Result = InspectOrphanedEditorBulkDataCompanionPaths(PackagePath, {}, Paths);
-	EXPECT_EQ(Result.Error.Code, EEditorBulkDataStorageError::FileSystem);
-	EXPECT_TRUE(Result.Error.SystemError);
-	EXPECT_EQ(Result.Error.Path, Expected);
-	EXPECT_TRUE(Paths.empty());
+	auto Result = InspectOrphanedEditorBulkDataCompanionPaths(PackagePath, {});
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Code, EEditorBulkDataStorageError::FileSystem);
+	EXPECT_TRUE(Result.error().SystemError);
+	EXPECT_EQ(Result.error().Path, Expected);
 }
 
 TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
@@ -1058,16 +1139,16 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(MakeBytes({1, 2}), SegmentPath));
 	FPackageResourceManager Manager;
 	const auto Failed = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
-	EXPECT_EQ(Failed.Error.Code, EPackageResourceRegistrationError::InvalidGeneration);
-	EXPECT_FALSE(Failed.Resource);
-	ASSERT_TRUE(Failed.Error.PrimaryCause);
-	ASSERT_TRUE(Failed.Error.PrimaryCause->BulkCause);
-	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Code, EPackageBulkDataError::ExtentMismatch);
-	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Actual, 2u);
-	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Expected, Bytes.size());
+	EXPECT_EQ(Failed.error().Code, EPackageResourceRegistrationError::InvalidGeneration);
+	ASSERT_FALSE(Failed);
+	ASSERT_TRUE(Failed.error().PrimaryCause);
+	ASSERT_TRUE(Failed.error().PrimaryCause->BulkCause);
+	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::ExtentMismatch);
+	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Actual, 2u);
+	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Expected, Bytes.size());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, BackupPath));
 	const auto StillInvalid = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
-	EXPECT_EQ(StillInvalid.Error.Code, EPackageResourceRegistrationError::InvalidGeneration);
+	EXPECT_EQ(StillInvalid.error().Code, EPackageResourceRegistrationError::InvalidGeneration);
 	EXPECT_TRUE(std::filesystem::exists(BackupPath));
 	FByteBuffer Unchanged;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Unchanged, SegmentPath));
@@ -1075,15 +1156,15 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	// Repair is explicit; registration only validates and publishes the resource.
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, SegmentPath));
 	const auto Recovered = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
-	ASSERT_TRUE(Recovered) << FormatPackageResourceRegistrationError(Recovered.Error);
+	ASSERT_TRUE(Recovered) << FormatPackageResourceRegistrationError(Recovered.error());
 	EXPECT_TRUE(std::filesystem::exists(BackupPath));
-	const auto Read = Recovered.Resource->ReadRange(0, Bytes.size());
+	const auto Read = (*Recovered)->ReadRange(0, Bytes.size());
 	ASSERT_TRUE(Read);
 	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Bytes));
-	EXPECT_EQ(Failed.Error.PrimaryCause->BulkCause->Actual, 2u);
-	EXPECT_EQ(Failed.Error.PrimaryCause->Path, SegmentPath);
+	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Actual, 2u);
+	EXPECT_EQ(Failed.error().PrimaryCause->Path, SegmentPath);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(MakeBytes({1}), SegmentPath));
-	const auto Changed = Recovered.Resource->ReadRange(0, 4);
+	const auto Changed = (*Recovered)->ReadRange(0, 4);
 	EXPECT_EQ(Changed.Status, EPackageResourceReadStatus::TruncatedSegment);
 	EXPECT_EQ(Changed.Error.Reason, EPackageResourceReadReason::ChangedBeforeRead);
 	EXPECT_EQ(Changed.Error.Path, SegmentPath);

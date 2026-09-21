@@ -252,8 +252,16 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	ASSERT_TRUE(UnloadPackage(VolumePath));
 	Weather = nullptr;
 	Volume = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(WeatherPath), Weather));
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(VolumePath), Volume));
+	{
+		auto LoadedValue = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(WeatherPath));
+		Weather = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
+	{
+		auto LoadedValue = LoadObject<DVolumeTexture>(Testing::MakePackageLeafAssetObjectPathForTests(VolumePath));
+		Volume = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Weather->GetSource().GetIdentity(), WeatherIdentity);
 	EXPECT_EQ(Volume->GetSource().GetIdentity(), VolumeIdentity);
 	ASSERT_TRUE(UnloadPackage(WeatherPath));

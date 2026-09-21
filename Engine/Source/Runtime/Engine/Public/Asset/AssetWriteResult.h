@@ -1,10 +1,10 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/AssetReadResult.h"
 
 namespace Durin
 {
-	struct FAssetReadResult;
 	namespace ObjectPackage { struct FPackageWriterResult; }
 
 	enum class EAssetWriteError : uint8
@@ -28,5 +28,11 @@ namespace Durin
 	};
 	// Explicit boundary: a read failure rejects preparation without write effects.
 	ENGINE_API auto AssetWriteResultFromRead(const FAssetReadResult& Result) -> FAssetWriteResult;
+	ENGINE_API auto AssetWriteResultFromRead(const FAssetReadError& Error) -> FAssetWriteResult;
+	template<typename T>
+	[[nodiscard]] auto AssetWriteResultFromRead(const std::expected<T, FAssetReadError>& Result) -> FAssetWriteResult
+	{
+		return Result ? FAssetWriteResult{} : AssetWriteResultFromRead(Result.error());
+	}
 	ENGINE_API auto AssetWriteResultFromEncoding(const ObjectPackage::FPackageWriterResult& Result) -> FAssetWriteResult;
 }

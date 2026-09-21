@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Asset/PackageResourceError.h"
 #include "Asset/EditorBulkDataStorageError.h"
@@ -111,12 +113,8 @@ namespace Durin
 
 	using FPackageResourceHandle = std::shared_ptr<FPackageResource>;
 
-	// Reports a preparation/revalidation failure without changing the output owner.
-	struct FPreparedPackageResourceResult
-	{
-		FPreparedPackageResourceError Error;
-		explicit operator bool() const { return Error.Code == EPreparedPackageResourceError::None; }
-	};
+	// Revalidation has no returned value; preparation returns its owned closure.
+	using FPreparedPackageResourceResult = std::expected<void, FPreparedPackageResourceError>;
 
 	// Owns an unpublished immutable main/bulk closure. Main schema validation
 	// belongs to the existing codec; this owner preserves the validated bytes.
@@ -125,29 +123,27 @@ namespace Durin
 	public:
 		// Reads and validates through the existing package codec without creating
 		// objects. The budget bounds retained bytes, not parser scratch allocations.
-		ENGINE_API static auto Read(
+		[[nodiscard]] ENGINE_API static auto Read(
 			const FPackagePath& LogicalPath,
 			const std::filesystem::path& PackagePath,
 			uint64 MaximumRetainedBytes,
-			FPreparedPackageResource& Out,
-			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult;
+			const std::function<bool()>& IsCancelled = {}) -> std::expected<FPreparedPackageResource, FPreparedPackageResourceError>;
 
 		// Requires main bytes and directory facts already validated by the codec.
-		// Failure leaves Out unchanged. No registry publication or disk recovery.
+		// Failure returns no closure. No registry publication or disk recovery.
 		// The byte budget covers retained main/bulk bytes; callers separately
 		// account decoded values, object graphs, and runtime products.
-		ENGINE_API static auto Prepare(
+		[[nodiscard]] ENGINE_API static auto Prepare(
 			const std::filesystem::path& PackagePath,
 			FSharedByteBuffer ValidatedMain,
 			const FPackageBulkSegmentSummary& Summary,
 			std::span<const FPackageBulkDataEntry> Entries,
 			uint64 MaximumRetainedBytes,
-			FPreparedPackageResource& Out,
-			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult;
+			const std::function<bool()>& IsCancelled = {}) -> std::expected<FPreparedPackageResource, FPreparedPackageResourceError>;
 
 		// Rehashes both physical files with bounded scratch. Owners must still
 		// hold their save/edit lease between this check and memory publication.
-		ENGINE_API auto Revalidate(const std::function<bool()>& IsCancelled = {}) const
+		[[nodiscard]] ENGINE_API auto Revalidate(const std::function<bool()>& IsCancelled = {}) const
 			-> FPreparedPackageResourceResult;
 		auto GetMainBytes() const -> const FSharedByteBuffer& { return MainBytes; }
 		auto GetBulkResource() const -> const FPackageResourceHandle& { return BulkResource; }
@@ -165,11 +161,10 @@ namespace Durin
 	// Copies and validates one bulk generation before exposing it to lazy readers.
 	// The caller keeps Segment stable during this call; successful reads retain
 	// owned bytes without filesystem access or global resource registration.
-	ENGINE_API auto CreateOwnedPackageResource(
+	[[nodiscard]] ENGINE_API auto CreateOwnedPackageResource(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
-		FByteView Segment,
-		FPackageResourceHandle& OutHandle) -> FPackageBulkDataResult;
+		FByteView Segment) -> std::expected<FPackageResourceHandle, FPackageBulkDataError>;
 
 	// Identifies one bounded stored range in a validated logical package segment.
 	struct FPackageResourceRange
@@ -195,26 +190,16 @@ namespace Durin
 		uint32 StorageFlags = 0;
 		uint32 Alignment = 0;
 	};
-	struct FPackageResourceRangeResult
-	{
-		FPackageResourceRangeError Error;
-		auto Succeeded() const -> bool { return Error.Code == EPackageResourceRangeError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FPackageResourceRangeResult = std::expected<void, FPackageResourceRangeError>;
 	ENGINE_API auto FormatPackageResourceRangeError(const FPackageResourceRangeError& Error) -> std::string;
 
 	// Validates storage facts only; the caller retains logical-size and domain limits.
-	ENGINE_API auto ValidatePackageResourceRange(
+	[[nodiscard]] ENGINE_API auto ValidatePackageResourceRange(
 		const FPackageResourceRange& Range,
 		uint64 MaximumStoredSize) -> FPackageResourceRangeResult;
 
 	// Owns a published resource or the stage and causes of failed registration.
-	struct [[nodiscard]] FPackageResourceRegistrationResult
-	{
-		FPackageResourceHandle Resource;
-		FPackageResourceRegistrationError Error{.Code = EPackageResourceRegistrationError::InvalidMetadata};
-		explicit operator bool() const { return Error.Code == EPackageResourceRegistrationError::None; }
-	};
+	using FPackageResourceRegistrationResult = std::expected<FPackageResourceHandle, FPackageResourceRegistrationError>;
 
 	// Owns loose package resources and retires them before package I/O shutdown.
 	class FPackageResourceManager
@@ -222,7 +207,7 @@ namespace Durin
 	public:
 		ENGINE_API ~FPackageResourceManager();
 
-		ENGINE_API auto RegisterLoosePackage(
+		[[nodiscard]] ENGINE_API auto RegisterLoosePackage(
 			std::string LogicalPackageId,
 			const std::filesystem::path& PackagePath,
 			const FPackageBulkSegmentSummary& Summary,

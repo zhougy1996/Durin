@@ -125,9 +125,9 @@ namespace Durin::Editor::Texture
 					TextureCube = nullptr;
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = Result.Message.empty()
+						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
 							? "The requested asset is not a TextureCube."
-							: Result.Message};
+							: (Result ? std::string{} : Result.error().Message)};
 				}
 				AssetRevision = TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0;
 				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();

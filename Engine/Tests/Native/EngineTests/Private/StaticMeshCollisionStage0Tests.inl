@@ -909,10 +909,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, CapturesRealImportedSourceWithoutRetainingRenderPointers)
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	DStaticMesh* Mesh = nullptr;
-	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(
-		Source.generic_string(), nullptr, "M3CollisionSourceFixture", Mesh);
-	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.Error);
+	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(Source.generic_string(), nullptr, "M3CollisionSourceFixture");
+	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.error());
+	auto* Mesh = *Created;
 	ASSERT_NE(Mesh, nullptr);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 	ASSERT_NE(RenderData, nullptr);
@@ -1064,10 +1063,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, InspectionReportsBoundedReadOnlyCollisionFacts)
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	DStaticMesh* Mesh = nullptr;
-	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(
-		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Mesh);
-	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.Error);
+	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(Source.generic_string(), nullptr, "M3CollisionInspectionFixture");
+	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.error());
+	auto* Mesh = *Created;
 	ASSERT_NE(Mesh, nullptr);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)

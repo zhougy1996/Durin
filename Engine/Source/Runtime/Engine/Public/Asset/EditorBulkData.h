@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Asset/PackageResource.h"
 #include "Serialization/Archive.h"
@@ -26,12 +28,7 @@ namespace Durin
 		uint64 Expected = 0;
 		std::optional<FPackageResourceRangeError> RangeCause;
 	};
-	struct FEditorBulkDataResult
-	{
-		FEditorBulkDataError Error;
-		auto Succeeded() const -> bool { return Error.Code == EEditorBulkDataError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FEditorBulkDataResult = std::expected<void, FEditorBulkDataError>;
 	ENGINE_API auto FormatEditorBulkDataError(const FEditorBulkDataError& Error) -> std::string;
 
 	namespace AssetPrivate { struct FEditorBulkDataState; }
@@ -52,14 +49,13 @@ namespace Durin
 		ENGINE_API auto GetPayloadSize() const -> uint64;
 		ENGINE_API auto IsMemoryResident() const -> bool;
 		ENGINE_API auto GetPayload() const -> FPackageResourceRequest;
-		ENGINE_API auto UpdatePayload(FByteView Bytes) -> FEditorBulkDataResult;
-		ENGINE_API auto UpdatePayload(FSharedByteBuffer Buffer) -> FEditorBulkDataResult;
-		ENGINE_API static auto TryCreatePackageBacked(
+		[[nodiscard]] ENGINE_API auto UpdatePayload(FByteView Bytes) -> FEditorBulkDataResult;
+		[[nodiscard]] ENGINE_API auto UpdatePayload(FSharedByteBuffer Buffer) -> FEditorBulkDataResult;
+		[[nodiscard]] ENGINE_API static auto TryCreatePackageBacked(
 			FGuid InstanceId,
 			FXxHash128 ContentId,
 			uint64 LogicalSize,
-			FEditorBulkDataSource Source,
-			FEditorBulkData& OutValue) -> FEditorBulkDataResult;
+			FEditorBulkDataSource Source) -> std::expected<FEditorBulkData, FEditorBulkDataError>;
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;

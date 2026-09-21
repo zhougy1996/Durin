@@ -8,8 +8,8 @@ namespace Durin::AssetForge::Builtins
 	{
 		auto RejectImportData(std::string Message) -> FAssetImportDataResult
 		{
-			return {.Error = {.Code = EAssetImportDataError::ModuleRejected,
-				.Message = std::move(Message)}};
+			return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::ModuleRejected,
+				.Message = std::move(Message)});
 		}
 		auto ValidateSingleSource(const FAssetImportDataState& State, std::string_view Family)
 			-> FAssetImportDataResult

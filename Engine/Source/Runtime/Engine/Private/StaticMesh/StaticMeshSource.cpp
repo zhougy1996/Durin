@@ -275,7 +275,7 @@ namespace Durin
 		Candidate.Geometry = Geometry;
 		if (const auto Updated = Candidate.Geometry.UpdatePayload(FSharedByteBuffer::Take(std::move(Bytes))); !Updated)
 		{
-			return {{.Code = EStaticMeshSourceError::BulkUpdate, .BulkCause = Updated.Error}};
+			return {{.Code = EStaticMeshSourceError::BulkUpdate, .BulkCause = Updated.error()}};
 		}
 		Candidate.MaterialSlotCount = static_cast<uint32>(Value.MaterialSlots.size());
 		Candidate.MeshCount = static_cast<uint32>(Value.Meshes.size());

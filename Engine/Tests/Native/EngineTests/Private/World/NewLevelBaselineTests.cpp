@@ -131,8 +131,9 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::FPackagePath MeshPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", MeshPath));
 	Durin::DStaticMesh* Mesh = nullptr;
-	const auto MeshLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh);
-	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
+	const auto MeshLoad = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
+	Mesh = MeshLoad.value_or(nullptr);
+	ASSERT_TRUE(MeshLoad) << (MeshLoad ? std::string{} : MeshLoad.error().Message);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 
 	Durin::FPackagePath LevelPath;
@@ -186,8 +187,9 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
-	const auto LevelLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), Loaded);
-	ASSERT_TRUE(LevelLoad) << LevelLoad.Message;
+	const auto LevelLoad = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
+	Loaded = LevelLoad.value_or(nullptr);
+	ASSERT_TRUE(LevelLoad) << (LevelLoad ? std::string{} : LevelLoad.error().Message);
 	EXPECT_NE(Durin::FindResidentPackage(MeshPath), nullptr);
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 

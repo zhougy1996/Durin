@@ -81,7 +81,7 @@ namespace Durin::Editor::Material
 				const auto& Asset = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
 				FObjectPath Path;
 				DTexture2D* Texture = nullptr;
-				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path) && LoadObject(Path, Texture) && Texture)
+				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path) && (Texture = LoadObject<DTexture2D>(Path).value_or(nullptr)))
 				{
 					GraphEditInternals::FGraphEditSession State(Material);
 					{

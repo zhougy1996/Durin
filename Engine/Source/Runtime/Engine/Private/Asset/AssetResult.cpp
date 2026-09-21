@@ -4,6 +4,11 @@
 
 namespace Durin
 {
+	auto AssetWriteResultFromRead(const FAssetReadError& Error) -> FAssetWriteResult
+	{
+		return AssetWriteResultFromRead(AssetReadResultFromError(Error));
+	}
+
 	auto AssetWriteResultFromEncoding(const ObjectPackage::FPackageWriterResult& Result) -> FAssetWriteResult
 	{
 		if (Result) return {};

@@ -137,7 +137,11 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		EXPECT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
+		{
+			auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+			Object = LoadedValue.value_or(nullptr);
+			EXPECT_TRUE(LoadedValue);
+		}
 		EXPECT_NE(Object, nullptr);
 		if (auto* Material = Durin::Cast<Durin::DMaterialInstance>(Object))
 		{
@@ -177,7 +181,11 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
+		{
+			auto LoadedValue = Durin::LoadObject<Durin::DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+			Object = LoadedValue.value_or(nullptr);
+			ASSERT_TRUE(LoadedValue);
+		}
 		if (auto* Candidate = Durin::Cast<Durin::DMaterialInstance>(Object)) Instance = Candidate;
 	}
 	ASSERT_NE(Instance, nullptr);
@@ -214,8 +222,9 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	for (const auto& Output : Initial.Outputs)
 	{
 		DObject* Object = nullptr;
-		const auto Loaded = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object);
-		ASSERT_TRUE(Loaded) << Output.AssetPath.ToString() << ": " << Loaded.Message;
+		const auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+		Object = Loaded.value_or(nullptr);
+		ASSERT_TRUE(Loaded) << Output.AssetPath.ToString() << ": " << (Loaded ? std::string{} : Loaded.error().Message);
 		if (auto* Material = Cast<DMaterialInstance>(Object)) { Previous = Material; MaterialPath = Output.AssetPath; }
 		if (auto* Mesh = Cast<DStaticMesh>(Object)) PreviousMesh = Mesh;
 		SavedBytes.push_back({Output.AssetPath, Read(FindAssetExact(Output.AssetPath)->PhysicalPath)});
@@ -279,7 +288,11 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	const auto Changed = RunScene(Fixture);
 	ASSERT_TRUE(Changed) << Changed.Message;
 	DMaterialInstance* Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Material, Previous);
 	EXPECT_EQ(Dependent->GetParent(), Material);
 	EXPECT_TRUE(Dependent->GetMaterialCompileStatus().IsCurrent());
@@ -294,7 +307,11 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	std::ofstream(Fixture.Source, std::ios::trunc) << OriginalSource;
 	const auto Restored = RunScene(Fixture);
 	ASSERT_TRUE(Restored) << Restored.Message;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	FResolvedMaterialParameter Value;
 	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
 	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0.5, 0.75, 0.25));
@@ -426,7 +443,11 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	DMaterialInstance* Instance = nullptr;
 	for (const auto& Output : Imported.Outputs)
 		if (Output.Role == "MaterialInstance")
-			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+			{
+				auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+				Instance = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 	ASSERT_NE(Instance, nullptr);
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	FResolvedMaterialParameter Parameter;
@@ -476,7 +497,11 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	{
 		if (Output.AssetClassName == "Durin::DTexture2D") ++TextureCount;
 		if (Output.Role == "MaterialInstance")
-			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+			{
+				auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+				Instance = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 	}
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(TextureCount, 1u);
@@ -509,7 +534,11 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 	DMaterialInstance* Instance = nullptr;
 	for (const auto& Output : First.Outputs)
 		if (Output.Role == "MaterialInstance")
-			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+			{
+				auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+				Instance = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 	ASSERT_NE(Instance, nullptr);
 	auto* Parent = Cast<DMaterial>(Instance->GetParent());
 	ASSERT_NE(Parent, nullptr);
@@ -521,7 +550,11 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 		if (Output.Role == "MaterialInstance")
 		{
 			DMaterialInstance* Reused = nullptr;
-			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Reused));
+			{
+				auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+				Reused = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 			EXPECT_EQ(Reused->GetParent(), Parent);
 		}
 	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);

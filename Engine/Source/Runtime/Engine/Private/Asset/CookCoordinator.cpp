@@ -593,8 +593,9 @@ namespace Durin
 						if (!MakeTopLevelObjectPath(CookRoot.AssetPath, CookRootPath))
 							return Finish(ECookRunStatus::Failed, ECookRunError::InvalidTopLevelAsset);
 						DObject* Asset = nullptr;
-						const auto LoadResult = LoadScope.LoadObject(CookRootPath, Asset);
-						if (!LoadResult) return InputFailure(ToCookInputResult(LoadResult));
+						const auto LoadResult = LoadScope.LoadObject<DObject>(CookRootPath);
+						Asset = LoadResult.value_or(nullptr);
+						if (!LoadResult) return InputFailure(ToCookInputResult(AssetReadResultFromError(LoadResult.error())));
 						if (!Asset) return InputFailure({ECookInputStatus::InvalidDependency, "Cook load returned no object."});
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
 						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {

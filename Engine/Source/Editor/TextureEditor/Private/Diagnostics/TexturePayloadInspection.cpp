@@ -173,11 +173,10 @@ namespace Durin
 				ReadSourceDimensions(SourceFields, Width, Height, Depth, NumSlices);
 			}
 			std::string SourcePath;
-			FAssetImportInfo CommonInfo;
 			bool bHasSource = false;
-			if (InspectAssetImportInfo(Package, CommonInfo))
+			if (auto CommonInfo = InspectAssetImportInfo(Package); CommonInfo)
 			{
-				if (const FSourceFile* Source = CommonInfo.FindByRole("source"))
+				if (const FSourceFile* Source = CommonInfo->FindByRole("source"))
 				{
 					bHasSource = true;
 					SourceBytes = Source->ByteCount;
@@ -243,19 +242,18 @@ namespace Durin
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
 				FByteBuffer CompanionBytes;
-				FEditorBulkDataStorageResult Storage;
-				std::vector<std::filesystem::path> CompanionPaths;
+				std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Storage;
 				if (Package.PhysicalPath.empty()
 					|| !(Storage = InspectEditorBulkDataCompanionPaths(
-						Package.PhysicalPath, Package, CompanionPaths))
-					|| CompanionPaths.empty()
-					|| (CompanionPath = CompanionPaths.front()).empty()
+						Package.PhysicalPath, Package))
+					|| Storage->empty()
+					|| (CompanionPath = Storage->front()).empty()
 					|| !FFileHelper::LoadFileToArray(CompanionBytes, CompanionPath))
 				{
 					SourceState = ETexturePayloadState::Missing;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
 					SourceDiagnostic = Storage
-						? "Editor source companion is missing or unreadable." : FormatEditorBulkDataStorageError(Storage.Error);
+						? "Editor source companion is missing or unreadable." : FormatEditorBulkDataStorageError(Storage.error());
 				}
 				else if (CompanionBytes.size() != Package.Header.BulkSegmentExtent
 					|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
@@ -283,11 +281,11 @@ namespace Durin
 				.PayloadId = bHasDescriptor ? Descriptor.PayloadId : FGuid{},
 				.Placement = std::move(Placement),
 				.Diagnostic = std::move(SourceDiagnostic)});
-			std::vector<std::filesystem::path> Orphans;
+			std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Orphans;
 			if (!Package.PhysicalPath.empty()
-				&& InspectOrphanedEditorBulkDataCompanionPaths(
-					Package.PhysicalPath, Package, Orphans)
-				&& !Orphans.empty())
+				&& (Orphans = InspectOrphanedEditorBulkDataCompanionPaths(
+					Package.PhysicalPath, Package))
+				&& !Orphans->empty())
 				OutInspection.Entries.push_back({
 					.Domain = Domain, .Stage = ETexturePayloadStage::Source,
 					.State = ETexturePayloadState::Stale,
@@ -295,7 +293,7 @@ namespace Durin
 					.Placement = "EditorPackageCompanion",
 					.Diagnostic = std::format(
 						"{} unreferenced editor companion(s) require explicit cleanup.",
-						Orphans.size())});
+						Orphans->size())});
 			OutInspection.Entries.push_back({
 				.Domain = Domain, .Stage = ETexturePayloadStage::DerivedData,
 				.State = ETexturePayloadState::Unknown,

@@ -51,7 +51,8 @@ namespace Durin
 		}
 
 		DMaterial* Material = nullptr;
-		const auto LoadResult = LoadObject(Path, Material);
+		const auto LoadResult = LoadObject<DMaterial>(Path);
+		Material = LoadResult.value_or(nullptr);
 		if (!LoadResult || Material == nullptr
 			|| Material->GetClass() != DMaterial::StaticClass())
 		{
@@ -61,9 +62,9 @@ namespace Durin
 				"Material",
 				"DefaultAssetUnavailable: failed to load exact DMaterial '{}': {}; ErrorMaterial will be used.",
 				DefaultMaterialObjectPath,
-				LoadResult.Message.empty()
+				(LoadResult ? std::string{} : LoadResult.error().Message).empty()
 					? "asset type or object was invalid"
-					: LoadResult.Message);
+					: (LoadResult ? std::string{} : LoadResult.error().Message));
 			return false;
 		}
 

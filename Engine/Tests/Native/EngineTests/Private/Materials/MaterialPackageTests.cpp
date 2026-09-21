@@ -66,7 +66,11 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
 
 	Durin::DMaterialInstance* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DMaterialInstance>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(
@@ -162,7 +166,11 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	MarkObjectHierarchyAsGarbage(Duplicate);
 	ASSERT_TRUE(UnloadPackage(Path));
 	DMaterial* Loaded = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
 	const auto CatalogEntry = FindAssetExact(Path);
 	ASSERT_NE(CatalogEntry, nullptr);
@@ -175,7 +183,11 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	EXPECT_FALSE(SavePackage(Loaded->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Loaded = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
 	ASSERT_TRUE(UnloadPackage(Path));
 	// A valid package envelope cannot publish abandoned expression children.
@@ -195,9 +207,10 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	ASSERT_TRUE(Bulk.empty());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(MalformedBytes, Root / "Base.dasset"));
 	Loaded = nullptr;
-	const auto Rejected = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
+	const auto Rejected = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	Loaded = Rejected.value_or(nullptr);
 	EXPECT_FALSE(Rejected);
-	EXPECT_FALSE(Rejected.Message.empty());
+	EXPECT_FALSE((Rejected ? std::string{} : Rejected.error().Message).empty());
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	CollectGarbage();
@@ -247,15 +260,16 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
 	const auto Load =
-		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
+		Durin::LoadObject<Durin::DMaterialInstance>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		LoadedInstance = Load.value_or(nullptr);
 	EXPECT_FALSE(Load);
 	EXPECT_EQ(LoadedInstance, nullptr);
 	EXPECT_NE(Durin::FindResidentPackage(BasePath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(InstancePath), nullptr);
 	Durin::DMaterial* LoadedBase = nullptr;
-	const auto BaseLoad = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(BasePath), LoadedBase);
-	EXPECT_TRUE(BaseLoad) << BaseLoad.Message;
+	const auto BaseLoad = Durin::LoadObject<Durin::DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BasePath));
+	LoadedBase = BaseLoad.value_or(nullptr);
+	EXPECT_TRUE(BaseLoad) << (BaseLoad ? std::string{} : BaseLoad.error().Message);
 	EXPECT_NE(LoadedBase, nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
 	Durin::FByteBuffer After;
@@ -307,14 +321,19 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 			ASSERT_TRUE(ObjectPackage::WritePackage(Candidate, Bytes, Bulk));
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "Base.dasset"));
 			DMaterial* Loaded = nullptr;
-			const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
-			EXPECT_EQ(Result.Error, EAssetReadError::UnsupportedVersion) << Result.Message;
+			const auto Result = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+			Loaded = Result.value_or(nullptr);
+			EXPECT_EQ((Result ? Durin::EAssetReadError::None : Result.error().Code), EAssetReadError::UnsupportedVersion) << (Result ? std::string{} : Result.error().Message);
 			EXPECT_EQ(Loaded, nullptr);
 			EXPECT_EQ(FindResidentPackage(Path), nullptr);
 		}
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Original, Root / "Base.dasset"));
 	DMaterial* Loaded = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
@@ -361,8 +380,9 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		std::ranges::sort(ExpectedVersions, {}, &FCustomVersion::Guid);
 		ASSERT_EQ(Linker.CustomVersions, ExpectedVersions);
 		DObject* Loaded = nullptr;
-		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
-		ASSERT_TRUE(Result) << Result.Message;
+		const auto Result = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Loaded = Result.value_or(nullptr);
+		ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
 		if (auto* Function = Cast<DMaterialFunction>(Loaded))
 		{
 			EXPECT_EQ(Function->GetFunctionSignature(), ExpectedSignature);
@@ -407,14 +427,22 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 	const auto Expected = Material->GetExpressionOutputs();
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Material->GetExpressionOutputs(), Expected);
 	// Write a current package with the packed connection retained but inactive.
 	Graph.Outputs.bUseMaterialAttributes = false;
 	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Material->GetExpressionOutputs(), Graph.Outputs);
 	ASSERT_TRUE(UnloadPackage(Path));
 	Testing::RemoveTestWorkDirectory(Root);

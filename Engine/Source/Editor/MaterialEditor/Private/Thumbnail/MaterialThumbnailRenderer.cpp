@@ -209,9 +209,9 @@ namespace Durin::Editor::Material
 					Material = nullptr;
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = Result.Message.empty()
+						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
 							? "The requested asset is not an exact material class."
-							: Result.Message};
+							: (Result ? std::string{} : Result.error().Message)};
 				}
 				if (auto* Instance = Cast<DMaterialInstance>(Material);
 					Instance != nullptr && Instance->GetParent() == nullptr)
@@ -230,7 +230,7 @@ namespace Durin::Editor::Material
 				}
 				if (!SphereLoad->IsComplete())
 					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
-				SphereError = SphereLoad->GetResult().Message;
+				SphereError = (SphereLoad->GetResult() ? std::string{} : SphereLoad->GetResult().error().Message);
 				if (!SphereLoad->GetResult()
 					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedObject())) == nullptr)
 				{

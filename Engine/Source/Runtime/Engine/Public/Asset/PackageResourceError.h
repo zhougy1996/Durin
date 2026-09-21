@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
@@ -35,7 +37,7 @@ namespace Durin
 		std::optional<EBulkDataState> BulkState;
 	};
 
-	struct FAssetReadResult;
+	struct FAssetReadError;
 	enum class EPreparedPackageResourceError : uint8 { None, InvalidClosure, BudgetExceeded, IoError, Stale, Cancelled };
 	enum class EPreparedPackageResourceReason : uint8
 	{
@@ -60,7 +62,7 @@ namespace Durin
 		std::optional<FFileHelper::FFileIoError> FileCause;
 		std::optional<FPackageBulkDataError> BulkCause;
 		std::optional<FEditorBulkDataStorageError> BulkStorageCause;
-		std::shared_ptr<const FAssetReadResult> AssetCause;
+		std::shared_ptr<const FAssetReadError> AssetCause;
 	};
 	ENGINE_API auto FormatPreparedPackageResourceError(const FPreparedPackageResourceError& Error) -> std::string;
 
@@ -72,11 +74,7 @@ namespace Durin
 		std::optional<FFileHelper::FFileIoError> FileCause;
 		std::optional<FPackageBulkDataError> BulkCause;
 	};
-	struct FPackageGenerationResult
-	{
-		FPackageGenerationError Error;
-		explicit operator bool() const { return Error.Code == EPackageGenerationError::None; }
-	};
+	using FPackageGenerationResult = std::expected<void, FPackageGenerationError>;
 	enum class EPackageResourceRegistrationError : uint8
 	{
 		None, PackageBusy, EmptySegment, InvalidMetadata, ShuttingDown,

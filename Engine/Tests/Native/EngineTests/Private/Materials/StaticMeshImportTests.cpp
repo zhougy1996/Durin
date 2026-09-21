@@ -44,7 +44,11 @@ TEST(FStaticMeshImportTests, StaticMeshSourceProvenanceLivesOutsideContentAndSur
 	ASSERT_TRUE(Data);
 	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, NewPath, Inspection));
 	std::vector<std::filesystem::path> Companions;
-	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions));
+	{
+		auto ValueResult = Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection);
+		ASSERT_TRUE(ValueResult);
+		Companions = std::move(*ValueResult);
+	}
 	EXPECT_TRUE(Companions.empty());
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
@@ -98,7 +102,11 @@ TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	const auto* LoadedImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
 		Loaded->GetAssetImportData());

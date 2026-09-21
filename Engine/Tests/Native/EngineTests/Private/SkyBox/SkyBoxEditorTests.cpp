@@ -86,7 +86,11 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
+		LoadedLevel = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(LoadedLevel->FindActorByName("Sky"));
 	ASSERT_NE(LoadedActor, nullptr);
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
@@ -182,7 +186,11 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DLevel>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath));
+		LoadedLevel = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(
 		LoadedLevel->FindActorByName("PanoramaSky"));
 	ASSERT_NE(LoadedActor, nullptr);

@@ -98,9 +98,9 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	} RestoreProvider;
 
 	Durin::DTexture2D* Loaded = nullptr;
-	const auto Result = Durin::LoadObject(
-		Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
-	ASSERT_TRUE(Result) << Result.Message;
+	const auto Result = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+	Loaded = Result.value_or(nullptr);
+	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->HasPlatformData());
 	EXPECT_FALSE(Loaded->EnsurePlatformDataLoadedBlocking());

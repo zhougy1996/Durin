@@ -417,16 +417,15 @@ namespace
 			}
 			if (Package.Result)
 			{
-				std::vector<FPackageBulkStorageDescriptor> Descriptors;
-				if (const auto Storage = InspectEditorBulkDataStorageDescriptors(
-						Package.Inspection, Descriptors); !Storage)
+				if (auto Storage = InspectEditorBulkDataStorageDescriptors(
+						Package.Inspection); !Storage)
 				{
-					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.Error);
+					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.error());
 					Package.Result = {.Error = EAssetReadError::CorruptFile, .Message = Package.DescriptorDiagnostic};
 				}
 				else
 				{
-					for (const FPackageBulkStorageDescriptor& Descriptor : Descriptors)
+					for (const FPackageBulkStorageDescriptor& Descriptor : *Storage)
 					{
 						FQualificationDescriptor Item{.Descriptor = Descriptor};
 						if (Descriptor.StorageKind == EPackageBulkStorageKind::External)
@@ -458,9 +457,9 @@ namespace
 						}
 						Package.Descriptors.push_back(std::move(Item));
 					}
-					if (const auto Orphans = InspectOrphanedEditorBulkDataCompanionPaths(
-							Input.PhysicalPath, Package.Inspection, Package.Orphans); !Orphans)
-						Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Orphans.Error);
+					if (auto Orphans = InspectOrphanedEditorBulkDataCompanionPaths(Input.PhysicalPath, Package.Inspection); !Orphans)
+						Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Orphans.error());
+					else { Package.Orphans = std::move(*Orphans); }
 				}
 			}
 			Packages.push_back(std::move(Package));
@@ -1134,7 +1133,7 @@ int main(int ArgC, char** ArgV)
 			Durin::FObjectPath Path;
 			Durin::FObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
 			Durin::DMaterialFunction* Function = nullptr;
-			if (!Durin::LoadObject(Path, Function) || !Function) { bInventoryValid = false; continue; }
+			if (!(Function = Durin::LoadObject<Durin::DMaterialFunction>(Path).value_or(nullptr))) { bInventoryValid = false; continue; }
 			*FunctionSlots[Index] = Function;
 			bExactDependencies &= Durin::AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
 				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1)).Matches(*Function);
@@ -1151,7 +1150,7 @@ int main(int ArgC, char** ArgV)
 			Durin::FObjectPath Path;
 			Durin::DObject* Object = nullptr;
 			if (!Durin::FObjectPath::TryCreate(std::format("{}.{}", Package.PackagePath.ToString(), Package.PackagePath.GetPackageName()), Path)
-				|| !Durin::LoadObject(Path, Object) || !Object)
+				|| !(Object = Durin::LoadObject<Durin::DObject>(Path).value_or(nullptr)))
 			{
 				Row.SetChildValue("status", "Load failed; rebuild required before writes");
 				bInventoryValid = false;

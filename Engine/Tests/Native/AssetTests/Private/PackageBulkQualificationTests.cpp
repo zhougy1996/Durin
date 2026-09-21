@@ -82,7 +82,11 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 
 	const auto MetadataStart = std::chrono::steady_clock::now();
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	{
+		auto LoadedValue = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		LoadedObject = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	const double MetadataMilliseconds = std::chrono::duration<double, std::milli>(
 		std::chrono::steady_clock::now() - MetadataStart).count();
 	auto* Loaded = Cast<DBulkPackageAssetForTest>(LoadedObject);

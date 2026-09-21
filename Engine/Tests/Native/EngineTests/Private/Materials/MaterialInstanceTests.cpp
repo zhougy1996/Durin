@@ -113,7 +113,11 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();
 	Instance = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Instance));
+	{
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Instance = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Capture(*Instance), Before);
 	auto* Property = Instance->GetClass()->FindPropertyByName("VectorParameterValues");
 	auto* Records = Property->ContainerPtrToValuePtr<std::vector<FMaterialVectorParameterValue>>(Instance);
@@ -492,7 +496,11 @@ TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "bOverrideStaticProperties"));
 	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "StaticPropertiesOverride"));
 	ASSERT_TRUE(UnloadPackage(InstancePath));
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance));
+	{
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		Instance = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	ASSERT_TRUE(UnloadPackage(RootPath));

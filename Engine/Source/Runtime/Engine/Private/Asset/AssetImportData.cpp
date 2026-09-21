@@ -91,8 +91,8 @@ namespace Durin
 	auto FAssetImportDataState::Validate() const -> FAssetImportDataResult
 	{
 		if (SchemaVersion != AssetImportDataSchemaVersion)
-			return {.Error = {.Code = EAssetImportDataError::UnsupportedSchema,
-				.Actual = SchemaVersion, .Expected = AssetImportDataSchemaVersion}};
+			return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::UnsupportedSchema,
+				.Actual = SchemaVersion, .Expected = AssetImportDataSchemaVersion});
 		return SourceData.Validate();
 	}
 
@@ -108,9 +108,9 @@ namespace Durin
 		if (IsEmpty()) return {};
 		const std::string CanonicalRole = GetCanonicalRole(Role);
 		auto Reject = [&](EAssetImportDataError Code, uint64 Actual = 0, uint64 Expected = 0) {
-			return FAssetImportDataResult{.Error = {.Code = Code, .Actual = Actual,
+			return std::unexpected(FAssetImportDataError{.Code = Code, .Actual = Actual,
 				.Expected = Expected, .Role = Role.ToString(), .Hint = Hint,
-				.DisplayLabel = DisplayLabel, .HintBase = HintBase, .ContentHash = GetContentHash()}};
+				.DisplayLabel = DisplayLabel, .HintBase = HintBase, .ContentHash = GetContentHash()});
 		};
 		if (Role.GetNumber() != 0 || CanonicalRole.size() > MaximumAssetImportRoleBytes
 			|| !IsIdentifier(CanonicalRole))
@@ -135,23 +135,23 @@ namespace Durin
 	auto FAssetImportInfo::Validate() const -> FAssetImportDataResult
 	{
 		if (Sources.size() > MaximumAssetImportSources)
-			return {.Error = {.Code = EAssetImportDataError::TooManySources,
-				.Actual = Sources.size(), .Expected = MaximumAssetImportSources}};
+			return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::TooManySources,
+				.Actual = Sources.size(), .Expected = MaximumAssetImportSources});
 		std::string PreviousRole;
 		for (size_t Index = 0; Index < Sources.size(); ++Index)
 		{
 			const FSourceFile& Source = Sources[Index];
 			if (Source.IsEmpty())
-				return {.Error = {.Code = EAssetImportDataError::EmptySource, .Index = Index}};
+				return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::EmptySource, .Index = Index});
 			if (auto Validation = Source.Validate(); !Validation)
 			{
-				Validation.Error.Index = Index;
-				return Validation;
+				Validation.error().Index = Index;
+				return std::unexpected(std::move(Validation.error()));
 			}
 			const std::string Role = GetCanonicalRole(Source.Role);
 			if (!PreviousRole.empty() && PreviousRole >= Role)
-				return {.Error = {.Code = EAssetImportDataError::NonCanonicalRoles,
-					.Index = Index, .Role = Role, .PreviousRole = PreviousRole}};
+				return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::NonCanonicalRoles,
+					.Index = Index, .Role = Role, .PreviousRole = PreviousRole});
 			PreviousRole = Role;
 		}
 		return {};
@@ -204,17 +204,14 @@ namespace Durin
 	auto MakeSourceHint(
 		std::string_view PhysicalPath,
 		std::string_view OwningPackagePhysicalPath,
-		ESourceHintBase& OutBase,
-		std::string& OutHint,
-		std::optional<ESourceHintBase> RequestedBase) -> FSourceHintResult
+		std::optional<ESourceHintBase> RequestedBase) -> std::expected<FSourceHint, FSourceHintError>
 	{
-		OutHint.clear();
 		const std::string ProjectPath = FPaths::ProjectDir();
 		auto Reject = [&](ESourceHintError Code, ESourceHintPath Path = ESourceHintPath::Source,
 			std::error_code SystemError = {}) {
-			return FSourceHintResult{.Error = {.Code = Code, .Operation = ESourceHintOperation::Make,
+			return std::unexpected(FSourceHintError{.Code = Code, .Operation = ESourceHintOperation::Make,
 				.Path = Path, .Input = std::string(PhysicalPath), .PackagePath = std::string(OwningPackagePhysicalPath),
-				.ProjectPath = ProjectPath, .Base = RequestedBase, .SystemError = SystemError}};
+				.ProjectPath = ProjectPath, .Base = RequestedBase, .SystemError = SystemError});
 		};
 		if (PhysicalPath.empty() || OwningPackagePhysicalPath.empty())
 		{
@@ -236,7 +233,7 @@ namespace Durin
 			return Reject(ESourceHintError::InvalidPaths);
 		}
 		const bool bSourceInsideProject = IsWithinProject(Absolute, Project);
-		OutBase = RequestedBase.value_or(
+		const auto OutBase = RequestedBase.value_or(
 			bSourceInsideProject
 				? (IsWithinProject(Package, Project)
 					? ESourceHintBase::AssetRelative
@@ -270,23 +267,20 @@ namespace Durin
 		{
 			return Reject(ESourceHintError::InvalidHint);
 		}
-		OutHint = Candidate;
-		return {};
+		return FSourceHint{OutBase, Candidate};
 	}
 
 	auto ResolveSourceHint(
 		ESourceHintBase Base,
 		std::string_view Hint,
-		std::string_view OwningPackagePhysicalPath,
-		std::string& OutPhysicalPath) -> FSourceHintResult
+		std::string_view OwningPackagePhysicalPath) -> std::expected<FFilePath, FSourceHintError>
 	{
-		OutPhysicalPath.clear();
 		const std::string ProjectPath = FPaths::ProjectDir();
 		auto Reject = [&](ESourceHintError Code, ESourceHintPath Path = ESourceHintPath::Source,
 			std::error_code SystemError = {}) {
-			return FSourceHintResult{.Error = {.Code = Code, .Operation = ESourceHintOperation::Resolve,
+			return std::unexpected(FSourceHintError{.Code = Code, .Operation = ESourceHintOperation::Resolve,
 				.Path = Path, .Input = std::string(Hint), .PackagePath = std::string(OwningPackagePhysicalPath),
-				.ProjectPath = ProjectPath, .Base = Base, .SystemError = SystemError}};
+				.ProjectPath = ProjectPath, .Base = Base, .SystemError = SystemError});
 		};
 		if (!IsNormalizedSourceHint(Base, Hint))
 		{
@@ -322,8 +316,7 @@ namespace Durin
 		{
 			return Reject(ESourceHintError::InvalidBase);
 		}
-		OutPhysicalPath = Resolved.generic_string();
-		return {};
+		return Resolved;
 	}
 
 	DAssetImportData::DAssetImportData(const FObjectInitializer& ObjectInitializer)
@@ -356,8 +349,7 @@ namespace Durin
 	}
 
 	auto InspectAssetImportInfo(
-		const FAssetPackageInspection& Inspection,
-		FAssetImportInfo& OutInfo) -> FAssetImportDataResult
+		const FAssetPackageInspection& Inspection) -> std::expected<FAssetImportInfo, FAssetImportDataError>
 	{
 		const FAssetPackageField* ImportDataField =
 			Inspection.FindField("AssetImportData");
@@ -365,7 +357,7 @@ namespace Durin
 		if (!ImportDataField || !ImportDataField->TryReadObjectReference(Reference)
 			|| Reference.Kind != EAssetPackageObjectReferenceKind::Internal)
 		{
-			return {.Error = {.Code = EAssetImportDataError::MissingImportReference}};
+			return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::MissingImportReference});
 		}
 		const FAssetPackageObjectInspection* ImportDataObject =
 			Inspection.FindObject(Reference.ObjectId);
@@ -375,14 +367,13 @@ namespace Durin
 		if (!SourceDataField
 			|| !SourceDataField->TryReadStruct(FAssetImportInfo::StaticStruct(), &Info))
 		{
-			return {.Error = {.Code = EAssetImportDataError::MissingSourceData, .ObjectId = Reference.ObjectId}};
+			return std::unexpected(FAssetImportDataError{.Code = EAssetImportDataError::MissingSourceData, .ObjectId = Reference.ObjectId});
 		}
 		if (auto Validation = Info.Validate(); !Validation)
 		{
-			Validation.Error.ObjectId = Reference.ObjectId;
-			return Validation;
+			Validation.error().ObjectId = Reference.ObjectId;
+			return std::unexpected(std::move(Validation.error()));
 		}
-		OutInfo = std::move(Info);
-		return {};
+		return Info;
 	}
 }

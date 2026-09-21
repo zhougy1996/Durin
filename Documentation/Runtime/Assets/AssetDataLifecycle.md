@@ -21,9 +21,9 @@ Old Cook outputs must be regenerated from current content.
 
 Importers normalize detached `FAssetImportDataState::SourceData` and call the
 state's `Validate` before publication. Common source, source-list and base-state
-validation return `FAssetImportDataResult`, owning source index, role, hint, hash,
-bounds and schema context. `InspectAssetImportInfo` returns the same typed contract
-and publishes output only after validation. Object and family-specific validation
+validation return expected void with `FAssetImportDataError`, owning source index,
+role, hint, hash, bounds and schema context. `InspectAssetImportInfo` returns an
+expected owned `FAssetImportInfo` only after validation. Object and family-specific validation
 return the same contract. StaticMesh and VolumeTexture validate the base schema
 first, then format axis, source-role or atlas details into the owned diagnostic
 text; no polymorphic cause object is retained. Axis validation returns
@@ -150,10 +150,10 @@ hint is instead an optional explicitly based asset-relative,
 project-relative, or absolute physical path used only by explicit Reimport.
 Neither kind identifies a DDC key, `.bin` object, `.dbulk` file, or
 byte offset, and asset paths and source hints are not interchangeable.
-`MakeSourceHint` and `ResolveSourceHint` return `FSourceHintResult` with owned
-input/package/project paths, base, operation and filesystem error context. Failed
-calls clear the string output as before; classification publishes its selected
-base before validating the candidate. Filesystem conversion stops at its first
+`MakeSourceHint` returns an expected `FSourceHint` containing Base and Hint;
+`ResolveSourceHint` returns an expected physical `FFilePath`. Their shared
+`FSourceHintError` owns input/package/project paths, base, operation and filesystem
+error context. Failed calls expose no success value. Filesystem conversion stops at its first
 failure, retaining the failing path category. Presentation uses
 `FormatSourceHintError`.
 

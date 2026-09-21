@@ -415,9 +415,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
 	const auto Loaded =
-		Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			CookedPath, AuthoredPath.GetPackageName()), CookedMesh);
-	ASSERT_TRUE(Loaded) << Loaded.Message;
+		Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()));
+		CookedMesh = Loaded.value_or(nullptr);
+	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
@@ -436,8 +437,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 		CookedMesh = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			CookedPath, AuthoredPath.GetPackageName()), CookedMesh));
+		{
+			auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()));
+			CookedMesh = LoadedValue.value_or(nullptr);
+			ASSERT_TRUE(LoadedValue);
+		}
 		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
 	}
 	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());

@@ -29,6 +29,13 @@ older build before entering the current repository baseline.
 
 ## PNG atlas source import
 
+Atlas inspection returns `expected<FVolumeTextureAtlasInspection,
+Image::FImageDecodeError>`. An inspection without a confident layout is successful
+and retains its dimensions and suggestions. Settings validation returns expected
+void; translation returns owned `FVolumeTextureSourceData` or a typed translation
+error retaining settings, dimensions and decode causes. Read error details only
+on the failure branch; a failed result contains no source value.
+
 The VolumeTexture factory supports one `PNG Row-Major Atlas`: each tile is one
 Z slice, tiles advance left-to-right and then top-to-bottom, and unused cells
 after `depth` are ignored. The Content Browser's direct From File action is

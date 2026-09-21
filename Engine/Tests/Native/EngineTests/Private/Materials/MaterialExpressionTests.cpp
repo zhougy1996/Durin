@@ -164,8 +164,9 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	const auto Saved = SavePackage(Material->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Material = nullptr;
-	const auto Loaded = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
-	ASSERT_TRUE(Loaded) << Loaded.Message;
+	const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	Material = Loaded.value_or(nullptr);
+	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Material, EObjectQueryScope::LiveOnly).size(), 3u);
 	Owned = Cast<DMaterialExpressionVector4Parameter>(Material->GetExpressionCollection().Expressions[0].Get());
@@ -262,7 +263,11 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	const auto Saved = SavePackage(Function->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Function = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Function));
+	{
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Function = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_EQ(Function->GetExpressionCollection().Expressions.size(), 2u);
 	EXPECT_EQ(Function->GetFunctionPresentation().Nodes[0].DisplayName, "Retained value");
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Function, EObjectQueryScope::LiveOnly).size(), 2u);
@@ -836,7 +841,11 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();
 	Owner = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Owner = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	const auto Children = GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly);
 	ASSERT_EQ(Children.size(), 7u);
 	bool bFoundVector = false, bFoundScalar = false, bFoundTexture = false, bFoundAdd = false;

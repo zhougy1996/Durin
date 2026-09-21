@@ -98,10 +98,11 @@ namespace Durin::Editor::MainFrame
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const auto Loaded = LoadObject(OutPath, OutObject);
+			const auto Loaded = LoadObject<DObject>(OutPath);
+			OutObject = Loaded.value_or(nullptr);
 			if (!Loaded || !OutObject)
 			{
-				OutError = Loaded ? "The selected asset could not be loaded." : Loaded.Message;
+				OutError = Loaded ? "The selected asset could not be loaded." : (Loaded ? std::string{} : Loaded.error().Message);
 				return false;
 			}
 			return true;

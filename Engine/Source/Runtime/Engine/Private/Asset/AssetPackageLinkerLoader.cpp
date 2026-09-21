@@ -1247,8 +1247,9 @@ namespace Durin::AssetPrivate
 					DPackage* Package = FindPackage(Path.GetView());
 					if (!Package && Options.DependencyLoadScope)
 					{
-						const auto Result = Options.DependencyLoadScope->LoadPackage(Path, Package);
-						if (!Result) return {.Status = Result.Error == EAssetReadError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = Result.Message};
+						const auto Result = Options.DependencyLoadScope->LoadPackage(Path);
+						Package = Result.value_or(nullptr);
+						if (!Result) return {.Status = (Result ? Durin::EAssetReadError::None : Result.error().Code) == EAssetReadError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = (Result ? std::string{} : Result.error().Message)};
 					}
 					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
 					ExternalPackages.emplace_back(Path, Package);
@@ -1339,9 +1340,9 @@ namespace Durin::AssetPrivate
 			{
 				CurrentPath = Source.PackagePath;
 				if (auto Result = Source.Storage.Revalidate(Cancelled); !Result)
-					return {.Status = Result.Error.Code == EPreparedPackageResourceError::Cancelled ? S::Cancelled : S::Stale,
+					return {.Status = Result.error().Code == EPreparedPackageResourceError::Cancelled ? S::Cancelled : S::Stale,
 						.PackagePath = CurrentPath, .Reason = R::ResourceRevalidation,
-						.Message = FormatPreparedPackageResourceError(Result.Error)};
+						.Message = FormatPreparedPackageResourceError(Result.error())};
 			}
 			for (const auto& Source : Sources)
 				if (IsAssetRegistryProjectionFenced(Source.PackagePath))
@@ -1521,9 +1522,15 @@ namespace Durin::AssetPrivate
 			}
 			const FPackagePath& Path = Dependencies[Index];
 			DPackage* Dependency = nullptr;
-			auto Result = Options.DependencyLoadPolicy
-				? Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency)
-				: LoadPackage(Path, Dependency);
+			FAssetReadResult Result;
+			if (Options.DependencyLoadPolicy)
+				Result = Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency);
+			else
+			{
+				auto Loaded = LoadPackage(Path);
+				if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+				else Dependency = *Loaded;
+			}
 			if (Result && !Dependency)
 				Result = {EAssetReadError::MissingDependency, "Dependency resolver returned no package."};
 			if (!Result)
@@ -1545,8 +1552,10 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
 			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FObjectPath& Path, DObject*& Object) {
-				return Policy ? Policy->ResolveObject(Path, Object)
-					: LoadObject(Path, nullptr, Object);
+				if (Policy) return Policy->ResolveObject(Path, Object);
+				auto Loaded = LoadObject(Path, nullptr);
+				Object = Loaded.value_or(nullptr);
+				return Loaded ? FAssetReadResult{} : AssetReadResultFromError(Loaded.error());
 			}};
 		auto RestoreValues = [&]() -> FAssetReadResult {
 			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));

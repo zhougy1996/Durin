@@ -66,12 +66,13 @@ namespace Durin::Editor
 		}
 
 		DObject* Asset = nullptr;
-		const auto Result = LoadObject(Path, Asset);
+		const auto Result = LoadObject<DObject>(Path);
+		Asset = Result.value_or(nullptr);
 		if (!Result || Asset == nullptr)
 		{
-			OutError = Result.Message.empty()
+			OutError = (Result ? std::string{} : Result.error().Message).empty()
 				? std::format("Asset {} did not produce an object.", Key)
-				: Result.Message;
+				: (Result ? std::string{} : Result.error().Message);
 			return false;
 		}
 

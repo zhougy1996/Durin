@@ -133,8 +133,9 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
 		const auto Begin = std::chrono::steady_clock::now();
-		const auto LoadResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
-		ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = LoadResult.value_or(nullptr);
+		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();
 		std::cout << "[ MATERIAL BASELINE ] nodes=65 round=" << Round
 			<< " complete_bytes=" << CompleteBytes << " delta_bytes=" << DeltaBytes

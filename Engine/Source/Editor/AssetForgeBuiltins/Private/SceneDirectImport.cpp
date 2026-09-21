@@ -401,7 +401,7 @@ namespace Durin::AssetForge::Builtins
 			DObject* Object = nullptr;
 			FObjectPath ObjectPath;
 			if (!FObjectPath::TryCreate(Path.ToString() + "." + std::string(Path.GetPackageName()), ObjectPath) ||
-				!LoadObject(ObjectPath, Object)) continue;
+				!(Object = LoadObject<DObject>(ObjectPath).value_or(nullptr))) continue;
 			const auto Identity = GetSceneOutputIdentity(Object, RootFilename);
 			if (!Identity.empty() && !ExistingOutputs.emplace(Identity, Object).second)
 				return AddError(OutResult, EImportDiagnosticCategory::Collision,
@@ -468,14 +468,13 @@ namespace Durin::AssetForge::Builtins
 				PackagePath += ".dasset";
 				std::string SourceHint;
 				ESourceHintBase HintBase;
-				if (const auto Hint = MakeSourceHint(
-					SourcePhysicalPath, PackagePath.generic_string(), HintBase,
-					SourceHint); !Hint)
+				if (auto Hint = MakeSourceHint(SourcePhysicalPath, PackagePath.generic_string()); !Hint)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", FormatSourceHintError(Hint.Error), Descriptor.StableIdentity);
+						"scene-materialization", FormatSourceHintError(Hint.error()), Descriptor.StableIdentity);
 				}
+				else { HintBase = Hint->Base; SourceHint = std::move(Hint->Hint); }
 				auto* Texture = Cast<DTexture2D>(Output.Candidate);
 				FTexture2DBuildProduct& Product = Output.Texture.Product;
 				const FTexture2DBuildSettings& Settings = Output.Texture.Settings;
@@ -518,7 +517,7 @@ namespace Durin::AssetForge::Builtins
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", !ImportData
-							? "Scene texture import data could not be published." : FormatAssetImportDataError(Validation.Error),
+							? "Scene texture import data could not be published." : FormatAssetImportDataError(Validation.error()),
 						Descriptor.StableIdentity);
 				}
 				ImportData->SourceIdentity = RootFilename;
@@ -588,7 +587,7 @@ namespace Durin::AssetForge::Builtins
 					Error = FormatObjectError(PathValidation.Error);
 					return nullptr;
 				}
-				if (!LoadObject(ObjectPath, Parent)) return nullptr;
+				if (!(Parent = LoadObject<DMaterial>(ObjectPath).value_or(nullptr))) return nullptr;
 			}
 			else
 			{

@@ -446,17 +446,17 @@ namespace Durin
 				if (Injected(Request, EPackageReloadFaultPoint::ReadMain, Index))
 					return Finish(MakeResult(Status::Failed, Failure::IoError,
 						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedMainReadFailure));
-				auto Read = FPreparedPackageResource::Read(
-					Paths[Index], Files[Index], RemainingBytes, Sources[Index].Storage, Cancelled);
+				auto Read = FPreparedPackageResource::Read(Paths[Index], Files[Index], RemainingBytes, Cancelled);
+				if (Read) { Sources[Index].Storage = std::move(*Read); }
 				if (!Read)
 				{
-					const bool bCancelled = Read.Error.Code == EPreparedPackageResourceError::Cancelled;
-					const Failure Code = Read.Error.Code == EPreparedPackageResourceError::BudgetExceeded
-						? Failure::BudgetExceeded : Read.Error.Code == EPreparedPackageResourceError::InvalidClosure
-						? Failure::InvalidClosure : Read.Error.Code == EPreparedPackageResourceError::Stale
+					const bool bCancelled = Read.error().Code == EPreparedPackageResourceError::Cancelled;
+					const Failure Code = Read.error().Code == EPreparedPackageResourceError::BudgetExceeded
+						? Failure::BudgetExceeded : Read.error().Code == EPreparedPackageResourceError::InvalidClosure
+						? Failure::InvalidClosure : Read.error().Code == EPreparedPackageResourceError::Stale
 						? Failure::Stale : Failure::IoError;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Reason::ResourceRead, {.Message = FormatPreparedPackageResourceError(Read.Error)}));
+						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Reason::ResourceRead, {.Message = FormatPreparedPackageResourceError(Read.error())}));
 				}
 				Sources[Index].PackagePath = Paths[Index];
 				RemainingBytes -= Sources[Index].Storage.GetRetainedBytes();
@@ -567,9 +567,9 @@ namespace Durin
 					std::vector<TWeakObjectPtr<DPackage>> Ignore;
 					for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 					(void)DependencyScope.Release(Ignore);
-					const bool bCancelled = Revalidate.Error.Code == EPreparedPackageResourceError::Cancelled;
+					const bool bCancelled = Revalidate.error().Code == EPreparedPackageResourceError::Cancelled;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.Message = FormatPreparedPackageResourceError(Revalidate.Error)}));
+						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.Message = FormatPreparedPackageResourceError(Revalidate.error())}));
 				}
 			}
 			if (Injected(Request, EPackageReloadFaultPoint::RevalidateReferencers)

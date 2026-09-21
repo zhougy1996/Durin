@@ -6,6 +6,11 @@ namespace Durin
 {
 	class FAsyncAssetLoadService;
 	enum class EAsyncLoadState : uint8 { Pending, Loading, Succeeded, Failed, Cancelled };
+	struct FAsyncLoadedAssets
+	{
+		DPackage* Package = nullptr;
+		DObject* Object = nullptr;
+	};
 	class FAsyncLoadHandle;
 	using FAsyncLoadCallback = std::function<void(const FAsyncLoadHandle&)>;
 
@@ -19,7 +24,8 @@ namespace Durin
 		auto operator=(const FAsyncLoadHandle&) -> FAsyncLoadHandle& = delete;
 		ENGINE_API auto GetState() const -> EAsyncLoadState;
 		ENGINE_API auto IsComplete() const -> bool;
-		ENGINE_API auto GetResult() const -> const FAssetReadResult&;
+		// Requires IsComplete(); pending/loading have no terminal result.
+		[[nodiscard]] ENGINE_API auto GetResult() const -> const std::expected<FAsyncLoadedAssets, FAssetReadError>&;
 		ENGINE_API auto GetReport() const -> const FAssetLoadReport&;
 		ENGINE_API auto GetLoadedPackage() const -> DPackage*;
 		ENGINE_API auto GetLoadedObject() const -> DObject*;

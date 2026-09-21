@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 
 namespace Durin
@@ -27,11 +29,6 @@ namespace Durin
 		std::filesystem::path Path;
 		std::error_code SystemError;
 	};
-	struct FEditorBulkDataStorageResult
-	{
-		FEditorBulkDataStorageError Error;
-		auto Succeeded() const -> bool { return Error.Code == EEditorBulkDataStorageError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FEditorBulkDataStorageResult = std::expected<void, FEditorBulkDataStorageError>;
 	ENGINE_API auto FormatEditorBulkDataStorageError(const FEditorBulkDataStorageError& Error) -> std::string;
 }

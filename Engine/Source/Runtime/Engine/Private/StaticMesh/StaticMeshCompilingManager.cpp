@@ -124,7 +124,7 @@ namespace Durin
 				if (Mesh.GetAssetImportData())
 				{
 					if (const auto Validation = Mesh.GetAssetImportData()->Validate(); !Validation)
-						return Reject({.Code = EStaticMeshSubmissionError::ImportValidation, .ImportCause = Validation.Error});
+						return Reject({.Code = EStaticMeshSubmissionError::ImportValidation, .ImportCause = Validation.error()});
 				}
 				const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
 				FStaticMeshBuildMemoryEstimate Memory{MaximumRequestBytes, 1024 * 1024};

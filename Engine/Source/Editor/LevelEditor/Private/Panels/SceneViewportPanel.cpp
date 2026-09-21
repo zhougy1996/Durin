@@ -311,9 +311,9 @@ namespace Durin::Editor::Level
 						AActor* Actor = nullptr;
 						if (!FObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const auto Result = LoadObject(AssetPath, Asset); !Result)
-							Context.SetError(Result.Message);
-						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset))
+						else if (const auto Result = LoadObject<DObject>(AssetPath); !Result)
+							Context.SetError((Result ? std::string{} : Result.error().Message));
+						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset = *Result))
 						{
 							FTransform PlacementTransform;
 							FSceneView View;

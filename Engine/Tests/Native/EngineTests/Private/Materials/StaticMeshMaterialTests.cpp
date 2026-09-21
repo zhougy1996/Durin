@@ -119,7 +119,11 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_EQ(Loaded->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Loaded->GetMaterialSlot(0)->Name, Durin::FName("Body"));
@@ -294,7 +298,11 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	Component = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Component));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DStaticMeshComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
+		Component = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Component, nullptr);
 	ASSERT_NE(Component->GetStaticMesh(), nullptr);
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
@@ -397,7 +405,11 @@ namespace
 		ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 
 		TComponent* Loaded = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
+		{
+			auto LoadedValue = Durin::LoadObject<TComponent>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath));
+			Loaded = LoadedValue.value_or(nullptr);
+			ASSERT_TRUE(LoadedValue);
+		}
 		ASSERT_NE(Loaded, nullptr);
 		EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 		ASSERT_NE(Loaded->GetStaticMesh(), nullptr);

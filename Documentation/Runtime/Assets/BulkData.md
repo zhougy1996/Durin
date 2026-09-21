@@ -63,18 +63,19 @@ offset, alignment, and a package-resource handle. Current storage supports
 flags zero, equal logical/stored sizes, power-of-two alignment from 1 through
 4096, and an exact inline or external package range. Physical content identity
 belongs to the package descriptor, not mutable runtime state.
-`TryCreateDetached` and `TryAttach` return `FBulkDataResult`, with typed size
-failures and a retained range-validation cause. Failed creation or attachment
-leaves the destination state and payload unchanged; formatting is explicit at
-pending Archive and Cook boundaries.
+`TryCreateDetached` and `TryAttach` return `expected<FBulkData, FBulkDataError>`,
+with typed size failures and a retained range-validation cause. Failed creation
+or attachment returns no value. Formatting is explicit at Archive and Cook
+boundaries; read admission and its move-only lease remain separate.
 
 ## Editor Field State And Identity
 
-`UpdatePayload` and `TryCreatePackageBacked` return `FEditorBulkDataResult`.
+`UpdatePayload` returns expected void; `TryCreatePackageBacked` returns an
+expected owned `FEditorBulkData`, both with `FEditorBulkDataError`.
 Failures distinguish payload limits, invalid instance/content identity, logical
 size mismatch and invalid package ranges. Errors own identity and size context
-and retain the typed range cause. Failed creation preserves the destination's
-identity and immutable source; successful updates keep the existing instance GUID.
+and retain the typed range cause. Failed creation exposes no value; failed updates
+preserve existing state, and successful updates keep the existing instance GUID.
 
 `FEditorBulkData` is independent of `FBulkData` and has no lock API. It owns an
 instance GUID, XXH3-128 content ID, logical size, and either immutable memory or
@@ -116,7 +117,7 @@ format explicitly.
 `FPackageResourceRange` stores a ref-counted logical resource handle, offset,
 stored size, flags, and alignment. Its validator checks flags, alignment,
 overflow, caller limits, and the resource's validated segment extent. It returns
-`FPackageResourceRangeResult`, distinguishing missing resources, unsupported
+`expected<void, FPackageResourceRangeError>`, distinguishing missing resources, unsupported
 flags, size limits, invalid alignment, misaligned offsets, and bounds failures.
 The error owns the rejected offset, size, flags, alignment, limit and extent;
 it does not retain the resource. The range owns no hash, GUID, DDC key, schema,
@@ -207,8 +208,8 @@ validates the captured external bytes against the directory and segment digest.
 `Prepare` accepts main bytes and directory facts already validated by that codec;
 it is a storage primitive and does not validate the main schema itself.
 Neither entry point constructs objects, registers resources, recovers backups,
-or writes files. Failure leaves the caller's previous output intact. Preparation
-results derive success from their typed error code and own budget, extent,
+or writes files. Each returns an expected owned closure; failure has no value.
+Revalidation returns expected void. Errors own budget, extent,
 digest, physical path and file-I/O/filesystem context. They retain Bulk storage,
 Bulk validation and underlying asset-codec results as causes. Pending graph
 preparation and reload results keep `ResourceCause`; their diagnostic adapters

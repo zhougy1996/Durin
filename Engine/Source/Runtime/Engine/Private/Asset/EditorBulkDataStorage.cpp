@@ -15,15 +15,15 @@ namespace Durin
 		{
 			auto Reject = [&](EEditorBulkDataStorageError Code, uint64 Actual = 0, uint64 Expected = 0,
 				const FArchiveFailure* Archive = nullptr) {
-				FEditorBulkDataStorageResult Result{.Error = {.Code = Code,
+				auto Result = std::unexpected(FEditorBulkDataStorageError{.Code = Code,
 					.Depth = Depth, .SourceFormatVersion = SourceFormatVersion,
-					.Actual = Actual, .Expected = Expected}};
+					.Actual = Actual, .Expected = Expected});
 				if (Archive)
 				{
-					Result.Error.ArchiveCode = Archive->Code;
-					Result.Error.ArchivePath = Archive->Path;
+					Result.error().ArchiveCode = Archive->Code;
+					Result.error().ArchivePath = Archive->Path;
 				}
-				return Result;
+				return std::unexpected(std::move(Result.error()));
 			};
 			if (Depth > 64) return Reject(EEditorBulkDataStorageError::DepthLimit, Depth, 64);
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
@@ -54,8 +54,8 @@ namespace Durin
 				{
 					auto Result = Reject(Reader.IsError() ? EEditorBulkDataStorageError::InvalidStructHeader
 						: EEditorBulkDataStorageError::FieldLimit, FieldCount, 100000, Reader.GetFailure());
-					Result.Error.StructName = std::move(StructName);
-					return Result;
+					Result.error().StructName = std::move(StructName);
+					return std::unexpected(std::move(Result.error()));
 				}
 				for (uint64 Index = 0; Index < FieldCount; ++Index)
 				{
@@ -67,10 +67,10 @@ namespace Durin
 					{
 						auto Result = Reject(EEditorBulkDataStorageError::TruncatedField,
 							PayloadSize, Reader.GetRemainingPayloadBytes(), Reader.GetFailure());
-						Result.Error.StructName = StructName;
-						Result.Error.Index = Index;
-						Result.Error.FieldRoute.push_back(std::move(Name));
-						return Result;
+						Result.error().StructName = StructName;
+						Result.error().Index = Index;
+						Result.error().FieldRoute.push_back(std::move(Name));
+						return std::unexpected(std::move(Result.error()));
 					}
 					FByteBuffer FieldPayload(static_cast<size_t>(PayloadSize));
 					if (PayloadSize != 0)
@@ -82,8 +82,8 @@ namespace Durin
 							FieldPayload, Out, Depth + 1, SourceFormatVersion);
 					if (!Result)
 					{
-						Result.Error.FieldRoute.insert(Result.Error.FieldRoute.begin(), std::move(Name));
-						return Result;
+						Result.error().FieldRoute.insert(Result.error().FieldRoute.begin(), std::move(Name));
+						return std::unexpected(std::move(Result.error()));
 					}
 				}
 			} while (Reader.GetRemainingPayloadBytes() != 0);
@@ -109,16 +109,16 @@ namespace Durin
 
 	auto InspectEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,
-		const FAssetPackageInspection& Inspection,
-		std::vector<std::filesystem::path>& OutPaths) -> FEditorBulkDataStorageResult
+		const FAssetPackageInspection& Inspection) -> std::expected<std::vector<std::filesystem::path>, FEditorBulkDataStorageError>
 	{
-		OutPaths.clear();
+		std::vector<FFilePath> OutPaths;
 		std::vector<FPackageBulkStorageDescriptor> Descriptors;
-		if (auto Result = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Result)
+		if (auto Result = InspectEditorBulkDataStorageDescriptors(Inspection); !Result)
 		{
-			Result.Error.Path = PackagePath;
-			return Result;
+			Result.error().Path = PackagePath;
+			return std::unexpected(std::move(Result.error()));
 		}
+		else { Descriptors = std::move(*Result); }
 		if (std::ranges::any_of(Descriptors, [](const auto& Descriptor) {
 			return Descriptor.StorageKind == EPackageBulkStorageKind::External;
 		}))
@@ -127,36 +127,35 @@ namespace Durin
 			Path.replace_extension(".dbulk");
 			OutPaths.push_back(std::move(Path));
 		}
-		return {};
+		return OutPaths;
 	}
 
 	auto InspectEditorBulkDataStorageDescriptors(
-		const FAssetPackageInspection& Inspection,
-		std::vector<FPackageBulkStorageDescriptor>& OutDescriptors) -> FEditorBulkDataStorageResult
+		const FAssetPackageInspection& Inspection) -> std::expected<std::vector<FPackageBulkStorageDescriptor>, FEditorBulkDataStorageError>
 	{
-		OutDescriptors.clear();
+		std::vector<FPackageBulkStorageDescriptor> OutDescriptors;
 		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
 			for (const FAssetPackageField& Field : Object.Fields)
 				if (auto Result = CollectDescriptors(Field.Kind, Field.Payload, OutDescriptors, 0,
 						Field.SourceFormatVersion); !Result)
 				{
-					Result.Error.ObjectId = Object.Id;
-					Result.Error.ObjectPath = Object.ObjectPath;
-					Result.Error.FieldRoute.insert(Result.Error.FieldRoute.begin(), Field.Name);
-					return Result;
+					Result.error().ObjectId = Object.Id;
+					Result.error().ObjectPath = Object.ObjectPath;
+					Result.error().FieldRoute.insert(Result.error().FieldRoute.begin(), Field.Name);
+					return std::unexpected(std::move(Result.error()));
 				}
-		return {};
+		return OutDescriptors;
 	}
 
 	auto InspectOrphanedEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,
-		const FAssetPackageInspection& Inspection,
-		std::vector<std::filesystem::path>& OutPaths) -> FEditorBulkDataStorageResult
+		const FAssetPackageInspection& Inspection) -> std::expected<std::vector<std::filesystem::path>, FEditorBulkDataStorageError>
 	{
-		OutPaths.clear();
+		std::vector<FFilePath> OutPaths;
 		std::vector<std::filesystem::path> Referenced;
-		if (auto Result = InspectEditorBulkDataCompanionPaths(PackagePath, Inspection, Referenced); !Result)
-			return Result;
+		if (auto Result = InspectEditorBulkDataCompanionPaths(PackagePath, Inspection); !Result)
+			return std::unexpected(std::move(Result.error()));
+		else { Referenced = std::move(*Result); }
 		std::filesystem::path Candidate = PackagePath;
 		Candidate.replace_extension(".dbulk");
 		std::error_code ErrorCode;
@@ -164,8 +163,8 @@ namespace Durin
 			&& std::ranges::find(Referenced, Candidate) == Referenced.end())
 			OutPaths.push_back(Candidate);
 		if (ErrorCode)
-			return {.Error = {.Code = EEditorBulkDataStorageError::FileSystem,
-				.Path = std::move(Candidate), .SystemError = ErrorCode}};
-		return {};
+			return std::unexpected(FEditorBulkDataStorageError{.Code = EEditorBulkDataStorageError::FileSystem,
+				.Path = std::move(Candidate), .SystemError = ErrorCode});
+		return OutPaths;
 	}
 }

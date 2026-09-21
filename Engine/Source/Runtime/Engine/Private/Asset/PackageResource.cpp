@@ -71,14 +71,14 @@ namespace Durin
 		{
 			auto RejectBulk = [&](FPackageBulkDataError Error) {
 				Error.Summary = Summary;
-				return FPackageGenerationResult{.Error = {.Code = EPackageGenerationError::InvalidBulk,
-					.Path = Path, .BulkCause = std::move(Error)}};
+				return std::unexpected(FPackageGenerationError{.Code = EPackageGenerationError::InvalidBulk,
+					.Path = Path, .BulkCause = std::move(Error)});
 			};
 			FFileHelper::FFileIoError FileError;
 			auto File = FFileHelper::OpenRead(Path, &FileError);
 			if (!File)
 			{
-				return {.Error = {.Code = EPackageGenerationError::FileIo, .Path = Path, .FileCause = FileError}};
+				return std::unexpected(FPackageGenerationError{.Code = EPackageGenerationError::FileIo, .Path = Path, .FileCause = FileError});
 			}
 			if (File->GetSize() != Summary.Extent)
 			{
@@ -105,7 +105,7 @@ namespace Durin
 				auto Bytes = std::span(Scratch).first(Count);
 				if (!File->ReadAt(Offset, Bytes, &FileError))
 				{
-					return {.Error = {.Code = EPackageGenerationError::FileIo, .Path = Path, .FileCause = FileError}};
+					return std::unexpected(FPackageGenerationError{.Code = EPackageGenerationError::FileIo, .Path = Path, .FileCause = FileError});
 				}
 				++Stats.ValidationReadCount;
 				Stats.ValidationBytesRead += Count;
@@ -266,25 +266,25 @@ namespace Durin
 		{
 			FFileHelper::FFileIoError Error;
 			auto File = FFileHelper::OpenRead(Path, &Error);
-			if (!File) return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = Error.Path, .FileCause = Error}};
+			if (!File) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = Error.Path, .FileCause = Error});
 			if (File->GetSize() != Extent)
-				return {.Error = {.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::ExtentChanged, .Path = Path, .Actual = File->GetSize(), .Expected = Extent}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::ExtentChanged, .Path = Path, .Actual = File->GetSize(), .Expected = Extent});
 			std::array<std::byte, PackageValidationScratchBytes> Scratch{};
 			FXxHash128Builder Hash;
 			for (uint64 Offset = 0; Offset < Extent;)
 			{
 				if (IsCancelled && IsCancelled())
-					return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = Path}};
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = Path});
 				auto Bytes = std::span(Scratch).first(static_cast<size_t>(
 					std::min<uint64>(Scratch.size(), Extent - Offset)));
 				if (!File->ReadAt(Offset, Bytes, &Error))
-					return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = Error.Path, .FileCause = Error}};
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = Error.Path, .FileCause = Error});
 				Hash.Update(Bytes);
 				Offset += Bytes.size();
 			}
 			const auto ActualDigest = Hash.Finalize();
 			if (ActualDigest != Digest)
-				return {.Error = {.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::DigestChanged, .Path = Path, .ActualDigest = ActualDigest, .ExpectedDigest = Digest}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::DigestChanged, .Path = Path, .ActualDigest = ActualDigest, .ExpectedDigest = Digest});
 			return {};
 		}
 
@@ -303,33 +303,32 @@ namespace Durin
 	}
 
 	auto FPreparedPackageResource::Read(const FPackagePath& LogicalPath,
-		const std::filesystem::path& PackagePath, uint64 MaximumRetainedBytes,
-		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
-		-> FPreparedPackageResourceResult
+		const std::filesystem::path& PackagePath, uint64 MaximumRetainedBytes, const std::function<bool()>& IsCancelled)
+		-> std::expected<FPreparedPackageResource, FPreparedPackageResourceError>
 	{
 		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
-		if (!Access) return {.Error = {.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = PackagePath}};
+		if (!Access) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = PackagePath});
 		if (IsCancelled && IsCancelled())
-			return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath});
 		if (!LogicalPath.IsValid())
-			return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::InvalidLogicalPath, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::InvalidLogicalPath, .Path = PackagePath});
 		try
 		{
 			FFileHelper::FFileIoError FileError;
 			auto File = FFileHelper::OpenRead(PackagePath, &FileError);
-			if (!File) return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError}};
+			if (!File) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError});
 			const uint64 MainSize = File->GetSize();
 			if (MainSize > MaximumRetainedBytes || MainSize > std::numeric_limits<size_t>::max())
-				return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::MainBudget, .Path = PackagePath, .MainBytes = MainSize, .MaximumBytes = MaximumRetainedBytes}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::MainBudget, .Path = PackagePath, .MainBytes = MainSize, .MaximumBytes = MaximumRetainedBytes});
 			FByteBuffer Main(static_cast<size_t>(MainSize));
 			for (uint64 Offset = 0; Offset < MainSize;)
 			{
 				if (IsCancelled && IsCancelled())
-					return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath}};
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath});
 				auto Chunk = std::span(Main).subspan(static_cast<size_t>(Offset),
 					static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, MainSize - Offset)));
 				if (!File->ReadAt(Offset, Chunk, &FileError))
-					return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError}};
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError});
 				Offset += Chunk.size();
 			}
 			File.reset();
@@ -339,26 +338,27 @@ namespace Durin
 			uint64 BulkSize = 0;
 			const bool bHasBulk = std::filesystem::exists(BulkPath, Error);
 			if (!Error && bHasBulk) BulkSize = std::filesystem::file_size(BulkPath, Error);
-			if (Error) return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileSystem, .Path = BulkPath, .SystemError = Error}};
+			if (Error) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileSystem, .Path = BulkPath, .SystemError = Error});
 			if (BulkSize > MaximumRetainedBytes - MainSize)
-				return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::ClosureBudget, .Path = PackagePath, .MainBytes = MainSize, .BulkBytes = BulkSize, .MaximumBytes = MaximumRetainedBytes}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::ClosureBudget, .Path = PackagePath, .MainBytes = MainSize, .BulkBytes = BulkSize, .MaximumBytes = MaximumRetainedBytes});
 			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 			if (auto Result = AssetPrivate::ResolveAssetPackageReader(Main, Codec); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ResolveCodec, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ResolveCodec, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadError>(AssetReadErrorFromResult(Result))});
 			const AssetPrivate::FAssetPackageReadContext Context{
 				.PackageBytes = Main, .PackagePath = LogicalPath,
 				.PhysicalPackageBytes = MainSize, .PhysicalBulkBytes = BulkSize,
 				.bResourceBackedBulk = true};
 			FAssetPackageHeader Header;
 			if (auto Result = Codec->ReadHeader(Context, Header); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ReadHeader, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ReadHeader, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadError>(AssetReadErrorFromResult(Result))});
 			FAssetPackageInspection Inspection;
 			if (auto Result = Codec->Inspect(Context, Inspection); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::Inspect, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::Inspect, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadError>(AssetReadErrorFromResult(Result))});
 			std::vector<FPackageBulkStorageDescriptor> Descriptors;
-			if (const auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Storage)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure,
-					.Reason = EPreparedReason::BulkStorage, .Path = PackagePath, .BulkStorageCause = Storage.Error}};
+			if (auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection); !Storage)
+				return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure,
+					.Reason = EPreparedReason::BulkStorage, .Path = PackagePath, .BulkStorageCause = Storage.error()});
+			else { Descriptors = std::move(*Storage); }
 			std::vector<FPackageBulkDataEntry> Entries;
 			Entries.reserve(Descriptors.size());
 			for (const auto& Descriptor : Descriptors)
@@ -372,33 +372,32 @@ namespace Durin
 					.ContentId = Descriptor.ContentHash});
 			return Prepare(PackagePath, FSharedByteBuffer::Take(std::move(Main)),
 				{Header.BulkSegmentExtent, Header.BulkSegmentDigest}, Entries,
-				MaximumRetainedBytes, Out, IsCancelled);
+				MaximumRetainedBytes, IsCancelled);
 		}
 		catch (const std::bad_alloc&)
 		{
-			return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::Allocation, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::Allocation, .Path = PackagePath});
 		}
 	}
 
 	auto FPreparedPackageResource::Prepare(
 		const std::filesystem::path& PackagePath, FSharedByteBuffer ValidatedMain,
 		const FPackageBulkSegmentSummary& Summary,
-		std::span<const FPackageBulkDataEntry> Entries, uint64 MaximumRetainedBytes,
-		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
-		-> FPreparedPackageResourceResult
+		std::span<const FPackageBulkDataEntry> Entries, uint64 MaximumRetainedBytes, const std::function<bool()>& IsCancelled)
+		-> std::expected<FPreparedPackageResource, FPreparedPackageResourceError>
 	{
 		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
-		if (!Access) return {.Error = {.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = PackagePath}};
+		if (!Access) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = PackagePath});
 		if (IsCancelled && IsCancelled())
-			return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath});
 		if (ValidatedMain.IsEmpty() || PackagePath.empty())
-			return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::InvalidMain, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::InvalidMain, .Path = PackagePath});
 		if (ValidatedMain.GetSize() > MaximumRetainedBytes
 			|| Summary.Extent > MaximumRetainedBytes - ValidatedMain.GetSize()
 			|| Summary.Extent > std::numeric_limits<size_t>::max())
-			return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::ClosureBudget, .Path = PackagePath, .MainBytes = ValidatedMain.GetSize(), .BulkBytes = Summary.Extent, .MaximumBytes = MaximumRetainedBytes}};
-		if (const auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation)
-			return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkValidation, .Path = PackagePath, .BulkCause = Validation.Error}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::ClosureBudget, .Path = PackagePath, .MainBytes = ValidatedMain.GetSize(), .BulkBytes = Summary.Extent, .MaximumBytes = MaximumRetainedBytes});
+		if (auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation)
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkValidation, .Path = PackagePath, .BulkCause = Validation.error()});
 		try
 		{
 			FPreparedPackageResource Candidate;
@@ -408,39 +407,38 @@ namespace Durin
 			Candidate.BulkExtent = Summary.Extent;
 			Candidate.BulkDigest = Summary.Digest;
 			if (auto Check = CheckSnapshotFile(PackagePath, Candidate.MainBytes.GetSize(),
-				Candidate.MainDigest, IsCancelled); !Check) return Check;
+				Candidate.MainDigest, IsCancelled); !Check) return std::unexpected(std::move(Check.error()));
 			if (Summary.Extent != 0)
 			{
 				auto BulkPath = PackagePath;
 				BulkPath.replace_extension(".dbulk");
 				FFileHelper::FFileIoError FileError;
 				auto File = FFileHelper::OpenRead(BulkPath, &FileError);
-				if (!File) return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError}};
+				if (!File) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError});
 				if (File->GetSize() != Summary.Extent)
-					return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkExtent, .Path = BulkPath, .Actual = File->GetSize(), .Expected = Summary.Extent}};
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkExtent, .Path = BulkPath, .Actual = File->GetSize(), .Expected = Summary.Extent});
 				FByteBuffer Bytes(static_cast<size_t>(Summary.Extent));
 				for (uint64 Offset = 0; Offset < Summary.Extent;)
 				{
 					if (IsCancelled && IsCancelled())
-						return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath}};
+						return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = PackagePath});
 					auto Chunk = std::span(Bytes).subspan(static_cast<size_t>(Offset),
 						static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, Summary.Extent - Offset)));
 					if (!File->ReadAt(Offset, Chunk, &FileError))
-						return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError}};
+						return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileIo, .Path = FileError.Path, .FileCause = FileError});
 					Offset += Chunk.size();
 				}
-				if (const auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes); !Validation)
-					return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkValidation, .Path = PackagePath, .BulkCause = Validation.Error}};
+				if (auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes); !Validation)
+					return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::BulkValidation, .Path = PackagePath, .BulkCause = Validation.error()});
 				Candidate.BulkResource = std::make_shared<FSnapshotPackageResource>(
 					FSharedByteBuffer::Take(std::move(Bytes)));
 			}
-			if (auto Check = Candidate.Revalidate(IsCancelled); !Check) return Check;
-			Out = std::move(Candidate);
-			return {};
+			if (auto Check = Candidate.Revalidate(IsCancelled); !Check) return std::unexpected(std::move(Check.error()));
+			return Candidate;
 		}
 		catch (const std::bad_alloc&)
 		{
-			return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::Allocation, .Path = PackagePath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::Allocation, .Path = PackagePath});
 		}
 	}
 
@@ -448,11 +446,11 @@ namespace Durin
 		-> FPreparedPackageResourceResult
 	{
 		auto Access = FPackageFileAccess::TryReadPackage(MainPath);
-		if (!Access) return {.Error = {.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = MainPath}};
+		if (!Access) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Stale, .Reason = EPreparedReason::PackageBusy, .Path = MainPath});
 		if (IsCancelled && IsCancelled())
-			return {.Error = {.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = MainPath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::Cancelled, .Reason = EPreparedReason::Cancelled, .Path = MainPath});
 		if (MainBytes.IsEmpty())
-			return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::EmptyPrepared, .Path = MainPath}};
+			return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::EmptyPrepared, .Path = MainPath});
 		if (auto Check = CheckSnapshotFile(MainPath, MainBytes.GetSize(), MainDigest, IsCancelled); !Check)
 			return Check;
 		auto BulkPath = MainPath;
@@ -466,8 +464,8 @@ namespace Durin
 		{
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(BulkPath, Error);
-			if (Error) return {.Error = {.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileSystem, .Path = BulkPath, .SystemError = Error}};
-			if (bExists) return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::UndeclaredBulk, .Path = BulkPath}};
+			if (Error) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::IoError, .Reason = EPreparedReason::FileSystem, .Path = BulkPath, .SystemError = Error});
+			if (bExists) return std::unexpected(FPreparedPackageResourceError{.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::UndeclaredBulk, .Path = BulkPath});
 		}
 		// Detect main publication while checking the companion. The captured bulk
 		// remains stable even if the caller later receives Stale and retries.
@@ -706,21 +704,18 @@ namespace Durin
 	auto CreateOwnedPackageResource(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
-		FByteView Segment,
-		FPackageResourceHandle& OutHandle) -> FPackageBulkDataResult
+		FByteView Segment) -> std::expected<FPackageResourceHandle, FPackageBulkDataError>
 	{
-		OutHandle.reset();
-		if (auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation) return Validation;
+		if (auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation) return std::unexpected(std::move(Validation.error()));
 		if (Segment.size() != Summary.Extent)
 		{
-			return {.Error = {.Code = EPackageBulkDataError::ExtentMismatch, .Summary = Summary,
-				.Actual = Segment.size(), .Expected = Summary.Extent}};
+			return std::unexpected(FPackageBulkDataError{.Code = EPackageBulkDataError::ExtentMismatch, .Summary = Summary,
+				.Actual = Segment.size(), .Expected = Summary.Extent});
 		}
 		// Validate the private allocation that subsequent reads will actually use.
 		FSharedByteBuffer Bytes = FSharedByteBuffer::Copy(Segment);
-		if (auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes.GetBytes()); !Validation) return Validation;
-		OutHandle = std::make_shared<FOwnedPackageResource>(std::move(Bytes));
-		return {};
+		if (auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes.GetBytes()); !Validation) return std::unexpected(std::move(Validation.error()));
+		return std::make_shared<FOwnedPackageResource>(std::move(Bytes));
 	}
 
 	auto FormatPackageResourceRangeError(const FPackageResourceRangeError& Error) -> std::string
@@ -734,10 +729,10 @@ namespace Durin
 	{
 		const uint64 Extent = Range.Resource ? Range.Resource->GetSegmentExtent() : 0;
 		auto Reject = [&](EPackageResourceRangeError Code) {
-			return FPackageResourceRangeResult{.Error = {.Code = Code,
+			return std::unexpected(FPackageResourceRangeError{.Code = Code,
 				.SegmentOffset = Range.SegmentOffset, .StoredSize = Range.StoredSize,
 				.SegmentExtent = Extent, .MaximumStoredSize = MaximumStoredSize,
-				.StorageFlags = Range.StorageFlags, .Alignment = Range.Alignment}};
+				.StorageFlags = Range.StorageFlags, .Alignment = Range.Alignment});
 		};
 		if (!Range.Resource) return Reject(EPackageResourceRangeError::MissingResource);
 		if (Range.StorageFlags != 0) return Reject(EPackageResourceRangeError::UnsupportedFlags);
@@ -786,21 +781,21 @@ namespace Durin
 	{
 		require(!LogicalPackageId.empty());
 		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
-		if (!Access) return {.Error = {.Code = EPackageResourceRegistrationError::PackageBusy, .Path = PackagePath}};
-		if (Summary.Extent == 0) return {.Error = {.Code = EPackageResourceRegistrationError::EmptySegment, .Path = PackagePath}};
-		if (const auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation)
-			return {.Error = {.Code = EPackageResourceRegistrationError::InvalidMetadata, .Path = PackagePath, .BulkCause = Validation.Error}};
+		if (!Access) return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::PackageBusy, .Path = PackagePath});
+		if (Summary.Extent == 0) return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::EmptySegment, .Path = PackagePath});
+		if (auto Validation = ValidatePackageBulkDataMetadata(Summary, Entries); !Validation)
+			return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::InvalidMetadata, .Path = PackagePath, .BulkCause = Validation.error()});
 		{
 			std::lock_guard Lock(Mutex);
-			if (bShutdown) return {.Error = {.Code = EPackageResourceRegistrationError::ShuttingDown, .Path = PackagePath}};
+			if (bShutdown) return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::ShuttingDown, .Path = PackagePath});
 		}
 		std::filesystem::path SegmentPath = PackagePath;
 		SegmentPath.replace_extension(".dbulk");
 		FPackageResourceReadStats ValidationStats;
-		const auto Primary = ValidateLoosePackageGeneration(SegmentPath, Summary, Entries, ValidationStats);
+		auto Primary = ValidateLoosePackageGeneration(SegmentPath, Summary, Entries, ValidationStats);
 		if (!Primary)
-			return {.Error = {.Code = EPackageResourceRegistrationError::InvalidGeneration, .Path = PackagePath,
-				.PrimaryCause = Primary.Error}};
+			return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::InvalidGeneration, .Path = PackagePath,
+				.PrimaryCause = Primary.error()});
 
 		auto Resource = std::make_shared<FLoosePackageResource>(
 			SegmentPath, Summary.Extent, ValidationStats);
@@ -809,14 +804,14 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			if (bShutdown)
 			{
-				return {.Error = {.Code = EPackageResourceRegistrationError::ShuttingDown, .Path = PackagePath}};
+				return std::unexpected(FPackageResourceRegistrationError{.Code = EPackageResourceRegistrationError::ShuttingDown, .Path = PackagePath});
 			}
 			auto& Slot = Resources[std::move(LogicalPackageId)];
 			Previous = std::move(Slot);
 			Slot = Resource;
 		}
 		if (Previous) Previous->Retire();
-		return {.Resource = std::move(Resource), .Error = {}};
+		return Resource;
 	}
 
 	auto FPackageResourceManager::RetirePackage(std::string_view LogicalPackageId) -> void

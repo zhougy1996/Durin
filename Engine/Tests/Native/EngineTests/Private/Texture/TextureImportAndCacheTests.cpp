@@ -34,9 +34,8 @@ namespace
 		std::string Hint;
 		std::string Error;
 		Durin::ESourceHintBase Base;
-		return Durin::MakeSourceHint(
-			Source.generic_string(), PackagePath.generic_string(), Base, Hint)
-			? Hint : std::string{};
+		const auto Result = Durin::MakeSourceHint(Source.generic_string(), PackagePath.generic_string());
+		return Result ? Result->Hint : std::string{};
 	}
 
 	auto RelocateAssetForTest(
@@ -140,7 +139,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::DTexture2D* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	EXPECT_EQ(Loaded->GetSource().GetWidth(), 2u);
@@ -158,9 +161,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	std::filesystem::path PhysicalPackagePath = PhysicalPackage.PhysicalPath;
 	PhysicalPackagePath += ".dasset";
 	Durin::ESourceHintBase ExpectedBase;
-	ASSERT_TRUE(Durin::MakeSourceHint(
-		Source.generic_string(), PhysicalPackagePath.generic_string(),
-		ExpectedBase, ExpectedFilename));
+	{
+		auto ValueResult = Durin::MakeSourceHint(Source.generic_string(), PhysicalPackagePath.generic_string());
+		ASSERT_TRUE(ValueResult);
+		ExpectedBase = ValueResult->Base; ExpectedFilename = std::move(ValueResult->Hint);
+	}
 	const Durin::FSourceFile* LoadedSource = FindImportedSource(*Loaded);
 	ASSERT_NE(LoadedSource, nullptr);
 	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
@@ -181,7 +186,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 		RenamedPath, AssetPath.GetPackageName(), RenamedAssetPath));
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
 		RenamedAssetPath, std::span<const std::string>{}, RenamedObjectPath));
-	ASSERT_TRUE(Durin::LoadObject(RenamedObjectPath, Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(RenamedObjectPath);
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	LoadedSource = FindImportedSource(*Loaded);
 	ASSERT_NE(LoadedSource, nullptr);
 	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
@@ -192,7 +201,11 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Data);
 	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, RenamedPath, Inspection));
 	std::vector<std::filesystem::path> Companions;
-	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions));
+	{
+		auto ValueResult = Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection);
+		ASSERT_TRUE(ValueResult);
+		Companions = std::move(*ValueResult);
+	}
 	EXPECT_TRUE(Companions.empty());
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Source));
@@ -229,8 +242,11 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	ASSERT_TRUE(Durin::InspectAssetPackage(
 		DefaultAssetData->PhysicalPath, Inspection));
 	Durin::FAssetImportInfo InspectedImportInfo;
-	ASSERT_TRUE(Durin::InspectAssetImportInfo(
-		Inspection, InspectedImportInfo));
+	{
+		auto ValueResult = Durin::InspectAssetImportInfo(Inspection);
+		ASSERT_TRUE(ValueResult);
+		InspectedImportInfo = std::move(*ValueResult);
+	}
 	ASSERT_NE(InspectedImportInfo.FindByRole("source"), nullptr);
 	EXPECT_EQ(InspectedImportInfo.FindByRole("source")->Hint,
 		DefaultSource->Hint);
@@ -298,7 +314,11 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::DTexture2D* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
@@ -317,7 +337,11 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
 	std::filesystem::last_write_time(
 		CachedAssetData->PhysicalPath, PackageTimeBeforeRecovery);
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded))
 		<< Durin::FormatTexture2DCompilationError(Durin::GetTexture2DCompilationDiagnostic(*Loaded).Error);
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
@@ -334,7 +358,11 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		PackageTimeBeforeRecovery);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -343,7 +371,11 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	WriteNpotTextureFixture(CopiedSource);
 	std::filesystem::last_write_time(CopiedSource,
 		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	EXPECT_NE(Loaded->GetSource().GetWidth(), 5u);
 	EXPECT_NE(Loaded->GetSource().GetHeight(), 3u);
@@ -351,7 +383,11 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
 	ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -381,12 +417,20 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirty
 		std::filesystem::last_write_time(StoredSource) + std::chrono::seconds(1));
 
 	Durin::DTexture2D* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -417,7 +461,7 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	ASSERT_NE(ImportInfo, nullptr);
 	ASSERT_EQ(ImportInfo->Sources.size(), 1u);
 	ImportInfo->Sources.front().Hint = "Invalid/./Outside.png";
-	EXPECT_EQ(ImportInfo->Sources.front().Validate().Error.Code,
+	EXPECT_EQ(ImportInfo->Sources.front().Validate().error().Code,
 		Durin::EAssetImportDataError::InvalidHint);
 
 	const std::filesystem::path Corrupt =
@@ -428,11 +472,11 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	}
 	std::string Error;
 	const auto Rejected = Durin::AssetForge::Builtins::ReimportTexture2DFromFile(*Result.Asset, Corrupt.generic_string());
-	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.Error.Code, Durin::AssetForge::Builtins::ETexture2DSubmissionError::Translation);
-	ASSERT_TRUE(Rejected.Error.TranslationCause);
-	ASSERT_TRUE(Rejected.Error.TranslationCause->DecodeCause);
-	EXPECT_EQ(Rejected.Error.TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Code, Durin::AssetForge::Builtins::ETexture2DSubmissionError::Translation);
+	ASSERT_TRUE(Rejected.error().TranslationCause);
+	ASSERT_TRUE(Rejected.error().TranslationCause->DecodeCause);
+	EXPECT_EQ(Rejected.error().TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
 	ExpectPlatformDataEqual(*Result.Asset->GetPlatformData(), OriginalPlatformData);
 	const Durin::FSourceFile* ImportedSource =
 		FindImportedSource(*Result.Asset);
@@ -520,7 +564,11 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/DerivedKeySecond", SecondPath));
 	ASSERT_TRUE(Durin::UnloadPackage(FirstPath));
 	Durin::DTexture2D* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(FirstPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(FirstPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	const std::string OriginalKey = GetTextureDerivedDataKey(*Loaded);
 	std::string Error;

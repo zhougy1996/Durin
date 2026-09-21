@@ -39,13 +39,15 @@ namespace Durin::TexturePrivate
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = Ar.GetTarget()});
 			PlatformData->Serialize(Writer);
-			const auto Bulk = Writer.IsError() ? FBulkDataResult{} : FBulkData::TryCreateDetached(Bytes, Projection);
+			auto Bulk = Writer.IsError() ? std::expected<FBulkData, FBulkDataError>{}
+				: FBulkData::TryCreateDetached(Bytes);
 			if (Writer.IsError() || !Bulk)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Writer.IsError()
-					? std::string(Writer.GetError()) : FormatBulkDataError(Bulk.Error));
+					? std::string(Writer.GetError()) : FormatBulkDataError(Bulk.error()));
 				return;
 			}
+			Projection = std::move(*Bulk);
 			Value = &Projection;
 		}
 		auto Field = EnterArchiveField(Ar, {WireOwner,

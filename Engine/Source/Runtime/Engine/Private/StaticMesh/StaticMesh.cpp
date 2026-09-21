@@ -636,7 +636,7 @@ namespace Durin
 				return Fail({.Code = EStaticMeshApplicationError::ImportOwnership,
 					.ImportData = FObjectKey(PreparedImportData), .ImportOuter = FObjectKey(PreparedImportData->GetOuter())});
 			if (const auto Validation = PreparedImportData->Validate(); !Validation)
-				return Fail({.Code = EStaticMeshApplicationError::ImportValidation, .ImportData = FObjectKey(PreparedImportData), .ImportCause = Validation.Error});
+				return Fail({.Code = EStaticMeshApplicationError::ImportValidation, .ImportData = FObjectKey(PreparedImportData), .ImportCause = Validation.error()});
 		}
 		const auto State = [](const FStaticMeshReconciliationSnapshot& Value) -> FStaticMeshApplicationState {
 			return {Value.SourceIdentity, Value.NormalizedSize, Value.Body, Value.BodyRevision,

@@ -172,10 +172,11 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const auto Result = LoadObject(AssetPath, Texture);
+		const auto Result = LoadObject<DTexture2D>(AssetPath);
+		Texture = Result.value_or(nullptr);
 		if (!Result || !Texture)
 		{
-			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
+			SetError(Result ? "The selected asset is not a Texture2D." : (Result ? std::string{} : Result.error().Message));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);

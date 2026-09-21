@@ -165,16 +165,17 @@ namespace Durin::Editor::Level
 		FAssetPackageLoadScope LoadScope;
 		DLevel* Level = nullptr;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-		FAssetReadResult Result;
+		std::expected<DLevel*, FAssetReadError> Result;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
 			Result = LoadScope.LoadSoftObject(
-				DefaultLevel, Level, ESoftObjectNullPolicy::Reject);
+				DefaultLevel, ESoftObjectNullPolicy::Reject);
+			Level = Result.value_or(nullptr);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
 		{
-			SetError(Result.Message);
+			SetError(Result.error().Message);
 			(void)LoadScope.Release();
 			return false;
 		}
@@ -211,11 +212,12 @@ namespace Durin::Editor::Level
 		}
 		FAssetPackageLoadScope LoadScope;
 		DLevel* Level = nullptr;
-		FAssetReadResult Result;
-		Result = LoadScope.LoadObject(Path, Level);
+		std::expected<DLevel*, FAssetReadError> Result;
+		Result = LoadScope.LoadObject<DLevel>(Path);
+		Level = Result.value_or(nullptr);
 		if (!Result)
 		{
-			SetError(Result.Message);
+			SetError(Result.error().Message);
 			(void)LoadScope.Release();
 			return ELevelDocumentOpenResult::Rejected;
 		}

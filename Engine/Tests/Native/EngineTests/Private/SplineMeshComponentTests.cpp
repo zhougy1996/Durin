@@ -110,8 +110,9 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const auto LoadResult = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
-	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	const auto LoadResult = LoadObject<DStaticMesh>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	Mesh = LoadResult.value_or(nullptr);
+	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(Mesh, nullptr);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -601,7 +602,11 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(UnloadPackage(Path));
 
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	{
+		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		LoadedObject = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* Loaded = LoadedLevel->FindActorByName("SplineMeshActor")
@@ -716,7 +721,11 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_TRUE(SaveResult) << SaveResult.Message;
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	{
+		auto LoadedValue = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		LoadedObject = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedActor = Cast<ASplineMeshActor>(LoadedLevel->FindActorByName("SplineMeshActor"));

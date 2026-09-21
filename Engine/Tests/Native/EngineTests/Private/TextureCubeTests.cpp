@@ -116,9 +116,9 @@ namespace
 			return false;
 		}
 		std::string PhysicalPath;
-		if (const auto Resolved = Durin::ResolveSourceHint(Source->HintBase, Filename,
-			PackagePath.generic_string(), PhysicalPath); !Resolved)
-		{ OutError = Durin::FormatSourceHintError(Resolved.Error); return false; }
+		if (auto Resolved = Durin::ResolveSourceHint(Source->HintBase, Filename, PackagePath.generic_string()); !Resolved)
+		{ OutError = Durin::FormatSourceHintError(Resolved.error()); return false; }
+		else { PhysicalPath = Resolved->generic_string(); }
 		OutPath = std::filesystem::absolute(PhysicalPath).lexically_normal();
 		return true;
 	}
@@ -238,7 +238,11 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	const auto StoredCodec = Result.Asset->GetSource().GetCompression();
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_EQ(Loaded->GetSource().GetBulkData().GetPayloadId(), StoredId);
@@ -255,9 +259,12 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::LoadObject(
-		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[5]), Faces[5]);
 	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
@@ -458,7 +465,11 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Panorama", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
@@ -471,9 +482,12 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::LoadObject(
-		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-			RenamedPath, AssetPath.GetPackageName()), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
 	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
@@ -511,8 +525,12 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/PreservedHDR", Path));
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
-		Path, Path.GetPackageName()), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		Path, Path.GetPackageName()));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetOutput(), Durin::ETextureCubeOutput::HDR);
 	ASSERT_TRUE(Loaded->HasPlatformData());
@@ -711,7 +729,11 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ReimportPanorama", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
@@ -833,8 +855,9 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const auto Load = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
-	ASSERT_TRUE(Load) << Load.Message;
+	const auto Load = Durin::LoadObject<Durin::DTextureCube>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath));
+	Cooked = Load.value_or(nullptr);
+	ASSERT_TRUE(Load) << (Load ? std::string{} : Load.error().Message);
 	ASSERT_NE(Cooked, nullptr);
 	const auto BulkStateBeforeGet = Cooked->GetCookedPlatformData().GetState();
 	const auto PlatformBeforeGetIdentity = Cooked->GetPlatformDataShared();

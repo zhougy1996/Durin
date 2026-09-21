@@ -148,8 +148,9 @@ namespace Durin
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The source top-level asset path is invalid.");
 		DObject* SourceAsset = nullptr;
-		FAssetWriteResult EngineResult = AssetWriteResultFromRead(LoadObject(
-			SourceObjectPath, nullptr, SourceAsset));
+		auto LoadedSource = LoadObject(SourceObjectPath, nullptr);
+		SourceAsset = LoadedSource.value_or(nullptr);
+		FAssetWriteResult EngineResult = AssetWriteResultFromRead(LoadedSource);
 		if (!EngineResult)
 			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
 		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;

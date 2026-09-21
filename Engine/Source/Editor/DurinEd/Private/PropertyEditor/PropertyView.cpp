@@ -395,25 +395,25 @@ namespace Durin::Editor
 			*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
 		if (!Resolve)
 		{
-			ViewState.State = Resolve.Result.Error == EAssetReadError::TypeMismatch
-				|| Resolve.Result.Error == EAssetReadError::UnknownClass
+			ViewState.State = (Resolve ? Durin::EAssetReadError::None : Resolve.error().Code) == EAssetReadError::TypeMismatch
+				|| (Resolve ? Durin::EAssetReadError::None : Resolve.error().Code) == EAssetReadError::UnknownClass
 				? ESoftObjectViewState::TypeMismatch
 				: ESoftObjectViewState::Missing;
 			ViewState.Error = ESoftObjectViewError::Asset;
-			ViewState.AssetCause = std::make_shared<FAssetReadResult>(Resolve.Result);
+			ViewState.AssetCause = std::make_shared<FAssetReadError>(Resolve.error());
 			return ViewState;
 		}
-		ViewState.ResolvedPath = Resolve.ResolvedPath;
-		ViewState.LoadedObject = Resolve.Object;
-		if (Resolve.bRedirected)
+		ViewState.ResolvedPath = Resolve->ResolvedPath;
+		ViewState.LoadedObject = Resolve->Object;
+		if (Resolve->bRedirected)
 		{
 			ViewState.State = ESoftObjectViewState::Redirected;
 			return ViewState;
 		}
-		if (Resolve.State == ESoftObjectResolveState::Loaded)
+		if (Resolve->State == ESoftObjectResolveState::Loaded)
 		{
 			ViewState.State = ESoftObjectViewState::Loaded;
-			ViewState.LoadedObject = Resolve.Object;
+			ViewState.LoadedObject = Resolve->Object;
 			return ViewState;
 		}
 		ViewState.State = ESoftObjectViewState::Unloaded;
@@ -451,11 +451,12 @@ namespace Durin::Editor
 			return Result;
 		}
 		Result.Path = Reference->GetPath();
-		auto Loaded = LoadSoftObject(*Reference, Property->GetExpectedClass(), OutObject, ESoftObjectNullPolicy::Reject);
+		auto Loaded = LoadSoftObject(*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
+		OutObject = Loaded.value_or(nullptr);
 		if (!Loaded)
 		{
 			Result.Error = EPropertySoftLoadError::Asset;
-			Result.AssetCause = std::make_shared<FAssetReadResult>(std::move(Loaded));
+			Result.AssetCause = std::make_shared<FAssetReadError>(std::move(Loaded.error()));
 			return Result;
 		}
 		if (!OutObject) Result.Error = EPropertySoftLoadError::MissingObject;

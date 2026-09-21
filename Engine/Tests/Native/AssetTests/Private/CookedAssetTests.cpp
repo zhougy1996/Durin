@@ -103,7 +103,11 @@ namespace
 			*Texture, Bulk, Family));
 		for (const FByteBuffer& InvalidBytes : {FByteBuffer{std::byte{0xff}}, TrailingBytes})
 		{
-			ASSERT_TRUE(FBulkData::TryCreateDetached(InvalidBytes, Bulk));
+			{
+				auto ValueResult = FBulkData::TryCreateDetached(InvalidBytes);
+				ASSERT_TRUE(ValueResult);
+				Bulk = std::move(*ValueResult);
+			}
 			Logger.Flush();
 			const uint64 LogCursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
 			EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
@@ -124,7 +128,11 @@ namespace
 			LockedBytes = LockedBytesLease.Lock.GetBytes();
 			LockedBytesLease.Lock.Reset();
 		}
-		ASSERT_TRUE(FBulkData::TryCreateDetached(ValidBytes, Bulk));
+		{
+			auto ValueResult = FBulkData::TryCreateDetached(ValidBytes);
+			ASSERT_TRUE(ValueResult);
+			Bulk = std::move(*ValueResult);
+		}
 		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
 			*Texture, Bulk, Family));
 		EXPECT_TRUE(Texture->HasPlatformData());

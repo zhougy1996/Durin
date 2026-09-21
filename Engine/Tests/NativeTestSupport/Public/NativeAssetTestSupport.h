@@ -29,8 +29,9 @@ namespace Durin::Testing
 			const auto Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
 			if (!Inspected) return AssetWriteResultFromRead(Inspected);
 			std::vector<std::filesystem::path> Companions;
-			if (const auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions); !Storage)
-				return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
+			if (auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection); !Storage)
+				return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.error())};
+			else { Companions = std::move(*Storage); }
 			Packages.push_back(*Data);
 			Files.push_back(Data->PhysicalPath);
 			Files.insert(Files.end(), Companions.begin(), Companions.end());
@@ -116,8 +117,8 @@ namespace Durin::Testing
 			return {EAssetWriteError::InvalidPath,
 				"The redirect destination object path is invalid."};
 		DObject* DestinationObject = nullptr;
-		auto Result = LoadObject(
-			DestinationObjectPath, nullptr, DestinationObject);
+		auto Result = LoadObject(DestinationObjectPath, nullptr);
+		DestinationObject = Result.value_or(nullptr);
 		if (!Result) return AssetWriteResultFromRead(Result);
 
 		// Build serialization fixtures through reflection without adding a runtime test API.

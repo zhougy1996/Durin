@@ -43,9 +43,10 @@ namespace Durin::Sandbox
 		FObjectPath MeshPath;
 		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
 		DStaticMesh* Mesh = nullptr;
-		const FAssetReadResult LoadResult = bValidMeshPath
-			? LoadObject(MeshPath, Mesh)
-			: FAssetReadResult{EAssetReadError::InvalidPath, "The configured graybox mesh path is invalid."};
+		const std::expected<DStaticMesh*, FAssetReadError> LoadResult = bValidMeshPath
+			? LoadObject<DStaticMesh>(MeshPath)
+			: std::unexpected(FAssetReadError{EAssetReadError::InvalidPath, "The configured graybox mesh path is invalid."});
+		Mesh = LoadResult.value_or(nullptr);
 		if (LoadResult && Mesh)
 		{
 			VisualComponent->SetStaticMesh(Mesh);
@@ -53,7 +54,7 @@ namespace Durin::Sandbox
 		else
 		{
 			DURIN_WARN("Sandbox pawn graybox '{}' could not load: {} The pawn remains playable without a visual.",
-				GameplayTuning::GrayboxMeshPath, LoadResult.Message);
+				GameplayTuning::GrayboxMeshPath, (LoadResult ? std::string{} : LoadResult.error().Message));
 		}
 		Super::BeginPlay();
 	}

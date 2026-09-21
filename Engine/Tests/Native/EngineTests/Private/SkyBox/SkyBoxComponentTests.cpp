@@ -271,7 +271,11 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::UnloadPackage(ActorPath));
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 	Durin::ASkyBoxActor* LoadedActor = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), LoadedActor));
+	{
+		auto LoadedValue = Durin::LoadObject<Durin::ASkyBoxActor>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath));
+		LoadedActor = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(LoadedActor, nullptr);
 	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");

@@ -105,8 +105,9 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadedResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded);
-		ASSERT_TRUE(LoadedResult) << LoadedResult.Message;
+		const auto LoadedResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Loaded = LoadedResult.value_or(nullptr);
+		ASSERT_TRUE(LoadedResult) << (LoadedResult ? std::string{} : LoadedResult.error().Message);
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
@@ -159,7 +160,11 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	MarkAsGarbage(Duplicate);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	CollectGarbage();
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Material));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
 
@@ -184,8 +189,9 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		const auto LoadResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded);
-		ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Loaded = LoadResult.value_or(nullptr);
+		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout.ResourceFieldCount, 1u);
@@ -280,7 +286,11 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
-		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded));
+		{
+			auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+			Loaded = LoadedValue.value_or(nullptr);
+			ASSERT_TRUE(LoadedValue);
+		}
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);

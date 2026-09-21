@@ -29,7 +29,11 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	MarkObjectHierarchyAsGarbage(Duplicate);
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Material, nullptr);
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().front(), Definition);
@@ -72,8 +76,9 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
-		const auto LoadResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
-		ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = LoadResult.value_or(nullptr);
+		ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
@@ -103,8 +108,9 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
-		const auto Loaded = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
-		ASSERT_TRUE(Loaded) << Loaded.Message;
+		const auto Loaded = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Material = Loaded.value_or(nullptr);
+		ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().Message);
 		ASSERT_NE(Material, nullptr);
 		const FMaterialGraphPresentation& Presentation =
 			Material->GetMaterialGraphPresentation();

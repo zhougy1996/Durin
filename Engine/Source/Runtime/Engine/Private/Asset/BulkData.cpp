@@ -24,13 +24,13 @@ namespace Durin
 		auto ValidateMetadata(const FBulkDataMetadata& Metadata) -> FBulkDataResult
 		{
 			if (Metadata.LogicalSize != Metadata.Range.StoredSize)
-				return {.Error = {.Code = EBulkDataError::LogicalSizeMismatch,
-					.Actual = Metadata.LogicalSize, .Expected = Metadata.Range.StoredSize}};
+				return std::unexpected(FBulkDataError{.Code = EBulkDataError::LogicalSizeMismatch,
+					.Actual = Metadata.LogicalSize, .Expected = Metadata.Range.StoredSize});
 			if (Metadata.LogicalSize > MaximumBulkDataBytes)
-				return {.Error = {.Code = EBulkDataError::LogicalSizeLimit,
-					.Actual = Metadata.LogicalSize, .Expected = MaximumBulkDataBytes}};
-			if (const auto Validation = ValidatePackageResourceRange(Metadata.Range, MaximumBulkDataBytes); !Validation)
-				return {.Error = {.Code = EBulkDataError::InvalidRange, .RangeCause = Validation.Error}};
+				return std::unexpected(FBulkDataError{.Code = EBulkDataError::LogicalSizeLimit,
+					.Actual = Metadata.LogicalSize, .Expected = MaximumBulkDataBytes});
+			if (auto Validation = ValidatePackageResourceRange(Metadata.Range, MaximumBulkDataBytes); !Validation)
+				return std::unexpected(FBulkDataError{.Code = EBulkDataError::InvalidRange, .RangeCause = Validation.error()});
 			return {};
 		}
 
@@ -86,29 +86,27 @@ namespace Durin
 	}
 
 	auto FBulkData::TryCreateDetached(
-		FByteView Bytes, FBulkData& OutValue) -> FBulkDataResult
+		FByteView Bytes) -> std::expected<FBulkData, FBulkDataError>
 	{
 		if (Bytes.size() > MaximumBulkDataBytes)
-			return {.Error = {.Code = EBulkDataError::DetachedSizeLimit, .Actual = Bytes.size(), .Expected = MaximumBulkDataBytes}};
+			return std::unexpected(FBulkDataError{.Code = EBulkDataError::DetachedSizeLimit, .Actual = Bytes.size(), .Expected = MaximumBulkDataBytes});
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
 		Candidate->Metadata.Range.StoredSize = Bytes.size();
 		Candidate->Allocation = std::make_shared<FByteBuffer>(Bytes.begin(), Bytes.end());
 		Candidate->State = EBulkDataState::Detached;
-		OutValue = FBulkData(std::move(Candidate));
-		return {};
+		return FBulkData(std::move(Candidate));
 	}
 
 	auto FBulkData::TryAttach(
-		FBulkDataMetadata Metadata, FBulkData& OutValue) -> FBulkDataResult
+		FBulkDataMetadata Metadata) -> std::expected<FBulkData, FBulkDataError>
 	{
-		if (auto Validation = ValidateMetadata(Metadata); !Validation) return Validation;
+		if (auto Validation = ValidateMetadata(Metadata); !Validation) return std::unexpected(std::move(Validation.error()));
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata = std::move(Metadata);
 		Candidate->State = Candidate->Metadata.Range.Resource->IsRetired()
 			? EBulkDataState::Retired : EBulkDataState::Attached;
-		OutValue = FBulkData(std::move(Candidate));
-		return {};
+		return FBulkData(std::move(Candidate));
 	}
 
 	auto FBulkData::GetState() const -> EBulkDataState
@@ -336,24 +334,23 @@ namespace Durin
 		Ar.SerializeBulkData(Value, Parameters);
 		if (!Ar.IsLoading() || Ar.IsError()) return;
 
-		FBulkData Candidate;
-		FBulkDataResult Loaded;
-		const bool bLoaded = Value.StorageKind == EArchiveBulkDataStorageKind::External
-			? Value.PackageResource && (Loaded = TryAttach({
-				.LogicalSize = Value.LogicalSize,
-				.Range = {
-					.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
-					.SegmentOffset = Value.SegmentOffset,
-					.StoredSize = Value.StoredSize,
-					.Alignment = Value.Alignment}}, Candidate))
-			: Value.Buffer.GetSize() == Value.LogicalSize
-				&& (Loaded = TryCreateDetached(Value.Buffer.GetBytes(), Candidate));
-		if (!bLoaded)
+		if (Value.StorageKind == EArchiveBulkDataStorageKind::External
+			? !Value.PackageResource : Value.Buffer.GetSize() != Value.LogicalSize)
 		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
-				Loaded ? "Loaded runtime bulk data is invalid." : FormatBulkDataError(Loaded.Error));
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Loaded runtime bulk data is invalid.");
 			return;
 		}
-		*this = std::move(Candidate);
+		auto Loaded = Value.StorageKind == EArchiveBulkDataStorageKind::External
+			? TryAttach({.LogicalSize = Value.LogicalSize,
+				.Range = {.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
+					.SegmentOffset = Value.SegmentOffset, .StoredSize = Value.StoredSize,
+					.Alignment = Value.Alignment}})
+			: TryCreateDetached(Value.Buffer.GetBytes());
+		if (!Loaded)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, FormatBulkDataError(Loaded.error()));
+			return;
+		}
+		*this = std::move(*Loaded);
 	}
 }

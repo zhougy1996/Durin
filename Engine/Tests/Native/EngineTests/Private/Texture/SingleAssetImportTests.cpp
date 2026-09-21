@@ -149,12 +149,12 @@ TEST(FSingleAssetImportTests, DerivedStateValidationChecksBaseBeforeEmptyStateSh
 	ASSERT_TRUE(Volume.Validate());
 	++Mesh.SchemaVersion;
 	++Volume.SchemaVersion;
-	EXPECT_EQ(Mesh.Validate().Error.Code, EAssetImportDataError::UnsupportedSchema);
-	EXPECT_EQ(Volume.Validate().Error.Code, EAssetImportDataError::UnsupportedSchema);
+	EXPECT_EQ(Mesh.Validate().error().Code, EAssetImportDataError::UnsupportedSchema);
+	EXPECT_EQ(Volume.Validate().error().Code, EAssetImportDataError::UnsupportedSchema);
 	Volume.SchemaVersion = AssetImportDataSchemaVersion;
 	Volume.Depth = 1;
 	const auto Validation = Volume.Validate();
-	EXPECT_EQ(Validation.Error.Code, EAssetImportDataError::ModuleRejected);
+	EXPECT_EQ(Validation.error().Code, EAssetImportDataError::ModuleRejected);
 }
 
 TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
@@ -167,7 +167,7 @@ TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
 	Mesh.SourceData.Sources = {Source};
 	Mesh.ImportSettings.RightAxis = EStaticMeshImportAxis::PositiveX;
 	const auto InvalidMesh = Mesh.Validate();
-	EXPECT_EQ(InvalidMesh.Error.Code, EAssetImportDataError::ModuleRejected);
+	EXPECT_EQ(InvalidMesh.error().Code, EAssetImportDataError::ModuleRejected);
 	Mesh.ImportSettings = {};
 	ASSERT_TRUE(Mesh.Validate());
 	auto* MeshData = NewObject<DStaticMeshImportData>(nullptr, "TypedMeshImportData");
@@ -184,12 +184,12 @@ TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
 	Volume.TilesX = 2;
 	Volume.TilesY = 2;
 	const auto InvalidAtlas = Volume.Validate();
-	EXPECT_EQ(InvalidAtlas.Error.Code, EAssetImportDataError::ModuleRejected);
+	EXPECT_EQ(InvalidAtlas.error().Code, EAssetImportDataError::ModuleRejected);
 	Volume.Depth = 4;
 	ASSERT_TRUE(Volume.Validate());
 	Volume.SourceData.Sources[0].Role = "other";
 	const auto InvalidRole = Volume.Validate();
-	EXPECT_EQ(InvalidRole.Error.Code, EAssetImportDataError::ModuleRejected);
+	EXPECT_EQ(InvalidRole.error().Code, EAssetImportDataError::ModuleRejected);
 	Volume.SourceData.Sources.clear();
 }
 
@@ -295,27 +295,22 @@ TEST(FSingleAssetImportTests, TexturePreparationRetainsCaptureAndTranslationCaus
 {
 	const auto Root = InitializeSingleAssetImportTests();
 	using namespace Durin::AssetForge::Builtins;
-	FPreparedTexture2DImport Prepared;
-	Prepared.Filename = "previous";
 	const auto MissingPath = Root / "MissingPreparation.png";
-	const auto Missing = PrepareTexture2DImport(MissingPath.generic_string(), Prepared);
-	EXPECT_FALSE(Missing);
-	EXPECT_EQ(Missing.Error.Code, ETexture2DPreparationError::Capture);
-	ASSERT_TRUE(Missing.Error.CaptureCause);
-	EXPECT_EQ(Missing.Error.CaptureCause->Code, EEncodedSourceError::FileSize);
-	EXPECT_EQ(Missing.Error.CaptureCause->PhysicalPath, MissingPath);
-	EXPECT_TRUE(Prepared.Filename.empty());
-	EXPECT_FALSE(Prepared.Source.IsValid());
+	const auto Missing = PrepareTexture2DImport(MissingPath.generic_string());
+	ASSERT_FALSE(Missing);
+	EXPECT_EQ(Missing.error().Code, ETexture2DPreparationError::Capture);
+	ASSERT_TRUE(Missing.error().CaptureCause);
+	EXPECT_EQ(Missing.error().CaptureCause->Code, EEncodedSourceError::FileSize);
+	EXPECT_EQ(Missing.error().CaptureCause->PhysicalPath, MissingPath);
 	const auto InvalidPath = Root / "InvalidPreparation.png";
 	const std::array<std::byte, 2> Bytes{std::byte{1}, std::byte{2}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, InvalidPath));
-	const auto Invalid = PrepareTexture2DImport(InvalidPath.generic_string(), Prepared);
-	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error.Code, ETexture2DPreparationError::Translation);
-	ASSERT_TRUE(Invalid.Error.TranslationCause);
-	ASSERT_TRUE(Invalid.Error.TranslationCause->DecodeCause);
-	EXPECT_EQ(Invalid.Error.TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
-	EXPECT_EQ(Invalid.Error.Filename, InvalidPath.generic_string());
-	EXPECT_EQ(Missing.Error.CaptureCause->PhysicalPath, MissingPath);
-	EXPECT_TRUE(Prepared.Filename.empty());
+	const auto Invalid = PrepareTexture2DImport(InvalidPath.generic_string());
+	ASSERT_FALSE(Invalid);
+	EXPECT_EQ(Invalid.error().Code, ETexture2DPreparationError::Translation);
+	ASSERT_TRUE(Invalid.error().TranslationCause);
+	ASSERT_TRUE(Invalid.error().TranslationCause->DecodeCause);
+	EXPECT_EQ(Invalid.error().TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
+	EXPECT_EQ(Invalid.error().Filename, InvalidPath.generic_string());
+	EXPECT_EQ(Missing.error().CaptureCause->PhysicalPath, MissingPath);
 }

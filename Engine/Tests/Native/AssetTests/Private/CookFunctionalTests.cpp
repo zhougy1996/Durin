@@ -263,7 +263,11 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 	EXPECT_EQ(CookRunCodeName(Result), "succeeded");
 	const auto Published = Inventory(Request.OutputRoot);
 	EXPECT_EQ(Inventory(Content), Before);
-	ASSERT_TRUE(LoadPackage(Path, Package));
+	{
+		auto LoadedValue = LoadPackage(Path);
+		Package = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(NewObject<DObject>(Package, "Added"), nullptr);
 	ASSERT_TRUE(SavePackage(Package));
 	ASSERT_TRUE(UnloadPackage(Package));
@@ -459,8 +463,9 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	for (const auto& Path : Paths)
 	{
 		DPackage* Loaded = nullptr;
-		const auto Result = LoadPackage(Path, Loaded);
-		ASSERT_TRUE(Result) << Path.GetView() << ": " << Result.Message;
+		const auto Result = LoadPackage(Path);
+		Loaded = Result.value_or(nullptr);
+		ASSERT_TRUE(Result) << Path.GetView() << ": " << (Result ? std::string{} : Result.error().Message);
 		EXPECT_NE(Loaded, nullptr);
 		auto* Asset = Loaded->FindTopLevelAsset(Path.GetPackageName());
 		ASSERT_NE(Asset, nullptr);

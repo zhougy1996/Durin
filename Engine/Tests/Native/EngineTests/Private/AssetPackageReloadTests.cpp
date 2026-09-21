@@ -101,8 +101,11 @@ namespace
 			// Establish that the expected baseline really survives a fresh load.
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
-			ASSERT_TRUE(Durin::LoadObject(
-				Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Texture));
+			{
+				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+				Texture = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 			ASSERT_EQ(Texture->GetSource().GetIdentity(), SavedIdentity);
 			if constexpr (std::is_same_v<T, Durin::DTexture2D>) Cloud->SetWeatherTexture(Texture);
 			else Cloud->SetBaseDensityTexture(Texture);
@@ -127,8 +130,11 @@ namespace
 			Cloud->SetBaseDensityTexture(nullptr);
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
-			ASSERT_TRUE(Durin::LoadObject(
-				Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Texture));
+			{
+				auto LoadedValue = Durin::LoadObject<T>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path));
+				Texture = LoadedValue.value_or(nullptr);
+				ASSERT_TRUE(LoadedValue);
+			}
 			EXPECT_EQ(Texture->GetSource().GetIdentity(), SavedIdentity);
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 		}
@@ -673,7 +679,11 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(SavePackage(Actor->GetPackage()));
     ASSERT_TRUE(UnloadPackage(Path));
     ASkyLightActor* Reopened=nullptr;
-    ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path),Reopened));
+    {
+        auto LoadedValue = LoadObject<ASkyLightActor>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+        Reopened = LoadedValue.value_or(nullptr);
+        ASSERT_TRUE(LoadedValue);
+    }
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetPersistentId(),Identity);
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetIntensity(),3);

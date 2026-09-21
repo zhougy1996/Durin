@@ -74,10 +74,9 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			OutSource.PhysicalPath = std::filesystem::absolute(FilePath).lexically_normal();
 			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)) return false;
-			if (const auto Hint = MakeSourceHint(
-				OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
-				OutSource.HintBase, OutSource.Filename); !Hint)
-			{ OutError = FormatSourceHintError(Hint.Error); return false; }
+			if (auto Hint = MakeSourceHint(OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string()); !Hint)
+			{ OutError = FormatSourceHintError(Hint.error()); return false; }
+			else { OutSource.HintBase = Hint->Base; OutSource.Filename = std::move(Hint->Hint); }
 			auto Captured = CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
 				MaximumTextureCubeEncodedBytes);
 			if (!Captured) { OutError = FormatEncodedSourceError(Captured.error()); return false; }
@@ -108,7 +107,7 @@ namespace Durin::AssetForge::Builtins
 			if (!Data) Data = NewObject<DAssetImportData>(&Texture, "AssetImportData");
 			State.SourceData.Normalize();
 			if (const auto Validation = State.Validate(); !Validation)
-			{ OutError = FormatAssetImportDataError(Validation.Error); return false; }
+			{ OutError = FormatAssetImportDataError(Validation.error()); return false; }
 			if (!Data) { OutError = "Could not allocate asset import data."; return false; }
 			Data->SetState(std::move(State));
 			Texture.SetAssetImportData(*Data);
@@ -324,9 +323,9 @@ namespace Durin::AssetForge::Builtins
 			std::string SourcePath;
 			if (Source && ResolveOwningPackagePhysicalPath(*Texture, OwningPackagePath, Error))
 			{
-				const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
-					OwningPackagePath.generic_string(), SourcePath);
-				if (!Resolved) Error = FormatSourceHintError(Resolved.Error);
+				auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint, OwningPackagePath.generic_string());
+				if (Resolved) { SourcePath = Resolved->generic_string(); }
+				if (!Resolved) Error = FormatSourceHintError(Resolved.error());
 				else bSucceeded = RebuildPanorama(*Texture, SourcePath,
 					{.FaceDimension = Texture->GetPanoramaFaceDimension(),
 						.ExposureEV = Texture->GetPanoramaExposureEV(), .Output = Texture->GetOutput()}, Error, nullptr);
@@ -345,10 +344,10 @@ namespace Durin::AssetForge::Builtins
 				bSucceeded = Source != nullptr;
 				if (Source)
 				{
-					const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
-						OwningPackagePath.generic_string(), Sources[Index]);
-					bSucceeded = Resolved.Succeeded();
-					Error = FormatSourceHintError(Resolved.Error);
+					auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint, OwningPackagePath.generic_string());
+					if (Resolved) { Sources[Index] = Resolved->generic_string(); }
+					bSucceeded = Resolved.has_value();
+					Error = FormatSourceHintError(Resolved.error());
 				}
 			}
 			if (bSucceeded) bSucceeded = RebuildFaces(
@@ -540,9 +539,9 @@ namespace Durin::AssetForge::Builtins
 			? Data->GetSourceData().FindByRole("panorama") : nullptr;
 		std::string SourcePath;
 		if (!Source) return false;
-		if (const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
-			OwningPackagePath.generic_string(), SourcePath); !Resolved)
-		{ OutError = FormatSourceHintError(Resolved.Error); return false; }
+		if (auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint, OwningPackagePath.generic_string()); !Resolved)
+		{ OutError = FormatSourceHintError(Resolved.error()); return false; }
+		else { SourcePath = Resolved->generic_string(); }
 		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
 	}
@@ -584,9 +583,9 @@ namespace Durin::AssetForge::Builtins
 				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";
 				return false;
 			}
-			if (const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
-				OwningPackagePath.generic_string(), Sources[Index]); !Resolved)
-			{ OutError = FormatSourceHintError(Resolved.Error); return false; }
+			if (auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint, OwningPackagePath.generic_string()); !Resolved)
+			{ OutError = FormatSourceHintError(Resolved.error()); return false; }
+			else { Sources[Index] = Resolved->generic_string(); }
 		}
 		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);

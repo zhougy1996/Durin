@@ -1276,7 +1276,11 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 		std::filesystem::absolute(Root / "Content/Original_Copy2.dasset")
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
-	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath), Duplicate));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath));
+		Duplicate = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_NE(Duplicate, Material);
 	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
@@ -1289,7 +1293,11 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	EXPECT_EQ(PastedResult.RevealAssetPath,
 		Testing::MakePackageLeafTopLevelAssetPathForTests(PastedPath).ToString());
 	DMaterial* Pasted = nullptr;
-	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath), Pasted));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath));
+		Pasted = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Pasted, nullptr);
 	EXPECT_EQ(Pasted->GetStaticProperties(), Properties);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(PastedPath));

@@ -87,10 +87,11 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
-		const auto Result = LoadObject(Path, Texture);
+		const auto Result = LoadObject<DVolumeTexture>(Path);
+		Texture = Result.value_or(nullptr);
 		if (!Result || !Texture)
 		{
-			SetError(Result ? "The selected asset is not a VolumeTexture." : Result.Message);
+			SetError(Result ? "The selected asset is not a VolumeTexture." : (Result ? std::string{} : Result.error().Message));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);

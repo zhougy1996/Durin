@@ -679,7 +679,11 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	ASSERT_TRUE(UnloadPackage(CalleePath));
 	CollectGarbage();
 	Caller = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath), Caller));
+	{
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(CallerPath));
+		Caller = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	const auto After = Capture(*Caller);
 	ASSERT_TRUE(After);
 	EXPECT_EQ(Before.IR, After.IR);
@@ -1043,7 +1047,11 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	ASSERT_TRUE(UnloadPackage(ParentPath));
 	CollectGarbage();
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance));
+	{
+		auto LoadedValue = LoadObject<DMaterialInstance>(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath));
+		Instance = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	Parent = Cast<DMaterial>(Instance->GetParent());
 	ASSERT_NE(Parent, nullptr);
 	EXPECT_EQ(Parent->GetImportProvenance(), ParentReceipt);
@@ -1106,8 +1114,16 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath), Function));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
+	{
+		auto LoadedValue = LoadObject<DMaterialFunction>(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath));
+		Function = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(CaptureFields(*Material), Expected);
 	EXPECT_EQ(CaptureFields(*Function), ExpectedFunction);
 	EXPECT_EQ(Material->GetExpressionOutputs(), ExpectedOutputs);
@@ -1169,7 +1185,11 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();
 	Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	{
+		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+		Material = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, CallId);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/Texture2D.h"
 #include "Hash/XxHash.h"
@@ -10,7 +12,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTexture2DPreparationResult;
+	struct FTexture2DPreparationError;
 	struct FEncodedSourceError;
 
 	// Detached source capture. Safe to prepare on a worker; no object or mount access.
@@ -22,8 +24,8 @@ namespace Durin::AssetForge::Builtins
 		uint64 ByteCount = 0;
 		FTexture2DImportSettings InferredSettings;
 	};
-	ASSETFORGEBUILTINS_API auto PrepareTexture2DImport(std::string_view Filename,
-		FPreparedTexture2DImport& OutPrepared) -> FTexture2DPreparationResult;
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto PrepareTexture2DImport(std::string_view Filename)
+		-> std::expected<FPreparedTexture2DImport, FTexture2DPreparationError>;
 
 	// Conservative first-import defaults from the filename's final semantic token,
 	// then optional decoded-source normal detection. Flat colors stay ambiguous.
@@ -43,11 +45,7 @@ namespace Durin::AssetForge::Builtins
 		uint8 SourceChannelCount = 0;
 		std::optional<Image::FImageDecodeError> DecodeCause;
 	};
-	struct FTexture2DTranslationResult
-	{
-		FTexture2DTranslationError Error;
-		explicit operator bool() const { return Error.Code == ETexture2DTranslationError::None; }
-	};
+	using FTexture2DTranslationResult = std::expected<FTextureSource, FTexture2DTranslationError>;
 	ASSETFORGEBUILTINS_API auto FormatTexture2DTranslationError(const FTexture2DTranslationError& Error) -> std::string;
 
 	enum class ETexture2DPreparationError : uint8 { None, Path, Format, Capture, Translation };
@@ -59,17 +57,12 @@ namespace Durin::AssetForge::Builtins
 		std::shared_ptr<const FEncodedSourceError> CaptureCause;
 		std::optional<FTexture2DTranslationError> TranslationCause;
 	};
-	struct FTexture2DPreparationResult
-	{
-		FTexture2DPreparationError Error;
-		explicit operator bool() const { return Error.Code == ETexture2DPreparationError::None; }
-	};
+	using FTexture2DPreparationResult = std::expected<FPreparedTexture2DImport, FTexture2DPreparationError>;
 	ASSETFORGEBUILTINS_API auto FormatTexture2DPreparationError(const FTexture2DPreparationError& Error) -> std::string;
 
 	// Decodes one image into detached authored source, retaining original channel metadata.
-	ASSETFORGEBUILTINS_API auto TranslateTexture2DSource(
-		FByteView EncodedBytes,
-		FTextureSource& OutSourceData) -> FTexture2DTranslationResult;
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto TranslateTexture2DSource(
+		FByteView EncodedBytes) -> FTexture2DTranslationResult;
 
 	enum class ETexture2DSubmissionError : uint8
 	{
@@ -87,21 +80,17 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FTexture2DTranslationError> TranslationCause;
 		std::optional<FTexture2DCompilationError> CompilationCause;
 	};
-	struct FTexture2DSubmissionResult
-	{
-		FTexture2DSubmissionError Error;
-		explicit operator bool() const { return Error.Code == ETexture2DSubmissionError::None; }
-	};
+	using FTexture2DSubmissionResult = std::expected<void, FTexture2DSubmissionError>;
 	ASSETFORGEBUILTINS_API auto FormatTexture2DSubmissionError(const FTexture2DSubmissionError& Error) -> std::string;
 
 	// Reimports from the retained optional source hint. Completion runs on the
 	// game thread after the detached candidate is either published or rejected.
-	ASSETFORGEBUILTINS_API auto ReimportTexture2D(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2D(
 		DTexture2D& Texture,
 		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DSubmissionResult;
 	// Selects and captures a new source, then atomically publishes canonical
 	// imported data and the new hint only after the detached build succeeds.
-	ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
+	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DSubmissionResult;

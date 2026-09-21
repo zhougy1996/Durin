@@ -82,11 +82,11 @@ namespace Durin::Editor::StaticMesh
 					StaticMesh = nullptr;
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = Result.Message.empty()
+						.Diagnostic = (Result ? std::string{} : Result.error().Message).empty()
 							? std::format(
 								"The requested asset '{}' is not an exact DStaticMesh.",
 								Input.AssetPath.ToString())
-							: Result.Message};
+							: (Result ? std::string{} : Result.error().Message)};
 				}
 				const DPackage* Package = StaticMesh->GetPackage();
 				if (Package == nullptr)

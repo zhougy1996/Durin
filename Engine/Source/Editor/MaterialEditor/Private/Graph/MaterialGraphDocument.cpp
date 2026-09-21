@@ -36,8 +36,9 @@ namespace Durin::Editor::Material
 			if (const auto Parsed = FTopLevelAssetPath::TryCreateWithDiagnostic(Name, Path); !Parsed)
 				return {.Message = "The material function path is invalid. " + FormatObjectError(Parsed.Error)};
 			DMaterialFunctionInterface* Function = nullptr;
-			if (auto Loaded = LoadObject(Path, Function); !Loaded)
-				return {.Message = "Unable to load the material function. " + Loaded.Message};
+			if (auto Loaded = LoadObject<DMaterialFunctionInterface>(Path); !Loaded)
+				return {.Message = "Unable to load the material function. " + (Loaded ? std::string{} : Loaded.error().Message)};
+			else { Function = *Loaded; }
 			return {.Function = Function};
 		}
 

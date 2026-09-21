@@ -296,10 +296,11 @@ namespace Durin::Editor::Material
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const auto Result = LoadObject(AssetPath, Material);
+		const auto Result = LoadObject<DMaterialInterface>(AssetPath);
+		Material = Result.value_or(nullptr);
 		if (!Result || !Material)
 		{
-			SetError(Result ? "The selected asset is not a material." : Result.Message);
+			SetError(Result ? "The selected asset is not a material." : (Result ? std::string{} : Result.error().Message));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);

@@ -106,21 +106,19 @@ namespace Durin::Editor::Texture
 			? "Equirectangular Panorama"
 			: "Six Faces";
 
-		FAssetImportInfo ImportInfo;
-		if (InspectAssetImportInfo(
-			Inspection, ImportInfo))
+		if (auto ImportInfo = InspectAssetImportInfo(Inspection); ImportInfo)
 		{
 			if (Snapshot.bPanorama)
 			{
 				const auto It = std::ranges::find(
-					ImportInfo.Sources, "panorama", &FSourceFile::Role);
-				Snapshot.Source = It == ImportInfo.Sources.end()
+					ImportInfo->Sources, "panorama", &FSourceFile::Role);
+				Snapshot.Source = It == ImportInfo->Sources.end()
 					? "-"
 					: It->Hint;
 			}
 			else
 			{
-				const size_t SourceCount = ImportInfo.Sources.size();
+				const size_t SourceCount = ImportInfo->Sources.size();
 				Snapshot.Source = SourceCount == 0
 					? "-"
 					: std::format("{} of {} face sources", SourceCount, TextureCubeFaceCount);

@@ -350,15 +350,15 @@ namespace Durin
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				auto Load = LoadScope.LoadPackage(
-					PackagePlan.PackagePath, Package, &LoadReport);
+				auto Load = LoadScope.LoadPackage(PackagePlan.PackagePath, &LoadReport);
+				Package = Load.value_or(nullptr);
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
 					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = std::format("CanonicalResaveLoadRejected: {}",
-						Load ? "load reported compatibility or mutation risk" : Load.Message);
+						Load ? "load reported compatibility or mutation risk" : (Load ? std::string{} : Load.error().Message));
 					return Result;
 				}
 			}

@@ -354,13 +354,14 @@ namespace Durin::Tests
 			if (FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
-				const auto Result = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
+				const auto Result = LoadObject<DObject>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath));
+				Loaded = Result.value_or(nullptr);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
-					OutError = Result.Message.empty()
+					OutError = (Result ? std::string{} : Result.error().Message).empty()
 						? "Could not reload the cached StaticMesh thumbnail fixture."
-						: Result.Message;
+						: (Result ? std::string{} : Result.error().Message);
 					return false;
 				}
 			}

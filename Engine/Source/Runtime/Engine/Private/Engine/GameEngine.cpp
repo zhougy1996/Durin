@@ -84,7 +84,12 @@ namespace Durin
 				{
 					auto Result =
 						ResolveLevelPackage(PackagePath, LevelPath);
-					if (Result) Result = LoadObject(LevelPath, Level);
+					if (Result)
+					{
+						auto Loaded = LoadObject<DLevel>(LevelPath);
+						if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
+						else Level = *Loaded;
+					}
 					if (Result && GetWorld()->SetCurrentLevel(Level))
 					{
 						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});

@@ -246,7 +246,11 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 	ASSERT_TRUE(SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
 	DLevel* Loaded = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	{
+		auto LoadedValue = LoadObject<DLevel>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		Loaded = LoadedValue.value_or(nullptr);
+		ASSERT_TRUE(LoadedValue);
+	}
 	ASSERT_NE(Loaded, nullptr);
 	auto* Copy = DuplicateObject(Loaded, nullptr, "CollisionCopy").Object;
 	ASSERT_NE(Copy, nullptr);
