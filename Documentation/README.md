@@ -13,6 +13,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Setup, build, test, worktree, or runtime problem | [Troubleshooting](Development/Build/Troubleshooting.md) |
 | Configuring, building, running, or recovering for task validation | [Agent build and run workflow](Agents/BuildAndRun.md) |
 | Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
+| DHT parsing, reflected symbol exports, or generated C++ | [Reflection generation](Development/Tooling/ReflectionGeneration.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
@@ -26,7 +27,9 @@ requires; do not read unrelated topics or scan an entire directory.
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/AssetPackages.md) |
+| StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/StaticMeshBuilding.md) |
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
+| Offline Cook dependency discovery, reuse, or transactional output publication | [Asset cooking](Runtime/Assets/Cooking.md) |
 | Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
 | Field-level BulkData, package-resource ranges, DAST Bulk Directory, or raw `.dbulk` | [Package bulk data](Runtime/Assets/BulkData.md) |
 | Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |

@@ -74,27 +74,12 @@ and recursive function dependencies are rejected. Apply and package validation
 retain their strict graph-validation boundary.
 
 `FMaterialGraphDocument` is the shared owning-thread command boundary for both
-owners. Ordinary commands use `FGraphEditSession` to mutate the owner's expression
-objects directly. Before writing a participant, `Modify()` captures its reflected
-members using DurinEd's focused transaction snapshots. Type adaptation registers
-its own modified participants. Only changed member payloads enter the global
-transactor, grouped into one material change so replay restores all fields before
-updating derived state and notifying observers. There is no candidate graph and
-no expression duplication during connection commands or their Undo/Redo.
-Structural commands also retain collection membership and serialized state for
-added/removed children. Deleted children are detached and retained by history's
-reference collector, then restored with their original object identity. Unchanged
-children remain the same objects. History payloads do not alias mutable live values.
-`FMaterialExpressionEditing` provides Engine storage admission, ownership reconciliation,
-and publication without invoking the bulk duplicating setters. Abandoned/rejected
-edit scopes restore their local writes without publishing revisions or notifications;
-this is domain compensation, not a change to generic `Modify()` or `Cancel()` semantics.
-Presentation-only changes skip semantic publication. Full presentation replacement
-includes labels, so replay can restore an empty name. History enumerates texture,
-function, and participant references and reports native payload allocation sizes.
+owners. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
+live edits, ownership reconciliation, and publication. Transaction capture,
+rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
 The document has no whole-graph snapshot export/import API. Function previews
-construct their own new expressions inside a live edit of the preview material.
-Clipboard copy duplicates selected expressions only.
+create their own expressions; clipboard copy duplicates only selected expressions.
+
 Function state cannot contain root parameters or material outputs. Call inputs
 retain numeric defaults while disconnected; connecting another callee output
 records its stable output binding in the same transaction.
@@ -491,6 +476,19 @@ two-channel BC5 allocation's yellow. Other texture previews share
 published RHI allocations and retire registrations after their last canvas consumer.
 
 ## Transactions and gestures
+
+`Modify()` captures reflected members before mutation, including participants
+introduced by type adaptation. Only changed member payloads enter the global
+transactor. Structural history detaches deleted children and retains them through
+its reference collector, restoring their original identity on replay. Unchanged
+children retain identity; history never aliases mutable live values. History
+enumerates texture, function, and participant references and reports native payload
+allocation sizes. Connection commands and Undo/Redo do not duplicate expressions.
+
+Abandoned or rejected edit scopes restore local writes without revisions or
+notifications. This domain compensation does not change generic `Modify()` or
+`Cancel()` semantics. Presentation-only changes skip semantic publication;
+presentation replacement includes labels so replay can restore an empty name.
 
 Material graph commands edit live expression objects and retain focused member
 before/after payloads in one global transaction. Structural changes additionally

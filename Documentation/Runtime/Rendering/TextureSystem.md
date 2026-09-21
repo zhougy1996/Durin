@@ -93,13 +93,9 @@ without repeating the log. This API does not compile authored source.
 
 ### Payload architecture qualification
 
-Texture2D is a qualified production consumer of domain-owned payload schemas.
-The tracked VintageLighter derived sources include three 1024 x 1024 x 32-bit
-TGA files of 4,194,322 bytes each; each decodes to exactly 4 MiB RGBA8, while
-the corresponding `.dasset` packages are only 1,300-1,387 bytes. Large
-canonical texels use the authored package's `FEditorBulkData` placement rather
-than a reflected byte vector. Neither request-local decoded pixels nor platform
-mip vectors are stored in the authored object field tree.
+Texture2D stores large canonical texels in authored `FEditorBulkData`.
+Request-local decoded pixels and platform mip vectors are not persisted in the
+authored object field tree.
 
 Source image encoding belongs to the ordinary source file and decoder. Texture
 payload schema 2 belongs to the owning asset, DDC values are rebuildable

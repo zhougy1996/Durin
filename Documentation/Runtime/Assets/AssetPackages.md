@@ -559,7 +559,7 @@ display path, or legacy value cache exists.
 
 Relocation, asset rename, Fix Up, and deletion policy belong to
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md). Cook reachability and
-publication belong to [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
+publication belong to [Asset Cooking and Publication](Cooking.md).
 
 ## Compatibility And Canonical Resave
 

@@ -770,18 +770,16 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 Retained Engine material/function content is rebuilt directly through typed recipes.
 Material and function owners validate their current expression ownership and typed
 connections directly. Instances retain their typed-override storage marker; missing
-or unsupported instance markers reject before publication. Universal Program/node/function graph records, their readers/setters,
-conversion helpers and expression `Lower()` adapters are removed. The only compiler
-capture path emits detached typed IR through `Build()` and owns all data needed by
-workers, without live expression or callee pointers.
+or unsupported instance markers reject before publication. Compiler capture emits
+detached typed IR through `Build()` and owns all worker data without live
+expression or callee pointers. Legacy universal graph records are unsupported.
 
-Compiler envelope 9 and DMAT v7 are current; IR v4 and layout v4 retain their
-contracts. Generator v7 and pass contract v3 move Time to the material uniform
-and invalidate fragments using the retired time interpolator. DMAT v7 omits the retired authored Program version word.
-The material Cook contributor version is 5, invalidating previous Cook hits. DAST
-v10 and its ordinary default-relative owned-object serialization remain unchanged;
-there is no material-specific serializer or old-asset conversion path. Old Cook
-outputs must be rebuilt. Unrelated property/package migrations remain intact.
+Current versions are compiler envelope 9, DMAT 7, IR 4, layout 4, generator 7,
+pass contract 3, and material Cook contributor 5. Time uses the material uniform;
+fragments using the old time interpolator and prior Cook hits require rebuilding.
+DMAT has no authored Program version word. Materials use ordinary DAST v10
+default-relative owned-object serialization, with no material-specific serializer
+or old-asset conversion path. Unrelated property/package migrations remain intact.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base
@@ -793,8 +791,7 @@ positional and dormant entries without marking the package dirty.
 StaticMesh slots persist no GUID or slot-schema version. The
 former GUID-keyed override records and slot fields have no loader alias,
 upgrade branch, or migration path. Authored packages using those schemas are
-incompatible; repository content was recreated directly under the current
-schema.
+incompatible.
 
 Cooked material decoding uses saved target, schema, layout/stage contracts and
 code hashes. Compiler identity remains production provenance in the Cooked

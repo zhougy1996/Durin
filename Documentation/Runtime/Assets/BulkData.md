@@ -100,7 +100,7 @@ StaticMesh decoded residency is family-owned and separate from `FEditorBulkData`
 Releasing a geometry handle/cache never discards canonical memory-backed source
 bytes. The persistent source retains its original reflected type and four wire
 fields; moving their C++ declarations does not rename package declaring identity.
-See [StaticMesh source ownership](../Rendering/StaticMeshRendering.md#source-and-payload-compatibility).
+See [StaticMesh source ownership](StaticMeshBuilding.md).
 
 The three Editor Bulk storage-inspection APIs return
 `FEditorBulkDataStorageResult` without diagnostic-output overloads. Their errors
@@ -299,7 +299,7 @@ distinction between pre-commit rollback and post-commit Registry reconciliation.
 The prior stable segment remains recoverable until the new closure commits.
 Inline-only saves publish no empty segment and remove a stale prior companion
 only after the new main package is committed. Cook publication and rollback
-follow [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
+follow [Asset Cooking and Publication](Cooking.md).
 
 Move, duplicate, inventory, orphan detection, source-control closure,
 and canonical resave derive companion ownership from validated v10 Registry and

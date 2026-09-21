@@ -264,63 +264,11 @@ discard it explicitly, or repeat `-DNAME=VALUE` to override CMake cache
 values for that configuration. `rebuild` and automatic recovery from an
 unusable or incompatible build tree always fresh-configure before building.
 
-DurinDevTool separates its resolved context, execution stages, raw CMake/Ninja output, and final result so failures remain identifiable in long logs. Styled output is enabled for interactive terminals. Pass `--plain`, set `NO_COLOR`, or redirect the output to select stable text-only output without ANSI sequences:
-
-```powershell
-.\DevTool.bat build --target all --plain
-```
-
-Child-process output has four modes, selected with
-`--output auto|compact|progress|full`. The default `auto` mode selects progress
-output in an interactive terminal and compact output when stdout is redirected
-or consumed by an Agent. Progress mode updates routine Ninja `[n/total]` status
-in place and hides DHT DEBUG/INFO lines from the terminal while preserving DHT
-warnings, other child output, compiler diagnostics, and the complete command
-log. Empty child-output records do not finalize an active Ninja progress line.
-Use `--output full` when routine DHT diagnostics must also be streamed.
-When explicitly requested without an interactive terminal, progress mode falls
-back to compact output.
-Compact mode keeps stage boundaries, command lines, heartbeats, and final
-results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
-It writes the complete raw output under `Build/.agent-state/logs/`, reports the
-log path before each child command starts, and prints a bounded diagnostic
-excerpt plus the log path when a child fails. The newest 40 command logs are
-retained. Use `--output full` to stream every child-output line, or
-`--output compact` to suppress routine child output in an interactive terminal:
-
-```powershell
-.\DevTool.bat build --target all --output progress
-.\DevTool.bat build --target all --output compact
-.\DevTool.bat test CoreConcurrencyTests --output full
-```
-
-Compact native-test runs also enable GoogleTest's brief output mode. Test
-failures and the final test summary remain in the captured output and failure
-excerpt; application or library messages are always preserved in the full log.
-In styled terminal output, GoogleTest and CTest running, passed, skipped, and
-failed statuses are colored consistently even when the child process disables
-its own terminal colors.
-`--plain` controls styling independently and does not select an output volume.
-
-On macOS, native targets whose registry metadata reports `host=application`
-are admitted through the repository's internal LaunchServices `.app` host.
-Use the same `DevTool test` commands as for direct targets; do not assemble a
-bundle or invoke `open` manually. The graphical login session must be active,
-and terminal or automation sandbox policy must allow LaunchServices application
-launch. Application binaries and runtime dependencies remain below the owning
-test's output root. Admission, test, crash, timeout, cancellation, and cleanup
-failures retain a bounded evidence directory below that test's
-`Work/ApplicationHost` directory and print its exact path. Product application
-packaging, signing, and installation are unrelated to this internal test
-artifact.
-
-Compact mode emits a short heartbeat every 30 seconds while a child command
-remains alive. It reports elapsed time and the latest CMake/Ninja status when
-available, including Ninja's completed count and action. Logs are flushed as
-lines arrive so they can be read during execution. Non-interactive callers need
-no extra flags; the redundant `--agent` option has been removed. Use `--plain`
-and `--output compact` to request the same display explicitly in a terminal.
-Progress and full output modes stream child output without default heartbeats.
+For output modes, command logs, and heartbeats, see
+[Command output and logs](../Tooling/DurinDevTool.md#command-output-and-logs).
+Use `--output full` for complete streamed diagnostics; `--plain` disables styling.
+macOS application-hosted tests use the ordinary `test` commands and require the
+[application-test admission workflow](NativeTests.md#application-hosted-tests).
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. DurinDevTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 

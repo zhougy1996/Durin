@@ -199,6 +199,12 @@ cannot use LaunchServices, compilation may be checked but report execution as no
 run. Do not escape the sandbox, change macOS authorization, relocate artifacts,
 or use the product application to satisfy optional coverage.
 
+The internal LaunchServices host keeps binaries and dependencies under the
+owning test's output root. Admission, test, crash, timeout, cancellation, and
+cleanup failures retain bounded evidence in `Work/ApplicationHost` and print
+its path. Do not assemble a bundle or invoke `open` manually; product packaging,
+signing, and installation are separate workflows.
+
 ## Material Test Selection
 
 Use `test list material` for focused targets and
