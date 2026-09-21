@@ -1500,9 +1500,6 @@ namespace
 				.Apply = [this, PostPath] {
 					Path = PostPath;
 					return Durin::FAssetWriteResult{}; },
-				.Restore = [this, PrePath] {
-					Path = PrePath;
-					return Durin::FAssetWriteResult{}; },
 				.Verify = [this, PostPath] { return Path == PostPath ? Durin::FAssetWriteResult{} : Durin::FAssetWriteResult{Durin::EAssetWriteError::StaleData, "Memory reference store verification failed."}; }
 			};
 			return {};
@@ -4137,7 +4134,7 @@ TEST(FPackageAssetTests, RedirectorFixupPublicationFailuresAreTerminal)
 #endif
 }
 
-TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
+TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyRetainsAlias)
 {
 #if DURIN_WITH_EDITOR
 	InitializeAssetTests();
@@ -4163,10 +4160,12 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 		std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteOnly);
 	const auto Executed = Details.Result;
 	ASSERT_TRUE(Executed) << Executed.Message;
-	EXPECT_EQ(Details.RewrittenPaths, std::vector{OwnerPath});
-	EXPECT_EQ(Details.RetainedPaths, std::vector{OldPath});
-	EXPECT_TRUE(Details.DeletedPaths.empty());
-	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
+	const auto Alias = Durin::FindAssetExact(OldPath);
+	ASSERT_NE(Alias, nullptr);
+	EXPECT_EQ(Alias->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
+	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(OwnerPath), ReloadedOwner));
+	EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), NewPath);
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 #else
@@ -7358,8 +7357,6 @@ namespace
 			std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
 		const auto Executed = Details.Result;
 		ASSERT_TRUE(Executed) << Executed.Message;
-		EXPECT_EQ(Details.DeletedPaths, std::vector{OldPath});
-		EXPECT_EQ(Details.RewrittenPaths, std::vector{OwnerPath});
 		EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
 		EXPECT_EQ(Store.Path, NewPath);
 		EXPECT_EQ(Durin::FindAssetExact(OldPath), nullptr);
@@ -7417,8 +7414,7 @@ namespace
 			[&] { Durin::UnregisterAssetReferenceStore(Handle); });
 		const auto Result = Details.Result;
 		EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
-		EXPECT_EQ(Details.FailedPaths,
-			std::vector{OldPath});
+
 		EXPECT_EQ(Store.Path, OldPath);
 		const auto Alias = Durin::FindAssetExact(OldPath);
 		ASSERT_NE(Alias, nullptr);
@@ -8357,7 +8353,6 @@ TEST(FPackageAssetTests, RelocationBatchPublishesOneCatalogRevision)
 	const auto Details = Durin::RelocateAssets(Mappings);
 	ASSERT_TRUE(Details.Result);
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), BeforeRevision + 1);
-	EXPECT_EQ(Details.RegistryRevision, BeforeRevision + 1);
 	EXPECT_EQ(Durin::FindAssetExact(First)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::FindAssetExact(Second)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::FindAssetExact(FirstMoved)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);

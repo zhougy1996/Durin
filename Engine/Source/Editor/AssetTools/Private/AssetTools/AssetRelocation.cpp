@@ -386,7 +386,6 @@ namespace Durin
 			if (Relocation->Staging.bRetainBackups)
 				Details.BackupLocations = Relocation->Staging.Roots;
 		}
-		Details.RegistryRevision = GetAssetCatalogRevision();
 		return Details;
 	}
 

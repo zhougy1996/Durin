@@ -411,7 +411,6 @@ namespace Durin
 					|| StoreState.Contribution.Rewrites != Rewrites
 					|| !StoreState.Contribution.Revalidate
 					|| !StoreState.Contribution.Apply
-					|| !StoreState.Contribution.Restore
 					|| !StoreState.Contribution.Verify)
 					return Error(EAssetWriteError::StaleData,
 						"An asset reference store returned an incomplete rewrite contribution.");
@@ -508,32 +507,12 @@ namespace Durin
 		std::shared_ptr<FAssetRedirectorFixupState> Fixup;
 		FAssetMutationResultDetails Details;
 		Details.Result = PrepareRedirectorFixupState(Redirectors, Mode, Fixup);
-		Details.RegistryRevision = GetAssetCatalogRevision();
 		if (!Details.Result) return Details;
 		if (BeforeCommit) BeforeCommit();
 		Details.Result = CommitRedirectorFixup(Fixup);
-		Details.RegistryRevision = GetAssetCatalogRevision();
 		Details.AffectedFiles = Fixup->Staging.PublishedFiles;
 		if (Fixup->Staging.bRetainBackups)
 			Details.BackupLocations = Fixup->Staging.Roots;
-		if (!Details.Result)
-		{
-			Details.FailedPaths = Fixup->Redirectors;
-			return Details;
-		}
-		for (const FAssetReferenceEdge& Occurrence :
-			Fixup->PackageOccurrences)
-			Details.RewrittenPaths.push_back(Occurrence.SourcePackage);
-		std::ranges::sort(Details.RewrittenPaths,
-			[](const FPackagePath& Left, const FPackagePath& Right) {
-				return Left.GetView() < Right.GetView();
-			});
-		Details.RewrittenPaths.erase(std::ranges::unique(
-			Details.RewrittenPaths).begin(), Details.RewrittenPaths.end());
-		if (Fixup->Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
-			Details.DeletedPaths = Fixup->DeletableRedirectors;
-		else
-			Details.RetainedPaths = Fixup->Redirectors;
 		return Details;
 	}
 

@@ -82,7 +82,6 @@ namespace Durin
 		std::vector<FAssetReferenceStorePackageRewrite> PackageRewrites;
 		std::function<FAssetWriteResult()> Revalidate;
 		std::function<FAssetWriteResult()> Apply;
-		std::function<FAssetWriteResult()> Restore;
 		std::function<FAssetWriteResult()> Verify;
 	};
 

@@ -305,12 +305,14 @@ original hash or post-publication fingerprint is stored. Original backup paths
 are local to preparation, while before images remain on disk for manual repair.
 
 `RelocateAssets()` and `FixUpRedirectors()` in AssetTools return `FAssetMutationResultDetails`
-directly, including the write result, observed catalog revision, affected files,
-retained backup locations, and path outcomes. Callers receive the complete result
+directly, including the write result, affected files, and retained backup locations.
+Callers receive the complete result
 when the synchronous call returns; no public job, execution state machine, or
 separate preparation summary is exposed. Preparation failures also return the
-write error and observed catalog revision without publishing content.
+write error without publishing content.
 
+Reference-store rewrite contributions provide revalidation, application, and
+verification callbacks; no restore callback or rollback-only snapshot is retained.
 Fix Up verifies reference rewrites before deleting redirectors. There is no
 in-process continuation, startup replay, or multi-file crash-atomicity guarantee;
 partial changes require inspection and possibly manual repair or version-control

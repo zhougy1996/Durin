@@ -203,8 +203,6 @@ namespace Durin::Editor::Level
 				UpdateResult.Message);
 		auto PostBytes = std::make_shared<FByteBuffer>(
 			std::move(UpdatedBytes));
-		auto PreBytes = std::make_shared<FByteBuffer>(
-			std::move(PreState.Bytes));
 		const FPackagePath PrePath = PreState.Path;
 		const FPackagePath PostPath = Rewrites.front().DestinationPath;
 		const std::filesystem::path SettingsFile = PreState.SettingsFile;
@@ -234,12 +232,6 @@ namespace Durin::Editor::Level
 				FAssetWriteResult SaveResult = SaveSettingsBytes(
 					SettingsFile, *PostBytes);
 				if (SaveResult && NotifyPathChanged) NotifyPathChanged(PostPath);
-				return SaveResult;
-			},
-			.Restore = [SettingsFile, PreBytes, PrePath, NotifyPathChanged] {
-				FAssetWriteResult SaveResult = SaveSettingsBytes(
-					SettingsFile, *PreBytes);
-				if (SaveResult && NotifyPathChanged) NotifyPathChanged(PrePath);
 				return SaveResult;
 			},
 			.Verify = [SettingsFile, PostFingerprint, PostPath, ResolveProject] {
