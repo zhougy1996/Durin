@@ -1,6 +1,6 @@
 #include "Thumbnail/ThumbnailStorage.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -71,12 +71,11 @@ namespace Durin::Editor
 
 		auto LoadIndex() -> void
 		{
-			FByteBuffer Bytes;
 			std::error_code Error;
-			if (!std::filesystem::is_regular_file(IndexPath(), Error)
-				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath()))
-				return;
-			FBinaryReader Reader(Bytes);
+			if (!std::filesystem::is_regular_file(IndexPath(), Error)) return;
+			auto Bytes = FFileIO::LoadFileToArray(IndexPath());
+			if (!Bytes) return;
+			FBinaryReader Reader(*Bytes);
 			uint32 Count = 0;
 			if (!Reader.ReadAndValidateHeader(ThumbnailIndexMagic,
 					ThumbnailIndexSchemaVersion, Settings.FormatVersion)
@@ -112,10 +111,8 @@ namespace Durin::Editor
 				Writer.WriteU64(Entry.EncodedBytes);
 				Writer.WriteU64(Entry.LastAccess);
 			}
-			std::error_code Error;
-			std::filesystem::create_directories(Settings.CacheRoot, Error);
-			if (!Error) FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath());
-			UnsavedAccesses = 0;
+			if (FFileIO::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath()))
+				UnsavedAccesses = 0;
 		}
 
 		auto RemoveObject(const FObjectIndexEntry& Entry) -> void
@@ -173,15 +170,19 @@ namespace Durin::Editor
 		std::error_code Error;
 		const uintmax_t EncodedSize = bContained
 			? std::filesystem::file_size(ResolvedPath, Error) : 0;
-		if (!Error && EncodedSize == Entry.EncodedBytes && EncodedSize <= Impl->Settings.MaximumObjectBytes
-			&& bContained
-			&& FFileHelper::LoadFileToArray(OutBytes, ResolvedPath)
-			&& OutBytes.size() == EncodedSize)
+		std::optional<FByteBuffer> Bytes;
+		if (!Error && EncodedSize == Entry.EncodedBytes && EncodedSize <= Impl->Settings.MaximumObjectBytes && bContained)
+		{
+			if (auto Loaded = FFileIO::LoadFileToArray(ResolvedPath); Loaded && Loaded->size() == EncodedSize)
+				Bytes = std::move(*Loaded);
+		}
+		if (Bytes)
 		{
 			std::lock_guard Lock(Impl->Mutex);
 			if (auto It = Impl->Entries.find(std::string(Key)); It != Impl->Entries.end())
 			{
 				It->second.LastAccess = ++Impl->AccessCounter;
+				OutBytes = std::move(*Bytes);
 				++Impl->Stats.CacheHits;
 				if (++Impl->UnsavedAccesses >= ThumbnailIndexAccessFlushInterval)
 					Impl->SaveIndex();
@@ -210,7 +211,7 @@ namespace Durin::Editor
 		std::filesystem::create_directories(ObjectPath.parent_path(), Error);
 		if (Error || !TryResolveContainedBy(
 			Impl->Settings.CacheRoot, ObjectPath, ResolvedObjectPath)) return false;
-		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
+		if (!FFileIO::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
 		std::lock_guard Lock(Impl->Mutex);
 		Impl->Entries.insert_or_assign(std::string(Key), FObjectIndexEntry{
 			.Key = std::string(Key),

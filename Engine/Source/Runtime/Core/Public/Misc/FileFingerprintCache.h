@@ -21,15 +21,10 @@ namespace Durin
 	enum class EFileFingerprintReuseStatus : uint8
 	{
 		Current,
-		Stale,
-		Failed
+		Stale
 	};
 
-	struct FFileFingerprintReuseResult
-	{
-		EFileFingerprintReuseStatus Status = EFileFingerprintReuseStatus::Failed;
-		std::string Diagnostic;
-	};
+	using FFileFingerprintReuseResult = std::expected<EFileFingerprintReuseStatus, FFileIO::FFileError>;
 
 	// Reuses content hashes while size and modification time still match.
 	class FFileFingerprintCache

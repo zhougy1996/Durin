@@ -134,16 +134,17 @@ namespace Durin
 			std::optional<FRenderResourceCreateDiagnostic> Report;
 			Slot.Resolve({}, [] {
 				auto Error = MakeError();
-				Error.Cause = FShaderOperationResult::FileSystemFailure(
-					std::filesystem::path("/Temporary/Source"), std::make_error_code(std::errc::permission_denied)).Error;
+				Error.Cause = FShaderError::FromFileSystem(
+					std::filesystem::path("/Temporary/Source"), std::make_error_code(std::errc::permission_denied));
 				return FResult::Failure(std::move(Error));
 			}, [&](auto Diagnostic) { Report = std::move(Diagnostic); });
 			Slot.Reset();
 			ASSERT_TRUE(Report && Report->Error);
 			const auto& Cause = std::get<FShaderError>(Report->Error->Cause);
 			EXPECT_EQ(Cause.Code, EShaderError::FileSystemFailure);
-			EXPECT_EQ(Cause.ActualIdentity, "/Temporary/Source");
-			EXPECT_EQ(Cause.SystemError, std::make_error_code(std::errc::permission_denied));
+			ASSERT_TRUE(Cause.FileError);
+			EXPECT_EQ(Cause.FileError->Path.generic_string(), "/Temporary/Source");
+			EXPECT_EQ(Cause.FileError->NativeError, std::make_error_code(std::errc::permission_denied));
 			EXPECT_EQ(FormatRenderResourceCreateError(*Report->Error), FormatShaderError(Cause));
 		}
 

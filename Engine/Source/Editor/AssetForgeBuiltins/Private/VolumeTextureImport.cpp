@@ -9,7 +9,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"

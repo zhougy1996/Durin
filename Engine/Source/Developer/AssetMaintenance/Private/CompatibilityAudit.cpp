@@ -3,7 +3,7 @@
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "Misc/FileTime.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -350,16 +350,15 @@ namespace Durin
 			.ReportContentHash = Input.ExpectedReportContentHash,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible};
-		FFileHelper::FFileIoError OpenError;
-		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath, &OpenError);
+		auto Handle = FFileIO::OpenRead(Input.PhysicalPath);
 		if (!Handle)
 		{
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-				OpenError.ToString());
+				Handle.error().ToString());
 			Result.Record = std::move(Record);
 			return Result;
 		}
-		Record.Fingerprint = {.FileSize = Handle->GetSize(),
+		Record.Fingerprint = {.FileSize = (*Handle)->GetSize(),
 			.ContentHash = Input.ExpectedContentHash};
 		std::error_code TimeError;
 		const auto InitialTime = std::filesystem::last_write_time(Input.PhysicalPath, TimeError);
@@ -373,7 +372,7 @@ namespace Durin
 		Record.Fingerprint.LastWriteTimeTicks = FileTime::ToStableTicks(InitialTime);
 
 		FPackageSchemaInspection Inspection;
-		const auto InspectionResult = InspectAssetPackageSchema(*Handle,
+		const auto InspectionResult = InspectAssetPackageSchema(**Handle,
 			Input.PackagePath, Catalog, Inspection, &Result.Stats,
 			Input.bIncludeNestedMigrationEvidence, IsCancelled);
 		if (IsCancelled())

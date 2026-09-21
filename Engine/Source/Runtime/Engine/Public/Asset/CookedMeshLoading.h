@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/PackageResourceError.h"
 #include "DObject/ObjectKey.h"
 
 namespace Durin
@@ -40,7 +41,6 @@ namespace Durin
 	};
 
 	enum class ETaskState : uint8;
-	struct FPackageResourceReadResult;
 	struct FCookedMeshProductError;
 	struct FCookedMeshAdmissionError;
 	struct FStaticMeshPublicationError;

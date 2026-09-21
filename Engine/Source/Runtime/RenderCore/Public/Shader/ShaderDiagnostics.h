@@ -2,7 +2,8 @@
 
 #include "RenderCoreAPI.h"
 #include "RHIDefinitions.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
+#include <expected>
 
 namespace Durin
 {
@@ -62,7 +63,6 @@ namespace Durin
 		MissingEntryPoints,
 		CompilationNotStarted,
 		SlangFailure,
-		FileFingerprintFailure,
 
 		InventoryEmpty,
 		Cancelled,
@@ -178,36 +178,27 @@ namespace Durin
 		std::optional<EFeatureInvokeStatus> ProviderStatus;
 		ESlangShaderError CompilerPhase = ESlangShaderError::Session;
 		std::optional<int64> NativeStatus;
-		std::error_code SystemError;
-		std::optional<FFileHelper::FFileIoError> FileError;
+		std::optional<FFileIO::FFileError> FileError;
 		// Reserved for the compiler/provider boundary; never classify this text.
 		std::string ExternalDiagnostic;
 
 		// In-process diagnostic identity; excludes external wording, not a persistent cache key.
 		RENDERCORE_API auto GetSemanticFingerprint() const -> size_t;
 		auto IsSuccess() const -> bool { return Code == EShaderError::None; }
+		static auto FromFileSystem(const std::filesystem::path& Path, std::error_code Error) -> FShaderError
+		{
+			return {.Code = EShaderError::FileSystemFailure,
+				.FileError = FFileIO::FFileError{FFileIO::EFileOperation::Inspect, Error, Path}};
+		}
 		RENDERCORE_API static auto FromSlang(
 			ESlangShaderError Phase,
 			std::string_view Diagnostic,
 			std::optional<int64> NativeStatus = {}) -> FShaderError;
-		RENDERCORE_API static auto FromFileFingerprint(std::string_view Path, std::string_view Diagnostic) -> FShaderError;
 	};
 
-	struct [[nodiscard]] FShaderOperationResult
-	{
-		FShaderError Error;
-		static auto Failure(EShaderError Code) -> FShaderOperationResult
-		{
-			return {.Error = {.Code = Code}};
-		}
-		static auto FileSystemFailure(const std::filesystem::path& Path, std::error_code NativeError) -> FShaderOperationResult
-		{
-			return {.Error = {.Code = EShaderError::FileSystemFailure,
-				.ActualIdentity = Path.generic_string(), .SystemError = NativeError}};
-		}
-		auto IsSuccess() const -> bool { return Error.Code == EShaderError::None; }
-		explicit operator bool() const { return IsSuccess(); }
-	};
+	// Completed operations carry either success or one structured failure.
+	using FShaderOperationResult = std::expected<void, FShaderError>;
+
 
 	RENDERCORE_API auto FormatShaderError(const FShaderError& Error) -> std::string;
 }

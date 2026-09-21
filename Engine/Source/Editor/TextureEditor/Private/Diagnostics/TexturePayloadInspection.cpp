@@ -3,7 +3,7 @@
 #include "Asset/CookedAsset.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Load.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureCube.h"
@@ -241,22 +241,22 @@ namespace Durin
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
-				FByteBuffer CompanionBytes;
+				std::expected<FByteBuffer, FFileIO::FFileError> CompanionBytes;
 				std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Storage;
 				if (Package.PhysicalPath.empty()
 					|| !(Storage = InspectEditorBulkDataCompanionPaths(
 						Package.PhysicalPath, Package))
 					|| Storage->empty()
 					|| (CompanionPath = Storage->front()).empty()
-					|| !FFileHelper::LoadFileToArray(CompanionBytes, CompanionPath))
+					|| !(CompanionBytes = FFileIO::LoadFileToArray(CompanionPath)))
 				{
 					SourceState = ETexturePayloadState::Missing;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
 					SourceDiagnostic = Storage
 						? "Editor source companion is missing or unreadable." : FormatEditorBulkDataStorageError(Storage.error());
 				}
-				else if (CompanionBytes.size() != Package.Header.BulkSegmentExtent
-					|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
+				else if (CompanionBytes->size() != Package.Header.BulkSegmentExtent
+					|| FXxHash128::HashBuffer(*CompanionBytes) != Package.Header.BulkSegmentDigest)
 				{
 					SourceState = ETexturePayloadState::Corrupt;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;

@@ -172,24 +172,19 @@ namespace Durin
 
 namespace
 {
-	class FFailingPackageReadHandle final : public Durin::FFileHelper::IFileHandle
+	class FFailingPackageReadHandle final : public Durin::FFileIO::IFileHandle
 	{
 	public:
 		auto GetSize() const -> uint64 override { return 64; }
 
-		auto ReadAt(uint64 Offset, Durin::FMutableByteView Output,
-			Durin::FFileHelper::FFileIoError* OutError) -> bool override
+		auto ReadAt(uint64 Offset, Durin::FMutableByteView Output)
+			-> std::expected<void, Durin::FFileIO::FFileError> override
 		{
-			if (OutError)
-			{
-				*OutError = {
-					.Operation = Durin::FFileHelper::EFileIoOperation::Read,
-					.NativeError = std::make_error_code(std::errc::io_error),
-					.Path = "failing-package.dasset",
-					.Offset = Offset,
-					.Size = Output.size_bytes()};
-			}
-			return false;
+			return std::unexpected(Durin::FFileIO::FFileError{
+				.Operation = Durin::FFileIO::EFileOperation::Read,
+				.NativeError = std::make_error_code(std::errc::io_error),
+				.Path = "failing-package.dasset",
+				.Range = {{Offset, Output.size_bytes()}}});
 		}
 	};
 
@@ -2330,17 +2325,17 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	Durin::FEditorBulkData First(PayloadId);
 	ASSERT_TRUE(First.UpdatePayload(Initial));
 	Durin::FEditorBulkData Shared = First;
-	const Durin::FSharedByteBuffer FirstPayload = First.GetPayload().Wait().Buffer;
-	const Durin::FSharedByteBuffer SharedPayload = Shared.GetPayload().Wait().Buffer;
+	const Durin::FSharedByteBuffer FirstPayload = First.GetPayload().Wait().value();
+	const Durin::FSharedByteBuffer SharedPayload = Shared.GetPayload().Wait().value();
 	ASSERT_TRUE(FirstPayload.SharesStorageWith(SharedPayload));
 	EXPECT_TRUE(First.Identical(Shared));
 
 	const std::array Replacement{std::byte{9}, std::byte{8}};
 	ASSERT_TRUE(Shared.UpdatePayload(Replacement));
-	EXPECT_TRUE(std::ranges::equal(First.GetPayload().Wait().Buffer.GetBytes(), Initial));
-	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
+	EXPECT_TRUE(std::ranges::equal(First.GetPayload().Wait().value().GetBytes(), Initial));
+	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().value().GetBytes(), Replacement));
 	EXPECT_FALSE(First.Identical(Shared));
-	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
+	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().value().GetBytes(), Replacement));
 }
 
 TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesForExplicitAbort)
@@ -3443,7 +3438,7 @@ TEST(FPackageAssetTests, PreparedGraphsRetainSavedLazyBulkWithoutReplacingLiveRe
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer(SavedSegment.size(), std::byte{0x72}), BulkFile));
 	const auto Payload = Candidate->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Payload);
-	EXPECT_TRUE(std::ranges::equal(Payload.Buffer, Saved));
+	EXPECT_TRUE(std::ranges::equal(*Payload, Saved));
 	EXPECT_EQ(GetPackageResourceManager().FindPackage(Source.PackagePath.ToString()), LiveResource);
 	EXPECT_FALSE(LiveResource->IsRetired());
 	EXPECT_EQ(FindPackage(Source.PackagePath.GetView()), Live->GetPackage());
@@ -3820,8 +3815,8 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Edited, BulkFile));
 	const auto Captured = Candidate->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Captured);
-	EXPECT_TRUE(std::ranges::equal(Captured.Buffer, Saved));
-	EXPECT_TRUE(std::ranges::equal(Live->Payload.GetPayload().Wait().Buffer, Edited));
+	EXPECT_TRUE(std::ranges::equal(*Captured, Saved));
+	EXPECT_TRUE(std::ranges::equal(Live->Payload.GetPayload().Wait().value(), Edited));
 	EXPECT_EQ(GetPackageResourceManager().FindPackage(Path.ToString()), LiveResource);
 	EXPECT_FALSE(LiveResource->IsRetired());
 	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
@@ -3863,11 +3858,11 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	EXPECT_EQ(GetPackageResourceManager().FindPackage(Path.ToString()), ResourceBefore);
 	EXPECT_TRUE(Live->IsDirty());
 	EXPECT_EQ(Live->GetEditRevision(), Revision);
-	EXPECT_TRUE(std::ranges::equal(Asset->Payload.GetPayload().Wait().Buffer, Edited));
+	EXPECT_TRUE(std::ranges::equal(Asset->Payload.GetPayload().Wait().value(), Edited));
 	ASSERT_NE(Prepared.GetBulkResource(), nullptr);
 	const auto Captured = Prepared.GetBulkResource()->ReadRange(0, Saved.size());
 	ASSERT_TRUE(Captured);
-	EXPECT_TRUE(std::ranges::equal(Captured.Buffer, Saved));
+	EXPECT_TRUE(std::ranges::equal(*Captured, Saved));
 	const auto OriginalResource = Prepared.GetBulkResource();
 	const auto BudgetFailure = FPreparedPackageResource::Read(Path, File, 1);
 	if (BudgetFailure) { Prepared = std::move(*BudgetFailure); }
@@ -3881,8 +3876,9 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	const auto InvalidMain = FPreparedPackageResource::Read(Path, File, 1024 * 1024);
 	if (InvalidMain) { Prepared = std::move(*InvalidMain); }
 	EXPECT_EQ(InvalidMain.error().Code, EPreparedPackageResourceError::InvalidClosure);
-	ASSERT_TRUE(InvalidMain.error().AssetCause);
-	EXPECT_NE(InvalidMain.error().AssetCause->Code, EAssetReadError::None);
+	const auto* Cause = std::get_if<std::shared_ptr<const FAssetReadError>>(&InvalidMain.error().Cause);
+	ASSERT_TRUE(Cause && *Cause);
+	EXPECT_NE((*Cause)->Code, EAssetReadError::None);
 	EXPECT_EQ(InvalidMain.error().Path, File);
 	EXPECT_EQ(Prepared.GetBulkResource(), OriginalResource);
 	EXPECT_EQ(FindPackage(Path.GetView()), Live);
@@ -3957,8 +3953,8 @@ TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesFo
 	EXPECT_EQ(Results->front().Effect, EAssetWriteEffect::PartiallyWritten);
 	const auto Resident = Asset->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Resident);
-	EXPECT_TRUE(std::ranges::equal(Resident.Buffer.GetBytes(), Payload));
-	EXPECT_EQ(Resource->ReadRange(0, 1).Status, EPackageResourceReadStatus::Retired);
+	EXPECT_TRUE(std::ranges::equal(Resident->GetBytes(), Payload));
+	EXPECT_EQ(Resource->ReadRange(0, 1).error().Status, EPackageResourceReadStatus::Retired);
 	Private::SetDirectPackageWriteFailureForTests({});
 	ASSERT_TRUE(SavePackage(Asset->GetPackage(), SAVE_Async));
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
@@ -4352,7 +4348,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 		ReloadedBulk->Payload.GetPayload().Wait();
 	ASSERT_TRUE(ReloadedPayload) << Durin::FormatPackageResourceReadError(ReloadedPayload);
 	EXPECT_FALSE(ReloadedBulk->Payload.IsMemoryResident());
-	EXPECT_TRUE(std::ranges::equal(ReloadedPayload.Buffer.GetBytes(), Payload));
+	EXPECT_TRUE(std::ranges::equal(ReloadedPayload->GetBytes(), Payload));
 
 	Durin::FPackagePath LivePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V6LiveLoad", LivePath));
@@ -4425,7 +4421,7 @@ TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt
 		}
 		const auto Read = Reloaded->Payload.GetPayload().Wait();
 		ASSERT_TRUE(Read);
-		EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
+		EXPECT_TRUE(std::ranges::equal(Read->GetBytes(), Payload));
 	}
 }
 
@@ -4477,8 +4473,8 @@ TEST(FPackageAssetTests, FieldBulkClosurePreservesLazyReadsAndBoundedScratch)
 
 	const FPackageResourceReadResult LoadedPayload = Loaded->Payload.GetPayload().Wait();
 	ASSERT_TRUE(LoadedPayload) << Durin::FormatPackageResourceReadError(LoadedPayload);
-	EXPECT_EQ(LoadedPayload.Buffer.GetSize(), PayloadBytes);
-	EXPECT_TRUE(std::ranges::equal(LoadedPayload.Buffer.GetBytes(), Payload));
+	EXPECT_EQ(LoadedPayload->GetSize(), PayloadBytes);
+	EXPECT_TRUE(std::ranges::equal(LoadedPayload->GetBytes(), Payload));
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
 	const FPackageResourceReadStats AccessReadStats = Resource->GetReadStats();
 	EXPECT_EQ(AccessReadStats.ValidationBytesRead, PayloadBytes);
@@ -5299,10 +5295,10 @@ TEST(FPackageAssetTests, LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
 	EXPECT_FALSE(GetPackageResourceManager().FindPackage(Path.ToString()));
 	const auto Read = LoadedAsset->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Read) << Durin::FormatPackageResourceReadError(Read);
-	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
+	EXPECT_TRUE(std::ranges::equal(Read->GetBytes(), Payload));
 	MarkObjectHierarchyAsGarbage(Loaded);
 	CollectGarbage();
-	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
+	EXPECT_TRUE(std::ranges::equal(Read->GetBytes(), Payload));
 }
 
 TEST(FPackageAssetTests, PreservesExternalPayloadBytesAndPlacement)
@@ -9864,9 +9860,9 @@ namespace
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto BuildSourceDependencyManifest(std::string_view, const Durin::FShaderCompileOptions&,
-			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return {.Error = {.Code = Durin::EShaderError::ProviderUnavailable}}; }
+			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::ProviderUnavailable}); }
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
-			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return {.Error = {.Code = Durin::EShaderError::ProviderUnavailable}}; }
+			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::ProviderUnavailable}); }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
 		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderOperationResult override
 		{
@@ -10016,11 +10012,11 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_EQ(Result.InputFailure.Status, ECookInputStatus::UndeclaredInput);
-	ASSERT_TRUE(Result.InputDiagnostic);
-	EXPECT_EQ(Result.InputDiagnostic->Error, ECookInputError::UndeclaredInput);
-	EXPECT_EQ(Result.InputDiagnostic->Package, Path);
-	EXPECT_EQ(Result.InputDiagnostic->Name, "not-declared");
-	EXPECT_EQ(Result.InputDiagnostic->Kind, ECookBuildDependencyKind::ExternalFile);
+	ASSERT_TRUE(Result.InputFailure.GetDiagnostic());
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::UndeclaredInput);
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Package, Path);
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Name, "not-declared");
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Kind, ECookBuildDependencyKind::ExternalFile);
 	ExpectPriorManifest();
 
 	OnContribution = {};
@@ -10211,7 +10207,7 @@ TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 			auto& BulkAsset = static_cast<DBulkPackageAssetForTest&>(Object);
 			const auto Read = BulkAsset.Payload.GetPayload().Wait();
 			EXPECT_TRUE(Read) << Durin::FormatPackageResourceReadError(Read);
-			ReadCaptured = Read && std::ranges::equal(Read.Buffer.GetBytes(), Payload);
+			ReadCaptured = Read && std::ranges::equal(Read->GetBytes(), Payload);
 			std::string Error;
 			const auto Added = Context.AddPackage(std::string(Name), Object.GetPackage());
 			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};

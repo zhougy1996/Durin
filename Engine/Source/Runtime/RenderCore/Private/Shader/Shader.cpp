@@ -21,7 +21,7 @@ namespace Durin
 			for (size_t Index = 1; Index < OutMacros.size(); ++Index)
 			{
 				if (OutMacros[Index - 1].Name != OutMacros[Index].Name) continue;
-				return {.Error = {.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name});
 			}
 			return {};
 		}
@@ -223,14 +223,14 @@ namespace Durin
 			const std::string_view ShaderPath = FirstShaderType->GetVirtualShaderPath();
 			if (ShaderPath.empty())
 			{
-				return {.Error = {.Code = EShaderError::MissingVirtualPath}};
+				return std::unexpected(FShaderError{.Code = EShaderError::MissingVirtualPath});
 			}
 
 			if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty() && InCompileOptions->VirtualShaderPath != ShaderPath)
 			{
-				return {.Error = {.Code = EShaderError::VirtualPathMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::VirtualPathMismatch,
 					.ExpectedIdentity = std::string(ShaderPath),
-					.ActualIdentity = InCompileOptions->VirtualShaderPath}};
+					.ActualIdentity = InCompileOptions->VirtualShaderPath});
 			}
 
 			OutCompileOptions.VirtualShaderPath = std::string(ShaderPath);
@@ -244,10 +244,10 @@ namespace Durin
 
 				if (!bAllowMixedSources && ShaderType->GetVirtualShaderPath() != ShaderPath)
 				{
-					return {.Error = {.Code = EShaderError::ShaderTypePathMismatch,
+					return std::unexpected(FShaderError{.Code = EShaderError::ShaderTypePathMismatch,
 						.ShaderType = std::string(ShaderType->GetName()),
 						.ExpectedIdentity = std::string(ShaderPath),
-						.ActualIdentity = std::string(ShaderType->GetVirtualShaderPath())}};
+						.ActualIdentity = std::string(ShaderType->GetVirtualShaderPath())});
 				}
 
 				OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
@@ -258,9 +258,9 @@ namespace Durin
 					if (ShaderTypeIndex >= InCompileOptions->EntryPoints.size()
 						|| std::string_view(InCompileOptions->EntryPoints[ShaderTypeIndex]) != ShaderType->GetEntryPoint())
 					{
-						return {.Error = {.Code = EShaderError::EntryPointMismatch,
+						return std::unexpected(FShaderError{.Code = EShaderError::EntryPointMismatch,
 							.ShaderType = std::string(ShaderType->GetName()),
-							.Index = ShaderTypeIndex}};
+							.Index = ShaderTypeIndex});
 					}
 				}
 
@@ -269,25 +269,25 @@ namespace Durin
 					if (ShaderTypeIndex >= InCompileOptions->Frequencies.size()
 						|| InCompileOptions->Frequencies[ShaderTypeIndex] != ShaderType->GetFrequency())
 					{
-						return {.Error = {.Code = EShaderError::FrequencyMismatch,
+						return std::unexpected(FShaderError{.Code = EShaderError::FrequencyMismatch,
 							.ShaderType = std::string(ShaderType->GetName()),
-							.Index = ShaderTypeIndex}};
+							.Index = ShaderTypeIndex});
 					}
 				}
 			}
 
 			if (InCompileOptions && !InCompileOptions->EntryPoints.empty() && InCompileOptions->EntryPoints.size() != ShaderTypes.size())
 			{
-				return {.Error = {.Code = EShaderError::EntryPointCountMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::EntryPointCountMismatch,
 					.Expected = ShaderTypes.size(),
-					.Actual = InCompileOptions->EntryPoints.size()}};
+					.Actual = InCompileOptions->EntryPoints.size()});
 			}
 
 			if (InCompileOptions && !InCompileOptions->Frequencies.empty() && InCompileOptions->Frequencies.size() != ShaderTypes.size())
 			{
-				return {.Error = {.Code = EShaderError::FrequencyCountMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::FrequencyCountMismatch,
 					.Expected = ShaderTypes.size(),
-					.Actual = InCompileOptions->Frequencies.size()}};
+					.Actual = InCompileOptions->Frequencies.size()});
 			}
 
 			return {};
@@ -474,7 +474,7 @@ namespace Durin
 
 			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
 			{
-				return {.Error = {.Code = EShaderError::EmptyParameterName}};
+				return std::unexpected(FShaderError{.Code = EShaderError::EmptyParameterName});
 			}
 
 			const auto FoundIt = std::ranges::find_if(Reflection.ResourceBindings, [&Parameter](const FShaderResourceBinding& Binding) {
@@ -487,23 +487,23 @@ namespace Durin
 				{
 					continue;
 				}
-				return {.Error = {.Code = EShaderError::MissingParameter, .Parameter = Parameter.Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::MissingParameter, .Parameter = Parameter.Name});
 			}
 
 			if (!AreShaderBindingTypesCompatible(FoundIt->Type, Parameter.Type))
 			{
-				return {.Error = {.Code = EShaderError::ParameterTypeMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::ParameterTypeMismatch,
 					.Parameter = Parameter.Name,
 					.Expected = static_cast<uint64>(Parameter.Type),
-					.Actual = static_cast<uint64>(FoundIt->Type)}};
+					.Actual = static_cast<uint64>(FoundIt->Type)});
 			}
 
 			if (FoundIt->ArraySize != Parameter.ArraySize)
 			{
-				return {.Error = {.Code = EShaderError::ParameterArraySizeMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::ParameterArraySizeMismatch,
 					.Parameter = Parameter.Name,
 					.Expected = Parameter.ArraySize,
-					.Actual = FoundIt->ArraySize}};
+					.Actual = FoundIt->ArraySize});
 			}
 
 			FShaderParameterBinding Binding;
@@ -881,19 +881,19 @@ namespace Durin
 				FShaderResourceBinding& ExistingBinding = FoundIt->second;
 				if (ExistingBinding.Type != Binding.Type)
 				{
-					return {.Error = {.Code = EShaderError::BindingTypeConflict,
+					return std::unexpected(FShaderError{.Code = EShaderError::BindingTypeConflict,
 						.Expected = static_cast<uint64>(ExistingBinding.Type),
 						.Actual = static_cast<uint64>(Binding.Type),
 						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex}};
+						.BindingIndex = Binding.BindingIndex});
 				}
 				if (ExistingBinding.ArraySize != Binding.ArraySize)
 				{
-					return {.Error = {.Code = EShaderError::BindingArraySizeConflict,
+					return std::unexpected(FShaderError{.Code = EShaderError::BindingArraySizeConflict,
 						.Expected = ExistingBinding.ArraySize,
 						.Actual = Binding.ArraySize,
 						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex}};
+						.BindingIndex = Binding.BindingIndex});
 				}
 
 				ExistingBinding.StageFlags |= Binding.StageFlags;
@@ -922,11 +922,11 @@ namespace Durin
 
 					if (NewBegin < ExistingEnd && ExistingBegin < NewEnd)
 					{
-						return {.Error = {.Code = EShaderError::PushConstantOverlap,
+						return std::unexpected(FShaderError{.Code = EShaderError::PushConstantOverlap,
 							.ExistingBegin = ExistingBegin,
 							.ExistingEnd = ExistingEnd,
 							.NewBegin = NewBegin,
-							.NewEnd = NewEnd}};
+							.NewEnd = NewEnd});
 					}
 				}
 
@@ -1079,9 +1079,9 @@ namespace Durin
 
 		if (ShaderTypes.size() != Output.CompiledShaders.size())
 		{
-			return {.Error = {.Code = EShaderError::CompiledShaderCountMismatch,
+			return std::unexpected(FShaderError{.Code = EShaderError::CompiledShaderCountMismatch,
 				.Expected = ShaderTypes.size(),
-				.Actual = Output.CompiledShaders.size()}};
+				.Actual = Output.CompiledShaders.size()});
 		}
 
 		if (!(Result = BuildShaderMapCacheKey(EffectiveCompileOptions, Output, CacheKey)))
@@ -1115,21 +1115,21 @@ namespace Durin
 			const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			if (CompiledShader.Frequency != ShaderType->GetFrequency())
 			{
-				Result = {.Error = {.Code = EShaderError::CompiledFrequencyMismatch,
+				Result = std::unexpected(FShaderError{.Code = EShaderError::CompiledFrequencyMismatch,
 					.ShaderType = std::string(ShaderType->GetName()),
 					.Index = ShaderIndex,
 					.Expected = static_cast<uint64>(ShaderType->GetFrequency()),
-					.Actual = static_cast<uint64>(CompiledShader.Frequency)}};
+					.Actual = static_cast<uint64>(CompiledShader.Frequency)});
 				Reset();
 				return Result;
 			}
 
 			if (!ShaderType->GetEntryPoint().empty() && CompiledShader.SourceEntryPoint != ShaderType->GetEntryPoint())
 			{
-				Result = {.Error = {.Code = EShaderError::CompiledEntryPointMismatch,
+				Result = std::unexpected(FShaderError{.Code = EShaderError::CompiledEntryPointMismatch,
 					.ShaderType = std::string(ShaderType->GetName()),
 					.ExpectedIdentity = std::string(ShaderType->GetEntryPoint()),
-					.ActualIdentity = CompiledShader.SourceEntryPoint}};
+					.ActualIdentity = CompiledShader.SourceEntryPoint});
 				Reset();
 				return Result;
 			}
@@ -1138,14 +1138,14 @@ namespace Durin
 			std::unique_ptr<FShader> ShaderInstance = ShaderType->CreateShaderInstance(this, CompiledShader.Reflection);
 			if (!ShaderInstance)
 			{
-				Result = {.Error = {.Code = EShaderError::ShaderInstanceCreationFailed,
-					.ShaderType = std::string(ShaderType->GetName())}};
+				Result = std::unexpected(FShaderError{.Code = EShaderError::ShaderInstanceCreationFailed,
+					.ShaderType = std::string(ShaderType->GetName())});
 				Reset();
 				return Result;
 			}
 			if (!(Result = ShaderInstance->InitializeParameterBindings()))
 			{
-				Result.Error.ShaderType = std::string(ShaderType->GetName());
+				Result.error().ShaderType = std::string(ShaderType->GetName());
 				Reset();
 				return Result;
 			}
@@ -1187,7 +1187,7 @@ namespace Durin
 		if (!Output)
 		{
 			Reset();
-			return {.Error = Output.Error};
+			return std::unexpected(Output.Error);
 		}
 
 		return Initialize(ShaderTypes, Output, EffectiveCompileOptions);

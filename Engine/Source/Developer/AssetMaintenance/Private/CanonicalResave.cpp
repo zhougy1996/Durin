@@ -7,7 +7,7 @@
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "DObject/Package.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -42,15 +42,17 @@ namespace Durin
 			if (Error || (!std::filesystem::is_regular_file(Status)
 				&& std::filesystem::exists(Status))) return false;
 			OutSnapshot.bExisted = std::filesystem::is_regular_file(Status);
-			return !OutSnapshot.bExisted
-				|| FFileHelper::LoadFileToArray(OutSnapshot.Bytes, Path);
+			if (!OutSnapshot.bExisted) return true;
+			auto Bytes = FFileIO::LoadFileToArray(Path);
+			if (!Bytes) return false;
+			OutSnapshot.Bytes = std::move(*Bytes);
+			return true;
 		}
 
 		auto RestoreFileSnapshot(const FCanonicalResaveFileSnapshot& Snapshot) -> bool
 		{
 			if (Snapshot.bExisted)
-				return FFileHelper::SaveArrayToFileAtomically(
-					Snapshot.Bytes, Snapshot.Path, nullptr);
+				return FFileIO::SaveArrayToFileAtomically(Snapshot.Bytes, Snapshot.Path).has_value();
 			std::error_code Error;
 			const bool bRemoved = std::filesystem::remove(Snapshot.Path, Error);
 			return !Error || (!bRemoved && Error == std::errc::no_such_file_or_directory);
@@ -109,11 +111,6 @@ namespace Durin
 				const std::string_view Value = Path.GetView();
 				return Value.starts_with(Mount) && Value.size() > Mount.size() && Value[Mount.size()] == '/';
 			});
-		}
-
-		auto LoadBytes(std::string_view Path, FByteBuffer& OutBytes) -> bool
-		{
-			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
 
 		auto FingerprintMatches(const FAssetPackageFingerprint& Fingerprint,
@@ -289,9 +286,9 @@ namespace Durin
 				Result.Diagnostic = "Injected canonical-resave revalidation failure.";
 				return Result;
 			}
-			FByteBuffer BeforeBytes;
-			if (!LoadBytes(PackagePlan.PhysicalPath, BeforeBytes)
-				|| !FingerprintMatches(PackagePlan.Fingerprint, BeforeBytes, PackagePlan.PhysicalPath))
+			auto BeforeBytes = FFileIO::LoadFileToArray(PackagePlan.PhysicalPath);
+			if (!BeforeBytes
+				|| !FingerprintMatches(PackagePlan.Fingerprint, *BeforeBytes, PackagePlan.PhysicalPath))
 			{
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Stale;
 				PackagePlan.Diagnostics.push_back("StaleFingerprint: package changed after planning.");
@@ -317,14 +314,12 @@ namespace Durin
 			FAssetRegistryPublication RegistrySnapshot =
 				CaptureAssetRegistryPublication();
 			const auto RestorePriorClosure = [&]() {
-				const bool bPackageRestored = FFileHelper::SaveArrayToFileAtomically(
-					std::as_bytes(std::span(BeforeBytes)),
-					PackagePlan.PhysicalPath, nullptr);
+				const auto PackageRestored = FFileIO::SaveArrayToFileAtomically(*BeforeBytes, PackagePlan.PhysicalPath);
 				const bool bBulkRestored = RestoreFileSnapshot(BulkSnapshot);
 				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
 				const FAssetRegistryResult RegistryRestored =
 					PublishAssetRegistryPublication(std::move(RegistrySnapshot));
-				return bPackageRestored && bBulkRestored
+				return PackageRestored && bBulkRestored
 					&& static_cast<bool>(RegistryRestored);
 			};
 
@@ -516,13 +511,12 @@ namespace Durin
 				return Result;
 			}
 
-			FByteBuffer AfterBytes;
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);
 			FAssetReadResult Verify = {EAssetReadError::IoError,
 				"Published package could not be reread."};
-			if (LoadBytes(PackagePlan.PhysicalPath, AfterBytes))
+			if (FFileIO::LoadFileToArray(PackagePlan.PhysicalPath))
 			{
 				FAssetPackageInspection Inspection;
 				Verify = InspectAssetPackage(PackagePlan.PhysicalPath, Inspection);

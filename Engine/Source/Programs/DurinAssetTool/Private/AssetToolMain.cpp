@@ -27,7 +27,7 @@
 #include "HAL/PlatformMisc.h"
 #include "Json/Json.h"
 #include "Logging/Logger.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -432,18 +432,18 @@ namespace
 						{
 							Item.CompanionPath = Input.PhysicalPath;
 							Item.CompanionPath.replace_extension(".dbulk");
-							FByteBuffer Segment;
-							if (!FFileHelper::LoadFileToArray(Segment, Item.CompanionPath)
-								|| Descriptor.SegmentOffset > Segment.size()
+							auto Segment = FFileIO::LoadFileToArray(Item.CompanionPath);
+							if (!Segment
+								|| Descriptor.SegmentOffset > Segment->size()
 								|| Descriptor.StoredByteCount
-									> Segment.size() - Descriptor.SegmentOffset)
+									> Segment->size() - Descriptor.SegmentOffset)
 							{
-								Item.Diagnostic = "Package bulk field range is missing or unreadable.";
+								Item.Diagnostic = Segment ? "Package bulk field range is invalid." : Segment.error().ToString();
 								Item.bReachable = false;
 							}
 							else
 							{
-								const auto Bytes = Durin::FByteView(Segment).subspan(
+								const auto Bytes = Durin::FByteView(*Segment).subspan(
 									static_cast<size_t>(Descriptor.SegmentOffset),
 									static_cast<size_t>(Descriptor.StoredByteCount));
 								if (FXxHash128::HashBuffer(Bytes) != Descriptor.ContentHash)

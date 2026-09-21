@@ -66,16 +66,16 @@ namespace Durin
 		Game.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration GameRegistration;
 		Error = RegisterShaderRuntimeRequest(std::move(Game), EShaderRequestEligibility::GameAndEditor, GameRegistration);
-		ASSERT_TRUE(GameRegistration.IsValid()) << FormatShaderError(Error.Error);
+		ASSERT_TRUE(GameRegistration.IsValid()) << FormatShaderError(Error.error());
 		FShaderRuntimeRequest Editor = MakeRequest("Tests.EditorOnly");
 		Editor.TargetPlatform = EShaderTargetPlatform::Invalid;
 		Editor.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration EditorRegistration;
 		Error = RegisterShaderRuntimeRequest(std::move(Editor), EShaderRequestEligibility::EditorOnly, EditorRegistration);
-		ASSERT_TRUE(EditorRegistration.IsValid()) << FormatShaderError(Error.Error);
+		ASSERT_TRUE(EditorRegistration.IsValid()) << FormatShaderError(Error.error());
 
 		std::vector<FShaderRuntimeRequest> Inventory;
-		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Inventory))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Inventory))) << FormatShaderError(Error.error());
 		ASSERT_EQ(Inventory.size(), 1u);
 		EXPECT_EQ(Inventory.front().Name, "Tests.Primary");
 		EXPECT_EQ(Inventory.front().Members.front().TypeName, "FTestFragment");
@@ -96,16 +96,16 @@ namespace Durin
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), First))) << FormatShaderError(Error.Error);
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Second))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), First))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 
 		FShaderCookedLibrary Library;
-		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library))) << FormatShaderError(Error.error());
 		EXPECT_EQ(Library.GetRecordCount(), 1u);
 		EXPECT_FALSE(Library.GetGenerationIdentity().IsZero());
 		FShaderCompilerOutput Loaded;
-		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << FormatShaderError(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		EXPECT_EQ(Loaded.CompiledShaders[0].SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(Loaded.CompiledShaders[1].SourceEntryPoint, "VertexMain");
@@ -124,7 +124,7 @@ namespace Durin
 		};
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes))) << FormatShaderError(Error.error());
 
 		FShaderCookedLibrary Library;
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(Bytes), EShaderTargetPlatform::Win64, EShaderTargetProfile::EditorValidation, {}, Library)));
@@ -145,16 +145,16 @@ namespace Durin
 		Request.TargetProfile = EShaderTargetProfile::Invalid;
 		FShaderRequestRegistration Registration;
 		Error = RegisterShaderRuntimeRequest(std::move(Request), EShaderRequestEligibility::GameAndEditor, Registration);
-		ASSERT_TRUE(Registration.IsValid()) << FormatShaderError(Error.Error);
+		ASSERT_TRUE(Registration.IsValid()) << FormatShaderError(Error.error());
 		EXPECT_FALSE((Error = InitializeShaderData(FShaderDataConfiguration::Authored())));
-		EXPECT_EQ(Error.Error.Code, EShaderError::ProviderRequired);
+		EXPECT_EQ(Error.error().Code, EShaderError::ProviderRequired);
 		const std::filesystem::path MissingRoot =
 			std::filesystem::absolute("MissingShaderCookRoot").lexically_normal();
-		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(MissingRoot)))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(MissingRoot)))) << FormatShaderError(Error.error());
 		EXPECT_EQ(GetShaderDataDomain(), EShaderDataDomain::Cooked);
 		FShaderCompilerOutput Output;
 		EXPECT_FALSE((Error = LoadCookedShaderRuntimeRequest("Tests.Primary", {}, Output)));
-		EXPECT_EQ(Error.Error.Code, EShaderError::LibraryReadFailed);
+		EXPECT_EQ(Error.error().Code, EShaderError::LibraryReadFailed);
 		ShutdownShaderData();
 		ResetShaderRuntimeInventoryForTesting();
 	}

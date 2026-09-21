@@ -8,7 +8,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/CustomVersion.h"
 
@@ -65,7 +65,7 @@ namespace Durin
 				|| Error == ECookInputError::RootLimit || Error == ECookInputError::RuntimeEdgeLimit
 				|| Error == ECookInputError::DependencyStorage ? ECookInputStatus::LimitExceeded
 			: Error == ECookInputError::UndeclaredInput ? ECookInputStatus::UndeclaredInput : ECookInputStatus::InvalidDependency;
-		return {Status, FormatCookInputError(*this)};
+		return {Status, std::make_shared<const FCookInputFailure>(*this)};
 	}
 
 }
@@ -97,7 +97,6 @@ namespace Durin::AssetPrivate
 		if (!Failure) return Failure;
 		Failure = Cause.ToInputResult();
 
-		FailureInfo = std::move(Cause);
 		return Failure;
 	}
 
@@ -122,10 +121,9 @@ namespace Durin::AssetPrivate
 		const std::array Paths{Path};
 		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 		if (!Access) return Fail(FCookInputFailure{.Error = ECookInputError::WriteConflict, .File = Path});
-		FFileHelper::FFileIoError Error;
-		auto File = FFileHelper::OpenRead(Path, &Error);
-		if (!File) return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .File = Path, .FileCause = Error});
-		const uint64 Size = File->GetSize();
+		auto File = FFileIO::OpenRead(Path);
+		if (!File) return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = File.error()});
+		const uint64 Size = (*File)->GetSize();
 		if (Size > MaximumDiscoveryFileBytes || Size > MaximumDiscoveryBytes - RetainedBytes)
 			return Fail(FCookInputFailure{.Error = ECookInputError::ByteLimit, .File = Path, .Actual = Size, .Maximum = MaximumDiscoveryFileBytes, .Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes});
 		FByteBuffer Candidate(static_cast<size_t>(Size));
@@ -133,8 +131,8 @@ namespace Durin::AssetPrivate
 		for (size_t Offset = 0; Offset < Candidate.size(); Offset += Chunk)
 		{
 			if (auto Result = CheckCancellation(); !Result) return Result;
-			if (!File->ReadAt(Offset, std::span(Candidate).subspan(Offset, std::min(Chunk, Candidate.size() - Offset)), &Error))
-				return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .File = Path, .FileCause = Error});
+			if (auto Read = (*File)->ReadAt(Offset, std::span(Candidate).subspan(Offset, std::min(Chunk, Candidate.size() - Offset))); !Read)
+				return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = Read.error()});
 		}
 		Out = std::move(Candidate);
 		return {};

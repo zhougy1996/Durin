@@ -42,16 +42,15 @@ namespace Durin
 		auto ErrorResult(EPackageResourceReadStatus Status, EPackageResourceReadReason Reason)
 			-> FPackageResourceRequest
 		{
-			return FPackageResourceRequest::Completed({
-				.Status = Status, .Error = {.Reason = Reason}});
+			return FPackageResourceRequest::Completed(std::unexpected(FPackageResourceReadError{
+				.Status = Status, .Reason = Reason}));
 		}
 
 		auto RequestPayload(const std::shared_ptr<const FState>& Snapshot)
 			-> FPackageResourceRequest
 		{
 			if (const auto* Memory = std::get_if<FSharedByteBuffer>(&Snapshot->Source))
-				return FPackageResourceRequest::Completed({
-					.Status = EPackageResourceReadStatus::Success, .Buffer = *Memory});
+				return FPackageResourceRequest::Completed(*Memory);
 			const FPackageResourceRange& Range = std::get<FPackageResourceRange>(Snapshot->Source);
 			if (!Range.Resource)
 				return ErrorResult(EPackageResourceReadStatus::MissingSegment,
@@ -59,15 +58,15 @@ namespace Durin
 			return FPackageResourceRequest::Transform(
 				Range.Resource->ReadRangeAsync(Range.SegmentOffset, Range.StoredSize),
 				[ExpectedSize = Snapshot->LogicalSize, ExpectedId = Snapshot->ContentId](
-					FPackageResourceReadResult Result) {
+					FPackageResourceReadResult Result) -> FPackageResourceReadResult {
 					if (Result)
 					{
-						const auto Digest = FXxHash128::HashBuffer(Result.Buffer.GetBytes());
-						if (Result.Buffer.GetSize() != ExpectedSize || Digest != ExpectedId)
-							return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::SegmentDigestMismatch,
-								.Error = {.Reason = EPackageResourceReadReason::ContentMismatch,
-									.Actual = Result.Buffer.GetSize(), .Expected = ExpectedSize,
-									.ActualDigest = Digest, .ExpectedDigest = ExpectedId}};
+						const auto Digest = FXxHash128::HashBuffer(Result->GetBytes());
+						if (Result->GetSize() != ExpectedSize || Digest != ExpectedId)
+							return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::SegmentDigestMismatch,
+								.Reason = EPackageResourceReadReason::ContentMismatch,
+								.Actual = Result->GetSize(), .Expected = ExpectedSize,
+								.ActualDigest = Digest, .ExpectedDigest = ExpectedId});
 					}
 					return Result;
 				});
@@ -208,7 +207,7 @@ namespace Durin
 			if (AssetPrivate::FScopedBulkSaveRetention::IsEnabled())
 			{
 				auto Expected = Snapshot;
-				const auto Resident = MakeMemoryState(Snapshot->InstanceId, Snapshot->ContentId, Payload.Buffer);
+				const auto Resident = MakeMemoryState(Snapshot->InstanceId, Snapshot->ContentId, *Payload);
 				State.CompareExchange(Expected, Resident);
 			}
 		}
@@ -217,7 +216,7 @@ namespace Durin
 			.LogicalSize = Snapshot->LogicalSize,
 			.StoredSize = Snapshot->LogicalSize,
 			.ContentHash = Snapshot->ContentId,
-			.Buffer = Ar.IsSaving() ? Payload.Buffer : FSharedByteBuffer{}};
+			.Buffer = Ar.IsSaving() ? *Payload : FSharedByteBuffer{}};
 		Ar.SerializeBulkData(Value, {
 			.Owner = this,
 			.ElementSize = 1,

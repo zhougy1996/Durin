@@ -37,14 +37,14 @@ namespace Durin::ShaderCompileUtilities
 			auto Fingerprint = FileFingerprintCache.Get(DependencyPath);
 			if (!Fingerprint)
 			{
-				return {.Error = FShaderError::FromFileFingerprint(DependencyPath, Fingerprint.error().ToString())};
+				return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = std::move(Fingerprint.error())});
 			}
 
 			std::string VirtualPath;
 			if (!FShaderPaths::TryMakeVirtualSourcePath(
 				Fingerprint->NormalizedPath, VirtualPath))
 			{
-				return {.Error = {.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint->NormalizedPath}};
+				return std::unexpected(FShaderError{.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint->NormalizedPath});
 			}
 			OutMetaData.Dependencies.push_back(std::move(*Fingerprint));
 			OutMetaData.PortableDependencies.push_back({
@@ -71,7 +71,7 @@ namespace Durin::ShaderCompileUtilities
 				if (Sorted.PortableDependencies.back().ContentHash
 					!= Dependency.ContentHash)
 				{
-					return {.Error = {.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}};
+					return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath});
 				}
 				continue;
 			}
@@ -172,12 +172,12 @@ namespace Durin::ShaderCompileUtilities
 		{
 			FFileFingerprintReuseResult ReuseResult =
 				FileFingerprintCache.TryReuse(Fingerprint);
-			if (ReuseResult.Status == EFileFingerprintReuseStatus::Failed)
+			if (!ReuseResult)
 			{
 				return {.Status = EMetaDataReuseStatus::Failed,
-					.Error = FShaderError::FromFileFingerprint(Fingerprint.NormalizedPath, ReuseResult.Diagnostic)};
+					.Error = {.Code = EShaderError::FileReadFailure, .FileError = std::move(ReuseResult.error())}};
 			}
-			if (ReuseResult.Status == EFileFingerprintReuseStatus::Stale)
+			if (*ReuseResult == EFileFingerprintReuseStatus::Stale)
 			{
 				return {.Status = EMetaDataReuseStatus::Stale};
 			}

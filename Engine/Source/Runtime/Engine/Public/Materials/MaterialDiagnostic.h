@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/PackageResourceError.h"
 #include "Misc/Guid.h"
 #include <cstdint>
 #include <optional>
@@ -15,7 +16,6 @@ namespace Durin
 	struct FMaterialParameterValidationResult;
 	struct FArchiveFailure;
 	struct FObjectGraphError;
-	struct FPackageResourceReadResult;
 	struct FPackageResourceReadError;
 	enum class EMaterialLayoutError : uint8;
 	enum class EMaterialProgramValueType : uint8;

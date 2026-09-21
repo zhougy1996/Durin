@@ -149,7 +149,7 @@ namespace Durin
 		FShaderOperationResult ProviderError;
 		if (!(ProviderError = BuildShaderSourceTreeFingerprint("/Engine/MaterialCompilerEnvironment", Options, SourceTree)))
 		{
-			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, FormatShaderError(ProviderError.Error))};
+			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, FormatShaderError(ProviderError.error()))};
 		}
 
 		FMaterialCompilerEnvironment Environment;

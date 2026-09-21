@@ -37,18 +37,18 @@ namespace Durin
 		std::vector<FShaderRuntimeRequest> Inventory;
 		if (auto Result = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory); !Result) return Result;
 		if (Inventory.empty())
-			return FShaderOperationResult::Failure(EShaderError::InventoryEmpty);
+			return std::unexpected(FShaderError{.Code = EShaderError::InventoryEmpty});
 		std::vector<FShaderCookedLibraryRecord> Records;
 		Records.reserve(Inventory.size());
 		for (const FShaderRuntimeRequest& Request : Inventory)
 		{
-			if (IsCancelled && IsCancelled()) { return FShaderOperationResult::Failure(EShaderError::Cancelled); }
+			if (IsCancelled && IsCancelled()) { return std::unexpected(FShaderError{.Code = EShaderError::Cancelled}); }
 			std::vector<const FShaderType*> Types;
 			if (auto Result = GetShaderRuntimeRequestBuildTypes(Request, Types); !Result)
 				return Result;
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
-				return {.Error = {.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
 			Options.SourceArtifacts = Artifacts;
 			FShaderCompilerOutput Output = GetOrCompileShader(
 				Options.VirtualShaderPath, Options);
@@ -56,7 +56,7 @@ namespace Durin
 			{
 				auto Error = Output.Error;
 				Error.ActualIdentity = Request.Name;
-				return {.Error = std::move(Error)};
+				return std::unexpected(std::move(Error));
 			}
 			FXxHash128 RuntimeIdentity;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Request, RuntimeIdentity); !Result) return Result;

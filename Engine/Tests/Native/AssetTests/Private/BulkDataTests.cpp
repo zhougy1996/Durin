@@ -38,8 +38,8 @@ namespace
 	private:
 		auto ReadRangeImpl(uint64, uint64 Size, const std::atomic_bool&) -> FPackageResourceReadResult override
 		{
-			if (bFail.load()) return {.Status = EPackageResourceReadStatus::SegmentDigestMismatch, .Error = {.Reason = EPackageResourceReadReason::ContentMismatch, .ActualDigest = {7, 8}, .ExpectedDigest = {1, 2}}};
-			return {.Status = EPackageResourceReadStatus::Success, .Buffer = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{7}))};
+			if (bFail.load()) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::SegmentDigestMismatch, .Reason = EPackageResourceReadReason::ContentMismatch, .ActualDigest = {7, 8}, .ExpectedDigest = {1, 2}});
+			return FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{7}));
 		}
 	};
 
@@ -60,11 +60,10 @@ namespace
 			-> FPackageResourceReadResult override
 		{
 			Started.Trigger();
-			if (!Release.WaitFor(2.0)) return {.Status = EPackageResourceReadStatus::IoError};
+			if (!Release.WaitFor(2.0)) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::IoError});
 			if (bCancelled.load(std::memory_order_acquire))
-				return {.Status = EPackageResourceReadStatus::Cancelled};
-			return {.Status = EPackageResourceReadStatus::Success,
-				.Buffer = FSharedByteBuffer::Take(Durin::FByteBuffer(Size))};
+				return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Cancelled});
+			return FSharedByteBuffer::Take(Durin::FByteBuffer(Size));
 		}
 	};
 
@@ -100,9 +99,8 @@ namespace
 			-> FPackageResourceReadResult override
 		{
 			Started.Trigger();
-			if (!Release.WaitFor(2.0)) return {.Status = EPackageResourceReadStatus::IoError};
-			return {.Status = EPackageResourceReadStatus::Success,
-				.Buffer = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{0x31}))};
+			if (!Release.WaitFor(2.0)) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::IoError});
+			return FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{0x31}));
 		}
 	};
 
@@ -226,7 +224,7 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	Manager.RetirePackage("/Tests/Range");
 	ReadLease = Value.AcquireRead();
 	EXPECT_FALSE(ReadLease) << FormatPackageResourceReadError(ReadLease.Error);
-	EXPECT_EQ(ReadLease.Error.Status, EPackageResourceReadStatus::Retired);
+	EXPECT_EQ(ReadLease.Error.error().Status, EPackageResourceReadStatus::Retired);
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Retired);
 }
 
@@ -275,12 +273,12 @@ TEST(FPackageResourceTests, OwnedCaptureDetachesLazyReadsFromCallerStorage)
 	}
 	const auto Slice = Handle->ReadRange(1, 7);
 	ASSERT_TRUE(Slice);
-	EXPECT_EQ(Slice.Buffer.GetSize(), 7u);
-	EXPECT_EQ(Handle->ReadRange(Size, 1).Status, EPackageResourceReadStatus::InvalidRange);
+	EXPECT_EQ(Slice->GetSize(), 7u);
+	EXPECT_EQ(Handle->ReadRange(Size, 1).error().Status, EPackageResourceReadStatus::InvalidRange);
 	Handle->Retire();
-	EXPECT_EQ(Handle->ReadRange(0, 1).Status, EPackageResourceReadStatus::Retired);
+	EXPECT_EQ(Handle->ReadRange(0, 1).error().Status, EPackageResourceReadStatus::Retired);
 	Handle.reset();
-	EXPECT_TRUE(std::ranges::all_of(Slice.Buffer.GetBytes(),
+	EXPECT_TRUE(std::ranges::all_of(Slice->GetBytes(),
 		[](std::byte Byte) { return Byte == std::byte{0x6a}; }));
 }
 
@@ -397,9 +395,10 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	EXPECT_FALSE(Registration3) << FormatPackageResourceRegistrationError(Registration3.error());
 
 	ASSERT_TRUE(Registration3.error().PrimaryCause);
-	ASSERT_TRUE(Registration3.error().PrimaryCause->BulkCause);
-	EXPECT_EQ(Registration3.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::FieldDigestMismatch);
-	EXPECT_EQ(Registration3.error().PrimaryCause->BulkCause->Index, 0u);
+	const auto* RangeFailure = std::get_if<FPackageBulkValidationFailure>(&*Registration3.error().PrimaryCause);
+	ASSERT_TRUE(RangeFailure);
+	EXPECT_EQ(RangeFailure->Error.Code, EPackageBulkDataError::FieldDigestMismatch);
+	EXPECT_EQ(RangeFailure->Error.Index, 0u);
 
 	Segment[7] ^= std::byte{0x01};
 	ASSERT_GT(SecondOffset, FirstSize);
@@ -412,10 +411,11 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	EXPECT_FALSE(Registration4) << FormatPackageResourceRegistrationError(Registration4.error());
 
 	ASSERT_TRUE(Registration4.error().PrimaryCause);
-	ASSERT_TRUE(Registration4.error().PrimaryCause->BulkCause);
-	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::NonzeroPadding);
-	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Offset, FirstSize);
-	EXPECT_EQ(Registration4.error().PrimaryCause->BulkCause->Actual, 1u);
+	const auto* PaddingFailure = std::get_if<FPackageBulkValidationFailure>(&*Registration4.error().PrimaryCause);
+	ASSERT_TRUE(PaddingFailure);
+	EXPECT_EQ(PaddingFailure->Error.Code, EPackageBulkDataError::NonzeroPadding);
+	EXPECT_EQ(PaddingFailure->Error.Offset, FirstSize);
+	EXPECT_EQ(PaddingFailure->Error.Actual, 1u);
 }
 
 namespace
@@ -544,9 +544,10 @@ TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBac
 	const auto Missing = Prepare();
 	EXPECT_EQ(Missing.error().Code, EPreparedPackageResourceError::IoError);
 	EXPECT_EQ(Missing.error().Reason, EPreparedPackageResourceReason::FileIo);
-	ASSERT_TRUE(Missing.error().FileCause);
-	EXPECT_EQ(Missing.error().FileCause->Operation, FFileHelper::EFileIoOperation::OpenRead);
-	EXPECT_EQ(Missing.error().FileCause->Path, BulkPath);
+	const auto* FileFailure = std::get_if<FFileIO::FFileError>(&Missing.error().Cause);
+	ASSERT_TRUE(FileFailure);
+	EXPECT_EQ(FileFailure->Operation, FFileIO::EFileOperation::OpenRead);
+	EXPECT_EQ(FileFailure->Path, BulkPath);
 	EXPECT_FALSE(std::filesystem::exists(BulkPath));
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 }
@@ -630,15 +631,15 @@ TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResult
 	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
 	Cancelled.Cancel();
 	Resource->Release.Trigger();
-	EXPECT_EQ(Cancelled.Wait().Status, EPackageResourceReadStatus::Cancelled);
+	EXPECT_EQ(Cancelled.Wait().error().Status, EPackageResourceReadStatus::Cancelled);
 
 	FPackageResourceRequest Retiring = Resource->ReadRangeAsync(0, 4);
 	Resource->Retire();
-	const EPackageResourceReadStatus Status = Retiring.Wait().Status;
+	const EPackageResourceReadStatus Status = GetPackageResourceReadStatus(Retiring.Wait());
 	EXPECT_TRUE(Status == EPackageResourceReadStatus::Cancelled
 		|| Status == EPackageResourceReadStatus::Success);
 	EXPECT_TRUE(Resource->IsRetired());
-	EXPECT_EQ(Resource->ReadRangeAsync(0, 1).Wait().Status,
+	EXPECT_EQ(Resource->ReadRangeAsync(0, 1).Wait().error().Status,
 		EPackageResourceReadStatus::Retired);
 }
 
@@ -660,7 +661,7 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	EXPECT_TRUE(First.Wait());
 	EXPECT_TRUE(Copy.Wait());
 	EXPECT_TRUE(Transform.Wait());
-	EXPECT_EQ(First.Wait().Buffer.GetBytes().data(), Copy.Wait().Buffer.GetBytes().data());
+	EXPECT_EQ(First.Wait()->GetBytes().data(), Copy.Wait()->GetBytes().data());
 	EXPECT_TRUE(Second.Wait());
 	WaitTask(Cpu);
 
@@ -670,8 +671,8 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	Canceled.Cancel();
 	CancelResource->Release.Trigger();
 	auto Recovery = FPackageResourceRequest::Transform(Canceled, [](FPackageResourceReadResult Value) {
-		EXPECT_EQ(EPackageResourceReadStatus::Cancelled, Value.Status);
-		return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::Success};
+		EXPECT_EQ(EPackageResourceReadStatus::Cancelled, GetPackageResourceReadStatus(Value));
+		return FPackageResourceReadResult{FSharedByteBuffer{}};
 	});
 	EXPECT_TRUE(Recovery.Wait());
 }
@@ -685,7 +686,7 @@ TEST(FPackageResourceTests, SubmissionAfterSchedulerClosureIsALifecycleViolation
 	}, "");
 	EXPECT_DEATH({
 		(void)FPackageResourceRequest::Transform(
-			FPackageResourceRequest::Completed({.Status = EPackageResourceReadStatus::Success}),
+			FPackageResourceRequest::Completed(FSharedByteBuffer{}),
 			[](FPackageResourceReadResult Result) { return Result; });
 	}, "");
 	EXPECT_TRUE(InitializeTaskScheduler(2));
@@ -701,15 +702,15 @@ TEST(FPackageResourceTests, RejectedRenderingWaitDoesNotPublishRequestCompletion
 		"PackageRejectedWait", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
 	ASSERT_NE(Thread, nullptr);
 	Thread->WaitForCompletion();
-	EXPECT_EQ(Runnable.Result.Status, EPackageResourceReadStatus::IoError);
-	EXPECT_EQ(Runnable.Result.Error.Reason, EPackageResourceReadReason::WaitRejected);
-	EXPECT_TRUE(Runnable.Result.Error.WaitStatus);
+	EXPECT_EQ(Runnable.Result.error().Status, EPackageResourceReadStatus::IoError);
+	EXPECT_EQ(Runnable.Result.error().Reason, EPackageResourceReadReason::WaitRejected);
+	EXPECT_TRUE(Runnable.Result.error().WaitStatus);
 	EXPECT_FALSE(Request.IsReady());
 	Resource->Release.Trigger();
 	const auto Result = Request.Wait();
 	ASSERT_TRUE(Result);
-	EXPECT_EQ(Result.Buffer.GetSize(), 4u);
-	EXPECT_EQ(Result.Buffer.GetBytes().front(), std::byte{0x31});
+	EXPECT_EQ(Result->GetSize(), 4u);
+	EXPECT_EQ(Result->GetBytes().front(), std::byte{0x31});
 }
 
 TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
@@ -728,7 +729,7 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	EXPECT_EQ(First.GetInstanceId(), InstanceId);
 	EXPECT_NE(First.GetPayloadId(), ContentId);
 	EXPECT_EQ(Snapshot.GetPayloadId(), ContentId);
-	EXPECT_TRUE(std::ranges::equal(Snapshot.GetPayload().Wait().Buffer.GetBytes(), Bytes));
+	EXPECT_TRUE(std::ranges::equal(Snapshot.GetPayload().Wait()->GetBytes(), Bytes));
 
 	auto Resource = std::make_shared<FTestPackageResource>();
 	FEditorBulkData PackageBacked;
@@ -744,7 +745,7 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	EXPECT_FALSE(PackageBacked.GetPayloadId().IsZero());
 	EXPECT_TRUE(PackageBacked.GetPayload().Wait());
 	Resource->Retire();
-	EXPECT_EQ(PackageBacked.GetPayload().Wait().Status, EPackageResourceReadStatus::Retired);
+	EXPECT_EQ(PackageBacked.GetPayload().Wait().error().Status, EPackageResourceReadStatus::Retired);
 }
 
 TEST(FEditorBulkDataTests, ConcurrentCopiesObserveOneCoherentSnapshot)
@@ -769,8 +770,8 @@ TEST(FEditorBulkDataTests, ConcurrentCopiesObserveOneCoherentSnapshot)
 	{
 		const FEditorBulkData Snapshot = Value;
 		const FPackageResourceReadResult Payload = Snapshot.GetPayload().Wait();
-		if (!Payload || Payload.Buffer.GetSize() != Snapshot.GetPayloadSize()
-			|| FXxHash128::HashBuffer(Payload.Buffer.GetBytes()) != Snapshot.GetPayloadId()
+		if (!Payload || Payload->GetSize() != Snapshot.GetPayloadSize()
+			|| FXxHash128::HashBuffer(Payload->GetBytes()) != Snapshot.GetPayloadId()
 			|| Snapshot.GetInstanceId() != FGuid{11, 12, 13, 14})
 			Coherent.store(false, std::memory_order_release);
 	}
@@ -816,7 +817,7 @@ TEST(FEditorBulkDataTests, RejectedPackageSourceRetainsIdentityCauseAndOriginalP
 	EXPECT_EQ(Value.GetPayloadId(), OriginalContent);
 	EXPECT_EQ(Value.GetPayloadSize(), 2u);
 	EXPECT_TRUE(Value.IsMemoryResident());
-	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait().Buffer.GetBytes(), Bytes));
+	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait()->GetBytes(), Bytes));
 }
 
 TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
@@ -838,15 +839,15 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 	Resource->Release.Trigger();
 	const FPackageResourceReadResult Original = Captured.Wait();
 	ASSERT_TRUE(Original);
-	EXPECT_EQ(Original.Buffer.GetSize(), 4u);
+	EXPECT_EQ(Original->GetSize(), 4u);
 	EXPECT_TRUE(std::ranges::all_of(
-		Original.Buffer.GetBytes(), [](std::byte Byte) { return Byte == std::byte{0}; }));
+		Original->GetBytes(), [](std::byte Byte) { return Byte == std::byte{0}; }));
 
 	const FGuid InstanceId = Value.GetInstanceId();
 	const FXxHash128 ContentId = Value.GetPayloadId();
 	EXPECT_EQ(Value.GetInstanceId(), InstanceId);
 	EXPECT_EQ(Value.GetPayloadId(), ContentId);
-	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait().Buffer.GetBytes(), Replacement));
+	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait()->GetBytes(), Replacement));
 }
 
 TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntimeBulk)
@@ -1004,9 +1005,9 @@ TEST(FBulkDataTests, ReadFailurePreservesPackageCauseAndSupportsExplicitRetry)
 	auto Failed = Value.AcquireRead();
 	EXPECT_EQ(Failed.Status, EBulkReadStatus::ReadFailed);
 	EXPECT_FALSE(Failed.Lock);
-	EXPECT_EQ(Failed.Error.Status, EPackageResourceReadStatus::SegmentDigestMismatch);
-	EXPECT_EQ(Failed.Error.Error.Reason, EPackageResourceReadReason::ContentMismatch);
-	EXPECT_EQ(Failed.Error.Error.ActualDigest, (FXxHash128{7, 8}));
+	EXPECT_EQ(Failed.Error.error().Status, EPackageResourceReadStatus::SegmentDigestMismatch);
+	EXPECT_EQ(Failed.Error.error().Reason, EPackageResourceReadReason::ContentMismatch);
+	EXPECT_EQ(Failed.Error.error().ActualDigest, (FXxHash128{7, 8}));
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Failed);
 	Resource->bFail.store(false);
 	auto Retry = Value.AcquireRead();
@@ -1142,10 +1143,11 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	EXPECT_EQ(Failed.error().Code, EPackageResourceRegistrationError::InvalidGeneration);
 	ASSERT_FALSE(Failed);
 	ASSERT_TRUE(Failed.error().PrimaryCause);
-	ASSERT_TRUE(Failed.error().PrimaryCause->BulkCause);
-	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Code, EPackageBulkDataError::ExtentMismatch);
-	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Actual, 2u);
-	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Expected, Bytes.size());
+	const auto* BulkFailure = std::get_if<FPackageBulkValidationFailure>(&*Failed.error().PrimaryCause);
+	ASSERT_TRUE(BulkFailure);
+	EXPECT_EQ(BulkFailure->Error.Code, EPackageBulkDataError::ExtentMismatch);
+	EXPECT_EQ(BulkFailure->Error.Actual, 2u);
+	EXPECT_EQ(BulkFailure->Error.Expected, Bytes.size());
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, BackupPath));
 	const auto StillInvalid = Manager.RegisterLoosePackage("/Tests/TypedRecovery", Package, Summary, std::span{&Entry, 1});
 	EXPECT_EQ(StillInvalid.error().Code, EPackageResourceRegistrationError::InvalidGeneration);
@@ -1160,31 +1162,31 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	EXPECT_TRUE(std::filesystem::exists(BackupPath));
 	const auto Read = (*Recovered)->ReadRange(0, Bytes.size());
 	ASSERT_TRUE(Read);
-	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Bytes));
-	EXPECT_EQ(Failed.error().PrimaryCause->BulkCause->Actual, 2u);
-	EXPECT_EQ(Failed.error().PrimaryCause->Path, SegmentPath);
+	EXPECT_TRUE(std::ranges::equal(Read->GetBytes(), Bytes));
+	EXPECT_EQ(BulkFailure->Error.Actual, 2u);
+	EXPECT_EQ(BulkFailure->Path, SegmentPath);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(MakeBytes({1}), SegmentPath));
 	const auto Changed = (*Recovered)->ReadRange(0, 4);
-	EXPECT_EQ(Changed.Status, EPackageResourceReadStatus::TruncatedSegment);
-	EXPECT_EQ(Changed.Error.Reason, EPackageResourceReadReason::ChangedBeforeRead);
-	EXPECT_EQ(Changed.Error.Path, SegmentPath);
-	EXPECT_EQ(Changed.Error.Actual, 1u);
-	EXPECT_EQ(Changed.Error.Expected, Bytes.size());
-	EXPECT_EQ(Changed.Error.Size, 4u);
+	EXPECT_EQ(Changed.error().Status, EPackageResourceReadStatus::TruncatedSegment);
+	EXPECT_EQ(Changed.error().Reason, EPackageResourceReadReason::ChangedBeforeRead);
+	EXPECT_EQ(Changed.error().Path, SegmentPath);
+	EXPECT_EQ(Changed.error().Actual, 1u);
+	EXPECT_EQ(Changed.error().Expected, Bytes.size());
+	EXPECT_EQ(Changed.error().Size, 4u);
 }
 
 TEST(FPackageResourceTests, RejectedReadOwnsRequestedBoundsWithoutAdmittingIo)
 {
 	auto Resource = std::make_shared<FTestPackageResource>();
 	const auto Read = Resource->ReadRange(3, 2);
-	EXPECT_EQ(Read.Status, EPackageResourceReadStatus::InvalidRange);
-	EXPECT_EQ(Read.Error.Reason, EPackageResourceReadReason::InvalidRange);
-	EXPECT_EQ(Read.Error.Offset, 3u);
-	EXPECT_EQ(Read.Error.Size, 2u);
-	EXPECT_EQ(Read.Error.Extent, 4u);
+	EXPECT_EQ(Read.error().Status, EPackageResourceReadStatus::InvalidRange);
+	EXPECT_EQ(Read.error().Reason, EPackageResourceReadReason::InvalidRange);
+	EXPECT_EQ(Read.error().Offset, 3u);
+	EXPECT_EQ(Read.error().Size, 2u);
+	EXPECT_EQ(Read.error().Extent, 4u);
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
 	Resource.reset();
-	EXPECT_EQ(Read.Error.Extent, 4u);
+	EXPECT_EQ(Read.error().Extent, 4u);
 	const auto Invalid = FPackageResourceRequest{}.Wait();
-	EXPECT_EQ(Invalid.Error.Reason, EPackageResourceReadReason::InvalidRequest);
+	EXPECT_EQ(Invalid.error().Reason, EPackageResourceReadReason::InvalidRequest);
 }

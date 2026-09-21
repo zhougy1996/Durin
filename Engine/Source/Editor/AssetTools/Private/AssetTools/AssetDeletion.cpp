@@ -8,7 +8,7 @@
 #include "AssetRegistry/Publication.h"
 #include "DObject/Package.h"
 #include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 namespace Durin
 {
@@ -197,7 +197,6 @@ namespace Durin
 				const auto Key = std::filesystem::absolute(File).lexically_normal().generic_string();
 				if (ConfirmedBytes.contains(Key)) continue;
 				FXxHash128 Identity;
-				std::error_code ErrorCode;
 				if (Commit.ValidateFiles)
 				{
 					const auto Found = VerifiedFiles.find(Key);
@@ -205,8 +204,12 @@ namespace Durin
 						return Error(EAssetWriteError::StaleData, "Host validation omitted a deletion participant.");
 					Identity = Found->second;
 				}
-				else if (!FFileHelper::HashFileXx128(File, Identity, ErrorCode))
-					return Error(EAssetWriteError::IoError, "Could not verify deletion byte identity.");
+				else
+				{
+					auto Hashed = FFileIO::HashFileXx128(File);
+					if (!Hashed) return Error(EAssetWriteError::IoError, Hashed.error().ToString());
+					Identity = *Hashed;
+				}
 				ConfirmedBytes.emplace(Key, Identity);
 			}
 		}

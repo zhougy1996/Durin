@@ -241,7 +241,7 @@ namespace Durin
 		const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Value.Format)};
 		if (!NewSource.InitLayered(ETextureSourceKind::Volume,
 			std::span(&Block, 1), std::span(&Layer, 1),
-			ETextureSourceGammaSpace::Linear, Read.Buffer.GetBytes(), 0, 0,
+			ETextureSourceGammaSpace::Linear, Read->GetBytes(), 0, 0,
 			ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("VolumeTexture source data could not be initialized.");

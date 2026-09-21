@@ -268,7 +268,7 @@ namespace Durin
 				const SlangInt DescriptorRangeIndex = TypeLayout->getBindingRangeFirstDescriptorRangeIndex(BindingRangeIndex);
 				if (DescriptorSetIndex < 0 || DescriptorRangeIndex < 0)
 				{
-					return {.Error = {.Code = EShaderError::ReflectionDescriptorSetInvalid, .Parameter = std::string(BindingName)}};
+					return std::unexpected(FShaderError{.Code = EShaderError::ReflectionDescriptorSetInvalid, .Parameter = std::string(BindingName)});
 				}
 
 				SpaceIndex = DescriptorSetIndex;
@@ -282,14 +282,14 @@ namespace Durin
 				bOutUsed = false;
 				return {};
 			default:
-				return {.Error = {.Code = EShaderError::ReflectionBindingTypeUnsupported,
+				return std::unexpected(FShaderError{.Code = EShaderError::ReflectionBindingTypeUnsupported,
 					.Parameter = std::string(BindingName),
-					.Actual = static_cast<uint64>(BindingType)}};
+					.Actual = static_cast<uint64>(BindingType)});
 			}
 
 			if (RegisterIndex < 0)
 			{
-				return {.Error = {.Code = EShaderError::ReflectionRegisterInvalid, .Parameter = std::string(BindingName)}};
+				return std::unexpected(FShaderError{.Code = EShaderError::ReflectionRegisterInvalid, .Parameter = std::string(BindingName)});
 			}
 
 			bool bUsed = false;
@@ -352,7 +352,7 @@ namespace Durin
 					const SlangInt DescriptorRangeIndex = TypeLayout->getBindingRangeFirstDescriptorRangeIndex(BindingRangeIndex);
 					if (DescriptorSetIndex < 0 || DescriptorRangeIndex < 0)
 					{
-						return {.Error = {.Code = EShaderError::ReflectionDescriptorSetInvalid, .Parameter = std::string(BindingName)}};
+						return std::unexpected(FShaderError{.Code = EShaderError::ReflectionDescriptorSetInvalid, .Parameter = std::string(BindingName)});
 					}
 
 					FShaderResourceBinding Binding;
@@ -395,7 +395,7 @@ namespace Durin
 					const uint32 Size = ResolvePushConstantByteSize(LeafTypeLayout);
 					if (Size == 0)
 					{
-						return {.Error = {.Code = EShaderError::ReflectionPushConstantSizeUnsupported, .Parameter = std::string(BindingName)}};
+						return std::unexpected(FShaderError{.Code = EShaderError::ReflectionPushConstantSizeUnsupported, .Parameter = std::string(BindingName)});
 					}
 
 					FPushConstantRange Range{
@@ -415,9 +415,9 @@ namespace Durin
 				case slang::BindingType::VaryingOutput:
 					break;
 				default:
-					return {.Error = {.Code = EShaderError::ReflectionBindingTypeUnsupported,
+					return std::unexpected(FShaderError{.Code = EShaderError::ReflectionBindingTypeUnsupported,
 						.Parameter = std::string(BindingName),
-						.Actual = static_cast<uint64>(BindingType)}};
+						.Actual = static_cast<uint64>(BindingType)});
 				}
 			}
 
@@ -437,7 +437,7 @@ namespace Durin
 			slang::EntryPointReflection* EntryPointReflection = ProgramLayout ? ProgramLayout->getEntryPointByIndex(EntryPointIndex) : nullptr;
 			if (!ProgramLayout || !EntryPointReflection)
 			{
-				return {.Error = {.Code = EShaderError::ReflectionUnavailable}};
+				return std::unexpected(FShaderError{.Code = EShaderError::ReflectionUnavailable});
 			}
 
 			const EShaderStageFlags StageFlags = ToStageFlags(Frequency);
@@ -535,8 +535,8 @@ namespace Durin
 		slang::ProgramLayout* ProgramLayout = ComposedProgram->getLayout(0, LayoutDiagnostics.writeRef());
 		if (!ProgramLayout)
 		{
-			return {.Error = FShaderError::FromSlang(ESlangShaderError::Layout,
-				LayoutDiagnostics ? static_cast<const char*>(LayoutDiagnostics->getBufferPointer()) : "")};
+			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Layout,
+				LayoutDiagnostics ? static_cast<const char*>(LayoutDiagnostics->getBufferPointer()) : ""));
 		}
 
 		Slang::ComPtr<slang::IBlob> CodeBlob;
@@ -545,7 +545,7 @@ namespace Durin
 			0, 0, CodeBlob.writeRef(), CodeDiagnostics.writeRef());
 		if (SLANG_FAILED(CodeResult))
 		{
-			return {.Error = FShaderError::FromSlang(ESlangShaderError::Code, CodeDiagnostics ? static_cast<const char*>(CodeDiagnostics->getBufferPointer()) : "", CodeResult)};
+			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Code, CodeDiagnostics ? static_cast<const char*>(CodeDiagnostics->getBufferPointer()) : "", CodeResult));
 		}
 
 		Slang::ComPtr<slang::IMetadata> Metadata;
@@ -562,7 +562,7 @@ namespace Durin
 		OutCompiledShader.Code = std::make_shared<FByteBuffer>();
 		if (!ConvertBlobToArray(CodeBlob, *OutCompiledShader.Code))
 		{
-			return {.Error = {.Code = EShaderError::SpirvConversionFailed}};
+			return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
 		}
 		OutCompiledShader.Hash = FXxHash128::HashBuffer(*OutCompiledShader.Code);
 
@@ -571,7 +571,7 @@ namespace Durin
 
 		if (auto Result = BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection); !Result)
 		{
-			Result.Error.ActualIdentity = OutCompiledShader.SourceEntryPoint;
+			Result.error().ActualIdentity = OutCompiledShader.SourceEntryPoint;
 			return Result;
 		}
 
@@ -630,7 +630,7 @@ namespace Durin
 
 			if (auto Result = FillCompiledShaderOutput(ComposedProgram, Options.VirtualShaderPath, EntryPoints[Index], Options.Frequencies[Index], Output.CompiledShaders[Index]); !Result)
 			{
-				Output.Error = std::move(Result.Error);
+				Output.Error = std::move(Result.error());
 				return Output;
 			}
 		}
@@ -648,7 +648,7 @@ namespace Durin
 		Slang::ComPtr<slang::ISession> Session;
 		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session); !Result)
 		{
-			Output.Error = std::move(Result.Error);
+			Output.Error = std::move(Result.error());
 			return Output;
 		}
 		const std::string Path(ShaderSourceFilePath);
@@ -674,7 +674,7 @@ namespace Durin
 		Slang::ComPtr<slang::ISession> Session;
 		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string()); !Result)
 		{
-			Output.Error = std::move(Result.Error);
+			Output.Error = std::move(Result.error());
 			return Output;
 		}
 		const std::string Name(ModuleName);

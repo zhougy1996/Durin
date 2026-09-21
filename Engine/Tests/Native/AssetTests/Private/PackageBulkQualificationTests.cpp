@@ -110,8 +110,8 @@ TEST_F(FPackageBulkQualificationTests, FieldBulkClosureMeetsBoundedLooseFixtureB
 		std::chrono::steady_clock::now() - AccessStart).count();
 	ASSERT_TRUE(LoadedPayload) << Durin::FormatPackageResourceReadError(LoadedPayload);
 	EXPECT_LT(AccessMilliseconds, FirstAccessBudgetMilliseconds);
-	EXPECT_EQ(LoadedPayload.Buffer.GetSize(), PayloadBytes);
-	EXPECT_TRUE(std::ranges::equal(LoadedPayload.Buffer.GetBytes(), Payload));
+	EXPECT_EQ(LoadedPayload->GetSize(), PayloadBytes);
+	EXPECT_TRUE(std::ranges::equal(LoadedPayload->GetBytes(), Payload));
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
 	const FPackageResourceReadStats AccessReadStats = Resource->GetReadStats();
 	EXPECT_EQ(AccessReadStats.ValidationBytesRead, PayloadBytes);

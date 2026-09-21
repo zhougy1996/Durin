@@ -1,7 +1,7 @@
 #include "Shader/ShaderCookedLibrary.h"
 
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Serialization/BinaryFormat.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompiledOutput.h"
@@ -189,7 +189,7 @@ namespace Durin
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
-			return FShaderOperationResult::Failure(EShaderError::RequestRetirementFrozen);
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestRetirementFrozen});
 		}
 		std::erase_if(State.Requests,
 			[Handle = Handle](const FRegisteredRequest& Request) {
@@ -208,7 +208,7 @@ namespace Durin
 			|| Request.Owner.empty() || Request.Owner.size() > 256
 			|| Request.Name.empty() || Request.Name.size() > 512
 			|| Request.Members.empty() || Request.Members.size() > 32)
-			return FShaderOperationResult::Failure(EShaderError::RequestHeaderInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestHeaderInvalid});
 		std::string Previous;
 		for (const FShaderRuntimeRequestMember& Member : Request.Members)
 		{
@@ -216,7 +216,7 @@ namespace Durin
 				|| Member.EntryPoint.empty() || Member.EntryPoint.size() > 512
 				|| !IsValidFrequency(Member.Frequency)
 				|| (!Previous.empty() && !(Previous < Member.TypeName)))
-				return FShaderOperationResult{.Error = {.Code = EShaderError::RequestMembersInvalid, .ShaderType = Member.TypeName}};
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestMembersInvalid, .ShaderType = Member.TypeName});
 			Previous = Member.TypeName;
 		}
 		FXxHash128Builder Builder;
@@ -253,7 +253,7 @@ namespace Durin
 			if (std::ranges::any_of(CanonicalBuildTypes,
 				[](const FShaderType* Type) { return Type == nullptr; }))
 			{
-				return FShaderOperationResult::Failure(EShaderError::RequestNullBuildType);
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestNullBuildType});
 			}
 			std::ranges::sort(CanonicalBuildTypes, {},
 				[](const FShaderType* Type) { return Type->GetName(); });
@@ -280,14 +280,14 @@ namespace Durin
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
-			return FShaderOperationResult::Failure(EShaderError::RequestRegistrationFrozen);
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestRegistrationFrozen});
 		}
 		for (const FRegisteredRequest& Existing : State.Requests)
 		{
 			if (Existing.Request.Owner == Request.Owner
 				&& Existing.Request.Name == Request.Name)
 			{
-				return FShaderOperationResult::Failure(EShaderError::RequestAlreadyRegistered);
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestAlreadyRegistered});
 			}
 		}
 		const uint64 Handle = State.NextHandle++;
@@ -295,7 +295,7 @@ namespace Durin
 		{
 			if (CanonicalBuildTypes.size() != Request.Members.size())
 			{
-				return FShaderOperationResult::Failure(EShaderError::RequestBuildTypeCountMismatch);
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypeCountMismatch});
 			}
 			for (size_t Index = 0; Index < CanonicalBuildTypes.size(); ++Index)
 			{
@@ -305,7 +305,7 @@ namespace Durin
 					|| Type->GetEntryPoint() != Member.EntryPoint
 					|| Type->GetFrequency() != Member.Frequency)
 				{
-					return FShaderOperationResult::Failure(EShaderError::RequestBuildTypesMismatch);
+					return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch});
 				}
 			}
 		}
@@ -329,7 +329,7 @@ namespace Durin
 					&& Registered.Request.Name == Request.Name;
 			});
 		if (Found == State.Requests.end() || Found->BuildTypes.empty())
-			return FShaderOperationResult{.Error = {.Code = EShaderError::RequestBuildTypesUnavailable, .ActualIdentity = Request.Name}};
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesUnavailable, .ActualIdentity = Request.Name});
 		OutTypes = Found->BuildTypes;
 
 		return {};
@@ -350,7 +350,7 @@ namespace Durin
 		Error = RegisterShaderRuntimeRequest(
 			std::move(Request), Eligibility, Registration, BuildTypes);
 		requiref(Registration.IsValid(),
-			"Shader program registration failed for '{}': {}", Name, FormatShaderError(Error.Error));
+			"Shader program registration failed for '{}': {}", Name, FormatShaderError(Error.error()));
 	}
 
 	auto FreezeShaderRuntimeInventory(
@@ -360,14 +360,14 @@ namespace Durin
 	{
 		OutRequests.clear();
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
-			return FShaderOperationResult::Failure(EShaderError::InventoryTargetInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::InventoryTargetInvalid});
 		FRegistry& State = Registry();
 		std::lock_guard Lock(State.Mutex);
 		if (State.bFrozen)
 		{
 			if (State.FrozenPlatform != TargetPlatform
 				|| State.FrozenProfile != TargetProfile)
-				return FShaderOperationResult::Failure(EShaderError::InventoryTargetFrozen);
+				return std::unexpected(FShaderError{.Code = EShaderError::InventoryTargetFrozen});
 			OutRequests = State.FrozenRequests;
 
 			return {};
@@ -383,8 +383,8 @@ namespace Durin
 		{
 			if (!IsEligible(Registered.Eligibility, TargetProfile)) continue;
 			if (!SelectedNames.emplace(Registered.Request.Name).second)
-				return FShaderOperationResult{.Error = {.Code = EShaderError::InventoryNameAmbiguous,
-					.ActualIdentity = Registered.Request.Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::InventoryNameAmbiguous,
+					.ActualIdentity = Registered.Request.Name});
 			FShaderRuntimeRequest Request = Registered.Request;
 			Request.TargetPlatform = TargetPlatform;
 			Request.TargetProfile = TargetProfile;
@@ -399,7 +399,7 @@ namespace Durin
 		});
 		for (size_t Index = 1; Index < Selected.size(); ++Index)
 			if (Selected[Index - 1].Identity == Selected[Index].Identity)
-				return FShaderOperationResult{.Error = {.Code = EShaderError::InventoryIdentityDuplicate, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::InventoryIdentityDuplicate, .Index = Index});
 		State.FrozenPlatform = TargetPlatform;
 		State.FrozenProfile = TargetProfile;
 		for (auto& Item : Selected)
@@ -431,7 +431,7 @@ namespace Durin
 		OutBytes.clear();
 		if (!IsValidTarget(TargetPlatform, TargetProfile)
 			|| Records.empty() || Records.size() > MaximumLibraryRecords)
-			return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryRecordCountInvalid, .Actual = Records.size()}};
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryRecordCountInvalid, .Actual = Records.size()});
 		struct FEncoded
 		{
 			FDirectoryRecord Directory;
@@ -444,7 +444,7 @@ namespace Durin
 			if (Record.Request.TargetPlatform != TargetPlatform
 				|| Record.Request.TargetProfile != TargetProfile
 				|| Record.ProductionIdentity.IsZero())
-				return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryRecordInvalid, .ActualIdentity = Record.Request.Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryRecordInvalid, .ActualIdentity = Record.Request.Name});
 			FEncoded Item;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Record.Request, Item.Directory.RuntimeIdentity); !Result) return Result;
 			std::vector<std::string> Entries;
@@ -470,23 +470,23 @@ namespace Durin
 		for (size_t Index = 1; Index < Encoded.size(); ++Index)
 			if (Encoded[Index - 1].Directory.RuntimeIdentity
 				== Encoded[Index].Directory.RuntimeIdentity)
-				return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryIdentityDuplicate, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryIdentityDuplicate, .Index = Index});
 
 		uint64 DirectorySize = static_cast<uint64>(Encoded.size())
 			* LibraryDirectoryRecordSize;
 		uint64 PayloadOffset = 0;
 		if (!AlignUp(LibraryHeaderSize + DirectorySize,
 			LibraryAlignment, PayloadOffset))
-			return FShaderOperationResult::Failure(EShaderError::LibraryDirectoryOverflow);
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryOverflow});
 		uint64 Cursor = PayloadOffset;
 		for (FEncoded& Item : Encoded)
 		{
 			if (!AlignUp(Cursor, LibraryAlignment, Cursor))
-				return FShaderOperationResult::Failure(EShaderError::LibraryPayloadOffsetOverflow);
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadOffsetOverflow});
 			Item.Directory.Offset = Cursor;
 			if (!AddChecked(Cursor, Item.Directory.Size, Cursor)
 				|| Cursor > MaximumLibraryBytes)
-				return FShaderOperationResult::Failure(EShaderError::LibraryTooLarge);
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryTooLarge});
 		}
 
 		FXxHash128Builder InventoryBuilder;
@@ -547,10 +547,14 @@ namespace Durin
 		FShaderCookedLibrary& OutLibrary) -> FShaderOperationResult
 	{
 		OutLibrary = {};
-		auto Bytes = std::make_shared<FByteBuffer>();
-		if (!FFileHelper::LoadFileToArray(*Bytes, Path))
-			return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryReadFailed, .ActualIdentity = Path.generic_string()}};
-		return OpenBytes(std::move(Bytes), TargetPlatform, TargetProfile, RequiredRequests, OutLibrary);
+		return FFileIO::LoadFileToArray(Path)
+			.transform_error([](FFileIO::FFileError Error) {
+				return FShaderError{.Code = EShaderError::LibraryReadFailed, .FileError = std::move(Error)};
+			})
+			.and_then([&](FByteBuffer Bytes) {
+				return OpenBytes(std::make_shared<FByteBuffer>(std::move(Bytes)),
+					TargetPlatform, TargetProfile, RequiredRequests, OutLibrary);
+			});
 	}
 
 	auto FShaderCookedLibrary::OpenBytes(
@@ -563,7 +567,7 @@ namespace Durin
 		OutLibrary = {};
 		if (!Bytes || Bytes->size() < LibraryHeaderSize
 			|| Bytes->size() > MaximumLibraryBytes)
-			return FShaderOperationResult::Failure(EShaderError::LibraryExtentInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryExtentInvalid});
 		FBinaryReader Reader(*Bytes);
 		uint32 Platform = 0;
 		uint32 Profile = 0;
@@ -601,7 +605,7 @@ namespace Durin
 			|| FileSize != Bytes->size()
 			|| PayloadOffset > FileSize || PayloadSize != FileSize - PayloadOffset
 			|| HashWithZeroedFileDigest(*Bytes) != FileDigest)
-			return FShaderOperationResult::Failure(EShaderError::LibraryHeaderInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryHeaderInvalid});
 
 		auto Candidate = std::make_shared<FState>();
 		Candidate->Bytes = std::move(Bytes);
@@ -631,7 +635,7 @@ namespace Durin
 				|| Entry.Size == 0
 				|| Entry.Size > ShaderCompiledOutput::MaximumValueBytes
 				|| Entry.Offset > FileSize || Entry.Size > FileSize - Entry.Offset)
-				return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryDirectoryRecordInvalid, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryRecordInvalid, .Index = Index});
 			if (!Candidate->Directory.empty())
 			{
 				const FDirectoryRecord& Previous = Candidate->Directory.back();
@@ -639,7 +643,7 @@ namespace Durin
 					Previous.RuntimeIdentity.HashLow)
 					< std::tie(Entry.RuntimeIdentity.HashHigh,
 						Entry.RuntimeIdentity.HashLow)))
-					return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryDirectoryOrderInvalid, .Index = Index}};
+					return std::unexpected(FShaderError{.Code = EShaderError::LibraryDirectoryOrderInvalid, .Index = Index});
 			}
 			InventoryBuilder.UpdateValue(Entry.RuntimeIdentity);
 			PreviousEnd = Entry.Offset + Entry.Size;
@@ -649,7 +653,7 @@ namespace Durin
 			- (LibraryHeaderSize + DirectorySize)
 			|| InventoryBuilder.Finalize() != InventoryDigest
 			|| PreviousEnd != FileSize)
-			return FShaderOperationResult::Failure(EShaderError::LibraryInventoryDigestInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryInventoryDigestInvalid});
 
 		for (const FShaderRuntimeRequest& Request : RequiredRequests)
 		{
@@ -666,7 +670,7 @@ namespace Durin
 			if (Found == Candidate->Directory.end()
 				|| Found->RuntimeIdentity != Identity
 				|| Found->MemberCount != Request.Members.size())
-				return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryRequiredRequestMissing, .ActualIdentity = Request.Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryRequiredRequestMissing, .ActualIdentity = Request.Name});
 		}
 		OutLibrary.State = std::move(Candidate);
 
@@ -676,7 +680,7 @@ namespace Durin
 	auto FShaderCookedLibrary::Load(const FShaderRuntimeRequest& Request, FShaderCompilerOutput& OutOutput) const -> FShaderOperationResult
 	{
 		OutOutput = {};
-		if (!State) return FShaderOperationResult::Failure(EShaderError::LibraryNotOpen);
+		if (!State) return std::unexpected(FShaderError{.Code = EShaderError::LibraryNotOpen});
 		FXxHash128 Identity;
 		if (auto Result = BuildShaderRuntimeRequestIdentity(Request, Identity); !Result)
 			return Result;
@@ -689,12 +693,12 @@ namespace Durin
 		if (Found == State->Directory.end()
 			|| Found->RuntimeIdentity != Identity
 			|| Found->MemberCount != Request.Members.size())
-			return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryRequestUnavailable, .ActualIdentity = Request.Name}};
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryRequestUnavailable, .ActualIdentity = Request.Name});
 		const FByteView Payload(
 			State->Bytes->data() + static_cast<size_t>(Found->Offset),
 			static_cast<size_t>(Found->Size));
 		if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
-			return FShaderOperationResult{.Error = {.Code = EShaderError::LibraryPayloadDigestInvalid, .ActualIdentity = Request.Name}};
+			return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadDigestInvalid, .ActualIdentity = Request.Name});
 		std::vector<std::string> Entries;
 		FShaderCompileOptions Options;
 		MakeCompileOptions(Request, Options, Entries);

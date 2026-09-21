@@ -19,8 +19,8 @@ namespace Durin
 	{
 		FMaterialError Error(EMaterialCookError::PayloadReadFailed);
 		Error.BulkStatus = Status;
-		Error.ResourceStatus = Resource.Status;
-		Error.ResourceCause = std::make_shared<FPackageResourceReadError>(Resource.Error);
+		Error.ResourceStatus = GetPackageResourceReadStatus(Resource);
+		if (!Resource) Error.ResourceCause = std::make_shared<FPackageResourceReadError>(Resource.error());
 		return Error;
 	}
 

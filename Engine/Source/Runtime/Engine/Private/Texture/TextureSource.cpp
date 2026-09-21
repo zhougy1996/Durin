@@ -373,7 +373,7 @@ namespace Durin
 		if (Compression == Candidate.Compression
 			&& Payload.GetPayloadId() == Candidate.Payload.GetPayloadId()) return true;
 		FEditorBulkData Replacement(Payload.GetInstanceId());
-		if (!Replacement.UpdatePayload(Stored.Buffer)) return false;
+		if (!Replacement.UpdatePayload(*Stored)) return false;
 		// Detach rather than clearing residency shared with independent source copies.
 		auto NewState = std::make_shared<FMipDataState>();
 		Payload = std::move(Replacement);
@@ -435,18 +435,18 @@ namespace Durin
 		{
 			const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
 			if (!Read) return {};
-			FSharedByteBuffer Decoded = Read.Buffer;
+			FSharedByteBuffer Decoded = *Read;
 			if (Compression == ETextureSourceCompression::RunLength)
 			{
 				FByteBuffer Bytes;
-				if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
+				if (!DecodeRunLength(Read->GetBytes(), DecodedPayloadSize, Bytes))
 					return {};
 				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
 			}
 			if (Compression == ETextureSourceCompression::Zstd)
 			{
 				FByteBuffer Bytes;
-				if (!DecodeZstd(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes)) return {};
+				if (!DecodeZstd(Read->GetBytes(), DecodedPayloadSize, Bytes)) return {};
 				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
 			}
 			if (FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{

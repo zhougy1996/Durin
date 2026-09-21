@@ -145,9 +145,9 @@ TEST(FTextureSourceTests, ZstdRecompressionPreservesIdentityBuffersAndRollback)
 		Source.ReleaseSourceMemory();
 		const auto Reloaded = Source.GetMipData().GetData();
 		EXPECT_TRUE(std::ranges::equal(Reloaded.GetBytes(), Pixels));
-		const auto Stored = Source.GetBulkData().GetPayload().Wait().Buffer;
+		const auto Stored = Source.GetBulkData().GetPayload().Wait().value();
 		ASSERT_TRUE(Source.Recompress());
-		EXPECT_TRUE(Source.GetBulkData().GetPayload().Wait().Buffer.SharesStorageWith(Stored));
+		EXPECT_TRUE(Source.GetBulkData().GetPayload().Wait().value().SharesStorageWith(Stored));
 		EXPECT_FALSE(Source.Recompress(static_cast<ETextureSourceCompression>(255)));
 		EXPECT_TRUE(Source.GetMipData().GetData().SharesStorageWith(Reloaded));
 		EXPECT_EQ(Source.GetIdentity(), Identity);
@@ -172,7 +172,7 @@ TEST(FTextureSourceTests, ZstdFallsBackAndRejectsDamagedFrames)
 	ASSERT_EQ(Source.GetCompression(), ETextureSourceCompression::Zstd);
 	const auto Read = Source.GetBulkData().GetPayload().Wait();
 	ASSERT_TRUE(Read);
-	const FByteBuffer Valid(Read.Buffer.GetBytes().begin(), Read.Buffer.GetBytes().end());
+	const FByteBuffer Valid(Read->GetBytes().begin(), Read->GetBytes().end());
 	std::vector<FByteBuffer> Damaged;
 	for (size_t Size = 1; Size < Valid.size(); ++Size)
 		Damaged.emplace_back(Valid.begin(), Valid.begin() + Size);

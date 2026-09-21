@@ -1,6 +1,6 @@
 #include "Operations/ContentBrowserOperationService.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -64,12 +64,12 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (Error || Size != Entry.FileSize)
 					return Fail(std::format(
 						"Deletion source changed: {}.", Path.generic_string()));
-				FXxHash128 Identity;
-				if (!FFileHelper::HashFileXx128(Path, Identity, Error)
-					|| Identity != Entry.ByteIdentity)
+				auto Identity = FFileIO::HashFileXx128(Path);
+				if (!Identity) return Fail(Identity.error().ToString());
+				if (*Identity != Entry.ByteIdentity)
 					return Fail(std::format(
 						"Deletion source bytes changed: {}.", Path.generic_string()));
-				if (OutIdentities) VerifiedFiles.emplace(Path.generic_string(), Identity);
+				if (OutIdentities) VerifiedFiles.emplace(Path.generic_string(), *Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
 			if (Error || static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks)

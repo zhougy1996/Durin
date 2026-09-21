@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/PackageSchema.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 namespace Durin::AssetPrivate
 {
@@ -17,37 +17,40 @@ namespace Durin::AssetPrivate
 	class FFileAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
-		explicit FFileAssetPackageByteSource(std::unique_ptr<FFileHelper::IFileHandle> InHandle)
+		explicit FFileAssetPackageByteSource(std::unique_ptr<FFileIO::IFileHandle> InHandle)
 			: Handle(std::move(InHandle)) {}
 		auto GetSize() const -> uint64 override { return Handle ? Handle->GetSize() : 0; }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
-			FFileHelper::FFileIoError Error;
-			if (Handle && Handle->ReadAt(Offset, Output, &Error)) return true;
-			if (OutError) *OutError = Error.ToString();
-			return false;
+			if (!Handle)
+			{
+				if (OutError) *OutError = "Package byte source has no file handle.";
+				return false;
+			}
+			auto Read = Handle->ReadAt(Offset, Output);
+			if (!Read && OutError) *OutError = Read.error().ToString();
+			return Read.has_value();
 		}
 	private:
-		std::unique_ptr<FFileHelper::IFileHandle> Handle;
+		std::unique_ptr<FFileIO::IFileHandle> Handle;
 	};
 
 	class FBorrowedFileAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
-		explicit FBorrowedFileAssetPackageByteSource(FFileHelper::IFileHandle& InHandle)
+		explicit FBorrowedFileAssetPackageByteSource(FFileIO::IFileHandle& InHandle)
 			: Handle(InHandle) {}
 		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
-			FFileHelper::FFileIoError Error;
-			if (Handle.ReadAt(Offset, Output, &Error)) return true;
-			if (OutError) *OutError = Error.ToString();
-			return false;
+			auto Read = Handle.ReadAt(Offset, Output);
+			if (!Read && OutError) *OutError = Read.error().ToString();
+			return Read.has_value();
 		}
 	private:
-		FFileHelper::IFileHandle& Handle;
+		FFileIO::IFileHandle& Handle;
 	};
 
 	class FMemoryAssetPackageByteSource final : public IAssetPackageByteSource

@@ -4,7 +4,7 @@
 #include "DObject/Class.h"
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Project.h"
 
 namespace Durin::Editor::Level
@@ -80,11 +80,12 @@ namespace Durin::Editor::Level
 					OutState.SettingsFile, false, {});
 				return {};
 			}
-			if (!FFileHelper::LoadFileToArray(
-					OutState.Bytes, OutState.SettingsFile))
+			auto Bytes = FFileIO::LoadFileToArray(OutState.SettingsFile);
+			if (!Bytes)
 				return StoreError(
 					EAssetReadError::IoError,
-					"Could not read project settings for redirector Fix Up.");
+					Bytes.error().ToString());
+			OutState.Bytes = std::move(*Bytes);
 			FProjectGameSettings Settings;
 			const FProjectGameSettingsResult SettingsResult =
 				FProjectGameSettingsStore(OutState.SettingsFile).Load(Settings);
@@ -113,17 +114,9 @@ namespace Durin::Editor::Level
 			const std::filesystem::path& SettingsFile,
 			FByteView Bytes) -> FAssetWriteResult
 		{
-			FFileHelper::FAtomicFileError PublicationError;
-			if (Bytes.empty() || !FFileHelper::SaveArrayToFileAtomically(
-					std::span{
-						reinterpret_cast<const std::byte*>(Bytes.data()),
-						Bytes.size()},
-					SettingsFile, &PublicationError))
-				return StoreError(
-					EAssetWriteError::IoError,
-					Bytes.empty()
-						? "Project settings serialized to empty bytes."
-						: PublicationError.ToString());
+			if (Bytes.empty()) return StoreError(EAssetWriteError::IoError, "Project settings serialized to empty bytes.");
+			if (auto Saved = FFileIO::SaveArrayToFileAtomically(Bytes, SettingsFile); !Saved)
+				return StoreError(EAssetWriteError::IoError, Saved.error().ToString());
 			return {};
 		}
 	}

@@ -8,7 +8,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 
@@ -124,9 +124,13 @@ namespace Durin::Editor::ContentBrowser::Private
 				static_cast<int64>(WriteTime.time_since_epoch().count());
 			if (Kind != EContentDeletionEntryKind::Directory)
 			{
-				if (!FFileHelper::HashFileXx128(
-						Path, OutFingerprint.ByteIdentity, OutError))
+				auto Identity = FFileIO::HashFileXx128(Path);
+				if (!Identity)
+				{
+					OutError = Identity.error().NativeError;
 					return false;
+				}
+				OutFingerprint.ByteIdentity = *Identity;
 				const uintmax_t FinalSize = std::filesystem::file_size(Path, OutError);
 				if (OutError) return false;
 				const auto FinalWriteTime =

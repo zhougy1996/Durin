@@ -7,34 +7,10 @@
 #include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
 #include "Serialization/SharedByteBuffer.h"
-#include "Misc/FileHelper.h"
 
 namespace Durin
 {
 	class FPackagePath;
-
-	enum class EPackageResourceReadStatus : uint8
-	{
-		Pending,
-		Success,
-		InvalidRange,
-		MissingSegment,
-		TruncatedSegment,
-		SegmentDigestMismatch,
-		Cancelled,
-		Retired,
-		IoError,
-	};
-
-	struct FPackageResourceReadResult
-	{
-		EPackageResourceReadStatus Status = EPackageResourceReadStatus::Pending;
-		FSharedByteBuffer Buffer;
-		FPackageResourceReadError Error;
-
-		auto Succeeded() const -> bool { return Status == EPackageResourceReadStatus::Success; }
-		explicit operator bool() const { return Succeeded(); }
-	};
 
 	ENGINE_API auto FormatPackageResourceReadError(const FPackageResourceReadResult& Result) -> std::string;
 

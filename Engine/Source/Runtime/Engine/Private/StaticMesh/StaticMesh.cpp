@@ -13,7 +13,6 @@
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
 #include "Materials/MaterialInterface.h"
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"

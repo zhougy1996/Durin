@@ -170,14 +170,13 @@ namespace
 			-> FPackageResourceReadResult override
 		{
 			Started[Offset / RangeBytes] = Now();
-			if (Cancelled.load()) return {.Status = EPackageResourceReadStatus::Cancelled};
+			if (Cancelled.load()) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Cancelled});
 			std::ifstream Stream(Path, std::ios::binary);
 			Stream.seekg(static_cast<std::streamoff>(Offset));
 			FByteBuffer Bytes(Size);
 			Stream.read(reinterpret_cast<char*>(Bytes.data()), static_cast<std::streamsize>(Size));
-			if (!Stream || Cancelled.load()) return {.Status = EPackageResourceReadStatus::IoError};
-			return {.Status = EPackageResourceReadStatus::Success,
-				.Buffer = FSharedByteBuffer::Take(std::move(Bytes))};
+			if (!Stream || Cancelled.load()) return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::IoError});
+			return FSharedByteBuffer::Take(std::move(Bytes));
 		}
 		std::filesystem::path Path;
 	};
@@ -253,10 +252,9 @@ namespace
 					Resource->ReadRangeAsync(Index * RangeBytes, RangeBytes),
 					[](FPackageResourceReadResult Input) {
 						if (!Input) return Input;
-						FByteBuffer Bytes(Input.Buffer.GetBytes().begin(), Input.Buffer.GetBytes().end());
+						FByteBuffer Bytes(Input->GetBytes().begin(), Input->GetBytes().end());
 						for (auto& Byte : Bytes) Byte ^= std::byte{0x7f};
-						return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::Success,
-							.Buffer = FSharedByteBuffer::Take(std::move(Bytes))};
+						return FPackageResourceReadResult{FSharedByteBuffer::Take(std::move(Bytes))};
 					});
 			}
 			for (uint32 Index = 0; Index < BatchSize; ++Index) Results[Index] = Requests[Index].Wait();
@@ -266,8 +264,8 @@ namespace
 			for (uint32 Index = 0; Index < BatchSize; ++Index)
 			{
 				ASSERT_TRUE(Results[Index]);
-				ASSERT_EQ(Results[Index].Buffer.GetSize(), RangeBytes);
-				EXPECT_EQ(Results[Index].Buffer.GetBytes().front(), std::byte{0x4a});
+				ASSERT_EQ(Results[Index]->GetSize(), RangeBytes);
+				EXPECT_EQ(Results[Index]->GetBytes().front(), std::byte{0x4a});
 				if (Batch >= WarmupBatches) Package.QueueNanoseconds.push_back(Resource->Started[Index] - Submitted[Index]);
 			}
 			Package.RetainedResultBytes = RangeBytes * BatchSize;

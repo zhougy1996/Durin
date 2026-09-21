@@ -28,7 +28,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 5;
+		static constexpr uint32 FeatureVersion = 6;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
@@ -49,7 +49,7 @@ namespace Durin
 		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult
 		{
 			OutIdentity.clear();
-			return {.Error = {.Code = EShaderError::CookInputIdentityUnsupported}};
+			return std::unexpected(FShaderError{.Code = EShaderError::CookInputIdentityUnsupported});
 		}
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
 		virtual auto BuildCookedLibrary(

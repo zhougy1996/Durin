@@ -3,7 +3,6 @@
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/FilePublication.h"
-#include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
 

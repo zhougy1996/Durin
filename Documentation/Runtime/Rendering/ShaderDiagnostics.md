@@ -5,8 +5,8 @@ Modules: RenderCore, ShaderBuild, Engine, Launch, Renderer, MonaImGui, TextureEd
 
 ## Validation results
 
-`FShaderOperationResult` owns an `FShaderError`. `EShaderError::None` means
-success; the result has no independent success flag or error output parameter.
+`FShaderOperationResult` is `std::expected<void, FShaderError>`. An engaged
+result means success; failures carry one error accessed through `error()`.
 Parameter binding, pipeline reflection merging, ShaderMap initialization, and
 MaterialShaderMap construction preserve errors through nested calls. Compiled
 payload (`DSHD`) encoding and decoding use the same result contract; ShaderBuild
@@ -36,19 +36,20 @@ only complete values; the binary schema and cache keys are unchanged.
 
 ShaderBuild validation, source manifests, fingerprints, generated imports, Cook
 input capture, and provider calls preserve typed results. The provider interface
-version is 5. Missing providers, failed visitors, nested captures, and cancellation
+version is 6. Missing providers, failed visitors, nested captures, and cancellation
 have explicit codes. Modular-feature invocation failures also retain their status
 and matching-provider count.
 
 `FShaderError::FromSlang` retains the compiler phase, optional native status, and
-at most 4096 bytes of opaque compiler diagnostics. Filesystem errors preserve
-`std::error_code`; file reads preserve `FFileIoError`. The existing Core
-fingerprint interface still supplies text, so `FromFileFingerprint` retains its
-path and a bounded diagnostic at that adapter. None of these strings determine
-success or error classification.
+at most 4096 bytes of opaque compiler diagnostics. Filesystem, file-read, and
+fingerprint failures preserve `FFileIO::FFileError`, including the physical path,
+operation, native cause and
+optional byte range. Fingerprint reuse returns an expected current/stale status,
+so inspection failures do not pass through a text diagnostic adapter. None of
+the external diagnostic strings determine success or error classification.
 
-Routine operation failures use `FShaderOperationResult::Failure`; filesystem
-failures use `FileSystemFailure` with an owned path and native error. Source
+Routine operation failures return `std::unexpected(FShaderError{...})`;
+filesystem failures use `FShaderError::FromFileSystem` with an owned path and native error. Source
 capture uses named budgets and a typed capture-limit context (kind, maximum,
 actual). Metadata errors identify the current entry; iterator increment errors
 retain the last known entry without dereferencing a failed iterator. Formatting

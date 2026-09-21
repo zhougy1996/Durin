@@ -4290,13 +4290,13 @@ namespace Durin
 		EXPECT_NE(FormatRDGError(Result).find(FormatRHICreationError(Native)), std::string::npos);
 
 		FRenderResourceCreateError Resource;
-		Resource.Cause = FShaderOperationResult::FileSystemFailure("/Owned/Source",
-			std::make_error_code(std::errc::permission_denied)).Error;
+		Resource.Cause = FShaderError::FromFileSystem("/Owned/Source",
+			std::make_error_code(std::errc::permission_denied));
 		const auto ShaderText = FormatShaderError(std::get<FShaderError>(Resource.Cause));
 		Result.Cause = std::move(Resource);
 		EXPECT_NE(FormatRDGError(Result).find(ShaderText), std::string::npos);
 		EXPECT_EQ(std::get<FShaderError>(std::get<FRenderResourceCreateError>(Result.Cause).Cause)
-			.SystemError, std::make_error_code(std::errc::permission_denied));
+			.FileError->NativeError, std::make_error_code(std::errc::permission_denied));
 	}
 
 	TEST_F(FRDGTests, EnforcesDeterministicStructuralBudgets)

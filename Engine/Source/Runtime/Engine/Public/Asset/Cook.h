@@ -11,7 +11,7 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 namespace Durin
 {
@@ -218,7 +218,7 @@ namespace Durin
 		uint64 Maximum = 0;
 		uint64 Retained = 0;
 		uint64 MaximumRetained = 0;
-		std::optional<FFileHelper::FFileIoError> FileCause;
+		std::optional<FFileIO::FFileError> FileCause;
 		std::shared_ptr<const FObjectError> PathCause;
 		std::string Member;
 		uint64 Expected = 0;
@@ -291,7 +291,6 @@ namespace Durin
 		uint64 CommitTimeNanoseconds = 0;
 		uint64 RollbackTimeNanoseconds = 0;
 		FCookInputResult InputFailure;
-		std::optional<FCookInputFailure> InputDiagnostic;
 		std::shared_ptr<const FCookPublishResult> PublicationCause;
 		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
 		std::shared_ptr<const FProjectGameSettingsResult> SettingsCause;

@@ -74,7 +74,7 @@ namespace Durin
 		const std::string NormalizedPath = NormalizePath(std::filesystem::path(StoredFingerprint.NormalizedPath));
 		if (NormalizedPath != StoredFingerprint.NormalizedPath)
 		{
-			return {.Status = EFileFingerprintReuseStatus::Stale};
+			return EFileFingerprintReuseStatus::Stale;
 		}
 
 		std::error_code ErrorCode;
@@ -82,32 +82,26 @@ namespace Durin
 		{
 			if (ErrorCode)
 			{
-				return {.Status = EFileFingerprintReuseStatus::Failed,
-					.Diagnostic = std::format(
-						"Failed to stat file {}: {}", NormalizedPath, ErrorCode.message())};
+				return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
 			}
-			return {.Status = EFileFingerprintReuseStatus::Stale};
+			return EFileFingerprintReuseStatus::Stale;
 		}
 
 		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return {.Status = EFileFingerprintReuseStatus::Failed,
-				.Diagnostic = std::format(
-					"Failed to query file timestamp {}: {}", NormalizedPath, ErrorCode.message())};
+			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
 		}
 
 		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return {.Status = EFileFingerprintReuseStatus::Failed,
-				.Diagnostic = std::format(
-					"Failed to query file size {}: {}", NormalizedPath, ErrorCode.message())};
+			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, NormalizedPath});
 		}
 
 		if (LastWriteTime != StoredFingerprint.LastWriteTime || FileSize != StoredFingerprint.FileSize)
 		{
-			return {.Status = EFileFingerprintReuseStatus::Stale};
+			return EFileFingerprintReuseStatus::Stale;
 		}
 
 		{
@@ -118,7 +112,7 @@ namespace Durin
 				.ContentHash = StoredFingerprint.ContentHash
 			});
 		}
-		return {.Status = EFileFingerprintReuseStatus::Current};
+		return EFileFingerprintReuseStatus::Current;
 	}
 
 	auto FFileFingerprintCache::GetContentReadCount() const -> uint64

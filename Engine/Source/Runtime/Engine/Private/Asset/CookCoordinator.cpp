@@ -18,7 +18,7 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Engine/ProjectGameSettings.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Project.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -94,12 +94,12 @@ namespace Durin
 			auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 			if (!Access) return false;
 			Out.clear();
-			auto File = FFileHelper::OpenRead(Path);
-			if (!File || File->GetSize() > MaximumCookStateBytes) return false;
-			Out.resize(static_cast<size_t>(File->GetSize()));
+			auto File = FFileIO::OpenRead(Path);
+			if (!File || (*File)->GetSize() > MaximumCookStateBytes) return false;
+			Out.resize(static_cast<size_t>((*File)->GetSize()));
 			constexpr size_t Chunk = 4 * 1024 * 1024;
 			for (size_t Offset = 0; Offset < Out.size(); Offset += Chunk)
-				if ((Continue && !Continue()) || !File->ReadAt(Offset,
+				if ((Continue && !Continue()) || !(*File)->ReadAt(Offset,
 					std::span(Out).subspan(Offset, std::min(Chunk, Out.size() - Offset))))
 				{
 					Out.clear(); return false;
@@ -370,7 +370,7 @@ namespace Durin
 			return Result.Stage == ECookOperationStage::Discovery ? "CookCancelledBeforeDiscovery" : "CookCancelledBeforePackagePreparation";
 		case ECookRunError::ProjectSettingsFailed: return Result.SettingsCause ? std::format("CookProjectSettingsFailed: {}", Result.SettingsCause->Message) : "Cook project settings failed.";
 		case ECookRunError::InvalidDefaultLevel: return std::format("CookInvalidDefaultLevel: {}: {}", Result.AssetIdentity, Result.DefaultLevelCause ? FormatObjectError(*Result.DefaultLevelCause) : "Invalid path");
-		case ECookRunError::InputFailed: return Result.InputFailure.Message;
+		case ECookRunError::InputFailed: return Result.InputFailure.ToString();
 		case ECookRunError::LoadInjectedFailure:
 		case ECookRunError::PrepareInjectedFailure:
 		case ECookRunError::CaptureInjectedFailure:
@@ -523,7 +523,6 @@ namespace Durin
 			};
 			auto InputFailure = [&](const FCookInputResult& Result) -> bool {
 				OutResult.InputFailure = Result;
-				OutResult.InputDiagnostic = Inputs.GetFailureInfo();
 
 				return Finish(Result.Status == ECookInputStatus::Cancelled
 					? ECookRunStatus::Cancelled : ECookRunStatus::Failed, ECookRunError::InputFailed);
@@ -652,7 +651,7 @@ namespace Durin
 					FByteBuffer ShaderBytes;
 					if (const auto ShaderResult = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
-						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.Error);
+						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.error());
 						return IsCancelled(Request.IsCancelled)
 							? Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled)
 							: Finish(ECookRunStatus::Failed, ECookRunError::ShaderLibraryFailed);

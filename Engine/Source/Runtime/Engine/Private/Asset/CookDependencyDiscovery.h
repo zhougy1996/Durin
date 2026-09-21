@@ -31,7 +31,7 @@ namespace Durin::AssetPrivate
 		auto GetDependencies(const FPackagePath& Path) const -> const std::vector<FCookBuildDependency>& { return Inputs.at(Path).Dependencies; }
 		auto GetRetainedBytes() const -> uint64 { return RetainedBytes; }
 		auto GetStatus() const -> ECookInputStatus { return Failure.Status; }
-		auto GetFailureInfo() const -> const std::optional<FCookInputFailure>& { return FailureInfo; }
+		auto GetFailureInfo() const -> std::shared_ptr<const FCookInputFailure> { return Failure.GetDiagnostic(); }
 		auto IsReusable(const FPackagePath& Path) const -> bool;
 	private:
 		struct FInput
@@ -61,7 +61,6 @@ namespace Durin::AssetPrivate
 		std::string ShaderBuildIdentity;
 		std::unordered_map<std::string, FByteBuffer> SchemaValues;
 		FCookInputResult Failure;
-		std::optional<FCookInputFailure> FailureInfo;
 		std::unordered_map<FPackagePath, FInput> Inputs;
 		std::unordered_set<std::string> UnversionedPackages;
 		std::vector<FPackagePath> RuntimePackages;

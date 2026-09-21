@@ -194,6 +194,29 @@ TEST(FFileIOTests, DistinguishesMissingFilesFromQueryFailure)
 	EXPECT_TRUE(Saved.error().NativeError);
 }
 
+TEST(FFileIOTests, FingerprintReuseDistinguishesCurrentChangedAndMissing)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("ReuseResult");
+	const auto Path = Root / "Source.bin";
+	ASSERT_TRUE(FFileIO::SaveArrayToFile(FByteBuffer{std::byte{1}}, Path));
+	FFileFingerprintCache Cache;
+	const auto Stored = Cache.Get(Path);
+	ASSERT_TRUE(Stored);
+	const auto Current = Cache.TryReuse(*Stored);
+	ASSERT_TRUE(Current);
+	EXPECT_EQ(*Current, EFileFingerprintReuseStatus::Current);
+	ASSERT_TRUE(FFileIO::SaveArrayToFile(FByteBuffer(2, std::byte{2}), Path));
+	const auto Changed = Cache.TryReuse(*Stored);
+	ASSERT_TRUE(Changed);
+	EXPECT_EQ(*Changed, EFileFingerprintReuseStatus::Stale);
+	std::filesystem::remove(Path);
+	const auto Missing = Cache.TryReuse(*Stored);
+	ASSERT_TRUE(Missing);
+	EXPECT_EQ(*Missing, EFileFingerprintReuseStatus::Stale);
+	EXPECT_EQ(Cache.GetContentReadCount(), 1u);
+}
+
 TEST(FFileIOTests, PublicationResultsPreserveExistingBytes)
 {
 	using namespace Durin;

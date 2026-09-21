@@ -406,14 +406,14 @@ namespace Durin
 					FPackageResourceReadResult Result = Read.Wait();
 					if (!Result)
 					{
-						Terminal = Result.Status == EPackageResourceReadStatus::Cancelled
+						Terminal = Result.error().Status == EPackageResourceReadStatus::Cancelled
 							? ECookedMeshTerminalState::Cancelled
 							: ECookedMeshTerminalState::Failed;
 						ReadError = {.Code = ECookedMeshLoadError::Read, .Index = Buffers.size(),
 							.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(Result))};
 						break;
 					}
-					Buffers.push_back(std::move(Result.Buffer));
+					Buffers.push_back(std::move(*Result));
 				}
 				Flight->Reads.clear();
 				if (Terminal != ECookedMeshTerminalState::Succeeded)

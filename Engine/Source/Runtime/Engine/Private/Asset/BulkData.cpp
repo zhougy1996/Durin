@@ -210,20 +210,20 @@ namespace Durin
 			Guard.unlock();
 			auto Result = Metadata.Range.Resource->ReadRange(Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
 			Guard.lock();
-			if (Result && Result.Buffer.GetSize() != Metadata.LogicalSize)
-				Result = {.Status = EPackageResourceReadStatus::TruncatedSegment, .Error = {.Reason = EPackageResourceReadReason::LogicalSizeMismatch, .Actual = Result.Buffer.GetSize(), .Expected = Metadata.LogicalSize}};
+			if (Result && Result->GetSize() != Metadata.LogicalSize)
+				Result = std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::TruncatedSegment, .Reason = EPackageResourceReadReason::LogicalSizeMismatch, .Actual = Result->GetSize(), .Expected = Metadata.LogicalSize});
 			if (!Result)
 			{
-				State->State = Result.Status == EPackageResourceReadStatus::Retired ? EBulkDataState::Retired : EBulkDataState::Failed;
+				State->State = Result.error().Status == EPackageResourceReadStatus::Retired ? EBulkDataState::Retired : EBulkDataState::Failed;
 				return {.Status = State->State == EBulkDataState::Retired ? EBulkReadStatus::Retired : EBulkReadStatus::ReadFailed, .Error = std::move(Result)};
 			}
-			State->Allocation = std::make_shared<FByteBuffer>(Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
+			State->Allocation = std::make_shared<FByteBuffer>(Result->GetBytes().begin(), Result->GetBytes().end());
 			State->State = EBulkDataState::Resident;
 		}
 		if (State->State == EBulkDataState::Retired)
-			return {.Status = EBulkReadStatus::Retired, .Error = {.Status = EPackageResourceReadStatus::Retired, .Error = {.Reason = EPackageResourceReadReason::Retired}}};
+			return {.Status = EBulkReadStatus::Retired, .Error = std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Retired, .Reason = EPackageResourceReadReason::Retired})};
 		if (State->State != EBulkDataState::Resident && State->State != EBulkDataState::ReadLocked && State->State != EBulkDataState::Detached)
-			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = {.Error = {.Reason = EPackageResourceReadReason::BulkUnavailable, .BulkState = State->State}}};
+			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = std::unexpected(FPackageResourceReadError{.Reason = EPackageResourceReadReason::BulkUnavailable, .BulkState = State->State})};
 		++State->ReadLocks;
 		State->State = EBulkDataState::ReadLocked;
 		return {.Status = EBulkReadStatus::Acquired, .Lock = FBulkDataReadScope(State)};
@@ -261,15 +261,13 @@ namespace Durin
 					|| State->State == EBulkDataState::Detached)
 				&& State->Allocation)
 			{
-				return FPackageResourceRequest::Completed({
-					.Status = EPackageResourceReadStatus::Success,
-					.Buffer = FSharedByteBuffer::Share(State->Allocation)});
+				return FPackageResourceRequest::Completed(FSharedByteBuffer::Share(State->Allocation));
 			}
 			if ((State->State != EBulkDataState::Attached && State->State != EBulkDataState::Failed)
 				|| !State->Metadata.Range.Resource)
-				return FPackageResourceRequest::Completed({
+				return FPackageResourceRequest::Completed(std::unexpected(FPackageResourceReadError{
 					.Status = EPackageResourceReadStatus::InvalidRange,
-					.Error = {.Reason = EPackageResourceReadReason::ReloadUnavailable, .BulkState = State->State}});
+					.Reason = EPackageResourceReadReason::ReloadUnavailable, .BulkState = State->State}));
 			Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
 		}
@@ -280,13 +278,13 @@ namespace Durin
 			[Target, Metadata](FPackageResourceReadResult Result) {
 			std::lock_guard Lock(Target->Mutex);
 			if (Target->State != EBulkDataState::Loading) return Result;
-			if (Result && Result.Buffer.GetSize() == Metadata.LogicalSize)
+			if (Result && Result->GetSize() == Metadata.LogicalSize)
 			{
 				Target->Allocation = std::make_shared<FByteBuffer>(
-					Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
+					Result->GetBytes().begin(), Result->GetBytes().end());
 				Target->State = EBulkDataState::Resident;
 			}
-			else Target->State = Result.Status == EPackageResourceReadStatus::Retired
+			else Target->State = GetPackageResourceReadStatus(Result) == EPackageResourceReadStatus::Retired
 				? EBulkDataState::Retired : EBulkDataState::Failed;
 			return Result;
 		});
@@ -317,7 +315,7 @@ namespace Durin
 						FormatPackageResourceReadError(Result));
 					return;
 				}
-				Buffer = Result.Buffer;
+				Buffer = *Result;
 			}
 			if (Buffer.GetSize() != Metadata.LogicalSize)
 			{

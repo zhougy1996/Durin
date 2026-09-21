@@ -72,7 +72,7 @@ namespace Durin
 		Error = RegisterShaderRuntimeRequest(
 			std::move(Request), Eligibility, Registration, BaseTypes);
 		requiref(Registration.IsValid(),
-			"Global Shader set registration failed for '{}': {}", Name, FormatShaderError(Error.Error));
+			"Global Shader set registration failed for '{}': {}", Name, FormatShaderError(Error.error()));
 	}
 
 	struct FGlobalShaderMap::FSectionEntry
@@ -191,7 +191,7 @@ namespace Durin
 					FShaderCompileOptions Options;
 					Options.bForceRecompile =
 						ForceRecompileShaderGeneration == Generation.Shader;
-					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).IsSuccess();
+					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).has_value();
 				}
 				if (!bInitialized)
 				{
@@ -200,7 +200,7 @@ namespace Durin
 						.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Cause = ShaderResult.IsSuccess() ? std::move(Error.Error) : std::move(ShaderResult.Error),
+						.Cause = ShaderResult.has_value() ? std::move(Error.error()) : std::move(ShaderResult.error()),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}

@@ -2,7 +2,7 @@
 
 #include "Actors/GameMode.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Yaml/Yaml.h"
@@ -137,17 +137,11 @@ namespace Durin
 		FByteBuffer Bytes;
 		FProjectGameSettingsResult Result = BuildDefaultLevelUpdate(DefaultLevel, Bytes);
 		if (!Result) return Result;
-		std::error_code DirectoryError;
-		std::filesystem::create_directories(SettingsFile.parent_path(), DirectoryError);
-		if (DirectoryError)
-			return Failure(EProjectGameSettingsError::IoError, std::format("Could not create the project settings directory: {}", DirectoryError.message()));
-		FFileHelper::FAtomicFileError PublicationError;
-		if (!FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
-				SettingsFile,
-				&PublicationError))
+		if (auto PublicationError = FFileIO::SaveArrayToFileAtomically(
+				Bytes,
+				SettingsFile); !PublicationError)
 		{
-			return Failure(EProjectGameSettingsError::IoError, std::format("Could not save project game settings: {}", PublicationError.ToString()));
+			return Failure(EProjectGameSettingsError::IoError, std::format("Could not save project game settings: {}", PublicationError.error().ToString()));
 		}
 		return {};
 	}

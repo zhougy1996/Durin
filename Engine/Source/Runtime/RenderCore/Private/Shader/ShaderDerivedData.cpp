@@ -83,7 +83,7 @@ namespace Durin::ShaderCompiledOutput
 		OutBytes.clear();
 		if (!Output || !IsValidRequest(Options)
 			|| Output.CompiledShaders.size() != Options.EntryPoints.size())
-			return {.Error = {.Code = EShaderError::PayloadRequestInvalid}};
+			return std::unexpected(FShaderError{.Code = EShaderError::PayloadRequestInvalid});
 
 		FBinaryWriter Writer;
 		Writer.WriteHeader({PayloadMagic, PayloadSchemaVersion, BuilderVersion});
@@ -103,7 +103,7 @@ namespace Durin::ShaderCompiledOutput
 				|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash
 				|| Shader.Reflection.ResourceBindings.size() > GMaximumReflectionEntries
 				|| Shader.Reflection.PushConstantRanges.size() > GMaximumReflectionEntries)
-				return {.Error = {.Code = EShaderError::PayloadOutputInvalid, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadOutputInvalid, .Index = Index});
 
 			Writer.WriteString(Shader.SourceEntryPoint);
 			Writer.WriteString(Shader.BinaryEntryPoint);
@@ -127,11 +127,11 @@ namespace Durin::ShaderCompiledOutput
 					|| Binding.BindingIndex > GMaximumDescriptorIndex
 					|| !IsValidBindingType(Type) || Binding.ArraySize == 0
 					|| Binding.ArraySize > GMaximumReflectionEntries)
-					return {.Error = {.Code = EShaderError::PayloadBindingInvalid,
+					return std::unexpected(FShaderError{.Code = EShaderError::PayloadBindingInvalid,
 						.Parameter = Binding.Name,
 						.Index = Index,
 						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex}};
+						.BindingIndex = Binding.BindingIndex});
 				Writer.WriteString(Binding.Name);
 				Writer.WriteU32(Flags);
 				Writer.WriteU32(Binding.SetIndex);
@@ -149,10 +149,10 @@ namespace Durin::ShaderCompiledOutput
 					|| Range.Offset > GMaximumPushConstantBytes
 					|| Range.Size > GMaximumPushConstantBytes
 					|| Range.Offset > GMaximumPushConstantBytes - Range.Size)
-					return {.Error = {.Code = EShaderError::PayloadPushConstantInvalid,
+					return std::unexpected(FShaderError{.Code = EShaderError::PayloadPushConstantInvalid,
 						.Index = Index,
 						.Actual = Range.Size,
-						.NewBegin = Range.Offset}};
+						.NewBegin = Range.Offset});
 				Writer.WriteU32(Flags);
 				Writer.WriteU32(Range.Offset);
 				Writer.WriteU32(Range.Size);
@@ -160,9 +160,9 @@ namespace Durin::ShaderCompiledOutput
 			}
 		}
 		if (Writer.GetBytes().size() > MaximumValueBytes)
-			return {.Error = {.Code = EShaderError::PayloadTooLarge,
+			return std::unexpected(FShaderError{.Code = EShaderError::PayloadTooLarge,
 				.Expected = MaximumValueBytes,
-				.Actual = Writer.GetBytes().size()}};
+				.Actual = Writer.GetBytes().size()});
 		OutBytes = Writer.TakeBytes();
 		return {};
 	}
@@ -175,7 +175,7 @@ namespace Durin::ShaderCompiledOutput
 		OutOutput = {};
 		if (Bytes.empty() || Bytes.size() > MaximumValueBytes
 			|| !IsValidRequest(Options))
-			return {.Error = {.Code = EShaderError::PayloadInputInvalid, .Actual = Bytes.size()}};
+			return std::unexpected(FShaderError{.Code = EShaderError::PayloadInputInvalid, .Actual = Bytes.size()});
 
 		FBinaryReader Reader(Bytes);
 		uint32 Reserved = 0;
@@ -186,7 +186,7 @@ namespace Durin::ShaderCompiledOutput
 			|| !Reader.ReadU32(EntryCount)
 			|| EntryCount != Options.EntryPoints.size()
 			|| EntryCount > MaximumEntryPoints)
-			return {.Error = {.Code = EShaderError::PayloadHeaderInvalid}};
+			return std::unexpected(FShaderError{.Code = EShaderError::PayloadHeaderInvalid});
 
 		FShaderCompilerOutput Candidate;
 		Candidate.CompiledShaders.reserve(EntryCount);
@@ -208,24 +208,24 @@ namespace Durin::ShaderCompiledOutput
 				|| Frequency != static_cast<uint32>(Options.Frequencies[Index])
 				|| Shader.SourceEntryPoint != EntryPoint(Options.EntryPoints[Index])
 				|| Shader.BinaryEntryPoint.empty())
-				return {.Error = {.Code = EShaderError::PayloadEntryInvalid, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadEntryInvalid, .Index = Index});
 			FByteBuffer Code;
 			if (!Reader.ReadBytes(Code, CodeBytes, GMaximumCodeBytes)
 				|| !ValidateCode(Code))
-				return {.Error = {.Code = EShaderError::PayloadSpirvInvalid, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadSpirvInvalid, .Index = Index});
 			Shader.Frequency = static_cast<EShaderFrequency>(Frequency);
 			Shader.Hash = {HashLow, HashHigh};
 			if (FXxHash128::HashBuffer(Code) != Shader.Hash)
-				return {.Error = {.Code = EShaderError::PayloadSpirvHashMismatch, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadSpirvHashMismatch, .Index = Index});
 			Shader.Code = std::make_shared<FByteBuffer>(std::move(Code));
 
 			uint32 BindingCount = 0;
 			if (!Reader.ReadU32(BindingCount)
 				|| BindingCount > GMaximumReflectionEntries)
-				return {.Error = {.Code = EShaderError::PayloadBindingCountInvalid,
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadBindingCountInvalid,
 					.Index = Index,
 					.Expected = GMaximumReflectionEntries,
-					.Actual = BindingCount}};
+					.Actual = BindingCount});
 			Shader.Reflection.ResourceBindings.reserve(BindingCount);
 			for (uint32 BindingIndex = 0; BindingIndex < BindingCount;
 				++BindingIndex)
@@ -244,11 +244,11 @@ namespace Durin::ShaderCompiledOutput
 					|| Binding.BindingIndex > GMaximumDescriptorIndex
 					|| !IsValidBindingType(Type) || Binding.ArraySize == 0
 					|| Binding.ArraySize > GMaximumReflectionEntries)
-					return {.Error = {.Code = EShaderError::PayloadBindingInvalid,
+					return std::unexpected(FShaderError{.Code = EShaderError::PayloadBindingInvalid,
 						.Index = Index,
 						.ElementIndex = BindingIndex,
 						.SetIndex = Binding.SetIndex,
-						.BindingIndex = Binding.BindingIndex}};
+						.BindingIndex = Binding.BindingIndex});
 				Binding.StageFlags = static_cast<EShaderStageFlags>(Flags);
 				Binding.Type = static_cast<ERHIBindingType>(Type);
 				Shader.Reflection.ResourceBindings.push_back(std::move(Binding));
@@ -257,10 +257,10 @@ namespace Durin::ShaderCompiledOutput
 			uint32 RangeCount = 0;
 			if (!Reader.ReadU32(RangeCount)
 				|| RangeCount > GMaximumReflectionEntries)
-				return {.Error = {.Code = EShaderError::PayloadPushConstantCountInvalid,
+				return std::unexpected(FShaderError{.Code = EShaderError::PayloadPushConstantCountInvalid,
 					.Index = Index,
 					.Expected = GMaximumReflectionEntries,
-					.Actual = RangeCount}};
+					.Actual = RangeCount});
 			Shader.Reflection.PushConstantRanges.reserve(RangeCount);
 			for (uint32 RangeIndex = 0; RangeIndex < RangeCount; ++RangeIndex)
 			{
@@ -273,16 +273,16 @@ namespace Durin::ShaderCompiledOutput
 					|| Range.Offset > GMaximumPushConstantBytes
 					|| Range.Size > GMaximumPushConstantBytes
 					|| Range.Offset > GMaximumPushConstantBytes - Range.Size)
-					return {.Error = {.Code = EShaderError::PayloadPushConstantInvalid,
+					return std::unexpected(FShaderError{.Code = EShaderError::PayloadPushConstantInvalid,
 						.Index = Index,
-						.ElementIndex = RangeIndex}};
+						.ElementIndex = RangeIndex});
 				Range.StageFlags = static_cast<EShaderStageFlags>(Flags);
 				Shader.Reflection.PushConstantRanges.push_back(Range);
 			}
 			Candidate.CompiledShaders.push_back(std::move(Shader));
 		}
 		if (!Reader.IsAtEnd())
-			return {.Error = {.Code = EShaderError::PayloadTrailingBytes}};
+			return std::unexpected(FShaderError{.Code = EShaderError::PayloadTrailingBytes});
 		Candidate.Error = {};
 		OutOutput = std::move(Candidate);
 		return {};

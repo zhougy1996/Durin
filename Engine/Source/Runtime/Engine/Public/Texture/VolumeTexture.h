@@ -77,7 +77,7 @@ namespace Durin
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		auto GetVoxelBytes() const -> FSharedByteBuffer
 		{
-			return Voxels.GetPayload().Wait().Buffer;
+			return Voxels.GetPayload().Wait().value_or(FSharedByteBuffer{});
 		}
 		ENGINE_API auto SetVoxelBytes(FByteView Bytes) -> bool;
 	};

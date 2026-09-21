@@ -18,7 +18,6 @@ namespace Durin
 		Add(SetIndex); Add(BindingIndex);
 		Add(ExistingBegin); Add(ExistingEnd); Add(NewBegin); Add(NewEnd);
 		Add(ProviderStatus); Add(CompilerPhase); Add(NativeStatus);
-		AddNative(SystemError);
 		Add(CaptureLimit.has_value());
 		if (CaptureLimit)
 		{
@@ -28,7 +27,9 @@ namespace Durin
 		if (FileError)
 		{
 			Add(FileError->Operation); AddNative(FileError->NativeError);
-			Add(FileError->Path.generic_string()); Add(FileError->Offset); Add(FileError->Size);
+			Add(FileError->Path.generic_string()); Add(FileError->RelatedPath.generic_string());
+			Add(FileError->Range.has_value());
+			if (FileError->Range) { Add(FileError->Range->Offset); Add(FileError->Range->Size); }
 		}
 		return Fingerprint;
 	}
@@ -74,12 +75,6 @@ namespace Durin
 			.ExternalDiagnostic = std::string(Diagnostic.substr(0, 4096))};
 	}
 
-	auto FShaderError::FromFileFingerprint(std::string_view Path, std::string_view Diagnostic) -> FShaderError
-	{
-		return {.Code = EShaderError::FileFingerprintFailure, .ActualIdentity = std::string(Path),
-			.ExternalDiagnostic = std::string(Diagnostic.substr(0, 4096))};
-	}
-
 	auto FormatShaderError(const FShaderError& Error) -> std::string
 	{
 		if (!Error.IsSuccess() && Error.CaptureLimit)
@@ -99,7 +94,7 @@ namespace Durin
 		case EShaderError::InvalidProviderCapture: return "Invalid or nested ShaderBuild capture visitor.";
 		case EShaderError::CaptureMountLimit: return "Shader mount limit exceeded.";
 		case EShaderError::FileSystemFailure:
-			return std::format("Shader filesystem operation failed for '{}': {}", Error.ActualIdentity, Error.SystemError.message());
+			return Error.FileError ? Error.FileError->ToString() : "Shader filesystem operation failed.";
 		case EShaderError::CaptureDirectoryLimit: return "Shader directory entry limit exceeded.";
 		case EShaderError::CaptureSymlink: return std::format("Shader capture requires regular source files, not symbolic links: '{}'.", Error.ActualIdentity);
 		case EShaderError::FileReadFailure:
@@ -135,8 +130,6 @@ namespace Durin
 		case EShaderError::CompilationNotStarted: return "Shader compilation has not completed.";
 		case EShaderError::SlangFailure:
 			return std::format("Slang phase {} failed (status {}): {}", ShaderCompilerPhaseName(Error.CompilerPhase), Error.NativeStatus ? std::to_string(*Error.NativeStatus) : "unavailable", Error.ExternalDiagnostic);
-		case EShaderError::FileFingerprintFailure:
-			return std::format("Shader dependency fingerprint failed for '{}': {}", Error.ActualIdentity, Error.ExternalDiagnostic);
 
 		case EShaderError::InventoryEmpty: return "Cooked Shader inventory is empty.";
 		case EShaderError::Cancelled: return "Shader operation cancelled.";
@@ -161,7 +154,7 @@ namespace Durin
 		case EShaderError::LibraryDirectoryOverflow: return "Shader library directory extent overflowed.";
 		case EShaderError::LibraryPayloadOffsetOverflow: return "Shader library payload offset overflowed.";
 		case EShaderError::LibraryTooLarge: return "Shader library exceeds its byte bound.";
-		case EShaderError::LibraryReadFailed: return std::format("Shader library could not be read: {}", Error.ActualIdentity);
+		case EShaderError::LibraryReadFailed: return Error.FileError ? Error.FileError->ToString() : "Shader library could not be read.";
 		case EShaderError::LibraryExtentInvalid: return "Shader library byte extent is invalid.";
 		case EShaderError::LibraryHeaderInvalid: return "Shader library header is incompatible or corrupt.";
 		case EShaderError::LibraryDirectoryRecordInvalid: return "Shader library directory record is invalid.";

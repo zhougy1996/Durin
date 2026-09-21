@@ -174,7 +174,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"GBufferShaderMap",
 							std::to_string(ShaderKey.FactoryKey.HashValue),
-							std::move(ShaderResult.Error),
+							std::move(ShaderResult.error()),
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}

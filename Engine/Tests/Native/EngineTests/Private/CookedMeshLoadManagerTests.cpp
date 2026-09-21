@@ -33,11 +33,9 @@ namespace
 			bStarted.store(true, std::memory_order_release);
 			Gate.acquire();
 			if (bCancelled.load(std::memory_order_acquire))
-				return {.Status = EPackageResourceReadStatus::Cancelled,
-					.Error = {.Reason = EPackageResourceReadReason::Cancelled}};
-			return {.Status = EPackageResourceReadStatus::Success,
-				.Buffer = FSharedByteBuffer::Take(
-					Durin::FByteBuffer(static_cast<size_t>(Size), std::byte{0x2a}))};
+				return std::unexpected(FPackageResourceReadError{.Status = EPackageResourceReadStatus::Cancelled,
+					.Reason = EPackageResourceReadReason::Cancelled});
+			return FSharedByteBuffer::Take(Durin::FByteBuffer(static_cast<size_t>(Size), std::byte{0x2a}));
 		}
 
 		std::binary_semaphore Gate{0};
@@ -531,8 +529,9 @@ TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
 	EXPECT_EQ(ReadError.Code, ECookedMeshLoadError::Read);
 	EXPECT_EQ(ReadError.Index, 0u);
 	ASSERT_NE(ReadError.ReadCause, nullptr);
-	EXPECT_EQ(ReadError.ReadCause->Status, EPackageResourceReadStatus::Cancelled);
-	const auto& Cause = ReadError.ReadCause->Error;
+	ASSERT_FALSE(*ReadError.ReadCause);
+	EXPECT_EQ(ReadError.ReadCause->error().Status, EPackageResourceReadStatus::Cancelled);
+	const auto& Cause = ReadError.ReadCause->error();
 	EXPECT_TRUE(Cause.Reason == EPackageResourceReadReason::Cancelled
 		|| Cause.Reason == EPackageResourceReadReason::TaskCancelled);
 	if (Cause.Reason == EPackageResourceReadReason::TaskCancelled)

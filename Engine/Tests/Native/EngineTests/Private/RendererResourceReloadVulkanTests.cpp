@@ -405,7 +405,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										ShaderCompile,
-									ErrorMessage.Error));
+									ErrorMessage.error()));
 							}
 							auto* VertexShader =
 								static_cast<FReloadTestVertexShader*>(

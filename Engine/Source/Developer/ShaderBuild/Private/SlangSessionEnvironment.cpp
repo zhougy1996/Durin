@@ -129,7 +129,7 @@ namespace Durin
 		{
 			if (OutMacros[Index - 1].Name == OutMacros[Index].Name)
 			{
-				return {.Error = {.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name}};
+				return std::unexpected(FShaderError{.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name});
 			}
 		}
 
@@ -148,7 +148,7 @@ namespace Durin
 			uint64 TotalBytes = 0;
 			if (Files.size() > 65536)
 			{
-				return FShaderOperationResult::Failure(EShaderError::CaptureFileLimit);
+				return std::unexpected(FShaderError{.Code = EShaderError::CaptureFileLimit});
 			}
 			for (const auto& [Path, Bytes] : Files)
 			{
@@ -157,7 +157,7 @@ namespace Durin
 					|| Bytes.size() > 64ull * 1024 * 1024
 					|| (TotalBytes += Bytes.size()) > 512ull * 1024 * 1024)
 				{
-					return FShaderOperationResult::Failure(EShaderError::CaptureInputInvalid);
+					return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputInvalid});
 				}
 			}
 		}
@@ -197,11 +197,11 @@ namespace Durin
 		{
 			const auto& Roots = Options.SourceArtifacts->GetSearchRoots();
 			if (Roots.size() > 256)
-			{ return FShaderOperationResult::Failure(EShaderError::CaptureSearchRootLimit); }
+			{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureSearchRootLimit}); }
 			for (const auto& Root : Roots)
 			{
 				if (Root.empty() || Root.size() > 4096 || Root.find('\0') != std::string::npos)
-				{ return {.Error = {.Code = EShaderError::CaptureSearchRootInvalid, .ActualIdentity = Root}}; }
+				{ return std::unexpected(FShaderError{.Code = EShaderError::CaptureSearchRootInvalid, .ActualIdentity = Root}); }
 				SearchPaths.push_back(Root);
 			}
 		}
@@ -213,7 +213,7 @@ namespace Durin
 		const auto SessionResult = GlobalSession.createSession(SessionDesc, OutSession.writeRef());
 		if (SLANG_FAILED(SessionResult))
 		{
-			return {.Error = FShaderError::FromSlang(ESlangShaderError::Session, {}, SessionResult)};
+			return std::unexpected(FShaderError::FromSlang(ESlangShaderError::Session, {}, SessionResult));
 		}
 
 		return {};

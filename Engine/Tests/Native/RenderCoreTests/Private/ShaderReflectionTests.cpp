@@ -388,7 +388,7 @@ namespace Durin
 
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
-		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
 		EXPECT_TRUE(PipelineLayout.BindingLayouts.empty());
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
@@ -441,7 +441,7 @@ namespace Durin
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
-		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& SetLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
 		ASSERT_EQ(SetLayout.size(), 1u);

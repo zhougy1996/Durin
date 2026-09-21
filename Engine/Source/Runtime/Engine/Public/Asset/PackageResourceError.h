@@ -5,13 +5,20 @@
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
+#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
 {
 	enum class ETaskState : uint8;
 	enum class ETaskWaitStatus : uint8;
 	enum class EBulkDataState : uint8;
+	// Classification of a completed range read; readiness belongs to its request.
+	enum class EPackageResourceReadStatus : uint8
+	{
+		Success, InvalidRange, MissingSegment, TruncatedSegment,
+		SegmentDigestMismatch, Cancelled, Retired, IoError,
+	};
 	enum class EPackageResourceReadReason : uint8
 	{
 		None, Cancelled, Retired, InvalidRequest, InvalidRange, PackageBusy,
@@ -21,6 +28,7 @@ namespace Durin
 	};
 	struct FPackageResourceReadError
 	{
+		EPackageResourceReadStatus Status = EPackageResourceReadStatus::IoError;
 		EPackageResourceReadReason Reason = EPackageResourceReadReason::None;
 		std::filesystem::path Path;
 		uint64 Offset = 0;
@@ -36,6 +44,11 @@ namespace Durin
 		std::optional<ETaskWaitStatus> WaitStatus;
 		std::optional<EBulkDataState> BulkState;
 	};
+	using FPackageResourceReadResult = std::expected<FSharedByteBuffer, FPackageResourceReadError>;
+	inline auto GetPackageResourceReadStatus(const FPackageResourceReadResult& Result) -> EPackageResourceReadStatus
+	{
+		return Result ? EPackageResourceReadStatus::Success : Result.error().Status;
+	}
 
 	struct FAssetReadError;
 	enum class EPreparedPackageResourceError : uint8 { None, InvalidClosure, BudgetExceeded, IoError, Stale, Cancelled };
@@ -58,22 +71,19 @@ namespace Durin
 		uint64 Expected = 0;
 		FXxHash128 ActualDigest;
 		FXxHash128 ExpectedDigest;
-		std::error_code SystemError;
-		std::optional<FFileHelper::FFileIoError> FileCause;
-		std::optional<FPackageBulkDataError> BulkCause;
-		std::optional<FEditorBulkDataStorageError> BulkStorageCause;
-		std::shared_ptr<const FAssetReadError> AssetCause;
+		// A preparation failure has at most one lower-layer cause.
+		std::variant<std::monostate, FFileIO::FFileError, FPackageBulkDataError,
+			FEditorBulkDataStorageError, std::shared_ptr<const FAssetReadError>> Cause;
 	};
 	ENGINE_API auto FormatPreparedPackageResourceError(const FPreparedPackageResourceError& Error) -> std::string;
 
-	enum class EPackageGenerationError : uint8 { None, FileIo, InvalidBulk };
-	struct FPackageGenerationError
+	// Bulk validation adds the source path; file errors already own it.
+	struct FPackageBulkValidationFailure
 	{
-		EPackageGenerationError Code = EPackageGenerationError::None;
 		std::filesystem::path Path;
-		std::optional<FFileHelper::FFileIoError> FileCause;
-		std::optional<FPackageBulkDataError> BulkCause;
+		FPackageBulkDataError Error;
 	};
+	using FPackageGenerationError = std::variant<FFileIO::FFileError, FPackageBulkValidationFailure>;
 	using FPackageGenerationResult = std::expected<void, FPackageGenerationError>;
 	enum class EPackageResourceRegistrationError : uint8
 	{

@@ -1,7 +1,8 @@
 #include "Input/InputActions.h"
 
 #include "Input/GameInputState.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
+#include "Misc/FileIO.h"
 #include <iomanip>
 #include <sstream>
 
@@ -304,9 +305,8 @@ namespace Durin
 		for (const auto& [Key, Source] : Overrides)
 			Stream << std::quoted(Key.first) << ' ' << std::quoted(Key.second) << ' ' << static_cast<unsigned>(Source.Kind) << ' ' << Source.Code << '\n';
 		const std::string Text = Stream.str();
-		FFileHelper::FAtomicFileError FileError;
-		if (!FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path, &FileError))
-			return {EInputBindingError::WriteFailed, FileError.ToString()};
+		if (auto FileError = FFileIO::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path); !FileError)
+			return {EInputBindingError::WriteFailed, FileError.error().ToString()};
 		return {};
 	}
 
@@ -316,13 +316,10 @@ namespace Durin
 		const auto Size = std::filesystem::file_size(Path, FileError);
 		if (FileError) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string() + ": " + FileError.message()};
 		if (Size > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB: " + Path.string()};
-		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path)) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string()};
-		if (Bytes.size() > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB."};
-		std::string Text;
-		Text.reserve(Bytes.size());
-		for (const std::byte Byte : Bytes) Text.push_back(static_cast<char>(std::to_integer<unsigned char>(Byte)));
-		std::istringstream Stream(Text);
+		auto Text = FFileIO::LoadFileToString(Path);
+		if (!Text) return {EInputBindingError::ReadFailed, Text.error().ToString()};
+		if (Text->size() > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB."};
+		std::istringstream Stream(std::move(*Text));
 		std::string Header;
 		std::getline(Stream, Header);
 		if (!Header.empty() && Header.back() == '\r') Header.pop_back();

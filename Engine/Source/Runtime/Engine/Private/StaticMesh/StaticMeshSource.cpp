@@ -306,7 +306,7 @@ namespace Durin
 			{
 				return {.Error = {.Code = EStaticMeshSourceError::Read, .ReadCause = Payload}};
 			}
-			const FByteView Bytes = Payload.Buffer.GetBytes();
+			const FByteView Bytes = Payload->GetBytes();
 			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshSourceBytes)
 			{
 				return {.Error = {.Code = EStaticMeshSourceError::PayloadSize, .Actual = Bytes.size(), .Expected = Geometry.GetPayloadSize()}};

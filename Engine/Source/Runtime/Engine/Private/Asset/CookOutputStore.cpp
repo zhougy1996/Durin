@@ -1,5 +1,5 @@
 #include "CookOutputInternal.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Asset/PackageInspection.h"
 namespace Durin
 {
@@ -65,9 +65,9 @@ namespace Durin
 			if (!std::filesystem::is_regular_file(Path, ErrorCode) || ErrorCode
 				|| std::filesystem::file_size(Path, ErrorCode) != ExpectedSize || ErrorCode)
 				return false;
-			FXxHash128 Digest;
-			return FFileHelper::HashFileXx128(Path, Digest, ErrorCode)
-				   && !ErrorCode && Digest == ExpectedDigest;
+			return FFileIO::HashFileXx128(Path)
+				.transform([&](const FXxHash128& Digest) { return Digest == ExpectedDigest; })
+				.value_or(false);
 		}
 
 		struct FOutputRecord
@@ -244,11 +244,9 @@ namespace Durin
 				} TransactionCleanup{TransactionRoot};
 
 				FCookManifest PreviousManifest;
-				FByteBuffer PreviousManifestBytes;
-				const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(
-													  PreviousManifestBytes, Root / "CookManifest.bin"
-												  )
-												  && DecodeCookManifest(PreviousManifestBytes, PreviousManifest);
+				auto PreviousManifestBytes = FFileIO::LoadFileToArray(Root / "CookManifest.bin");
+				const bool bHasPreviousManifest = PreviousManifestBytes
+					&& DecodeCookManifest(*PreviousManifestBytes, PreviousManifest);
 
 				std::vector<FOutputRecord> Outputs;
 				FCookManifest Manifest{Platform, Profile};
@@ -298,12 +296,12 @@ namespace Durin
 					}
 					if (Injected(Stage, Index)) return false;
 					const std::filesystem::path Staged = StagedRoot / Relative;
-					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
-					if (ErrorCode || !FFileHelper::SaveArrayToFile(Bytes, Staged))
-						return RejectOperation(ECookPublishOperationError::StageWrite, Stage, Staged, ErrorCode);
-					FByteBuffer Validation;
-					if (!FFileHelper::LoadFileToArray(Validation, Staged)
-						|| !std::ranges::equal(Validation, Bytes))
+					if (auto Saved = FFileIO::SaveArrayToFile(Bytes, Staged); !Saved)
+						return RejectOperation(ECookPublishOperationError::StageWrite, Stage, Staged, Saved.error().NativeError);
+					auto Validation = FFileIO::LoadFileToArray(Staged);
+					if (!Validation)
+						return RejectOperation(ECookPublishOperationError::StageValidation, Stage, Staged, Validation.error().NativeError);
+					if (!std::ranges::equal(*Validation, Bytes))
 						return RejectOperation(ECookPublishOperationError::StageValidation, Stage, Staged);
 					return true;
 				};

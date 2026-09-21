@@ -5,14 +5,10 @@
 TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
 {
 	using namespace Durin;
-	FPackageResourceReadResult Read;
-	Read.Status = EPackageResourceReadStatus::IoError;
-	Read.Error.Reason = EPackageResourceReadReason::ShortRead;
-	Read.Error.Path = "MaterialProgram.dbulk";
-	Read.Error.Offset = 128;
-	Read.Error.Size = 1024;
-	Read.Error.Actual = 16;
-	Read.Error.SystemError = std::make_error_code(std::errc::io_error);
+	FPackageResourceReadResult Read = std::unexpected(FPackageResourceReadError{
+		.Status = EPackageResourceReadStatus::IoError, .Reason = EPackageResourceReadReason::ShortRead,
+		.Path = "MaterialProgram.dbulk", .Offset = 128, .Size = 1024, .Actual = 16,
+		.SystemError = std::make_error_code(std::errc::io_error)});
 	const auto Error = FMaterialError::FromBulkRead(EBulkReadStatus::ReadFailed, Read);
 	Read = {};
 	EXPECT_TRUE(Error.HasError());

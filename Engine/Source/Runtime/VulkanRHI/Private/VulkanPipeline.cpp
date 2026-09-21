@@ -2,7 +2,8 @@
 #include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 
 #include "RHICommandList.h"
@@ -1017,10 +1018,11 @@ namespace Durin::VulkanRHI
 		FRHIPipelineCacheStatistics Stats;
 		const auto& Properties = Device.GetGpuProperties();
 		const std::filesystem::path Path = PipelineCachePath();
-		if (FFileHelper::FileExists(Path.generic_string()))
+		if (auto Exists = FFileIO::FileExists(Path); Exists && *Exists)
 		{
-			const bool bLoaded = FFileHelper::LoadFileToArray(FileBytes, Path);
-			bool bCompatible = bLoaded && FileBytes.size() >= PipelineCachePrefixBytes
+			auto Loaded = FFileIO::LoadFileToArray(Path);
+			if (Loaded) FileBytes = std::move(*Loaded);
+			bool bCompatible = Loaded && FileBytes.size() >= PipelineCachePrefixBytes
 				&& FileBytes.size() <= PipelineCacheMaximumBytes
 				&& ReadU32(FileBytes, 0) == PipelineCacheMagic
 				&& ReadU32(FileBytes, 4) == PipelineCacheSchema
@@ -1105,11 +1107,10 @@ namespace Durin::VulkanRHI
 			WriteU32(16, static_cast<uint32>(Payload.size()));
 			std::memcpy(Bytes.data() + 20, Properties.pipelineCacheUUID.data(), VK_UUID_SIZE);
 			std::memcpy(Bytes.data() + PipelineCachePrefixBytes, Payload.data(), Payload.size());
-			FFileHelper::FAtomicFileError Error;
-			if (!FFileHelper::SaveArrayToFileAtomically(Bytes, PipelineCachePath(), &Error))
+			if (auto Error = FFileIO::SaveArrayToFileAtomically(Bytes, PipelineCachePath()); !Error)
 			{
 				++Stats.PersistentRejects;
-				DURIN_WARN("Could not save Vulkan pipeline cache: {}", Error.ToString());
+				DURIN_WARN("Could not save Vulkan pipeline cache: {}", Error.error().ToString());
 				return;
 			}
 			++Stats.PersistentSaves;

@@ -4,7 +4,7 @@ Summary: Define physical-path validation, byte I/O, and atomic file-publication 
 
 Modules: Core
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
@@ -14,7 +14,8 @@ paths and atomic byte publication.
 `Misc/FilePath.h` defines `Durin::FFilePath` as an alias of
 `std::filesystem::path` for physical paths, not mounted or asset identities.
 `Misc/FileIO.h` introduces `Durin::FFileIO` alongside the existing `FFileHelper`
-API so consumers can migrate independently. New operations return
+API for legacy compatibility. Runtime, editor and tool consumers use `FFileIO`;
+legacy helper tests continue to verify the compatibility behavior. New operations return
 `std::expected<T, FFileError>`; writes and exact range reads use `void` as `T`.
 Errors preserve the operation, system error category/code, physical path and,
 where applicable, a related path and byte range. `ToString()` formats diagnostic
@@ -45,16 +46,30 @@ failure preserves the previous document; a parse failure invalidates it.
 
 `FFileFingerprintCache::Get` returns `expected<FFileFingerprint, FFileError>`;
 successful cached and freshly computed fingerprints have the same value shape.
-Its reuse API still distinguishes current, stale and failed checks. Source
-capture returns `expected<FEncodedSourceSnapshot, FEncodedSourceError>` and
+Its reuse API returns `expected<EFileFingerprintReuseStatus, FFileError>`:
+current and stale are successful inspections, while failed checks retain their
+native cause. Source capture returns
+`expected<FEncodedSourceSnapshot, FEncodedSourceError>` and
 retains size, timestamp, limit and change-detection checks. Image decoding uses
 the value-returning contract in [Core Image Codec](ImageCodec.md). These wrappers
 do not log. Cache business statuses and package transaction results retain their
-existing recovery and publication semantics.
+existing recovery and publication semantics. Package generation failures carry
+either a file error or a bulk validation failure. Prepared package errors retain
+one variant cause rather than independent optional causes. Cook input discovery
+retains one structured cause in its result and formats it at presentation time;
+the coordinator does not maintain a second diagnostic copy.
+
+Completed package range reads return
+`expected<FSharedByteBuffer, FPackageResourceReadError>`. There is no pending
+result value: request readiness, binding, cancellation and waiting remain on
+`FPackageResourceRequest`. Failure classification lives only in the error;
+`GetPackageResourceReadStatus` derives a classification when a business adapter
+needs it. Rejected waits remain caller-local failures and do not change the
+eventual request outcome.
 
 ## Synchronous Random Reads
 
-`FFileHelper::OpenRead()` returns one uniquely owned `IFileHandle` for a
+`FFileIO::OpenRead()` returns an expected, uniquely owned `IFileHandle` for a
 physical path. The handle captures its size from the opened native resource and
 closes that resource on destruction. `ReadAt()` is an exact synchronous read:
 it fills the complete destination span or fails, rejects overflow and ranges
@@ -63,8 +78,8 @@ offset through `GetSize()`. Calls expose no mutable stream cursor. The initial
 contract requires callers to serialize access to one handle; consumers that
 need concurrent reads open independent handles.
 
-`FFileIoError` reports open, size-query, and read failures separately from
-`FAtomicFileError`, including the normalized path and requested extent. The
+`FFileError` reports open, size-query, and read failures with the same structured
+contract as file publication, including the normalized path and requested extent. The
 handle is a low-level byte capability, not an asynchronous request, immutable
 snapshot guarantee, package resource, or cancellation owner. Higher layers
 bound individual reads, check their own cancellation token, and compare
@@ -95,13 +110,13 @@ at the physical I/O boundary.
 
 ## Atomic Byte Publication
 
-`FFileHelper::SaveArrayToNewFile()` exclusively creates a caller-selected path,
+`FFileIO::SaveArrayToNewFile()` exclusively creates a caller-selected path,
 writes all bytes, flushes and closes it. It creates parent directories, preserves
 existing paths on creation failure and performs best-effort cleanup after a
 write, flush or close failure. It does not provide atomic visibility while
 writing; package staging uses it before publication through `Commit()`.
 
-`FFileHelper::SaveArrayToFileAtomically()` is the shared publication primitive
+`FFileIO::SaveArrayToFileAtomically()` is the shared publication primitive
 for a complete byte buffer. `CopyFileAtomically()` provides the same sibling
 temporary, flush, and replacement contract while copying an existing file
 without materializing its complete contents. DDC objects, Shader dependency
@@ -138,9 +153,9 @@ atomic temporaries are recovery state, not submitted content.
 ## Diagnostics
 
 Atomic publication failures identify the failed operation, native error code,
-normalized destination, total path length, and longest component length. Callers
-that accept an error output should preserve this diagnostic rather than replace
-it with a generic write failure.
+and normalized destination. Their formatted diagnostics include total path
+length and longest component length. Callers should preserve the returned error
+rather than replace it with a generic write failure.
 
 A long total path with ordinary components is supported on a configured Windows
 host. An overlong component remains unsupported and should be diagnosed using

@@ -62,7 +62,7 @@ namespace Durin
 		{
 			if (!IsShaderBuildProviderAvailable())
 			{
-				return FShaderOperationResult::Failure(EShaderError::ProviderRequired);
+				return std::unexpected(FShaderError{.Code = EShaderError::ProviderRequired});
 			}
 			Configuration.TargetPlatform = EShaderTargetPlatform::Win64;
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
@@ -70,7 +70,7 @@ namespace Durin
 		}
 		else if (IsShaderBuildProviderAvailable())
 		{
-			return FShaderOperationResult::Failure(EShaderError::ProviderForbidden);
+			return std::unexpected(FShaderError{.Code = EShaderError::ProviderForbidden});
 		}
 		else if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 			|| Configuration.TargetProfile != EShaderTargetProfile::Game
@@ -78,13 +78,13 @@ namespace Durin
 			|| !Configuration.CookRoot.is_absolute()
 			|| Configuration.CookRoot.lexically_normal() != Configuration.CookRoot)
 		{
-			return FShaderOperationResult::Failure(EShaderError::DataConfigurationInvalid);
+			return std::unexpected(FShaderError{.Code = EShaderError::DataConfigurationInvalid});
 		}
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (State.Configuration)
 		{
-			return FShaderOperationResult::Failure(EShaderError::DataAlreadyInitialized);
+			return std::unexpected(FShaderError{.Code = EShaderError::DataAlreadyInitialized});
 		}
 		State.Configuration = std::move(Configuration);
 
@@ -120,7 +120,7 @@ namespace Durin
 		if (!State.Configuration
 			|| State.Configuration->Domain != EShaderDataDomain::Cooked)
 		{
-			return FShaderOperationResult::Failure(EShaderError::CookedDomainRequired);
+			return std::unexpected(FShaderError{.Code = EShaderError::CookedDomainRequired});
 		}
 		if (!State.Library.IsOpen())
 		{
@@ -135,19 +135,19 @@ namespace Durin
 			});
 		if (Found == State.Requests.end())
 		{
-			return {.Error = {.Code = EShaderError::RequestUnregistered, .ActualIdentity = std::string(RequestName)}};
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestUnregistered, .ActualIdentity = std::string(RequestName)});
 		}
 		if (Found->Members.size() != ShaderTypes.size())
 		{
-			return {.Error = {.Code = EShaderError::RequestTypeCountMismatch,
+			return std::unexpected(FShaderError{.Code = EShaderError::RequestTypeCountMismatch,
 				.Expected = Found->Members.size(),
-				.Actual = ShaderTypes.size()}};
+				.Actual = ShaderTypes.size()});
 		}
 		for (size_t Index = 0; Index < ShaderTypes.size(); ++Index)
 			if (!ShaderTypes[Index]
 				|| Found->Members[Index].TypeName != ShaderTypes[Index]->GetName())
 			{
-				return {.Error = {.Code = EShaderError::RequestTypesMismatch, .Index = Index}};
+				return std::unexpected(FShaderError{.Code = EShaderError::RequestTypesMismatch, .Index = Index});
 			}
 		return State.Library.Load(*Found, OutOutput);
 	}
@@ -198,7 +198,7 @@ namespace Durin
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutDependencies.clear();
-		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
 	}
 
 	auto BuildShaderSourceTreeFingerprintFromProvider(
@@ -212,7 +212,7 @@ namespace Durin
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutFingerprint = {};
-		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
 	}
 
 	auto IsShaderBuildProviderAvailable() -> bool
@@ -234,7 +234,7 @@ namespace Durin
 	{
 		if (!Work || CapturedProvider)
 		{
-			return FShaderOperationResult::Failure(EShaderError::InvalidProviderCapture);
+			return std::unexpected(FShaderError{.Code = EShaderError::InvalidProviderCapture});
 		}
 		auto Result = FModularFeatureRegistry::Get().InvokeSingle<IShaderBuildProvider>(
 			[&](IShaderBuildProvider& Provider) {
@@ -246,8 +246,8 @@ namespace Durin
 				return Work(Provider);
 			});
 		if (Result.WasInvoked() && Result.Value)
-			return *Result.Value ? FShaderOperationResult{} : FShaderOperationResult{.Error = {.Code = EShaderError::ProviderWorkFailed}};
-		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+			return *Result.Value ? FShaderOperationResult{} : std::unexpected(FShaderError{.Code = EShaderError::ProviderWorkFailed});
+		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
 	}
 
 	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
@@ -256,7 +256,7 @@ namespace Durin
 			return Provider.GetCookInputIdentity(OutIdentity, IsCancelled);
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
-		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
 	}
 
 	auto BuildCookedShaderLibrary(
@@ -271,6 +271,6 @@ namespace Durin
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutBytes.clear();
-		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
 	}
 }

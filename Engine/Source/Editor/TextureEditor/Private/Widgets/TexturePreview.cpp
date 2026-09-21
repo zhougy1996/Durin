@@ -141,7 +141,7 @@ namespace Durin::Editor::Texture
 					if (auto Result = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions); !Result)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							ERenderResourceCreateErrorReason::ShaderFailure, std::move(Result.Error)));
+							ERenderResourceCreateErrorReason::ShaderFailure, std::move(Result.error())));
 					auto* VertexShader =
 						static_cast<FTexturePreviewVertexShader*>(
 							ShaderMap->GetShader(&VertexShaderType));

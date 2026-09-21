@@ -617,10 +617,9 @@ namespace
 		auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool&)
 			-> Durin::FPackageResourceReadResult override
 		{
-			if (bFail) return {.Status = Durin::EPackageResourceReadStatus::IoError,
-				.Error = {.Reason = Durin::EPackageResourceReadReason::Open}};
-			return {.Status = Durin::EPackageResourceReadStatus::Success,
-				.Buffer = Bytes.MakeView(Offset, Size)};
+			if (bFail) return std::unexpected(Durin::FPackageResourceReadError{.Status = Durin::EPackageResourceReadStatus::IoError,
+				.Reason = Durin::EPackageResourceReadReason::Open});
+			return Bytes.MakeView(Offset, Size);
 		}
 		Durin::FSharedByteBuffer Bytes;
 		bool bFail;
@@ -637,7 +636,7 @@ namespace
 			-> Durin::FPackageResourceReadResult override
 		{
 			ADD_FAILURE() << "Admission and pre-build cancellation must not read source payloads.";
-			return {.Status = Durin::EPackageResourceReadStatus::IoError};
+			return std::unexpected(Durin::FPackageResourceReadError{.Status = Durin::EPackageResourceReadStatus::IoError});
 		}
 	};
 
@@ -666,7 +665,7 @@ namespace
 		-> std::shared_ptr<FResidencyReadProbe>
 	{
 		const auto& Bulk = Source.GetGeometryBulk();
-		auto Resource = std::make_shared<FResidencyReadProbe>(Bulk.GetPayload().Wait().Buffer, bFail);
+		auto Resource = std::make_shared<FResidencyReadProbe>(Bulk.GetPayload().Wait().value(), bFail);
 		Durin::FEditorBulkData Attached;
 		std::string Error;
 		{
@@ -834,7 +833,7 @@ TEST(FStaticMeshSourceResidencyTests, MalformedCanonicalBytesNeverPublishPartial
 	std::string Error;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	const auto Payload = Source.GetGeometryBulk().GetPayload().Wait();
-	const FByteBuffer Original(Payload.Buffer.begin(), Payload.Buffer.end());
+	const FByteBuffer Original(Payload->begin(), Payload->end());
 	ASSERT_EQ(Original.size(), 195u);
 	for (uint32 Case = 0; Case < 6; ++Case)
 	{
@@ -896,8 +895,8 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissPreserv
 	EXPECT_EQ(FailedRead.Error.Code, EStaticMeshDerivedDataError::Source);
 	ASSERT_TRUE(FailedRead.Error.SourceCause);
 	ASSERT_TRUE(FailedRead.Error.SourceCause->ReadCause);
-	EXPECT_EQ(FailedRead.Error.SourceCause->ReadCause->Status, EPackageResourceReadStatus::IoError);
-	EXPECT_EQ(FailedRead.Error.SourceCause->ReadCause->Error.Reason, EPackageResourceReadReason::Open);
+	EXPECT_EQ(FailedRead.Error.SourceCause->ReadCause->error().Status, EPackageResourceReadStatus::IoError);
+	EXPECT_EQ(FailedRead.Error.SourceCause->ReadCause->error().Reason, EPackageResourceReadReason::Open);
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
 	EXPECT_FALSE(Request.Source.IsGeometryResident());
 	EXPECT_FALSE(BuildStaticMeshDerivedData(Request, Product));
@@ -2390,14 +2389,14 @@ TEST(FStaticMeshSourceResidencyTests, TypedReadFailureOwnsCauseAndRejectedIndex)
 	EXPECT_FALSE(Read);
 	EXPECT_EQ(Read.Error.Code, EStaticMeshSourceError::Read);
 	ASSERT_TRUE(Read.Error.ReadCause);
-	EXPECT_EQ(Read.Error.ReadCause->Status, EPackageResourceReadStatus::IoError);
-	EXPECT_EQ(Read.Error.ReadCause->Error.Reason, EPackageResourceReadReason::Open);
+	EXPECT_EQ(Read.Error.ReadCause->error().Status, EPackageResourceReadStatus::IoError);
+	EXPECT_EQ(Read.Error.ReadCause->error().Reason, EPackageResourceReadReason::Open);
 	EXPECT_FALSE(Source.IsGeometryResident());
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
 
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	const auto Payload = Source.GetGeometryBulk().GetPayload().Wait();
-	FByteBuffer Bytes(Payload.Buffer.begin(), Payload.Buffer.end());
+	FByteBuffer Bytes(Payload->begin(), Payload->end());
 	WriteU32(Bytes, Bytes.size() - 4, 99);
 	ASSERT_TRUE(GetReflectedSourceBulk(Source).UpdatePayload(Bytes));
 	const auto Invalid = Source.AcquireGeometry();
@@ -2410,7 +2409,7 @@ TEST(FStaticMeshSourceResidencyTests, TypedReadFailureOwnsCauseAndRejectedIndex)
 	EXPECT_EQ(Invalid.Error.Actual, 99u);
 	EXPECT_EQ(Invalid.Error.Expected, 3u);
 	EXPECT_FALSE(Invalid.Geometry);
-	EXPECT_EQ(Read.Error.ReadCause->Error.Reason, EPackageResourceReadReason::Open);
+	EXPECT_EQ(Read.Error.ReadCause->error().Reason, EPackageResourceReadReason::Open);
 	EXPECT_EQ(Source.AcquireGeometry().Error.Code, EStaticMeshSourceError::InvalidHeader);
 }
 

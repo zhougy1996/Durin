@@ -129,8 +129,8 @@ namespace Durin
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, First))) << FormatShaderError(Error.Error);
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, Second))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, First))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
 			"4453484401000000010000000403020100000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e65010000000000000001000000000000000100000001000000010000000000000010000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e6502000000000000000200000000000000010000000100000002000000000000001000000000000000");
@@ -146,7 +146,7 @@ namespace Durin
 		EXPECT_EQ(Builder, ShaderDerivedData::BuilderVersion);
 
 		FShaderCompilerOutput Loaded;
-		ASSERT_TRUE((Error = ShaderDerivedData::Decode(First, Options, Loaded))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = ShaderDerivedData::Decode(First, Options, Loaded))) << FormatShaderError(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		for (size_t Index = 0; Index < Loaded.CompiledShaders.size(); ++Index)
 		{
@@ -172,7 +172,7 @@ namespace Durin
 		Output.CompiledShaders.resize(1);
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Output, Bytes))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
 			"4453484401000000010000000403020100000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e6501000000000000000100000000000000010000000100000001000000000000001000000000000000");
 	}
@@ -182,14 +182,14 @@ namespace Durin
 		const FShaderCompileOptions Options = MakeOptions();
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, MakeOutput(), Bytes))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, MakeOutput(), Bytes))) << FormatShaderError(Error.error());
 		auto ExpectRejected = [&](Durin::FByteBuffer Candidate, EShaderError Code) {
 			FShaderCompilerOutput Loaded;
 			Loaded.Error = {};
 			Loaded.CompiledShaders.push_back(MakeShader(
 				"Old", EShaderFrequency::Vertex, 1));
 			EXPECT_FALSE((Error = ShaderDerivedData::Decode(Candidate, Options, Loaded)));
-			EXPECT_EQ(Error.Error.Code, Code);
+			EXPECT_EQ(Error.error().Code, Code);
 			EXPECT_FALSE(static_cast<bool>(Loaded));
 			EXPECT_TRUE(Loaded.CompiledShaders.empty());
 		};
@@ -232,8 +232,8 @@ namespace Durin
 		WrongRequest.EntryPoints[0] = "WrongMain";
 		FShaderCompilerOutput Loaded;
 		EXPECT_FALSE((Error = ShaderDerivedData::Decode(Bytes, WrongRequest, Loaded)));
-		EXPECT_EQ(Error.Error.Code, EShaderError::PayloadEntryInvalid);
-		EXPECT_EQ(Error.Error.Index, 0u);
+		EXPECT_EQ(Error.error().Code, EShaderError::PayloadEntryInvalid);
+		EXPECT_EQ(Error.error().Index, 0u);
 		EXPECT_TRUE(Loaded.CompiledShaders.empty());
 	}
 
@@ -295,7 +295,7 @@ namespace Durin
 		FFileFingerprintCache Cold;
 		FShaderMetaData MetaData;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderCompileUtilities::BuildShaderMetaData({Dependency.generic_string()}, Cold, MetaData))) << FormatShaderError(Error.Error);
+		ASSERT_TRUE((Error = ShaderCompileUtilities::BuildShaderMetaData({Dependency.generic_string()}, Cold, MetaData))) << FormatShaderError(Error.error());
 		ASSERT_EQ(MetaData.PortableDependencies.size(), 1u);
 		EXPECT_EQ(MetaData.PortableDependencies.front().VirtualPath,
 			"/ShaderDerivedDataTests/Common");

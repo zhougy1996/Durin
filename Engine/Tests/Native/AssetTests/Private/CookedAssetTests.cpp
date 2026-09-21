@@ -487,11 +487,15 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 	EXPECT_EQ(Result.Status, ECookInputStatus::InvalidDependency);
 
 	FCookInputFailure Io{.Error = ECookInputError::FileIo, .File = "input.bin",
-		.FileCause = FFileHelper::FFileIoError{.NativeError = std::make_error_code(std::errc::io_error),
-			.Path = "input.bin", .Offset = 42, .Size = 128}};
+		.FileCause = FFileIO::FFileError{.Operation = FFileIO::EFileOperation::Read,
+			.NativeError = std::make_error_code(std::errc::io_error), .Path = "input.bin", .Range = {{42, 128}}}};
 	const auto Adapted = Io.ToInputResult();
 	EXPECT_EQ(Adapted.Status, ECookInputStatus::IoError);
 	Io = {};
+	ASSERT_TRUE(Adapted.GetDiagnostic());
+	ASSERT_TRUE(Adapted.GetDiagnostic()->FileCause);
+	EXPECT_EQ(Adapted.GetDiagnostic()->FileCause->Range->Offset, 42u);
+	EXPECT_NE(Adapted.ToString().find("input.bin"), std::string::npos);
 
 }
 
@@ -1064,7 +1068,7 @@ TEST(FCookDependencyTests, AssetAdapterPreservesFailureClassification)
 	Inputs.clear();
 	EXPECT_FALSE(AssetResult);
 	EXPECT_EQ(AssetResult.Status, ECookInputStatus::InvalidDependency);
-	EXPECT_FALSE(AssetResult.Message.empty());
+	EXPECT_FALSE(AssetResult.ToString().empty());
 
 	const auto Success = FCookDependencyGraphResult{}.ToInputResult();
 	EXPECT_TRUE(Success);

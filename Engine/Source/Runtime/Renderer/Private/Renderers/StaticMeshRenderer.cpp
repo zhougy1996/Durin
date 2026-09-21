@@ -303,7 +303,7 @@ namespace Durin
 								ERenderResourceCreateErrorCategory::ShaderCompile,
 								"StaticMeshShaderMap",
 								GetIdentityText(Identity),
-								std::move(ShaderResult.Error),
+								std::move(ShaderResult.error()),
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Manual
 							)

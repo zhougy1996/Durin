@@ -62,24 +62,24 @@ namespace Durin::RendererPrivate
 		if (MaterialProgram != nullptr)
 		{
 			if (!MaterialProgram->bSucceeded || !ValidateMaterialCompilerResult(*MaterialProgram))
-				return FShaderOperationResult::Failure(EShaderError::MaterialProgramInvalid);
+				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramInvalid});
 			if (MaterialProgram->Identity != Identity.ProgramIdentity)
-				return {.Error = {.Code = EShaderError::MaterialProgramIdentityMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
 					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
-					.ActualIdentity = MaterialProgram->Identity.ToString()}};
+					.ActualIdentity = MaterialProgram->Identity.ToString()});
 			if (MaterialProgram->Layout.Identity != Identity.RenderLayout)
-				return {.Error = {.Code = EShaderError::MaterialLayoutMismatch,
+				return std::unexpected(FShaderError{.Code = EShaderError::MaterialLayoutMismatch,
 					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
 					.ActualIdentity = MaterialProgram->Layout.Identity.Id.ToString(),
-					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->Layout.Identity.Version}};
+					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->Layout.Identity.Version});
 			if (MaterialProgram->PassContractVersion != CurrentMaterialPassContractVersion)
-				return {.Error = {.Code = EShaderError::MaterialPassContractMismatch,
-					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion}};
+				return std::unexpected(FShaderError{.Code = EShaderError::MaterialPassContractMismatch,
+					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion});
 		}
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
 		{
-			return {.Error = {.Code = EShaderError::MissingVertexFactory, .ShaderType = std::string(VertexType.GetName())}};
+			return std::unexpected(FShaderError{.Code = EShaderError::MissingVertexFactory, .ShaderType = std::string(VertexType.GetName())});
 		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
