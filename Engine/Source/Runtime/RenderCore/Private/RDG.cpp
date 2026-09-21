@@ -2914,7 +2914,7 @@ namespace Durin
 		// This does not schedule, allocate, execute, or alter the compiled plan.
 		FRangeWork Work{Compiled->Budget};
 		auto Layout = BuildTrackingLayout(Compiled->Resources, ResourceUses, Work);
-		requiref(Layout.has_value(), "compiled RDG diagnostic layout failed: {}", FormatRDGError(Layout));
+		requiref(Layout.has_value(), "compiled RDG diagnostic layout failed: {}", ToString(Layout.error()));
 		auto Cells = std::move(*Layout);
 		std::vector<uint32> Versions(Cells.Ranges.size(), 0);
 		std::vector<uint32> VersionPasses(Cells.Ranges.size(), std::numeric_limits<uint32>::max());

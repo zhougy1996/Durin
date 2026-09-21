@@ -23,7 +23,7 @@ namespace Durin
 		}
 	}
 
-	auto FormatRDGError(ERDGMetadataError Reason) -> std::string
+	auto ToString(ERDGMetadataError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -50,7 +50,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGUseError Reason) -> std::string
+	auto ToString(ERDGUseError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -70,7 +70,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGIdentityError Reason) -> std::string
+	auto ToString(ERDGIdentityError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -103,7 +103,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGDependencyError Reason) -> std::string
+	auto ToString(ERDGDependencyError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -114,7 +114,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGStateError Reason) -> std::string
+	auto ToString(ERDGStateError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -127,7 +127,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGPreparationError Reason) -> std::string
+	auto ToString(ERDGPreparationError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -137,7 +137,7 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto FormatRDGError(ERDGAllocationError Reason) -> std::string
+	auto ToString(ERDGAllocationError Reason) -> std::string_view
 	{
 		switch (Reason)
 		{
@@ -220,64 +220,64 @@ namespace Durin
 		template<typename T>
 		auto FormatDetail(const T& Error) -> std::string
 		{
-			auto Text = FormatRDGError(Error.Reason);
+			std::string Text(ToString(Error.Reason));
 			if constexpr (requires { Error.Context; }) AppendContext(Text, Error.Context);
 			else AppendContext(Text, Error);
 			return Text;
 		}
 	}
 
-	auto FormatRDGError(const FRDGMetadataError& Error) -> std::string { return FormatDetail(Error); }
-	auto FormatRDGError(const FRDGUseError& Error) -> std::string { return FormatDetail(Error); }
-	auto FormatRDGError(const FRDGIdentityError& Error) -> std::string { return FormatDetail(Error); }
-	auto FormatRDGError(const FRDGDependencyError& Error) -> std::string { return FormatDetail(Error); }
-	auto FormatRDGError(const FRDGLimitError& Error) -> std::string
+	auto ToString(const FRDGMetadataError& Error) -> std::string { return FormatDetail(Error); }
+	auto ToString(const FRDGUseError& Error) -> std::string { return FormatDetail(Error); }
+	auto ToString(const FRDGIdentityError& Error) -> std::string { return FormatDetail(Error); }
+	auto ToString(const FRDGDependencyError& Error) -> std::string { return FormatDetail(Error); }
+	auto ToString(const FRDGLimitError& Error) -> std::string
 	{
 		std::string Text = "structural limit";
 		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGExternalConflictError& Error) -> std::string
+	auto ToString(const FRDGExternalConflictError& Error) -> std::string
 	{
 		std::string Text = "external contract conflict";
 		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGMissingAllocationError& Error) -> std::string
+	auto ToString(const FRDGMissingAllocationError& Error) -> std::string
 	{
 		std::string Text = "allocation missing";
 		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGTextureAllocationError& Error) -> std::string
+	auto ToString(const FRDGTextureAllocationError& Error) -> std::string
 	{
 		std::string Text = "texture allocation incompatible";
 		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGBufferAllocationError& Error) -> std::string
+	auto ToString(const FRDGBufferAllocationError& Error) -> std::string
 	{
 		std::string Text = "buffer allocation incompatible";
 		AppendContext(Text, Error);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGAllocationBudgetError& Error) -> std::string
+	auto ToString(const FRDGAllocationBudgetError& Error) -> std::string
 	{
 		auto Text = std::format("allocation budget exceeded: allocation-bytes actual={} limit={}", Error.Actual, Error.Limit);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGAllocationFailure& Error) -> std::string
+	auto ToString(const FRDGAllocationFailure& Error) -> std::string
 	{
 		auto Text = FormatDetail(Error);
 		if (Error.Cause.HasError()) Text += ": " + ToString(Error.Cause);
 		return Text;
 	}
-	auto FormatRDGError(const FRDGCompileError& Error) -> std::string
-	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
-	auto FormatRDGError(const FRDGAllocationError& Error) -> std::string
-	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
-	auto FormatRDGError(const FRDGPreparationError& Error) -> std::string
-	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
-	auto FormatRDGError(const FRDGExecutionError& Error) -> std::string
-	{ return std::visit([](const auto& Detail) { return FormatRDGError(Detail); }, Error.Detail); }
+	auto ToString(const FRDGCompileError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return std::string(ToString(Detail)); }, Error.Detail); }
+	auto ToString(const FRDGAllocationError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return std::string(ToString(Detail)); }, Error.Detail); }
+	auto ToString(const FRDGPreparationError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return std::string(ToString(Detail)); }, Error.Detail); }
+	auto ToString(const FRDGExecutionError& Error) -> std::string
+	{ return std::visit([](const auto& Detail) { return std::string(ToString(Detail)); }, Error.Detail); }
 }

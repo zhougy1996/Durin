@@ -100,7 +100,7 @@ namespace Durin::VulkanRHI
 						bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead);
 				}
 				const auto Recorded = Graph.Execute(Commands);
-				ASSERT_TRUE(Recorded.has_value()) << FormatRDGError(Recorded);
+				ASSERT_TRUE(Recorded.has_value()) << ToString(Recorded.error());
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
 				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
 				for (uint32 Index = 0; Index < 4; ++Index)

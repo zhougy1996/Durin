@@ -22,7 +22,7 @@ namespace Durin
 			.count();
 		EXPECT_LT(DeclarationMicroseconds, 1'000'000);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
 		EXPECT_EQ(Builder.Capture().Uses.size(), 128u);
 		EXPECT_FALSE(Builder.GetStatistics().bCompileBudgetExceeded);
 		EXPECT_EQ(Builder.Capture().Uses.back().ParameterPath,
@@ -45,7 +45,7 @@ namespace Durin
 					ERHIAccess::ComputeShaderReadWrite, Index == 0);
 			}
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-			EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
+			EXPECT_TRUE(Result.has_value()) << ToString(Result.error());
 			return Builder.Capture();
 		};
 		auto First = CompileFixture();

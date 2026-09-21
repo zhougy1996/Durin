@@ -410,7 +410,11 @@ Parameter layout construction returns
 and caches either the completed immutable layout or its validation error.
 Error contexts retain names, indices, ranges, and expected/actual descriptions;
 no diagnostic borrows builder metadata or physical resource pointers.
-`FormatRDGError` formats these values at logs, assertions, and UI boundaries.
+`ToString` overloads are declared beside their error types and implemented in
+`RDGErrorStrings.cpp`. Enum overloads return static `std::string_view` text;
+structured-error overloads return `std::string` with owned context and causes.
+Callers check the result before formatting `Result.error()` at logs, assertions,
+and UI boundaries; there is no formatter for `std::expected` itself.
 A retained result remains usable after graph destruction.
 
 `FRDGAllocator::Allocate` returns `FRDGAllocationResult`. Its error distinguishes

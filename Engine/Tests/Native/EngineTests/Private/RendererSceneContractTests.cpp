@@ -580,7 +580,7 @@ TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedPr
 			});
 		Graph.MarkPassRoot(Consumer, "test output");
 		const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Execution.has_value()) << FormatRDGError(Execution);
+		ASSERT_TRUE(Execution.has_value()) << ToString(Execution.error());
 		EXPECT_EQ(ProducerCalls, bRequested ? 1u : 0u);
 		EXPECT_EQ(ConsumerCalls, 1u);
 		EXPECT_EQ(Graph.GetStatistics().ScheduledPasses, bRequested ? 2u : 1u);
@@ -1373,7 +1373,7 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		Durin::FRHICommandListExecutor Executor;
 		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
 		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
@@ -1411,7 +1411,7 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesCompileFail
 	EXPECT_FALSE(Captures[0].bCompiled);
 	EXPECT_EQ(Durin::GetRDGExecutionStatus(Captures[0].ExecutionResult.value()), Durin::ERDGExecutionStatus::CompileFailed);
 	EXPECT_TRUE(Durin::HasRDGTestReason(Captures[0].ExecutionResult.value().error(), Durin::ERDGIdentityError::PassNameEmpty));
-	EXPECT_EQ(FormatRDGError(ExplicitCapture.ExecutionResult.value().error()), FormatRDGError(Captures[0].ExecutionResult.value().error()));
+	EXPECT_EQ(ToString(ExplicitCapture.ExecutionResult.value().error()), ToString(Captures[0].ExecutionResult.value().error()));
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
@@ -2525,7 +2525,7 @@ namespace Durin::Tests
 			}
 
 			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
-			EXPECT_NE(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed) << FormatRDGError(Result);
+			EXPECT_NE(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed) << (Result ? "success" : ToString(Result.error()));
 			return Builder.Capture();
 		}
 

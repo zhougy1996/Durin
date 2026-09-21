@@ -511,7 +511,7 @@ namespace Durin::VulkanRHI
 				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
 
 				const auto Result = Builder.Execute(Commands, &Allocator);
-				ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+				ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
 				EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(Commands, &Allocator)), ERDGExecutionStatus::InvalidState);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
@@ -540,7 +540,7 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseTexture(Compact, CompactWrite, CompactTexture,
 				{ERHITextureAspect::Color, 0, 2, 0, 1}, ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			const auto CompactResult = Compact.Execute(Commands);
-			ASSERT_TRUE(CompactResult.has_value()) << FormatRDGError(CompactResult);
+			ASSERT_TRUE(CompactResult.has_value()) << ToString(CompactResult.error());
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitions, 2u);
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitionSubresources, 4u);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
@@ -555,7 +555,7 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseBuffer(Next, Rewrite, External, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
-			ASSERT_TRUE(Handoff.has_value()) << FormatRDGError(Handoff);
+			ASSERT_TRUE(Handoff.has_value()) << ToString(Handoff.error());
 			ASSERT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions().size(), 1u);
 			EXPECT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions()[0].ExpectedBefore,
 				ERHIAccess::VertexBufferRead);

@@ -192,7 +192,7 @@ float4 FragmentMain() : SV_Target
 					else
 					{
 						const auto Result = Graph.Execute(Commands, &Allocator);
-						EXPECT_TRUE(Result.has_value()) << FormatRDGError(Result);
+						EXPECT_TRUE(Result.has_value()) << ToString(Result.error());
 						if (!Result.has_value()) return std::pair{uint64(0), FRHIGPUSyncPointRef{}};
 					}
 					return std::pair{Graph.Capture().Resources[0].PhysicalAllocationId, FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).back()};

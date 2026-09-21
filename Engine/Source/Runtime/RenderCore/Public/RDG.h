@@ -30,6 +30,7 @@ namespace Durin
 		NestedShaderBindingDuplicate,
 		ParameterLayoutMismatch,
 	};
+	RENDERCORE_API auto ToString(ERDGMetadataError Error) -> std::string_view;
 
 	enum class ERDGUseError : uint8
 	{
@@ -46,6 +47,7 @@ namespace Durin
 		BufferProducerMissing,
 		ResourceProducerMissing,
 	};
+	RENDERCORE_API auto ToString(ERDGUseError Error) -> std::string_view;
 
 	enum class ERDGIdentityError : uint8
 	{
@@ -75,6 +77,7 @@ namespace Durin
 		ValueDirectionInvalid,
 		ValueHandleInvalid,
 	};
+	RENDERCORE_API auto ToString(ERDGIdentityError Error) -> std::string_view;
 
 	enum class ERDGDependencyError : uint8
 	{
@@ -82,6 +85,7 @@ namespace Durin
 		ProducerHandleInvalid,
 		ConsumerHandleInvalid,
 	};
+	RENDERCORE_API auto ToString(ERDGDependencyError Error) -> std::string_view;
 
 	enum class ERDGStateError : uint8
 	{
@@ -91,12 +95,14 @@ namespace Durin
 		StorageIncomplete,
 		RecordingIncomplete,
 	};
+	RENDERCORE_API auto ToString(ERDGStateError Error) -> std::string_view;
 
 	enum class ERDGPreparationError : uint8
 	{
 		AllocatorMissing,
 		QueueTransferFailed,
 	};
+	RENDERCORE_API auto ToString(ERDGPreparationError Error) -> std::string_view;
 
 	enum class ERDGAllocationError : uint8
 	{
@@ -108,6 +114,7 @@ namespace Durin
 		PhysicalAllocationFailed,
 		AllocationPublicationFailed,
 	};
+	RENDERCORE_API auto ToString(ERDGAllocationError Error) -> std::string_view;
 
 	enum class ERDGResourceKind : uint8;
 	enum class ERDGPassType : uint8;
@@ -156,21 +163,25 @@ namespace Durin
 		ERDGMetadataError Reason;
 		FRDGMetadataErrorContext Context{};
 	};
+	RENDERCORE_API auto ToString(const FRDGMetadataError& Error) -> std::string;
 	struct FRDGUseError
 	{
 		ERDGUseError Reason;
 		FRDGUseErrorContext Context{};
 	};
+	RENDERCORE_API auto ToString(const FRDGUseError& Error) -> std::string;
 	struct FRDGIdentityError
 	{
 		ERDGIdentityError Reason;
 		FRDGIdentityErrorContext Context{};
 	};
+	RENDERCORE_API auto ToString(const FRDGIdentityError& Error) -> std::string;
 	struct FRDGDependencyError
 	{
 		ERDGDependencyError Reason;
 		uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX;
 	};
+	RENDERCORE_API auto ToString(const FRDGDependencyError& Error) -> std::string;
 	using FRDGMetadataResult = std::expected<void, FRDGMetadataError>;
 
 	struct FRDGLimitError
@@ -178,28 +189,34 @@ namespace Durin
 		ERDGLimit Dimension;
 		uint64 Actual = 0, Limit = 0;
 	};
+	RENDERCORE_API auto ToString(const FRDGLimitError& Error) -> std::string;
 	struct FRDGExternalConflictError
 	{
 		FRDGResourceContractContext Canonical, Requested;
 	};
+	RENDERCORE_API auto ToString(const FRDGExternalConflictError& Error) -> std::string;
 	struct FRDGMissingAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 	};
+	RENDERCORE_API auto ToString(const FRDGMissingAllocationError& Error) -> std::string;
 	struct FRDGTextureAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHITextureDesc Expected, Actual;
 	};
+	RENDERCORE_API auto ToString(const FRDGTextureAllocationError& Error) -> std::string;
 	struct FRDGBufferAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHIBufferDesc Expected, Actual;
 	};
+	RENDERCORE_API auto ToString(const FRDGBufferAllocationError& Error) -> std::string;
 	struct FRDGAllocationBudgetError
 	{
 		uint64 Actual = 0, Limit = 0;
 	};
+	RENDERCORE_API auto ToString(const FRDGAllocationBudgetError& Error) -> std::string;
 	using FRDGLimitResult = std::expected<void, FRDGLimitError>;
 
 	struct FRDGAllocationFailure
@@ -208,6 +225,7 @@ namespace Durin
 		uint32 ResourceId = UINT32_MAX;
 		FRHICreationError Cause;
 	};
+	RENDERCORE_API auto ToString(const FRDGAllocationFailure& Error) -> std::string;
 	// Aggregate complete errors only at the operation that can produce them.
 	struct FRDGCompileError
 	{
@@ -219,6 +237,7 @@ namespace Durin
 		FRDGCompileError(std::variant<FRDGDependencyError, FRDGLimitError> Error)
 			: Detail(std::visit([](auto&& Value) -> FDetail { return std::move(Value); }, std::move(Error))) {}
 	};
+	RENDERCORE_API auto ToString(const FRDGCompileError& Error) -> std::string;
 	using FRDGCompileResult = std::expected<void, FRDGCompileError>;
 
 	struct FRDGAllocationError
@@ -228,6 +247,7 @@ namespace Durin
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGAllocationError(T Error) : Detail(std::move(Error)) {}
 	};
+	RENDERCORE_API auto ToString(const FRDGAllocationError& Error) -> std::string;
 	using FRDGAllocationResult = std::expected<void, FRDGAllocationError>;
 
 	struct FRDGPreparationError
@@ -238,32 +258,8 @@ namespace Durin
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGPreparationError(T Error) : Detail(std::move(Error)) {}
 	};
+	RENDERCORE_API auto ToString(const FRDGPreparationError& Error) -> std::string;
 	using FRDGPreparationResult = std::expected<void, FRDGPreparationError>;
-
-	RENDERCORE_API auto FormatRDGError(ERDGMetadataError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGUseError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGIdentityError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGDependencyError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGStateError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGPreparationError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(ERDGAllocationError Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGMetadataError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGUseError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGIdentityError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGDependencyError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGCompileError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGAllocationError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGPreparationError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGLimitError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGExternalConflictError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGMissingAllocationError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGTextureAllocationError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGBufferAllocationError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGAllocationBudgetError& Error) -> std::string;
-	RENDERCORE_API auto FormatRDGError(const FRDGAllocationFailure& Error) -> std::string;
-	template<typename T, typename E>
-	auto FormatRDGError(const std::expected<T, E>& Result) -> std::string
-	{ return Result ? std::string{} : FormatRDGError(Result.error()); }
 
 	class FRHICommandListImmediate;
 	class FRDGBuilder;
@@ -1479,10 +1475,10 @@ namespace Durin
 			return ERDGExecutionStatus::InvalidState;
 		}
 	};
+	RENDERCORE_API auto ToString(const FRDGExecutionError& Error) -> std::string;
 	using FRDGExecutionResult = std::expected<void, FRDGExecutionError>;
 	inline auto GetRDGExecutionStatus(const FRDGExecutionResult& Result) -> ERDGExecutionStatus
 	{ return Result ? ERDGExecutionStatus::Recorded : Result.error().GetStatus(); }
-	RENDERCORE_API auto FormatRDGError(const FRDGExecutionError& Error) -> std::string;
 
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
 	struct FRDGCapture final
@@ -1696,7 +1692,6 @@ namespace Durin
 			MarkParameterStorageConstructed(AllocationIndex);
 			return {Parameters, std::move(Lifetime), LayoutResult->get(), AllocationIndex};
 		}
-
 
 		// Consumes this builder even on failure. Retrying requires a newly authored graph.
 		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,

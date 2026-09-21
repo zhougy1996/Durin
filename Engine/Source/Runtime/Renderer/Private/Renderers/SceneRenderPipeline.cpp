@@ -398,7 +398,7 @@ namespace Durin
 		{
 			DURIN_WARN("Scene render graph {} failed: {}",
 				Durin::GetRDGExecutionStatus(Result) == ERDGExecutionStatus::CompileFailed ? "compilation" : "execution",
-				FormatRDGError(Result));
+				ToString(Result.error()));
 		}
 		PublishSceneRenderGraphCapture(
 			Graph, OutRenderGraphCapture);

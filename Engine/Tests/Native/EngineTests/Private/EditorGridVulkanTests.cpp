@@ -628,7 +628,7 @@ namespace Durin
 					}
 
 					const auto Result = Builder.Execute(CommandList, &Allocator);
-					ASSERT_TRUE(Result.has_value()) << FormatRDGError(Result);
+					ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
 					(*Captures)[Index] = Builder.Capture();
 				}
 				Allocator.Release_RenderThread();
