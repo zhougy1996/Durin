@@ -351,7 +351,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	}
 }
 
-TEST_F(FThumbnailVulkanTests, CubeSessionRejectsResourceRevisionAfterFailureAndRecovery)
+TEST_F(FThumbnailVulkanTests, CubeSessionRetainsPreparedInputAcrossFailureAndRecovery)
 {
 	auto* CaptureCube = ImportCube();
 	ASSERT_NE(CaptureCube, nullptr);
@@ -379,25 +379,27 @@ TEST_F(FThumbnailVulkanTests, CubeSessionRejectsResourceRevisionAfterFailureAndR
 	const auto Snapshot = CaptureCube->GetPublishedTexture();
 	ASSERT_NE(Snapshot, nullptr);
 	Durin::FlushRenderingCommands();
-	ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
-	// Failed publication retires the resource and invalidates the recorded session revision.
+	ASSERT_TRUE(Session->ValidatePreparedInput(Error)) << Error;
+	// Failed publication retires the resource and invalidates the prepared session input.
 	Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 	CaptureCube->UpdateResource();
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 	EXPECT_EQ(CaptureCube->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 	EXPECT_EQ(CaptureCube->GetPublishedTexture(), nullptr);
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	CaptureCube->UpdateResource();
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 	EXPECT_EQ(CaptureCube->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
 	ASSERT_NE(CaptureCube->GetPublishedTexture(), nullptr);
 	EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
 	EXPECT_NE(CaptureCube->GetPublishedTexture(), Snapshot);
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+	EXPECT_EQ(Session->PollResources().State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender);
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Session->ResetPreview();
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 }
 
-TEST_F(FThumbnailVulkanTests, MaterialSessionRejectsTextureRevisionAfterFailureAndRecovery)
+TEST_F(FThumbnailVulkanTests, MaterialSessionRetainsPreparedInputAcrossFailureAndRecovery)
 {
 	auto* Texture = ImportTexture();
 	ASSERT_NE(Texture, nullptr);
@@ -443,20 +445,20 @@ TEST_F(FThumbnailVulkanTests, MaterialSessionRejectsTextureRevisionAfterFailureA
 	ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 	ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
 	Durin::FlushRenderingCommands();
-	ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+	ASSERT_TRUE(Session->ValidatePreparedInput(Error)) << Error;
 	const auto Stable = Texture->GetTextureReferenceRHI();
 	Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 	Texture->UpdateResource();
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Texture->IsResourceUpdatePending(); }));
 	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 	EXPECT_EQ(Texture->GetPublishedTexture(), nullptr);
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Texture->UpdateResource();
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Texture->IsResourceUpdatePending(); }));
 	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
 	ASSERT_NE(Texture->GetPublishedTexture(), nullptr);
 	EXPECT_EQ(Texture->GetTextureReferenceRHI(), Stable);
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Session->ResetPreview();
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr
@@ -681,7 +683,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	ASSERT_EQ(Loaded.State, EThumbnailRendererSessionState::ReadyToRender) << Loaded.Diagnostic;
 	FThumbnailPreviewScenePool Pool(Contract);
 	ASSERT_TRUE(Session->PreparePreview(Pool, Error)) << Error;
-	ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error)) << Error;
+	ASSERT_TRUE(Session->ValidatePreparedInput(Error)) << Error;
 	ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 	FlushRenderingCommands();
 	FByteBuffer Pixels;
@@ -731,10 +733,11 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	}
 
 	Asset->UpdateResource();
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error));
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->IsResourceUpdatePending(); }));
-	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error));
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Session->ResetPreview();
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 }
 
 TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)

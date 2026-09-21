@@ -144,9 +144,7 @@ namespace Durin
 						std::byte{32}, std::byte{32}, std::byte{32}, std::byte{255}};
 					Pixels->Width = 1;
 					Pixels->Height = 1;
-					Pixels->AssetRevision = 1;
 					OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
-					OutRequest.AssetRevision = Pixels->AssetRevision;
 					OutRequest.GeneratedPixels = std::move(Pixels);
 				}
 				OutError.clear();
@@ -238,9 +236,7 @@ namespace Durin
 				return {
 					.State = State->ResourcePollsBeforeReady == 0
 						? Editor::EThumbnailRendererSessionState::ReadyToRender
-						: Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = 17,
-					.ResourceRevision = State->ResourcePollsBeforeReady == 0 ? 29u : 0u};
+						: Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PollResources() -> Editor::FThumbnailRendererSessionUpdate override
@@ -251,9 +247,7 @@ namespace Durin
 				return {
 					.State = bReady
 						? Editor::EThumbnailRendererSessionState::ReadyToRender
-						: Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = 17,
-					.ResourceRevision = bReady ? 29u : 0u};
+						: Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
@@ -267,17 +261,15 @@ namespace Durin
 				return true;
 			}
 
-			auto ValidateRevisions(
-				uint64 ExpectedAssetRevision,
-				uint64 ExpectedResourceRevision,
+			auto ValidatePreparedInput(
 				std::string& OutError) const -> bool override
 			{
-				if (ExpectedAssetRevision == 17 && ExpectedResourceRevision == 29)
+				if (!bReset && State->PreviewPreparations != 0)
 				{
 					OutError.clear();
 					return true;
 				}
-				OutError = "The fake rendered-thumbnail revisions changed.";
+				OutError = "The fake rendered-thumbnail input is not prepared.";
 				return false;
 			}
 
@@ -1140,24 +1132,23 @@ namespace Durin
 		Editor::IThumbnailRendererSession* Session =
 			ColdJob->ScheduledJob.GenerationRequest.BeginRenderedSession(Error);
 		ASSERT_NE(Session, nullptr) << Error;
+		EXPECT_FALSE(Session->ValidatePreparedInput(Error));
+		Error.clear();
 		const Editor::FThumbnailRendererSessionUpdate Update = Session->Load();
 		ASSERT_EQ(Update.State, Editor::EThumbnailRendererSessionState::ReadyToRender);
 		FFakeThumbnailPreviewScene PreviewScene;
 		ASSERT_TRUE(Session->PreparePreview(PreviewScene, Error)) << Error;
-		ASSERT_TRUE(Session->ValidateRevisions(
-			Update.AssetRevision, Update.ResourceRevision, Error)) << Error;
-		ASSERT_TRUE(Pipeline.CompleteLoad(*ColdJob, Update.AssetRevision));
+		ASSERT_TRUE(Session->ValidatePreparedInput(Error)) << Error;
+		ASSERT_TRUE(Pipeline.CompleteLoad(*ColdJob));
 		ASSERT_TRUE(Pipeline.BeginRender(
-			*ColdJob, true, Update.AssetRevision, Update.ResourceRevision));
+			*ColdJob, true));
 		ASSERT_TRUE(Pipeline.CompleteRender(
-			*ColdJob, Update.AssetRevision, Update.ResourceRevision));
+			*ColdJob));
 		ASSERT_TRUE(Pipeline.CompleteReadback(
-			*ColdJob, Update.AssetRevision, Update.ResourceRevision));
+			*ColdJob));
 		const std::array<uint8, 4> Encoded = {1, 2, 3, 4};
 		ASSERT_TRUE(Pipeline.CompleteEncoding(
 			*ColdJob,
-			Update.AssetRevision,
-			Update.ResourceRevision,
 			std::as_bytes(std::span{Encoded})));
 		ColdJob->ScheduledJob.GenerationRequest.ReleaseRenderedSession();
 		EXPECT_EQ(State->PreviewResets, 1u);
@@ -1249,7 +1240,7 @@ namespace Durin
 				Editor::EAssetThumbnailState::Uploading})
 			{
 				if (Current == States[StateIndex]) break;
-				ASSERT_TRUE(Scheduler.Transition(*Job, Current, Next, 17, 29));
+				ASSERT_TRUE(Scheduler.Transition(*Job, Current, Next));
 				Current = Next;
 			}
 			ASSERT_EQ(Current, States[StateIndex]);
@@ -1265,7 +1256,7 @@ namespace Durin
 			EXPECT_EQ(State->InputDestructions, 1u);
 			EXPECT_EQ(State->ExtensionDestructions, 1u);
 			EXPECT_FALSE(Scheduler.Transition(
-				*Job, Current, Editor::EAssetThumbnailState::Ready, 17, 29));
+				*Job, Current, Editor::EAssetThumbnailState::Ready));
 		}
 	}
 
@@ -1530,13 +1521,13 @@ namespace Durin
 			}
 
 			ASSERT_TRUE(Job);
-			ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
-			ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
-			ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
-			ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+			ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
+			ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
+			ASSERT_TRUE(Pipeline.CompleteRender(*Job));
+			ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 			const Durin::FByteBuffer Encoded = {
 				std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
-			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, 10, 20, Encoded));
+			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, Encoded));
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
 			const Editor::FAssetThumbnailGenerationStats Stats = Pipeline.GetStats();
 			EXPECT_EQ(Stats.Jobs, 1u);
@@ -1570,15 +1561,15 @@ namespace Durin
 		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
-		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
-		ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
-		ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
-		ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
+		ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
+		ASSERT_TRUE(Pipeline.CompleteRender(*Job));
+		ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 		const std::array<uint8, 8> Pixels = {
 			255, 0, 0, 255,
 			0, 255, 0, 128};
 		ASSERT_TRUE(Pipeline.CompletePixels(
-			*Job, 10, 20, std::as_bytes(std::span{Pixels}), 2, 1));
+			*Job, std::as_bytes(std::span{Pixels}), 2, 1));
 
 		Editor::FThumbnailObjectStore Store({
 			.CacheRoot = Root,
@@ -1616,15 +1607,13 @@ namespace Durin
 		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
 		const std::string CacheKey = Job->ScheduledJob.CacheKey;
-		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
-		ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
-		ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
-		ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
+		ASSERT_TRUE(Pipeline.BeginRender(*Job, true));
+		ASSERT_TRUE(Pipeline.CompleteRender(*Job));
+		ASSERT_TRUE(Pipeline.CompleteReadback(*Job));
 		const std::array<uint8, 4> Pixels = {255, 255, 255, 255};
 		EXPECT_FALSE(Pipeline.CompletePixels(
 			*Job,
-			10,
-			20,
 			std::as_bytes(std::span{Pixels}),
 			1,
 			1,
@@ -1659,13 +1648,13 @@ namespace Durin
 		ASSERT_TRUE(Job);
 		const std::array<uint8, 4> Pixels{32, 32, 32, 255};
 		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
-			*Job, 7, std::as_bytes(std::span{Pixels}), 1, 1));
+			*Job, std::as_bytes(std::span{Pixels}), 1, 1));
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
 	}
 
-	TEST(FAssetThumbnailContractTests, GeneratedPixelsWithCapturedRevisionServeWarmHit)
+	TEST(FAssetThumbnailContractTests, GeneratedPixelsWithCapturedInputServeWarmHit)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsWarmHit");
 		Editor::DThumbnailManager Registry;
@@ -1692,7 +1681,6 @@ namespace Durin
 				*Cold.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
 			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
 				*Cold.ColdJob,
-				Generated.AssetRevision,
 				Generated.Pixels,
 				Generated.Width,
 				Generated.Height));
@@ -1742,7 +1730,7 @@ namespace Durin
 		ASSERT_TRUE(Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels);
 		const auto& Pixels = *Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
 		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
-			*Generated.ColdJob, Pixels.AssetRevision,
+			*Generated.ColdJob,
 			Pixels.Pixels, Pixels.Width, Pixels.Height));
 		EXPECT_EQ(Scheduler.Find(Waiting.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::Loading);
@@ -1774,24 +1762,24 @@ namespace Durin
 		std::optional<Editor::FAssetThumbnailJob> Second = Pipeline.StartNext();
 		ASSERT_TRUE(First);
 		ASSERT_TRUE(Second);
-		ASSERT_TRUE(Pipeline.CompleteLoad(*First, 10));
-		ASSERT_TRUE(Pipeline.CompleteLoad(*Second, 11));
-		EXPECT_TRUE(Pipeline.BeginRender(*First, true, 10, 20));
-		EXPECT_FALSE(Pipeline.BeginRender(*Second, true, 11, 21));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*First));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Second));
+		EXPECT_TRUE(Pipeline.BeginRender(*First, true));
+		EXPECT_FALSE(Pipeline.BeginRender(*Second, true));
 		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::WaitingForResources);
 
 		Pipeline.BeginFrame();
-		EXPECT_TRUE(Pipeline.BeginRender(*Second, true, 11, 21));
-		EXPECT_FALSE(Pipeline.CompleteRender(*Second, 12, 21));
+		EXPECT_TRUE(Pipeline.BeginRender(*Second, true));
+		EXPECT_FALSE(Pipeline.CompleteReadback(*Second));
 		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.AssetPath).State, Editor::EAssetThumbnailState::Rendering);
-		EXPECT_TRUE(Pipeline.CompleteRender(*Second, 11, 21));
+		EXPECT_TRUE(Pipeline.CompleteRender(*Second));
 
 		const Editor::FAssetThumbnailRequest Replacement =
 			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 2,
 				Editor::EAssetThumbnailPriority::Visible, 200);
 		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Scheduler.Request(Replacement))) << Error;
-		EXPECT_FALSE(Pipeline.CompleteRender(*First, 10, 20));
+		EXPECT_FALSE(Pipeline.CompleteRender(*First));
 		EXPECT_TRUE(First->ScheduledJob.GenerationRequest.Cancellation.IsCancelled());
 	}
 
@@ -1816,7 +1804,7 @@ namespace Durin
 		auto Cold = Pipeline.StartNextDetailed();
 		ASSERT_TRUE(Cold.ColdJob);
 		const auto& Generated = *Cold.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(*Cold.ColdJob, Generated.AssetRevision,
+		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(*Cold.ColdJob,
 			Generated.Pixels, Generated.Width, Generated.Height));
 		// No cache task is pumped between accepting pixels and observing display readiness.
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
@@ -1871,7 +1859,7 @@ namespace Durin
 			auto Scheduled = Scheduler.TakeNext();
 			ASSERT_TRUE(Scheduled);
 			Editor::FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
-			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, 7, Pixels, 1, 1));
+			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
 		}
 		EXPECT_EQ(Pipeline.GetStats().CacheWritesSkipped, 1u);
@@ -1898,7 +1886,7 @@ namespace Durin
 		const FByteBuffer Pixels(4, std::byte{127});
 		{
 			Editor::FAssetThumbnailGeneration Pipeline(Scheduler, {.CacheRoot = Root}, {}, true);
-			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, 7, Pixels, 1, 1));
+			ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
 			EXPECT_EQ(Pipeline.GetStats().CacheWrites, 0u);
 		}
 		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
@@ -1927,7 +1915,7 @@ namespace Durin
 		ASSERT_TRUE(Scheduled);
 		Editor::FAssetThumbnailJob Job{.ScheduledJob = std::move(*Scheduled)};
 		const FByteBuffer Pixels(4, std::byte{127});
-		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, 7, Pixels, 1, 1));
+		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(Job, Pixels, 1, 1));
 		Pipeline.WaitForCacheTasksForTesting();
 		EXPECT_EQ(Pipeline.GetStats().CacheWriteFailures, 1u);
 		EXPECT_EQ(Pipeline.GetStats().Failures, 0u);
@@ -1953,9 +1941,9 @@ namespace Durin
 		Pipeline.BeginFrame();
 		std::optional<Editor::FAssetThumbnailJob> Job = Pipeline.StartNext();
 		ASSERT_TRUE(Job);
-		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 30));
-		EXPECT_TRUE(Pipeline.BeginRender(*Job, false, 30, 0));
-		EXPECT_FALSE(Pipeline.BeginRender(*Job, true, 30, 0, "Cube build failed."));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job));
+		EXPECT_TRUE(Pipeline.BeginRender(*Job, false));
+		EXPECT_FALSE(Pipeline.BeginRender(*Job, true, "Cube build failed."));
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
 
 		Pipeline.RecordRetry();

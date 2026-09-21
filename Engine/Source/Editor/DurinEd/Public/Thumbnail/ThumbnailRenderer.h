@@ -18,13 +18,12 @@ namespace Durin
 		Failed
 	};
 
-	// Transfers only revisions and diagnostics across the extension boundary.
+	// Reports readiness and diagnostics; input ownership and validation stay in the session.
 	struct FThumbnailRendererSessionUpdate
 	{
 		EThumbnailRendererSessionState State =
 			EThumbnailRendererSessionState::Failed;
-		uint64 AssetRevision = 0;
-		uint64 ResourceRevision = 0;
+
 		std::string Diagnostic;
 	};
 
@@ -72,6 +71,9 @@ namespace Durin
 	};
 
 	// Owns all renderer-specific state for one persistent-cache miss.
+	// Load captures authored inputs. PollResources only observes readiness. PreparePreview
+	// captures the resource inputs retained until ResetPreview; later polling must not
+	// replace them. ValidatePreparedInput rejects missing, reset, or changed inputs.
 	// Every method runs on the game thread. ResetPreview is idempotent and is called
 	// before the session can be destroyed by normal completion or renderer removal.
 	class IThumbnailRendererSession
@@ -84,9 +86,7 @@ namespace Durin
 		virtual auto PreparePreview(
 			IThumbnailPreviewScene& PreviewScene,
 			std::string& OutError) -> bool = 0;
-		virtual auto ValidateRevisions(
-			uint64 ExpectedAssetRevision,
-			uint64 ExpectedResourceRevision,
+		virtual auto ValidatePreparedInput(
 			std::string& OutError) const -> bool = 0;
 		virtual auto ResetPreview() -> void = 0;
 	};

@@ -232,7 +232,7 @@ namespace Durin::Editor
 				Request.GeneratedPixels;
 			if (!Generated)
 			{
-				Pipeline.CompleteLoad(Job, 0,
+				Pipeline.CompleteLoad(Job,
 					"The generated-thumbnail fast lane received rendered work.");
 				return;
 			}
@@ -245,12 +245,12 @@ namespace Durin::Editor
 				|| ExpectedBytes > Budgets.CpuPixelBudgetBytes)
 				Error = "Generated thumbnail pixels violate the requested output or CPU budget.";
 			if (Error.empty()
-				&& Pipeline.CompleteGeneratedPixels(Job, Generated->AssetRevision,
+				&& Pipeline.CompleteGeneratedPixels(Job,
 					Generated->Pixels, Generated->Width, Generated->Height))
 				QueueUpload(Request, Generated->Pixels,
 					Generated->Width, Generated->Height);
 			else if (!Error.empty())
-				Pipeline.CompleteLoad(Job, Generated->AssetRevision, Error);
+				Pipeline.CompleteLoad(Job, Error);
 		}
 
 		auto DrainUploads() -> void
@@ -311,35 +311,28 @@ namespace Durin::Editor
 			if (State == EThumbnailCaptureState::Failed)
 			{
 				Pipeline.CompleteRender(
-					Job, Job.AssetRevision, Job.ResourceRevision, Error);
+					Job, Error);
 			}
 			else if (Session == nullptr
-				|| !Session->ValidateRevisions(
-					Job.AssetRevision, Job.ResourceRevision, Error))
+				|| !Session->ValidatePreparedInput(Error))
 			{
 				if (Error.empty()) Error = "The rendered-thumbnail renderer was removed.";
 				Pipeline.CompleteRender(
-					Job, Job.AssetRevision, Job.ResourceRevision, Error);
+					Job, Error);
 			}
 			else if (Pipeline.CompleteRender(
-					Job, Job.AssetRevision, Job.ResourceRevision)
+					Job)
 				&& Pipeline.CompleteReadback(
-					Job, Job.AssetRevision, Job.ResourceRevision)
+					Job)
 				&& Pipeline.CompletePixels(
 					Job,
-					Job.AssetRevision,
-					Job.ResourceRevision,
 					Pixels,
 					Request.KeyInput.Output.Width,
 					Request.KeyInput.Output.Height,
 					{},
-					[Session,
-						ExpectedAssetRevision = Job.AssetRevision,
-						ExpectedResourceRevision = Job.ResourceRevision]() {
+					[Session]() {
 						std::string ValidationError;
-						Session->ValidateRevisions(
-							ExpectedAssetRevision,
-							ExpectedResourceRevision,
+						Session->ValidatePreparedInput(
 							ValidationError);
 						return ValidationError;
 					}))
@@ -361,13 +354,13 @@ namespace Durin::Editor
 				|| ParkedJobs.size() >= Budgets.MaximumParkedRenderedJobs)
 			{
 				Pipeline.BeginRender(
-					*ActiveJob, false, Update.AssetRevision, 0,
+					*ActiveJob, false,
 					"The rendered-thumbnail parked-resource budget is exhausted.");
 				ResetActive();
 				return;
 			}
 			if (!Pipeline.BeginRender(
-					*ActiveJob, false, Update.AssetRevision, 0))
+					*ActiveJob, false))
 			{
 				Pipeline.Cancel(*ActiveJob);
 				ResetActive();
@@ -403,8 +396,6 @@ namespace Durin::Editor
 				Pipeline.BeginRender(
 					Job,
 					false,
-					Update.AssetRevision,
-					Update.ResourceRevision,
 					Update.Diagnostic);
 				ResetActive();
 				return;
@@ -418,9 +409,7 @@ namespace Durin::Editor
 			}
 			if (!Pipeline.BeginRender(
 					Job,
-					true,
-					Update.AssetRevision,
-					Update.ResourceRevision))
+					true))
 				return;
 			std::string Error;
 			if (!EnsureScene(Request.KeyInput.Output))
@@ -436,8 +425,7 @@ namespace Durin::Editor
 			else
 			{
 				++PreviewSceneAssignments;
-				if (!Session->ValidateRevisions(
-						Job.AssetRevision, Job.ResourceRevision, Error)
+				if (!Session->ValidatePreparedInput(Error)
 					|| !ScenePool->BeginCapture(Error))
 				{
 					if (Error.empty()) Error = "The preview capture could not start.";
@@ -448,7 +436,7 @@ namespace Durin::Editor
 				}
 			}
 			Pipeline.CompleteRender(
-				Job, Job.AssetRevision, Job.ResourceRevision, Error);
+				Job, Error);
 			ResetActive();
 		}
 
@@ -484,7 +472,7 @@ namespace Durin::Editor
 				if (!bRelease && bTimedOut)
 				{
 					Pipeline.BeginRender(
-						Parked.Job, false, Parked.Job.AssetRevision, 0,
+						Parked.Job, false,
 						"Timed out waiting for rendered-thumbnail resources.");
 					++ResourceWaitTimeouts;
 					bRelease = true;
@@ -499,8 +487,6 @@ namespace Durin::Editor
 					{
 						Pipeline.BeginRender(
 							Parked.Job, false,
-							Parked.LastUpdate.AssetRevision,
-							Parked.LastUpdate.ResourceRevision,
 							Parked.LastUpdate.Diagnostic);
 						bRelease = true;
 					}
@@ -510,8 +496,7 @@ namespace Durin::Editor
 						Parked.bReady = true;
 					}
 					else if (!Pipeline.BeginRender(
-							Parked.Job, false,
-							Parked.LastUpdate.AssetRevision, 0))
+							Parked.Job, false))
 					{
 						Pipeline.Cancel(Parked.Job);
 						bRelease = true;
@@ -595,13 +580,13 @@ namespace Durin::Editor
 				Request.BeginRenderedSession(Error);
 			if (Session == nullptr)
 			{
-				Pipeline.CompleteLoad(Job, 0, Error);
+				Pipeline.CompleteLoad(Job, Error);
 				ResetActive();
 				return;
 			}
 			const FThumbnailRendererSessionUpdate Update = Session->Load();
 			if (!Pipeline.CompleteLoad(
-					Job, Update.AssetRevision, Update.Diagnostic))
+					Job, Update.Diagnostic))
 			{
 				ResetActive();
 				return;

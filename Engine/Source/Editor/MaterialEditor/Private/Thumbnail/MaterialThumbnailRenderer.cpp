@@ -236,38 +236,29 @@ namespace Durin::Editor::Material
 						.Diagnostic = std::move(SphereError)};
 				}
 				return {
-					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = AssetRevision};
+					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				bool bReady = false;
 				std::string Error;
-				const uint64 MaterialRevision =
-					GetMaterialResourceRevision(Material, bReady, Error);
+				GetMaterialResourceRevision(Material, bReady, Error);
 				if (!Error.empty())
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = MaterialRevision,
 						.Diagnostic = std::move(Error)};
 				if (!bReady)
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = MaterialRevision};
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				if (Sphere == nullptr)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
 						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
 				// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
 				if (HasPendingStaticMeshCompilation(*Sphere))
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = MaterialRevision};
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				FStaticMeshRenderResourceStatus SphereStatus =
 					Sphere->GetRenderResourceStatus();
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
@@ -276,8 +267,6 @@ namespace Durin::Editor::Material
 					if (!LoadResult)
 						return {
 							.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-							.AssetRevision = AssetRevision,
-							.ResourceRevision = SphereStatus.Revision,
 							.Diagnostic = FormatCookedMeshLoadError(LoadResult.Error)};
 					Sphere->InitResources();
 					SphereStatus = Sphere->GetRenderResourceStatus();
@@ -286,19 +275,13 @@ namespace Durin::Editor::Material
 					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = SphereStatus.Revision,
 						.Diagnostic = "The rendered-thumbnail sphere render resource is unavailable."};
 				const bool bSphereReady = SphereStatus.Readiness
 					== EStaticMeshRenderResourceReadiness::Ready;
-				const uint64 Revision = CombineResourceRevision(
-					MaterialRevision, SphereStatus.Revision);
 				return {
 					.State = bReady && bSphereReady
 						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
-						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = AssetRevision,
-					.ResourceRevision = Revision};
+						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
@@ -307,6 +290,10 @@ namespace Durin::Editor::Material
 			{
 				ResetScenePreview();
 				if (!Material) { OutError = "The material is unavailable."; return false; }
+				bool bReady = false;
+				const uint64 MaterialRevision = GetMaterialResourceRevision(Material, bReady, OutError);
+				if (!bReady || !OutError.empty() || !Sphere) return false;
+				PreparedResourceRevision = CombineResourceRevision(MaterialRevision, Sphere->GetRenderResourceStatus().Revision);
 				DependencySnapshots.clear();
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
@@ -349,12 +336,10 @@ namespace Durin::Editor::Material
 				return true;
 			}
 
-			auto ValidateRevisions(
-				uint64 ExpectedAssetRevision,
-				uint64 ExpectedResourceRevision,
+			auto ValidatePreparedInput(
 				std::string& OutError) const -> bool override
 			{
-				if (!AreDependencySnapshotsCurrent())
+				if (Component == nullptr || !AreDependencySnapshotsCurrent())
 				{
 					OutError = "A material texture changed while its thumbnail was being generated.";
 					return false;
@@ -373,8 +358,8 @@ namespace Durin::Editor::Material
 					MaterialRevision, SphereStatus.Revision);
 				if (!bReady || Material == nullptr
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
-					|| MaterialAssetRevision != ExpectedAssetRevision
-					|| Revision != ExpectedResourceRevision)
+					|| MaterialAssetRevision != AssetRevision
+					|| Revision != PreparedResourceRevision)
 				{
 					OutError = "The material changed while its thumbnail was being generated.";
 					return false;
@@ -418,6 +403,7 @@ namespace Durin::Editor::Material
 			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;
+			uint64 PreparedResourceRevision = 0;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;

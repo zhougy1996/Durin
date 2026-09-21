@@ -43,7 +43,7 @@ namespace Durin
 		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
-		uint64 AssetRevision = 0;
+
 	};
 
 	// Keeps renderer-owned request data behind a core-owned invalidation boundary.
@@ -86,9 +86,6 @@ namespace Durin
 		uint64 RequestSerial = 0;
 		// Renderer-selected UI compositing policy; it does not affect persistent identity.
 		bool bHasTransparency = true;
-		// Renderer snapshots revalidated after asset loading and before every resource-dependent publication.
-		uint64 AssetRevision = 0;
-		uint64 ResourceRevision = 0;
 
 		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
 		DURINED_API auto BeginRenderedSession(std::string& OutError) const

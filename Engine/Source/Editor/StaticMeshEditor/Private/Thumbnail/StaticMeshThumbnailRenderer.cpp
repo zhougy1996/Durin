@@ -107,8 +107,7 @@ namespace Durin::Editor::StaticMesh
 			{
 				if (HasPendingStaticMeshCompilation(*StaticMesh))
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-						.AssetRevision = AssetRevision};
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
@@ -120,8 +119,6 @@ namespace Durin::Editor::StaticMesh
 				{
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Status.Revision,
 						.Diagnostic = std::format(
 							"StaticMesh '{}' has no finite, valid LOD 0 bounds.",
 							Input.AssetPath.ToString())};
@@ -130,27 +127,19 @@ namespace Durin::Editor::StaticMesh
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Status.Revision};
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender};
 				case EStaticMeshRenderResourceReadiness::Queued:
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Status.Revision};
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				case EStaticMeshRenderResourceReadiness::Failed:
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Status.Revision,
 						.Diagnostic = QualifyDiagnostic(
 							Input.AssetPath, "The render resource failed.")};
 				case EStaticMeshRenderResourceReadiness::Unavailable:
 				default:
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Status.Revision,
 						.Diagnostic = QualifyDiagnostic(
 							Input.AssetPath, "The render resource is unavailable.")};
 				}
@@ -161,6 +150,7 @@ namespace Durin::Editor::StaticMesh
 				std::string& OutError) -> bool override
 			{
 				ResetPreview();
+				PreparedResourceRevision = StaticMesh ? StaticMesh->GetRenderResourceStatus().Revision : 0;
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
 					: std::nullopt;
@@ -242,12 +232,10 @@ namespace Durin::Editor::StaticMesh
 				return true;
 			}
 
-			auto ValidateRevisions(
-				uint64 ExpectedAssetRevision,
-				uint64 ExpectedResourceRevision,
+			auto ValidatePreparedInput(
 				std::string& OutError) const -> bool override
 			{
-				if (StaticMesh == nullptr)
+				if (StaticMesh == nullptr || Component == nullptr)
 				{
 					OutError = QualifyDiagnostic(
 						Input.AssetPath, "The StaticMesh asset is unavailable.");
@@ -257,9 +245,8 @@ namespace Durin::Editor::StaticMesh
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness != EStaticMeshRenderResourceReadiness::Ready
 					|| StaticMesh->GetPackage() == nullptr
-					|| StaticMesh->GetPackage()->GetEditRevision() != ExpectedAssetRevision
-					|| AssetRevision != ExpectedAssetRevision
-					|| Status.Revision != ExpectedResourceRevision)
+					|| StaticMesh->GetPackage()->GetEditRevision() != AssetRevision
+					|| Status.Revision != PreparedResourceRevision)
 				{
 					OutError = std::format(
 						"StaticMesh '{}' changed while its thumbnail was being generated.",
@@ -281,6 +268,7 @@ namespace Durin::Editor::StaticMesh
 			FStaticMeshThumbnailRendererGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
 			uint64 AssetRevision = 0;
+			uint64 PreparedResourceRevision = 0;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;

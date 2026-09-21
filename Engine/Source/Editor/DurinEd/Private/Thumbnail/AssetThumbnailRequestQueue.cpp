@@ -267,8 +267,6 @@ namespace Durin::Editor
 		const FAssetThumbnailScheduledRequest& Job,
 		EAssetThumbnailState ExpectedState,
 		EAssetThumbnailState NextState,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		std::string_view Diagnostic) -> bool
 	{
 		if (Impl->bShuttingDown || Job.GenerationRequest.Cancellation.IsCancelled())
@@ -287,16 +285,8 @@ namespace Durin::Editor
 			|| Entry.RendererGeneration != Job.GenerationRequest.RendererGeneration
 			|| !CurrentRenderer
 			|| CurrentRenderer.Generation != Job.GenerationRequest.RendererGeneration
-			|| Entry.Request.Asset != Job.GenerationRequest.KeyInput.Asset
-			|| (Entry.GenerationRequest.AssetRevision != 0
-				&& Entry.GenerationRequest.AssetRevision != AssetRevision)
-			|| (Entry.GenerationRequest.ResourceRevision != 0
-				&& Entry.GenerationRequest.ResourceRevision != ResourceRevision))
+			|| Entry.Request.Asset != Job.GenerationRequest.KeyInput.Asset)
 			return false;
-
-		if (AssetRevision != 0) Entry.GenerationRequest.AssetRevision = AssetRevision;
-		if (ResourceRevision != 0)
-			Entry.GenerationRequest.ResourceRevision = ResourceRevision;
 		Entry.State = NextState;
 		Entry.Diagnostic = std::string(Diagnostic);
 		return true;

@@ -36,13 +36,10 @@ namespace Durin::Editor::Texture
 			{
 				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
 				if (Texture.Get()->IsResourceUpdatePending())
-					return {.State = EThumbnailRendererSessionState::WaitingForResources, .AssetRevision = AssetRevision};
+					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (!Texture.Get()->HasUsableResource())
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
-				// The allocation snapshot is the freshness authority; this nonzero
-				// session token admits the shared scheduler's ready transition.
-				return {.State = EThumbnailRendererSessionState::ReadyToRender,
-					.AssetRevision = AssetRevision, .ResourceRevision = 1};
+				return {.State = EThumbnailRendererSessionState::ReadyToRender};
 			}
 			auto PreparePreview(IThumbnailPreviewScene& Scene, std::string& Error) -> bool override
 			{
@@ -53,14 +50,13 @@ namespace Durin::Editor::Texture
 					return RenderTexturePreview(Commands, Input, Width, Height, Display);
 				}, Error);
 			}
-			auto ValidateRevisions(uint64 ExpectedAssetRevision, uint64 ExpectedResourceRevision,
+			auto ValidatePreparedInput(
 				std::string& Error) const -> bool override
 			{
 				if (!Texture.IsValid() || Texture.Get()->IsResourceUpdatePending() || !Snapshot
 					|| !Texture.Get()->HasUsableResource() || Texture.Get()->GetPublishedTexture() != Snapshot
 					|| Texture.Get()->GetPlatformDataShared() != Platform || Texture.Get()->GetUsage() != Options.Usage
-					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
-					|| ExpectedResourceRevision != 1)
+					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision)
 				{
 					Error = "Texture2D changed while its thumbnail was being generated.";
 					return false;

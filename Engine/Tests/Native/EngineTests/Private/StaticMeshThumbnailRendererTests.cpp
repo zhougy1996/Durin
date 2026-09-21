@@ -199,14 +199,11 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::Editor::FThumbnailRendererSessionUpdate Initial = Session->Load();
 	EXPECT_EQ(Initial.State,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
-	EXPECT_NE(Initial.AssetRevision, 0u);
-	EXPECT_EQ(Initial.AssetRevision, Mesh->GetPackage()->GetEditRevision());
 	EXPECT_TRUE(Initial.Diagnostic.empty());
-	EXPECT_EQ(Session->PollResources().AssetRevision, Initial.AssetRevision);
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Session->PollResources().AssetRevision, Initial.AssetRevision);
 	EXPECT_EQ(Initial.Diagnostic.find("non-degenerate LOD 0 bounds"),
 		std::string::npos);
 	Session.reset();

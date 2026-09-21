@@ -324,7 +324,7 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 }
 
 TEST(FMaterialThumbnailRendererTests,
-	LoadCapturesAuthoredRevisionInsteadOfRuntimeRenderRevision)
+	LoadedSessionRequiresPreparedInput)
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	InitializeDObjectSystem();
@@ -349,12 +349,6 @@ TEST(FMaterialThumbnailRendererTests,
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);
 	ASSERT_NE(Material->GetPackage(), nullptr);
-	while (Material->GetPackage()->GetEditRevision()
-		== Material->GetRenderStateVersion())
-		Material->GetPackage()->MarkDirty();
-	Material->GetPackage()->ClearDirty();
-	const uint64 AuthoredRevision = Material->GetPackage()->GetEditRevision();
-	ASSERT_NE(AuthoredRevision, Material->GetRenderStateVersion());
 
 	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
@@ -369,8 +363,9 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_EQ(Loaded.State,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
 		<< Loaded.Diagnostic;
-	EXPECT_EQ(Loaded.AssetRevision, AuthoredRevision);
-	EXPECT_NE(Loaded.AssetRevision, Material->GetRenderStateVersion());
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
+	Session->ResetPreview();
+	EXPECT_FALSE(Session->ValidatePreparedInput(Error));
 	Session.reset();
 }
 

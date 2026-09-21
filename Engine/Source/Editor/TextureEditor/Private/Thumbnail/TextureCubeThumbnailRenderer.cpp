@@ -30,39 +30,39 @@ namespace Durin::Editor::Texture
 		auto CheckTextureCubeReadiness(
 			DTextureCube* TextureCube,
 			bool& bOutReady,
-			std::string& OutError) -> uint64
+			std::string& OutError) -> void
 		{
 			bOutReady = false;
 			OutError.clear();
 			if (TextureCube == nullptr)
 			{
 				OutError = "The TextureCube asset is unavailable.";
-				return 0;
+				return;
 			}
 			if (!TextureCube->HasPlatformData())
 			{
 				OutError = "The TextureCube has no installed platform data.";
-				return 0;
+				return;
 			}
 			if (TextureCube->GetTextureReferenceRHI() == nullptr)
 			{
 				OutError = "The TextureCube has no texture reference.";
-				return 0;
+				return;
 			}
 			const auto State = TextureCube->GetResourceUpdateState();
-			if (TextureCube->IsResourceUpdatePending()) return 0;
+			if (TextureCube->IsResourceUpdatePending()) return;
 			if (State == ETextureResourceUpdateState::Failed && !TextureCube->HasUsableResource())
 			{
 				OutError = "The TextureCube render resource failed.";
-				return 0;
+				return;
 			}
 			if (State == ETextureResourceUpdateState::Closed)
 			{
 				OutError = "The TextureCube render resource was released.";
-				return 0;
+				return;
 			}
 			bOutReady = TextureCube->HasUsableResource();
-			return 0;
+			return;
 		}
 
 		auto MakeTextureCubeThumbnailView() -> ::Durin::Editor::FThumbnailPreviewView
@@ -124,28 +124,22 @@ namespace Durin::Editor::Texture
 				AssetRevision = TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0;
 				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();
 				return {
-					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = AssetRevision};
+					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				bool bReady = false;
 				std::string Error;
-				const uint64 Revision = CheckTextureCubeReadiness(
-					TextureCube.Get(), bReady, Error);
+				CheckTextureCubeReadiness(TextureCube.Get(), bReady, Error);
 				if (!Error.empty())
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = AssetRevision,
-						.ResourceRevision = Revision,
 						.Diagnostic = std::move(Error)};
 				return {
 					.State = bReady
 						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
-						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-					.AssetRevision = AssetRevision,
-					.ResourceRevision = Revision};
+						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
@@ -159,6 +153,9 @@ namespace Durin::Editor::Texture
 						AssetPath.ToString());
 					return false;
 				}
+				bool bReady = false;
+				CheckTextureCubeReadiness(TextureCube.Get(), bReady, OutError);
+				if (!bReady || !OutError.empty()) return false;
 				Snapshot = TextureCube.Get()->GetPublishedTexture();
 				const FRHITextureReferenceRef TextureReference = Snapshot
 					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
@@ -174,20 +171,17 @@ namespace Durin::Editor::Texture
 						{.TextureReference = TextureReference}, OutError);
 			}
 
-			auto ValidateRevisions(
-				uint64 ExpectedAssetRevision,
-				uint64 ExpectedResourceRevision,
+			auto ValidatePreparedInput(
 				std::string& OutError) const -> bool override
 			{
 				bool bReady = false;
-				const uint64 Revision = CheckTextureCubeReadiness(
+				CheckTextureCubeReadiness(
 					TextureCube.Get(), bReady, OutError);
 				if (!OutError.empty()) return false;
 				if (!bReady || !TextureCube.IsValid()
-					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
+					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision
 					|| TextureCube.Get()->GetSource().GetIdentity() != SourceIdentity
-					|| !Snapshot || TextureCube.Get()->GetPublishedTexture() != Snapshot
-					|| Revision != ExpectedResourceRevision)
+					|| !Snapshot || TextureCube.Get()->GetPublishedTexture() != Snapshot)
 				{
 					OutError = "The TextureCube changed while its thumbnail was being generated.";
 					return false;

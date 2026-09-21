@@ -99,9 +99,9 @@ namespace Durin::Editor
 			{
 				if (!Reads[Index] || Reads[Index]->bStarted) continue;
 				FCacheRead& Read = *Reads[Index];
+				const auto& Request = Read.Job.GenerationRequest;
 				Read.bStarted = true;
 				ActiveRead = Index;
-				const auto& Request = Read.Job.GenerationRequest;
 				if (!CacheTasks) CacheTasks.emplace();
 				CacheTask = Tasks::LaunchTask(*CacheTasks, Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "ReadAssetThumbnailCache"},
@@ -199,13 +199,10 @@ namespace Durin::Editor
 		auto Fail(
 			const FAssetThumbnailJob& Job,
 			EAssetThumbnailState ExpectedState,
-			uint64 AssetRevision,
-			uint64 ResourceRevision,
 			std::string_view Error) -> bool
 		{
 			if (Error.empty()) return false;
-			if (!Scheduler.Transition(Job.ScheduledJob, ExpectedState, EAssetThumbnailState::Failed,
-					AssetRevision, ResourceRevision, Error))
+			if (!Scheduler.Transition(Job.ScheduledJob, ExpectedState, EAssetThumbnailState::Failed, Error))
 				return false;
 			++Stats.Failures;
 			return true;
@@ -277,10 +274,8 @@ namespace Durin::Editor
 				FImpl::FCacheRead Read = std::move(*Slot);
 				Slot.reset();
 				Impl->RetainedBytes -= Read.ReservedBytes;
-				const auto& Request = Read.Job.GenerationRequest;
 				if (!Impl->Scheduler.Transition(Read.Job, EAssetThumbnailState::Loading,
-						Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading,
-						Request.AssetRevision, Request.ResourceRevision)) return Result;
+						Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading)) return Result;
 				if (Read.Result.bHit)
 				{
 					++Impl->Stats.DiskHits;
@@ -327,9 +322,7 @@ namespace Durin::Editor
 			if (Impl->Scheduler.Transition(
 					*ScheduledJob,
 					EAssetThumbnailState::Loading,
-					EAssetThumbnailState::Ready,
-					ScheduledJob->GenerationRequest.AssetRevision,
-					ScheduledJob->GenerationRequest.ResourceRevision))
+					EAssetThumbnailState::Ready))
 			{
 				++Impl->Stats.DiskHits;
 				Result.WarmJob = std::move(*ScheduledJob);
@@ -345,49 +338,39 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailGeneration::CompleteLoad(
 		FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Loading, AssetRevision, 0, Error)) return false;
-		if (AssetRevision == 0
-			|| !Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Loading,
-				EAssetThumbnailState::WaitingForResources, AssetRevision))
+		if (Impl->Fail(Job, EAssetThumbnailState::Loading, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Loading,
+				EAssetThumbnailState::WaitingForResources))
 			return false;
-		Job.AssetRevision = AssetRevision;
+
 		return true;
 	}
 
 	auto FAssetThumbnailGeneration::BeginRender(
 		FAssetThumbnailJob& Job,
 		bool bResourcesReady,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::WaitingForResources,
-				AssetRevision, ResourceRevision, Error))
+		if (Impl->Fail(Job, EAssetThumbnailState::WaitingForResources, Error))
 			return false;
-		if (AssetRevision == 0 || AssetRevision != Job.AssetRevision) return false;
 		if (!bResourcesReady)
 		{
 			++Impl->Stats.ResourceWaits;
 			return Impl->Scheduler.Transition(Job.ScheduledJob,
 				EAssetThumbnailState::WaitingForResources,
-				EAssetThumbnailState::WaitingForResources,
-				AssetRevision);
+				EAssetThumbnailState::WaitingForResources);
 		}
-		if (ResourceRevision == 0
-			|| Impl->RendersStartedThisFrame >= Impl->Budgets.MaximumRendersPerFrame)
+		if (Impl->RendersStartedThisFrame >= Impl->Budgets.MaximumRendersPerFrame)
 			return false;
 		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
 				EAssetThumbnailState::WaitingForResources,
-				EAssetThumbnailState::Rendering,
-				AssetRevision,
-				ResourceRevision))
+				EAssetThumbnailState::Rendering))
 			return false;
-		Job.ResourceRevision = ResourceRevision;
+
 		++Impl->RendersStartedThisFrame;
 		++Impl->Stats.Renders;
 		return true;
@@ -395,36 +378,26 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailGeneration::CompleteRender(
 		const FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Rendering,
-				AssetRevision, ResourceRevision, Error))
+		if (Impl->Fail(Job, EAssetThumbnailState::Rendering, Error))
 			return false;
 		return Impl->Scheduler.Transition(Job.ScheduledJob,
 			EAssetThumbnailState::Rendering,
-			EAssetThumbnailState::Readback,
-			AssetRevision,
-			ResourceRevision);
+			EAssetThumbnailState::Readback);
 	}
 
 	auto FAssetThumbnailGeneration::CompleteReadback(
 		const FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Readback,
-				AssetRevision, ResourceRevision, Error))
+		if (Impl->Fail(Job, EAssetThumbnailState::Readback, Error))
 			return false;
 		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
 				EAssetThumbnailState::Readback,
-				EAssetThumbnailState::Encoding,
-				AssetRevision,
-				ResourceRevision))
+				EAssetThumbnailState::Encoding))
 			return false;
 		++Impl->Stats.Readbacks;
 		return true;
@@ -432,45 +405,36 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailGeneration::CompleteEncoding(
 		const FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		FByteView EncodedBytes,
 		std::string_view Error
 	) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Encoding,
-				AssetRevision, ResourceRevision, Error))
+		if (Impl->Fail(Job, EAssetThumbnailState::Encoding, Error))
 			return false;
 		if (Impl->bBackgroundCache && !EncodedBytes.empty())
 		{
 			if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
-					EAssetThumbnailState::Ready, AssetRevision, ResourceRevision)) return false;
+					EAssetThumbnailState::Ready)) return false;
 			Impl->QueueWrite(Job, EncodedBytes);
 			return true;
 		}
 		if (EncodedBytes.empty()
 			|| !Impl->Scheduler.Transition(Job.ScheduledJob,
 				EAssetThumbnailState::Encoding,
-				EAssetThumbnailState::Encoding,
-				AssetRevision,
-				ResourceRevision)
+				EAssetThumbnailState::Encoding)
 			|| !Impl->Cache->GetStore().Store(Job.ScheduledJob.CacheKey, EncodedBytes))
 		{
-			Impl->Fail(Job, EAssetThumbnailState::Encoding, AssetRevision, ResourceRevision,
+			Impl->Fail(Job, EAssetThumbnailState::Encoding,
 				"Failed to atomically publish the encoded thumbnail.");
 			return false;
 		}
 		return Impl->Scheduler.Transition(Job.ScheduledJob,
 			EAssetThumbnailState::Encoding,
-			EAssetThumbnailState::Ready,
-			AssetRevision,
-			ResourceRevision);
+			EAssetThumbnailState::Ready);
 	}
 
 	auto FAssetThumbnailGeneration::CompletePixels(
 		const FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
-		uint64 ResourceRevision,
 		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
@@ -478,22 +442,22 @@ namespace Durin::Editor
 		std::function<std::string()> ValidateBeforePublication) -> bool
 	{
 		if (!Error.empty())
-			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
+			return CompleteEncoding(Job, {}, Error);
 		if (Impl->bBackgroundCache)
 		{
 			const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 			if (PixelCount == 0 || PixelCount > Impl->Budgets.CpuPixelBudgetBytes / 4
 				|| Pixels.size() != PixelCount * 4)
-				return CompleteEncoding(Job, AssetRevision, ResourceRevision, {},
+				return CompleteEncoding(Job, {},
 					"Rendered-thumbnail pixels violate the RGBA8 output or CPU budget.");
 			if (ValidateBeforePublication)
 			{
 				const std::string ValidationError = ValidateBeforePublication();
 				if (!ValidationError.empty())
-					return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, ValidationError);
+					return CompleteEncoding(Job, {}, ValidationError);
 			}
 			if (!Impl->Scheduler.Transition(Job.ScheduledJob, EAssetThumbnailState::Encoding,
-					EAssetThumbnailState::Ready, AssetRevision, ResourceRevision)) return false;
+					EAssetThumbnailState::Ready)) return false;
 			Impl->QueueWrite(Job, Pixels, Width, Height);
 			return true;
 		}
@@ -501,8 +465,6 @@ namespace Durin::Editor
 		if (!Image::EncodeRgba8Png(Pixels, Width, Height, EncodedBytes))
 			return CompleteEncoding(
 				Job,
-				AssetRevision,
-				ResourceRevision,
 				{},
 				"Rendered-thumbnail pixels do not match the requested RGBA8 output.");
 		if (ValidateBeforePublication)
@@ -510,29 +472,24 @@ namespace Durin::Editor
 			const std::string ValidationError = ValidateBeforePublication();
 			if (!ValidationError.empty())
 				return CompleteEncoding(
-					Job, AssetRevision, ResourceRevision, {}, ValidationError);
+					Job, {}, ValidationError);
 		}
 		return CompleteEncoding(
-			Job, AssetRevision, ResourceRevision, EncodedBytes);
+			Job, EncodedBytes);
 	}
 
 	auto FAssetThumbnailGeneration::CompleteGeneratedPixels(
 		FAssetThumbnailJob& Job,
-		uint64 AssetRevision,
 		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
 		std::string_view Error) -> bool
 	{
-		if (Impl->Fail(Job, EAssetThumbnailState::Loading,
-				AssetRevision, AssetRevision, Error)) return false;
-		if (AssetRevision == 0
-			|| !Impl->Scheduler.Transition(Job.ScheduledJob,
-				EAssetThumbnailState::Loading, EAssetThumbnailState::Encoding,
-				AssetRevision, AssetRevision)) return false;
-		Job.AssetRevision = AssetRevision;
-		Job.ResourceRevision = AssetRevision;
-		return CompletePixels(Job, AssetRevision, AssetRevision,
+		if (Impl->Fail(Job, EAssetThumbnailState::Loading, Error)) return false;
+		if (!Impl->Scheduler.Transition(Job.ScheduledJob,
+				EAssetThumbnailState::Loading, EAssetThumbnailState::Encoding)) return false;
+
+		return CompletePixels(Job,
 			Pixels, Width, Height);
 	}
 
