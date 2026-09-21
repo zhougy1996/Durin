@@ -530,12 +530,10 @@ namespace Durin
 				if (It->FailedGeneration && HasSelectedRenderResourceGenerationChanged(
 					*It->FailedGeneration, Generation, RetryDependencies))
 					It->RetryFailures = 0;
-				FRHICreationError Failure;
-				auto Physical = CreatePhysical(Failure);
+				auto Physical = CreatePhysical();
 				if (!Physical)
 				{
-					if (!Failure.HasError()) Failure = {.Failure = ERHIResourceCreationFailure::Unknown,
-						.Source = ERHICreationFailureSource::BackendReturnedNull};
+					const auto& Failure = Physical.error();
 					It->FailedGeneration = Generation;
 					It->Failure = Failure;
 					if (Failure.Failure != ERHIResourceCreationFailure::UnsupportedDescriptor)
@@ -550,7 +548,7 @@ namespace Durin
 						FRDGAllocationErrorContext{.ResourceId = Request.ResourceId}, Failure, It->Sequence);
 				}
 				CreatedAllocationIds.insert(It->Sequence + 1);
-				Entries.Materialize(*It, std::move(Physical));
+				Entries.Materialize(*It, std::move(*Physical));
 				It->FailedGeneration.reset();
 				It->RetryFailures = 0;
 				It->Failure = {};
@@ -581,9 +579,9 @@ namespace Durin
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
 				ReserveResult = ReserveCandidate(State->Textures,
 					MakeDescriptorKey(Desc), LogicalBytes,
-					Request, [&](FRHICreationError& Failure) {
-						return GDynamicRHI->RHICreateTexture(
-							FRHICommandListImmediate::Get(), Desc, &Failure);
+					Request, [&] {
+						return GDynamicRHI->RHITryCreateTexture(
+							FRHICommandListImmediate::Get(), Desc);
 					},
 					[](FCandidate& OutCandidate, const FTextureRHIRef& Texture) {
 						OutCandidate.Texture = Texture;
@@ -595,9 +593,9 @@ namespace Durin
 					Request.BufferDesc.Stride, Request.BufferDesc.Usage};
 				ReserveResult = ReserveCandidate(State->Buffers, Key,
 					LogicalBytes, Request,
-					[&](FRHICreationError& Failure) {
-						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(),
-							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc), &Failure);
+					[&] {
+						return GDynamicRHI->RHITryCreateBuffer(FRHICommandListImmediate::Get(),
+							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc));
 					},
 					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {
 						OutCandidate.Buffer = Buffer;

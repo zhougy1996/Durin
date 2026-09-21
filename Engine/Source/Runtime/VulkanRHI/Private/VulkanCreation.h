@@ -1,30 +1,40 @@
 #pragma once
 
+#include <expected>
+
 #include "RHICommandList.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
-	// Caller-domain factory boundary. Diagnostics stay here; recovery callers may
-	// optionally retain the typed failure. Terminal exceptions keep propagating.
+	// Translate recoverable backend exceptions without logging. Terminal exceptions propagate.
 	template<typename Factory>
-	auto CreateVulkanResource(Factory&& Create, std::string_view Kind,
-		std::string_view DebugName = {}, FRHICreationError* OutFailure = nullptr)
-		-> std::invoke_result_t<Factory>
+	auto TryCreateVulkanResource(Factory&& Create)
+		-> std::expected<std::invoke_result_t<Factory>, FRHICreationError>
 	{
 		std::invoke_result_t<Factory> Resource;
-		auto Error = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
+		const auto Error = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
 			Resource = Create();
 		}));
-		if (!Resource && !Error.HasError())
-			Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
-		if (OutFailure) *OutFailure = Error;
-		if (Error.HasError())
+		if (Error.HasError()) return std::unexpected(Error);
+		if (!Resource)
+			return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown,
+				ERHICreationFailureSource::BackendReturnedNull});
+		return Resource;
+	}
+
+	// Nullable factories consume recoverable failures and own their diagnostic.
+	template<typename Factory>
+	auto CreateVulkanResource(Factory&& Create, std::string_view Kind,
+		std::string_view DebugName = {}) -> std::invoke_result_t<Factory>
+	{
+		auto Result = TryCreateVulkanResource(std::forward<Factory>(Create));
+		if (!Result)
 		{
 			DURIN_ERROR("Failed to create Vulkan {} '{}': {}", Kind,
-				DebugName.empty() ? "<unnamed>" : DebugName, FormatRHICreationError(Error));
+				DebugName.empty() ? "<unnamed>" : DebugName, FormatRHICreationError(Result.error()));
 			return {};
 		}
-		return Resource;
+		return std::move(*Result);
 	}
 }

@@ -192,10 +192,9 @@ namespace Durin
 			.TextureMip = 0, .TextureFirstArrayLayer = 0,
 			.TextureNumArrayLayers = 1, .TextureOffset = {1, 0, 1},
 			.TextureExtent = {3, 3, 2}};
-		uint64 Footprint = 0;
-		const auto BufferTextureCopyFootprintResult = GetBufferTextureCopyFootprint(*Texture, Region, Footprint);
-		EXPECT_TRUE(BufferTextureCopyFootprintResult) << FormatRHIError(BufferTextureCopyFootprintResult.error());
-		EXPECT_EQ(Footprint, 56u);
+		const auto BufferTextureCopyFootprintResult = GetBufferTextureCopyFootprint(*Texture, Region);
+		ASSERT_TRUE(BufferTextureCopyFootprintResult) << FormatRHIError(BufferTextureCopyFootprintResult.error());
+		EXPECT_EQ(*BufferTextureCopyFootprintResult, 56u);
 		TRefCountPtr<FRHIBuffer> Buffer = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create("VolumeBuffer", 56, 1,
 				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));

@@ -2432,19 +2432,17 @@ namespace Durin::Tests
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
 			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc,
-				FRHICreationError* OutFailure = nullptr) -> FTextureRHIRef override
+			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> std::expected<FTextureRHIRef, FRHICreationError> override
 			{
-				if (ShouldFail(OutFailure)) return {};
+				if (auto Failure = CheckCreation(); !Failure) return std::unexpected(Failure.error());
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHITexture>>(
 					Desc, uint64(Desc.Extent.x) * Desc.Extent.y * 4, LiveBytes);
 				PeakBytes = std::max(PeakBytes, LiveBytes);
 				return Resource;
 			}
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc,
-				FRHICreationError* OutFailure = nullptr) -> FBufferRHIRef override
+			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> std::expected<FBufferRHIRef, FRHICreationError> override
 			{
-				if (ShouldFail(OutFailure)) return {};
+				if (auto Failure = CheckCreation(); !Failure) return std::unexpected(Failure.error());
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHIBuffer>>(
 					Desc, Desc.Size, LiveBytes);
 				PeakBytes = std::max(PeakBytes, LiveBytes);
@@ -2456,13 +2454,12 @@ namespace Durin::Tests
 				RHIFlushDeferredResources();
 			}
 		private:
-			auto ShouldFail(FRHICreationError* OutFailure) -> bool
+			auto CheckCreation() -> std::expected<void, FRHICreationError>
 			{
-				++Creates;
-				const auto Error = Creates == FailOnCreate ? FRHICreationError{.Failure = Failure,
-					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7} : FRHICreationError{};
-				if (OutFailure) *OutFailure = Error;
-				return Error.HasError();
+				if (++Creates == FailOnCreate)
+					return std::unexpected(FRHICreationError{.Failure = Failure,
+						.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
+				return {};
 			}
 			FDynamicRHI* Previous;
 		};

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Modules/ModuleManager.h"
+#include "Logging/Logger.h"
 #include "PCH.VulkanRHI.h"
 #include "CoreGlobals.h"
 #include "Application/GenericApplication.h"
@@ -166,28 +167,36 @@ namespace Durin::VulkanRHI
 	{
 	};
 
-	TEST_F(FVulkanCreateFailureInjectionTests, NullableFactoryKeepsRecoveryDetailsOptional)
+	TEST_F(FVulkanCreateFailureInjectionTests, RecoveryFactorySeparatesValuesErrorsAndDiagnostics)
 	{
-		// Exercise the factory boundary without a device or replay thread.
+		auto& Logger = FLogger::Get();
+		ASSERT_TRUE(Logger.Initialize({}));
+		struct FLoggerScope { ~FLoggerScope() { FLogger::Get().Shutdown(); } } LoggerScope;
+		Logger.Flush();
+		const auto Cursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
 		auto Fail = []() -> std::shared_ptr<int> {
 			throw vk::OutOfDeviceMemoryError("expected allocation failure");
 		};
-		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource"));
-		FRHICreationError Error;
-		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource", {}, &Error));
-		EXPECT_EQ(Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Error.Source, ERHICreationFailureSource::NativeBackend);
-		EXPECT_EQ(Error.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
-		auto Resource = CreateVulkanResource([] { return std::make_shared<int>(42); },
-			"test resource", {}, &Error);
+		const auto Failed = TryCreateVulkanResource(Fail);
+		ASSERT_FALSE(Failed);
+		EXPECT_EQ(Failed.error().Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Failed.error().Source, ERHICreationFailureSource::NativeBackend);
+		EXPECT_EQ(Failed.error().NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
+		const auto Resource = TryCreateVulkanResource([] { return std::make_shared<int>(42); });
 		ASSERT_TRUE(Resource);
-		EXPECT_EQ(*Resource, 42);
-		EXPECT_FALSE(Error.HasError());
-		EXPECT_EQ(Error.Source, ERHICreationFailureSource::None);
-		EXPECT_FALSE(Error.NativeCode.has_value());
-		EXPECT_FALSE(CreateVulkanResource([] { return std::shared_ptr<int>{}; },
-			"test resource", {}, &Error));
-		EXPECT_EQ(Error.Source, ERHICreationFailureSource::BackendReturnedNull);
+		ASSERT_TRUE(*Resource);
+		EXPECT_EQ(**Resource, 42);
+		const auto Null = TryCreateVulkanResource([] { return std::shared_ptr<int>{}; });
+		ASSERT_FALSE(Null);
+		EXPECT_EQ(Null.error().Source, ERHICreationFailureSource::BackendReturnedNull);
+		Logger.Flush();
+		EXPECT_TRUE(Logger.ReadRecords(Cursor).Records.empty());
+
+		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource"));
+		Logger.Flush();
+		const auto Logs = Logger.ReadRecords(Cursor);
+		ASSERT_EQ(Logs.Records.size(), 1u);
+		EXPECT_EQ(Logs.Records.front().Level, ELogLevel::Error);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests, NullableFactoryPreservesTerminalExceptions)
@@ -198,6 +207,12 @@ namespace Durin::VulkanRHI
 		EXPECT_THROW(CreateVulkanResource([]() -> std::shared_ptr<int> {
 			throw std::logic_error("internal invariant failure");
 		}, "test resource"), std::logic_error);
+		EXPECT_THROW(TryCreateVulkanResource([]() -> std::shared_ptr<int> {
+			throw vk::DeviceLostError("terminal device loss");
+		}), vk::DeviceLostError);
+		EXPECT_THROW(TryCreateVulkanResource([]() -> std::shared_ptr<int> {
+			throw std::logic_error("internal invariant failure");
+		}), std::logic_error);
 	}
 
 	TEST(FVulkanDebugUtilsTests, UnavailableNamingIsCountedAndNonFatal)

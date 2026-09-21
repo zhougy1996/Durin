@@ -147,6 +147,7 @@ namespace Durin
 
 	enum class ERHICopyFootprintError : uint8
 	{
+		InvalidBlockLayout,
 		LayoutTooSmall,
 		BlockAlignment,
 		OffsetAlignment,

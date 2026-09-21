@@ -1103,10 +1103,15 @@ namespace Durin
 
 		auto GetBufferTextureFootprint(
 			const FRHITexture& Texture,
-			const FRHIBufferTextureCopyRegion& Region,
-			uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>
+			const FRHIBufferTextureCopyRegion& Region) -> std::expected<uint64, ERHICopyFootprintError>
 		{
 			const FPixelFormatInfo& Format = GetPixelFormatInfo(Texture.GetFormat());
+			if (Format.BlockSize == 0 || Format.BytesPerBlock == 0)
+				return std::unexpected(ERHICopyFootprintError::InvalidBlockLayout);
+			if (Region.TextureExtent.Width == 0 || Region.TextureExtent.Height == 0
+				|| (Texture.GetDimension() == ETextureDimension::Texture3D
+					? Region.TextureExtent.Depth == 0 : Region.TextureNumArrayLayers == 0))
+				return std::unexpected(ERHICopyFootprintError::EmptyFootprint);
 			const uint32 RowLength = Region.BufferRowLength != 0
 				? Region.BufferRowLength : Region.TextureExtent.Width;
 			const uint32 ImageHeight = Region.BufferImageHeight != 0
@@ -1130,9 +1135,7 @@ namespace Durin
 				? Region.TextureExtent.Depth : Region.TextureNumArrayLayers;
 			if (ImageCount > std::numeric_limits<uint64>::max() / ImagePitch)
 				return std::unexpected(ERHICopyFootprintError::FootprintOverflow);
-			OutSize = ImageCount * ImagePitch;
-			if (OutSize == 0) return std::unexpected(ERHICopyFootprintError::EmptyFootprint);
-			return {};
+			return ImageCount * ImagePitch;
 		}
 
 		auto TextureBoxesOverlap(
@@ -1151,9 +1154,9 @@ namespace Durin
 	}
 
 	auto GetBufferTextureCopyFootprint(const FRHITexture& Texture,
-		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>
+		const FRHIBufferTextureCopyRegion& Region) -> std::expected<uint64, ERHICopyFootprintError>
 	{
-		return GetBufferTextureFootprint(Texture, Region, OutSize);
+		return GetBufferTextureFootprint(Texture, Region);
 	}
 
 	auto ValidateBufferCopies(FRHIBuffer* Source, FRHIBuffer* Destination,
@@ -1222,17 +1225,17 @@ namespace Durin
 			{
 				return std::unexpected(FRHIBufferTextureCopyError{Validation.error(), static_cast<uint32>(Index)});
 			}
-			uint64 Footprint = 0;
-			if (auto Validation = GetBufferTextureFootprint(*Texture, Region, Footprint); !Validation)
+			const auto Footprint = GetBufferTextureFootprint(*Texture, Region);
+			if (!Footprint)
 			{
-				return std::unexpected(FRHIBufferTextureCopyError{Validation.error(), static_cast<uint32>(Index)});
+				return std::unexpected(FRHIBufferTextureCopyError{Footprint.error(), static_cast<uint32>(Index)});
 			}
-			if (Region.BufferOffset > Buffer->GetSize() || Footprint > Buffer->GetSize() - Region.BufferOffset)
+			if (Region.BufferOffset > Buffer->GetSize() || *Footprint > Buffer->GetSize() - Region.BufferOffset)
 				return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::BufferOutOfBounds, static_cast<uint32>(Index)});
-			BufferRanges.emplace_back(Region.BufferOffset, Footprint);
+			BufferRanges.emplace_back(Region.BufferOffset, *Footprint);
 			for (size_t Other = 0; Other < Index; ++Other)
 			{
-				if (!bBufferIsSource && RangesOverlap(Region.BufferOffset, Footprint,
+				if (!bBufferIsSource && RangesOverlap(Region.BufferOffset, *Footprint,
 					BufferRanges[Other].first, BufferRanges[Other].second))
 					return std::unexpected(FRHIBufferTextureCopyError{ERHIBufferTextureCopyError::OverlappingBufferDestinations, static_cast<uint32>(Index)});
 				const auto& Previous = Regions[Other];

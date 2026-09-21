@@ -180,6 +180,7 @@ namespace Durin
 		{
 			switch (Code)
 			{
+			case ERHICopyFootprintError::InvalidBlockLayout: return "Copy format has no valid block layout.";
 			case ERHICopyFootprintError::LayoutTooSmall: return "Buffer-texture copy layout is smaller than the texture extent.";
 			case ERHICopyFootprintError::BlockAlignment: return "Buffer-texture row length and image height must align to format blocks.";
 			case ERHICopyFootprintError::OffsetAlignment: return "Buffer-texture offset must align to the texel block size.";

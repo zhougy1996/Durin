@@ -5,6 +5,34 @@
 
 namespace Durin
 {
+	auto FDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,
+		const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef
+	{
+		auto Result = RHITryCreateTexture(RHICmdList, CreateDesc);
+		if (!Result)
+		{
+			DURIN_ERROR("Failed to create RHI texture '{}': {}",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", FormatRHICreationError(Result.error()));
+			return {};
+		}
+		check(*Result);
+		return std::move(*Result);
+	}
+
+	auto FDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
+		const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef
+	{
+		auto Result = RHITryCreateBuffer(RHICmdList, CreateDesc);
+		if (!Result)
+		{
+			DURIN_ERROR("Failed to create RHI buffer '{}': {}",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", FormatRHICreationError(Result.error()));
+			return {};
+		}
+		check(*Result);
+		return std::move(*Result);
+	}
+
 	const FRHIQueueCapabilities& FDynamicRHI::RHIGetQueueCapabilities() const
 	{
 		static const FRHIQueueCapabilities Unsupported;

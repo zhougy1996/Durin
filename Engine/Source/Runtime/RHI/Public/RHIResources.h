@@ -1794,7 +1794,7 @@ namespace Durin
 	RHI_API auto ValidateTextureCopies(FRHITexture* Source, FRHITexture* Destination,
 		std::span<const FRHITextureCopyRegion> Regions) -> std::expected<void, FRHITextureCopyError>;
 	RHI_API auto GetBufferTextureCopyFootprint(const FRHITexture& Texture,
-		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize) -> std::expected<void, ERHICopyFootprintError>;
+		const FRHIBufferTextureCopyRegion& Region) -> std::expected<uint64, ERHICopyFootprintError>;
 
 	// Represents a backend graphics pipeline compatible with a fixed render-target layout.
 	class FRHIGraphicsPipelineState : public FRHIResource

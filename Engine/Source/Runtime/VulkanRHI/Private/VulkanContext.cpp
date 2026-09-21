@@ -416,15 +416,17 @@ namespace Durin::VulkanRHI
 		NativeRegions.reserve(Regions.size());
 		for (const auto& Region : Regions)
 		{
-			uint64 Footprint = 0;
-			check(GetBufferTextureCopyFootprint(*Destination, Region, Footprint));
+#if DO_CHECK
+			const auto Footprint = GetBufferTextureCopyFootprint(*Destination, Region);
+			checkf(Footprint, "Invalid Vulkan copy footprint: {}", FormatRHIError(Footprint.error()));
 			ERHIAccess Tracked = ERHIAccess::None;
-			checkf(Source->GetStateTracker().Validate(Region.BufferOffset, Footprint,
+			checkf(Source->GetStateTracker().Validate(Region.BufferOffset, *Footprint,
 				ERHIAccess::TransferRead, Tracked), "Vulkan buffer-to-texture source is not in TransferRead.");
 			const FRHITextureSubresourceRange Range{Region.TextureAspect, Region.TextureMip, 1,
 				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers};
 			checkf(Destination->GetStateTracker().Validate(Range, ERHIAccess::TransferWrite, Tracked),
 				"Vulkan buffer-to-texture destination is not in TransferWrite.");
+#endif
 			NativeRegions.emplace_back(
 				Region.BufferOffset, Region.BufferRowLength, Region.BufferImageHeight,
 				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.TextureAspect),
@@ -454,15 +456,17 @@ namespace Durin::VulkanRHI
 		NativeRegions.reserve(Regions.size());
 		for (const auto& Region : Regions)
 		{
-			uint64 Footprint = 0;
-			check(GetBufferTextureCopyFootprint(*Source, Region, Footprint));
+#if DO_CHECK
+			const auto Footprint = GetBufferTextureCopyFootprint(*Source, Region);
+			checkf(Footprint, "Invalid Vulkan copy footprint: {}", FormatRHIError(Footprint.error()));
 			ERHIAccess Tracked = ERHIAccess::None;
 			const FRHITextureSubresourceRange Range{Region.TextureAspect, Region.TextureMip, 1,
 				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers};
 			checkf(Source->GetStateTracker().Validate(Range, ERHIAccess::TransferRead, Tracked),
 				"Vulkan texture-to-buffer source is not in TransferRead.");
-			checkf(Destination->GetStateTracker().Validate(Region.BufferOffset, Footprint,
+			checkf(Destination->GetStateTracker().Validate(Region.BufferOffset, *Footprint,
 				ERHIAccess::TransferWrite, Tracked), "Vulkan texture-to-buffer destination is not in TransferWrite.");
+#endif
 			NativeRegions.emplace_back(
 				Region.BufferOffset, Region.BufferRowLength, Region.BufferImageHeight,
 				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.TextureAspect),

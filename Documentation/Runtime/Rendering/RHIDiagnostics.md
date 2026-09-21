@@ -20,8 +20,9 @@ remain a separate contract because callers use their classification to recover.
 
 Pipeline `IsValid()` predicates share the checks used by key builders without
 constructing or canonicalizing a key. Key builders return a validated key or the
-pipeline-specific enum. Other data output parameters retain their existing
-publication behavior. Binding visitors can have visited a valid prefix before
+pipeline-specific enum. `GetBufferTextureCopyFootprint` returns the byte count as
+`std::expected<uint64, ERHICopyFootprintError>`; no output is published on failure.
+Other data output parameters retain their existing publication behavior. Binding visitors can have visited a valid prefix before
 failure.
 
 `FormatRHIError` overloads format the relevant enums and context structures at
@@ -33,13 +34,18 @@ add a general message constructor or use formatted text for branching.
 
 `FRHICreationError` retains the recovery classification, failure source, and
 optional native status. Both synchronous operation results and asynchronous
-pipeline publications preserve it. `RHICreateTexture` and `RHICreateBuffer`
-return nullable resources and accept an optional error output pointer. Ordinary
-callers only inspect the resource; Vulkan factories log recoverable failures
-locally. Recovery callers retain the complete error, including native status,
-through RDG rollback and retry suppression. Cache exhaustion is classified explicitly;
-Vulkan candidate failures retain their native result code. Device and invariant
-failures remain terminal exceptions, outside the recoverable creation contract.
+pipeline publications preserve it. `RHITryCreateTexture` and `RHITryCreateBuffer`
+return `std::expected<ResourceRef, FRHICreationError>` without logging recoverable
+failures. Success contains a non-null resource. RDG consumes these results for
+rollback and retry suppression, retaining the complete native status.
+
+`RHICreateTexture` and `RHICreateBuffer` are nullable convenience boundaries:
+they log a recoverable failure once and return null. Vulkan's
+`TryCreateVulkanResource` translates recoverable exceptions and unexpected null
+factory returns into errors; its nullable `CreateVulkanResource` adapter owns
+diagnostics for other factories. Recovery callers decide when a failure should
+be presented. Device and invariant failures remain terminal exceptions outside
+the recoverable contract. Cache exhaustion remains explicitly classified.
 
 `FRHIThreadWorkResult` carries a typed thread error. Unknown exceptions have a
 code; opaque exception-boundary text uses `FromExternalException`, which retains

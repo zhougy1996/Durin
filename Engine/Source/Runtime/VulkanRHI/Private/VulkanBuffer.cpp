@@ -482,25 +482,24 @@ namespace Durin::VulkanRHI
 		return (Value + Alignment - 1) / Alignment * Alignment;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
-		const FRHIBufferCreateDesc& CreateDesc, FRHICreationError* OutFailure)
-		-> FBufferRHIRef
+	auto FVulkanDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
+		const FRHIBufferCreateDesc& CreateDesc)
+		-> std::expected<FBufferRHIRef, FRHICreationError>
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
 #endif
-		if (OutFailure) *OutFailure = {};
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
 			|| NormalizedDesc.InitialData.Data != nullptr)
 		{
 			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 		}
-		auto Result = CreateVulkanResource([&]() -> FBufferRHIRef {
+		auto Result = TryCreateVulkanResource([&]() -> FBufferRHIRef {
 			return new FVulkanBuffer(*Device, NormalizedDesc);
-		}, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "", OutFailure);
-		if (!Result) return nullptr;
-		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result.GetReference());
+		});
+		if (!Result) return std::unexpected(Result.error());
+		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result->GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{

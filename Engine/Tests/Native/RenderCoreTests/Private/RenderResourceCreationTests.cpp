@@ -45,17 +45,15 @@ namespace Durin
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&, FRHICreationError* OutFailure = nullptr) -> FTextureRHIRef override
+			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> std::expected<FTextureRHIRef, FRHICreationError> override
 			{
-				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
-				return {};
+				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&, FRHICreationError* OutFailure = nullptr) -> FBufferRHIRef override
+			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) -> std::expected<FBufferRHIRef, FRHICreationError> override
 			{
-				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
-				return {};
+				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
 			}
 		protected:
 			auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override

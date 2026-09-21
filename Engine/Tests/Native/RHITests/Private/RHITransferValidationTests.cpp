@@ -8,15 +8,36 @@ namespace Durin
 	{
 		FRHITexture Texture(FRHITextureCreateDesc::Create2D("Footprint", 8, 8, EPixelFormat::RGBA8_UNORM));
 		FRHIBufferTextureCopyRegion Region{.BufferOffset = 1, .TextureExtent = {8, 8, 1}};
-		uint64 Footprint = 123;
-		auto Result = GetBufferTextureCopyFootprint(Texture, Region, Footprint);
+		auto Result = GetBufferTextureCopyFootprint(Texture, Region);
 		ASSERT_FALSE(Result);
 		EXPECT_EQ(Result.error(), ERHICopyFootprintError::OffsetAlignment);
-		EXPECT_EQ(Footprint, 123u);
 		Region.BufferOffset = 0;
-		Result = GetBufferTextureCopyFootprint(Texture, Region, Footprint);
-		EXPECT_TRUE(Result);
-		EXPECT_EQ(Footprint, 256u);
+		Result = GetBufferTextureCopyFootprint(Texture, Region);
+		ASSERT_TRUE(Result);
+		EXPECT_EQ(*Result, 256u);
+	}
+
+	TEST(FRHITransferValidationTests, FootprintRejectsUndefinedArithmeticAndOverflow)
+	{
+		FRHITexture Texture(FRHITextureCreateDesc::Create2D("Footprint", 8, 8, EPixelFormat::RGBA8_UNORM));
+		for (const auto Extent : {FRHITextureExtent3D{0, 8, 1}, FRHITextureExtent3D{8, 0, 1}})
+		{
+			const auto Result = GetBufferTextureCopyFootprint(Texture, {.TextureExtent = Extent});
+			ASSERT_FALSE(Result);
+			EXPECT_EQ(Result.error(), ERHICopyFootprintError::EmptyFootprint);
+		}
+		const auto EmptyLayers = GetBufferTextureCopyFootprint(Texture,
+			{.TextureNumArrayLayers = 0, .TextureExtent = {8, 8, 1}});
+		ASSERT_FALSE(EmptyLayers);
+		EXPECT_EQ(EmptyLayers.error(), ERHICopyFootprintError::EmptyFootprint);
+		FRHITexture Unknown(FRHITextureCreateDesc::Create2D("Unknown", 8, 8, EPixelFormat::Unknown));
+		const auto InvalidFormat = GetBufferTextureCopyFootprint(Unknown, {.TextureExtent = {8, 8, 1}});
+		ASSERT_FALSE(InvalidFormat);
+		EXPECT_EQ(InvalidFormat.error(), ERHICopyFootprintError::InvalidBlockLayout);
+		const auto Overflow = GetBufferTextureCopyFootprint(Texture,
+			{.BufferRowLength = UINT32_MAX, .BufferImageHeight = UINT32_MAX, .TextureExtent = {1, 1, 1}});
+		ASSERT_FALSE(Overflow);
+		EXPECT_EQ(Overflow.error(), ERHICopyFootprintError::ImagePitchOverflow);
 	}
 
 	TEST(FRHITransferValidationTests, ValidatesBufferBoundsUsageAliasingAndDestinations)

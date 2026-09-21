@@ -248,14 +248,13 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,
-		const FRHITextureCreateDesc& CreateDesc, FRHICreationError* OutFailure)
-		-> FTextureRHIRef
+	auto FVulkanDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
+		const FRHITextureCreateDesc& CreateDesc)
+		-> std::expected<FTextureRHIRef, FRHICreationError>
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
 #endif
-		if (OutFailure) *OutFailure = {};
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
 		checkf(ValidationResult,
@@ -264,18 +263,17 @@ namespace Durin::VulkanRHI
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!RHIIsTextureSupported(NormalizedDesc))
 		{
-			if (OutFailure) *OutFailure = {.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor, .Source = ERHICreationFailureSource::NativeBackend};
-			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': the exact texture description is unsupported.",
-				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
-			return nullptr;
+			return std::unexpected(FRHICreationError{
+				.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor,
+				.Source = ERHICreationFailureSource::NativeBackend});
 		}
-		auto Texture = CreateVulkanResource([&]() -> TRefCountPtr<FVulkanTexture> {
+		auto Texture = TryCreateVulkanResource([&]() -> FTextureRHIRef {
 			return new FVulkanTexture(*Device, NormalizedDesc);
-		}, "texture", CreateDesc.DebugName ? CreateDesc.DebugName : "", OutFailure);
-		if (!Texture) return nullptr;
+		});
+		if (!Texture) return std::unexpected(Texture.error());
 		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
 		{
-			RHICmdList.InitializeTexture(Texture.GetReference());
+			RHICmdList.InitializeTexture(Texture->GetReference());
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Texture;
