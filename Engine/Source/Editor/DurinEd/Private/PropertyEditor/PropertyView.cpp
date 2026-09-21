@@ -16,7 +16,7 @@
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin::Editor
 {

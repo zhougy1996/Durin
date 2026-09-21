@@ -16,7 +16,7 @@
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Math/Color.h"
 #include "MonaImGui.h"
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin::Editor::Level
 {

@@ -15,7 +15,7 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
-#include "MonaImGuiWidgets.h"
+#include "Widgets/MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"

@@ -18,7 +18,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 #include "NativeTestSupport.h"
 #include "NativeAssetTestSupport.h"
 

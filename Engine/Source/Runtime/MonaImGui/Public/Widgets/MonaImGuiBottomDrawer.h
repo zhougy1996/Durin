@@ -1,7 +1,7 @@
 #pragma once
 
 #include "MonaImGuiAPI.h"
-#include "ThirdParty/ImGui/ImGuiCommon.h"
+#include "ImGui/ImGuiCommon.h"
 
 namespace Durin::MonaImGui
 {

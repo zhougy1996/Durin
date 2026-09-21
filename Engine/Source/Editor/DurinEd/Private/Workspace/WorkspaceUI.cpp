@@ -1,4 +1,5 @@
 #include "Workspace/WorkspaceUI.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 #include "Workspace/WorkspaceManager.h"
 

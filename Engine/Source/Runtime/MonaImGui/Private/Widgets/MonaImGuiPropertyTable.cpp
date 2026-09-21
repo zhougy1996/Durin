@@ -1,4 +1,4 @@
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 #include "Math/Color.h"
 #include "Math/Operations.h"

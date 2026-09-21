@@ -1,4 +1,5 @@
 #include "Asset/RegistryOperations.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "Widgets/MLevelEditor.h"
 
 #include "Asset/Asset.h"
@@ -23,7 +24,7 @@
 #include "Misc/Project.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
-#include "MonaImGuiWidgets.h"
+#include "Widgets/MonaImGuiWidgets.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/LevelEditorPanel.h"

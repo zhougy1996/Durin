@@ -6,7 +6,7 @@
 #include "Workspace/WorkspaceManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaImGui.h"
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 #include "MonaUIBackend.h"
 #include "Misc/StringHelper.h"
 #include "Texture/VolumeTexture.h"

@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
 #include "NamePoolDiagnosticsWindow.h"
 

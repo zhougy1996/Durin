@@ -1,4 +1,5 @@
 #include "Customizations/SplineEditorCustomizations.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"

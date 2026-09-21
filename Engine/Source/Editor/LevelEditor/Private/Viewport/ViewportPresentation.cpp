@@ -8,7 +8,7 @@
 #include "Engine/World.h"
 #include "Math/Vector.h"
 #include "MonaImGui.h"
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "LevelEditorViewportEditing.h"

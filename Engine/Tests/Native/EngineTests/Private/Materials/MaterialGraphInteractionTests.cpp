@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "MaterialGraphTestSupport.h"
 #include "Widgets/MaterialDetailsStyle.h"
 

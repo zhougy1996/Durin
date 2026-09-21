@@ -1,4 +1,5 @@
 #include "Panels/SceneViewportPanel.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 #include "Asset/Asset.h"
 #include "Components/CameraComponent.h"

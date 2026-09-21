@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Workspace/WorkspaceTypes.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "Workspace/WorkspaceUI.h"
-#include "MonaImGuiWidgets.h"
+#include "Widgets/MonaImGuiWidgets.h"
 
 namespace Durin::Editor::Material::Workspace
 {

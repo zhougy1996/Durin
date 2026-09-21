@@ -5,5 +5,5 @@ target_include_directories(MonaImGui PUBLIC
 )
 
 target_compile_definitions(MonaImGui PUBLIC
-    IMGUI_USER_CONFIG=\"DurinImGuiConfig.h\"
+    IMGUI_USER_CONFIG=\"ImGui/MonaImGuiConfig.h\"
 )

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin::Editor::Material::DetailsStyle
 {

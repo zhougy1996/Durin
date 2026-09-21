@@ -1,4 +1,5 @@
 #include "ImGuiMonaImpl.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "MonaImGui.h"
 
 #include "Application/MonaApplication.h"

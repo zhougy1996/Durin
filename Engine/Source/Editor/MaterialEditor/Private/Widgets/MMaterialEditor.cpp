@@ -1,4 +1,5 @@
 #include "ObjectCacheContext.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "Widgets/MMaterialEditor.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Widgets/MMaterialFunctionEditor.h"
@@ -25,8 +26,8 @@
 #include "Materials/MaterialInstance.h"
 #include "Math/Color.h"
 #include "MonaImGui.h"
-#include "MonaImGuiPropertyTable.h"
-#include "MonaImGuiWidgets.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
+#include "Widgets/MonaImGuiWidgets.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin::Editor::Material

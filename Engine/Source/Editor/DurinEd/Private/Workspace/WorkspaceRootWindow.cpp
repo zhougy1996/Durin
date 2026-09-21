@@ -1,4 +1,5 @@
 #include "Workspace/WorkspaceRootWindow.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 #include "Asset/PackageReload.h"
 

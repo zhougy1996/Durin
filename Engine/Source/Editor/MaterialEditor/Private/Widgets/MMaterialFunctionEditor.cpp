@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialFunctionEditor.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "DObject/Class.h"
 #include "DObject/Archive.h"
 #include "Settings/MaterialEditorSessionSettings.h"
