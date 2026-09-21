@@ -106,7 +106,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		return true;
 	}
 
-	auto FContentDeletionOperation::DeletePhysicalRoots() -> FAssetResult
+	auto FContentDeletionOperation::DeletePhysicalRoots() -> FAssetWriteResult
 	{
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
@@ -123,7 +123,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					RemovedPaths.insert(Normalize(Entry.PhysicalPath).generic_string());
 			}
 			if (Error)
-				return {EAssetError::IoError, std::format(
+				return {EAssetWriteError::IoError, std::format(
 					"Could not permanently delete {}: {}",
 					Path.generic_string(), Error.message())};
 		}
@@ -144,9 +144,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
 		Result = AssetOperation.Delete({
 			.Delete = [this] { return DeletePhysicalRoots(); },
-			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetResult {
+			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
 				return ValidatePhysicalState(&Identities)
-					? FAssetResult{} : FAssetResult{EAssetError::StaleData, Details};
+					? FAssetWriteResult{} : FAssetWriteResult{EAssetWriteError::StaleData, Details};
 			}});
 		Details = Result.Message;
 		return Result;

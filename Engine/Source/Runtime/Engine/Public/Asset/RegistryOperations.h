@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/References.h"
 
 namespace Durin
@@ -22,7 +22,7 @@ namespace Durin
 	// Validates every captured alias and final package, then checks the loaded type.
 	// This is a point-in-time check, not permission to reopen uncaptured artifacts.
 	ENGINE_API auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FAssetPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetResult;
+		const FAssetPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetReadResult;
 	ENGINE_API auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
-		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetResult;
+		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass = nullptr) -> FAssetReadResult;
 }

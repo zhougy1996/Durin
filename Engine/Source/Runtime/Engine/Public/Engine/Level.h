@@ -1,7 +1,7 @@
 #pragma once
 #include "DObject/ObjectPtr.h"
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "EngineAPI.h"
 #include "DObject/WeakObjectPtr.h"
@@ -137,5 +137,5 @@ namespace Durin
 	ENGINE_API auto ResolveLevelPackage(
 		const FPackagePath& PackagePath,
 		FObjectPath& OutLevelPath
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 }

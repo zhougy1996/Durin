@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "AssetTools/AssetOperation.h"
 #include "AssetRegistry/Catalog.h"
@@ -71,14 +71,14 @@ namespace Durin
 	// Host-owned physical I/O; deletion runs after validation and batch residency release.
 	struct FAssetDeletionCommit
 	{
-		std::function<FAssetResult()> Delete;
+		std::function<FAssetWriteResult()> Delete;
 		// Optional host validation of its complete immutable physical selection. Called
 		// once per attempt after asset policy validation, before residency release.
 		// It must freshly hash surviving files, reject changes/replaced removed paths,
 		// and return verified identities for every surviving package and companion.
 		// AssetTools shares these identities for recovery; absent callbacks use its
 		// own hashing. Returning only cached identities does not satisfy this contract.
-		std::function<FAssetResult(FAssetDeletionFileIdentities&)> ValidateFiles;
+		std::function<FAssetWriteResult(FAssetDeletionFileIdentities&)> ValidateFiles;
 	};
 
 	// Includes physical roots so companion ownership can be checked for mixed selections.
@@ -104,7 +104,7 @@ namespace Durin
 		ASSETTOOLS_API auto GetBlockers() const -> std::span<const FAssetDeletionBlocker>;
 		// Checks the retained confirmation without preparing another plan or authorizing I/O.
 		// Delete repeats this check at execution; a successful query is not a lease.
-		ASSETTOOLS_API auto Validate() const -> FAssetResult;
+		ASSETTOOLS_API auto Validate() const -> FAssetWriteResult;
 		// Rejects empty, moved-from, blocked, stale, and completed operations before I/O.
 		// A callback failure is irreversible and returns ForwardPending with fenced paths.
 		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult;
@@ -118,7 +118,7 @@ namespace Durin
 			FAssetDeletionOperation& OutOperation) -> FAssetOperationResult;
 	};
 
-	using FAssetDeleteContributor = std::function<FAssetResult(
+	using FAssetDeleteContributor = std::function<FAssetWriteResult(
 		const FAssetData&,
 		const FAssetPackageInspection&,
 		FAssetDeleteContribution&
@@ -151,6 +151,6 @@ namespace Durin
 	ASSETTOOLS_API auto QueryAssetCompanionOwnership(
 		const std::filesystem::path& PhysicalPath,
 		FAssetCompanionOwnership& OutOwnership
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 
 } // namespace Durin

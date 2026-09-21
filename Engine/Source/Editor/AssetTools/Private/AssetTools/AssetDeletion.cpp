@@ -14,7 +14,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -61,15 +61,15 @@ namespace Durin
 		std::unordered_set<std::string> RemovedFiles;
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> OutsideCompanions;
 
-		auto CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult;
-		auto ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult;
+		auto CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
+		auto ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
 		auto RecordRemovedFiles() -> void;
 
 		auto Prepare(std::span<const FPackagePath> Paths,
 			std::span<const std::filesystem::path> Roots,
-			std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult;
-		auto Validate() const -> FAssetResult;
-		auto Delete(const FAssetDeletionCommit& Commit) -> FAssetResult;
+			std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetWriteResult;
+		auto Validate() const -> FAssetWriteResult;
+		auto Delete(const FAssetDeletionCommit& Commit) -> FAssetWriteResult;
 	};
 
 	FAssetDeletionOperation::FAssetDeletionOperation() = default;
@@ -105,8 +105,8 @@ namespace Durin
 
 	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult
 	{
-		const FAssetResult Result = State ? State->Delete(Commit)
-			: Error(EAssetError::StaleData, "The asset deletion operation is not prepared.");
+		const FAssetWriteResult Result = State ? State->Delete(Commit)
+			: Error(EAssetWriteError::StaleData, "The asset deletion operation is not prepared.");
 		FAssetOperationResult Operation = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Delete, Result);
 		if (State && State->bForwardPending
 			&& Operation.State == EAssetOperationTerminalState::Rejected)
@@ -120,20 +120,20 @@ namespace Durin
 	}
 
 	auto FAssetDeletionOperation::FState::Delete(
-		const FAssetDeletionCommit& Commit) -> FAssetResult
+		const FAssetDeletionCommit& Commit) -> FAssetWriteResult
 	{
 		if (!bPrepared || bDeleted)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"Only a prepared asset deletion job can execute.");
 		if (!Commit.Delete)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The asset deletion job has no destructive callback.");
 
-		FAssetResult Result =
+		FAssetWriteResult Result =
 			bForwardPending ? ValidateRecoveryState(Commit) : Validate();
 		if (!Result) return Result;
 		if (GetAssetCatalogRevision() != RegistryRevision)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The asset Registry changed after deletion confirmation.");
 		if (!bForwardPending)
 		{
@@ -142,14 +142,14 @@ namespace Durin
 		}
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetError::StaleData, "Deletion metadata changed during file validation.");
+			return Error(EAssetWriteError::StaleData, "Deletion metadata changed during file validation.");
 		std::vector<FAssetData> Packages;
 		for (const FAssetDeletionEntry& Entry : Entries)
 			if (FindAssetExact(Entry.RegistryEntry.PackagePath))
 				Packages.push_back(Entry.RegistryEntry);
 		Result = ReleasePackagesForRemoval(Packages, RegistryRevision);
 		if (!Result) return Result;
-		const FAssetResult DeleteResult = Commit.Delete();
+		const FAssetWriteResult DeleteResult = Commit.Delete();
 		RecordRemovedFiles();
 		if (!DeleteResult)
 		{
@@ -163,8 +163,8 @@ namespace Durin
 				.Message = std::format(
 					"AssetDeletionForwardPending: deletion is irreversible; retry the remaining paths. {}",
 					DeleteResult.Message),
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
-				.DesiredDirection = "DeleteRemaining"}};
+				.Disposition = EAssetWriteDisposition::ForwardPending,
+				.DesiredDirection = "DeleteRemaining"};
 		}
 		Result = PublishPackageRemoval(Packages, RegistryRevision);
 		if (!Result)
@@ -176,11 +176,11 @@ namespace Durin
 			bDeleted = true;
 			bForwardPending = false;
 			return {
-				.Error = EAssetError::StaleData,
+				.Error = EAssetWriteError::StaleData,
 				.Message = std::format(
 					"ContentCommittedProjectionPending: destructive deletion committed; Registry reconcile is required. {}",
 					Result.Message),
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending}};
+				.Disposition = EAssetWriteDisposition::ContentCommittedProjectionPending};
 		}
 		bDeleted = true;
 		bForwardPending = false;
@@ -190,7 +190,7 @@ namespace Durin
 	// Recovery keeps the original safety scope even when some selected packages
 	// have disappeared. Outside state must remain identical; new scope needs a new
 	// user decision and can never be silently folded into destructive retry.
-	auto FAssetDeletionOperation::FState::CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult
+	auto FAssetDeletionOperation::FState::CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetWriteResult
 	{
 		ConfirmedBytes.clear();
 		FAssetDeletionFileIdentities VerifiedFiles;
@@ -213,11 +213,11 @@ namespace Durin
 				{
 					const auto Found = VerifiedFiles.find(Key);
 					if (Found == VerifiedFiles.end())
-						return Error(EAssetError::StaleData, "Host validation omitted a deletion participant.");
+						return Error(EAssetWriteError::StaleData, "Host validation omitted a deletion participant.");
 					Identity = Found->second;
 				}
 				else if (!FFileHelper::HashFileXx128(File, Identity, ErrorCode))
-					return Error(EAssetError::IoError, "Could not capture deletion recovery byte identity.");
+					return Error(EAssetWriteError::IoError, "Could not capture deletion recovery byte identity.");
 				ConfirmedBytes.emplace(Key, Identity);
 			}
 		}
@@ -235,12 +235,12 @@ namespace Durin
 		}
 	}
 
-	auto FAssetDeletionOperation::FState::ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult
+	auto FAssetDeletionOperation::FState::ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetWriteResult
 	{
 		if (ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetError::StaleData, "Deletion contributors changed during recovery.");
+			return Error(EAssetWriteError::StaleData, "Deletion contributors changed during recovery.");
 		if (GetAssetRuntimeConfiguration().IsCooked())
-			return Error(EAssetError::ReadOnlyMode, "Cooked content cannot be deleted.");
+			return Error(EAssetWriteError::ReadOnlyMode, "Cooked content cannot be deleted.");
 		const auto Current = CaptureAssetRegistrySnapshot();
 		std::unordered_set<FPackagePath> Selected;
 		for (const auto& Entry : Entries) Selected.insert(Entry.RegistryEntry.PackagePath);
@@ -248,12 +248,12 @@ namespace Durin
 		{
 			const auto Before = RecoverySnapshot.Catalog.Assets.find(Path);
 			if (Before == RecoverySnapshot.Catalog.Assets.end() || !(Before->second == Data))
-				return Error(EAssetError::StaleData, "Asset metadata changed during deletion recovery.");
+				return Error(EAssetWriteError::StaleData, "Asset metadata changed during deletion recovery.");
 		}
 		for (const auto& [Path, Data] : RecoverySnapshot.Catalog.Assets)
 			if (!Current.Catalog.Assets.contains(Path)
 				&& (!Selected.contains(Path) || !RemovedFiles.contains(Data.PhysicalPath)))
-				return Error(EAssetError::StaleData, "Unconfirmed catalog removal occurred during deletion recovery.");
+				return Error(EAssetWriteError::StaleData, "Unconfirmed catalog removal occurred during deletion recovery.");
 		auto OutsideEdges = [&](const FAssetReferenceIndex& Index) {
 			std::vector<FAssetPackageReferenceEdge> Edges;
 			for (const auto& Edge : Index.GetEdges())
@@ -262,14 +262,14 @@ namespace Durin
 		};
 		if (OutsideEdges(Current.References) != OutsideEdges(RecoverySnapshot.References)
 			|| Current.References.IsComplete() != RecoverySnapshot.References.IsComplete())
-			return Error(EAssetError::InUse, "Reference warnings changed during deletion recovery.");
+			return Error(EAssetWriteError::InUse, "Reference warnings changed during deletion recovery.");
 		FAssetReferenceStoreCapture Stores;
 		if (!Entries.empty())
 		{
 			const auto Captured = CaptureAssetReferenceStores(Stores);
 			if (!Captured) return Captured;
 			if (Stores != ReferenceStores)
-				return Error(EAssetError::InUse, "External reference owners changed during deletion recovery.");
+				return Error(EAssetWriteError::InUse, "External reference owners changed during deletion recovery.");
 		}
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> Companions;
 		for (const auto& [Path, Data] : Current.Catalog.Assets)
@@ -281,12 +281,12 @@ namespace Durin
 			Companions.emplace(Path, std::move(Files));
 		}
 		if (Companions != OutsideCompanions)
-			return Error(EAssetError::InUse, "Companion ownership changed during deletion recovery.");
+			return Error(EAssetWriteError::InUse, "Companion ownership changed during deletion recovery.");
 		for (const auto& Entry : Entries)
 			if (IsPackageLoading(Entry.RegistryEntry.PackagePath)
 				|| (FindResidentPackage(Entry.RegistryEntry.PackagePath)
 					&& FindResidentPackage(Entry.RegistryEntry.PackagePath)->IsDirty()))
-				return Error(EAssetError::InUse, "A deletion participant is loading or dirty.");
+				return Error(EAssetWriteError::InUse, "A deletion participant is loading or dirty.");
 		FAssetDeletionFileIdentities VerifiedFiles;
 		if (Commit.ValidateFiles)
 		{
@@ -301,39 +301,39 @@ namespace Durin
 			{
 				if ((!ErrorCode || ErrorCode == std::errc::no_such_file_or_directory)
 					&& Status.type() == std::filesystem::file_type::not_found) continue;
-				return Error(EAssetError::InUse, "A deleted asset file was replaced.");
+				return Error(EAssetWriteError::InUse, "A deleted asset file was replaced.");
 			}
 			FXxHash128 Actual;
 			if (ErrorCode || !std::filesystem::is_regular_file(Status))
-				return Error(EAssetError::InUse, "Remaining asset file changed during deletion recovery.");
+				return Error(EAssetWriteError::InUse, "Remaining asset file changed during deletion recovery.");
 			if (Commit.ValidateFiles)
 			{
 				const auto Found = VerifiedFiles.find(File);
 				if (Found == VerifiedFiles.end())
-					return Error(EAssetError::StaleData, "Host validation omitted a remaining deletion participant.");
+					return Error(EAssetWriteError::StaleData, "Host validation omitted a remaining deletion participant.");
 				Actual = Found->second;
 			}
 			else if (!FFileHelper::HashFileXx128(File, Actual, ErrorCode))
-				return Error(EAssetError::IoError, "Could not verify remaining asset bytes.");
+				return Error(EAssetWriteError::IoError, "Could not verify remaining asset bytes.");
 			if (Actual != Expected)
-				return Error(EAssetError::InUse, "Remaining asset bytes changed during deletion recovery.");
+				return Error(EAssetWriteError::InUse, "Remaining asset bytes changed during deletion recovery.");
 		}
 		RegistryRevision = Current.Revision;
 		if (ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetError::StaleData, "Deletion contributors changed during recovery validation.");
+			return Error(EAssetWriteError::StaleData, "Deletion contributors changed during recovery validation.");
 		return {};
 	}
 
 	auto FAssetDeletionOperation::FState::Prepare(
 		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult
+		std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetWriteResult
 	{
 		auto& OutToken = *this;
 		OutBlockers.clear();
 		if (GetAssetRuntimeConfiguration().IsCooked())
 			return Error(
-				EAssetError::ReadOnlyMode,
+				EAssetWriteError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit asset deletion.");
 
 		std::vector<FPackagePath> SortedPaths(Paths.begin(), Paths.end());
@@ -402,7 +402,7 @@ namespace Durin
 					Data->PhysicalPath,
 					"Asset has unsaved changes.");
 
-			const FAssetResult CompanionResult =
+			const FAssetWriteResult CompanionResult =
 				AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
 					*Data, Entry.CompanionFiles);
 			if (!CompanionResult)
@@ -550,7 +550,7 @@ namespace Durin
 
 		if (!SortedPaths.empty())
 		{
-			const FAssetResult Captured = CaptureAssetReferenceStores(ReferenceStores);
+			const FAssetWriteResult Captured = CaptureAssetReferenceStores(ReferenceStores);
 			if (!Captured)
 				AddBlocker(EAssetDeletionBlocker::ReferenceStoreInspectionFailed,
 					SortedPaths.front(), {}, {}, Captured.Message);
@@ -666,37 +666,37 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetDeletionOperation::Validate() const -> FAssetResult
+	auto FAssetDeletionOperation::Validate() const -> FAssetWriteResult
 	{
 		if (!State || !State->bPrepared || State->bDeleted || State->bForwardPending)
-			return Error(EAssetError::StaleData, "The deletion confirmation is not available.");
+			return Error(EAssetWriteError::StaleData, "The deletion confirmation is not available.");
 		return State->Validate();
 	}
 
-	auto FAssetDeletionOperation::FState::Validate() const -> FAssetResult
+	auto FAssetDeletionOperation::FState::Validate() const -> FAssetWriteResult
 	{
 		if (GetAssetRuntimeConfiguration().IsCooked())
-			return Error(EAssetError::ReadOnlyMode, "Cooked content cannot be deleted.");
+			return Error(EAssetWriteError::ReadOnlyMode, "Cooked content cannot be deleted.");
 		// Catalog publications include reference facts. An unchanged revision keeps
 		// the confirmed alias closure and warnings valid; files and providers have
 		// independent lifetimes and must still be checked below.
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetError::StaleData, "Deletion metadata or contributors changed after confirmation.");
+			return Error(EAssetWriteError::StaleData, "Deletion metadata or contributors changed after confirmation.");
 		for (const auto& Entry : Entries)
 		{
 			const auto& Path = Entry.RegistryEntry.PackagePath;
 			const auto Current = FindAssetExact(Path);
 			if (!Current || !(*Current == Entry.RegistryEntry))
-				return Error(EAssetError::StaleData, "A deletion participant changed after confirmation.");
+				return Error(EAssetWriteError::StaleData, "A deletion participant changed after confirmation.");
 			const auto* Loaded = FindResidentPackage(Path);
 			if (IsPackageLoading(Path) || (Loaded && Loaded->IsDirty()))
-				return Error(EAssetError::InUse, "A deletion participant is loading or dirty.");
+				return Error(EAssetWriteError::InUse, "A deletion participant is loading or dirty.");
 			std::vector<std::filesystem::path> Files;
 			const auto Inspected = AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(*Current, Files);
 			if (!Inspected) return Inspected;
 			if (Files != Entry.CompanionFiles)
-				return Error(EAssetError::InUse, "Selected companion files changed after confirmation.");
+				return Error(EAssetWriteError::InUse, "Selected companion files changed after confirmation.");
 		}
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> Companions;
 		for (const auto& [Path, Data] : RecoverySnapshot.Catalog.Assets)
@@ -710,18 +710,18 @@ namespace Durin
 			Companions.emplace(Path, std::move(Files));
 		}
 		if (Companions != OutsideCompanions)
-			return Error(EAssetError::InUse, "Companion ownership changed after confirmation.");
+			return Error(EAssetWriteError::InUse, "Companion ownership changed after confirmation.");
 		if (!Entries.empty())
 		{
 			FAssetReferenceStoreCapture Stores;
 			const auto Captured = CaptureAssetReferenceStores(Stores);
 			if (!Captured) return Captured;
 			if (Stores != ReferenceStores)
-				return Error(EAssetError::InUse, "External reference owners changed after confirmation.");
+				return Error(EAssetWriteError::InUse, "External reference owners changed after confirmation.");
 		}
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Error(EAssetError::StaleData, "Deletion metadata changed during validation.");
+			return Error(EAssetWriteError::StaleData, "Deletion metadata changed during validation.");
 		return {};
 	}
 
@@ -731,7 +731,7 @@ namespace Durin
 		OutOperation = FAssetDeletionOperation{};
 		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
 		auto& State = *OutOperation.State;
-		const FAssetResult Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
+		const FAssetWriteResult Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
 		State.bPrepared = Prepared && State.Blockers.empty();
 		FAssetOperationResult Result = AssetToolsPrivate::FromEngineResult(
 			EAssetOperationKind::Delete, Prepared, Request.AssetPaths);

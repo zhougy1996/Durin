@@ -90,7 +90,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	uint64 RegistryRevision = 11;
 	const auto Reconcile = [&] {
 		++ScanCount;
-		return Durin::FAssetResult{};
+		return Durin::FAssetReadResult{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -115,7 +115,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::FAssetResult{};
+		return Durin::FAssetReadResult{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -151,7 +151,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::FAssetResult{};
+		return Durin::FAssetReadResult{};
 	};
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
@@ -179,10 +179,10 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::FAssetResult{
-				Durin::EAssetError::IoError, "forced scan failure"};
+			return Durin::FAssetReadResult{
+				Durin::EAssetReadError::IoError, "forced scan failure"};
 		++RegistryRevision;
-		return Durin::FAssetResult{};
+		return Durin::FAssetReadResult{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -220,9 +220,9 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::FAssetResult{
-				Durin::EAssetError::IoError, "forced scan failure"};
-		return Durin::FAssetResult{};
+			return Durin::FAssetReadResult{
+				Durin::EAssetReadError::IoError, "forced scan failure"};
+		return Durin::FAssetReadResult{};
 	};
 	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [] { return uint64{40}; };
@@ -286,7 +286,7 @@ TEST(FContentBrowserRefreshCoordinatorTests, SharedReconciliationKeepsIndependen
 	First.SetChangeSources(Capture, {});
 	Second.SetChangeSources(Capture, {});
 	int Scans = 0;
-	const auto Reconcile = [&] { ++Scans; return FAssetResult{}; };
+	const auto Reconcile = [&] { ++Scans; return FAssetReadResult{}; };
 	FContentChangeBatch FirstChanges, SecondChanges;
 	ASSERT_TRUE(First.Synchronize(Revision, 1, Reconcile,
 		[&](const auto& Batch) { FirstChanges = Batch; }, [] { return uint64{1}; }));

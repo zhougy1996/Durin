@@ -15,5 +15,5 @@ namespace Durin
 	class FAssetLoadService;
 	class FAssetMutationCoordinator;
 
-	auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> FAssetResult;
+	auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> FAssetReadResult;
 }

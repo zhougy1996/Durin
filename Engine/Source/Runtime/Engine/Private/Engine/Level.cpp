@@ -18,59 +18,58 @@ namespace Durin
 	{
 		auto MakeLevelPackageResolutionError(
 			const FPackagePath& PackagePath,
-			EAssetPathResolveState State) -> FAssetResult
+			EAssetPathResolveState State) -> FAssetReadResult
 		{
 			using enum EAssetPathResolveState;
 			switch (State)
 			{
 			case ProjectionPending:
-				return {EAssetError::StaleData,
+				return {EAssetReadError::ProjectionPending,
 					std::format("Registry projection for the default-level package '{}' is pending synchronization.",
-						PackagePath.ToString()),
-					{EAssetResultDisposition::ContentCommittedProjectionPending}};
+						PackagePath.ToString())};
 			case NotFound:
-				return {EAssetError::NotFound,
+				return {EAssetReadError::NotFound,
 					std::format("The default-level package '{}' is not registered.",
 						PackagePath.ToString())};
 			case MissingRedirectTarget:
-				return {EAssetError::MissingDependency,
+				return {EAssetReadError::MissingDependency,
 					std::format("The default-level package '{}' redirects to a missing package.",
 						PackagePath.ToString())};
 			case UnknownTargetClass:
-				return {EAssetError::UnknownClass,
+				return {EAssetReadError::UnknownClass,
 					std::format("The default-level package '{}' has an unknown registered class.",
 						PackagePath.ToString())};
 			case RedirectTypeMismatch:
-				return {EAssetError::TypeMismatch,
+				return {EAssetReadError::TypeMismatch,
 					std::format("The default-level package '{}' has an incompatible redirect target.",
 						PackagePath.ToString())};
 			case RedirectCycle:
 			case RedirectDepthExceeded:
 			case CorruptRedirector:
-				return {EAssetError::CorruptFile,
+				return {EAssetReadError::CorruptFile,
 					std::format("The default-level package '{}' has an invalid redirect chain.",
 						PackagePath.ToString())};
 			case Resolved:
 				break;
 			}
-			return {EAssetError::CorruptFile,
+			return {EAssetReadError::CorruptFile,
 				"The default-level package resolution returned an invalid result."};
 		}
 	}
 
 	auto ResolveLevelPackage(
 		const FPackagePath& PackagePath,
-		FObjectPath& OutLevelPath) -> FAssetResult
+		FObjectPath& OutLevelPath) -> FAssetReadResult
 	{
 		if (!PackagePath.IsValid())
-			return {EAssetError::InvalidPath,
+			return {EAssetReadError::InvalidPath,
 				"The default level must be a valid package path."};
 
 		const FAssetPathResolveResult Resolution = ResolveAssetPathForOperation(PackagePath);
 		if (!Resolution)
 			return MakeLevelPackageResolutionError(PackagePath, Resolution.State);
 		if (!Resolution.FinalAssetData)
-			return {EAssetError::CorruptFile,
+			return {EAssetReadError::CorruptFile,
 				"The resolved default-level package has no registry metadata."};
 
 		FObjectPath LevelPath;
@@ -81,23 +80,23 @@ namespace Durin
 			DClass* AssetClass = FindClassByQualifiedName(
 				FName(Asset.AssetClassName));
 			if (!AssetClass)
-				return {EAssetError::UnknownClass,
+				return {EAssetReadError::UnknownClass,
 					std::format("The default-level package '{}' contains the unknown top-level class '{}'.",
 						Resolution.FinalPath.ToString(), Asset.AssetClassName)};
 			if (!AssetClass->IsChildOf(DLevel::StaticClass())) continue;
 			++LevelCount;
 			if (!FObjectPath::TryCreate(
 					Asset.AssetPath, std::span<const std::string>{}, LevelPath))
-				return {EAssetError::CorruptFile,
+				return {EAssetReadError::CorruptFile,
 					"The default-level package contains an invalid Level object path."};
 		}
 
 		if (LevelCount == 0)
-			return {EAssetError::TypeMismatch,
+			return {EAssetReadError::TypeMismatch,
 				std::format("The package '{}' does not contain a top-level Level asset.",
 					Resolution.FinalPath.ToString())};
 		if (LevelCount > 1)
-			return {EAssetError::InvalidPackageType,
+			return {EAssetReadError::InvalidPackageType,
 				std::format("The package '{}' contains multiple top-level Level assets; a default-level package must contain exactly one.",
 					Resolution.FinalPath.ToString())};
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 namespace Durin::AssetPrivate
 {
@@ -13,8 +13,8 @@ namespace Durin::AssetPrivate
 		~FAssetLiveLoadGuard();
 		FAssetLiveLoadGuard(const FAssetLiveLoadGuard&) = delete;
 		auto operator=(const FAssetLiveLoadGuard&) -> FAssetLiveLoadGuard& = delete;
-		static auto Check(std::string_view Operation, std::string_view Path) -> FAssetResult;
-		auto GetFailure() const -> FAssetResult;
+		static auto Check(std::string_view Operation, std::string_view Path) -> FAssetReadResult;
+		auto GetFailure() const -> FAssetReadResult;
 
 	private:
 		static thread_local FAssetLiveLoadGuard* Active;
@@ -23,6 +23,6 @@ namespace Durin::AssetPrivate
 		uint64 InitialRejections = 0;
 		FAssetLiveLoadGuard* Previous = nullptr;
 		bool bEnabled = false;
-		FAssetResult Failure;
+		FAssetReadResult Failure;
 	};
 }

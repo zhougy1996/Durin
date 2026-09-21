@@ -110,7 +110,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const FAssetResult LoadResult = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
+	const auto LoadResult = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
@@ -712,7 +712,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	for (DActorComponent* Segment : DuplicateSegments)
 		EXPECT_EQ(Segment->GetCreationMethod(), EComponentCreationMethod::Generated);
 	Level->GetPackage()->MarkDirty();
-	const FAssetResult SaveResult = SavePackage(Level->GetPackage());
+	const FAssetWriteResult SaveResult = SavePackage(Level->GetPackage());
 	EXPECT_TRUE(SaveResult) << SaveResult.Message;
 	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;

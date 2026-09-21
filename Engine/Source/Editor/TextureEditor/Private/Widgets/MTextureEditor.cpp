@@ -172,7 +172,7 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const FAssetResult Result = LoadObject(AssetPath, Texture);
+		const auto Result = LoadObject(AssetPath, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);

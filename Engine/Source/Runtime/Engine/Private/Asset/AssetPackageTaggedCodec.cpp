@@ -17,32 +17,37 @@ namespace Durin::AssetPrivate::TaggedPackage
 {
 	namespace
 	{
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
+		{
+			return {Code, std::move(Message)};
+		}
+
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
 		{
 			return {Code, std::move(Message)};
 		}
 
 		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
-			-> FAssetResult
+			-> FAssetReadResult
 		{
-			auto Result = Error(EAssetError::CorruptFile,
+			auto Result = Error(EAssetReadError::CorruptFile,
 				std::format("DAST package validation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
 			return Result;
 		}
 
 		auto WriterError(const ObjectPackage::FPackageWriterResult& Diagnostic,
-			std::string_view Operation) -> FAssetResult
+			std::string_view Operation) -> FAssetWriteResult
 		{
-			auto Result = Error(EAssetError::CorruptFile,
+			auto Result = Error(EAssetWriteError::InvalidData,
 				std::format("DAST package {} failed: {}", Operation, ObjectPackage::FormatPackageError(Diagnostic)));
 			return Result;
 		}
 
 		auto ReadLinker(const FAssetPackageReadContext& Context,
-			ObjectPackage::FLinkerTables& Out) -> FAssetResult
+			ObjectPackage::FLinkerTables& Out) -> FAssetReadResult
 		{
 			if (!Context.PackagePath.IsValid())
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetReadError::InvalidPath,
 					"DAST requires the mounted package identity.");
 			const auto Diagnostic = Context.bResourceBackedBulk
 				? ObjectPackage::ReadPackageMetadata(Context.PackageBytes,
@@ -55,7 +60,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 
 		auto ReadHeader(const FAssetPackageReadContext& Context,
-			FAssetPackageHeader& OutHeader) -> FAssetResult
+			FAssetPackageHeader& OutHeader) -> FAssetReadResult
 		{
 			const uint64 PhysicalBytes = Context.PhysicalPackageBytes == 0
 				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
@@ -66,7 +71,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				Context.PackagePath, OutHeader));
 		}
 
-		auto Validate(const FAssetPackageReadContext& Context) -> FAssetResult
+		auto Validate(const FAssetPackageReadContext& Context) -> FAssetReadResult
 		{
 			ObjectPackage::FLinkerTables Linker;
 			return ReadLinker(Context, Linker);
@@ -364,13 +369,13 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 
 		auto Inspect(const FAssetPackageReadContext& Context,
-			FAssetPackageInspection& OutInspection) -> FAssetResult
+			FAssetPackageInspection& OutInspection) -> FAssetReadResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			FAssetPackageInspection Inspection;
 			Inspection.CustomVersions = Linker.CustomVersions;
-			if (FAssetResult Result = ReadHeader(Context, Inspection.Header); !Result) return Result;
+			if (auto Result = ReadHeader(Context, Inspection.Header); !Result) return Result;
 			Inspection.Fingerprint = {
 				.FileSize = Context.PackageBytes.size(),
 				.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
@@ -383,7 +388,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				std::string Path;
 				if (!ObjectPackage::FPackageIndex::TryExport(Index, ExportIndex)
 					|| !Linker.TryResolvePath(ExportIndex, Path))
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						"DAST export topology cannot resolve an object path.");
 				FAssetPackageObjectInspection Object{
 					.Id = Index + 1,
@@ -402,7 +407,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 						.SourceFormatVersion = Linker.FormatVersion};
 					if (!EncodeInspectionPayload(Property.Type, Property.Value, Linker,
 						Field.Payload, EncodeState))
-						return Error(EAssetError::CorruptFile,
+						return Error(EAssetReadError::CorruptFile,
 							std::format("DAST inspection cannot project {}::{}.",
 								Property.DeclaringType, Property.FieldName));
 					Object.Fields.push_back(std::move(Field));
@@ -530,17 +535,17 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 
 		auto ExtractReferences(const FAssetPackageReadContext& Context,
-			std::vector<FAssetReferenceEdge>& Out) -> FAssetResult
+			std::vector<FAssetReferenceEdge>& Out) -> FAssetReadResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			std::vector<FAssetReferenceEdge> References;
 			std::vector<FAssetReferenceRouteSegment> Route;
 			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
 				for (const auto& Property : Linker.Exports[Index].Properties)
 					if (!CollectReferences(Property.Type, Property.Value, Linker, Context,
 						Linker.Exports[Index], Property, Index + 1, Route, References))
-						return Error(EAssetError::CorruptFile,
+						return Error(EAssetReadError::CorruptFile,
 							"DAST reference traversal encountered an invalid linker value.");
 			std::ranges::sort(References, [](const auto& A, const auto& B) {
 				return std::tuple(A.TargetPath.ToString(), A.SourceObjectId,
@@ -557,17 +562,17 @@ namespace Durin::AssetPrivate::TaggedPackage
 		auto InspectSchema(IAssetPackageByteSource& Source,
 			const FPackagePath& Path, const FReflectionSchemaCatalog& Catalog,
 			FPackageSchemaInspection& OutRecord, FPackageSchemaReadStats* OutStats,
-			bool, const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
+			bool, const FPackageReadCancellationCheck& IsCancelled) -> FAssetReadResult
 		{
 			if (IsCancelled && IsCancelled())
-				return Error(EAssetError::IoError, "Asset schema inspection was cancelled.");
+				return Error(EAssetReadError::Cancelled, "Asset schema inspection was cancelled.");
 			if (Source.GetSize() > ObjectPackage::DastMaximumPackageBytes
 				|| Source.GetSize() > std::numeric_limits<size_t>::max())
-				return Error(EAssetError::CorruptFile, "DAST package exceeds the byte bound.");
+				return Error(EAssetReadError::CorruptFile, "DAST package exceeds the byte bound.");
 			FByteBuffer Main(static_cast<size_t>(Source.GetSize()));
 			std::string ReadError;
 			if (!Source.ReadAt(0, Main, &ReadError))
-				return Error(EAssetError::IoError, std::move(ReadError));
+				return Error(EAssetReadError::IoError, std::move(ReadError));
 			FByteBuffer Bulk;
 			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
 				Path.GetView(), EMountPathExistence::AllowMissing);
@@ -578,10 +583,10 @@ namespace Durin::AssetPrivate::TaggedPackage
 				std::error_code Ec;
 				if (std::filesystem::is_regular_file(BulkPath, Ec)
 					&& !FFileHelper::LoadFileToArray(Bulk, BulkPath))
-					return Error(EAssetError::IoError, "DAST bulk companion is unreadable.");
+					return Error(EAssetReadError::IoError, "DAST bulk companion is unreadable.");
 			}
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
+			if (auto Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
 				return Result;
 			FPackageSchemaInspection Record{.FormatVersion = Linker.FormatVersion};
 			if (!Linker.Summary.TopLevelAssets.empty())
@@ -670,11 +675,11 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto Load(const FAssetPackageReadContext& Context, DPackage*& OutPackage,
 			FAssetLoadReport* OutReport,
-			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
-			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
+			const std::function<FAssetReadResult(DPackage*)>& OnSkeletonReady,
+			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetReadResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback,
@@ -691,10 +696,10 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
 			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Options) -> FAssetResult
+			const FAssetPackageSerializationOptions& Options) -> FAssetWriteResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
+			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
 				Options, Linker); !Result) return Result;
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterResult Diagnostic;
@@ -711,7 +716,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 
 		auto WriteLinker(ObjectPackage::FLinkerTables Linker,
-			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+			FAssetPackageEncodedClosure& OutClosure) -> FAssetWriteResult
 		{
 			Linker.Names.clear();
 			FAssetPackageEncodedClosure Closure;
@@ -730,10 +735,10 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto RewriteReferences(const FAssetPackageReadContext& Context,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
-			uint64 ExpectedCount, FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+			uint64 ExpectedCount, FAssetPackageEncodedClosure& OutClosure) -> FAssetWriteResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			auto FindDestination = [&](std::string_view Source) -> const FPackagePath* {
 				const auto It = std::ranges::find_if(Mappings, [&](const auto& Mapping) {
 					return Mapping.RedirectorPath.GetView() == Source;
@@ -811,11 +816,11 @@ namespace Durin::AssetPrivate::TaggedPackage
 			for (auto& Export : Linker.Exports)
 				for (auto& Property : Export.Properties)
 					if (!RewriteValue(Property.Type, Property.Value))
-						return Error(EAssetError::CorruptFile,
+						return Error(EAssetWriteError::InvalidData,
 							"DAST reference value has an invalid shape.");
 			if (ExpectedCount != std::numeric_limits<uint64>::max()
 				&& RewriteCount != ExpectedCount)
-				return Error(EAssetError::InUse, std::format(
+				return Error(EAssetWriteError::InUse, std::format(
 					"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
 					ExpectedCount, RewriteCount));
 
@@ -877,15 +882,15 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto Relocate(const FAssetPackageReadContext& Context,
 			const FPackagePath& Destination, FAssetPackageEncodedClosure& OutClosure)
-			-> FAssetResult
+			-> FAssetWriteResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (auto Result = ReadLinker(Context, Linker); !Result) return Result;
 			if (Linker.Summary.TopLevelAssets.empty()
 				|| std::ranges::any_of(Linker.Summary.TopLevelAssets, [](const auto& Asset) {
 					return Asset.RedirectDestination.IsValid();
 				}))
-				return Error(EAssetError::InvalidPackageType,
+				return Error(EAssetWriteError::InvalidData,
 					"Only a real DAST asset package can be relocated.");
 			Linker.Summary.PackagePath = Destination;
 			for (auto& Asset : Linker.Summary.TopLevelAssets)
@@ -893,7 +898,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				FTopLevelAssetPath Relocated;
 				if (!FTopLevelAssetPath::TryCreate(
 					Destination, Asset.AssetPath.GetAssetName(), Relocated))
-					return Error(EAssetError::InvalidPath,
+					return Error(EAssetWriteError::InvalidPath,
 						"Relocated top-level asset identity is invalid.");
 				Asset.AssetPath = std::move(Relocated);
 			}
@@ -902,12 +907,12 @@ namespace Durin::AssetPrivate::TaggedPackage
 
 		auto WriteRedirector(const FPackagePath& Source,
 			std::span<const FAssetRedirectorWriteMapping> Mappings,
-			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+			FAssetPackageEncodedClosure& OutClosure) -> FAssetWriteResult
 		{
 			constexpr std::string_view RedirectorClass =
 				"Durin::DAssetRedirector";
 			if (Mappings.empty())
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetWriteError::InvalidPath,
 					"Redirector creation requires at least one exact asset mapping.");
 			ObjectPackage::FSerializedType ReferenceType{
 				.Kind = ObjectPackage::EValueKind::HardReference,
@@ -923,7 +928,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				const FAssetRedirectorWriteMapping& Mapping = Mappings[Index];
 				if (!Mapping.Source.IsValid() || Mapping.Source.GetPackagePath() != Source
 					|| !Mapping.Destination.IsValid())
-					return Error(EAssetError::InvalidPath, "Redirector identity is invalid.");
+					return Error(EAssetWriteError::InvalidPath, "Redirector identity is invalid.");
 				ObjectPackage::FPackageIndex Export;
 				ObjectPackage::FPackageIndex Import;
 				ObjectPackage::FPackageIndex::TryExport(static_cast<uint32>(Index), Export);

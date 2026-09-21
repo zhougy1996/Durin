@@ -11,7 +11,7 @@ namespace Durin
 		ENGINE_API static auto Get() -> FAssetRuntimeState&;
 
 		ENGINE_API auto Initialize(FAssetRuntimeConfiguration Configuration)
-			-> FAssetResult;
+			-> FAssetWriteResult;
 		ENGINE_API auto StopAcceptingRequests() -> void;
 		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
 		ENGINE_API auto Shutdown() -> void;

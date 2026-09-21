@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetRegistry/Catalog.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "Asset/PackageResource.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
@@ -31,7 +31,7 @@ namespace Durin::AssetPrivate
 	struct FPackageLoadBindings
 	{
 		FPackageResourceHandle BulkResource;
-		std::function<FAssetResult(const FObjectPath&, DObject*&)> ResolveExternalObject;
+		std::function<FAssetReadResult(const FObjectPath&, DObject*&)> ResolveExternalObject;
 	};
 
 	// Applies fields only; this does not construct a graph, invoke PostLoad, or
@@ -43,5 +43,5 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings& Bindings,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions = {},
-		const FArchiveState& Context = {}) -> FAssetResult;
+		const FArchiveState& Context = {}) -> FAssetReadResult;
 }

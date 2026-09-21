@@ -219,10 +219,10 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	// The standalone host registers this unversioned fallback for generic assets.
 	// It must not make transitive function dependencies permanently uncacheable.
 	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1, 1,
-		[](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
+		[](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
 			std::string Error;
 			if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
-				return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
+				return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
 			return {};
 		}}).Handle;
 	ASSERT_NE(Generic, 0u);

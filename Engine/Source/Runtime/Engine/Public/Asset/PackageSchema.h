@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/Load.h"
@@ -142,5 +142,5 @@ namespace Durin
 		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutInspection,
 		FPackageSchemaReadStats* OutStats = nullptr,
 		bool bIncludeNestedMigrationEvidence = false,
-		const FPackageReadCancellationCheck& IsCancellationRequested = {}) -> FAssetResult;
+		const FPackageReadCancellationCheck& IsCancellationRequested = {}) -> FAssetReadResult;
 }

@@ -125,7 +125,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	private:
 		auto ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities = nullptr) -> bool;
-		auto DeletePhysicalRoots() -> FAssetResult;
+		auto DeletePhysicalRoots() -> FAssetWriteResult;
 		auto Fail(std::string Message) -> bool;
 
 		FContentDeletionPlanPtr Plan;
@@ -141,21 +141,16 @@ namespace Durin::Editor::ContentBrowser::Private
 	struct FContentBrowserOperationResult
 	{
 		FContentBrowserOperationResult() = default;
-		FContentBrowserOperationResult(FAssetResult InStatus) : Status(std::move(InStatus)) {}
-		FContentBrowserOperationResult(EAssetError Error, std::string Message)
+		FContentBrowserOperationResult(FAssetReadResult InStatus) : Status(static_cast<FAssetWriteResult>(InStatus)) {}
+		FContentBrowserOperationResult(FAssetWriteResult InStatus) : Status(std::move(InStatus)) {}
+		FContentBrowserOperationResult(EAssetWriteError Error, std::string Message)
 			: Status{Error, std::move(Message)} {}
 		FContentBrowserOperationResult(FAssetOperationResult InAssetResult)
 			: AssetResult(std::move(InAssetResult))
 		{
 			Status.Message = AssetResult->Message;
-			if (AssetResult->State != EAssetOperationTerminalState::Completed)
-				Status.Error = EAssetError::IoError;
-			if (AssetResult->State == EAssetOperationTerminalState::ForwardPending)
-				Status.WriteOutcome.Disposition = EAssetResultDisposition::ForwardPending;
-			if (AssetResult->State == EAssetOperationTerminalState::ContentCommittedProjectionPending)
-				Status.WriteOutcome.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
 		}
-		FAssetResult Status;
+		FAssetWriteResult Status;
 		std::optional<FAssetOperationResult> AssetResult;
 		bool bContentChanged = false;
 		FContentChangeBatch Changes;
@@ -165,7 +160,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string OpenAssetClassName;
 		std::string Warning;
 
-		explicit operator bool() const { return static_cast<bool>(Status); }
+		explicit operator bool() const { return AssetResult
+			? AssetResult->State == EAssetOperationTerminalState::Completed : static_cast<bool>(Status); }
 	};
 
 	// Injects only the package capabilities used by browser operations.
@@ -210,9 +206,9 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto Save(std::vector<FPackagePath> Packages, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage)
 			-> FContentBrowserOperationResult;
-		auto QueryMutation() const -> FAssetResult;
-		auto QuerySave(const FPackagePath& Package) const -> FAssetResult;
-		auto QueryDuplicate(const FTopLevelAssetPath& Source) const -> FAssetResult;
+		auto QueryMutation() const -> FAssetWriteResult;
+		auto QuerySave(const FPackagePath& Package) const -> FAssetWriteResult;
+		auto QueryDuplicate(const FTopLevelAssetPath& Source) const -> FAssetWriteResult;
 		auto StopRequestAdmission() -> void { bAccepting = false; }
 
 		auto Rename(const FContentBrowserItem& Item, std::string_view NewName)
@@ -260,7 +256,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FPackagePath>;
 
-		auto ValidateMoves(std::span<const FEditorAssetMove> Moves) const -> FAssetResult;
+		auto ValidateMoves(std::span<const FEditorAssetMove> Moves) const -> FAssetWriteResult;
 		auto Publish(FContentBrowserOperationResult Result) -> FContentBrowserOperationResult;
 		FContentBrowserAssetServices Assets;
 		std::function<bool()> CanMutate;

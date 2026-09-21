@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 namespace Durin
 {
@@ -39,7 +39,7 @@ namespace Durin
 		ENGINE_API static auto Cooked(
 			std::filesystem::path CookRoot,
 			FAssetRuntimeConfiguration& OutConfiguration
-		) -> FAssetResult;
+		) -> FAssetReadResult;
 
 		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
 		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }

@@ -162,7 +162,7 @@ namespace Durin::Editor
 		const std::function<void(std::string)>& ReportError) -> bool
 	{
 		if (!CanSave(Object) || (BeforeSave && !BeforeSave())) return false;
-		const FAssetResult Result = SavePackage(Object->GetPackage());
+		const FAssetWriteResult Result = SavePackage(Object->GetPackage());
 		if (Result)
 		{
 			if (GEditor) GEditor->GetTransactor()->MarkSaved(*Object->GetPackage());

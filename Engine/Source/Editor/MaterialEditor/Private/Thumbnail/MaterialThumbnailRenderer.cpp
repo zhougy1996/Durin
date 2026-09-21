@@ -196,7 +196,7 @@ namespace Durin::Editor::Material
 			{
 				std::string SphereError;
 				DObject* Loaded = nullptr;
-				const FAssetResult Result = LoadObject(AssetPath, Loaded);
+				const auto Result = LoadObject(AssetPath, Loaded);
 				Material = Result ? Cast<DMaterialInterface>(Loaded) : nullptr;
 				if (!Result || Material == nullptr
 					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)

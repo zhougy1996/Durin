@@ -99,7 +99,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/Texture2D", Texture2DPath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(Texture2DPath));
 	Durin::DTexture2D* Texture2D = nullptr;
-	const Durin::FAssetResult Texture2DLoad = Durin::LoadObject(
+	const auto Texture2DLoad = Durin::LoadObject(
 		Durin::Testing::MakePackageLeafAssetObjectPathForTests(Texture2DPath), Texture2D);
 	ASSERT_TRUE(Texture2DLoad) << Texture2DLoad.Message;
 	ASSERT_NE(Texture2D, nullptr);
@@ -115,7 +115,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/TextureCube", TextureCubePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(TextureCubePath));
 	Durin::DTextureCube* TextureCube = nullptr;
-	const Durin::FAssetResult TextureCubeLoad = Durin::LoadObject(
+	const auto TextureCubeLoad = Durin::LoadObject(
 		Durin::Testing::MakePackageLeafAssetObjectPathForTests(TextureCubePath), TextureCube);
 	ASSERT_TRUE(TextureCubeLoad) << TextureCubeLoad.Message;
 	ASSERT_NE(TextureCube, nullptr);
@@ -130,7 +130,7 @@ TEST(FTextureCookedBaseStateTests, CookedFixturesKeepNativePlatformDataIdentitie
 		"/Game/VolumeTexture", VolumePath));
 	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(VolumePath));
 	Durin::DVolumeTexture* Volume = nullptr;
-	const Durin::FAssetResult VolumeLoad = Durin::LoadObject(
+	const auto VolumeLoad = Durin::LoadObject(
 		Durin::Testing::MakePackageLeafAssetObjectPathForTests(VolumePath), Volume);
 	ASSERT_TRUE(VolumeLoad) << VolumeLoad.Message;
 	ASSERT_NE(Volume, nullptr);

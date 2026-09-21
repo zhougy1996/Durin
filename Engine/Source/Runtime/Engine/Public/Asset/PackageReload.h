@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "Asset/PackageGraphPreparationError.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "DObject/AssetPath.h"

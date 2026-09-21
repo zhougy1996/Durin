@@ -180,7 +180,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const uint64 MountedContentRevision = GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
 				: RefreshCoordinator.GetObservedMountedContentRevision();
-			const FAssetResult Result =
+			const auto Result =
 				RefreshCoordinator.ReconcileExplicitly(
 					MountedContentRevision,
 					[this] { return Model.RescanRegistry(); },
@@ -597,7 +597,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const uint64 MountedContentRevision = GetMountedContentMutationRevision
 			? GetMountedContentMutationRevision()
 			: RefreshCoordinator.GetObservedMountedContentRevision();
-		const FAssetResult Result = RefreshCoordinator.Synchronize(
+		const auto Result = RefreshCoordinator.Synchronize(
 			MountedContentRevision,
 			GetAssetCatalogRevision(),
 			[this] { return Model.RescanRegistry(); },

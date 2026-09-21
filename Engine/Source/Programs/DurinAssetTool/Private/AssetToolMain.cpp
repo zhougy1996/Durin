@@ -53,10 +53,10 @@ namespace
 	auto PrepareCanonicalResaveAsset(
 		const Durin::FPackagePath& Path, Durin::DObject* Asset
 	)
-		-> Durin::FAssetResult
+		-> Durin::FAssetWriteResult
 	{
 		if (GCancelled.load(std::memory_order_relaxed))
-			return {Durin::EAssetError::ShuttingDown, "Canonical resave was cancelled before asset compilation completed."};
+			return {Durin::EAssetWriteError::Cancelled, "Canonical resave was cancelled before asset compilation completed."};
 		(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
 		return Durin::ValidateAssetSaveReadiness(Asset);
 	}
@@ -392,7 +392,7 @@ namespace
 		{
 			const FAssetPackageCompatibilityProbeInput* Input = nullptr;
 			FAssetPackageInspection Inspection;
-			FAssetResult Result;
+			FAssetReadResult Result;
 			std::vector<uint64> InspectionNanoseconds;
 			std::vector<FQualificationDescriptor> Descriptors;
 			std::vector<std::filesystem::path> Orphans;
@@ -422,7 +422,7 @@ namespace
 						Package.Inspection, Descriptors); !Storage)
 				{
 					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.Error);
-					Package.Result = {.Error = EAssetError::CorruptFile, .Message = Package.DescriptorDiagnostic};
+					Package.Result = {.Error = EAssetReadError::CorruptFile, .Message = Package.DescriptorDiagnostic};
 				}
 				else
 				{
@@ -550,7 +550,7 @@ namespace
 			FJsonNodeRef PackageNode = Packages.AppendObject();
 			PackageNode.SetChildValue("packagePath", Input.PackagePath.GetView());
 			FAssetPackageInspection Inspection;
-			const FAssetResult Result = InspectAssetPackage(
+			const auto Result = InspectAssetPackage(
 				Input.PhysicalPath, Input.PackagePath, Inspection);
 			PackageNode.SetChildValue("inspection", Result ? "Ready" : "Failed");
 			PackageNode.SetChildValue("diagnostic", Result.Message);
@@ -572,7 +572,7 @@ namespace
 			}
 
 			std::vector<FAssetReferenceEdge> References;
-			const FAssetResult ReferenceResult = ExtractAssetReferences(
+			const auto ReferenceResult = ExtractAssetReferences(
 				Input.PackagePath, Inspection, References);
 			PackageNode.SetChildValue("referenceInspection",
 				ReferenceResult ? "Ready" : "Failed");
@@ -771,10 +771,10 @@ namespace
 		const auto Generic = RegisterCookContributor(
 			DObject::StaticClass(), {"generic-package", 1, 1,
 									 [](DObject& Object, std::string_view VirtualPath,
-										FCookContext& Context) -> FAssetResult {
+										FCookContext& Context) -> FCookContributionResult {
 										 std::string Error;
 										 if (const auto Added = Context.AddPackage(std::string(VirtualPath), Object.GetPackage()); !Added)
-											 return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
+											 return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
 										 return {};
 									 }}
 		);

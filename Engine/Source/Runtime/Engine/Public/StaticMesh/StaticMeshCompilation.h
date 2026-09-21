@@ -9,7 +9,7 @@ namespace Durin
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
 
-	struct FAssetResult;
+	struct FAssetWriteResult;
 	enum class EStaticMeshCompletionError : uint8 { None, Build, Application, PackageUnavailable, Save };
 	struct FStaticMeshCompletionError
 	{
@@ -17,7 +17,7 @@ namespace Durin
 		FObjectKey Owner;
 		std::optional<FStaticMeshAuthoredBuildError> BuildCause;
 		std::optional<FStaticMeshApplicationError> ApplicationCause;
-		std::shared_ptr<const FAssetResult> SaveCause;
+		std::shared_ptr<const FAssetWriteResult> SaveCause;
 	};
 	ENGINE_API auto FormatStaticMeshCompletionError(const FStaticMeshCompletionError& Error) -> std::string;
 

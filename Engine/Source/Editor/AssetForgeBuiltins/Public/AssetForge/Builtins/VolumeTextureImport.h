@@ -98,7 +98,7 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FVolumeTextureTranslationError> TranslationCause;
 		std::optional<FTextureBuildOutcome> BuildCause;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
-		std::shared_ptr<const FAssetResult> SaveCause;
+		std::shared_ptr<const FAssetWriteResult> SaveCause;
 	};
 	struct FVolumeTextureRebuildResult
 	{

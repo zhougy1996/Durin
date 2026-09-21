@@ -493,7 +493,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		InitialRenderResourceCount);
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
-	const Durin::FAssetResult ReloadMeshResult =
+	const auto ReloadMeshResult =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), ReloadedMesh);
 	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReloadedMesh);

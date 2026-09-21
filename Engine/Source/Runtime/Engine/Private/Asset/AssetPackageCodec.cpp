@@ -32,36 +32,36 @@ namespace Durin::AssetPrivate
 			return Registry;
 		}
 
-		auto EnvelopeError(const FBinaryEnvelopeDiagnostic& Diagnostic) -> FAssetResult
+		auto EnvelopeError(const FBinaryEnvelopeDiagnostic& Diagnostic) -> FAssetReadResult
 		{
 			const bool bUnsupported = Diagnostic.Error == EBinaryEnvelopeError::UnknownFormat
 				|| Diagnostic.Error == EBinaryEnvelopeError::UnsupportedFormatVersion
 				|| Diagnostic.Error == EBinaryEnvelopeError::UnsupportedRequiredFeatures;
-			return {bUnsupported ? EAssetError::UnsupportedVersion : EAssetError::CorruptFile,
+			return {bUnsupported ? EAssetReadError::UnsupportedVersion : EAssetReadError::CorruptFile,
 				std::string(Diagnostic.Message)};
 		}
 		auto ReadAssetPackageFormatVersion(
 			FByteView Bytes, uint32& OutFormatVersion,
-			uint64 PhysicalFileBytes) -> FAssetResult
+			uint64 PhysicalFileBytes) -> FAssetReadResult
 		{
 			OutFormatVersion = 0;
 			if (Bytes.size() < sizeof(uint32))
-				return {EAssetError::CorruptFile, "Truncated asset header."};
+				return {EAssetReadError::CorruptFile, "Truncated asset header."};
 			uint32 Magic = 0;
 			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
 			if (Magic == ObjectPackage::DastPackageMagic)
 			{
 				if (Bytes.size() < sizeof(uint32) * 2)
-					return {EAssetError::CorruptFile, "Truncated asset header."};
+					return {EAssetReadError::CorruptFile, "Truncated asset header."};
 				uint32 LegacyVersion = 0;
 				std::memcpy(&LegacyVersion, Bytes.data() + sizeof(Magic), sizeof(LegacyVersion));
-				return {EAssetError::UnsupportedVersion,
+				return {EAssetReadError::UnsupportedVersion,
 					std::format("Unsupported legacy DAST prefix version {}.", LegacyVersion)};
 			}
 
 			constexpr uint32 DurfMagic = 0x46525544;
 			if (Magic != DurfMagic)
-				return {EAssetError::CorruptFile, "Invalid asset magic."};
+				return {EAssetReadError::CorruptFile, "Invalid asset magic."};
 			FBinaryEnvelopePreamble EnvelopePreamble;
 			FBinaryEnvelopeDiagnostic Diagnostic;
 			const uint64 FileBytes = PhysicalFileBytes == 0 ? Bytes.size() : PhysicalFileBytes;
@@ -69,7 +69,7 @@ namespace Durin::AssetPrivate
 				Bytes, FileBytes, PackageEnvelopeLimits, EnvelopePreamble, &Diagnostic))
 				return EnvelopeError(Diagnostic);
 			if (EnvelopePreamble.HeaderBytes > Bytes.size())
-				return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
+				return {EAssetReadError::CorruptFile, "BinaryEnvelopeTruncated: front matter is incomplete."};
 			FValidatedBinaryEnvelope Envelope;
 			if (!ValidateBinaryEnvelopeHeader(
 				Bytes.first(static_cast<size_t>(EnvelopePreamble.HeaderBytes)), FileBytes,
@@ -100,20 +100,20 @@ namespace Durin::AssetPrivate
 
 	auto ResolveAssetPackageReader(
 		FByteView Bytes, const FAssetPackageCodec*& OutCodec,
-		uint32* OutFormatVersion, uint64 PhysicalFileBytes) -> FAssetResult
+		uint32* OutFormatVersion, uint64 PhysicalFileBytes) -> FAssetReadResult
 	{
 		OutCodec = nullptr;
 		if (OutFormatVersion) *OutFormatVersion = 0;
 		uint32 FormatVersion = 0;
-		if (FAssetResult Result = ReadAssetPackageFormatVersion(
+		if (auto Result = ReadAssetPackageFormatVersion(
 				Bytes, FormatVersion, PhysicalFileBytes); !Result)
 			return Result;
 		if (!ObjectPackage::IsSupportedPackageReaderVersion(FormatVersion))
-			return {EAssetError::UnsupportedVersion,
+			return {EAssetReadError::UnsupportedVersion,
 				std::format("Unsupported DAST package version {}.", FormatVersion)};
 		OutCodec = FindAssetPackageReader(FormatVersion);
 		if (!OutCodec)
-			return {EAssetError::UnsupportedVersion,
+			return {EAssetReadError::UnsupportedVersion,
 				std::format("Unsupported DAST package version {}.", FormatVersion)};
 		if (OutFormatVersion) *OutFormatVersion = FormatVersion;
 		return {};
@@ -121,20 +121,20 @@ namespace Durin::AssetPrivate
 
 	auto ResolveAssetPackageReader(IAssetPackageByteSource& Source,
 		const FAssetPackageCodec*& OutCodec, uint32* OutFormatVersion,
-		const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
+		const FPackageReadCancellationCheck& IsCancelled) -> FAssetReadResult
 	{
 		OutCodec = nullptr;
 		if (OutFormatVersion) *OutFormatVersion = 0;
 		if (IsCancelled && IsCancelled())
-			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
+			return {EAssetReadError::Cancelled, "Asset schema inspection was cancelled."};
 		const size_t PrefixBytes = static_cast<size_t>(std::min<uint64>(
 			Source.GetSize(), BinaryEnvelopePreambleBytes));
 		FByteBuffer Prefix(PrefixBytes);
 		std::string ReadError;
 		if (!Source.ReadAt(0, Prefix, &ReadError))
-			return {EAssetError::IoError, std::move(ReadError)};
+			return {EAssetReadError::IoError, std::move(ReadError)};
 		if (Prefix.size() < sizeof(uint32))
-			return {EAssetError::CorruptFile, "Truncated asset header."};
+			return {EAssetReadError::CorruptFile, "Truncated asset header."};
 		uint32 Magic = 0;
 		std::memcpy(&Magic, Prefix.data(), sizeof(Magic));
 		if (Magic == ObjectPackage::DastPackageMagic)
@@ -142,7 +142,7 @@ namespace Durin::AssetPrivate
 			uint32 LegacyVersion = 0;
 			if (Prefix.size() >= sizeof(uint32) * 2)
 				std::memcpy(&LegacyVersion, Prefix.data() + sizeof(Magic), sizeof(LegacyVersion));
-			return {EAssetError::UnsupportedVersion,
+			return {EAssetReadError::UnsupportedVersion,
 				std::format("Unsupported legacy DAST prefix version {}.", LegacyVersion)};
 		}
 		FBinaryEnvelopePreamble Preamble;
@@ -150,17 +150,17 @@ namespace Durin::AssetPrivate
 		if (!ParseBinaryEnvelopePrefix(Prefix, Source.GetSize(), PackageEnvelopeLimits,
 			Preamble, &Diagnostic)) return EnvelopeError(Diagnostic);
 		if (Preamble.HeaderBytes > std::numeric_limits<size_t>::max())
-			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
+			return {EAssetReadError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
 		if (IsCancelled && IsCancelled())
-			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
+			return {EAssetReadError::Cancelled, "Asset schema inspection was cancelled."};
 		FByteBuffer Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
-			return {EAssetError::IoError, std::move(ReadError)};
+			return {EAssetReadError::IoError, std::move(ReadError)};
 		uint32 Version = 0;
-		if (FAssetResult Result = ReadAssetPackageFormatVersion(
+		if (auto Result = ReadAssetPackageFormatVersion(
 			Header, Version, Source.GetSize()); !Result) return Result;
 		if (!ObjectPackage::IsSupportedPackageReaderVersion(Version) || !(OutCodec = FindAssetPackageReader(Version)))
-			return {EAssetError::UnsupportedVersion,
+			return {EAssetReadError::UnsupportedVersion,
 				std::format("Unsupported DAST package version {}.", Version)};
 		if (OutFormatVersion) *OutFormatVersion = Version;
 		return {};

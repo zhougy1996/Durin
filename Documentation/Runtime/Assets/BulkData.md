@@ -212,7 +212,7 @@ results derive success from their typed error code and own budget, extent,
 digest, physical path and file-I/O/filesystem context. They retain Bulk storage,
 Bulk validation and underlying asset-codec results as causes. Pending graph
 preparation and reload results keep `ResourceCause`; their diagnostic adapters
-format explicitly. The asset-codec cause still follows the pending `FAssetResult`
+format explicitly. The asset-codec cause follows the `FAssetReadResult`
 contract and is retained whole rather than flattened during preparation.
 
 The prepared resource serves shared immutable ranges from retained memory, so

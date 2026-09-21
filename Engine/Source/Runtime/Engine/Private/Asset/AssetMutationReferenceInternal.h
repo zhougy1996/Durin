@@ -23,20 +23,20 @@ namespace Durin::AssetPrivate
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteBuffer& OutBytes) -> FAssetResult;
+		FByteBuffer& OutBytes) -> FAssetWriteResult;
 	auto ReadMutationPackageMetadata(
 		FByteView Bytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		FMutationPackageMetadata& OutMetadata) -> FAssetResult;
+		FMutationPackageMetadata& OutMetadata) -> FAssetReadResult;
 	auto ValidateMutationPackageMetadata(
 		const FMutationPackageMetadata& Metadata,
 		uint64 ObjectCount,
-		const FPackagePath* SourcePath = nullptr) -> FAssetResult;
+		const FPackagePath* SourcePath = nullptr) -> FAssetReadResult;
 	auto CollectLoadedPackageSoftReferencesForMutation(
 		DPackage* Package,
 		const FPackagePath& TargetPath,
-		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult;
+		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult;
 	auto AssetReferenceLess(
 		const FAssetReferenceEdge& Left,
 		const FAssetReferenceEdge& Right) -> bool;
@@ -46,5 +46,5 @@ namespace Durin::AssetPrivate
 		uint32 ArrayIndex,
 		FByteReader& Reader,
 		const std::vector<DObject*>& Objects,
-		uint32 SourceVersion) -> FAssetResult;
+		uint32 SourceVersion) -> FAssetReadResult;
 }

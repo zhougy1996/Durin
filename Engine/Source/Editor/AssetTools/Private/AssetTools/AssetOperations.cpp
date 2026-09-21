@@ -46,7 +46,7 @@ namespace Durin
 			EAssetOperationKind Kind,
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
-			const FAssetResult Committed = Job.ResumeForward();
+			const FAssetWriteResult Committed = Job.ResumeForward();
 			if (!Committed) return AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
 			FAssetOperationResult Result{
 				.Kind = Kind,
@@ -60,7 +60,7 @@ namespace Durin
 	struct FAssetSaveOperation::FState
 	{
 		FAssetSaveRequest Request;
-		Tasks::TTask<FAssetResult> Save;
+		Tasks::TTask<FAssetWriteResult> Save;
 		std::optional<FAssetOperationResult> Result;
 	};
 	FAssetSaveOperation::FAssetSaveOperation() : State(std::make_unique<FState>()) {}
@@ -76,7 +76,7 @@ namespace Durin
 		}
 		auto Operation = std::unique_ptr<FAssetSaveOperation>(new FAssetSaveOperation());
 		Operation->State->Request = Request;
-		FAssetResult Result;
+		FAssetWriteResult Result;
 		auto* Package = FindResidentPackage(Request.AssetPaths.front());
 		if (!Package) { OutResult = MakeRejectedAssetOperation(EAssetOperationKind::Save, "Package is not resident."); return {}; }
 		Operation->State->Save = Package->SaveAsync(Result, FAssetPackageSaveContext{});
@@ -91,9 +91,11 @@ namespace Durin
 		if (!IsReady()) return MakeRejectedAssetOperation(EAssetOperationKind::Save, "Save is still running.");
 		auto Result = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save,
 			State->Save.GetState() == ETaskState::Succeeded ? State->Save.GetResult()
-				: FAssetResult{EAssetError::IoError, "Save task failed or was canceled."}, State->Request.AssetPaths);
+				: FAssetWriteResult{EAssetWriteError::IoError, "Save task failed or was canceled."}, State->Request.AssetPaths);
 		Result.Persistence = Result || Result.State == EAssetOperationTerminalState::ContentCommittedProjectionPending
-			? EAssetOperationPersistenceState::Persisted : EAssetOperationPersistenceState::Dirty;
+			? EAssetOperationPersistenceState::Persisted
+			: Result.State == EAssetOperationTerminalState::PartiallyWritten
+				? EAssetOperationPersistenceState::PartiallyPersisted : EAssetOperationPersistenceState::Dirty;
 		State->Result = Result;
 		Publish(State->Request.Publish, *State->Result);
 		return *State->Result;
@@ -150,7 +152,7 @@ namespace Durin
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The source top-level asset path is invalid.");
 		DObject* SourceAsset = nullptr;
-		FAssetResult EngineResult = LoadObject(
+		FAssetWriteResult EngineResult = LoadObject(
 			SourceObjectPath, nullptr, SourceAsset);
 		if (!EngineResult)
 			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
@@ -187,7 +189,7 @@ namespace Durin
 			{
 				FAssetOperationResult Failure = AssetToolsPrivate::FromEngineResult(
 					EAssetOperationKind::Duplicate, EngineResult);
-				const FAssetResult Cleanup = UnloadPackage(
+				const FAssetWriteResult Cleanup = UnloadPackage(
 					DestinationPackagePath,
 					EAssetPackageUnloadPolicy::DiscardUnsaved);
 				if (!Cleanup)
@@ -269,9 +271,9 @@ namespace Durin
 		{
 			if (!Visited.insert(Path).second) continue;
 			DPackage* Package = FindResidentPackage(Path);
-			const FAssetResult Saved = Package && Package->IsDirty()
+			const FAssetWriteResult Saved = Package && Package->IsDirty()
 				? SavePackage(Package)
-				: FAssetResult{EAssetError::InvalidPackageType,
+				: FAssetWriteResult{EAssetWriteError::InvalidData,
 					"Save requires a loaded package with authored changes."};
 			const auto Item = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save, Saved);
 			if (Item)
@@ -297,6 +299,7 @@ namespace Durin
 				Result.Message = Saved.Message;
 				Result.FailedParticipant = Path.ToString();
 				Result.OperationId = Item.OperationId;
+				Result.AffectedFiles = Item.AffectedFiles;
 				Result.DesiredDirection = Item.DesiredDirection;
 				Result.RecoveryLocation = Item.RecoveryLocation;
 			}
@@ -324,7 +327,7 @@ namespace Durin
 		}
 		FAssetRelocationSummary Summary;
 		FAssetMutationJob Job;
-		const FAssetResult Prepared = PrepareAssetRelocationJob(
+		const FAssetWriteResult Prepared = PrepareAssetRelocationJob(
 			Mappings, Summary, Job);
 		if (!Prepared)
 			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Relocate, Prepared, Affected);
@@ -339,7 +342,7 @@ namespace Durin
 			return {.Kind = EAssetOperationKind::FixUpRedirectors};
 		FAssetRedirectorFixupSummary Summary;
 		FAssetMutationJob Job;
-		const FAssetResult Prepared = PrepareRedirectorFixupJob(
+		const FAssetWriteResult Prepared = PrepareRedirectorFixupJob(
 			Request.Redirectors,
 			Request.bDeleteRedirectors
 				? EAssetRedirectorFixupMode::RewriteAndDelete

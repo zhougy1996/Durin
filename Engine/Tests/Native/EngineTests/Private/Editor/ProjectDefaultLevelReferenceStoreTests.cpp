@@ -31,13 +31,12 @@ namespace
 
 	auto Relocate(
 		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetResult
+		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
 		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
 		Durin::FAssetRelocationSummary Summary;
 		Durin::FAssetMutationJob Transaction;
-		Durin::FAssetResult Result =
-			Durin::PrepareAssetRelocationJob(
+		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
 				std::span{&Mapping, 1}, Summary, Transaction);
 		if (Result) Result = Transaction.ResumeForward();
 		return Result;
@@ -184,8 +183,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsForwardP
 		Durin::EAssetRedirectorFixupFailurePoint::Verify);
 	Durin::FAssetRedirectorFixupSummary Summary;
 	Durin::FAssetMutationJob Transaction;
-	Durin::FAssetResult Result =
-		Durin::PrepareRedirectorFixupJob(
+	Durin::FAssetWriteResult Result = Durin::PrepareRedirectorFixupJob(
 			std::span{&Scenario.OldPath, 1},
 			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
 			Summary,
@@ -193,7 +191,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsForwardP
 	if (Result) Result = Transaction.ResumeForward();
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::None);
-	EXPECT_EQ(Result.Error, Durin::EAssetError::IoError);
+	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	const auto Alias = Durin::FindAssetExact(
 		Scenario.OldPath);
@@ -237,7 +235,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, ResolvesUniqueLevelWithoutInferrin
 	FDefaultLevelScenario Scenario = BuildScenario("UniqueLevel");
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FObjectPath LevelPath;
-	const Durin::FAssetResult Result =
+	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.OldPath, LevelPath);
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(LevelPath.GetPackagePath(), Scenario.NewPath);
@@ -259,9 +257,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel
 	ASSERT_TRUE(Durin::SavePackage(World->GetPackage(), Durin::EAssetPackageSaveMode::Complete));
 
 	Durin::FObjectPath LevelPath;
-	const Durin::FAssetResult Result =
+	const auto Result =
 		Durin::ResolveLevelPackage(WorldPath, LevelPath);
-	EXPECT_EQ(Result.Error, Durin::EAssetError::TypeMismatch);
+	EXPECT_EQ(Result.Error, Durin::EAssetReadError::TypeMismatch);
 	EXPECT_FALSE(LevelPath.IsValid());
 }
 
@@ -278,8 +276,8 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithMultipleTopLevel
 	ASSERT_TRUE(Durin::SavePackage(Package));
 
 	Durin::FObjectPath LevelPath;
-	const Durin::FAssetResult Result =
+	const auto Result =
 		Durin::ResolveLevelPackage(Scenario.NewPath, LevelPath);
-	EXPECT_EQ(Result.Error, Durin::EAssetError::InvalidPackageType);
+	EXPECT_EQ(Result.Error, Durin::EAssetReadError::InvalidPackageType);
 	EXPECT_FALSE(LevelPath.IsValid());
 }

@@ -66,7 +66,7 @@ namespace Durin::Editor
 		}
 
 		DObject* Asset = nullptr;
-		const FAssetResult Result = LoadObject(Path, Asset);
+		const auto Result = LoadObject(Path, Asset);
 		if (!Result || Asset == nullptr)
 		{
 			OutError = Result.Message.empty()

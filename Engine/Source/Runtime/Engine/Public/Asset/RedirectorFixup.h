@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/MutationExtensions.h"
@@ -57,5 +57,5 @@ namespace Durin
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
 		FAssetMutationJob& OutJob
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 } // namespace Durin

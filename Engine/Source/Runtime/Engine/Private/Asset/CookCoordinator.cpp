@@ -30,10 +30,6 @@ namespace Durin
 	{
 		const std::thread::id CookBootstrapOwner = std::this_thread::get_id();
 
-		auto Failure(EAssetError Error, std::string Message) -> FAssetResult
-		{
-			return {Error, std::move(Message)};
-		}
 
 		struct FRegisteredCookContributor
 		{
@@ -72,7 +68,7 @@ namespace Durin
 
 		auto ResolveCookContributor(DClass* Class,
 			const FCookContributorSnapshot& Contributors,
-			std::shared_ptr<const FRegisteredCookContributor>& OutContributor) -> FAssetResult
+			std::shared_ptr<const FRegisteredCookContributor>& OutContributor) -> FCookContributionResult
 		{
 			OutContributor.reset();
 			for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
@@ -82,7 +78,8 @@ namespace Durin
 				OutContributor = Found->second;
 				return {};
 			}
-			return Failure(EAssetError::UnsupportedProperty, std::format("CookUnsupportedClass: no contributor is registered for class {}.", Class ? Class->GetName() : "<null>"));
+			return {.Error = ECookContributionError::UnsupportedClass,
+				.ObjectPath = Class ? Class->GetQualifiedName().ToString() : "<null>"};
 		}
 
 		auto IsCancelled(const FCookCancellationCheck& Check) -> bool
@@ -384,7 +381,7 @@ namespace Durin
 		case ECookRunError::OutputLimit: return std::format("Cook detached output byte limit exceeded: retained={}, package={}, bulk={}, maximum={}.", Result.RetainedOutputBytes, Result.RequestedPackageBytes, Result.RequestedBulkBytes, Result.MaximumOutputBytes);
 		case ECookRunError::InvalidTopLevelAsset: return std::format("CookInvalidTopLevelAsset: {}.", Result.AssetIdentity);
 		case ECookRunError::MissingPackage: return std::format("CookMissingPackage: package={}, contributor={}", Result.CurrentPackage.ToString(), Result.CurrentContributor);
-		case ECookRunError::ContributionFailed: return std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Result.ContributionPackage.ToString(), Result.ContributionProvider, Result.ContributionCause ? Result.ContributionCause->Message : "Contribution failed");
+		case ECookRunError::ContributionFailed: return std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Result.ContributionPackage.ToString(), Result.ContributionProvider, Result.ContributionCause ? FormatCookContributionError(*Result.ContributionCause) : "Contribution failed");
 		case ECookRunError::CaptureFailed: return Result.CaptureCause ? FormatCookCaptureError(*Result.CaptureCause) : "Cook capture failed.";
 		case ECookRunError::ShaderLibraryFailed: return Result.ShaderCause ? FormatShaderError(*Result.ShaderCause) : "Cook shader library failed.";
 		case ECookRunError::PublicationFailed: return Result.PublicationCause ? FormatCookPublishError(*Result.PublicationCause) : "Cook publication failed.";
@@ -402,7 +399,7 @@ namespace Durin
 		OutResult.TargetProfile = Request.TargetProfile;
 		auto Finish = [&](ECookRunStatus Status, ECookRunError Error) -> bool {
 			OutResult.Status = Status;
-			if (Status == ECookRunStatus::Cancelled) OutResult.InputStatus = ECookInputStatus::Cancelled;
+			if (Status == ECookRunStatus::Cancelled) OutResult.InputFailure.Status = ECookInputStatus::Cancelled;
 			OutResult.Error = Error;
 			OutResult.WallTimeNanoseconds = std::chrono::duration_cast<
 												std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start)
@@ -497,22 +494,23 @@ namespace Durin
 				}
 			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(),
-				[&](const FAssetData& Data, FCookContributorRegistration& Out) -> FAssetResult {
-					if (Data.TopLevelAssets.empty()) return Failure(EAssetError::InvalidPackageType, "Cook package has no assets.");
+				[&](const FAssetData& Data, FCookContributorRegistration& Out) -> FCookContributionResult {
+					if (Data.TopLevelAssets.empty()) return {.Error = ECookContributionError::Plan,
+						.PlanCause = FCookPlanError{.Code = ECookPlanError::EmptyPackage, .VirtualPath = Data.PackagePath.ToString()}};
 					std::shared_ptr<const FRegisteredCookContributor> Entry;
 					const auto Result = ResolveCookContributor(FindClassByQualifiedName(FName(
 						Data.TopLevelAssets.front().AssetClassName)), Contributors, Entry);
 					if (Result) Out = Entry->Registration;
 					return Result;
 				});
-			auto CheckInputs = [&]() -> FAssetResult { return Inputs.CheckCancellation(); };
+			auto CheckInputs = [&]() -> FCookInputResult { return Inputs.CheckCancellation(); };
 			auto RetainOutput = [&](uint64 PackageBytes, uint64 BulkBytes) -> bool {
 				constexpr uint64 MaximumOutputBytes = 1024ull * 1024 * 1024;
 				if (PackageBytes > MaximumOutputBytes - RetainedOutputBytes
 					|| BulkBytes > MaximumOutputBytes - RetainedOutputBytes - PackageBytes)
 				{
-					OutResult.InputStatus = ECookInputStatus::LimitExceeded;
-					OutResult.InputFailure = {EAssetError::CorruptFile};
+					OutResult.InputFailure.Status = ECookInputStatus::LimitExceeded;
+
 					OutResult.RetainedOutputBytes = RetainedOutputBytes;
 					OutResult.RequestedPackageBytes = PackageBytes;
 					OutResult.RequestedBulkBytes = BulkBytes;
@@ -523,12 +521,11 @@ namespace Durin
 				OutResult.PeakRetainedBytes = std::max(OutResult.PeakRetainedBytes, RetainedOutputBytes + Inputs.GetRetainedBytes());
 				return true;
 			};
-			auto InputFailure = [&](const FAssetResult& Result) -> bool {
+			auto InputFailure = [&](const FCookInputResult& Result) -> bool {
 				OutResult.InputFailure = Result;
 				OutResult.InputDiagnostic = Inputs.GetFailureInfo();
-				OutResult.InputStatus = Inputs.GetStatus() == ECookInputStatus::None
-					? ECookInputStatus::InvalidDependency : Inputs.GetStatus();
-				return Finish(Inputs.GetStatus() == ECookInputStatus::Cancelled
+
+				return Finish(Result.Status == ECookInputStatus::Cancelled
 					? ECookRunStatus::Cancelled : ECookRunStatus::Failed, ECookRunError::InputFailed);
 			};
 			bool bPrepared = false;
@@ -536,7 +533,7 @@ namespace Durin
 			{
 				bPrepared = [&]() -> bool {
 					FAssetReferenceStoreCapture ExternalRoots;
-					if (auto Result = CaptureAssetReferenceStores(ExternalRoots); !Result) return InputFailure(Result);
+					if (auto Result = CaptureAssetReferenceStores(ExternalRoots); !Result) return InputFailure(ToCookInputResult(Result));
 					if (auto Result = Inputs.Acquire(Roots, ExternalRoots); !Result) return InputFailure(Result);
 					const auto& Packages = Inputs.GetPackages();
 					const auto& Catalog = Inputs.GetRegistry().Catalog;
@@ -596,8 +593,9 @@ namespace Durin
 						if (!MakeTopLevelObjectPath(CookRoot.AssetPath, CookRootPath))
 							return Finish(ECookRunStatus::Failed, ECookRunError::InvalidTopLevelAsset);
 						DObject* Asset = nullptr;
-						const FAssetResult LoadResult = LoadScope.LoadObject(CookRootPath, Asset);
-						if (!LoadResult || !Asset) return InputFailure(LoadResult);
+						const auto LoadResult = LoadScope.LoadObject(CookRootPath, Asset);
+						if (!LoadResult) return InputFailure(ToCookInputResult(LoadResult));
+						if (!Asset) return InputFailure({ECookInputStatus::InvalidDependency, "Cook load returned no object."});
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
 						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {
 							return Inputs.ReadInput(Path, Kind, Name, Bytes);
@@ -608,13 +606,13 @@ namespace Durin
 						DPackage* AuthoredPackage = Asset->GetPackage();
 						if (!AuthoredPackage)
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingPackage);
-						const FAssetResult Contribution = Contributor.Contribute(
+						const FCookContributionResult Contribution = Contributor.Contribute(
 							*Asset, Path.GetView(), Context
 						);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						if (!Contribution)
 						{
-							OutResult.ContributionCause = std::make_shared<FAssetResult>(Contribution);
+							OutResult.ContributionCause = std::make_shared<FCookContributionResult>(Contribution);
 							OutResult.ContributionPackage = Path;
 							OutResult.ContributionProvider = Contributor.Name;
 							return Finish(ECookRunStatus::Failed, ECookRunError::ContributionFailed);
@@ -670,7 +668,7 @@ namespace Durin
 			}
 			catch (const std::exception& Error)
 			{
-				return InputFailure({EAssetError::InUse, Error.what()});
+				return InputFailure({ECookInputStatus::InvalidDependency, Error.what()});
 			}
 			if (!bPrepared) return false;
 		}

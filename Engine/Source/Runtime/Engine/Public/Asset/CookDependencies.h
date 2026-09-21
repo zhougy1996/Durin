@@ -1,7 +1,8 @@
 #pragma once
+#include "Asset/CookInputResult.h"
 
 #include "EngineAPI.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
@@ -82,7 +83,7 @@ namespace Durin
 		uint64 Records = 0;
 		std::optional<FCookDependencyCodecResult> CodecCause;
 		explicit operator bool() const { return Error == ECookDependencyGraphError::None; }
-		ENGINE_API auto ToAssetResult() const -> FAssetResult;
+		ENGINE_API auto ToInputResult() const -> FCookInputResult;
 	};
 	ENGINE_API auto FormatCookDependencyGraphError(const FCookDependencyGraphResult& Result) -> std::string;
 
@@ -123,6 +124,7 @@ namespace Durin
 	};
 
 	// Called once per package before cache lookup, without loading authored objects.
-	using FCookDependencyDeclarationCallback = std::function<FAssetResult(
+	struct FCookContributionResult;
+	using FCookDependencyDeclarationCallback = std::function<FCookContributionResult(
 		const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&)>;
 }

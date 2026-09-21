@@ -77,13 +77,13 @@ namespace
 			ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 			const auto Generic = RegisterCookContributor(DObject::StaticClass(), {
 				.Name = "generic-package",
-				.Contribute = [](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
+				.Contribute = [](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
 					std::string Error;
 					if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
-						return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
+						return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
 					return {};
 				},
-				.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }}).Handle;
+				.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }}).Handle;
 			ASSERT_NE(Generic, 0u);
 			Handles.push_back(Generic);
 		}
@@ -114,8 +114,8 @@ TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
 	uint32 Contributions = 0;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "declaration-provider",
-		.Contribute = [&](DObject&, std::string_view, FCookContext&) -> FAssetResult { ++Contributions; return {}; },
-		.DeclareDependencies = [&](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out) -> FAssetResult { Out = Declarations; return {}; }});
+		.Contribute = [&](DObject&, std::string_view, FCookContext&) -> FCookContributionResult { ++Contributions; return {}; },
+		.DeclareDependencies = [&](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult { Out = Declarations; return {}; }});
 	ASSERT_TRUE(Registered);
 	Handles.push_back(Registered.Handle);
 	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
@@ -133,7 +133,7 @@ TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
 	Declarations = {{ECookBuildDependencyKind::DirectPackage, "invalid-package"}};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	ASSERT_TRUE(Result.InputDiagnostic);
-	EXPECT_EQ(Result.InputFailure.Error, EAssetError::InvalidPath);
+	EXPECT_EQ(Result.InputFailure.Status, ECookInputStatus::InvalidDependency);
 	EXPECT_EQ(Result.InputDiagnostic->Error, ECookInputError::PackageDeclaration);
 	ASSERT_TRUE(Result.InputDiagnostic->PathCause);
 	EXPECT_TRUE(Result.InputDiagnostic->PathCause->HasError());
@@ -160,11 +160,11 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	Handles.pop_back();
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "rejecting-provider",
-		.Contribute = [](DObject& Object, std::string_view VirtualPath, FCookContext&) -> FAssetResult {
+		.Contribute = [](DObject& Object, std::string_view VirtualPath, FCookContext&) -> FCookContributionResult {
 			return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
-				.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)}.ToAssetResult();
+				.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
 		},
-		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }});
+		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }});
 	ASSERT_TRUE(Registered);
 	Handles.push_back(Registered.Handle);
 	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
@@ -172,7 +172,7 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	FCookRunResult Result;
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	ASSERT_TRUE(Result.ContributionCause);
-	EXPECT_EQ(Result.ContributionCause->Error, EAssetError::InUse);
+	EXPECT_EQ(Result.ContributionCause->Error, ECookContributionError::SourceMutation);
 	EXPECT_EQ(Result.ContributionPackage, Path);
 	EXPECT_EQ(Result.ContributionProvider, "rejecting-provider");
 
@@ -182,7 +182,7 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_FALSE(Result.ContributionCause);
 	EXPECT_TRUE(Result.ContributionProvider.empty());
-	EXPECT_EQ(Retained->Error, EAssetError::InUse);
+	EXPECT_EQ(Retained->Error, ECookContributionError::SourceMutation);
 }
 
 TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
@@ -202,7 +202,7 @@ TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
 	bool bInvalidBytes = false;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "capture-provider",
-		.Contribute = [&](DObject&, std::string_view, FCookContext& Context) -> FAssetResult {
+		.Contribute = [&](DObject&, std::string_view, FCookContext& Context) -> FCookContributionResult {
 			if (bInvalidBytes)
 			{
 				const auto Added = Context.AddPackage(Path.ToString(), FByteBuffer{std::byte{1}});
@@ -210,7 +210,7 @@ TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
 			}
 			return {};
 		},
-		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }});
+		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }});
 	ASSERT_TRUE(Registered);
 	Handles.push_back(Registered.Handle);
 	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
@@ -232,8 +232,8 @@ TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
 	ASSERT_TRUE(Result.CaptureCause->PlanCause);
 	EXPECT_EQ(Result.CaptureCause->PlanCause->Code, ECookPlanError::Canonicalization);
 	EXPECT_EQ(Result.CaptureCause->PlanCause->VirtualPath, Path.ToString());
-	ASSERT_TRUE(Result.CaptureCause->PlanCause->CanonicalizationCause);
-	EXPECT_FALSE(*Result.CaptureCause->PlanCause->CanonicalizationCause);
+	ASSERT_FALSE(Result.CaptureCause->PlanCause->CanonicalizationDiagnostic.empty());
+	EXPECT_FALSE(Result.CaptureCause->PlanCause->CanonicalizationDiagnostic.empty());
 	EXPECT_EQ(CountFailure->Error, ECookCaptureError::PlanCount);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
 }

@@ -197,7 +197,7 @@ namespace Durin
 		const FPackagePath& PackagePath, const FReflectionSchemaCatalog& Catalog,
 		FPackageSchemaInspection& OutInspection, FPackageSchemaReadStats* OutStats,
 		bool bIncludeNestedMigrationEvidence,
-		const FPackageReadCancellationCheck& IsCancellationRequested) -> FAssetResult
+		const FPackageReadCancellationCheck& IsCancellationRequested) -> FAssetReadResult
 	{
 		FPackageSchemaReadStats LocalStats;
 		FPackageSchemaReadStats& Stats = OutStats ? *OutStats : LocalStats;
@@ -205,7 +205,7 @@ namespace Durin
 		AssetPrivate::FCountingAssetPackageByteSource Source(FileSource, Stats);
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		uint32 FormatVersion = 0;
-		FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Source, Codec,
+		auto Result = AssetPrivate::ResolveAssetPackageReader(Source, Codec,
 			&FormatVersion, IsCancellationRequested);
 		if (!Result) return Result;
 		Result = Codec->InspectSchema(Source, PackagePath, Catalog, OutInspection,

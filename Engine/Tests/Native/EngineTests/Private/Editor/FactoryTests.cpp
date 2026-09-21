@@ -880,5 +880,5 @@ TEST(DFactoryTests, ReimportPersistenceFailureRetainsAssetCauseAndCompletesOnce)
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Status, Durin::EReimportStatus::PersistenceFailure);
 	ASSERT_TRUE(Result.SaveCause);
-	EXPECT_EQ(Result.SaveCause->Error, Durin::EAssetError::InvalidPath);
+	EXPECT_EQ(Result.SaveCause->Error, Durin::EAssetWriteError::InvalidPath);
 }

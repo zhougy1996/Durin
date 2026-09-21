@@ -30,6 +30,7 @@ namespace Durin
 		ForwardPending,
 		ContentCommittedProjectionPending,
 		RecoveryRequired,
+		PartiallyWritten,
 	};
 
 	// Reports the persistence state left by a completed editor asset command.
@@ -73,6 +74,7 @@ namespace Durin
 		std::string DesiredDirection;
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
+		std::vector<std::filesystem::path> AffectedFiles;
 		bool bPublished = false;
 		std::shared_ptr<const FAssetImportValidation> ImportCause;
 		std::optional<FAssetCreationError> CreationCause;

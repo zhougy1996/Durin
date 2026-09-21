@@ -22,7 +22,7 @@ namespace Durin::Editor::Level
 		);
 		~FEditorAssetMoveCoordinator();
 
-		auto MoveAssets(std::span<const FEditorAssetMove> Moves) -> FAssetResult;
+		auto MoveAssets(std::span<const FEditorAssetMove> Moves) -> FAssetWriteResult;
 
 	private:
 		auto OnAssetsRelocated(

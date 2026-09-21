@@ -414,7 +414,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
-	const Durin::FAssetResult Loaded =
+	const auto Loaded =
 		Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			CookedPath, AuthoredPath.GetPackageName()), CookedMesh);
 	ASSERT_TRUE(Loaded) << Loaded.Message;

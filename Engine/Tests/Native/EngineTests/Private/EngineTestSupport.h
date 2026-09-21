@@ -30,7 +30,7 @@ inline auto InitializeDObjectSystem() -> void
 
 // Runtime fixture cleanup uses only the package removal primitives.
 inline auto DeleteAssetClosureForTest(std::initializer_list<Durin::FPackagePath> Paths)
-	-> Durin::FAssetResult
+	-> Durin::FAssetWriteResult
 {
 	return Durin::Testing::RemoveAssetPackagesForTests(std::span{Paths.begin(), Paths.size()});
 }

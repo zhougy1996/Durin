@@ -2,7 +2,7 @@
 
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageDependencyLoadPolicy.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/PackageResource.h"
 #include "Asset/Load.h"
@@ -25,7 +25,7 @@ namespace Durin::AssetPrivate
 	struct FLinkerLoadOptions
 	{
 		std::function<bool(ELinkerLoadPhase, uint64)> ShouldFail;
-		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
+		std::function<FAssetReadResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
 		uint32 SourceFormatVersion = ObjectPackage::DastV10FormatVersion;
 		bool bCooked = false;
@@ -35,7 +35,7 @@ namespace Durin::AssetPrivate
 		// Keep capture objects out of public package/object lookup. Requires a closed load policy.
 		bool bPrivateGraph = false;
 		// Ordinary loading transfers candidate completion to its component owner.
-		std::function<void(std::function<FAssetResult()>, std::function<void()>)> DeferCompletion;
+		std::function<void(std::function<FAssetReadResult()>, std::function<void()>)> DeferCompletion;
 	};
 
 	// A validated saved closure; the caller owns path admission and edit/save leases.
@@ -111,7 +111,7 @@ namespace Durin::AssetPrivate
 		EDefaultDeltaMode DeltaMode,
 		const FAssetPackageSerializationOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FAssetResult;
+		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FAssetWriteResult;
 
 	auto ApplyLivePackageLinker(
 		ObjectPackage::FLinkerTables Linker,
@@ -119,5 +119,5 @@ namespace Durin::AssetPrivate
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport,
 		const FLinkerLoadOptions& Options = {},
-		std::string* OutError = nullptr) -> FAssetResult;
+		std::string* OutError = nullptr) -> FAssetReadResult;
 }

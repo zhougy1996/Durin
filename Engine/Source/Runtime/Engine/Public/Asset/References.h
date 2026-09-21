@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/References.h"
@@ -51,17 +51,17 @@ namespace Durin
 		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
 		std::vector<FAssetReferenceEdge>& OutReferences
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 
 	ENGINE_API auto BuildCookReachability(
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 	ENGINE_API auto BuildCookReachability(
 		const FAssetRegistrySnapshot& RegistrySnapshot,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 	// Uses owned external roots without invoking providers. Still inspects current
 	// package files and reflected types; this is not a pure Registry query.
 	ENGINE_API auto BuildCookReachability(
@@ -69,5 +69,5 @@ namespace Durin
 		const FAssetReferenceStoreCapture& ExternalRoots,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 } // namespace Durin

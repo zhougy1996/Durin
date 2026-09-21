@@ -78,7 +78,7 @@ namespace Durin
 				const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, PackagePath);
 				if (PathValidation)
 				{
-					FAssetResult Result =
+					auto Result =
 						ResolveLevelPackage(PackagePath, LevelPath);
 					if (Result) Result = LoadObject(LevelPath, Level);
 					if (Result && GetWorld()->SetCurrentLevel(Level))

@@ -11,7 +11,7 @@ namespace Durin
 		case ECookPublishError::None: return {};
 		case ECookPublishError::Root: if (Result.RootCause) return FormatCookOutputRootError(*Result.RootCause); break;
 		case ECookPublishError::Path: if (Result.PathCause) return FormatCookedPathError(*Result.PathCause); break;
-		case ECookPublishError::Package: if (Result.PackageCause) return "CookOutputStoreInvalidPackage: " + Result.VirtualPath + ": " + Result.PackageCause->Message; break;
+		case ECookPublishError::Package: if (!Result.PackageDiagnostic.empty()) return "CookOutputStoreInvalidPackage: " + Result.VirtualPath + ": " + Result.PackageDiagnostic; break;
 		case ECookPublishError::Manifest: if (Result.ManifestCause) return FormatCookManifestError(*Result.ManifestCause); break;
 		case ECookPublishError::State: if (Result.StateCause) return FormatCookStateError(*Result.StateCause); break;
 		case ECookPublishError::Operation: if (Result.OperationCause) return FormatCookPublishOperationError(*Result.OperationCause); break;
@@ -181,12 +181,12 @@ namespace Durin
 						&& !FPackagePath::TryCreateProjectContent(
 							Plan.VirtualPath, VirtualPath))
 						return RejectValidation(ECookPublishValidationError::PackageIdentity, Plan.VirtualPath, Index);
-					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
+					const auto PackageValidation = ValidateAssetPackageBytes(
 						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
 					if (!PackageValidation)
 					{
 						Failure.VirtualPath = Plan.VirtualPath;
-						Failure.PackageCause = std::make_shared<FAssetResult>(PackageValidation);
+						Failure.PackageDiagnostic = PackageValidation.Message;
 						Failure.Error = ECookPublishError::Package;
 						return false;
 					}

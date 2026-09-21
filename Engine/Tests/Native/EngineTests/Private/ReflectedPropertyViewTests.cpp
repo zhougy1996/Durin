@@ -588,7 +588,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.Error, Durin::Editor::EPropertySoftLoadError::Asset);
 	ASSERT_TRUE(Missing.AssetCause);
-	EXPECT_NE(Missing.AssetCause->Error, Durin::EAssetError::None);
+	EXPECT_NE(Missing.AssetCause->Error, Durin::EAssetReadError::None);
 	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_EQ(LoadedObject, nullptr);
 

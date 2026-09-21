@@ -180,18 +180,18 @@ namespace Durin::Editor::ContentBrowser::Private
 			RefreshItemsSnapshot(false);
 	}
 
-	auto FContentBrowserModel::RescanRegistry() -> FAssetResult
+	auto FContentBrowserModel::RescanRegistry() -> FAssetReadResult
 	{
 		const FAssetCatalogRefreshResult Refresh =
 			RefreshAssetRegistry(
 				EAssetRegistryScanMode::Incremental);
 		if (Refresh) return {};
 		return Refresh.Errors.empty()
-			? FAssetResult{
-				EAssetError::IoError,
+			? FAssetReadResult{
+				EAssetReadError::IoError,
 				"Asset catalog refresh was incomplete."}
-			: FAssetResult{
-				.Error = EAssetError::IoError, .Message = FormatAssetRegistryError(Refresh.Errors.front())};
+			: FAssetReadResult{
+				.Error = EAssetReadError::IoError, .Message = FormatAssetRegistryError(Refresh.Errors.front())};
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(

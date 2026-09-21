@@ -135,13 +135,12 @@ namespace Durin
 		return {};
 	}
 
-	auto FCookDependencyGraphResult::ToAssetResult() const -> FAssetResult
+	auto FCookDependencyGraphResult::ToInputResult() const -> FCookInputResult
 	{
 		if (*this) return {};
-		// The asset result's text contract remains a staged adapter; retain the
-		// complete cause independently for callers and later presentation migration.
-		FAssetResult Result{EAssetError::CorruptFile, FormatCookDependencyGraphError(*this)};
-		return Result;
+		const auto Status = Error == ECookDependencyGraphError::GraphLimit || Error == ECookDependencyGraphError::GraphBound
+			|| Error == ECookDependencyGraphError::ExpansionBound ? ECookInputStatus::LimitExceeded : ECookInputStatus::InvalidDependency;
+		return {Status, FormatCookDependencyGraphError(*this)};
 	}
 
 	auto FCookBuildDependencyGraph::Initialize(std::span<const FCookPackageBuildInputs> Graph) -> FCookDependencyGraphResult

@@ -16,7 +16,7 @@ namespace Durin::Testing
 {
 	// Runtime fixture cleanup exercises package primitives without editor deletion policy.
 	// Every physical participant must belong to this process's test sandbox.
-	inline auto RemoveAssetPackagesForTests(std::span<const FPackagePath> Paths) -> FAssetResult
+	inline auto RemoveAssetPackagesForTests(std::span<const FPackagePath> Paths) -> FAssetWriteResult
 	{
 		const uint64 Revision = GetAssetCatalogRevision();
 		std::vector<FAssetData> Packages;
@@ -24,13 +24,13 @@ namespace Durin::Testing
 		for (const FPackagePath& Path : Paths)
 		{
 			const FAssetCatalogEntry Data = FindAssetExact(Path);
-			if (!Data) return {EAssetError::NotFound, "The fixture package is not registered."};
+			if (!Data) return {EAssetWriteError::NotFound, "The fixture package is not registered."};
 			FAssetPackageInspection Inspection;
-			const FAssetResult Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
+			const auto Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
 			if (!Inspected) return Inspected;
 			std::vector<std::filesystem::path> Companions;
 			if (const auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions); !Storage)
-				return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
+				return {.Error = EAssetWriteError::InvalidData, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
 			Packages.push_back(*Data);
 			Files.push_back(Data->PhysicalPath);
 			Files.insert(Files.end(), Companions.begin(), Companions.end());
@@ -40,20 +40,20 @@ namespace Durin::Testing
 			const auto Relative = std::filesystem::absolute(File).lexically_normal()
 				.lexically_relative(GetTestWorkDirectory());
 			if (Relative.empty() || Relative == "." || *Relative.begin() == "..")
-				return {EAssetError::InvalidPath, "Fixture cleanup escaped the test sandbox."};
+				return {EAssetWriteError::InvalidPath, "Fixture cleanup escaped the test sandbox."};
 		}
-		const FAssetResult Released = ReleasePackagesForRemoval(Packages, Revision);
+		const auto Released = ReleasePackagesForRemoval(Packages, Revision);
 		if (!Released) return Released;
 		for (const auto& File : Files)
 		{
 			std::error_code Ec;
 			std::filesystem::remove(File, Ec);
-			if (Ec) return {EAssetError::IoError, Ec.message()};
+			if (Ec) return {EAssetWriteError::IoError, Ec.message()};
 		}
 		return PublishPackageRemoval(Packages, Revision);
 	}
 
-	inline auto RemoveAssetPackageForTests(const FPackagePath& Path) -> FAssetResult
+	inline auto RemoveAssetPackageForTests(const FPackagePath& Path) -> FAssetWriteResult
 	{
 		return RemoveAssetPackagesForTests(std::span{&Path, 1});
 	}
@@ -61,12 +61,12 @@ namespace Durin::Testing
 	inline auto CreateAssetRedirectorForTests(
 		const FPackagePath& RedirectorPath,
 		const FPackagePath& DestinationPath,
-		DAssetRedirector*& OutRedirector) -> FAssetResult
+		DAssetRedirector*& OutRedirector) -> FAssetWriteResult
 	{
 		OutRedirector = nullptr;
 		if (!RedirectorPath.IsValid() || !DestinationPath.IsValid()
 			|| RedirectorPath == DestinationPath)
-			return {EAssetError::InvalidPath,
+			return {EAssetWriteError::InvalidPath,
 				"Redirector source and destination paths must be valid and distinct."};
 
 		const FAssetPathResolveResult Resolution = ResolveAssetPath(DestinationPath);
@@ -75,49 +75,48 @@ namespace Durin::Testing
 			switch (Resolution.State)
 			{
 			case EAssetPathResolveState::ProjectionPending:
-				return {EAssetError::StaleData,
-					"Registry projection for the redirector destination is pending synchronization.",
-					{EAssetResultDisposition::ContentCommittedProjectionPending}};
+				return {EAssetWriteError::ProjectionPending,
+					"Registry projection for the redirector destination is pending synchronization."};
 			case EAssetPathResolveState::NotFound:
 			case EAssetPathResolveState::MissingRedirectTarget:
-				return {EAssetError::NotFound,
+				return {EAssetWriteError::NotFound,
 					"Redirector destination does not resolve to a registered asset."};
 			case EAssetPathResolveState::RedirectCycle:
 			case EAssetPathResolveState::RedirectDepthExceeded:
-				return {EAssetError::CircularDependency,
+				return {EAssetWriteError::InvalidData,
 					"Redirector destination does not have a finite canonical target."};
 			case EAssetPathResolveState::UnknownTargetClass:
-				return {EAssetError::UnknownClass,
+				return {EAssetWriteError::InvalidData,
 					"Redirector destination has an unavailable reflected class."};
 			case EAssetPathResolveState::RedirectTypeMismatch:
-				return {EAssetError::TypeMismatch,
+				return {EAssetWriteError::InvalidData,
 					"Redirector destination has an incompatible asset class."};
 			case EAssetPathResolveState::CorruptRedirector:
-				return {EAssetError::CorruptFile,
+				return {EAssetWriteError::InvalidData,
 					"Redirector destination traverses corrupt redirect metadata."};
 			case EAssetPathResolveState::Resolved:
 				break;
 			}
 		}
 		if (!Resolution.FinalAssetData)
-			return {EAssetError::InvalidObjectGraph,
+			return {EAssetWriteError::InvalidData,
 				"The redirect destination has no final asset data."};
 		const FAssetData& DestinationData = *Resolution.FinalAssetData;
 		const auto DestinationRecord = std::ranges::find(
 			DestinationData.TopLevelAssets, DestinationData.AssetClassName,
 			&FTopLevelAssetData::AssetClassName);
 		if (DestinationRecord == DestinationData.TopLevelAssets.end())
-			return {EAssetError::InvalidObjectGraph,
+			return {EAssetWriteError::InvalidData,
 				"The redirect destination has no exact top-level asset."};
 
 		FObjectPath DestinationObjectPath;
 		if (!FObjectPath::TryCreate(
 			DestinationRecord->AssetPath, std::span<const std::string>{},
 			DestinationObjectPath))
-			return {EAssetError::InvalidPath,
+			return {EAssetWriteError::InvalidPath,
 				"The redirect destination object path is invalid."};
 		DObject* DestinationObject = nullptr;
-		FAssetResult Result = LoadObject(
+		auto Result = LoadObject(
 			DestinationObjectPath, nullptr, DestinationObject);
 		if (!Result) return Result;
 
@@ -126,12 +125,12 @@ namespace Durin::Testing
 			DAssetRedirector::StaticClass()->FindPropertyByName("DestinationObject");
 		if (!DestinationProperty
 			|| DestinationProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
-			return {EAssetError::InvalidObjectGraph,
+			return {EAssetWriteError::InvalidData,
 				"The redirector fixture requires a reflected destination object property."};
 
 		DPackage* Package = CreatePackage(RedirectorPath);
 		if (!Package)
-			return {EAssetError::AlreadyExists,
+			return {EAssetWriteError::AlreadyExists,
 				"The redirector fixture package could not be created."};
 		FStaticConstructObjectParameters Parameters{
 			DAssetRedirector::StaticClass(), Package,
@@ -146,7 +145,7 @@ namespace Durin::Testing
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutRedirector = nullptr;
-			return {EAssetError::InvalidObjectGraph,
+			return {EAssetWriteError::InvalidData,
 				"The redirector fixture could not be registered as a top-level asset."};
 		}
 		static_cast<FObjectProperty*>(DestinationProperty)->SetObjectPropertyValue(

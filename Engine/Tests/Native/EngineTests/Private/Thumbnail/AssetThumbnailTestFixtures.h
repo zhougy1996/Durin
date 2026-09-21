@@ -354,7 +354,7 @@ namespace Durin::Tests
 			if (FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
-				const FAssetResult Result = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
+				const auto Result = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
@@ -424,7 +424,7 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material fixture values.");
 		}
-		FAssetResult Result = SavePackage(OutFixtures.Material->GetPackage());
+		FAssetWriteResult Result = SavePackage(OutFixtures.Material->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
 		Created = CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);

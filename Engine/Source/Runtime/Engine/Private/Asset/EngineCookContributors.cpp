@@ -23,12 +23,12 @@ namespace Durin
 			// versioned build inputs, never runtime packages or unversioned recipes.
 			const auto Handle = RegisterCookContributor(DMaterialFunctionInterface::StaticClass(),
 				{"material-function-source", 1, 1,
-					[](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
+					[](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
 						return FCookContributionResult{.Error = ECookContributionError::AuthoringOnly,
 							.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(Path),
-							.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()}.ToAssetResult();
+							.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
 					}, {}, {},
-					[](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult {
+					[](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult {
 						// Source bytes, reflected schema and transitive package references
 						// are already captured by ordinary Cook dependency discovery.
 						return {};
@@ -47,25 +47,25 @@ namespace Durin
 			const auto Handle = RegisterCookContributor(
 				T::StaticClass(), {std::move(Name), Version, Version,
 					[](DObject& Object, std::string_view VirtualPath,
-						FCookContext& Context) -> FAssetResult {
+						FCookContext& Context) -> FCookContributionResult {
 						if (!Object.IsA(T::StaticClass()))
 							return FCookContributionResult{.Error = ECookContributionError::TypeMismatch,
 								.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath),
 								.ExpectedClass = T::StaticClass()->GetQualifiedName().ToString(),
-								.ActualClass = Object.GetClass()->GetQualifiedName().ToString()}.ToAssetResult();
+								.ActualClass = Object.GetClass()->GetQualifiedName().ToString()};
 						if constexpr (std::is_same_v<T, DStaticMesh>)
 						{
 							if (HasPendingStaticMeshSourceMutation(static_cast<DStaticMesh&>(Object)))
 								return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
-									.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)}.ToAssetResult();
+									.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
 						}
 						else FAssetCompilingManager::Get().FinishCompilationForObject(Object);
-						return ContributeEngineCookAsset(Object, VirtualPath, Context).ToAssetResult();
+						return ContributeEngineCookAsset(Object, VirtualPath, Context);
 					},
 					[](const DObject&) -> ECookPackageStatus {
 						return ECookPackageStatus::Captured;
 					}, {},
-					[](const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FAssetResult {
+					[](const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult {
 						if constexpr (std::is_same_v<T, DTexture2D> || std::is_same_v<T, DTextureCube>
 							|| std::is_same_v<T, DVolumeTexture> || std::is_same_v<T, DStaticMesh>)
 						{
@@ -76,7 +76,7 @@ namespace Durin
 							if (!AssetPrivate::GetCookBuildProviderInput(Family, Value))
 								return FCookContributionResult{.Error = ECookContributionError::RecipeProvider,
 									.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,
-									.TargetProfile = Request.TargetProfile, .Provider = Family}.ToAssetResult();
+									.TargetProfile = Request.TargetProfile, .Provider = Family};
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"recipe/" + Family, {}, std::move(Value)});
 						}
@@ -85,7 +85,7 @@ namespace Durin
 							const auto Identity = Request.ShaderBuildIdentity;
 							if (Identity.empty()) return FCookContributionResult{.Error = ECookContributionError::ShaderInputs,
 								.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,
-								.TargetProfile = Request.TargetProfile, .Provider = "shader-build"}.ToAssetResult();
+								.TargetProfile = Request.TargetProfile, .Provider = "shader-build"};
 							const auto Bytes = std::as_bytes(std::span(Identity));
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"shader-build", {}, FByteBuffer(Bytes.begin(), Bytes.end())});
@@ -122,15 +122,6 @@ namespace Durin
 		return std::format("{}: {}", Reason, Result.ObjectPath);
 	}
 
-	auto FCookContributionResult::ToAssetResult() const -> FAssetResult
-	{
-		if (*this) return {};
-		const EAssetError Classification = Error == ECookContributionError::TypeMismatch ? EAssetError::TypeMismatch
-			: Error == ECookContributionError::SourceMutation || Error == ECookContributionError::RecipeProvider
-				|| Error == ECookContributionError::ShaderInputs ? EAssetError::InUse : EAssetError::UnsupportedProperty;
-		FAssetResult Result{Classification, FormatCookContributionError(*this)};
-		return Result;
-	}
 
 	auto ContributeEngineCookAsset(
 		DObject& Object,

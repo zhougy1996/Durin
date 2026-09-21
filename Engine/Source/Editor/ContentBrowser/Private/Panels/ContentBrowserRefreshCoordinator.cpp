@@ -45,7 +45,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 AssetRegistryRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
+		const FGetRegistryRevision& GetRegistryRevision) -> FAssetReadResult
 	{
 		ObserveMountedContent(MountedContentRevision);
 		const bool bPanelMountedContentChanged =
@@ -53,7 +53,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (ReconciliationState->Revision != MountedContentRevision
 			|| ReconciliationState->State == FMountedContentReconciliationState::EState::Uninitialized)
 		{
-			const FAssetResult Result = ReconcileMountedContent();
+			const auto Result = ReconcileMountedContent();
 			ReconciliationState->Revision = MountedContentRevision;
 			ReconciliationState->State = Result
 				? FMountedContentReconciliationState::EState::Synchronized
@@ -82,10 +82,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 MountedContentRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
+		const FGetRegistryRevision& GetRegistryRevision) -> FAssetReadResult
 	{
 		ObserveMountedContent(MountedContentRevision);
-		const FAssetResult Result = ReconcileMountedContent();
+		const auto Result = ReconcileMountedContent();
 		ReconciliationState->Revision = MountedContentRevision;
 		ReconciliationState->State = Result
 			? FMountedContentReconciliationState::EState::Synchronized

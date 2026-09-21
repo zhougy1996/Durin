@@ -24,12 +24,12 @@ namespace Durin::Editor::Level
 
 		auto CaptureSnapshot(
 			FAssetReferenceStoreSnapshot& OutSnapshot)
-			-> FAssetResult override;
+			-> FAssetReadResult override;
 		auto PrepareRewrite(
 			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,
 			FAssetReferenceStoreRewriteContribution& OutContribution)
-			-> FAssetResult override;
+			-> FAssetWriteResult override;
 
 	private:
 		FPathChanged PathChanged;

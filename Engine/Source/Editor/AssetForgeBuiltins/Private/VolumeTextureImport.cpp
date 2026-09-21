@@ -461,11 +461,11 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
 			if (!SaveOptions) return {};
 			DPackage* Package = Texture.GetPackage();
-			const FAssetResult Saved = SavePackagesAtomically(
+			const FAssetWriteResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
 			if (Saved) return {};
 			return {.Error = {.Code = EVolumeTextureRebuildError::Save, .ObjectPath = Texture.GetObjectPath(),
-				.SaveCause = std::make_shared<FAssetResult>(Saved)}};
+				.SaveCause = std::make_shared<FAssetWriteResult>(Saved)}};
 		}
 	}
 

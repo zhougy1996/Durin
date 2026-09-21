@@ -1,3 +1,4 @@
+#include "Asset/AssetWriteResult.h"
 #include "AssetLiveLoadGuard.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
@@ -40,7 +41,7 @@ namespace Durin
 
 	namespace
 	{
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -71,7 +72,7 @@ namespace Durin
 		}
 
 		auto LoadBulkClosure(std::string_view PhysicalPath,
-			FByteBuffer& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetWriteResult
 		{
 			OutBytes.clear();
 			std::filesystem::path BulkPath(PhysicalPath);
@@ -81,7 +82,7 @@ namespace Durin
 			{
 				if (!ErrorCode || ErrorCode == std::errc::no_such_file_or_directory)
 					return {};
-				return Error(EAssetError::IoError,
+				return Error(EAssetWriteError::IoError,
 					"A reference rewrite bulk companion could not be inspected.");
 			}
 			return LoadRelocationBytes(BulkPath, OutBytes);
@@ -202,23 +203,23 @@ namespace Durin
 	auto FAssetMutationCoordinator::PrepareRedirectorFixupState(
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult
+		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		OutState.reset();
 		if (!bAcceptingRequests)
-			return Error(EAssetError::ShuttingDown,
+			return Error(EAssetWriteError::ShuttingDown,
 				"Redirector Fix Up is closed while the asset manager is shutting down.");
 		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetError::ReadOnlyMode,
+			return Error(EAssetWriteError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit redirector Fix Up.");
 		if (Redirectors.empty())
-			return Error(EAssetError::InvalidPath,
+			return Error(EAssetWriteError::InvalidPath,
 				"Redirector Fix Up requires at least one redirector.");
 		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
 			&& !CaptureAssetReferenceIndex().IsComplete())
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"Redirector Fix Up cannot delete aliases because the reference index is incomplete.");
 
 		auto State = std::make_shared<FAssetRedirectorFixupState>();
@@ -239,22 +240,22 @@ namespace Durin
 			FPackagePath Alias = std::move(Pending.back());
 			Pending.pop_back();
 			if (!Alias.IsValid())
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetWriteError::InvalidPath,
 					"Redirector Fix Up contains an invalid path.");
 			if (!Closure.insert(Alias).second) continue;
 			const FAssetData* Data = FindPrepared(Alias);
 			if (!Data)
-				return Error(EAssetError::NotFound, std::format(
+				return Error(EAssetWriteError::NotFound, std::format(
 					"Fix Up redirector {} is not registered.", Alias.ToString()));
 			if (Data->EntryKind != EAssetRegistryEntryKind::Redirector)
-				return Error(EAssetError::InvalidPackageType, std::format(
+				return Error(EAssetWriteError::InvalidData, std::format(
 					"Fix Up selection {} is not a redirector.", Alias.ToString()));
 			if (Loader.IsPackageLoading(Alias))
-				return Error(EAssetError::InUse,
+				return Error(EAssetWriteError::InUse,
 					"A selected redirector is currently loading.");
 			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
 				&& FindResidentPackage(Alias))
-				return Error(EAssetError::InUse,
+				return Error(EAssetWriteError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
 			for (FPackagePath Upstream : Durin::FindRedirectorsTo(Alias))
 				Pending.push_back(std::move(Upstream));
@@ -268,7 +269,7 @@ namespace Durin
 		{
 			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Alias);
 			if (!Resolution)
-				return Error(EAssetError::CorruptFile, std::format(
+				return Error(EAssetWriteError::InvalidData, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
 					static_cast<uint32>(Resolution.State)));
 			State->Mappings.push_back({Alias, Resolution.FinalPath});
@@ -287,10 +288,10 @@ namespace Durin
 		for (const FPackagePath& SourcePath : CandidatePackages)
 		{
 			const FAssetData* Data = FindPrepared(SourcePath);
-			if (!Data) return Error(EAssetError::StaleData,
+			if (!Data) return Error(EAssetWriteError::StaleData,
 				"A package referencer is no longer registered.");
 			FAssetPackageInspection Inspection;
-			FAssetResult InspectionResult = InspectAssetPackage(
+			FAssetWriteResult InspectionResult = InspectAssetPackage(
 				Data->PhysicalPath, SourcePath, Inspection);
 			if (!InspectionResult) return InspectionResult;
 			std::vector<FAssetReferenceEdge> References;
@@ -317,7 +318,7 @@ namespace Durin
 			EAssetMutationPublicationRole Role,
 			std::optional<FByteBuffer> PreBytes,
 			std::optional<FByteBuffer> PostBytes,
-			size_t& OutIndex) -> FAssetResult {
+			size_t& OutIndex) -> FAssetWriteResult {
 			return StageMutationJournalEntry(State->Journal, {
 				.PhysicalPath = PhysicalPath,
 				.RegistryPath = RegistryPath,
@@ -337,25 +338,25 @@ namespace Durin
 		for (const auto& [SourcePath, ExpectedCount] : PackageRewriteCounts)
 		{
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PreparePackage))
-				return Error(EAssetError::IoError,
+				return Error(EAssetWriteError::IoError,
 					"Injected Fix Up package-preparation failure.");
 			const FAssetData* Data = FindPrepared(SourcePath);
 			if (!Data)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A package referencer is no longer registered.");
 			if (Loader.IsPackageLoading(SourcePath))
-				return Error(EAssetError::InUse,
+				return Error(EAssetWriteError::InUse,
 					"A package referencer is currently loading.");
 			DPackage* Loaded = FindResidentPackage(SourcePath);
 			if (Loaded && Loaded->IsDirty())
-				return Error(EAssetError::InUse,
+				return Error(EAssetWriteError::InUse,
 					"A dirty loaded package blocks redirector Fix Up.");
 			FByteBuffer PreBytes;
-			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
+			FAssetWriteResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
 			if (!Result) return Result;
 			const auto Fingerprint = Prepared.ReferenceFingerprints.find(SourcePath);
 			if (Fingerprint == Prepared.ReferenceFingerprints.end())
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A package referencer has no complete index fingerprint.");
 			FAssetPackageFingerprint CurrentFingerprint;
 			Result = MakePackageFingerprint(Data->PhysicalPath, PreBytes, CurrentFingerprint);
@@ -363,7 +364,7 @@ namespace Durin
 			if (CurrentFingerprint.FileSize != Fingerprint->second.FileSize
 				|| CurrentFingerprint.LastWriteTimeTicks
 					!= Fingerprint->second.LastWriteTimeTicks)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A package referencer changed after reference indexing.");
 			FByteBuffer PostBytes;
 			FByteBuffer BulkBytes;
@@ -407,18 +408,18 @@ namespace Durin
 		for (const auto [Handle, Store] : StoreRegistry.Stores)
 		{
 			if (!Store)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A registered asset reference store is unavailable.");
 
 			FFixupStoreState StoreState{
 				.Handle = Handle,
 				.Store = Store};
-			FAssetResult Result = Store->CaptureSnapshot(StoreState.Snapshot);
+			FAssetWriteResult Result = Store->CaptureSnapshot(StoreState.Snapshot);
 			if (!Result) return Result;
 			if (StoreState.Snapshot.ProviderId.empty()
 				|| StoreState.Snapshot.ProviderVersion == 0
 				|| StoreState.Snapshot.Fingerprint.empty())
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"An asset reference store returned an invalid identity or fingerprint.");
 			std::ranges::sort(StoreState.Snapshot.Occurrences,
 				[](const FAssetReferenceStoreOccurrence& Left,
@@ -433,7 +434,7 @@ namespace Durin
 			{
 				if (Occurrence.ProviderId != StoreState.Snapshot.ProviderId
 					|| Occurrence.StableId.empty())
-					return Error(EAssetError::StaleData,
+					return Error(EAssetWriteError::StaleData,
 						"An asset reference store returned an invalid occurrence.");
 				if (const FPackagePath* Destination = FindFixupDestination(
 						Occurrence.TargetPath, State->Mappings))
@@ -448,7 +449,7 @@ namespace Durin
 			if (!Rewrites.empty())
 			{
 				if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PrepareStore))
-					return Error(EAssetError::IoError,
+					return Error(EAssetWriteError::IoError,
 						"Injected Fix Up store-preparation failure.");
 				Result = Store->PrepareRewrite(
 					Rewrites, StoreState.Snapshot.Fingerprint,
@@ -461,7 +462,7 @@ namespace Durin
 					|| !StoreState.Contribution.Apply
 					|| !StoreState.Contribution.Restore
 					|| !StoreState.Contribution.Verify)
-					return Error(EAssetError::StaleData,
+					return Error(EAssetWriteError::StaleData,
 						"An asset reference store returned an incomplete rewrite contribution.");
 				for (FAssetReferenceStorePackageRewrite& PackageRewrite :
 					StoreState.Contribution.PackageRewrites)
@@ -469,20 +470,20 @@ namespace Durin
 					const FAssetData* Data = FindPrepared(PackageRewrite.PackagePath);
 					if (!PackageRewrite.PackagePath.IsValid() || !Data
 						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
-						return Error(EAssetError::StaleData,
+						return Error(EAssetWriteError::StaleData,
 							"An asset reference store returned an invalid package participant.");
 					if (Loader.IsPackageLoading(PackageRewrite.PackagePath))
-						return Error(EAssetError::InUse,
+						return Error(EAssetWriteError::InUse,
 							"An asset reference-store package is currently loading.");
 					DPackage* Loaded = FindResidentPackage(PackageRewrite.PackagePath);
 					if (Loaded && Loaded->IsDirty())
-						return Error(EAssetError::InUse,
+						return Error(EAssetWriteError::InUse,
 							"A dirty external-reference package blocks redirector Fix Up.");
 					FByteBuffer CurrentBytes;
 					Result = LoadRelocationBytes(Data->PhysicalPath, CurrentBytes);
 					if (!Result) return Result;
 					if (CurrentBytes != PackageRewrite.PreBytes)
-						return Error(EAssetError::StaleData,
+						return Error(EAssetWriteError::StaleData,
 							"An asset reference-store package changed during rewrite preparation.");
 					FByteBuffer BulkBytes;
 					Result = LoadBulkClosure(Data->PhysicalPath, BulkBytes);
@@ -511,7 +512,7 @@ namespace Durin
 		for (size_t Index = 1; Index < State->Stores.size(); ++Index)
 			if (State->Stores[Index - 1].Snapshot.ProviderId
 				== State->Stores[Index].Snapshot.ProviderId)
-				return Error(EAssetError::AlreadyExists,
+				return Error(EAssetWriteError::AlreadyExists,
 					"Asset reference store provider ids must be unique.");
 		for (const FFixupStoreState& Store : State->Stores)
 		{
@@ -534,7 +535,7 @@ namespace Durin
 			{
 				const FAssetData& Data = Prepared.Assets.at(Alias);
 				FByteBuffer PreBytes;
-				FAssetResult Result = LoadRelocationBytes(Data.PhysicalPath, PreBytes);
+				FAssetWriteResult Result = LoadRelocationBytes(Data.PhysicalPath, PreBytes);
 				if (!Result) return Result;
 				size_t Ignored = 0;
 				Result = AddJournalEntry(
@@ -545,7 +546,7 @@ namespace Durin
 			}
 		}
 
-		FAssetResult JournalResult = TransitionMutationJournalState(
+		FAssetWriteResult JournalResult = TransitionMutationJournalState(
 			State->Journal, EAssetMutationState::Prepared);
 		if (!JournalResult) return JournalResult;
 		OutState = std::move(State);
@@ -556,12 +557,12 @@ namespace Durin
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetResult
+		FAssetMutationJob& OutJob) -> FAssetWriteResult
 	{
 		OutSummary = {};
 		OutJob = {};
 		std::shared_ptr<FAssetRedirectorFixupState> Fixup;
-		FAssetResult Result = PrepareRedirectorFixupState(
+		FAssetWriteResult Result = PrepareRedirectorFixupState(
 			Redirectors, Mode, Fixup);
 		if (!Result) return Result;
 
@@ -609,43 +610,43 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::ValidateRedirectorFixupCommit(
-		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
+		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetWriteResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Fixup)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The redirector Fix Up job state is empty.");
 		const auto& State = *Fixup;
 		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
 			return {
-				.Error = EAssetError::IoError,
+				.Error = EAssetWriteError::IoError,
 				.Message = "AssetMutationRecoveryRequired: the Fix Up journal requires recovery.",
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.Disposition = EAssetWriteDisposition::RecoveryRequired,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.FailedParticipant = "MutationJournal",
-				.RecoveryLocation = State.Journal.LocatorPath}};
+				.RecoveryLocation = State.Journal.LocatorPath};
 		if (State.Journal.State != EAssetMutationState::Prepared)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The redirector Fix Up plan is no longer prepared.");
 		if (GetAssetCatalogRevision() != State.ExpectedRegistryRevision)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The asset registry changed after redirector Fix Up analysis.");
 		const auto& Stores = GetAssetReferenceStoreRegistry();
 		if (Stores.Revision != State.ExpectedStoreRevision
 			|| Stores.Stores.size() != State.Stores.size())
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"Asset reference store registration changed after Fix Up analysis.");
 		for (const FFixupStoreState& StoreState : State.Stores)
 		{
 			const auto Current = Stores.Stores.find(StoreState.Handle);
 			if (Current == Stores.Stores.end()
 				|| Current->second != StoreState.Store)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"An asset reference store became unavailable.");
 
 			FAssetReferenceStoreSnapshot Snapshot;
-			FAssetResult Result = StoreState.Store->CaptureSnapshot(Snapshot);
+			FAssetWriteResult Result = StoreState.Store->CaptureSnapshot(Snapshot);
 			if (!Result) return Result;
 			std::ranges::sort(Snapshot.Occurrences,
 				[](const FAssetReferenceStoreOccurrence& Left,
@@ -658,7 +659,7 @@ namespace Durin
 				|| Snapshot.ProviderVersion != StoreState.Snapshot.ProviderVersion
 				|| Snapshot.Fingerprint != StoreState.Snapshot.Fingerprint
 				|| Snapshot.Occurrences != StoreState.Snapshot.Occurrences)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"An asset reference store changed after Fix Up analysis.");
 			if (StoreState.Contribution.Revalidate)
 			{
@@ -673,7 +674,7 @@ namespace Durin
 				if (FindResidentPackage(PackageState.SourcePath)
 						!= PackageState.LoadedPackage
 					|| PackageState.LoadedPackage->IsDirty())
-					return Error(EAssetError::StaleData,
+					return Error(EAssetWriteError::StaleData,
 						"A loaded Fix Up package changed after analysis.");
 			}
 		}
@@ -683,14 +684,14 @@ namespace Durin
 			if (!Entry.bPreExists
 				|| !std::filesystem::exists(Entry.PhysicalPath, ExistsError)
 				|| ExistsError)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A Fix Up file participant changed occupancy.");
 			FAssetPackageFingerprint Fingerprint;
-			FAssetResult Result = FingerprintRelocationFile(
+			FAssetWriteResult Result = FingerprintRelocationFile(
 				Entry.PhysicalPath, Fingerprint);
 			if (!Result) return Result;
 			if (Fingerprint != Entry.ExpectedPreFingerprint)
-				return Error(EAssetError::StaleData,
+				return Error(EAssetWriteError::StaleData,
 					"A Fix Up file participant changed after analysis.");
 			if (Entry.bPostExists)
 			{
@@ -698,7 +699,7 @@ namespace Durin
 				Result = LoadRelocationBytes(Entry.StagedPostPath, StagedBytes);
 				if (!Result || FXxHash128::HashBuffer(StagedBytes)
 						!= Entry.StagedPostHash)
-					return Error(EAssetError::StaleData,
+					return Error(EAssetWriteError::StaleData,
 						"A staged Fix Up output changed after analysis.");
 			}
 		}
@@ -706,21 +707,21 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::CommitRedirectorFixup(
-		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
+		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Fixup)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The redirector Fix Up job state is empty.");
 		auto& State = *Fixup;
 		const bool bResuming =
 			State.Journal.State == EAssetMutationState::Publishing;
-		FAssetResult Result = bResuming
-			? FAssetResult{} : ValidateRedirectorFixupCommit(Fixup);
+		FAssetWriteResult Result = bResuming
+			? FAssetWriteResult{} : ValidateRedirectorFixupCommit(Fixup);
 		if (!Result) return Result;
 		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::StageOriginal))
-			return Error(EAssetError::IoError,
+			return Error(EAssetWriteError::IoError,
 				"Injected Fix Up original-staging failure.");
 
 		if (!bResuming)
@@ -729,20 +730,20 @@ namespace Durin
 				State.Journal, EAssetMutationState::Publishing);
 			if (!Result) return Result;
 		}
-		auto ForwardPending = [&](std::string Message) -> FAssetResult {
+		auto ForwardPending = [&](std::string Message) -> FAssetWriteResult {
 			std::vector<FPackagePath> Paths = State.Redirectors;
 			for (const FFixupPackageState& Package : State.Packages)
 				Paths.push_back(Package.SourcePath);
 			FenceAssetRegistryProjection(Paths);
 			return {
-				.Error = EAssetError::IoError,
+				.Error = EAssetWriteError::IoError,
 				.Message = std::format(
 					"AssetMutationForwardResumable: operation {} will resume remaining Fix Up participants. {}",
 					State.Journal.OperationId, Message),
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
+				.Disposition = EAssetWriteDisposition::ForwardPending,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
-				.RecoveryLocation = State.Journal.LocatorPath}};
+				.RecoveryLocation = State.Journal.LocatorPath};
 		};
 
 		uint64 PublicationOrder = 0;

@@ -15,7 +15,7 @@ namespace Durin
 
 	namespace
 	{
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -175,7 +175,7 @@ namespace Durin
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
-		uint32 ContainerDepth) -> FAssetResult;
+		uint32 ContainerDepth) -> FAssetReadResult;
 
 	auto ExtractReferencePropertyValues(
 		FProperty* Property,
@@ -183,7 +183,7 @@ namespace Durin
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
-		uint32 ContainerDepth) -> FAssetResult
+		uint32 ContainerDepth) -> FAssetReadResult
 	{
 		Durin::PackagePrivate::FByteReader Reader{Payload};
 		for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
@@ -193,21 +193,21 @@ namespace Durin
 			if (bFixedArray)
 			{
 				if (ContainerDepth >= MaximumReferenceContainerDepth)
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						"AssetReferenceIndexDepthExceeded: fixed-array route exceeds four levels.");
 				Route.push_back({
 					.Kind = EAssetReferenceRouteKind::FixedArray,
 					.Index = ArrayIndex});
 				ElementPath.append(std::format("[fixed:{}]", ArrayIndex));
 			}
-			FAssetResult Result = ExtractReferenceValue(
+			auto Result = ExtractReferenceValue(
 				Property, Reader, Context, Route, ElementPath,
 				ContainerDepth + (bFixedArray ? 1 : 0));
 			if (bFixedArray) Route.pop_back();
 			if (!Result) return Result;
 		}
 		if (Reader.Offset != Payload.size())
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				std::format("SoftReferencePayloadTrailingBytes: {} has trailing bytes.", PropertyPath));
 		return {};
 	}
@@ -218,10 +218,10 @@ namespace Durin
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
-		uint32 ContainerDepth) -> FAssetResult
+		uint32 ContainerDepth) -> FAssetReadResult
 	{
 		if (!Property)
-			return Error(EAssetError::TypeMismatch,
+			return Error(EAssetReadError::TypeMismatch,
 				"SoftReferenceSchemaMismatch: reflected property metadata is missing.");
 		switch (Property->GetKind())
 		{
@@ -229,39 +229,39 @@ namespace Durin
 		{
 			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
 			if (!ObjectProperty->IsObjectPtrWrapper())
-				return Error(EAssetError::UnsupportedProperty,
+				return Error(EAssetReadError::UnsupportedProperty,
 					"AssetReferenceSchemaMismatch: raw object pointers are unsupported.");
 			uint8 ReferenceKind = 0;
 			if (!Reader.Read(ReferenceKind))
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("AssetReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
 			if (ReferenceKind == 0) return {};
 			if (ReferenceKind == 1)
 			{
 				uint64 ObjectId = 0;
 				if (!Reader.Read(ObjectId) || ObjectId == 0)
-					return Error(EAssetError::InvalidObjectGraph,
+					return Error(EAssetReadError::InvalidObjectGraph,
 						std::format("AssetReferenceInternalObject: {} has an invalid object id.", PropertyPath));
 				return {};
 			}
 			if (ReferenceKind != 2)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("AssetReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
 			std::string PathString;
 			FObjectPath TargetPath;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !FObjectPath::TryCreate(PathString, TargetPath))
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetReadError::InvalidPath,
 					std::format("AssetReferenceInvalidPath: {} has an invalid external path.", PropertyPath));
 			DClass* ExpectedClass = ObjectProperty->GetReferencedClass();
 			if (!ExpectedClass)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					std::format("AssetReferenceSchemaMismatch: {} has no referenced class.", PropertyPath));
 			if (PropertyPath.size() > MaximumReferenceDisplayRouteBytes)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexDisplayRouteExceeded: display route exceeds 4 KiB.");
 			if (Context.References.size() >= MaximumReferencesPerPackage)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
 			Context.References.push_back({
 				.SourcePackage = Context.SourcePackage,
@@ -281,35 +281,35 @@ namespace Durin
 		{
 			uint8 ReferenceKind = 0;
 			if (!Reader.Read(ReferenceKind))
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
 			if (ReferenceKind == 0) return {};
 			if (ReferenceKind != 1)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
 			std::string PathString;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
 			FObjectPath SoftPath;
 			std::string PathError;
 			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, SoftPath); !PathValidation)
 			{
 				PathError = Durin::FormatObjectError(PathValidation.Error);
-				return Error(EAssetError::InvalidPath, std::format(
+				return Error(EAssetReadError::InvalidPath, std::format(
 					"SoftReferenceInvalidPath: {} contains '{}': {}",
 					PropertyPath, PathString, PathError));
 			}
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			DClass* ExpectedClass = SoftProperty->GetExpectedClass();
 			if (!ExpectedClass)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					std::format("SoftReferenceSchemaMismatch: {} has no expected class.", PropertyPath));
 			if (PropertyPath.size() > MaximumReferenceDisplayRouteBytes)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexDisplayRouteExceeded: display route exceeds 4 KiB.");
 			if (Context.References.size() >= MaximumReferencesPerPackage)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
 			Context.References.push_back({
 				.SourcePackage = Context.SourcePackage,
@@ -328,19 +328,19 @@ namespace Durin
 		case DurinCodeGen::EPropertyGenFlags::Array:
 		{
 			if (ContainerDepth >= MaximumReferenceContainerDepth)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexDepthExceeded: Array route exceeds four levels.");
 			auto* Array = static_cast<FArrayProperty*>(Property);
 			uint64 Count = 0;
 			if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferenceArrayPayload: {} has an invalid count.", PropertyPath));
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				Route.push_back({
 					.Kind = EAssetReferenceRouteKind::ArrayElement,
 					.Index = Index});
-				FAssetResult Result = ExtractReferenceValue(
+				auto Result = ExtractReferenceValue(
 					Array->GetInner(), Reader, Context, Route,
 					std::format("{}[{}]", PropertyPath, Index), ContainerDepth + 1);
 				Route.pop_back();
@@ -351,22 +351,22 @@ namespace Durin
 		case DurinCodeGen::EPropertyGenFlags::Map:
 		{
 			if (ContainerDepth >= MaximumReferenceContainerDepth)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceIndexDepthExceeded: Map route exceeds four levels.");
 			auto* Map = static_cast<FMapProperty*>(Property);
 			uint64 Count = 0;
 			if (!Map->GetKeyProp() || !Map->GetValueProp() || !Reader.Read(Count) || Count > 10000000)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					std::format("SoftReferenceMapPayload: {} has an invalid count.", PropertyPath));
 			if (ContainsAssetReferenceProperty(Map->GetKeyProp()))
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					"AssetReferenceSchemaMismatch: reference Map keys are unsupported.");
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				FReflectedValueStorage KeyStorage;
 				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
-					return Error(EAssetError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
-				FAssetResult KeyResult = DecodeReferenceByteToolValue(
+					return Error(EAssetReadError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
+				auto KeyResult = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),
 					0,
@@ -381,19 +381,19 @@ namespace Durin
 				FByteBuffer KeyToken;
 				if (const auto Result = BuildCanonicalMapKeyToken(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken); !Result)
-					return Error(EAssetError::TypeMismatch, FormatReflectedMapKeyError(Result.Error));
+					return Error(EAssetReadError::TypeMismatch, FormatReflectedMapKeyError(Result.Error));
 				if (KeyToken.size() > MaximumReferenceRouteTokenBytes)
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						"AssetReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
 				std::string ValuePath = PropertyPath;
 				AppendMapTokenDisplay(ValuePath, KeyToken);
 				if (ValuePath.size() > MaximumReferenceDisplayRouteBytes)
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						"AssetReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
 				Route.push_back({
 					.Kind = EAssetReferenceRouteKind::MapValue,
 					.MapKeyToken = std::move(KeyToken)});
-				FAssetResult Result = ExtractReferenceValue(
+				auto Result = ExtractReferenceValue(
 					Map->GetValueProp(), Reader, Context, Route, ValuePath, ContainerDepth + 1);
 				Route.pop_back();
 				if (!Result) return Result;
@@ -409,7 +409,7 @@ namespace Durin
 			if (!Struct || !Reader.ReadString(StructName, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| StructName != Struct->GetQualifiedName().ToString()
 				|| !Reader.Read(FieldCount) || FieldCount > 100000)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					std::format("SoftReferenceStructPayload: {} has an incompatible header.", PropertyPath));
 			for (uint64 Index = 0; Index < FieldCount; ++Index)
 			{
@@ -425,7 +425,7 @@ namespace Durin
 					|| !Reader.ReadString(Signature, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
 					|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						std::format("SoftReferenceStructPayload: {} has a malformed field.", PropertyPath));
 				if (DeclaringStruct != StructName) continue;
 				FProperty* Field = Struct->FindPropertyBySerializedName(FName(FieldName), false);
@@ -433,14 +433,14 @@ namespace Durin
 					|| !ContainsAssetReferenceProperty(Field)) continue;
 				if (static_cast<uint8>(Field->GetKind()) != Kind
 					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
-					return Error(EAssetError::TypeMismatch, std::format(
+					return Error(EAssetReadError::TypeMismatch, std::format(
 						"SoftReferenceSchemaMismatch: {}.{} has an incompatible signature.",
 						PropertyPath, FieldName));
 				Route.push_back({
 					.Kind = EAssetReferenceRouteKind::StructField,
 					.DeclaringType = DeclaringStruct,
 					.FieldName = FieldName});
-				FAssetResult Result = ExtractReferencePropertyValues(
+				auto Result = ExtractReferencePropertyValues(
 					Field, FieldPayload, Context, Route,
 					std::format("{}.{}", PropertyPath, FieldName), ContainerDepth);
 				Route.pop_back();
@@ -449,7 +449,7 @@ namespace Durin
 			return {};
 		}
 		default:
-			return Error(EAssetError::TypeMismatch, std::format(
+			return Error(EAssetReadError::TypeMismatch, std::format(
 				"SoftReferenceSchemaMismatch: {} does not contain a supported soft value.", PropertyPath));
 		}
 	}
@@ -465,7 +465,7 @@ namespace Durin
 		FLoadedSoftReferenceCollector& Collector;
 		FProperty* Inner = nullptr;
 		uint32 ContainerDepth = 0;
-		FAssetResult Result;
+		FAssetReadResult Result;
 	};
 
 	auto CollectLoadedSoftValue(
@@ -473,7 +473,7 @@ namespace Durin
 		void* Container,
 		uint32 ArrayIndex,
 		FLoadedSoftReferenceCollector& Collector,
-		uint32 ContainerDepth) -> FAssetResult;
+		uint32 ContainerDepth) -> FAssetReadResult;
 
 	auto CollectLoadedSoftArrayElement(
 		void* RawContext,
@@ -504,13 +504,13 @@ namespace Durin
 		void* Container,
 		uint32 ArrayIndex,
 		FLoadedSoftReferenceCollector& Collector,
-		uint32 ContainerDepth) -> FAssetResult
+		uint32 ContainerDepth) -> FAssetReadResult
 	{
 		if (!Property || !Container)
-			return Error(EAssetError::TypeMismatch,
+			return Error(EAssetReadError::TypeMismatch,
 				"SoftReferenceMoveSchemaMismatch: live property metadata is unavailable.");
 		if (ContainerDepth > MaximumReferenceContainerDepth)
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				"SoftReferenceMoveDepthExceeded: live value exceeds four container levels.");
 		switch (Property->GetKind())
 		{
@@ -519,7 +519,7 @@ namespace Durin
 			auto* Value = static_cast<FSoftObjectProperty*>(Property)
 				->GetSoftObjectPtr(Container, ArrayIndex);
 			if (!Value)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					"SoftReferenceMoveSchemaMismatch: live soft value accessor is unavailable.");
 			if (!Value->IsNull()
 				&& Value->GetPath().GetPackagePath() == Collector.TargetPath)
@@ -531,10 +531,10 @@ namespace Durin
 			auto* StructProperty = static_cast<FStructProperty*>(Property);
 			DStruct* Struct = StructProperty->GetStruct();
 			if (!Struct || !Struct->HasCompleteAuthoredFields())
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					"SoftReferenceMoveSchemaMismatch: live struct metadata is incomplete.");
 			void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
-			FAssetResult Result;
+			FAssetReadResult Result;
 			Struct->ForEachProperty([&](FProperty* Field) {
 				if (!Result || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
 					|| !ContainsSoftObjectProperty(Field)) return;
@@ -553,7 +553,7 @@ namespace Durin
 			auto* Array = static_cast<FArrayProperty*>(Property);
 			if (!Array->GetInner()
 				|| !Array->HasCapability(EArrayOpsFlags::MutableTraversal))
-				return Error(EAssetError::UnsupportedProperty,
+				return Error(EAssetReadError::UnsupportedProperty,
 					"SoftReferenceMoveArrayUnavailable: mutable traversal is required.");
 			FLoadedSoftContainerVisitContext Context{
 				Collector, Array->GetInner(), ContainerDepth};
@@ -561,7 +561,7 @@ namespace Durin
 				Container, &CollectLoadedSoftArrayElement, &Context, ArrayIndex);
 			if (!Context.Result) return Context.Result;
 			if (VisitResult != EContainerOpResult::Success)
-				return Error(EAssetError::UnsupportedProperty,
+				return Error(EAssetReadError::UnsupportedProperty,
 					"SoftReferenceMoveArrayFailed: mutable traversal failed.");
 			return {};
 		}
@@ -570,7 +570,7 @@ namespace Durin
 			auto* Map = static_cast<FMapProperty*>(Property);
 			if (!Map->GetValueProp()
 				|| !Map->HasCapability(EMapOpsFlags::MutableMappedTraversal))
-				return Error(EAssetError::UnsupportedProperty,
+				return Error(EAssetReadError::UnsupportedProperty,
 					"SoftReferenceMoveMapUnavailable: mutable value traversal is required.");
 			FLoadedSoftContainerVisitContext Context{
 				Collector, Map->GetValueProp(), ContainerDepth};
@@ -578,12 +578,12 @@ namespace Durin
 				Container, &CollectLoadedSoftMapValue, &Context, ArrayIndex);
 			if (!Context.Result) return Context.Result;
 			if (VisitResult != EContainerOpResult::Success)
-				return Error(EAssetError::UnsupportedProperty,
+				return Error(EAssetReadError::UnsupportedProperty,
 					"SoftReferenceMoveMapFailed: mutable value traversal failed.");
 			return {};
 		}
 		default:
-			return Error(EAssetError::TypeMismatch,
+			return Error(EAssetReadError::TypeMismatch,
 				"SoftReferenceMoveSchemaMismatch: unsupported live soft container.");
 		}
 	}
@@ -591,16 +591,16 @@ namespace Durin
 	auto CollectLoadedPackageSoftReferences(
 		DPackage* Package,
 		const FPackagePath& TargetPath,
-		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
+		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult
 	{
 		if (!Package || Package->GetTopLevelAssets().empty())
-			return Error(EAssetError::InvalidObjectGraph,
+			return Error(EAssetReadError::InvalidObjectGraph,
 				"SoftReferenceMoveInvalidPackage: loaded package has no top-level assets.");
 		std::vector<DObject*> Objects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
 			GatherObjects(Asset, Objects);
 		FLoadedSoftReferenceCollector Collector{TargetPath, OutValues};
-		FAssetResult Result;
+		FAssetReadResult Result;
 		for (DObject* Object : Objects)
 		{
 			Object->GetClass()->ForEachProperty([&](FProperty* Property) {
@@ -636,7 +636,7 @@ namespace Durin
 		Durin::PackagePrivate::FByteWriter& Writer,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64& RewriteCount,
-		uint32 ContainerDepth) -> FAssetResult;
+		uint32 ContainerDepth) -> FAssetReadResult;
 
 	auto RewriteSerializedReferenceProperty(
 		FProperty* Property,
@@ -644,19 +644,19 @@ namespace Durin
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		FByteBuffer& OutPayload,
 		uint64& RewriteCount,
-		uint32 ContainerDepth = 0) -> FAssetResult
+		uint32 ContainerDepth = 0) -> FAssetReadResult
 	{
 		Durin::PackagePrivate::FByteReader Reader{Payload};
 		Durin::PackagePrivate::FByteWriter Writer;
 		for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 		{
-			FAssetResult Result = RewriteSerializedReferenceValue(
+			auto Result = RewriteSerializedReferenceValue(
 				Property, Reader, Writer, Mappings, RewriteCount,
 				ContainerDepth + (Property->GetArrayDim() > 1 ? 1 : 0));
 			if (!Result) return Result;
 		}
 		if (Reader.Offset != Payload.size())
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				"AssetReferenceFixupTrailingBytes: field payload has trailing bytes.");
 		OutPayload = std::move(Writer.Bytes);
 		return {};
@@ -668,10 +668,10 @@ namespace Durin
 		Durin::PackagePrivate::FByteWriter& Writer,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64& RewriteCount,
-		uint32 ContainerDepth) -> FAssetResult
+		uint32 ContainerDepth) -> FAssetReadResult
 	{
 		if (!Property || ContainerDepth > MaximumReferenceContainerDepth)
-			return Error(EAssetError::TypeMismatch,
+			return Error(EAssetReadError::TypeMismatch,
 				"AssetReferenceFixupSchemaMismatch: serialized container metadata is invalid.");
 		switch (Property->GetKind())
 		{
@@ -679,7 +679,7 @@ namespace Durin
 		{
 			uint8 Kind = 0;
 			if (!Reader.Read(Kind))
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupTruncated: missing object reference tag.");
 			Writer.Write(Kind);
 			if (Kind == 0) return {};
@@ -687,19 +687,19 @@ namespace Durin
 			{
 				uint64 ObjectId = 0;
 				if (!Reader.Read(ObjectId) || ObjectId == 0)
-					return Error(EAssetError::InvalidObjectGraph,
+					return Error(EAssetReadError::InvalidObjectGraph,
 						"AssetReferenceFixupInternalObject: invalid object id.");
 				Writer.Write(ObjectId);
 				return {};
 			}
 			if (Kind != 2)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupTag: unknown object reference tag.");
 			std::string PathString;
 			FPackagePath Path;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !FPackagePath::TryCreate(PathString, Path))
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetReadError::InvalidPath,
 					"AssetReferenceFixupPath: invalid external object path.");
 			if (const FPackagePath* Destination = FindFixupDestination(Path, Mappings))
 			{
@@ -713,24 +713,24 @@ namespace Durin
 		{
 			uint8 Kind = 0;
 			if (!Reader.Read(Kind))
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupTruncated: missing soft reference tag.");
 			Writer.Write(Kind);
 			if (Kind == 0) return {};
 			if (Kind != 1)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupTag: unknown soft reference tag.");
 			std::string PathString;
 			FObjectPath Path;
 			std::string PathError;
 			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| PathString.empty())
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
 			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
 				PathError = Durin::FormatObjectError(PathValidation.Error);
-				return Error(EAssetError::InvalidPath, std::move(PathError));
+				return Error(EAssetReadError::InvalidPath, std::move(PathError));
 			}
 			if (const FPackagePath* Destination = FindFixupDestination(
 				Path.GetPackagePath(), Mappings))
@@ -746,12 +746,12 @@ namespace Durin
 			auto* Array = static_cast<FArrayProperty*>(Property);
 			uint64 Count = 0;
 			if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupArrayPayload: invalid count.");
 			Writer.Write(Count);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
-				FAssetResult Result = RewriteSerializedReferenceValue(
+				auto Result = RewriteSerializedReferenceValue(
 					Array->GetInner(), Reader, Writer, Mappings,
 					RewriteCount, ContainerDepth + 1);
 				if (!Result) return Result;
@@ -765,7 +765,7 @@ namespace Durin
 			if (!Map->GetKeyProp() || !Map->GetValueProp()
 				|| !Reader.Read(Count) || Count > 10000000
 				|| ContainsAssetReferenceProperty(Map->GetKeyProp()))
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetReadError::CorruptFile,
 					"AssetReferenceFixupMapPayload: invalid map schema or count.");
 			Writer.Write(Count);
 			for (uint64 Index = 0; Index < Count; ++Index)
@@ -773,8 +773,8 @@ namespace Durin
 				const size_t KeyOffset = Reader.Offset;
 				FReflectedValueStorage KeyStorage;
 				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
-					return Error(EAssetError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
-				FAssetResult Result = DecodeReferenceByteToolValue(
+					return Error(EAssetReadError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
+				auto Result = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),
 					0,
@@ -799,7 +799,7 @@ namespace Durin
 			if (!Struct || !Reader.ReadString(StructName, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| StructName != Struct->GetQualifiedName().ToString()
 				|| !Reader.Read(FieldCount) || FieldCount > 100000)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					"AssetReferenceFixupStructPayload: incompatible header.");
 			Writer.WriteString(StructName);
 			Writer.Write(FieldCount);
@@ -817,7 +817,7 @@ namespace Durin
 					|| !Reader.ReadString(Signature, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
 					|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
-					return Error(EAssetError::CorruptFile,
+					return Error(EAssetReadError::CorruptFile,
 						"AssetReferenceFixupStructPayload: malformed field.");
 				Writer.WriteString(DeclaringStruct);
 				Writer.WriteString(FieldName);
@@ -834,10 +834,10 @@ namespace Durin
 				}
 				if (static_cast<uint8>(Field->GetKind()) != Kind
 					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
-					return Error(EAssetError::TypeMismatch,
+					return Error(EAssetReadError::TypeMismatch,
 						"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
 				FByteBuffer RewrittenPayload;
-				FAssetResult Result = RewriteSerializedReferenceProperty(
+				auto Result = RewriteSerializedReferenceProperty(
 					Field, FieldPayload, Mappings, RewrittenPayload,
 					RewriteCount, ContainerDepth);
 				if (!Result) return Result;
@@ -847,7 +847,7 @@ namespace Durin
 			return {};
 		}
 		default:
-			return Error(EAssetError::TypeMismatch,
+			return Error(EAssetReadError::TypeMismatch,
 				"AssetReferenceFixupSchemaMismatch: unsupported serialized reference container.");
 		}
 	}
@@ -858,22 +858,22 @@ namespace Durin
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteBuffer& OutBytes) -> FAssetResult
+		FByteBuffer& OutBytes) -> FAssetWriteResult
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		if (!Codec->bCanMutate)
-			return Error(EAssetError::UnsupportedVersion,
+			return Error(EAssetReadError::UnsupportedVersion,
 				"Reference rewrite requires package mutation capability.");
 		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		FAssetResult Result = Codec->RewriteReferences(
+		auto Result = Codec->RewriteReferences(
 			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()},
 			Mappings, ExpectedRewriteCount, Closure);
 		if (!Result) return Result;
 		if (!std::ranges::equal(Closure.BulkBytes, BulkBytes))
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				"Reference rewrite unexpectedly changed the package bulk closure.");
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
@@ -883,13 +883,13 @@ namespace Durin
 		FByteView Bytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		FPackageFile& OutFile) -> FAssetResult
+		FPackageFile& OutFile) -> FAssetReadResult
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		if (auto Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		FAssetPackageHeader Header;
-		if (FAssetResult Result = Codec->ReadHeader(
+		if (auto Result = Codec->ReadHeader(
 			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()}, Header); !Result)
 			return Result;
@@ -915,7 +915,7 @@ namespace Durin
 			const FPackagePath& PackagePath,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
-			FByteBuffer& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetWriteResult
 		{
 			return RewritePackageReferences(
 				Bytes, BulkBytes, PackagePath, Mappings,
@@ -926,10 +926,10 @@ namespace Durin
 			FByteView Bytes,
 			FByteView BulkBytes,
 			const FPackagePath& PackagePath,
-			FMutationPackageMetadata& OutMetadata) -> FAssetResult
+			FMutationPackageMetadata& OutMetadata) -> FAssetReadResult
 		{
 			FPackageFile File;
-			FAssetResult Result = ReadPackageMetadata(
+			auto Result = ReadPackageMetadata(
 				Bytes, BulkBytes, PackagePath, File);
 			if (!Result) return Result;
 			OutMetadata = {
@@ -946,7 +946,7 @@ namespace Durin
 		auto CollectLoadedPackageSoftReferencesForMutation(
 			DPackage* Package,
 			const FPackagePath& TargetPath,
-			std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
+			std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult
 		{
 			return CollectLoadedPackageSoftReferences(
 				Package, TargetPath, OutValues);
@@ -966,18 +966,18 @@ namespace Durin
 		auto ExtractAssetReferencesInternal(
 			const FPackagePath& SourcePackage,
 			const FAssetPackageInspection& Inspection,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
+			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetReadResult
 		{
 			OutReferences.clear();
 			if (!SourcePackage.IsValid())
-				return Error(EAssetError::InvalidPath,
+				return Error(EAssetReadError::InvalidPath,
 					"AssetReferenceIndexInvalidSource: source package path is invalid.");
 			if (Inspection.Objects.empty())
-				return Error(EAssetError::InvalidObjectGraph,
+				return Error(EAssetReadError::InvalidObjectGraph,
 					"AssetReferenceIndexInvalidPackage: package has no main object.");
 			if (Inspection.Header.TopLevelAssets.size() == 1
 				&& Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
-				return Error(EAssetError::TypeMismatch,
+				return Error(EAssetReadError::TypeMismatch,
 					"AssetReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
 			for (const auto& Asset : Inspection.Header.TopLevelAssets)
 			{
@@ -987,7 +987,7 @@ namespace Durin
 							&& Candidate.ObjectName == Asset.AssetPath.GetAssetName();
 					});
 				if (Object == Inspection.Objects.end() || Object->ClassName != Asset.AssetClassName)
-					return Error(EAssetError::TypeMismatch,
+					return Error(EAssetReadError::TypeMismatch,
 						"AssetReferenceIndexRuntimeTypeMismatch: exact asset and export classes differ.");
 			}
 
@@ -996,7 +996,7 @@ namespace Durin
 			{
 				DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
 				if (!ObjectClass)
-					return Error(EAssetError::UnknownClass, std::format(
+					return Error(EAssetReadError::UnknownClass, std::format(
 						"AssetReferenceIndexUnknownClass: {} is unavailable.", Object.ClassName));
 				for (const FAssetPackageField& Field : Object.Fields)
 				{
@@ -1008,7 +1008,7 @@ namespace Durin
 					{
 						if (Field.TypeSignature.find("SoftObject:") != std::string::npos
 							|| Field.TypeSignature.find("Object:") != std::string::npos)
-							return Error(EAssetError::TypeMismatch, std::format(
+							return Error(EAssetReadError::TypeMismatch, std::format(
 								"AssetReferenceSchemaMismatch: {}::{} has no current property metadata.",
 								Field.DeclaringClass, Field.Name));
 						continue;
@@ -1021,7 +1021,7 @@ namespace Durin
 						|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
 					{
 						if (bCurrentContainsReference || bStoredContainsReference)
-							return Error(EAssetError::TypeMismatch, std::format(
+							return Error(EAssetReadError::TypeMismatch, std::format(
 								"AssetReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
 								Field.DeclaringClass, Field.Name));
 						continue;
@@ -1038,7 +1038,7 @@ namespace Durin
 							: EAssetReferenceKind::HardObject,
 						.References = References};
 					std::vector<FAssetReferenceRouteSegment> Route;
-					FAssetResult Result = ExtractReferencePropertyValues(
+					auto Result = ExtractReferencePropertyValues(
 						Property, Field.Payload, Context, Route, Field.Name, 0);
 					if (!Result) return Result;
 				}
@@ -1052,7 +1052,7 @@ namespace Durin
 	auto ExtractAssetReferences(
 		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
-		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
+		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetReadResult
 	{
 		return ExtractAssetReferencesInternal(
 			SourcePackage, Inspection, OutReferences);

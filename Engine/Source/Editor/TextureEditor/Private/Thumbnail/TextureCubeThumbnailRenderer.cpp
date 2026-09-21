@@ -110,7 +110,7 @@ namespace Durin::Editor::Texture
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const FAssetResult Result = LoadObject(AssetPath, Loaded);
+				const auto Result = LoadObject(AssetPath, Loaded);
 				TextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
 				if (!Result || !TextureCube.IsValid())
 				{

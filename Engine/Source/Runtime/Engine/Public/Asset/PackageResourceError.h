@@ -35,7 +35,7 @@ namespace Durin
 		std::optional<EBulkDataState> BulkState;
 	};
 
-	struct FAssetResult;
+	struct FAssetReadResult;
 	enum class EPreparedPackageResourceError : uint8 { None, InvalidClosure, BudgetExceeded, IoError, Stale, Cancelled };
 	enum class EPreparedPackageResourceReason : uint8
 	{
@@ -60,7 +60,7 @@ namespace Durin
 		std::optional<FFileHelper::FFileIoError> FileCause;
 		std::optional<FPackageBulkDataError> BulkCause;
 		std::optional<FEditorBulkDataStorageError> BulkStorageCause;
-		std::shared_ptr<const FAssetResult> AssetCause;
+		std::shared_ptr<const FAssetReadResult> AssetCause;
 	};
 	ENGINE_API auto FormatPreparedPackageResourceError(const FPreparedPackageResourceError& Error) -> std::string;
 

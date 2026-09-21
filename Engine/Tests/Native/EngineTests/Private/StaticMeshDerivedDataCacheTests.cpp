@@ -436,7 +436,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCollisionMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		ASSERT_FALSE(Durin::FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
-		const Durin::FAssetResult Loaded =
+		const auto Loaded =
 			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -513,7 +513,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		ASSERT_FALSE(Durin::FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
-		const Durin::FAssetResult Loaded =
+		const auto Loaded =
 			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -904,7 +904,7 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
 		DStaticMesh* Loaded = nullptr;
 		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Loaded);
-		EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion) << Result.Message;
+		EXPECT_EQ(Result.Error, EAssetReadError::UnsupportedVersion) << Result.Message;
 		EXPECT_EQ(Loaded, nullptr);
 		EXPECT_EQ(FindResidentPackage(Fixture.AssetPath), nullptr);
 		FByteBuffer Unchanged;

@@ -51,7 +51,7 @@ namespace Durin
 		}
 
 		DMaterial* Material = nullptr;
-		const FAssetResult LoadResult = LoadObject(Path, Material);
+		const auto LoadResult = LoadObject(Path, Material);
 		if (!LoadResult || Material == nullptr
 			|| Material->GetClass() != DMaterial::StaticClass())
 		{

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
@@ -17,11 +17,11 @@ namespace Durin
 
 	struct FAssetMutationResultDetails
 	{
-		FAssetResult Result;
+		FAssetWriteResult Result;
 		EAssetMutationJobState State = EAssetMutationJobState::Empty;
 		uint64 RegistryRevision = 0;
 		bool bForwardResumable = false;
-		bool bRecoveryRequired = false;
+		auto IsRecoveryRequired() const -> bool { return State == EAssetMutationJobState::RecoveryRequired; }
 		std::vector<FPackagePath> RewrittenPaths;
 		std::vector<FPackagePath> RetainedPaths;
 		std::vector<FPackagePath> DeletedPaths;
@@ -35,7 +35,7 @@ namespace Durin
 		ENGINE_API auto GetState() const -> EAssetMutationJobState;
 		ENGINE_API auto GetLastResultDetails() const
 			-> FAssetMutationResultDetails;
-		ENGINE_API auto ResumeForward() -> FAssetResult;
+		ENGINE_API auto ResumeForward() -> FAssetWriteResult;
 
 	private:
 		struct FState;

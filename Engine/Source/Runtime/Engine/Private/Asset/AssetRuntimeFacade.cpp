@@ -8,7 +8,7 @@ namespace Durin
 	auto LoadPackage(
 		const FPackagePath& Path,
 		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadPackage(
 			Path, OutPackage, OutReport);
@@ -18,7 +18,7 @@ namespace Durin
 		const FObjectPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadObject(
 			Path, ExpectedClass, OutObject, OutReport);
@@ -38,13 +38,13 @@ namespace Durin
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
 		ESoftObjectNullPolicy NullPolicy,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().LoadSoftObject(
 			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
 	}
 
-	auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetResult
+	auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Mode);
 	}
@@ -52,7 +52,7 @@ namespace Durin
 	auto PrepareAssetRelocationJob(
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetRelocationSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetResult
+		FAssetMutationJob& OutJob) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.PrepareAssetRelocationJob(Mappings, OutSummary, OutJob);
@@ -62,7 +62,7 @@ namespace Durin
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetResult
+		FAssetMutationJob& OutJob) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.PrepareRedirectorFixupJob(Redirectors, Mode, OutSummary, OutJob);
@@ -74,14 +74,14 @@ namespace Durin
 	}
 
 	auto ReleasePackagesForRemoval(
-		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetResult
+		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.ReleasePackagesForRemoval(Packages, ExpectedRevision);
 	}
 
 	auto PublishPackageRemoval(
-		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetResult
+		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.PublishPackageRemoval(Packages, ExpectedRevision);
@@ -94,23 +94,23 @@ namespace Durin
 
 	auto UnloadPackage(
 		const FPackagePath& Path,
-		EAssetPackageUnloadPolicy Policy) -> FAssetResult
+		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().UnloadPackage(Path, Policy);
 	}
 
 	auto UnloadPackage(
 		DPackage* Package,
-		EAssetPackageUnloadPolicy Policy) -> FAssetResult
+		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
 	{
 		FPackagePath Path;
 		if (!Package || !Package->IsAssetPackage()
 			|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
-			return {EAssetError::InvalidPackageType,
+			return {EAssetReadError::InvalidPackageType,
 				"The package to unload is invalid."};
 		FAssetRuntimeState& State = FAssetRuntimeState::Get();
 		if (State.GetLoadService().FindResidentPackage(Path) != Package)
-			return {EAssetError::NotFound,
+			return {EAssetReadError::NotFound,
 				"The package is not the resident package at its path."};
 		return State.GetLoadService().UnloadPackage(Path, Policy);
 	}
@@ -122,7 +122,7 @@ namespace Durin
 	}
 
 	auto InitializeAssetManager(
-		FAssetRuntimeConfiguration Configuration) -> FAssetResult
+		FAssetRuntimeConfiguration Configuration) -> FAssetWriteResult
 	{
 		return FAssetRuntimeState::Get().Initialize(std::move(Configuration));
 	}

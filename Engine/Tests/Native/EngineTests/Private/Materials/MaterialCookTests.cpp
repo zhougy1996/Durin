@@ -39,7 +39,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	Durin::FAssetResult Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
+	auto Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
@@ -64,8 +64,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << Result.Message;
-	Result = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
-	ASSERT_TRUE(Result) << Result.Message;
+	const auto Initialized = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
+	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
 	const std::array CookMountDefinitions{
 		Durin::FMountPoint{
@@ -96,7 +96,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Rejected = nullptr;
 	const auto MissingVersion = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Rejected);
-	EXPECT_EQ(MissingVersion.Error, Durin::EAssetError::UnsupportedVersion) << MissingVersion.Message;
+	EXPECT_EQ(MissingVersion.Error, Durin::EAssetReadError::UnsupportedVersion) << MissingVersion.Message;
 	EXPECT_EQ(Rejected, nullptr);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OriginalBytes, CookedFile));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -130,7 +130,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	Durin::FAssetResult Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
+	auto Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Source);
@@ -189,8 +189,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << Result.Message;
-	Result = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
-	ASSERT_TRUE(Result) << Result.Message;
+	const auto Initialized = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
+	ASSERT_TRUE(Initialized) << Initialized.Message;
 	{
 	const std::array CookMountDefinitions{
 		Durin::FMountPoint{

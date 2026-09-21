@@ -1,3 +1,4 @@
+#include "Asset/AssetWriteResult.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationJobInternal.h"
@@ -6,7 +7,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -24,15 +25,15 @@ namespace Durin
 		return State ? State->LastResult : FAssetMutationResultDetails{};
 	}
 
-	auto FAssetMutationJob::ResumeForward() -> FAssetResult
+	auto FAssetMutationJob::ResumeForward() -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (!State)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The asset mutation job is empty.");
 		if (State->State != EAssetMutationJobState::Prepared)
 		{
-			FAssetResult Result = Error(EAssetError::StaleData,
+			FAssetWriteResult Result = Error(EAssetWriteError::StaleData,
 				"Only a prepared asset mutation job can resume forward.");
 			State->LastResult = {
 				.Result = Result,
@@ -44,9 +45,9 @@ namespace Durin
 		}
 
 		if (!State->ResumeOperation)
-			return Error(EAssetError::StaleData,
+			return Error(EAssetWriteError::StaleData,
 				"The asset mutation job has no forward operation.");
-		FAssetResult Result = State->ResumeOperation();
+		FAssetWriteResult Result = State->ResumeOperation();
 		const bool bRecoveryRequired = State->IsRecoveryRequired
 			&& State->IsRecoveryRequired();
 		if (Result)
@@ -58,7 +59,6 @@ namespace Durin
 			.State = State->State,
 			.RegistryRevision = GetAssetCatalogRevision(),
 			.bForwardResumable = !Result && !bRecoveryRequired,
-			.bRecoveryRequired = bRecoveryRequired,
 		};
 		if (State->PopulateResultDetails)
 			State->PopulateResultDetails(State->LastResult);

@@ -373,7 +373,7 @@ namespace Durin
 		Record.Fingerprint.LastWriteTimeTicks = FileTime::ToStableTicks(InitialTime);
 
 		FPackageSchemaInspection Inspection;
-		const FAssetResult InspectionResult = InspectAssetPackageSchema(*Handle,
+		const auto InspectionResult = InspectAssetPackageSchema(*Handle,
 			Input.PackagePath, Catalog, Inspection, &Result.Stats,
 			Input.bIncludeNestedMigrationEvidence, IsCancelled);
 		if (IsCancelled())
@@ -383,9 +383,9 @@ namespace Durin
 		}
 		if (!InspectionResult)
 		{
-			const bool bUnsupported = InspectionResult.Error == EAssetError::UnsupportedVersion;
-			const bool bIo = InspectionResult.Error == EAssetError::IoError
-				|| InspectionResult.Error == EAssetError::NotFound;
+			const bool bUnsupported = InspectionResult.Error == EAssetReadError::UnsupportedVersion;
+			const bool bIo = InspectionResult.Error == EAssetReadError::IoError
+				|| InspectionResult.Error == EAssetReadError::NotFound;
 			AddTerminalFailure(Record, bUnsupported
 				? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
 				: bIo ? EAssetCompatibilityFindingCode::IoFailure

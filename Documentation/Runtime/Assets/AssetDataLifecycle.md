@@ -66,16 +66,17 @@ implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 ## Serialization and production ownership
 
 Engine's DAST adapters classify and format CoreDObject failures at the boundary.
-`FAssetResult` carries an error code and owned diagnostic text, without nested
-Capture, reader, writer, Registry, resource, or Cook causes. The owning Core
-operations keep their classification and context; failed encoding keeps the
-caller's output closure unchanged. Write progress is separate in
-`FAssetResult::WriteOutcome` (`FAssetWriteOutcome`): disposition, operation id,
-direction, failed participant, recovery location and affected files belong to
-save/import/mutation outcomes and are not propagated by field-load errors.
+`FAssetReadResult` carries a read classification and owned diagnostic text without
+nested Capture, reader, writer, Registry, resource, or Cook causes. The owning
+Core operations keep their classification and context; failed encoding keeps the
+caller's output closure unchanged. Saves, serialization and mutations return
+`FAssetWriteResult`. Its write-only disposition, operation id, direction, failed
+participant, recovery location and affected files cannot propagate through a
+read result. A read failure may reject write preparation; that adaptation never
+claims that content was committed or written.
 
-Field application through `LoadAuthoredObject` returns `FAssetResult`, with
-success derived only from `EAssetError::None`. Failures own a complete diagnostic:
+Field application through `LoadAuthoredObject` returns `FAssetReadResult`, with
+success derived only from `EAssetReadError::None`. Failures own a complete diagnostic:
 object identity, Archive field route and first failure, plus dependency,
 bounds or type details captured at the producer. Original serializer failure
 messages survive archive and candidate destruction. External resolver failures
@@ -615,7 +616,9 @@ handles added by that batch. Existing caller-owned handles remain unchanged.
 
 Cook discovery retains its first `FCookInputFailure` in its own failure channel;
 `FCookRunResult::InputDiagnostic` receives that owned record alongside the run
-input status. The generic asset adapter carries only classification and text. Cancellation, input write conflicts, file IO,
+`FCookInputResult` status and diagnostic text. Contributor callbacks return
+`FCookContributionResult` directly; dependency graphs adapt to Cook input
+status without passing through asset read or write classifications. Cancellation, input write conflicts, file IO,
 file/aggregate byte and package-count limits, unknown packages, undeclared
 values and missing readers have typed codes with owned identities and limits.
 File failures retain the full IO operation, native error, path, offset and size.

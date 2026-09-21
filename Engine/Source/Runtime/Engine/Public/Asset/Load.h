@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
@@ -28,7 +29,7 @@ namespace Durin
 
 	struct FSoftObjectResolveResult
 	{
-		FAssetResult Result;
+		FAssetReadResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		DObject* Object = nullptr;
 		FObjectPath ResolvedPath;
@@ -41,7 +42,7 @@ namespace Durin
 	template<typename T>
 	struct TSoftObjectResolveResult
 	{
-		FAssetResult Result;
+		FAssetReadResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		T* Object = nullptr;
 		FObjectPath ResolvedPath;
@@ -113,7 +114,7 @@ namespace Durin
 		uint64 CatalogRevision = 0;
 		std::vector<FPackagePath> RedirectChain;
 		std::string FinalAssetClassName;
-		EAssetError Error = EAssetError::None;
+		EAssetReadError Error = EAssetReadError::None;
 		std::string ErrorMessage;
 		uint64 PackageFileReadCount = 0;
 		std::vector<FAssetLoadMutation> Mutations;
@@ -143,20 +144,20 @@ namespace Durin
 		FAssetPackageLoadScope(const FAssetPackageLoadScope&) = delete;
 		auto operator=(const FAssetPackageLoadScope&) -> FAssetPackageLoadScope& = delete;
 		ENGINE_API auto LoadPackage(const FPackagePath& Path, DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
-			DObject*& OutObject, FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			DObject*& OutObject, FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		ENGINE_API auto LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
 			DObject*& OutObject, ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 
 		template<typename T>
 		auto LoadObject(const FObjectPath& Path, T*& OutObject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
 			DObject* Object = nullptr;
-			FAssetResult Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
+			auto Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
 			OutObject = Result ? static_cast<T*>(Object) : nullptr;
 			return Result;
 		}
@@ -164,11 +165,11 @@ namespace Durin
 		template<typename T>
 		auto LoadSoftObject(TSoftObjectPtr<T>& Reference, T*& OutObject,
 			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
 		{
 			static_assert(std::is_base_of_v<DObject, T>);
 			DObject* Object = nullptr;
-			FAssetResult Result = LoadSoftObject(
+			auto Result = LoadSoftObject(
 				Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport);
 			OutObject = Result ? static_cast<T*>(Object) : nullptr;
 			return Result;
@@ -179,7 +180,7 @@ namespace Durin
 		// packages after dropping candidate graphs. Actual references and unsaved state
 		// still protect owned packages; a later package at the same path is not exempt.
 		ENGINE_API auto Release(
-			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetResult;
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
 
 	private:
 		std::vector<TWeakObjectPtr<DPackage>> Packages;
@@ -194,24 +195,24 @@ namespace Durin
 	ENGINE_API auto LoadPackage(
 		const FPackagePath& Path,
 		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 	ENGINE_API auto LoadObject(
 		const FObjectPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 	inline auto LoadObject(
 		const FTopLevelAssetPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
 	{
 		FObjectPath ObjectPath;
 		if (!FObjectPath::TryCreate(
 			Path, std::span<const std::string>{}, ObjectPath))
 		{
 			OutObject = nullptr;
-			return {EAssetError::InvalidPath,
+			return {EAssetReadError::InvalidPath,
 				"A top-level asset load requires a valid exact asset path."};
 		}
 		return LoadObject(ObjectPath, ExpectedClass, OutObject, OutReport);
@@ -219,22 +220,22 @@ namespace Durin
 
 	template<typename T>
 	auto LoadObject(const FObjectPath& Path, T*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;
-		FAssetResult Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
+		auto Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
 		OutObject = Result ? static_cast<T*>(Object) : nullptr;
 		return Result;
 	}
 
 	template<typename T>
 	auto LoadObject(const FTopLevelAssetPath& Path, T*& OutObject,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+		FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;
-		FAssetResult Result = LoadObject(
+		auto Result = LoadObject(
 			Path, T::StaticClass(), Object, OutReport);
 		OutObject = Result ? static_cast<T*>(Object) : nullptr;
 		return Result;
@@ -252,7 +253,7 @@ namespace Durin
 		DObject*& OutObject,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
 		FAssetLoadReport* OutReport = nullptr
-	) -> FAssetResult;
+	) -> FAssetReadResult;
 
 	template<typename T>
 	auto ResolveSoftObject(
@@ -280,11 +281,11 @@ namespace Durin
 		T*& OutObject,
 		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
 		FAssetLoadReport* OutReport = nullptr
-	) -> FAssetResult
+	) -> FAssetReadResult
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;
-		FAssetResult Result = LoadSoftObject(
+		auto Result = LoadSoftObject(
 			Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport
 		);
 		OutObject = Result ? static_cast<T*>(Object) : nullptr;
@@ -299,17 +300,17 @@ namespace Durin
 		const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved
 	)
-		-> FAssetResult;
+		-> FAssetReadResult;
 	ENGINE_API auto UnloadPackage(
 		DPackage* Package,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved
 	)
-		-> FAssetResult;
+		-> FAssetReadResult;
 	ENGINE_API auto ShutdownAssetManager() -> void;
 	ENGINE_API auto InitializeAssetManager(
 		FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored()
 	)
-		-> FAssetResult;
+		-> FAssetWriteResult;
 	ENGINE_API auto GetAssetRuntimeConfiguration()
 		-> const FAssetRuntimeConfiguration&;
 } // namespace Durin

@@ -56,7 +56,7 @@ namespace Durin
 	};
 	struct FTexture2DBuildInputIdentity;
 	struct FAssetImportDataError;
-	struct FAssetResult;
+	struct FAssetWriteResult;
 	struct FTexture2DCompilationError
 	{
 		ETexture2DCompilationError Code = ETexture2DCompilationError::None;
@@ -69,7 +69,7 @@ namespace Durin
 		std::shared_ptr<const FTexture2DBuildInputIdentity> ExpectedInput;
 		std::shared_ptr<const FTexture2DBuildInputIdentity> ActualInput;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
-		std::shared_ptr<const FAssetResult> SaveCause;
+		std::shared_ptr<const FAssetWriteResult> SaveCause;
 		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }
 	};
 	struct FTexture2DCompilationOperationResult

@@ -4,7 +4,8 @@
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/PackageSchema.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
+#include "Asset/AssetWriteResult.h"
 #include "Asset/PackageResource.h"
 
 namespace Durin
@@ -31,7 +32,7 @@ namespace Durin::AssetPrivate
 		// Keep capture objects out of public package/object lookup. Requires a closed load policy.
 		bool bPrivateGraph = false;
 		// Ordinary loading transfers candidate completion to its component owner.
-		std::function<void(std::function<FAssetResult()>, std::function<void()>)> DeferCompletion;
+		std::function<void(std::function<FAssetReadResult()>, std::function<void()>)> DeferCompletion;
 	};
 
 	struct FAssetPackageEncodedClosure
@@ -56,34 +57,34 @@ namespace Durin::AssetPrivate
 		bool bCanMutate = false;
 
 		auto (*ReadHeader)(const FAssetPackageReadContext&, FAssetPackageHeader&)
-			-> FAssetResult = nullptr;
-		auto (*Validate)(const FAssetPackageReadContext&) -> FAssetResult = nullptr;
-		auto (*Inspect)(const FAssetPackageReadContext&, FAssetPackageInspection&) -> FAssetResult = nullptr;
+			-> FAssetReadResult = nullptr;
+		auto (*Validate)(const FAssetPackageReadContext&) -> FAssetReadResult = nullptr;
+		auto (*Inspect)(const FAssetPackageReadContext&, FAssetPackageInspection&) -> FAssetReadResult = nullptr;
 		auto (*ExtractReferences)(
 			const FAssetPackageReadContext&, std::vector<FAssetReferenceEdge>&)
-			-> FAssetResult = nullptr;
+			-> FAssetReadResult = nullptr;
 		auto (*InspectSchema)(
 			IAssetPackageByteSource&, const FPackagePath&,
 			const FReflectionSchemaCatalog&, FPackageSchemaInspection&,
 			FPackageSchemaReadStats*, bool,
 			const FPackageReadCancellationCheck&)
-			-> FAssetResult = nullptr;
+			-> FAssetReadResult = nullptr;
 		auto (*Load)(
 			const FAssetPackageReadContext&, DPackage*&, FAssetLoadReport*,
-			const std::function<FAssetResult(DPackage*)>&,
-			const std::function<void(DPackage*)>&) -> FAssetResult = nullptr;
+			const std::function<FAssetReadResult(DPackage*)>&,
+			const std::function<void(DPackage*)>&) -> FAssetReadResult = nullptr;
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
-			const FAssetPackageSerializationOptions&) -> FAssetResult = nullptr;
+			const FAssetPackageSerializationOptions&) -> FAssetWriteResult = nullptr;
 		auto (*RewriteReferences)(
 			const FAssetPackageReadContext&, std::span<const FAssetRedirectorFixupMapping>,
-			uint64, FAssetPackageEncodedClosure&) -> FAssetResult = nullptr;
+			uint64, FAssetPackageEncodedClosure&) -> FAssetWriteResult = nullptr;
 		auto (*Relocate)(
 			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)
-			-> FAssetResult = nullptr;
+			-> FAssetWriteResult = nullptr;
 		auto (*WriteRedirector)(
 			const FPackagePath&, std::span<const FAssetRedirectorWriteMapping>,
 			FAssetPackageEncodedClosure&)
-			-> FAssetResult = nullptr;
+			-> FAssetWriteResult = nullptr;
 	};
 
 	ENGINE_API auto FindAssetPackageReader(
@@ -93,11 +94,11 @@ namespace Durin::AssetPrivate
 	ENGINE_API auto ResolveAssetPackageReader(
 		FByteView Bytes, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
-		uint64 PhysicalFileBytes = 0) -> FAssetResult;
+		uint64 PhysicalFileBytes = 0) -> FAssetReadResult;
 	auto ResolveAssetPackageReader(
 		IAssetPackageByteSource& Source, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
-		const FPackageReadCancellationCheck& IsCancelled = {}) -> FAssetResult;
+		const FPackageReadCancellationCheck& IsCancelled = {}) -> FAssetReadResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto ValidateAssetPackageCodecTable(
 		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;

@@ -100,7 +100,7 @@ namespace Durin::Editor::MainFrame
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const FAssetResult Loaded = LoadObject(OutPath, OutObject);
+			const auto Loaded = LoadObject(OutPath, OutObject);
 			if (!Loaded || !OutObject)
 			{
 				OutError = Loaded ? "The selected asset could not be loaded." : Loaded.Message;

@@ -17,6 +17,6 @@ namespace Durin
 	struct FAssetPackageSerializationOptions;
 	struct FAssetRedirectorFixupMapping;
 	struct FAssetReferenceEdge;
-	struct FAssetResult;
+	struct FAssetReadResult;
 	class FReflectionSchemaCatalog;
 }

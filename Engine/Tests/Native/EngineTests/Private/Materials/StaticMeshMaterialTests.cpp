@@ -289,7 +289,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 
 	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
 	Material = nullptr;
-	const Durin::FAssetResult MaterialUnload =
+	const auto MaterialUnload =
 		Durin::UnloadPackage(MaterialPath);
 	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));

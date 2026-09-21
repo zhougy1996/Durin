@@ -10,7 +10,7 @@ namespace Durin
 	namespace
 	{
 		uint64 DeleteContributorRevision = 0;
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -37,7 +37,7 @@ namespace Durin
 	auto InspectAssetCompanionFiles(
 		const FAssetData& Data,
 		std::vector<std::filesystem::path>& OutFiles,
-		bool* OutHasContributor = nullptr) -> FAssetResult
+		bool* OutHasContributor = nullptr) -> FAssetWriteResult
 	{
 		OutFiles.clear();
 		if (OutHasContributor) *OutHasContributor = false;
@@ -49,12 +49,12 @@ namespace Durin
 			Data.PhysicalPath, Data.PackagePath, Header);
 		if (!HeaderResult)
 		{
-			EAssetError Code = EAssetError::CorruptFile;
+			EAssetWriteError Code = EAssetWriteError::InvalidData;
 			switch (HeaderResult.Error)
 			{
-			case EAssetRegistryError::IoError: Code = EAssetError::IoError; break;
-			case EAssetRegistryError::InvalidPath: Code = EAssetError::InvalidPath; break;
-			case EAssetRegistryError::UnsupportedVersion: Code = EAssetError::UnsupportedVersion; break;
+			case EAssetRegistryError::IoError: Code = EAssetWriteError::IoError; break;
+			case EAssetRegistryError::InvalidPath: Code = EAssetWriteError::InvalidPath; break;
+			case EAssetRegistryError::UnsupportedVersion: Code = EAssetWriteError::UnsupportedVersion; break;
 			default: break;
 			}
 			return {.Error = Code, .Message = FormatAssetRegistryError(HeaderResult)};
@@ -75,11 +75,11 @@ namespace Durin
 			if (OutHasContributor) *OutHasContributor = true;
 			// Custom contributors retain the complete field-inspection contract.
 			FAssetPackageInspection Inspection;
-			const FAssetResult InspectionResult = InspectAssetPackage(
+			const FAssetWriteResult InspectionResult = InspectAssetPackage(
 				Data.PhysicalPath, Data.PackagePath, Inspection);
 			if (!InspectionResult) return InspectionResult;
 			FAssetDeleteContribution Contribution;
-			FAssetResult Result = It->second.Contributor(Data, Inspection, Contribution);
+			FAssetWriteResult Result = It->second.Contributor(Data, Inspection, Contribution);
 			if (!Result) return Result;
 			for (const std::filesystem::path& File : Contribution.Files)
 			{
@@ -119,7 +119,7 @@ namespace Durin
 		}
 		auto InspectAssetCompanionFilesForDeletion(
 			const FAssetData& Data,
-			std::vector<std::filesystem::path>& OutFiles) -> FAssetResult
+			std::vector<std::filesystem::path>& OutFiles) -> FAssetWriteResult
 		{
 			return InspectAssetCompanionFiles(Data, OutFiles);
 		}
@@ -155,7 +155,7 @@ namespace Durin
 
 	auto QueryAssetCompanionOwnership(
 		const std::filesystem::path& PhysicalPath,
-		FAssetCompanionOwnership& OutOwnership) -> FAssetResult
+		FAssetCompanionOwnership& OutOwnership) -> FAssetWriteResult
 	{
 		OutOwnership = {};
 		const std::filesystem::path Candidate =
@@ -175,13 +175,13 @@ namespace Durin
 				continue;
 			if (ExistenceError)
 				return {
-					EAssetError::IoError,
+					EAssetWriteError::IoError,
 					std::format(
 						"Could not inspect companion owner package {}: {}",
 						Path.ToString(), ExistenceError.message())};
 			std::vector<std::filesystem::path> CompanionFiles;
 			bool bHasContributor = false;
-			const FAssetResult Result = InspectAssetCompanionFiles(
+			const FAssetWriteResult Result = InspectAssetCompanionFiles(
 				Data, CompanionFiles, &bHasContributor);
 			if (!Result)
 				return {

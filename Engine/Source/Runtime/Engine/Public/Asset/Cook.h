@@ -1,6 +1,8 @@
 #pragma once
+#include "Asset/CookInputResult.h"
+#include "Asset/AssetWriteResult.h"
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
@@ -195,11 +197,6 @@ namespace Durin
 		FCookProgressCallback ReportProgress;
 	};
 
-	enum class ECookInputStatus : uint8
-	{
-		None, ProjectionPending,
-		UndeclaredInput, InvalidDependency, LimitExceeded, IoError, Cancelled
-	};
 
 	enum class ECookInputError : uint8
 	{
@@ -209,6 +206,7 @@ namespace Durin
 		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
 		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, NoRuntimePackages, DependencyStorage
 	};
+	struct FCookContributionResult;
 	struct FCookInputFailure
 	{
 		ECookInputError Error = ECookInputError::None;
@@ -226,7 +224,7 @@ namespace Durin
 		uint64 Expected = 0;
 		FXxHash128 ExpectedDigest;
 		FXxHash128 ActualDigest;
-		ENGINE_API auto ToAssetResult() const -> FAssetResult;
+		ENGINE_API auto ToInputResult() const -> FCookInputResult;
 	};
 	ENGINE_API auto FormatCookInputError(const FCookInputFailure& Failure) -> std::string;
 
@@ -292,8 +290,7 @@ namespace Durin
 		uint64 WallTimeNanoseconds = 0;
 		uint64 CommitTimeNanoseconds = 0;
 		uint64 RollbackTimeNanoseconds = 0;
-		ECookInputStatus InputStatus = ECookInputStatus::None;
-		FAssetResult InputFailure;
+		FCookInputResult InputFailure;
 		std::optional<FCookInputFailure> InputDiagnostic;
 		std::shared_ptr<const FCookPublishResult> PublicationCause;
 		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
@@ -301,7 +298,7 @@ namespace Durin
 		std::shared_ptr<const FObjectError> DefaultLevelCause;
 		std::shared_ptr<const FShaderError> ShaderCause;
 		std::shared_ptr<const FCookCaptureResult> CaptureCause;
-		std::shared_ptr<const FAssetResult> ContributionCause;
+		std::shared_ptr<const FCookContributionResult> ContributionCause;
 		FPackagePath ContributionPackage;
 		std::string ContributionProvider;
 		explicit operator bool() const { return Error == ECookRunError::None; }
@@ -417,7 +414,7 @@ namespace Durin
 		std::string VirtualPath;
 		std::shared_ptr<const FCookOutputRootResult> RootCause;
 		std::optional<FCookedPathResult> PathCause;
-		std::shared_ptr<const FAssetResult> PackageCause;
+		std::string PackageDiagnostic;
 		std::optional<FCookManifestResult> ManifestCause;
 		std::optional<FCookStateResult> StateCause;
 		std::optional<FCookPublishOperationFailure> OperationCause;
@@ -465,13 +462,13 @@ namespace Durin
 		ECookPlanError Code = ECookPlanError::None;
 		std::string VirtualPath;
 		std::string SourcePath;
-		std::shared_ptr<const FAssetResult> ProjectionCause;
+		std::string ProjectionDiagnostic;
 		uint64 PackageBytes = 0;
 		uint64 SegmentBytes = 0;
 		uint64 MaximumSegmentBytes = 0;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::shared_ptr<const FAssetResult> CanonicalizationCause;
+		std::string CanonicalizationDiagnostic;
 		std::shared_ptr<const FAssetPathResolveResult> ResolutionCause;
 	};
 	struct FCookPlanResult
@@ -513,7 +510,6 @@ namespace Durin
 		std::string ActualClass;
 		std::string Provider;
 		explicit operator bool() const { return Error == ECookContributionError::None; }
-		ENGINE_API auto ToAssetResult() const -> FAssetResult;
 	};
 	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
 
@@ -549,13 +545,13 @@ namespace Durin
 		// Consumes pending packages, including on failure; rebuild the context to retry.
 		// OutPlans is empty on failure.
 		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans) -> FCookPlanResult;
-		using FReadInput = std::function<FAssetResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
+		using FReadInput = std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
 		auto SetInputReader(FReadInput Reader) -> void { ReadInput = std::move(Reader); }
 		auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name,
-			FByteBuffer& Out) const -> FAssetResult {
+			FByteBuffer& Out) const -> FCookInputResult {
 			Out.clear();
 			return ReadInput ? ReadInput(Kind, Name, Out)
-				: FCookInputFailure{.Error = ECookInputError::NoReader, .Kind = Kind, .Name = std::string(Name)}.ToAssetResult();
+				: FCookInputFailure{.Error = ECookInputError::NoReader, .Kind = Kind, .Name = std::string(Name)}.ToInputResult();
 		}
 		auto GetSavePlans() const -> std::span<const FCookSavePlan> { return Packages; }
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
@@ -588,7 +584,7 @@ namespace Durin
 	ENGINE_API auto PublishCookContext(FCookContext& Context,
 		const std::filesystem::path& OutputRoot) -> FCookContextPublishResult;
 
-	using FCookContributor = std::function<FAssetResult(
+	using FCookContributor = std::function<FCookContributionResult(
 		DObject&, std::string_view, FCookContext&
 	)>;
 	using FCookContributorHandle = uint64;

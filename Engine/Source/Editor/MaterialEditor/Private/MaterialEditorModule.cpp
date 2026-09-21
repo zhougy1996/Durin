@@ -48,7 +48,7 @@ namespace Durin
 					return false;
 				}
 			}
-			const FAssetResult Result = SavePackage(Created.Package);
+			const FAssetWriteResult Result = SavePackage(Created.Package);
 			if (!Result)
 			{
 				OutError = Result.Message;

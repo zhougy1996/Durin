@@ -1,7 +1,8 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
+#include "Asset/AssetWriteResult.h"
 #include "DObject/PackageBulkStorage.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"
@@ -22,7 +23,7 @@ namespace Durin
 		const FPackagePath& PackagePath,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		FByteView Bytes,
 		FByteView BulkBytes,
@@ -30,7 +31,7 @@ namespace Durin
 		const FPackagePath& OutputPackagePath,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 	// Complete snapshots retain every selected value; Delta follows paired defaults.
 	enum class EAssetPackageSaveMode : uint8 { Delta, Complete };
 
@@ -73,9 +74,9 @@ namespace Durin
 		FAssetBundleSaveOptions Options;
 		EPackageSaveFlags Flags = SAVE_None;
 		FTaskCancellationToken Cancellation;
-		ENGINE_API auto SaveAsync(DPackage*, FAssetResult& Admission) const -> Tasks::TTask<FAssetResult>;
+		ENGINE_API auto SaveAsync(DPackage*, FAssetWriteResult& Admission) const -> Tasks::TTask<FAssetWriteResult>;
 	};
-	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetResult&)>;
+	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetWriteResult&)>;
 	ENGINE_API auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void;
 	namespace AssetPrivate { ENGINE_API auto SetAsyncSavePublicationFailureForTests(bool bFail) -> void; }
 
@@ -83,21 +84,21 @@ namespace Durin
 		DPackage* Package,
 		FByteBuffer& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 	ENGINE_API auto SerializeAssetPackageClosure(
 		DPackage* Package,
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options = {}
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 	ENGINE_API auto SavePackagesAtomically(
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}
-	) -> FAssetResult;
-	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetResult;
+	) -> FAssetWriteResult;
+	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;
 	ENGINE_API auto SavePackage(DPackage* Package, EPackageSaveFlags Flags,
-		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetResult;
+		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 } // namespace Durin

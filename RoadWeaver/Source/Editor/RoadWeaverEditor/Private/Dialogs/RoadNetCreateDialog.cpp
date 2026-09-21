@@ -171,7 +171,7 @@ namespace Durin::RoadNet::Editor
 			SetError(Error);
 			return false;
 		}
-		const FAssetResult Saved = SavePackage(RoadNet->GetPackage());
+		const FAssetWriteResult Saved = SavePackage(RoadNet->GetPackage());
 		if (!Saved)
 		{
 			UnloadPackage(PackagePath);

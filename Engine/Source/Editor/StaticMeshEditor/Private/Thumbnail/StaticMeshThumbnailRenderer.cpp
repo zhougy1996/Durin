@@ -68,7 +68,7 @@ namespace Durin::Editor::StaticMesh
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const FAssetResult Result = LoadObject(Input.AssetPath, Loaded);
+				const auto Result = LoadObject(Input.AssetPath, Loaded);
 				StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || StaticMesh == nullptr
 					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())

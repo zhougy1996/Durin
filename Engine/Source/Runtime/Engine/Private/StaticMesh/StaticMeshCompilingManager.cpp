@@ -2,7 +2,7 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 
 #include "CoreGlobals.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "Physics/BodySetup.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"

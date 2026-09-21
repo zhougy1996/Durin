@@ -44,7 +44,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FMountSnapshot = FContentBrowserPaths::FMountSnapshot;
 		using FMountPath = FContentBrowserPaths::FMountPath;
 		auto RefreshMountSnapshot() -> void;
-		auto RescanRegistry() -> FAssetResult;
+		auto RescanRegistry() -> FAssetReadResult;
 		// Async mode replaces the pending request and clears actionable rows immediately.
 		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;

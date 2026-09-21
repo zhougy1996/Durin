@@ -1,3 +1,4 @@
+#include "Asset/AssetWriteResult.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetPackageCodec.h"
@@ -28,7 +29,12 @@ namespace Durin::AssetPrivate
 				   / "Saved" / "AssetMutationRecovery";
 		}
 
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetWriteError Code, std::string Message) -> FAssetWriteResult
+		{
+			return {Code, std::move(Message)};
+		}
+
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -109,19 +115,19 @@ namespace Durin::AssetPrivate
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
 		FByteView Bytes,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
+		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult
 	{
 		std::error_code ErrorCode;
 		const std::filesystem::path Path(PhysicalPath);
 		const auto LastWriteTime = std::filesystem::last_write_time(Path, ErrorCode);
 		if (ErrorCode)
-			return Error(EAssetError::IoError, std::format(
+			return Error(EAssetReadError::IoError, std::format(
 				"Failed to read the last-write time for asset package {}.", PhysicalPath));
 		uint32 ReaderVersion = 0;
 		if (Path.extension() == ".dasset")
 		{
 			const FAssetPackageCodec* Codec = nullptr;
-			const FAssetResult ResolveResult = ResolveAssetPackageReader(
+			const auto ResolveResult = ResolveAssetPackageReader(
 				Bytes, Codec, &ReaderVersion);
 			if (!ResolveResult) return ResolveResult;
 		}
@@ -151,18 +157,18 @@ namespace Durin::AssetPrivate
 
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteBuffer& OutBytes) -> FAssetResult
+		FByteBuffer& OutBytes) -> FAssetReadResult
 	{
 		OutBytes.clear();
 		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
-			return Error(EAssetError::IoError, std::format(
+			return Error(EAssetReadError::IoError, std::format(
 				"Could not read relocation input {}.", Path.generic_string()));
 		return {};
 	}
 
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteView Bytes) -> FAssetResult
+		FByteView Bytes) -> FAssetWriteResult
 	{
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
@@ -170,16 +176,16 @@ namespace Durin::AssetPrivate
 					Bytes.size()},
 				Path,
 				&PublicationError))
-			return Error(EAssetError::IoError, PublicationError.ToString());
+			return Error(EAssetWriteError::IoError, PublicationError.ToString());
 		return {};
 	}
 
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
+		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult
 	{
 		FByteBuffer Bytes;
-		FAssetResult Result = LoadRelocationBytes(Path, Bytes);
+		auto Result = LoadRelocationBytes(Path, Bytes);
 		if (!Result) return Result;
 		return MakePackageFingerprint(
 			Path.generic_string(), Bytes, OutFingerprint);
@@ -234,7 +240,7 @@ namespace Durin::AssetPrivate
 	auto StageMutationJournalEntry(
 		FAssetMutationJournal& Journal,
 		const FMutationJournalStageRequest& Request,
-		size_t& OutEntryIndex) -> FAssetResult
+		size_t& OutEntryIndex) -> FAssetWriteResult
 	{
 		OutEntryIndex = std::numeric_limits<size_t>::max();
 		const std::filesystem::path Normalized =
@@ -274,20 +280,20 @@ namespace Durin::AssetPrivate
 				OutEntryIndex = Existing->second;
 				return {};
 			}
-			return Error(EAssetError::AlreadyExists, std::format(
+			return Error(EAssetWriteError::AlreadyExists, std::format(
 				"Asset mutation participants claim the same file {}.", Key));
 		}
 
 		std::string PathError;
 		const FMountPoint* Mount = nullptr;
 		if (!IsWritableRelocationPath(Normalized, Mount, PathError))
-			return Error(EAssetError::ReadOnlyMode, std::move(PathError));
+			return Error(EAssetWriteError::ReadOnlyMode, std::move(PathError));
 		if (Request.bPreExists && IsReadOnlyMutationInput(Normalized))
-			return Error(EAssetError::ReadOnlyMode, std::format(
+			return Error(EAssetWriteError::ReadOnlyMode, std::format(
 				"Asset mutation input is read-only: {}.", Key));
 		if (Request.bPreExists)
 		{
-			FAssetResult Result = MakePackageFingerprint(
+			FAssetWriteResult Result = MakePackageFingerprint(
 				Key, Request.PreBytes, Entry.ExpectedPreFingerprint);
 			if (!Result) return Result;
 		}
@@ -304,16 +310,16 @@ namespace Durin::AssetPrivate
 			bCreatedRoot = std::filesystem::create_directories(
 				Root, DirectoryError);
 			if (DirectoryError)
-				return Error(EAssetError::IoError, std::format(
+				return Error(EAssetWriteError::IoError, std::format(
 					"Could not create asset mutation staging root: {}",
 					DirectoryError.message()));
 			if (!bCreatedRoot)
-				return Error(EAssetError::AlreadyExists, std::format(
+				return Error(EAssetWriteError::AlreadyExists, std::format(
 					"Asset mutation staging root already exists: {}.",
 					Root.generic_string()));
 			const std::string Marker =
 				MakeMutationJournalOwnerMarker(Journal.OperationId);
-			FAssetResult MarkerResult = SaveRelocationBytes(
+			FAssetWriteResult MarkerResult = SaveRelocationBytes(
 				Root / "owner", std::as_bytes(std::span(Marker)));
 			if (!MarkerResult)
 			{
@@ -338,7 +344,7 @@ namespace Durin::AssetPrivate
 		};
 		if (Request.bPreExists)
 		{
-			FAssetResult Result = SaveRelocationBytes(
+			FAssetWriteResult Result = SaveRelocationBytes(
 				Entry.StagedPrePath, Request.PreBytes);
 			if (!Result)
 			{
@@ -348,7 +354,7 @@ namespace Durin::AssetPrivate
 		}
 		if (Request.bPostExists)
 		{
-			FAssetResult Result = SaveRelocationBytes(
+			FAssetWriteResult Result = SaveRelocationBytes(
 				Entry.StagedPostPath, Request.PostBytes);
 			if (!Result)
 			{
@@ -362,7 +368,7 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult
+	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetWriteResult
 	{
 		std::string Text = std::format(
 			"version=2\noperation={}\ntype={}\nstate={}\nentries={}\n",
@@ -448,7 +454,7 @@ namespace Durin::AssetPrivate
 			FFileHelper::FAtomicFileError PublicationError;
 			if (!FFileHelper::SaveArrayToFileAtomically(
 					Bytes, Root / "journal", &PublicationError))
-				return Error(EAssetError::IoError, std::format(
+				return Error(EAssetWriteError::IoError, std::format(
 					"Could not persist asset mutation journal: {}",
 					PublicationError.ToString()));
 		}
@@ -462,7 +468,7 @@ namespace Durin::AssetPrivate
 		std::filesystem::create_directories(
 			Journal.LocatorPath.parent_path(), DirectoryError);
 		if (DirectoryError)
-			return Error(EAssetError::IoError, std::format(
+			return Error(EAssetWriteError::IoError, std::format(
 				"Could not create asset mutation recovery locator directory {}: {}",
 				Journal.LocatorPath.parent_path().generic_string(),
 				DirectoryError.message()));
@@ -470,7 +476,7 @@ namespace Durin::AssetPrivate
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
 				LocatorBytes, Journal.LocatorPath, &PublicationError))
-			return Error(EAssetError::IoError, std::format(
+			return Error(EAssetWriteError::IoError, std::format(
 				"Could not persist asset mutation recovery locator: {}",
 				PublicationError.ToString()));
 		return {};
@@ -478,11 +484,11 @@ namespace Durin::AssetPrivate
 
 	auto TransitionMutationJournalState(
 		FAssetMutationJournal& Journal,
-		EAssetMutationState State) -> FAssetResult
+		EAssetMutationState State) -> FAssetWriteResult
 	{
 		const EAssetMutationState PreviousState = Journal.State;
 		Journal.State = State;
-		FAssetResult Result = WriteMutationJournalState(Journal);
+		FAssetWriteResult Result = WriteMutationJournalState(Journal);
 		if (!Result) Journal.State = PreviousState;
 		return Result;
 	}
@@ -490,22 +496,22 @@ namespace Durin::AssetPrivate
 	auto EnterMutationJournalRecovery(
 		FAssetMutationJournal& Journal,
 		std::string FailedParticipant,
-		std::string_view Message) -> FAssetResult
+		std::string_view Message) -> FAssetWriteResult
 	{
-		FAssetResult JournalResult = TransitionMutationJournalState(
+		FAssetWriteResult JournalResult = TransitionMutationJournalState(
 			Journal, EAssetMutationState::RecoveryRequired);
 		return {
-			.Error = EAssetError::IoError,
+			.Error = EAssetWriteError::IoError,
 			.Message = !JournalResult
 				? std::format(
 					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
 					Message, JournalResult.Message)
 				: std::format("AssetMutationRecoveryRequired: {}", Message),
-			.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
+			.Disposition = EAssetWriteDisposition::RecoveryRequired,
 			.OperationId = Journal.OperationId,
 			.DesiredDirection = "Forward",
 			.FailedParticipant = std::move(FailedParticipant),
-			.RecoveryLocation = Journal.LocatorPath}};
+			.RecoveryLocation = Journal.LocatorPath};
 	}
 
 	auto IsMutationJournalRecoveryRequired(
@@ -549,11 +555,11 @@ namespace Durin::AssetPrivate
 		auto LoadTextFile(
 			const std::filesystem::path& Path,
 			std::string& OutText
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			FByteBuffer Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Path))
-				return Error(EAssetError::IoError, std::format("Could not read asset mutation recovery record {}.", Path.generic_string()));
+				return Error(EAssetWriteError::IoError, std::format("Could not read asset mutation recovery record {}.", Path.generic_string()));
 			OutText.assign(
 				reinterpret_cast<const char*>(Bytes.data()), Bytes.size()
 			);
@@ -563,7 +569,7 @@ namespace Durin::AssetPrivate
 		auto ParseJournalFields(
 			std::string_view Text,
 			FJournalFields& OutFields
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			OutFields.clear();
 			while (!Text.empty())
@@ -575,7 +581,7 @@ namespace Durin::AssetPrivate
 				const size_t Separator = Line.find('=');
 				if (Separator == std::string_view::npos
 					|| Separator == 0)
-					return Error(EAssetError::CorruptFile, "An asset mutation recovery record contains a malformed field.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation recovery record contains a malformed field.");
 				OutFields[std::string(Line.substr(0, Separator))]
 					.emplace_back(Line.substr(Separator + 1));
 			}
@@ -701,11 +707,11 @@ namespace Durin::AssetPrivate
 			const std::filesystem::path& LocatorPath,
 			std::vector<std::filesystem::path> Roots,
 			std::unique_ptr<FAssetMutationJournal>& OutJournal
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			OutJournal.reset();
 			FJournalFields Fields;
-			FAssetResult Result = ParseJournalFields(Text, Fields);
+			FAssetWriteResult Result = ParseJournalFields(Text, Fields);
 			if (!Result) return Result;
 			std::string_view Version;
 			std::string_view Operation;
@@ -722,7 +728,7 @@ namespace Durin::AssetPrivate
 				|| StateValue > static_cast<uint64>(EAssetMutationState::RecoveryRequired)
 				|| !ReadUnsignedField(Fields, "entries", EntryCount)
 				|| EntryCount > 65536)
-				return Error(EAssetError::CorruptFile, "An asset mutation journal header is invalid.");
+				return Error(EAssetWriteError::InvalidData, "An asset mutation journal header is invalid.");
 
 			auto Journal = std::make_unique<FAssetMutationJournal>();
 			Journal->OperationId = Operation;
@@ -766,7 +772,7 @@ namespace Durin::AssetPrivate
 					|| !ReadSingleField(Fields, Field("staged_post_hash"), PostHash)
 					|| PostHash.size() != 32
 					|| !ReadBoolField(Fields, Field("completed"), Entry.bCompleted))
-					return Error(EAssetError::CorruptFile, "An asset mutation journal entry is invalid.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation journal entry is invalid.");
 				Entry.Role = static_cast<EAssetMutationPublicationRole>(Role);
 				Entry.PublicationOrder = Order;
 				Entry.PhysicalPath = NormalizePhysicalPath(PhysicalPath);
@@ -776,7 +782,7 @@ namespace Durin::AssetPrivate
 				Entry.StagedPostHash = FXxHash128::FromString(PostHash);
 				const std::string Key = Entry.PhysicalPath.generic_string();
 				if (!Journal->EntryIndices.emplace(Key, Index).second)
-					return Error(EAssetError::CorruptFile, "An asset mutation journal repeats a physical participant.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation journal repeats a physical participant.");
 				bool bOwnedStaging = false;
 				for (const std::filesystem::path& Root : Journal->Roots)
 				{
@@ -799,16 +805,16 @@ namespace Durin::AssetPrivate
 					|| !IsWritableRelocationPath(
 						Entry.PhysicalPath, Mount, PathError
 					))
-					return Error(EAssetError::CorruptFile, "An asset mutation journal contains an unsafe participant path.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation journal contains an unsafe participant path.");
 				Journal->Entries.push_back(std::move(Entry));
 			}
 
 			uint64 ExternalCount = 0;
 			if ((Version == "2" && !ReadUnsignedField(Fields, "external_participants", ExternalCount))
 				|| ExternalCount > 4096)
-				return Error(EAssetError::CorruptFile, "An asset mutation journal has an invalid external participant count.");
+				return Error(EAssetWriteError::InvalidData, "An asset mutation journal has an invalid external participant count.");
 			if (Version == "1" && Type == "fixup")
-				return Error(EAssetError::StaleData, "A legacy Fix Up recovery record lacks durable external-participant descriptors and requires manual review.");
+				return Error(EAssetWriteError::StaleData, "A legacy Fix Up recovery record lacks durable external-participant descriptors and requires manual review.");
 			Journal->ExternalParticipants.reserve(
 				static_cast<size_t>(ExternalCount)
 			);
@@ -828,7 +834,7 @@ namespace Durin::AssetPrivate
 					|| !ReadBoolField(Fields, Field("completed"), Participant.bCompleted)
 					|| !ReadUnsignedField(Fields, Field("rewrites"), RewriteCount)
 					|| RewriteCount == 0 || RewriteCount > 65536)
-					return Error(EAssetError::CorruptFile, "An external mutation participant is invalid.");
+					return Error(EAssetWriteError::InvalidData, "An external mutation participant is invalid.");
 				Participant.ProviderId = Provider;
 				Participant.ExpectedFingerprint = Fingerprint;
 				Participant.Rewrites.reserve(static_cast<size_t>(RewriteCount));
@@ -854,7 +860,7 @@ namespace Durin::AssetPrivate
 						|| !ReadPackagePathField(
 							Fields, RewriteField("destination"), Rewrite.DestinationPath
 						))
-						return Error(EAssetError::CorruptFile, "An external mutation rewrite is invalid.");
+						return Error(EAssetWriteError::InvalidData, "An external mutation rewrite is invalid.");
 					Rewrite.StableId = StableId;
 					Participant.Rewrites.push_back(std::move(Rewrite));
 				}
@@ -867,10 +873,10 @@ namespace Durin::AssetPrivate
 		auto LoadMutationJournalFromLocator(
 			const std::filesystem::path& LocatorPath,
 			std::unique_ptr<FAssetMutationJournal>& OutJournal
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			std::string LocatorText;
-			FAssetResult Result = LoadTextFile(LocatorPath, LocatorText);
+			FAssetWriteResult Result = LoadTextFile(LocatorPath, LocatorText);
 			if (!Result) return Result;
 			FJournalFields Fields;
 			Result = ParseJournalFields(LocatorText, Fields);
@@ -887,7 +893,7 @@ namespace Durin::AssetPrivate
 				|| RootsField->second.size() != RootCount
 				|| LocatorPath.filename()
 					   != std::format("operation-{}", Operation))
-				return Error(EAssetError::CorruptFile, "An asset mutation recovery locator is invalid.");
+				return Error(EAssetWriteError::InvalidData, "An asset mutation recovery locator is invalid.");
 			const auto IsNativeTestSandboxPath = [](
 													 const std::filesystem::path& Path
 												 ) {
@@ -919,19 +925,19 @@ namespace Durin::AssetPrivate
 					NormalizePhysicalPath(RootText);
 				if (Root.filename() != std::format("operation-{}", Operation)
 					|| Root.parent_path().filename() != ".durin-asset-mutation")
-					return Error(EAssetError::CorruptFile, "An asset mutation recovery root is not owned by the operation.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation recovery root is not owned by the operation.");
 				std::string Owner;
 				Result = LoadTextFile(Root / "owner", Owner);
 				if (!Result) return Result;
 				if (Owner != MakeMutationJournalOwnerMarker(Operation))
-					return Error(EAssetError::CorruptFile, "An asset mutation recovery owner marker is invalid.");
+					return Error(EAssetWriteError::InvalidData, "An asset mutation recovery owner marker is invalid.");
 				std::string Candidate;
 				Result = LoadTextFile(Root / "journal", Candidate);
 				if (!Result) return Result;
 				if (JournalText.empty())
 					JournalText = std::move(Candidate);
 				else if (JournalText != Candidate)
-					return Error(EAssetError::CorruptFile, "Asset mutation journal replicas disagree.");
+					return Error(EAssetWriteError::InvalidData, "Asset mutation journal replicas disagree.");
 				Roots.push_back(Root);
 			}
 			return ParseMutationJournal(
@@ -962,25 +968,25 @@ namespace Durin::AssetPrivate
 		auto MakeRecoveryPending(
 			const FAssetMutationJournal& Journal,
 			std::string Message
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			return {
-				.Error = EAssetError::IoError,
+				.Error = EAssetWriteError::IoError,
 				.Message = std::move(Message),
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
+				.Disposition = EAssetWriteDisposition::ForwardPending,
 				.OperationId = Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.RecoveryLocation = Journal.LocatorPath
-			}};
+			};
 		}
 
 		auto MakeRecoveryRequired(
 			FAssetMutationJournal& Journal,
 			std::string FailedParticipant,
 			std::string Message
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
-			const FAssetResult Persist = TransitionMutationJournalState(
+			const FAssetWriteResult Persist = TransitionMutationJournalState(
 				Journal, EAssetMutationState::RecoveryRequired
 			);
 			if (!Persist)
@@ -989,20 +995,20 @@ namespace Durin::AssetPrivate
 					Persist.Message
 				);
 			return {
-				.Error = EAssetError::IoError,
+				.Error = EAssetWriteError::IoError,
 				.Message = std::move(Message),
-				.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.Disposition = EAssetWriteDisposition::RecoveryRequired,
 				.OperationId = Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.FailedParticipant = std::move(FailedParticipant),
 				.RecoveryLocation = Journal.LocatorPath
-			}};
+			};
 		}
 
 		auto PersistRecoveredProgress(FAssetMutationJournal& Journal)
-			-> FAssetResult
+			-> FAssetWriteResult
 		{
-			FAssetResult Result = WriteMutationJournalState(Journal);
+			FAssetWriteResult Result = WriteMutationJournalState(Journal);
 			if (!Result) return MakeRecoveryRequired(
 				Journal, "MutationJournal", Result.Message
 			);
@@ -1019,7 +1025,7 @@ namespace Durin::AssetPrivate
 		auto RecoverFileParticipant(
 			FAssetMutationJournal& Journal,
 			FAssetMutationJournalEntry& Entry
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			if (Entry.bCompleted)
 			{
@@ -1033,7 +1039,7 @@ namespace Durin::AssetPrivate
 			{
 				if (Entry.bPostExists)
 				{
-					FAssetResult Result = FingerprintRelocationFile(
+					FAssetWriteResult Result = FingerprintRelocationFile(
 						Entry.PhysicalPath, Entry.ExpectedPostFingerprint
 					);
 					if (!Result) return MakeRecoveryRequired(
@@ -1048,7 +1054,7 @@ namespace Durin::AssetPrivate
 					Journal, Entry.PhysicalPath.generic_string(),
 					"An asset mutation participant matches neither its recorded input nor output."
 				);
-			FAssetResult Result = PublishRelocationFile(Entry);
+			FAssetWriteResult Result = PublishRelocationFile(Entry);
 			if (!Result) return MakeRecoveryPending(Journal, Result.Message);
 			if (ConsumeMutationRecoveryFailure(
 					EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
@@ -1073,7 +1079,7 @@ namespace Durin::AssetPrivate
 		auto RecoverExternalParticipant(
 			FAssetMutationJournal& Journal,
 			FAssetMutationExternalParticipant& Participant
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			if (Participant.bCompleted) return {};
 			auto& StoreRegistry = GetAssetReferenceStoreRegistry();
@@ -1100,7 +1106,7 @@ namespace Durin::AssetPrivate
 							 )
 				);
 			FAssetReferenceStoreSnapshot Snapshot;
-			FAssetResult Result = Store->CaptureSnapshot(Snapshot);
+			FAssetWriteResult Result = Store->CaptureSnapshot(Snapshot);
 			if (!Result) return MakeRecoveryPending(Journal, Result.Message);
 			std::vector<FAssetReferenceRewrite> Pending;
 			for (const FAssetReferenceRewrite& Rewrite : Participant.Rewrites)
@@ -1173,7 +1179,7 @@ namespace Durin::AssetPrivate
 
 		auto RecoverMutationJournal(
 			FAssetMutationJournal& Journal
-		) -> FAssetResult
+		) -> FAssetWriteResult
 		{
 			if (Journal.State == EAssetMutationState::Committed) return {};
 			if (Journal.State == EAssetMutationState::Planned)
@@ -1183,7 +1189,7 @@ namespace Durin::AssetPrivate
 				);
 			if (Journal.State != EAssetMutationState::Publishing)
 			{
-				FAssetResult Result = TransitionMutationJournalState(
+				FAssetWriteResult Result = TransitionMutationJournalState(
 					Journal, EAssetMutationState::Publishing
 				);
 				if (!Result) return MakeRecoveryRequired(
@@ -1201,13 +1207,13 @@ namespace Durin::AssetPrivate
 			{
 				FAssetMutationJournalEntry& Entry = Journal.Entries[Index];
 				if (Entry.Role == EAssetMutationPublicationRole::Redirector) continue;
-				FAssetResult Result = RecoverFileParticipant(Journal, Entry);
+				FAssetWriteResult Result = RecoverFileParticipant(Journal, Entry);
 				if (!Result) return Result;
 			}
 			for (FAssetMutationExternalParticipant& Participant :
 				 Journal.ExternalParticipants)
 			{
-				FAssetResult Result = RecoverExternalParticipant(
+				FAssetWriteResult Result = RecoverExternalParticipant(
 					Journal, Participant
 				);
 				if (!Result) return Result;
@@ -1216,7 +1222,7 @@ namespace Durin::AssetPrivate
 			{
 				FAssetMutationJournalEntry& Entry = Journal.Entries[Index];
 				if (Entry.Role != EAssetMutationPublicationRole::Redirector) continue;
-				FAssetResult Result = RecoverFileParticipant(Journal, Entry);
+				FAssetWriteResult Result = RecoverFileParticipant(Journal, Entry);
 				if (!Result) return Result;
 			}
 
@@ -1235,7 +1241,7 @@ namespace Durin::AssetPrivate
 					Journal,
 					"Injected interruption before recovered projection reconciliation."
 				);
-			FAssetResult Result = RefreshSavedPackages(Paths);
+			FAssetWriteResult Result = RefreshSavedPackages(Paths);
 			if (!Result) return MakeRecoveryPending(Journal, Result.Message);
 			Result = TransitionMutationJournalState(
 				Journal, EAssetMutationState::Committed
@@ -1247,13 +1253,13 @@ namespace Durin::AssetPrivate
 		}
 	} // namespace
 
-	auto RecoverPendingMutationJournals() -> FAssetResult
+	auto RecoverPendingMutationJournals() -> FAssetWriteResult
 	{
 		const std::filesystem::path Directory =
 			GetMutationRecoveryDirectory();
 		std::error_code DirectoryError;
 		if (!std::filesystem::exists(Directory, DirectoryError))
-			return DirectoryError ? Error(EAssetError::IoError, std::format("Could not inspect asset mutation recovery directory: {}", DirectoryError.message())) : FAssetResult{};
+			return DirectoryError ? Error(EAssetWriteError::IoError, std::format("Could not inspect asset mutation recovery directory: {}", DirectoryError.message())) : FAssetWriteResult{};
 		std::vector<std::filesystem::path> Locators;
 		for (const std::filesystem::directory_entry& Entry :
 			 std::filesystem::directory_iterator(Directory, DirectoryError))
@@ -1264,12 +1270,12 @@ namespace Durin::AssetPrivate
 				Locators.push_back(Entry.path());
 		}
 		if (DirectoryError)
-			return Error(EAssetError::IoError, std::format("Could not enumerate asset mutation recovery locators: {}", DirectoryError.message()));
+			return Error(EAssetWriteError::IoError, std::format("Could not enumerate asset mutation recovery locators: {}", DirectoryError.message()));
 		std::ranges::sort(Locators);
 		for (const std::filesystem::path& Locator : Locators)
 		{
 			std::unique_ptr<FAssetMutationJournal> Journal;
-			FAssetResult Result = LoadMutationJournalFromLocator(
+			FAssetWriteResult Result = LoadMutationJournalFromLocator(
 				Locator, Journal
 			);
 			if (!Result) return Result;
@@ -1281,27 +1287,27 @@ namespace Durin::AssetPrivate
 	}
 
 	auto PublishRelocationFile(
-		const FAssetMutationJournalEntry& Entry) -> FAssetResult
+		const FAssetMutationJournalEntry& Entry) -> FAssetWriteResult
 	{
 		if (!Entry.bPostExists)
 		{
 			std::error_code RemoveError;
 			if (!std::filesystem::remove(Entry.PhysicalPath, RemoveError)
 				&& RemoveError)
-				return Error(EAssetError::IoError, std::format(
+				return Error(EAssetWriteError::IoError, std::format(
 					"Could not remove relocation input {}: {}",
 					Entry.PhysicalPath.generic_string(),
 					RemoveError.message()));
 			return {};
 		}
 		FByteBuffer Bytes;
-		FAssetResult Result = LoadRelocationBytes(Entry.StagedPostPath, Bytes);
+		FAssetWriteResult Result = LoadRelocationBytes(Entry.StagedPostPath, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;
 		std::filesystem::create_directories(
 			Entry.PhysicalPath.parent_path(), DirectoryError);
 		if (DirectoryError)
-			return Error(EAssetError::IoError, std::format(
+			return Error(EAssetWriteError::IoError, std::format(
 				"Could not create relocation destination directory: {}",
 				DirectoryError.message()));
 		return SaveRelocationBytes(Entry.PhysicalPath, Bytes);

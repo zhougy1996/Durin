@@ -65,7 +65,7 @@ namespace
 		EXPECT_NE(Asset, nullptr);
 		EXPECT_EQ(Package->FindTopLevelAsset(Asset->GetFName()), Asset);
 		Durin::FByteBuffer Bytes;
-		const FAssetResult Result = SerializeAssetPackageBytes(Package, Bytes);
+		const auto Result = SerializeAssetPackageBytes(Package, Bytes);
 		EXPECT_TRUE(Result) << Result.Message;
 		EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 		return Bytes;
@@ -239,7 +239,7 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	ASSERT_TRUE(InitializeAssetManager(Runtime));
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().RequiresCookedPayload());
 	EXPECT_FALSE(InitializeAssetManager(FAssetRuntimeConfiguration::Authored()));
-	EXPECT_EQ(SavePackage(nullptr).Error, EAssetError::ReadOnlyMode);
+	EXPECT_EQ(SavePackage(nullptr).Error, EAssetWriteError::ReadOnlyMode);
 	ShutdownAssetManager();
 	ASSERT_TRUE(InitializeAssetManager());
 }
@@ -432,7 +432,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 {
 	(void)MakePackageBytes();
 	FCookRequest Request;
-	const auto Resolve = [](const FAssetData&, FCookContributorRegistration&) -> FAssetResult { return {}; };
+	const auto Resolve = [](const FAssetData&, FCookContributorRegistration&) -> FCookContributionResult { return {}; };
 	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), Resolve);
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
 	const auto Rejected = Limited.Acquire(Roots, {});
@@ -443,7 +443,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	EXPECT_EQ(Limited.GetFailureInfo()->Maximum, MaximumCookDependencyRecords);
 	EXPECT_EQ(Limited.GetStatus(), ECookInputStatus::LimitExceeded);
 	Request.IsCancelled = [] { return true; };
-	EXPECT_EQ(Limited.CheckCancellation().Error, Rejected.Error);
+	EXPECT_EQ(Limited.CheckCancellation().Status, Rejected.Status);
 	EXPECT_EQ(Limited.GetFailureInfo()->Error, ECookInputError::RootLimit);
 	EXPECT_EQ(Limited.GetStatus(), ECookInputStatus::LimitExceeded);
 	Request.IsCancelled = {};
@@ -455,14 +455,14 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	AssetPrivate::FCookDependencyDiscovery UnknownClass(Request, CaptureAssetRegistrySnapshot(), Resolve);
 	const auto ClassFailure = UnknownClass.Acquire({}, External);
 	External = {};
-	EXPECT_EQ(ClassFailure.Error, EAssetError::UnknownClass);
+	EXPECT_EQ(ClassFailure.Status, ECookInputStatus::InvalidDependency);
 	ASSERT_TRUE(UnknownClass.GetFailureInfo());
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Error, ECookInputError::RootClass);
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Package, Target);
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Name, "MissingCookRootClass");
 	AssetPrivate::FCookDependencyDiscovery Empty(Request, CaptureAssetRegistrySnapshot(), Resolve);
 	const auto EmptyFailure = Empty.Acquire({}, {});
-	EXPECT_EQ(EmptyFailure.Error, EAssetError::NotFound);
+	EXPECT_EQ(EmptyFailure.Status, ECookInputStatus::InvalidDependency);
 	ASSERT_TRUE(Empty.GetFailureInfo());
 	EXPECT_EQ(Empty.GetFailureInfo()->Error, ECookInputError::NoRuntimePackages);
 }
@@ -476,13 +476,13 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 	Name.clear();
 	EXPECT_FALSE(Result);
 	EXPECT_TRUE(Bytes.empty());
-	EXPECT_EQ(Result.Error, EAssetError::MissingDependency);
+	EXPECT_EQ(Result.Status, ECookInputStatus::InvalidDependency);
 
 	FCookInputFailure Io{.Error = ECookInputError::FileIo, .File = "input.bin",
 		.FileCause = FFileHelper::FFileIoError{.NativeError = std::make_error_code(std::errc::io_error),
 			.Path = "input.bin", .Offset = 42, .Size = 128}};
-	const auto Adapted = Io.ToAssetResult();
-	EXPECT_EQ(Adapted.Error, EAssetError::IoError);
+	const auto Adapted = Io.ToInputResult();
+	EXPECT_EQ(Adapted.Status, ECookInputStatus::IoError);
 	Io = {};
 
 }
@@ -505,17 +505,19 @@ TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
 	Rejected.Error = ECookContributionError::Plan;
 	Rejected.PlanCause = FCookPlanError{.Code = ECookPlanError::DuplicatePath,
 		.VirtualPath = Rejected.VirtualPath};
-	const auto Adapted = Rejected.ToAssetResult();
+	const auto Adapted = Rejected;
 	Rejected = {};
 	EXPECT_FALSE(Adapted);
+	EXPECT_EQ(Adapted.Error, ECookContributionError::Plan);
+	EXPECT_NE(FormatCookContributionError(Adapted).find("/Game/Rejected"), std::string::npos);
 
-	EXPECT_TRUE(FCookContributionResult{}.ToAssetResult());
+	EXPECT_TRUE(FCookContributionResult{});
 
 }
 
 TEST(FCookContributorTests, BatchFailureRetainsCauseAndRollsBackOnlyNewHandles)
 {
-	const FCookContributor Callback = [](DObject&, std::string_view, FCookContext&) -> FAssetResult { return {}; };
+	const FCookContributor Callback = [](DObject&, std::string_view, FCookContext&) -> FCookContributionResult { return {}; };
 	const auto Invalid = RegisterCookContributor(nullptr, {"invalid", 1, 1, Callback});
 	EXPECT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.Error, ECookContributorRegistrationError::InvalidClass);
@@ -543,7 +545,7 @@ TEST(FCookContributorTests, BatchFailureRetainsCauseAndRollsBackOnlyNewHandles)
 TEST(FCookContributorTests, RejectsDuplicatesAndAllowsOwnerRetirement)
 {
 	const FCookContributor Contributor = [](DObject&, std::string_view,
-											FCookContext&) -> FAssetResult { return {}; };
+											FCookContext&) -> FCookContributionResult { return {}; };
 	const FCookContributorHandle First = RegisterCookContributor(
 		DObject::StaticClass(), {"generic-test", 1, 1, Contributor}
 	).Handle;
@@ -560,7 +562,7 @@ TEST(FCookContributorTests, RejectsDuplicatesAndAllowsOwnerRetirement)
 TEST(FCookContributorTests, RunPinsRetiredOwnerUntilCancellationReturns)
 {
 	const FCookContributor Callback = [](DObject&, std::string_view,
-		FCookContext&) -> FAssetResult { return {}; };
+		FCookContext&) -> FCookContributionResult { return {}; };
 	auto Owner = std::make_shared<int>(42);
 	std::weak_ptr<int> WeakOwner = Owner;
 	const auto Handle = RegisterCookContributor(DObject::StaticClass(),
@@ -589,7 +591,7 @@ TEST(FCookContributorTests, RunPinsRetiredOwnerUntilCancellationReturns)
 TEST(FCookContributorTests, OwnerDestructionCanReenterRegistration)
 {
 	const FCookContributor Callback = [](DObject&, std::string_view,
-		FCookContext&) -> FAssetResult { return {}; };
+		FCookContext&) -> FCookContributionResult { return {}; };
 	bool Destroyed = false;
 	auto Owner = std::shared_ptr<void>(new int(42), [&](void* Value) {
 		delete static_cast<int*>(Value);
@@ -621,7 +623,7 @@ TEST(FCookContributorTests, CallbackDestructionPrecedesOwnerReleaseEvenWhenRejec
 			});
 		return FCookContributorRegistration{"ordered-test", 1, 1,
 			[State = std::move(CallbackState)](DObject&, std::string_view,
-				FCookContext&) -> FAssetResult { return {}; }, {}, std::move(Owner)};
+				FCookContext&) -> FCookContributionResult { return {}; }, {}, std::move(Owner)};
 	};
 	const auto Handle = RegisterCookContributor(DObject::StaticClass(), MakeRegistration()).Handle;
 	ASSERT_NE(Handle, 0u);
@@ -787,8 +789,8 @@ TEST(FCookSavePlanTests, FailedFinalizationReturnsNoPartialPlans)
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Error.Code, ECookPlanError::Canonicalization);
 	EXPECT_EQ(Result.Error.VirtualPath, "/Game/Corrupt");
-	ASSERT_TRUE(Result.Error.CanonicalizationCause);
-	EXPECT_FALSE(*Result.Error.CanonicalizationCause);
+	ASSERT_FALSE(Result.Error.CanonicalizationDiagnostic.empty());
+	EXPECT_FALSE(Result.Error.CanonicalizationDiagnostic.empty());
 	EXPECT_TRUE(Plans.empty());
 	EXPECT_TRUE(Context.GetSavePlans().empty());
 }
@@ -1049,14 +1051,14 @@ TEST(FCookDependencyTests, AssetAdapterPreservesFailureClassification)
 		{ECookBuildDependencyKind::SourcePackage, "source", {}}}, {}}};
 	auto Rejected = Graph.Initialize(Inputs);
 	ASSERT_FALSE(Rejected);
-	const auto AssetResult = Rejected.ToAssetResult();
+	const auto AssetResult = Rejected.ToInputResult();
 	Rejected = {};
 	Inputs.clear();
 	EXPECT_FALSE(AssetResult);
-	EXPECT_EQ(AssetResult.Error, EAssetError::CorruptFile);
-	EXPECT_EQ(AssetResult.WriteOutcome.Disposition, EAssetResultDisposition::Default);
+	EXPECT_EQ(AssetResult.Status, ECookInputStatus::InvalidDependency);
+	EXPECT_FALSE(AssetResult.Message.empty());
 
-	const auto Success = FCookDependencyGraphResult{}.ToAssetResult();
+	const auto Success = FCookDependencyGraphResult{}.ToInputResult();
 	EXPECT_TRUE(Success);
 
 }

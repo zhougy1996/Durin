@@ -202,13 +202,13 @@ namespace Durin::AssetForge::Builtins
 						}
 						else if (bSave)
 						{
-							const FAssetResult Saved =
+							const FAssetWriteResult Saved =
 								SavePackage(Texture.GetPackage());
 							if (!Saved)
 							{
 								Result.Status = ETexture2DCompilationStatus::Failed;
 								Result.Error = {.Code = ETexture2DCompilationError::Save, .ObjectPath = Texture.GetObjectPath(),
-									.SaveCause = std::make_shared<FAssetResult>(Saved)};
+									.SaveCause = std::make_shared<FAssetWriteResult>(Saved)};
 							}
 						}
 					}

@@ -258,7 +258,7 @@ namespace Durin::Editor::Level
 				return false;
 			}
 			FObjectPath LevelPath;
-			const FAssetResult ResolveResult =
+			const auto ResolveResult =
 				ResolveLevelPackage(PackagePath, LevelPath);
 			if (!ResolveResult)
 			{
@@ -288,8 +288,8 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		FObjectPath ResolvedLevelPath;
-		const FAssetResult Resolution = DefaultLevel.IsNull()
-			? FAssetResult{}
+		const auto Resolution = DefaultLevel.IsNull()
+			? FAssetReadResult{}
 			: ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
 		if (!Resolution
 			|| (!DefaultLevel.IsNull()
@@ -649,7 +649,7 @@ namespace Durin::Editor::Level
 							return false;
 						}
 						FObjectPath LevelPath;
-						const FAssetResult Resolution =
+						const auto Resolution =
 							ResolveLevelPackage(
 								AssetPath.GetPackagePath(), LevelPath);
 						if (!Resolution)

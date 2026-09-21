@@ -183,7 +183,7 @@ namespace Durin::AssetForge::Builtins
 					else if (const auto Saved = SavePackagesAtomically(std::span<DPackage* const>(&Package, 1), *Save); !Saved)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
-						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetResult>(Saved)};
+						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetWriteResult>(Saved)};
 					}
 				}
 				if (Completion) Completion(*Result);

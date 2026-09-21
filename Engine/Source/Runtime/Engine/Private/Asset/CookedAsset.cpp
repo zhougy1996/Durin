@@ -207,13 +207,13 @@ namespace Durin
 	auto FAssetRuntimeConfiguration::Cooked(
 		std::filesystem::path InCookRoot,
 		FAssetRuntimeConfiguration& OutConfiguration
-	) -> FAssetResult
+	) -> FAssetReadResult
 	{
 		if (InCookRoot.empty() || !InCookRoot.is_absolute()
 			|| InCookRoot.lexically_normal() != InCookRoot)
 		{
 			return {
-				.Error = EAssetError::InvalidPath,
+				.Error = EAssetReadError::InvalidPath,
 				.Message = "Cooked asset execution requires an absolute normalized cook root."
 			};
 		}
@@ -469,7 +469,7 @@ namespace Durin
 		{
 		case ECookPlanError::None: return {};
 		case ECookPlanError::Target: return "Cook save-plan target is invalid.";
-		case ECookPlanError::Canonicalization: return "Cook package " + Error.VirtualPath + " could not be canonicalized: " + (Error.CanonicalizationCause ? Error.CanonicalizationCause->Message : std::string{});
+		case ECookPlanError::Canonicalization: return "Cook package " + Error.VirtualPath + " could not be canonicalized: " + Error.CanonicalizationDiagnostic;
 		case ECookPlanError::Resolution: return "Cook output path " + Error.VirtualPath + " does not resolve to a final real asset.";
 		case ECookPlanError::CanonicalDuplicate: return "Cook package path " + Error.VirtualPath + " is duplicated after redirect canonicalization.";
 		case ECookPlanError::Path: return "Cook package path is invalid or uses an unsupported mount: " + Error.VirtualPath;
@@ -479,7 +479,7 @@ namespace Durin
 		case ECookPlanError::EmptyPackage: return "Cook package bytes must be nonempty.";
 		case ECookPlanError::DuplicatePath: return "Cook package path is duplicated: " + Error.VirtualPath;
 		case ECookPlanError::InvalidPackage: return "Cook package projection requires a valid asset package.";
-		case ECookPlanError::Projection: return Error.ProjectionCause ? "Cook package projection failed: " + Error.ProjectionCause->Message : "Cook package projection failed.";
+		case ECookPlanError::Projection: return !Error.ProjectionDiagnostic.empty() ? "Cook package projection failed: " + Error.ProjectionDiagnostic : "Cook package projection failed.";
 		}
 		return {};
 	}
@@ -548,11 +548,11 @@ namespace Durin
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
 		FByteBuffer PackageBytes;
 		FByteBuffer Segment;
-		const FAssetResult Result = SerializeAssetPackageClosure(
+		const auto Result = SerializeAssetPackageClosure(
 			Package, PackageBytes, Segment, Options);
 		if (!Result)
 			return {{.Code = ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
-				.SourcePath = SourcePackagePath.ToString(), .ProjectionCause = std::make_shared<FAssetResult>(Result)}};
+				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = Result.Message}};
 		FPackageBulkSegmentSummary Summary{
 			.Extent = Segment.size(),
 			.Digest = Segment.empty() ? FXxHash128{} : FXxHash128::HashBuffer(Segment)};
@@ -613,7 +613,7 @@ namespace Durin
 					&& !FPackagePath::TryCreateProjectContent(
 						Plan.VirtualPath, PackagePath))
 					return {.Error = {.Code = ECookPlanError::SourceIdentity, .VirtualPath = Plan.VirtualPath}};
-				const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
+				const auto CanonicalResult = CanonicalizeAssetPackageForCook(
 					Plan.PackageBytes, Plan.BulkBytes,
 					Plan.SourcePackagePath.IsValid()
 						? Plan.SourcePackagePath : PackagePath,
@@ -622,7 +622,7 @@ namespace Durin
 				);
 				if (!CanonicalResult)
 					return {.Error = {.Code = ECookPlanError::Canonicalization, .VirtualPath = Plan.VirtualPath,
-					.CanonicalizationCause = std::make_shared<FAssetResult>(CanonicalResult)}};
+					.CanonicalizationDiagnostic = CanonicalResult.Message}};
 				Plan.PackageBytes = std::move(CanonicalBytes);
 				Plan.BulkBytes = std::move(CanonicalBulkBytes);
 			}

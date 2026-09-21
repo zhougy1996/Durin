@@ -343,7 +343,7 @@ TEST(FMaterialThumbnailRendererTests,
 		Durin::FindAssetExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
-	const Durin::FAssetResult LoadResult =
+	const auto LoadResult =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
@@ -391,7 +391,7 @@ TEST(FMaterialThumbnailRendererTests,
 		Durin::FindAssetExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
-	const Durin::FAssetResult LoadResult =
+	const auto LoadResult =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);

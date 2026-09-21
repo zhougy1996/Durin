@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetWriteResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/MutationTypes.h"
@@ -39,5 +39,5 @@ namespace Durin
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetRelocationSummary& OutSummary,
 		FAssetMutationJob& OutJob
-	) -> FAssetResult;
+	) -> FAssetWriteResult;
 } // namespace Durin

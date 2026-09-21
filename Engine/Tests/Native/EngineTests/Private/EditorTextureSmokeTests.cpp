@@ -376,13 +376,13 @@ namespace Durin
 			});
 		CommandStartedFuture.wait();
 		PrimitiveProxy.reset();
-		const FAssetResult MaterialUnload =
+		const auto MaterialUnload =
 			UnloadPackage(Material->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		MarkObjectHierarchyAsGarbage(Actor);
 		CollectGarbage();
-		const FAssetResult MeshUnload =
+		const auto MeshUnload =
 			UnloadPackage(MeshPath);
-		const FAssetResult TextureUnload =
+		const auto TextureUnload =
 			UnloadPackage(
 				TexturePath,
 				EAssetPackageUnloadPolicy::DiscardUnsaved);
@@ -453,7 +453,7 @@ namespace Durin
 		FPackagePath TexturePath;
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/TextureOwnershipSmoke/Texture", TexturePath));
-		const FAssetResult Unload = UnloadPackage(TexturePath);
+		const auto Unload = UnloadPackage(TexturePath);
 		AllowCommandCompletion->set_value();
 		FlushRenderingCommands();
 		EXPECT_TRUE(Unload) << Unload.Message;

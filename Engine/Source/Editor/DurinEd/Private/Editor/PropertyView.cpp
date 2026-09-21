@@ -395,12 +395,12 @@ namespace Durin::Editor
 			*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
 		if (!Resolve)
 		{
-			ViewState.State = Resolve.Result.Error == EAssetError::TypeMismatch
-				|| Resolve.Result.Error == EAssetError::UnknownClass
+			ViewState.State = Resolve.Result.Error == EAssetReadError::TypeMismatch
+				|| Resolve.Result.Error == EAssetReadError::UnknownClass
 				? ESoftObjectViewState::TypeMismatch
 				: ESoftObjectViewState::Missing;
 			ViewState.Error = ESoftObjectViewError::Asset;
-			ViewState.AssetCause = std::make_shared<FAssetResult>(Resolve.Result);
+			ViewState.AssetCause = std::make_shared<FAssetReadResult>(Resolve.Result);
 			return ViewState;
 		}
 		ViewState.ResolvedPath = Resolve.ResolvedPath;
@@ -455,7 +455,7 @@ namespace Durin::Editor
 		if (!Loaded)
 		{
 			Result.Error = EPropertySoftLoadError::Asset;
-			Result.AssetCause = std::make_shared<FAssetResult>(std::move(Loaded));
+			Result.AssetCause = std::make_shared<FAssetReadResult>(std::move(Loaded));
 			return Result;
 		}
 		if (!OutObject) Result.Error = EPropertySoftLoadError::MissingObject;

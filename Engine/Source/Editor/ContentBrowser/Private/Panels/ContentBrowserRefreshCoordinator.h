@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 
@@ -14,7 +14,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	class FContentBrowserRefreshCoordinator
 	{
 	public:
-		using FReconcileMountedContent = std::function<FAssetResult()>;
+		using FReconcileMountedContent = std::function<FAssetReadResult()>;
 		using FRefreshPublishedContent = std::function<void(const FContentChangeBatch&)>;
 		using FGetRegistryRevision = std::function<uint64()>;
 
@@ -41,13 +41,13 @@ namespace Durin::Editor::ContentBrowser::Private
 			const FReconcileMountedContent& ReconcileMountedContent,
 			const FRefreshPublishedContent& RefreshPublishedContent,
 			const FGetRegistryRevision& GetRegistryRevision)
-			-> FAssetResult;
+			-> FAssetReadResult;
 		auto ReconcileExplicitly(
 			uint64 MountedContentRevision,
 			const FReconcileMountedContent& ReconcileMountedContent,
 			const FRefreshPublishedContent& RefreshPublishedContent,
 			const FGetRegistryRevision& GetRegistryRevision)
-			-> FAssetResult;
+			-> FAssetReadResult;
 		auto RefreshRegistryView(
 			uint64 AssetRegistryRevision,
 			const FRefreshPublishedContent& RefreshPublishedContent) -> void;

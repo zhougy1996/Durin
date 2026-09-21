@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/Mutation.h"

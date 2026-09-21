@@ -46,13 +46,12 @@ namespace
 {
 	auto RelocateAssetForTest(
 		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::FAssetResult
+		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
 		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
 		Durin::FAssetRelocationSummary Summary;
 		Durin::FAssetMutationJob Transaction;
-		Durin::FAssetResult Result =
-			Durin::PrepareAssetRelocationJob(
+		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
 				std::span{&Mapping, 1}, Summary, Transaction);
 		if (Result) Result = Transaction.ResumeForward();
 		return Result;
@@ -836,7 +835,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const Durin::FAssetResult Load = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
+	const auto Load = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Cooked, nullptr);
 	const auto BulkStateBeforeGet = Cooked->GetCookedPlatformData().GetState();

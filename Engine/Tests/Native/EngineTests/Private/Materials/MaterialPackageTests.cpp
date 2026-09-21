@@ -246,7 +246,7 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(InstanceBytes)), Root / "Instance.dasset"));
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
-	const Durin::FAssetResult Load =
+	const auto Load =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
 	EXPECT_FALSE(Load);
 	EXPECT_EQ(LoadedInstance, nullptr);
@@ -308,7 +308,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "Base.dasset"));
 			DMaterial* Loaded = nullptr;
 			const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
-			EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion) << Result.Message;
+			EXPECT_EQ(Result.Error, EAssetReadError::UnsupportedVersion) << Result.Message;
 			EXPECT_EQ(Loaded, nullptr);
 			EXPECT_EQ(FindResidentPackage(Path), nullptr);
 		}

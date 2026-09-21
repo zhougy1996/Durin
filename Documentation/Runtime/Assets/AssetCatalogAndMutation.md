@@ -82,7 +82,7 @@ aggregate entry points are defined by
 public mutable catalog manager.
 
 AssetRegistry and Engine asset APIs live directly in the `Durin` namespace.
-Their domain is expressed by names such as `FAssetResult`, `FindAssetExact`,
+Their domain is expressed by names such as `FAssetReadResult`, `FindAssetExact`,
 `RefreshAssetRegistry`, `LoadObject`, and `SavePackage`; there is no redundant
 public `Durin::Asset` namespace. File-private and cross-file implementation
 details use `Durin::AssetPrivate` when they require a shared internal scope.
@@ -97,12 +97,15 @@ contain `FAssetRegistryErrorContext` rather than prose: precise reason, owned pa
 actual/expected bounds or revisions, filesystem code, envelope code and complete
 package Reader cause. `FormatAssetRegistryError` is the presentation boundary.
 Nonfatal cache-warning contracts remain separate.
-Engine exports `EAssetError` and `FAssetResult` for loading, storage, Cook, and
-mutation operations. Engine translates Registry results explicitly at its
-publication and package-header boundaries and retains `RegistryCause`;
-AssetRegistry never includes or
-returns the Engine result contract. Engine asset results expose their
-presentation text through `Message`.
+Engine loading and inspection return `FAssetReadResult` with `EAssetReadError`;
+saving and mutation return `FAssetWriteResult` with `EAssetWriteError`.
+Read cancellation and pending Registry projection have explicit classifications.
+Write preparation failures retain their full diagnostic text; object/field
+validation failures use `InvalidData` at the write boundary. Only write results
+carry durable disposition and recovery metadata. AssetRegistry owns its own
+result contract; Engine formats its diagnostic at the adaptation boundary.
+Both read and write results expose their presentation text through `Message`.
+Cook inputs and contributor callbacks use their Cook-owned result types.
 
 ## Reference Projection
 
@@ -172,7 +175,7 @@ global object-edit Undo/Redo history.
 `SAVE_Async` is a scheduling flag, independent of Delta/Complete mode. It returns
 only admission and exposes no task handle. For persistence confirmation use
 `Package->SaveAsync(Admission, FAssetPackageSaveContext{Options})`, which returns
-`Tasks::TTask<FAssetResult>`. The explicit Engine context keeps asset readiness,
+`Tasks::TTask<FAssetWriteResult>`. The explicit Engine context keeps asset readiness,
 participant validation and Registry publication; the CoreDObject file-only
 context cannot substitute for it in editor workflows. Shared lifetime, capacity,
 wait and shutdown rules are defined by
@@ -287,7 +290,7 @@ authoritative participants converge. Missing providers remain forward-pending;
 unsafe paths, divergent replicas, or bytes matching neither recorded image
 require explicit recovery instead of automatic publication.
 
-`FAssetResult` carries mutation disposition separately from its diagnostic error
+`FAssetWriteResult` carries mutation disposition separately from its diagnostic error
 code. Forward-pending, projection-pending, and recovery-required results are
 therefore consumed structurally rather than inferred from message text. Durable
 jobs also return their operation id, desired direction, and recovery location

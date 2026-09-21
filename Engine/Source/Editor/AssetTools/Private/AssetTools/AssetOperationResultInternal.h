@@ -1,35 +1,38 @@
 #pragma once
 
 #include "AssetTools/AssetOperation.h"
-#include "Asset/AssetDefinitions.h"
+#include "Asset/AssetWriteResult.h"
 
 namespace Durin::AssetToolsPrivate
 {
 	inline auto FromEngineResult(
 		EAssetOperationKind Kind,
-		const FAssetResult& Result,
+		const FAssetWriteResult& Result,
 		std::span<const FPackagePath> Affected = {}) -> FAssetOperationResult
 	{
 		EAssetOperationTerminalState State = Result
 			? EAssetOperationTerminalState::Completed
 			: EAssetOperationTerminalState::Rejected;
-		if (Result.WriteOutcome.Disposition ==
-			EAssetResultDisposition::ContentCommittedProjectionPending)
+		if (Result.Disposition ==
+			EAssetWriteDisposition::ContentCommittedProjectionPending)
 			State = EAssetOperationTerminalState::ContentCommittedProjectionPending;
-		else if (Result.WriteOutcome.Disposition ==
-			EAssetResultDisposition::RecoveryRequired)
+		else if (Result.Disposition ==
+			EAssetWriteDisposition::RecoveryRequired)
 			State = EAssetOperationTerminalState::RecoveryRequired;
-		else if (Result.WriteOutcome.Disposition ==
-			EAssetResultDisposition::ForwardPending)
+		else if (Result.Disposition ==
+			EAssetWriteDisposition::ForwardPending)
 			State = EAssetOperationTerminalState::ForwardPending;
+		else if (Result.Disposition == EAssetWriteDisposition::PartiallyWritten)
+			State = EAssetOperationTerminalState::PartiallyWritten;
 		FAssetOperationResult Operation{
 			.Kind = Kind,
 			.State = State,
 			.Message = Result.Message,
-			.OperationId = Result.WriteOutcome.OperationId,
-			.DesiredDirection = Result.WriteOutcome.DesiredDirection,
-			.FailedParticipant = Result.WriteOutcome.FailedParticipant,
-			.RecoveryLocation = Result.WriteOutcome.RecoveryLocation};
+			.OperationId = Result.OperationId,
+			.DesiredDirection = Result.DesiredDirection,
+			.FailedParticipant = Result.FailedParticipant,
+			.RecoveryLocation = Result.RecoveryLocation,
+			.AffectedFiles = Result.AffectedFiles};
 		Operation.AffectedAssets.assign(Affected.begin(), Affected.end());
 		return Operation;
 	}

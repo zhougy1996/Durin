@@ -8,7 +8,7 @@ namespace Durin::AssetPrivate
 {
  auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
   const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-  uint32 FormatVersion) -> FAssetResult
+  uint32 FormatVersion) -> FAssetWriteResult
  {
   FSavePackageContext SaveContext;
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
@@ -27,21 +27,21 @@ namespace Durin::AssetPrivate
     FObjectPath Path;
     if (!Destination || Destination == Asset || !Destination->GetPackage()
      || !FObjectPath::TryCreate(Destination->GetObjectPath(), Path))
-     return {EAssetError::CorruptFile, "Redirector destination is invalid."};
+     return {EAssetWriteError::InvalidData, "Redirector destination is invalid."};
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
   auto Captured = SaveContext.Capture(Package, OutLinker, FormatVersion);
   if (Captured) return {};
   // Classify and format at the Engine boundary; capture keeps its native status.
-  FAssetResult Result;
+  FAssetWriteResult Result;
   Result.Message = FormatPackageCaptureError(Captured.Error);
   switch (GetPackageCaptureSaveError(Captured.Error))
   {
-   case EPackageSaveError::InvalidPath: Result.Error = EAssetError::InvalidPath; break;
-   case EPackageSaveError::InvalidPackageType: Result.Error = EAssetError::InvalidPackageType; break;
-   case EPackageSaveError::InvalidObjectGraph: Result.Error = EAssetError::InvalidObjectGraph; break;
-   case EPackageSaveError::UnsupportedVersion: Result.Error = EAssetError::UnsupportedVersion; break;
-   default: Result.Error = EAssetError::UnsupportedProperty; break;
+   case EPackageSaveError::InvalidPath: Result.Error = EAssetWriteError::InvalidPath; break;
+   case EPackageSaveError::InvalidPackageType: Result.Error = EAssetWriteError::InvalidData; break;
+   case EPackageSaveError::InvalidObjectGraph: Result.Error = EAssetWriteError::InvalidData; break;
+   case EPackageSaveError::UnsupportedVersion: Result.Error = EAssetWriteError::UnsupportedVersion; break;
+   default: Result.Error = EAssetWriteError::InvalidData; break;
   }
   return Result;
  }

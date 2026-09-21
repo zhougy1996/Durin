@@ -183,7 +183,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::FindAssetExact(SplineBoxPath);
 	ASSERT_NE(Data, nullptr);
 	Durin::DStaticMesh* Mesh = nullptr;
-	const Durin::FAssetResult LoadResult =
+	const auto LoadResult =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);

@@ -61,7 +61,7 @@ this API does not add a general object loader.
 
 `SaveAsync` requires an explicit context and returns an existing typed Task.
 `FSavePackageContext` supplies `Tasks::TTask<FPackageSaveResult>`; Engine's
-`FAssetPackageSaveContext` supplies `Tasks::TTask<FAssetResult>` with asset policy
+`FAssetPackageSaveContext` supplies `Tasks::TTask<FAssetWriteResult>` with asset policy
 and Registry publication. There is no default context or implicit file-only
 fallback. Both reject direct-write flags. Options are copied at submission.
 Rejected admission returns an invalid task and a domain error in `Admission`;

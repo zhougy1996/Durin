@@ -805,7 +805,7 @@ namespace Durin::AssetForge::Builtins
 		auto PreviousCompilations = DependentMaterials;
 		for (const auto& Output : Prepared) if (Output.Previous) PreviousCompilations.push_back(Output.Previous);
 		FAssetCompilingManager::Get().FinishCompilationForObjects(PreviousCompilations);
-		FAssetResult PersistenceResult;
+		FAssetWriteResult PersistenceResult;
 		auto Published = Publication.Prepare(Pairs, {}, {.MaximumPackages = 4096});
 		if (Published)
 		{

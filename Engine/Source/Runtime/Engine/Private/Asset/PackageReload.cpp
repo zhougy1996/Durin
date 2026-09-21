@@ -601,7 +601,7 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				Ignore.reserve(Packages.size());
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
-				const FAssetResult ReleaseResult = DependencyScope.Release(Ignore);
+				const auto ReleaseResult = DependencyScope.Release(Ignore);
 				if (!ReleaseResult)
 				{
 					// Publication is already committed. Dependency retention is safe and

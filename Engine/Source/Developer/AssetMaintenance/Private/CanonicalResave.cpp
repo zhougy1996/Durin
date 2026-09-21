@@ -342,7 +342,7 @@ namespace Durin
 					for (auto& [Texture, Source] : Originals)
 						(void)Texture->ReplaceSourceStorage(std::move(Source));
 				Originals.clear();
-				return bWasLoaded ? FAssetResult{} : LoadScope.Release();
+				return bWasLoaded ? FAssetReadResult{} : LoadScope.Release();
 			};
 			FAssetLoadReport LoadReport;
 			if (!Package)
@@ -354,7 +354,7 @@ namespace Durin
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				FAssetResult Load = LoadScope.LoadPackage(
+				auto Load = LoadScope.LoadPackage(
 					PackagePlan.PackagePath, Package, &LoadReport);
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
@@ -368,7 +368,7 @@ namespace Durin
 			}
 			if (Options.PrepareLoadedAsset)
 			{
-				FAssetResult Prepared;
+				FAssetWriteResult Prepared;
 				for (DObject* Asset : Package->GetTopLevelAssets())
 				{
 					Prepared = Options.PrepareLoadedAsset(
@@ -508,7 +508,7 @@ namespace Durin
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::PublishRegistry, Index);
 				return false;
 			};
-			FAssetResult Save = SavePackagesAtomically(Unit, SaveOptions);
+			FAssetWriteResult Save = SavePackagesAtomically(Unit, SaveOptions);
 			if (!Save)
 			{
 				(void)ReleaseLoaded();
@@ -524,7 +524,7 @@ namespace Durin
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);
-			FAssetResult Verify = {EAssetError::IoError,
+			FAssetReadResult Verify = {EAssetReadError::IoError,
 				"Published package could not be reread."};
 			if (LoadBytes(PackagePlan.PhysicalPath, AfterBytes))
 			{
@@ -572,7 +572,7 @@ namespace Durin
 			Package->SetCanonicalResaveRecommended(false);
 			if (!bWasLoaded)
 			{
-				FAssetResult Release = ReleaseLoaded();
+				auto Release = ReleaseLoaded();
 				if (!Release)
 				{
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;

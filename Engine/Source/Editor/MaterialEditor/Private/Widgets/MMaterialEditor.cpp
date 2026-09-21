@@ -296,7 +296,7 @@ namespace Durin::Editor::Material
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const FAssetResult Result = LoadObject(AssetPath, Material);
+		const auto Result = LoadObject(AssetPath, Material);
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);

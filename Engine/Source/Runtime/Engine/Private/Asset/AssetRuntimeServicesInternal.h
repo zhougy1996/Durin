@@ -22,12 +22,12 @@ namespace Durin
 		auto LoadPackage(
 			const FPackagePath& Path,
 			DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		auto LoadObject(
 			const FObjectPath& Path,
 			const DClass* ExpectedClass,
 			DObject*& OutObject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		auto ResolveSoftObject(
 			FSoftObjectPtr& Reference,
 			const DClass* ExpectedClass,
@@ -37,14 +37,14 @@ namespace Durin
 			const DClass* ExpectedClass,
 			DObject*& OutObject,
 			ESoftObjectNullPolicy NullPolicy,
-			FAssetLoadReport* OutReport) -> FAssetResult;
+			FAssetLoadReport* OutReport) -> FAssetReadResult;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
 		auto UnloadPackage(
 			const FPackagePath& Path,
 			EAssetPackageUnloadPolicy Policy =
-				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetResult;
+				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetReadResult;
 		auto ReleasePackages(std::span<const TWeakObjectPtr<DPackage>> Packages,
-			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetResult;
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetReadResult;
 
 		auto IsPackageLoading(const FPackagePath& Path) const -> bool
 		{
@@ -76,25 +76,25 @@ namespace Durin
 			uint64 Index = 0;
 			uint64 LowLink = 0;
 			bool bOwnResource = false;
-			std::function<FAssetResult()> Validate;
+			std::function<FAssetReadResult()> Validate;
 			std::function<void()> PostLoad;
 		};
 		auto ResolveDependencyPackage(FPendingLoad& Owner, const FPackagePath& Path,
-			DPackage*& OutPackage) -> FAssetResult;
+			DPackage*& OutPackage) -> FAssetReadResult;
 		auto ResolveDependencyObject(FPendingLoad& Owner, const FObjectPath& Path,
-			DObject*& OutObject) -> FAssetResult;
-		auto CompleteComponent(FPendingLoad& Root) -> FAssetResult;
+			DObject*& OutObject) -> FAssetReadResult;
+		auto CompleteComponent(FPendingLoad& Root) -> FAssetReadResult;
 		auto DiscardIncomplete(uint64 FirstIndex) noexcept -> void;
 		auto LoadPackageFromPhysicalPath(
 			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		auto LoadPackageInternal(
 			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+			FAssetLoadReport* OutReport = nullptr) -> FAssetReadResult;
 		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
@@ -121,48 +121,48 @@ namespace Durin
 		{
 		}
 
-		auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetResult;
+		auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult;
 		auto SavePackagesAtomically(
 			std::span<DPackage* const> Packages,
-			const FAssetBundleSaveOptions& Options) -> FAssetResult;
-		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetResult;
+			const FAssetBundleSaveOptions& Options) -> FAssetWriteResult;
+		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
 		auto PrepareAssetRelocationJob(
 			std::span<const FAssetRelocationMapping> Mappings,
 			FAssetRelocationSummary& OutSummary,
-			FAssetMutationJob& OutJob) -> FAssetResult;
+			FAssetMutationJob& OutJob) -> FAssetWriteResult;
 		auto PrepareAssetRelocationState(
 			std::span<const FAssetRelocationMapping> Mappings,
-			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult;
+			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult;
 		auto RevalidateAssetRelocation(
-			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
+			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
 		auto ApplyAssetRelocation(
-			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
+			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
 		auto PrepareRedirectorFixupJob(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
 			FAssetRedirectorFixupSummary& OutSummary,
-			FAssetMutationJob& OutJob) -> FAssetResult;
+			FAssetMutationJob& OutJob) -> FAssetWriteResult;
 		auto PrepareRedirectorFixupState(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
-			std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult;
+			std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetWriteResult;
 		auto ValidateRedirectorFixupCommit(
-			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
+			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetWriteResult;
 		auto CommitRedirectorFixup(
-			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
+			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetWriteResult;
 		auto ReleasePackagesForRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 		auto PublishPackageRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 
 	private:
 		auto ValidatePackageRemoval(
-			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);
 		}
-		auto UnloadPackage(const FPackagePath& Path) -> FAssetResult
+		auto UnloadPackage(const FPackagePath& Path) -> FAssetReadResult
 		{
 			return Loader.UnloadPackage(Path);
 		}

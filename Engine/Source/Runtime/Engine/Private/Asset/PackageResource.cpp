@@ -344,17 +344,17 @@ namespace Durin
 				return {.Error = {.Code = EPreparedStatus::BudgetExceeded, .Reason = EPreparedReason::ClosureBudget, .Path = PackagePath, .MainBytes = MainSize, .BulkBytes = BulkSize, .MaximumBytes = MaximumRetainedBytes}};
 			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 			if (auto Result = AssetPrivate::ResolveAssetPackageReader(Main, Codec); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ResolveCodec, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetResult>(std::move(Result))}};
+				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ResolveCodec, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
 			const AssetPrivate::FAssetPackageReadContext Context{
 				.PackageBytes = Main, .PackagePath = LogicalPath,
 				.PhysicalPackageBytes = MainSize, .PhysicalBulkBytes = BulkSize,
 				.bResourceBackedBulk = true};
 			FAssetPackageHeader Header;
 			if (auto Result = Codec->ReadHeader(Context, Header); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ReadHeader, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetResult>(std::move(Result))}};
+				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::ReadHeader, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
 			FAssetPackageInspection Inspection;
 			if (auto Result = Codec->Inspect(Context, Inspection); !Result)
-				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::Inspect, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetResult>(std::move(Result))}};
+				return {.Error = {.Code = EPreparedStatus::InvalidClosure, .Reason = EPreparedReason::Inspect, .Path = PackagePath, .AssetCause = std::make_shared<const FAssetReadResult>(std::move(Result))}};
 			std::vector<FPackageBulkStorageDescriptor> Descriptors;
 			if (const auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Storage)
 				return {.Error = {.Code = EPreparedStatus::InvalidClosure,

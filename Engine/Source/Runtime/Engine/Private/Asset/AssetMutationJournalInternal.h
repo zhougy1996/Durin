@@ -113,40 +113,40 @@ namespace Durin::AssetPrivate
 	auto StageMutationJournalEntry(
 		FAssetMutationJournal& Journal,
 		const FMutationJournalStageRequest& Request,
-		size_t& OutEntryIndex) -> FAssetResult;
+		size_t& OutEntryIndex) -> FAssetWriteResult;
 	auto NormalizePhysicalPath(const std::filesystem::path& Path)
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteBuffer& OutBytes) -> FAssetResult;
+		FByteBuffer& OutBytes) -> FAssetReadResult;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteView Bytes) -> FAssetResult;
+		FByteView Bytes) -> FAssetWriteResult;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
+		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
 		FByteView Bytes,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
+		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,
 		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
-	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult;
+	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetWriteResult;
 	// Makes a state visible only after every recovery record accepts it.
 	auto TransitionMutationJournalState(
 		FAssetMutationJournal& Journal,
-		EAssetMutationState State) -> FAssetResult;
+		EAssetMutationState State) -> FAssetWriteResult;
 	// Attempts to persist recovery-required state and reports a forward recovery
 	// failure even if persistence fails, retaining both failure diagnostics.
 	auto EnterMutationJournalRecovery(
 		FAssetMutationJournal& Journal,
 		std::string FailedParticipant,
-		std::string_view Message) -> FAssetResult;
+		std::string_view Message) -> FAssetWriteResult;
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool;
-	auto RecoverPendingMutationJournals() -> FAssetResult;
+	auto RecoverPendingMutationJournals() -> FAssetWriteResult;
 	auto PublishRelocationFile(const FAssetMutationJournalEntry& Entry)
-		-> FAssetResult;
+		-> FAssetWriteResult;
 }

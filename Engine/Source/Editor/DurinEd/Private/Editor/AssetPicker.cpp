@@ -403,7 +403,7 @@ namespace Durin::Editor::AssetPicker
 						continue;
 					}
 					DObject* LoadedAsset = nullptr;
-					const FAssetResult LoadResult = LoadObject(Path, LoadedAsset);
+					const auto LoadResult = LoadObject(Path, LoadedAsset);
 					if (!LoadResult || !LoadedAsset)
 					{
 						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
@@ -467,7 +467,7 @@ namespace Durin::Editor::AssetPicker
 					else
 					{
 						DObject* LoadedAsset = nullptr;
-						const FAssetResult LoadResult = LoadObject(DroppedPath, LoadedAsset);
+						const auto LoadResult = LoadObject(DroppedPath, LoadedAsset);
 						if (!LoadResult || !LoadedAsset)
 							PickerResult.Error = LoadResult
 								? "The dropped asset could not be loaded."

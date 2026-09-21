@@ -30,7 +30,7 @@ namespace Durin::Testing
 			-> ::testing::AssertionResult
 		{
 			auto Configuration = FAssetRuntimeConfiguration::Authored();
-			const FAssetResult Result = FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration);
+			const auto Result = FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration);
 			if (!Result) return ::testing::AssertionFailure() << Result.Message;
 			bNeedsRestore = true;
 			return Restart(std::move(Configuration));
@@ -49,7 +49,7 @@ namespace Durin::Testing
 		{
 			ShutdownAssetManager();
 			CollectGarbage();
-			const FAssetResult Result = InitializeAssetManager(std::move(Configuration));
+			const FAssetWriteResult Result = InitializeAssetManager(std::move(Configuration));
 			if (!Result) return ::testing::AssertionFailure() << Result.Message;
 			return ::testing::AssertionSuccess();
 		}

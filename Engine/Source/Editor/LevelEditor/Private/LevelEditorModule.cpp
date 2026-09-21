@@ -45,7 +45,7 @@ namespace Durin
 				return false;
 			}
 			if (auto* Level = Cast<DLevel>(Created.Asset)) (void)Editor::AddStudioSkyLight(*Level);
-			const FAssetResult Result = SavePackage(Created.Package);
+			const FAssetWriteResult Result = SavePackage(Created.Package);
 			if (!Result)
 			{
 				OutError = Result.Message;

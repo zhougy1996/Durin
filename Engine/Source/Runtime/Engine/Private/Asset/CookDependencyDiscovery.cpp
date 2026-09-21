@@ -53,18 +53,21 @@ namespace Durin
 		return "Unknown Cook input error.";
 	}
 
-	auto FCookInputFailure::ToAssetResult() const -> FAssetResult
+	auto FCookInputFailure::ToInputResult() const -> FCookInputResult
 	{
 		if (Error == ECookInputError::None) return {};
-		const auto Classification = Error == ECookInputError::SchemaClass || Error == ECookInputError::RootClass || Error == ECookInputError::ReferenceClass ? EAssetError::UnknownClass
-			: Error == ECookInputError::NoRuntimePackages ? EAssetError::NotFound
-			: Error == ECookInputError::Cancelled || Error == ECookInputError::WriteConflict ? EAssetError::InUse
-			: Error == ECookInputError::FileIo ? EAssetError::IoError
-			: Error == ECookInputError::PackageDeclaration || Error == ECookInputError::ExternalDeclaration ? EAssetError::InvalidPath
-			: Error == ECookInputError::UnknownPackage || Error == ECookInputError::UndeclaredInput || Error == ECookInputError::NoReader ? EAssetError::MissingDependency : EAssetError::CorruptFile;
-		FAssetResult Result{Classification, FormatCookInputError(*this)};
-		return Result;
+		const auto Status = Error == ECookInputError::Cancelled ? ECookInputStatus::Cancelled
+			: Error == ECookInputError::FileIo ? ECookInputStatus::IoError
+			: Error == ECookInputError::ByteLimit || Error == ECookInputError::PackageLimit || Error == ECookInputError::ValueStorage
+				|| Error == ECookInputError::SchemaDepth || Error == ECookInputError::SchemaFields
+				|| Error == ECookInputError::SchemaField || Error == ECookInputError::SchemaType
+				|| Error == ECookInputError::SchemaEncoding || Error == ECookInputError::SchemaStorage
+				|| Error == ECookInputError::RootLimit || Error == ECookInputError::RuntimeEdgeLimit
+				|| Error == ECookInputError::DependencyStorage ? ECookInputStatus::LimitExceeded
+			: Error == ECookInputError::UndeclaredInput ? ECookInputStatus::UndeclaredInput : ECookInputStatus::InvalidDependency;
+		return {Status, FormatCookInputError(*this)};
 	}
+
 }
 
 namespace Durin::AssetPrivate
@@ -89,34 +92,23 @@ namespace Durin::AssetPrivate
 	{
 	}
 
-	auto FCookDependencyDiscovery::Fail(FCookInputFailure Cause) -> FAssetResult
+	auto FCookDependencyDiscovery::Fail(FCookInputFailure Cause) -> FCookInputResult
 	{
 		if (!Failure) return Failure;
-		Failure = Cause.ToAssetResult();
-		Status = Cause.Error == ECookInputError::Cancelled ? ECookInputStatus::Cancelled
-			: Cause.Error == ECookInputError::FileIo ? ECookInputStatus::IoError
-			: Cause.Error == ECookInputError::ByteLimit || Cause.Error == ECookInputError::PackageLimit || Cause.Error == ECookInputError::ValueStorage
-				|| Cause.Error == ECookInputError::SchemaDepth || Cause.Error == ECookInputError::SchemaFields
-				|| Cause.Error == ECookInputError::SchemaField || Cause.Error == ECookInputError::SchemaType
-				|| Cause.Error == ECookInputError::SchemaEncoding || Cause.Error == ECookInputError::SchemaStorage
-				|| Cause.Error == ECookInputError::RootLimit || Cause.Error == ECookInputError::RuntimeEdgeLimit
-				|| Cause.Error == ECookInputError::DependencyStorage ? ECookInputStatus::LimitExceeded
-			: Cause.Error == ECookInputError::UndeclaredInput ? ECookInputStatus::UndeclaredInput : ECookInputStatus::InvalidDependency;
+		Failure = Cause.ToInputResult();
+
 		FailureInfo = std::move(Cause);
 		return Failure;
 	}
 
-	auto FCookDependencyDiscovery::Fail(const FAssetResult& Result) -> FAssetResult
+	auto FCookDependencyDiscovery::Fail(const FCookInputResult& Result) -> FCookInputResult
 	{
 		if (!Failure) return Failure;
-		Status = Result.Error == EAssetError::IoError ? ECookInputStatus::IoError : ECookInputStatus::InvalidDependency;
 		Failure = Result;
-		if (Result.WriteOutcome.Disposition == EAssetResultDisposition::ContentCommittedProjectionPending)
-			Status = ECookInputStatus::ProjectionPending;
 		return Failure;
 	}
 
-	auto FCookDependencyDiscovery::CheckCancellation() -> FAssetResult
+	auto FCookDependencyDiscovery::CheckCancellation() -> FCookInputResult
 	{
 		if (!Failure) return Failure;
 		if (Request.IsCancelled && Request.IsCancelled())
@@ -124,7 +116,7 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-	auto FCookDependencyDiscovery::ReadFile(const std::filesystem::path& Path, FByteBuffer& Out) -> FAssetResult
+	auto FCookDependencyDiscovery::ReadFile(const std::filesystem::path& Path, FByteBuffer& Out) -> FCookInputResult
 	{
 		Out.clear();
 		const std::array Paths{Path};
@@ -148,7 +140,7 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-	auto FCookDependencyDiscovery::AcquirePackage(const FPackagePath& Path) -> FAssetResult
+	auto FCookDependencyDiscovery::AcquirePackage(const FPackagePath& Path) -> FCookInputResult
 	{
 		if (Inputs.contains(Path)) return {};
 		if (Inputs.size() >= MaximumCookDependencyRecords)
@@ -188,7 +180,7 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-	auto FCookDependencyDiscovery::Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FAssetResult
+	auto FCookDependencyDiscovery::Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FCookInputResult
 	{
 		const auto Resolution = Registry.ResolveAssetPath(Requested);
 		if (auto Result = ValidateResolvedAssetForOperation(Registry, Resolution); !Result) return Fail(Result);
@@ -198,7 +190,7 @@ namespace Durin::AssetPrivate
 		return AcquirePackage(Final);
 	}
 
-	auto FCookDependencyDiscovery::CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FAssetResult
+	auto FCookDependencyDiscovery::CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FCookInputResult
 	{
 		std::unordered_set<std::string> Names;
 		for (const auto& Object : Input.Inspection.Objects) Names.insert(Object.ClassName);
@@ -315,7 +307,7 @@ namespace Durin::AssetPrivate
 	}
 
 	auto FCookDependencyDiscovery::Acquire(std::span<const FPackagePath> Roots,
-		const FAssetReferenceStoreCapture& ExternalRoots) -> FAssetResult
+		const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult
 	{
 		FShaderOperationResult ShaderError;
 		(void)(ShaderError = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled));
@@ -369,7 +361,7 @@ namespace Durin::AssetPrivate
 				if (!Reference.ExpectedClass.empty() && !Expected) return Fail(FCookInputFailure{.Error = ECookInputError::ReferenceClass, .Package = Path, .Name = Reference.ExpectedClass, .Member = Reference.FieldName});
 				if (auto Result = ValidateResolvedAssetForOperation(Registry, Resolution, Expected); !Result)
 					{
-					if (Result.Error == EAssetError::NotFound) Result.Error = EAssetError::MissingDependency;
+					if (Result.Error == EAssetReadError::NotFound) Result.Error = EAssetReadError::MissingDependency;
 					return Fail(Result);
 				}
 				for (const auto& Alias : Resolution.RedirectChain)
@@ -523,12 +515,12 @@ namespace Durin::AssetPrivate
 			if (!Input.Contributor.Name.empty() && !Input.bDeclared) UnversionedPackages.insert(Path.ToString());
 		FCookBuildDependencyGraph Dependencies;
 		if (const auto Initialized = Dependencies.Initialize(Graph); !Initialized)
-			return Fail(Initialized.ToAssetResult());
+			return Fail(Initialized.ToInputResult());
 		for (const auto& Path : RuntimePackages)
 		{
 			if (auto Result = CheckCancellation(); !Result) return Result;
 			if (const auto Expanded = Dependencies.Expand(Path, Inputs.at(Path).Dependencies); !Expanded)
-				return Fail(Expanded.ToAssetResult());
+				return Fail(Expanded.ToInputResult());
 			for (const auto& Record : Inputs.at(Path).Dependencies)
 			{
 				const uint64 Size = Record.LogicalName.size() + Record.Value.size() + 9;
@@ -549,7 +541,7 @@ namespace Durin::AssetPrivate
 	}
 
 	auto FCookDependencyDiscovery::ReadInput(const FPackagePath& Path,
-		ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FAssetResult
+		ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FCookInputResult
 	{
 		Out.clear();
 		const auto Found = Inputs.find(Path);

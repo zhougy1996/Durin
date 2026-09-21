@@ -83,7 +83,7 @@ namespace Durin::Editor::Texture
 	{
 		FTextureCubeDetailsSnapshot Snapshot;
 		FAssetPackageInspection Inspection;
-		const FAssetResult Result =
+		const auto Result =
 			InspectAssetPackage(PhysicalPath, Inspection);
 		if (!Result)
 		{

@@ -46,18 +46,18 @@ namespace Durin::AssetPrivate
 		if (bEnabled) { Active = Previous; --ActiveCount; }
 	}
 
-	auto FAssetLiveLoadGuard::GetFailure() const -> FAssetResult
+	auto FAssetLiveLoadGuard::GetFailure() const -> FAssetReadResult
 	{
 		if (Failure && bEnabled && Rejections.load() != InitialRejections)
-			return {EAssetError::InUse, "A live operation was rejected during input capture."};
+			return {EAssetReadError::InUse, "A live operation was rejected during input capture."};
 		return Failure;
 	}
 
-	auto FAssetLiveLoadGuard::Check(std::string_view Operation, std::string_view Path) -> FAssetResult
+	auto FAssetLiveLoadGuard::Check(std::string_view Operation, std::string_view Path) -> FAssetReadResult
 	{
 		if (ActiveCount.load() == 0) return {};
 		++Rejections;
-		const FAssetResult Result{EAssetError::InUse,
+		const FAssetReadResult Result{EAssetReadError::InUse,
 			std::format("Implicit live {} for '{}' is forbidden during guarded package loading.", Operation, Path)};
 		for (auto* Guard = Active; Guard; Guard = Guard->Previous)
 			if (Guard->Failure) Guard->Failure = Result;
@@ -110,21 +110,20 @@ namespace Durin
 			return Current;
 		}
 
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult;
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult;
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			FByteView Bytes,
-			FAssetPackageInspection& OutInspection) -> FAssetResult;
+			FAssetPackageInspection& OutInspection) -> FAssetReadResult;
 
-		auto ProjectionPendingError(const FPackagePath& Path) -> FAssetResult
+		auto ProjectionPendingError(const FPackagePath& Path) -> FAssetReadResult
 		{
-			return {EAssetError::StaleData,
-				std::format("Registry projection for package {} is pending synchronization.", Path.ToString()),
-				{EAssetResultDisposition::ContentCommittedProjectionPending}};
+			return {EAssetReadError::ProjectionPending,
+				std::format("Registry projection for package {} is pending synchronization.", Path.ToString())};
 		}
 
 		auto ObjectPathResolutionError(
-			const FObjectPathResolveResult& Resolution) -> FAssetResult
+			const FObjectPathResolveResult& Resolution) -> FAssetReadResult
 		{
 			switch (Resolution.State)
 			{
@@ -133,46 +132,46 @@ namespace Durin
 			case EAssetPathResolveState::ProjectionPending:
 				return ProjectionPendingError(Resolution.FinalPath.GetPackagePath());
 			case EAssetPathResolveState::NotFound:
-				return Error(EAssetError::NotFound, std::format(
+				return Error(EAssetReadError::NotFound, std::format(
 					"Object {} is not present in the registry.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::MissingRedirectTarget:
-				return Error(EAssetError::NotFound, std::format(
+				return Error(EAssetReadError::NotFound, std::format(
 					"Object redirect {} has a missing target {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectCycle:
-				return Error(EAssetError::CircularDependency, std::format(
+				return Error(EAssetReadError::CircularDependency, std::format(
 					"Object redirect {} contains a cycle at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectDepthExceeded:
-				return Error(EAssetError::CircularDependency, std::format(
+				return Error(EAssetReadError::CircularDependency, std::format(
 					"Object redirect {} exceeds the maximum redirect depth at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::UnknownTargetClass:
-				return Error(EAssetError::UnknownClass, std::format(
+				return Error(EAssetReadError::UnknownClass, std::format(
 					"Object {} resolves to a target with an unavailable reflected class.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::RedirectTypeMismatch:
-				return Error(EAssetError::TypeMismatch, std::format(
+				return Error(EAssetReadError::TypeMismatch, std::format(
 					"Object {} resolves to a target with an incompatible class.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::CorruptRedirector:
-				return Error(EAssetError::CorruptFile, std::format(
+				return Error(EAssetReadError::CorruptFile, std::format(
 					"CorruptRedirector: object {} traverses invalid redirect metadata at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			}
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				"Object resolution returned an unknown state.");
 		}
 
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetReadError Code, std::string Message) -> FAssetReadResult
 		{
 			return {Code, std::move(Message)};
 		}
 
-		auto CorruptRedirector(std::string Message) -> FAssetResult
+		auto CorruptRedirector(std::string Message) -> FAssetReadResult
 		{
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetReadError::CorruptFile,
 				std::format("CorruptRedirector: {}", Message));
 		}
 
@@ -194,13 +193,13 @@ namespace Durin
 	}
 
 	auto FAssetPackageLoadScope::LoadPackage(const FPackagePath& Path,
-		DPackage*& OutPackage, FAssetLoadReport* OutReport) -> FAssetResult
+		DPackage*& OutPackage, FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
 		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
 		{
 			OutPackage = nullptr;
-			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+			return Error(EAssetReadError::InUse, "A load scope requires a top-level load invocation.");
 		}
 		struct FRestoreLoadOwner
 		{
@@ -211,13 +210,13 @@ namespace Durin
 	}
 
 	auto FAssetPackageLoadScope::LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
-		DObject*& OutObject, FAssetLoadReport* OutReport) -> FAssetResult
+		DObject*& OutObject, FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
 		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
 		{
 			OutObject = nullptr;
-			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+			return Error(EAssetReadError::InUse, "A load scope requires a top-level load invocation.");
 		}
 		struct FRestoreLoadOwner
 		{
@@ -228,13 +227,13 @@ namespace Durin
 	}
 
 	auto FAssetPackageLoadScope::LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
-		DObject*& OutObject, ESoftObjectNullPolicy NullPolicy, FAssetLoadReport* OutReport) -> FAssetResult
+		DObject*& OutObject, ESoftObjectNullPolicy NullPolicy, FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
 		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
 		{
 			OutObject = nullptr;
-			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+			return Error(EAssetReadError::InUse, "A load scope requires a top-level load invocation.");
 		}
 		struct FRestoreLoadOwner
 		{
@@ -245,10 +244,10 @@ namespace Durin
 	}
 
 	auto FAssetPackageLoadScope::Release(
-		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
+		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
 		CheckSoftObjectThread();
-		const FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().ReleasePackages(
+		const auto Result = FAssetRuntimeState::Get().GetLoadService().ReleasePackages(
 			Packages, IgnoreSavedDependencies);
 		std::erase_if(Packages, [](const auto& Package) { return !Package.IsValid(); });
 		return Result;
@@ -300,7 +299,7 @@ namespace Durin
 	auto FAssetLoadService::LoadPackage(
 		const FPackagePath& Path,
 		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		OutPackage = nullptr;
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("package load", Path.ToString()); !Result)
@@ -311,13 +310,13 @@ namespace Durin
 		}
 		if (IsAssetRegistryProjectionFenced(Path))
 		{
-			const FAssetResult Result = ProjectionPendingError(Path);
+			const auto Result = ProjectionPendingError(Path);
 			if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path,
 				.PackagePath = Path, .Error = Result.Error, .ErrorMessage = Result.Message};
 			return Result;
 		}
 		if (IsPackageLoading(Path))
-			return Error(EAssetError::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString()));
+			return Error(EAssetReadError::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString()));
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
 			OutPackage = Resident;
@@ -325,7 +324,7 @@ namespace Durin
 		}
 		const FAssetCatalogEntry Entry = Durin::FindAssetExact(Path);
 		if (!Entry)
-			return Error(EAssetError::NotFound, std::format(
+			return Error(EAssetReadError::NotFound, std::format(
 				"Package {} is not present in the registry.", Path.ToString()));
 		return LoadPackageFromPhysicalPath(
 			Path, Entry->PhysicalPath, OutPackage, OutReport);
@@ -335,13 +334,13 @@ namespace Durin
 		const FObjectPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		OutObject = nullptr;
 		if (OutReport) *OutReport = {
 			.RequestedPath = Path.GetPackagePath(),
 			.PackagePath = Path.GetPackagePath()};
-		auto Finish = [&](FAssetResult Result) -> FAssetResult
+		auto Finish = [&](FAssetReadResult Result) -> FAssetReadResult
 		{
 			if (OutReport)
 			{
@@ -353,11 +352,11 @@ namespace Durin
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("object load", Path.ToString()); !Result)
 			return Finish(Result);
 		if (!Path.IsValid())
-			return Finish(Error(EAssetError::InvalidPath, "An object load requires an exact object path."));
+			return Finish(Error(EAssetReadError::InvalidPath, "An object load requires an exact object path."));
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
-			return Finish(Error(EAssetError::TypeMismatch, "An object load requires a DObject class."));
+			return Finish(Error(EAssetReadError::TypeMismatch, "An object load requires a DObject class."));
 		if (!bAcceptingRequests)
-			return Finish(Error(EAssetError::ShuttingDown,
+			return Finish(Error(EAssetReadError::ShuttingDown,
 				"Object loading is closed while the asset manager is shutting down."));
 		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPathForOperation(
 			Path, {.ExpectedClass = ExpectedClass});
@@ -381,16 +380,16 @@ namespace Durin
 			return Finish(ObjectPathResolutionError(Resolution));
 		}
 		DPackage* Package = nullptr;
-		FAssetResult Result = LoadPackage(
+		auto Result = LoadPackage(
 			Resolution.FinalPath.GetPackagePath(), Package, OutReport);
 		if (!Result) return Finish(Result);
 		DObject* Object = FindPackageObject(Package, Resolution.FinalPath);
 		if (!Object)
-			return Finish(Error(EAssetError::NotFound, std::format(
+			return Finish(Error(EAssetReadError::NotFound, std::format(
 				"Object {} is not present in its loaded package.",
 				Resolution.FinalPath.ToString())));
 		if (ExpectedClass && !Object->IsA(ExpectedClass))
-			return Finish(Error(EAssetError::TypeMismatch, std::format(
+			return Finish(Error(EAssetReadError::TypeMismatch, std::format(
 				"Object {} is not a {}.", Resolution.FinalPath.ToString(),
 				ExpectedClass->GetQualifiedName())));
 		if (OutReport)
@@ -414,14 +413,14 @@ namespace Durin
 		const FPackagePath& Path,
 		std::string_view PhysicalPath,
 		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
 		if (!bAcceptingRequests)
 		{
 			OutPackage = nullptr;
 			return Error(
-				EAssetError::ShuttingDown,
+				EAssetReadError::ShuttingDown,
 				"Asset loading is closed while the asset manager is shutting down.");
 		}
 		if (OutReport)
@@ -453,7 +452,7 @@ namespace Durin
 			std::function<void()> Cleanup;
 			~FDiscardScope() { Cleanup(); }
 		} CandidateScope{[&] { if (!bCompleted) { DiscardIncomplete(Record->Index); PendingLoads.erase(Path); } }};
-		FAssetResult Result;
+		FAssetReadResult Result;
 		try
 		{
 			PendingLoads.emplace(Path, Record);
@@ -469,12 +468,12 @@ namespace Durin
 		}
 		catch (const std::exception& Exception)
 		{
-			Result = Error(EAssetError::InvalidObjectGraph,
+			Result = Error(EAssetReadError::InvalidObjectGraph,
 				std::format("Package '{}': load callback failed: {}", Path.ToString(), Exception.what()));
 		}
 		catch (...)
 		{
-			Result = Error(EAssetError::InvalidObjectGraph,
+			Result = Error(EAssetReadError::InvalidObjectGraph,
 				std::format("Package '{}': load callback threw an exception.", Path.ToString()));
 		}
 		if (OutReport)
@@ -487,7 +486,7 @@ namespace Durin
 	}
 
 	auto FAssetLoadService::ResolveDependencyPackage(FPendingLoad& Owner,
-		const FPackagePath& Path, DPackage*& OutPackage) -> FAssetResult
+		const FPackagePath& Path, DPackage*& OutPackage) -> FAssetReadResult
 	{
 		OutPackage = nullptr;
 		if (IsAssetRegistryProjectionFenced(Path)) return ProjectionPendingError(Path);
@@ -495,7 +494,7 @@ namespace Durin
 		{
 			const auto& Target = *It->second;
 			if (!Target.Package || Target.Phase == ELoadPhase::PostLoading || Target.Phase == ELoadPhase::Failed)
-				return Error(EAssetError::InUse, std::format("Dependency '{}' cannot join this load component.", Path.ToString()));
+				return Error(EAssetReadError::InUse, std::format("Dependency '{}' cannot join this load component.", Path.ToString()));
 			Owner.LowLink = std::min(Owner.LowLink, Target.Index);
 			OutPackage = Target.Package.Get();
 			return {};
@@ -506,7 +505,7 @@ namespace Durin
 			return {};
 		}
 		const auto Entry = Durin::FindAssetExact(Path);
-		if (!Entry) return Error(EAssetError::MissingDependency,
+		if (!Entry) return Error(EAssetReadError::MissingDependency,
 			std::format("Dependency '{}' is not present in the registry.", Path.ToString()));
 		auto Result = LoadPackageFromPhysicalPath(Path, Entry->PhysicalPath, OutPackage);
 		if (Result)
@@ -516,7 +515,7 @@ namespace Durin
 	}
 
 	auto FAssetLoadService::ResolveDependencyObject(FPendingLoad& Owner,
-		const FObjectPath& Path, DObject*& OutObject) -> FAssetResult
+		const FObjectPath& Path, DObject*& OutObject) -> FAssetReadResult
 	{
 		OutObject = nullptr;
 		const auto Resolution = Durin::ResolveAssetObjectPathForOperation(Path);
@@ -542,11 +541,11 @@ namespace Durin
 		if (auto Result = ResolveDependencyPackage(Owner, Resolution.FinalPath.GetPackagePath(), Package); !Result)
 			return Result;
 		OutObject = FindPackageObject(Package, Resolution.FinalPath);
-		return OutObject ? FAssetResult{} : Error(EAssetError::MissingDependency,
+		return OutObject ? FAssetReadResult{} : Error(EAssetReadError::MissingDependency,
 			std::format("Dependency object '{}' is absent from its package.", Resolution.FinalPath.ToString()));
 	}
 
-	auto FAssetLoadService::CompleteComponent(FPendingLoad& Root) -> FAssetResult
+	auto FAssetLoadService::CompleteComponent(FPendingLoad& Root) -> FAssetReadResult
 	{
 		// Pending DFS suffix is exactly this strongly connected component. Copy it
 		// because PostLoad may synchronously complete an independent component.
@@ -559,7 +558,7 @@ namespace Durin
 		for (const auto& Member : Group)
 		{
 			if (Member->Phase != ELoadPhase::ValuesRestored || !Member->Validate || !Member->PostLoad)
-				return Error(EAssetError::InvalidObjectGraph, "Load component contains unrestored values.");
+				return Error(EAssetReadError::InvalidObjectGraph, "Load component contains unrestored values.");
 			if (auto Result = Member->Validate(); !Result) return Result;
 			Member->Phase = ELoadPhase::Validated;
 		}
@@ -611,11 +610,11 @@ namespace Durin
 		const FPackagePath& Path,
 		std::string_view PhysicalPath,
 		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
-		if (!ReadAccess) return Error(EAssetError::InUse, "Package output is being written.");
+		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
 			OutPackage = Resident;
@@ -624,8 +623,8 @@ namespace Durin
 		FAssetLoadReport LocalReport{.PackagePath = Path};
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
 		FByteBuffer Bytes;
-		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
-		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+		if (PhysicalPath.empty()) return Error(EAssetReadError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
+		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetReadError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;
 		std::filesystem::path BulkPath(PhysicalPath);
 		BulkPath.replace_extension(".dbulk");
@@ -634,7 +633,7 @@ namespace Durin
 		if (std::filesystem::is_regular_file(BulkPath, BulkError))
 			PhysicalBulkBytes = std::filesystem::file_size(BulkPath, BulkError);
 		if (BulkError && BulkError != std::errc::no_such_file_or_directory)
-			return Error(EAssetError::IoError,
+			return Error(EAssetReadError::IoError,
 				std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
 		const AssetPrivate::FAssetPackageReadContext HeaderContext{
 			.PackageBytes = Bytes, .PackagePath = Path,
@@ -643,12 +642,12 @@ namespace Durin
 			.bResourceBackedBulk = true,
 			.bCooked = RuntimeConfiguration.IsCooked()};
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(
+		if (auto Result = AssetPrivate::ResolveAssetPackageReader(
 				Bytes, Codec); !Result)
 			return Result;
 		{
 			FAssetPackageHeader Header;
-			FAssetResult Result = Codec->ReadHeader(HeaderContext, Header);
+			auto Result = Codec->ReadHeader(HeaderContext, Header);
 			if (!Result) return Result;
 			AssetPrivate::FAssetPackageReadContext ReadContext{
 				.PackageBytes = Bytes, .PackagePath = Path,
@@ -675,7 +674,7 @@ namespace Durin
 				if (!Result) return Result;
 				std::vector<FPackageBulkStorageDescriptor> Descriptors;
 				if (const auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Storage)
-					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
+					return {.Error = EAssetReadError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
 				std::vector<FPackageBulkDataEntry> Entries;
 				Entries.reserve(Descriptors.size());
 				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
@@ -700,8 +699,8 @@ namespace Durin
 				);
 				if (!Registration)
 				{
-					const EAssetError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown ? EAssetError::ShuttingDown : Registration.Error.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetError::IoError :
-																																																										EAssetError::CorruptFile;
+					const EAssetReadError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown ? EAssetReadError::ShuttingDown : Registration.Error.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetReadError::IoError :
+																																																										EAssetReadError::CorruptFile;
 					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error)};
 				}
 				Record.bOwnResource = true;
@@ -715,7 +714,7 @@ namespace Durin
 					return ResolveDependencyObject(Record, Object, Out);
 				},
 			};
-			ReadContext.DeferCompletion = [&Record](std::function<FAssetResult()> Validate, std::function<void()> Notify) {
+			ReadContext.DeferCompletion = [&Record](std::function<FAssetReadResult()> Validate, std::function<void()> Notify) {
 				Record.Validate = std::move(Validate);
 				Record.PostLoad = std::move(Notify);
 				Record.Phase = ELoadPhase::ValuesRestored;
@@ -723,9 +722,9 @@ namespace Durin
 			DPackage* Package = nullptr;
 			Result = Codec->Load(
 				ReadContext, Package, CodecReport,
-				[&](DPackage* LoadedPackage) -> FAssetResult {
+				[&](DPackage* LoadedPackage) -> FAssetReadResult {
 					if (!LoadedPackage || FindPackage(Path.GetView()) != LoadedPackage || Record.Package)
-						return Error(EAssetError::AlreadyExists, "The package skeleton is already resident.");
+						return Error(EAssetReadError::AlreadyExists, "The package skeleton is already resident.");
 					Record.Package = LoadedPackage;
 					Record.Phase = ELoadPhase::Skeleton;
 					return {};
@@ -770,26 +769,26 @@ namespace Durin
 
 	auto FAssetLoadService::UnloadPackage(
 		const FPackagePath& Path,
-		EAssetPackageUnloadPolicy Policy) -> FAssetResult
+		EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
 	{
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("UnloadPackage", ""); !Result) return Result;
 		DPackage* Package = FindResidentPackage(Path);
 		if (!Package)
-			return Error(EAssetError::NotFound, "Package is not resident.");
+			return Error(EAssetReadError::NotFound, "Package is not resident.");
 		if (IsPackageLoading(Path) || IsPackageReferenced(Package))
-			return Error(EAssetError::InUse, "Package is still referenced.");
+			return Error(EAssetReadError::InUse, "Package is still referenced.");
 		const bool bHasUnsavedState =
 			Package->IsNewlyCreated() || Package->IsDirty();
 		if (bHasUnsavedState
 			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
-			return Error(EAssetError::InUse,
+			return Error(EAssetReadError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
 		Package->SetStandaloneResidency(false);
 		CollectGarbage();
 		if (DPackage* RemainingPackage = FindResidentPackage(Path))
 		{
 			RemainingPackage->SetStandaloneResidency(true);
-			return Error(EAssetError::InUse,
+			return Error(EAssetReadError::InUse,
 				"Package remains referenced by live objects.");
 		}
 		GetPackageResourceManager().RetirePackage(Path.ToString());
@@ -799,11 +798,11 @@ namespace Durin
 
 	auto FAssetLoadService::ReleasePackages(
 		std::span<const TWeakObjectPtr<DPackage>> Packages,
-		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
+		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetReadResult
 	{
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackages", ""); !Result) return Result;
 		if (LoadDepth != 0 || !PendingLoads.empty())
-			return Error(EAssetError::InUse, "A package load is still in progress.");
+			return Error(EAssetReadError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
 		bool bInUse = false;
 		for (const auto& Handle : Packages)
@@ -860,8 +859,8 @@ namespace Durin
 			}
 		}
 		if (bReleased) InvalidateSoftObjectCaches();
-		return bInUse ? Error(EAssetError::InUse,
-			"Packages remain referenced or have unsaved state.") : FAssetResult{};
+		return bInUse ? Error(EAssetReadError::InUse,
+			"Packages remain referenced or have unsaved state.") : FAssetReadResult{};
 	}
 
 	auto FAssetRuntimeState::Shutdown() -> void
@@ -882,13 +881,13 @@ namespace Durin
 	}
 
 	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
-		-> FAssetResult
+		-> FAssetWriteResult
 	{
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return Result;
 		if (bAcceptingRequests)
 		{
 			if (RuntimeConfiguration == Configuration) return {};
-			return Error(EAssetError::InUse,
+			return Error(EAssetReadError::InUse,
 				"Asset runtime configuration cannot be replaced while Engine Asset is initialized.");
 		}
 		check(GetResidentAssetPackages().empty());
@@ -896,7 +895,7 @@ namespace Durin
 		RuntimeConfiguration = std::move(Configuration);
 		if (!RuntimeConfiguration.IsCooked())
 		{
-			FAssetResult RecoveryResult = RecoverPendingMutationJournals();
+			FAssetWriteResult RecoveryResult = RecoverPendingMutationJournals();
 			if (!RecoveryResult) return RecoveryResult;
 		}
 		PackageSavePrivate::SetAsyncSaveAdmission(true);
@@ -925,7 +924,7 @@ namespace Durin
 		if (!ExpectedClass || !ExpectedClass->IsChildOf(DObject::StaticClass()))
 		{
 			return {
-				.Result = Error(EAssetError::TypeMismatch, "A soft-object resolve requires a DObject class."),
+				.Result = Error(EAssetReadError::TypeMismatch, "A soft-object resolve requires a DObject class."),
 				.State = Reference.IsNull() ? ESoftObjectResolveState::Null : ESoftObjectResolveState::NotLoaded};
 		}
 		if (Reference.IsNull())
@@ -933,7 +932,7 @@ namespace Durin
 			return NullPolicy == ESoftObjectNullPolicy::Allow
 				? FSoftObjectResolveResult{.State = ESoftObjectResolveState::Null}
 				: FSoftObjectResolveResult{
-					.Result = Error(EAssetError::InvalidPath, "A null soft-object reference is not allowed."),
+					.Result = Error(EAssetReadError::InvalidPath, "A null soft-object reference is not allowed."),
 					.State = ESoftObjectResolveState::Null};
 		}
 
@@ -951,7 +950,7 @@ namespace Durin
 				{
 					if (!LoadedObject->IsA(ExpectedClass))
 						return {
-							.Result = Error(EAssetError::TypeMismatch, std::format(
+							.Result = Error(EAssetReadError::TypeMismatch, std::format(
 								"Asset {} is not a {}.", Path.ToString(),
 								ExpectedClass->GetQualifiedName())),
 							.State = ESoftObjectResolveState::NotLoaded};
@@ -959,7 +958,7 @@ namespace Durin
 						LoadedObject, Reference.GetPath(), Reference.GetPath(),
 						ExpectedClass); !Validation)
 						return {
-							.Result = Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
+							.Result = Error(EAssetReadError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
 							.State = ESoftObjectResolveState::NotLoaded};
 					return {
 						.State = ESoftObjectResolveState::Loaded,
@@ -988,7 +987,7 @@ namespace Durin
 		if (!Object)
 		{
 			return {
-				.Result = Error(EAssetError::InvalidObjectGraph, std::format(
+				.Result = Error(EAssetReadError::InvalidObjectGraph, std::format(
 					"Loaded package {} has no object {}.",
 					Resolution.FinalPath.GetPackagePath().ToString(),
 					Resolution.FinalPath.ToString())),
@@ -999,7 +998,7 @@ namespace Durin
 		if (!Object->IsA(ExpectedClass))
 		{
 			return {
-				.Result = Error(EAssetError::TypeMismatch, std::format(
+				.Result = Error(EAssetReadError::TypeMismatch, std::format(
 					"Asset {} is not a {}.",
 					Resolution.FinalPath.ToString(), ExpectedClass->GetQualifiedName())),
 				.State = ESoftObjectResolveState::NotLoaded,
@@ -1012,7 +1011,7 @@ namespace Durin
 			ExpectedClass); !Validation)
 		{
 			return {
-				.Result = Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
+				.Result = Error(EAssetReadError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};
@@ -1029,7 +1028,7 @@ namespace Durin
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
 		ESoftObjectNullPolicy NullPolicy,
-		FAssetLoadReport* OutReport) -> FAssetResult
+		FAssetLoadReport* OutReport) -> FAssetReadResult
 	{
 		OutObject = nullptr;
 		if (!Reference.IsNull())
@@ -1055,14 +1054,14 @@ namespace Durin
 		DObject* LoadedObject = nullptr;
 		const FObjectPath& ResolvedObjectPath = Resolved.ResolvedPath.IsValid()
 			? Resolved.ResolvedPath : Reference.GetPath();
-		FAssetResult Result = LoadObject(
+		auto Result = LoadObject(
 			ResolvedObjectPath, ExpectedClass, LoadedObject, OutReport);
 		if (!Result) return Result;
 
 		if (const auto Validation = Reference.TrySetResolvedObject(
 			LoadedObject, Reference.GetPath(), ResolvedObjectPath,
 			ExpectedClass); !Validation)
-			return Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error));
+			return Error(EAssetReadError::InvalidObjectGraph, FormatObjectError(Validation.Error));
 		OutObject = LoadedObject;
 		return {};
 	}
