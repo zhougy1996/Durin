@@ -4,7 +4,7 @@ Summary: Complete structured error propagation through renderer resource creatio
 
 Last reviewed: 2026-09-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-17
 
 ## Current Status
@@ -239,14 +239,14 @@ classify failures without parsing English diagnostics.
   general telemetry. Record any remaining string adapter with its owner and reason.
 
 Required references:
-[Shader diagnostics](../Runtime/Rendering/ShaderDiagnostics.md),
-[RHI diagnostics](../Runtime/Rendering/RHIDiagnostics.md),
-[Material diagnostics](../Runtime/Rendering/MaterialDiagnostics.md),
-[Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md),
-[Render Graph](../Runtime/Rendering/RenderGraph.md),
-[build workflow](../Agents/BuildAndRun.md),
-[test workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md).
+[Shader diagnostics](../../../Runtime/Rendering/ShaderDiagnostics.md),
+[RHI diagnostics](../../../Runtime/Rendering/RHIDiagnostics.md),
+[Material diagnostics](../../../Runtime/Rendering/MaterialDiagnostics.md),
+[Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md),
+[Render Graph](../../../Runtime/Rendering/RenderGraph.md),
+[build workflow](../../../Agents/BuildAndRun.md),
+[test workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md).
 
 ## Implementation Stages
 

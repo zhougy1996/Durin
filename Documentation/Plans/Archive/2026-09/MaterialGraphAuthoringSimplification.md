@@ -57,7 +57,7 @@ Implementation contracts are maintained in [Material System](../../../Runtime/Re
 [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md) and
 [Canonical Resave](../../../Editor/Guides/CanonicalResave.md). This plan preserves the
 instance configuration/publication/Cook lifecycle owned by
-[Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md).
+[Material Instance Shader Variants](MaterialInstanceShaderVariants.md).
 
 ## Goal
 

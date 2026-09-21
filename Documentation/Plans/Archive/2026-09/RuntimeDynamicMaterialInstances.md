@@ -4,14 +4,14 @@ Summary: Separate persistent material instance editing from transient runtime pa
 
 Last reviewed: 2026-09-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-18
 
 ## Current Status
 
 Completed the bounded lifecycle/API slice after the user waived the remaining M13
 qualification gates. Existing asset serialization and editor APIs remain compatible.
-The runtime contract is published in [Material System](../Runtime/Rendering/MaterialSystem.md#persistent-and-dynamic-instance-lifetimes).
+The runtime contract is published in [Material System](../../../Runtime/Rendering/MaterialSystem.md#persistent-and-dynamic-instance-lifetimes).
 M8 remains open for atomic batches and measured scalability; this plan does not
 claim those deliverables.
 
@@ -45,8 +45,8 @@ of M8.
 - [x] Run affected CPU tests and the required all build; record actual results.
 - [x] Publish the runtime contract and update the material roadmap.
 
-Validation follows [Testing](../Agents/Testing.md) and
-[Build and run](../Agents/BuildAndRun.md). Old M13 qualification is not reopened.
+Validation follows [Testing](../../../Agents/Testing.md) and
+[Build and run](../../../Agents/BuildAndRun.md). Old M13 qualification is not reopened.
 GPU algorithms are unchanged; no broad GPU qualification is required for this slice.
 
 ## Validation Evidence (2026-09-18)

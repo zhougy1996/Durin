@@ -4,7 +4,7 @@ Summary: Replace the reflected static mesh source version with an authored packa
 
 Last reviewed: 2026-09-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-15
 
 ## Current Status
@@ -46,6 +46,6 @@ the stripped source domain. In-memory copies remain independent of package versi
 - [x] Verify maintained content after asset-runtime restart.
 - [x] Complete relevant native tests, the shared Engine API `all` build, and documentation validation.
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md). The lasting version contract belongs in
-[Versioning](../Runtime/Assets/Versioning.md).
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md). The lasting version contract belongs in
+[Versioning](../../../Runtime/Assets/Versioning.md).

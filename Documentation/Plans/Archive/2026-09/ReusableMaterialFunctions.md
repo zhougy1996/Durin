@@ -67,7 +67,7 @@ base, with `DMaterialFunction` as its first concrete implementation. Function
 instances remain deferred; this is a design update, not completed implementation.
 
 This is M11 of the [Material System roadmap](../../../Roadmaps/MaterialSystem.md).
-[Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md) has
+[Material Instance Shader Variants](MaterialInstanceShaderVariants.md) has
 landed its implementation and remains active for final qualification. Consume its
 landed property, variant publication, Cook and import contracts. M11 can proceed
 independently; reconcile compiler snapshot, dependency, Cook and import changes

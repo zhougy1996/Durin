@@ -4,7 +4,7 @@ Summary: Separate object reference, weak reference, and identity-key responsibil
 
 Last reviewed: 2026-09-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-16
 
 ## Current Status
@@ -404,9 +404,9 @@ No typed lookup, registration hook or persistent material relationship index was
 added. The conditional indexing and switch-over tasks are therefore not
 applicable to this implementation.
 
-Lasting contracts now live in [scoped material queries](../Runtime/Rendering/MaterialQueries.md),
-[object lifetime](../Runtime/Core/GarbageCollection.md#pointer-and-handle-semantics),
-and [editor lifecycle](../Editor/Architecture/MaterialEditorLifecycle.md).
+Lasting contracts now live in [scoped material queries](../../../Runtime/Rendering/MaterialQueries.md),
+[object lifetime](../../../Runtime/Core/GarbageCollection.md#pointer-and-handle-semantics),
+and [editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md).
 The material-system query section links to its new focused owner rather than
 expanding an already long general specification. Transaction, timer and asset
 compilation documents now distinguish object keys from deferred weak access.
@@ -426,9 +426,9 @@ The final workspace `all` build passed after these fixes:
 
 ## Validation and Handoff
 
-Follow [agent testing](../Agents/Testing.md),
-[agent build and run](../Agents/BuildAndRun.md), and
-[documentation workflow](../Agents/Documentation.md).
+Follow [agent testing](../../../Agents/Testing.md),
+[agent build and run](../../../Agents/BuildAndRun.md), and
+[documentation workflow](../../../Agents/Documentation.md).
 Shared API changes require workspace-wide consumer searches, affected project
 validation, and an `all` build for shared Engine API migrations. Prefer focused
 behavior tests over tests that merely reproduce container implementation.

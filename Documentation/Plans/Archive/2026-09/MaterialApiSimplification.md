@@ -4,7 +4,7 @@ Summary: Consolidate material graph command entry points and simplify synchronou
 
 Last reviewed: 2026-09-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-19
 
 ## Current Status
@@ -175,8 +175,8 @@ variables; affected tests pass and an `all` build succeeds.
 
 ## Validation and Handoff
 
-Follow the [build](../Agents/BuildAndRun.md), [test](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md) workflows. Use the registered
+Follow the [build](../../../Agents/BuildAndRun.md), [test](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md) workflows. Use the registered
 material-editing domain for editor stages and select affected native targets for
 Engine stages. Shared Engine API migrations require an `all` build before handoff;
 also validate any affected Sandbox and RoadWeaver targets found by the audit.
@@ -184,8 +184,8 @@ No GPU qualification or application smoke is implied by these API-only changes.
 
 Commit each validated stage with this plan and the exact stage title as provenance.
 Update checklists with evidence, document lasting contracts in
-[graph operations](../Editor/Architecture/MaterialGraphOperations.md),
-[material diagnostics](../Runtime/Rendering/MaterialDiagnostics.md) and
-[expression building](../Runtime/Rendering/MaterialExpressionBuilding.md) as relevant.
+[graph operations](../../../Editor/Architecture/MaterialGraphOperations.md),
+[material diagnostics](../../../Runtime/Rendering/MaterialDiagnostics.md) and
+[expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md) as relevant.
 Do not mark later stages complete from compilation alone. Complete the plan only
 after all migrations, behavioral gates and documentation validation pass.

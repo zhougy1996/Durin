@@ -4,7 +4,7 @@ Summary: Introduce IPackageWriter and FSavePackageContext, move AssetsSaved into
 
 Last reviewed: 2026-09-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-17
 
 ## Current Status
@@ -42,9 +42,9 @@ work plus `51c0e690e`, `dde344e8b`, and `e4c546cb9`. At that baseline, ordinary
 saves entered `SavePackagesAtomically` and a stateless Engine singleton forwarded
 registry publication, metadata updates and recovery snapshots.
 
-Lasting contracts are published in [Package Persistence](../Runtime/Core/PackagePersistence.md),
-[Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md), and
-[Code Modules](../Workspace/CodeModules.md). DAST v10 and existing transaction,
+Lasting contracts are published in [Package Persistence](../../../Runtime/Core/PackagePersistence.md),
+[Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
+[Code Modules](../../../Workspace/CodeModules.md). DAST v10 and existing transaction,
 revision, dependency identity, dirty-state and projection-pending boundaries are
 preserved. File switching remains in-process rollback, not crash atomicity.
 
@@ -267,14 +267,14 @@ Dependencies: Stage 4. Outcome: validated migration with updated lasting contrac
 
 - [x] Run focused Core writer, CoreDObject persistence, registry, package,
   editor operation, texture save and recovery
-  tests selected according to the [testing workflow](../Agents/Testing.md).
+  tests selected according to the [testing workflow](../../../Agents/Testing.md).
 - [x] Run new state-sensitive cases in isolation and record results and omissions.
 - [x] Complete an `all` build including Engine, Sandbox and RoadWeaver according
-  to the [build workflow](../Agents/BuildAndRun.md).
+  to the [build workflow](../../../Agents/BuildAndRun.md).
 - [x] Update module ownership and the package persistence / asset mutation
   contracts; remove obsolete descriptions and compatibility scaffolding.
 - [x] Validate changed documents and all plans according to the
-  [documentation workflow](../Agents/Documentation.md), then record completion evidence.
+  [documentation workflow](../../../Agents/Documentation.md), then record completion evidence.
 
 Acceptance: all required gates pass for the final code; remaining caveats are
 explicit, and the plan is marked completed only after implementation and validation.

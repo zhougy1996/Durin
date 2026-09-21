@@ -80,7 +80,7 @@ This plan supersedes the separate declaration ownership, inline parameter-table
 references and 11-visible-element target of the completed
 [Material Graph Authoring Simplification](MaterialGraphAuthoringSimplification.md)
 plan as its stages land. Coordinate compiler, instance and Cook changes with the
-active [Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md)
+active [Material Instance Shader Variants](MaterialInstanceShaderVariants.md)
 plan; preserve its intended current-model publication and runtime behavior.
 
 ## Goal

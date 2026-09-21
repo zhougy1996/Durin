@@ -4,7 +4,7 @@ Summary: Move generic package persistence into CoreDObject while preserving Engi
 
 Last reviewed: 2026-09-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-16
 
 ## Current Status
@@ -24,8 +24,8 @@ there is no alternate generic capture or file replacement implementation.
 The committed async staging implementation in `63b7b16f9` was the behavioral
 baseline, while the checked-out canonical writer is DAST v10. The previously
 discarded facade was not restored. Lasting contracts are documented in
-[Package Persistence](../Runtime/Core/PackagePersistence.md) and
-[Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
+[Package Persistence](../../../Runtime/Core/PackagePersistence.md) and
+[Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
 
 Validation evidence (2026-09-16, `MacOS-arm64-Debug-DurinEditor`):
 
@@ -270,16 +270,16 @@ Dependencies: Stage 3. Outcome: validated migration and authoritative documentat
 
 - [x] Verify lower-layer headers and link dependencies in an Engine-free target.
 - [x] Run owning-module tests and affected Engine, editor, Sandbox, and RoadWeaver
-  targets following [Testing](../Agents/Testing.md).
+  targets following [Testing](../../../Agents/Testing.md).
 - [x] Complete the shared Engine API `all` build following
-  [Build and Run](../Agents/BuildAndRun.md).
+  [Build and Run](../../../Agents/BuildAndRun.md).
 - [x] Update module ownership, package persistence, asset mutation, and editor
   workflow contracts; remove transitional adapters when no consumers remain.
 - [x] Record validation evidence and complete the plan only after all gates pass.
 
 Performance benchmarks and sampling remain separate qualification runs, never
 part of routine correctness tests. Do not make performance claims from correctness
-test timings. Document validation follows [Documentation](../Agents/Documentation.md).
+test timings. Document validation follows [Documentation](../../../Agents/Documentation.md).
 
 ## Scope Limits
 

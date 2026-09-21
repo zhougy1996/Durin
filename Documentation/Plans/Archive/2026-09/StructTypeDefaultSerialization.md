@@ -4,7 +4,7 @@ Summary: Complete explicit serialization baseline semantics before enabling defa
 
 Last reviewed: 2026-09-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-15
 
 ## Current Status
@@ -124,14 +124,14 @@ Struct elements while retaining their complete membership and ordering.
 
 ## Required References
 
-- [Serialization contract](../Runtime/Core/Serialization.md#default-relative-logical-planning)
-- [Authored override intent](../Runtime/Core/Serialization.md#authored-override-intent)
-- [Asset package defaults and versions](../Runtime/Assets/AssetPackages.md#defaults-and-version-policy)
-- [Default delta planner API](../../Engine/Source/Runtime/CoreDObject/Public/DObject/DefaultDeltaPlan.h)
-- [Default delta planner implementation](../../Engine/Source/Runtime/CoreDObject/Private/DObject/DefaultDeltaPlan.cpp)
-- [Build workflow](../Agents/BuildAndRun.md)
-- [Native test workflow](../Agents/Testing.md)
-- [Documentation workflow](../Agents/Documentation.md)
+- [Serialization contract](../../../Runtime/Core/Serialization.md#default-relative-logical-planning)
+- [Authored override intent](../../../Runtime/Core/Serialization.md#authored-override-intent)
+- [Asset package defaults and versions](../../../Runtime/Assets/AssetPackages.md#defaults-and-version-policy)
+- [Default delta planner API](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/DefaultDeltaPlan.h)
+- [Default delta planner implementation](../../../../Engine/Source/Runtime/CoreDObject/Private/DObject/DefaultDeltaPlan.cpp)
+- [Build workflow](../../../Agents/BuildAndRun.md)
+- [Native test workflow](../../../Agents/Testing.md)
+- [Documentation workflow](../../../Agents/Documentation.md)
 
 ## Selected Design and Scope
 

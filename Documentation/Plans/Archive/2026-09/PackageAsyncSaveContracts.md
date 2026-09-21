@@ -4,7 +4,7 @@ Summary: Add UE-style SAVE_Async admission-only background writes and replace ex
 
 Last reviewed: 2026-09-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-17
 
 ## Current Status
@@ -197,17 +197,17 @@ the final save result, and explicit transaction guarantees remain intact.
 
 Dependencies: Stage 3. Outcome: validated migration and authoritative documentation.
 
-- [x] Follow [Testing](../Agents/Testing.md) to select registered targets. Include
+- [x] Follow [Testing](../../../Agents/Testing.md) to select registered targets. Include
   package persistence, asset package, import/async save, task lifecycle and the
   affected explicit transaction tests; add fault injection at destructive writes
   and completion boundaries. Verify independent case setup where relevant.
 - [x] Complete the required `all` build for this shared Engine API migration and
-  affected project validation under [Build And Run](../Agents/BuildAndRun.md).
-- [x] Update [Package Persistence](../Runtime/Core/PackagePersistence.md),
-  [Asset Packages](../Runtime/Assets/AssetPackages.md),
-  [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md), and
-  [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md).
-  Update [Task System](../Runtime/Core/TaskSystem.md) only if its contract changes.
+  affected project validation under [Build And Run](../../../Agents/BuildAndRun.md).
+- [x] Update [Package Persistence](../../../Runtime/Core/PackagePersistence.md),
+  [Asset Packages](../../../Runtime/Assets/AssetPackages.md),
+  [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md), and
+  [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md).
+  Update [Task System](../../../Runtime/Core/TaskSystem.md) only if its contract changes.
 - [x] Record exact passed validation and any outstanding gates, validate the plan
   and changed documents, and mark completion only after every required gate passes.
 

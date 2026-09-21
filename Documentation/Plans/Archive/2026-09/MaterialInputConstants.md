@@ -4,7 +4,7 @@ Summary: Group numeric material connections and explicit constants, separate def
 
 Last reviewed: 2026-09-20
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-20
 
 ## Current Status
@@ -13,8 +13,8 @@ Stages 1–4 are complete. Numeric expressions, terminal Surface properties, UVs
 and individual Surface overrides use reflected grouped inputs. Runtime definition
 fallbacks replace catalog-initialized defaults, and editor commands preserve the
 connection, flag and retained value through reset, graph edits and transactions.
-The lasting contracts are documented in [expression building](../Runtime/Rendering/MaterialExpressionBuilding.md#numeric-input-ownership)
-and [graph operations](../Editor/Architecture/MaterialGraphOperations.md#compact-input-and-texture-authoring).
+The lasting contracts are documented in [expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md#numeric-input-ownership)
+and [graph operations](../../../Editor/Architecture/MaterialGraphOperations.md#compact-input-and-texture-authoring).
 
 The two materials and three standard functions were converted through exact-package
 canonical resave. All five writes and verification passed; temporary old-layout
@@ -258,10 +258,10 @@ and disagreement between authored Surface defaults and compiler snapshots.
 
 ## Required References
 
-- [Material expression building](../Runtime/Rendering/MaterialExpressionBuilding.md)
-- [Material graph operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Reflection system](../Runtime/Core/ReflectionSystem.md)
-- [Material system roadmap](../Roadmaps/MaterialSystem.md)
-- [Build and run workflow](../Agents/BuildAndRun.md)
-- [Native testing workflow](../Agents/Testing.md)
-- [Documentation workflow](../Agents/Documentation.md)
+- [Material expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Reflection system](../../../Runtime/Core/ReflectionSystem.md)
+- [Material system roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Build and run workflow](../../../Agents/BuildAndRun.md)
+- [Native testing workflow](../../../Agents/Testing.md)
+- [Documentation workflow](../../../Agents/Documentation.md)

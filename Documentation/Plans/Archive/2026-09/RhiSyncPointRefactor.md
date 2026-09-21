@@ -4,7 +4,7 @@ Summary: Replace public GPU submission tickets and receipts with one-shot sync p
 
 Last reviewed: 2026-09-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-17
 
 ## Current Status
@@ -91,7 +91,7 @@ passed 98 Vulkan integration tests. That evidence does not validate the future
 sync-point implementation.
 
 This plan owns the replacement of ticket/receipt API decisions in the
-[RDG and RHI multi-queue plan](RdgRhiMultiQueueExecution.md).
+[RDG and RHI multi-queue plan](../../RdgRhiMultiQueueExecution.md).
 Its scheduling, ownership-transfer, independent-compute, split-barrier and
 aliasing goals remain owned there. Existing failure and lifetime guarantees
 remain mandatory. Update that plan's affected API descriptions as each
@@ -311,9 +311,9 @@ Dependencies: Stage 3. Outcome: validated implementation and one authoritative c
 
 ## Validation and Handoff
 
-Follow [native-test selection](../Agents/Testing.md),
-[build workflow](../Agents/BuildAndRun.md) and
-[documentation validation](../Agents/Documentation.md).
+Follow [native-test selection](../../../Agents/Testing.md),
+[build workflow](../../../Agents/BuildAndRun.md) and
+[documentation validation](../../../Agents/Documentation.md).
 Run focused tests during migration and the affected selection for handoff.
 Existing multi-queue hardware gates remain outstanding if skipped; unavailable
 GPU access is recorded as not run, never converted into success.
@@ -324,10 +324,10 @@ does not authorize marking any implementation stage complete.
 
 ## Owning Code and References
 
-- [Current RHI completion API](../../Engine/Source/Runtime/RHI/Public/RHICompletion.h)
-- [Command recording and replay](../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp)
-- [Vulkan submission](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h)
-- [Vulkan completion tracking](../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
-- [RDG execution](../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
-- [Render Graph contract](../Runtime/Rendering/RenderGraph.md)
-- [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Current RHI completion API](../../../../Engine/Source/Runtime/RHI/Public/RHICompletion.h)
+- [Command recording and replay](../../../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp)
+- [Vulkan submission](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanSubmission.h)
+- [Vulkan completion tracking](../../../../Engine/Source/Runtime/VulkanRHI/Private/VulkanCompletion.h)
+- [RDG execution](../../../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
+- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)

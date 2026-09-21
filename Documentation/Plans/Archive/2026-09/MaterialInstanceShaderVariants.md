@@ -4,7 +4,7 @@ Summary: Let one base material graph produce inherited instance render configura
 
 Last reviewed: 2026-09-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-18
 
 ## Current Status
@@ -432,7 +432,7 @@ Stage 1 handoff (2026-09-10):
   `test affected --explain` expands to unrelated Engine domains and was not run.
   GPU and cold Game instance-load gates remain outstanding for later stages.
 - Lasting implemented property/migration rules are documented in
-  [Material System](../Runtime/Rendering/MaterialSystem.md). The broad wrapper,
+  [Material System](../../../Runtime/Rendering/MaterialSystem.md). The broad wrapper,
   base-only compile state and parent-layout inheritance remain explicit future
   work. The user supplied the continuation on 2026-09-10; Stage 2 now proceeds.
 
@@ -589,8 +589,8 @@ The reimport scope question has been sent to the user; no scope waiver is assume
 
 ## Validation Gates
 
-Follow [agent testing](../Agents/Testing.md) and
-[build/run](../Agents/BuildAndRun.md). Discover targets rather than treating the
+Follow [agent testing](../../../Agents/Testing.md) and
+[build/run](../../../Agents/BuildAndRun.md). Discover targets rather than treating the
 `EngineTests` source directory as a runnable executable. Source suites below are
 starting points for Stage 0, not invented command names.
 
@@ -612,13 +612,13 @@ the gate is reuse and bounded lifetime, not an invented timing threshold.
 
 ## Related Documentation and Code
 
-- [Material System roadmap](../Roadmaps/MaterialSystem.md)
-- [Material System contract](../Runtime/Rendering/MaterialSystem.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Geometry Submission Refactor](GeometrySubmissionRefactor.md): consume its current
+- [Material System roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Material System contract](../../../Runtime/Rendering/MaterialSystem.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md): consume its current
   accepted interface; this plan adds no geometry dispatch mechanism.
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialInterface.h`
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialInstance.h`

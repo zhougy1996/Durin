@@ -4,7 +4,7 @@ Summary: Simplify MaterialEditor command outcomes around caller decisions and pr
 
 Last reviewed: 2026-09-19
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-19
 
 ## Current Status
@@ -59,6 +59,6 @@ Depends on Stage 0.
 - [x] Validate changed documents and all plan lifecycle metadata.
 - [x] Review and commit the isolated change with plan and stage provenance.
 
-Use the [build workflow](../Agents/BuildAndRun.md),
-[testing workflow](../Agents/Testing.md) and
-[documentation workflow](../Agents/Documentation.md).
+Use the [build workflow](../../../Agents/BuildAndRun.md),
+[testing workflow](../../../Agents/Testing.md) and
+[documentation workflow](../../../Agents/Documentation.md).

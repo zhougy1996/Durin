@@ -4,7 +4,7 @@ Summary: Replace recursive asset error transport and closure-wide ordinary-load 
 
 Last reviewed: 2026-09-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-18
 
 ## Current Status
@@ -371,8 +371,8 @@ Cleanup must not imply compensation of its external effects. Tests should assert
 classification, output/lifetime state and retry behavior, not diagnostic wording;
 review diagnostic completeness at the implementation boundary instead.
 
-Follow [native testing](../Agents/Testing.md) and
-[build guidance](../Agents/BuildAndRun.md). Shared Engine API changes require an
+Follow [native testing](../../../Agents/Testing.md) and
+[build guidance](../../../Agents/BuildAndRun.md). Shared Engine API changes require an
 all build and affected targets across Engine, Sandbox, and RoadWeaver. Run builds
 serially and retain evidence per completed stage.
 
@@ -384,8 +384,8 @@ success; PostLoad ordering/reentrancy; exception-safe cleanup; resource retireme
 normal unload of retained dependencies; and failed replacement preserving the
 old live graph. Test semantics rather than the shape of diagnostic wrappers.
 
-Update [asset packages](../Runtime/Assets/AssetPackages.md),
-[serialization](../Runtime/Core/Serialization.md), and other affected owning
+Update [asset packages](../../../Runtime/Assets/AssetPackages.md),
+[serialization](../../../Runtime/Core/Serialization.md), and other affected owning
 contracts only as behavior is implemented. Update this plan in the same commit
 as each validated implementation batch, using its exact Plan and Stage trailers.
 Plan replacement alone requires changed-document and all-plan validation, not

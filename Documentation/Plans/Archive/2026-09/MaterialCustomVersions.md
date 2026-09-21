@@ -4,7 +4,7 @@ Summary: Move material graph and instance parameter package compatibility to reg
 
 Last reviewed: 2026-09-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-15
 
 ## Current Status
@@ -50,5 +50,5 @@ Keep non-version `AlwaysSerialize` fields and StaticMesh versioning unchanged.
       versions, mixed domains and Cook with focused tests and an `all` build.
 - [x] Document the lasting contract and complete plan/document validation.
 
-Validation follows [agent testing](../Agents/Testing.md) and
-[build guidance](../Agents/BuildAndRun.md). No persistent legacy reader is introduced.
+Validation follows [agent testing](../../../Agents/Testing.md) and
+[build guidance](../../../Agents/BuildAndRun.md). No persistent legacy reader is introduced.

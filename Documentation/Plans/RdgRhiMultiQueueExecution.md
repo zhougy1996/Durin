@@ -10,7 +10,7 @@ Completed:
 ## Current Status
 
 Completion API follow-up (2026-09-17): the completed
-[RHI Sync Point Refactor Plan](RhiSyncPointRefactor.md) replaces public
+[RHI Sync Point Refactor Plan](Archive/2026-09/RhiSyncPointRefactor.md) replaces public
 submission tickets/receipts with stable one-shot sync-point references and
 backend-only coordinates. It passed the workspace `all` build and all 22
 affected test targets, including 93 RHI command/completion and 100 Vulkan
@@ -380,7 +380,7 @@ ownership simultaneously.
 
 #### Completion, Failure, and Ownership Protocol
 
-The completed [sync-point refactor](RhiSyncPointRefactor.md) supersedes the
+The completed [sync-point refactor](Archive/2026-09/RhiSyncPointRefactor.md) supersedes the
 ticket/receipt API below: callers retain one `FRHIGPUSyncPointRef` throughout
 recording, replay and completion. Creation reserves no native coordinate;
 backend association is single assignment, including coalesced logical signals.

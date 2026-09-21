@@ -11,7 +11,7 @@ Completed:
 
 On 2026-09-18 the user closed M13 with all remaining qualification gates waived,
 not passed. Its implementation is the accepted foundation for the completed
-[Runtime Dynamic Material Instances plan](../Plans/RuntimeDynamicMaterialInstances.md).
+[Runtime Dynamic Material Instances plan](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md).
 That bounded M8 slice separates lifetime and mutation APIs, with all 11 material
 CPU regression targets and the workspace all build passing; atomic multi-parameter
 updates and measured scalability work remain subsequent M8 scope.
@@ -26,7 +26,7 @@ packages without publishing runtime function assets. Detailed receipts and
 hardware limits remain in the child plan.
 
 On 2026-09-10 the user selected the
-[Material Instance Shader Variants plan](../Plans/MaterialInstanceShaderVariants.md)
+[Material Instance Shader Variants plan](../Plans/Archive/2026-09/MaterialInstanceShaderVariants.md)
 as M13: one root graph with per-field instance configurations and matching shared
 compiled variants. Common ownership, publication, instance Cook and editor/import
 integration are implemented; remaining qualification was waived on 2026-09-18. It
@@ -263,8 +263,8 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
-| [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Complete; remaining qualification waived by user |
-| [Runtime Dynamic Material Instances](../Plans/RuntimeDynamicMaterialInstances.md) | M8 | Non-asset lifecycle and parameter API first; atomic batching and measured optimization remain subsequent scope | Lifecycle/API slice complete; M8 remains open |
+| [Material Instance Shader Variants](../Plans/Archive/2026-09/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Complete; remaining qualification waived by user |
+| [Runtime Dynamic Material Instances](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md) | M8 | Non-asset lifecycle and parameter API first; atomic batching and measured optimization remain subsequent scope | Lifecycle/API slice complete; M8 remains open |
 | [Reusable Material Functions](../Plans/Archive/2026-09/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
