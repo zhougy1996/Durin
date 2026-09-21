@@ -239,9 +239,9 @@ classify failures without parsing English diagnostics.
   general telemetry. Record any remaining string adapter with its owner and reason.
 
 Required references:
-[Shader diagnostics](../../../Runtime/Rendering/ShaderDiagnostics.md),
-[RHI diagnostics](../../../Runtime/Rendering/RHIDiagnostics.md),
-[Material diagnostics](../../../Runtime/Rendering/MaterialDiagnostics.md),
+[Shader diagnostics](../../../Runtime/Rendering/ShaderCache.md#results-and-diagnostics),
+[RHI diagnostics](../../../Runtime/Rendering/RHICommandExecution.md#results-and-diagnostics),
+[Material diagnostics](../../../Runtime/Rendering/MaterialSystem.md#results-and-diagnostics),
 [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md),
 [Render Graph](../../../Runtime/Rendering/RenderGraph.md),
 [build workflow](../../../Agents/BuildAndRun.md),

@@ -14,6 +14,21 @@ DerivedDataCache owns only synchronous
 opaque `bucket + key -> immutable bytes` persistence and bounded bucket
 maintenance. It does not schedule or execute Shader builds.
 
+## Results and diagnostics
+
+`FShaderOperationResult` is `std::expected<void, FShaderError>`; nested operations
+preserve typed causes and context. `FShaderCompilerOutput` derives success from
+its error code, defaults to `CompilationNotStarted`, and never accepts partial
+stages on failure. `FormatShaderError` formats only at presentation or required
+string-adapter boundaries; bounded compiler text never determines classification.
+Filesystem failures retain their owned path and native cause.
+
+Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
+publish only complete candidates, and failed ShaderMap initialization resets
+the map. Payload codecs and cooked registration clear failed output; retirement
+after inventory freeze retains the registration handle on failure. Semantic
+tests assert codes, context, and publication behavior rather than English text.
+
 ## Storage layers and ownership
 
 The runtime uses four bounded or reclaimable layers:

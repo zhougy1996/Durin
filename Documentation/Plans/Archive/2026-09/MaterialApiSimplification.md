@@ -185,7 +185,7 @@ No GPU qualification or application smoke is implied by these API-only changes.
 Commit each validated stage with this plan and the exact stage title as provenance.
 Update checklists with evidence, document lasting contracts in
 [graph operations](../../../Editor/Architecture/MaterialGraphOperations.md),
-[material diagnostics](../../../Runtime/Rendering/MaterialDiagnostics.md) and
+[material diagnostics](../../../Runtime/Rendering/MaterialSystem.md#results-and-diagnostics) and
 [expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md) as relevant.
 Do not mark later stages complete from compilation alone. Complete the plan only
 after all migrations, behavioral gates and documentation validation pass.

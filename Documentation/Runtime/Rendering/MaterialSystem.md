@@ -17,6 +17,22 @@ surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
 render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
 
+## Results and diagnostics
+
+`FMaterialOperationResult` carries `FMaterialError`; mutations preserve typed
+identity/type context and reject invalid changes before publication. Engine
+validators and nested adapters preserve causes; `FormatMaterialError` formats
+only at UI, log, command, or required string boundaries. Opaque provider text
+is bounded and never determines error classification.
+
+Synchronous build, validation, normalization, source-generation, and compiler
+results use `bSucceeded` as their sole outcome and default to failure. Check it
+before consuming payloads: empty output may succeed, while retained intermediate
+data does not establish success. Failed builds/encoders clear emitted output;
+property resolution and cooked decoding publish only validated candidates.
+Cancellation and admission remain separate lifecycle outcomes. Semantic tests
+assert codes, context, and publication behavior, not formatted text.
+
 ## Parameter Domain
 
 ### Persistent and dynamic instance lifetimes

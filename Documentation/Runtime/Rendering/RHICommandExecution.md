@@ -11,6 +11,22 @@ executor contract but replays on the rendering thread for focused diagnostics.
 `Immediate` identifies the primary timeline and coordination surface, not a
 direct backend-call path.
 
+## Results and diagnostics
+
+RHI validation uses operation-specific `std::expected<T, E>` errors without a
+global error union. Retain typed context only where callers consume it; internal
+checks may use `bool`, and pipeline admission may report `InvalidDescription`.
+`ToString` formats at presentation boundaries; semantic tests assert codes and
+context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
+
+`FRHICreationError` preserves recovery class, source, and native status.
+`RHITryCreateTexture`/`RHITryCreateBuffer` return a non-null resource or that error
+without logging; nullable adapters log recoverable failures once. Executor state
+retains typed errors and bounded external exception text; rollback diagnostics
+do not replace the primary failure. Device/invariant failures stay terminal.
+Vulkan startup and swapchain configuration may use local human-readable reasons;
+success follows result state and native retry policy follows `vk::Result`.
+
 ## Command-List Roles
 
 `FRHICommandListBase` owns the common recording surface. Both concrete list

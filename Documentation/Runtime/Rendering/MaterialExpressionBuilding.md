@@ -90,7 +90,7 @@ They set an explicit completed success flag, including for a valid empty build.
 On failure they clear IR, roots, parameters, source mappings, and dependencies,
 while retaining typed diagnostics. Duplicate output registration, missing output
 registration, invalid IR references, and invalid connection selectors are errors.
-See [Material diagnostics](MaterialDiagnostics.md) for error and location contracts.
+See [Material diagnostics](MaterialSystem.md#results-and-diagnostics) for error and location contracts.
 
 The expression tests in `MaterialCompilerTests` cover multi-output sharing,
 function invocation isolation, stable output selectors, normal texture handling,
