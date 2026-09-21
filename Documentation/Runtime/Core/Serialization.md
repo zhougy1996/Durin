@@ -237,8 +237,15 @@ authored identical/default comparison; editor payload size and content identity
 form the atomic authored logical value.
 
 Object, field, array, and Map scopes maintain a structured diagnostic path.
-`FArchive::Fail(...)` stores the first failure and later operations cannot clear
-or replace it. Unsupported capabilities and types, malformed or truncated
+`FArchive::IsError()` reports sticky failure state for both reading and writing.
+`SetError()` records an ordinary error; `Fail(...)` additionally supplies a typed
+code and captures the current field path. `SetCriticalError()` also sets
+`IsCriticalError()`, without replacing an earlier diagnostic. Core byte-transfer
+truncation and extent overflow are critical failures. Later operations cannot
+clear or replace the first failure, or downgrade a critical error. Unlike UE,
+Durin does not expose error-clearing APIs: current object-loading adapters have
+no supported recovery boundary at which partially applied state can resume.
+Unsupported capabilities and types, malformed or truncated
 payloads, invalid references and paths, unsupported versions, serializer
 contract violations, and scope errors therefore abort the owning operation at
 a stable path. A consumer owns construction, publication, rollback, and
@@ -254,7 +261,8 @@ the Archive code and field path. The destination path remains unchanged.
 Serializers keep their `void` contract: the Archive records the first failure
 internally, and the owning operation checks it before publication. Individual
 field callers do not need to propagate a second result. Formatting occurs in
-result formatters and the pending generic Archive diagnostic adapter.
+domain result formatters and `FArchive::GetError()`; no common diagnostic result
+wrapper is required.
 Map writers that advertise canonical ordering use stable logical key tokens, so
 supported Maps do not depend on bucket or insertion history.
 

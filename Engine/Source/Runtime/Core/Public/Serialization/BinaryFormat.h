@@ -79,7 +79,7 @@ namespace Durin
 		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
 		CORE_API auto TakeBytes() -> FByteBuffer;
 		auto Tell() const -> uint64 { return static_cast<uint64>(Bytes.size()); }
-		auto HasError() const -> bool { return bLimitError || Archive.HasError(); }
+		auto HasError() const -> bool { return bLimitError || Archive.IsError(); }
 
 	private:
 		auto CanWrite(uint64 ByteCount, uint64 FieldBytes) -> bool
@@ -152,7 +152,7 @@ namespace Durin
 			uint32 ExpectedFormatVersion, FBinaryFormatHeader* OutHeader = nullptr) -> bool;
 		auto IsAtEnd() const -> bool { return !HasError() && Archive.GetRemainingPayloadBytes() == 0; }
 		auto Tell() const -> uint64 { return Archive.Tell(); }
-		auto HasError() const -> bool { return bLimitError || Archive.HasError(); }
+		auto HasError() const -> bool { return bLimitError || Archive.IsError(); }
 		auto GetRemainingBytes() const -> size_t
 		{
 			return static_cast<size_t>(Archive.GetRemainingPayloadBytes());

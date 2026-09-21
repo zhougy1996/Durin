@@ -223,7 +223,7 @@ namespace Durin
 			.ElementSize = 1,
 			.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
-		if (!Ar.IsLoading() || Ar.HasError()
+		if (!Ar.IsLoading() || Ar.IsError()
 			|| Ar.GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
 		if (Value.StorageKind == EArchiveBulkDataStorageKind::External)
 		{

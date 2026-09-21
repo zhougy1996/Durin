@@ -12,7 +12,7 @@ namespace Durin
 	auto FStaticMeshSourceVersion::Serialize(FArchive& Ar) -> bool
 	{
 		if (Ar.IsFilterEditorOnly() || (Ar.GetPurpose() != EArchivePurpose::Discovery
-			&& Ar.GetPurpose() != EArchivePurpose::AuthoredPackage)) return !Ar.HasError();
+			&& Ar.GetPurpose() != EArchivePurpose::AuthoredPackage)) return !Ar.IsError();
 		Ar.UsingCustomVersion(Guid);
 		if (Ar.IsLoading())
 		{
@@ -22,6 +22,6 @@ namespace Durin
 					"StaticMeshSource requires custom version {} at {}; file version is {}.",
 					Guid.ToString(), CurrentVersion, Version ? std::to_string(Version->Version) : "missing"));
 		}
-		return !Ar.HasError();
+		return !Ar.IsError();
 	}
 }

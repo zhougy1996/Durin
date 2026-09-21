@@ -94,7 +94,7 @@ namespace
 		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload,
 			{.Target = {"Win64", "Game"}});
 		PlatformData.Serialize(Writer);
-		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 		FByteBuffer TrailingBytes = ValidBytes;
 		TrailingBytes.push_back(std::byte{0x7f});
 

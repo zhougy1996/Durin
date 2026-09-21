@@ -58,7 +58,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
-			if (Ar.HasError())
+			if (Ar.IsError())
 				return {.Error = {.Code = EStaticMeshBuildKeyError::Archive, .TargetPlatform = Input.TargetPlatform,
 					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
 			return {.Bytes = std::move(Bytes)};

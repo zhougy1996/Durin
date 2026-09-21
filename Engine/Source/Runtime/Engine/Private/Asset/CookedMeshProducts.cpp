@@ -86,7 +86,7 @@ namespace Durin
 			FCanonicalMemoryReader CollisionAr(
 				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 			CollisionPayload.Serialize(CollisionAr);
-			if (CollisionAr.HasError() || !RequireArchiveEnd(CollisionAr))
+			if (CollisionAr.IsError() || !RequireArchiveEnd(CollisionAr))
 				return ArchiveFailure(ECookedMeshProductError::CollisionArchive, CollisionAr, CollisionBytes.size());
 			if (CollisionPayload.SourceMode != CollisionMode
 				|| CollisionPayload.QueryPolicy != CollisionPolicy)
@@ -111,7 +111,7 @@ namespace Durin
 		FStaticMeshPayloadData Payload;
 		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 		Payload.Serialize(PayloadAr);
-		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
+		if (PayloadAr.IsError() || !RequireArchiveEnd(PayloadAr))
 			return ArchiveFailure(ECookedMeshProductError::RenderArchive, PayloadAr, RenderBytes.size());
 		if (Payload.MaterialSlotCount != MaterialSlots.size())
 			return {{.Code = ECookedMeshProductError::MaterialSlotCount,

@@ -28,7 +28,7 @@ namespace Durin::TexturePayloadContainer
 
 	auto ResolveContext(FArchive& Ar, FTargetContext& Context) -> bool
 	{
-		if (Ar.HasError()) return false;
+		if (Ar.IsError()) return false;
 		const auto& Target = Ar.GetTarget();
 		const auto Profile = Target.Profile == "Game" ? ECookTargetProfile::Game
 			: Target.Profile == "EditorValidation" ? ECookTargetProfile::EditorValidation
@@ -90,7 +90,7 @@ namespace Durin::TexturePayloadContainer
 				}
 				BodyAr.WriteBytes(Record.Data);
 			}
-			if (BodyAr.HasError())
+			if (BodyAr.IsError())
 			{
 				Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
 				return;
@@ -102,7 +102,7 @@ namespace Durin::TexturePayloadContainer
 			<< Descriptor.TargetProfile << Descriptor.Dimension << Descriptor.StableFormat
 			<< Descriptor.SliceCount << Descriptor.MipCount << HeaderSize << RecordCount
 			<< RecordSize << TableOffset << StoredSize << StoredHash << Reserved;
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		if (Schema != TexturePayloadSchemaVersion)
 		{
 			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Texture payload schema version is unsupported.");
@@ -151,7 +151,7 @@ namespace Durin::TexturePayloadContainer
 		{
 			FRecord& Record = Entry.Record;
 			SerializeRecord(BodyAr, Record);
-			if (BodyAr.HasError())
+			if (BodyAr.IsError())
 			{
 				Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
 				return;

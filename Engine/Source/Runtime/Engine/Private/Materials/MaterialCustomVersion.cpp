@@ -18,7 +18,7 @@ namespace Durin
 		{
 			const auto Purpose = Ar.GetPurpose();
 			if (Purpose != EArchivePurpose::Discovery && Purpose != EArchivePurpose::AuthoredPackage
-				&& Purpose != EArchivePurpose::CookedPackage) return !Ar.HasError();
+				&& Purpose != EArchivePurpose::CookedPackage) return !Ar.IsError();
 			Ar.UsingCustomVersion(Guid);
 			if (Ar.IsLoading())
 			{
@@ -28,7 +28,7 @@ namespace Durin
 						"{} requires custom version {} at {}; file version is {}.", Name,
 						Guid.ToString(), CurrentVersion, Version ? std::to_string(Version->Version) : "missing"));
 			}
-			return !Ar.HasError();
+			return !Ar.IsError();
 		}
 	}
 

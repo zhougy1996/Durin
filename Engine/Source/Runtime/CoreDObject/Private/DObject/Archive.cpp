@@ -12,19 +12,19 @@ namespace Durin
 {
 	auto FObjectArchive::FailValidation(const FObjectValidationError& Error) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		ValueFailureCause = Error;
 		Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Error));
 	}
 	auto FObjectArchive::FailPropertyValue(const FPropertyValueError& Error) -> void
 	{
-		if (HasError() || !Error.HasError()) return;
+		if (IsError() || !Error.HasError()) return;
 		ValueFailureCause = Error;
 		Fail(EArchiveFailureCode::UnsupportedOperation, FormatPropertyValueError(Error));
 	}
 	auto FObjectArchive::FailMapKey(const FReflectedMapKeyError& Error) -> void
 	{
-		if (HasError() || !Error.HasError()) return;
+		if (IsError() || !Error.HasError()) return;
 		ValueFailureCause = Error;
 		Fail(EArchiveFailureCode::UnsupportedType, FormatReflectedMapKeyError(Error));
 	}
@@ -274,7 +274,7 @@ namespace Durin
 			auto ElementScope = EnterArchiveArrayElement(Context.Archive, Index);
 			SerializePropertyValue(Context.Archive, Context.Inner, const_cast<void*>(Element), 0,
 				Context.bIncludeRawObjectReferences);
-			return !Context.Archive.HasError();
+			return !Context.Archive.IsError();
 		}
 
 		struct FArchiveMapEntry
@@ -324,12 +324,12 @@ namespace Durin
 				SerializePropertyValue(Context.Archive, Context.Property->GetValueProp(), const_cast<void*>(Value), 0,
 					Context.bIncludeRawObjectReferences);
 			}
-			return !Context.Archive.HasError();
+			return !Context.Archive.IsError();
 		}
 
 		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences) -> void
 		{
-			if (Ar.HasError()) return;
+			if (Ar.IsError()) return;
 			if (!Ar.IsCurrentFieldAvailable()) return;
 			if (!Property || !Container)
 			{
@@ -387,7 +387,7 @@ namespace Durin
 				FGuid* Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex);
 				FGuid SerializedValue = Ar.IsSaving() ? *Value : FGuid();
 				Ar << SerializedValue;
-				if (Ar.IsLoading() && !Ar.HasError()) *Value = SerializedValue;
+				if (Ar.IsLoading() && !Ar.IsError()) *Value = SerializedValue;
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Byte:
@@ -395,7 +395,7 @@ namespace Durin
 				auto* Value = static_cast<std::byte*>(Property->GetValuePtr(Container, ArrayIndex));
 				std::byte Encoded = Ar.IsSaving() ? *Value : std::byte{};
 				Ar.SerializeRawBytes(std::span(&Encoded, 1));
-				if (Ar.IsLoading() && !Ar.HasError()) *Value = Encoded;
+				if (Ar.IsLoading() && !Ar.IsError()) *Value = Encoded;
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Blob:
@@ -427,7 +427,7 @@ namespace Durin
 				}
 				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 				SerializeArchiveObjectReference(Ar, ReferencedObject);
-				if (Ar.IsLoading() && !Ar.HasError())
+				if (Ar.IsLoading() && !Ar.IsError())
 				{
 					ObjectProperty->SetObjectPropertyValue(Container, ReferencedObject, ArrayIndex);
 				}
@@ -444,7 +444,7 @@ namespace Durin
 				}
 				FObjectPath Path = Ar.IsSaving() ? Value->GetPath() : FObjectPath();
 				SerializeArchiveSoftObjectValue(Ar, Path);
-				if (Ar.IsLoading() && !Ar.HasError())
+				if (Ar.IsLoading() && !Ar.IsError())
 				{
 					if (!Path.IsValid()) Value->Reset();
 					else Value->SetPath(std::move(Path));
@@ -500,14 +500,14 @@ namespace Durin
 						return;
 					}
 					Struct->ForEachProperty([&](FProperty* Field) {
-						if (Ar.HasError() || !ShouldSerializeReflectedProperty(Ar, Field)) return;
+						if (Ar.IsError() || !ShouldSerializeReflectedProperty(Ar, Field)) return;
 						FArchivePropertySaveValue EffectiveValue;
 						const EArchivePropertySaveDisposition Disposition = ResolvePropertySaveValue(
 							Ar, *Field, StructValue, 0, EffectiveValue);
 						if (Disposition == EArchivePropertySaveDisposition::Omit) return;
 						auto FieldScope = EnterArchiveField(Ar, MakeFieldDescriptor(
 							Field, Struct->GetQualifiedName()));
-						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.HasError(); ++Index)
+						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.IsError(); ++Index)
 						{
 							EffectiveValue = {StructValue, Index};
 							const EArchivePropertySaveDisposition ElementDisposition = ResolvePropertySaveValue(
@@ -551,7 +551,7 @@ namespace Durin
 					StorageProperty = &*DetachedProperty;
 				}
 				const EArchiveStructBaseline Baseline = Ar.GetStructBaseline();
-				if (Ar.HasError()) break;
+				if (Ar.IsError()) break;
 				FReflectedValueStorage Storage;
 				if (!CheckPropertyValueResult(Ar, Storage.DefaultConstruct(StorageProperty, 0)))
 				{
@@ -573,7 +573,7 @@ namespace Durin
 					break;
 				}
 				SerializeStructValue(Storage.GetValue());
-				if (Ar.HasError()) break;
+				if (Ar.IsError()) break;
 				if (Struct->HasPostDeserialize())
 				{
 					const FArchiveFormatVersion* DastVersion =
@@ -618,7 +618,7 @@ namespace Durin
 					break;
 				}
 				Ar << Num;
-				if (Ar.HasError()) break;
+				if (Ar.IsError()) break;
 				if (Ar.IsLoading() && Num > 10000000)
 				{
 					Ar.SetError("Array element count exceeds the supported limit.");
@@ -634,7 +634,7 @@ namespace Durin
 					}
 					FArchiveArrayVisitContext Context{Ar, Inner, bIncludeRawObjectReferences};
 					if (ArrayProperty->VisitElements(Container, &SerializeArrayElement, &Context, ArrayIndex)
-						!= EContainerOpResult::Success && !Ar.HasError())
+						!= EContainerOpResult::Success && !Ar.IsError())
 						Ar.SetError("ArrayOperationFailed: ConstTraversal failed.");
 					break;
 				}
@@ -655,7 +655,7 @@ namespace Durin
 					Ar.SetError(std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(Result)));
 					break;
 				}
-				for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
+				for (uint64 Index = 0; Index < Num && !Ar.IsError(); ++Index)
 				{
 					void* Element = nullptr;
 					Result = Ops.GetMutableAt(Detached.Get(), Index, &Element);
@@ -667,7 +667,7 @@ namespace Durin
 					auto ElementScope = EnterArchiveArrayElement(Ar, Index);
 					SerializePropertyValue(Ar, Inner, Element, 0, bIncludeRawObjectReferences);
 				}
-				if (!Ar.HasError())
+				if (!Ar.IsError())
 				{
 					Result = Ops.Commit(ArrayProperty->GetValuePtr(Container, ArrayIndex), Detached.Get());
 					if (Result != EContainerOpResult::Success)
@@ -692,7 +692,7 @@ namespace Durin
 					break;
 				}
 				Ar << Num;
-				if (Ar.HasError()) break;
+				if (Ar.IsError()) break;
 				if (Ar.IsLoading() && Num > 10000000)
 				{
 					Ar.SetError("Map element count exceeds the supported limit.");
@@ -709,11 +709,11 @@ namespace Durin
 					FArchiveMapVisitContext Context{Ar, MapProperty, bIncludeRawObjectReferences,
 						Ar.HasCapability(EArchiveCapability::CanonicalMapOrder)};
 					if (MapProperty->VisitEntries(Container, &CollectOrSerializeMapEntry, &Context, ArrayIndex)
-						!= EContainerOpResult::Success && !Ar.HasError())
+						!= EContainerOpResult::Success && !Ar.IsError())
 						Ar.SetError("MapOperationFailed: ConstTraversal failed.");
-					if (Ar.HasError() || !Context.bCanonical) break;
+					if (Ar.IsError() || !Context.bCanonical) break;
 					std::ranges::sort(Context.Entries, {}, &FArchiveMapEntry::Token);
-					for (size_t Index = 0; Index < Context.Entries.size() && !Ar.HasError(); ++Index)
+					for (size_t Index = 0; Index < Context.Entries.size() && !Ar.IsError(); ++Index)
 					{
 						if (Index > 0 && Context.Entries[Index - 1].Token == Context.Entries[Index].Token)
 						{
@@ -761,7 +761,7 @@ namespace Durin
 					{
 						return;
 					}
-					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
+					for (uint64 Index = 0; Index < Num && !Ar.IsError(); ++Index)
 					{
 						if (Index > 0)
 						{
@@ -781,7 +781,7 @@ namespace Durin
 							auto ValueScope = EnterArchiveMapValue(Ar, Index);
 							SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
 						}
-						if (Ar.HasError()) return;
+						if (Ar.IsError()) return;
 						OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
 						if (OpResult != EContainerOpResult::Success)
 						{
@@ -791,7 +791,7 @@ namespace Durin
 							return;
 						}
 					}
-					if (!Ar.HasError())
+					if (!Ar.IsError())
 					{
 						OpResult = Ops.Commit(MapProperty->GetValuePtr(Container, ArrayIndex), Detached.Get());
 						if (OpResult != EContainerOpResult::Success)
@@ -1010,7 +1010,7 @@ namespace Durin
 				uint8 Kind = static_cast<uint8>(Object
 					? EArchiveObjectReferenceKind::Internal : EArchiveObjectReferenceKind::Null);
 				*this << Kind;
-				if (!Object || HasError()) return;
+				if (!Object || IsError()) return;
 				uint64 Id = Context.FindId(Object);
 				if (Id == 0)
 				{
@@ -1045,7 +1045,7 @@ namespace Durin
 			{
 				uint8 Kind = 0;
 				*this << Kind;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Null))
 				{
 					Object = nullptr;
@@ -1059,7 +1059,7 @@ namespace Durin
 				}
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Id == 0 || Id > Context.IdToObject.size())
 				{
 					Fail(EArchiveFailureCode::InvalidObjectReference,
@@ -1073,7 +1073,7 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Id > Context.IdToObject.size())
 				{
 					Fail(EArchiveFailureCode::InvalidObjectReference, "Invalid weak object graph reference identifier.");
@@ -1198,7 +1198,7 @@ namespace Durin
 
 	auto FObjectArchive::NotifyCanonicalMapKey(uint64 Index, FByteView Token) -> void
 	{
-		if (!HasError()) OnCanonicalMapKey(Index, Token);
+		if (!IsError()) OnCanonicalMapKey(Index, Token);
 	}
 
 	auto FObjectArchive::MarkBaseReflectedFieldsSerialized() -> void
@@ -1310,13 +1310,13 @@ namespace Durin
 		}
 		uint8 Kind = IsSaving() && Value.IsValid() ? 1 : 0;
 		*this << Kind;
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Kind == 0) { if (IsLoading()) Value = {}; return; }
 		if (Kind != 1) { Fail(EArchiveFailureCode::InvalidData, "Unknown soft object reference tag."); return; }
 		std::string Path = IsSaving() ? Value.ToString() : std::string();
 		uint64 PathBytes = static_cast<uint64>(Path.size());
 		*this << PathBytes;
-		if (HasError()) return;
+		if (IsError()) return;
 		if (PathBytes == 0 || PathBytes > MaximumSoftObjectPathBytes
 			|| (IsLoading() && PathBytes > GetRemainingPayloadBytes()))
 		{
@@ -1326,7 +1326,7 @@ namespace Durin
 		}
 		if (IsLoading()) Path.resize(static_cast<size_t>(PathBytes));
 		SerializeRawBytes(std::as_writable_bytes(std::span<char>(Path.data(), Path.size())));
-		if (HasError()) return;
+		if (IsError()) return;
 		if (IsLoading())
 		{
 			FObjectPath Loaded;
@@ -1343,7 +1343,7 @@ namespace Durin
 	{
 		DObject* Object = IsSaving() ? Value.Get() : nullptr;
 		SerializeObjectReference(Object);
-		if (IsLoading() && !HasError()) Value.SetObject(Object);
+		if (IsLoading() && !IsError()) Value.SetObject(Object);
 	}
 
 	FObjectMemoryWriter::FObjectMemoryWriter(FByteBuffer& InBytes, EArchivePurpose Purpose)
@@ -1358,7 +1358,7 @@ namespace Durin
 
 	auto FObjectMemoryWriter::SerializeRawBytes(FMutableByteView Data) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		Bytes.insert(Bytes.end(), Data.begin(), Data.end());
 	}
 
@@ -1375,7 +1375,7 @@ namespace Durin
 
 	auto FObjectMemoryReader::SerializeRawBytes(FMutableByteView Data) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Data.size() > GetRemainingPayloadBytes())
 		{
 			Fail(EArchiveFailureCode::TruncatedPayload, "Truncated byte payload.");
@@ -1678,7 +1678,7 @@ namespace Durin
 		Payload.Property = Property;
 		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
-		if (Writer.HasError())
+		if (Writer.IsError())
 		{
 			return SnapshotArchiveFailure(Writer, Property, ArrayIndex, Operation);
 		}
@@ -1750,7 +1750,7 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Id > References.size())
 				{
 					SnapshotCode = EPropertySnapshotError::InvalidReferenceIndex;
@@ -1772,7 +1772,7 @@ namespace Durin
 			{
 				FObjectKey Handle;
 				Handle.SerializeForSnapshot(*this);
-				if (!HasError()) Value.SetKey(Handle);
+				if (!IsError()) Value.SetKey(Handle);
 			}
 			EPropertySnapshotError SnapshotCode = EPropertySnapshotError::ArchiveFailure;
 			uint64 ReferenceIndex = 0;
@@ -1783,12 +1783,12 @@ namespace Durin
 		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys);
 		SerializeReflectedPropertyValue(
 			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
-		if (!Reader.HasError() && Reader.GetRemainingPayloadBytes() != 0)
+		if (!Reader.IsError() && Reader.GetRemainingPayloadBytes() != 0)
 		{
 			Reader.SnapshotCode = EPropertySnapshotError::TrailingBytes;
 			Reader.Fail(EArchiveFailureCode::TrailingData, "Property snapshot has trailing bytes.");
 		}
-		if (!Reader.HasError()) return {};
+		if (!Reader.IsError()) return {};
 		auto Result = SnapshotArchiveFailure(Reader, Property, ArrayIndex, Operation);
 		Result.Error.Code = Reader.SnapshotCode;
 		Result.Error.ActualCount = Reader.SnapshotCode == EPropertySnapshotError::TrailingBytes
@@ -1968,13 +1968,13 @@ namespace Durin
 		FObjectGraphContext Context;
 		Context.Discover(RootObject);
 		FObjectGraphDiscoveryArchive DiscoveryArchive(Context);
-		for (size_t Index = 0; Index < Context.Objects.size() && !DiscoveryArchive.HasError(); ++Index)
+		for (size_t Index = 0; Index < Context.Objects.size() && !DiscoveryArchive.IsError(); ++Index)
 		{
 			DObject* Object = Context.Objects[Index];
 			auto ObjectScope = DiscoveryArchive.EnterObject(*Object);
 			Object->Serialize(DiscoveryArchive);
 		}
-		if (DiscoveryArchive.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::Discovery,
+		if (DiscoveryArchive.IsError()) return ObjectGraphFailure({.Code = EObjectGraphError::Discovery,
 			.ObjectName = RootObject->GetObjectPath()}, &DiscoveryArchive);
 		Context.Freeze();
 
@@ -2004,7 +2004,7 @@ namespace Durin
 				auto ObjectScope = PropertyWriter.EnterObject(*Object);
 				Object->Serialize(PropertyWriter);
 			}
-			if (PropertyWriter.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::PropertyWrite,
+			if (PropertyWriter.IsError()) return ObjectGraphFailure({.Code = EObjectGraphError::PropertyWrite,
 				.ObjectName = ObjectName, .ClassName = ClassName, .ObjectId = Id}, &PropertyWriter);
 			uint64 PropertySize = static_cast<uint64>(PropertyBytes.size());
 
@@ -2019,7 +2019,7 @@ namespace Durin
 			}
 		}
 
-		if (HeaderWriter.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::HeaderWrite,
+		if (HeaderWriter.IsError()) return ObjectGraphFailure({.Code = EObjectGraphError::HeaderWrite,
 			.ObjectId = RootId, .ObjectCount = ObjectCount}, &HeaderWriter);
 		OutBytes = std::move(Bytes);
 		return {};
@@ -2033,7 +2033,7 @@ namespace Durin
 		uint64 RootId = 0;
 		uint64 ObjectCount = 0;
 		Reader << Magic << Version << RootId << ObjectCount;
-		if (Reader.HasError() || Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
+		if (Reader.IsError() || Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
 			|| ObjectCount > 1000000 || RootId == 0 || RootId > ObjectCount)
 		{
 			return ObjectGraphFailure({.Code = EObjectGraphError::Header, .ObjectId = RootId, .ObjectCount = ObjectCount,
@@ -2065,7 +2065,7 @@ namespace Durin
 			Reader << Record.ClassName;
 			Reader << Record.ObjectName;
 			Reader << PropertySize;
-			if (Reader.HasError() || PropertySize > Reader.GetRemainingPayloadBytes()
+			if (Reader.IsError() || PropertySize > Reader.GetRemainingPayloadBytes()
 				|| PropertySize > FByteBuffer().max_size())
 			{
 				DiscardLoadedObjects();
@@ -2079,7 +2079,7 @@ namespace Durin
 				Reader.SerializeRawBytes(std::as_writable_bytes(
 					FMutableByteView(Record.PropertyBytes.data(), Record.PropertyBytes.size())));
 			}
-			if (Reader.HasError() || Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
+			if (Reader.IsError() || Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
 				|| Record.OuterId > ObjectCount)
 			{
 				DiscardLoadedObjects();
@@ -2109,7 +2109,7 @@ namespace Durin
 			DObjectForceRegistration(Object);
 			Context.IdToObject[static_cast<size_t>(Record.Id - 1)] = Object;
 		}
-		if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+		if (Reader.IsError() || Reader.GetRemainingPayloadBytes() != 0)
 		{
 			DiscardLoadedObjects();
 			return ObjectGraphFailure({.Code = EObjectGraphError::TrailingBytes, .RemainingBytes = Reader.GetRemainingPayloadBytes()}, &Reader);
@@ -2145,7 +2145,7 @@ namespace Durin
 				auto ObjectScope = PropertyReader.EnterObject(*Object);
 				Object->Serialize(PropertyReader);
 			}
-			if (PropertyReader.HasError() || PropertyReader.GetRemainingPayloadBytes() != 0)
+			if (PropertyReader.IsError() || PropertyReader.GetRemainingPayloadBytes() != 0)
 			{
 				DiscardLoadedObjects();
 				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyRead, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
@@ -2325,7 +2325,7 @@ namespace Durin
 			{
 				uint8 Kind = 0;
 				*this << Kind;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Null))
 				{
 					Object = nullptr;
@@ -2333,7 +2333,7 @@ namespace Durin
 				}
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Internal)
 					&& Id > 0 && Id <= DuplicateObjects.size())
 				{
@@ -2353,7 +2353,7 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Id > DuplicateObjects.size())
 				{
 					Fail(EArchiveFailureCode::InvalidObjectReference, "Duplicate stream contains an invalid weak reference token.");
@@ -2374,7 +2374,7 @@ namespace Durin
 				auto ObjectScope = Writer.EnterObject(*Source);
 				Source->Serialize(Writer);
 			}
-			if (Writer.HasError())
+			if (Writer.IsError())
 			{
 				DiscardDuplicates();
 				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyWrite, .ObjectName = Source->GetObjectPath()}, &Writer);
@@ -2384,7 +2384,7 @@ namespace Durin
 				auto ObjectScope = Reader.EnterObject(*Duplicates[Source]);
 				Duplicates[Source]->Serialize(Reader);
 			}
-			if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+			if (Reader.IsError() || Reader.GetRemainingPayloadBytes() != 0)
 			{
 				DiscardDuplicates();
 				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyRead, .ObjectName = Source->GetObjectPath(),
@@ -2628,7 +2628,7 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (Id > References.size())
 				{
 					InvalidReference = Id;
@@ -2678,7 +2678,7 @@ namespace Durin
 				std::vector<DObject*> References;
 				FEditableCopyWriter Writer(Bytes, References);
 				SerializeReflectedPropertyValue(Writer, *Property, Source, Index);
-				if (Writer.HasError())
+				if (Writer.IsError())
 				{
 					Result = Fail(E::ArchiveWrite, Property, Index);
 					CopyArchiveDiagnostic(Result.Error, Writer);
@@ -2686,9 +2686,9 @@ namespace Durin
 				}
 				FRemappingReader Reader(Bytes, References, ReferenceMap);
 				SerializeReflectedPropertyValue(Reader, *Property, Destination, Index);
-				if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+				if (Reader.IsError() || Reader.GetRemainingPayloadBytes() != 0)
 				{
-					Result = Fail(Reader.InvalidReference ? E::InvalidReferenceIndex : Reader.HasError() ? E::ArchiveRead : E::TrailingBytes, Property, Index);
+					Result = Fail(Reader.InvalidReference ? E::InvalidReferenceIndex : Reader.IsError() ? E::ArchiveRead : E::TrailingBytes, Property, Index);
 					CopyArchiveDiagnostic(Result.Error, Reader);
 					Result.Error.ActualCount = Reader.InvalidReference.value_or(Reader.GetRemainingPayloadBytes());
 					Result.Error.ExpectedCount = Reader.InvalidReference ? References.size() : 0;

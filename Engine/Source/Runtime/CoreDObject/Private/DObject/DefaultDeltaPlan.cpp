@@ -65,7 +65,7 @@ namespace Durin
 
 			auto Finish() -> bool
 			{
-				if (HasError()) return false;
+				if (IsError()) return false;
 				for (const auto& [Node, State] : CaptureStates)
 				{
 					if (!Node) continue;

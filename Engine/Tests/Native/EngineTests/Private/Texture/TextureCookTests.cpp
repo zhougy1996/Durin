@@ -284,7 +284,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FCanonicalMemoryReader PayloadAr(
 		FirstBulk, Durin::EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 	DecodedPlatformData.Serialize(PayloadAr);
-	ASSERT_FALSE(PayloadAr.HasError()) << PayloadAr.GetError();
+	ASSERT_FALSE(PayloadAr.IsError()) << PayloadAr.GetError();
 	ASSERT_TRUE(Durin::RequireArchiveEnd(PayloadAr));
 	ExpectPlatformDataEqual(DecodedPlatformData, ExpectedPlatformData);
 	ASSERT_EQ(DecodedPlatformData.Mips.back().Width, 1u);

@@ -43,7 +43,7 @@ namespace Durin
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) {
 			Ar.Fail(Code, Message);
 		};
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
 			.ProducerVersion = VolumeTextureBuilderVersion,
 			.TargetPlatform = Context.TargetPlatform,
@@ -69,7 +69,7 @@ namespace Durin
 			}
 		}
 		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
-		if (Ar.HasError() || Ar.IsSaving()) return;
+		if (Ar.IsError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture3D
 			|| Descriptor.SliceCount != 1)
 			return Reject(EArchiveFailureCode::InvalidData, "Volume texture payload dimension is invalid.");

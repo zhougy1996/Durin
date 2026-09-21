@@ -57,7 +57,7 @@ namespace
 			OutBytes, Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 		const_cast<Durin::FTexturePlatformData&>(PlatformData).Serialize(Ar);
 		OutError = Ar.GetError();
-		return !Ar.HasError();
+		return !Ar.IsError();
 	}
 
 	auto LoadPlatformDataValue(
@@ -69,8 +69,8 @@ namespace
 		Durin::FCanonicalMemoryReader Ar(
 			Bytes, Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 		Candidate->Serialize(Ar);
-		if (!Ar.HasError()) Durin::RequireArchiveEnd(Ar);
-		if (Ar.HasError())
+		if (!Ar.IsError()) Durin::RequireArchiveEnd(Ar);
+		if (Ar.IsError())
 		{
 			return {
 				.Code = Ar.GetFailure()
@@ -189,13 +189,13 @@ TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Expected.Serialize(Writer);
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 
 	Durin::FTexturePlatformData Actual;
 	Durin::FCanonicalMemoryReader Reader(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Actual.Serialize(Reader);
-	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+	ASSERT_FALSE(Reader.IsError()) << Reader.GetError();
 	EXPECT_TRUE(Durin::RequireArchiveEnd(Reader));
 	ExpectPlatformDataEqual(Actual, Expected);
 }
@@ -312,7 +312,7 @@ TEST(FTextureDerivedDataTests, TextureKeyValidationRejectsInvalidInputs)
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataKey);
 		Input.Serialize(Writer);
-		ASSERT_TRUE(Writer.HasError());
+		ASSERT_TRUE(Writer.IsError());
 		EXPECT_EQ(Writer.GetFailure()->Code, Failure.Code);
 		EXPECT_EQ(Writer.GetFailure()->Message, Failure.Message);
 		EXPECT_TRUE(Bytes.empty());
@@ -364,7 +364,7 @@ TEST(FTextureDerivedDataTests, InvalidCubeKeyInputsFailBeforeWriting)
 		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataKey);
 		auto Candidate = Invalid;
 		Candidate.Serialize(Writer);
-		ASSERT_TRUE(Writer.HasError());
+		ASSERT_TRUE(Writer.IsError());
 		EXPECT_EQ(Writer.GetFailure()->Code, Expected.Code);
 		EXPECT_EQ(Writer.GetFailure()->Message, Expected.Message);
 		EXPECT_TRUE(Bytes.empty());
@@ -392,11 +392,11 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	Durin::FCanonicalMemoryWriter FirstWriter(
 		First, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	const_cast<Durin::FTextureCubePlatformData&>(Expected).Serialize(FirstWriter);
-	ASSERT_FALSE(FirstWriter.HasError());
+	ASSERT_FALSE(FirstWriter.IsError());
 	Durin::FCanonicalMemoryWriter SecondWriter(
 		Second, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	const_cast<Durin::FTextureCubePlatformData&>(Expected).Serialize(SecondWriter);
-	ASSERT_FALSE(SecondWriter.HasError());
+	ASSERT_FALSE(SecondWriter.IsError());
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
 		"7ce2cb929232337de973aeddcfbb32d5");
@@ -405,7 +405,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	Durin::FTextureCubePlatformData Actual;
 	Durin::FCanonicalMemoryReader Reader(First, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	Actual.Serialize(Reader);
-	ASSERT_FALSE(Reader.HasError());
+	ASSERT_FALSE(Reader.IsError());
 	for (size_t FaceIndex = 0; FaceIndex < Expected.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Expected.Faces[FaceIndex]);
 
@@ -414,7 +414,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	Durin::FCanonicalMemoryReader CompatibleReader(
 		DifferentProducer, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	Actual.Serialize(CompatibleReader);
-	EXPECT_FALSE(CompatibleReader.HasError()) << CompatibleReader.GetError();
+	EXPECT_FALSE(CompatibleReader.IsError()) << CompatibleReader.GetError();
 
 	auto WrongOrder = First;
 	WriteU32(WrongOrder, Durin::TexturePayloadHeaderSize, 1);
@@ -422,7 +422,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	Durin::FCanonicalMemoryReader CorruptReader(
 		WrongOrder, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	Actual.Serialize(CorruptReader);
-	EXPECT_TRUE(CorruptReader.HasError());
+	EXPECT_TRUE(CorruptReader.IsError());
 	for (size_t FaceIndex = 0; FaceIndex < Existing.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Existing.Faces[FaceIndex]);
 }
@@ -435,17 +435,17 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::Discovery, Context);
 		Source.Serialize(Writer);
-		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 		FByteBuffer ContextBytes;
 		FCanonicalMemoryWriter ContextWriter(ContextBytes, EArchivePurpose::DerivedDataPayload,
 			Context);
 		Source.Serialize(ContextWriter);
-		EXPECT_FALSE(ContextWriter.HasError());
+		EXPECT_FALSE(ContextWriter.IsError());
 		EXPECT_EQ(ContextBytes, Bytes);
 		FCanonicalMemoryReader MissingContext(Bytes);
 		auto DiscardedContext = Source;
 		DiscardedContext.Serialize(MissingContext);
-		ASSERT_TRUE(MissingContext.HasError());
+		ASSERT_TRUE(MissingContext.IsError());
 		EXPECT_EQ(MissingContext.GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
 		EXPECT_EQ(MissingContext.Tell(), 0u);
 		for (const FArchiveTarget Target : {FArchiveTarget{}, FArchiveTarget{"Win64", ""},
@@ -455,8 +455,8 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 			FHashingArchive InvalidHasher(EArchivePurpose::DerivedDataPayload, {.Target = Target});
 			Source.Serialize(InvalidCounter);
 			Source.Serialize(InvalidHasher);
-			ASSERT_TRUE(InvalidCounter.HasError());
-			ASSERT_TRUE(InvalidHasher.HasError());
+			ASSERT_TRUE(InvalidCounter.IsError());
+			ASSERT_TRUE(InvalidHasher.IsError());
 			EXPECT_EQ(InvalidCounter.GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
 			EXPECT_EQ(InvalidHasher.GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
 			EXPECT_EQ(InvalidCounter.Tell(), 0u);
@@ -464,16 +464,16 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 		}
 		FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, Context);
 		Source.Serialize(Counter);
-		EXPECT_FALSE(Counter.HasError());
+		EXPECT_FALSE(Counter.IsError());
 		EXPECT_EQ(Counter.Tell(), Bytes.size());
 		FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, Context);
 		Source.Serialize(Hasher);
-		EXPECT_FALSE(Hasher.HasError());
+		EXPECT_FALSE(Hasher.IsError());
 		EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
 		auto Loaded = Source;
 		FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, Context);
 		Loaded.Serialize(Reader);
-		ASSERT_FALSE(Reader.HasError());
+		ASSERT_FALSE(Reader.IsError());
 		ASSERT_TRUE(RequireArchiveEnd(Reader));
 		FByteBuffer RoundTrip;
 		FCanonicalMemoryWriter Rewriter(RoundTrip, EArchivePurpose::DerivedDataPayload, Context);
@@ -483,7 +483,7 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 		Joined.insert(Joined.end(), Bytes.begin(), Bytes.end());
 		FCanonicalMemoryReader Parent(Joined, EArchivePurpose::DerivedDataPayload, Context);
 		Loaded.Serialize(Parent);
-		ASSERT_FALSE(Parent.HasError());
+		ASSERT_FALSE(Parent.IsError());
 		EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
 		EXPECT_FALSE(RequireArchiveEnd(Parent));
 		for (size_t Size = 0; Size < Bytes.size(); ++Size)
@@ -492,13 +492,13 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 				EArchivePurpose::DerivedDataPayload, Context);
 			decltype(Source) Discarded;
 			Discarded.Serialize(Truncated);
-			ASSERT_TRUE(Truncated.HasError()) << Size;
+			ASSERT_TRUE(Truncated.IsError()) << Size;
 		}
 		auto Excessive = Bytes;
 		WriteU32(Excessive, 40, std::numeric_limits<uint32>::max());
 		FCanonicalMemoryReader Limited(Excessive, EArchivePurpose::DerivedDataPayload, Context);
 		Loaded.Serialize(Limited);
-		ASSERT_TRUE(Limited.HasError());
+		ASSERT_TRUE(Limited.IsError());
 		EXPECT_EQ(Limited.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
 		EXPECT_EQ(Limited.Tell(), TexturePayloadHeaderSize);
 	};

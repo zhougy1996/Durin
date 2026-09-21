@@ -153,7 +153,7 @@ namespace Durin::AssetPrivate
 
 			auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 			{
-				if (HasError() || !IsCurrentFieldAvailable()) return;
+				if (IsError() || !IsCurrentFieldAvailable()) return;
 				FLoadScope& Scope = Stack.back();
 				if (Bytes.size() > Scope.Record->Payload.size() - Scope.Offset)
 				{
@@ -171,7 +171,7 @@ namespace Durin::AssetPrivate
 				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
 				(void)Parameters;
-				if (HasError() || !IsCurrentFieldAvailable()) return;
+				if (IsError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
 				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
@@ -191,7 +191,7 @@ namespace Durin::AssetPrivate
 				*this << FieldIndex << Placement << StorageFlags << Alignment
 					<< ContentIdVersion << InstanceId << HashLow << HashHigh
 					<< LogicalSize << StoredSize << SegmentOffset;
-				if (HasError()) return;
+				if (IsError()) return;
 				if (FieldIndex == 0 || Placement > 1 || StorageFlags != 0
 					|| ContentIdVersion != EditorBulkDataContentIdVersion
 					|| !InstanceId.IsValid() || FXxHash128{HashLow, HashHigh}.IsZero()
@@ -216,7 +216,7 @@ namespace Durin::AssetPrivate
 				{
 					FByteBuffer Bytes(static_cast<size_t>(StoredSize));
 					ReadBytes(Bytes);
-					if (HasError()) return;
+					if (IsError()) return;
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 					{
 						FailLoad(EArchiveFailureCode::InvalidData,
@@ -236,7 +236,7 @@ namespace Durin::AssetPrivate
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
 			{
-				if (HasError() || !IsCurrentFieldAvailable()) return;
+				if (IsError() || !IsCurrentFieldAvailable()) return;
 				uint8 Kind = 0;
 				if (!Read(Kind)) return;
 				Value = nullptr;
@@ -296,7 +296,7 @@ namespace Durin::AssetPrivate
 
 			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
-				if (HasError() || !IsCurrentFieldAvailable()) return;
+				if (IsError() || !IsCurrentFieldAvailable()) return;
 				uint8 Kind = 0;
 				if (!Read(Kind)) return;
 				if (Kind == 0) { Value = {}; return; }
@@ -346,7 +346,7 @@ namespace Durin::AssetPrivate
 
 			auto OnEnterField(const FArchiveFieldDescriptor& Descriptor) -> void override
 			{
-				if (HasError()) { Stack.emplace_back(); return; }
+				if (IsError()) { Stack.emplace_back(); return; }
 				std::span<const FAuthoredPackageFieldRecord> Candidates;
 				std::span<uint8> CandidateConsumed;
 				const bool bTopLevel = Stack.empty();
@@ -452,7 +452,7 @@ namespace Durin::AssetPrivate
 			{
 				if (PathTypes.empty()) return;
 				FPathType& Path = PathTypes.back();
-				if (!HasError() && !Stack.empty() && Stack.back().Record
+				if (!IsError() && !Stack.empty() && Stack.back().Record
 					&& Path.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
 					PrepareStruct(Path.Struct, Path.Type);
 				PathTypes.pop_back();
@@ -462,11 +462,11 @@ namespace Durin::AssetPrivate
 			{
 				if (Stack.empty()) return;
 				FLoadScope& Scope = Stack.back();
-				if (!HasError() && Scope.Record)
+				if (!IsError() && Scope.Record)
 				{
 					if (Scope.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
 						PrepareStruct(Scope.Struct, Scope.Type);
-					if (!HasError() && Scope.Offset != Scope.Record->Payload.size())
+					if (!IsError() && Scope.Offset != Scope.Record->Payload.size())
 						FailLoad(EArchiveFailureCode::TrailingData,
 							{EAssetReadError::CorruptFile, std::format("Trailing payload: {} bytes at offset {} of {}.", Scope.Record->Payload.size() - Scope.Offset, Scope.Offset, Scope.Record->Payload.size())});
 				}
@@ -508,7 +508,7 @@ namespace Durin::AssetPrivate
 
 			auto FailLoad(EArchiveFailureCode Code, FAssetReadResult Error) -> void
 			{
-				if (HasError()) return;
+				if (IsError()) return;
 				LoadError = Error.Error;
 				Fail(Code, std::move(Error.Message));
 			}
@@ -576,7 +576,7 @@ namespace Durin::AssetPrivate
 			auto PrepareStruct(FStructState& State,
 				const FArchiveLogicalTypeDescriptor& InputType) -> bool
 			{
-				if (State.bPrepared) return !HasError();
+				if (State.bPrepared) return !IsError();
 				State.bPrepared = true;
 				const auto& Type = Durin::PackagePrivate::UnwrapFixed(InputType);
 				if (Type.Kind != FArchiveLogicalTypeDescriptor::EKind::Struct)
@@ -590,7 +590,7 @@ namespace Durin::AssetPrivate
 				uint64 FieldCount = 0;
 				if (!ReadString(StructName) || !Read(FieldCount) || FieldCount > 100000)
 				{
-					if (!HasError()) FailLoad(EArchiveFailureCode::InvalidData,
+					if (!IsError()) FailLoad(EArchiveFailureCode::InvalidData,
 						{EAssetReadError::CorruptFile, std::format("Struct field count {} exceeds limit 100000.", FieldCount)});
 					return false;
 				}
@@ -611,7 +611,7 @@ namespace Durin::AssetPrivate
 						|| !Read(Kind) || !ReadString(Field.TypeSignature)
 						|| !Read(PayloadSize) || PayloadSize > GetRemainingPayloadBytes())
 					{
-						if (!HasError()) FailLoad(EArchiveFailureCode::TruncatedPayload,
+						if (!IsError()) FailLoad(EArchiveFailureCode::TruncatedPayload,
 							{EAssetReadError::CorruptFile, std::format("Truncated field '{}': requested {} bytes, remaining {}.", Field.Name, PayloadSize, GetRemainingPayloadBytes())});
 						return false;
 					}
@@ -620,7 +620,7 @@ namespace Durin::AssetPrivate
 					if (PayloadSize != 0)
 					{
 						SerializeRawBytes(Field.Payload);
-						if (HasError()) return false;
+						if (IsError()) return false;
 					}
 					State.Fields.push_back(std::move(Field));
 				}

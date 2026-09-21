@@ -200,7 +200,7 @@ namespace Durin
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (!Ar.HasError()) return {};
+			if (!Ar.IsError()) return {};
 			const auto Failure = ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::EncodeRender);
 			OutBytes.clear();
 			return Failure;
@@ -213,7 +213,7 @@ namespace Durin
 			FStaticMeshPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (Ar.HasError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeRender);
+			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeRender);
 			if (const auto Built = MakeStaticMeshRenderData(Payload, OutRenderData, ShouldCancel); !Built)
 				return {{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeRender, .RenderCause = Built.Error}};
 			return RestoreRuntimeMetadata(MaterialSlots, *OutRenderData);
@@ -228,7 +228,7 @@ namespace Durin
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (!Ar.HasError()) return {};
+			if (!Ar.IsError()) return {};
 			const auto Failure = ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::EncodeCollision);
 			OutBytes.clear();
 			return Failure;
@@ -241,7 +241,7 @@ namespace Durin
 			FStaticMeshCollisionPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (Ar.HasError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeCollision);
+			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeCollision);
 			if (Payload.SourceMode != Mode || Payload.QueryPolicy != Policy)
 				return {{.Code = EStaticMeshCacheCodecError::CollisionMetadata, .Operation = EStaticMeshCacheCodecOperation::DecodeCollision,
 					.ActualMode = Payload.SourceMode, .ExpectedMode = Mode, .ActualPolicy = Payload.QueryPolicy, .ExpectedPolicy = Policy}};

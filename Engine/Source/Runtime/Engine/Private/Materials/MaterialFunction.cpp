@@ -74,7 +74,7 @@ namespace Durin
 	{
 		if (!FMaterialGraphVersion::Serialize(Ar) || !FMaterialFunctionVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
-		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+		if (!Ar.IsError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
 			const auto Validation = ValidateLoadedObjectGraph({});
 			if (!Validation)

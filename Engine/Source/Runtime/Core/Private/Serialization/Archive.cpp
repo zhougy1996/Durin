@@ -40,7 +40,7 @@ namespace Durin
 					Bytes[Index] = static_cast<std::byte>((Bits >> (Index * 8)) & 0xffu);
 			}
 			Ar.SerializeRawBytes(Bytes);
-			if (Ar.IsLoading() && !Ar.HasError())
+			if (Ar.IsLoading() && !Ar.IsError())
 			{
 				Unsigned Bits = 0;
 				for (size_t Index = 0; Index < sizeof(T); ++Index)
@@ -55,7 +55,7 @@ namespace Durin
 		{
 			U Bits = Ar.IsSaving() ? std::bit_cast<U>(Value) : U{};
 			SerializeCanonicalInteger(Ar, Bits);
-			if (Ar.IsLoading() && !Ar.HasError()) Value = std::bit_cast<T>(Bits);
+			if (Ar.IsLoading() && !Ar.IsError()) Value = std::bit_cast<T>(Bits);
 			return Ar;
 		}
 
@@ -128,7 +128,7 @@ namespace Durin
 
 	auto FArchive::UsingCustomVersion(const FGuid& Guid) -> void
 	{
-		if (!IsSaving() || HasError()) return;
+		if (!IsSaving() || IsError()) return;
 		const auto Definitions = FCustomVersionRegistry::GetAll();
 		const auto It = std::ranges::find(Definitions, Guid, &FCustomVersionDefinition::Guid);
 		if (It == Definitions.end())
@@ -181,6 +181,12 @@ namespace Durin
 			Code, GetPathString(), std::string(Message)});
 	}
 
+	auto FArchive::SetCriticalError(EArchiveFailureCode Code, std::string_view Message) -> void
+	{
+		bCriticalError = true;
+		Fail(Code, Message);
+	}
+
 	auto FArchive::FormatFailure() const -> std::string
 	{
 		if (!Failure) return {};
@@ -210,7 +216,7 @@ namespace Durin
 	{
 		if (Size > static_cast<uint64>(std::numeric_limits<size_t>::max()))
 		{
-			Fail(EArchiveFailureCode::Overflow, "Raw byte size exceeds the addressable span range.");
+			SetCriticalError(EArchiveFailureCode::Overflow, "Raw byte size exceeds the addressable span range.");
 			return;
 		}
 		if (Size != 0 && Data == nullptr)
@@ -250,7 +256,7 @@ namespace Durin
 			for (size_t Index = 0; Index < EncodedSize.size(); ++Index)
 				EncodedSize[Index] = static_cast<std::byte>((Size >> (Index * 8)) & 0xffu);
 		SerializeRawBytes(EncodedSize);
-		if (HasError()) return;
+		if (IsError()) return;
 		if (IsLoading())
 			for (size_t Index = 0; Index < EncodedSize.size(); ++Index)
 				Size |= static_cast<uint64>(std::to_integer<uint8>(EncodedSize[Index])) << (Index * 8);
@@ -269,7 +275,7 @@ namespace Durin
 		}
 		FByteBuffer Candidate(static_cast<size_t>(Size));
 		ReadBytes(Candidate);
-		if (!HasError()) Bytes = std::move(Candidate);
+		if (!IsError()) Bytes = std::move(Candidate);
 	}
 
 	auto FArchive::SerializeBulkData(
@@ -313,7 +319,7 @@ namespace Durin
 		*this << StorageKind << PayloadId << ReservedIdentity << ReservedVersion
 			<< LogicalSize << StoredSize << HashLow << HashHigh
 			<< ContainerHashLow << ContainerHashHigh;
-		if (HasError()) return;
+		if (IsError()) return;
 		if (IsLoading() && StorageKind != static_cast<uint8>(EArchiveBulkDataStorageKind::Inline))
 		{
 			Fail(EArchiveFailureCode::UnsupportedCapability,
@@ -338,7 +344,7 @@ namespace Durin
 
 		FByteBuffer Candidate;
 		SerializeByteBlob(Candidate);
-		if (HasError()) return;
+		if (IsError()) return;
 		if (LogicalSize != Candidate.size() || StoredSize != Candidate.size()
 			|| FXxHash128::HashBuffer(Candidate) != FXxHash128{HashLow, HashHigh})
 		{
@@ -365,7 +371,7 @@ namespace Durin
 		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Bool, &Value)) return *this;
 		uint8 Encoded = IsSaving() && Value ? 1 : 0;
 		SerializeCanonicalInteger(*this, Encoded);
-		if (IsLoading() && !HasError())
+		if (IsLoading() && !IsError())
 		{
 			if (Encoded > 1) Fail(EArchiveFailureCode::InvalidData, "Boolean encoding must be zero or one.");
 			else Value = Encoded != 0;
@@ -407,7 +413,7 @@ namespace Durin
 		if (IsSaving() && TryCaptureLogicalText(EArchiveLogicalTextKind::Name, Value.ToString())) return *this;
 		std::string Text = IsSaving() ? Value.ToString() : std::string();
 		*this << Text;
-		if (IsLoading() && !HasError()) Value = FName(Text);
+		if (IsLoading() && !IsError()) Value = FName(Text);
 		return *this;
 	}
 	auto FArchive::operator<<(FGuid& Value) -> FArchive&
@@ -430,7 +436,7 @@ namespace Durin
 
 	auto FCanonicalMemoryWriter::SerializeRawBytes(FMutableByteView Data) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Data.empty()) return;
 		Bytes.insert(Bytes.end(), Data.begin(), Data.end());
 	}
@@ -445,10 +451,10 @@ namespace Durin
 
 	auto FCanonicalMemoryReader::SerializeRawBytes(FMutableByteView Data) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Data.size() > GetRemainingPayloadBytes())
 		{
-			Fail(EArchiveFailureCode::TruncatedPayload, "Truncated byte payload.");
+			SetCriticalError(EArchiveFailureCode::TruncatedPayload, "Truncated byte payload.");
 			return;
 		}
 		if (!Data.empty()) std::memcpy(Data.data(), Bytes.data() + Offset, Data.size());
@@ -459,10 +465,10 @@ namespace Durin
 		uint64 Size, FByteView& OutRegion) -> bool
 	{
 		OutRegion = {};
-		if (HasError()) return false;
+		if (IsError()) return false;
 		if (Size > GetRemainingPayloadBytes())
 		{
-			Fail(EArchiveFailureCode::TruncatedPayload, "Bounded Archive region is truncated.");
+			SetCriticalError(EArchiveFailureCode::TruncatedPayload, "Bounded Archive region is truncated.");
 			return false;
 		}
 		OutRegion = Bytes.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size));
@@ -479,10 +485,10 @@ namespace Durin
 
 	auto FCountingArchive::SerializeRawBytes(FMutableByteView Bytes) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Bytes.size() > std::numeric_limits<uint64>::max() - Count)
 		{
-			Fail(EArchiveFailureCode::Overflow, "Counting Archive byte extent overflowed.");
+			SetCriticalError(EArchiveFailureCode::Overflow, "Counting Archive byte extent overflowed.");
 			return;
 		}
 		Count += static_cast<uint64>(Bytes.size());
@@ -497,10 +503,10 @@ namespace Durin
 
 	auto FHashingArchive::SerializeRawBytes(FMutableByteView Bytes) -> void
 	{
-		if (HasError()) return;
+		if (IsError()) return;
 		if (Bytes.size() > std::numeric_limits<uint64>::max() - Count)
 		{
-			Fail(EArchiveFailureCode::Overflow, "Hashing Archive byte extent overflowed.");
+			SetCriticalError(EArchiveFailureCode::Overflow, "Hashing Archive byte extent overflowed.");
 			return;
 		}
 		Builder.Update(Bytes);
@@ -511,7 +517,7 @@ namespace Durin
 	{
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		if (Size > MaximumBytes || Size > static_cast<uint64>(FByteBuffer().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Byte buffer exceeds its serialization limit.");
@@ -521,12 +527,12 @@ namespace Durin
 		{
 			if (Size > Ar.GetRemainingPayloadBytes())
 			{
-				Ar.Fail(EArchiveFailureCode::TruncatedPayload, "Byte buffer is truncated.");
+				Ar.SetCriticalError(EArchiveFailureCode::TruncatedPayload, "Byte buffer is truncated.");
 				return;
 			}
 			FByteBuffer Loaded(static_cast<size_t>(Size));
 			if (Size != 0) Ar.ReadBytes(Loaded);
-			if (!Ar.HasError()) Value = std::move(Loaded);
+			if (!Ar.IsError()) Value = std::move(Loaded);
 		}
 		else if (Size != 0)
 		{
@@ -536,11 +542,11 @@ namespace Durin
 
 	auto SerializeBoundedString(FArchive& Ar, std::string& Value, uint64 MaximumBytes) -> void
 	{
-		if (Ar.HasError() || !Ar.IsCurrentFieldAvailable()) return;
+		if (Ar.IsError() || !Ar.IsCurrentFieldAvailable()) return;
 		if (Ar.IsSaving() && Ar.TryCaptureLogicalText(EArchiveLogicalTextKind::String, Value)) return;
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		if (Size > MaximumBytes || Size > static_cast<uint64>(std::string().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "String exceeds its serialization limit.");
@@ -550,12 +556,12 @@ namespace Durin
 		{
 			if (Size > Ar.GetRemainingPayloadBytes())
 			{
-				Ar.Fail(EArchiveFailureCode::TruncatedPayload, "String payload is truncated.");
+				Ar.SetCriticalError(EArchiveFailureCode::TruncatedPayload, "String payload is truncated.");
 				return;
 			}
 			std::string Loaded(static_cast<size_t>(Size), '\0');
 			if (Size != 0) Ar.ReadBytes(std::as_writable_bytes(std::span<char>(Loaded)));
-			if (!Ar.HasError()) Value = std::move(Loaded);
+			if (!Ar.IsError()) Value = std::move(Loaded);
 		}
 		else if (Size != 0)
 		{
@@ -580,7 +586,7 @@ namespace Durin
 		if (Ar.IsLoading())
 		{
 			Ar.ReadBytes(FMutableByteView(Buffer).first(static_cast<size_t>(Padding)));
-			if (!Ar.HasError() && std::ranges::any_of(Buffer.begin(), Buffer.begin() + static_cast<ptrdiff_t>(Padding),
+			if (!Ar.IsError() && std::ranges::any_of(Buffer.begin(), Buffer.begin() + static_cast<ptrdiff_t>(Padding),
 				[](std::byte Byte) { return Byte != std::byte{}; }))
 				Ar.Fail(EArchiveFailureCode::NonZeroPadding, "Archive alignment padding must be zero.");
 		}
@@ -592,7 +598,7 @@ namespace Durin
 
 	auto RequireArchiveEnd(FArchive& Ar) -> bool
 	{
-		if (Ar.HasError()) return false;
+		if (Ar.IsError()) return false;
 		if (Ar.GetRemainingPayloadBytes() == 0) return true;
 		Ar.Fail(EArchiveFailureCode::TrailingData, "Archive contains trailing bytes.");
 		return false;

@@ -50,9 +50,9 @@ namespace Durin
 				std::string StructName;
 				uint64 FieldCount = 0;
 				Reader << StructName << FieldCount;
-				if (Reader.HasError() || FieldCount > 100000)
+				if (Reader.IsError() || FieldCount > 100000)
 				{
-					auto Result = Reject(Reader.HasError() ? EEditorBulkDataStorageError::InvalidStructHeader
+					auto Result = Reject(Reader.IsError() ? EEditorBulkDataStorageError::InvalidStructHeader
 						: EEditorBulkDataStorageError::FieldLimit, FieldCount, 100000, Reader.GetFailure());
 					Result.Error.StructName = std::move(StructName);
 					return Result;
@@ -63,7 +63,7 @@ namespace Durin
 					uint8 FieldKind = 0;
 					uint64 PayloadSize = 0;
 					Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
-					if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
+					if (Reader.IsError() || PayloadSize > Reader.GetRemainingPayloadBytes())
 					{
 						auto Result = Reject(EEditorBulkDataStorageError::TruncatedField,
 							PayloadSize, Reader.GetRemainingPayloadBytes(), Reader.GetFailure());
@@ -75,7 +75,7 @@ namespace Durin
 					FByteBuffer FieldPayload(static_cast<size_t>(PayloadSize));
 					if (PayloadSize != 0)
 						Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
-					auto Result = Reader.HasError()
+					auto Result = Reader.IsError()
 						? Reject(EEditorBulkDataStorageError::TruncatedField,
 							PayloadSize, Reader.GetRemainingPayloadBytes(), Reader.GetFailure())
 						: CollectDescriptors(static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind),

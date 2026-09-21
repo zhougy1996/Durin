@@ -137,7 +137,7 @@ namespace Durin
 		}
 		if (!FMaterialInstanceVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		const auto Validation = ValidateParameterStorage();
 		if (!Validation)
 		{

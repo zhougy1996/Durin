@@ -156,8 +156,8 @@ namespace
 			EArchivePurpose::DerivedDataPayload,
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar);
-		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.HasError()) return false;
+		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.IsError()) return false;
 		OutBytes = std::move(Candidate);
 		return true;
 	}
@@ -172,7 +172,7 @@ namespace
 			EArchivePurpose::DerivedDataPayload,
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		Candidate.Serialize(Ar);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
@@ -961,18 +961,18 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	const FByteBuffer Bytes = Encode(Source);
 	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Source.Serialize(Counter);
-	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
+	ASSERT_FALSE(Counter.IsError()) << Counter.GetError();
 	EXPECT_EQ(Counter.Tell(), Bytes.size());
 	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Source.Serialize(Hasher);
-	EXPECT_FALSE(Hasher.HasError());
+	EXPECT_FALSE(Hasher.IsError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
 	ExpectEquivalent(Source, Before);
 
 	FStaticMeshPayloadData Loaded = MakeMultiMaterialFixture();
 	FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Loaded.Serialize(Reader);
-	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+	ASSERT_FALSE(Reader.IsError()) << Reader.GetError();
 	ASSERT_TRUE(RequireArchiveEnd(Reader));
 	ExpectEquivalent(Loaded, Source);
 	for (uint32 Channel = 1; Channel < MaxStaticMeshUVChannels; ++Channel)
@@ -983,7 +983,7 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	Adjacent.insert(Adjacent.end(), Bytes.begin(), Bytes.end());
 	FCanonicalMemoryReader Parent(Adjacent, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Loaded.Serialize(Parent);
-	ASSERT_FALSE(Parent.HasError());
+	ASSERT_FALSE(Parent.IsError());
 	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
 	EXPECT_FALSE(RequireArchiveEnd(Parent));
 	EXPECT_EQ(Parent.GetFailure()->Code, EArchiveFailureCode::TrailingData);
@@ -993,7 +993,7 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	uint32 Checks = 0;
 	Replacement.Serialize(Cancelled,
 		[&] { return ++Checks >= 2; });
-	EXPECT_TRUE(Cancelled.HasError());
+	EXPECT_TRUE(Cancelled.IsError());
 	EXPECT_NE(Cancelled.GetError().find("cancelled"), std::string_view::npos);
 
 	FByteBuffer Oversized = Bytes;
@@ -1001,7 +1001,7 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	FCanonicalMemoryReader Limits(Oversized, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	FStaticMeshPayloadData Discarded;
 	Discarded.Serialize(Limits);
-	ASSERT_TRUE(Limits.HasError());
+	ASSERT_TRUE(Limits.IsError());
 	EXPECT_EQ(Limits.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
 	EXPECT_EQ(Limits.Tell(), 64u);
 	EXPECT_TRUE(Discarded.LODs.empty());
@@ -1023,7 +1023,7 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveTargetIsRequiredBeforePayloadTransfer)
 				static_cast<FArchive*>(&Hasher), static_cast<FArchive*>(&Reader)})
 			{
 				Payload.Serialize(*Ar);
-				ASSERT_TRUE(Ar->HasError());
+				ASSERT_TRUE(Ar->IsError());
 				EXPECT_EQ(Ar->GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
 				EXPECT_EQ(Ar->Tell(), 0u);
 			}
@@ -1226,7 +1226,7 @@ TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsModeAndPolicy)
 	FByteBuffer Bytes;
 	FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 	Payload.Serialize(Ar);
-	ASSERT_FALSE(Ar.HasError()) << Ar.GetError();
+	ASSERT_FALSE(Ar.IsError()) << Ar.GetError();
 	FStaticMeshCookedProduct Product;
 	const auto Result = DecodeStaticMeshCookedProduct({}, Bytes, {},
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);

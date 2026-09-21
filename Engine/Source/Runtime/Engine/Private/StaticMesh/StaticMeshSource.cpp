@@ -34,7 +34,7 @@ namespace Durin
 		{
 			uint64 Count = Values.size();
 			Ar << Count;
-			if (Ar.IsLoading() && !Ar.HasError())
+			if (Ar.IsLoading() && !Ar.IsError())
 			{
 				constexpr uint64 MinimumWireBytes = [] {
 					if constexpr (std::is_same_v<TValue, FStaticMeshImportedMaterialSlot>) return uint64{20};
@@ -58,7 +58,7 @@ namespace Durin
 			{
 				if (Control) Control->Tick();
 				SerializeValue(Ar, Value);
-				if (Ar.HasError()) return;
+				if (Ar.IsError()) return;
 			}
 		}
 
@@ -266,7 +266,7 @@ namespace Durin
 		Bytes.reserve(static_cast<size_t>(WireBytes));
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshSourceGeometry(Ar, Value);
-		if (Ar.HasError())
+		if (Ar.IsError())
 			return {{.Code = EStaticMeshSourceError::EncodeArchive,
 				.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
 		if (Bytes.size() > MaximumStaticMeshSourceBytes)
@@ -314,7 +314,7 @@ namespace Durin
 			auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 			SerializeStaticMeshSourceGeometry(Ar, *Decoded, &Control);
-			if (Ar.HasError() || !RequireArchiveEnd(Ar))
+			if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			{
 				return {.Error = {.Code = EStaticMeshSourceError::Archive, .Actual = Ar.Tell(), .Expected = Bytes.size(),
 					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};

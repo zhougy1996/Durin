@@ -25,6 +25,52 @@ namespace ArchiveCustomizationTest
 	inline auto Serialize(Durin::FArchive& Ar, FFreeValue& Value) -> void { Ar << Value.Value; }
 }
 
+TEST(FArchiveTests, ErrorStateStopsWritesAndCriticalEscalationPreservesFirstFailure)
+{
+	using namespace Durin;
+	FByteBuffer Bytes;
+	FCanonicalMemoryWriter Writer(Bytes);
+	EXPECT_FALSE(Writer.IsError());
+	EXPECT_FALSE(Writer.IsCriticalError());
+	Writer.Fail(EArchiveFailureCode::UnsupportedVersion, "unsupported input version");
+	ASSERT_TRUE(Writer.IsError());
+	EXPECT_FALSE(Writer.IsCriticalError());
+	const auto* FirstFailure = Writer.GetFailure();
+	Writer.SetError();
+	Writer.SetCriticalError();
+	Writer.SetError("later error");
+	EXPECT_TRUE(Writer.IsError());
+	EXPECT_TRUE(Writer.IsCriticalError());
+	EXPECT_EQ(Writer.GetFailure(), FirstFailure);
+	EXPECT_EQ(Writer.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);
+	EXPECT_EQ(Writer.GetFailure()->Message, "unsupported input version");
+	uint32 Value = 42;
+	Writer << Value;
+	EXPECT_TRUE(Bytes.empty());
+}
+
+TEST(FArchiveTests, ParameterlessErrorSettersRejectFurtherReads)
+{
+	using namespace Durin;
+	const std::array<std::byte, 1> Bytes{std::byte{7}};
+	FCanonicalMemoryReader Ordinary(Bytes);
+	Ordinary.SetError();
+	EXPECT_TRUE(Ordinary.IsError());
+	EXPECT_FALSE(Ordinary.IsCriticalError());
+	uint8 Value = 42;
+	Ordinary << Value;
+	EXPECT_EQ(Value, 42);
+	EXPECT_EQ(Ordinary.Tell(), 0);
+	FCanonicalMemoryReader Critical(Bytes);
+	Critical.SetCriticalError();
+	EXPECT_TRUE(Critical.IsError());
+	EXPECT_TRUE(Critical.IsCriticalError());
+	ASSERT_NE(Critical.GetFailure(), nullptr);
+	Critical << Value;
+	EXPECT_EQ(Value, 42);
+	EXPECT_EQ(Critical.Tell(), 0);
+}
+
 TEST(FArchiveTests, FormatsFailuresAfterOperationAndTargetCodesWereAdded)
 {
 	using namespace Durin;
@@ -51,7 +97,7 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 	float Float = 1.0f;
 	bool Boolean = true;
 	Writer << U16 << I32 << Float << Boolean;
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	EXPECT_EQ(Bytes, (Durin::FByteBuffer{
 		std::byte{0x34}, std::byte{0x12}, std::byte{0xfe}, std::byte{0xff},
 		std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
@@ -81,6 +127,8 @@ TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 	EXPECT_FALSE(Reader.ReadRegion(3, Region));
 	ASSERT_NE(Reader.GetFailure(), nullptr);
 	EXPECT_EQ(Reader.GetFailure()->Code, Durin::EArchiveFailureCode::TruncatedPayload);
+	EXPECT_TRUE(Reader.IsError());
+	EXPECT_TRUE(Reader.IsCriticalError());
 	EXPECT_EQ(Reader.Tell(), 3);
 	uint8 Unchanged = 42;
 	Reader << Unchanged;
@@ -94,7 +142,7 @@ TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 	std::string Label = "abc";
 	Durin::SerializeBoundedString(Writer, Label, 3);
 	Durin::SerializeAlignment(Writer, 8);
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	ASSERT_EQ(Bytes.size(), 16);
 
 	Bytes.back() = std::byte{1};
@@ -142,7 +190,7 @@ TEST(FArchiveTests, MemberAndFreeSerializeCustomizationsShareOneProtocol)
 	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Writer << Member << Free;
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 
 	FArchiveFixtureValue LoadedMember;
 	ArchiveCustomizationTest::FFreeValue LoadedFree;
@@ -202,7 +250,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
 	Writer.SerializeBulkData(Source, {});
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	ASSERT_GE(Bytes.size(), 37u);
 	EXPECT_TRUE(std::ranges::all_of(
 		std::span(Bytes).subspan(17, 20), [](std::byte Byte) { return Byte == std::byte{0}; }));
@@ -231,7 +279,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	Durin::FArchiveBulkDataValue Preserved = Loaded;
 	Durin::FCanonicalMemoryReader Corrupt(Bytes, Durin::EArchivePurpose::BulkData);
 	Corrupt.SerializeBulkData(Preserved, {});
-	ASSERT_TRUE(Corrupt.HasError());
+	ASSERT_TRUE(Corrupt.IsError());
 	EXPECT_EQ(Preserved.ContentHash, Loaded.ContentHash);
 	EXPECT_TRUE(Preserved.Buffer.SharesStorageWith(Loaded.Buffer));
 }
@@ -248,7 +296,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	Durin::FCanonicalMemoryWriter Skip(
 		Bytes, Durin::EArchivePurpose::BulkData, SkipState);
 	Skip.SerializeBulkData(Value, {});
-	EXPECT_FALSE(Skip.HasError());
+	EXPECT_FALSE(Skip.IsError());
 	EXPECT_TRUE(Bytes.empty());
 
 	Durin::FArchiveState ExternalState;
@@ -256,7 +304,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	Durin::FCanonicalMemoryWriter External(
 		Bytes, Durin::EArchivePurpose::BulkData, ExternalState);
 	External.SerializeBulkData(Value, {});
-	ASSERT_TRUE(External.HasError());
+	ASSERT_TRUE(External.IsError());
 	EXPECT_EQ(External.GetFailure()->Code,
 		Durin::EArchiveFailureCode::UnsupportedCapability);
 }
@@ -318,9 +366,9 @@ TEST(FArchiveTests, CountingAndHashingPreserveContextDependentByteSelection)
 		Writer << Value;
 		Counter << Value;
 		Hasher << Value;
-		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
-		ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
-		ASSERT_FALSE(Hasher.HasError()) << Hasher.GetError();
+		ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
+		ASSERT_FALSE(Counter.IsError()) << Counter.GetError();
+		ASSERT_FALSE(Hasher.IsError()) << Hasher.GetError();
 		EXPECT_EQ(Counter.Tell(), Bytes.size());
 		EXPECT_EQ(Hasher.Tell(), Bytes.size());
 		EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
@@ -344,7 +392,7 @@ TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
 	FCanonicalMemoryWriter Writer(Bytes);
 	Writer.UsingCustomVersion(Guid);
 	Writer.UsingCustomVersion(Guid);
-	ASSERT_FALSE(Writer.HasError());
+	ASSERT_FALSE(Writer.IsError());
 	ASSERT_EQ(Writer.GetVersionContext().CustomVersions.size(), 1u);
 	EXPECT_EQ(Writer.GetVersionContext().FindCustom(Guid)->Version, 3);
 	FCanonicalMemoryReader Reader(Bytes);
@@ -356,7 +404,7 @@ TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
 	EXPECT_EQ(OldReader.GetVersionContext().FindCustom(Guid)->Version, 1);
 	FCanonicalMemoryWriter Downgrade(Bytes, EArchivePurpose::DerivedDataPayload, {}, OldVersions);
 	Downgrade.UsingCustomVersion(Guid);
-	EXPECT_TRUE(Downgrade.HasError());
+	EXPECT_TRUE(Downgrade.IsError());
 	std::string Error;
 	EXPECT_TRUE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 1}}, Error));
 	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 4}}, Error));
@@ -364,6 +412,6 @@ TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
 	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 1}, FCustomVersion{Guid, 1}}, Error));
 	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{{0xc057, 0, 0, 99}, 1}}, Error));
 	Writer.UsingCustomVersion({0xc057, 0, 0, 99});
-	ASSERT_TRUE(Writer.HasError());
+	ASSERT_TRUE(Writer.IsError());
 	EXPECT_EQ(Writer.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);
 }

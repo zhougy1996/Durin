@@ -215,10 +215,16 @@ namespace Durin
 			return {};
 		}
 		auto GetFailure() const -> const FArchiveFailure* { return Failure ? &*Failure : nullptr; }
-		auto HasError() const -> bool { return Failure != nullptr; }
+		auto IsError() const -> bool { return Failure != nullptr; }
+		auto IsCriticalError() const -> bool { return bCriticalError; }
 		CORE_API auto GetError() const -> std::string_view;
 		CORE_API auto Fail(EArchiveFailureCode Code, std::string_view Message) -> void;
-		auto SetError(std::string_view Message) -> void { Fail(EArchiveFailureCode::InvalidData, Message); }
+		auto SetError(std::string_view Message = "Archive error.") -> void { Fail(EArchiveFailureCode::InvalidData, Message); }
+
+		// Critical failures also set IsError and retain the first diagnostic.
+		CORE_API auto SetCriticalError(
+			EArchiveFailureCode Code = EArchiveFailureCode::InvalidData,
+			std::string_view Message = "Critical archive error.") -> void;
 
 		virtual CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void;
 		CORE_API auto Serialize(void* Data, uint64 Size) -> void;
@@ -267,7 +273,7 @@ namespace Durin
 			using Underlying = std::underlying_type_t<T>;
 			Underlying Encoded = static_cast<Underlying>(Value);
 			*this << Encoded;
-			if (IsLoading() && !HasError()) Value = static_cast<T>(Encoded);
+			if (IsLoading() && !IsError()) Value = static_cast<T>(Encoded);
 			return *this;
 		}
 
@@ -287,6 +293,7 @@ namespace Durin
 		FArchiveState State;
 		FArchiveVersionContext Versions;
 		std::unique_ptr<FArchiveFailure> Failure;
+		bool bCriticalError = false;
 		mutable std::string FormattedFailure;
 		std::vector<std::string> PathSegments;
 	};
@@ -370,7 +377,7 @@ namespace Durin
 	{
 		uint64 Count = Ar.IsSaving() ? static_cast<uint64>(Values.size()) : 0;
 		Ar << Count;
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		if (Count > MaximumCount || Count > static_cast<uint64>(std::vector<T>().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Sequence exceeds its serialization limit.");
@@ -382,7 +389,7 @@ namespace Durin
 			for (T& Value : Loaded)
 			{
 				SerializeElement(Ar, Value);
-				if (Ar.HasError()) return;
+				if (Ar.IsError()) return;
 			}
 			Values = std::move(Loaded);
 			return;
@@ -390,7 +397,7 @@ namespace Durin
 		for (T& Value : Values)
 		{
 			SerializeElement(Ar, Value);
-			if (Ar.HasError()) return;
+			if (Ar.IsError()) return;
 		}
 	}
 

@@ -261,7 +261,7 @@ namespace Durin
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
-		if (Ar.HasError()) Bytes.clear();
+		if (Ar.IsError()) Bytes.clear();
 		return Bytes;
 	}
 
@@ -279,8 +279,8 @@ namespace Durin
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTextureCubeBuildKeyInput&>(Input).Serialize(Ar);
-		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.HasError()) Bytes.clear();
+		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.IsError()) Bytes.clear();
 		return Bytes;
 	}
 
@@ -298,8 +298,8 @@ namespace Durin
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FVolumeTextureBuildKeyInput&>(Input).Serialize(Ar);
-		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.HasError()) Bytes.clear();
+		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.IsError()) Bytes.clear();
 		return Bytes;
 	}
 
@@ -316,7 +316,7 @@ namespace Durin
 		TexturePayloadContainer::FTargetContext Context;
 		if (!TexturePayloadContainer::ResolveContext(Ar, Context)) return;
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
 			.ProducerVersion = Texture2DPayloadProducerVersion, .TargetPlatform = Context.TargetPlatform,
 			.TargetProfile = Context.TargetProfile, .Dimension = ETexturePayloadDimension::Texture2D,
@@ -344,7 +344,7 @@ namespace Durin
 			}
 		}
 		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
-		if (Ar.HasError() || Ar.IsSaving()) return;
+		if (Ar.IsError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture2D)
 			return Reject(EArchiveFailureCode::InvalidData, "Texture2D payload dimension is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
@@ -396,7 +396,7 @@ namespace Durin
 		TexturePayloadContainer::FTargetContext Context;
 		if (!TexturePayloadContainer::ResolveContext(Ar, Context)) return;
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
 			.ProducerVersion = TextureCubeBuilderVersion, .TargetPlatform = Context.TargetPlatform,
 			.TargetProfile = Context.TargetProfile, .Dimension = ETexturePayloadDimension::TextureCube,
@@ -429,7 +429,7 @@ namespace Durin
 			}
 		}
 		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
-		if (Ar.HasError() || Ar.IsSaving()) return;
+		if (Ar.IsError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::TextureCube)
 			return Reject(EArchiveFailureCode::InvalidData, "TextureCube payload dimension is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;

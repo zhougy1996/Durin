@@ -29,7 +29,7 @@ namespace Durin::TextureDerivedDataCache
 				TargetProfile == ECookTargetProfile::Game ? "Game"
 				: TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : ""}});
 		OutPlatformData.Serialize(Ar);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !OutPlatformData.IsValid())
+		if (Ar.IsError() || !RequireArchiveEnd(Ar) || !OutPlatformData.IsValid())
 		{
 			OutDiagnostic.Code = EAssetCacheError::Decode;
 			if (Ar.GetFailure()) OutDiagnostic.ArchiveCause = *Ar.GetFailure();
@@ -53,7 +53,7 @@ namespace Durin::TextureDerivedDataCache
 				TargetProfile == ECookTargetProfile::Game ? "Game"
 				: TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : ""}});
 		PlatformData.Serialize(Ar);
-		if (Ar.HasError())
+		if (Ar.IsError())
 		{
 			OutDiagnostic.Code = EAssetCacheError::Encode;
 			if (Ar.GetFailure()) OutDiagnostic.ArchiveCause = *Ar.GetFailure();

@@ -292,7 +292,7 @@ namespace Durin
 	{
 		if (!FMaterialGraphVersion::Serialize(Ar) || !FMaterialOutputVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
-		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+		if (!Ar.IsError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
 			const auto Validation = ValidateLoadedObjectGraph({});
 			if (!Validation)
@@ -318,7 +318,7 @@ namespace Durin
 			return;
 		}
 		Super::SerializeCooked(Ar);
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		std::vector<FMaterialParameterDefinition> Loaded;
 		std::vector<uint32> LoadedOrder;
 		for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
@@ -409,7 +409,7 @@ namespace Durin
 					}
 					}
 				});
-			if (Ar.HasError()) return;
+			if (Ar.IsError()) return;
 			if (Ar.IsLoading()) Loaded.insert(Loaded.end(), Values.begin(), Values.end());
 		}
 		if (Ar.IsLoading())
@@ -434,7 +434,7 @@ namespace Durin
 			}
 			ParameterSchema = std::move(Ordered);
 		}
-		if (!Ar.HasError() && !ValidateMaterialParameterDefinitions(ParameterSchema))
+		if (!Ar.IsError() && !ValidateMaterialParameterDefinitions(ParameterSchema))
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid generated cooked material parameter schema.");
 	}
 

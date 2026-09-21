@@ -85,7 +85,7 @@ namespace Durin
 				[](FArchive& Inner, FPushConstantRange& Range) {
 					SerializePushRange(Inner, Range);
 				});
-			if (Ar.IsLoading() && !Ar.HasError())
+			if (Ar.IsLoading() && !Ar.IsError())
 				Shader.Code = std::make_shared<FByteBuffer>(
 					std::move(Code));
 		}
@@ -116,7 +116,7 @@ namespace Durin
 			Ar << Magic << SchemaVersion << IRVersion
 				<< GeneratorVersion << EnvelopeVersion
 				<< Program.PassContractVersion << TargetPlatform << TargetProfile;
-			if (Ar.IsLoading() && !Ar.HasError()
+			if (Ar.IsLoading() && !Ar.IsError()
 				&& (Magic != MaterialCookedProgramMagic
 					|| SchemaVersion != MaterialCookedProgramPayloadSchemaVersion
 					|| IRVersion != MIR::CurrentVersion
@@ -219,18 +219,18 @@ namespace Durin
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
 		SerializePayload(
 			Ar, Copy, PropertyCopy, TargetPlatform, TargetProfile);
-		if (Ar.HasError())
+		if (Ar.IsError())
 		{
 			const auto Error = FMaterialError::FromArchive(*Ar.GetFailure());
 			OutBytes.clear();
 			return {Error};
 		}
-		if (!Ar.HasError())
+		if (!Ar.IsError())
 		{
 			auto Checksum = FXxHash128::HashBuffer(OutBytes);
 			SerializeHash(Ar, Checksum);
 		}
-		if (Ar.HasError() || OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
+		if (Ar.IsError() || OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
 		{
 			OutBytes.clear();
 			return {EMaterialCookError::CookedProgramExceedsPayloadByteLimit};
@@ -250,13 +250,13 @@ namespace Durin
 		FCanonicalMemoryReader Header(Bytes.first(8), EArchivePurpose::CookedPayload);
 		uint32 Magic = 0, Version = 0;
 		Header << Magic << Version;
-		if (Header.HasError() || Magic != MaterialCookedProgramMagic || Version != MaterialCookedProgramPayloadSchemaVersion)
+		if (Header.IsError() || Magic != MaterialCookedProgramMagic || Version != MaterialCookedProgramPayloadSchemaVersion)
 			return {EMaterialCookError::IncompatiblePayloadFormat};
 		const FByteView Payload = Bytes.first(Bytes.size() - 16);
 		FCanonicalMemoryReader ChecksumReader(Bytes.last(16), EArchivePurpose::CookedPayload);
 		FXxHash128 StoredChecksum;
 		SerializeHash(ChecksumReader, StoredChecksum);
-		if (ChecksumReader.HasError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
+		if (ChecksumReader.IsError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
 			return {EMaterialCookError::CookedProgramChecksumInvalid};
 		FMaterialCompilerResult Candidate;
 		FMaterialStaticProperties CandidateProperties;
@@ -264,7 +264,7 @@ namespace Durin
 		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, CandidateProperties, Platform, Profile);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{
 			return {FMaterialError::FromArchive(*Ar.GetFailure())};
 		}

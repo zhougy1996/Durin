@@ -134,11 +134,11 @@ namespace Durin
 			}
 			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(RenderWriter);
-			const auto RenderBulk = RenderWriter.HasError() ? FBulkDataResult{}
+			const auto RenderBulk = RenderWriter.IsError() ? FBulkDataResult{}
 				: FBulkData::TryCreateDetached(RenderBytes, RenderProjection);
-			if (RenderWriter.HasError() || !RenderBulk)
+			if (RenderWriter.IsError() || !RenderBulk)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, RenderWriter.HasError()
+				Ar.Fail(EArchiveFailureCode::InvalidData, RenderWriter.IsError()
 					? RenderWriter.GetFailure()->Message : FormatBulkDataError(RenderBulk.Error));
 				return;
 			}
@@ -173,11 +173,11 @@ namespace Durin
 				FCanonicalMemoryWriter CollisionWriter(
 					CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 				CollisionPayload.Serialize(CollisionWriter);
-				const auto CollisionBulk = CollisionWriter.HasError() ? FBulkDataResult{}
+				const auto CollisionBulk = CollisionWriter.IsError() ? FBulkDataResult{}
 					: FBulkData::TryCreateDetached(CollisionBytes, CollisionProjection);
-				if (CollisionWriter.HasError() || !CollisionBulk)
+				if (CollisionWriter.IsError() || !CollisionBulk)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, CollisionWriter.HasError()
+					Ar.Fail(EArchiveFailureCode::InvalidData, CollisionWriter.IsError()
 						? CollisionWriter.GetFailure()->Message : FormatBulkDataError(CollisionBulk.Error));
 					return;
 				}

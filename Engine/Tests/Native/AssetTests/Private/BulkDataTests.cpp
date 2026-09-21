@@ -994,7 +994,7 @@ TEST(FEditorBulkStorageTests, NestedFailureOwnsObjectAndFieldRoute)
 	uint64 FieldCount = 1, PayloadSize = 0;
 	uint8 Kind = static_cast<uint8>(DurinCodeGen::EPropertyGenFlags::BulkData);
 	Writer << StructName << FieldCount << DeclaringType << FieldName << Kind << Signature << PayloadSize;
-	ASSERT_FALSE(Writer.HasError());
+	ASSERT_FALSE(Writer.IsError());
 	FAssetPackageInspection Inspection;
 	Inspection.Objects.push_back({.Id = 17, .ObjectPath = "/Tests/Container.Root",
 		.Fields = {{.Name = "Source", .Kind = DurinCodeGen::EPropertyGenFlags::Struct,

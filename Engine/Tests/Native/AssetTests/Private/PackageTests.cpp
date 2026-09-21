@@ -1024,7 +1024,7 @@ namespace
 					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
 				Durin::DObject* Value = HardReference.Get();
 				Durin::SerializeArchiveObjectReference(Ar, Value);
-				if (Ar.IsLoading() && !Ar.HasError()) HardReference = Value;
+				if (Ar.IsLoading() && !Ar.IsError()) HardReference = Value;
 			}
 			{
 				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("SoftReference"),
@@ -6211,12 +6211,12 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	Durin::FByteBuffer Bytes;
 	Durin::FMemoryWriter Writer(Bytes);
 	Durin::SerializeReflectedPropertyValue(Writer, *Property, Owner);
-	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	ASSERT_EQ(Bytes.front(), std::byte{1});
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(SentinelPath));
 	Durin::FMemoryReader Reader(Bytes);
 	Durin::SerializeReflectedPropertyValue(Reader, *Property, Owner);
-	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+	ASSERT_FALSE(Reader.IsError()) << Reader.GetError();
 	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), TargetPath);
 	EXPECT_FALSE(Owner->Direct.IsLoaded());
 
@@ -6228,7 +6228,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(SentinelPath));
 	Durin::FMemoryReader OversizedReader(OversizedBytes);
 	Durin::SerializeReflectedPropertyValue(OversizedReader, *Property, Owner);
-	ASSERT_TRUE(OversizedReader.HasError());
+	ASSERT_TRUE(OversizedReader.IsError());
 	EXPECT_NE(OversizedReader.GetError().find("1 MiB"), std::string_view::npos);
 	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), SentinelPath);
 	OversizedReader.SetError("must remain sticky");
@@ -6237,7 +6237,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	Durin::FByteBuffer NullBytes{std::byte{0}};
 	Durin::FMemoryReader NullReader(NullBytes);
 	Durin::SerializeReflectedPropertyValue(NullReader, *Property, Owner);
-	ASSERT_FALSE(NullReader.HasError());
+	ASSERT_FALSE(NullReader.IsError());
 	EXPECT_TRUE(Owner->Direct.IsNull());
 }
 

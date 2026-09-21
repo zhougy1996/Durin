@@ -156,7 +156,7 @@ namespace Durin::PackagePrivate
 			FPackageCaptureError CaptureFailure;
 			auto FailCapture(EPackageCaptureReason Reason, EArchiveFailureCode Code) -> void
 			{
-				if (HasError()) return;
+				if (IsError()) return;
 				CaptureFailure.Reason = Reason;
 				CaptureFailure.ArchiveCode = Code;
 				if (CurrentDObject && CaptureFailure.ObjectPath.empty()) CaptureFailure.ObjectPath = CurrentDObject->GetObjectPath();
@@ -192,7 +192,7 @@ namespace Durin::PackagePrivate
 				FArchiveBulkDataValue& Value,
 				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
-				if (HasError() || SuppressedDepth != 0) return;
+				if (IsError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
 				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
@@ -292,7 +292,7 @@ namespace Durin::PackagePrivate
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
 			{
-				if (HasError() || SuppressedDepth != 0) return;
+				if (IsError() || SuppressedDepth != 0) return;
 				uint8 Kind = 0;
 				uint64 Id = 0;
 				std::string_view ExternalPath;
@@ -337,7 +337,7 @@ namespace Durin::PackagePrivate
 
 			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
-				if (HasError() || SuppressedDepth != 0) return;
+				if (IsError() || SuppressedDepth != 0) return;
 				const uint8 Kind = Value.IsValid() ? 1 : 0;
 				Append(Kind);
 				if (Kind == 0) return;
@@ -664,7 +664,7 @@ namespace Durin::PackagePrivate
 						Object->SerializeCooked(Archive);
 					else Object->Serialize(Archive);
 				}
-				if (Archive.HasError()) return TranslateArchiveFailure(Archive);
+				if (Archive.IsError()) return TranslateArchiveFailure(Archive);
 			}
 			OutPackage = Archive.TakePackage();
 			OutPackage.CustomVersions = Archive.GetVersionContext().CustomVersions;
@@ -698,7 +698,7 @@ namespace Durin::PackagePrivate
 				Writer << PayloadId << ReservedIdentity << ReservedVersion << LogicalBytes
 					<< StoredBytes << HashLow << HashHigh;
 			}
-			return Writer.HasError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);
+			return Writer.IsError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);
 		}
 
 		auto FindLinkerSchema(std::span<const ObjectPackage::FSerializedSchema> Schemas,

@@ -50,8 +50,8 @@ namespace
 			EArchivePurpose::DerivedDataPayload,
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		const_cast<FStaticMeshCollisionPayloadData&>(Payload).Serialize(Ar);
-		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.HasError()) return false;
+		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.IsError()) return false;
 		OutBytes = std::move(Candidate);
 		return true;
 	}
@@ -66,7 +66,7 @@ namespace
 			EArchivePurpose::DerivedDataPayload,
 			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		Candidate.Serialize(Ar);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
@@ -1004,11 +1004,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	const auto SavedLeaves = Payload.LeafTriangles;
 	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Payload.Serialize(Counter);
-	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
+	ASSERT_FALSE(Counter.IsError()) << Counter.GetError();
 	EXPECT_EQ(Counter.Tell(), First.size());
 	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Payload.Serialize(Hasher);
-	ASSERT_FALSE(Hasher.HasError());
+	ASSERT_FALSE(Hasher.IsError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(First));
 	EXPECT_EQ(Payload.Indices, SavedIndices);
 	EXPECT_EQ(Payload.SourceOrdinals, SavedOrdinals);
@@ -1020,7 +1020,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 			EArchivePurpose::DerivedDataPayload,
 			{.Target = {"Win64", "Game"}});
 		Discarded.Serialize(Reader);
-		ASSERT_TRUE(Reader.HasError()) << Size;
+		ASSERT_TRUE(Reader.IsError()) << Size;
 	}
 	FByteBuffer Adjacent = First;
 	Adjacent.insert(Adjacent.end(), First.begin(), First.end());
@@ -1028,7 +1028,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	FStaticMeshCollisionPayloadData Replaced = Payload;
 	Replaced.Nodes.push_back({});
 	Replaced.Serialize(Parent);
-	ASSERT_FALSE(Parent.HasError()) << Parent.GetError();
+	ASSERT_FALSE(Parent.IsError()) << Parent.GetError();
 	EXPECT_EQ(Replaced.Nodes.size(), Payload.Nodes.size());
 	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), First.size());
 	EXPECT_FALSE(RequireArchiveEnd(Parent));
@@ -1040,7 +1040,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		{.Target = {"Win64", "Game"}});
 	FStaticMeshCollisionPayloadData Discarded;
 	Discarded.Serialize(OverflowReader);
-	ASSERT_TRUE(OverflowReader.HasError());
+	ASSERT_TRUE(OverflowReader.IsError());
 	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
 	EXPECT_TRUE(Discarded.Positions.empty());
 

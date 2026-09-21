@@ -155,11 +155,11 @@ TEST(FPrimitiveComponentCollisionEditingTests, CollisionArchivesPreserveCustomRe
 		FByteBuffer Bytes;
 		FObjectMemoryWriter Writer(Bytes, Purpose);
 		SerializeReflectedPropertyValue(Writer, *Property, Box);
-		ASSERT_FALSE(Writer.HasError());
+		ASSERT_FALSE(Writer.IsError());
 		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::NoCollision));
 		FObjectMemoryReader Reader(Bytes, Purpose);
 		SerializeReflectedPropertyValue(Reader, *Property, Box);
-		ASSERT_FALSE(Reader.HasError());
+		ASSERT_FALSE(Reader.IsError());
 		EXPECT_TRUE(Box->GetCollisionProfileName().IsNone());
 		EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Visibility), ECollisionResponse::Ignore);
 		EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Camera), ECollisionResponse::Overlap);
@@ -192,10 +192,10 @@ TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRe
 		FByteBuffer Bytes;
 		FObjectMemoryWriter Writer(Bytes, EArchivePurpose::PropertySnapshot);
 		SerializeReflectedPropertyValue(Writer, *Property, Box);
-		ASSERT_FALSE(Writer.HasError());
+		ASSERT_FALSE(Writer.IsError());
 		FObjectMemoryReader Reader(Bytes, EArchivePurpose::PropertySnapshot);
 		SerializeReflectedPropertyValue(Reader, *Property, Box);
-		EXPECT_EQ(Reader.HasError(), Name != CollisionProfile::Trigger);
+		EXPECT_EQ(Reader.IsError(), Name != CollisionProfile::Trigger);
 		if (Name == CollisionProfile::Trigger)
 		{
 			EXPECT_EQ(Body->CollisionEnabled, ECollisionEnabled::QueryOnly);

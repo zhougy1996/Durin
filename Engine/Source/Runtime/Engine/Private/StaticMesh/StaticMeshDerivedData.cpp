@@ -233,7 +233,7 @@ namespace Durin
 					static_cast<float>(Bounds.Min.z), static_cast<float>(Bounds.Max.x),
 					static_cast<float>(Bounds.Max.y), static_cast<float>(Bounds.Max.z)};
 			for (float& Value : Values) Ar << Value;
-			if (Ar.IsLoading() && !Ar.HasError())
+			if (Ar.IsLoading() && !Ar.IsError())
 			{
 				Bounds = FBox(FVector3(Values[0], Values[1], Values[2]), FVector3(Values[3], Values[4], Values[5]));
 				if (!IsValidBounds(Bounds)) Ar.Fail(EArchiveFailureCode::InvalidData, "Static-mesh bounds are invalid.");
@@ -251,7 +251,7 @@ namespace Durin
 			*Chunks[1] << Payload.MaterialSlotCount;
 			uint32 LODCount = Loading ? 0 : static_cast<uint32>(Payload.LODs.size());
 			Metadata << LODCount;
-			if (Metadata.HasError()) return;
+			if (Metadata.IsError()) return;
 			if (LODCount == 0 || LODCount > MaximumStaticMeshLODs)
 			{
 				Metadata.Fail(EArchiveFailureCode::LimitExceeded, "Static-mesh LOD count exceeds its limit.");
@@ -284,7 +284,7 @@ namespace Durin
 				Metadata << Vertices[Index] << Indices[Index] << Sections[Index]
 					<< LOD.NumTexCoords << Flags << Reserved << LOD.ScreenSize;
 				SerializeBounds(Metadata, LOD.LocalBounds);
-				if (Metadata.HasError()) return;
+				if (Metadata.IsError()) return;
 				if (Vertices[Index] == 0 || Vertices[Index] > MaximumStaticMeshVerticesPerLOD
 					|| Indices[Index] == 0 || Indices[Index] > MaximumStaticMeshIndicesPerLOD
 					|| Sections[Index] == 0 || Sections[Index] > MaximumStaticMeshSectionsPerLOD
@@ -802,7 +802,7 @@ namespace Durin
 		const std::function<bool()>& ShouldCancel) -> void
 	try
 	{
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
 		EStaticMeshTargetPlatform TargetPlatform;
@@ -855,7 +855,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < 6; ++Index) Chunks[Index] = Owners[Index].get();
 		SerializePayloadChunks(Chunks, *this, Control);
 		for (FArchive* Chunk : Chunks)
-			if (Chunk->HasError())
+			if (Chunk->IsError())
 			{
 				Ar.Fail(Chunk->GetFailure()->Code, Chunk->GetFailure()->Message);
 				return;
@@ -887,7 +887,7 @@ namespace Durin
 		const std::function<bool()>& ShouldCancel) -> void
 	try
 	{
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
@@ -985,13 +985,13 @@ namespace Durin
 				while (BodyAr.Tell() + 64 < Offsets[Chunk]) { uint8 Zero = 0; BodyAr << Zero; }
 				BodyAr.WriteBytes(Buffers[Chunk]);
 			}
-			if (BodyAr.HasError()) return Reject(BodyAr.GetFailure()->Code, BodyAr.GetError());
+			if (BodyAr.IsError()) return Reject(BodyAr.GetFailure()->Code, BodyAr.GetError());
 			Checksum = FXxHash64::HashBuffer(Body).HashValue;
 		}
 
 		Ar << Reserved0 << Schema << Builder << Platform << Header << ChunkCount << Alignment << Mode
 			<< StoredSize << LogicalBytes << Checksum << Policy << Reserved;
-		if (Ar.HasError()) return;
+		if (Ar.IsError()) return;
 		if (Schema != StaticMeshCollisionPayloadSchemaVersion || Builder != StaticMeshCollisionBuilderVersion)
 			return Reject(EArchiveFailureCode::UnsupportedVersion, "DCOL schema or builder version is unsupported.");
 		if (Platform != static_cast<uint32>(TargetPlatform))
@@ -1014,7 +1014,7 @@ namespace Durin
 			return Reject(EArchiveFailureCode::InvalidData, "DCOL checksum does not match.");
 		FCanonicalMemoryReader TableAr(Region.first(4 * StaticMeshCollisionPayloadChunkEntrySize));
 		TransferTable(TableAr);
-		if (TableAr.HasError()) return Reject(TableAr.GetFailure()->Code, TableAr.GetError());
+		if (TableAr.IsError()) return Reject(TableAr.GetFailure()->Code, TableAr.GetError());
 		uint64 PreviousEnd = 64 + 4 * StaticMeshCollisionPayloadChunkEntrySize, Total = 0;
 		for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
 		{

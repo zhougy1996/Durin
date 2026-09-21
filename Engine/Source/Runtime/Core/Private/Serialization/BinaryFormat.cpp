@@ -125,7 +125,7 @@ namespace Durin
 			|| ByteCount > static_cast<uint64>(FByteBuffer().max_size())) return false;
 		FByteBuffer Loaded(static_cast<size_t>(ByteCount));
 		if (ByteCount != 0) Archive.ReadBytes(Loaded);
-		if (Archive.HasError()) return false;
+		if (Archive.IsError()) return false;
 		Value = std::move(Loaded);
 		return true;
 	}

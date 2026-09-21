@@ -334,7 +334,7 @@ namespace Durin
 		}
 		if (!Parameters.Owner) Parameters.Owner = this;
 		Ar.SerializeBulkData(Value, Parameters);
-		if (!Ar.IsLoading() || Ar.HasError()) return;
+		if (!Ar.IsLoading() || Ar.IsError()) return;
 
 		FBulkData Candidate;
 		FBulkDataResult Loaded;

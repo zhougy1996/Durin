@@ -39,10 +39,10 @@ namespace Durin::TexturePrivate
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = Ar.GetTarget()});
 			PlatformData->Serialize(Writer);
-			const auto Bulk = Writer.HasError() ? FBulkDataResult{} : FBulkData::TryCreateDetached(Bytes, Projection);
-			if (Writer.HasError() || !Bulk)
+			const auto Bulk = Writer.IsError() ? FBulkDataResult{} : FBulkData::TryCreateDetached(Bytes, Projection);
+			if (Writer.IsError() || !Bulk)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Writer.HasError()
+				Ar.Fail(EArchiveFailureCode::InvalidData, Writer.IsError()
 					? std::string(Writer.GetError()) : FormatBulkDataError(Bulk.Error));
 				return;
 			}
@@ -71,7 +71,7 @@ namespace Durin::TexturePrivate
 		auto Candidate = std::make_unique<TPlatformData>();
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 		Candidate->Serialize(Ar);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{
 			return FailCooked(std::string(Ar.GetError()));
 		}

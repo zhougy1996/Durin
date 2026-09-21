@@ -403,19 +403,19 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	Durin::FByteBuffer Bytes;
 	Durin::FObjectMemoryWriter Writer(Bytes, Durin::EArchivePurpose::PropertySnapshot);
 	Writer.SerializeByteBlob(Source);
-	ASSERT_FALSE(Writer.HasError());
+	ASSERT_FALSE(Writer.IsError());
 
 	Durin::FByteBuffer Loaded;
 	Durin::FObjectMemoryReader Reader(Bytes, Durin::EArchivePurpose::PropertySnapshot);
 	Reader.SerializeByteBlob(Loaded);
-	ASSERT_FALSE(Reader.HasError());
+	ASSERT_FALSE(Reader.IsError());
 	EXPECT_EQ(Loaded, Source);
 
 	Bytes.pop_back();
 	Durin::FByteBuffer Preserved{std::byte{0x7f}};
 	Durin::FObjectMemoryReader Truncated(Bytes, Durin::EArchivePurpose::PropertySnapshot);
 	Truncated.SerializeByteBlob(Preserved);
-	EXPECT_TRUE(Truncated.HasError());
+	EXPECT_TRUE(Truncated.IsError());
 	EXPECT_EQ(Preserved, (Durin::FByteBuffer{std::byte{0x7f}}));
 
 	Durin::FByteBuffer Oversized(sizeof(uint64));
@@ -425,7 +425,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	Durin::FObjectMemoryReader OversizedReader(
 		Oversized, Durin::EArchivePurpose::PropertySnapshot);
 	OversizedReader.SerializeByteBlob(Preserved);
-	EXPECT_TRUE(OversizedReader.HasError());
+	EXPECT_TRUE(OversizedReader.IsError());
 	EXPECT_EQ(Preserved, (Durin::FByteBuffer{std::byte{0x7f}}));
 }
 
@@ -1411,7 +1411,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		{
 			SerializePurposes.push_back(Ar.GetPurpose());
 			if (!bSkipSuperSerialize) DObject::Serialize(Ar);
-			if (Ar.HasError()) return;
+			if (Ar.IsError()) return;
 
 			const Durin::FName DeclaringType("Tests::DLifecycleReferenceOwnerForTest");
 			{
@@ -1447,7 +1447,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
 				uint64 Count = static_cast<uint64>(NativeValues.size());
 				Ar << Count;
-				if (Ar.IsLoading() && !Ar.HasError())
+				if (Ar.IsLoading() && !Ar.IsError())
 				{
 					if (Count > 1024)
 					{
@@ -1458,7 +1458,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					{
 						std::vector<int32> Loaded(static_cast<size_t>(Count));
 						for (int32& Value : Loaded) Ar << Value;
-						if (!Ar.HasError()) NativeValues = std::move(Loaded);
+						if (!Ar.IsError()) NativeValues = std::move(Loaded);
 					}
 				}
 				else
@@ -1472,7 +1472,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Durin::DObject* ReferenceValue = Ar.IsSaving()
 					? SerializedNativeReference : nullptr;
 				Durin::SerializeArchiveObjectReference(Ar, ReferenceValue);
-				if (Ar.IsLoading() && !Ar.HasError()) SerializedNativeReference = ReferenceValue;
+				if (Ar.IsLoading() && !Ar.IsError()) SerializedNativeReference = ReferenceValue;
 			}
 			if (bEmitLateReference)
 			{
@@ -4275,7 +4275,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto Serialize = [&](FFieldRecordingArchive& Archive) {
 			auto Scope = Archive.EnterObject(*Owner);
 			Owner->Serialize(Archive);
-			ASSERT_FALSE(Archive.HasError()) << Archive.GetError();
+			ASSERT_FALSE(Archive.IsError()) << Archive.GetError();
 		};
 		FFieldRecordingArchive Authored(false);
 		Serialize(Authored);
@@ -4963,12 +4963,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		uint64 Length = Invalid.size();
 		Writer << Kind << Length;
 		Writer.SerializeRawBytes(std::as_writable_bytes(std::span(Invalid)));
-		ASSERT_FALSE(Writer.HasError());
+		ASSERT_FALSE(Writer.IsError());
 
 		FObjectMemoryReader Reader(Bytes);
 		FObjectPath Value = Original;
 		Reader.SerializeSoftObjectValue(Value);
-		ASSERT_TRUE(Reader.HasError());
+		ASSERT_TRUE(Reader.IsError());
 		EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::InvalidPath);
 		EXPECT_EQ(Value, Original);
 		const auto* Cause = std::get_if<FObjectError>(&Reader.GetValueFailureCause());
@@ -5902,7 +5902,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::EArchivePurpose::ObjectGraph,
 			Durin::EArchiveCapability::None});
 		Unsupported << Sentinel;
-		ASSERT_TRUE(Unsupported.HasError());
+		ASSERT_TRUE(Unsupported.IsError());
 		ASSERT_NE(Unsupported.GetFailure(), nullptr);
 		EXPECT_EQ(Unsupported.GetFailure()->Code, Durin::EArchiveFailureCode::UnsupportedCapability);
 		EXPECT_EQ(Sentinel, 73);
