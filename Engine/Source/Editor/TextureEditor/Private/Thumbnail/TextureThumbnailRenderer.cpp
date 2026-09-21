@@ -21,19 +21,27 @@ namespace Durin::Editor::Texture
 		{
 		public:
 			explicit FTextureThumbnailSession(FTopLevelAssetPath Path) : AssetPath(std::move(Path)) {}
+			~FTextureThumbnailSession() override { ResetPreview(); }
 			auto Load() -> FThumbnailRendererSessionUpdate override
 			{
-				DObject* Loaded = nullptr;
-				const auto Result = LoadObject(AssetPath, Loaded);
-				Texture = Result ? Cast<DTexture2D>(Loaded) : nullptr;
-				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
-				AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
-				Platform = Texture.Get()->GetPlatformDataShared();
-				Options.Usage = Texture.Get()->GetUsage();
-				return PollResources();
+				ResetPreview();
+				AssetLoad = RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
+				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 			auto PollResources() -> FThumbnailRendererSessionUpdate override
 			{
+				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
+				if (!AssetLoad->IsComplete()) return {.State = EThumbnailRendererSessionState::WaitingForResources};
+				if (!AssetLoad->GetResult()) return {.Diagnostic = AssetLoad->GetResult().Message};
+				if (!bAssetLoaded)
+				{
+					Texture = Cast<DTexture2D>(AssetLoad->GetLoadedObject());
+					if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
+					AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
+					Platform = Texture.Get()->GetPlatformDataShared();
+					Options.Usage = Texture.Get()->GetUsage();
+					bAssetLoaded = true;
+				}
 				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
 				if (Texture.Get()->IsResourceUpdatePending())
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
@@ -64,8 +72,18 @@ namespace Durin::Editor::Texture
 				Error.clear();
 				return true;
 			}
-			auto ResetPreview() -> void override { Snapshot = nullptr; }
+			auto ResetPreview() -> void override
+			{
+				Snapshot = nullptr;
+				Texture = nullptr;
+				Platform.reset();
+				bAssetLoaded = false;
+				if (AssetLoad) AssetLoad->Cancel();
+				AssetLoad.reset();
+			}
 		private:
+			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
+			bool bAssetLoaded = false;
 			FTopLevelAssetPath AssetPath;
 			TWeakObjectPtr<DTexture2D> Texture;
 			std::shared_ptr<const FTexturePlatformData> Platform;

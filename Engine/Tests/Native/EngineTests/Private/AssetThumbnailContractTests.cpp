@@ -1072,6 +1072,40 @@ namespace Durin
 		EXPECT_EQ(Cache.GetStats().PeakParkedResourceWaits, 1u);
 	}
 
+	TEST(FAssetThumbnailContractTests, LastReferencerCancelsParkedSessionWithoutCancellingOtherConsumers)
+	{
+		Editor::DThumbnailManager Manager;
+		std::string Error;
+		auto State = std::make_shared<FFakeThumbnailRendererState>();
+		State->ResourcePollsBeforeReady = 1000;
+		auto Registration = Manager.RegisterScoped(
+			std::make_unique<FFakeThumbnailRenderer>(State, "DNavigationAsset"), Error);
+		ASSERT_TRUE(Registration) << Error;
+		Editor::FAssetThumbnailPool Pool(Manager, {},
+			{.CacheRoot = MakeObjectStoreRoot("NavigationCancel"), .ObjectExtension = ".bin"});
+		const auto Request = MakeThumbnailRequest("/ThumbnailTests/Navigation/Asset",
+			"DNavigationAsset", 1, Editor::EAssetThumbnailPriority::Visible);
+		Pool.AddReferencer(Request.Asset.AssetPath);
+		Pool.AddReferencer(Request.Asset.AssetPath);
+		Pool.BeginFrame();
+		Pool.Request(Request.Asset, Request.Priority);
+		Pool.EndFrame();
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return Pool.GetStats().ParkedResourceWaits == 1; }));
+		Pool.RemoveReferencer(Request.Asset.AssetPath);
+		EXPECT_EQ(State->SessionDestructions, 0u);
+		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 1u);
+		Pool.RemoveReferencer(Request.Asset.AssetPath);
+		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 0u);
+		Pool.AddReferencer(Request.Asset.AssetPath);
+		Pool.BeginFrame();
+		Pool.Request(Request.Asset, Request.Priority);
+		Pool.EndFrame();
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return Pool.GetStats().ParkedResourceWaits == 1; }));
+		EXPECT_EQ(State->Sessions, 2u);
+		Pool.RemoveReferencer(Request.Asset.AssetPath);
+	}
+
 	TEST(FAssetThumbnailContractTests, ParkedResourceWaitTimesOutAndReleasesSession)
 	{
 		Editor::DThumbnailManager ThumbnailManager;

@@ -71,7 +71,8 @@ namespace Durin
 	};
 
 	// Owns all renderer-specific state for one persistent-cache miss.
-	// Load captures authored inputs. PollResources only observes readiness. PreparePreview
+	// Load submits nonblocking asset requests. PollResources captures loaded inputs once
+	// and advances nonblocking resource requests until ready. PreparePreview
 	// captures the resource inputs retained until ResetPreview; later polling must not
 	// replace them. ValidatePreparedInput rejects missing, reset, or changed inputs.
 	// Every method runs on the game thread. ResetPreview is idempotent and is called

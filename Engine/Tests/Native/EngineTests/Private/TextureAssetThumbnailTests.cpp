@@ -332,6 +332,9 @@ TEST(FTextureCubeThumbnailRendererTests,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
 
 	FCapturingTextureCubeThumbnailPreviewScene PreviewScene;
+	Durin::ProcessAsyncLoading(100.0, 16);
+	EXPECT_EQ(Session->PollResources().State,
+		Durin::Editor::EThumbnailRendererSessionState::Failed);
 	EXPECT_FALSE(Session->PreparePreview(PreviewScene, Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(PreviewScene.WorldRequests, 0u);

@@ -107,11 +107,19 @@ namespace Durin::Editor::Texture
 			{
 			}
 
+			~FTextureCubeThumbnailGenerationSession() override { ResetPreview(); }
+
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
-				DObject* Loaded = nullptr;
-				const auto Result = LoadObject(AssetPath, Loaded);
-				TextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
+				ResetPreview();
+				AssetLoad = RequestAsyncLoad(AssetPath, {}, DTextureCube::StaticClass());
+				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+			}
+
+			auto FinishLoad() -> ::Durin::Editor::FThumbnailRendererSessionUpdate
+			{
+				const auto& Result = AssetLoad->GetResult();
+				TextureCube = Result ? Cast<DTextureCube>(AssetLoad->GetLoadedObject()) : nullptr;
 				if (!Result || !TextureCube.IsValid())
 				{
 					TextureCube = nullptr;
@@ -123,12 +131,21 @@ namespace Durin::Editor::Texture
 				}
 				AssetRevision = TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0;
 				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();
+				bAssetLoaded = true;
 				return {
 					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
+				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
+				if (!AssetLoad->IsComplete())
+					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				if (!bAssetLoaded)
+				{
+					const auto Loaded = FinishLoad();
+					if (Loaded.State == ::Durin::Editor::EThumbnailRendererSessionState::Failed) return Loaded;
+				}
 				bool bReady = false;
 				std::string Error;
 				CheckTextureCubeReadiness(TextureCube.Get(), bReady, Error);
@@ -192,9 +209,15 @@ namespace Durin::Editor::Texture
 			auto ResetPreview() -> void override
 			{
 				Snapshot = nullptr;
+				TextureCube = nullptr;
+				bAssetLoaded = false;
+				if (AssetLoad) AssetLoad->Cancel();
+				AssetLoad.reset();
 			}
 
 		private:
+			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
+			bool bAssetLoaded = false;
 			FXxHash128 SourceIdentity{};
 			FTextureRHIRef Snapshot;
 			FTopLevelAssetPath AssetPath;

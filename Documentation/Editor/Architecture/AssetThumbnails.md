@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-21
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -84,7 +84,7 @@ completes resource initialization when RHI is available; non-rendering hosts
 prepare CPU data only. Initialization is idempotent. Partial failures retain
 available assets and emit a diagnostic without preventing editor startup.
 
-Thumbnail sessions and material preview documents acquire their existing
+Thumbnail sessions retain async-load handles and material preview documents acquire
 `FAssetRetentionService` handles against these same resident objects. Closing
 documents, resetting captures, and garbage collection do not release the
 editor's handles or require rebuilding their buffers. The editor releases its
@@ -102,11 +102,33 @@ replacement, and corruption either produce a new key or reject stale work.
 Renderers capture immutable generation input on the game thread. A cold miss may
 then use one renderer-owned session with these hooks:
 
-1. load the exact asset and capture its revision;
+1. request asynchronous loading of the exact asset;
 2. poll bounded resource readiness without retaining the capture slot;
 3. prepare the leased preview scene or provide canonical pixels directly;
 4. validate revisions before render, readback, encoding, and publication;
 5. reset preview state idempotently.
+
+Material/MaterialInstance, StaticMesh, Texture2D and TextureCube sessions submit
+`RequestAsyncLoad` from `Load()` and return `WaitingForResources` immediately,
+including for resident assets. `PollResources()` observes request completion,
+captures asset revisions once, then checks compilation and render readiness.
+Material sessions validate the material before requesting the shared sphere.
+The sphere and StaticMesh use `RequestRenderDataAndResources()` for missing CPU
+render data; thumbnail polling never calls the blocking mesh-load API.
+
+Sessions retain successful load handles through capture validation. Reset and
+destruction cancel unfinished requests and release those handles. Removing the
+last `FAssetThumbnail` referencer cancels queued work and releases its active or
+parked session immediately, while retaining cached pixels; another referencer
+keeps shared work alive. Scene-only cleanup during preparation preserves the
+load handles until the session is reset.
+
+EngineLoop owns the async-load pump. Standalone thumbnail hosts and tests must
+also call `ProcessAsyncLoading`; polling a session or pool alone does not advance
+package loading. The [async asset loading boundary](../../Runtime/Assets/AssetPackages.md#runtime-lifetime)
+still performs object construction, bulk validation and PostLoad on GameThread,
+so this integration removes synchronous thumbnail load calls without promising
+that those remaining stages cannot produce a long frame.
 
 A renderer registration is qualified by a monotonically increasing generation.
 The host stops thumbnail consumers and drains work before unloading renderer code. Reset closes admission, cancels all

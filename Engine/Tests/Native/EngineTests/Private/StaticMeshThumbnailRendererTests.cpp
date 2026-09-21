@@ -42,6 +42,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		do
 		{
+			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.EndFrame();
 			if (Complete()) return true;
@@ -209,6 +210,42 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Session.reset();
 	ASSERT_TRUE(Durin::UnloadPackage(
 		SplineBoxPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(FStaticMeshThumbnailRendererTests, ColdSessionLoadsAsynchronouslyAndResetCancelsAdmission)
+{
+	using namespace Durin;
+	Tests::FAssetThumbnailFixtureSet Fixtures;
+	std::string Error;
+	ASSERT_TRUE(Tests::CreateAssetThumbnailFixtures(Fixtures, Error)) << Error;
+	const auto Path = Fixtures.StaticMesh->GetPackage()->GetPackagePathIdentity();
+	const auto Data = FindAssetExact(Path);
+	ASSERT_NE(Data, nullptr);
+	Editor::StaticMesh::DStaticMeshThumbnailRenderer Renderer;
+	Editor::FAssetThumbnailGenerationRequest Request;
+	ASSERT_FALSE(CaptureKey(Renderer, MakeFingerprint(*Data), Request, Error).empty()) << Error;
+	ASSERT_TRUE(UnloadPackage(Path));
+	auto Session = Renderer.CreateGenerationSession(Request, *Request.Input, Error);
+	ASSERT_NE(Session, nullptr);
+	EXPECT_EQ(Session->Load().State, Editor::EThumbnailRendererSessionState::WaitingForResources);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Session->PollResources().State, Editor::EThumbnailRendererSessionState::WaitingForResources);
+	Session->ResetPreview();
+	ProcessAsyncLoading();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Session->PollResources().State, Editor::EThumbnailRendererSessionState::Failed);
+	EXPECT_EQ(Session->Load().State, Editor::EThumbnailRendererSessionState::WaitingForResources);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!FindResidentPackage(Path) && std::chrono::steady_clock::now() < Deadline)
+	{
+		ProcessAsyncLoading();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_NE(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(UnloadPackage(Path).Error, EAssetReadError::InUse);
+	Session.reset();
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_TRUE(UnloadPackage(Path));
 }
 
 TEST(FStaticMeshThumbnailRendererTests,
@@ -385,6 +422,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::FAssetThumbnailPool Cache;
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request(
 		MakeFingerprint(*Data), Durin::Editor::EAssetThumbnailPriority::Visible);
@@ -454,6 +492,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::Editor::FAssetThumbnailPool Cache({}, {
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
+		Durin::ProcessAsyncLoading();
 		Cache.BeginFrame();
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
@@ -470,6 +509,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		EXPECT_EQ(Durin::FindResidentPackage(StaticMeshPath), nullptr);
 		Cache.CancelPendingRequests();
 		Durin::FlushRenderingCommands();
+		Durin::ProcessAsyncLoading();
 		Cache.BeginFrame();
 		EXPECT_EQ(
 			Cache.Find(MakeAssetPath(StaticMeshPath)).State,
@@ -517,6 +557,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::Editor::FAssetThumbnailPool Cache({}, {
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
+		Durin::ProcessAsyncLoading();
 		Cache.BeginFrame();
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
@@ -558,6 +599,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Current = MakeFingerprint(*Data);
 
 	Durin::Editor::ContentBrowser::Private::FContentBrowserThumbnailReferences Cache;
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request({
 		.Identity = "/ThumbnailFixtures/Meshes/SM_OldIdentity",
@@ -589,6 +631,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_EQ(
 		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
 		Durin::Editor::EAssetThumbnailState::Invalid);
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request({
 		.Identity = "/ThumbnailFixtures/Meshes/SM_NewIdentity",
@@ -664,6 +707,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_TRUE(ThumbnailManager.Find(StaticMeshClass));
 
 	Durin::Editor::FAssetThumbnailPool Cache(ThumbnailManager);
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	for (const std::string_view Path : {
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath,

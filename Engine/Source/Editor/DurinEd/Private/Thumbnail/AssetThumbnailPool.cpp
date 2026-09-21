@@ -764,6 +764,19 @@ namespace Durin::Editor
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end() || It->second.ReferencerCount == 0) return;
 		--It->second.ReferencerCount;
+		if (It->second.ReferencerCount != 0) return;
+		// Directory navigation releases cold requests but retains cached pixels.
+		Impl->Scheduler.Cancel(AssetPath);
+		if (Impl->ActiveJob
+			&& Impl->ActiveJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			Impl->ResetActive();
+		std::erase_if(Impl->ParkedJobs, [&](FImpl::FParkedJob& Parked) {
+			if (Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
+			Impl->ReleaseJob(Parked.Job);
+			return true;
+		});
+		++It->second.Serial;
+		It->second.bUploading = false;
 	}
 
 	auto FAssetThumbnailPool::Refresh(const FTopLevelAssetPath& AssetPath) -> void

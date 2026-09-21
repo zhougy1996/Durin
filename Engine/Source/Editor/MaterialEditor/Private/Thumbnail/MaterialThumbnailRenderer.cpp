@@ -1,7 +1,6 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "DObject/WeakObjectPtr.h"
 
-#include "Asset/AssetRetention.h"
 #include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Package.h"
@@ -194,10 +193,16 @@ namespace Durin::Editor::Material
 
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
+				ResetPreview();
+				MaterialLoad = RequestAsyncLoad(AssetPath, {}, DMaterialInterface::StaticClass());
+				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+			}
+
+			auto FinishLoad() -> ::Durin::Editor::FThumbnailRendererSessionUpdate
+			{
 				std::string SphereError;
-				DObject* Loaded = nullptr;
-				const auto Result = LoadObject(AssetPath, Loaded);
-				Material = Result ? Cast<DMaterialInterface>(Loaded) : nullptr;
+				const auto& Result = MaterialLoad->GetResult();
+				Material = Result ? Cast<DMaterialInterface>(MaterialLoad->GetLoadedObject()) : nullptr;
 				if (!Result || Material == nullptr
 					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)
 				{
@@ -215,12 +220,19 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The material instance has no valid parent."};
 				}
-				FObjectPath SpherePath;
-				if (!FObjectPath::TryCreate(
-					::Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath)
-					|| !::Durin::Editor::FAssetRetentionService::Acquire(
-						SpherePath, SphereAsset, SphereError)
-					|| (Sphere = Cast<DStaticMesh>(SphereAsset.Get())) == nullptr)
+				if (!SphereLoad)
+				{
+					FObjectPath SpherePath;
+					if (!FObjectPath::TryCreate(
+						::Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath))
+						return {.Diagnostic = "The thumbnail sphere path is invalid."};
+					SphereLoad = RequestAsyncLoad(SpherePath, {}, DStaticMesh::StaticClass());
+				}
+				if (!SphereLoad->IsComplete())
+					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				SphereError = SphereLoad->GetResult().Message;
+				if (!SphereLoad->GetResult()
+					|| (Sphere = Cast<DStaticMesh>(SphereLoad->GetLoadedObject())) == nullptr)
 				{
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
@@ -235,12 +247,21 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = std::move(SphereError)};
 				}
+				bAssetsLoaded = true;
 				return {
 					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
+				if (!MaterialLoad) return {.Diagnostic = "The thumbnail load was reset."};
+				if (!MaterialLoad->IsComplete())
+					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				if (!bAssetsLoaded)
+				{
+					const auto Loaded = FinishLoad();
+					if (!bAssetsLoaded) return Loaded;
+				}
 				bool bReady = false;
 				std::string Error;
 				GetMaterialResourceRevision(Material, bReady, Error);
@@ -263,12 +284,14 @@ namespace Durin::Editor::Material
 					Sphere->GetRenderResourceStatus();
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
-					const FCookedMeshBlockingResult LoadResult = Sphere->EnsureRenderDataLoadedBlocking();
-					if (!LoadResult)
+					const auto LoadStatus = Sphere->RequestRenderDataAndResources();
+					if (LoadStatus.CpuPhase == ECookedMeshCpuPhase::Failed
+						|| LoadStatus.CpuPhase == ECookedMeshCpuPhase::Cancelled)
 						return {
 							.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-							.Diagnostic = FormatCookedMeshLoadError(LoadResult.Error)};
-					Sphere->InitResources();
+							.Diagnostic = "The thumbnail sphere render data could not be loaded."};
+					if (!LoadStatus.HasCpuData())
+						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 					SphereStatus = Sphere->GetRenderResourceStatus();
 				}
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Failed
@@ -372,7 +395,12 @@ namespace Durin::Editor::Material
 				ResetScenePreview();
 				DependencySnapshots.clear();
 				Sphere = nullptr;
-				SphereAsset = {};
+				Material = nullptr;
+				bAssetsLoaded = false;
+				if (MaterialLoad) MaterialLoad->Cancel();
+				if (SphereLoad) SphereLoad->Cancel();
+				MaterialLoad.reset();
+				SphereLoad.reset();
 			}
 
 		private:
@@ -408,7 +436,9 @@ namespace Durin::Editor::Material
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
-			::Durin::Editor::FRetainedAsset SphereAsset;
+			std::shared_ptr<FAsyncLoadHandle> MaterialLoad;
+			std::shared_ptr<FAsyncLoadHandle> SphereLoad;
+			bool bAssetsLoaded = false;
 		};
 	} // namespace
 

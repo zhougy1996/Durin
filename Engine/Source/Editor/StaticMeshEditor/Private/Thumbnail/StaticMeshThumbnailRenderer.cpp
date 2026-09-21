@@ -67,9 +67,15 @@ namespace Durin::Editor::StaticMesh
 
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
-				DObject* Loaded = nullptr;
-				const auto Result = LoadObject(Input.AssetPath, Loaded);
-				StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
+				ResetPreview();
+				AssetLoad = RequestAsyncLoad(Input.AssetPath, {}, DStaticMesh::StaticClass());
+				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+			}
+
+			auto FinishLoad() -> ::Durin::Editor::FThumbnailRendererSessionUpdate
+			{
+				const auto& Result = AssetLoad->GetResult();
+				StaticMesh = Result ? Cast<DStaticMesh>(AssetLoad->GetLoadedObject()) : nullptr;
 				if (!Result || StaticMesh == nullptr
 					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())
 				{
@@ -93,11 +99,10 @@ namespace Durin::Editor::StaticMesh
 
 			auto PollResources() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
-				if (StaticMesh == nullptr)
-					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = QualifyDiagnostic(
-							Input.AssetPath, "The StaticMesh asset is unavailable.")};
+				if (!AssetLoad) return {.Diagnostic = "The thumbnail load was reset."};
+				if (!AssetLoad->IsComplete())
+					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				if (StaticMesh == nullptr) return FinishLoad();
 				return PollStaticMeshReadiness();
 			}
 
@@ -112,7 +117,12 @@ namespace Durin::Editor::StaticMesh
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
-					if (StaticMesh->EnsureRenderDataLoadedBlocking()) StaticMesh->InitResources();
+					const auto LoadStatus = StaticMesh->RequestRenderDataAndResources();
+					if (LoadStatus.CpuPhase == ECookedMeshCpuPhase::Failed
+						|| LoadStatus.CpuPhase == ECookedMeshCpuPhase::Cancelled)
+						return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, "The mesh render data could not be loaded.")};
+					if (!LoadStatus.HasCpuData())
+						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 					Status = StaticMesh->GetRenderResourceStatus();
 				}
 				if (!StaticMesh->GetLOD0LocalBounds())
@@ -149,7 +159,7 @@ namespace Durin::Editor::StaticMesh
 				::Durin::Editor::IThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
-				ResetPreview();
+				ResetScenePreview();
 				PreparedResourceRevision = StaticMesh ? StaticMesh->GetRenderResourceStatus().Revision : 0;
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
@@ -259,6 +269,14 @@ namespace Durin::Editor::StaticMesh
 
 			auto ResetPreview() -> void override
 			{
+				ResetScenePreview();
+				StaticMesh = nullptr;
+				if (AssetLoad) AssetLoad->Cancel();
+				AssetLoad.reset();
+			}
+
+			auto ResetScenePreview() -> void
+			{
 				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
 				Component = nullptr;
 				Actor = nullptr;
@@ -267,6 +285,7 @@ namespace Durin::Editor::StaticMesh
 
 			FStaticMeshThumbnailRendererGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
+			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
 			DWorld* World = nullptr;

@@ -267,6 +267,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
+			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.Request(
 				StaticMeshFingerprint,
@@ -305,6 +306,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		while (Cache.GetStats().Generation.CacheWrites == 0
 			   && std::chrono::steady_clock::now() < SaveDeadline)
 		{
+			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.EndFrame();
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -371,6 +373,7 @@ TEST_F(FThumbnailVulkanTests, CubeSessionRetainsPreparedInputAcrossFailureAndRec
 	Durin::Editor::FThumbnailRendererSessionUpdate Ready;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+		Durin::ProcessAsyncLoading();
 		Ready = Session->PollResources();
 		return Ready.State != Durin::Editor::EThumbnailRendererSessionState::WaitingForResources;
 	}));
@@ -439,6 +442,7 @@ TEST_F(FThumbnailVulkanTests, MaterialSessionRetainsPreparedInputAcrossFailureAn
 	Durin::Editor::FThumbnailRendererSessionUpdate Ready;
 	ASSERT_TRUE(WaitForResourcePublication([&] {
 		Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+		Durin::ProcessAsyncLoading();
 		Ready = Session->PollResources();
 		return Ready.State != Durin::Editor::EThumbnailRendererSessionState::WaitingForResources;
 	}));
@@ -680,7 +684,14 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	auto Session = Renderer.CreateGenerationSession(Captured, *Captured.Input, Error);
 	ASSERT_NE(Session, nullptr);
 	const auto Loaded = Session->Load();
-	ASSERT_EQ(Loaded.State, EThumbnailRendererSessionState::ReadyToRender) << Loaded.Diagnostic;
+	ASSERT_EQ(Loaded.State, EThumbnailRendererSessionState::WaitingForResources);
+	FThumbnailRendererSessionUpdate Ready;
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		Durin::ProcessAsyncLoading();
+		Ready = Session->PollResources();
+		return Ready.State != EThumbnailRendererSessionState::WaitingForResources;
+	}));
+	ASSERT_EQ(Ready.State, EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 	FThumbnailPreviewScenePool Pool(Contract);
 	ASSERT_TRUE(Session->PreparePreview(Pool, Error)) << Error;
 	ASSERT_TRUE(Session->ValidatePreparedInput(Error)) << Error;
@@ -712,6 +723,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		FAssetThumbnailPool Cache({}, {.CacheRoot = CacheRoot, .ObjectExtension = ".png"});
 		FAssetThumbnailView View;
 		ASSERT_TRUE(WaitForResourcePublication([&] {
+			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.Request(Request.Asset, EAssetThumbnailPriority::Visible);
 			View = Cache.Find(Request.Asset.AssetPath);
@@ -727,6 +739,7 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 		EXPECT_EQ(Stats.DiskHits, Warm ? 1u : 0u);
 		if (!Warm)
 			ASSERT_TRUE(WaitForResourcePublication([&] {
+				Durin::ProcessAsyncLoading();
 				Cache.BeginFrame(); Cache.EndFrame();
 				return Cache.GetStats().Generation.CacheWrites == 1;
 			}));

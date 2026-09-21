@@ -299,6 +299,7 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 		Error);
 	ASSERT_TRUE(Handle) << Error;
 	Durin::Editor::FAssetThumbnailPool Cache(ThumbnailManager);
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
@@ -308,13 +309,15 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		Durin::ProcessAsyncLoading();
 		Cache.BeginFrame();
 		Cache.EndFrame();
 	}
 	const Durin::Editor::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
 	ASSERT_EQ(First.State, Durin::Editor::EAssetThumbnailState::Failed);
-	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos);
+	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos) << First.Diagnostic;
 
+	Durin::ProcessAsyncLoading();
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
@@ -399,6 +402,14 @@ TEST(FMaterialThumbnailRendererTests,
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 
+	Durin::FObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
+	Durin::DObject* SphereObject = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(SpherePath, SphereObject));
+	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
+	ASSERT_NE(Sphere, nullptr);
+
 	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
 	Durin::Editor::FAssetThumbnailGenerationRequest Request;
@@ -410,6 +421,10 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_EQ(Session->Load().State,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
 
+	Durin::ProcessAsyncLoading(100.0, 16);
+	EXPECT_EQ(Session->PollResources().State,
+		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
+	Durin::ProcessAsyncLoading(100.0, 16);
 	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material, true));
 	ASSERT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
 	const Durin::Editor::FThumbnailRendererSessionUpdate Compiling =
@@ -421,13 +436,6 @@ TEST(FMaterialThumbnailRendererTests,
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 
-	Durin::FObjectPath SpherePath;
-	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
-		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
-	Durin::DObject* SphereObject = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(SpherePath, SphereObject));
-	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
-	ASSERT_NE(Sphere, nullptr);
 	ASSERT_TRUE(Durin::SubmitStaticMeshCompilation(*Sphere,
 		{.Source = Sphere->GetSource(), .bMarkPackageDirty = false})) << Error;
 	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Sphere));
