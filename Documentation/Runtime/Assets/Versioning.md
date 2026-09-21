@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-21
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -50,11 +50,9 @@ version-manifest drift between discovery and emission. Authored and cooked captu
 share this contract. Other Archive users must persist their version context in
 their own format; declaration alone does not inject bytes into a raw stream.
 
-The v10 writer emits GUID, version and a zero reserved framing byte. The reader
-rejects nonzero framing flags; retired emission/support/codec metadata has no
-runtime compatibility path. The pre-registration content baseline used empty custom-version tables; material
-packages now carry the domains described below. Invalid
-GUIDs, negative/out-of-range versions and duplicates fail parsing.
+The v10 writer emits GUID, version, and a zero reserved framing byte. Nonzero
+framing flags, invalid GUIDs, negative/out-of-range versions, and duplicate
+records fail parsing; legacy emission/support/codec metadata is unsupported.
 Read-only package inspection does not require local version registration. Before
 constructing objects, Engine rejects unknown GUIDs and versions newer than the
 local registered current version. Required-version absence and old-version
@@ -88,52 +86,35 @@ discarding. Cooked native serializer fields remain strict.
 
 ## Material Package Versions
 
-`FMaterialGraphVersion` is shared by `DMaterial` and `DMaterialFunction`;
-`FMaterialInstanceVersion` independently versions typed instance parameter storage.
-`FMaterialFunctionVersion` versions terminal-owned function port definitions.
-`FMaterialOutputVersion` versions terminal-owned material output data.
-The graph domain is at version 2; the other three domains are at version 1.
-All four are registered when Engine loads. Package
-serializers declare the appropriate domain during discovery and saving, and
-require exactly the current version on authored/cooked loads. Missing versions
-are not inferred from reflected defaults or obsolete fields. These domains can
-appear in a multi-asset package; an instance does not declare its parent's graph
-domain unless that graph is also serialized in the same package.
+The package domains are registered when Engine loads. Their source authority is
+[`MaterialCustomVersion.h`](../../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCustomVersion.h).
 
-The maintained DefaultMaterial and seven standard material-function packages
-were converted offline by adding only the graph-version record. No maintained
-instance package required conversion. The old instance `ParameterStorageVersion`
-field is removed, and there is no retained converter or legacy-reader fallback.
-The seven maintained function packages were then resaved with complete port
-definitions on FunctionInput/FunctionOutput expressions, preserving node and port
-GUIDs, connections and presentation. Functions now require the function-port
-version in addition to the graph version. The independent serialized Signature
-and terminal PortId fields, and the temporary offline converter, are removed.
-DefaultMaterial and M_MetalRust were resaved offline with a unique material
-output expression containing their links and defaults, and ordinary GUID-keyed
-output positions. Materials require the output-node version in addition to the
-graph version. The separate ExpressionOutputs and special output-position fields
-and the temporary converter are removed. Instance overrides are unchanged.
-Ordinary non-version `AlwaysSerialize` fields remain unchanged.
+| Domain | Current version | Authored data |
+| --- | ---: | --- |
+| `FMaterialGraphVersion` | 4 | `DMaterial` and `DMaterialFunction` expression graphs |
+| `FMaterialInstanceVersion` | 1 | Typed instance parameter storage |
+| `FMaterialFunctionVersion` | 1 | Terminal-owned function port definitions |
+| `FMaterialOutputVersion` | 3 | Terminal-owned material output data |
 
-In-memory ObjectGraph, Duplicate, PropertySnapshot and EditableCopy operations do
-not require package version records. Cooked dispatch reaches the same version
-checks through `DObject::SerializeCooked` and virtual `Serialize`; graph stripping
-does not remove the material package version. Future incompatible changes must
-advance the owning domain and define their explicit migration policy.
+Serializers declare applicable domains during discovery/save and require exactly
+the current version on authored/cooked loads. Missing records are never inferred
+from defaults or obsolete fields. A material declares graph and output domains;
+a function declares graph and port domains. Domains can coexist in a multi-asset
+package, but an instance does not declare its parent's graph domain unless that
+graph is serialized in the same package. No legacy-reader or converter fallback
+exists; ordinary non-version `AlwaysSerialize` fields keep their normal behavior.
 
-Graph version 2 removes the authored DecodeNormalRG class and retired normal
-sample output index 8. The two maintained materials and six retained standard
-functions were resaved offline; SampleNormal now consumes decoded RGB and the
-unreferenced DecodeImportedNormalRG asset was removed. Readers require the current
-graph version, with no legacy decoder,
-port alias, or migration branch retained in runtime code.
+ObjectGraph, Duplicate, PropertySnapshot, and EditableCopy do not require package
+version records. Cooked dispatch performs the same checks through
+`DObject::SerializeCooked` and virtual `Serialize`, even when graph fields are
+stripped. Incompatible changes must advance the owning domain and define an
+explicit migration policy.
 
-Standard material functions are shipped Engine assets. Their former
-`AuthoringSource` and `AuthoringSourceVersion` fields are removed; normal authored
-field discard and canonical resave handle existing packages. Loading the library
-validates its interfaces without creating or saving assets. Package custom versions
-continue to govern data compatibility, independently of function revisions.
+Standard functions are shipped Engine assets. Loading validates interfaces without
+creating or saving assets. Removed authoring-provenance fields follow ordinary
+field discard and canonical resave; package versions govern compatibility
+independently of function revisions. Legacy DecodeNormalRG expressions and normal
+sample output index 8 have no runtime decoder, port alias, or migration branch.
 
 ## Static Mesh Source Versions
 
@@ -141,7 +122,6 @@ continue to govern data compatibility, independently of function revisions.
 version 1. `DStaticMesh::Serialize` declares it during authored discovery/save
 and requires the exact current file version on load, including meshes with
 default or empty source data. Missing, old and future records are rejected.
-The reflected `FStaticMeshSource::SchemaVersion` and its accessor are removed.
 Construct-free `FAssetPackageInspection::CustomVersions` exposes file records
 without consulting the local registry; static mesh diagnostics use those records.
 
@@ -150,15 +130,9 @@ custom-version domain, and cooked runtime loads do not require it. ObjectGraph,
 Duplicate, PropertySnapshot and EditableCopy also do not require package records.
 
 Geometry bulk remains independently self-describing through
-`StaticMeshSourceGeometryPayloadVersion` (1). Its codec bytes, source identity
-and DDC keys retain their previous representation. Changing the authored package
-domain does not implicitly change this bulk codec. Future incompatible changes
-must advance the domain that owns the changed contract.
-
-The maintained Box, Sphere, SplineBox and GrayboxPawn packages were converted
-offline by adding the source version and removing the old field/schema entries.
-The temporary converter verified unchanged bulk and exact original package bytes
-after reversing those edits, then was removed. No legacy load fallback remains.
+`StaticMeshSourceGeometryPayloadVersion` (1). Changing the authored package domain
+does not implicitly change this bulk codec, source identity, or DDC keys.
+Incompatible changes must advance the owning domain; no legacy load fallback exists.
 
 ## Authored Package Policy
 

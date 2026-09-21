@@ -187,8 +187,8 @@ for tools that need a concrete edit. See
 
 DAST has permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56`, diagnostic name
-`Durin.BinaryFormat.DAST`, and current production version 9. Supported readers
-and corpus-transition policy are defined by
+`Durin.BinaryFormat.DAST`. The current wire version, supported readers, and
+corpus-transition policy are defined by
 [Versioning](Versioning.md#authored-package-policy).
 
 `CoreDObject`'s `DObject/PackageFormat.h` is the sole code authority for the
@@ -230,7 +230,7 @@ records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
 optional exact `FObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
 and digest remain package-level. No package class, redirect, or main-export id
-exists in either revision.
+exists at package level.
 
 ### Defaults And Version Policy
 
@@ -240,34 +240,20 @@ subobject values. `SavePackage(Package, EAssetPackageSaveMode::Complete)` and
 Bundle saving propagates the same selection; cooked saves always emit complete
 values. A failed delta plan reports its reason without silently changing modes.
 
-v10 tables carry an export default-baseline byte and a Struct baseline byte:
-0 for complete, 1 for the initialized parent, and 2 for the registered type
-default. Struct present-field tags carry names and types independently
-of the complete shared schema. An omitted ordinary nested field inherits its
-paired parent value. Arrays, fixed arrays and Maps replace their complete
-membership; authored reflected Struct elements and Map values may omit fields
-against their type default. Forced replacements keep complete descendant values.
-Native object fields have no reflected copy contract
-and remain complete. `AlwaysSerialize` preserves required reflected wire fields,
-without Forced intent. Material compatibility uses package custom versions. The intrinsic
-DObject identity node has no authored values.
+Baseline tags, inherited Struct defaults, whole-container replacement, Forced
+intent, and explicit hard references follow
+[Default-relative logical planning](../Core/Serialization.md#default-relative-logical-planning).
+The loader initializes unpublished delta objects from reflected defaults and
+remaps template references; explicit complete exports skip that initialization.
+Missing or incompatible constructor-created default children reject delta saves,
+and `NoClassDefaultObject` classes require complete snapshots. Reference binding,
+validation, and PostLoad still precede publication.
 
-Before applying delta values, the loader copies reflected defaults into fresh
-unpublished objects and remaps template references to the constructed graph.
-Dynamic owned objects use their own class defaults. Missing or incompatible
-constructor-created default children reject delta saving; classes declaring
-`NoClassDefaultObject` also require explicit complete snapshots. Complete exports skip default initialization. All skeletons,
-reference binding, validation, and PostLoad still precede publication.
-
-The reader and writer accept the current v10 contract only. Omitted Struct
-fields follow the selected default; Complete/Forced saving pins their saved
-fields. Hard-reference-bearing
-fields remain explicit, and per-element override editing is deferred. See the
-[baseline contract](../Core/Serialization.md#default-relative-logical-planning).
-The maintained workspace corpus was resaved before retiring v9; unsupported revisions fail at the format boundary.
-Detached relocation/reference rewrites use the same validated v10 closure.
-Ordinary loading allocates no authored-override ledger; only Forced boundaries
-restore persistent replacement intent. See [Serialization](../Core/Serialization.md).
+Native fields remain complete without a reflected copy contract. The intrinsic
+DObject identity node has no authored values; material compatibility uses package
+custom versions. Ordinary loading allocates no authored-override ledger; only
+Forced boundaries restore replacement intent. Detached relocation and reference
+rewrites use the same validated current-format closure.
 
 ### Linker Tables And Canonical Values
 
@@ -297,7 +283,7 @@ zero and infinities retain their exact bits.
 
 The writer freezes all names, types, schemas, versions, package indices, Outer
 topology, field identities, reference closure, and bulk placements before
-emission. Late discovery, duplicate identity, invalid topology, unsupported
+emission, assigning stable one-based ids. Late discovery, duplicate identity, invalid topology, unsupported
 value kinds, malformed UTF-8, noncanonical order, arithmetic overflow, or a
 limit failure aborts without replacing either output. Identical logical input
 and identity produce byte-identical main/bulk output.
@@ -307,14 +293,14 @@ physical main/bulk extents before publishing package-level metadata.
 `ReadPackage(...)` validates the complete main image and exact external
 segment into a detached linker model. It checks tables, indices, topology,
 types, values, section and payload digests, range placement, complete
-consumption, and canonical re-emission before replacing its output. Neither
-entry constructs a `DObject`, resolves dependencies, invokes callbacks, or
-writes files.
+consumption, and byte-identical canonical re-emission before replacing its output.
+Registry reads additionally validate the caller's mounted package identity. Both
+readers publish owned results without retaining input spans. Neither constructs a
+`DObject`, resolves dependencies, invokes callbacks, or writes files.
 
 All six public freeze/write/read entry points return `FPackageWriterResult` or
-`FPackageReaderResult`; no diagnostic output overload remains. Success derives
-from the typed failure category. Each failure retains a specific reason and an
-owned logical path or subject. Nested envelope, Linker, canonical Map-key and
+`FPackageReaderResult`, with success derived from the typed failure category.
+Each failure retains a specific reason and an owned logical path or subject. Nested envelope, Linker, canonical Map-key and
 writer failures are formatted where they are produced, preserving their details
 without retaining another operation result. A recorded inner value failure survives the outer
 property decoder. `FormatPackageError` owns codec prose; Engine and Registry

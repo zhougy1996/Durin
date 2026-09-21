@@ -41,6 +41,8 @@ before publishing output. DAST, Cook state, and package BulkData reuse this byte
 cursor but continue to own their schemas, semantic validation, diagnostics, and
 publication policy.
 
+### Binary envelopes
+
 `Serialization/BinaryEnvelope.h` owns the format-neutral `DURF` header-version-1
 contract. The fixed 64-byte little-endian preamble encodes `DURF`, header and
 preamble versions, a nonzero GUID `FormatId`, format version, required-feature
@@ -69,6 +71,8 @@ external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
 nest another DURF envelope; their owning asset slot supplies the codec and
 schema.
+
+### Persistent value serialization
 
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
@@ -117,6 +121,8 @@ position capabilities; capabilities supplied in the context are not inherited.
 Omitted context preserves existing target-independent callers. No payload-level
 explicit target fallback remains.
 
+### Object archives and linker ownership
+
 CoreDObject layers `FObjectArchive` over that byte substrate. It owns reflected
 logical descriptors, object/field/container scopes, hard and soft object
 references and object-aware adapters. `DObject/Archive.h` forwards the Core
@@ -141,29 +147,18 @@ shape leaves the caller's prior output unchanged. The live reflected APIs return
 `FReflectedMapKeyResult`, with typed failure reasons, owned property identities,
 array bounds, and an outer-to-inner property/index route. The detached package
 API returns `FCanonicalMapKeyResult`. Neither API accepts diagnostic string
-outputs; legacy Archive, snapshot, and Engine adapters format explicitly until
-their own result contracts are migrated.
+outputs; Archive, snapshot, and Engine adapters format at their result boundaries.
 
-`DObject/PackageFormat.h` owns the construct-free DAST v10 save boundary.
-`FreezePackage(...)` validates and canonicalizes names, structural types,
-schemas, imports, exports, property identities, references, and BulkData facts
-into stable one-based ids. `WritePackage(...)` emits detached main and raw
-external-bulk buffers and replaces neither caller output on failure. Values use
-native `EValueKind` tags, Maps use the sole canonical-key writer, NaNs collapse
-to one quiet pattern while signed zero is retained, and BulkData placement is
-explicit detached input rather than live-object policy. This layer constructs
-no `DObject` and depends on neither AssetRegistry nor Engine.
+`DObject/PackageFormat.h` owns construct-free DAST freezing, writing, and bounded
+reading. It consumes detached `FLinkerTables` without constructing `DObject` or
+depending on AssetRegistry/Engine. BulkData placement is explicit detached input.
+Canonical values, freeze validation, front-matter reads, complete closure reads,
+and failure publication follow
+[Asset package linker tables](../Assets/AssetPackages.md#linker-tables-and-canonical-values).
+`WritePackage(...)` returns detached main and raw external-bulk buffers and
+replaces neither caller output on failure.
 
-The same boundary owns bounded v10 reading. `ReadPackageRegistry(...)`
-validates an exact declared front-matter span, independently known main/bulk
-extents, the caller-supplied mounted package identity, all directory facts, and
-the header-resident Registry/names/imports before atomically publishing package
-metadata. `ReadPackage(...)` validates complete section hashes, tables,
-recursive native tags, package topology, references, canonical ordering, and
-inline/external BulkData ranges and digests before publishing `FLinkerTables`.
-Successful decode re-emits through the sole writer and requires byte-identical
-main and bulk output, so noncanonical but otherwise interpretable bytes fail
-closed. Neither API retains input spans in its published result.
+### Object state and field selection
 
 `DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
 Its base implementation calls `SerializeDObjectProperties(...)`, which enters
@@ -235,6 +230,8 @@ to capture or attach a logical package range. Core never resolves asset paths or
 files. Runtime BulkData metadata is non-semantic and does not participate in
 authored identical/default comparison; editor payload size and content identity
 form the atomic authored logical value.
+
+### Failure and publication ownership
 
 Object, field, array, and Map scopes maintain a structured diagnostic path.
 `FArchive::IsError()` reports sticky failure state for both reading and writing.
