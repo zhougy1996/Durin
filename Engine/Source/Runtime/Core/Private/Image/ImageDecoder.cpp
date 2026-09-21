@@ -1,6 +1,6 @@
 #include "Image/ImageDecoder.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/StringHelper.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -283,7 +283,7 @@ namespace Durin::Image
 		{
 			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileStat, .Limits = Limits,
 				.Filename = std::string(FilePath),
-				.FileError = FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, FFilePath(FilePath)}});
+				.FileError = FFileError{EFileOperation::QuerySize, ErrorCode, FFilePath(FilePath)}});
 		}
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes || FileSize > static_cast<uintmax_t>(std::numeric_limits<int>::max()))
 		{
@@ -291,7 +291,7 @@ namespace Durin::Image
 				.Limits = Limits, .Filename = std::string(FilePath)});
 		}
 
-		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		auto EncodedBytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
 		if (!EncodedBytes)
 		{
 			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileRead, .EncodedBytes = FileSize,
@@ -392,7 +392,7 @@ namespace Durin::Image
 			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
 			return false;
 		}
-		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		auto EncodedBytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
 		if (!EncodedBytes)
 		{
 			OutError = EncodedBytes.error().ToString();
@@ -538,7 +538,7 @@ namespace Durin::Image
 			OutError = "The Radiance HDR file is empty or too large.";
 			return false;
 		}
-		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		auto EncodedBytes = FFileHelper::LoadFileToArray(FFilePath(FilePath));
 		if (!EncodedBytes)
 		{
 			OutError = EncodedBytes.error().ToString();

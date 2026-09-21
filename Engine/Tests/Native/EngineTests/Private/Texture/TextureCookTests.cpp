@@ -260,16 +260,21 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FByteBuffer FirstBulk;
 	Durin::FByteBuffer SecondBulk;
 	Durin::FByteBuffer DiagnosticPackage;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstPackage, (CookRoot / "Game/CookedTexture.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondPackage, (SecondCookRoot / "Game/CookedTexture.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, (CookRoot / "Game/CookedTexture.dbulk")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, (SecondCookRoot / "Game/CookedTexture.dbulk")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		DiagnosticPackage, (DiagnosticCookRoot / "Game/CookedTexture.dasset")));
+	auto FirstPackageRead = Durin::FFileHelper::LoadFileToArray((CookRoot / "Game/CookedTexture.dasset"));
+	ASSERT_TRUE(FirstPackageRead) << FirstPackageRead.error().ToString();
+	FirstPackage = std::move(*FirstPackageRead);
+	auto SecondPackageRead = Durin::FFileHelper::LoadFileToArray((SecondCookRoot / "Game/CookedTexture.dasset"));
+	ASSERT_TRUE(SecondPackageRead) << SecondPackageRead.error().ToString();
+	SecondPackage = std::move(*SecondPackageRead);
+	auto FirstBulkRead = Durin::FFileHelper::LoadFileToArray((CookRoot / "Game/CookedTexture.dbulk"));
+	ASSERT_TRUE(FirstBulkRead) << FirstBulkRead.error().ToString();
+	FirstBulk = std::move(*FirstBulkRead);
+	auto SecondBulkRead = Durin::FFileHelper::LoadFileToArray((SecondCookRoot / "Game/CookedTexture.dbulk"));
+	ASSERT_TRUE(SecondBulkRead) << SecondBulkRead.error().ToString();
+	SecondBulk = std::move(*SecondBulkRead);
+	auto DiagnosticPackageRead = Durin::FFileHelper::LoadFileToArray((DiagnosticCookRoot / "Game/CookedTexture.dasset"));
+	ASSERT_TRUE(DiagnosticPackageRead) << DiagnosticPackageRead.error().ToString();
+	DiagnosticPackage = std::move(*DiagnosticPackageRead);
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstBulk, SecondBulk);
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));

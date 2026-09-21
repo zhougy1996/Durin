@@ -18,7 +18,7 @@
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Engine/ProjectGameSettings.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -94,7 +94,7 @@ namespace Durin
 			auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 			if (!Access) return false;
 			Out.clear();
-			auto File = FFileIO::OpenRead(Path);
+			auto File = FFileHelper::OpenRead(Path);
 			if (!File || (*File)->GetSize() > MaximumCookStateBytes) return false;
 			Out.resize(static_cast<size_t>((*File)->GetSize()));
 			constexpr size_t Chunk = 4 * 1024 * 1024;

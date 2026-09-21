@@ -1,8 +1,7 @@
 #include "Input/InputActions.h"
 
 #include "Input/GameInputState.h"
-#include "Misc/FileIO.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include <iomanip>
 #include <sstream>
 
@@ -305,7 +304,7 @@ namespace Durin
 		for (const auto& [Key, Source] : Overrides)
 			Stream << std::quoted(Key.first) << ' ' << std::quoted(Key.second) << ' ' << static_cast<unsigned>(Source.Kind) << ' ' << Source.Code << '\n';
 		const std::string Text = Stream.str();
-		if (auto FileError = FFileIO::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path); !FileError)
+		if (auto FileError = FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path); !FileError)
 			return {EInputBindingError::WriteFailed, FileError.error().ToString()};
 		return {};
 	}
@@ -316,7 +315,7 @@ namespace Durin
 		const auto Size = std::filesystem::file_size(Path, FileError);
 		if (FileError) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string() + ": " + FileError.message()};
 		if (Size > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB: " + Path.string()};
-		auto Text = FFileIO::LoadFileToString(Path);
+		auto Text = FFileHelper::LoadFileToString(Path);
 		if (!Text) return {EInputBindingError::ReadFailed, Text.error().ToString()};
 		if (Text->size() > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB."};
 		std::istringstream Stream(std::move(*Text));

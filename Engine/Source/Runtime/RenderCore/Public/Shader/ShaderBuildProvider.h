@@ -28,7 +28,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 6;
+		static constexpr uint32 FeatureVersion = 7;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,

@@ -4,7 +4,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -193,7 +193,7 @@ namespace Durin
 		return It != ObjectClass.Fields.end() && It->DeclaringType == DeclaringType && It->Name == Name ? &*It : nullptr;
 	}
 
-	auto InspectAssetPackageSchema(FFileIO::IFileHandle& Handle,
+	auto InspectAssetPackageSchema(IFileHandle& Handle,
 		const FPackagePath& PackagePath, const FReflectionSchemaCatalog& Catalog,
 		FPackageSchemaInspection& OutInspection, FPackageSchemaReadStats* OutStats,
 		bool bIncludeNestedMigrationEvidence,

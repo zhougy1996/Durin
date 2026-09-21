@@ -6,7 +6,7 @@
 #include "ShaderBuild/ShaderPaths.h"
 #include "ShaderCompileService.h"
 #include "ShaderLibraryProducer.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin
@@ -103,7 +103,7 @@ namespace Durin
 					}
 					const auto Name = (std::filesystem::path(Mount.VirtualRoot)
 						/ It->path().lexically_relative(Root)).lexically_normal().generic_string();
-					auto File = FFileIO::OpenRead(It->path());
+					auto File = FFileHelper::OpenRead(It->path());
 					if (!File) { return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = File.error()}); }
 					const auto Size = (*File)->GetSize();
 					if (Files.size() >= MaximumFiles)

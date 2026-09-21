@@ -13,9 +13,13 @@ paths and atomic byte publication.
 
 `Misc/FilePath.h` defines `Durin::FFilePath` as an alias of
 `std::filesystem::path` for physical paths, not mounted or asset identities.
-`Misc/FileIO.h` introduces `Durin::FFileIO` alongside the existing `FFileHelper`
-API for legacy compatibility. Runtime, editor and tool consumers use `FFileIO`;
-legacy helper tests continue to verify the compatibility behavior. New operations return
+`Misc/FileHelper.h` defines the file-operation functions in `Durin::FFileHelper`.
+The old bool/output-parameter overloads and the transitional `FFileIO` namespace
+have been removed. `Misc/FileError.h` defines `Durin::FFileError` and
+`Durin::EFileOperation`; `Misc/FileHandle.h` defines `Durin::IFileHandle`.
+These shared types live outside the helper namespace so diagnostics and byte
+readers can depend on their contracts without importing the operation API.
+Operations return
 `std::expected<T, FFileError>`; writes and exact range reads use `void` as `T`.
 Errors preserve the operation, system error category/code, physical path and,
 where applicable, a related path and byte range. `ToString()` formats diagnostic
@@ -28,9 +32,8 @@ loads preserve exact bytes, including embedded NULs. Hashing uses bounded memory
 conversion means the query succeeded, not that the path exists.
 
 Ordinary writes create parent directories and truncate existing files; failures
-may leave partial bytes. Exclusive and atomic operations currently adapt the
-existing publication machinery, retaining its cleanup and bounded retry policy.
-Legacy helpers remain available with their existing logging and retry behavior.
+may leave partial bytes. Exclusive and atomic operations directly return the
+same result type, retaining their cleanup and bounded retry policy.
 DDC, JSON/YAML loading, file fingerprints, image/source reads, and package staging
 and whole-file asset reads use the result-based interfaces. Their business result
 types retain file diagnostics without adding lower-layer logging. Publication
@@ -69,7 +72,7 @@ eventual request outcome.
 
 ## Synchronous Random Reads
 
-`FFileIO::OpenRead()` returns an expected, uniquely owned `IFileHandle` for a
+`FFileHelper::OpenRead()` returns an expected, uniquely owned `IFileHandle` for a
 physical path. The handle captures its size from the opened native resource and
 closes that resource on destruction. `ReadAt()` is an exact synchronous read:
 it fills the complete destination span or fails, rejects overflow and ranges
@@ -110,13 +113,13 @@ at the physical I/O boundary.
 
 ## Atomic Byte Publication
 
-`FFileIO::SaveArrayToNewFile()` exclusively creates a caller-selected path,
+`FFileHelper::SaveArrayToNewFile()` exclusively creates a caller-selected path,
 writes all bytes, flushes and closes it. It creates parent directories, preserves
 existing paths on creation failure and performs best-effort cleanup after a
 write, flush or close failure. It does not provide atomic visibility while
 writing; package staging uses it before publication through `Commit()`.
 
-`FFileIO::SaveArrayToFileAtomically()` is the shared publication primitive
+`FFileHelper::SaveArrayToFileAtomically()` is the shared publication primitive
 for a complete byte buffer. `CopyFileAtomically()` provides the same sibling
 temporary, flush, and replacement contract while copying an existing file
 without materializing its complete contents. DDC objects, Shader dependency

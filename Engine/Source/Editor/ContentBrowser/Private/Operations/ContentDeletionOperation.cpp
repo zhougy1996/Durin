@@ -1,6 +1,6 @@
 #include "Operations/ContentBrowserOperationService.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -64,7 +64,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (Error || Size != Entry.FileSize)
 					return Fail(std::format(
 						"Deletion source changed: {}.", Path.generic_string()));
-				auto Identity = FFileIO::HashFileXx128(Path);
+				auto Identity = FFileHelper::HashFileXx128(Path);
 				if (!Identity) return Fail(Identity.error().ToString());
 				if (*Identity != Entry.ByteIdentity)
 					return Fail(std::format(

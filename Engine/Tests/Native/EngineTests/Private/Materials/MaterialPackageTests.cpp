@@ -244,10 +244,14 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
 
 	Durin::FByteBuffer BaseBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BaseBytes, (Root / "Base.dasset")));
+	auto BaseBytesRead = Durin::FFileHelper::LoadFileToArray((Root / "Base.dasset"));
+	ASSERT_TRUE(BaseBytesRead) << BaseBytesRead.error().ToString();
+	BaseBytes = std::move(*BaseBytesRead);
 
 	Durin::FByteBuffer InstanceBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
+	auto InstanceBytesRead = Durin::FFileHelper::LoadFileToArray((Root / "Instance.dasset"));
+	ASSERT_TRUE(InstanceBytesRead) << InstanceBytesRead.error().ToString();
+	InstanceBytes = std::move(*InstanceBytesRead);
 	Durin::ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(InstanceBytes, {}, InstancePath, Linker));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "ParameterStorageVersion"));
@@ -273,7 +277,9 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	EXPECT_NE(LoadedBase, nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
 	Durin::FByteBuffer After;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, Root / "Base.dasset"));
+	auto AfterRead = Durin::FFileHelper::LoadFileToArray(Root / "Base.dasset");
+	ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+	After = std::move(*AfterRead);
 	EXPECT_EQ(After, BaseBytes);
 }
 
@@ -300,7 +306,9 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	MarkObjectHierarchyAsGarbage(Copy);
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	FByteBuffer Original;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, Root / "Base.dasset"));
+	auto OriginalRead = FFileHelper::LoadFileToArray(Root / "Base.dasset");
+	ASSERT_TRUE(OriginalRead) << OriginalRead.error().ToString();
+	Original = std::move(*OriginalRead);
 	ObjectPackage::FLinkerTables Saved;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Path, Saved));
 	ASSERT_EQ(Saved.CustomVersions.size(), 4u);
@@ -371,7 +379,9 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		const auto Data = FindAssetExact(Path);
 		ASSERT_NE(Data, nullptr);
 		FByteBuffer Bytes;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath));
+		auto BytesRead = FFileHelper::LoadFileToArray(Data->PhysicalPath);
+		ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
+		Bytes = std::move(*BytesRead);
 		ObjectPackage::FLinkerTables Linker;
 		ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
 		auto ExpectedVersions = std::vector<FCustomVersion>{{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}};

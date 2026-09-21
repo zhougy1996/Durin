@@ -3,7 +3,7 @@
 #include "Asset/CookedAsset.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Load.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureCube.h"
@@ -241,14 +241,14 @@ namespace Durin
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
-				std::expected<FByteBuffer, FFileIO::FFileError> CompanionBytes;
+				std::expected<FByteBuffer, FFileError> CompanionBytes;
 				std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Storage;
 				if (Package.PhysicalPath.empty()
 					|| !(Storage = InspectEditorBulkDataCompanionPaths(
 						Package.PhysicalPath, Package))
 					|| Storage->empty()
 					|| (CompanionPath = Storage->front()).empty()
-					|| !(CompanionBytes = FFileIO::LoadFileToArray(CompanionPath)))
+					|| !(CompanionBytes = FFileHelper::LoadFileToArray(CompanionPath)))
 				{
 					SourceState = ETexturePayloadState::Missing;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;

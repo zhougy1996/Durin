@@ -7,7 +7,7 @@
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "DObject/Package.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -43,7 +43,7 @@ namespace Durin
 				&& std::filesystem::exists(Status))) return false;
 			OutSnapshot.bExisted = std::filesystem::is_regular_file(Status);
 			if (!OutSnapshot.bExisted) return true;
-			auto Bytes = FFileIO::LoadFileToArray(Path);
+			auto Bytes = FFileHelper::LoadFileToArray(Path);
 			if (!Bytes) return false;
 			OutSnapshot.Bytes = std::move(*Bytes);
 			return true;
@@ -52,7 +52,7 @@ namespace Durin
 		auto RestoreFileSnapshot(const FCanonicalResaveFileSnapshot& Snapshot) -> bool
 		{
 			if (Snapshot.bExisted)
-				return FFileIO::SaveArrayToFileAtomically(Snapshot.Bytes, Snapshot.Path).has_value();
+				return FFileHelper::SaveArrayToFileAtomically(Snapshot.Bytes, Snapshot.Path).has_value();
 			std::error_code Error;
 			const bool bRemoved = std::filesystem::remove(Snapshot.Path, Error);
 			return !Error || (!bRemoved && Error == std::errc::no_such_file_or_directory);
@@ -286,7 +286,7 @@ namespace Durin
 				Result.Diagnostic = "Injected canonical-resave revalidation failure.";
 				return Result;
 			}
-			auto BeforeBytes = FFileIO::LoadFileToArray(PackagePlan.PhysicalPath);
+			auto BeforeBytes = FFileHelper::LoadFileToArray(PackagePlan.PhysicalPath);
 			if (!BeforeBytes
 				|| !FingerprintMatches(PackagePlan.Fingerprint, *BeforeBytes, PackagePlan.PhysicalPath))
 			{
@@ -314,7 +314,7 @@ namespace Durin
 			FAssetRegistryPublication RegistrySnapshot =
 				CaptureAssetRegistryPublication();
 			const auto RestorePriorClosure = [&]() {
-				const auto PackageRestored = FFileIO::SaveArrayToFileAtomically(*BeforeBytes, PackagePlan.PhysicalPath);
+				const auto PackageRestored = FFileHelper::SaveArrayToFileAtomically(*BeforeBytes, PackagePlan.PhysicalPath);
 				const bool bBulkRestored = RestoreFileSnapshot(BulkSnapshot);
 				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
 				const FAssetRegistryResult RegistryRestored =
@@ -516,7 +516,7 @@ namespace Durin
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);
 			FAssetReadResult Verify = {EAssetReadError::IoError,
 				"Published package could not be reread."};
-			if (FFileIO::LoadFileToArray(PackagePlan.PhysicalPath))
+			if (FFileHelper::LoadFileToArray(PackagePlan.PhysicalPath))
 			{
 				FAssetPackageInspection Inspection;
 				Verify = InspectAssetPackage(PackagePlan.PhysicalPath, Inspection);

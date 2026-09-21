@@ -386,7 +386,9 @@ namespace
 		const std::filesystem::path FixturePath = Durin::Testing::GetTestWorkDirectory()
 			/ FixtureName / "Component.dasset";
 		Durin::FByteBuffer FixtureBytes;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
+		auto FixtureBytesRead = Durin::FFileHelper::LoadFileToArray(FixturePath);
+		ASSERT_TRUE(FixtureBytesRead) << FixtureBytesRead.error().ToString();
+		FixtureBytes = std::move(*FixtureBytesRead);
 		Durin::ObjectPackage::FLinkerTables ComponentLinker;
 		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
 		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "Materials"));
@@ -421,7 +423,9 @@ namespace
 		EXPECT_EQ(Loaded->GetMaterial(0)->GetPackage()->GetPackagePath(), FirstMaterialPath.ToString());
 		EXPECT_EQ(Loaded->GetMaterial(1)->GetPackage()->GetPackagePath(), SecondMaterialPath.ToString());
 		ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
+		auto FixtureBytesRead2 = Durin::FFileHelper::LoadFileToArray(FixturePath);
+		ASSERT_TRUE(FixtureBytesRead2) << FixtureBytesRead2.error().ToString();
+		FixtureBytes = std::move(*FixtureBytesRead2);
 		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
 		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "OverrideMaterials_DEPRECATED"));
 		for (const auto& Export : ComponentLinker.Exports)

@@ -2,7 +2,7 @@
 
 #include "RenderCoreAPI.h"
 #include "RHIDefinitions.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileError.h"
 #include <expected>
 
 namespace Durin
@@ -178,7 +178,7 @@ namespace Durin
 		std::optional<EFeatureInvokeStatus> ProviderStatus;
 		ESlangShaderError CompilerPhase = ESlangShaderError::Session;
 		std::optional<int64> NativeStatus;
-		std::optional<FFileIO::FFileError> FileError;
+		std::optional<FFileError> FileError;
 		// Reserved for the compiler/provider boundary; never classify this text.
 		std::string ExternalDiagnostic;
 
@@ -188,7 +188,7 @@ namespace Durin
 		static auto FromFileSystem(const std::filesystem::path& Path, std::error_code Error) -> FShaderError
 		{
 			return {.Code = EShaderError::FileSystemFailure,
-				.FileError = FFileIO::FFileError{FFileIO::EFileOperation::Inspect, Error, Path}};
+				.FileError = FFileError{EFileOperation::Inspect, Error, Path}};
 		}
 		RENDERCORE_API static auto FromSlang(
 			ESlangShaderError Phase,

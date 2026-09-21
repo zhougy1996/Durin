@@ -8,7 +8,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 
@@ -124,7 +124,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				static_cast<int64>(WriteTime.time_since_epoch().count());
 			if (Kind != EContentDeletionEntryKind::Directory)
 			{
-				auto Identity = FFileIO::HashFileXx128(Path);
+				auto Identity = FFileHelper::HashFileXx128(Path);
 				if (!Identity)
 				{
 					OutError = Identity.error().NativeError;

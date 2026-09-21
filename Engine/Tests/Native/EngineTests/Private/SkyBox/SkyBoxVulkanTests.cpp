@@ -41,15 +41,15 @@ namespace
 		std::string& OutError
 	) -> bool
 	{
-		Durin::FByteBuffer EncodedBytes;
-		if (!Durin::FFileHelper::LoadFileToArray(EncodedBytes, Path))
+		auto EncodedBytes = Durin::FFileHelper::LoadFileToArray(Path);
+		if (!EncodedBytes)
 		{
 			OutError = "Failed to read the panorama fixture.";
 			return false;
 		}
 		Durin::AssetForge::Builtins::FTextureCubePanoramaSourceData Panorama;
 		if (!Durin::AssetForge::Builtins::TranslateTextureCubePanoramaSource(
-				EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
+				*EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
 			return false;
 		return std::visit([&](const auto& Source) {
 			return Durin::TextureCubeBuilder::ProjectEquirectangularTextureCube(

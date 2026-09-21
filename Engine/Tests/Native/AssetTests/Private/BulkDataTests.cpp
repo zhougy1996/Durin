@@ -537,16 +537,18 @@ TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBac
 	EXPECT_EQ(Prepare().error().Code, EPreparedPackageResourceError::InvalidClosure);
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 	FByteBuffer Actual;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Actual, BulkPath));
+	auto ActualRead = FFileHelper::LoadFileToArray(BulkPath);
+	ASSERT_TRUE(ActualRead) << ActualRead.error().ToString();
+	Actual = std::move(*ActualRead);
 	EXPECT_EQ(Actual, Bulk);
 	EXPECT_TRUE(std::filesystem::exists(Backup));
 	std::filesystem::remove(BulkPath);
 	const auto Missing = Prepare();
 	EXPECT_EQ(Missing.error().Code, EPreparedPackageResourceError::IoError);
 	EXPECT_EQ(Missing.error().Reason, EPreparedPackageResourceReason::FileIo);
-	const auto* FileFailure = std::get_if<FFileIO::FFileError>(&Missing.error().Cause);
+	const auto* FileFailure = std::get_if<FFileError>(&Missing.error().Cause);
 	ASSERT_TRUE(FileFailure);
-	EXPECT_EQ(FileFailure->Operation, FFileIO::EFileOperation::OpenRead);
+	EXPECT_EQ(FileFailure->Operation, EFileOperation::OpenRead);
 	EXPECT_EQ(FileFailure->Path, BulkPath);
 	EXPECT_FALSE(std::filesystem::exists(BulkPath));
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
@@ -615,7 +617,7 @@ TEST_F(FPreparedPackageResourceTests, RejectsMainReplacementDuringBulkCapture)
 		{
 			auto Replacement = Main;
 			Replacement[0] ^= std::byte{1};
-			bReplaced = FFileHelper::SaveArrayToFileAtomically(Replacement, MainPath);
+			bReplaced = FFileHelper::SaveArrayToFileAtomically(Replacement, MainPath).has_value();
 		}
 		return false;
 	});
@@ -1153,7 +1155,9 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	EXPECT_EQ(StillInvalid.error().Code, EPackageResourceRegistrationError::InvalidGeneration);
 	EXPECT_TRUE(std::filesystem::exists(BackupPath));
 	FByteBuffer Unchanged;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Unchanged, SegmentPath));
+	auto UnchangedRead = FFileHelper::LoadFileToArray(SegmentPath);
+	ASSERT_TRUE(UnchangedRead) << UnchangedRead.error().ToString();
+	Unchanged = std::move(*UnchangedRead);
 	EXPECT_EQ(Unchanged, MakeBytes({1, 2}));
 	// Repair is explicit; registration only validates and publishes the resource.
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, SegmentPath));

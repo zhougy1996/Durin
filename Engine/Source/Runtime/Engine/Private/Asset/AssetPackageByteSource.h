@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/PackageSchema.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHandle.h"
 
 namespace Durin::AssetPrivate
 {
@@ -17,7 +17,7 @@ namespace Durin::AssetPrivate
 	class FFileAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
-		explicit FFileAssetPackageByteSource(std::unique_ptr<FFileIO::IFileHandle> InHandle)
+		explicit FFileAssetPackageByteSource(std::unique_ptr<IFileHandle> InHandle)
 			: Handle(std::move(InHandle)) {}
 		auto GetSize() const -> uint64 override { return Handle ? Handle->GetSize() : 0; }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
@@ -33,13 +33,13 @@ namespace Durin::AssetPrivate
 			return Read.has_value();
 		}
 	private:
-		std::unique_ptr<FFileIO::IFileHandle> Handle;
+		std::unique_ptr<IFileHandle> Handle;
 	};
 
 	class FBorrowedFileAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
-		explicit FBorrowedFileAssetPackageByteSource(FFileIO::IFileHandle& InHandle)
+		explicit FBorrowedFileAssetPackageByteSource(IFileHandle& InHandle)
 			: Handle(InHandle) {}
 		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
@@ -50,7 +50,7 @@ namespace Durin::AssetPrivate
 			return Read.has_value();
 		}
 	private:
-		FFileIO::IFileHandle& Handle;
+		IFileHandle& Handle;
 	};
 
 	class FMemoryAssetPackageByteSource final : public IAssetPackageByteSource

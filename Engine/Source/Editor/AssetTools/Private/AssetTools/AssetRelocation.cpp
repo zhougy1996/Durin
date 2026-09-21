@@ -12,7 +12,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Profiling/Profiling.h"
@@ -225,7 +225,7 @@ namespace Durin
 			SourceBulkFile.replace_extension(".dbulk");
 			if (std::filesystem::is_regular_file(SourceBulkFile))
 			{
-				auto Loaded = FFileIO::LoadFileToArray(SourceBulkFile);
+				auto Loaded = FFileHelper::LoadFileToArray(SourceBulkFile);
 				if (!Loaded) return Error(EAssetWriteError::IoError, Loaded.error().ToString());
 				SourceBulkBytes = std::move(*Loaded);
 			}

@@ -221,8 +221,9 @@ namespace Durin
 		const std::string MaterialFile =
 			FindAssetExact(MaterialPath)->PhysicalPath;
 		Durin::FByteBuffer BeforeSave;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(
-			BeforeSave, MaterialFile));
+		auto BeforeSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
+		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().ToString();
+		BeforeSave = std::move(*BeforeSaveRead);
 		Editor::FWorkspaceManager WorkspaceManager;
 		Editor::DThumbnailManager ThumbnailManager;
 		Durin::FMaterialEditorModule MaterialEditorModule;
@@ -243,8 +244,9 @@ namespace Durin
 		EXPECT_TRUE(MaterialWorkspace->SaveActiveDocument());
 		EXPECT_FALSE(LoadedMaterial->GetPackage()->IsDirty());
 		Durin::FByteBuffer AfterSave;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(
-			AfterSave, MaterialFile));
+		auto AfterSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
+		ASSERT_TRUE(AfterSaveRead) << AfterSaveRead.error().ToString();
+		AfterSave = std::move(*AfterSaveRead);
 		EXPECT_EQ(AfterSave, BeforeSave);
 		EXPECT_EQ(FindAssetExact(MaterialPath)
 			->FormatVersion, OrdinaryAssetPackageWriterVersion);

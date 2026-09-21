@@ -1,6 +1,6 @@
 #include "Misc/FileFingerprintCache.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -18,7 +18,7 @@ namespace Durin
 		return InPath.lexically_normal().generic_string();
 	}
 
-	auto FFileFingerprintCache::Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileIO::FFileError>
+	auto FFileFingerprintCache::Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileError>
 	{
 		const std::string NormalizedPath = NormalizePath(FilePath);
 
@@ -27,13 +27,13 @@ namespace Durin
 		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
+			return std::unexpected(FFileError{EFileOperation::Inspect, ErrorCode, NormalizedPath});
 		}
 
 		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, NormalizedPath});
+			return std::unexpected(FFileError{EFileOperation::QuerySize, ErrorCode, NormalizedPath});
 		}
 
 		{
@@ -48,7 +48,7 @@ namespace Durin
 			}
 		}
 
-		auto FileBytes = FFileIO::LoadFileToArray(NormalizedPath);
+		auto FileBytes = FFileHelper::LoadFileToArray(NormalizedPath);
 		if (!FileBytes)
 		{
 			return std::unexpected(std::move(FileBytes.error()));
@@ -82,7 +82,7 @@ namespace Durin
 		{
 			if (ErrorCode)
 			{
-				return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
+				return std::unexpected(FFileError{EFileOperation::Inspect, ErrorCode, NormalizedPath});
 			}
 			return EFileFingerprintReuseStatus::Stale;
 		}
@@ -90,13 +90,13 @@ namespace Durin
 		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::Inspect, ErrorCode, NormalizedPath});
+			return std::unexpected(FFileError{EFileOperation::Inspect, ErrorCode, NormalizedPath});
 		}
 
 		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileIO::FFileError{FFileIO::EFileOperation::QuerySize, ErrorCode, NormalizedPath});
+			return std::unexpected(FFileError{EFileOperation::QuerySize, ErrorCode, NormalizedPath});
 		}
 
 		if (LastWriteTime != StoredFingerprint.LastWriteTime || FileSize != StoredFingerprint.FileSize)

@@ -11,7 +11,7 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileError.h"
 
 namespace Durin
 {
@@ -218,7 +218,7 @@ namespace Durin
 		uint64 Maximum = 0;
 		uint64 Retained = 0;
 		uint64 MaximumRetained = 0;
-		std::optional<FFileIO::FFileError> FileCause;
+		std::optional<FFileError> FileCause;
 		std::shared_ptr<const FObjectError> PathCause;
 		std::string Member;
 		uint64 Expected = 0;

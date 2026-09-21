@@ -3,7 +3,8 @@
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
 #include "Image/Image.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileError.h"
+#include <expected>
 
 namespace Durin::Image
 {
@@ -26,7 +27,7 @@ namespace Durin::Image
 		int32 Height = 0;
 		FImageDecodeLimits Limits;
 		std::string Filename;
-		std::optional<FFileIO::FFileError> FileError;
+		std::optional<FFileError> FileError;
 	};
 	CORE_API auto FormatImageDecodeError(const FImageDecodeError& Error) -> std::string;
 

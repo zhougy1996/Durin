@@ -641,8 +641,9 @@ TEST(FStaticMeshPayloadCodecTests,
 	const std::filesystem::path EntryPointPath =
 		std::filesystem::path(FPaths::EngineDir())
 		/ "Shaders/Slang/StaticMeshBasePass.slang";
-	ASSERT_TRUE(FFileHelper::LoadFileToString(
-		EntryPointSource, EntryPointPath.generic_string()));
+	auto EntryPointSourceRead = FFileHelper::LoadFileToString(EntryPointPath.generic_string());
+	ASSERT_TRUE(EntryPointSourceRead) << EntryPointSourceRead.error().ToString();
+	EntryPointSource = std::move(*EntryPointSourceRead);
 	EXPECT_NE(
 		EntryPointSource.find(
 			"import VertexFactory.LocalVertexFactory;"),
@@ -673,8 +674,9 @@ TEST(FStaticMeshPayloadCodecTests,
 	const std::filesystem::path VertexFactoryPath =
 		EntryPointPath.parent_path()
 		/ "VertexFactory/LocalVertexFactory.slang";
-	ASSERT_TRUE(FFileHelper::LoadFileToString(
-		VertexFactorySource, VertexFactoryPath.generic_string()));
+	auto VertexFactorySourceRead = FFileHelper::LoadFileToString(VertexFactoryPath.generic_string());
+	ASSERT_TRUE(VertexFactorySourceRead) << VertexFactorySourceRead.error().ToString();
+	VertexFactorySource = std::move(*VertexFactorySourceRead);
 	EXPECT_NE(
 		VertexFactorySource.find(
 			"module LocalVertexFactory;"),

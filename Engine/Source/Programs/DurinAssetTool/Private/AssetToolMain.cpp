@@ -27,7 +27,7 @@
 #include "HAL/PlatformMisc.h"
 #include "Json/Json.h"
 #include "Logging/Logger.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -432,7 +432,7 @@ namespace
 						{
 							Item.CompanionPath = Input.PhysicalPath;
 							Item.CompanionPath.replace_extension(".dbulk");
-							auto Segment = FFileIO::LoadFileToArray(Item.CompanionPath);
+							auto Segment = FFileHelper::LoadFileToArray(Item.CompanionPath);
 							if (!Segment
 								|| Descriptor.SegmentOffset > Segment->size()
 								|| Descriptor.StoredByteCount

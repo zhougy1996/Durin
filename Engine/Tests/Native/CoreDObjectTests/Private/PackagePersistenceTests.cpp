@@ -103,9 +103,16 @@ namespace
 		auto Read() -> ObjectPackage::FLinkerTables
 		{
 			FByteBuffer Main, Bulk;
-			EXPECT_TRUE(FFileHelper::LoadFileToArray(Main, Options.Destination));
+			auto MainRead = FFileHelper::LoadFileToArray(Options.Destination);
+			EXPECT_TRUE(MainRead) << MainRead.error().ToString();
+			if (MainRead) Main = std::move(*MainRead);
 			auto Companion = Options.Destination; Companion.replace_extension(".dbulk");
-			if (std::filesystem::exists(Companion)) EXPECT_TRUE(FFileHelper::LoadFileToArray(Bulk, Companion));
+			if (std::filesystem::exists(Companion))
+			{
+				auto BulkRead = FFileHelper::LoadFileToArray(Companion);
+				EXPECT_TRUE(BulkRead) << BulkRead.error().ToString();
+				if (BulkRead) Bulk = std::move(*BulkRead);
+			}
 			ObjectPackage::FLinkerTables Linker;
 			ObjectPackage::FPackageReaderResult Diagnostic;
 			EXPECT_TRUE((Diagnostic = ObjectPackage::ReadPackage(Main, Bulk, Path, Linker))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
@@ -143,7 +150,9 @@ TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 	Asset->Value = 42;
 	ASSERT_TRUE(Package->Save(Options));
 	FByteBuffer Before, After;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Options.Destination));
+	auto BeforeRead = FFileHelper::LoadFileToArray(Options.Destination);
+	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
+	Before = std::move(*BeforeRead);
 	Package->MarkDirty();
 	FPackageSaveResult Admission;
 	auto Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
@@ -152,7 +161,9 @@ TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 	ASSERT_TRUE(FinishSave(Operation));
 	EXPECT_TRUE(Operation.IsCompleted());
 	EXPECT_TRUE(Operation.GetResult());
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, Options.Destination));
+	auto AfterRead = FFileHelper::LoadFileToArray(Options.Destination);
+	ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+	After = std::move(*AfterRead);
 	EXPECT_EQ(Before, After);
 	EXPECT_FALSE(Package->IsDirty());
 }
@@ -320,7 +331,9 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 		{
 			EXPECT_TRUE(Entry.path().filename().string().ends_with(".stage.tmp"));
 			FByteBuffer Bytes;
-			ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Entry.path()));
+			auto BytesRead = FFileHelper::LoadFileToArray(Entry.path());
+			ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
+			Bytes = std::move(*BytesRead);
 			ASSERT_FALSE(Bytes.empty());
 			Bytes.back() ^= std::byte{1};
 			const auto OriginalTime = std::filesystem::last_write_time(Entry.path());
@@ -336,7 +349,9 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 	ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(FByteBuffer{std::byte{1}}, Options.Destination));
 	EXPECT_EQ(Staged->Complete().Error, EPackageSaveError::StaleData);
 	FByteBuffer Current;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Options.Destination));
+	auto CurrentRead = FFileHelper::LoadFileToArray(Options.Destination);
+	ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+	Current = std::move(*CurrentRead);
 	EXPECT_EQ(Current, FByteBuffer{std::byte{1}});
 }
 TEST_F(FPackagePersistenceTests, DirectWriterPublishesWithoutStagingOrBackupAndCannotRollback)
@@ -353,13 +368,17 @@ TEST_F(FPackagePersistenceTests, DirectWriterPublishesWithoutStagingOrBackupAndC
 		{{Bulk, {}, Bulk.string() + ".backup"}, BulkStamp, {}},
 		{{Main, Main.string() + ".stage", Main.string() + ".backup"}, MainStamp, New}});
 	FByteBuffer Current;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	auto CurrentRead = FFileHelper::LoadFileToArray(Main);
+	ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+	Current = std::move(*CurrentRead);
 	EXPECT_EQ(Current, Old);
 	const auto Result = Write->Stage();
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.State, EPackageWriteState::Committed);
 	EXPECT_TRUE(Result.RecoveryFiles.empty());
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	auto CurrentRead2 = FFileHelper::LoadFileToArray(Main);
+	ASSERT_TRUE(CurrentRead2) << CurrentRead2.error().ToString();
+	Current = std::move(*CurrentRead2);
 	EXPECT_EQ(Current, New);
 	EXPECT_FALSE(std::filesystem::exists(Bulk));
 	EXPECT_FALSE(std::filesystem::exists(Main.string() + ".stage"));
@@ -368,7 +387,9 @@ TEST_F(FPackagePersistenceTests, DirectWriterPublishesWithoutStagingOrBackupAndC
 	EXPECT_FALSE(Write->Rollback());
 	EXPECT_TRUE(Write->Finalize());
 	Write.reset();
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	auto CurrentRead3 = FFileHelper::LoadFileToArray(Main);
+	ASSERT_TRUE(CurrentRead3) << CurrentRead3.error().ToString();
+	Current = std::move(*CurrentRead3);
 	EXPECT_EQ(Current, New);
 }
 
@@ -397,9 +418,13 @@ TEST_F(FPackagePersistenceTests, DirectWriterReportsPartialClosureWithoutRestori
 			FailIndex == 0 ? EPackageCommitState::NotCommitted : EPackageCommitState::PartiallyWritten);
 		Write.reset();
 		FByteBuffer Current;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+		auto CurrentRead = FFileHelper::LoadFileToArray(Main);
+		ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+		Current = std::move(*CurrentRead);
 		EXPECT_EQ(Current, Old);
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Bulk));
+		auto CurrentRead2 = FFileHelper::LoadFileToArray(Bulk);
+		ASSERT_TRUE(CurrentRead2) << CurrentRead2.error().ToString();
+		Current = std::move(*CurrentRead2);
 		EXPECT_EQ(Current, FailIndex == 0 ? Old : New);
 	}
 }
@@ -442,7 +467,9 @@ TEST_F(FPackagePersistenceTests, DirectWriterRejectsStaleDestinationsAndProtecte
 	EXPECT_EQ(Result.State, EPackageWriteState::NotCommitted);
 	EXPECT_TRUE(Result.AffectedFiles.empty());
 	FByteBuffer Current;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	auto CurrentRead = FFileHelper::LoadFileToArray(Main);
+	ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+	Current = std::move(*CurrentRead);
 	EXPECT_EQ(Current, Old);
 	FSavePackageContext Context{Options, GetDirectFilePackageWriter()};
 	FPackageSaveResult Admission;
@@ -513,7 +540,9 @@ TEST_F(FPackagePersistenceTests, StagedMetadataChecksDetectChangesWithoutReading
 		}
 		const auto Result = Write->Commit();
 		FByteBuffer Current;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Destination));
+		auto CurrentRead = FFileHelper::LoadFileToArray(Destination);
+		ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+		Current = std::move(*CurrentRead);
 		if (Change >= 3)
 		{
 			ASSERT_TRUE(Result);

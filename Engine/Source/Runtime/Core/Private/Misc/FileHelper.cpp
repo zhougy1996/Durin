@@ -1,9 +1,9 @@
 #include "Misc/FileHelper.h"
-
+#include <cerrno>
+#include <cstdio>
 #if defined(_WIN32)
 #include "Windows/WindowsPlatform.h"
 #else
-#include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -11,833 +11,608 @@
 
 namespace Durin
 {
-	namespace FFileHelper
+	auto FFileError::ToString() const -> std::string
 	{
-		namespace
+		std::string_view Name = "unknown";
+		switch (Operation)
 		{
-			auto FileIoOperationName(EFileIoOperation Operation) -> std::string_view
-			{
-				switch (Operation)
-				{
-				case EFileIoOperation::None: return "none";
-				case EFileIoOperation::OpenRead: return "open for reading";
-				case EFileIoOperation::QuerySize: return "query size";
-				case EFileIoOperation::Read: return "read";
-				}
-				return "unknown";
-			}
+		case EFileOperation::NormalizePath: Name = "normalize path"; break;
+		case EFileOperation::Inspect: Name = "inspect"; break;
+		case EFileOperation::OpenRead: Name = "open for reading"; break;
+		case EFileOperation::QuerySize: Name = "query size"; break;
+		case EFileOperation::Read: Name = "read"; break;
+		case EFileOperation::CreateParentDirectories: Name = "create parent directories"; break;
+		case EFileOperation::OpenWrite: Name = "open for writing"; break;
+		case EFileOperation::Write: Name = "write"; break;
+		case EFileOperation::Close: Name = "close"; break;
+		case EFileOperation::CreateTemporaryFile: Name = "create temporary file"; break;
+		case EFileOperation::WriteTemporaryFile: Name = "write temporary file"; break;
+		case EFileOperation::FlushTemporaryFile: Name = "flush temporary file"; break;
+		case EFileOperation::CloseTemporaryFile: Name = "close temporary file"; break;
+		case EFileOperation::ReplaceDestination: Name = "replace destination"; break;
+		}
+		size_t Longest = 0;
+		for (const auto& Component : Path) Longest = std::max(Longest, Component.native().size());
+		auto Message = std::format("File I/O failed to {}: {} ({}:{}: {}; path length {}, longest component {}).",
+			Name, Path.generic_string(), NativeError.category().name(), NativeError.value(),
+			NativeError.message(), Path.native().size(), Longest);
+		if (!RelatedPath.empty()) Message += std::format(" Related path: {}.", RelatedPath.generic_string());
+		if (Range) Message += std::format(" Offset: {}, size: {}.", Range->Offset, Range->Size);
+		return Message;
+	}
+}
 
-			auto SetFileIoError(FFileIoError* OutError, EFileIoOperation Operation,
-				std::error_code NativeError, const std::filesystem::path& Path,
-				uint64 Offset = 0, uint64 Size = 0) -> void
-			{
-				if (!OutError) return;
-				*OutError = {.Operation = Operation, .NativeError = NativeError,
-					.Path = Path, .Offset = Offset, .Size = Size};
-			}
+namespace Durin::FFileHelper
+{
+	namespace
+	{
+		auto Normalize(const FFilePath& Path) -> std::expected<FFilePath, FFileError>
+		{
+			std::error_code Error;
+			auto Absolute = std::filesystem::absolute(Path, Error);
+			if (Error) return std::unexpected(FFileError{EFileOperation::NormalizePath, Error, Path});
+			return Absolute.lexically_normal();
+		}
 
 #if defined(_WIN32)
-			class FNativeFileHandle final : public IFileHandle
+		class FNativeFileHandle final : public IFileHandle
+		{
+		public:
+			FNativeFileHandle(HANDLE InHandle, uint64 InSize, std::filesystem::path InPath)
+				: Handle(InHandle), Size(InSize), Path(std::move(InPath)) {}
+			~FNativeFileHandle() override { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(Handle); }
+			auto GetSize() const -> uint64 override { return Size; }
+			auto ReadAt(uint64 Offset, FMutableByteView Output) -> std::expected<void, FFileError> override
 			{
-			public:
-				FNativeFileHandle(HANDLE InHandle, uint64 InSize, std::filesystem::path InPath)
-					: Handle(InHandle), Size(InSize), Path(std::move(InPath)) {}
-				~FNativeFileHandle() override { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(Handle); }
-				auto GetSize() const -> uint64 override { return Size; }
-				auto ReadAt(uint64 Offset, FMutableByteView Output,
-					FFileIoError* OutError) -> bool override
+				if (Offset > Size || Output.size_bytes() > Size - Offset)
 				{
-					if (OutError) *OutError = {};
-					if (Offset > Size || Output.size_bytes() > Size - Offset)
-					{
-						SetFileIoError(OutError, EFileIoOperation::Read,
-							std::make_error_code(std::errc::result_out_of_range), Path,
-							Offset, Output.size_bytes());
-						return false;
-					}
-					if (Output.empty()) return true;
-					LARGE_INTEGER Position; Position.QuadPart = static_cast<LONGLONG>(Offset);
-					if (!SetFilePointerEx(Handle, Position, nullptr, FILE_BEGIN))
-					{
-						SetFileIoError(OutError, EFileIoOperation::Read,
-							{static_cast<int>(GetLastError()), std::system_category()}, Path,
-							Offset, Output.size_bytes());
-						return false;
-					}
-					size_t Complete = 0;
-					while (Complete < Output.size_bytes())
-					{
-						const DWORD Requested = static_cast<DWORD>(std::min<size_t>(
-							Output.size_bytes() - Complete, MAXDWORD));
-						DWORD Read = 0;
-						if (!ReadFile(Handle, Output.data() + Complete, Requested, &Read, nullptr)
-							|| Read != Requested)
-						{
-							const DWORD Native = GetLastError();
-							SetFileIoError(OutError, EFileIoOperation::Read,
-								{static_cast<int>(Native == ERROR_SUCCESS ? ERROR_HANDLE_EOF : Native),
-									std::system_category()}, Path, Offset + Complete,
-								Output.size_bytes() - Complete);
-							return false;
-						}
-						Complete += Read;
-					}
-					return true;
+					return std::unexpected(FFileError{EFileOperation::Read,
+						std::make_error_code(std::errc::result_out_of_range), Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
 				}
-			private:
-				HANDLE Handle = INVALID_HANDLE_VALUE;
-				uint64 Size = 0;
-				std::filesystem::path Path;
-			};
+				if (Output.empty()) return {};
+				LARGE_INTEGER Position; Position.QuadPart = static_cast<LONGLONG>(Offset);
+				if (!SetFilePointerEx(Handle, Position, nullptr, FILE_BEGIN))
+				{
+					return std::unexpected(FFileError{EFileOperation::Read,
+						{static_cast<int>(GetLastError()), std::system_category()}, Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
+				}
+				size_t Complete = 0;
+				while (Complete < Output.size_bytes())
+				{
+					const DWORD Requested = static_cast<DWORD>(std::min<size_t>(
+						Output.size_bytes() - Complete, MAXDWORD));
+					DWORD Read = 0;
+					if (!ReadFile(Handle, Output.data() + Complete, Requested, &Read, nullptr)
+						|| Read != Requested)
+					{
+						const DWORD Native = GetLastError();
+						return std::unexpected(FFileError{EFileOperation::Read,
+							{static_cast<int>(Native == ERROR_SUCCESS ? ERROR_HANDLE_EOF : Native),
+								std::system_category()}, Path, {}, FFileError::FRange{Offset + Complete, Output.size_bytes() - Complete}});
+					}
+					Complete += Read;
+				}
+				return {};
+			}
+		private:
+			HANDLE Handle = INVALID_HANDLE_VALUE;
+			uint64 Size = 0;
+			std::filesystem::path Path;
+		};
 #else
-			class FNativeFileHandle final : public IFileHandle
+		class FNativeFileHandle final : public IFileHandle
+		{
+		public:
+			FNativeFileHandle(int InFile, uint64 InSize, std::filesystem::path InPath)
+				: File(InFile), Size(InSize), Path(std::move(InPath)) {}
+			~FNativeFileHandle() override { if (File >= 0) close(File); }
+			auto GetSize() const -> uint64 override { return Size; }
+			auto ReadAt(uint64 Offset, FMutableByteView Output) -> std::expected<void, FFileError> override
 			{
-			public:
-				FNativeFileHandle(int InFile, uint64 InSize, std::filesystem::path InPath)
-					: File(InFile), Size(InSize), Path(std::move(InPath)) {}
-				~FNativeFileHandle() override { if (File >= 0) close(File); }
-				auto GetSize() const -> uint64 override { return Size; }
-				auto ReadAt(uint64 Offset, FMutableByteView Output,
-					FFileIoError* OutError) -> bool override
+				if (Offset > Size || Output.size_bytes() > Size - Offset
+					|| Offset > static_cast<uint64>(std::numeric_limits<off_t>::max()))
 				{
-					if (OutError) *OutError = {};
-					if (Offset > Size || Output.size_bytes() > Size - Offset
-						|| Offset > static_cast<uint64>(std::numeric_limits<off_t>::max()))
-					{
-						SetFileIoError(OutError, EFileIoOperation::Read,
-							std::make_error_code(std::errc::result_out_of_range), Path,
-							Offset, Output.size_bytes());
-						return false;
-					}
-					size_t Complete = 0;
-					while (Complete < Output.size_bytes())
-					{
-						const size_t Requested = std::min<size_t>(Output.size_bytes() - Complete,
-							static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
-						const ssize_t Read = pread(File, Output.data() + Complete, Requested,
-							static_cast<off_t>(Offset + Complete));
-						if (Read <= 0)
-						{
-							SetFileIoError(OutError, EFileIoOperation::Read,
-								{Read == 0 ? EIO : errno, std::system_category()}, Path,
-								Offset + Complete, Output.size_bytes() - Complete);
-							return false;
-						}
-						Complete += static_cast<size_t>(Read);
-					}
-					return true;
+					return std::unexpected(FFileError{EFileOperation::Read,
+						std::make_error_code(std::errc::result_out_of_range), Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
 				}
-			private:
-				int File = -1;
-				uint64 Size = 0;
-				std::filesystem::path Path;
-			};
+				size_t Complete = 0;
+				while (Complete < Output.size_bytes())
+				{
+					const size_t Requested = std::min<size_t>(Output.size_bytes() - Complete,
+						static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
+					const ssize_t Read = pread(File, Output.data() + Complete, Requested,
+						static_cast<off_t>(Offset + Complete));
+					if (Read <= 0)
+					{
+						return std::unexpected(FFileError{EFileOperation::Read,
+							{Read == 0 ? EIO : errno, std::system_category()}, Path, {}, FFileError::FRange{Offset + Complete, Output.size_bytes() - Complete}});
+					}
+					Complete += static_cast<size_t>(Read);
+				}
+				return {};
+			}
+		private:
+			int File = -1;
+			uint64 Size = 0;
+			std::filesystem::path Path;
+		};
 #endif
 
-			auto AtomicFileOperationName(EAtomicFileOperation Operation) -> std::string_view
-			{
-				switch (Operation)
-				{
-				case EAtomicFileOperation::None: return "none";
-				case EAtomicFileOperation::NormalizeDestination: return "normalize destination";
-				case EAtomicFileOperation::CreateParentDirectories: return "create parent directories";
-				case EAtomicFileOperation::CreateTemporaryFile: return "create temporary file";
-				case EAtomicFileOperation::WriteTemporaryFile: return "write temporary file";
-				case EAtomicFileOperation::FlushTemporaryFile: return "flush temporary file";
-				case EAtomicFileOperation::CloseTemporaryFile: return "close temporary file";
-				case EAtomicFileOperation::ReplaceDestination: return "replace destination";
-				}
-				return "unknown";
-			}
-
-			auto SetAtomicFileError(
-				FAtomicFileError* OutError,
-				EAtomicFileOperation Operation,
-				std::error_code NativeError,
-				const std::filesystem::path& Path
-			) -> void
-			{
-				if (!OutError) return;
-
-				OutError->Operation = Operation;
-				OutError->NativeError = NativeError;
-				OutError->Path = Path;
-				OutError->PathLength = Path.native().size();
-				OutError->LongestComponentLength = 0;
-				for (const std::filesystem::path& Component : Path)
-				{
-					OutError->LongestComponentLength = std::max(OutError->LongestComponentLength, Component.native().size());
-				}
-			}
-
-			auto MakeTemporaryPath(const std::filesystem::path& Destination) -> std::filesystem::path
-			{
-				static std::atomic_uint64_t UniquenessToken{
-					static_cast<uint64>(std::chrono::steady_clock::now().time_since_epoch().count())};
+		auto MakeTemporaryPath(const std::filesystem::path& Destination) -> std::filesystem::path
+		{
+			static std::atomic_uint64_t UniquenessToken{
+				static_cast<uint64>(std::chrono::steady_clock::now().time_since_epoch().count())};
 #if defined(_WIN32)
-				const uint64 ProcessId = static_cast<uint64>(GetCurrentProcessId());
+			const uint64 ProcessId = static_cast<uint64>(GetCurrentProcessId());
 #else
-				const uint64 ProcessId = static_cast<uint64>(getpid());
+			const uint64 ProcessId = static_cast<uint64>(getpid());
 #endif
-				return Destination.parent_path()
-					/ std::format(".durin-tmp-{:08x}-{:016x}.tmp", ProcessId, UniquenessToken.fetch_add(1, std::memory_order_relaxed));
-			}
+			return Destination.parent_path()
+				/ std::format(".durin-tmp-{:08x}-{:016x}.tmp", ProcessId, UniquenessToken.fetch_add(1, std::memory_order_relaxed));
+		}
 
 #if defined(_WIN32)
-			auto WriteTemporaryFile(
-				const std::filesystem::path& TemporaryPath,
-				FByteView Array,
-				FAtomicFileError* OutError
-			) -> bool
+		auto WriteTemporaryFile(
+			const std::filesystem::path& TemporaryPath,
+			FByteView Array
+		) -> std::expected<void, FFileError>
+		{
+			const HANDLE File = CreateFileW(
+				TemporaryPath.c_str(),
+				GENERIC_WRITE,
+				0,
+				nullptr,
+				CREATE_NEW,
+				FILE_ATTRIBUTE_NORMAL,
+				nullptr
+			);
+			if (File == INVALID_HANDLE_VALUE)
 			{
-				const HANDLE File = CreateFileW(
-					TemporaryPath.c_str(),
-					GENERIC_WRITE,
-					0,
-					nullptr,
-					CREATE_NEW,
-					FILE_ATTRIBUTE_NORMAL,
-					nullptr
-				);
-				if (File == INVALID_HANDLE_VALUE)
-				{
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::CreateTemporaryFile,
-						{static_cast<int>(GetLastError()), std::system_category()},
-						TemporaryPath
-					);
-					return false;
-				}
+				return std::unexpected(FFileError{EFileOperation::CreateTemporaryFile,
+					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath});
+			}
 
-				size_t Offset = 0;
-				while (Offset < Array.size_bytes())
-				{
-					const DWORD ByteCount = static_cast<DWORD>(std::min<size_t>(Array.size_bytes() - Offset, MAXDWORD));
-					DWORD BytesWritten = 0;
-					if (!WriteFile(File, Array.data() + Offset, ByteCount, &BytesWritten, nullptr) || BytesWritten != ByteCount)
-					{
-						const DWORD Error = GetLastError();
-						CloseHandle(File);
-						SetAtomicFileError(
-							OutError,
-							EAtomicFileOperation::WriteTemporaryFile,
-							{static_cast<int>(Error), std::system_category()},
-							TemporaryPath
-						);
-						return false;
-					}
-					Offset += BytesWritten;
-				}
-
-				if (!FlushFileBuffers(File))
+			size_t Offset = 0;
+			while (Offset < Array.size_bytes())
+			{
+				const DWORD ByteCount = static_cast<DWORD>(std::min<size_t>(Array.size_bytes() - Offset, MAXDWORD));
+				DWORD BytesWritten = 0;
+				if (!WriteFile(File, Array.data() + Offset, ByteCount, &BytesWritten, nullptr) || BytesWritten != ByteCount)
 				{
 					const DWORD Error = GetLastError();
 					CloseHandle(File);
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::FlushTemporaryFile,
-						{static_cast<int>(Error), std::system_category()},
-						TemporaryPath
-					);
-					return false;
+					return std::unexpected(FFileError{EFileOperation::WriteTemporaryFile,
+						{static_cast<int>(Error), std::system_category()}, TemporaryPath});
 				}
-				if (!CloseHandle(File))
-				{
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::CloseTemporaryFile,
-						{static_cast<int>(GetLastError()), std::system_category()},
-						TemporaryPath
-					);
-					return false;
-				}
-				return true;
+				Offset += BytesWritten;
 			}
-#else
-			auto WriteTemporaryFile(
-				const std::filesystem::path& TemporaryPath,
-				FByteView Array,
-				FAtomicFileError* OutError
-			) -> bool
+
+			if (!FlushFileBuffers(File))
 			{
-				const int File = open(TemporaryPath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
-				if (File == -1)
-				{
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::CreateTemporaryFile,
-						{errno, std::system_category()},
-						TemporaryPath
-					);
-					return false;
-				}
+				const DWORD Error = GetLastError();
+				CloseHandle(File);
+				return std::unexpected(FFileError{EFileOperation::FlushTemporaryFile,
+					{static_cast<int>(Error), std::system_category()}, TemporaryPath});
+			}
+			if (!CloseHandle(File))
+			{
+				return std::unexpected(FFileError{EFileOperation::CloseTemporaryFile,
+					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath});
+			}
+			return {};
+		}
+#else
+		auto WriteTemporaryFile(
+			const std::filesystem::path& TemporaryPath,
+			FByteView Array
+		) -> std::expected<void, FFileError>
+		{
+			const int File = open(TemporaryPath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+			if (File == -1)
+			{
+				return std::unexpected(FFileError{EFileOperation::CreateTemporaryFile,
+					{errno, std::system_category()}, TemporaryPath});
+			}
 
-				size_t Offset = 0;
-				while (Offset < Array.size_bytes())
-				{
-					const ssize_t BytesWritten = write(File, Array.data() + Offset, Array.size_bytes() - Offset);
-					if (BytesWritten <= 0)
-					{
-						const int Error = errno;
-						close(File);
-						SetAtomicFileError(
-							OutError,
-							EAtomicFileOperation::WriteTemporaryFile,
-							{Error, std::system_category()},
-							TemporaryPath
-						);
-						return false;
-					}
-					Offset += static_cast<size_t>(BytesWritten);
-				}
-
-				if (fsync(File) != 0)
+			size_t Offset = 0;
+			while (Offset < Array.size_bytes())
+			{
+				const ssize_t BytesWritten = write(File, Array.data() + Offset, Array.size_bytes() - Offset);
+				if (BytesWritten <= 0)
 				{
 					const int Error = errno;
 					close(File);
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::FlushTemporaryFile,
-						{Error, std::system_category()},
-						TemporaryPath
-					);
-					return false;
+					return std::unexpected(FFileError{EFileOperation::WriteTemporaryFile,
+						{Error, std::system_category()}, TemporaryPath});
 				}
-				if (close(File) != 0)
-				{
-					SetAtomicFileError(
-						OutError,
-						EAtomicFileOperation::CloseTemporaryFile,
-						{errno, std::system_category()},
-						TemporaryPath
-					);
-					return false;
-				}
-				return true;
+				Offset += static_cast<size_t>(BytesWritten);
 			}
+
+			if (fsync(File) != 0)
+			{
+				const int Error = errno;
+				close(File);
+				return std::unexpected(FFileError{EFileOperation::FlushTemporaryFile,
+					{Error, std::system_category()}, TemporaryPath});
+			}
+			if (close(File) != 0)
+			{
+				return std::unexpected(FFileError{EFileOperation::CloseTemporaryFile,
+					{errno, std::system_category()}, TemporaryPath});
+			}
+			return {};
+		}
 #endif
-		}
-
-		auto FAtomicFileError::ToString() const -> std::string
+		template<typename T>
+		auto Load(const FFilePath& Path) -> std::expected<T, FFileError>
 		{
-			return std::format(
-				"Atomic file publication failed while attempting to {} (native error {}: {}) for {} "
-				"[path length: {}, longest component: {}].",
-				AtomicFileOperationName(Operation),
-				NativeError.value(),
-				NativeError.message(),
-				Path.generic_string(),
-				PathLength,
-				LongestComponentLength
-			);
+			auto File = OpenRead(Path);
+			if (!File) return std::unexpected(std::move(File.error()));
+			T Bytes;
+			const uint64 Size = (*File)->GetSize();
+			if (Size > Bytes.max_size())
+				return std::unexpected(FFileError{EFileOperation::QuerySize,
+					std::make_error_code(std::errc::file_too_large), Path});
+			Bytes.resize(static_cast<size_t>(Size));
+			auto Read = (*File)->ReadAt(0, std::as_writable_bytes(std::span(Bytes)));
+			if (!Read) return std::unexpected(std::move(Read.error()));
+			return Bytes;
 		}
+	}
 
-		auto FFileIoError::ToString() const -> std::string
-		{
-			const uint64 End = Size > std::numeric_limits<uint64>::max() - Offset
-				? std::numeric_limits<uint64>::max() : Offset + Size;
-			return std::format("File I/O failed while attempting to {} at [{}, {}) "
-				"(native error {}: {}) for {}.", FileIoOperationName(Operation), Offset, End,
-				NativeError.value(), NativeError.message(), Path.generic_string());
-		}
-
-		auto OpenRead(const std::filesystem::path& FilePath,
-			FFileIoError* OutError) -> std::unique_ptr<IFileHandle>
-		{
-			if (OutError) *OutError = {};
-			const std::filesystem::path Path = std::filesystem::absolute(FilePath).lexically_normal();
+	auto OpenRead(const FFilePath& FilePath) -> std::expected<std::unique_ptr<IFileHandle>, FFileError>
+	{
+		auto Absolute = Normalize(FilePath);
+		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
+		const auto& Path = *Absolute;
 #if defined(_WIN32)
-			const HANDLE File = CreateFileW(Path.c_str(), GENERIC_READ,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-				FILE_ATTRIBUTE_NORMAL, nullptr);
-			if (File == INVALID_HANDLE_VALUE)
-			{
-				SetFileIoError(OutError, EFileIoOperation::OpenRead,
-					{static_cast<int>(GetLastError()), std::system_category()}, Path);
-				return nullptr;
-			}
-			LARGE_INTEGER Size;
-			if (!GetFileSizeEx(File, &Size) || Size.QuadPart < 0)
-			{
-				const DWORD Error = GetLastError(); CloseHandle(File);
-				SetFileIoError(OutError, EFileIoOperation::QuerySize,
-					{static_cast<int>(Error), std::system_category()}, Path);
-				return nullptr;
-			}
-			return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Size.QuadPart), Path);
+		const HANDLE File = CreateFileW(Path.c_str(), GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (File == INVALID_HANDLE_VALUE)
+		{
+			return std::unexpected(FFileError{EFileOperation::OpenRead,
+				{static_cast<int>(GetLastError()), std::system_category()}, Path});
+		}
+		LARGE_INTEGER Size;
+		if (!GetFileSizeEx(File, &Size) || Size.QuadPart < 0)
+		{
+			const DWORD Error = GetLastError(); CloseHandle(File);
+			return std::unexpected(FFileError{EFileOperation::QuerySize,
+				{static_cast<int>(Error), std::system_category()}, Path});
+		}
+		return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Size.QuadPart), Path);
 #else
-			const int File = open(Path.c_str(), O_RDONLY);
-			if (File == -1)
-			{
-				SetFileIoError(OutError, EFileIoOperation::OpenRead,
-					{errno, std::system_category()}, Path);
-				return nullptr;
-			}
-			struct stat Status{};
-			if (fstat(File, &Status) != 0 || Status.st_size < 0)
-			{
-				const int Error = errno; close(File);
-				SetFileIoError(OutError, EFileIoOperation::QuerySize,
-					{Error, std::system_category()}, Path);
-				return nullptr;
-			}
-			return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Status.st_size), Path);
+		const int File = open(Path.c_str(), O_RDONLY);
+		if (File == -1)
+		{
+			return std::unexpected(FFileError{EFileOperation::OpenRead,
+				{errno, std::system_category()}, Path});
+		}
+		struct stat Status{};
+		if (fstat(File, &Status) != 0 || Status.st_size < 0)
+		{
+			const int Error = errno; close(File);
+			return std::unexpected(FFileError{EFileOperation::QuerySize,
+				{Error, std::system_category()}, Path});
+		}
+		return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Status.st_size), Path);
 #endif
-		}
+	}
 
-		bool FileExists(std::string_view FileName)
-		{
-			return std::filesystem::exists(FileName);
-		}
-
-		template<typename ElementType>
-		static auto LoadFileToArrayInternal(
-			std::vector<ElementType>& Result,
-			const std::filesystem::path& FilePath) -> bool
-		{
-			for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
-			{
-				auto File = OpenRead(FilePath);
-				if (File)
-				{
-					const uint64 FileSize = File->GetSize();
-					if (FileSize <= static_cast<uint64>(std::numeric_limits<size_t>::max()))
-					{
-						const uint64 ElementCount = FileSize / sizeof(ElementType)
-							+ (FileSize % sizeof(ElementType) != 0);
-						std::vector<ElementType> Loaded;
-						if (ElementCount <= Loaded.max_size())
-						{
-							Loaded.resize(static_cast<size_t>(ElementCount));
-							if (File->ReadAt(0, std::as_writable_bytes(std::span(Loaded)).first(
-								static_cast<size_t>(FileSize))))
-							{
-								Result = std::move(Loaded);
-								return true;
-							}
-						}
-					}
-				}
-
-				std::error_code ExistsError;
-				if (!std::filesystem::exists(FilePath, ExistsError) || ExistsError)
-				{
-					DURIN_WARN("Failed to load file. File {} does not exist.", FilePath.generic_string());
-					break;
-				}
-				if (Attempt < 8) std::this_thread::yield();
-				else std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			return false;
-		};
-
-		bool LoadFileToArray(FByteBuffer& Result, const std::filesystem::path& FilePath)
-		{
-			return LoadFileToArrayInternal(Result, FilePath);
-		}
-
-		bool LoadFileToArray(std::vector<uint32>& Result, const std::filesystem::path& FilePath)
-		{
-			return LoadFileToArrayInternal(Result, FilePath);
-		}
-
-		bool LoadFileToString(std::string& Result, std::string_view FileName)
-		{
-			const std::filesystem::path FilePath(FileName);
-			if (!std::filesystem::exists(FilePath))
-			{
-				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
-				return false;
-			}
-
-			std::ifstream File(FilePath, std::ios::binary);
-			if (!File.is_open())
-			{
-				return false;
-			}
-
-			std::error_code ErrorCode;
-			const uintmax_t FileSize = std::filesystem::file_size(FilePath, ErrorCode);
-			if (ErrorCode
-				|| FileSize > static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max())
-				|| FileSize > std::string{}.max_size())
-			{
-				return false;
-			}
-
-			std::string Loaded(static_cast<size_t>(FileSize), '\0');
-			if (FileSize > 0)
-			{
-				const std::streamsize ReadSize = static_cast<std::streamsize>(FileSize);
-				File.read(Loaded.data(), ReadSize);
-				if (!File || File.gcount() != ReadSize)
-				{
-					return false;
-				}
-			}
-
-			Result = std::move(Loaded);
-			return true;
-		}
-
-		auto HashFileXx128(
-			const std::filesystem::path& FilePath,
-			FXxHash128& OutHash,
-			std::error_code& OutError) -> bool
-		{
-			OutHash = {};
-			OutError.clear();
-			FFileIoError FileError;
-			auto File = OpenRead(FilePath, &FileError);
-			if (!File)
-			{
-				OutError = FileError.NativeError ? FileError.NativeError
-					: std::make_error_code(std::errc::io_error);
-				return false;
-			}
-			constexpr size_t BufferSize = 64 * 1024;
-			std::array<std::byte, BufferSize> Buffer{};
-			FXxHash128Builder Builder;
-			for (uint64 Offset = 0; Offset < File->GetSize();)
-			{
-				const size_t Count = static_cast<size_t>(std::min<uint64>(Buffer.size(), File->GetSize() - Offset));
-				if (!File->ReadAt(Offset, std::span(Buffer).first(Count), &FileError))
-				{
-					OutError = FileError.NativeError ? FileError.NativeError
-						: std::make_error_code(std::errc::io_error);
-					return false;
-				}
-				Builder.Update(Buffer.data(), Count);
-				Offset += Count;
-			}
-			OutHash = Builder.Finalize();
-			return true;
-		}
-
-		bool SaveArrayToFile(const FByteView& Array, const std::filesystem::path& FilePath)
-		{
-			// Ensure the parent directory exists
-			if (FilePath.has_parent_path())
-			{
-				std::error_code ErrorCode;
-				std::filesystem::create_directories(FilePath.parent_path(), ErrorCode);
-				if (ErrorCode)
-				{
-					DURIN_ERROR("Failed to create directories for path {}: {}", FilePath.parent_path().string(), ErrorCode.message());
-					return false;
-				}
-			}
-
-			// Open the file stream in binary mode
-			std::ofstream File(FilePath, std::ios::binary | std::ios::out);
-
-			if (!File.is_open())
-			{
-				DURIN_ERROR("Failed to open file for writing: {}", FilePath.string());
-				return false;
-			}
-
-			File.write(reinterpret_cast<const char*>(Array.data()), Array.size_bytes());
-
-			if (File.fail())
-			{
-				DURIN_ERROR("Failed to write data to file {}", FilePath.string());
-				return false;
-			}
-
-			File.close();
-
-			if (File.fail())
-			{
-				DURIN_ERROR("Failed to close file {} after writing", FilePath.string());
-				return false;
-			}
-
-			return true;
-		}
-
-		bool SaveArrayToFile(const std::span<const uint32>& Array, const std::filesystem::path& FilePath)
-		{
-			return SaveArrayToFile(std::span{reinterpret_cast<const std::byte*>(Array.data()), Array.size() * sizeof(uint32)}, FilePath);
-		}
-
-		auto SaveArrayToNewFile(
-			FByteView Array,
-			const std::filesystem::path& FilePath,
-			FAtomicFileError* OutError
-		) -> bool
-		{
-			FAtomicFileError LocalError;
-			FAtomicFileError* Error = OutError ? OutError : &LocalError;
-			*Error = {};
-
-			std::error_code ErrorCode;
-			const auto Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination, ErrorCode, FilePath);
-				return false;
-			}
-			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::CreateParentDirectories, ErrorCode, Destination);
-				return false;
-			}
-			if (WriteTemporaryFile(Destination, Array, Error)) return true;
-			// A failed exclusive create never grants ownership of the existing path.
-			if (Error->Operation != EAtomicFileOperation::CreateTemporaryFile)
-				std::filesystem::remove(Destination, ErrorCode);
-			return false;
-		}
-
-		auto SaveArrayToFileAtomically(
-			FByteView Array,
-			const std::filesystem::path& FilePath,
-			FAtomicFileError* OutError
-		) -> bool
-		{
-			FAtomicFileError LocalError;
-			FAtomicFileError* Error = OutError ? OutError : &LocalError;
-			*Error = {};
-
-			std::error_code ErrorCode;
-			const std::filesystem::path Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination, ErrorCode, FilePath);
-				return false;
-			}
-
-			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::CreateParentDirectories, ErrorCode, Destination);
-				return false;
-			}
-
-			std::filesystem::path TemporaryPath;
-			bool bCreated = false;
-			for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
-			{
-				TemporaryPath = MakeTemporaryPath(Destination);
-				bCreated = WriteTemporaryFile(TemporaryPath, Array, Error);
-				if (!bCreated && Error->Operation == EAtomicFileOperation::CreateTemporaryFile)
-				{
-					bool bRetryable = Error->NativeError == std::errc::file_exists;
+	auto FileExists(const FFilePath& Path) -> std::expected<bool, FFileError>
+	{
+		auto Absolute = Normalize(Path);
+		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
 #if defined(_WIN32)
-					bRetryable |= Error->NativeError.value() == ERROR_ACCESS_DENIED
-						|| Error->NativeError.value() == ERROR_SHARING_VIOLATION;
+		if (GetFileAttributesW(Absolute->c_str()) != INVALID_FILE_ATTRIBUTES) return true;
+		const DWORD NativeError = GetLastError();
+		if (NativeError == ERROR_FILE_NOT_FOUND || NativeError == ERROR_PATH_NOT_FOUND) return false;
+		return std::unexpected(FFileError{EFileOperation::Inspect,
+			{static_cast<int>(NativeError), std::system_category()}, *Absolute});
+#else
+		std::error_code Error;
+		const bool Exists = std::filesystem::exists(*Absolute, Error);
+		if (Error) return std::unexpected(FFileError{EFileOperation::Inspect, Error, *Absolute});
+		return Exists;
 #endif
-					if (bRetryable && Attempt + 1 < 64)
-					{
-						*Error = {};
-						if (Attempt < 8) std::this_thread::yield();
-						else std::this_thread::sleep_for(std::chrono::milliseconds(1));
-						continue;
-					}
+	}
+
+	auto LoadFileToArray(const FFilePath& Path) -> std::expected<FByteBuffer, FFileError>
+	{
+		return Load<FByteBuffer>(Path);
+	}
+
+	auto LoadFileToString(const FFilePath& Path) -> std::expected<std::string, FFileError>
+	{
+		return Load<std::string>(Path);
+	}
+
+	auto HashFileXx128(const FFilePath& Path) -> std::expected<FXxHash128, FFileError>
+	{
+		auto File = OpenRead(Path);
+		if (!File) return std::unexpected(std::move(File.error()));
+		std::array<std::byte, 64 * 1024> Buffer{};
+		FXxHash128Builder Builder;
+		for (uint64 Offset = 0; Offset < (*File)->GetSize();)
+		{
+			const auto Count = static_cast<size_t>(std::min<uint64>(Buffer.size(), (*File)->GetSize() - Offset));
+			auto Read = (*File)->ReadAt(Offset, std::span(Buffer).first(Count));
+			if (!Read) return std::unexpected(std::move(Read.error()));
+			Builder.Update(Buffer.data(), Count);
+			Offset += Count;
+		}
+		return Builder.Finalize();
+	}
+
+	auto SaveArrayToFile(FByteView Bytes, const FFilePath& Path) -> std::expected<void, FFileError>
+	{
+		auto Absolute = Normalize(Path);
+		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
+		std::error_code Error;
+		std::filesystem::create_directories(Absolute->parent_path(), Error);
+		if (Error) return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, Error, *Absolute});
+		std::FILE* File = nullptr;
+#if defined(_WIN32)
+		const int OpenError = _wfopen_s(&File, Absolute->c_str(), L"wb");
+#else
+		File = std::fopen(Absolute->c_str(), "wb");
+		const int OpenError = File ? 0 : errno;
+#endif
+		if (!File) return std::unexpected(FFileError{EFileOperation::OpenWrite,
+			{OpenError, std::generic_category()}, *Absolute});
+		errno = 0;
+		const size_t Written = Bytes.empty() ? 0 : std::fwrite(Bytes.data(), 1, Bytes.size_bytes(), File);
+		if (Written != Bytes.size_bytes())
+		{
+			const int WriteError = errno ? errno : EIO;
+			std::fclose(File);
+			return std::unexpected(FFileError{EFileOperation::Write, {WriteError, std::generic_category()},
+				*Absolute, {}, FFileError::FRange{Written, Bytes.size_bytes() - Written}});
+		}
+		errno = 0;
+		if (std::fclose(File) != 0)
+			return std::unexpected(FFileError{EFileOperation::Close,
+				{errno ? errno : EIO, std::generic_category()}, *Absolute});
+		return {};
+	}
+
+	auto SaveArrayToNewFile(
+		FByteView Array,
+		const std::filesystem::path& FilePath
+	) -> std::expected<void, FFileError>
+	{
+		std::error_code ErrorCode;
+		const auto Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, FilePath});
+		}
+		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination});
+		}
+		auto Written = WriteTemporaryFile(Destination, Array);
+		if (Written) return {};
+		auto Error = std::move(Written.error());
+		// A failed exclusive create never grants ownership of the existing path.
+		if (Error.Operation != EFileOperation::CreateTemporaryFile)
+			std::filesystem::remove(Destination, ErrorCode);
+		return std::unexpected(std::move(Error));
+	}
+
+	auto SaveArrayToFileAtomically(
+		FByteView Array,
+		const std::filesystem::path& FilePath
+	) -> std::expected<void, FFileError>
+	{
+		std::error_code ErrorCode;
+		const std::filesystem::path Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, FilePath});
+		}
+
+		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination});
+		}
+
+		FFileError Error{};
+		std::filesystem::path TemporaryPath;
+		bool bCreated = false;
+		for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
+		{
+			TemporaryPath = MakeTemporaryPath(Destination);
+			auto Written = WriteTemporaryFile(TemporaryPath, Array);
+			bCreated = Written.has_value();
+			if (!Written) Error = std::move(Written.error());
+			if (!bCreated && Error.Operation == EFileOperation::CreateTemporaryFile)
+			{
+				bool bRetryable = Error.NativeError == std::errc::file_exists;
+#if defined(_WIN32)
+				bRetryable |= Error.NativeError.value() == ERROR_ACCESS_DENIED
+					|| Error.NativeError.value() == ERROR_SHARING_VIOLATION;
+#endif
+				if (bRetryable && Attempt + 1 < 64)
+				{
+					if (Attempt < 8) std::this_thread::yield();
+					else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					continue;
 				}
-				if (!bCreated) break;
 			}
+			if (!bCreated) break;
+		}
+		if (!bCreated)
+		{
+			if (Error.Operation != EFileOperation::CreateTemporaryFile)
+			{
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+			}
+			return std::unexpected(std::move(Error));
+		}
+
+#if defined(_WIN32)
+		ErrorCode.clear();
+		if (std::filesystem::is_directory(Destination, ErrorCode))
+		{
+			Error = FFileError{EFileOperation::ReplaceDestination, {ERROR_ACCESS_DENIED, std::system_category()}, Destination};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+
+		DWORD ReplacementError = ERROR_SUCCESS;
+		bool bReplaced = false;
+		for (uint32 Attempt = 0; Attempt < 128; ++Attempt)
+		{
+			if (MoveFileExW(TemporaryPath.c_str(), Destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			{
+				bReplaced = true;
+				break;
+			}
+
+			ReplacementError = GetLastError();
+			if (ReplacementError != ERROR_SHARING_VIOLATION && ReplacementError != ERROR_ACCESS_DENIED)
+			{
+				break;
+			}
+
+			if (Attempt < 16) std::this_thread::yield();
+			else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		if (!bReplaced)
+		{
+			Error = FFileError{EFileOperation::ReplaceDestination, {static_cast<int>(ReplacementError), std::system_category()}, Destination};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+#else
+		std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
+		if (ErrorCode)
+		{
+			Error = FFileError{EFileOperation::ReplaceDestination, ErrorCode, Destination};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+#endif
+		return {};
+	}
+
+	auto CopyFileAtomically(
+		const std::filesystem::path& SourcePath,
+		const std::filesystem::path& DestinationPath
+	) -> std::expected<void, FFileError>
+	{
+		std::error_code ErrorCode;
+		const std::filesystem::path Source =
+			std::filesystem::absolute(SourcePath, ErrorCode).lexically_normal();
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, SourcePath, SourcePath});
+		}
+		const std::filesystem::path Destination =
+			std::filesystem::absolute(DestinationPath, ErrorCode).lexically_normal();
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, DestinationPath, SourcePath});
+		}
+		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
+		if (ErrorCode)
+		{
+			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination, SourcePath});
+		}
+
+		FFileError Error{};
+		std::filesystem::path TemporaryPath;
+		bool bCreated = false;
+		for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
+		{
+			TemporaryPath = MakeTemporaryPath(Destination);
+			ErrorCode.clear();
+			bCreated = std::filesystem::copy_file(Source, TemporaryPath,
+				std::filesystem::copy_options::none, ErrorCode);
 			if (!bCreated)
 			{
-				if (Error->Operation != EAtomicFileOperation::CreateTemporaryFile)
+				Error = FFileError{ErrorCode == std::errc::file_exists
+						? EFileOperation::CreateTemporaryFile
+						: EFileOperation::WriteTemporaryFile, ErrorCode, TemporaryPath, SourcePath};
+				if (ErrorCode == std::errc::file_exists && Attempt + 1 < 64)
 				{
-					std::filesystem::remove(TemporaryPath, ErrorCode);
+					if (Attempt < 8) std::this_thread::yield();
+					else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					continue;
 				}
-				return false;
+				return std::unexpected(std::move(Error));
 			}
+		}
+		if (!bCreated) return std::unexpected(std::move(Error));
 
 #if defined(_WIN32)
-			ErrorCode.clear();
-			if (std::filesystem::is_directory(Destination, ErrorCode))
-			{
-				SetAtomicFileError(
-					Error,
-					EAtomicFileOperation::ReplaceDestination,
-					{ERROR_ACCESS_DENIED, std::system_category()},
-					Destination
-				);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-
-			DWORD ReplacementError = ERROR_SUCCESS;
-			bool bReplaced = false;
-			for (uint32 Attempt = 0; Attempt < 128; ++Attempt)
-			{
-				if (MoveFileExW(TemporaryPath.c_str(), Destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-				{
-					bReplaced = true;
-					break;
-				}
-
-				ReplacementError = GetLastError();
-				if (ReplacementError != ERROR_SHARING_VIOLATION && ReplacementError != ERROR_ACCESS_DENIED)
-				{
-					break;
-				}
-
-				if (Attempt < 16) std::this_thread::yield();
-				else std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			if (!bReplaced)
-			{
-				SetAtomicFileError(
-					Error,
-					EAtomicFileOperation::ReplaceDestination,
-					{static_cast<int>(ReplacementError), std::system_category()},
-					Destination
-				);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-#else
-			std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::ReplaceDestination, ErrorCode, Destination);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-#endif
-			return true;
-		}
-
-		auto CopyFileAtomically(
-			const std::filesystem::path& SourcePath,
-			const std::filesystem::path& DestinationPath,
-			FAtomicFileError* OutError
-		) -> bool
+		const HANDLE TemporaryFile = CreateFileW(TemporaryPath.c_str(), GENERIC_WRITE,
+			0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (TemporaryFile == INVALID_HANDLE_VALUE || !FlushFileBuffers(TemporaryFile))
 		{
-			FAtomicFileError LocalError;
-			FAtomicFileError* Error = OutError ? OutError : &LocalError;
-			*Error = {};
-
-			std::error_code ErrorCode;
-			const std::filesystem::path Source =
-				std::filesystem::absolute(SourcePath, ErrorCode).lexically_normal();
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination,
-					ErrorCode, SourcePath);
-				return false;
-			}
-			const std::filesystem::path Destination =
-				std::filesystem::absolute(DestinationPath, ErrorCode).lexically_normal();
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination,
-					ErrorCode, DestinationPath);
-				return false;
-			}
-			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::CreateParentDirectories,
-					ErrorCode, Destination);
-				return false;
-			}
-
-			std::filesystem::path TemporaryPath;
-			bool bCreated = false;
-			for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
-			{
-				TemporaryPath = MakeTemporaryPath(Destination);
-				ErrorCode.clear();
-				bCreated = std::filesystem::copy_file(Source, TemporaryPath,
-					std::filesystem::copy_options::none, ErrorCode);
-				if (!bCreated)
-				{
-					SetAtomicFileError(Error,
-						ErrorCode == std::errc::file_exists
-							? EAtomicFileOperation::CreateTemporaryFile
-							: EAtomicFileOperation::WriteTemporaryFile,
-						ErrorCode, TemporaryPath);
-					if (ErrorCode == std::errc::file_exists && Attempt + 1 < 64)
-					{
-						*Error = {};
-						if (Attempt < 8) std::this_thread::yield();
-						else std::this_thread::sleep_for(std::chrono::milliseconds(1));
-						continue;
-					}
-					return false;
-				}
-			}
-			if (!bCreated) return false;
-
-#if defined(_WIN32)
-			const HANDLE TemporaryFile = CreateFileW(TemporaryPath.c_str(), GENERIC_WRITE,
-				0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-			if (TemporaryFile == INVALID_HANDLE_VALUE || !FlushFileBuffers(TemporaryFile))
-			{
-				const DWORD NativeError = GetLastError();
-				if (TemporaryFile != INVALID_HANDLE_VALUE) CloseHandle(TemporaryFile);
-				SetAtomicFileError(Error, EAtomicFileOperation::FlushTemporaryFile,
-					{static_cast<int>(NativeError), std::system_category()}, TemporaryPath);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-			if (!CloseHandle(TemporaryFile))
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::CloseTemporaryFile,
-					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-			DWORD ReplacementError = ERROR_SUCCESS;
-			bool bReplaced = false;
-			for (uint32 Attempt = 0; Attempt < 128; ++Attempt)
-			{
-				if (MoveFileExW(TemporaryPath.c_str(), Destination.c_str(),
-						MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-				{
-					bReplaced = true;
-					break;
-				}
-				ReplacementError = GetLastError();
-				if (ReplacementError != ERROR_SHARING_VIOLATION
-					&& ReplacementError != ERROR_ACCESS_DENIED) break;
-				if (Attempt < 16) std::this_thread::yield();
-				else std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			if (!bReplaced)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::ReplaceDestination,
-					{static_cast<int>(ReplacementError), std::system_category()}, Destination);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-#else
-			const int TemporaryFile = open(TemporaryPath.c_str(), O_RDWR);
-			if (TemporaryFile == -1 || fsync(TemporaryFile) != 0)
-			{
-				const int NativeError = errno;
-				if (TemporaryFile != -1) close(TemporaryFile);
-				SetAtomicFileError(Error, EAtomicFileOperation::FlushTemporaryFile,
-					{NativeError, std::system_category()}, TemporaryPath);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-			if (close(TemporaryFile) != 0)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::CloseTemporaryFile,
-					{errno, std::system_category()}, TemporaryPath);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-			std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
-			if (ErrorCode)
-			{
-				SetAtomicFileError(Error, EAtomicFileOperation::ReplaceDestination,
-					ErrorCode, Destination);
-				std::filesystem::remove(TemporaryPath, ErrorCode);
-				return false;
-			}
-#endif
-			return true;
+			const DWORD NativeError = GetLastError();
+			if (TemporaryFile != INVALID_HANDLE_VALUE) CloseHandle(TemporaryFile);
+			Error = FFileError{EFileOperation::FlushTemporaryFile, {static_cast<int>(NativeError), std::system_category()}, TemporaryPath, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
 		}
+		if (!CloseHandle(TemporaryFile))
+		{
+			Error = FFileError{EFileOperation::CloseTemporaryFile, {static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+		DWORD ReplacementError = ERROR_SUCCESS;
+		bool bReplaced = false;
+		for (uint32 Attempt = 0; Attempt < 128; ++Attempt)
+		{
+			if (MoveFileExW(TemporaryPath.c_str(), Destination.c_str(),
+					MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			{
+				bReplaced = true;
+				break;
+			}
+			ReplacementError = GetLastError();
+			if (ReplacementError != ERROR_SHARING_VIOLATION
+				&& ReplacementError != ERROR_ACCESS_DENIED) break;
+			if (Attempt < 16) std::this_thread::yield();
+			else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		if (!bReplaced)
+		{
+			Error = FFileError{EFileOperation::ReplaceDestination, {static_cast<int>(ReplacementError), std::system_category()}, Destination, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+#else
+		const int TemporaryFile = open(TemporaryPath.c_str(), O_RDWR);
+		if (TemporaryFile == -1 || fsync(TemporaryFile) != 0)
+		{
+			const int NativeError = errno;
+			if (TemporaryFile != -1) close(TemporaryFile);
+			Error = FFileError{EFileOperation::FlushTemporaryFile, {NativeError, std::system_category()}, TemporaryPath, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+		if (close(TemporaryFile) != 0)
+		{
+			Error = FFileError{EFileOperation::CloseTemporaryFile, {errno, std::system_category()}, TemporaryPath, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+		std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
+		if (ErrorCode)
+		{
+			Error = FFileError{EFileOperation::ReplaceDestination, ErrorCode, Destination, SourcePath};
+			std::filesystem::remove(TemporaryPath, ErrorCode);
+			return std::unexpected(std::move(Error));
+		}
+#endif
+		return {};
+	}
 
-	} // namespace FFileHelper
-} // namespace Durin
+}

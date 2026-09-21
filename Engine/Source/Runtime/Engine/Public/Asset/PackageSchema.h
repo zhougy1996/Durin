@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	namespace FFileIO { class IFileHandle; }
+	class IFileHandle;
 }
 
 namespace Durin
@@ -138,7 +138,7 @@ namespace Durin
 
 	// Reads only the current package format's schema/value descriptors unless nested
 	// migration evidence is explicitly requested. The caller retains handle ownership.
-	ENGINE_API auto InspectAssetPackageSchema(FFileIO::IFileHandle& Handle, const FPackagePath& PackagePath,
+	ENGINE_API auto InspectAssetPackageSchema(IFileHandle& Handle, const FPackagePath& PackagePath,
 		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutInspection,
 		FPackageSchemaReadStats* OutStats = nullptr,
 		bool bIncludeNestedMigrationEvidence = false,

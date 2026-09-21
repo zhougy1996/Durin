@@ -80,7 +80,9 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
 	const auto CookedFile = CookRoot / "Engine/Materials/DefaultMaterial.dasset";
 	Durin::FByteBuffer OriginalBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(OriginalBytes, CookedFile));
+	auto OriginalBytesRead = Durin::FFileHelper::LoadFileToArray(CookedFile);
+	ASSERT_TRUE(OriginalBytesRead) << OriginalBytesRead.error().ToString();
+	OriginalBytes = std::move(*OriginalBytesRead);
 	Durin::ObjectPackage::FLinkerTables VersionLinker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(OriginalBytes, {}, Path, VersionLinker));
 	ASSERT_EQ(VersionLinker.CustomVersions, (std::vector<Durin::FCustomVersion>{

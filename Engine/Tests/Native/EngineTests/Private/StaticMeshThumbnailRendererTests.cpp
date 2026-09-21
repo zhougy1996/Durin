@@ -123,10 +123,10 @@ namespace
 	auto LoadThumbnailPngBytes() -> Durin::FByteBuffer
 	{
 		Durin::FByteBuffer Bytes;
-		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(
-			Bytes,
-			std::filesystem::path(Durin::FPaths::EngineContentDir())
-				/ "Editor/Branding/DurinEditorLogoUI.png"));
+		auto BytesRead = Durin::FFileHelper::LoadFileToArray(std::filesystem::path(Durin::FPaths::EngineContentDir())
+				/ "Editor/Branding/DurinEditorLogoUI.png");
+		EXPECT_TRUE(BytesRead) << BytesRead.error().ToString();
+		if (BytesRead) Bytes = std::move(*BytesRead);
 		return Bytes;
 	}
 

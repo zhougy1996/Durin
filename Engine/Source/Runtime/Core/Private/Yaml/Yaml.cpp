@@ -1,6 +1,6 @@
 #include "Yaml/Yaml.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/StringHelper.h"
 
 #include <c4/yml/emit.hpp>
@@ -779,7 +779,7 @@ namespace Durin
 
 	auto FYamlLoadError::ToString() const -> std::string
 	{
-		if (const auto* File = std::get_if<FFileIO::FFileError>(&Cause)) return File->ToString();
+		if (const auto* File = std::get_if<FFileError>(&Cause)) return File->ToString();
 		const auto& Parse = std::get<FYamlParseError>(Cause);
 		return std::format("{} (line {}, column {})", Parse.Message, Parse.Line, Parse.Column);
 	}
@@ -815,7 +815,7 @@ namespace Durin
 
 	auto FYamlDocument::LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FYamlLoadError>
 	{
-		auto Text = FFileIO::LoadFileToString(FilePath);
+		auto Text = FFileHelper::LoadFileToString(FilePath);
 		if (!Text) return std::unexpected(FYamlLoadError{std::move(Text.error())});
 		return ParseSource(std::move(*Text), FilePath.generic_string())
 			.transform_error([](FYamlParseError Error) { return FYamlLoadError{std::move(Error)}; });

@@ -7,7 +7,7 @@
 #include "SlangShaderDependencyResolver.h"
 
 #include "Misc/FileFingerprintCache.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "ShaderBuild/ShaderPaths.h"
 
@@ -136,7 +136,7 @@ namespace Durin
 						OutDependencies.clear();
 						return std::unexpected(FShaderError{.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = PhysicalPath});
 					}
-					auto ContentHash = FFileIO::HashFileXx128(PhysicalPath);
+					auto ContentHash = FFileHelper::HashFileXx128(PhysicalPath);
 					if (!ContentHash)
 					{
 						OutDependencies.clear();

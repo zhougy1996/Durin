@@ -1,8 +1,7 @@
 #include "AssetRegistryCacheInternal.h"
 #include "DObject/PackageFormat.h"
 
-#include "Misc/FileIO.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Serialization/BinaryFormat.h"
@@ -82,7 +81,7 @@ namespace Durin::AssetPrivate
 			OutWarning = std::format("Ignoring invalid asset registry cache {}.", Path.generic_string());
 			return false;
 		}
-		auto Bytes = FFileIO::LoadFileToArray(Path);
+		auto Bytes = FFileHelper::LoadFileToArray(Path);
 		if (!Bytes)
 		{
 			OutWarning = Bytes.error().ToString();
@@ -275,7 +274,7 @@ namespace Durin::AssetPrivate
 			Writer.WriteU64(Entry.FileSize);
 			Writer.WriteI64(Entry.LastWriteTimeTicks);
 		}
-		if (auto FileError = FFileIO::SaveArrayToFileAtomically(Writer.GetBytes(), RegistryCachePath()); !FileError)
+		if (auto FileError = FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), RegistryCachePath()); !FileError)
 		{
 			OutWarning = FileError.error().ToString();
 			return false;

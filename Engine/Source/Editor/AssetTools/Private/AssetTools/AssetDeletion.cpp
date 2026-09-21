@@ -8,7 +8,7 @@
 #include "AssetRegistry/Publication.h"
 #include "DObject/Package.h"
 #include "Misc/Paths.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -206,7 +206,7 @@ namespace Durin
 				}
 				else
 				{
-					auto Hashed = FFileIO::HashFileXx128(File);
+					auto Hashed = FFileHelper::HashFileXx128(File);
 					if (!Hashed) return Error(EAssetWriteError::IoError, Hashed.error().ToString());
 					Identity = *Hashed;
 				}

@@ -331,8 +331,9 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
 	Durin::FByteBuffer PackageBytesBeforeRecovery;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		PackageBytesBeforeRecovery, CachedAssetData->PhysicalPath));
+	auto PackageBytesBeforeRecoveryRead = Durin::FFileHelper::LoadFileToArray(CachedAssetData->PhysicalPath);
+	ASSERT_TRUE(PackageBytesBeforeRecoveryRead) << PackageBytesBeforeRecoveryRead.error().ToString();
+	PackageBytesBeforeRecovery = std::move(*PackageBytesBeforeRecoveryRead);
 	const auto PackageTimeBeforeRecovery =
 		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
 	std::filesystem::last_write_time(
@@ -351,8 +352,9 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_GT(std::filesystem::file_size(CachePath), 7u);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	Durin::FByteBuffer PackageBytesAfterRecovery;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		PackageBytesAfterRecovery, CachedAssetData->PhysicalPath));
+	auto PackageBytesAfterRecoveryRead = Durin::FFileHelper::LoadFileToArray(CachedAssetData->PhysicalPath);
+	ASSERT_TRUE(PackageBytesAfterRecoveryRead) << PackageBytesAfterRecoveryRead.error().ToString();
+	PackageBytesAfterRecovery = std::move(*PackageBytesAfterRecoveryRead);
 	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);
 	EXPECT_EQ(std::filesystem::last_write_time(CachedAssetData->PhysicalPath),
 		PackageTimeBeforeRecovery);

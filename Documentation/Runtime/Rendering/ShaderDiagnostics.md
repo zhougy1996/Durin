@@ -36,13 +36,13 @@ only complete values; the binary schema and cache keys are unchanged.
 
 ShaderBuild validation, source manifests, fingerprints, generated imports, Cook
 input capture, and provider calls preserve typed results. The provider interface
-version is 6. Missing providers, failed visitors, nested captures, and cancellation
+version is 7. Missing providers, failed visitors, nested captures, and cancellation
 have explicit codes. Modular-feature invocation failures also retain their status
 and matching-provider count.
 
 `FShaderError::FromSlang` retains the compiler phase, optional native status, and
 at most 4096 bytes of opaque compiler diagnostics. Filesystem, file-read, and
-fingerprint failures preserve `FFileIO::FFileError`, including the physical path,
+fingerprint failures preserve `FFileError`, including the physical path,
 operation, native cause and
 optional byte range. Fingerprint reuse returns an expected current/stale status,
 so inspection failures do not pass through a text diagnostic adapter. None of

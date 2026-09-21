@@ -1,5 +1,5 @@
 #include "CookOutputInternal.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Asset/PackageInspection.h"
 namespace Durin
 {
@@ -65,7 +65,7 @@ namespace Durin
 			if (!std::filesystem::is_regular_file(Path, ErrorCode) || ErrorCode
 				|| std::filesystem::file_size(Path, ErrorCode) != ExpectedSize || ErrorCode)
 				return false;
-			return FFileIO::HashFileXx128(Path)
+			return FFileHelper::HashFileXx128(Path)
 				.transform([&](const FXxHash128& Digest) { return Digest == ExpectedDigest; })
 				.value_or(false);
 		}
@@ -244,7 +244,7 @@ namespace Durin
 				} TransactionCleanup{TransactionRoot};
 
 				FCookManifest PreviousManifest;
-				auto PreviousManifestBytes = FFileIO::LoadFileToArray(Root / "CookManifest.bin");
+				auto PreviousManifestBytes = FFileHelper::LoadFileToArray(Root / "CookManifest.bin");
 				const bool bHasPreviousManifest = PreviousManifestBytes
 					&& DecodeCookManifest(*PreviousManifestBytes, PreviousManifest);
 
@@ -296,9 +296,9 @@ namespace Durin
 					}
 					if (Injected(Stage, Index)) return false;
 					const std::filesystem::path Staged = StagedRoot / Relative;
-					if (auto Saved = FFileIO::SaveArrayToFile(Bytes, Staged); !Saved)
+					if (auto Saved = FFileHelper::SaveArrayToFile(Bytes, Staged); !Saved)
 						return RejectOperation(ECookPublishOperationError::StageWrite, Stage, Staged, Saved.error().NativeError);
-					auto Validation = FFileIO::LoadFileToArray(Staged);
+					auto Validation = FFileHelper::LoadFileToArray(Staged);
 					if (!Validation)
 						return RejectOperation(ECookPublishOperationError::StageValidation, Stage, Staged, Validation.error().NativeError);
 					if (!std::ranges::equal(*Validation, Bytes))

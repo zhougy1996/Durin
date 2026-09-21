@@ -3,7 +3,8 @@
 #include "CoreAPI.h"
 #include "CoreFwd.h"
 #include "Misc/CoreTypes.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileError.h"
+#include <expected>
 #include <variant>
 
 namespace Durin
@@ -20,7 +21,7 @@ namespace Durin
 
 	struct FYamlLoadError
 	{
-		std::variant<FFileIO::FFileError, FYamlParseError> Cause;
+		std::variant<FFileError, FYamlParseError> Cause;
 		CORE_API auto ToString() const -> std::string;
 	};
 

@@ -1,7 +1,7 @@
 #include "EncodedSourceSnapshot.h"
 
 #include "Misc/FileTime.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 namespace Durin::AssetForge::Builtins
@@ -29,20 +29,20 @@ namespace Durin::AssetForge::Builtins
 		FEncodedSourceError Context{.Filename = Filename, .PhysicalPath = PhysicalPath,
 			.MaximumEncodedBytes = MaximumEncodedBytes};
 		auto Fail = [&](EEncodedSourceError Code, std::error_code SystemError = {},
-			FFileIO::EFileOperation Operation = FFileIO::EFileOperation::Inspect) -> std::expected<FEncodedSourceSnapshot, FEncodedSourceError> {
+			EFileOperation Operation = EFileOperation::Inspect) -> std::expected<FEncodedSourceSnapshot, FEncodedSourceError> {
 			Context.Code = Code;
-			if (SystemError) Context.FileError = FFileIO::FFileError{Operation, SystemError, PhysicalPath};
+			if (SystemError) Context.FileError = FFileError{Operation, SystemError, PhysicalPath};
 			return std::unexpected(std::move(Context));
 		};
 		std::error_code Error;
 		const uint64 FileSize = std::filesystem::file_size(PhysicalPath, Error);
-		if (Error) return Fail(EEncodedSourceError::FileSize, Error, FFileIO::EFileOperation::QuerySize);
+		if (Error) return Fail(EEncodedSourceError::FileSize, Error, EFileOperation::QuerySize);
 		Context.SizeBefore = FileSize;
 		if (FileSize > MaximumEncodedBytes || FileSize > static_cast<uint64>(std::numeric_limits<size_t>::max()))
 			return Fail(EEncodedSourceError::Limit);
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error) return Fail(EEncodedSourceError::Timestamp, Error);
-		auto Loaded = FFileIO::LoadFileToArray(PhysicalPath);
+		auto Loaded = FFileHelper::LoadFileToArray(PhysicalPath);
 		if (!Loaded)
 		{
 			Context.FileError = std::move(Loaded.error());
@@ -51,7 +51,7 @@ namespace Durin::AssetForge::Builtins
 		auto Bytes = std::make_shared<FByteBuffer>(std::move(*Loaded));
 		Context.BytesRead = Bytes->size();
 		Context.SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
-		if (Error) return Fail(EEncodedSourceError::Changed, Error, FFileIO::EFileOperation::QuerySize);
+		if (Error) return Fail(EEncodedSourceError::Changed, Error, EFileOperation::QuerySize);
 		const auto TimeAfter = std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error) return Fail(EEncodedSourceError::Changed, Error);
 		if (Context.SizeAfter != FileSize || TimeAfter != LastWriteTime || Bytes->size() != FileSize)

@@ -4,7 +4,7 @@
 #include "DObject/Class.h"
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 
 namespace Durin::Editor::Level
@@ -80,7 +80,7 @@ namespace Durin::Editor::Level
 					OutState.SettingsFile, false, {});
 				return {};
 			}
-			auto Bytes = FFileIO::LoadFileToArray(OutState.SettingsFile);
+			auto Bytes = FFileHelper::LoadFileToArray(OutState.SettingsFile);
 			if (!Bytes)
 				return StoreError(
 					EAssetReadError::IoError,
@@ -115,7 +115,7 @@ namespace Durin::Editor::Level
 			FByteView Bytes) -> FAssetWriteResult
 		{
 			if (Bytes.empty()) return StoreError(EAssetWriteError::IoError, "Project settings serialized to empty bytes.");
-			if (auto Saved = FFileIO::SaveArrayToFileAtomically(Bytes, SettingsFile); !Saved)
+			if (auto Saved = FFileHelper::SaveArrayToFileAtomically(Bytes, SettingsFile); !Saved)
 				return StoreError(EAssetWriteError::IoError, Saved.error().ToString());
 			return {};
 		}

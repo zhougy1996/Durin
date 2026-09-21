@@ -2266,12 +2266,11 @@ TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresComple
 		},
 		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
 			if (bOmitIdentity) return {};
-			FXxHash128 Identity;
-			std::error_code Error;
-			if (!FFileHelper::HashFileXx128(File, Identity, Error))
-				return {EAssetWriteError::IoError, Error.message()};
+			auto Identity = FFileHelper::HashFileXx128(File);
+			if (!Identity)
+				return {EAssetWriteError::IoError, Identity.error().ToString()};
 			++Hashes;
-			Identities.emplace(File.generic_string(), Identity);
+			Identities.emplace(File.generic_string(), *Identity);
 #ifdef _WIN32
 			// A duplicate AssetTools payload read would fail until the physical callback.
 			Guard.Handle = CreateFileW(File.c_str(), GENERIC_READ, FILE_SHARE_DELETE,

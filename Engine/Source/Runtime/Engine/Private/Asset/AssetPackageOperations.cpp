@@ -28,7 +28,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "DObject/PackagePersistence.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
@@ -170,7 +170,7 @@ namespace Durin
 						"Failed to inspect the package bulk companion.");
 				return {};
 			}
-			auto Loaded = FFileIO::LoadFileToArray(BulkPath);
+			auto Loaded = FFileHelper::LoadFileToArray(BulkPath);
 			if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
 			OutBytes = std::move(*Loaded);
 			return {};
@@ -1139,7 +1139,7 @@ namespace Durin
 			return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(std::move(Result)));
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetWriteError::InUse, "Package output is being written.");
-		auto Loaded = FFileIO::LoadFileToArray(PhysicalPath);
+		auto Loaded = FFileHelper::LoadFileToArray(PhysicalPath);
 		if (!Loaded) return Error(EAssetWriteError::IoError,
 			std::format("Package admission read failed: {}", Loaded.error().ToString()));
 		FByteBuffer Bytes = std::move(*Loaded);
@@ -1412,7 +1412,7 @@ namespace Durin
 		OutInspection = {};
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
-		auto Bytes = FFileIO::LoadFileToArray(PhysicalPath);
+		auto Bytes = FFileHelper::LoadFileToArray(PhysicalPath);
 		if (!Bytes) return Error(EAssetReadError::IoError, Bytes.error().ToString());
 		return InspectAssetPackageBytes(PhysicalPath, *Bytes, PackagePath, OutInspection);
 	}

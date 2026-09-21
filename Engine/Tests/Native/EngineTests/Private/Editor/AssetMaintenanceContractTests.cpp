@@ -207,11 +207,15 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	const auto Entry = FindAssetExact(Path);
 	ASSERT_TRUE(Entry);
 	FByteBuffer Before;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Entry->PhysicalPath));
+	auto BeforeRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
+	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
+	Before = std::move(*BeforeRead);
 	std::filesystem::path BulkPath = Entry->PhysicalPath;
 	BulkPath.replace_extension(".dbulk");
 	FByteBuffer BulkBefore;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBefore, BulkPath));
+	auto BulkBeforeRead = FFileHelper::LoadFileToArray(BulkPath);
+	ASSERT_TRUE(BulkBeforeRead) << BulkBeforeRead.error().ToString();
+	BulkBefore = std::move(*BulkBeforeRead);
 	const auto MakePlan = [&]() {
 		const FAssetPackageCompatibilityRecord Record{
 			.PackagePath = Path, .PhysicalPath = Entry->PhysicalPath,
@@ -238,8 +242,12 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 		EXPECT_EQ(Texture->GetSource().GetIdentity(), Source.GetIdentity());
 		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), Source.GetBulkData().GetInstanceId());
 		FByteBuffer After, BulkAfter;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(After, Entry->PhysicalPath));
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, BulkPath));
+		auto AfterRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
+		ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+		After = std::move(*AfterRead);
+		auto BulkAfterRead = FFileHelper::LoadFileToArray(BulkPath);
+		ASSERT_TRUE(BulkAfterRead) << BulkAfterRead.error().ToString();
+		BulkAfter = std::move(*BulkAfterRead);
 		EXPECT_EQ(After, Before);
 		EXPECT_EQ(BulkAfter, BulkBefore);
 	}
@@ -247,12 +255,16 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	ASSERT_EQ(Applied.Status, EAssetCanonicalResaveApplyStatus::Succeeded) << Applied.Diagnostic;
 	EXPECT_EQ(Texture->GetSource().GetCompression(), ETextureSourceCompression::Zstd);
 	EXPECT_FALSE(std::filesystem::exists(BulkPath));
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Entry->PhysicalPath));
+	auto BeforeRead2 = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
+	ASSERT_TRUE(BeforeRead2) << BeforeRead2.error().ToString();
+	Before = std::move(*BeforeRead2);
 	const auto Repeated = ApplyAssetCanonicalResaves(MakePlan(), {});
 	ASSERT_EQ(Repeated.Status, EAssetCanonicalResaveApplyStatus::Succeeded);
 	EXPECT_TRUE(Repeated.ChangedPaths.empty());
 	FByteBuffer AfterRepeat;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterRepeat, Entry->PhysicalPath));
+	auto AfterRepeatRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
+	ASSERT_TRUE(AfterRepeatRead) << AfterRepeatRead.error().ToString();
+	AfterRepeat = std::move(*AfterRepeatRead);
 	EXPECT_EQ(AfterRepeat, Before);
 	ASSERT_TRUE(UnloadPackage(Path));
 }

@@ -1,7 +1,7 @@
 #include "ShaderDependencyManifestStore.h"
 
 #include "Json/Json.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/StringConvert.h"
 #include "ShaderBuild/ShaderPaths.h"
 
@@ -117,7 +117,7 @@ namespace Durin
 			Node.SetChildValue("ContentHash", Fingerprint.ContentHash.ToString());
 		}
 		const std::string Json = Document.ToString();
-		return !Json.empty() && FFileIO::SaveArrayToFileAtomically(
+		return !Json.empty() && FFileHelper::SaveArrayToFileAtomically(
 			std::as_bytes(std::span(Json)),
 			FShaderPaths::MetaPath(VirtualShaderPath, DependencyKey.Hex));
 	}

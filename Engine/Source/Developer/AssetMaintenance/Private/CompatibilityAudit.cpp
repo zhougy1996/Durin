@@ -3,7 +3,7 @@
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "Misc/FileTime.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -350,7 +350,7 @@ namespace Durin
 			.ReportContentHash = Input.ExpectedReportContentHash,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible};
-		auto Handle = FFileIO::OpenRead(Input.PhysicalPath);
+		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath);
 		if (!Handle)
 		{
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,

@@ -10,7 +10,7 @@
 #include "DObject/CanonicalMapKey.h"
 #include "DObject/PackageFormat.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::AssetPrivate::TaggedPackage
@@ -577,7 +577,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				std::error_code Ec;
 				if (std::filesystem::is_regular_file(BulkPath, Ec))
 				{
-					auto Loaded = FFileIO::LoadFileToArray(BulkPath);
+					auto Loaded = FFileHelper::LoadFileToArray(BulkPath);
 					if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
 					Bulk = std::move(*Loaded);
 				}

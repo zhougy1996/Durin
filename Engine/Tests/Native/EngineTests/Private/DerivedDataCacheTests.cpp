@@ -179,7 +179,9 @@ TEST(FDerivedDataCacheTests, RejectsContentThatDoesNotMatchStoredHash)
 	const std::filesystem::path Path = Directory.Root / "Test" / "Objects"
 		/ "ff" / (std::string(32, 'f') + ".bin");
 	FByteBuffer Stored;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Stored, Path));
+	auto StoredRead = FFileHelper::LoadFileToArray(Path);
+	ASSERT_TRUE(StoredRead) << StoredRead.error().ToString();
+	Stored = std::move(*StoredRead);
 	ASSERT_GT(Stored.size(), Value.size());
 	Stored.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Stored, Path));

@@ -8,7 +8,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/CustomVersion.h"
 
@@ -121,7 +121,7 @@ namespace Durin::AssetPrivate
 		const std::array Paths{Path};
 		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 		if (!Access) return Fail(FCookInputFailure{.Error = ECookInputError::WriteConflict, .File = Path});
-		auto File = FFileIO::OpenRead(Path);
+		auto File = FFileHelper::OpenRead(Path);
 		if (!File) return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = File.error()});
 		const uint64 Size = (*File)->GetSize();
 		if (Size > MaximumDiscoveryFileBytes || Size > MaximumDiscoveryBytes - RetainedBytes)

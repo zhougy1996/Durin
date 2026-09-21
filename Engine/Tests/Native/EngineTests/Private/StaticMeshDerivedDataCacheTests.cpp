@@ -347,8 +347,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), ObjectPath));
 	const std::filesystem::path PackagePath = Fixture.Root / "Content" / "Mesh.dasset";
 	Durin::FByteBuffer PackageBytesBeforeRecovery;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		PackageBytesBeforeRecovery, PackagePath));
+	auto PackageBytesBeforeRecoveryRead = Durin::FFileHelper::LoadFileToArray(PackagePath);
+	ASSERT_TRUE(PackageBytesBeforeRecoveryRead) << PackageBytesBeforeRecoveryRead.error().ToString();
+	PackageBytesBeforeRecovery = std::move(*PackageBytesBeforeRecoveryRead);
 	const auto PackageTimeBeforeRecovery =
 		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
 	std::filesystem::last_write_time(PackagePath, PackageTimeBeforeRecovery);
@@ -364,8 +365,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	ASSERT_NE(CompleteRenderData, nullptr);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 	Durin::FByteBuffer PackageBytesAfterRecovery;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		PackageBytesAfterRecovery, PackagePath));
+	auto PackageBytesAfterRecoveryRead = Durin::FFileHelper::LoadFileToArray(PackagePath);
+	ASSERT_TRUE(PackageBytesAfterRecoveryRead) << PackageBytesAfterRecoveryRead.error().ToString();
+	PackageBytesAfterRecovery = std::move(*PackageBytesAfterRecoveryRead);
 	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);
 	EXPECT_EQ(std::filesystem::last_write_time(PackagePath), PackageTimeBeforeRecovery);
 
@@ -413,15 +415,23 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 			*Fixture.Mesh, "/Game/CookedCollisionMesh", Context)) << Error;
 		ASSERT_TRUE(Durin::PublishCookContext(Context, Root)) << Error;
 	}
-	Durin::FByteBuffer FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondPackage, (SecondCookRoot / "Game/CookedCollisionMesh.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstManifest, (CookRoot / "CookManifest.bin")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondManifest, (SecondCookRoot / "CookManifest.bin")));
+	Durin::FByteBuffer FirstPackage, SecondPackage, SecondBulk, FirstManifest, SecondManifest;
+	auto FirstPackageRead = Durin::FFileHelper::LoadFileToArray((CookRoot / "Game/CookedCollisionMesh.dasset"));
+	ASSERT_TRUE(FirstPackageRead) << FirstPackageRead.error().ToString();
+	FirstPackage = std::move(*FirstPackageRead);
+	auto SecondPackageRead = Durin::FFileHelper::LoadFileToArray((SecondCookRoot / "Game/CookedCollisionMesh.dasset"));
+	ASSERT_TRUE(SecondPackageRead) << SecondPackageRead.error().ToString();
+	SecondPackage = std::move(*SecondPackageRead);
+	auto FirstManifestRead = Durin::FFileHelper::LoadFileToArray((CookRoot / "CookManifest.bin"));
+	ASSERT_TRUE(FirstManifestRead) << FirstManifestRead.error().ToString();
+	FirstManifest = std::move(*FirstManifestRead);
+	auto SecondManifestRead = Durin::FFileHelper::LoadFileToArray((SecondCookRoot / "CookManifest.bin"));
+	ASSERT_TRUE(SecondManifestRead) << SecondManifestRead.error().ToString();
+	SecondManifest = std::move(*SecondManifestRead);
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_EQ(FirstManifest, SecondManifest);
-	if (!Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, CookRoot / "Game/CookedCollisionMesh.dbulk"))
+	auto FirstBulk = Durin::FFileHelper::LoadFileToArray(CookRoot / "Game/CookedCollisionMesh.dbulk");
+	if (!FirstBulk)
 	{
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
@@ -492,15 +502,16 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot)) << Error;
 	Durin::FByteBuffer FirstPackage;
 	Durin::FByteBuffer SecondPackage;
-	Durin::FByteBuffer FirstBulk;
 	Durin::FByteBuffer SecondBulk;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstPackage, (CookRoot / "Game/CookedMesh.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondPackage, (SecondCookRoot / "Game/CookedMesh.dasset")));
+	auto FirstPackageRead = Durin::FFileHelper::LoadFileToArray((CookRoot / "Game/CookedMesh.dasset"));
+	ASSERT_TRUE(FirstPackageRead) << FirstPackageRead.error().ToString();
+	FirstPackage = std::move(*FirstPackageRead);
+	auto SecondPackageRead = Durin::FFileHelper::LoadFileToArray((SecondCookRoot / "Game/CookedMesh.dasset"));
+	ASSERT_TRUE(SecondPackageRead) << SecondPackageRead.error().ToString();
+	SecondPackage = std::move(*SecondPackageRead);
 	EXPECT_EQ(FirstPackage, SecondPackage);
-	if (!Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, CookRoot / "Game/CookedMesh.dbulk"))
+	auto FirstBulk = Durin::FFileHelper::LoadFileToArray(CookRoot / "Game/CookedMesh.dbulk");
+	if (!FirstBulk)
 	{
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedMesh.dbulk"));
@@ -914,7 +925,9 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 	const auto Key = GetStaticMeshKey(*Fixture.Mesh);
 	FByteBuffer Original;
 	const auto File = Fixture.Root / "Content/Mesh.dasset";
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, File));
+	auto OriginalRead = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(OriginalRead) << OriginalRead.error().ToString();
+	Original = std::move(*OriginalRead);
 	ObjectPackage::FLinkerTables Saved;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Fixture.AssetPath, Saved));
 	ASSERT_EQ(Saved.CustomVersions, (std::vector<FCustomVersion>{{FStaticMeshSourceVersion::Guid, FStaticMeshSourceVersion::CurrentVersion}}));
@@ -935,7 +948,9 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 		EXPECT_EQ(Loaded, nullptr);
 		EXPECT_EQ(FindResidentPackage(Fixture.AssetPath), nullptr);
 		FByteBuffer Unchanged;
-		ASSERT_TRUE(FFileHelper::LoadFileToArray(Unchanged, File));
+		auto UnchangedRead = FFileHelper::LoadFileToArray(File);
+		ASSERT_TRUE(UnchangedRead) << UnchangedRead.error().ToString();
+		Unchanged = std::move(*UnchangedRead);
 		EXPECT_EQ(Unchanged, Bytes);
 	}
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Original, File));

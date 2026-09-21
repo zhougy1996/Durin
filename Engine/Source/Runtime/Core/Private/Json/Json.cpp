@@ -1,6 +1,6 @@
 #include "Json/Json.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 
 #include "yyjson.h"
 
@@ -882,7 +882,7 @@ namespace Durin
 
 	auto FJsonLoadError::ToString() const -> std::string
 	{
-		if (const auto* File = std::get_if<FFileIO::FFileError>(&Cause)) return File->ToString();
+		if (const auto* File = std::get_if<FFileError>(&Cause)) return File->ToString();
 		const auto& Parse = std::get<FJsonParseError>(Cause);
 		return std::format("{} (line {}, column {})", Parse.Message, Parse.Line, Parse.Column);
 	}
@@ -906,7 +906,7 @@ namespace Durin
 
 	auto FJsonDocument::LoadFromFile(const FFilePath& FilePath) -> std::expected<void, FJsonLoadError>
 	{
-		auto Text = FFileIO::LoadFileToString(FilePath);
+		auto Text = FFileHelper::LoadFileToString(FilePath);
 		if (!Text) return std::unexpected(FJsonLoadError{std::move(Text.error())});
 		return Parse(*Text).transform_error([](FJsonParseError Error) { return FJsonLoadError{std::move(Error)}; });
 	}

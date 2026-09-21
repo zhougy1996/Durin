@@ -7,7 +7,7 @@
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
 
@@ -51,7 +51,7 @@ namespace Durin
 					Input.Result = {EAssetReadError::InUse, "Async package closure exceeds the 256 MiB read budget."};
 				else
 				{
-					auto Loaded = FFileIO::LoadFileToArray(Input.PhysicalPath);
+					auto Loaded = FFileHelper::LoadFileToArray(Input.PhysicalPath);
 					if (!Loaded)
 						Input.Result = {EAssetReadError::IoError, Loaded.error().ToString()};
 					else if (Loaded->size() > MaximumClosureBytes - RetainedBytes)

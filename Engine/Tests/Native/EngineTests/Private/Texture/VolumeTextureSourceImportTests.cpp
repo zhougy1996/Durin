@@ -556,14 +556,18 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
 	Durin::FByteBuffer V6CookedPackage;
 	Durin::FByteBuffer V6CookedBulk;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V6CookedPackage, CookRoot / "Game/ProductionVolume.dasset"));
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		V6CookedBulk, CookRoot / "Game/ProductionVolume.dbulk"));
+	auto V6CookedPackageRead = FFileHelper::LoadFileToArray(CookRoot / "Game/ProductionVolume.dasset");
+	ASSERT_TRUE(V6CookedPackageRead) << V6CookedPackageRead.error().ToString();
+	V6CookedPackage = std::move(*V6CookedPackageRead);
+	auto V6CookedBulkRead = FFileHelper::LoadFileToArray(CookRoot / "Game/ProductionVolume.dbulk");
+	ASSERT_TRUE(V6CookedBulkRead) << V6CookedBulkRead.error().ToString();
+	V6CookedBulk = std::move(*V6CookedBulkRead);
 
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	Durin::FByteBuffer CompanionBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, SourceStoragePath));
+	auto CompanionBytesRead = FFileHelper::LoadFileToArray(SourceStoragePath);
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	CompanionBytes = std::move(*CompanionBytesRead);
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
@@ -601,10 +605,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Durin::PublishCookContext(RollbackCook, RollbackCookRoot)) << Error;
 	Durin::FByteBuffer RepeatedCookedPackage;
 	Durin::FByteBuffer RepeatedCookedBulk;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		RepeatedCookedPackage, RollbackCookRoot / "Game/ProductionVolume.dasset"));
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		RepeatedCookedBulk, RollbackCookRoot / "Game/ProductionVolume.dbulk"));
+	auto RepeatedCookedPackageRead = FFileHelper::LoadFileToArray(RollbackCookRoot / "Game/ProductionVolume.dasset");
+	ASSERT_TRUE(RepeatedCookedPackageRead) << RepeatedCookedPackageRead.error().ToString();
+	RepeatedCookedPackage = std::move(*RepeatedCookedPackageRead);
+	auto RepeatedCookedBulkRead = FFileHelper::LoadFileToArray(RollbackCookRoot / "Game/ProductionVolume.dbulk");
+	ASSERT_TRUE(RepeatedCookedBulkRead) << RepeatedCookedBulkRead.error().ToString();
+	RepeatedCookedBulk = std::move(*RepeatedCookedBulkRead);
 	EXPECT_EQ(RepeatedCookedPackage, V6CookedPackage);
 	EXPECT_EQ(RepeatedCookedBulk, V6CookedBulk);
 	ASSERT_TRUE(UnloadPackage(AssetPath));

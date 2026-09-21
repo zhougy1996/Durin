@@ -1,6 +1,6 @@
 #include "Thumbnail/ThumbnailStorage.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -73,7 +73,7 @@ namespace Durin::Editor
 		{
 			std::error_code Error;
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)) return;
-			auto Bytes = FFileIO::LoadFileToArray(IndexPath());
+			auto Bytes = FFileHelper::LoadFileToArray(IndexPath());
 			if (!Bytes) return;
 			FBinaryReader Reader(*Bytes);
 			uint32 Count = 0;
@@ -111,7 +111,7 @@ namespace Durin::Editor
 				Writer.WriteU64(Entry.EncodedBytes);
 				Writer.WriteU64(Entry.LastAccess);
 			}
-			if (FFileIO::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath()))
+			if (FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath()))
 				UnsavedAccesses = 0;
 		}
 
@@ -173,7 +173,7 @@ namespace Durin::Editor
 		std::optional<FByteBuffer> Bytes;
 		if (!Error && EncodedSize == Entry.EncodedBytes && EncodedSize <= Impl->Settings.MaximumObjectBytes && bContained)
 		{
-			if (auto Loaded = FFileIO::LoadFileToArray(ResolvedPath); Loaded && Loaded->size() == EncodedSize)
+			if (auto Loaded = FFileHelper::LoadFileToArray(ResolvedPath); Loaded && Loaded->size() == EncodedSize)
 				Bytes = std::move(*Loaded);
 		}
 		if (Bytes)
@@ -211,7 +211,7 @@ namespace Durin::Editor
 		std::filesystem::create_directories(ObjectPath.parent_path(), Error);
 		if (Error || !TryResolveContainedBy(
 			Impl->Settings.CacheRoot, ObjectPath, ResolvedObjectPath)) return false;
-		if (!FFileIO::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
+		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
 		std::lock_guard Lock(Impl->Mutex);
 		Impl->Entries.insert_or_assign(std::string(Key), FObjectIndexEntry{
 			.Key = std::string(Key),

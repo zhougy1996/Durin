@@ -1,7 +1,7 @@
 #include "Shader/ShaderCookedLibrary.h"
 
 #include "Hash/XxHash.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompiledOutput.h"
@@ -547,8 +547,8 @@ namespace Durin
 		FShaderCookedLibrary& OutLibrary) -> FShaderOperationResult
 	{
 		OutLibrary = {};
-		return FFileIO::LoadFileToArray(Path)
-			.transform_error([](FFileIO::FFileError Error) {
+		return FFileHelper::LoadFileToArray(Path)
+			.transform_error([](FFileError Error) {
 				return FShaderError{.Code = EShaderError::LibraryReadFailed, .FileError = std::move(Error)};
 			})
 			.and_then([&](FByteBuffer Bytes) {

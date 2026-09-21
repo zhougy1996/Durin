@@ -2,7 +2,7 @@
 
 #include "Actors/GameMode.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Yaml/Yaml.h"
@@ -22,7 +22,7 @@ namespace Durin
 		{
 			if (const auto Loaded = Document.LoadFromFile(File); !Loaded)
 			{
-				if (const auto* FileError = std::get_if<FFileIO::FFileError>(&Loaded.error().Cause))
+				if (const auto* FileError = std::get_if<FFileError>(&Loaded.error().Cause))
 				{
 					if (FileError->NativeError == std::errc::no_such_file_or_directory) return {};
 					return Failure(EProjectGameSettingsError::IoError, std::format("Could not read project game settings '{}': {}", File.generic_string(), FileError->ToString()));
@@ -137,7 +137,7 @@ namespace Durin
 		FByteBuffer Bytes;
 		FProjectGameSettingsResult Result = BuildDefaultLevelUpdate(DefaultLevel, Bytes);
 		if (!Result) return Result;
-		if (auto PublicationError = FFileIO::SaveArrayToFileAtomically(
+		if (auto PublicationError = FFileHelper::SaveArrayToFileAtomically(
 				Bytes,
 				SettingsFile); !PublicationError)
 		{

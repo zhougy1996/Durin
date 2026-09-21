@@ -1,4 +1,5 @@
 #include "Json/Json.h"
+#include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -23,8 +24,8 @@ namespace
 		ASSERT_FALSE(std::filesystem::exists(Path));
 		const auto Loaded = Document.LoadFromFile(Path);
 		ASSERT_FALSE(Loaded);
-		ASSERT_TRUE(std::holds_alternative<Durin::FFileIO::FFileError>(Loaded.error().Cause));
-		EXPECT_EQ(std::get<Durin::FFileIO::FFileError>(Loaded.error().Cause).NativeError, std::errc::no_such_file_or_directory);
+		ASSERT_TRUE(std::holds_alternative<Durin::FFileError>(Loaded.error().Cause));
+		EXPECT_EQ(std::get<Durin::FFileError>(Loaded.error().Cause).NativeError, std::errc::no_such_file_or_directory);
 		EXPECT_NE(Loaded.error().ToString().find("open for reading"), std::string::npos);
 		EXPECT_NE(Loaded.error().ToString().find(Path.filename().string()), std::string::npos);
 	}
@@ -39,7 +40,7 @@ namespace
 		ASSERT_FALSE(Document.LoadFromFile(MissingPath));
 		EXPECT_EQ(Document.GetRootView().GetView("value").GetInt(), 17);
 		const std::string_view Text = "{\n\"broken\": [1, 2, }";
-		ASSERT_TRUE(Durin::FFileIO::SaveArrayToFile(std::as_bytes(std::span(Text)), Path));
+		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Text)), Path));
 		const auto Loaded = Document.LoadFromFile(Path);
 		ASSERT_FALSE(Loaded);
 		ASSERT_TRUE(std::holds_alternative<Durin::FJsonParseError>(Loaded.error().Cause));

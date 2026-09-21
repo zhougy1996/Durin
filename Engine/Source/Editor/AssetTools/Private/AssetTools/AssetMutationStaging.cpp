@@ -3,7 +3,7 @@
 #include "Asset/PackageEditing.h"
 
 #include "Misc/FileTime.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -63,7 +63,7 @@ namespace Durin::AssetToolsPrivate
 			std::error_code ErrorCode;
 			if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
 				continue;
-			auto OwnerBytes = FFileIO::LoadFileToArray(Root / "owner");
+			auto OwnerBytes = FFileHelper::LoadFileToArray(Root / "owner");
 			if (!OwnerBytes
 				|| std::string_view(
 					reinterpret_cast<const char*>(OwnerBytes->data()),
@@ -89,7 +89,7 @@ namespace Durin::AssetToolsPrivate
 		FByteBuffer& OutBytes) -> FAssetReadResult
 	{
 		OutBytes.clear();
-		auto Loaded = FFileIO::LoadFileToArray(Path);
+		auto Loaded = FFileHelper::LoadFileToArray(Path);
 		if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
 		OutBytes = std::move(*Loaded);
 		return {};
@@ -99,7 +99,7 @@ namespace Durin::AssetToolsPrivate
 		const std::filesystem::path& Path,
 		FByteView Bytes) -> FAssetWriteResult
 	{
-		auto Saved = FFileIO::SaveArrayToFileAtomically(Bytes, Path);
+		auto Saved = FFileHelper::SaveArrayToFileAtomically(Bytes, Path);
 		if (!Saved) return Error(EAssetWriteError::IoError, Saved.error().ToString());
 		return {};
 	}

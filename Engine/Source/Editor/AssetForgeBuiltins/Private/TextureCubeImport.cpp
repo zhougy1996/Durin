@@ -9,7 +9,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Texture/TextureDerivedData.h"
@@ -479,7 +479,7 @@ namespace Durin::AssetForge::Builtins
 			if (!IsTextureCubeFaceSourceExtension(
 				std::filesystem::path(FaceFiles[Index]).extension().generic_string()))
 				return {false, std::format("{} face source format is unsupported.", FaceNames[Index])};
-			auto Loaded = FFileIO::LoadFileToArray(FaceFiles[Index]);
+			auto Loaded = FFileHelper::LoadFileToArray(FaceFiles[Index]);
 			if (!Loaded)
 				return {false, std::format("{} face read failed: {}", FaceNames[Index], Loaded.error().ToString())};
 			Bytes[Index] = std::move(*Loaded);
@@ -505,7 +505,7 @@ namespace Durin::AssetForge::Builtins
 		if (!IsTextureCubePanoramaSourceExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string()))
 			return {false, "Panorama source format is unsupported."};
-		auto Loaded = FFileIO::LoadFileToArray(PanoramaFile);
+		auto Loaded = FFileHelper::LoadFileToArray(PanoramaFile);
 		if (!Loaded) return {false, std::format("Panorama source read failed: {}", Loaded.error().ToString())};
 		FByteBuffer Bytes = std::move(*Loaded);
 		std::string Error;

@@ -1,6 +1,6 @@
 #include "FileSystemCacheBackend.h"
 
-#include "Misc/FileIO.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -99,7 +99,7 @@ namespace Durin::DerivedData
 			|| FileSize > Request.MaximumValueBytes + CacheEntryHeaderBytes)
 			return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache entry exceeds its configured size limit."});
 
-		auto Bytes = FFileIO::LoadFileToArray(ResolvedPath);
+		auto Bytes = FFileHelper::LoadFileToArray(ResolvedPath);
 		if (!Bytes)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to read cache entry: {}", Bytes.error().ToString())});
@@ -168,7 +168,7 @@ namespace Durin::DerivedData
 		if (Writer.HasError())
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				"Failed to encode the cache entry envelope."});
-		auto Saved = FFileIO::SaveArrayToFileAtomically(Writer.GetBytes(), ResolvedPath);
+		auto Saved = FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), ResolvedPath);
 		if (!Saved)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to write cache entry: {}", Saved.error().ToString())});

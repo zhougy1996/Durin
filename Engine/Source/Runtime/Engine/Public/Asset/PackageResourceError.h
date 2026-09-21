@@ -5,7 +5,7 @@
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
-#include "Misc/FileIO.h"
+#include "Misc/FileError.h"
 #include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
@@ -72,7 +72,7 @@ namespace Durin
 		FXxHash128 ActualDigest;
 		FXxHash128 ExpectedDigest;
 		// A preparation failure has at most one lower-layer cause.
-		std::variant<std::monostate, FFileIO::FFileError, FPackageBulkDataError,
+		std::variant<std::monostate, FFileError, FPackageBulkDataError,
 			FEditorBulkDataStorageError, std::shared_ptr<const FAssetReadError>> Cause;
 	};
 	ENGINE_API auto FormatPreparedPackageResourceError(const FPreparedPackageResourceError& Error) -> std::string;
@@ -83,7 +83,7 @@ namespace Durin
 		std::filesystem::path Path;
 		FPackageBulkDataError Error;
 	};
-	using FPackageGenerationError = std::variant<FFileIO::FFileError, FPackageBulkValidationFailure>;
+	using FPackageGenerationError = std::variant<FFileError, FPackageBulkValidationFailure>;
 	using FPackageGenerationResult = std::expected<void, FPackageGenerationError>;
 	enum class EPackageResourceRegistrationError : uint8
 	{

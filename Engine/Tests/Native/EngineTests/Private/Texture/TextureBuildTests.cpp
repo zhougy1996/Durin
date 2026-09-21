@@ -954,7 +954,9 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 		/ "VolumeTexture/Objects" / First.DerivedDataKey.ToString().substr(0, 2)
 		/ (First.DerivedDataKey.ToString() + ".bin");
 	Durin::FByteBuffer CachedBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CachedBytes, CachePath));
+	auto CachedBytesRead = Durin::FFileHelper::LoadFileToArray(CachePath);
+	ASSERT_TRUE(CachedBytesRead) << CachedBytesRead.error().ToString();
+	CachedBytes = std::move(*CachedBytesRead);
 	CachedBytes.push_back(std::byte{1});
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CachedBytes, CachePath));
 	Durin::FVolumeTextureBuildProduct Recovered;
@@ -1219,8 +1221,9 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(Texture, nullptr);
 	std::filesystem::rename(HeldCompanion, EditorBulkDataFiles.front());
 	Durin::FByteBuffer CompanionBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		CompanionBytes, EditorBulkDataFiles.front()));
+	auto CompanionBytesRead = Durin::FFileHelper::LoadFileToArray(EditorBulkDataFiles.front());
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	CompanionBytes = std::move(*CompanionBytesRead);
 	Durin::FByteBuffer CorruptCompanion = CompanionBytes;
 	CorruptCompanion.back() ^= std::byte{1};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
@@ -1449,8 +1452,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_EQ(Companions.size(), 1u);
 	ASSERT_TRUE(std::filesystem::is_regular_file(Companions.front()));
 	Durin::FByteBuffer CompanionBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		CompanionBytes, Companions.front()));
+	auto CompanionBytesRead = Durin::FFileHelper::LoadFileToArray(Companions.front());
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	CompanionBytes = std::move(*CompanionBytesRead);
 
 	const std::filesystem::path CachePath = GetTextureCachePath(*Imported.Asset);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -1508,7 +1512,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	EXPECT_EQ(LoadedTexture, nullptr);
 	EXPECT_TRUE(std::filesystem::exists(Backup));
 	Durin::FByteBuffer AfterRejectedLoad;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRejectedLoad, Companions.front()));
+	auto AfterRejectedLoadRead = Durin::FFileHelper::LoadFileToArray(Companions.front());
+	ASSERT_TRUE(AfterRejectedLoadRead) << AfterRejectedLoadRead.error().ToString();
+	AfterRejectedLoad = std::move(*AfterRejectedLoadRead);
 	EXPECT_EQ(AfterRejectedLoad, CorruptBytes);
 	ASSERT_TRUE(std::filesystem::remove(Backup));
 	ASSERT_TRUE(std::filesystem::remove(Companions.front()));
