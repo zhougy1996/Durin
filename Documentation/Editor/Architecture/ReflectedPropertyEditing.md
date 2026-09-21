@@ -507,36 +507,15 @@ update another; Cancel and Undo restore the complete projection state.
 
 ## Validation
 
-Automated coverage currently verifies:
+Automated coverage groups the contracts above into:
 
-- preview/commit/cancel event phases;
-- terminal events for no-op and edit-away-and-back interactions;
-- one transaction for a continuous interaction;
-- no history for no-op, cancelled, or rejected edits;
-- package dirty synchronization at initial and middle-history save points across
-  Undo and Redo;
-- fresh revision identity after history branching, bounded-history eviction,
-  invalid checkpoint recovery, failed operations, and multi-package
-  transitions;
-- Transform Gizmo completed, cancelled, and net-zero interactions; and
-- level-document save success/failure, activation, replacement, and discard
-  checkpoint handoff;
-- pre-apply rejection and retryable cancel failure through object hooks;
-- object and snapshot reference lifetime;
-- array and map stable paths and structural restoration;
-- generic semantic-hook rejection, normalization, reactions, and Undo/Redo;
-- material parameter render invalidation;
-- fixed static-mesh slot rows, index-scoped root transactions, Reset/Clear All,
-  dormant-entry hiding, search, read-only behavior, and material type filtering;
-  and
-- GUID-resolved material definition and override edits, override
-  insertion/removal, orphan removal, and shared transaction history; and
-- spline continuous edits, point/tangent target Cancel, structural edits,
-  stable GUID resolution, immutable snapshot publication, and Undo/Redo; and
-- camera continuous edits, atomic cross-field clamping, Cancel, stable nested
-  paths, aspect-ratio edits, and Undo/Redo; and
-- object-level `Edit` enumeration, filtering, fixed-array expansion, search,
-  and default fixed-array labels.
+| Area | Covered scenarios |
+| --- | --- |
+| Edit sessions | Preview/commit/cancel, no-op and edit-away-and-back terminal events, one continuous transaction, no history for cancelled/rejected/no-op edits, pre-apply rejection, and retryable cancel failure |
+| History and documents | Undo/Redo dirty checkpoints, branch revisions, bounded eviction, invalid checkpoints, failed operations, multi-package transitions, and level save/activation/replacement/discard handoff |
+| Reflected values | Object/snapshot lifetime, stable array/map paths, structural restoration, semantic rejection/normalization/reactions, and object `Edit` enumeration/filtering/search/fixed-array labels |
+| Material and mesh hosts | Render invalidation, GUID-resolved definitions/overrides/orphans, shared history, fixed slot rows, index-scoped transactions, Reset/Clear All, dormant entries, search, read-only mode, and material type filtering |
+| Viewport hosts | Gizmo completion/cancellation/net-zero edits; spline point/tangent cancellation, structure, stable GUIDs and immutable publication; camera clamping/cancellation, nested paths and aspect ratio; Undo/Redo for each |
 
 Host-level automation covers object and document replacement plus read-only
 transitions. Interactive checks cover workspace close, PIE, and editor shutdown,

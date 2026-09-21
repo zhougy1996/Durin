@@ -405,15 +405,11 @@ Engine's shared root evaluates numerical output policy. Reusable functions can
 return aggregate Surface values; resource-output sharing never implicitly merges
 separate UV operations. Function GUIDs have no special lowering rules.
 
-The material-functions maintenance command loads the shipped functions, preserves
-compatible implementation edits, and rejects missing assets or incompatible
-interfaces. It initializes DefaultMaterial only when missing. The obsolete ImportedSurface
-template and its initializer are removed. The explicit `asset material-template`
-command can create a new PBRSurfaceMaterial_MR parent with independent parameter
-IDs and no function dependencies at an unused destination. It does not overwrite
-existing assets or run during scene import. Existing custom or unsupported material graphs are preserved and require deliberate reconstruction;
-there is no previous-recipe conversion path. See
-[Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md).
+Material-library maintenance and explicit parent-template creation follow
+[Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md#material-recipe-initialization-and-reconstruction)
+and [Explicit PBR material template](../../Editor/Guides/CanonicalResave.md#explicit-pbr-material-template).
+These commands preserve compatible authored implementations; scene import does
+not invoke template creation, and unsupported graphs require deliberate reconstruction.
 
 ## Compile Lifecycle and Cooked Programs
 
@@ -676,11 +672,11 @@ layout identity, validated uniform payload, counted RHI texture references,
 typed sampler states, and explicit texture fallbacks. Compiled layout v4 is
 material-specific: it deterministically packs only reachable declarations and
 is validated against the accepted program and reflected pass bindings. Material
-assets persist authored values rather than this transient representation; DMAT
-v4 persists the accepted layout and code needed by Game loading. Old render
-layouts are rejected with a migration/recompile diagnostic. Generator version 5
-invalidates executable identities from the retired compatibility path. The
-independent error terminal uses the same v4 boundary as custom materials.
+assets persist authored values rather than this transient representation. DMAT
+persists the accepted layout and code needed by Game loading; current payload
+and generator versions are listed in [Compatibility Boundary](#compatibility-boundary).
+Old render layouts require recompilation. The independent error terminal uses
+the same layout-v4 boundary as custom materials.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
@@ -703,8 +699,8 @@ explicit White, Black or FlatRGNormal fallbacks. Missing or unready textures
 select the declared fallback without retaining a raw RHI pointer beyond the
 current command submission. The resource-free error terminal bypasses texture,
 sampler and environment resolution and uses fixed magenta fragment shaders.
-There is no fixed-role compiler or Renderer binding adapter. Supported old
-authored graphs expand into ordinary expressions before reaching this boundary.
+The Renderer consumes compiled expressions without a fixed-role binding adapter;
+authored-format admission follows [Compatibility Boundary](#compatibility-boundary).
 
 The service owns generation-aware sampler slots keyed by the complete
 `FMaterialSamplerState`; identical states across registered geometry factories
@@ -733,27 +729,16 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   canonical relationship, and dependency tests walk that chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
   material dependency.
-- Loaded direct-child and transitive-dependent queries use the Engine-owned
-  [scoped material query cache](MaterialQueries.md). It owns temporary parent
-  tables and provides raw-pointer ranges under GC deferral.
-- Materials and static meshes own no reverse component collections, and
-  instances and components keep no registered-value mirrors for Parent, mesh,
-  or material assignments. Loading, reflected edits, transactions,
-  duplication, destruction, and garbage collection therefore have no
-  registration-reconciliation step.
-- Ordinary material mutation does not construct or flush a global material
-  update context or enumerate components. Render-state publication queries
-  loaded dependents once and refreshes their retained local layers and stable
-  proxies. Compilation invalidation and publication explicitly share one batch
-  context. Notifications consume prepared results after discovery is sealed;
-  reentrant edits synchronously create fresh contexts. Standalone notifications
-  acquire their own context.
-  Parent and descendant proxies resolve inherited values on the render thread.
-- The removed global material update context had no production callers after
-  proxy publication. Explicit structural work now uses the generic primitive
-  and scene lifecycle APIs owned by the initiating subsystem; material queries
-  remain loaded-runtime queries only. `FlushRenderingCommands()` remains the
-  explicit visibility boundary for tests, import, preview, and save workflows.
+- Loaded child/dependent discovery, GC-protected result lifetime, shared batch
+  contexts, and reentrant notifications follow [Scoped Material Queries](MaterialQueries.md).
+  Render publication refreshes retained local layers and stable proxies;
+  parent and descendant proxies resolve inherited values on the render thread.
+- Relationships are canonical forward assignments, with no reverse component
+  collections or registered-value mirrors to reconcile after edits or loading.
+  Ordinary parameter mutation does not enumerate components or flush rendering.
+- Structural work uses the initiating subsystem's primitive and scene lifecycle
+  APIs. `FlushRenderingCommands()` is the explicit visibility boundary for tests,
+  import, preview, and save workflows.
 - Editor hierarchy queries that must include unloaded assets belong to the asset
   registry and package systems, not the runtime material object relationship.
 - Static-mesh render-data changes use a separate on-demand loaded-component
@@ -761,9 +746,8 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, and positional overrides directly from canonical storage.
 - Proxy diagnostics expose publication, coalescing, resolution-cache hit/miss,
-  stale-publication, and binding-update counts. Loaded relationship queries
-  expose their own operation, snapshot, scan, and result diagnostics. Both are
-  diagnostics, not a persistent dependency index.
+  stale-publication, and binding-update counts; these are not a dependency index.
+  Query counters are defined by [Material query diagnostics](MaterialQueries.md#diagnostics-and-validation).
 
 ## Compatibility Boundary
 

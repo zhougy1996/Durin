@@ -12,13 +12,10 @@ merely whether a file contains binary bytes.
 
 ## Authored source compatibility
 
-Repository assets were resaved before retiring historical domain readers.
 TextureSource accepts only schema 3 block/layer descriptors, canonical payload
-hashes and compression metadata. The v1 size/format mirrors and v1/v2 upgrade
-branches are removed; transparency is derived from the current channel mask.
-The obsolete EditorBulkData `ReplaceBytes` adapters are removed; authored
-callers use `UpdatePayload`. Existing current-format validation remains active.
-Old Cook outputs are disposable and must be regenerated from current content.
+hashes, and compression metadata; v1/v2 sources are unsupported. Transparency
+comes from the current channel mask. Authored bulk updates use `UpdatePayload`.
+Old Cook outputs must be regenerated from current content.
 
 ## Import metadata publication
 
@@ -29,9 +26,9 @@ bounds and schema context. `InspectAssetImportInfo` returns the same typed contr
 and publishes output only after validation. Object and family-specific validation
 return the same contract. StaticMesh and VolumeTexture validate the base schema
 first, then format axis, source-role or atlas details into the owned diagnostic
-text; no polymorphic cause object is retained. Empty-state behavior is unchanged. Axis validation returns
+text; no polymorphic cause object is retained. Axis validation returns
 `FStaticMeshImportSettingsResult` with the rejected axis combination. Consumers
-format with `FormatAssetImportDataError` at pending presentation contracts.
+format with `FormatAssetImportDataError` at presentation boundaries.
 `DAssetImportData::SetState` and its family-specific setters require this validated
 state, return void, and only install fields and notify compilation changes.
 Invalid external input is reported before calling the setter; object `Validate`
@@ -126,7 +123,6 @@ after exact payload completion. StaticMesh cooked products keep joint render
 and collision publication at the product boundary, including metadata checks.
 The ordinary family serializer does not own rollback or resource updates; see
 [Serialization](../Core/Serialization.md) for the in-place payload contract.
-Existing layouts, producer versions and DDC-key inputs remain unchanged.
 
 Import translates captured physical sources into canonical authored inputs;
 build transforms detached inputs into derived products; compilation schedules
@@ -283,14 +279,13 @@ constructs a detached projection, even when authored CPU data is absent, without
 changing authored bytes, source residency, render revision or dirty state. Only
 pending source mutations require a selected wait before cook capture. See
 [Asset Compilation](AssetCompilation.md#staticmesh-completion) for bounds,
-publication and observational diagnostics. StaticMesh keys are editor-only Engine-private values; operation
-results carry key, origin, descriptor, timings, payload bytes, and structured
-persistence diagnostics without copying them onto `DStaticMesh` or `DBodySetup`.
-Metadata-only warm loads do not read authored geometry; a miss acquires an
-immutable decoded geometry handle before calling the recipe. Fresh source
-initialization encodes once and seeds the same handle without a decode round trip.
-The authored replacement is passed separately to application; build results do
-not own source storage. Direct `ReplaceSourceRenderData` and `ReplaceRenderData`
+publication and observational diagnostics. StaticMesh keys are editor-only
+Engine-private values; operation
+results carry key, origin, descriptor, timings, payload bytes, and persistence
+diagnostics without copying them onto assets. Source acquisition, warm-hit reuse,
+and detached application follow [Static mesh building](StaticMeshBuilding.md).
+
+Direct `ReplaceSourceRenderData` and `ReplaceRenderData`
 operations cancel superseded work and invalidate old render/collision data before
 validation. They log CPU replacement failures and expose `GetRenderDataUpdateError`;
 CPU residency and GPU readiness remain separate. Valid source settings are retained
@@ -342,31 +337,24 @@ same-directory temporary file is flushed and closed before replacement. The
 temporary name is independent of the destination name, and DDC round trips are
 supported beyond the traditional Windows `MAX_PATH` boundary under the
 [physical file I/O contract](../Core/FileIO.md).
-Owners validate reserved fields, versions, declared sizes, allocation limits,
-structural invariants, and checksums before publishing data. A cache write failure does not
-invalidate a complete in-memory build result.
-Engine's shared cache adapter retains unsuccessful read and write results,
-including the cache status, alongside the logical key and requested value bound.
-Each operation resets the previous cause and measures cache-call duration
-separately. It stores no additional message field. Texture payload rejection
-retains decode/encode classification and the complete Archive failure; static-mesh
-codecs retain their family-owned cause. `FAssetCacheDiagnostic` exposes Engine-owned
-classification and opaque cache identity while retaining underlying cache outcomes.
-StaticMesh products transport render/collision read/write and codec causes through
-compilation and synchronous results. Texture2D, TextureCube and VolumeTexture
-products retain read/write causes in `FAssetCacheDiagnostics`; Texture2D worker
-results transport those values without flattening them. Texture2D terminal
-callbacks also retain available cache diagnostics for success and application
-rejection; cache failure remains independent of compilation disposition. Formatting occurs at
-presentation using bounded formatters. Underlying cache and Archive diagnostic
-contracts remain pending migrations.
+Owners validate reserved fields, versions, sizes, allocation limits, structure,
+and checksums before publication. Texture families use the canonical PlatformData
+serializer; other families use their registered functions. Invalid cache bytes are
+rebuildable misses. A successful build remains usable when best-effort storage
+fails; cache failure is independent of compilation disposition.
 
-For Texture2D/TextureCube/VolumeTexture, Engine validates cached PlatformData
-through the canonical serializer; other build families validate through their
-registered family functions. Invalid bytes become rebuildable misses from
-the persistent common texture source. Every family retains a complete local result
-after a successful build even when best-effort DDC storage fails, and surfaces
-the bounded store diagnostic separately.
+Engine's cache adapter retains failed read/write outcomes, logical key, requested
+value bound, and separate cache-call timing. Each operation resets its previous
+cause and stores no additional message. `FAssetCacheDiagnostic` adds Engine
+classification and opaque identity without flattening the underlying result.
+Texture codecs retain encode/decode classification and the complete Archive
+failure; StaticMesh codecs retain family-owned causes.
+
+StaticMesh synchronous and compilation results carry render/collision cache and
+codec causes. All texture families retain read/write causes in
+`FAssetCacheDiagnostics`; Texture2D transports these through worker results and
+terminal callbacks, including success and application rejection. Bounded
+formatters render diagnostics only at presentation.
 
 TextureCube uses Engine-owned bucket `TextureCube/Objects`. Explicit import or
 reimport decodes and projects a panorama into six canonical authored RGBA8

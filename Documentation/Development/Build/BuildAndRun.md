@@ -429,51 +429,27 @@ IDE indexing.
 
 ## Asset Maintenance
 
-`asset` is the developer-facing entry point for authored package maintenance.
-It defaults to the configured game project and to the safe, read-only `check`
-command:
+`asset` uses the configured game project and defaults to read-only `check`.
+Override the project with `--project <descriptor>`; add `--json` for automation.
 
-```powershell
-.\DevTool.bat asset
-.\DevTool.bat asset check
-.\DevTool.bat asset identity-audit
-.\DevTool.bat asset resave /Game/Characters
-.\DevTool.bat asset resave /Game/Characters --apply
-.\DevTool.bat asset resave --all --apply
-```
+| Command | Purpose |
+| --- | --- |
+| `asset check` | Report schema, canonicalization, and corruption findings without writes |
+| `asset identity-audit` | Write a JSON inventory of objects and hard/soft/redirect references without loading or changing assets |
+| `asset resave <scope>...` or `asset resave --all` | Preview canonical rewrites; `--apply` authorizes writes |
 
-Pass `--project <descriptor>` only to override the configured default. `check`
-never writes and reports schema, canonicalization, and corruption findings.
-`identity-audit` writes a JSON inventory of package objects and their hard,
-soft and redirect references without loading or modifying authored assets.
-`resave` accepts one or more virtual scopes, each matching both an exact package
-and descendants, or the mutually exclusive `--all`. It is a preview unless
-`--apply` is explicit. Human output is the default; `--json` selects stable
-machine-readable output.
-
-`DurinAssetTool` is the lower-level host and uses the same compact grammar:
-
-```text
-DurinAssetTool check --project=<project.dproject> [--json]
-DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]
-DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]
-DurinAssetTool storage-inventory --project=<project.dproject>
-```
-
-`storage-inventory` is a low-level DAST diagnostic that emits the current
-package and `.dbulk` inventory. It does not select or qualify a future storage
-format.
-
-Package compatibility semantics are defined by [Asset
-Packages](../../Runtime/Assets/AssetPackages.md); the user-facing rewrite
-procedure is [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
+For scope selection, command examples, and safe rewrite procedures, use
+[Canonical Resave](../../Editor/Guides/CanonicalResave.md). Compatibility belongs
+to [Asset Packages](../../Runtime/Assets/AssetPackages.md).
+The lower-level `DurinAssetTool storage-inventory --project=<project.dproject>`
+reports current DAST package and `.dbulk` storage; it does not select a new format.
 
 ## DurinDevTool Command Reference
 
 Interactive-shell behavior, repository path discovery, documentation lifecycle
 commands, and module/project scaffolding are defined by
 [DurinDevTool Command Interface](../Tooling/DurinDevTool.md). Build, run, clean,
-recovery, and output ownership remain in this document.
+recovery, and build-output ownership remain in this document.
 
 ## Clean And Purge
 
