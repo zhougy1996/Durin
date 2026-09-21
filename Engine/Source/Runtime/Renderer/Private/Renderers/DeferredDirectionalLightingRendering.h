@@ -3,7 +3,7 @@
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/ContactShadowVisibilityRendering.h"
 #include "Renderers/DirectionalShadowRendering.h"
-#include "RDG.h"
+#include "RDGParameters.h"
 
 namespace Durin
 {

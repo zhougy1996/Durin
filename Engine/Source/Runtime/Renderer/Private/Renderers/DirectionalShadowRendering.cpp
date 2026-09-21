@@ -1,4 +1,5 @@
 #include "Renderers/DirectionalShadowRendering.h"
+#include "RDG.h"
 #include "Renderers/SceneRenderTelemetry.h"
 
 #include "Renderers/SceneRendererProfiling.h"

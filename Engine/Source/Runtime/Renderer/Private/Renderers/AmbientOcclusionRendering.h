@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Renderers/GBufferRendering.h"
-#include "RDG.h"
+#include "RDGParameters.h"
 
 namespace Durin
 {

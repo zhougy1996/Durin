@@ -3,7 +3,7 @@
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
 #include "Renderers/SceneRenderer.h"
-#include "RDG.h"
+#include "RDGDiagnostics.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"

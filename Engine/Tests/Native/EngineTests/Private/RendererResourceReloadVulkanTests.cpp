@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "RDG.h"
 #include "../../RDGTestAccess.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "VulkanEngineTestSupport.h"

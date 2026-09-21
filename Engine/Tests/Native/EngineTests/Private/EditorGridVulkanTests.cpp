@@ -1,4 +1,5 @@
 #include "../../RDGTestAccess.h"
+#include "RDG.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 

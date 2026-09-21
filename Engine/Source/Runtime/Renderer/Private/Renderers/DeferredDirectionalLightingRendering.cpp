@@ -1,4 +1,5 @@
 #include "Renderers/DeferredDirectionalLightingRendering.h"
+#include "RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"

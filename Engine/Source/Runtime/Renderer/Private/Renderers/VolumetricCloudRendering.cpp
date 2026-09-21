@@ -1,4 +1,5 @@
 #include "Renderers/VolumetricCloudRendering.h"
+#include "RDG.h"
 #include "Renderers/BaseSceneRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
 

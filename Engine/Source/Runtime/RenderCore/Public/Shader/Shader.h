@@ -5,7 +5,7 @@
 #include "RenderCoreAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
-#include "RDG.h"
+#include "RDGParameters.h"
 
 #include "ShaderCompilerCore.h"
 

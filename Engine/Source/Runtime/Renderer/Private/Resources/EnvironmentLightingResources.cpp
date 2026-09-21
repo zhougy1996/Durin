@@ -1,4 +1,5 @@
 #include "Resources/EnvironmentLightingResources.h"
+#include "RDG.h"
 
 #include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/RendererRDGAllocator.h"

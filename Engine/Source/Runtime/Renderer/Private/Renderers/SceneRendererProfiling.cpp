@@ -1,4 +1,5 @@
 #include "Renderers/SceneRendererProfiling.h"
+#include "RDG.h"
 
 #include <utility>
 

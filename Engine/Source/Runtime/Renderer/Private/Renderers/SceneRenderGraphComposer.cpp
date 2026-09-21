@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderGraphComposer.h"
+#include "RDG.h"
 
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/BaseSceneRendering.h"

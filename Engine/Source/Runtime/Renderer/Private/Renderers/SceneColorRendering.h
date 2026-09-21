@@ -2,7 +2,7 @@
 
 #include "Renderers/BaseSceneRendering.h"
 #include "Renderers/VolumetricCloudRendering.h"
-#include "RDG.h"
+#include "RDGParameters.h"
 
 namespace Durin
 {

@@ -1,4 +1,5 @@
 #include "Renderers/SceneColorRendering.h"
+#include "RDG.h"
 #include "Renderers/SceneRenderTelemetry.h"
 
 #include "Renderers/SceneRendererProfiling.h"
