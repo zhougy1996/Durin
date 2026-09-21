@@ -31,19 +31,18 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
 	{
-		++TreeGeneration;
+		bActiveTreePublishable = false;
 		if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
 		DirectoryChildrenCache.clear();
-		DirectoryGenerations.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
 	}
 
 	auto FContentBrowserModel::CancelPendingSnapshots() -> void
 	{
-		++ItemsGeneration;
+		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
-		PendingItemsRequest.reset();
-		bItemsLoading = false;
+		ItemsRequest.reset();
+		bSnapshotPublicationSuspended = false;
 		InvalidateDirectoryTree();
 	}
 
@@ -58,19 +57,12 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::PumpPendingSnapshots() -> bool
 	{
-		if (CurrentMountedRevision && AcknowledgedMountedRevision)
-		{
-			const auto Current = CurrentMountedRevision();
-			// Old captures wait for reconciliation; a new explicit or catalog-triggered
-			// capture may use the current filesystem even while that revision is suppressed.
-			if (Current != AcknowledgedMountedRevision() && Current != ValidatedMountedRevision) return false;
-			ValidatedMountedRevision = Current;
-		}
+		if (bSnapshotPublicationSuspended) return false;
 		// Unrelated catalog publications validate an old capture without restarting it.
-		if (bItemsLoading && Catalog && ValidatedCatalogRevision != GetAssetCatalogRevision())
+		if (IsLoading() && ItemsRequest->CatalogCursor != GetAssetCatalogRevision())
 		{
-			const auto Changes = CaptureAssetCatalogChanges(ValidatedCatalogRevision);
-			ValidatedCatalogRevision = Changes.ToRevision;
+			const auto Changes = CaptureAssetCatalogChanges(ItemsRequest->CatalogCursor);
+			ItemsRequest->CatalogCursor = Changes.ToRevision;
 			if (IsAffectedBy(Changes))
 			{
 				RefreshItemsSnapshot(Changes.bFullRefresh);
@@ -80,10 +72,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bPublished = false;
 		if (ItemsTask.IsCompleted())
 		{
-			if (ActiveItemsGeneration == ItemsGeneration
-				&& ActiveItemsNavigationRevision == Session.NavigationRevision)
+			if (ActiveItemsRequest && ActiveItemsRequest == ItemsRequest
+				&& ActiveItemsRequest->State == EItemsRequestState::Capturing)
 			{
-				bItemsLoading = false;
+				ActiveItemsRequest->State = EItemsRequestState::Completed;
 				if (ItemsTask.GetState() == ETaskState::Succeeded)
 				{
 					auto Snapshot = std::move(ItemsTask).TakeResult();
@@ -94,28 +86,25 @@ namespace Durin::Editor::ContentBrowser::Private
 				bPublished = true;
 			}
 			ItemsTask = {};
+			ActiveItemsRequest.reset();
 		}
-		if (PendingItemsRequest && !ItemsTask.IsValid())
+		if (ItemsRequest && ItemsRequest->State == EItemsRequestState::Queued && !ItemsTask.IsValid())
 		{
-			auto Request = std::move(*PendingItemsRequest);
-			PendingItemsRequest.reset();
-			ActiveItemsGeneration = ItemsGeneration;
-			ActiveItemsNavigationRevision = Request.NavigationRevision;
-			ValidatedMountedRevision = std::max(ValidatedMountedRevision, Request.MountedRevision);
+			ActiveItemsRequest = ItemsRequest;
+			ActiveItemsRequest->State = EItemsRequestState::Capturing;
 			ItemsTask = Tasks::LaunchTask(
 				"ContentBrowser.Items",
-				[Source = DataSource, Request = std::move(Request), Query = EntryStatusQuery]
+				[Source = DataSource, Request = ActiveItemsRequest, Query = EntryStatusQuery]
 				(const FTaskCancellationToken& Cancellation) {
 					Source->SetEntryStatusQueryForTesting(Query);
 					return std::make_unique<FContentBrowserItemsSnapshot>(Source->CaptureItems(
-						Request.Directory, Request.bRecursive, Request.Catalog, Cancellation));
+						Request->Directory, Request->bRecursive, Request->Catalog, Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Items"), .Scope = TaskScope});
 
 		}
 		if (TreeTask.IsCompleted())
 		{
-			if (ActiveTreeGeneration == TreeGeneration
-				&& ActiveTreeDirectoryGeneration == DirectoryGenerations[ActiveTreeDirectory])
+			if (bActiveTreePublishable)
 			{
 				if (TreeTask.GetState() == ETaskState::Succeeded)
 				{
@@ -137,8 +126,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const auto It = RequestedDirectoryChildrenSnapshots.begin();
 			ActiveTreeDirectory = *It;
 			RequestedDirectoryChildrenSnapshots.erase(It);
-			ActiveTreeGeneration = TreeGeneration;
-			ActiveTreeDirectoryGeneration = DirectoryGenerations[ActiveTreeDirectory];
+			bActiveTreePublishable = true;
 			TreeTask = Tasks::LaunchTask(
 				"ContentBrowser.Directory",
 				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery]
@@ -160,7 +148,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			(void)PumpPendingSnapshots();
 			if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetCompletion().GetTaskHandle());
 			if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetCompletion().GetTaskHandle());
-		} while (ItemsTask.IsValid() || TreeTask.IsValid() || PendingItemsRequest
+		} while (ItemsTask.IsValid() || TreeTask.IsValid() || IsLoading()
 			|| (bAsync && !RequestedDirectoryChildrenSnapshots.empty()));
 	}
 
@@ -307,7 +295,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Session.Query.TypeFilter = EContentBrowserTypeFilter::All;
 		RefreshItemsSnapshot(false);
 
-		if (bAsync && bItemsLoading)
+		if (bAsync && IsLoading())
 		{
 			std::error_code Error;
 			return std::filesystem::exists(QueryPathStatus(PhysicalPath, Error)) && !Error
@@ -358,7 +346,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::erase_if(RequestedDirectoryChildrenSnapshots, Invalidates);
 		if (!ActiveTreeDirectory.empty() && Invalidates(ActiveTreeDirectory))
 		{
-			++DirectoryGenerations[ActiveTreeDirectory];
+			bActiveTreePublishable = false;
 			if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
 		}
 		bool bMoved = false;
@@ -397,15 +385,15 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
-		++ItemsGeneration;
+		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
 		if (!Catalog || Catalog->Revision != GetAssetCatalogRevision())
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");
 			Catalog = std::make_shared<const FAssetCatalogSnapshot>(CaptureAssetCatalogSnapshot());
 		}
-		ValidatedCatalogRevision = Catalog->Revision;
-		ValidatedMountedRevision = CurrentMountedRevision ? CurrentMountedRevision() : 0;
+		++ItemsRequestCount;
+		bSnapshotPublicationSuspended = false;
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
 		if (bAsync)
@@ -413,9 +401,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			// Do not expose actionable rows from a previous directory or revision.
 			PublishedSnapshot = std::make_shared<const FContentBrowserItemsSnapshot>();
 			Items = {};
-			bItemsLoading = true;
-			PendingItemsRequest = FItemsRequest{Session.CurrentPhysicalPath, !Session.Query.Search.empty(), Catalog,
-				Session.NavigationRevision, ValidatedMountedRevision};
+			ItemsRequest = std::make_shared<FItemsRequest>(FItemsRequest{
+				Session.CurrentPhysicalPath, !Session.Query.Search.empty(), Catalog, Catalog->Revision});
 			(void)PumpPendingSnapshots();
 			return;
 		}
@@ -509,8 +496,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const std::string Physical = NormalizePath(PhysicalDirectory);
 		if (!DirectoryChildrenCache.contains(Physical)
-			&& !(TreeTask.IsValid() && ActiveTreeGeneration == TreeGeneration
-				&& ActiveTreeDirectoryGeneration == DirectoryGenerations[ActiveTreeDirectory]
+			&& !(TreeTask.IsValid() && bActiveTreePublishable
 				&& ActiveTreeDirectory == Physical))
 			RequestedDirectoryChildrenSnapshots.insert(Physical);
 	}
@@ -586,7 +572,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentBrowserItemsSnapshot{.Items = std::move(Snapshot)});
 		bSnapshotInjectedForTesting = true;
 		DirectoryChildrenCache.clear();
-		DirectoryGenerations.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;

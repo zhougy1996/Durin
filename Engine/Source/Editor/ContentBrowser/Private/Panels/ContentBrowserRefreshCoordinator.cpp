@@ -17,17 +17,27 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 InMountedContentRevision,
 		uint64 InAssetRegistryRevision) -> void
 	{
+		LatestMountedContentRevision = InMountedContentRevision;
 		ObservedMountedContentRevision = InMountedContentRevision;
 		ObservedAssetRegistryRevision = InAssetRegistryRevision;
 		if (!ReconciliationState)
 			ReconciliationState =
 				std::make_shared<FMountedContentReconciliationState>();
-		if (!ReconciliationState->bInitialized)
+		if (ReconciliationState->State == FMountedContentReconciliationState::EState::Uninitialized)
 		{
-			ReconciliationState->SynchronizedRevision =
+			ReconciliationState->Revision =
 				InMountedContentRevision;
-			ReconciliationState->bInitialized = true;
+			ReconciliationState->State = FMountedContentReconciliationState::EState::Synchronized;
 		}
+	}
+
+	auto FContentBrowserRefreshCoordinator::ObserveMountedContent(uint64 Revision) -> void
+	{
+		if (Revision == LatestMountedContentRevision) return;
+		LatestMountedContentRevision = Revision;
+		// Suspend only captures that predate this mutation. A fresh explicit/catalog
+		// capture remains eligible even when automatic reconciliation is suppressed.
+		if (SetPublicationSuspended) SetPublicationSuspended(true);
 	}
 
 	auto FContentBrowserRefreshCoordinator::Synchronize(
@@ -37,27 +47,23 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FRefreshPublishedContent& RefreshPublishedContent,
 		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
 	{
+		ObserveMountedContent(MountedContentRevision);
 		const bool bPanelMountedContentChanged =
 			MountedContentRevision != ObservedMountedContentRevision;
-		const bool bReconciliationRequired = MountedContentRevision
-			!= ReconciliationState->SynchronizedRevision;
-		const bool bFailedRevisionSuppressed =
-			ReconciliationState->FailedRevision
-			&& *ReconciliationState->FailedRevision == MountedContentRevision;
-		if (bReconciliationRequired && !bFailedRevisionSuppressed)
+		if (ReconciliationState->Revision != MountedContentRevision
+			|| ReconciliationState->State == FMountedContentReconciliationState::EState::Uninitialized)
 		{
 			const FAssetResult Result = ReconcileMountedContent();
-			if (!Result)
-			{
-				ReconciliationState->FailedRevision = MountedContentRevision;
-				return Result;
-			}
-			ReconciliationState->SynchronizedRevision = MountedContentRevision;
-			ReconciliationState->FailedRevision.reset();
+			ReconciliationState->Revision = MountedContentRevision;
+			ReconciliationState->State = Result
+				? FMountedContentReconciliationState::EState::Synchronized
+				: FMountedContentReconciliationState::EState::Failed;
+			if (!Result) return Result;
 		}
 
 		if (bPanelMountedContentChanged
-			&& ReconciliationState->SynchronizedRevision
+			&& ReconciliationState->State == FMountedContentReconciliationState::EState::Synchronized
+			&& ReconciliationState->Revision
 				== MountedContentRevision)
 		{
 			CompleteReconciliation(
@@ -78,15 +84,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FRefreshPublishedContent& RefreshPublishedContent,
 		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
 	{
+		ObserveMountedContent(MountedContentRevision);
 		const FAssetResult Result = ReconcileMountedContent();
-		if (!Result)
-		{
-			ReconciliationState->FailedRevision = MountedContentRevision;
-			return Result;
-		}
-		ReconciliationState->SynchronizedRevision = MountedContentRevision;
-		ReconciliationState->FailedRevision.reset();
+		ReconciliationState->Revision = MountedContentRevision;
+		ReconciliationState->State = Result
+			? FMountedContentReconciliationState::EState::Synchronized
+			: FMountedContentReconciliationState::EState::Failed;
+		if (!Result) return Result;
 		RefreshPublishedContent({.bFullRefresh = true});
+		if (SetPublicationSuspended) SetPublicationSuspended(false);
 		ObservedMountedContentRevision = MountedContentRevision;
 		ObservedAssetRegistryRevision = GetRegistryRevision();
 		return {};
@@ -107,6 +113,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const uint64 CatalogRevision = GetRegistryRevision();
 		RefreshPublishedContent(CaptureImpact(MountedContentRevision, CatalogRevision));
+		if (SetPublicationSuspended) SetPublicationSuspended(false);
 		ObservedMountedContentRevision = MountedContentRevision;
 		ObservedAssetRegistryRevision = CatalogRevision;
 	}

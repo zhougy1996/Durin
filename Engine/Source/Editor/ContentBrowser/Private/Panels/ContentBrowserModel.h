@@ -23,12 +23,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Owner-thread, nonblocking frame pump; true means item publication or failure
 		// completed and the panel may repair its selection against current rows.
 		auto PumpPendingSnapshots() -> bool;
-		// Old captures wait for acknowledgement; fresh user/catalog requests can still proceed after failure.
-		auto SetMountedContentValidation(std::function<uint64()> Current, std::function<uint64()> Acknowledged) -> void
-		{ CurrentMountedRevision = std::move(Current); AcknowledgedMountedRevision = std::move(Acknowledged); }
-		auto IsLoading() const -> bool { return bItemsLoading; }
+		// Reconciliation suspends existing captures; a fresh explicit capture starts a new lifecycle.
+		auto SetSnapshotPublicationSuspended(bool bSuspended) -> void { bSnapshotPublicationSuspended = bSuspended; }
+		auto IsLoading() const -> bool { return ItemsRequest && ItemsRequest->State != EItemsRequestState::Completed; }
 		auto GetNavigationRevision() const -> uint64 { return Session.NavigationRevision; }
-		auto GetRequestGeneration() const -> uint64 { return ItemsGeneration; }
+		// Diagnostic count only; request ownership determines whether a result may publish.
+		auto GetItemsRequestCount() const -> uint64 { return ItemsRequestCount; }
 		// Invalidates publication and requests cooperative cancellation without waiting.
 		auto CancelPendingSnapshots() -> void;
 		auto WaitForPendingSnapshotsForTesting() -> void;
@@ -134,30 +134,23 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
-		bool bItemsLoading = false;
+		bool bSnapshotPublicationSuspended = false;
 		FTaskScopeToken TaskScope;
 		uint64 SnapshotVersion = 0;
-		uint64 ItemsGeneration = 0;
-		uint64 TreeGeneration = 0;
-		uint64 ActiveItemsGeneration = 0;
-		uint64 ActiveItemsNavigationRevision = 0;
-		uint64 ValidatedMountedRevision = 0;
-		std::function<uint64()> CurrentMountedRevision;
-		std::function<uint64()> AcknowledgedMountedRevision;
-		uint64 ActiveTreeGeneration = 0;
-		uint64 ActiveTreeDirectoryGeneration = 0;
-		std::unordered_map<std::string, uint64> DirectoryGenerations;
-		uint64 ValidatedCatalogRevision = 0;
-		// Latest pending request owns all inputs needed after the active worker exits.
+		uint64 ItemsRequestCount = 0;
+		bool bActiveTreePublishable = false;
+		enum class EItemsRequestState : uint8 { Queued, Capturing, Completed, Cancelled };
+		// The request owns its inputs and journal cursor. Replacing it retires publication rights.
 		struct FItemsRequest
 		{
 			std::string Directory;
 			bool bRecursive = false;
 			std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
-			uint64 NavigationRevision = 0;
-			uint64 MountedRevision = 0;
+			uint64 CatalogCursor = 0;
+			EItemsRequestState State = EItemsRequestState::Queued;
 		};
-		std::optional<FItemsRequest> PendingItemsRequest;
+		std::shared_ptr<FItemsRequest> ItemsRequest;
+		std::shared_ptr<FItemsRequest> ActiveItemsRequest;
 		// The model alone consumes these move-only results after worker completion.
 		Tasks::TTask<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
 		Tasks::TTask<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;

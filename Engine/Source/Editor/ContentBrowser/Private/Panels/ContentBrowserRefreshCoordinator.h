@@ -21,6 +21,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FCaptureChanges = std::function<FContentChangeBatch(uint64)>;
 		auto SetChangeSources(FCaptureChanges Mounted, FCaptureChanges Catalog) -> void
 		{ CaptureMounted = std::move(Mounted); CaptureCatalog = std::move(Catalog); }
+		// Notify the model at lifecycle boundaries, rather than exposing reconciliation counters.
+		auto SetPublicationSuspension(std::function<void(bool)> Notify) -> void
+		{ SetPublicationSuspended = std::move(Notify); }
+		auto ObserveMountedContent(uint64 Revision) -> void;
 		FContentBrowserRefreshCoordinator() = default;
 		FContentBrowserRefreshCoordinator(
 			uint64 InMountedContentRevision,
@@ -62,6 +66,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto CaptureImpact(uint64 MountedRevision, uint64 CatalogRevision) const -> FContentChangeBatch;
 		FCaptureChanges CaptureMounted;
 		FCaptureChanges CaptureCatalog;
+		std::function<void(bool)> SetPublicationSuspended;
+		uint64 LatestMountedContentRevision = 0;
 		uint64 ObservedMountedContentRevision = 0;
 		uint64 ObservedAssetRegistryRevision = 0;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;

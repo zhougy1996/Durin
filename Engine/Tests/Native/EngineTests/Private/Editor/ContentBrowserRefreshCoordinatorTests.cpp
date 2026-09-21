@@ -170,6 +170,8 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	FailedRevisionDoesNotSpinAndExplicitRefreshRetriesPendingWork)
 {
 	FContentBrowserRefreshCoordinator Coordinator(2, 30);
+	std::vector<bool> PublicationSuspensions;
+	Coordinator.SetPublicationSuspension([&](bool bSuspended) { PublicationSuspensions.push_back(bSuspended); });
 	int ScanCount = 0;
 	int RefreshCount = 0;
 	uint64 RegistryRevision = 30;
@@ -205,6 +207,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	EXPECT_EQ(ScanCount, 2);
 	EXPECT_EQ(RefreshCount, 2);
 	EXPECT_EQ(Coordinator.GetObservedMountedContentRevision(), 3);
+	EXPECT_EQ(PublicationSuspensions, (std::vector<bool>{true, false}));
 }
 
 TEST(FContentBrowserRefreshCoordinatorTests,

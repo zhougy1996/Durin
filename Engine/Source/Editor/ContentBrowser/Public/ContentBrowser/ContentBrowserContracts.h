@@ -181,9 +181,9 @@ namespace Durin::Editor::ContentBrowser
 	// A host shares reconciliation across browsers while each browser retains its own cursor.
 	struct FMountedContentReconciliationState
 	{
-		uint64 SynchronizedRevision = 0;
-		std::optional<uint64> FailedRevision;
-		bool bInitialized = false;
+		enum class EState : uint8 { Uninitialized, Synchronized, Failed };
+		uint64 Revision = 0;
+		EState State = EState::Uninitialized;
 	};
 
 	// Supplies implementation-neutral services required to construct the browser.

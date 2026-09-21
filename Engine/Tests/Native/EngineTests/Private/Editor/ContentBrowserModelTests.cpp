@@ -1,6 +1,7 @@
 #include "Asset/RegistryOperations.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
+#include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Operations/ContentBrowserOperationService.h"
@@ -860,10 +861,10 @@ TEST_F(FContentBrowserModelTests, AsyncSearchPublishesUsingLatestQueryWithoutRes
 	});
 	Model.SetSearch("unmatched");
 	ASSERT_TRUE(Gate->WaitUntilStarted());
-	const uint64 Generation = Model.GetRequestGeneration();
+	const uint64 Generation = Model.GetItemsRequestCount();
 	Model.SetSearch("Needle");
 	Model.SetSort(EContentBrowserSortColumn::Name, false);
-	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	EXPECT_EQ(Model.GetItemsRequestCount(), Generation);
 	Gate->Release();
 	Model.WaitForPendingSnapshotsForTesting();
 	ASSERT_EQ(Model.GetItems().size(), 1);
@@ -3159,12 +3160,12 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshPreservesUnrelatedRowsAndTreeIden
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	const auto Tree = Model.GetDirectorySnapshot(A.generic_string());
 	const auto Version = Model.GetSnapshotVersion();
-	const auto Generation = Model.GetRequestGeneration();
+	const auto Generation = Model.GetItemsRequestCount();
 	FContentChangeBatch Changes{.Changes = {{EContentChangeKind::Modified,
 		(B / "asset.dasset").generic_string(), (B / "asset.dasset").generic_string()}}};
 	EXPECT_FALSE(Model.ApplyContentChanges(Changes));
 	EXPECT_EQ(Model.GetSnapshotVersion(), Version);
-	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	EXPECT_EQ(Model.GetItemsRequestCount(), Generation);
 	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
 	Changes.Changes[0].OldPhysicalPath = Changes.Changes[0].NewPhysicalPath = (A / "asset.dasset").generic_string();
 	EXPECT_TRUE(Model.ApplyContentChanges(Changes));
@@ -3227,14 +3228,14 @@ TEST_F(FContentBrowserModelTests, UnrelatedChangesPreserveInFlightCaptureAndRela
 	});
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
 	ASSERT_TRUE(Gate->WaitUntilStarted());
-	const auto Generation = Model.GetRequestGeneration();
+	const auto Generation = Model.GetItemsRequestCount();
 	EXPECT_FALSE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
 		(B / "Other").generic_string(), {}, {}, true}}}));
-	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	EXPECT_EQ(Model.GetItemsRequestCount(), Generation);
 	std::filesystem::create_directory(A / "Latest");
 	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
 		(A / "Latest").generic_string(), {}, {}, true}}}));
-	EXPECT_GT(Model.GetRequestGeneration(), Generation);
+	EXPECT_GT(Model.GetItemsRequestCount(), Generation);
 	Gate->Release();
 	Model.WaitForPendingSnapshotsForTesting();
 	EXPECT_EQ(Model.GetItems().size(), 2u);
@@ -3245,16 +3246,16 @@ TEST_F(FContentBrowserModelTests, MountedReconciliationFencePreventsPrematurePub
 {
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directory(A / "Child");
-	uint64 Current = 1;
-	uint64 Acknowledged = 1;
 	FContentBrowserModel Model(true);
-	Model.SetMountedContentValidation([&] { return Current; }, [&] { return Acknowledged; });
+	FContentBrowserRefreshCoordinator Coordinator(1, GetAssetCatalogRevision());
+	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
-	++Current;
+	Coordinator.ObserveMountedContent(2);
 	EXPECT_FALSE(Model.PumpPendingSnapshots());
 	EXPECT_TRUE(Model.IsLoading());
 	EXPECT_TRUE(Model.GetItems().empty());
-	Acknowledged = Current;
+	ASSERT_TRUE(Coordinator.Synchronize(2, GetAssetCatalogRevision(),
+		[] { return FAssetResult{}; }, [](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
 	Model.WaitForPendingSnapshotsForTesting();
 	EXPECT_FALSE(Model.IsLoading());
 	EXPECT_EQ(Model.GetItems().size(), 1u);
@@ -3305,7 +3306,7 @@ TEST_F(FContentBrowserModelTests, CatalogChangesValidateInFlightScopeWithoutGlob
 	});
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
 	ASSERT_TRUE(Gate->WaitUntilStarted());
-	const auto Generation = Model.GetRequestGeneration();
+	const auto Generation = Model.GetItemsRequestCount();
 	const auto Revision = GetAssetCatalogRevision();
 	auto Publication = CaptureAssetRegistryPublication();
 	Publication.Assets.at(BPath).SearchableNames = {"ChangedOutsideScope"};
@@ -3316,7 +3317,7 @@ TEST_F(FContentBrowserModelTests, CatalogChangesValidateInFlightScopeWithoutGlob
 	EXPECT_EQ(Changes.Changes[0].Kind, EContentChangeKind::Modified);
 	EXPECT_EQ(Changes.Changes[0].NewAssetPath, BPath.ToString());
 	EXPECT_FALSE(Model.PumpPendingSnapshots());
-	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	EXPECT_EQ(Model.GetItemsRequestCount(), Generation);
 	const auto CommittedRevision = GetAssetCatalogRevision();
 	EXPECT_FALSE(PublishAssetRegistryPublication(Publication));
 	EXPECT_EQ(GetAssetCatalogRevision(), CommittedRevision);
@@ -3325,7 +3326,7 @@ TEST_F(FContentBrowserModelTests, CatalogChangesValidateInFlightScopeWithoutGlob
 	Publication.Assets.at(APath).SearchableNames = {"ChangedInsideScope"};
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 	EXPECT_FALSE(Model.PumpPendingSnapshots());
-	EXPECT_GT(Model.GetRequestGeneration(), Generation);
+	EXPECT_GT(Model.GetItemsRequestCount(), Generation);
 	Gate->Release();
 	Model.WaitForPendingSnapshotsForTesting();
 	EXPECT_FALSE(Model.IsLoading());
@@ -3422,14 +3423,21 @@ TEST_F(FContentBrowserModelTests, FreshCatalogCaptureCanProceedWhileMountedRevis
 {
 	const auto A = Root / "Content/A";
 	std::filesystem::create_directory(A / "Child");
-	uint64 Current = 1;
 	FContentBrowserModel Model(true);
-	Model.SetMountedContentValidation([&] { return Current; }, [] { return uint64{1}; });
+	FContentBrowserRefreshCoordinator Coordinator(1, GetAssetCatalogRevision());
+	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
-	Current = 2;
+	Coordinator.ObserveMountedContent(2);
 	EXPECT_FALSE(Model.PumpPendingSnapshots());
-	// This is the refresh requested by the coordinator's independent registry branch.
+	int Attempts = 0;
+	const auto Reconcile = [&] { ++Attempts; return FAssetResult{EAssetError::IoError, "forced failure"}; };
+	EXPECT_FALSE(Coordinator.Synchronize(2, GetAssetCatalogRevision(), Reconcile,
+		[](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
+	// A fresh request can proceed, and a suppressed failure must not suspend it again.
 	Model.RefreshItemsSnapshot(false);
+	EXPECT_TRUE(Coordinator.Synchronize(2, GetAssetCatalogRevision(), Reconcile,
+		[](const FContentChangeBatch&) {}, GetAssetCatalogRevision));
+	EXPECT_EQ(Attempts, 1);
 	Model.WaitForPendingSnapshotsForTesting();
 	EXPECT_FALSE(Model.IsLoading());
 	EXPECT_EQ(Model.GetItems().size(), 1u);

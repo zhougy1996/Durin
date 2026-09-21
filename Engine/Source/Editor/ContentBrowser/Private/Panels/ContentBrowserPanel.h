@@ -54,8 +54,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			CaptureMountedContentChanges = std::move(Capture);
 			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetCatalogChanges);
-			Model.SetMountedContentValidation(GetMountedContentMutationRevision,
-				[this] { return RefreshCoordinator.GetObservedMountedContentRevision(); });
+			RefreshCoordinator.SetPublicationSuspension(
+				[this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
 			Operations.SetScopedContentNotifier(std::move(Notify));
 		}
 

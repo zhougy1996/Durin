@@ -142,6 +142,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view PhysicalPath,
 		bool bAddHistory) -> bool
 	{
+		if (GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
 		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
@@ -155,6 +157,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::NavigateHistory(int32 Delta) -> void
 	{
+		if (GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (Model.NavigateHistory(Delta))
 		{
@@ -169,6 +173,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::Refresh(bool bRescanRegistry) -> void
 	{
+		if (GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
 		if (bRescanRegistry)
 		{
 			const uint64 MountedContentRevision = GetMountedContentMutationRevision
@@ -602,6 +608,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> bool
 	{
+		if (GetMountedContentMutationRevision)
+			RefreshCoordinator.ObserveMountedContent(GetMountedContentMutationRevision());
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return false;
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
