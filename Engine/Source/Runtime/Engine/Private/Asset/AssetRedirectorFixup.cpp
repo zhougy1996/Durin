@@ -4,7 +4,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
-#include "AssetMutationJobInternal.h"
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
@@ -149,47 +148,6 @@ namespace Durin
 		std::vector<FFixupStoreState> Stores;
 		FAssetMutationStaging Staging;
 	};
-
-	auto FAssetRedirectorFixupSummary::GetMode() const
-		-> EAssetRedirectorFixupMode
-	{
-		return Mode;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetRegistryRevision() const -> uint64
-	{
-		return RegistryRevision;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetRedirectors() const
-		-> std::span<const FPackagePath>
-	{
-		return Redirectors;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetFinalPathMappings() const
-		-> std::span<const FAssetRedirectorFixupMapping>
-	{
-		return FinalPathMappings;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetPackageOccurrences() const
-		-> std::span<const FAssetReferenceEdge>
-	{
-		return PackageOccurrences;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetStoreOccurrences() const
-		-> std::span<const FAssetReferenceStoreOccurrence>
-	{
-		return StoreOccurrences;
-	}
-
-	auto FAssetRedirectorFixupSummary::GetDeletableRedirectors() const
-		-> std::span<const FPackagePath>
-	{
-		return DeletableRedirectors;
-	}
 
 	auto FAssetMutationCoordinator::PrepareRedirectorFixupState(
 		std::span<const FPackagePath> Redirectors,
@@ -540,58 +498,41 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::PrepareRedirectorFixupJob(
+	auto FAssetMutationCoordinator::FixUpRedirectors(
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetWriteResult
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
-		OutSummary = {};
-		OutJob = {};
 		std::shared_ptr<FAssetRedirectorFixupState> Fixup;
-		FAssetWriteResult Result = PrepareRedirectorFixupState(
-			Redirectors, Mode, Fixup);
-		if (!Result) return Result;
-
-		OutSummary.Mode = Fixup->Mode;
-		OutSummary.RegistryRevision = Fixup->ExpectedRegistryRevision;
-		OutSummary.Redirectors = Fixup->Redirectors;
-		OutSummary.FinalPathMappings = Fixup->Mappings;
-		OutSummary.PackageOccurrences = Fixup->PackageOccurrences;
-		OutSummary.StoreOccurrences = Fixup->StoreOccurrences;
-		OutSummary.DeletableRedirectors = Fixup->DeletableRedirectors;
-
-		auto JobState = std::make_shared<FAssetMutationJob::FState>();
-		JobState->ExecuteOperation = [Fixup] {
-			return FAssetRuntimeState::Get().GetMutationCoordinator().CommitRedirectorFixup(Fixup);
-		};
-		JobState->PopulateResultDetails = [Fixup](
-			FAssetMutationResultDetails& Details) {
-			Details.AffectedFiles = Fixup->Staging.PublishedFiles;
-			if (Fixup->Staging.bRetainBackups)
-				Details.BackupLocations = Fixup->Staging.Roots;
-			if (!Details.Result)
-			{
-				Details.FailedPaths = Fixup->Redirectors;
-				return;
-			}
-			for (const FAssetReferenceEdge& Occurrence :
-				Fixup->PackageOccurrences)
-				Details.RewrittenPaths.push_back(Occurrence.SourcePackage);
-			std::ranges::sort(Details.RewrittenPaths,
-				[](const FPackagePath& Left, const FPackagePath& Right) {
-					return Left.GetView() < Right.GetView();
-				});
-			Details.RewrittenPaths.erase(std::ranges::unique(
-				Details.RewrittenPaths).begin(), Details.RewrittenPaths.end());
-			if (Fixup->Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
-				Details.DeletedPaths = Fixup->DeletableRedirectors;
-			else
-				Details.RetainedPaths = Fixup->Redirectors;
-		};
-		JobState->LastResult.RegistryRevision = GetAssetCatalogRevision();
-		OutJob.State = std::move(JobState);
-		return {};
+		FAssetMutationResultDetails Details;
+		Details.Result = PrepareRedirectorFixupState(Redirectors, Mode, Fixup);
+		Details.RegistryRevision = GetAssetCatalogRevision();
+		if (!Details.Result) return Details;
+		if (BeforeCommit) BeforeCommit();
+		Details.Result = CommitRedirectorFixup(Fixup);
+		Details.RegistryRevision = GetAssetCatalogRevision();
+		Details.AffectedFiles = Fixup->Staging.PublishedFiles;
+		if (Fixup->Staging.bRetainBackups)
+			Details.BackupLocations = Fixup->Staging.Roots;
+		if (!Details.Result)
+		{
+			Details.FailedPaths = Fixup->Redirectors;
+			return Details;
+		}
+		for (const FAssetReferenceEdge& Occurrence :
+			Fixup->PackageOccurrences)
+			Details.RewrittenPaths.push_back(Occurrence.SourcePackage);
+		std::ranges::sort(Details.RewrittenPaths,
+			[](const FPackagePath& Left, const FPackagePath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+		Details.RewrittenPaths.erase(std::ranges::unique(
+			Details.RewrittenPaths).begin(), Details.RewrittenPaths.end());
+		if (Fixup->Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+			Details.DeletedPaths = Fixup->DeletableRedirectors;
+		else
+			Details.RetainedPaths = Fixup->Redirectors;
+		return Details;
 	}
 
 	auto FAssetMutationCoordinator::ValidateRedirectorFixupCommit(

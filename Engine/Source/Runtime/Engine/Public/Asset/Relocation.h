@@ -15,29 +15,8 @@ namespace Durin
 		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
 	};
 
-	class FAssetRelocationSummary
-	{
-	public:
-		FAssetRelocationSummary() = default;
-		FAssetRelocationSummary(
-			uint64 InRegistryRevision,
-			std::vector<FPackagePath> InScope)
-			: RegistryRevision(InRegistryRevision)
-			, Scope(std::move(InScope))
-		{
-		}
-
-		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
-		auto GetScope() const -> std::span<const FPackagePath> { return Scope; }
-
-	private:
-		uint64 RegistryRevision = 0;
-		std::vector<FPackagePath> Scope;
-	};
-
-	ENGINE_API auto PrepareAssetRelocationJob(
-		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationSummary& OutSummary,
-		FAssetMutationJob& OutJob
-	) -> FAssetWriteResult;
+	// Prepares, revalidates, and commits synchronously on the owner thread.
+	ENGINE_API auto RelocateAssets(
+		std::span<const FAssetRelocationMapping> Mappings
+	) -> FAssetMutationResultDetails;
 } // namespace Durin

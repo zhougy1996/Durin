@@ -1464,10 +1464,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	const auto OriginalLeafPath = Leaf->GetObjectPath();
 	const std::array Mappings{FAssetRelocationMapping{LeafPath, MovedPath}};
-	FAssetRelocationSummary Summary;
-	FAssetMutationJob Job;
-	ASSERT_TRUE(PrepareAssetRelocationJob(Mappings, Summary, Job));
-	ASSERT_TRUE(Job.Execute());
+	ASSERT_TRUE(RelocateAssets(Mappings).Result);
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);

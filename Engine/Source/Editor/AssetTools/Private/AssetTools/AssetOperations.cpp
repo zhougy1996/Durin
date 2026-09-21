@@ -41,16 +41,15 @@ namespace Durin
 			Result.bPublished = true;
 		}
 
-		auto CommitMutation(
-			FAssetMutationJob Job,
+		auto FromMutationResult(
+			const FAssetMutationResultDetails& Details,
 			EAssetOperationKind Kind,
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
-			const FAssetWriteResult Committed = Job.Execute();
+			const FAssetWriteResult& Committed = Details.Result;
 			if (!Committed)
 			{
 				auto Result = AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
-				const auto Details = Job.GetLastResultDetails();
 				Result.AffectedFiles = Details.AffectedFiles;
 				if (!Details.BackupLocations.empty()) Result.RecoveryLocation = Details.BackupLocations.front();
 				return Result;
@@ -330,14 +329,8 @@ namespace Durin
 			Affected.push_back(Mapping.SourcePath);
 			Affected.push_back(Mapping.DestinationPath);
 		}
-		FAssetRelocationSummary Summary;
-		FAssetMutationJob Job;
-		const FAssetWriteResult Prepared = PrepareAssetRelocationJob(
-			Mappings, Summary, Job);
-		if (!Prepared)
-			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Relocate, Prepared, Affected);
-		return CommitMutation(
-			std::move(Job), EAssetOperationKind::Relocate, Affected);
+		return FromMutationResult(
+			RelocateAssets(Mappings), EAssetOperationKind::Relocate, Affected);
 	}
 
 	auto FixUpRedirectorsWithEditorPolicy(
@@ -345,20 +338,12 @@ namespace Durin
 	{
 		if (Request.Redirectors.empty())
 			return {.Kind = EAssetOperationKind::FixUpRedirectors};
-		FAssetRedirectorFixupSummary Summary;
-		FAssetMutationJob Job;
-		const FAssetWriteResult Prepared = PrepareRedirectorFixupJob(
-			Request.Redirectors,
-			Request.bDeleteRedirectors
-				? EAssetRedirectorFixupMode::RewriteAndDelete
-				: EAssetRedirectorFixupMode::RewriteOnly,
-			Summary, Job);
-		if (!Prepared)
-			return AssetToolsPrivate::FromEngineResult(
-				EAssetOperationKind::FixUpRedirectors, Prepared, Request.Redirectors);
-		return CommitMutation(
-			std::move(Job), EAssetOperationKind::FixUpRedirectors,
-			Request.Redirectors);
+		return FromMutationResult(
+			FixUpRedirectors(Request.Redirectors,
+				Request.bDeleteRedirectors
+					? EAssetRedirectorFixupMode::RewriteAndDelete
+					: EAssetRedirectorFixupMode::RewriteOnly),
+			EAssetOperationKind::FixUpRedirectors, Request.Redirectors);
 	}
 
 }

@@ -3,7 +3,6 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
-#include "AssetMutationJobInternal.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -428,40 +427,23 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::PrepareAssetRelocationJob(
+	auto FAssetMutationCoordinator::RelocateAssets(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetWriteResult
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
-		OutSummary = {};
-		OutJob = {};
 		std::shared_ptr<FAssetRelocationState> Relocation;
-		FAssetWriteResult Result = PrepareAssetRelocationState(Mappings, Relocation);
-		if (!Result) return Result;
-
-		std::vector<FPackagePath> Scope;
-		Scope.reserve(Mappings.size() * 2);
-		for (const FAssetRelocationMapping& Mapping : Mappings)
+		FAssetMutationResultDetails Details;
+		Details.Result = PrepareAssetRelocationState(Mappings, Relocation);
+		if (Details.Result)
 		{
-			Scope.push_back(Mapping.SourcePath);
-			Scope.push_back(Mapping.DestinationPath);
-		}
-		OutSummary = FAssetRelocationSummary(
-			Relocation->ExpectedRegistryRevision,
-			std::move(Scope));
-		auto JobState = std::make_shared<FAssetMutationJob::FState>();
-		JobState->ExecuteOperation = [Relocation] {
-			return FAssetRuntimeState::Get().GetMutationCoordinator().ApplyAssetRelocation(Relocation);
-		};
-		JobState->PopulateResultDetails = [Relocation](FAssetMutationResultDetails& Details) {
+			if (BeforeCommit) BeforeCommit();
+			Details.Result = ApplyAssetRelocation(Relocation);
 			Details.AffectedFiles = Relocation->Staging.PublishedFiles;
 			if (Relocation->Staging.bRetainBackups)
 				Details.BackupLocations = Relocation->Staging.Roots;
-		};
-		JobState->LastResult.RegistryRevision =
-			GetAssetCatalogRevision();
-		OutJob.State = std::move(JobState);
-		return {};
+		}
+		Details.RegistryRevision = GetAssetCatalogRevision();
+		return Details;
 	}
 
 	auto FAssetMutationCoordinator::RevalidateAssetRelocation(

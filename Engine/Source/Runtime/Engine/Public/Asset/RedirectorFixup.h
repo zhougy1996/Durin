@@ -4,6 +4,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/MutationExtensions.h"
+#include "Asset/MutationTypes.h"
 #include "Asset/References.h"
 
 namespace Durin
@@ -22,40 +23,9 @@ namespace Durin
 		RewriteAndDelete
 	};
 
-	class FAssetRedirectorFixupSummary
-	{
-	public:
-		ENGINE_API auto GetMode() const -> EAssetRedirectorFixupMode;
-		ENGINE_API auto GetRegistryRevision() const -> uint64;
-		ENGINE_API auto GetRedirectors() const -> std::span<const FPackagePath>;
-		ENGINE_API auto GetFinalPathMappings() const
-			-> std::span<const FAssetRedirectorFixupMapping>;
-		ENGINE_API auto GetPackageOccurrences() const
-			-> std::span<const FAssetReferenceEdge>;
-		ENGINE_API auto GetStoreOccurrences() const
-			-> std::span<const FAssetReferenceStoreOccurrence>;
-		ENGINE_API auto GetDeletableRedirectors() const
-			-> std::span<const FPackagePath>;
-
-	private:
-		EAssetRedirectorFixupMode Mode =
-			EAssetRedirectorFixupMode::RewriteOnly;
-		uint64 RegistryRevision = 0;
-		std::vector<FPackagePath> Redirectors;
-		std::vector<FAssetRedirectorFixupMapping> FinalPathMappings;
-		std::vector<FAssetReferenceEdge> PackageOccurrences;
-		std::vector<FAssetReferenceStoreOccurrence> StoreOccurrences;
-		std::vector<FPackagePath> DeletableRedirectors;
-
-#if defined(DURIN_ENGINE_ASSET_INTERNAL)
-		friend class FAssetMutationCoordinator;
-#endif
-	};
-
-	ENGINE_API auto PrepareRedirectorFixupJob(
+	// Prepares, revalidates, and commits synchronously on the owner thread.
+	ENGINE_API auto FixUpRedirectors(
 		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationJob& OutJob
-	) -> FAssetWriteResult;
+		EAssetRedirectorFixupMode Mode
+	) -> FAssetMutationResultDetails;
 } // namespace Durin

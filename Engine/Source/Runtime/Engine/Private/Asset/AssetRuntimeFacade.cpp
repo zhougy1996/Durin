@@ -49,23 +49,31 @@ namespace Durin
 		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Mode);
 	}
 
-	auto PrepareAssetRelocationJob(
-		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetRelocationSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetWriteResult
+	auto RelocateAssets(std::span<const FAssetRelocationMapping> Mappings)
+		-> FAssetMutationResultDetails
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareAssetRelocationJob(Mappings, OutSummary, OutJob);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().RelocateAssets(Mappings);
 	}
 
-	auto PrepareRedirectorFixupJob(
+	auto FixUpRedirectors(std::span<const FPackagePath> Redirectors,
+		EAssetRedirectorFixupMode Mode) -> FAssetMutationResultDetails
+	{
+		return FAssetRuntimeState::Get().GetMutationCoordinator().FixUpRedirectors(Redirectors, Mode);
+	}
+
+	auto RelocateAssetsWithBeforeCommitForTesting(
+		std::span<const FAssetRelocationMapping> Mappings,
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
+	{
+		return FAssetRuntimeState::Get().GetMutationCoordinator().RelocateAssets(Mappings, BeforeCommit);
+	}
+
+	auto FixUpRedirectorsWithBeforeCommitForTesting(
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
-		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationJob& OutJob) -> FAssetWriteResult
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareRedirectorFixupJob(Redirectors, Mode, OutSummary, OutJob);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().FixUpRedirectors(Redirectors, Mode, BeforeCommit);
 	}
 
 	auto IsPackageLoading(const FPackagePath& Path) -> bool

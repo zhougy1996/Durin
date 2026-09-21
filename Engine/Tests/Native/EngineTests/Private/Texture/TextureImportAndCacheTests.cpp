@@ -41,12 +41,7 @@ namespace
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
 		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::FAssetRelocationSummary Summary;
-		Durin::FAssetMutationJob Transaction;
-		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
-				std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.Execute();
-		return Result;
+		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
 	}
 }
 

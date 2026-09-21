@@ -126,10 +126,9 @@ namespace Durin
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetWriteResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
-		auto PrepareAssetRelocationJob(
+		auto RelocateAssets(
 			std::span<const FAssetRelocationMapping> Mappings,
-			FAssetRelocationSummary& OutSummary,
-			FAssetMutationJob& OutJob) -> FAssetWriteResult;
+			const std::function<void()>& BeforeCommit = {}) -> FAssetMutationResultDetails;
 		auto PrepareAssetRelocationState(
 			std::span<const FAssetRelocationMapping> Mappings,
 			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult;
@@ -137,11 +136,10 @@ namespace Durin
 			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
 		auto ApplyAssetRelocation(
 			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
-		auto PrepareRedirectorFixupJob(
+		auto FixUpRedirectors(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
-			FAssetRedirectorFixupSummary& OutSummary,
-			FAssetMutationJob& OutJob) -> FAssetWriteResult;
+			const std::function<void()>& BeforeCommit = {}) -> FAssetMutationResultDetails;
 		auto PrepareRedirectorFixupState(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,

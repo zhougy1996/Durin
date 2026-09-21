@@ -224,12 +224,7 @@ namespace
 	)
 		-> Durin::FAssetWriteResult
 	{
-		Durin::FAssetRelocationSummary Summary;
-		Durin::FAssetMutationJob Job;
-		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
-				Mappings, Summary, Job);
-		if (Result) Result = Job.Execute();
-		return Result;
+		return Durin::RelocateAssets(Mappings).Result;
 	}
 
 	auto RelocateAssetForTest(
@@ -250,11 +245,7 @@ namespace
 			Durin::EAssetRedirectorFixupMode::RewriteAndDelete)
 		-> Durin::FAssetWriteResult
 	{
-		Durin::FAssetRedirectorFixupSummary Summary;
-		Durin::FAssetMutationJob Job;
-		Durin::FAssetWriteResult Result = Durin::PrepareRedirectorFixupJob(
-				Redirectors, Mode, Summary, Job);
-		return Result ? Job.Execute() : Result;
+		return Durin::FixUpRedirectors(Redirectors, Mode).Result;
 	}
 
 	// Runtime fixture cleanup uses only the package removal primitives.
@@ -4066,24 +4057,14 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 
-	Durin::FAssetRedirectorFixupSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-		std::span{&OldPath, 1},
-		Durin::EAssetRedirectorFixupMode::RewriteOnly,
-		Summary,
-		Job));
-	EXPECT_TRUE(Summary.GetDeletableRedirectors().empty());
-	const auto Executed = Job.Execute();
+	const auto Details = Durin::FixUpRedirectors(
+		std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteOnly);
+	const auto Executed = Details.Result;
 	ASSERT_TRUE(Executed) << Executed.Message;
-	const Durin::FAssetMutationResultDetails Details =
-		Job.GetLastResultDetails();
 	EXPECT_EQ(Details.RewrittenPaths, std::vector{OwnerPath});
 	EXPECT_EQ(Details.RetainedPaths, std::vector{OldPath});
 	EXPECT_TRUE(Details.DeletedPaths.empty());
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Completed);
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 }
@@ -6877,19 +6858,16 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 
 	Durin::TSoftObjectPtr<DPackageAssetForTest> ExternalSetting(MakeFormerMainObjectPath(OldPath));
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
 	const Durin::FAssetRelocationMapping Mapping{OldPath, NewPath};
-	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Job));
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Result = Job.Execute();
+	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Result = Details.Result;
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::PartiallyWritten);
-	EXPECT_FALSE(Job.GetLastResultDetails().BackupLocations.empty());
+	EXPECT_FALSE(Details.BackupLocations.empty());
 	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(OldPath)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
@@ -6915,16 +6893,11 @@ TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 	const Durin::FAssetRelocationMapping Mapping{
 		SourcePath, DestinationPath
 	};
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Job
-	));
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Interrupted = Job.Execute();
-	const auto Details = Job.GetLastResultDetails();
+	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Interrupted = Details.Result;
 	ASSERT_FALSE(Details.BackupLocations.empty());
 	const auto BackupLocation = Details.BackupLocations.front();
 	ASSERT_EQ(Interrupted.Effect, Durin::EAssetWriteEffect::PartiallyWritten);
@@ -6934,7 +6907,6 @@ TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 	const auto SourceFile = Durin::FindAssetExact(SourcePath)->PhysicalPath;
 	Durin::FByteBuffer BeforeRestart;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeRestart, SourceFile));
-	Job = {};
 	EXPECT_TRUE(std::filesystem::is_directory(BackupLocation));
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
@@ -7010,7 +6982,7 @@ TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 	EXPECT_EQ(Durin::FindAssetExact(DestinationPath), nullptr);
 }
 
-TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
+TEST(FPackageAssetTests, RelocationOwnsAndRemovesItsStagingRoot)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath SourcePath;
@@ -7036,36 +7008,40 @@ TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
 	{
 		const Durin::FAssetRelocationMapping Mapping{
 			SourcePath, DestinationPath};
-		Durin::FAssetRelocationSummary Summary;
-		Durin::FAssetMutationJob Job;
-		ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-			std::span{&Mapping, 1}, Summary, Job));
-
-		std::filesystem::path OperationRoot;
-		for (const std::filesystem::directory_entry& Entry :
-			std::filesystem::directory_iterator(StagingRoot))
-			if (!ExistingOperations.contains(
-					Entry.path().filename().generic_string()))
-			{
-				ASSERT_TRUE(OperationRoot.empty());
-				OperationRoot = Entry.path();
-			}
-		ASSERT_FALSE(OperationRoot.empty());
-		for (const auto& Entry : std::filesystem::directory_iterator(OperationRoot))
-			if (Entry.path().filename() != "owner")
-				EXPECT_EQ(Entry.path().extension(), ".tmp");
-		const std::string OperationDirectory =
-			OperationRoot.filename().generic_string();
-		ASSERT_TRUE(OperationDirectory.starts_with("operation-"));
-		Durin::FByteBuffer OwnerBytes;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-			OwnerBytes, OperationRoot / "owner"));
-		const std::string Owner(
-			reinterpret_cast<const char*>(OwnerBytes.data()),
-			OwnerBytes.size());
-		EXPECT_EQ(Owner, std::format(
-			"durin-asset-mutation\n{}\n",
-			OperationDirectory.substr(std::string_view("operation-").size())));
+		bool bInspectedStaging = false;
+		const auto Details = Durin::RelocateAssetsWithBeforeCommitForTesting(
+			std::span{&Mapping, 1}, [&] {
+				bInspectedStaging = true;
+				std::filesystem::path OperationRoot;
+				for (const std::filesystem::directory_entry& Entry :
+					std::filesystem::directory_iterator(StagingRoot))
+					if (!ExistingOperations.contains(
+							Entry.path().filename().generic_string()))
+					{
+						ASSERT_TRUE(OperationRoot.empty());
+						OperationRoot = Entry.path();
+					}
+				ASSERT_FALSE(OperationRoot.empty());
+				for (const auto& Entry : std::filesystem::directory_iterator(OperationRoot))
+					if (Entry.path().filename() != "owner")
+						EXPECT_EQ(Entry.path().extension(), ".tmp");
+				const std::string OperationDirectory =
+					OperationRoot.filename().generic_string();
+				ASSERT_TRUE(OperationDirectory.starts_with("operation-"));
+				Durin::FByteBuffer OwnerBytes;
+				ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+					OwnerBytes, OperationRoot / "owner"));
+				const std::string Owner(
+					reinterpret_cast<const char*>(OwnerBytes.data()),
+					OwnerBytes.size());
+				EXPECT_EQ(Owner, std::format(
+					"durin-asset-mutation\n{}\n",
+					OperationDirectory.substr(std::string_view("operation-").size())));
+				Durin::SetAssetRelocationFailurePointForTesting(
+					Durin::EAssetRelocationFailurePoint::StageOriginal);
+			});
+		EXPECT_TRUE(bInspectedStaging);
+		EXPECT_EQ(Details.Result.Error, Durin::EAssetWriteError::IoError);
 	}
 
 	std::unordered_set<std::string> RemainingOperations;
@@ -7100,12 +7076,9 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 		const Durin::FAssetRelocationMapping Mapping{
 			SourcePath, DestinationPath
 		};
-		Durin::FAssetRelocationSummary Summary;
-		Durin::FAssetMutationJob Job;
-		ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-			std::span{&Mapping, 1}, Summary, Job));
 		Durin::SetAssetRelocationFailurePointForTesting(Points[Index]);
-		EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::IoError);
+		const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+		EXPECT_EQ(Details.Result.Error, Durin::EAssetWriteError::IoError);
 		ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
 		EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
 		EXPECT_EQ(Durin::FindAssetExact(DestinationPath), nullptr);
@@ -7128,16 +7101,13 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PrepareOutput
 	);
-	Durin::FAssetRelocationSummary PrepareSummary;
-	Durin::FAssetMutationJob PreparedJob;
-	EXPECT_EQ(Durin::PrepareAssetRelocationJob(
-		std::span{&PrepareMapping, 1}, PrepareSummary, PreparedJob).Error,
+	EXPECT_EQ(Durin::RelocateAssets(std::span{&PrepareMapping, 1}).Result.Error,
 		Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(Durin::FindAssetExact(PrepareSource)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Durin::FindAssetExact(PrepareDestination), nullptr);
 }
 
-TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndRejectsSecondExecution)
+TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndBackups)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath SourcePath;
@@ -7154,22 +7124,13 @@ TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndRejectsSecondExecutio
 	const Durin::FAssetRelocationMapping Mapping{
 		SourcePath, DestinationPath
 	};
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Job));
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Result = Job.Execute();
+	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Result = Details.Result;
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_NE(Result.Message.find("AssetMutationFailed"), std::string::npos);
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Failed);
-	const Durin::FAssetMutationResultDetails Details =
-		Job.GetLastResultDetails();
-	EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
-	EXPECT_EQ(Details.Result.Error, Result.Error);
 	const std::filesystem::path ContentRoot =
 		Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const std::filesystem::path RecoveryRoot =
@@ -7190,14 +7151,6 @@ TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndRejectsSecondExecutio
 
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::None);
-	const auto SharedJob = Job;
-	const auto Rejected = Job.Execute();
-	EXPECT_EQ(Rejected.Error, Durin::EAssetWriteError::StaleData);
-	EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
-	EXPECT_EQ(SharedJob.GetState(), Durin::EAssetMutationJobState::Failed);
-	EXPECT_EQ(Job.GetLastResultDetails().AffectedFiles, Details.AffectedFiles);
-	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
-	Job = {};
 	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
 
 }
@@ -7246,24 +7199,11 @@ namespace
 
 		FMemoryAssetReferenceStore Store(OldPath);
 		FScopedReferenceStoreRegistration StoreRegistration(&Store);
-		Durin::FAssetRedirectorFixupSummary Summary;
-		Durin::FAssetMutationJob Job;
-		ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-			std::span{&OldPath, 1},
-			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-			Summary,
-			Job
-		));
-		ASSERT_EQ(Summary.GetRedirectors().size(), 1u);
-		EXPECT_EQ(Summary.GetRedirectors().front(), OldPath);
-		EXPECT_EQ(Summary.GetPackageOccurrences().size(), 2u);
-		EXPECT_EQ(Summary.GetStoreOccurrences().size(), 1u);
-		EXPECT_EQ(Summary.GetDeletableRedirectors().size(), 1u);
 		const uint64 ConstructionCount = GSoftPackageConstructionCount;
-		const auto Executed = Job.Execute();
+		const auto Details = Durin::FixUpRedirectors(
+			std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+		const auto Executed = Details.Result;
 		ASSERT_TRUE(Executed) << Executed.Message;
-		const Durin::FAssetMutationResultDetails Details =
-			Job.GetLastResultDetails();
 		EXPECT_EQ(Details.DeletedPaths, std::vector{OldPath});
 		EXPECT_EQ(Details.RewrittenPaths, std::vector{OwnerPath});
 		EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
@@ -7316,18 +7256,12 @@ namespace
 		FMemoryAssetReferenceStore Store(OldPath);
 		const Durin::FAssetReferenceStoreHandle Handle =
 			Durin::RegisterAssetReferenceStore(&Store);
-		Durin::FAssetRedirectorFixupSummary Summary;
-		Durin::FAssetMutationJob Job;
-		ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-			std::span{&OldPath, 1},
-			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-			Summary,
-			Job
-		));
-		Durin::UnregisterAssetReferenceStore(Handle);
-		const auto Result = Job.Execute();
+		const auto Details = Durin::FixUpRedirectorsWithBeforeCommitForTesting(
+			std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
+			[&] { Durin::UnregisterAssetReferenceStore(Handle); });
+		const auto Result = Details.Result;
 		EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
-		EXPECT_EQ(Job.GetLastResultDetails().FailedPaths,
+		EXPECT_EQ(Details.FailedPaths,
 			std::vector{OldPath});
 		EXPECT_EQ(Store.Path, OldPath);
 		const auto Alias = Durin::FindAssetExact(OldPath);
@@ -7370,8 +7304,6 @@ namespace
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(PreBytes, OwnerFile));
 			std::filesystem::perms OriginalPermissions =
 				std::filesystem::status(OwnerFile).permissions();
-			Durin::FAssetRedirectorFixupSummary Summary;
-			Durin::FAssetMutationJob Job;
 			Durin::FAssetWriteResult Result;
 			if (bReadOnly)
 			{
@@ -7385,12 +7317,8 @@ namespace
 					PermissionError
 				);
 				ASSERT_FALSE(PermissionError) << PermissionError.message();
-				Result = Durin::PrepareRedirectorFixupJob(
-					std::span{&OldPath, 1},
-					Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-					Summary,
-					Job
-				);
+				Result = Durin::FixUpRedirectors(
+					std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete).Result;
 				std::filesystem::permissions(
 					OwnerFile, OriginalPermissions,
 					std::filesystem::perm_options::replace,
@@ -7402,18 +7330,15 @@ namespace
 			}
 			else
 			{
-				ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
+				Result = Durin::FixUpRedirectorsWithBeforeCommitForTesting(
 					std::span{&OldPath, 1},
-					Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-					Summary,
-					Job
-				));
-				Durin::FByteBuffer ChangedBytes = PreBytes;
-				ASSERT_TRUE(RenameSerializedString(
-					ChangedBytes, "Label", "Ghost"
-				));
-				WriteTestBytes(OwnerFile, ChangedBytes);
-				Result = Job.Execute();
+					Durin::EAssetRedirectorFixupMode::RewriteAndDelete, [&] {
+						Durin::FByteBuffer ChangedBytes = PreBytes;
+						ASSERT_TRUE(RenameSerializedString(
+							ChangedBytes, "Label", "Ghost"
+						));
+						WriteTestBytes(OwnerFile, ChangedBytes);
+					}).Result;
 				EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData)
 					<< Result.Message;
 				WriteTestBytes(OwnerFile, PreBytes);
@@ -7473,13 +7398,9 @@ namespace
 			Durin::SetAssetRedirectorFixupFailurePointForTesting(
 				FailurePoints[Index]
 			);
-			Durin::FAssetRedirectorFixupSummary Summary;
-			Durin::FAssetMutationJob Job;
-			ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-				std::span{&OldPath, 1},
-				Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-				Summary, Job));
-			const auto Result = Job.Execute();
+			const auto Details = Durin::FixUpRedirectors(
+				std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+			const auto Result = Details.Result;
 			Durin::SetAssetRedirectorFixupFailurePointForTesting(
 				Durin::EAssetRedirectorFixupFailurePoint::None
 			);
@@ -7487,8 +7408,7 @@ namespace
 				<< Result.Message;
 			Durin::FByteBuffer AfterBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
-			const auto StorePathAfterFailure = Store.Path;
-			const auto Effects = Job.GetLastResultDetails().AffectedFiles;
+			const auto Effects = Details.AffectedFiles;
 			if (FailurePoints[Index] == Durin::EAssetRedirectorFixupFailurePoint::PublishPackage)
 			{
 				EXPECT_EQ(AfterBytes, BeforeBytes);
@@ -7499,14 +7419,6 @@ namespace
 				EXPECT_NE(AfterBytes, BeforeBytes);
 				EXPECT_FALSE(Effects.empty());
 			}
-			const auto Rejected = Job.Execute();
-			EXPECT_EQ(Rejected.Error, Durin::EAssetWriteError::StaleData);
-			EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
-			Durin::FByteBuffer AfterRejectedBytes;
-			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRejectedBytes, OwnerFile));
-			EXPECT_EQ(AfterRejectedBytes, AfterBytes);
-			EXPECT_EQ(Store.Path, StorePathAfterFailure);
-			EXPECT_EQ(Job.GetLastResultDetails().AffectedFiles, Effects);
 			ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 			StoreRegistration.Reset();
 			ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
@@ -8255,7 +8167,7 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
-TEST(FPackageAssetTests, RelocationJobExecutesOnlyOnce)
+TEST(FPackageAssetTests, RelocationBatchPublishesOneCatalogRevision)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath First;
@@ -8277,21 +8189,12 @@ TEST(FPackageAssetTests, RelocationJobExecutesOnlyOnce)
 		Durin::FAssetRelocationMapping{First, FirstMoved},
 		Durin::FAssetRelocationMapping{Second, SecondMoved}
 	};
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
-	const Durin::FAssetWriteResult Analysis = Durin::PrepareAssetRelocationJob(
-			Mappings, Summary, Job);
-	ASSERT_TRUE(Analysis) << Analysis.Message;
-	EXPECT_EQ(Summary.GetScope().size(), 4u);
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Prepared);
 	const uint64 BeforeRevision =
 		Durin::GetAssetCatalogRevision();
-	ASSERT_TRUE(Job.Execute());
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Completed);
-	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
+	const auto Details = Durin::RelocateAssets(Mappings);
+	ASSERT_TRUE(Details.Result);
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), BeforeRevision + 1);
+	EXPECT_EQ(Details.RegistryRevision, BeforeRevision + 1);
 	EXPECT_EQ(Durin::FindAssetExact(First)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::FindAssetExact(Second)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::FindAssetExact(FirstMoved)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
@@ -8303,7 +8206,7 @@ TEST(FPackageAssetTests, RelocationJobExecutesOnlyOnce)
 		{First, FirstMoved, Second, SecondMoved}));
 }
 
-TEST(FPackageAssetTests, RelocationJobRejectsStaleCommitWithoutMutatingState)
+TEST(FPackageAssetTests, RelocationRejectsStaleCommitWithoutMutatingState)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath Source;
@@ -8316,21 +8219,13 @@ TEST(FPackageAssetTests, RelocationJobRejectsStaleCommitWithoutMutatingState)
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Source, SourceAsset));
 	ASSERT_TRUE(Durin::SavePackage(SourceAsset->GetPackage()));
 	const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Job));
-
-	DPackageAssetForTest* UnrelatedAsset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Unrelated, UnrelatedAsset));
-	ASSERT_TRUE(Durin::SavePackage(UnrelatedAsset->GetPackage()));
-	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Failed);
-	const Durin::FAssetMutationResultDetails Details =
-		Job.GetLastResultDetails();
+	const auto Details = Durin::RelocateAssetsWithBeforeCommitForTesting(
+		std::span{&Mapping, 1}, [&] {
+			DPackageAssetForTest* UnrelatedAsset = nullptr;
+			ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Unrelated, UnrelatedAsset));
+			ASSERT_TRUE(Durin::SavePackage(UnrelatedAsset->GetPackage()));
+		});
 	EXPECT_EQ(Details.Result.Error, Durin::EAssetWriteError::StaleData);
-	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_NE(Durin::FindAssetExact(Source), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(Destination), nullptr);
 }

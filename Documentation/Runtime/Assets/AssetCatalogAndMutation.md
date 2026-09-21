@@ -1,6 +1,6 @@
 # Asset Catalog And Mutation
 
-Summary: Define mounted package discovery, rebuildable catalog/reference projections, forward-only asset jobs, and irreversible deletion.
+Summary: Define mounted package discovery, rebuildable catalog/reference projections, synchronous asset mutations, and irreversible deletion.
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
@@ -72,7 +72,7 @@ Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
 discovery values and immutable queries, `AssetRegistry/References.h` owns the
 reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
 lifecycle, `Asset/Load.h` owns runtime resolution and residency,
-`Asset/Mutation.h` owns forward-only relocation/fix-up jobs and package mutation
+`Asset/Mutation.h` owns synchronous relocation/fix-up operations and package mutation
 mechanisms, `AssetTools/AssetDeletion.h` owns editor deletion operations, and `Asset/Testing.h` owns
 Engine's deterministic failure seams.
 Runtime and offline consumers include these capability headers directly; the
@@ -159,7 +159,7 @@ single rebuildable registry cache. CoreDObject owns object/package construction
 and graph copying, reflected capture and package persistence. Engine owns asset
 publication transactions, package residency, exact
 on-demand package inspection, Cook, bounded artifact publication, and
-forward-only relocation/fix-up jobs. `Asset/PackageRemoval.h` supplies bounded
+synchronous relocation/fix-up operations. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
 and revision. It owns no selection, warning, companion-provider, or physical
 deletion policy. `IAssetTools` owns asset creation, duplication,
@@ -239,13 +239,14 @@ Content Browser refreshes after partial persistence even when the aggregate resu
 is unsuccessful. Explicit `SavePackagesAtomically` callers and canonical resaves
 retain their existing coordination contracts.
 
-## Relocation Jobs
+## Synchronous Relocation
 
 Relocation is batched even for one mapping. Preparation captures the catalog
 revision, exact participant fingerprints, resident finalizers, destination
-artifacts, source redirectors, and owned payload moves behind an opaque job.
-`Execute()` publishes destinations and owned payloads before source redirectors.
-Each job executes once; success and failure are terminal. Relocation neither opens nor rewrites
+artifacts, source redirectors, and owned payload moves in private operation state.
+`RelocateAssets()` prepares, revalidates, and commits synchronously on the owner
+thread, publishing destinations and owned payloads before source redirectors.
+Relocation neither opens nor rewrites
 unrelated referencer packages: their authored paths continue to target the
 source alias until an explicit Fix Up operation canonicalizes those paths.
 
@@ -270,18 +271,18 @@ temporaries and transaction backups end in `.tmp` and are never authored
 mutation participants. Legacy backup siblings are neither restored nor removed
 by readers; see [bulk publication ownership](BulkData.md#publication-and-companion-ownership).
 
-Stale jobs, read-only participants, collisions, and preparation failures leave
+Stale participants, read-only participants, collisions, and preparation failures leave
 authority unchanged. Failures after publication report the affected files and
 retain staging backups for manual repair. Mutation staging stores `pre-*.tmp`
 and `post-*.tmp` payloads under its owned operation directory; `owner` is the
-ownership marker used to guard directory cleanup. Jobs never resume partially completed
+ownership marker used to guard directory cleanup. Operations never resume partially completed
 work; a new operation must analyze the current content. Registry-only lag returns
 `ContentCommittedProjectionPending`, fences affected paths, and never rolls back
 valid package bytes.
 
-Asset mutation jobs keep progress in memory and stage before/after images beside
-owned content in `.durin-asset-mutation`. Prepared and completed jobs clean up
-those owned stages; interrupted publication retains backups for manual repair.
+Asset mutations keep progress in memory and stage before/after images beside
+owned content in `.durin-asset-mutation`. Operations clean up their owned stages when returning before publication or
+after successful completion; interrupted publication retains backups for manual repair.
 No locator directory or persistent journal is written. Runtime initialization
 neither scans `Saved/AssetMutationRecovery` nor replays interrupted operations.
 Legacy records are left untouched and do not block startup.
@@ -291,10 +292,12 @@ validation. The fingerprint also supplies the original byte hash; no second
 original hash or post-publication fingerprint is stored. Original backup paths
 are local to preparation, while before images remain on disk for manual repair.
 
-`FAssetMutationJob` owns execution state: Empty, Prepared, Executing, Completed,
-or Failed. Copies share the same single execution. Result details carry errors
-and observed effects, without a second job state or resumability flag. Rejected
-second executions preserve the original result details.
+`RelocateAssets()` and `FixUpRedirectors()` return `FAssetMutationResultDetails`
+directly, including the write result, observed catalog revision, affected files,
+retained backup locations, and path outcomes. Callers receive the complete result
+when the synchronous call returns; no public job, execution state machine, or
+separate preparation summary is exposed. Preparation failures also return the
+write error and observed catalog revision without publishing content.
 
 Fix Up verifies reference rewrites before deleting redirectors. There is no
 in-process continuation, startup replay, or multi-file crash-atomicity guarantee;
@@ -359,14 +362,14 @@ coverage without rehashing the files. A later deletion requires a new plan and
 fresh confirmation. Hosts without this callback use AssetTools' own hashing.
 Neither size/timestamp matches nor cached hashes replace the final byte check.
 
-Fix Up is the only path-canonicalizing asset-mutation job. It rewrites
+Fix Up is the only path-canonicalizing asset-mutation operation. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens
 package-level candidates to verify that no exact incoming occurrence remains,
 and may then delete proven aliases. Exact occurrences remain transient Engine
-tooling data throughout the job.
+tooling data throughout the synchronous call.
 Dirty, incompatible, read-only, incomplete, or stale participants block before
 mutation. Later participant failures retain verified rewrites and valid
-redirectors; the failed job cannot execute again.
+redirectors; a subsequent call prepares a new operation from current content.
 
 Owned-payload relocators, deletion companions, persistent external reference
 stores, and committed-only observers register through exact handles and reject

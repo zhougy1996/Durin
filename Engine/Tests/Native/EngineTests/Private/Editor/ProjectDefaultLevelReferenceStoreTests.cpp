@@ -34,12 +34,7 @@ namespace
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
 		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::FAssetRelocationSummary Summary;
-		Durin::FAssetMutationJob Transaction;
-		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
-				std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.Execute();
-		return Result;
+		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
 	}
 
 	class FScopedStoreRegistration
@@ -147,14 +142,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
-	Durin::FAssetRedirectorFixupSummary Summary;
-	Durin::FAssetMutationJob Transaction;
-	ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
+	ASSERT_TRUE(Durin::FixUpRedirectors(
 		std::span{&Scenario.OldPath, 1},
-		Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-		Summary,
-		Transaction));
-	ASSERT_TRUE(Transaction.Execute());
+		Durin::EAssetRedirectorFixupMode::RewriteAndDelete).Result);
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	EXPECT_EQ(Durin::FindAssetExact(
 		Scenario.OldPath), nullptr);
@@ -177,14 +167,10 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 	FScopedStoreRegistration Registration(Store);
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::Verify);
-	Durin::FAssetRedirectorFixupSummary Summary;
-	Durin::FAssetMutationJob Transaction;
-	Durin::FAssetWriteResult Result = Durin::PrepareRedirectorFixupJob(
-			std::span{&Scenario.OldPath, 1},
-			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-			Summary,
-			Transaction);
-	if (Result) Result = Transaction.Execute();
+	const auto Details = Durin::FixUpRedirectors(
+		std::span{&Scenario.OldPath, 1},
+		Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+	const auto& Result = Details.Result;
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::None);
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
@@ -197,7 +183,6 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.NewPath.ToString());
-	EXPECT_EQ(Transaction.GetState(), Durin::EAssetMutationJobState::Failed);
 }
 
 TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithoutEditingYaml)

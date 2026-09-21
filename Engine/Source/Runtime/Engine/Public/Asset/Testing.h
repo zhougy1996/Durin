@@ -7,6 +7,15 @@
 
 namespace Durin
 {
+	// Invoke the callback after successful staging, immediately before commit validation.
+	ENGINE_API auto RelocateAssetsWithBeforeCommitForTesting(
+		std::span<const FAssetRelocationMapping> Mappings,
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails;
+	ENGINE_API auto FixUpRedirectorsWithBeforeCommitForTesting(
+		std::span<const FPackagePath> Redirectors,
+		EAssetRedirectorFixupMode Mode,
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails;
+
 	enum class EAssetRedirectorFixupFailurePoint : uint8
 	{
 		None,

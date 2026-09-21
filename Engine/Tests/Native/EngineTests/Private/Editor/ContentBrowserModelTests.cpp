@@ -1420,7 +1420,6 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	FAssetMutationJob MoveJob;
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperationService Operations(
@@ -1430,10 +1429,7 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 			Mappings.reserve(Moves.size());
 			for (const FEditorAssetMove& Move : Moves)
 				Mappings.push_back({Move.OldPath, Move.NewPath});
-			FAssetRelocationSummary Summary;
-			FAssetWriteResult Result = PrepareAssetRelocationJob(
-				Mappings, Summary, MoveJob);
-			return Result ? MoveJob.Execute() : Result;
+			return RelocateAssets(Mappings).Result;
 		},
 		[](const std::filesystem::path&, std::error_code& Error) {
 			Error = std::make_error_code(std::errc::permission_denied);
@@ -2637,11 +2633,8 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndIsPermanen
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OldPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const FAssetRelocationMapping Mapping{OldPath, FinalPath};
-	FAssetRelocationSummary Summary;
-	FAssetMutationJob Relocation;
-	ASSERT_TRUE(PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Relocation));
-	ASSERT_TRUE(Relocation.Execute());
+	ASSERT_TRUE(RelocateAssets(
+		std::span{&Mapping, 1}).Result);
 
 	FAssetCatalogEntry AliasData =
 		FindAssetExact(OldPath);
