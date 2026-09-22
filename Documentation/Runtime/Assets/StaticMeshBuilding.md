@@ -158,7 +158,11 @@ Nonfatal cache failures remain separate flat `FStaticMeshCacheError` records wit
 render/collision kind, read/decode/write operation and bounded text. Clean hits
 and misses produce no error records.
 `StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
-returns render data; `BuildCollision` returns collision geometry;
+returns validated render data with bounds and ray-query acceleration;
+`FStaticMeshCollisionBuilder::Build` returns collision geometry from owned LOD0
+positions/indices copied into a detached value snapshot, with per-request
+settings captured independently of render ownership. Workers read the snapshot
+without mutating it; moving a request transfers its arrays without copying.
 `BuildCandidate`/`ApplyCandidate` provide combined construction and owner-thread
 publication. `Capture` and `MakeRequest` prepare immutable worker inputs. The former
 free pipeline functions and mutable Product application wrapper are removed.

@@ -245,6 +245,15 @@ namespace Durin
 	{
 		if (OutCacheErrors) OutCacheErrors->clear();
 		if (OutProviderRegistration) *OutProviderRegistration = 0;
+		if (Control.IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
+		if (!Request.Source.IsValid() || !std::isfinite(Request.Reconciliation.NormalizedSize)
+			|| Request.Reconciliation.NormalizedSize <= 0)
+			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh render source or normalization is invalid.", EStaticMeshBuildStage::Source});
+		FStaticMeshBuildMemoryEstimate SourceMemory{Control.MaximumWorkingSetBytes};
+		if (!SourceMemory.Add(Request.Source.GetGeometryBulk().GetPayloadSize(), 8)
+			|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FStaticMeshImportedMesh))
+			|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768))
+			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh decoded source exceeds its reservation.", EStaticMeshBuildStage::Validation});
 		if (Request.Reconciliation.MaterialSlots.size() > MaximumMeshMaterialSlots)
 			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh material-slot input exceeds the slot limit.", EStaticMeshBuildStage::Render});
 		std::unordered_set<FName> SlotNames;
@@ -347,17 +356,36 @@ namespace Durin
 			return std::unexpected(FStaticMeshBuildFailure{Message, EStaticMeshBuildStage::Render});
 		}
 		auto Outcome = std::move(*Invocation.Value);
+		if (Outcome)
+		{
+			if (!*Outcome) return std::unexpected(FStaticMeshBuildFailure{"StaticMesh provider returned no render data.", EStaticMeshBuildStage::Validation});
+			if (const auto Finalized = FinalizeRenderData(**Outcome, Control); !Finalized)
+				return std::unexpected(Finalized.error());
+		}
 		if (Outcome && OutProviderRegistration) *OutProviderRegistration = Invocation.RegistrationIdentity;
 		return Outcome;
 #endif
 	}
 
-	auto FStaticMeshBuilder::BuildCollision(
-		const FStaticMeshRenderData& RenderData,
-		EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy,
-		bool bPersistDerivedData, const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>
+	auto FStaticMeshCollisionBuilder::Capture(const FStaticMeshRenderData& Render,
+		EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+		bool bPersistDerivedData) -> FStaticMeshCollisionBuildRequest
 	{
+		FStaticMeshCollisionBuildRequest Request{.Mode = Mode, .Policy = Policy, .bPersistDerivedData = bPersistDerivedData};
+		if (Mode != EBodySetupCollisionSourceMode::None && !Render.LODResources.empty())
+		{
+			Request.Positions = Render.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
+			Request.Indices = Render.LODResources.front().IndexBuffer.GetIndices();
+		}
+		return Request;
+	}
+
+	auto FStaticMeshCollisionBuilder::Build(const FStaticMeshCollisionBuildRequest& Request,
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>
+	{
+		const auto Mode = Request.Mode;
+		const auto Policy = Request.Policy;
+		const auto bPersistDerivedData = Request.bPersistDerivedData;
 		bool bCancelled = false;
 		const auto IsCancelled = [&] {
 			bCancelled = bCancelled || Control.IsCancelled();
@@ -372,13 +400,11 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Collision});
 #else
-		if (RenderData.LODResources.empty())
-		{
-			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh has no LOD 0 collision source.", EStaticMeshBuildStage::Collision});
-		}
-		const FStaticMeshLODResources& LOD = RenderData.LODResources.front();
-		const auto& Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
-		const auto& Indices = LOD.IndexBuffer.GetIndices();
+		const auto& Positions = Request.Positions;
+		const auto& Indices = Request.Indices;
+		FStaticMeshBuildMemoryEstimate Memory{Control.MaximumWorkingSetBytes};
+		if (!Memory.Add(Positions.capacity(), 512) || !Memory.Add(Indices.capacity(), 192))
+			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh collision snapshot and working set exceed the reservation.", EStaticMeshBuildStage::Collision});
 		if (Positions.empty() || Indices.empty() || Indices.size() % 3 != 0)
 		{
 			return std::unexpected(FStaticMeshBuildFailure{std::format("StaticMesh collision source is malformed ({} vertices, {} indices).", Positions.size(), Indices.size()), EStaticMeshBuildStage::Collision});

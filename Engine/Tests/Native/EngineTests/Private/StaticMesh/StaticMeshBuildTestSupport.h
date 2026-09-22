@@ -189,9 +189,9 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_NE(Acceleration, nullptr);
 			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
-			ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*(*Render),
+			ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*(*Render),
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false))) << Error;
+				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)))) << Error;
 			ASSERT_TRUE(Collision->Complex);
 			const auto CollisionEnd = std::chrono::steady_clock::now();
 			const auto Nanoseconds = [](auto Duration) {

@@ -9,19 +9,96 @@ Completed:
 
 ## Current Status
 
-Planning only; implementation has not started. The baseline is commit
-`f0fc6fb80`, which moved material-slot reconciliation into standalone and scene
-import and removed the public render-product and cache-observation wrappers.
+Stage 0 is complete. Stage 1 now has independent render finalization and an
+value-snapshot `FStaticMeshCollisionBuilder` cache adapter. All direct collision
+builder consumers in the workspace have migrated. The combined candidate and
+its provider metadata remain temporarily for the Stage 2/3 consumer migration.
 
-The remaining coupling is in `FStaticMeshBuilder::BuildCandidate`: it constructs
-render data, ray acceleration and collision together, and collision failure
-rejects the entire candidate. `FStaticMeshAuthoredCandidate` owns both outputs.
-`CommitRenderDataCandidate` can also construct collision while publishing render
-data. Collision readiness currently consults pending StaticMesh compilation,
-which cannot describe independent collision work accurately.
+Validation: `DevTool.bat test StaticMeshTests` passed 132 tests from 23 suites,
+including new detached-input lifetime, cancellation, reservation and independent
+render-success/collision-failure coverage. The first run found cancellation
+precedence had changed; this was corrected before the passing full rerun.
+`DevTool.bat build --target all` and changed-document validation also passed.
+GPU/performance qualification was not executed: this change does not alter GPU
+behavior or introduce a timing acceptance gate.
+No independent runtime scheduling/publication or import/cook migration is claimed
+yet; Stage 2 through Stage 4 remain open.
 
-The user explicitly requested removal of `FStaticMeshAuthoredCandidate` in this
-refactor. Its deletion is a required outcome, not a later cleanup.
+### Chosen lifecycle contract
+
+- Ordinary `Build`, `AsyncBuild` and editor `PostLoad` finish at validated render
+  publication. Collision failure cannot change that render completion. Pending
+  render work alone does not imply pending collision.
+- Extend the existing StaticMesh compiling manager with separate collision
+  records using its task scope, cooperative cancellation, bounded admission and
+  owner-thread mailbox pump. Do not introduce another generic scheduler.
+  Each collision request owns a detached value snapshot of LOD0 positions,
+  indices and collision settings. Capture copies the render streams once per
+  request; moving the request into a worker transfers its arrays without another
+  copy. Workers treat the snapshot as immutable. Retry and settings changes
+  capture a fresh snapshot; no shared geometry handle or per-generation snapshot
+  cache is introduced. Account for snapshot, construction and retained geometry
+  until its worker has
+  retired, including canceled records. Selected finish drains the selected
+  owner's render and collision records; ordinary render completion callbacks do
+  not wait for collision. Shutdown stops admission, cancels and drains both.
+- Collision publication checks object key, render geometry generation, BodySetup
+  object key, settings revision, mode, policy and request generation. Keep the
+  request/geometry generations transient; do not repurpose serialized BodySetup
+  revision fields as scheduler state. Retry supersedes older collision requests.
+  Replacement, geometry invalidation, mode/policy changes, unload and destruction
+  invalidate the matching generation and cancel its records before publication.
+  Provider registration is checked independently for each detached operation.
+- Invalidation clears only geometry-derived collision and immediately refreshes
+  registered component physics bodies; successful installation refreshes them
+  again. Unavailable/failed collision must leave no prior derived body queryable.
+  Authored primitive shapes survive render replacement. BodySetup edits through
+  both mesh setters and direct setters need the same owner notification boundary;
+  installing or clearing geometry must not recursively schedule another build.
+- Standalone import/reimport owns its required collision preparation alongside
+  render work in the existing private compilation operation. Scene import owns
+  independent outputs in its private prepared-output record. Both validate owner
+  snapshots, material bindings, provenance, cancellation and resource preparation
+  before the first mutation, then publish in one refresh boundary. Failure or
+  owner edits discard the operation without automatic source-changing requeue.
+- Cook constructs independent detached render and required collision projections,
+  fails when either required output fails, and never publishes authored state.
+  Cooked loading decodes and validates the existing payloads without editor recipe
+  invocation, then installs them within one refresh boundary.
+- Destructive test replacement retains its explicit destructive failure behavior,
+  prepares bounds/ray data before publication and invalidates old collision before
+  reconstruction. Debug mesh and cooked decode paths also prepare render bounds
+  and acceleration before entering the publication function.
+
+Audit evidence: `StaticMeshBuild.cpp`, `StaticMeshCompilingManager.cpp`,
+`StaticMesh.cpp`, `StaticMeshCollision.cpp`, `StaticMeshCook.cpp`, `BodySetup.cpp`,
+`StaticMeshImport.cpp`, `SceneDirectImport.cpp` and
+`StaticMeshRenderStateRecreateContext.cpp`. Existing direct BodySetup notifications
+only notify render compilation; they do not themselves refresh component bodies.
+Existing cooked installation publishes render before collision, so its refresh
+boundary must also be corrected during publication migration.
+
+### UE ownership reference
+
+The selected input model follows UE's
+[FTriMeshCollisionData](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/PhysicsCore/FTriMeshCollisionData),
+which owns typed vertex/index arrays, and
+[FCookBodySetupInfo](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FCookBodySetupInfo),
+which contains that description by value. Each local collision request likewise
+owns its geometry snapshot. Request copies copy the arrays; moves transfer them.
+The user selected this value-snapshot approach over the previously considered
+shared immutable handle. UE's general-purpose `FSharedBuffer` is not the input
+contract being adopted for this collision builder.
+
+[CreatePhysicsMeshesAsync](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UBodySetup/CreatePhysicsMeshesAsync)
+explicitly requires callers to create/update physics state after completion.
+This supports keeping component-body refresh as a separate publication concern;
+it does not justify moving editor scheduling or DDC into the local BodySetup.
+
+The value-snapshot revision passed all 132 `StaticMeshTests` cases from 23
+suites. Regression coverage verifies that the snapshot outlives its render source
+and that copying, changing and releasing one request leaves another request
+intact. Changed-document validation and all-plan validation passed.
 
 ## Goal
 
@@ -47,7 +124,7 @@ geometry as if it matched the current mesh.
 - Give collision construction its own entry point and value-only inputs. LOD0
   positions/indices may be captured from completed render data where the selected
   collision mode requires them. Borrowed spans must not outlive their owner;
-  asynchronous work needs an owned or shared immutable geometry snapshot.
+  asynchronous work owns a detached value snapshot, read immutably by its worker.
 - Keep physics geometry algorithms in their existing module. `DBodySetup` owns
   collision settings and installed immutable geometry, not editor DDC access,
   render building, provider registration or scheduling. Engine owns the editor
@@ -75,20 +152,20 @@ geometry as if it matched the current mesh.
 
 Dependency: none. Outcome: concrete lifecycle decisions before changing callers.
 
-- [ ] Audit direct Build/AsyncBuild, PostLoad, import/reimport, scene import,
+- [x] Audit direct Build/AsyncBuild, PostLoad, import/reimport, scene import,
   direct collision edits, cook, cooked loading and destructive test replacement.
-- [ ] Specify each operation's completion point. Ordinary Build/AsyncBuild
+- [x] Specify each operation's completion point. Ordinary Build/AsyncBuild
   completion describes render publication; collision has independent readiness.
   Import waits for all required outputs before committing. Cook waits for or
   constructs required collision without publishing an authored projection.
-- [ ] Select the minimal scheduler implementation for independent collision
+- [x] Select the minimal scheduler implementation for independent collision
   work, including cancellation, selected finish, teardown and memory accounting.
   Reuse existing task infrastructure; do not add a generic compilation framework.
-- [ ] Define captured input identity and revision checks for collision results,
+- [x] Define captured input identity and revision checks for collision results,
   including BodySetup replacement, geometry edits, mode None, policy changes,
   explicit retry, unload and destruction. Distinguish transient build state from
   serialized settings and geometry identity.
-- [ ] Define how unavailable/failed collision removes or refreshes existing
+- [x] Define how unavailable/failed collision removes or refreshes existing
   component physics bodies. Queries must not retain stale published bodies while
   the asset reports collision unavailable.
 
@@ -100,15 +177,15 @@ implementing independent publication.
 
 Dependency: Stage 0. Outcome: independently usable builders with no live mutation.
 
-- [ ] Move render finalization out of combined candidate construction and into
+- [x] Move render finalization out of combined candidate construction and into
   the render build path, preserving cancellation checkpoints and memory limits.
-- [ ] Extract the collision build/cache entry point from `FStaticMeshBuilder`.
+- [x] Extract the collision build/cache entry point from `FStaticMeshBuilder`.
   Preserve cache corruption recovery and independently reported cache warnings.
-- [ ] Make collision requests capture immutable geometry and collision settings
+- [x] Make collision requests capture immutable geometry and collision settings
   without requiring ownership of an `FStaticMeshRenderData` build result.
 - [ ] Keep provider lifetime/registration checks appropriate to each operation;
   remove checks and retained metadata used solely by the combined candidate.
-- [ ] Add focused tests for independent success, failure, cancellation and
+- [x] Add focused tests for independent success, failure, cancellation and
   geometry input lifetime. Verify rendering can complete with collision disabled
   or failing, and collision-only edits do not invoke render construction.
 

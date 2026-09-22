@@ -47,7 +47,7 @@ namespace Durin
 		FCollisionGeometryRef& OutSimple,
 		FCollisionGeometryRef& OutComplex) const -> std::expected<void, FStaticMeshBuildFailure>
 	{
-		auto Built = FStaticMeshBuilder::BuildCollision(SourceRenderData, Mode, Policy);
+		auto Built = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(SourceRenderData, Mode, Policy));
 		if (!Built) return std::unexpected(std::move(Built.error()));
 		OutSimple = std::move(Built->Simple);
 		OutComplex = std::move(Built->Complex);

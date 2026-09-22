@@ -51,8 +51,29 @@ namespace Durin
 		auto GetCacheErrors() const -> const std::vector<FStaticMeshCacheError>& { return CacheErrors; }
 	private:
 		std::vector<FStaticMeshCacheError> CacheErrors;
-		friend class FStaticMeshBuilder;
+		friend class FStaticMeshCollisionBuilder;
 		friend class FStaticMeshAuthoredCandidate;
+	};
+
+	// Detached value snapshot owned by one request; workers only read its arrays.
+	struct FStaticMeshCollisionBuildRequest
+	{
+		std::vector<FVector3f> Positions;
+		std::vector<uint32> Indices;
+		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		bool bPersistDerivedData = true;
+	};
+
+	class FStaticMeshCollisionBuilder
+	{
+	public:
+		ENGINE_API static auto Capture(const FStaticMeshRenderData& Render,
+			EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+			bool bPersistDerivedData = true) -> FStaticMeshCollisionBuildRequest;
+		ENGINE_API static auto Build(const FStaticMeshCollisionBuildRequest& Request,
+			const FStaticMeshBuildExecutionControl& Control = {})
+			-> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>;
 	};
 
 	// Value-only worker input; material object bindings remain in the owner-thread snapshot.
@@ -102,12 +123,9 @@ namespace Durin
 			const FStaticMeshBuildExecutionControl& Control = {},
 			std::vector<FStaticMeshCacheError>* OutCacheErrors = nullptr,
 			uint64* OutProviderRegistration = nullptr) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
-		ENGINE_API static auto BuildCollision(
-			const FStaticMeshRenderData& RenderData,
-			EBodySetupCollisionSourceMode Mode,
-			EBodySetupCollisionQueryPolicy Policy,
-			bool bPersistDerivedData = true,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>;
+		// Validate and finish detached CPU data before publication, including non-recipe inputs.
+		ENGINE_API static auto FinalizeRenderData(FStaticMeshRenderData& Render,
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
 		ENGINE_API static auto BuildCandidate(FStaticMeshAuthoredBuildRequest Request,
 			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshBuildFailure>;
 		ENGINE_API static auto ApplyCandidate(DStaticMesh& Mesh,

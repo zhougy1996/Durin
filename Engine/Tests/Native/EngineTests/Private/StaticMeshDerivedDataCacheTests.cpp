@@ -270,34 +270,34 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_FALSE(FStaticMeshBuilder::Build(Request));
 
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> ColdCollision;
-	ASSERT_TRUE((ColdCollision = FStaticMeshBuilder::BuildCollision(
+	ASSERT_TRUE((ColdCollision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(
 		*Fixture.Mesh->GetRenderData(), EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	const auto CollisionPath = Fixture.CacheRoot / "StaticMeshCollision/Objects"
 		/ GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString().substr(0, 2)
 		/ (GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(CollisionPath));
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)))) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CollisionPath));
 	const auto BlockedRoot = Fixture.Root / "BlockedCollisionCache";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, BlockedRoot));
 	FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
 	// A read failure remains observable even when no Put is attempted.
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)))) << Error;
 	EXPECT_TRUE(Collision->Complex);
 	EXPECT_TRUE(HasCacheError(Collision->GetCacheErrors(), EStaticMeshRecipeKind::Collision, EStaticMeshCacheOperation::Read));
 	EXPECT_TRUE(Error.empty());
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	EXPECT_TRUE(Collision->Complex);
 	EXPECT_TRUE(HasCacheError(Collision->GetCacheErrors(), EStaticMeshRecipeKind::Collision, EStaticMeshCacheOperation::Read));
 	EXPECT_LE(Collision->GetCacheErrors().size(), 2u);
@@ -1119,9 +1119,9 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationIsTypedAndDiscardsProducts
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
 	FStaticMeshRenderData EmptyRender;
 	uint32 Checks = 0;
-	const auto& LateCancellation = (Collision = FStaticMeshBuilder::BuildCollision(EmptyRender,
+	const auto& LateCancellation = (Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(EmptyRender,
 		EBodySetupCollisionSourceMode::None,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false),
 		{.ShouldCancel = [&] { return ++Checks == 2; }}));
 	ASSERT_FALSE(LateCancellation);
 	EXPECT_TRUE(LateCancellation.error().IsCancelled());
@@ -1386,9 +1386,9 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	std::vector<FStaticMeshCacheError> RenderCacheErrors;
 	ASSERT_TRUE((Render = BuildRenderForTest({.Source = Source}, {}, &RenderCacheErrors))) << Error;
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*(*Render),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*(*Render),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	FStaticMeshPayloadData Payload;
 	ASSERT_TRUE(MakeStaticMeshPayloadData(*(*Render), Payload));
 	FStaticMeshCollisionPayloadData CollisionPayload;
@@ -1469,9 +1469,9 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	EXPECT_FALSE(Render);
 	ASSERT_TRUE((Render = BuildRenderForTest(CachedRequest)));
 	Checks = 0;
-	const auto& CancelledCollision = (Collision = FStaticMeshBuilder::BuildCollision(*(*Render),
+	const auto& CancelledCollision = (Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*(*Render),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, true,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, true),
 		{.ShouldCancel = [&] { return ++Checks == 110; }}));
 	ASSERT_FALSE(CancelledCollision);
 	EXPECT_TRUE(CancelledCollision.error().IsCancelled());
@@ -2593,17 +2593,17 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildReportsOwnedRenderAndCollis
 	EXPECT_TRUE(RenderCacheErrors.empty());
 
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex)));
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex))));
 	const auto Key = GetCollisionKey(*Fixture.Mesh->GetRenderData());
 	const auto Path = Fixture.CacheRoot / "StaticMeshCollision/Objects"
 		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
 	ASSERT_TRUE(AssetDerivedDataCache::Store(Key, Invalid, MaximumStaticMeshCollisionPayloadBytes, Diagnostic));
-	ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Fixture.Mesh->GetRenderData(),
+	ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex)));
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex))));
 	ASSERT_EQ(Collision->GetCacheErrors().size(), 1u);
 	const auto CollisionRejection = Collision->GetCacheErrors().front();
 	Collision = {};
@@ -2709,9 +2709,9 @@ TEST(FStaticMeshAuthoredCompilationTests, DerivedErrorsReportCancellationAndGeom
 	Invalid.LODResources.resize(1);
 	Invalid.LODResources[0].IndexBuffer.Init(std::vector<uint32>{0, 1});
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
-	const auto& Rejected = (Collision = FStaticMeshBuilder::BuildCollision(Invalid,
+	const auto& Rejected = (Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(Invalid,
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false));
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)));
 	EXPECT_FALSE(Rejected);
 	Invalid.LODResources.clear();
 	EXPECT_EQ(Rejected.error().GetStage(), EStaticMeshBuildStage::Collision);
@@ -2945,4 +2945,110 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildMessagesAndPipelineFailuresStayBo
 	EXPECT_TRUE(Cancelled.IsCancelled());
 	EXPECT_EQ(Cancelled.GetStage(), EStaticMeshBuildStage::Collision);
 	EXPECT_EQ(Cancelled.ToString().size(), MaximumStaticMeshBuildDiagnosticBytes);
+}
+
+TEST(FStaticMeshSeparatedBuildTests, CollisionSnapshotOutlivesRenderAndOwnsCancellation)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	const FScopedDerivedDataCacheRestore RestoreCache;
+	FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "DetachedCollisionSnapshot").generic_string());
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
+	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
+	ASSERT_TRUE(Render);
+	ASSERT_TRUE((*Render)->LocalBounds.bIsValid);
+	ASSERT_TRUE((*Render)->LODResources.front().RayQueryAcceleration);
+	auto Request = FStaticMeshCollisionBuilder::Capture(**Render,
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false);
+	Render->reset();
+	Source = {};
+	const auto Cancelled = FStaticMeshCollisionBuilder::Build(Request, {.ShouldCancel = [] { return true; }});
+	ASSERT_FALSE(Cancelled);
+	EXPECT_TRUE(Cancelled.error().IsCancelled());
+	const auto Budget = FStaticMeshCollisionBuilder::Build(Request, {.MaximumWorkingSetBytes = 1});
+	ASSERT_FALSE(Budget);
+	EXPECT_EQ(Budget.error().GetStage(), EStaticMeshBuildStage::Collision);
+	const auto Collision = FStaticMeshCollisionBuilder::Build(Request);
+	ASSERT_TRUE(Collision) << Collision.error().ToString();
+	EXPECT_TRUE(Collision->Complex);
+	EXPECT_FALSE(Collision->Simple);
+	auto Retry = Request;
+	EXPECT_NE(Retry.Positions.data(), Request.Positions.data());
+	EXPECT_NE(Retry.Indices.data(), Request.Indices.data());
+	Request.Indices = {0, 1};
+	const auto Invalid = FStaticMeshCollisionBuilder::Build(Request);
+	Request = {};
+	const auto Retried = FStaticMeshCollisionBuilder::Build(Retry);
+	ASSERT_TRUE(Retried);
+	ASSERT_FALSE(Invalid);
+	EXPECT_FALSE(Invalid.error().IsCancelled());
+	EXPECT_TRUE(Collision->Complex);
+}
+
+TEST(FStaticMeshSeparatedBuildTests, RenderSucceedsWithFailingCollisionProvider)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	const FScopedDerivedDataCacheRestore RestoreCache;
+	FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "SeparateBuilderFailure").generic_string());
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
+	auto Geometry = Source.AcquireGeometry();
+	ASSERT_TRUE(Geometry);
+	std::vector<FStaticMeshRecipeMaterialSlot> Slots{{FName("Material"), "Material", 0}};
+	auto Recipe = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
+		[&](IStaticMeshBuildProvider& Provider) {
+			return Provider.BuildRender({.Geometry = *Geometry, .MaterialSlots = Slots}, {});
+		});
+	ASSERT_TRUE(Recipe.WasInvoked());
+	ASSERT_TRUE(Recipe.Value && *Recipe.Value);
+	class FSplitProvider final : public IStaticMeshBuildProvider
+	{
+	public:
+		FStaticMeshRecipeBuildProduct Render;
+		uint32 RenderCalls = 0;
+		uint32 CollisionCalls = 0;
+		auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor override
+		{
+			return {.ProducerIdentity = "SeparateBuilderFixture", .RenderBuilderVersion = 991, .CollisionBuilderVersion = 991};
+		}
+		auto BuildRender(const FStaticMeshRecipeBuildRequest&, const FStaticMeshBuildExecutionControl&)
+			-> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
+		{
+			++RenderCalls;
+			return Render;
+		}
+		auto BuildCollision(const FStaticMeshCollisionRecipeRequest&, const FStaticMeshBuildExecutionControl&)
+			-> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError> override
+		{
+			++CollisionCalls;
+			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::CollisionBuild,
+				.Kind = EStaticMeshRecipeKind::Collision});
+		}
+	};
+	FScopedStaticMeshProviderRestore RestoreProvider;
+	ASSERT_TRUE(FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
+	FModuleTestOwner Owner("SeparateBuilderProvider");
+	FSplitProvider Provider;
+	Provider.Render = std::move(**Recipe.Value);
+	auto Registration = Owner.RegisterFeature(Provider);
+	ASSERT_TRUE(Registration.IsValid());
+	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
+	ASSERT_TRUE(Render) << Render.error().ToString();
+	EXPECT_EQ(Provider.RenderCalls, 1u);
+	EXPECT_EQ(Provider.CollisionCalls, 0u);
+	const auto Disabled = FStaticMeshCollisionBuilder::Build({});
+	ASSERT_TRUE(Disabled);
+	EXPECT_EQ(Provider.CollisionCalls, 0u);
+	const auto Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(**Render,
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false));
+	ASSERT_FALSE(Collision);
+	EXPECT_EQ(Collision.error().GetStage(), EStaticMeshBuildStage::Collision);
+	EXPECT_EQ(Provider.RenderCalls, 1u);
+	EXPECT_EQ(Provider.CollisionCalls, 1u);
+	EXPECT_TRUE((*Render)->LocalBounds.bIsValid);
+	EXPECT_TRUE((*Render)->LODResources.front().RayQueryAcceleration);
 }

@@ -1101,9 +1101,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	ASSERT_NE(Mesh, nullptr);
 	std::string Error;
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Cold;
-	ASSERT_TRUE((Cold = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
+	ASSERT_TRUE((Cold = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
@@ -1117,9 +1117,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	Mesh->RebuildCollision();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EStaticMeshCollisionBuildStatus::Ready);
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Warm;
-	ASSERT_TRUE((Warm = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
+	ASSERT_TRUE((Warm = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	FCollisionGeometryRef CachedGeometry;
 	ASSERT_TRUE(Setup->BuildComplexGeometry(CachedGeometry));
 	EXPECT_NE(CachedGeometry.GetIdentity(), FirstIdentity);
@@ -1148,9 +1148,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Rejected.DerivedDataCause->GetStage(), EStaticMeshBuildStage::Collision);
 	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Changed;
-	ASSERT_TRUE((Changed = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
+	ASSERT_TRUE((Changed = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::ComplexOnly))) << Error;
+		EBodySetupCollisionQueryPolicy::ComplexOnly)))) << Error;
 	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());

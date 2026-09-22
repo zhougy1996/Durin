@@ -45,6 +45,72 @@ namespace Durin
 		return Request;
 	}
 
+	auto FStaticMeshBuilder::FinalizeRenderData(FStaticMeshRenderData& Render,
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshBuildFailure>
+	{
+		const auto Fail = [](FStaticMeshBuildFailure Error) { return std::unexpected(std::move(Error)); };
+		const auto BudgetFailure = [&](std::string_view Reason, const FStaticMeshBuildMemoryEstimate& Memory) {
+			return Fail(FStaticMeshBuildFailure{std::format("{} Limit {}, accumulated {}, rejected {} x {} bytes.",
+				Reason, Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth), EStaticMeshBuildStage::Validation});
+		};
+		if (Render.MaterialSlots.empty()
+			|| Render.MaterialSlots.size() > MaximumMeshMaterialSlots)
+			return Fail(FStaticMeshBuildFailure{std::format(
+				"StaticMesh render material-slot count {} is invalid.", Render.MaterialSlots.size()), EStaticMeshBuildStage::Validation});
+		std::unordered_set<std::string> SlotNames;
+		for (size_t Index = 0; Index < Render.MaterialSlots.size(); ++Index)
+		{
+			const auto& Slot = Render.MaterialSlots[Index];
+			if (Slot.Name.empty() || !SlotNames.insert(Slot.Name).second)
+				return Fail(FStaticMeshBuildFailure{std::format(
+					"StaticMesh render data requires unique named material slots (slot {}, name '{}').", Index, Slot.Name), EStaticMeshBuildStage::Validation});
+		}
+		for (size_t Index = 0; Index < Render.LODResources.size(); ++Index)
+		{
+			const auto& LOD = Render.LODResources[Index];
+			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
+				return Fail(FStaticMeshBuildFailure{std::format(
+					"StaticMesh render LOD {} has {} UV channels; maximum {}.", Index, LOD.NumTexCoords, MaxStaticMeshUVChannels), EStaticMeshBuildStage::Validation});
+		}
+		FStaticMeshBuildMemoryEstimate Memory{Control.MaximumWorkingSetBytes};
+		if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Render.MaterialSlots.capacity(), 32768)
+			|| !Memory.Add(Render.LODResources.capacity(), sizeof(FStaticMeshLODResources)))
+			return BudgetFailure("StaticMesh render metadata exceeds its reservation.", Memory);
+		for (const auto& LOD : Render.LODResources)
+		{
+			if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositions().capacity(), 512)
+				|| !Memory.Add(LOD.IndexBuffer.GetIndices().capacity(), 192)
+				|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
+				return BudgetFailure("StaticMesh predicted finalization working set exceeds its reservation.", Memory);
+		}
+		bool bCancelled = false;
+		const std::function<bool()> ShouldCancel = [&] {
+			bCancelled = bCancelled || Control.IsCancelled();
+			return bCancelled;
+		};
+		FStaticMeshPayloadData Payload;
+		if (const auto Result = MakeStaticMeshPayloadData(Render, Payload, ShouldCancel); !Result)
+			return Fail(Result.error().Code == EStaticMeshPayloadError::Cancelled
+				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshPayloadError(Result.error()))
+				: FStaticMeshBuildFailure{FormatStaticMeshPayloadError(Result.error()), EStaticMeshBuildStage::Validation});
+		if (const auto Policy = ValidateStaticMeshLODScreenSizes(Render.LODResources); !Policy)
+			return Fail(bCancelled
+				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshLODPolicyError(Policy.error()))
+				: FStaticMeshBuildFailure{FormatStaticMeshLODPolicyError(Policy.error()), EStaticMeshBuildStage::Validation});
+		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh candidate build was cancelled."));
+		if (!Render.RecalculateBounds(ShouldCancel))
+			return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh bounds build was cancelled."));
+#if DURIN_WITH_EDITOR
+		for (auto& LOD : Render.LODResources)
+		{
+			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD, ShouldCancel);
+			if (bCancelled) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh ray build was cancelled."));
+			// An unavailable optional acceleration retains exact reference traversal.
+		}
+#endif
+		return {};
+	}
+
 	auto FStaticMeshBuilder::BuildCandidate(FStaticMeshAuthoredBuildRequest Request,
 		const FStaticMeshBuildExecutionControl& Control) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshBuildFailure>
 	{
@@ -88,68 +154,11 @@ namespace Durin
 		}
 		Candidate->Render = std::move(*RenderOutcome);
 		auto& Render = Candidate->Render;
-		if (!Render || Request.MaterialSlots.empty()
-			|| Request.MaterialSlots.size() > MaximumMeshMaterialSlots
-			|| Request.MaterialSlots.size() != Render->MaterialSlots.size())
-			return Fail(FStaticMeshBuildFailure{std::format(
-				"StaticMesh candidate has inconsistent material slots ({}, render {}).", Request.MaterialSlots.size(),
-				Render ? Render->MaterialSlots.size() : 0), EStaticMeshBuildStage::Validation});
-		std::unordered_set<FName> SlotNames;
-		for (size_t Index = 0; Index < Request.MaterialSlots.size(); ++Index)
-		{
-			const auto& Slot = Request.MaterialSlots[Index];
-			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
-				return Fail(FStaticMeshBuildFailure{std::format(
-					"StaticMesh candidate requires unique named material slots (slot {}, name '{}').", Index, Slot.Name.ToString()), EStaticMeshBuildStage::Validation});
-		}
-		for (size_t Index = 0; Index < Render->LODResources.size(); ++Index)
-		{
-			const auto& LOD = Render->LODResources[Index];
-			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-				return Fail(FStaticMeshBuildFailure{std::format(
-					"StaticMesh candidate LOD {} has {} UV channels; maximum {}.", Index, LOD.NumTexCoords, MaxStaticMeshUVChannels), EStaticMeshBuildStage::Validation});
-		}
-		FStaticMeshBuildMemoryEstimate Memory{Control.MaximumWorkingSetBytes};
-		if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Request.MaterialSlots.capacity(), 32768)
-			|| !Memory.Add(Render->LODResources.capacity(), sizeof(FStaticMeshLODResources)))
-			return BudgetFailure("StaticMesh render metadata exceeds its reservation.", Memory);
-		for (const auto& LOD : Render->LODResources)
-		{
-			if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositions().capacity(), 512)
-				|| !Memory.Add(LOD.IndexBuffer.GetIndices().capacity(), 192)
-				|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
-				return BudgetFailure("StaticMesh predicted finalization working set exceeds its reservation.", Memory);
-		}
-		bool bCancelled = false;
-		const std::function<bool()> ShouldCancel = [&] {
-			bCancelled = bCancelled || Control.IsCancelled();
-			return bCancelled;
-		};
-		FStaticMeshPayloadData Payload;
-		if (const auto Result = MakeStaticMeshPayloadData(*Render, Payload, ShouldCancel); !Result)
-			return Fail(Result.error().Code == EStaticMeshPayloadError::Cancelled
-				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshPayloadError(Result.error()))
-				: FStaticMeshBuildFailure{FormatStaticMeshPayloadError(Result.error()), EStaticMeshBuildStage::Validation});
-		if (const auto Policy = ValidateStaticMeshLODScreenSizes(Render->LODResources); !Policy)
-			return Fail(bCancelled
-				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshLODPolicyError(Policy.error()))
-				: FStaticMeshBuildFailure{FormatStaticMeshLODPolicyError(Policy.error()), EStaticMeshBuildStage::Validation});
-		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh candidate build was cancelled."));
-		if (!Render->RecalculateBounds(ShouldCancel))
-			return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh bounds build was cancelled."));
-#if DURIN_WITH_EDITOR
-		for (auto& LOD : Render->LODResources)
-		{
-			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD, ShouldCancel);
-			if (bCancelled) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh ray build was cancelled."));
-			// An unavailable optional acceleration retains exact reference traversal.
-		}
-#endif
 		FStaticMeshBuildExecutionControl CollisionControl = Control;
 		CollisionControl.ExpectedProviderRegistration = Candidate->ProviderRegistration;
-		auto CollisionOutcome = FStaticMeshBuilder::BuildCollision(*Render,
+		auto CollisionOutcome = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*Render,
 			Request.CollisionMode, Request.CollisionPolicy,
-			Request.bPersistDerivedData, CollisionControl);
+			Request.bPersistDerivedData), CollisionControl);
 		if (!CollisionOutcome)
 		{
 			return Fail(CollisionOutcome.error());
