@@ -8,8 +8,10 @@ namespace
 	{
 		int32 ReturnCode = -1;
 		std::string Error;
-		EXPECT_TRUE(Durin::FPlatformProcess::ExecuteProcess(
-			DURIN_LAUNCH_EXECUTABLE, Arguments, ReturnCode, &Error)) << Error;
+		const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess(DURIN_LAUNCH_EXECUTABLE, Arguments);
+		Error = ExecuteProcessResult ? std::string{} : ExecuteProcessResult.error().ToString();
+		if (ExecuteProcessResult) ReturnCode = *ExecuteProcessResult;
+		EXPECT_TRUE(ExecuteProcessResult.has_value()) << Error;
 		return ReturnCode;
 	}
 }

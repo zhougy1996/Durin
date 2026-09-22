@@ -1,11 +1,21 @@
 #pragma once
 
+#include <expected>
+
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
 #include "Serialization/SharedByteBuffer.h"
 
 namespace Durin::Image
 {
+	enum class EImageError : uint8 { InvalidImage, InvalidConversion, ByteLimit, UnsupportedFormat };
+	struct FImageError
+	{
+		EImageError Code;
+		std::string Message;
+		auto ToString() const -> const std::string& { return Message; }
+	};
+
 	inline constexpr uint64 MaximumRawImageBytes = 512ull * 1024ull * 1024ull;
 
 	enum class ERawImageFormat : uint8
@@ -80,10 +90,8 @@ namespace Durin::Image
 	{
 	public:
 		FImage() = default;
-		CORE_API static auto TryCreate(FImageInfo Info, FByteBuffer Pixels,
-			FImage& OutImage, std::string* OutError = nullptr) -> bool;
-		CORE_API static auto TryCreate(FImageInfo Info, FSharedByteBuffer Pixels,
-			FImage& OutImage, std::string* OutError = nullptr) -> bool;
+		[[nodiscard]] CORE_API static auto TryCreate(FImageInfo Info, FByteBuffer Pixels) -> std::expected<FImage, FImageError>;
+		[[nodiscard]] CORE_API static auto TryCreate(FImageInfo Info, FSharedByteBuffer Pixels) -> std::expected<FImage, FImageError>;
 
 		auto IsValid() const -> bool { return View.IsValid(); }
 		auto GetInfo() const -> const FImageInfo& { return View.GetInfo(); }
@@ -113,8 +121,7 @@ namespace Durin::Image
 		uint8 SourceChannelCount = 0;
 		bool bHasTransparency = false;
 
-		CORE_API auto ToImage(EImageGammaSpace GammaSpace,
-			FImage& OutImage, std::string* OutError = nullptr) const -> bool;
+		[[nodiscard]] CORE_API auto ToImage(EImageGammaSpace GammaSpace) const -> std::expected<FImage, FImageError>;
 	};
 
 	struct FDecodedGrayscale16Image
@@ -123,8 +130,7 @@ namespace Durin::Image
 		uint32 Width = 0;
 		uint32 Height = 0;
 
-		CORE_API auto ToImage(EImageGammaSpace GammaSpace,
-			FImage& OutImage, std::string* OutError = nullptr) const -> bool;
+		[[nodiscard]] CORE_API auto ToImage(EImageGammaSpace GammaSpace) const -> std::expected<FImage, FImageError>;
 	};
 
 	struct FDecodedFloatImage
@@ -133,15 +139,13 @@ namespace Durin::Image
 		uint32 Width = 0;
 		uint32 Height = 0;
 
-		CORE_API auto ToImage(FImage& OutImage,
-			std::string* OutError = nullptr) const -> bool;
+		[[nodiscard]] CORE_API auto ToImage() const -> std::expected<FImage, FImageError>;
 	};
 
 	CORE_API auto GetRawImageFormatInfo(ERawImageFormat Format)
 		-> FRawImageFormatInfo;
-	CORE_API auto ConvertImage(FImageView Source, ERawImageFormat DestinationFormat,
-		EImageGammaSpace DestinationGamma, FImage& OutImage,
-		std::string& OutError) -> bool;
-	CORE_API auto AnalyzeImageChannels(FImageView Image,
-		FImageChannelAnalysis& OutAnalysis, std::string& OutError) -> bool;
+	[[nodiscard]] CORE_API auto ConvertImage(FImageView Source, ERawImageFormat DestinationFormat,
+		EImageGammaSpace DestinationGamma) -> std::expected<FImage, FImageError>;
+	[[nodiscard]] CORE_API auto AnalyzeImageChannels(FImageView Image)
+		-> std::expected<FImageChannelAnalysis, FImageError>;
 } // namespace Durin::Image

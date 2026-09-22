@@ -99,10 +99,10 @@ auto SetDensity(DVolumeTexture& Texture, uint8 Value) -> void
 
 auto SetWeather(DTexture2D& Texture, uint8 Value) -> void
 {
-	Image::FImage Pixels;
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 4,
-		.Format = Image::ERawImageFormat::RGBA8},
-		FByteBuffer(64, static_cast<std::byte>(Value)), Pixels));
+	auto ImageResult1 = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, static_cast<std::byte>(Value)));
+	ASSERT_TRUE(ImageResult1);
+	auto Pixels = std::move(*ImageResult1);
 	FTextureSource Source;
 	ASSERT_TRUE(Source.Init2D(Pixels.GetView(), 4));
 	Texture.SetSource(std::move(Source));

@@ -23,23 +23,19 @@ namespace Durin
 
 	auto ConfigureStartupCommand(
 		std::string Name,
-		std::vector<std::string> Arguments,
-		std::string* OutError) -> bool
+		std::vector<std::string> Arguments) -> std::expected<void, FStartupCommandError>
 	{
-		if (OutError) OutError->clear();
 		if (Name.empty())
 		{
-			if (OutError) *OutError = "The startup command name cannot be empty.";
-			return false;
+			return std::unexpected(FStartupCommandError{EStartupCommandError::InvalidName, "The startup command name cannot be empty."});
 		}
 		if (GPendingStartupCommand)
 		{
-			if (OutError) *OutError = "Only one startup command is allowed per process.";
-			return false;
+			return std::unexpected(FStartupCommandError{EStartupCommandError::AlreadyPending, "Only one startup command is allowed per process."});
 		}
 		GPendingStartupCommand = FPendingStartupCommand{
 			std::move(Name), std::move(Arguments)};
-		return true;
+		return {};
 	}
 
 	auto RegisterStartupCommandHandler(
@@ -69,21 +65,19 @@ namespace Durin
 		return GPendingStartupCommand.has_value();
 	}
 
-	auto DispatchStartupCommand(std::string* OutError, bool bRequireHandler)
-		-> std::optional<int>
+	auto DispatchStartupCommand(bool bRequireHandler)
+		-> std::expected<std::optional<int>, FStartupCommandError>
 	{
-		if (OutError) OutError->clear();
 		if (!GPendingStartupCommand) return std::nullopt;
 		const auto It = GStartupCommandHandlers.find(GPendingStartupCommand->Name);
 		if (It == GStartupCommandHandlers.end())
 		{
 			if (!bRequireHandler) return std::nullopt;
-			if (OutError)
-				*OutError = std::format(
+			const std::string Message = std::format(
 					"No initialized module handles startup command '{}'.",
 					GPendingStartupCommand->Name);
 			GPendingStartupCommand.reset();
-			return 2;
+			return std::unexpected(FStartupCommandError{EStartupCommandError::MissingHandler, Message});
 		}
 		FPendingStartupCommand Command = std::move(*GPendingStartupCommand);
 		GPendingStartupCommand.reset();

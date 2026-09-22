@@ -229,9 +229,10 @@ namespace Durin
 		if (Mips.GetData().GetSize() != FaceBytes * TextureCubeFaceCount) return {};
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			if (!Image::FImage::TryCreate({.Width = Source.GetWidth(), .Height = Source.GetHeight(),
-				.Format = Image::ERawImageFormat::RGBA8},
-				View.GetBuffer().MakeView(Index * FaceBytes, FaceBytes), Result.Faces[Index])) return {};
+			auto ImageResult1 = Image::FImage::TryCreate({.Width = Source.GetWidth(), .Height = Source.GetHeight(),
+				.Format = Image::ERawImageFormat::RGBA8}, View.GetBuffer().MakeView(Index * FaceBytes, FaceBytes));
+			if (!ImageResult1) return {};
+			Result.Faces[Index] = std::move(*ImageResult1);
 		}
 		Result.SourceChannelCounts.fill(Source.GetSourceChannelCount());
 		Result.TransparencyMask = Source.GetTransparencyMask();

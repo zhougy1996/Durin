@@ -111,7 +111,9 @@ namespace Durin::Editor::Level
 		else if (PendingAction == ELevelDocumentAction::OpenProject)
 		{
 			std::string Error;
-			if (!RelaunchEditorForProject(PendingProjectFile, &Error))
+			const auto RelaunchEditorForProjectResult = RelaunchEditorForProject(PendingProjectFile);
+			Error = RelaunchEditorForProjectResult ? std::string{} : RelaunchEditorForProjectResult.error().ToString();
+			if (!RelaunchEditorForProjectResult.has_value())
 			{
 				SetError(std::move(Error));
 				return ELevelDocumentOpenResult::Rejected;

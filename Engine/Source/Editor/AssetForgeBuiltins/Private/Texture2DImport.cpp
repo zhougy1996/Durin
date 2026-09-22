@@ -518,9 +518,10 @@ namespace Durin::AssetForge::Builtins
 		if (DecodedImage.Width > 16384 || DecodedImage.Height > 16384)
 			return Fail(ETexture2DTranslationError::Dimensions);
 		Image::FImage Image;
-		if (!Image::FImage::TryCreate({.Width = DecodedImage.Width,
-			.Height = DecodedImage.Height, .Format = Image::ERawImageFormat::RGBA8},
-			std::move(DecodedImage.Pixels), Image)) return Fail(ETexture2DTranslationError::Image);
+		auto ImageResult1 = Image::FImage::TryCreate({.Width = DecodedImage.Width,
+			.Height = DecodedImage.Height, .Format = Image::ERawImageFormat::RGBA8}, std::move(DecodedImage.Pixels));
+		if (!ImageResult1) return Fail(ETexture2DTranslationError::Image);
+		Image = std::move(*ImageResult1);
 		if (SourceData.Init2D(Image.GetView(), DecodedImage.SourceChannelCount,
 			DecodedImage.bHasTransparency ? 1 : 0)) return SourceData;
 		return Fail(ETexture2DTranslationError::Source);

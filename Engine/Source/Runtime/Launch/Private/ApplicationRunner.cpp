@@ -87,8 +87,9 @@ namespace Durin
 		if (StartupCommand.Name)
 		{
 			std::string Error;
-			if (!ConfigureStartupCommand(
-				std::move(*StartupCommand.Name), std::move(StartupCommand.Arguments), &Error))
+			const auto ConfigureStartupCommandResult = ConfigureStartupCommand(std::move(*StartupCommand.Name), std::move(StartupCommand.Arguments));
+			Error = ConfigureStartupCommandResult ? std::string{} : ConfigureStartupCommandResult.error().ToString();
+			if (!ConfigureStartupCommandResult.has_value())
 			{
 				std::fprintf(stderr, "Durin: --startup-command could not be configured: %s\n", Error.c_str());
 				return 2;
@@ -113,12 +114,16 @@ namespace Durin
 			++CompletedTicks;
 			if (HasPendingStartupCommand())
 			{
-				std::string Error;
-				if (const std::optional<int> Result = DispatchStartupCommand(
-						&Error, CompletedTicks >= 120))
+				const auto Result = DispatchStartupCommand(CompletedTicks >= 120);
+				if (!Result)
 				{
-					ProcessResult = *Result;
-					if (!Error.empty()) DURIN_ERROR("{}", Error);
+					ProcessResult = 2;
+					DURIN_ERROR("{}", Result.error().ToString());
+					RequestEngineExit();
+				}
+				else if (Result->has_value())
+				{
+					ProcessResult = **Result;
 					RequestEngineExit();
 				}
 			}
@@ -132,7 +137,9 @@ namespace Durin
 
 		EngineLoop.Exit();
 		std::string RelaunchError;
-		if (!LaunchPendingEditorRelaunch(&RelaunchError))
+		const auto LaunchPendingEditorRelaunchResult = LaunchPendingEditorRelaunch();
+		RelaunchError = LaunchPendingEditorRelaunchResult ? std::string{} : LaunchPendingEditorRelaunchResult.error().ToString();
+		if (!LaunchPendingEditorRelaunchResult.has_value())
 			DURIN_ERROR("Failed to relaunch editor: {}", RelaunchError);
 		if (EngineLoop.HasLoggerStarted()) LoggerShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::Exited);

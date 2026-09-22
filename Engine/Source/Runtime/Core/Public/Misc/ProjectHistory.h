@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Misc/ProjectError.h"
 
 namespace Durin
 {
@@ -29,15 +30,15 @@ namespace Durin
 
 		CORE_API explicit FProjectHistory(std::string HistoryFile);
 
-		CORE_API auto Load(std::string* OutError = nullptr) -> bool;
-		CORE_API auto Record(std::string_view ProjectName, std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
-		CORE_API auto Remove(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
+		[[nodiscard]] CORE_API auto Load() -> std::expected<void, FProjectError>;
+		[[nodiscard]] CORE_API auto Record(std::string_view ProjectName, std::string_view ProjectFile) -> std::expected<void, FProjectError>;
+		[[nodiscard]] CORE_API auto Remove(std::string_view ProjectFile) -> std::expected<void, FProjectError>;
 
 		auto GetEntries() const -> const std::vector<FRecentProjectInfo>& { return Entries; }
 		auto GetMostRecentProjectFile() const -> std::string { return Entries.empty() ? std::string{} : Entries.front().ProjectFile; }
 
 	private:
-		auto Save(std::string* OutError) const -> bool;
+		auto Save() const -> std::expected<void, FProjectError>;
 		auto RefreshStatuses() -> void;
 
 		std::string HistoryFile;

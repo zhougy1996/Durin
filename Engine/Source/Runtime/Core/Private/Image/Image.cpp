@@ -6,12 +6,6 @@ namespace Durin::Image
 {
 	namespace
 	{
-		auto Fail(std::string_view Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
-
 		auto HalfToFloat(uint16 Half) -> float
 		{
 			const uint32 Sign = static_cast<uint32>(Half & 0x8000u) << 16;
@@ -176,32 +170,26 @@ namespace Durin::Image
 		else PixelSize = Expected;
 	}
 
-	auto FImage::TryCreate(FImageInfo Info, FByteBuffer Pixels, FImage& OutImage,
-		std::string* OutError) -> bool
+	auto FImage::TryCreate(FImageInfo Info, FByteBuffer Pixels) -> std::expected<FImage, FImageError>
 	{
-		return TryCreate(Info, FSharedByteBuffer::Take(std::move(Pixels)), OutImage, OutError);
+		return TryCreate(Info, FSharedByteBuffer::Take(std::move(Pixels)));
 	}
 
-	auto FImage::TryCreate(FImageInfo Info, FSharedByteBuffer Pixels, FImage& OutImage,
-		std::string* OutError) -> bool
+	auto FImage::TryCreate(FImageInfo Info, FSharedByteBuffer Pixels) -> std::expected<FImage, FImageError>
 	{
 		uint64 Expected = 0;
 		if (!Info.GetByteSize(Expected) || Expected != Pixels.GetSize())
-			return Fail("Image metadata and pixel byte count do not match.", OutError);
-		OutImage = FImage(FImageView(Info, std::move(Pixels)));
-		if (OutError) OutError->clear();
-		return true;
+			return std::unexpected(FImageError{EImageError::InvalidImage, "Image metadata and pixel byte count do not match."});
+		return FImage(FImageView(Info, std::move(Pixels)));
 	}
 
 	auto ConvertImage(FImageView Source, ERawImageFormat DestinationFormat,
-		EImageGammaSpace DestinationGamma, FImage& OutImage, std::string& OutError) -> bool
+		EImageGammaSpace DestinationGamma) -> std::expected<FImage, FImageError>
 	{
-		OutImage.Reset();
 		if (!Source.IsValid() || GetRawImageFormatInfo(DestinationFormat).BytesPerPixel == 0
 			|| DestinationGamma > EImageGammaSpace::SRGB)
 		{
-			OutError = "Image conversion input or destination is invalid.";
-			return false;
+			return std::unexpected(FImageError{EImageError::InvalidConversion, "Image conversion input or destination is invalid."});
 		}
 		const FImageInfo& SourceInfo = Source.GetInfo();
 		FImageInfo DestinationInfo = SourceInfo;
@@ -211,8 +199,7 @@ namespace Durin::Image
 		if (!DestinationInfo.GetByteSize(DestinationBytes)
 			|| DestinationBytes > std::numeric_limits<size_t>::max())
 		{
-			OutError = "Converted image exceeds the supported byte limit.";
-			return false;
+			return std::unexpected(FImageError{EImageError::ByteLimit, "Converted image exceeds the supported byte limit."});
 		}
 		const auto SourceFormat = GetRawImageFormatInfo(SourceInfo.Format);
 		const auto DestFormat = GetRawImageFormatInfo(DestinationFormat);
@@ -224,8 +211,7 @@ namespace Durin::Image
 			if (!DecodePixel(Source.GetPixels().data() + Index * SourceFormat.BytesPerPixel,
 				SourceInfo.Format, Pixel))
 			{
-				OutError = "Source image format cannot be converted.";
-				return false;
+				return std::unexpected(FImageError{EImageError::UnsupportedFormat, "Source image format cannot be converted."});
 			}
 			if (SourceInfo.GammaSpace != DestinationGamma
 				&& SourceInfo.GammaSpace != EImageGammaSpace::Unknown
@@ -239,61 +225,56 @@ namespace Durin::Image
 			if (!EncodePixel(Pixel, DestinationFormat,
 				Bytes.data() + Index * DestFormat.BytesPerPixel))
 			{
-				OutError = "Destination image format cannot be encoded.";
-				return false;
+				return std::unexpected(FImageError{EImageError::UnsupportedFormat, "Destination image format cannot be encoded."});
 			}
 		}
-		return FImage::TryCreate(DestinationInfo, std::move(Bytes), OutImage, &OutError);
+		return FImage::TryCreate(DestinationInfo, std::move(Bytes));
 	}
 
-	auto AnalyzeImageChannels(FImageView Image, FImageChannelAnalysis& OutAnalysis,
-		std::string& OutError) -> bool
+	auto AnalyzeImageChannels(FImageView Image)
+		-> std::expected<FImageChannelAnalysis, FImageError>
 	{
-		OutAnalysis = {};
+		FImageChannelAnalysis Analysis;
 		if (!Image.IsValid())
 		{
-			OutError = "Image channel analysis requires a valid image.";
-			return false;
+			return std::unexpected(FImageError{EImageError::InvalidImage, "Image channel analysis requires a valid image."});
 		}
 		const auto Format = GetRawImageFormatInfo(Image.GetInfo().Format);
-		OutAnalysis.MeaningfulChannelCount = Format.ChannelCount;
+		Analysis.MeaningfulChannelCount = Format.ChannelCount;
 		const uint64 PixelCount = Image.GetPixels().size() / Format.BytesPerPixel;
 		for (uint64 Index = 0; Index < PixelCount; ++Index)
 		{
 			std::array<double, 4> Pixel;
 			DecodePixel(Image.GetPixels().data() + Index * Format.BytesPerPixel,
 				Image.GetInfo().Format, Pixel);
-			for (double Channel : Pixel) OutAnalysis.bAllFinite &= std::isfinite(Channel);
-			if (Format.ChannelCount == 4 && Pixel[3] < 1.0) OutAnalysis.bHasTransparency = true;
+			for (double Channel : Pixel) Analysis.bAllFinite &= std::isfinite(Channel);
+			if (Format.ChannelCount == 4 && Pixel[3] < 1.0) Analysis.bHasTransparency = true;
 		}
-		OutError.clear();
-		return true;
+		return Analysis;
 	}
 
-	auto FDecodedImage::ToImage(EImageGammaSpace GammaSpace, FImage& OutImage,
-		std::string* OutError) const -> bool
+	auto FDecodedImage::ToImage(EImageGammaSpace GammaSpace) const -> std::expected<FImage, FImageError>
 	{
 		return FImage::TryCreate({.Width = Width, .Height = Height,
 			.Format = ERawImageFormat::RGBA8, .GammaSpace = GammaSpace},
-			FByteBuffer(Pixels), OutImage, OutError);
+			FByteBuffer(Pixels));
 	}
 
-	auto FDecodedGrayscale16Image::ToImage(EImageGammaSpace GammaSpace,
-		FImage& OutImage, std::string* OutError) const -> bool
+	auto FDecodedGrayscale16Image::ToImage(EImageGammaSpace GammaSpace) const -> std::expected<FImage, FImageError>
 	{
 		FByteBuffer Bytes(Samples.size() * sizeof(uint16));
 		if (!Bytes.empty()) std::memcpy(Bytes.data(), Samples.data(), Bytes.size());
 		return FImage::TryCreate({.Width = Width, .Height = Height,
 			.Format = ERawImageFormat::G16, .GammaSpace = GammaSpace},
-			std::move(Bytes), OutImage, OutError);
+			std::move(Bytes));
 	}
 
-	auto FDecodedFloatImage::ToImage(FImage& OutImage, std::string* OutError) const -> bool
+	auto FDecodedFloatImage::ToImage() const -> std::expected<FImage, FImageError>
 	{
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (PixelCount > std::numeric_limits<size_t>::max() / 4
 			|| Pixels.size() != PixelCount * 3)
-			return Fail("Decoded HDR image dimensions and pixels do not match.", OutError);
+			return std::unexpected(FImageError{EImageError::InvalidImage, "Decoded HDR image dimensions and pixels do not match."});
 		FByteBuffer Bytes(static_cast<size_t>(PixelCount) * 4 * sizeof(float));
 		for (size_t Index = 0; Index < static_cast<size_t>(PixelCount); ++Index)
 		{
@@ -304,6 +285,6 @@ namespace Durin::Image
 		return FImage::TryCreate({.Width = Width, .Height = Height,
 			.Format = ERawImageFormat::RGBA32F,
 			.GammaSpace = EImageGammaSpace::Linear},
-			std::move(Bytes), OutImage, OutError);
+			std::move(Bytes));
 	}
 } // namespace Durin::Image

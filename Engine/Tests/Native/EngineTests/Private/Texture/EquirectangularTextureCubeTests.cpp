@@ -106,12 +106,13 @@ namespace Durin::TextureCubeBuilder
 			Pixels[Index * 4 + 2] = 8.0f;
 			Pixels[Index * 4 + 3] = 1.0f;
 		}
-		Image::FImage Panorama;
 		std::string Error;
 		const auto Bytes = std::as_bytes(std::span(Pixels));
-		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 2,
-			.Format = Image::ERawImageFormat::RGBA32F, .GammaSpace = Image::EImageGammaSpace::Linear},
-			FByteBuffer(Bytes.begin(), Bytes.end()), Panorama, &Error)) << Error;
+		auto ImageResult1 = Image::FImage::TryCreate({.Width = 4, .Height = 2,
+			.Format = Image::ERawImageFormat::RGBA32F, .GammaSpace = Image::EImageGammaSpace::Linear}, FByteBuffer(Bytes.begin(), Bytes.end()));
+		Error = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+		ASSERT_TRUE(ImageResult1) << Error;
+		auto Panorama = std::move(*ImageResult1);
 		FTextureCubePlatformData Cube;
 		ASSERT_TRUE(BuildHDRTextureCube(Panorama,
 			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR}, Cube, Error)) << Error;
@@ -180,9 +181,10 @@ namespace Durin::TextureCubeBuilder
 		FTextureCubeDecodedFaces Faces;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			ASSERT_TRUE(Image::FImage::TryCreate({.Width = 2, .Height = 2,
-				.Format = Image::ERawImageFormat::RGBA8},
-				FByteBuffer(16, static_cast<std::byte>(Index + 1)), Faces.Faces[Index]));
+			auto ImageResult2 = Image::FImage::TryCreate({.Width = 2, .Height = 2,
+				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(16, static_cast<std::byte>(Index + 1)));
+			ASSERT_TRUE(ImageResult2);
+			Faces.Faces[Index] = std::move(*ImageResult2);
 		}
 		Faces.SourceChannelCounts.fill(4);
 		Faces.TransparencyMask = 0x21;

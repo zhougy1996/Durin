@@ -169,7 +169,9 @@ namespace Durin::Editor::MainFrame
 		}
 
 		std::string LaunchError;
-		if (FPlatformProcess::LaunchProcess(Status.ProfilerPath, {}, &LaunchError)) return true;
+		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(Status.ProfilerPath, {});
+		LaunchError = LaunchProcessResult ? std::string{} : LaunchProcessResult.error().ToString();
+		if (LaunchProcessResult.has_value()) return true;
 		if (OutError)
 			*OutError = std::format(
 				"{}\nExpected Tracy version: {}.\nRepair with: {}",
@@ -198,11 +200,9 @@ namespace Durin::Editor::MainFrame
 		}
 
 		std::string LaunchError;
-		if (FPlatformProcess::LaunchProcess(
-			Status.ProfilerPath,
-			BuildCaptureArguments(Capture.generic_string()),
-			&LaunchError
-		)) return true;
+		const auto LaunchProcessResult2 = FPlatformProcess::LaunchProcess(Status.ProfilerPath, BuildCaptureArguments(Capture.generic_string()));
+		LaunchError = LaunchProcessResult2 ? std::string{} : LaunchProcessResult2.error().ToString();
+		if (LaunchProcessResult2.has_value()) return true;
 		if (OutError)
 			*OutError = std::format(
 				"{}\nCapture: \"{}\".\nExpected Tracy version: {}.\nRepair with: {}",
@@ -249,6 +249,8 @@ namespace Durin::Editor::MainFrame
 				);
 			return false;
 		}
-		return FPlatformProcess::OpenPath(CaptureDirectory.generic_string(), OutError);
+		const auto OpenPathResult = FPlatformProcess::OpenPath(CaptureDirectory.generic_string());
+		if (OutError) *OutError = OpenPathResult ? std::string{} : OpenPathResult.error().ToString();
+		return OpenPathResult.has_value();
 	}
 }

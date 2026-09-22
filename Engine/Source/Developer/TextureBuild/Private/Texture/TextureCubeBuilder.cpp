@@ -299,9 +299,11 @@ namespace Durin::TextureCubeBuilder
 						Projected.TransparencyMask |= static_cast<uint8>(1u << FaceIndex);
 				}
 			}
-			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
-				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels),
-				Projected.Faces[FaceIndex], &OutError)) return false;
+			auto ImageResult1 = Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels));
+			OutError = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+			if (!ImageResult1) return false;
+			Projected.Faces[FaceIndex] = std::move(*ImageResult1);
 		}
 		Projected.SourceChannelCounts.fill(LDRChannelCount);
 		OutSourceData = std::move(Projected);
@@ -356,9 +358,11 @@ namespace Durin::TextureCubeBuilder
 					Pixels[Destination + 3] = static_cast<std::byte>(255);
 				}
 			}
-			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
-				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels),
-				Projected.Faces[FaceIndex], &OutError)) return false;
+			auto ImageResult2 = Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels));
+			OutError = ImageResult2 ? std::string{} : ImageResult2.error().ToString();
+			if (!ImageResult2) return false;
+			Projected.Faces[FaceIndex] = std::move(*ImageResult2);
 		}
 		Projected.SourceChannelCounts.fill(LDRChannelCount);
 		OutSourceData = std::move(Projected);

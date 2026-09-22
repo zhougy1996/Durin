@@ -8,7 +8,6 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 {
 	InitializeDObjectSystem();
 	using namespace Durin;
-	Image::FImage Source;
 	FByteBuffer Pixels(1024 * 1024 * 4);
 	uint32 Random = 12345;
 	for (auto& Byte : Pixels)
@@ -16,8 +15,10 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 		Random = Random * 1664525u + 1013904223u;
 		Byte = static_cast<std::byte>(Random >> 24);
 	}
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 1024, .Height = 1024,
-		.Format = Image::ERawImageFormat::RGBA8}, Pixels, Source));
+	auto ImageResult1 = Image::FImage::TryCreate({.Width = 1024, .Height = 1024,
+		.Format = Image::ERawImageFormat::RGBA8}, Pixels);
+	ASSERT_TRUE(ImageResult1);
+	auto Source = std::move(*ImageResult1);
 	for (auto Usage : {ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask})
 	{
 		std::array<std::vector<double>, 2> Samples;

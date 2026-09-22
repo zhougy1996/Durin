@@ -1354,7 +1354,9 @@ namespace Durin
 				Context->bProjectBrowserOpen = false;
 				return true;
 			}
-			return RelaunchEditorForProject(ProjectFile, &OutError);
+			const auto RelaunchEditorForProjectResult = RelaunchEditorForProject(ProjectFile);
+			OutError = RelaunchEditorForProjectResult ? std::string{} : RelaunchEditorForProjectResult.error().ToString();
+			return RelaunchEditorForProjectResult.has_value();
 		});
 		Context.ProjectBrowser->SetClose([WeakContext] {
 			if (const std::shared_ptr<FBootstrapContext> Context =

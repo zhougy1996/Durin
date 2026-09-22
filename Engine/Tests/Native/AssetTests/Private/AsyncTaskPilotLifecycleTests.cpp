@@ -38,9 +38,10 @@ namespace
 		ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/LargeTexture", Path));
 		DTexture2D* Texture = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
-		Image::FImage SourceImage;
-		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 256, .Height = 256,
-			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(256 * 256 * 4, std::byte{42}), SourceImage));
+		auto ImageResult1 = Image::FImage::TryCreate({.Width = 256, .Height = 256,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(256 * 256 * 4, std::byte{42}));
+		ASSERT_TRUE(ImageResult1);
+		auto SourceImage = std::move(*ImageResult1);
 		FTextureSource Source;
 		ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		FTexture2DCompilationRequest Request;
@@ -88,9 +89,10 @@ namespace
 			Blockers[Index] = Tasks::LaunchTask("FillTextureScheduler", [] {}).GetCompletion().GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		Image::FImage SaturatedSourceImage;
-		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 1, .Height = 1,
-			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4), SaturatedSourceImage));
+		auto ImageResult2 = Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4));
+		ASSERT_TRUE(ImageResult2);
+		auto SaturatedSourceImage = std::move(*ImageResult2);
 		FTextureSource SaturatedSource;
 		ASSERT_TRUE(SaturatedSource.Init2D(SaturatedSourceImage.GetView(), 4));
 		FTexture2DCompilationRequest SaturatedRequest;
@@ -115,9 +117,10 @@ namespace
 			DTexture2D* Texture = nullptr;
 			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
 			PendingTextures[Index] = Texture;
-			Image::FImage SourceImage;
-			ASSERT_TRUE(Image::FImage::TryCreate({.Width = 64, .Height = 64,
-				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, std::byte{42}), SourceImage));
+			auto ImageResult3 = Image::FImage::TryCreate({.Width = 64, .Height = 64,
+				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, std::byte{42}));
+			ASSERT_TRUE(ImageResult3);
+			auto SourceImage = std::move(*ImageResult3);
 			FTextureSource Source;
 			ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 			FTexture2DCompilationRequest Request;

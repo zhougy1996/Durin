@@ -180,10 +180,10 @@ namespace Durin
 			for (uint32 MipIndex = 0; MipIndex < TestMipCount; ++MipIndex)
 			{
 				const uint32 Size = std::max(1u, 4u >> MipIndex);
-				Image::FImage Source;
-				if (!Image::FImage::TryCreate({.Width = Size, .Height = Size,
-					.Format = Image::ERawImageFormat::RGBA8},
-					MakeSolidMip(Size, Colors[MipIndex]), Source)) return {};
+				auto ImageResult1 = Image::FImage::TryCreate({.Width = Size, .Height = Size,
+					.Format = Image::ERawImageFormat::RGBA8}, MakeSolidMip(Size, Colors[MipIndex]));
+				if (!ImageResult1) return {};
+				auto Source = std::move(*ImageResult1);
 
 				FTexturePlatformData Built;
 				const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(

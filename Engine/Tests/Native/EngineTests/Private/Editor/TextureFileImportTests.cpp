@@ -49,15 +49,19 @@ TEST(FTextureFileImportTests, InfersSemanticFilenameTokensWithoutSubstringMatche
 TEST(FTextureFileImportTests, RecognizesNormalVectorsButRespectsExplicitColorAndMaskNames)
 {
 	Image::FImage Image;
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 4,
-		.Format = Image::ERawImageFormat::RGBA8}, MakeNormalPixels(true), Image));
+	auto ImageResult1 = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, MakeNormalPixels(true));
+	ASSERT_TRUE(ImageResult1);
+	Image = std::move(*ImageResult1);
 	FTextureSource Source;
 	ASSERT_TRUE(Source.Init2D(Image.GetView(), 3));
 	EXPECT_EQ(InferTexture2DImportSettings("unnamed.png", &Source).Usage, ETextureUsage::Normal);
 	EXPECT_EQ(InferTexture2DImportSettings("wall_albedo.png", &Source).Usage, ETextureUsage::Color);
 	EXPECT_EQ(InferTexture2DImportSettings("wall_orm.png", &Source).Usage, ETextureUsage::DataMask);
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 4,
-		.Format = Image::ERawImageFormat::RGBA8}, MakeNormalPixels(false), Image));
+	auto ImageResult2 = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, MakeNormalPixels(false));
+	ASSERT_TRUE(ImageResult2);
+	Image = std::move(*ImageResult2);
 	ASSERT_TRUE(Source.Init2D(Image.GetView(), 3));
 	EXPECT_EQ(InferTexture2DImportSettings("purple.png", &Source).Usage, ETextureUsage::Color);
 	EXPECT_EQ(InferTexture2DImportSettings("flat_normal.png", &Source).Usage, ETextureUsage::Normal);
@@ -144,8 +148,10 @@ namespace
 			DTexture2D* Texture = nullptr;
 			if (!CreatePackageLeafAssetForTesting(Path, Texture)) return nullptr;
 			Image::FImage Image;
-			if (!Image::FImage::TryCreate({.Width = 512, .Height = 512,
-				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{17}), Image)) return nullptr;
+			auto ImageResult3 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
+				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{17}));
+			if (!ImageResult3) return nullptr;
+			Image = std::move(*ImageResult3);
 			FTextureSource Source;
 			if (!Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw)) return nullptr;
 			Texture->SetSource(Source);
@@ -424,9 +430,10 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRollsBackBulkWhenCommitFails)
 	auto BeforeBulkRead = FFileHelper::LoadFileToArray(Root / "Content/save.dbulk");
 	ASSERT_TRUE(BeforeBulkRead) << BeforeBulkRead.error().ToString();
 	BeforeBulk = std::move(*BeforeBulkRead);
-	Image::FImage ChangedImage;
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 512, .Height = 512,
-		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{33}), ChangedImage));
+	auto ImageResult4 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{33}));
+	ASSERT_TRUE(ImageResult4);
+	auto ChangedImage = std::move(*ImageResult4);
 	FTextureSource ChangedSource;
 	ASSERT_TRUE(ChangedSource.Init2D(ChangedImage.GetView(), 4, 0, ETextureSourceCompression::Raw));
 	Texture->SetSource(ChangedSource);

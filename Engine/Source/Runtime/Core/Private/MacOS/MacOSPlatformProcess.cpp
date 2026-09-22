@@ -172,20 +172,17 @@ namespace Durin
 	}
 
 	auto FMacOSPlatformProcess::WaitForProcessExit(
-		uint32 ProcessId,
-		std::string* OutError) -> bool
+		uint32 ProcessId) -> std::expected<void, FPlatformProcessError>
 	{
 		if (ProcessId > static_cast<uint32>(INT_MAX))
 		{
-			if (OutError) *OutError = "Process identifier is outside the macOS pid range.";
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, "Process identifier is outside the macOS pid range."});
 		}
 
 		const int Queue = kqueue();
 		if (Queue == -1)
 		{
-			if (OutError) *OutError = std::format("Could not create process wait queue: {}.", FormatErrno(errno));
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("Could not create process wait queue: {}.", FormatErrno(errno))});
 		}
 
 		struct kevent Change{};
@@ -195,11 +192,9 @@ namespace Durin
 		{
 			const int Error = errno;
 			close(Queue);
-			if (Error == ESRCH) return true;
-			if (OutError)
-				*OutError = std::format("Could not observe process {}: {}.",
-					ProcessId, FormatErrno(Error));
-			return false;
+			if (Error == ESRCH) return {};
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("Could not observe process {}: {}.",
+					ProcessId, FormatErrno(Error))});
 		}
 
 		struct kevent Event{};
@@ -210,58 +205,59 @@ namespace Durin
 		} while (WaitResult == -1 && errno == EINTR);
 		const int Error = errno;
 		close(Queue);
-		if (WaitResult == 1) return true;
-		if (OutError)
-			*OutError = std::format("Could not wait for process {}: {}.",
-				ProcessId, FormatErrno(Error));
-		return false;
+		if (WaitResult == 1) return {};
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("Could not wait for process {}: {}.",
+				ProcessId, FormatErrno(Error))});
 	}
 
 	auto FMacOSPlatformProcess::LaunchProcess(
 		std::string_view Executable,
-		std::string_view Arguments,
-		std::string* OutError) -> bool
+		std::string_view Arguments) -> std::expected<void, FPlatformProcessError>
 	{
+		std::string Error;
 		std::vector<std::string> ParsedArguments;
-		if (!ParseArguments(Arguments, ParsedArguments, OutError)) return false;
+		if (!ParseArguments(Arguments, ParsedArguments, &Error))
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error)});
 		pid_t ChildProcess = 0;
-		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, OutError)) return false;
+		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, &Error))
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::move(Error)});
 		std::thread([ChildProcess] {
 			int32 ReturnCode = 0;
 			(void)WaitForChild(ChildProcess, ReturnCode, nullptr);
 		}).detach();
-		return true;
+		return {};
 	}
 
 	auto FMacOSPlatformProcess::ExecuteProcess(
 		std::string_view Executable,
-		std::string_view Arguments,
-		int32& OutReturnCode,
-		std::string* OutError) -> bool
+		std::string_view Arguments) -> std::expected<int32, FPlatformProcessError>
 	{
-		OutReturnCode = 0;
+		std::string Error;
 		std::vector<std::string> ParsedArguments;
-		if (!ParseArguments(Arguments, ParsedArguments, OutError)) return false;
+		if (!ParseArguments(Arguments, ParsedArguments, &Error))
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error)});
 		pid_t ChildProcess = 0;
-		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, OutError)) return false;
-		return WaitForChild(ChildProcess, OutReturnCode, OutError);
+		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, &Error))
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::move(Error)});
+		int32 ReturnCode = 0;
+		if (!WaitForChild(ChildProcess, ReturnCode, &Error))
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::move(Error)});
+		return ReturnCode;
 	}
 
 	auto FMacOSPlatformProcess::OpenPath(
-		std::string_view Path,
-		std::string* OutError) -> bool
+		std::string_view Path) -> std::expected<void, FPlatformProcessError>
 	{
 		if (Path.empty())
 		{
-			if (OutError) *OutError = "Path to open is empty.";
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, "Path to open is empty."});
 		}
-		int32 ReturnCode = 0;
-		if (!ExecuteProcess("/usr/bin/open",
-			std::format("-- \"{}\"", Path), ReturnCode, OutError)) return false;
-		if (ReturnCode == 0) return true;
-		if (OutError) *OutError = std::format(
-			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode);
-		return false;
+		const auto Result = ExecuteProcess("/usr/bin/open",
+			std::format("-- \"{}\"", Path));
+		if (!Result) return std::unexpected(Result.error());
+		const int32 ReturnCode = *Result;
+		if (ReturnCode == 0) return {};
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format(
+			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode)});
 	}
 }

@@ -446,16 +446,23 @@ namespace Durin::AssetForge::Builtins
 		{
 			auto DecodeResult = Image::DecodeImageFromMemory(EncodedFaces[Index], {.MaximumDecodedPixels = 16384ull * 16384ull});
 			OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
-			if (!DecodeResult
-				|| !Image::FImage::TryCreate({.Width = DecodeResult->Width, .Height = DecodeResult->Height,
-					.Format = Image::ERawImageFormat::RGBA8}, std::move(DecodeResult->Pixels),
-					OutSource.Faces[Index], &OutError))
+			if (!DecodeResult)
+			{
+				OutError = std::format("{} TextureCube face decode failed: {}", FaceNames[Index], OutError);
+				OutSource = {};
+				return false;
+			}
+			auto ImageResult1 = Image::FImage::TryCreate({.Width = DecodeResult->Width, .Height = DecodeResult->Height,
+					.Format = Image::ERawImageFormat::RGBA8}, std::move(DecodeResult->Pixels));
+			OutError = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+			if (!ImageResult1)
 			{
 				OutError = std::format("{} TextureCube face decode failed: {}",
 					FaceNames[Index], OutError);
 				OutSource = {};
 				return false;
 			}
+			OutSource.Faces[Index] = std::move(*ImageResult1);
 			if (DecodeResult->Width > 16384 || DecodeResult->Height > 16384)
 			{
 				OutError = std::format("{} TextureCube face dimensions {}x{} exceed the 16384 pixel limit.",

@@ -1,4 +1,5 @@
 #include "Asset/Cook.h"
+#include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Scan.h"
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
@@ -60,6 +61,8 @@ namespace
 		static auto SetUpTestSuite() -> void
 		{
 			Testing::InitializeDObjectSystemForTests();
+			ASSERT_TRUE(InitializeTaskScheduler(2));
+			ASSERT_TRUE(InitializeAssetCompilingManager());
 			FModuleManager::Get().LoadModuleChecked("TextureBuild");
 			FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 			static const FGlobalShaderSetRegistration Shaders("CookFixture", "CookFixture.Minimal",
@@ -72,6 +75,12 @@ namespace
 			FShaderPaths::RegisterMountPoint("/CookFixture/", ShaderRoot.generic_string(),
 				(Testing::GetTestWorkDirectory() / "CookShaderCache").generic_string());
 			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		}
+		static auto TearDownTestSuite() -> void
+		{
+			FAssetCompilingManager::Get().FinishAllCompilation();
+			ShutdownAssetCompilingManager();
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 		auto SetUp() -> void override
 		{
@@ -138,7 +147,7 @@ TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
 	EXPECT_EQ(Result.InputFailure.Status, ECookInputStatus::InvalidDependency);
 	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::PackageDeclaration);
 	ASSERT_TRUE(Result.InputFailure.GetDiagnostic()->PathCause);
-	EXPECT_TRUE(Result.InputFailure.GetDiagnostic()->PathCause->HasError());
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->PathCause->Code, EObjectPathError::NotAbsolute);
 	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Name, "invalid-package");
 	EXPECT_EQ(Retained->Name, "quality");
 	EXPECT_EQ(Contributions, 0u);
@@ -345,9 +354,10 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	std::string Error;
 	auto* Saved = Make.operator()<DObject>("Saved");
 	ASSERT_TRUE(SavePackage(Saved->GetPackage()));
-	Image::FImage PixelsImage;
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 4,
-		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4 * 4 * 4, std::byte{0xff}), PixelsImage));
+	auto ImageResult1 = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4 * 4 * 4, std::byte{0xff}));
+	ASSERT_TRUE(ImageResult1);
+	auto PixelsImage = std::move(*ImageResult1);
 	FTextureSource Pixels;
 	ASSERT_TRUE(Pixels.Init2D(PixelsImage.GetView(), 4));
 	auto* Texture = Make.operator()<DTexture2D>("Texture");
@@ -401,11 +411,12 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material", .DefaultMaterial = Material}};
 	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));
 	auto* Environment = Make.operator()<DTextureCube>("Environment");
-	Image::FImage HdrImage;
 	std::vector<float> HdrPixels(8 * 4 * 4, 4.0f);
 	const auto HdrBytes = std::as_bytes(std::span(HdrPixels));
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 8, .Height = 4, .Format = Image::ERawImageFormat::RGBA32F,
-		.GammaSpace = Image::EImageGammaSpace::Linear}, FByteBuffer(HdrBytes.begin(), HdrBytes.end()), HdrImage));
+	auto ImageResult2 = Image::FImage::TryCreate({.Width = 8, .Height = 4, .Format = Image::ERawImageFormat::RGBA32F,
+		.GammaSpace = Image::EImageGammaSpace::Linear}, FByteBuffer(HdrBytes.begin(), HdrBytes.end()));
+	ASSERT_TRUE(ImageResult2);
+	auto HdrImage = std::move(*ImageResult2);
 	auto HdrSource = PrepareTextureCubePanoramaSource(HdrImage.GetView(), 4, 0);
 	ASSERT_TRUE(HdrSource);
 	Environment->SetSource(std::move(*HdrSource));
@@ -458,8 +469,6 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Inventory(Output / "Game"), First);
 	EXPECT_EQ(Inventory(Source), Before);
-	ASSERT_TRUE(InitializeTaskScheduler(2));
-	struct FTaskCleanup { ~FTaskCleanup() { ShutdownTaskSystem(ETaskShutdownMode::Drain); } } TaskCleanup;
 	Testing::FScopedAssetRuntimeForTests Runtime;
 	ASSERT_TRUE(Runtime.RestartCooked(Output));
 	Testing::RegisterMountPointForTests("/Game/", (Output / "Game").generic_string(), true, false);

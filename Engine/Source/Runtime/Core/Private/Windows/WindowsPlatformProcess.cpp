@@ -45,24 +45,22 @@ namespace Durin
 		return static_cast<uint32>(::GetCurrentProcessId());
 	}
 
-	auto FWindowsPlatformProcess::WaitForProcessExit(uint32 ProcessId, std::string* OutError) -> bool
+	auto FWindowsPlatformProcess::WaitForProcessExit(uint32 ProcessId) -> std::expected<void, FPlatformProcessError>
 	{
 		const HANDLE Process = OpenProcess(SYNCHRONIZE, FALSE, ProcessId);
 		if (Process == nullptr)
 		{
 			const DWORD Error = GetLastError();
-			if (Error == ERROR_INVALID_PARAMETER) return true;
-			if (OutError) *OutError = std::format("OpenProcess failed with error {}.", Error);
-			return false;
+			if (Error == ERROR_INVALID_PARAMETER) return {};
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("OpenProcess failed with error {}.", Error)});
 		}
 		const DWORD WaitResult = WaitForSingleObject(Process, INFINITE);
 		CloseHandle(Process);
-		if (WaitResult == WAIT_OBJECT_0) return true;
-		if (OutError) *OutError = std::format("WaitForSingleObject failed with result {}.", WaitResult);
-		return false;
+		if (WaitResult == WAIT_OBJECT_0) return {};
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("WaitForSingleObject failed with result {}.", WaitResult)});
 	}
 
-	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, std::string_view Arguments, std::string* OutError) -> bool
+	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, std::string_view Arguments) -> std::expected<void, FPlatformProcessError>
 	{
 		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable) + L"\" " + StringUtils::Utf8ToWide(Arguments);
 		STARTUPINFOW StartupInfo{};
@@ -71,34 +69,27 @@ namespace Durin
 		if (!CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &StartupInfo, &ProcessInfo))
 		{
 			const DWORD Error = GetLastError();
-			if (OutError)
-				*OutError = std::format("Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error));
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format("Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error))});
 		}
 		CloseHandle(ProcessInfo.hThread);
 		CloseHandle(ProcessInfo.hProcess);
-		return true;
+		return {};
 	}
 
-	auto FWindowsPlatformProcess::OpenPath(std::string_view Path, std::string* OutError) -> bool
+	auto FWindowsPlatformProcess::OpenPath(std::string_view Path) -> std::expected<void, FPlatformProcessError>
 	{
 		const std::wstring WidePath = StringUtils::Utf8ToWide(Path);
 		const INT_PTR Result = reinterpret_cast<INT_PTR>(
 			ShellExecuteW(nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL)
 		);
-		if (Result > 32) return true;
-		if (OutError)
-			*OutError = std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result);
-		return false;
+		if (Result > 32) return {};
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result)});
 	}
 
 	auto FWindowsPlatformProcess::ExecuteProcess(
 		std::string_view Executable,
-		std::string_view Arguments,
-		int32& OutReturnCode,
-		std::string* OutError) -> bool
+		std::string_view Arguments) -> std::expected<int32, FPlatformProcessError>
 	{
-		OutReturnCode = 0;
 		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable)
 			+ L"\" " + StringUtils::Utf8ToWide(Arguments);
 		STARTUPINFOW StartupInfo{};
@@ -108,9 +99,8 @@ namespace Durin
 			nullptr, nullptr, &StartupInfo, &ProcessInfo))
 		{
 			const DWORD Error = GetLastError();
-			if (OutError) *OutError = std::format(
-				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error));
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format(
+				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error))});
 		}
 		CloseHandle(ProcessInfo.hThread);
 		const DWORD WaitResult = WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
@@ -121,11 +111,9 @@ namespace Durin
 		CloseHandle(ProcessInfo.hProcess);
 		if (!bReadExitCode)
 		{
-			if (OutError) *OutError = std::format(
-				"Could not wait for \"{}\": {}.", Executable, FormatWindowsError(Error));
-			return false;
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format(
+				"Could not wait for \"{}\": {}.", Executable, FormatWindowsError(Error))});
 		}
-		OutReturnCode = static_cast<int32>(ExitCode);
-		return true;
+		return static_cast<int32>(ExitCode);
 	}
 }

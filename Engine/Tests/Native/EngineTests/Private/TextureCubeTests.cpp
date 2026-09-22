@@ -598,9 +598,12 @@ TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 	Durin::FTextureCubeDecodedFaces Faces;
 	Faces.SourceChannelCounts.fill(4);
 	for (auto& Face : Faces.Faces)
-		ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
-			.Format = Durin::Image::ERawImageFormat::RGBA8},
-			Durin::FByteBuffer(4, std::byte{127}), Face));
+	{
+		auto ImageResult1 = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4, std::byte{127}));
+		ASSERT_TRUE(ImageResult1);
+		Face = std::move(*ImageResult1);
+	}
 	ASSERT_TRUE(Faces.IsValid());
 	auto Source = Durin::PrepareTextureCubeSource(Faces);
 	ASSERT_TRUE(Source);

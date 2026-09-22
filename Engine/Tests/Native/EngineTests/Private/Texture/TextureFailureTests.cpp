@@ -82,8 +82,10 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	Durin::DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
 	Durin::Image::FImage SourceImage;
-	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
-		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceImage));
+	auto ImageResult1 = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4));
+	EXPECT_TRUE(ImageResult1);
+	if (ImageResult1) SourceImage = std::move(*ImageResult1);
 	Durin::FTextureSource Source;
 	EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 	Texture->SetSource(std::move(Source));

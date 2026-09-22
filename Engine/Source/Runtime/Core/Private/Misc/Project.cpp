@@ -122,42 +122,38 @@ namespace Durin
 	auto GetCurrentProject() -> const FProjectInfo* { return GCurrentProject ? &*GCurrentProject : nullptr; }
 	auto HasCurrentProject() -> bool { return GCurrentProject.has_value(); }
 
-	auto InitializeCurrentProject(const FProjectInitializationParams& Params, std::string* OutError) -> bool
+	auto InitializeCurrentProject(const FProjectInitializationParams& Params) -> std::expected<void, FProjectError>
 	{
 		GCurrentProject.reset();
-		if (Params.bOpenProjectBrowser) return true;
+		if (Params.bOpenProjectBrowser) return {};
 		std::string Requested = Params.RequestedProjectFile;
 		if (Requested.empty())
 		{
 			FProjectHistory History = MakeDefaultProjectHistory();
-			std::string HistoryError;
-			if (!History.Load(&HistoryError))
-			{
-				if (OutError) *OutError = std::move(HistoryError);
-				return false;
-			}
+			if (const auto Loaded = History.Load(); !Loaded)
+				return std::unexpected(Loaded.error());
 			Requested = History.GetMostRecentProjectFile();
 		}
-		if (Requested.empty()) return true;
+		if (Requested.empty()) return {};
 		const std::string Normalized = Normalize(Requested);
 		FJsonDocument Descriptor;
 		if (const auto Loaded = Descriptor.LoadFromFile(Normalized); !Loaded)
 		{
-			if (OutError) *OutError = std::format("Invalid project descriptor '{}': {}", Normalized, Loaded.error().ToString());
-			return false;
+			return std::unexpected(FProjectError{EProjectError::InvalidDescriptor, std::format("Invalid project descriptor '{}': {}", Normalized, Loaded.error().ToString())});
 		}
 		const FJsonNodeView Root = Descriptor.GetRootView();
 		const std::string ProjectName = Root.GetView("ProjectName").GetString();
 		if (ProjectName.empty())
 		{
-			if (OutError) *OutError = std::format("Project descriptor has no ProjectName: {}", Normalized);
-			return false;
+			return std::unexpected(FProjectError{EProjectError::InvalidDescriptor, std::format("Project descriptor has no ProjectName: {}", Normalized)});
 		}
-		if (!FPaths::SetProjectFile(Normalized, OutError)) return false;
-		if (!FMountPaths::ValidateDefaultMountPoints(OutError))
+		std::string PathError;
+		if (!FPaths::SetProjectFile(Normalized, &PathError))
+			return std::unexpected(FProjectError{EProjectError::InvalidPaths, std::move(PathError)});
+		if (!FMountPaths::ValidateDefaultMountPoints(&PathError))
 		{
 			FPaths::SetProjectFile({});
-			return false;
+			return std::unexpected(FProjectError{EProjectError::InvalidPaths, std::move(PathError)});
 		}
 		FProjectInfo Info;
 		Info.Name = ProjectName;
@@ -165,40 +161,40 @@ namespace Durin
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";
 		Info.ContentDir = Info.ProjectDir + "Content/";
 		Info.MountRoot = FMountPaths::ProjectContentMountRoot;
-		if (!ReadEnabledRootModules(Root, Info.EnabledRootModules, OutError))
+		if (!ReadEnabledRootModules(Root, Info.EnabledRootModules, &PathError))
 		{
 			FPaths::SetProjectFile({});
-			return false;
+			return std::unexpected(FProjectError{EProjectError::InvalidDescriptor, std::move(PathError)});
 		}
 		GCurrentProject = std::move(Info);
-		return true;
+		return {};
 	}
 
-	auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError) -> bool
+	auto RelaunchEditorForProject(std::string_view ProjectFile) -> std::expected<void, FProjectError>
 	{
-		if (OutError) OutError->clear();
 		GPendingEditorRelaunchArguments = ProjectFile.empty() ? "--project-browser" : std::format("--project=\"{}\"", Normalize(ProjectFile));
 		RequestEngineExit();
-		return true;
+		return {};
 	}
 
-	auto LaunchPendingEditorRelaunch(std::string* OutError) -> bool
+	auto LaunchPendingEditorRelaunch() -> std::expected<void, FProjectError>
 	{
-		if (!GPendingEditorRelaunchArguments) return true;
+		if (!GPendingEditorRelaunchArguments) return {};
 		const std::string HiddenWindowArgument = GIsWindowDisplaySuppressed ? " --hidden-window" : "";
 		const std::string Arguments = std::format(
 			"--wait-for-process={} {}{}", FPlatformProcess::CurrentProcessId(), *GPendingEditorRelaunchArguments, HiddenWindowArgument
 		);
 		GPendingEditorRelaunchArguments.reset();
-		return FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError);
+		if (const auto Launched = FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments); !Launched)
+			return std::unexpected(FProjectError{EProjectError::Relaunch, Launched.error().ToString()});
+		return {};
 	}
 
-	auto AcquireProjectEditOwnership(std::string* OutError) -> bool
+	auto AcquireProjectEditOwnership() -> std::expected<void, FProjectError>
 	{
-		if (OutError) OutError->clear();
-		if (!GCurrentProject) return true;
+		if (!GCurrentProject) return {};
 #ifdef _WIN32
-		if (GProjectEditMutex) return true;
+		if (GProjectEditMutex) return {};
 		uint64 Hash = 14695981039346656037ull;
 		for (unsigned char Character : GCurrentProject->ProjectFile)
 		{
@@ -211,23 +207,21 @@ namespace Durin
 		HANDLE Mutex = CreateMutexW(nullptr, TRUE, Name.c_str());
 		if (!Mutex)
 		{
-			if (OutError) *OutError = std::format(
+			return std::unexpected(FProjectError{EProjectError::EditOwnership, std::format(
 				"Could not create project edit ownership (Windows error {}).",
-				GetLastError());
-			return false;
+				GetLastError())});
 		}
 		if (GetLastError() == ERROR_ALREADY_EXISTS)
 		{
 			CloseHandle(Mutex);
-			if (OutError) *OutError = std::format(
+			return std::unexpected(FProjectError{EProjectError::EditOwnership, std::format(
 				"Another Editor process already owns project '{}'.",
-				GCurrentProject->Name);
-			return false;
+				GCurrentProject->Name)});
 		}
 		GProjectEditMutex = Mutex;
 #elif defined(__APPLE__)
 		if (GProjectEditFile >= 0
-			&& GProjectEditOwnerProcess == getpid()) return true;
+			&& GProjectEditOwnerProcess == getpid()) return {};
 		if (GProjectEditFile >= 0)
 		{
 			close(GProjectEditFile);
@@ -249,21 +243,19 @@ namespace Durin
 		const int File = open(LockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 		if (File < 0)
 		{
-			if (OutError) *OutError = std::format(
+			return std::unexpected(FProjectError{EProjectError::EditOwnership, std::format(
 				"Could not create project edit lock '{}': macOS error {} ({}).",
-				LockPath.generic_string(), errno, std::generic_category().message(errno));
-			return false;
+				LockPath.generic_string(), errno, std::generic_category().message(errno))});
 		}
 		if (flock(File, LOCK_EX | LOCK_NB) != 0)
 		{
 			const int Error = errno;
 			close(File);
-			if (OutError) *OutError = Error == EWOULDBLOCK
+			return std::unexpected(FProjectError{EProjectError::EditOwnership, Error == EWOULDBLOCK
 				? std::format("Another Editor process already owns project '{}'.",
 					GCurrentProject->Name)
 				: std::format("Could not acquire project edit lock: macOS error {} ({}).",
-					Error, std::generic_category().message(Error));
-			return false;
+					Error, std::generic_category().message(Error))});
 		}
 		const std::string Owner = std::format("pid={}\nproject={}\n",
 			getpid(), GCurrentProject->ProjectFile);
@@ -272,7 +264,7 @@ namespace Durin
 		GProjectEditFile = File;
 		GProjectEditOwnerProcess = getpid();
 #endif
-		return true;
+		return {};
 	}
 
 	auto ReleaseProjectEditOwnership() -> void

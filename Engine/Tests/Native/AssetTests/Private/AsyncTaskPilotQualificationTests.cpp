@@ -295,8 +295,10 @@ namespace
 			for (auto& Request : Requests)
 			{
 				Image::FImage SourceImage;
-				EXPECT_TRUE(Image::FImage::TryCreate({.Width = 64, .Height = 64,
-					.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, static_cast<std::byte>(Batch + 1)), SourceImage));
+				auto ImageResult1 = Image::FImage::TryCreate({.Width = 64, .Height = 64,
+					.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, static_cast<std::byte>(Batch + 1)));
+				EXPECT_TRUE(ImageResult1);
+				if (ImageResult1) SourceImage = std::move(*ImageResult1);
 				FTextureSource Source;
 				EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 				Request.Build = Durin::MakeTexture2DBuildRequest(Source);

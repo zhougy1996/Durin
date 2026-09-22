@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Misc/ProjectError.h"
 
 namespace Durin
 {
@@ -27,11 +28,11 @@ namespace Durin
 
 	CORE_API auto GetCurrentProject() -> const FProjectInfo*;
 	CORE_API auto HasCurrentProject() -> bool;
-	CORE_API auto InitializeCurrentProject(const FProjectInitializationParams& Params, std::string* OutError = nullptr) -> bool;
+	[[nodiscard]] CORE_API auto InitializeCurrentProject(const FProjectInitializationParams& Params) -> std::expected<void, FProjectError>;
 	CORE_API auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string;
-	CORE_API auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
-	CORE_API auto LaunchPendingEditorRelaunch(std::string* OutError = nullptr) -> bool;
+	[[nodiscard]] CORE_API auto RelaunchEditorForProject(std::string_view ProjectFile) -> std::expected<void, FProjectError>;
+	[[nodiscard]] CORE_API auto LaunchPendingEditorRelaunch() -> std::expected<void, FProjectError>;
 	// Exclusively owns one project's edit session for this process lifetime.
-	CORE_API auto AcquireProjectEditOwnership(std::string* OutError = nullptr) -> bool;
+	[[nodiscard]] CORE_API auto AcquireProjectEditOwnership() -> std::expected<void, FProjectError>;
 	CORE_API auto ReleaseProjectEditOwnership() -> void;
 }

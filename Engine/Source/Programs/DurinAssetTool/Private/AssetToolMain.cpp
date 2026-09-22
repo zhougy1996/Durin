@@ -933,9 +933,9 @@ int main(int ArgC, char** ArgV)
 	Durin::GIsGameThreadIdInitialized = true;
 	Durin::FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 	Durin::FNameInit();
-	if (!Durin::InitializeCurrentProject(
-			{.RequestedProjectFile = Options.Project}, &Error
-		))
+	const auto InitializeCurrentProjectResult = Durin::InitializeCurrentProject({.RequestedProjectFile = Options.Project});
+	Error = InitializeCurrentProjectResult ? std::string{} : InitializeCurrentProjectResult.error().ToString();
+	if (!InitializeCurrentProjectResult.has_value())
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;

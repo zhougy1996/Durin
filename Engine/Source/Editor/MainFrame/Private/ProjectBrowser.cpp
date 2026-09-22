@@ -40,7 +40,9 @@ namespace Durin::Editor::MainFrame
 	FProjectBrowser::FProjectBrowser()
 		: History(MakeDefaultProjectHistory())
 	{
-		History.Load(&Error);
+		const auto LoadResult = History.Load();
+		Error = LoadResult ? std::string{} : LoadResult.error().ToString();
+
 	}
 
 	auto FProjectBrowser::RecordCurrentProject() -> void
@@ -48,7 +50,9 @@ namespace Durin::Editor::MainFrame
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return;
 		std::string SaveError;
-		if (!History.Record(Project->Name, Project->ProjectFile, &SaveError))
+		const auto RecordResult = History.Record(Project->Name, Project->ProjectFile);
+		SaveError = RecordResult ? std::string{} : RecordResult.error().ToString();
+		if (!RecordResult.has_value())
 		{
 			Error = std::move(SaveError);
 			DURIN_WARN("{}", Error);
@@ -222,7 +226,9 @@ namespace Durin::Editor::MainFrame
 		if (ProjectToRemove)
 		{
 			std::string RemoveError;
-			if (!History.Remove(*ProjectToRemove, &RemoveError)) Error = std::move(RemoveError);
+			const auto RemoveResult = History.Remove(*ProjectToRemove);
+			RemoveError = RemoveResult ? std::string{} : RemoveResult.error().ToString();
+			if (!RemoveResult.has_value()) Error = std::move(RemoveError);
 			else
 			{
 				Error.clear();

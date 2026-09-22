@@ -67,9 +67,11 @@ namespace Durin::Image
 		uint64 ByteSize = 0;
 		ASSERT_TRUE(Info.GetByteSize(ByteSize));
 		EXPECT_EQ(ByteSize, 8u);
-		FImage Image;
 		std::string Error;
-		ASSERT_TRUE(FImage::TryCreate(Info, FByteBuffer(8, std::byte{7}), Image, &Error)) << Error;
+		auto ImageResult1 = FImage::TryCreate(Info, FByteBuffer(8, std::byte{7}));
+		Error = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+		ASSERT_TRUE(ImageResult1) << Error;
+		auto Image = std::move(*ImageResult1);
 		const FImageView View = Image.GetView();
 		Image.Reset();
 		ASSERT_TRUE(View.IsValid());
@@ -84,9 +86,11 @@ namespace Durin::Image
 	{
 		FDecodedGrayscale16Image Gray{
 			.Samples = {0x0000u, 0x1234u, 0xffffu}, .Width = 3, .Height = 1};
-		FImage GrayImage;
 		std::string Error;
-		ASSERT_TRUE(Gray.ToImage(EImageGammaSpace::Linear, GrayImage, &Error)) << Error;
+		auto ImageResult2 = Gray.ToImage(EImageGammaSpace::Linear);
+		Error = ImageResult2 ? std::string{} : ImageResult2.error().ToString();
+		ASSERT_TRUE(ImageResult2) << Error;
+		auto GrayImage = std::move(*ImageResult2);
 		EXPECT_EQ(GrayImage.GetInfo().Format, ERawImageFormat::G16);
 		ASSERT_EQ(GrayImage.GetPixels().size(), Gray.Samples.size() * sizeof(uint16));
 		EXPECT_EQ(std::memcmp(GrayImage.GetPixels().data(), Gray.Samples.data(),
@@ -96,13 +100,61 @@ namespace Durin::Image
 			std::byte{128}, std::byte{255}}, .Width = 1, .Height = 1,
 			.SourceChannelCount = 4};
 		FImage SRGB;
-		ASSERT_TRUE(Encoded.ToImage(EImageGammaSpace::SRGB, SRGB, &Error)) << Error;
+		auto ImageResult3 = Encoded.ToImage(EImageGammaSpace::SRGB);
+		Error = ImageResult3 ? std::string{} : ImageResult3.error().ToString();
+		ASSERT_TRUE(ImageResult3) << Error;
+		SRGB = std::move(*ImageResult3);
 		FImage Linear;
-		ASSERT_TRUE(ConvertImage(SRGB.GetView(), ERawImageFormat::RGBA32F,
-			EImageGammaSpace::Linear, Linear, Error)) << Error;
+		auto ImageResult4 = ConvertImage(SRGB.GetView(), ERawImageFormat::RGBA32F, EImageGammaSpace::Linear);
+		Error = ImageResult4 ? std::string{} : ImageResult4.error().ToString();
+		ASSERT_TRUE(ImageResult4) << Error;
+		Linear = std::move(*ImageResult4);
 		float First = 0.0f;
 		std::memcpy(&First, Linear.GetPixels().data(), sizeof(First));
 		EXPECT_NEAR(First, 0.21586f, 0.0001f);
+	}
+
+	TEST(FImageTests, ReturnsErrorsWithoutPartialValues)
+	{
+		const FImageInfo Info{.Width = 1, .Height = 1, .Format = ERawImageFormat::RGBA8};
+		const auto InvalidBytes = FImage::TryCreate(Info, FByteBuffer(3));
+		ASSERT_FALSE(InvalidBytes);
+		EXPECT_EQ(InvalidBytes.error().Code, EImageError::InvalidImage);
+		EXPECT_FALSE(InvalidBytes.error().ToString().empty());
+		const auto InvalidShared = FImage::TryCreate(Info, FSharedByteBuffer::Take(FByteBuffer(3)));
+		ASSERT_FALSE(InvalidShared);
+		EXPECT_EQ(InvalidShared.error().Code, EImageError::InvalidImage);
+		const auto InvalidConversion = ConvertImage({}, ERawImageFormat::RGBA8, EImageGammaSpace::Linear);
+		ASSERT_FALSE(InvalidConversion);
+		EXPECT_EQ(InvalidConversion.error().Code, EImageError::InvalidConversion);
+		const auto InvalidAnalysis = AnalyzeImageChannels({});
+		ASSERT_FALSE(InvalidAnalysis);
+		EXPECT_EQ(InvalidAnalysis.error().Code, EImageError::InvalidImage);
+		const FDecodedFloatImage InvalidFloat{.Pixels = {1.0f}, .Width = 1, .Height = 1};
+		const auto InvalidFloatImage = InvalidFloat.ToImage();
+		ASSERT_FALSE(InvalidFloatImage);
+		EXPECT_EQ(InvalidFloatImage.error().Code, EImageError::InvalidImage);
+	}
+
+	TEST(FImageTests, ReturnsChannelAnalysisAndKeepsSourceAfterConversionFailure)
+	{
+		const FDecodedFloatImage Decoded{.Pixels = {0.25f, 0.5f, 1.0f}, .Width = 1, .Height = 1};
+		const auto FloatImage = Decoded.ToImage();
+		ASSERT_TRUE(FloatImage);
+		const auto Opaque = AnalyzeImageChannels(FloatImage->GetView());
+		ASSERT_TRUE(Opaque);
+		EXPECT_EQ(Opaque->MeaningfulChannelCount, 4);
+		EXPECT_FALSE(Opaque->bHasTransparency);
+		EXPECT_TRUE(Opaque->bAllFinite);
+		const auto Failed = ConvertImage(FloatImage->GetView(), ERawImageFormat::Invalid, EImageGammaSpace::Linear);
+		ASSERT_FALSE(Failed);
+		EXPECT_TRUE(FloatImage->IsValid());
+		const auto Transparent = FImage::TryCreate(
+			{.Width = 1, .Height = 1, .Format = ERawImageFormat::RGBA8}, FByteBuffer(4));
+		ASSERT_TRUE(Transparent);
+		const auto Analysis = AnalyzeImageChannels(Transparent->GetView());
+		ASSERT_TRUE(Analysis);
+		EXPECT_TRUE(Analysis->bHasTransparency);
 	}
 
 	TEST(FImageDecoderTests, DecodesMemoryToUnscaledRgba8)

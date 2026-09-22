@@ -2038,9 +2038,10 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
 	Image::FImage Image;
-	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 512, .Height = 512,
-		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB},
-		FByteBuffer(512 * 512 * 4, std::byte{71}), Image));
+	auto ImageResult1 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB}, FByteBuffer(512 * 512 * 4, std::byte{71}));
+	ASSERT_TRUE(ImageResult1);
+	Image = std::move(*ImageResult1);
 	FTextureSource Source;
 	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw));
 	Texture->SetSource(Source);

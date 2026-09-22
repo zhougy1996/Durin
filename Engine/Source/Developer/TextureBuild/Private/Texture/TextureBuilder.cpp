@@ -455,15 +455,15 @@ namespace Durin::TextureBuilder
 					return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
 				}
 			}
-			Image::FImage FrozenMip;
-			if (!Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
+			auto ImageResult1 = Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
 				.Format = Image::ERawImageFormat::RGBA8,
-				.GammaSpace = SourceMips.front().GetInfo().GammaSpace},
-				std::move(NextMip.Pixels), FrozenMip))
+				.GammaSpace = SourceMips.front().GetInfo().GammaSpace}, std::move(NextMip.Pixels));
+			if (!ImageResult1)
 			{
 				OutPlatformData = {};
 				return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidMipLayout}};
 			}
+			auto FrozenMip = std::move(*ImageResult1);
 			UncompressedMips.push_back(std::move(FrozenMip));
 		}
 		const FClock::time_point MipFinish = FClock::now();

@@ -71,7 +71,6 @@ namespace Durin
 				OutError = "TextureCube decoded faces are invalid.";
 				return false;
 			}
-			Durin::Image::FImage AuthoredPanorama;
 			const Durin::Image::FImageInfo Info{.Width = Image.Width,
 				.Height = Image.Height,
 				.Format = std::is_same_v<std::decay_t<decltype(Image)>,
@@ -101,8 +100,10 @@ namespace Durin
 			{
 				AuthoredBytes.assign(Image.Pixels.begin(), Image.Pixels.end());
 			}
-			if (!Durin::Image::FImage::TryCreate(Info,
-				std::move(AuthoredBytes), AuthoredPanorama, &OutError)) return false;
+			auto ImageResult1 = Durin::Image::FImage::TryCreate(Info, std::move(AuthoredBytes));
+			OutError = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+			if (!ImageResult1) return false;
+			auto AuthoredPanorama = std::move(*ImageResult1);
 			OutCanonicalInput = {.DecodedFaces = std::move(SourceData),
 				.AuthoredPanorama = std::move(AuthoredPanorama),
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,

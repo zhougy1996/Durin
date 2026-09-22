@@ -74,30 +74,53 @@ TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
 	constexpr std::string_view MissingExecutable = "Z:/DurinTests/MissingProfiler.exe";
 	std::string Error;
 
-	EXPECT_FALSE(Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {}, &Error));
+	const auto LaunchProcessResult = Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {});
+	Error = LaunchProcessResult ? std::string{} : LaunchProcessResult.error().ToString();
+	EXPECT_FALSE(LaunchProcessResult.has_value());
 	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
 	EXPECT_NE(Error.find("Windows error"), std::string::npos);
 #elif defined(__APPLE__)
 	constexpr std::string_view MissingExecutable = "/DurinTests/MissingProfiler";
 	std::string Error;
 
-	EXPECT_FALSE(Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {}, &Error));
+	const auto LaunchProcessResult2 = Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {});
+	Error = LaunchProcessResult2 ? std::string{} : LaunchProcessResult2.error().ToString();
+	EXPECT_FALSE(LaunchProcessResult2.has_value());
 	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
 	EXPECT_NE(Error.find("macOS error"), std::string::npos);
 #endif
 }
+
+#if defined(_WIN32)
+TEST(FProjectTests, PlatformProcessDistinguishesExitCodeFromLaunchFailure)
+{
+	const char* CommandProcessor = std::getenv("COMSPEC");
+	ASSERT_NE(CommandProcessor, nullptr);
+	const auto Executed = Durin::FPlatformProcess::ExecuteProcess(CommandProcessor, "/d /c exit 7");
+	ASSERT_TRUE(Executed) << Executed.error().ToString();
+	EXPECT_EQ(*Executed, 7);
+	const auto Failed = Durin::FPlatformProcess::ExecuteProcess("Z:/DurinTests/MissingProcess.exe", {});
+	ASSERT_FALSE(Failed);
+	EXPECT_EQ(Failed.error().Code, Durin::EPlatformProcessError::Launch);
+	EXPECT_FALSE(Failed.error().ToString().empty());
+}
+#endif
 
 #if defined(__APPLE__)
 TEST(FProjectTests, PlatformProcessExecutesAndReportsNativeReturnCode)
 {
 	int32_t ReturnCode = 0;
 	std::string Error;
-	ASSERT_TRUE(Durin::FPlatformProcess::ExecuteProcess(
-		"/bin/sh", "-c 'exit 7'", ReturnCode, &Error)) << Error;
+	const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'exit 7'");
+	Error = ExecuteProcessResult ? std::string{} : ExecuteProcessResult.error().ToString();
+	if (ExecuteProcessResult) ReturnCode = *ExecuteProcessResult;
+	ASSERT_TRUE(ExecuteProcessResult.has_value()) << Error;
 	EXPECT_EQ(ReturnCode, 7);
 
-	EXPECT_FALSE(Durin::FPlatformProcess::ExecuteProcess(
-		"/bin/sh", "-c 'unfinished", ReturnCode, &Error));
+	const auto ExecuteProcessResult2 = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'unfinished");
+	Error = ExecuteProcessResult2 ? std::string{} : ExecuteProcessResult2.error().ToString();
+	if (ExecuteProcessResult2) ReturnCode = *ExecuteProcessResult2;
+	EXPECT_FALSE(ExecuteProcessResult2.has_value());
 	EXPECT_NE(Error.find("unfinished"), std::string::npos);
 }
 
@@ -111,8 +134,9 @@ TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
 		_exit(0);
 	}
 	std::string Error;
-	EXPECT_TRUE(Durin::FPlatformProcess::WaitForProcessExit(
-		static_cast<uint32>(Child), &Error)) << Error;
+	const auto WaitForProcessExitResult = Durin::FPlatformProcess::WaitForProcessExit(static_cast<uint32>(Child));
+	Error = WaitForProcessExitResult ? std::string{} : WaitForProcessExitResult.error().ToString();
+	EXPECT_TRUE(WaitForProcessExitResult.has_value()) << Error;
 	int Status = 0;
 	EXPECT_EQ(waitpid(Child, &Status, 0), Child);
 }
@@ -120,10 +144,13 @@ TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
 TEST(FProjectTests, PlatformOpenPathRejectsEmptyAndMissingPathsWithDiagnostics)
 {
 	std::string Error;
-	EXPECT_FALSE(Durin::FPlatformProcess::OpenPath({}, &Error));
+	const auto OpenPathResult = Durin::FPlatformProcess::OpenPath({});
+	Error = OpenPathResult ? std::string{} : OpenPathResult.error().ToString();
+	EXPECT_FALSE(OpenPathResult.has_value());
 	EXPECT_FALSE(Error.empty());
-	EXPECT_FALSE(Durin::FPlatformProcess::OpenPath(
-		"/DurinTests/MissingOpenPath", &Error));
+	const auto OpenPathResult2 = Durin::FPlatformProcess::OpenPath("/DurinTests/MissingOpenPath");
+	Error = OpenPathResult2 ? std::string{} : OpenPathResult2.error().ToString();
+	EXPECT_FALSE(OpenPathResult2.has_value());
 	EXPECT_NE(Error.find("MissingOpenPath"), std::string::npos);
 }
 #endif
@@ -133,7 +160,9 @@ TEST(FProjectTests, LoadsExplicitProjectFile)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	const auto InitializeCurrentProjectResult = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult ? std::string{} : InitializeCurrentProjectResult.error().ToString();
+	ASSERT_TRUE(InitializeCurrentProjectResult.has_value()) << Error;
 	ASSERT_TRUE(Durin::HasCurrentProject());
 	EXPECT_EQ(Durin::GetCurrentProject()->Name, "Sandbox");
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
@@ -146,16 +175,24 @@ TEST(FProjectTests, ProjectEditOwnershipIsExclusiveAcrossProcesses)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
-	ASSERT_TRUE(Durin::AcquireProjectEditOwnership(&Error)) << Error;
-	EXPECT_TRUE(Durin::AcquireProjectEditOwnership(&Error));
+	const auto InitializeCurrentProjectResult2 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult2 ? std::string{} : InitializeCurrentProjectResult2.error().ToString();
+	ASSERT_TRUE(InitializeCurrentProjectResult2.has_value()) << Error;
+	const auto AcquireProjectEditOwnershipResult = Durin::AcquireProjectEditOwnership();
+	Error = AcquireProjectEditOwnershipResult ? std::string{} : AcquireProjectEditOwnershipResult.error().ToString();
+	ASSERT_TRUE(AcquireProjectEditOwnershipResult.has_value()) << Error;
+	const auto AcquireProjectEditOwnershipResult2 = Durin::AcquireProjectEditOwnership();
+	Error = AcquireProjectEditOwnershipResult2 ? std::string{} : AcquireProjectEditOwnershipResult2.error().ToString();
+	EXPECT_TRUE(AcquireProjectEditOwnershipResult2.has_value());
 
 	const pid_t Child = fork();
 	ASSERT_GE(Child, 0);
 	if (Child == 0)
 	{
 		std::string ChildError;
-		const bool bAcquired = Durin::AcquireProjectEditOwnership(&ChildError);
+		const auto AcquireProjectEditOwnershipResult3 = Durin::AcquireProjectEditOwnership();
+		ChildError = AcquireProjectEditOwnershipResult3 ? std::string{} : AcquireProjectEditOwnershipResult3.error().ToString();
+		const bool bAcquired = AcquireProjectEditOwnershipResult3.has_value();
 		_exit(!bAcquired && ChildError.find("already owns") != std::string::npos ? 0 : 1);
 	}
 	int Status = 0;
@@ -164,7 +201,9 @@ TEST(FProjectTests, ProjectEditOwnershipIsExclusiveAcrossProcesses)
 	EXPECT_EQ(WEXITSTATUS(Status), 0);
 
 	Durin::ReleaseProjectEditOwnership();
-	EXPECT_TRUE(Durin::AcquireProjectEditOwnership(&Error)) << Error;
+	const auto AcquireProjectEditOwnershipResult4 = Durin::AcquireProjectEditOwnership();
+	Error = AcquireProjectEditOwnershipResult4 ? std::string{} : AcquireProjectEditOwnershipResult4.error().ToString();
+	EXPECT_TRUE(AcquireProjectEditOwnershipResult4.has_value()) << Error;
 	Durin::ReleaseProjectEditOwnership();
 }
 #endif
@@ -174,7 +213,9 @@ TEST(FProjectTests, RejectsMissingProject)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = "Missing.dproject";
 	std::string Error;
-	EXPECT_FALSE(Durin::InitializeCurrentProject(Params, &Error));
+	const auto InitializeCurrentProjectResult3 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult3 ? std::string{} : InitializeCurrentProjectResult3.error().ToString();
+	EXPECT_FALSE(InitializeCurrentProjectResult3.has_value());
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Durin::HasCurrentProject());
 }
@@ -184,7 +225,9 @@ TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
 	Durin::FProjectInitializationParams Params;
 	Params.bOpenProjectBrowser = true;
 	std::string Error;
-	EXPECT_TRUE(Durin::InitializeCurrentProject(Params, &Error));
+	const auto InitializeCurrentProjectResult4 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult4 ? std::string{} : InitializeCurrentProjectResult4.error().ToString();
+	EXPECT_TRUE(InitializeCurrentProjectResult4.has_value());
 	EXPECT_FALSE(Durin::HasCurrentProject());
 }
 
@@ -224,7 +267,9 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Valid;
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	const auto InitializeCurrentProjectResult5 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult5 ? std::string{} : InitializeCurrentProjectResult5.error().ToString();
+	ASSERT_TRUE(InitializeCurrentProjectResult5.has_value()) << Error;
 	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -254,7 +299,9 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 		std::filesystem::path(LegacyWritable).parent_path() / "Legacy");
 	Params.RequestedProjectFile = LegacyWritable;
 	Error.clear();
-	EXPECT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	const auto InitializeCurrentProjectResult6 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult6 ? std::string{} : InitializeCurrentProjectResult6.error().ToString();
+	EXPECT_TRUE(InitializeCurrentProjectResult6.has_value()) << Error;
 
 	const std::array InvalidDescriptors{
 		WriteProject(
@@ -292,7 +339,9 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	{
 		Params.RequestedProjectFile = Descriptor;
 		Error.clear();
-		EXPECT_FALSE(Durin::InitializeCurrentProject(Params, &Error));
+		const auto InitializeCurrentProjectResult7 = Durin::InitializeCurrentProject(Params);
+		Error = InitializeCurrentProjectResult7 ? std::string{} : InitializeCurrentProjectResult7.error().ToString();
+		EXPECT_FALSE(InitializeCurrentProjectResult7.has_value());
 		EXPECT_FALSE(Error.empty());
 		EXPECT_FALSE(Durin::HasCurrentProject());
 	}
@@ -313,7 +362,9 @@ TEST_F(FProjectHistoryTest, ResolvesEnabledModulesForCurrentRuntimeVariant)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Project;
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	const auto InitializeCurrentProjectResult8 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult8 ? std::string{} : InitializeCurrentProjectResult8.error().ToString();
+	ASSERT_TRUE(InitializeCurrentProjectResult8.has_value()) << Error;
 	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
 	EXPECT_EQ(
 		Durin::GetCurrentProject()->EnabledRootModules,
@@ -331,7 +382,9 @@ TEST_F(FProjectHistoryTest, DefaultsEnabledBaseModulesToModuleDirectoryKeys)
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Project;
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	const auto InitializeCurrentProjectResult9 = Durin::InitializeCurrentProject(Params);
+	Error = InitializeCurrentProjectResult9 ? std::string{} : InitializeCurrentProjectResult9.error().ToString();
+	ASSERT_TRUE(InitializeCurrentProjectResult9.has_value()) << Error;
 	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
 	EXPECT_EQ(
 		Durin::GetCurrentProject()->EnabledRootModules,

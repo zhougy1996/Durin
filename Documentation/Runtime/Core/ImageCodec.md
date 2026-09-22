@@ -57,6 +57,13 @@ values above 512 MiB. Conversion performs explicit normalized/float channel
 mapping and sRGB/linear transfer; a view retains its shared backing buffer so a
 subresource remains valid after its source container is reset.
 
+Both `FImage::TryCreate` overloads, decoded-value `ToImage` methods, and
+`ConvertImage` return `expected<FImage, FImageError>`.
+`AnalyzeImageChannels` returns `expected<FImageChannelAnalysis, FImageError>`.
+Failures carry a domain error code and an owned diagnostic message, without a
+partial output value. Callers publish a replacement only after checking success;
+`IsValid` and checked byte-size queries retain their boolean contracts.
+
 Default decode admission limits are 512 MiB encoded input, 256 million decoded LDR or
 grayscale pixels, and 32 million Radiance pixels with a 16,384 dimension bound.
 Callers may select smaller limits. `ImageCodecTests` owns extension, output,

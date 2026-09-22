@@ -50,10 +50,6 @@ namespace Durin
 			Entry.Status = ERecentProjectStatus::Available;
 		}
 
-		auto SetError(std::string* OutError, std::string Message) -> void
-		{
-			if (OutError) *OutError = std::move(Message);
-		}
 	}
 
 	FProjectHistory::FProjectHistory(std::string InHistoryFile)
@@ -61,9 +57,8 @@ namespace Durin
 	{
 	}
 
-	auto FProjectHistory::Load(std::string* OutError) -> bool
+	auto FProjectHistory::Load() -> std::expected<void, FProjectError>
 	{
-		if (OutError) OutError->clear();
 		Entries.clear();
 		const bool bHistoryExists = std::filesystem::exists(HistoryFile);
 		if (bHistoryExists)
@@ -71,8 +66,7 @@ namespace Durin
 			FYamlDocument Document;
 			if (const auto Loaded = Document.LoadFromFile(HistoryFile); !Loaded)
 			{
-				SetError(OutError, std::format("Could not load project history '{}': {}", HistoryFile, Loaded.error().ToString()));
-				return false;
+				return std::unexpected(FProjectError{EProjectError::HistoryLoad, std::format("Could not load project history '{}': {}", HistoryFile, Loaded.error().ToString())});
 			}
 
 			const FYamlNodeView RecentProjects = Document.GetRootView().GetView("RecentProjects");
@@ -90,33 +84,31 @@ namespace Durin
 		else
 		{
 			RefreshStatuses();
-			return Save(OutError);
+			return Save();
 		}
 
 		RefreshStatuses();
-		return true;
+		return {};
 	}
 
-	auto FProjectHistory::Record(std::string_view ProjectName, std::string_view ProjectFile, std::string* OutError) -> bool
+	auto FProjectHistory::Record(std::string_view ProjectName, std::string_view ProjectFile) -> std::expected<void, FProjectError>
 	{
-		if (OutError) OutError->clear();
 		const std::string Normalized = NormalizeProjectFile(ProjectFile);
 		const std::string Key = MakeProjectKey(Normalized);
 		std::erase_if(Entries, [&Key](const FRecentProjectInfo& Entry) { return MakeProjectKey(Entry.ProjectFile) == Key; });
 		Entries.insert(Entries.begin(), {std::string(ProjectName), Normalized, ERecentProjectStatus::Available, {}});
 		if (Entries.size() > MaximumRecentProjects) Entries.resize(MaximumRecentProjects);
-		return Save(OutError);
+		return Save();
 	}
 
-	auto FProjectHistory::Remove(std::string_view ProjectFile, std::string* OutError) -> bool
+	auto FProjectHistory::Remove(std::string_view ProjectFile) -> std::expected<void, FProjectError>
 	{
-		if (OutError) OutError->clear();
 		const std::string Key = MakeProjectKey(ProjectFile);
 		std::erase_if(Entries, [&Key](const FRecentProjectInfo& Entry) { return MakeProjectKey(Entry.ProjectFile) == Key; });
-		return Save(OutError);
+		return Save();
 	}
 
-	auto FProjectHistory::Save(std::string* OutError) const -> bool
+	auto FProjectHistory::Save() const -> std::expected<void, FProjectError>
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
@@ -129,9 +121,8 @@ namespace Durin
 			Item.SetChildValue("Name", Entry.Name);
 			Item.SetChildValue("ProjectFile", Entry.ProjectFile);
 		}
-		if (Document.SaveToFile(HistoryFile)) return true;
-		SetError(OutError, std::format("Could not save project history '{}'.", HistoryFile));
-		return false;
+		if (Document.SaveToFile(HistoryFile)) return {};
+		return std::unexpected(FProjectError{EProjectError::HistorySave, std::format("Could not save project history '{}'.", HistoryFile)});
 	}
 
 	auto FProjectHistory::RefreshStatuses() -> void

@@ -530,7 +530,9 @@ TEST(FTextureDerivedDataTests, InputValidationRetainsSettingsAndMipContext)
 	Image::FImageInfo Info{.Width = 2, .Height = 2, .Format = Image::ERawImageFormat::RGBA8,
 		.GammaSpace = Image::EImageGammaSpace::Linear};
 	FByteBuffer Pixels(16);
-	ASSERT_TRUE(Image::FImage::TryCreate(Info, Pixels, Mips.front()));
+	auto ImageResult1 = Image::FImage::TryCreate(Info, Pixels);
+	ASSERT_TRUE(ImageResult1);
+	Mips.front() = std::move(*ImageResult1);
 	Mips.push_back(Mips.front());
 	const auto Dimensions = ValidateTexture2DSourceMips(Mips);
 	EXPECT_EQ(Dimensions.Error.Code, ETexture2DInputError::InvalidMipDimensions);

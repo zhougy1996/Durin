@@ -144,10 +144,12 @@ namespace
 		{
 			Durin::Image::FImage Image;
 			Durin::FTextureSource Source;
-			if (!Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
-				.Format = Durin::Image::ERawImageFormat::RGBA8},
-				Durin::FByteBuffer(16, Value), Image, &Error)
-				|| !Source.Init2D(Image.GetView(), 4)) return false;
+			auto ImageResult1 = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+				.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, Value));
+			Error = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
+			if (!ImageResult1) return false;
+			Image = std::move(*ImageResult1);
+			if (!Source.Init2D(Image.GetView(), 4)) return false;
 			Texture.SetSource(std::move(Source));
 			return true;
 		}

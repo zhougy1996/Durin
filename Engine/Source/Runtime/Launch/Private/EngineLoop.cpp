@@ -83,12 +83,16 @@ namespace Durin
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
-		if (!InitializeCurrentProject({
+		const auto InitializeCurrentProjectResult = InitializeCurrentProject({
 			.bOpenProjectBrowser = Params.bOpenProjectBrowser,
-			.RequestedProjectFile = Params.ProjectFile.value_or("")}, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
+			.RequestedProjectFile = Params.ProjectFile.value_or("")});
+		ProjectError = InitializeCurrentProjectResult ? std::string{} : InitializeCurrentProjectResult.error().ToString();
+		if (!InitializeCurrentProjectResult.has_value() && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 #if DURIN_WITH_EDITOR
+		const auto AcquireProjectEditOwnershipResult = AcquireProjectEditOwnership();
+		ProjectError = AcquireProjectEditOwnershipResult ? std::string{} : AcquireProjectEditOwnershipResult.error().ToString();
 		if (HasCurrentProject()
-			&& !AcquireProjectEditOwnership(&ProjectError))
+			&& !AcquireProjectEditOwnershipResult.has_value())
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
 			return false;
