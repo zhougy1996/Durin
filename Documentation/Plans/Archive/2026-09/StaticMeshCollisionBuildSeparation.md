@@ -4,7 +4,7 @@ Summary: Separate render and collision construction, remove FStaticMeshAuthoredC
 
 Last reviewed: 2026-09-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-22
 
 ## Current Status
@@ -58,10 +58,10 @@ cook still requires both outputs. This removes cross-product import transactions
 without relaxing stale-result rejection or component-body invalidation.
 
 Implemented ownership and completion contracts live in
-[StaticMesh building](../Runtime/Assets/StaticMeshBuilding.md),
-[asset compilation](../Runtime/Assets/AssetCompilation.md#staticmesh-completion),
-[collision](../Runtime/Physics/Collision.md#assets-and-components) and
-[rendering](../Runtime/Rendering/StaticMeshRendering.md#asset-lifecycle).
+[StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
+[asset compilation](../../../Runtime/Assets/AssetCompilation.md#staticmesh-completion),
+[collision](../../../Runtime/Physics/Collision.md#assets-and-components) and
+[rendering](../../../Runtime/Rendering/StaticMeshRendering.md#asset-lifecycle).
 The collision input remains a per-request value snapshot; no shared geometry
 handle, per-generation snapshot cache or separate generic scheduler was introduced.
 
@@ -207,19 +207,19 @@ Dependency: Stage 3. Outcome: verified behavior and updated long-lived contracts
 
 - [x] Run relevant StaticMesh, scene import, physics, cooked loading, material,
   Spline, thumbnail and asset-compilation tests using the
-  [testing workflow](../Agents/Testing.md). Select any additional cook/lifecycle
+  [testing workflow](../../../Agents/Testing.md). Select any additional cook/lifecycle
   targets from the test registry according to the affected behavior.
 - [x] Verify render-success/collision-failure behavior, collision-only rebuilding,
   cache hit/corruption behavior, import render failure preservation, independent
   collision failure, stale result rejection, component body coherence and task teardown with focused regression coverage.
 - [x] Complete the shared Engine API `all` build using the
-  [build workflow](../Agents/BuildAndRun.md). Compile affected qualification
+  [build workflow](../../../Agents/BuildAndRun.md). Compile affected qualification
   fixtures; execute GPU/performance qualification only when its documented gate
   applies, and record execution omissions explicitly.
-- [x] Update [StaticMesh building](../Runtime/Assets/StaticMeshBuilding.md),
-  [asset compilation](../Runtime/Assets/AssetCompilation.md),
-  [collision](../Runtime/Physics/Collision.md) and
-  [rendering](../Runtime/Rendering/StaticMeshRendering.md) with implemented
+- [x] Update [StaticMesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
+  [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
+  [collision](../../../Runtime/Physics/Collision.md) and
+  [rendering](../../../Runtime/Rendering/StaticMeshRendering.md) with implemented
   ownership, completion, invalidation and publication behavior.
 - [x] Validate changed documentation and plan lifecycle metadata; record concrete
   evidence and mark the plan complete only after all required gates pass.

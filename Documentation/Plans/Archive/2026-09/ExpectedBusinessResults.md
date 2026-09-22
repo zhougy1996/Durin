@@ -4,7 +4,7 @@ Summary: Replace redundant asset operation result wrappers with C++23 expected w
 
 Last reviewed: 2026-09-21
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-21
 
 ## Current Status
@@ -56,15 +56,15 @@ outcomes. Expected does not add retries, rollback, ownership, or durability.
 This plan records migration decisions and validation history. Current API and
 ownership contracts are maintained by their owning domains:
 
-- [Asset import](../Editor/Architecture/AssetImportFramework.md): detached values,
+- [Asset import](../../../Editor/Architecture/AssetImportFramework.md): detached values,
   validation, hints, submission, rebuilds and returned scene reports.
-- [Asset packages](../Runtime/Assets/AssetPackages.md): synchronous/async loading,
+- [Asset packages](../../../Runtime/Assets/AssetPackages.md): synchronous/async loading,
   soft resolution, caller-owned reports, dependency residency and save effects.
-- [Package bulk data](../Runtime/Assets/BulkData.md): construction, validation,
+- [Package bulk data](../../../Runtime/Assets/BulkData.md): construction, validation,
   registration, storage inspection, pending reads and admission leases.
-- [Package persistence](../Runtime/Core/PackagePersistence.md#writer-outcome-reports):
+- [Package persistence](../../../Runtime/Core/PackagePersistence.md#writer-outcome-reports):
   physical writer phases, committed/recovery/partial outcomes and file diagnostics.
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md): cache outcomes
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md): cache outcomes
   and diagnostic ownership independent of build success.
 
 ## Implementation Stages
@@ -189,8 +189,8 @@ can consume the returned report. One failure-injection fixture observed the old
 output argument during execution; it now inspects live destination packages
 independently, keeping the pre-publication visibility assertion meaningful.
 Physical and business state tables belong to
-[package persistence](../Runtime/Core/PackagePersistence.md#writer-outcome-reports)
-and [asset packages](../Runtime/Assets/AssetPackages.md#production-save-and-load).
+[package persistence](../../../Runtime/Core/PackagePersistence.md#writer-outcome-reports)
+and [asset packages](../../../Runtime/Assets/AssetPackages.md#production-save-and-load).
 No expected conversion of publication reports is selected. Cache hit/miss and
 put outcomes, pending package-resource requests, and bulk acquired/empty/busy/
 retired/read-failed admission retain their existing state models and ownership.
@@ -255,8 +255,8 @@ all earlier relevant passing build/test evidence is reused.
 
 ## Validation and Handoff
 
-Follow [Build and Run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md), and [Documentation](../Agents/Documentation.md).
+Follow [Build and Run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md), and [Documentation](../../../Agents/Documentation.md).
 Each shared API migration requires an `all` build and affected project coverage.
 Use semantic risk and the test registry to choose bounded tests; investigate
 `affected --explain` rather than implicitly running unrelated GPU/application tests.

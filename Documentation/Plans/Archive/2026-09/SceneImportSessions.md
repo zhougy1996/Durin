@@ -4,7 +4,7 @@ Summary: Replace blocking scene import and material preview with a reusable asyn
 
 Last reviewed: 2026-09-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-22
 
 ## Current Status
@@ -98,10 +98,10 @@ Depends on Stage 1.
 
 ## Required References
 
-- [Async asset operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset compilation](../Runtime/Assets/AssetCompilation.md)
-- [Package persistence](../Runtime/Core/PackagePersistence.md)
-- [Asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Task system](../Runtime/Core/TaskSystem.md)
-- [Build workflow](../Agents/BuildAndRun.md)
-- [Test workflow](../Agents/Testing.md)
+- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Package persistence](../../../Runtime/Core/PackagePersistence.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Task system](../../../Runtime/Core/TaskSystem.md)
+- [Build workflow](../../../Agents/BuildAndRun.md)
+- [Test workflow](../../../Agents/Testing.md)

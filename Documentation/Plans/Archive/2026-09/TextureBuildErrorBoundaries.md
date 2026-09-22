@@ -4,7 +4,7 @@ Summary: Separate recipe diagnostics, Engine recovery, and import-facing texture
 
 Last reviewed: 2026-09-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-22
 
 ## Current Status
@@ -37,8 +37,8 @@ Validation on Win64-Debug-DurinEditor passed:
 The affected-test resolver selected all tests because the changed program consumer
 is outside a registered module. The explicit suite selection above instead covers
 texture behavior, import consumers, lifecycle, editor reimport, and publication.
-Lasting contracts are recorded in [asset lifecycle](../Runtime/Assets/AssetDataLifecycle.md#optional-asset-operation-boundaries)
-and [asset import](../Editor/Architecture/AssetImportFramework.md#standalone-batch-admission).
+Lasting contracts are recorded in [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md#optional-asset-operation-boundaries)
+and [asset import](../../../Editor/Architecture/AssetImportFramework.md#standalone-batch-admission).
 
 ## Goal
 
@@ -78,6 +78,6 @@ Depends on Stage 0.
 - [x] Update the runtime contract and validate changed documents and all plans.
 - [x] Record evidence and include the completed work in a commit with plan/stage provenance.
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md). GPU execution is not required because
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md). GPU execution is not required because
 this work does not change GPU behavior.

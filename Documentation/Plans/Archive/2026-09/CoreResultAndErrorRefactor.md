@@ -4,7 +4,7 @@ Summary: Simplify CoreDObject and Core operation results and preserve typed erro
 
 Last reviewed: 2026-09-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-22
 
 ## Current Status
@@ -93,7 +93,7 @@ passed. SceneImportTests passed all 10 integration cases.
 
 ## Goal
 
-Apply the operation-boundary principles of [RHI diagnostics](../Runtime/Rendering/RHICommandExecution.md#results-and-diagnostics)
+Apply the operation-boundary principles of [RHI diagnostics](../../../Runtime/Rendering/RHICommandExecution.md#results-and-diagnostics)
 without copying its implementation layout. Declare errors and `ToString`
 overloads near their owning interfaces and implement them in the respective
 existing `.cpp` files. Do not introduce module-wide error string files.
@@ -186,8 +186,8 @@ successful images from typed failures; relevant malformed-input tests pass.
 Dependency: Stages 1–4. Each earlier batch must also pass its applicable gates.
 
 - [x] Update implemented contracts in their owning Runtime documents, including
-  [Serialization](../Runtime/Core/Serialization.md) and
-  [Package persistence](../Runtime/Core/PackagePersistence.md).
+  [Serialization](../../../Runtime/Core/Serialization.md) and
+  [Package persistence](../../../Runtime/Core/PackagePersistence.md).
 - [x] Search all workspace source/test roots for stale selected API names,
   result-member access, and premature formatting.
 - [x] Complete the shared Engine API `all` build and affected project targets.
@@ -195,8 +195,8 @@ Dependency: Stages 1–4. Each earlier batch must also pass its applicable gates
 - [x] Validate changed documentation and all plan lifecycle metadata.
 - [x] Commit isolated validated batches with this plan and exact stage trailers.
 
-Validation follows [Build and run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md), and [Documentation](../Agents/Documentation.md).
+Validation follows [Build and run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md), and [Documentation](../../../Agents/Documentation.md).
 No GPU execution is required solely for these result-contract migrations.
 
 Completion: all required checks pass, lasting contracts reflect the final APIs,

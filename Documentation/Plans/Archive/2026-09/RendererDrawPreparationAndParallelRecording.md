@@ -4,7 +4,7 @@ Summary: Replace repeated per-view mesh interpretation with persistent draw reco
 
 Last reviewed: 2026-09-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-23
 
 ## Current Status
@@ -614,10 +614,10 @@ compilation-result assertion now diagnoses this failure directly. The corrected
 case passes alone and in its full target. No RoadWeaver runtime behavior changed.
 
 Ownership, invalidation, dynamic-provider eligibility and recording modes now
-live in [frame preparation](../Runtime/Rendering/RendererFramePreparation.md),
-[render graph execution](../Runtime/Rendering/RenderGraph.md),
-[RHI command execution](../Runtime/Rendering/RHICommandExecution.md) and
-[Vulkan retirement](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md).
+live in [frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md),
+[render graph execution](../../../Runtime/Rendering/RenderGraph.md),
+[RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md) and
+[Vulkan retirement](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md).
 The obsolete shadow wrapper and arguments are retired. The documented preparation,
 shadow-recording and full descriptor-validation switches remain useful for
 diagnosis, fallback comparisons and the user's deferred performance evaluation.
@@ -656,13 +656,13 @@ Uniform grouping is also not draw-call merging. The existing Vulkan descriptor
 key already excludes dynamic-uniform offsets; fewer uniform allocations alone
 need not reduce descriptor allocation or lookup work.
 
-Preserve the implemented [frame preparation contract](../Runtime/Rendering/RendererFramePreparation.md),
-[render graph contract](../Runtime/Rendering/RenderGraph.md) and
-[resource recovery contract](../Runtime/Rendering/RendererResourceRecovery.md).
+Preserve the implemented [frame preparation contract](../../../Runtime/Rendering/RendererFramePreparation.md),
+[render graph contract](../../../Runtime/Rendering/RenderGraph.md) and
+[resource recovery contract](../../../Runtime/Rendering/RendererResourceRecovery.md).
 RDG already provides dependency analysis, culling, lifetime planning and barriers;
 this plan extends its execution boundary rather than replacing the graph.
 
-The [Geometry Submission Refactor](GeometrySubmissionRefactor.md) owns generic
+The [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md) owns generic
 geometry and vertex-factory extensibility. Preserve independent geometry providers,
 multiple batches and dynamic factories. The [RDG and RHI Multi-Queue Execution
 Plan](RdgRhiMultiQueueExecution.md) owns GPU queue scheduling, split barriers and
@@ -864,7 +864,7 @@ evidence and maintained contracts under the user-directed completion decision.
   that are no longer required for diagnosis or supported fallback.
 
 Gate: all frozen performance, correctness and lifecycle budgets pass. Follow the
-[build workflow](../Agents/BuildAndRun.md) and [test workflow](../Agents/Testing.md);
+[build workflow](../../../Agents/BuildAndRun.md) and [test workflow](../../../Agents/Testing.md);
 shared Engine API migrations require an `all` build and affected consumer validation.
 This original performance gate was deferred by the user's explicit completion
 request; the functional, lifecycle and shared-consumer validation was completed.

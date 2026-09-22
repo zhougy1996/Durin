@@ -4,7 +4,7 @@ Summary: Replace automatic shared import parents with explicit local materials o
 
 Last reviewed: 2026-09-22
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-22
 
 ## Current Status
@@ -28,8 +28,8 @@ Validation on Win64-Debug-DurinEditor:
   scene import policy, its editor controls, and the scene import tests.
 - Changed-document validation, all-plan validation and diff whitespace checks passed.
 
-Lasting behavior is documented in [asset import architecture](../Editor/Architecture/AssetImportFramework.md#scene-import)
-and [source workflows](../Editor/Guides/SourceFileWorkflows.md#scene-sources).
+Lasting behavior is documented in [asset import architecture](../../../Editor/Architecture/AssetImportFramework.md#scene-import)
+and [source workflows](../../../Editor/Guides/SourceFileWorkflows.md#scene-sources).
 Interactive editor UI smoke was not performed; editor compilation and native
 rendering integration were validated.
 
@@ -95,8 +95,8 @@ are enforced by the importer without automatic shared parents.
 
 ### Stage 2: Validate and document the delivered behavior
 
-Depends on Stage 1. Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md).
+Depends on Stage 1. Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md).
 
 - [x] Cover defaults, selected parents, incompatible parents, overrides,
   reimport preservation, collision protection, and publication failure.
