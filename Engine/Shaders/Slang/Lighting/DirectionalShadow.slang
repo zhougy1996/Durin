@@ -118,11 +118,12 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     bool covered = storedDepth < 0.999999;
 	// control.z stores the active cascade count. Receiver-world and
 	// receiver-normal displacement stay disabled until they qualify as
-	// independent policies; preserve the frozen normalized-depth comparison.
+	// independent policies. Keep the normalized-depth comparison bias small
+	// enough to reduce separation at wall and floor contacts.
 	float receiverWorld = 0.0;
 	float normalWorld = 0.0;
 	bool totalClamped = false;
-	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.0005);
+	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.0001);
 	float3 finalCoordinate = receiverCoordinate;
 	float validTapWeight = 0.0;
 	float finalComparison = SampleDirectionalShadowKernel(

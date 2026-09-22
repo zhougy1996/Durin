@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-22
 
 ## Ownership and selection
 
@@ -110,8 +110,8 @@ One shared Slang helper consumes production world position and the geometric
 normal; the mapped shading normal remains exclusive to BRDF evaluation.
 Receiver-world and receiver-normal displacement are explicitly disabled
 (`R=0`, `N=0`) while each policy is qualified independently against contact
-and motion gates. The helper preserves the frozen normalized-depth `0.0005`
-comparison with forward-depth `LessOrEqual`; invalid or outside projection
+and motion gates. The helper applies a normalized-depth `0.0001` comparison
+bias with forward-depth `LessOrEqual`; invalid or outside projection
 remains fully lit. Only the
 selected directional direct-light term is attenuated. Local lights,
 environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
