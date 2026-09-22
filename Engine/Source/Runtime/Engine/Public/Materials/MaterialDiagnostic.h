@@ -93,6 +93,7 @@ namespace Durin
 		NoAcceptedCompiledProgram,
 		BuildOutputNotRegistered,
 		BuildOutputAlreadyRegistered,
+		AuthoredInputTraversalFailed,
 	};
 
 	enum class EMaterialFunctionError : uint16

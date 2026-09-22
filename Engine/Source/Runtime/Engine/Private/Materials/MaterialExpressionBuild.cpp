@@ -1,5 +1,6 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/PropertyValueIterator.h"
 #include "MaterialExpressionGraphBuilder.h"
 #include <unordered_set>
 
@@ -79,13 +80,28 @@ namespace Durin::MIR
 				AuthoringCodeHash.UpdateValue(static_cast<uint32>(Input.Constant.size()));
 				for (float Value : Input.Constant) AuthoringCodeHash.UpdateValue(Value);
 			};
-			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-					&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialNumericInput::StaticStruct())
-					HashInput(*static_cast<const FMaterialNumericInput*>(Property->GetValuePtr(Expression)));
-			});
+			const auto HashReflectedInputs = [&](FPropertyValueIterator It) {
+				for (; It; ++It)
+					if (static_cast<const FStructProperty*>(It.Key())->GetStruct() == FMaterialNumericInput::StaticStruct())
+					{
+						// Admission historically hashes only element zero of top-level fixed fields.
+						if (It.GetStaticArrayIndex() == 0) HashInput(*static_cast<const FMaterialNumericInput*>(It.Value()));
+						It.SkipRecursiveProperty();
+					}
+				return It.GetStatus() == EContainerOpResult::Success;
+			};
+			// Keep terminal Outputs in FinishSurface and preserve admission's hash order.
+			bool bInputsRead = HashReflectedInputs(FPropertyValueIterator(Expression->GetClass(), Expression,
+				{.bRecursive = false, .Kind = DurinCodeGen::EPropertyGenFlags::Struct}));
 			if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression))
-				for (const auto& Attribute : Surface->Attributes) HashInput(Attribute.Source);
+				bInputsRead = bInputsRead && HashReflectedInputs(FPropertyValueIterator(
+					Surface->GetClass()->FindPropertyByName("Attributes"), Surface,
+					{.Kind = DurinCodeGen::EPropertyGenFlags::Struct}));
+			if (!bInputsRead)
+			{
+				Fail(EMaterialExpressionError::AuthoredInputTraversalFailed);
+				return;
+			}
 
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
 				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
