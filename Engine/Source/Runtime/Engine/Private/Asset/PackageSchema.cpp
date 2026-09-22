@@ -56,8 +56,7 @@ namespace Durin
 	{
 		FReflectionSchemaCatalog Result;
 		std::unordered_set<const FProperty*> CapturedRouteProperties;
-		std::function<void(FProperty*, std::string)> CaptureRoutes;
-		CaptureRoutes = [&](FProperty* Property, std::string DeclaringType) {
+		auto CaptureRoutes = [&](this auto&& Self, FProperty* Property, std::string DeclaringType) -> void {
 			if (!Property || DeclaringType.empty() || !CapturedRouteProperties.insert(Property).second) return;
 			if (const FPropertyDeprecation* Deprecation = Property->GetDeprecation())
 			{
@@ -74,16 +73,16 @@ namespace Durin
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				if (DStruct* Struct = StructProperty->GetStruct())
 					Struct->ForEachProperty([&](FProperty* Nested) {
-						CaptureRoutes(Nested, Struct->GetQualifiedName().ToString());
+						Self(Nested, Struct->GetQualifiedName().ToString());
 					}, false);
 			}
 			else if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
-				CaptureRoutes(static_cast<FArrayProperty*>(Property)->GetInner(), DeclaringType);
+				Self(static_cast<FArrayProperty*>(Property)->GetInner(), DeclaringType);
 			else if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Property);
-				CaptureRoutes(MapProperty->GetKeyProp(), DeclaringType);
-				CaptureRoutes(MapProperty->GetValueProp(), DeclaringType);
+				Self(MapProperty->GetKeyProp(), DeclaringType);
+				Self(MapProperty->GetValueProp(), DeclaringType);
 			}
 		};
 		for (const FSerializedReflectionAlias& Alias : CaptureSerializedReflectionAliases())

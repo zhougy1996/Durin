@@ -840,8 +840,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				}
 				else ImportRemap[Index] = std::distance(Imports.begin(), Existing);
 			}
-			std::function<void(ObjectPackage::FSerializedValue&)> RemapValue;
-			RemapValue = [&](ObjectPackage::FSerializedValue& Value) {
+			auto RemapValue = [&](this auto&& Self, ObjectPackage::FSerializedValue& Value) -> void {
 				if (Value.Reference.IsImport())
 				{
 					ObjectPackage::FPackageIndex Remapped;
@@ -849,7 +848,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 						ImportRemap[Value.Reference.GetTableIndex()], Remapped);
 					Value.Reference = Remapped;
 				}
-				for (auto& Element : Value.Elements) RemapValue(Element);
+				for (auto& Element : Value.Elements) Self(Element);
 			};
 			for (auto& Export : Linker.Exports)
 				for (auto& Property : Export.Properties) RemapValue(Property.Value);
