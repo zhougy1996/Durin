@@ -8,6 +8,52 @@
 #include "Math/Operations.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"
+#include "Logging/Logger.h"
+
+TEST(FSkyLightTests, PendingAuthoredCubeDoesNotReportMissingPlatformData)
+{
+	auto& Logger = Durin::FLogger::Get();
+	Durin::FLogSettings LogSettings;
+	LogSettings.LogDirectory = (Durin::Testing::GetTestWorkDirectory() / "PendingCubeLogs").string();
+	ASSERT_TRUE(Logger.Initialize(LogSettings));
+	struct FShutdownLogger
+	{
+		~FShutdownLogger() { Durin::FLogger::Get().Shutdown(); }
+	} ShutdownLogger;
+	InitializeDObjectSystem();
+	ASSERT_FALSE(Durin::GetAssetRuntimeConfiguration().RequiresCookedPayload());
+	Durin::InitRenderingThread();
+	FSkyBoxTestEngine Engine;
+	Engine.CreateTestScene();
+	Durin::GEngine = &Engine;
+	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "PendingCubeWorld");
+	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "PendingCubeLevel")));
+	Engine.SetWorld(World);
+	auto* Actor = World->SpawnActor<Durin::ASkyLightActor>("PendingCubeSkyLight");
+	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "PendingStudioCube");
+	ASSERT_FALSE(Cube->HasPlatformData());
+	auto* Component = Actor->GetSkyLightComponent();
+	Logger.Flush();
+	const auto FirstSequence = Logger.ReadRecords(0).NewestAvailableSequence + 1;
+	Component->SetSource(Durin::ESkyLightSourceMode::SpecifiedCube, Cube);
+	Durin::FlushRenderingCommands();
+	EXPECT_FALSE(Cube->HasPlatformData());
+	Logger.Flush();
+	for (const auto& Record : Logger.ReadRecords(FirstSequence).Records)
+	{
+		EXPECT_FALSE(Record.Message.contains("platform data has not been built")) << Record.Message;
+	}
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	Engine.SetWorld(nullptr);
+	Engine.ResetTestScene();
+	Durin::FlushRenderingCommands();
+	Durin::GEngine = nullptr;
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::MarkObjectHierarchyAsGarbage(Cube);
+	Durin::CollectGarbage();
+	Durin::ShutdownRenderingThread();
+}
 
 TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
 {

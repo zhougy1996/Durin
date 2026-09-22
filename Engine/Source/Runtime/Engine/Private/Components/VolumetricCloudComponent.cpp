@@ -1,5 +1,6 @@
 #include "Components/VolumetricCloudComponent.h"
 
+#include "Asset/Load.h"
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
@@ -49,7 +50,9 @@ namespace Durin
 
 		auto EnsureTextureLoaded(DTexture* Texture) -> void
 		{
-			if (Texture) (void)Texture->EnsurePlatformDataLoadedBlocking();
+			// Authored textures publish through the stable reference after async compilation.
+			if (Texture && GetAssetRuntimeConfiguration().RequiresCookedPayload())
+				(void)Texture->EnsurePlatformDataLoadedBlocking();
 		}
 	} // namespace
 

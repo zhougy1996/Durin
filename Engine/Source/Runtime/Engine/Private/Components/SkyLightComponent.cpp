@@ -1,5 +1,6 @@
 #include "Components/SkyLightComponent.h"
 
+#include "Asset/Load.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
 #include "Engine/Actor.h"
@@ -90,7 +91,9 @@ namespace Durin
 
 	auto DSkyLightComponent::CreateSceneProxy() -> std::shared_ptr<const FSkyLightSceneProxy>
 	{
-		if (TextureCube) (void)TextureCube->EnsurePlatformDataLoadedBlocking();
+		// Authored textures publish through the stable reference after async compilation.
+		if (TextureCube && GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			(void)TextureCube->EnsurePlatformDataLoadedBlocking();
 		auto Proxy = std::make_shared<FSkyLightSceneProxy>();
 		Proxy->PersistentId = SkyLightSceneId;
 		Proxy->SelectionKey = GetObjectPath();
