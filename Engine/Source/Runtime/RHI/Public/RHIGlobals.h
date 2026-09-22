@@ -26,9 +26,6 @@ namespace Durin
 	// layers can drop device-backed references while the RHI is still valid.
 	RHI_API auto GetRHIReleaseResourcesDelegate()
 		-> FRHIReleaseResourcesDelegate&;
-	// Retains the owned cause from the most recent failed initialization attempt.
-	// A later successful attempt clears it.
-	RHI_API auto GetLastRHIInitializationDiagnostic() -> std::string_view;
 
 	// Takes ownership of Backend. Intended only for isolated initialization
 	// failure tests that must not load a platform RHI module.

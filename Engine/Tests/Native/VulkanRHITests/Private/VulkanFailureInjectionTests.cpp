@@ -647,28 +647,22 @@ namespace Durin::VulkanRHI
 		InitializationFailuresRollbackAndReleaseTheBackendModule)
 	{
 		const std::array FailureCases = {
-			std::pair{EVulkanCreateFailurePoint::Instance,
-				std::string_view("Vulkan instance creation failed")},
-			std::pair{EVulkanCreateFailurePoint::Device,
-				std::string_view("Vulkan logical-device creation failed")},
-			std::pair{EVulkanCreateFailurePoint::Allocator,
-				std::string_view("Vulkan allocator creation failed")},
+			EVulkanCreateFailurePoint::Instance,
+			EVulkanCreateFailurePoint::Device,
+			EVulkanCreateFailurePoint::Allocator,
 		};
 
-		for (const auto& [FailurePoint, ExpectedDiagnostic] : FailureCases)
+		for (const auto FailurePoint : FailureCases)
 		{
-			SCOPED_TRACE(ExpectedDiagnostic);
+			SCOPED_TRACE(static_cast<int>(FailurePoint));
 			ArmVulkanCreateFailure(FailurePoint);
 
 			EXPECT_FALSE(RHIInit(GetVulkanTestInitializationContext()));
 			EXPECT_EQ(GDynamicRHI, nullptr);
 			EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("VulkanRHI"));
-			EXPECT_NE(GetLastRHIInitializationDiagnostic().find(
-				ExpectedDiagnostic), std::string_view::npos);
 		}
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		EXPECT_TRUE(GetLastRHIInitializationDiagnostic().empty());
 		EXPECT_TRUE(FModuleManager::Get().IsModuleLoaded("VulkanRHI"));
 		RHIExit();
 		ExpectVulkanModuleUnloaded();
@@ -2525,8 +2519,6 @@ namespace Durin::VulkanRHI
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Surface);
 		EXPECT_FALSE(RHIInit(InitializationContext));
 		EXPECT_EQ(GDynamicRHI, nullptr);
-		EXPECT_NE(GetLastRHIInitializationDiagnostic().find(
-			"startup presentation surface"), std::string_view::npos);
 		ExpectVulkanModuleUnloaded();
 
 		ASSERT_TRUE(RHIInit(InitializationContext));

@@ -7,7 +7,6 @@
 namespace Durin
 {
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
-	static std::string LastRHIInitializationDiagnostic;
 	static bool GOwnsBackendModule = false;
 	static FRHIReleaseResourcesDelegate RHIReleaseResourcesDelegate;
 
@@ -91,11 +90,8 @@ namespace Durin
 			bool bOwnsBackendModule,
 			FRHIInitializationContext Context) -> bool
 		{
-			LastRHIInitializationDiagnostic.clear();
 			if (!Backend)
 			{
-				LastRHIInitializationDiagnostic =
-					"Failed to create dynamic RHI.";
 				DURIN_ERROR("Failed to create dynamic RHI");
 				if (bOwnsBackendModule)
 				{
@@ -118,8 +114,6 @@ namespace Durin
 				RHIThreadOwner = std::make_unique<FRHIThread>();
 				if (bForceThreadLaunchFailure || !RHIThreadOwner->Start())
 				{
-					LastRHIInitializationDiagnostic =
-						"Failed to start RHI thread.";
 					DURIN_ERROR("Failed to start RHI thread");
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
@@ -132,10 +126,9 @@ namespace Durin
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
 				if (!InitResult.IsCompleted())
 				{
-					LastRHIInitializationDiagnostic = ToString(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI on RHI thread: {}",
-						LastRHIInitializationDiagnostic);
+						ToString(InitResult.Error));
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
@@ -148,10 +141,9 @@ namespace Durin
 					InitializeBackendWithRollback(Context);
 				if (!InitResult.IsSuccess())
 				{
-					LastRHIInitializationDiagnostic = ToString(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI inline: {}",
-						LastRHIInitializationDiagnostic);
+						ToString(InitResult.Error));
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
@@ -199,11 +191,6 @@ namespace Durin
 		-> FRHIReleaseResourcesDelegate&
 	{
 		return RHIReleaseResourcesDelegate;
-	}
-
-	auto GetLastRHIInitializationDiagnostic() -> std::string_view
-	{
-		return LastRHIInitializationDiagnostic;
 	}
 
 	auto RHIInitWithBackendForTests(
