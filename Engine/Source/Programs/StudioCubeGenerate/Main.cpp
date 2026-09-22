@@ -21,7 +21,7 @@ namespace
 	constexpr uint32 CubeFaceDimension = 128;
 
 	// Preserve the Studio source recipe independently of runtime sky evaluation.
-	auto MakeStudioPanorama() -> FTextureCubePanoramaFloatImage
+	auto MakeStudioPanorama(bool bNeutral) -> FTextureCubePanoramaFloatImage
 	{
 		FTextureCubePanoramaFloatImage Panorama;
 		Panorama.Width = PanoramaWidth;
@@ -39,7 +39,10 @@ namespace
 				const float Amount = std::clamp(Direction.z * 0.5f + 0.5f, 0.f, 1.f);
 				const auto Base = Math::Lerp(FVector3f(.025f, .020f, .018f), FVector3f(.18f, .28f, .50f), Amount);
 				const float Key = std::pow(std::clamp(Math::Dot(Direction, KeyDirection), 0.f, 1.f), 256.f);
-				const auto Color = Base + 6.f * FVector3f(1, .78f, .55f) * Key;
+				const auto StudioColor = Base + 6.f * FVector3f(1, .78f, .55f) * Key;
+				// Preserve the studio's luminance and soft directional variation without a color cast.
+				const float Luminance = Math::Dot(StudioColor, FVector3f(.2126f, .7152f, .0722f));
+				const auto Color = bNeutral ? FVector3f(Luminance, Luminance, Luminance) : StudioColor;
 				const size_t Index = (Y * PanoramaWidth + X) * 3;
 				Panorama.Pixels[Index] = Color.x;
 				Panorama.Pixels[Index + 1] = Color.y;
@@ -63,9 +66,10 @@ namespace
 auto main(int Count, char** Args) -> int
 {
 	using namespace Durin;
-	if (Count != 2)
+	const bool bNeutral = Count == 3 && std::string_view(Args[2]) == "--neutral-thumbnail";
+	if (Count != 2 && !bNeutral)
 	{
-		std::cerr << "Usage: StudioCubeGenerate <Engine/Content>\n";
+		std::cerr << "Usage: StudioCubeGenerate <Engine/Content> [--neutral-thumbnail]\n";
 		return 2;
 	}
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -90,12 +94,14 @@ auto main(int Count, char** Args) -> int
 	if (!RefreshAssetRegistry()) return 1;
 
 	FObjectPath CubeObjectPath;
-	const bool ValidPath = FObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", CubeObjectPath);
+	const char* AssetName = bNeutral ? "ThumbnailStudioCube" : "DefaultStudioCube";
+	const std::string ObjectPath = std::string("/Engine/Renderer/") + AssetName + "." + AssetName;
+	const bool ValidPath = FObjectPath::TryCreate(ObjectPath, CubeObjectPath);
 	require(ValidPath);
 	auto* Package = CreatePackage(CubeObjectPath.GetPackagePath());
 	if (!Package) return 1;
 	FStaticConstructObjectParameters Construction{DTextureCube::StaticClass(), Package,
-		FName("DefaultStudioCube"), sizeof(DTextureCube), EObjectFlags::Public};
+		FName(AssetName), sizeof(DTextureCube), EObjectFlags::Public};
 	auto* Object = StaticConstructObject(Construction);
 	DObjectForceRegistration(Object);
 	auto* Cube = Cast<DTextureCube>(Object);
@@ -104,7 +110,7 @@ auto main(int Count, char** Args) -> int
 	Package->MarkAsNewlyCreated();
 
 	FTextureCubeBuildRequest Request;
-	Request.Input = FTextureCubePanoramaBuildInput{MakeStudioPanorama(),
+	Request.Input = FTextureCubePanoramaBuildInput{MakeStudioPanorama(bNeutral),
 		{.FaceDimension = CubeFaceDimension, .Output = ETextureCubeOutput::HDR}};
 	const auto Built = BuildTextureCubeSynchronously(*Cube, Request, {});
 	if (!Built)
@@ -118,7 +124,7 @@ auto main(int Count, char** Args) -> int
 		std::cerr << Saved.Message;
 		return 1;
 	}
-	std::cout << "Generated /Engine/Renderer/DefaultStudioCube (linear RGBA32F, "
+	std::cout << "Generated " << ObjectPath << " (linear RGBA32F, "
 		<< CubeFaceDimension << " pixels per face).\n";
 	return 0;
 }

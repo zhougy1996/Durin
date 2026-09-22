@@ -1,4 +1,7 @@
-#include "Preview/StudioLighting.h"
+#include "Actors/SkyLightActor.h"
+#include "Asset/Load.h"
+#include "Components/SkyLightComponent.h"
+#include "Texture/TextureCube.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 
 #include "Components/DirectionalLightComponent.h"
@@ -206,7 +209,21 @@ namespace Durin::Editor
 				Error = PreviewScene->GetDiagnostic();
 				return;
 			}
-			(void)Editor::AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
+			FObjectPath EnvironmentPath;
+			if (!FObjectPath::TryCreate("/Engine/Renderer/ThumbnailStudioCube.ThumbnailStudioCube", EnvironmentPath))
+			{
+				Error = "The thumbnail studio environment path is invalid.";
+				return;
+			}
+			auto* EnvironmentCube = LoadObject<DTextureCube>(EnvironmentPath).value_or(nullptr);
+			auto* SkyLight = EnvironmentCube
+				? PreviewScene->GetWorld()->SpawnActor<ASkyLightActor>("ThumbnailStudioSkyLight") : nullptr;
+			if (!SkyLight)
+			{
+				Error = "The neutral thumbnail studio environment could not be loaded or created.";
+				return;
+			}
+			SkyLight->GetSkyLightComponent()->SetSource(ESkyLightSourceMode::SpecifiedCube, EnvironmentCube);
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
 				"RenderedAssetThumbnailLightActor"
 			);

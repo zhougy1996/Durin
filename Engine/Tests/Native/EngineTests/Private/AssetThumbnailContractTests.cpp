@@ -424,7 +424,7 @@ namespace Durin
 		EXPECT_EQ(
 			Editor::StaticMesh::FStaticMeshThumbnailRendererContract::PreviewFixtureIdentity,
 			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials");
-		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::PreviewFixtureVersion, 2u);
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::PreviewFixtureVersion, 3u);
 		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::ShaderContractVersion, 1u);
 		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::ImageMargin, 0.04);
 		EXPECT_EQ(Editor::StaticMesh::FStaticMeshThumbnailRendererContract::LODIndex, 0u);

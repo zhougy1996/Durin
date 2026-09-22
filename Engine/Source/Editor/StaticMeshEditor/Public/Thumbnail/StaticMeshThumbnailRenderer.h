@@ -18,7 +18,7 @@ namespace Durin::Editor::StaticMesh
 		static constexpr uint32 GeneratorSchemaVersion = 2;
 		static constexpr std::string_view PreviewFixtureIdentity =
 			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials";
-		static constexpr uint32 PreviewFixtureVersion = 2;
+		static constexpr uint32 PreviewFixtureVersion = 3;
 		static constexpr uint32 ShaderContractVersion = 1;
 		static constexpr double ImageMargin = 0.04;
 		static constexpr uint32 LODIndex = 0;

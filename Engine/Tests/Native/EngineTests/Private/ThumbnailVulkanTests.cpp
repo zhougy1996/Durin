@@ -127,7 +127,7 @@ namespace
 			}
 			Durin::CollectGarbage();
 			Durin::FPackagePath Studio;
-			ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/DefaultStudioCube", Studio));
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", Studio));
 			(void)Durin::UnloadPackage(Studio, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			Durin::CollectGarbage();
 			struct FEndThumbnailFrame
