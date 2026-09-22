@@ -141,7 +141,7 @@ registration.
 `ESplineMeshCollisionMode::{Disabled,DeformedTriangleMesh}` policy. Disabled is
 the default and builds or retains no collision BVH. DeformedTriangleMesh builds
 one immutable triangle resource from the same normalized LOD 0 positions and
-indices used by exact editor picking and CPU/shader parity; its input identity
+indices used by collision queries and CPU/shader parity; its input identity
 combines the source render-resource revision and deformation revision. Rendering
 can remain valid when all deformed triangles are degenerate and collision is
 therefore invalid. A successful deformation publishes the new immutable CPU

@@ -612,7 +612,7 @@ TEST(FMaterialProgramCompilerTests,
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
-	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
+	ASSERT_EQ(Compiled.CompiledShaders.size(), 4u);
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 20u);
 	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 13u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
@@ -915,7 +915,15 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE(ResourceFree) << (ResourceFree.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(ResourceFree.Diagnostics.front().Error));
 	EXPECT_TRUE(ResourceFree.Layout.Fields.empty());
 	for (const auto& Stage : ResourceFree.CompiledShaders)
-		EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
+	{
+		if (Stage.SourceEntryPoint == "HitProxyFragmentMain")
+		{
+			ASSERT_EQ(Stage.Reflection.ResourceBindings.size(), 1u);
+			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().Name, "HitProxy");
+			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().BindingIndex, 27u);
+		}
+		else EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
+	}
 }
 
 TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthoredInputs)

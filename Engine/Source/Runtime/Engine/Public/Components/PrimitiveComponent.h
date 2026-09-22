@@ -77,9 +77,6 @@ namespace Durin
 		ENGINE_API virtual auto OnCollisionSettingsChanged() -> void;
 		auto DestroyPhysicsState() -> void;
 		auto GetPhysicsWorld() const -> DWorld*;
-#if DURIN_WITH_EDITOR
-		auto NotifyPrimitiveSceneMutation(bool bRetired = false) -> void;
-#endif
 
 	private:
 		auto CreateRenderState() -> void;

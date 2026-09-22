@@ -1,15 +1,17 @@
 #pragma once
 
 #include "LevelEditorViewportPicking.h"
+#include "HitProxy.h"
 
 namespace Durin
 {
+	class FSceneInterface;
 	class DPrimitiveComponent;
 }
 
 namespace Durin::Editor::Level
 {
-	class FViewportPickingSceneIndex;
+	class FEditorVisualizationCollector;
 
 	// Resolves a backend token through the request-local weak identity table.
 	struct FViewportPickingTarget
@@ -17,9 +19,13 @@ namespace Durin::Editor::Level
 		uint32 Token = 0;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		TWeakObjectPtr<AActor> Actor;
-		TWeakObjectPtr<DPrimitiveComponent> Component;
+		TWeakObjectPtr<DActorComponent> Component;
 		uint64 StableTieKey = 0;
 		uint64 RegistrationGeneration = 0;
+		EViewportPickHitKind Kind = EViewportPickHitKind::SceneGeometry;
+		FEditorSubElementSelection Element;
+		bool bForeground = false;
+		int32 Priority = 0;
 	};
 
 	// Contains only owned values and weak identities safe to retain for deferred work.
@@ -29,6 +35,11 @@ namespace Durin::Editor::Level
 		FVector3 RayOrigin{0.0};
 		FVector3 RayDirection{0.0};
 		std::vector<FViewportPickingTarget> Targets;
+		FSceneView View;
+		FVector2f Position{0.f};
+		FSceneInterface* Scene = nullptr;
+		std::vector<FHitProxyOverlay> Overlays;
+		bool bSceneGeometry = true;
 	};
 
 	// Identifies a detached backend candidate by request-local token.
@@ -39,50 +50,13 @@ namespace Durin::Editor::Level
 		int32 Priority = 0;
 	};
 
-	inline constexpr uint64 ViewportPickingMaximumSkinnedVertices = 250'000;
-	inline constexpr uint64 ViewportPickingMaximumTestedTriangles = 500'000;
-
-	// Bounds deterministic reference work without exposing it through the semantic picking API.
-	struct FViewportPickingWorkBudget
-	{
-		uint64 MaximumSkinnedVertices = ViewportPickingMaximumSkinnedVertices;
-		uint64 MaximumTestedTriangles = ViewportPickingMaximumTestedTriangles;
-	};
-
-	// Reports private reference-backend work for deterministic qualification and diagnosis.
-	struct FViewportPickingBackendDiagnostics
-	{
-		uint64 ApplicableStaticTargets = 0;
-		uint64 StaticBoundsRejects = 0;
-		uint64 StaticBVHNodeVisits = 0;
-		uint64 StaticCandidateTriangles = 0;
-		uint64 StaticTestedTriangles = 0;
-		uint64 StaticReferenceFallbacks = 0;
-		uint64 StaticAccelerationBytes = 0;
-		uint64 ApplicableSplineMeshTargets = 0;
-		uint64 InvalidSplineMeshTargets = 0;
-		uint64 SplineMeshBoundsRejects = 0;
-		uint64 SplineMeshTestedTriangles = 0;
-		uint64 ParityMismatches = 0;
-		uint64 SkinnedVertices = 0;
-		uint64 TestedTriangles = 0;
-	};
-
-	enum class EViewportPickingBackendPolicy : uint8
-	{
-		Reference,
-		Accelerated,
-		Compare
-	};
-
 	struct FViewportPickingBackendCompletion
 	{
 		EViewportPickStatus Status = EViewportPickStatus::Invalid;
 		std::optional<FViewportPickingBackendHit> Hit;
-		FViewportPickingBackendDiagnostics Diagnostics;
 	};
 
-	// Defines the complete-or-pending boundary used by CPU and deterministic fake backends.
+	// Defines the complete-or-pending boundary used by GPU readback and deterministic test backends.
 	class IViewportPickingBackend
 	{
 	public:
@@ -92,12 +66,7 @@ namespace Durin::Editor::Level
 		virtual auto Cancel(FViewportPickTicket Ticket) -> void = 0;
 	};
 
-	// Creates the built-in immediate reference backend for focused private-contract tests.
-	auto MakeReferenceViewportPickingBackend(FViewportPickingWorkBudget WorkBudget = {})
-		-> std::unique_ptr<IViewportPickingBackend>;
-	// Creates a private selectable backend without changing the public picking contract.
-	auto MakeViewportPickingBackend(EViewportPickingBackendPolicy Policy,
-		FViewportPickingWorkBudget WorkBudget = {}) -> std::unique_ptr<IViewportPickingBackend>;
+	auto MakeHitProxyPickingBackend() -> std::unique_ptr<IViewportPickingBackend>;
 
 	// Owns per-viewport ticket sequencing, weak target tables, validation, and arbitration.
 	class FViewportPickingService final
@@ -108,14 +77,13 @@ namespace Durin::Editor::Level
 		~FViewportPickingService();
 
 		auto SetLevel(DLevel* Level) -> void;
-		auto Submit(FViewportPickRequest Request, std::optional<FViewportPickHit> Visualization) -> FViewportPickSubmission;
+		auto Submit(FViewportPickRequest Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickSubmission;
 		auto Poll(FViewportPickTicket Ticket) -> FViewportPickCompletion;
 		auto Cancel(FViewportPickTicket Ticket) -> void;
 		auto Release(FViewportPickTicket Ticket) -> void;
 		auto Invalidate() -> void;
 		auto GetGeneration() const -> uint64 { return Generation; }
 		auto SetBackendForTesting(std::unique_ptr<IViewportPickingBackend> InBackend) -> void;
-		auto SetSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> InSceneIndex) -> void;
 
 	private:
 		struct FRequestRecord
@@ -123,8 +91,6 @@ namespace Durin::Editor::Level
 			TWeakObjectPtr<DLevel> Level;
 			uint64 Generation = 0;
 			std::vector<FViewportPickingTarget> Targets;
-			std::optional<FViewportPickHit> Visualization;
-			uint64 VisualizationRegistrationGeneration = 0;
 			std::optional<FViewportPickCompletion> Completion;
 		};
 
@@ -133,7 +99,6 @@ namespace Durin::Editor::Level
 		auto MakeTerminal(EViewportPickStatus Status) const -> FViewportPickCompletion;
 
 		std::unique_ptr<IViewportPickingBackend> Backend;
-		std::shared_ptr<FViewportPickingSceneIndex> SceneIndex;
 		TWeakObjectPtr<DLevel> CurrentLevel;
 		uint64 Generation = 1;
 		uint64 NextTicketId = 1;

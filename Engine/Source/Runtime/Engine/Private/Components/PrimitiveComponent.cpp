@@ -24,9 +24,6 @@ namespace Durin
 		++PhysicsRegistrationGeneration;
 		EnsurePrimitiveComponentId();
 		CreateRenderState();
-#if DURIN_WITH_EDITOR
-		NotifyPrimitiveSceneMutation();
-#endif
 		ApplyPhysicsStateCreationPolicy();
 	}
 
@@ -35,9 +32,6 @@ namespace Durin
 		++PhysicsRegistrationGeneration;
 		DestroyPhysicsState();
 		DestroyRenderState();
-#if DURIN_WITH_EDITOR
-		NotifyPrimitiveSceneMutation(true);
-#endif
 		Super::OnUnregister();
 	}
 
@@ -297,12 +291,6 @@ namespace Durin
 	auto DPrimitiveComponent::MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags) -> void
 	{
 		if (!IsRegistered()) return;
-#if DURIN_WITH_EDITOR
-		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy)
-			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Transform)
-			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
-			NotifyPrimitiveSceneMutation();
-#endif
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
@@ -357,12 +345,4 @@ namespace Durin
 		UpdatePhysicsState();
 	}
 
-#if DURIN_WITH_EDITOR
-	auto DPrimitiveComponent::NotifyPrimitiveSceneMutation(bool bRetired) -> void
-	{
-		AActor* Owner = GetOwner();
-		if (auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr)
-			Level->GetPrimitiveSceneChanges().Notify(this, bRetired);
-	}
-#endif
 } // namespace Durin

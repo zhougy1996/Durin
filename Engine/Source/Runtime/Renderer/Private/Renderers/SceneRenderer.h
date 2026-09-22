@@ -66,6 +66,7 @@ namespace Durin
 			uint32 Width,
 			uint32 Height
 		) -> FSceneView;
+		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> void;
 		auto RenderView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FScene* Scene,

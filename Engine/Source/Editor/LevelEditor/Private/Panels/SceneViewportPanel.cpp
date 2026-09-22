@@ -245,7 +245,6 @@ namespace Durin::Editor::Level
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (ViewportClient) ViewportClient->SetPickingSceneIndex(Context.GetPickingSceneIndex());
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));

@@ -217,7 +217,8 @@ namespace Durin::RendererPrivate
 		const FShaderReflectionData& Reflection,
 		const FResolvedSurfaceMaterial& Material,
 		const FRHIUniformBufferRange& MaterialBuffer,
-		const FRHIUniformBufferRange& Lighting) -> bool
+		const FRHIUniformBufferRange& Lighting,
+		const FRHIUniformBufferRange& HitProxy) -> bool
 	{
 		if (!Shader || !Material.bCompiledLayout
 			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
@@ -230,9 +231,9 @@ namespace Durin::RendererPrivate
 			Resource.Type = Binding.Type;
 			ERHIBindingType Expected = ERHIBindingType::Texture;
 			const uint32 Slot = Binding.BindingIndex;
-			if (Slot == 1 || Slot == 2)
+			if (Slot == 1 || Slot == 2 || Slot == 27)
 			{
-				const auto& Range = Slot == 1 ? Lighting : MaterialBuffer;
+				const auto& Range = Slot == 27 ? HitProxy : Slot == 1 ? Lighting : MaterialBuffer;
 				Resource.Resource = Range.Buffer;
 				Resource.Offset = Range.Offset;
 				Resource.Size = Range.Size;

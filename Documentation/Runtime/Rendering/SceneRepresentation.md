@@ -112,21 +112,14 @@ cube, or cannot be rendered fails the view submission rather than selecting a
 fallback texture. This path supports value-only editor captures without
 changing the scene representation.
 
-## Editor Primitive-Mutation Observation
+## Editor Hit Proxies
 
-The renderer scene remains render-thread-only. Editor CPU picking instead uses
-a narrow Engine seam on `DLevel`: a game-thread subscriber first receives one
-complete primitive snapshot and then monotonically revised mutation batches.
-`DPrimitiveComponent` publishes registration, retirement, transform, owner
-visibility, and proxy/data replacement through its authoritative render-state
-paths. Payloads contain weak Actor/component identity plus primitive ID,
-registration generation, family, visibility, and finite transformed bounds.
-
-The observer owns no LevelEditor types, does not retain reflected objects, and
-is removed when its owner detaches. Callbacks may not re-enter primitive
-mutation; this is an unrecoverable callback contract. Consumers recover from
-any non-consecutive externally supplied revision with a complete snapshot. This seam is separate from `FSceneInterface` and
-does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
+The render-thread scene supplies visibility and prepared mesh batches to the
+on-demand Hit Proxy pass. `FHitProxyRenderRequest` carries request-local numeric
+IDs and detached overlay triangles. The editor retains weak Actor/component
+identities and resolves the asynchronous ID readback on the game thread. No
+picking mutation observer or spatial index is attached to `DLevel`. See the
+[semantic picking contract](../../Editor/Architecture/ViewportEditing.md#semantic-picking-contract).
 
 ## Failure and Thread Contracts
 

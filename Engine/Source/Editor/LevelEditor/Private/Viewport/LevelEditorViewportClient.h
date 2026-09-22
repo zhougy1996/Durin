@@ -18,7 +18,6 @@ namespace Durin::Editor::Level
 {
 	class IViewportPickingBackend;
 	class FViewportPickingService;
-	class FViewportPickingSceneIndex;
 
 	// Captures one frame of normalized viewport navigation and gizmo input.
 	struct FLevelEditorViewportInput
@@ -94,7 +93,6 @@ namespace Durin::Editor::Level
 		auto CancelViewportPick(FViewportPickTicket Ticket) -> void;
 		auto ReleaseViewportPick(FViewportPickTicket Ticket) -> void;
 		auto SetPickingBackendForTesting(std::unique_ptr<IViewportPickingBackend> Backend) -> void;
-		auto SetPickingSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> SceneIndex) -> void;
 		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto UpdateHoveredVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) -> void;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;

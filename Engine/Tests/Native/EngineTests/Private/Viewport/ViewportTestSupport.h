@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Viewport/ViewportPickingService.h"
+
 #include "Actors/CameraActor.h"
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
@@ -170,6 +172,20 @@ namespace
 			OutView.ViewLocation = {11.0, 12.0, 13.0};
 			return true;
 		}
+	};
+
+	class FCaptureHitProxyBackend final : public Durin::Editor::Level::IViewportPickingBackend
+	{
+	public:
+		Durin::Editor::Level::FViewportPickingBackendRequest Captured;
+		auto Submit(Durin::Editor::Level::FViewportPickingBackendRequest Request) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
+		{
+			Captured = std::move(Request);
+			return {Durin::Editor::Level::EViewportPickStatus::Pending};
+		}
+		auto Poll(Durin::Editor::Level::FViewportPickTicket) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
+		{ return {Durin::Editor::Level::EViewportPickStatus::Pending}; }
+		auto Cancel(Durin::Editor::Level::FViewportPickTicket) -> void override {}
 	};
 
 	class FTestComponentVisualizer final : public Durin::Editor::Level::IComponentEditorVisualizer

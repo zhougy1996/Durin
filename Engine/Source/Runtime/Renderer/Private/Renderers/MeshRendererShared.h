@@ -96,7 +96,7 @@ namespace Durin::RendererPrivate
 			.ShaderTypes = Types,
 			.CompileOptions = VertexCompileOptions,
 			.FixedShaderRuntimeRequest = Factory->GetRuntimeRequestName(MeshPassKey),
-			.FixedFragmentRuntimeRequest = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain" ? "Surface.OpaqueShadow" : "",
+			.FixedFragmentRuntimeRequest = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain" ? "Surface.OpaqueShadow" : FragmentType.GetEntryPoint() == "HitProxyFragmentMain" ? "Surface.HitProxy" : "",
 			.GeneratedStages = GeneratedStages,
 			.CompiledProgramIdentity = MaterialProgram
 				? MaterialProgram->Identity : FMaterialProgramIdentity{},

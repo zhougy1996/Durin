@@ -95,7 +95,6 @@ set(_durin_viewport_private_sources
 	${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp
 	${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
 	${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
-	${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 	${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 	${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 	${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
@@ -141,42 +140,10 @@ if(DURIN_WITH_EDITOR)
 		HEAVY_RUNTIME_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."
 	)
 
-	durin_add_native_test(ViewportQualificationTests
-		KIND qualification
-		DOMAINS viewport
-		MODULES engine level-editor mona
-		STACKS editor
-		PRIVATE_SOURCE_OWNER LevelEditor
-		PRIVATE_SOURCE_RATIONALE
-			"LevelEditor-owned viewport qualification uses the same private picking seams as routine coverage."
-		TIMEOUT 900
-		SOURCES Private/Viewport/ViewportPickingQualificationTests.cpp ${_durin_viewport_private_sources}
-		INCLUDE_DIRECTORIES
-			${CMAKE_CURRENT_SOURCE_DIR}/Private
-			${_durin_level_editor_private}
-			${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
-			${CMAKE_SOURCE_DIR}/Engine/Source
-			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MonaImGui/Private
-		COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
-		LIBRARIES
-			Core
-			CoreDObject
-			RHI
-			RenderCore
-			Engine
-			ApplicationCore
-			MonaCore
-			Mona
-			MonaImGui
-			AssetForgeBuiltins
-			StaticMeshBuild
-			DurinEd
-		HEAVY_RUNTIME_RATIONALE "Measures large-scale editor viewport picking behavior."
-	)
+
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "ViewportTests requires LevelEditor composition and DurinEd."
 		SOURCES ${_durin_viewport_test_sources}
-			Private/Viewport/ViewportPickingQualificationTests.cpp
 	)
 endif()

@@ -475,38 +475,19 @@ namespace Durin::Editor::Level
 		const FVector2f& ViewportPosition, EViewportPickLayer Layers) -> FViewportPickSubmission
 	{
 		if (Level != CurrentLevel) InitializeForLevel(Level);
-		std::optional<FViewportPickHit> Visualization;
-		if (Level && EnumHasAnyFlags(Layers, EViewportPickLayer::EditorVisualization))
+		FEditorVisualizationCollector ColdVisualizations;
+		const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
+		if (Level && PreparedSceneView.Level.Get() != Level)
 		{
-			FEditorVisualizationCollector ColdVisualizations;
-			const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
-			if (PreparedSceneView.Level.Get() != Level)
-			{
-				PopulateEditorOverlays(Level, View, ColdVisualizations);
-				Visualizations = &ColdVisualizations;
-			}
-			const FEditorVisualizationHit Hit = Visualizations->HitTest(View, ViewportPosition);
-			if (Hit.Actor && Hit.Component)
-			{
-				const FObjectKey Handle = TWeakObjectPtr<DActorComponent>(Hit.Component).GetKey();
-				Visualization = FViewportPickHit{
-					.Kind = EViewportPickHitKind::EditorVisualization,
-					.Actor = Hit.Actor,
-					.Component = Hit.Component,
-					.Element = Hit.Element,
-					.Distance = Hit.Distance,
-					.Priority = Hit.Priority,
-					.StableTieKey = Handle.GetHash(),
-					.bDepthIndependent = Hit.bDepthIndependent,
-				};
-			}
+			PopulateEditorOverlays(Level, View, ColdVisualizations);
+			Visualizations = &ColdVisualizations;
 		}
 		return PickingService->Submit({
 			.Level = Level,
 			.View = View,
 			.ViewportPosition = ViewportPosition,
 			.Layers = Layers,
-		}, std::move(Visualization));
+		}, Visualizations);
 	}
 
 	auto FLevelEditorViewportClient::PollViewportPick(FViewportPickTicket Ticket) -> FViewportPickCompletion
@@ -521,10 +502,6 @@ namespace Durin::Editor::Level
 		PickingService->SetBackendForTesting(std::move(Backend));
 	}
 
-	auto FLevelEditorViewportClient::SetPickingSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> SceneIndex) -> void
-	{
-		PickingService->SetSceneIndex(std::move(SceneIndex));
-	}
 
 	auto FLevelEditorViewportClient::UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void
 	{

@@ -2345,9 +2345,9 @@ namespace Durin
 	}
 
 	auto FRHICommandListBase::EnqueueTextureReadback(FRHITexture* Texture,
-		uint32 MipIndex, uint32 ArraySlice) -> std::shared_ptr<FRHITextureReadback>
+		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> std::shared_ptr<FRHITextureReadback>
 	{
-		auto Request = std::make_shared<FRHITextureReadback>();
+		if (!Request) Request = std::make_shared<FRHITextureReadback>();
 		RecordCommand<FTextureReadbackCommand>(TRefCountPtr<FRHITexture>(Texture), MipIndex, ArraySlice, Request);
 		return Request;
 	}

@@ -337,6 +337,17 @@ GeometryPassFragmentOutput GeometryFragmentMain(
     return o;
 #endif
 }
+struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
+[[vk::binding(27, 0)]] ConstantBuffer<HitProxyUniform> HitProxy;
+[shader("fragment")]
+uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0
+{
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    float mask = DURIN_GENERATED_SHADOW_MASK;
+    if (mask < asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))) discard;
+#endif
+    return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz)));
+}
 [shader("fragment")]
 void ShadowFragmentMain(VSOutput input)
 {
@@ -405,7 +416,8 @@ float4 FragmentMain(
 }
 )";
 		const std::string_view MaskToken = "DURIN_GENERATED_SHADOW_MASK";
-		OutSource.replace(OutSource.find(MaskToken), MaskToken.size(), "EvaluateGeneratedMaterial(input).opacityMask");
+		for (auto Position = OutSource.find(MaskToken); Position != std::string::npos; Position = OutSource.find(MaskToken))
+			OutSource.replace(Position, MaskToken.size(), "EvaluateGeneratedMaterial(input).opacityMask");
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutSource.clear();
@@ -629,7 +641,7 @@ float4 FragmentMain(
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
-		constexpr std::array<std::string_view, 3> Entries{"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
+		constexpr std::array<std::string_view, 4> Entries{"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
 		if (Stages.size() != Entries.size()) return Rejected;
 		for (uint32 Index = 0; Index < Stages.size(); ++Index)
 		{
@@ -649,6 +661,11 @@ float4 FragmentMain(
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != (Slot == 2 ? "Material" : "Lighting")) return Rejected;
+				}
+				else if (Index == 3 && Slot == 27)
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != "HitProxy") return Rejected;
 				}
 				else if (Index == 0 && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
 				else if (Index == 0 && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
@@ -708,8 +725,8 @@ float4 FragmentMain(
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
 		Request.EntryPoints = {
-			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
-		Request.Frequencies.assign(3, EShaderFrequency::Fragment);
+			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
+		Request.Frequencies.assign(4, EShaderFrequency::Fragment);
 		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
 			std::to_string(static_cast<uint8>(Input.StaticProperties.BlendMode)));
 		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",

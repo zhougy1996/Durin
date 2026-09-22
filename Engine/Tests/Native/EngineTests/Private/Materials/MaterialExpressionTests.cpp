@@ -777,7 +777,7 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
+	EXPECT_EQ(Compiled.CompiledShaders.size(), 4u);
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }

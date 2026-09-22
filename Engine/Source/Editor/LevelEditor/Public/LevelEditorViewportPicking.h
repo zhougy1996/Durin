@@ -104,6 +104,4 @@ namespace Durin::Editor::Level
 		FViewportPickCompletion Completion;
 	};
 
-	// Applies the lasting cross-family ordering contract to two already valid candidates.
-	LEVELEDITOR_API auto IsViewportPickHitPreferred(const FViewportPickHit& Candidate, const FViewportPickHit& Current) -> bool;
 } // namespace Durin::Editor::Level

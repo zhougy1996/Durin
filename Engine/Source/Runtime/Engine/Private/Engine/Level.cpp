@@ -107,9 +107,6 @@ namespace Durin
 
 	DLevel::DLevel(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer), TickRegistry(this)
-#if DURIN_WITH_EDITOR
-		, PrimitiveSceneChanges(*this)
-#endif
 	{
 	}
 

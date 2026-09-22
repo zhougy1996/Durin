@@ -6,9 +6,6 @@
 #include "DObject/AssetPath.h"
 #include "EngineAPI.h"
 #include "Engine/TickFunction.h"
-#if DURIN_WITH_EDITOR
-#include "Engine/PrimitiveSceneChanges.h"
-#endif
 
 #include "Level.gen.h"
 
@@ -52,7 +49,6 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }
-		auto GetPrimitiveSceneChanges() -> FPrimitiveSceneChanges& { return PrimitiveSceneChanges; }
 #endif
 
 	private:
@@ -77,7 +73,6 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 		uint64 EditorActorHierarchyRevision = 1;
-		FPrimitiveSceneChanges PrimitiveSceneChanges;
 #endif
 
 		friend class AActor;

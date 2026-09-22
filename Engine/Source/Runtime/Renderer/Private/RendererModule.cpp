@@ -236,6 +236,13 @@ namespace Durin
 		);
 	}
 
+	auto FRendererModule::RenderHitProxies(FRHICommandListImmediate& Commands,
+		FSceneInterface* Scene, const FHitProxyRenderRequest& Request) -> void
+	{
+		if (!SceneRenderer || (Request.bSceneGeometry && !Scene)) { if (Request.Readback) Request.Readback->Fail(); return; }
+		SceneRenderer->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
+	}
+
 	auto FRendererModule::RenderView(
 		FRHICommandListImmediate& CommandList,
 		FSceneInterface* Scene,

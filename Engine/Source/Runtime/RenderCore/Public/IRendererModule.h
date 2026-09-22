@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneOwnership.h"
+#include "HitProxy.h"
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
 #include "RHIResources.h"
@@ -25,6 +26,7 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
+		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest& Request) -> void { if (Request.Readback) Request.Readback->Fail(); }
 		virtual auto CreateScene() -> FScenePtr = 0;
 		// Called inside an active RHI frame, independently of viewport submission.
 		virtual auto UpdateScenes_RenderThread(FRHICommandListImmediate&) -> void {}

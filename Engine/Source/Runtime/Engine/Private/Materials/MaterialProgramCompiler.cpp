@@ -138,7 +138,7 @@ namespace Durin
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {
 			"FragmentMain", "GeometryFragmentMain",
-			"OpaqueShadowFragmentMain", "ShadowFragmentMain"};
+			"OpaqueShadowFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
 		Options.Frequencies.assign(
 			Options.EntryPoints.size(), EShaderFrequency::Fragment);
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
@@ -498,8 +498,8 @@ namespace Durin
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.StageResources);
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBufferBytes);
 		AppendLittleEndian(Bytes, Input.Environment.PassContractVersion);
-		constexpr std::array<std::string_view, 3> EntryPoints{
-			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
+		constexpr std::array<std::string_view, 4> EntryPoints{
+			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
 		AppendLittleEndian(Bytes, static_cast<uint32>(EntryPoints.size()));
 		for (std::string_view EntryPoint : EntryPoints)
 		{

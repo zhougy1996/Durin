@@ -1625,3 +1625,139 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndG
 	ShutdownRenderingThread();
 	RHIExit();
 }
+
+TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundAndCancellation)
+{
+	using namespace Durin;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	InitializeDObjectSystem();
+	ASSERT_EQ(GDynamicRHI, nullptr);
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("HitProxyGpuTest");
+	Lifecycle.Start(Renderer);
+	auto Data = MakeMultiLODRenderData();
+	const auto Material = MakeMaterial(EMaterialBlendMode::Opaque, true);
+	FSceneTestOwner Owner;
+	auto& Scene = *Owner;
+	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Data->InitResources(Commands));
+	});
+	FlushRenderingCommands();
+	EXPECT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(Scene, FPrimitiveComponentId(501),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FMatrix(1.0)));
+	FMatrix FarTransform(1.0);
+	FarTransform[3][0] = 2.0;
+	EXPECT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(Scene, FPrimitiveComponentId(502),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FarTransform));
+	FHitProxyRenderRequest Request;
+	Request.View.ProjectionMatrix = FMatrix(0.0);
+	Request.View.ProjectionMatrix[1][0] = 0.5;
+	Request.View.ProjectionMatrix[2][1] = -0.5;
+	Request.View.ProjectionMatrix[0][2] = 0.1;
+	Request.View.ProjectionMatrix[3][2] = -0.1;
+	Request.View.ProjectionMatrix[3][3] = 1.0;
+	Request.View.ViewProjectionMatrix = Request.View.ProjectionMatrix;
+	Request.View.ViewportWidth = Request.View.ViewportHeight = 64;
+	Request.View.Settings.Mode.LODMode = EViewLODMode::ForceLOD0;
+	Request.Primitives = {{501, {0xabcdef12}}, {502, {17}}};
+	const auto CaptureCenter = [&]() -> uint32 {
+		Request.Readback = std::make_shared<FRHITextureReadback>();
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			++GRenderFrameCounterRenderThread;
+			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+			Renderer.RenderHitProxies(Commands, &Scene, Request);
+			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+		});
+		FlushRenderingCommands();
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+		while (Request.Readback->GetState() == ERHITextureReadbackState::Pending && std::chrono::steady_clock::now() < Deadline)
+		{
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([](FRHICommandListImmediate& Commands) {
+				Commands.PollTextureReadbacks();
+			});
+			FlushRenderingCommands();
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		EXPECT_EQ(Request.Readback->GetState(), ERHITextureReadbackState::Ready);
+		FByteBuffer Pixels;
+		if (!Request.Readback->TakePixels(Pixels) || Pixels.size() != 64u * 64u * 8u) { ADD_FAILURE(); return 0; }
+		std::array<uint32, 2> Center;
+		std::memcpy(Center.data(), Pixels.data() + (32 * 64 + 32) * 8, 8);
+		EXPECT_TRUE(std::isfinite(std::bit_cast<float>(Center[1])));
+		uint32 Background;
+		std::memcpy(&Background, Pixels.data(), 4);
+		EXPECT_EQ(Background, 0u);
+		return Center[0];
+	};
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	FHitProxyOverlay Handle;
+	Handle.Id = FHitProxyId{91};
+	const std::array<FVector4f, 4> Corners{FVector4f(-.2f,-.2f,.8f,1.f), FVector4f(.2f,-.2f,.8f,1.f),
+		FVector4f(.2f,.2f,.8f,1.f), FVector4f(-.2f,.2f,.8f,1.f)};
+	constexpr uint32 Indices[]{0,1,2,0,2,3};
+	for (uint32 I=0; I<6; ++I) Handle.Vertices[I] = {Corners[Indices[I]], 9.f};
+	Request.Overlays = {Handle};
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u); // A depth-tested handle behind the mesh is occluded.
+	Request.Overlays.front().bForeground = true;
+	EXPECT_EQ(CaptureCenter(), 91u); // Foreground handles bypass scene depth.
+	Request.Overlays.front().Priority = 100;
+	Handle.bForeground = true;
+	Handle.Id = FHitProxyId{92};
+	Request.Overlays.push_back(Handle);
+	EXPECT_EQ(CaptureCenter(), 91u); // Priority, not submission order, chooses the front handle.
+	Request.Overlays.clear();
+	Request.Primitives.erase(Request.Primitives.begin());
+	EXPECT_EQ(CaptureCenter(), 0u); // Unselectable foreground geometry still occludes.
+	Request.Primitives.insert(Request.Primitives.begin(), {501, {0xabcdef12}});
+
+	Request.View.DepthConvention = ESceneDepthConvention::ReversedZ;
+	Request.View.ProjectionMatrix[0][2] = -.1;
+	Request.View.ProjectionMatrix[3][2] = 1.1;
+	Request.View.ViewProjectionMatrix = Request.View.ProjectionMatrix;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	auto* Masked = NewObject<DMaterial>(nullptr, "HitProxyMasked");
+	auto* Mask = NewObject<DMaterialExpressionScalarConstant>(Masked, "Mask");
+	Mask->Id = FGuid::NewGuid();
+	Mask->Value = 0.f;
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.OpacityMask = {Mask->Id};
+	const std::array<DMaterialExpression*, 1> Expressions{Mask};
+	EXPECT_TRUE(Masked->SetMaterialExpressions(Expressions, Outputs));
+	FMaterialStaticProperties Properties;
+	Properties.BlendMode = EMaterialBlendMode::Masked;
+	Properties.bTwoSided = true;
+	EXPECT_TRUE(Masked->SetStaticProperties(Properties));
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Masked->GetMaterialRenderProxy()}), FMatrix(1.0));
+	EXPECT_EQ(CaptureCenter(), 17u); // Masked-out fragments reveal the far surface.
+	FSplineMeshRenderDynamicData Spline;
+	Spline.Params.SourceForwardMax = 5.0;
+	Spline.LocalBounds = Data->LocalBounds;
+	Spline.Revision = 1;
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
+		std::make_unique<FSplineMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}, Spline), FMatrix(1.0));
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	Request.Readback = std::make_shared<FRHITextureReadback>();
+	Request.Readback->Cancel();
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		Renderer.RenderHitProxies(Commands, &Scene, Request);
+	});
+	FlushRenderingCommands();
+	EXPECT_EQ(Request.Readback->GetState(), ERHITextureReadbackState::Canceled);
+	Owner.Reset();
+	EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Data->ReleaseResources(); });
+	FlushRenderingCommands();
+	Lifecycle.Shutdown();
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+	RHIExit();
+}

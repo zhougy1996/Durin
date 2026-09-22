@@ -108,9 +108,6 @@ namespace Durin
 		}
 		else if (bRebuildDeformation)
 		{
-#if DURIN_WITH_EDITOR
-			if (IsRegistered()) NotifyPrimitiveSceneMutation();
-#endif
 			PushDynamicDataToScene();
 		}
 		RecreatePhysicsState();

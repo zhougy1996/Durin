@@ -28,7 +28,6 @@
         "Public/Engine/WorldSubsystem.h",
         "Public/Engine/Subsystem.h",
         "Public/Engine/Level.h",
-        "Public/Engine/PrimitiveSceneChanges.h",
 		"Public/Collision/CollisionTypes.h",
         "Public/Collision/CollisionDebugSubsystem.h",
 		"Public/Physics/BodySetup.h",

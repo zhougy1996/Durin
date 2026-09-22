@@ -106,3 +106,8 @@ float4 FragmentMain(VSOutput input,
 {
     return float4(1.0, 0.0, 1.0, 1.0);
 }
+
+struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
+[[vk::binding(27, 0)]] ConstantBuffer<HitProxyUniform> HitProxy;
+[shader("fragment")]
+uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz))); }

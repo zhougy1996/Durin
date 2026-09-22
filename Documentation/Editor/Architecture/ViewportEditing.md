@@ -84,64 +84,46 @@ select the Actor; visualization clicks select their exact component or
 sub-element. `FLevelEditorContext`, not the service or backend, performs those
 mutations.
 
-For each scene-geometry request, the service captures a request-local table
-from a non-zero numeric token to `FPrimitiveComponentId`, weak component/Actor, and
-the component registration generation. The built-in reference backend performs
-LOD0, double-sided surface queries for StaticMesh and SplineMesh
-components and returns only a token and world distance. Before exposing a completion, the service verifies client/Level
-generation, weak identity, Level membership, ownership, registration cycle,
-visibility, and primitive identity. World or Level replacement, client reset or
-destruction, mode exit, cancellation, and a newer click retire old work;
-camera movement alone does not reinterpret the immutable clicked view.
+The service captures a request-local table mapping nonzero `FHitProxyId` values
+to weak Actor/component identity, registration generation, and optional typed
+sub-element. Zero identifies background. The Renderer receives only numeric
+primitive IDs, view values, and detached overlay geometry; reflected objects
+remain on the game thread. Completion verifies viewport/Level generation,
+weak identity, ownership, registration cycle, visibility, and primitive identity.
+World or Level replacement, client reset/destruction, mode exit, cancellation,
+and a newer click retire old work. Camera movement alone does not reinterpret
+the clicked view.
 
-`FLevelEditorContext` owns one game-thread `FViewportPickingSceneIndex` for its
-active Level and shares it with every attached viewport service. Each Level owns
-an editor-build `FPrimitiveSceneChanges` source that publishes monotonic primitive
-invalidation batches with weak identity, registration generation, and retirement.
-It contains no picking family or bounds policy. The editor captures StaticMesh
-and SplineMesh bounds synchronously when receiving each batch, before queuing
-its immutable index updates. Registration, retirement, transform, owner visibility,
-and mesh/proxy replacement invalidate consumers; render-state dirty notifications
-remain a conservative invalidation source, including changes unrelated to picking.
-Subscription begins with a complete snapshot. A missing revision,
-invalid batch, Level replacement, or an index build that cannot satisfy its
-64 MiB budget makes the complete request use reference discovery; a stale
-partial candidate table is never queried.
+`IRendererModule::RenderHitProxies` renders an on-demand integer ID/depth pass
+using the renderer's current scene visibility, selected LOD, mesh vertex
+factories, transforms, spline deformation, and material culling. Masked materials
+apply their opacity mask; translucent surfaces are treated as solid selectable
+surfaces. The pass excludes lighting, post-processing, and antialiasing.
+Unmapped visible surfaces still occlude and write background ID. There is no
+Level-owned picking observer, editor scene spatial index, or physics dependency.
+Currently implemented mesh factories cover StaticMesh and SplineMesh. Restoring
+Terrain or SkeletalMesh requires their renderer mesh-batch/vertex-factory path;
+the Hit Proxy framework does not restore removed geometry modules. Unsupported
+renderer resources fail the request explicitly.
 
-The index admits registered visible StaticMesh and SplineMesh primitives
-with non-zero identity and finite current world bounds. It uses deterministic
-centroid splits and 10 percent fat update bounds with a 0.01 world-unit minimum.
-An update inside its fat bound changes only the exact leaf; an escape, add, or
-remove triggers one deterministic synchronization rebuild ordered by primitive
-identity. The measured double-precision layout is bounded at 384 bytes per
-admitted primitive. Ray traversal returns candidates only; the established
-world-distance epsilon and stable key remain the semantic resolver.
+The `RG32_UINT` target stores ID and bit-preserved world distance. Forward and
+reversed depth conventions are supported. Readback uses the existing asynchronous
+RHI staging path; clicks never wait for GPU completion. The current implementation
+copies the complete target (at most 8,388,608 pixels / 64 MiB, dimensions no larger
+than 8192) and decodes the clicked pixel. Requests exceeding the limit fail.
+Region-only copies and persistent hit-buffer caching are not implemented.
 
-StaticMesh render data owns one immutable ray-query BVH per valid LOD, built
-from the matching CPU positions and uint32 triangle triplets. Nodes use
-deterministic longest-axis centroid partitioning, triangle ordinal as the final
-tie-break, and no more than eight triangles per leaf. Viewport picking queries
-LOD 0, transforms the ray into local space, traverses near-first, and converts
-hits back to world distance. Instances and viewports reuse the same asset-owned
-allocation. Missing, malformed, over-budget, or replaced data uses the exact
-reference triangle loop for that component.
+Visualization lines become screen-expanded quads, and icons/boxes include their
+pixel hit padding. World overlays depth-test against scene geometry. Foreground
+overlays render afterward without depth testing, in ascending semantic priority,
+so the highest priority wins overlapping handles. Equal-priority overlays use
+collector order. Selection uses this GPU result; the existing CPU visualization
+hit test remains available for immediate hover feedback.
 
-Private backend policy selects `Reference`, `Accelerated`, or `Compare`.
-Compare runs both against the same immutable request target table; a status,
-token, hit-presence, or distance mismatch increments the parity counter and
-returns the reference completion. SplineMesh uses its current immutable spline
-parameters to deform the retained StaticMesh LOD0 surface before exact triangle
-queries. Missing or malformed mesh data makes only that component a
-non-candidate. Local hits are transformed back to world space before distance
-comparison, preserving ordering under rotation, non-uniform scale, and
-mirroring; singular transforms are skipped.
-
-Geometry and the prepared visualization candidate enter one resolver. A
-depth-independent visualization wins first. Otherwise the nearest finite world
-distance wins; within `1e-8`, scene geometry wins over a depth-tested
-visualization, then higher semantic priority and the lowest stable key break
-remaining ties. The prepared collector is hit-tested once at submission and is
-never retained by pending state.
+Transform gizmos retain immediate analytic handle tests and ray/axis/plane drag
+constraints. Their active interaction consumes input before scene selection.
+These interaction rules are independent of scene-mesh selection; the shared
+Hit Proxy overlay API is available for tools requiring rendered handle IDs.
 
 ## Visualization And Hit Identity
 

@@ -100,7 +100,8 @@ namespace Durin
 			const FShaderReflectionData& Reflection,
 			const FResolvedSurfaceMaterial& Material,
 			const FRHIUniformBufferRange& MaterialBuffer,
-			const FRHIUniformBufferRange& Lighting = {}) -> bool;
+			const FRHIUniformBufferRange& Lighting = {},
+			const FRHIUniformBufferRange& HitProxy = {}) -> bool;
 
 		class FSurfaceMaterialResources final
 		{

@@ -292,12 +292,12 @@ The synchronous compiler lowers that IR to bounded deterministic Slang using
 stable IR-index symbols and exact floating-point bit expressions. RenderCore
 accepts the generated root as owned memory, resolves only allowlisted virtual
 imports, retains cache/artifact ownership, compiles forward, GBuffer, and
-masked-shadow fragments, and accepts only correctly typed reflected bindings
+masked-shadow and integer Hit Proxy fragments, and accepts only correctly typed reflected bindings
 from each pass's closed allowlist. Unused material textures, samplers, and
 uniform fields may therefore be optimized out; a default material contains no
 material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
-three compiled stages, phase timings, and bounded diagnostics; any failure
+four compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
 
 ### Final surface evaluation
@@ -461,7 +461,7 @@ cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
 dependency generation, parent-chain revision, target, and program identity all match. Successful
-admission atomically replaces the complete three-stage result and proxy state;
+admission atomically replaces the complete four-stage result and proxy state;
 current compilation failure or admission rejection retires the complete accepted
 program, layout, values and resources and publishes ErrorMaterial through the
 ordinary render proxy path. This includes normalization and dependency failures
@@ -547,7 +547,7 @@ Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
 and deterministic draw ordering by the material-program digest plus the exact
 pass and geometry-domain contract. On the rendering thread they combine the
 shared fixed geometry vertex stage with the accepted generated `FragmentMain`,
-`GeometryFragmentMain`, or `ShadowFragmentMain` artifact and create a complete
+`GeometryFragmentMain`, `ShadowFragmentMain`, or `HitProxyFragmentMain` artifact and create a complete
 typed shader map transactionally. Opaque shadow retains the fixed material-
 resource-free fragment. StaticMesh, SplineMesh, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
@@ -774,8 +774,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current versions are compiler envelope 9, DMAT 7, IR 4, layout 4, generator 7,
-pass contract 3, and material Cook contributor 5. Time uses the material uniform;
+Current versions are compiler envelope 9, DMAT 7, IR 4, layout 4, generator 8,
+pass contract 4, and material Cook contributor 5. Time uses the material uniform;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10
 default-relative owned-object serialization, with no material-specific serializer
