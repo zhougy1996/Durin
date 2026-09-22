@@ -500,11 +500,11 @@ namespace Durin::Editor::ContentBrowser::Private
 						&& It->Kind == EContentBrowserItemKind::Asset)
 					QueueContentAction([this, Item = *It] { DuplicateAsset(Item); });
 			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
-				CopyAssetSelection();
+				CopyContentSelection();
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_V, false)
-				&& HasAssetClipboard())
-				QueueContentAction([this] { PasteAsset(); });
+				&& HasContentClipboard())
+				QueueContentAction([this] { PasteContent(); });
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_Delete)
 				&& !SelectionState.Selected.empty()) RequestDeleteSelection();
 		}
@@ -994,18 +994,17 @@ namespace Durin::Editor::ContentBrowser::Private
 			QueueContentAction([this, Item] { DuplicateAsset(Item); });
 		ImGui::EndDisabled();
 		if (ImGui::MenuItem(
-			"Copy Asset", "Ctrl+C", false,
-			SelectionState.Selected.size() == 1
-				&& Item.Kind == EContentBrowserItemKind::Asset))
-			CopyAssetSelection();
+			"Copy", "Ctrl+C", false,
+			!SelectionState.Selected.empty() && Item.Kind != EContentBrowserItemKind::Redirector))
+			CopyContentSelection();
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem(
 			Item.Kind == EContentBrowserItemKind::Folder
-				? "Paste Asset Into Folder"
-				: "Paste Asset",
-			"Ctrl+V", false, HasAssetClipboard()))
+				? "Paste Into Folder"
+				: "Paste",
+			"Ctrl+V", false, HasContentClipboard()))
 			QueueContentAction([this, Item] {
-				PasteAsset(Item.Kind == EContentBrowserItemKind::Folder
+				PasteContent(Item.Kind == EContentBrowserItemKind::Folder
 					? std::string_view(Item.VirtualPath)
 					: std::string_view{});
 			});
@@ -1259,8 +1258,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::BeginDisabled(!bAllowAssetMutation);
 			ImGui::Separator();
 			if (ImGui::MenuItem(
-				"Paste Asset", "Ctrl+V", false, HasAssetClipboard()))
-				QueueContentAction([this] { PasteAsset(); });
+				"Paste", "Ctrl+V", false, HasContentClipboard()))
+				QueueContentAction([this] { PasteContent(); });
 			ImGui::Separator();
 			if (!Model.GetCurrentVirtualPath().empty()
 				&& ImGui::MenuItem("Fix Up Redirectors in Folder"))

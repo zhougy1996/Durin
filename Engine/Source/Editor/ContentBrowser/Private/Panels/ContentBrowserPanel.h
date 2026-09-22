@@ -120,9 +120,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto DrawRenameEditor(const FContentBrowserItem& Item) -> void;
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
 		auto DuplicateAsset(const FContentBrowserItem& Item) -> void;
-		auto CopyAssetSelection() -> void;
-		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
-		auto HasAssetClipboard() const -> bool;
+		auto CopyContentSelection() -> void;
+		auto PasteContent(std::string_view DestinationDirectory = {}) -> void;
+		auto HasContentClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto SaveAssetPackage(const FPackagePath& Path) -> void;
 		auto ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void;

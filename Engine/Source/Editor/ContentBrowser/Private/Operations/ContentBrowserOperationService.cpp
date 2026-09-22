@@ -391,6 +391,206 @@ namespace Durin::Editor::ContentBrowser::Private
 		return Publish(std::move(Outcome));
 	}
 
+	auto FContentBrowserOperationService::CopyItems(
+		std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
+		-> FContentBrowserOperationResult
+	{
+		if (const auto Allowed = QueryMutation(); !Allowed) return Allowed;
+		Paths.RefreshMountSnapshot();
+		using namespace ContentBrowserChanges;
+		const auto Destination = Paths.ResolveMountPath(PhysicalDirectory);
+		if (!Destination || !Destination.Mount->bContentWritable)
+			return {EAssetWriteError::ReadOnlyMode, "Paste requires a writable content folder."};
+		std::error_code Ec;
+		std::filesystem::path Reparse;
+		if (!std::filesystem::is_directory(PhysicalDirectory, Ec) || Ec
+			|| IsReparsePoint(Destination.Mount->PhysicalRoot, Ec) || Ec
+			|| FindReparsePointInPath(Destination.Mount->PhysicalRoot, PhysicalDirectory, Reparse, Ec) || Ec)
+			return {EAssetWriteError::InvalidPath, "The paste destination must be an existing folder without reparse points."};
+		struct FFileCopy { std::filesystem::path Source; std::filesystem::path Target; };
+		struct FAssetCopy { FTopLevelAssetPath Source; std::string Directory; };
+		struct FCompanion { FAssetCompanionOwnership Ownership; bool bIndependent; };
+		std::vector<FFileCopy> Files;
+		std::vector<FAssetCopy> AssetCopies;
+		std::vector<FCompanion> Companions;
+		std::vector<std::filesystem::path> Directories;
+		std::vector<std::string> Sources;
+		std::vector<std::string> Targets;
+		const auto Catalog = CaptureAssetCatalogSnapshot();
+		for (const auto& Item : Items)
+		{
+			const auto Source = NormalizePath(Item.PhysicalPath);
+			if (std::ranges::any_of(Sources, [&](const auto& Other) { return SamePath(Source, Other); })) continue;
+			if (std::ranges::any_of(Items, [&](const auto& Other) {
+				return Other.Kind == EContentBrowserItemKind::Folder
+					&& !SamePath(Source, Other.PhysicalPath) && Within(Source, Other.PhysicalPath);
+			})) continue;
+			const auto SourceMount = Paths.ResolveMountPath(Source);
+			if (!SourceMount || SamePath(Source, SourceMount.Mount->PhysicalRoot))
+				return {EAssetWriteError::InvalidPath, "Copy sources must be items inside a scanned content mount."};
+			if (Item.Kind == EContentBrowserItemKind::Redirector)
+				return {EAssetWriteError::InvalidPath, "Redirectors cannot be copied."};
+			if (IsReparsePoint(SourceMount.Mount->PhysicalRoot, Ec) || Ec
+				|| FindReparsePointInPath(SourceMount.Mount->PhysicalRoot, Source, Reparse, Ec) || Ec)
+				return {EAssetWriteError::InvalidPath, "Copy cannot traverse reparse points or unreadable paths."};
+			const bool bFolder = Item.Kind == EContentBrowserItemKind::Folder;
+			if (std::filesystem::is_directory(Source, Ec) != bFolder || Ec)
+				return {EAssetWriteError::InvalidPath, "The copied source type has changed."};
+			if (bFolder && Within(Destination.NormalizedPhysicalPath, Source))
+				return {EAssetWriteError::InvalidPath, "A folder cannot be pasted into itself or its descendants."};
+			const auto Name = std::filesystem::path(Source).filename();
+			std::filesystem::path Target;
+			for (int Suffix = 0; Suffix < 1000; ++Suffix)
+			{
+				const auto CandidateName = Suffix == 0 ? Name.string()
+					: (bFolder ? Name.string() : Name.stem().string()) + "_Copy"
+						+ (Suffix == 1 ? std::string{} : std::to_string(Suffix))
+						+ (bFolder ? std::string{} : Name.extension().string());
+				const auto Candidate = std::filesystem::path(Destination.NormalizedPhysicalPath) / CandidateName;
+				// A dangling link still occupies the name; never follow it to create a copy.
+				const auto CandidateStatus = std::filesystem::symlink_status(Candidate, Ec);
+				if (Ec == std::errc::no_such_file_or_directory) Ec.clear();
+				if (Ec) return {EAssetWriteError::IoError, Ec.message()};
+				if (std::filesystem::exists(CandidateStatus) || std::ranges::any_of(Targets, [&](const auto& Other) {
+					return SamePath(Candidate.generic_string(), Other);
+				})) continue;
+				Target = Candidate;
+				break;
+			}
+			if (Target.empty()) return {EAssetWriteError::AlreadyExists, "No free copy name is available."};
+			Sources.push_back(Source);
+			Targets.push_back(Target.generic_string());
+			auto Collect = [&](const std::filesystem::path& Path, const std::filesystem::path& To,
+				bool bIndependent) -> FAssetWriteResult {
+				const auto EntryMount = Paths.ResolveMountPath(Path.generic_string());
+				const auto TargetMount = Paths.ResolveMountPath(To.generic_string());
+				if (!EntryMount || EntryMount.Mount != SourceMount.Mount
+					|| !TargetMount || TargetMount.Mount != Destination.Mount)
+					return {EAssetWriteError::InvalidPath, "Copy cannot cross nested mount boundaries."};
+				if (IsReparsePoint(Path, Ec) || Ec)
+					return {EAssetWriteError::InvalidPath, "Copy cannot include reparse points or unreadable entries."};
+				if (std::filesystem::is_directory(Path, Ec))
+				{
+					Directories.push_back(To);
+					return {};
+				}
+				if (Ec || !std::filesystem::is_regular_file(Path, Ec) || Ec)
+					return {EAssetWriteError::NotFound, "The copied source is no longer a regular file."};
+				for (const auto& [Package, Data] : Catalog.Assets)
+				{
+					if (!SamePath(Path.generic_string(), Data.PhysicalPath)) continue;
+					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector || Data.TopLevelAssets.size() != 1)
+						return {EAssetWriteError::InvalidData, "Copy requires a real package with one top-level asset."};
+					const auto Asset = Data.TopLevelAssets.front().AssetPath;
+					if (const auto Available = QueryDuplicate(Asset); !Available) return Available;
+					AssetCopies.push_back({Asset, Paths.PhysicalToVirtualDirectory(To.parent_path().generic_string())});
+					return {};
+				}
+				const auto Extension = StringUtils::FoldAscii(Path.extension().string());
+				if (Extension == ".dasset")
+					return {EAssetWriteError::InvalidPath, "An unregistered package cannot be copied as an ordinary file."};
+				FAssetCompanionOwnership Ownership;
+				if (const auto Result = QueryAssetCompanionOwnership(Path.generic_string(), Ownership); !Result) return Result;
+				if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
+				{
+					if (Extension != ".dbulk")
+						return {EAssetWriteError::InvalidData, "Copy is not supported for this custom managed companion: " + Path.generic_string()};
+					Companions.push_back({std::move(Ownership), bIndependent});
+					return {};
+				}
+				if (Extension == ".dbulk")
+					return {EAssetWriteError::InvalidPath, "An orphan bulk payload cannot be copied as an ordinary file."};
+				Files.push_back({Path, To});
+				return {};
+			};
+			if (const auto Result = Collect(Source, Target, !bFolder); !Result) return Result;
+			if (bFolder)
+			{
+				for (std::filesystem::recursive_directory_iterator It(Source, Ec), End;
+					!Ec && It != End; It.increment(Ec))
+					if (const auto Result = Collect(It->path(), Target / It->path().lexically_relative(Source), false); !Result)
+						return Result;
+				if (Ec) return {EAssetWriteError::IoError, "Could not inspect the copied folder: " + Ec.message()};
+			}
+		}
+		for (const auto& Companion : Companions)
+			if (Companion.bIndependent || Companion.Ownership.State == EAssetCompanionOwnershipState::Ambiguous
+				|| std::ranges::any_of(Companion.Ownership.Owners, [&](const auto& Owner) {
+					return std::ranges::none_of(AssetCopies, [&](const auto& Copy) { return Copy.Source.GetPackagePath() == Owner; });
+				}))
+				return {EAssetWriteError::InUse, "Copy the owning asset instead of its managed companion."};
+
+		std::vector<std::filesystem::path> CreatedFiles;
+		std::vector<std::filesystem::path> CreatedDirectories;
+		bool bAssetEffects = false;
+		auto FailCopy = [&](FContentBrowserOperationResult Result) {
+			if (!bAssetEffects)
+			{
+				for (auto It = CreatedFiles.rbegin(); It != CreatedFiles.rend(); ++It)
+				{
+					std::filesystem::remove(*It, Ec);
+					if (Ec) Result.Warning += " Could not remove " + It->generic_string() + ": " + Ec.message();
+				}
+				for (auto It = CreatedDirectories.rbegin(); It != CreatedDirectories.rend(); ++It)
+				{
+					std::filesystem::remove(*It, Ec);
+					if (Ec) Result.Warning += " Could not remove " + It->generic_string() + ": " + Ec.message();
+				}
+			}
+			else Result.Warning += " Earlier copies were retained because asset publication has already started. Inspect the destination before retrying.";
+			Result.bContentChanged = bAssetEffects || !Result.Warning.empty();
+			Result.Changes.bFullRefresh = Result.bContentChanged;
+			if (Result.bContentChanged) Result.Status.Effect = EAssetWriteEffect::ContentUncertain;
+			return Publish(std::move(Result));
+		};
+		std::ranges::sort(Directories, {}, [](const auto& Path) { return Path.native().size(); });
+		for (const auto& Directory : Directories)
+		{
+			if (!std::filesystem::create_directory(Directory, Ec) || Ec)
+				return FailCopy({EAssetWriteError::IoError, "Could not create copied folder: " + Directory.generic_string()});
+			CreatedDirectories.push_back(Directory);
+		}
+		for (const auto& File : Files)
+		{
+			if (!std::filesystem::copy_file(File.Source, File.Target, std::filesystem::copy_options::none, Ec) || Ec)
+			{
+				FContentBrowserOperationResult Result{EAssetWriteError::IoError,
+					"Could not copy " + File.Source.generic_string() + ": " + Ec.message()};
+				// A failed copy may leave a partial destination; do not delete a competing writer's file.
+				Result.Warning = " Inspect failed destination: " + File.Target.generic_string();
+				return FailCopy(std::move(Result));
+			}
+			CreatedFiles.push_back(File.Target);
+		}
+		FContentBrowserOperationResult Outcome;
+		for (const auto& Copy : AssetCopies)
+		{
+			auto Result = Assets.DuplicateAsset({.SourcePath = Copy.Source, .DestinationDirectory = Copy.Directory,
+				.ResolvePhysicalPackagePath = [this](const FPackagePath& Path) {
+					return Paths.VirtualToPhysical(Path.ToString() + ".dasset");
+				}});
+			bAssetEffects |= static_cast<bool>(Result)
+				|| Result.State == EAssetOperationTerminalState::ContentCommittedProjectionPending
+				|| Result.State == EAssetOperationTerminalState::ContentUncertain
+				|| Result.State == EAssetOperationTerminalState::PartiallyWritten;
+			if (Result.State != EAssetOperationTerminalState::Completed)
+			{
+				Result.Message = "Copy stopped at " + Copy.Source.ToString() + " into " + Copy.Directory + ": " + Result.Message;
+				return FailCopy(FContentBrowserOperationResult(std::move(Result)));
+			}
+			for (const auto& Warning : Result.Warnings) Outcome.Warning += Warning.Details + "\n";
+			Outcome.FocusPhysicalPath = Result.PhysicalPath;
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Added, {}, Result.PhysicalPath});
+		}
+		for (const auto& Path : CreatedFiles)
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Added, {}, Path.generic_string()});
+		for (const auto& Path : CreatedDirectories)
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Added, {}, Path.generic_string(), {}, {}, true});
+		if (Outcome.FocusPhysicalPath.empty() && !Targets.empty()) Outcome.FocusPhysicalPath = Targets.front();
+		Outcome.bContentChanged = !Outcome.Changes.Changes.empty();
+		return Publish(std::move(Outcome));
+	}
+
 	auto FContentBrowserOperationService::RenameFolder(
 		const FContentBrowserItem& Item, std::string_view NewName,
 		std::string& OutWarning) -> FContentBrowserOperationResult

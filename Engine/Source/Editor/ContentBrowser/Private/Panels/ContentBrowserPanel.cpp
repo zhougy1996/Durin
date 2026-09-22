@@ -21,6 +21,17 @@ namespace Durin::Editor::ContentBrowser::Private
 {
 	namespace
 	{
+		// Shared by browser panels. The system clipboard token invalidates this
+		// snapshot when another application or Copy Details replaces the clipboard.
+		std::vector<FContentBrowserItem> CopiedContent;
+		std::string CopiedContentToken;
+		uint64 CopySerial = 0;
+		auto HasCopiedContent() -> bool
+		{
+			const char* Text = ImGui::GetClipboardText();
+			return Text && !CopiedContent.empty() && CopiedContentToken == Text;
+		}
+
 		auto ReadAssetClipboard(FTopLevelAssetPath& OutPath) -> bool
 		{
 			OutPath = {};
@@ -377,41 +388,62 @@ namespace Durin::Editor::ContentBrowser::Private
 		RevealAsset(Result.RevealAssetPath);
 	}
 
-	auto FContentBrowserPanel::CopyAssetSelection() -> void
+	auto FContentBrowserPanel::CopyContentSelection() -> void
 	{
-		if (SelectionState.Selected.size() != 1) return;
-		const auto It = std::ranges::find_if(
-			Model.GetItems(),
-			[&](const FContentBrowserItem& Item) {
-				return SelectionState.Selected.contains(Item.StableId());
-			});
-		if (It == Model.GetItems().end()
-			|| It->Kind != EContentBrowserItemKind::Asset)
+		std::vector<FContentBrowserItem> Items;
+		for (const auto& Item : Model.GetItems())
+			if (SelectionState.Selected.contains(Item.StableId()))
+			{
+				if (Item.Kind == EContentBrowserItemKind::Redirector)
+				{
+					SetError("Redirectors cannot be copied.");
+					return;
+				}
+				Items.push_back(Item);
+			}
+		if (Items.empty()) return;
+		CopiedContent.clear();
+		CopiedContentToken.clear();
+		if (Items.size() == 1 && Items.front().Kind == EContentBrowserItemKind::Asset)
+		{
+			CopyToClipboard(Items.front().VirtualPath);
 			return;
-		CopyToClipboard(It->VirtualPath);
+		}
+		CopiedContent = std::move(Items);
+		CopiedContentToken = "Durin Content Selection " + std::to_string(++CopySerial);
+		CopyToClipboard(CopiedContentToken);
 	}
 
-	auto FContentBrowserPanel::PasteAsset(
+	auto FContentBrowserPanel::PasteContent(
 		std::string_view DestinationDirectory) -> void
 	{
 		FTopLevelAssetPath SourcePath;
-		if (!ReadAssetClipboard(SourcePath)) return;
+		const bool bContent = HasCopiedContent();
+		if (!bContent && !ReadAssetClipboard(SourcePath)) return;
 		const std::string_view Directory = DestinationDirectory.empty()
 			? std::string_view(Model.GetCurrentVirtualPath())
 			: DestinationDirectory;
-		const FContentBrowserOperationResult Result = Operations.Duplicate(
-			SourcePath, Directory);
+		const FContentBrowserOperationResult Result = bContent
+			? Operations.CopyItems(CopiedContent, FContentBrowserPaths::VirtualToPhysical(Directory))
+			: Operations.Duplicate(SourcePath, Directory);
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
 			SetError(Result.Status.Message);
 			return;
 		}
-		RevealAsset(Result.RevealAssetPath);
+		if (!Result.RevealAssetPath.empty()) RevealAsset(Result.RevealAssetPath);
+		else if (!Result.FocusPhysicalPath.empty())
+		{
+			Model.RevealPhysicalItem(Result.FocusPhysicalPath);
+			SelectionState.Selected.clear();
+			SelectionState.Selected.insert(Result.FocusPhysicalPath);
+		}
 	}
 
-	auto FContentBrowserPanel::HasAssetClipboard() const -> bool
+	auto FContentBrowserPanel::HasContentClipboard() const -> bool
 	{
+		if (HasCopiedContent()) return static_cast<bool>(Operations.QueryMutation());
 		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
 		return static_cast<bool>(Operations.QueryDuplicate(SourcePath));

@@ -1430,6 +1430,7 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 		!= std::string::npos);
 	EXPECT_TRUE(std::filesystem::exists(Companion));
 	EXPECT_FALSE(Operations.MoveItems(std::span{&CompanionItem, 1}, (Root / "Content/B").generic_string()));
+	EXPECT_FALSE(Operations.CopyItems(std::span{&CompanionItem, 1}, (Root / "Content/B").generic_string()));
 	EXPECT_FALSE(bMoveCalled);
 
 	const FContentBrowserItem FolderItem{
@@ -3539,4 +3540,151 @@ TEST_F(FContentBrowserModelTests, ContentMoveReportsFailedRestorationWithoutOver
 	EXPECT_EQ(Text, "replacement");
 	std::ifstream(Root / "Content/B/A/notes.txt") >> Text;
 	EXPECT_EQ(Text, "original");
+}
+
+
+TEST_F(FContentBrowserModelTests, ContentCopyPreservesBytesAndChoosesUniqueNames)
+{
+	std::ofstream(Root / "Content/A/notes.txt", std::ios::binary).write("hello\0world", 11);
+	std::ofstream(Root / "Content/B/notes.txt") << "other";
+	const std::array Items{
+		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/notes.txt").generic_string()},
+		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/B/notes.txt").generic_string()}};
+	FContentBrowserOperationService Service;
+	int Notifications = 0;
+	Service.SetScopedContentNotifier([&](auto) { ++Notifications; });
+	ASSERT_TRUE(Service.CopyItems(Items, (Root / "Content/A").generic_string()));
+	EXPECT_EQ(Notifications, 1);
+	std::ifstream First(Root / "Content/A/notes_Copy.txt", std::ios::binary);
+	std::ifstream Second(Root / "Content/A/notes_Copy2.txt", std::ios::binary);
+	EXPECT_EQ(std::string(std::istreambuf_iterator<char>(First), {}), std::string("hello\0world", 11));
+	EXPECT_EQ(std::string(std::istreambuf_iterator<char>(Second), {}), "other");
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/notes.txt"));
+	ASSERT_TRUE(Service.CopyItems(std::span{Items.data(), 1}, (Root / "Content/A").generic_string()));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/notes_Copy3.txt"));
+}
+
+TEST_F(FContentBrowserModelTests, ContentCopyPreservesDirectoriesAndCollapsesSelectedDescendants)
+{
+	std::filesystem::create_directories(Root / "Content/A/Empty/Nested");
+	std::ofstream(Root / "Content/A/.hidden") << "hidden";
+	const std::array Items{
+		FContentBrowserItem{.Kind = EContentBrowserItemKind::Folder, .PhysicalPath = (Root / "Content/A").generic_string()},
+		FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/.hidden").generic_string()}};
+	FContentBrowserOperationService Service;
+	ASSERT_TRUE(Service.CopyItems(Items, (Root / "Content/B").generic_string()));
+	EXPECT_TRUE(std::filesystem::is_directory(Root / "Content/B/A/Empty/Nested"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/.hidden"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/.hidden"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/.hidden"));
+	ASSERT_TRUE(Service.CopyItems(Items, (Root / "Content").generic_string()));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A_Copy/.hidden"));
+}
+
+TEST_F(FContentBrowserModelTests, ContentCopyPreflightsMissingSourcesPackagesBulkAndNestedDestinations)
+{
+	std::ofstream(Root / "Content/A/notes.txt") << "notes";
+	FContentBrowserOperationService Service;
+	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
+		.PhysicalPath = (Root / "Content/A").generic_string()};
+	EXPECT_FALSE(Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/A").generic_string()));
+	EXPECT_FALSE(Service.CopyItems(std::span{&Folder, 1}, Root.generic_string()));
+	for (const auto* Name : {"Orphan.DBULK", "Unknown.DASSET", "missing.txt"})
+	{
+		if (std::string_view(Name) != "missing.txt") std::ofstream(Root / "Content/A" / Name) << "invalid";
+		const std::array Items{
+			FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A/notes.txt").generic_string()},
+			FContentBrowserItem{.Kind = EContentBrowserItemKind::File, .PhysicalPath = (Root / "Content/A" / Name).generic_string()}};
+		EXPECT_FALSE(Service.CopyItems(Items, (Root / "Content/B").generic_string()));
+		EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/notes.txt"));
+	}
+	EXPECT_FALSE(Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string()));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A"));
+}
+
+TEST_F(FContentBrowserModelTests, MixedContentCopyDuplicatesAssetAndPreservesSource)
+{
+	FPackagePath Source, Destination;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/CopySource", Source));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/A/CopySource", Destination));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	std::ofstream(Root / "Content/A/notes.txt") << "notes";
+	FContentBrowserOperationService Service;
+	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
+		.PhysicalPath = (Root / "Content/A").generic_string()};
+	const auto Result = Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_TRUE(FindAssetExact(Source));
+	EXPECT_TRUE(FindAssetExact(Destination));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/CopySource.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/CopySource.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
+}
+
+TEST_F(FContentBrowserModelTests, ContentCopyCleansOrdinaryFilesWhenAssetRejectsAndRetainsCommittedEffects)
+{
+	FPackagePath Source;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/CopyFailure", Source));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	std::ofstream(Root / "Content/A/notes.txt") << "notes";
+	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
+		.PhysicalPath = (Root / "Content/A").generic_string()};
+	for (const auto State : {EAssetOperationTerminalState::Rejected,
+		EAssetOperationTerminalState::ContentCommittedProjectionPending, EAssetOperationTerminalState::PartiallyWritten})
+	{
+		auto Services = FContentBrowserAssetServices::Default();
+		Services.DuplicateAsset = [State](const auto&) {
+			return FAssetOperationResult{.Kind = EAssetOperationKind::Duplicate, .State = State, .Message = "Injected failure"};
+		};
+		FContentBrowserOperationService Service({}, {}, {}, {}, {}, {}, Services);
+		const auto Result = Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
+		EXPECT_FALSE(Result);
+		ASSERT_TRUE(Result.AssetResult);
+		EXPECT_EQ(Result.AssetResult->State, State);
+		if (State == EAssetOperationTerminalState::Rejected)
+			EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A"));
+		else
+		{
+			EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
+			EXPECT_TRUE(Result.Changes.bFullRefresh);
+			EXPECT_FALSE(Result.Warning.empty());
+		}
+	}
+}
+
+
+TEST_F(FContentBrowserModelTests, ContentCopyBulkTravelsOnlyThroughOwningAssetDuplication)
+{
+	FPackagePath SourcePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/CopyTexture", SourcePath));
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Texture));
+	auto Image = Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB},
+		FByteBuffer(512 * 512 * 4, std::byte{71}));
+	ASSERT_TRUE(Image);
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4, 0, ETextureSourceCompression::Raw));
+	Texture->SetSource(Source);
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(std::filesystem::exists(Root / "Content/A/CopyTexture.dbulk"));
+	const FContentBrowserItem Bulk{.Kind = EContentBrowserItemKind::File,
+		.PhysicalPath = (Root / "Content/A/CopyTexture.dbulk").generic_string()};
+	FContentBrowserOperationService Service;
+	EXPECT_FALSE(Service.CopyItems(std::span{&Bulk, 1}, (Root / "Content/B").generic_string()));
+	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
+		.PhysicalPath = (Root / "Content/A").generic_string()};
+	const auto Result = Service.CopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/CopyTexture.dbulk"));
+	FPackagePath CopiedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/A/CopyTexture", CopiedPath));
+	const auto Copied = FindAssetExact(CopiedPath);
+	ASSERT_NE(Copied, nullptr);
+	EXPECT_GT(Copied->BulkSegmentExtent, 0u);
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/CopyTexture.dbulk"));
 }

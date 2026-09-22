@@ -157,10 +157,33 @@ and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clo
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
   complete persistent object graph is copied and published as a clean package.
-  `Ctrl+C` writes the selected canonical top-level asset identity to the system
-clipboard; `Ctrl+V` pastes it into the current
-folder, preserving its name when free and otherwise using the same copy suffix
-sequence. A folder context menu can paste directly into that folder. Opening a
+`Ctrl+C` and the Copy context action accept ordinary files, folders, and mixed
+selections. A single real asset retains its canonical top-level identity on the
+system clipboard. Other selections retain an owned in-process snapshot shared
+by browser panels, guarded by a system clipboard token; replacing that token
+invalidates the selection. This is an editor clipboard, not OS file-transfer
+interoperability. `Ctrl+V` and Paste target the current folder; a folder context
+menu can paste directly into that folder. Repeated paste keeps the source and
+chooses `_Copy`, `_Copy2`, and later suffixes without overwriting existing files.
+
+Copy preflights the entire physical scope, collapses selected descendants under
+selected folders, and preserves empty directories and hidden ordinary files.
+It rejects mount roots, nested mount boundaries, reparse points, missing sources,
+redirectors, unknown packages, and pasting a folder into itself or a descendant.
+Assets use AssetTools duplication with new identities; ordinary files retain
+identical bytes, including embedded path references. Bulk payloads are recreated
+by asset persistence, never copied independently; orphan `.dbulk` files block
+copy even inside folders. Other contributor-owned companion types currently
+block folder copy because no generic companion duplication contract exists.
+
+Filesystem failures clean up successfully created ordinary files and empty
+folders where possible. Failed destinations that may contain partial bytes are
+reported for inspection. Once asset copies have committed or reported partial
+effects, earlier copies are retained, a full refresh is requested, and the warning
+requires inspecting the destination before retrying. Mixed copy is not an atomic
+multi-asset transaction; structured asset failure state is preserved.
+
+Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
 from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.

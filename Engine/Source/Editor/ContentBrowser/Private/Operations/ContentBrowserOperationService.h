@@ -223,6 +223,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Move(std::span<const FEditorAssetMove> Moves) -> FContentBrowserOperationResult;
 		auto MoveItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
 			-> FContentBrowserOperationResult;
+		auto CopyItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
+			-> FContentBrowserOperationResult;
 		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
 			-> FContentBrowserOperationResult;
 		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors)

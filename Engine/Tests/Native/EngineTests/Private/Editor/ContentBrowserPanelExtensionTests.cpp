@@ -9,12 +9,16 @@
 #include "Asset/AssetDragDrop.h"
 
 #include <gtest/gtest.h>
+#include <fstream>
 
 namespace Durin::Editor::ContentBrowser::Private
 {
 	// Exercises production UI entrypoints without creating an OS window or starting a renderer.
 	struct FContentBrowserPanelTestAccess
 	{
+		static auto Copy(FContentBrowserPanel& Panel) -> void { Panel.CopyContentSelection(); }
+		static auto Paste(FContentBrowserPanel& Panel, std::string_view Folder) -> void { Panel.PasteContent(Folder); }
+		static auto CanPaste(const FContentBrowserPanel& Panel) -> bool { return Panel.HasContentClipboard(); }
 		static auto CreateFolder(FContentBrowserPanel& Panel, const std::string& Root) -> void
 		{
 			Panel.CreateFolder(Root);
@@ -53,6 +57,45 @@ namespace Durin::Editor::ContentBrowser::Private
 			Panel.DrawItemContextMenu(Panel.Model.GetItems().front());
 		}
 	};
+
+	TEST(FContentBrowserPanelExtensionTests, CopiesOrdinarySelectionAcrossPanelsAndInvalidatesReplacedClipboard)
+	{
+		InitializeDObjectSystem();
+		const auto Root = Testing::CreateTestFixtureDirectory("BrowserContentClipboard");
+		std::filesystem::create_directories(Root / "Destination");
+		std::ofstream(Root / "notes.txt") << "notes";
+		std::ofstream(Root / "config.json") << "{}";
+		const std::array Definitions{FMountPoint{.VirtualRoot = "/BrowserContentClipboard/", .Owner = EMountOwner::Test,
+			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Definitions);
+		ASSERT_TRUE(Registry.IsValid());
+		ImGuiContext* UI = ImGui::CreateContext();
+		struct FContextCleanup { ImGuiContext* Context; ~FContextCleanup() { ImGui::DestroyContext(Context); } } Cleanup{UI};
+		// Keep the test clipboard in memory instead of changing the user's clipboard.
+		std::string Clipboard;
+		auto& Platform = ImGui::GetPlatformIO();
+		Platform.Platform_ClipboardUserData = &Clipboard;
+		Platform.Platform_GetClipboardTextFn = [](ImGuiContext* Context) -> const char* {
+			return static_cast<std::string*>(Context->PlatformIO.Platform_ClipboardUserData)->c_str();
+		};
+		Platform.Platform_SetClipboardTextFn = [](ImGuiContext* Context, const char* Text) {
+			*static_cast<std::string*>(Context->PlatformIO.Platform_ClipboardUserData) = Text;
+		};
+		FContentBrowserPanel Source({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>(), {});
+		FContentBrowserPanel Target({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>(), {});
+		FContentBrowserPanelTestAccess::SetSelection(Source, Root.generic_string(), {
+			{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .PhysicalPath = (Root / "notes.txt").generic_string()},
+			{.Kind = EContentBrowserItemKind::File, .Name = "config.json", .PhysicalPath = (Root / "config.json").generic_string()}});
+		FContentBrowserPanelTestAccess::Copy(Source);
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::CanPaste(Target));
+		FContentBrowserPanelTestAccess::Paste(Target, "/BrowserContentClipboard/Destination/");
+		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/notes.txt"));
+		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/config.json"));
+		FContentBrowserPanelTestAccess::Paste(Target, "/BrowserContentClipboard/Destination/");
+		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/notes_Copy.txt"));
+		ImGui::SetClipboardText("unrelated text");
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::CanPaste(Target));
+	}
 
 	TEST(FContentBrowserPanelExtensionTests, DeferredFolderRenameWaitsForCaptureAndIsCanceledByNavigation)
 	{
