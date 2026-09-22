@@ -117,8 +117,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return;
-		for (const auto& Extension :
-			::Durin::Editor::ContentBrowser::CaptureHostPresenters())
+		const auto Presenters = ::Durin::Editor::ContentBrowser::CaptureHostPresenters();
+		for (const auto& Extension : *Presenters)
 			(void)::Durin::Editor::ContentBrowser::DrawHostPresentation(
 				Extension, bInAllowAssetMutation);
 	}

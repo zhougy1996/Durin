@@ -100,6 +100,7 @@ namespace Durin
 	{
 		std::vector<FMountPoint> MountPoints;
 		bool bRegistryPublished = false;
+		uint64 MountRegistryRevision = 0;
 		bool bSuppressMountLog = false;
 		using StringUtils::FoldAscii;
 
@@ -418,9 +419,11 @@ namespace Durin
 	{
 		auto MutableMountPoints() -> std::vector<FMountPoint>& { return MountPoints; }
 		auto RegistryPublished() -> bool& { return bRegistryPublished; }
+		auto AdvanceRegistryRevision() -> void { ++MountRegistryRevision; }
 	}
 
 	auto FMountPaths::GetRegisteredMountPoints() -> std::span<const FMountPoint> { return MountPoints; }
+	auto FMountPaths::GetMountRegistryRevision() -> uint64 { return MountRegistryRevision; }
 
 	auto FMountPaths::FindMountForVirtualPath(std::string_view VirtualPath) -> std::expected<FMountLookup, FMountPathError>
 	{
@@ -582,6 +585,7 @@ namespace Durin
 		});
 		MountPoints = std::move(Validated);
 		bRegistryPublished = true;
+		MountPathInternal::AdvanceRegistryRevision();
 		if (!bSuppressMountLog)
 			for (const FMountPoint& Mount : MountPoints) DURIN_DEBUG("Mount point: {}", Mount.VirtualRoot);
 		return true;
@@ -621,6 +625,7 @@ namespace Durin
 		std::vector<FMountPoint> SavedMounts = MountPoints;
 		const bool bSavedPublished = bRegistryPublished;
 		const bool bSavedSuppressMountLog = bSuppressMountLog;
+		const uint64 SavedRegistryRevision = MountRegistryRevision;
 		MountPoints.clear();
 		bRegistryPublished = false;
 		bSuppressMountLog = true;
@@ -628,6 +633,7 @@ namespace Durin
 		MountPoints = std::move(SavedMounts);
 		bRegistryPublished = bSavedPublished;
 		bSuppressMountLog = bSavedSuppressMountLog;
+		MountRegistryRevision = SavedRegistryRevision;
 		return bValid;
 	}
 

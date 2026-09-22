@@ -30,7 +30,12 @@ dispatch and releases captured descriptors before unloading feature code. An ext
 contribute one host presenter for its feature-owned modal state. MainFrame
 draws those presenters through the browser tool without depending on concrete
 asset-editor modules, and supplies the current asset-mutation policy to both
-command invocation and modal submission. Commands explicitly declare `ReadOnly`
+command invocation and modal submission. Host presenters share an immutable
+snapshot sorted by `(Order, Id)`, rebuilt only after a presenter is registered
+or unregistered. Captures remain owned during dispatch; retired registration
+serials cannot dispatch even if their old snapshot is still retained. Active
+presenters continue to run each frame, including when the browser is hidden.
+Commands explicitly declare `ReadOnly`
 or `MutatesContent`, independently of their menu category; registration rejects
 unspecified policies. Mutating commands are disabled while Play denies content
 mutation, and dispatch checks the current policy again. An already-open presenter
@@ -68,6 +73,12 @@ absent, the browser uses defaults and writes the new file; the retired Level
 Editor browser keys are intentionally neither read nor migrated.
 
 ## Content Model
+
+The model caches its normalized mount snapshot by `FMountPaths` registry
+revision. An unchanged registry skips path conversion and snapshot construction,
+including during hidden-panel ticks. Publication and test-registry replacement
+or restoration invalidate this cache; catalog reconciliation and pending async
+result processing retain their independent frame-pump behavior.
 
 - Folders are navigation items and remain visible under every content-type
   filter.

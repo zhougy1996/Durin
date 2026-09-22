@@ -83,6 +83,9 @@ namespace Durin
 		FMountPaths() = delete;
 		inline static constexpr std::string_view ProjectContentMountRoot = "/Game/";
 		static CORE_API auto GetRegisteredMountPoints() -> std::span<const FMountPoint>;
+		// Invalidates derived snapshots on publication and test-registry replacement/restoration.
+		// Uses the same initialization/owner-thread contract as the mount registry.
+		static CORE_API auto GetMountRegistryRevision() -> uint64;
 		static CORE_API auto FindMountForVirtualPath(std::string_view VirtualPath) -> std::expected<FMountLookup, FMountPathError>;
 		static CORE_API auto ResolveAssetPath(std::string_view VirtualPath,
 			EMountPathExistence Existence = EMountPathExistence::AllowMissing) -> std::expected<FMountPath, FMountPathError>;

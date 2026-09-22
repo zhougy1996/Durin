@@ -6,4 +6,5 @@ namespace Durin::MountPathInternal
 {
 	auto MutableMountPoints() -> std::vector<FMountPoint>&;
 	auto RegistryPublished() -> bool&;
+	auto AdvanceRegistryRevision() -> void;
 }

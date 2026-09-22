@@ -126,6 +126,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		FContentBrowserSession Session;
 		std::vector<FMountSnapshot> MountSnapshot;
+		std::optional<uint64> MountSnapshotRevision;
 		std::unordered_map<std::string, std::shared_ptr<const FContentBrowserDirectorySnapshot>> DirectoryChildrenCache;
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
 		// Only the serial item worker touches its collector; captures pin its lifetime.

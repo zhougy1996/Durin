@@ -230,8 +230,9 @@ namespace Durin::Editor::ContentBrowser
 		-> FScopedExtensionRegistration;
 	CONTENTBROWSER_API auto CaptureExtensions(EExtensionCategory Category)
 		-> std::vector<FExtensionDescriptor>;
+	// Retain the immutable sorted snapshot while invoking its presenters. Reused until registration changes.
 	CONTENTBROWSER_API auto CaptureHostPresenters()
-		-> std::vector<FExtensionDescriptor>;
+		-> std::shared_ptr<const std::vector<FExtensionDescriptor>>;
 	CONTENTBROWSER_API auto InvokeExtension(
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool;

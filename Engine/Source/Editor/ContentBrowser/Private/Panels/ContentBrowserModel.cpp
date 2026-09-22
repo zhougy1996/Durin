@@ -154,7 +154,10 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshMountSnapshot() -> void
 	{
+		const uint64 RegistryRevision = FMountPaths::GetMountRegistryRevision();
+		if (MountSnapshotRevision == RegistryRevision) return;
 		auto NextMountSnapshot = FContentBrowserPaths::CaptureMounts();
+		MountSnapshotRevision = RegistryRevision;
 
 		const bool bUnchanged = std::ranges::equal(
 			NextMountSnapshot,

@@ -503,6 +503,34 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 	EXPECT_EQ(Model.GetMounts()[1].VirtualRoot, "/Engine/");
 }
 
+TEST_F(FContentBrowserModelTests, RefreshesMountSnapshotAfterRegistryReplacementAndRestoration)
+{
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	ASSERT_EQ(Model.GetMounts().size(), 1u);
+	const std::string OriginalRoot = Model.GetMounts()[0].PhysicalRoot;
+	const auto* OriginalSnapshot = Model.GetMounts().data();
+	Model.RefreshMountSnapshot();
+	EXPECT_EQ(Model.GetMounts().data(), OriginalSnapshot);
+
+	// Same virtual mount, different physical root and write policy must invalidate the cache.
+	const std::array Definitions{FMountPoint{
+		.VirtualRoot = "/ContentBrowserTests/", .Owner = EMountOwner::Test,
+		.Root = Root / "Content/A", .bAutoScan = true, .bContentWritable = false}};
+	{
+		Testing::FScopedMountRegistryFixture Replacement(Definitions);
+		ASSERT_TRUE(Replacement.IsValid()) << Replacement.GetError();
+		Model.RefreshMountSnapshot();
+		ASSERT_EQ(Model.GetMounts().size(), 1u);
+		EXPECT_NE(Model.GetMounts()[0].PhysicalRoot, OriginalRoot);
+		EXPECT_FALSE(Model.GetMounts()[0].bContentWritable);
+	}
+	Model.RefreshMountSnapshot();
+	ASSERT_EQ(Model.GetMounts().size(), 1u);
+	EXPECT_EQ(Model.GetMounts()[0].PhysicalRoot, OriginalRoot);
+	EXPECT_TRUE(Model.GetMounts()[0].bContentWritable);
+}
+
 TEST_F(FContentBrowserModelTests, RelocationDoesNotEnterEditorUndoHistory)
 {
 	InitializeDObjectSystem();

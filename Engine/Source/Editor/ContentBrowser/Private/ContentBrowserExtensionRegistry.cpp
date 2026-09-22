@@ -8,6 +8,7 @@ namespace Durin::Editor::ContentBrowser
 		{
 			std::mutex Mutex;
 			std::unordered_map<std::string, FExtensionDescriptor> Entries;
+			std::shared_ptr<const std::vector<FExtensionDescriptor>> HostPresenters;
 			std::unordered_map<std::string, FAssetTypePresentation> Types;
 			uint64 PresentationRevision = 0;
 			uint64 NextExtensionSerial = 1;
@@ -48,13 +49,19 @@ namespace Durin::Editor::ContentBrowser
 				return {};
 			}
 			Descriptor.RegistrationSerial = State->NextExtensionSerial++;
+			if (Descriptor.DrawHostPresentation) State->HostPresenters.reset();
 			State->Entries.emplace(Descriptor.Id, std::move(Descriptor));
 		}
 		return FScopedExtensionRegistration([WeakState = std::weak_ptr(State), Id] {
 			if (const std::shared_ptr<FRegistryState> Registry = WeakState.lock())
 			{
 				std::scoped_lock Lock(Registry->Mutex);
-				Registry->Entries.erase(Id);
+				const auto It = Registry->Entries.find(Id);
+				if (It != Registry->Entries.end())
+				{
+					if (It->second.DrawHostPresentation) Registry->HostPresenters.reset();
+					Registry->Entries.erase(It);
+				}
 			}
 		});
 	}
@@ -78,22 +85,22 @@ namespace Durin::Editor::ContentBrowser
 		return Snapshot;
 	}
 
-	auto CaptureHostPresenters() -> std::vector<FExtensionDescriptor>
+	auto CaptureHostPresenters() -> std::shared_ptr<const std::vector<FExtensionDescriptor>>
 	{
 		const std::shared_ptr<FRegistryState> State = GetRegistryState();
-		std::vector<FExtensionDescriptor> Snapshot;
-		{
-			std::scoped_lock Lock(State->Mutex);
-			for (const auto& [Id, Descriptor] : State->Entries)
-				if (Descriptor.DrawHostPresentation)
-					Snapshot.push_back(Descriptor);
-		}
-		std::ranges::sort(Snapshot, [](const FExtensionDescriptor& Left,
+		std::scoped_lock Lock(State->Mutex);
+		if (State->HostPresenters) return State->HostPresenters;
+		auto Snapshot = std::make_shared<std::vector<FExtensionDescriptor>>();
+		for (const auto& [Id, Descriptor] : State->Entries)
+			if (Descriptor.DrawHostPresentation)
+				Snapshot->push_back(Descriptor);
+		std::ranges::sort(*Snapshot, [](const FExtensionDescriptor& Left,
 			const FExtensionDescriptor& Right) {
 			return std::tie(Left.Order, Left.Id)
 				< std::tie(Right.Order, Right.Id);
 		});
-		return Snapshot;
+		State->HostPresenters = std::move(Snapshot);
+		return State->HostPresenters;
 	}
 
 	auto InvokeExtension(
@@ -190,6 +197,13 @@ namespace Durin::Editor::ContentBrowser
 		bool bAllowAssetMutation) -> bool
 	{
 		if (!Descriptor.DrawHostPresentation) return false;
+		const auto State = GetRegistryState();
+		{
+			std::scoped_lock Lock(State->Mutex);
+			const auto It = State->Entries.find(Descriptor.Id);
+			if (It == State->Entries.end() || It->second.RegistrationSerial != Descriptor.RegistrationSerial)
+				return false;
+		}
 		Descriptor.DrawHostPresentation(bAllowAssetMutation);
 		return true;
 	}

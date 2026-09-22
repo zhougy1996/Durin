@@ -15,6 +15,58 @@
 
 namespace Durin::Editor::ContentBrowser
 {
+	TEST(FContentBrowserExtensionRegistryTests, ReusesHostSnapshotAndRejectsRetiredRegistrations)
+	{
+		int Presentations = 0;
+		std::string Error;
+		auto Register = [&](std::string Id, int Order, bool bPresenter = true) {
+			return RegisterExtension({
+				.Id = std::move(Id), .Label = "Cached presenter", .Order = Order,
+				.Mutation = EContentMutation::ReadOnly,
+				.IsApplicable = [](const auto&) { return true; },
+				.Invoke = [](const auto&) {},
+				.DrawHostPresentation = bPresenter
+					? std::function<void(bool)>{[&](bool) { ++Presentations; }}
+					: std::function<void(bool)>{}}, Error);
+		};
+		auto Later = Register("test.cached.later", 20);
+		auto Earlier = Register("test.cached.earlier", 10);
+		ASSERT_TRUE(Later.IsValid()) << Error;
+		ASSERT_TRUE(Earlier.IsValid()) << Error;
+		const auto Snapshot = CaptureHostPresenters();
+		EXPECT_EQ(CaptureHostPresenters(), Snapshot);
+		const auto First = std::ranges::find(*Snapshot, "test.cached.earlier", &FExtensionDescriptor::Id);
+		const auto Last = std::ranges::find(*Snapshot, "test.cached.later", &FExtensionDescriptor::Id);
+		ASSERT_NE(First, Snapshot->end());
+		ASSERT_NE(Last, Snapshot->end());
+		EXPECT_LT(First, Last);
+		EXPECT_TRUE(DrawHostPresentation(*First, false));
+		EXPECT_TRUE(DrawHostPresentation(*First, true));
+		EXPECT_EQ(Presentations, 2);
+
+		// Unrelated commands do not invalidate the host presentation list.
+		auto Command = Register("test.cached.command", 0, false);
+		ASSERT_TRUE(Command.IsValid()) << Error;
+		EXPECT_EQ(CaptureHostPresenters(), Snapshot);
+		Command.Reset();
+		EXPECT_EQ(CaptureHostPresenters(), Snapshot);
+
+		Earlier.Reset();
+		const auto Removed = CaptureHostPresenters();
+		EXPECT_NE(Removed, Snapshot);
+		EXPECT_EQ(std::ranges::find(*Removed, "test.cached.earlier", &FExtensionDescriptor::Id), Removed->end());
+		EXPECT_FALSE(DrawHostPresentation(*First, true));
+		auto Replacement = Register("test.cached.earlier", 10);
+		ASSERT_TRUE(Replacement.IsValid()) << Error;
+		const auto Replaced = CaptureHostPresenters();
+		EXPECT_NE(Replaced, Removed);
+		EXPECT_FALSE(DrawHostPresentation(*First, true));
+		const auto Current = std::ranges::find(*Replaced, "test.cached.earlier", &FExtensionDescriptor::Id);
+		ASSERT_NE(Current, Replaced->end());
+		EXPECT_TRUE(DrawHostPresentation(*Current, true));
+		EXPECT_EQ(Presentations, 3);
+	}
+
 	TEST(FContentBrowserExtensionRegistryTests, RegisteredAssetCreationOnlyRequestsNamingOnInvoke)
 	{
 		int Creations = 0;
@@ -33,8 +85,8 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_EQ(Creations, 0);
 		Registration.Reset();
 		const auto Presenters = CaptureHostPresenters();
-		EXPECT_EQ(std::ranges::find(Presenters, "test.registered-creation", &FExtensionDescriptor::Id),
-			Presenters.end());
+		EXPECT_EQ(std::ranges::find(*Presenters, "test.registered-creation", &FExtensionDescriptor::Id),
+			Presenters->end());
 		EXPECT_EQ(Creations, 0);
 	}
 
@@ -319,16 +371,16 @@ namespace Durin::Editor::ContentBrowser
 
 		const auto Presenters = CaptureHostPresenters();
 		const auto Presenter = std::ranges::find(
-			Presenters, "test.mutation-policy.import", &FExtensionDescriptor::Id);
-		ASSERT_NE(Presenter, Presenters.end());
+			*Presenters, "test.mutation-policy.import", &FExtensionDescriptor::Id);
+		ASSERT_NE(Presenter, Presenters->end());
 		EXPECT_TRUE(DrawHostPresentation(*Presenter, false));
 		EXPECT_EQ(Presentations, 1);
 		EXPECT_FALSE(bLastPresentationAllowedMutation);
 
 		Registrations.clear();
 		const auto Remaining = CaptureHostPresenters();
-		EXPECT_EQ(std::ranges::find(Remaining, "test.mutation-policy.import",
-			&FExtensionDescriptor::Id), Remaining.end());
+		EXPECT_EQ(std::ranges::find(*Remaining, "test.mutation-policy.import",
+			&FExtensionDescriptor::Id), Remaining->end());
 		EXPECT_EQ(Presentations, 1);
 	}
 	TEST(FContentBrowserExtensionRegistryTests, PresentsUnknownTypeThroughProductionDetailsAndMenu)
