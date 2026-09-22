@@ -13,9 +13,10 @@ Source, recipe, application, payload, key, and derived-build APIs return
 redundant success flag. Commands and conversions retaining caller-owned outputs
 return `std::expected<void, E>` and preserve their documented output behavior.
 Source acquisition and key factories return their successful values by value.
-Read `error()` only on failure; cancellation remains a distinct error code. Adapters
-format at presentation boundaries; the sections below define output preservation
-and nested causes for each operation.
+Read `error()` only on failure; cancellation remains a distinct error code.
+Low-level operations retain their own structured context. Authored and synchronous
+build boundaries translate that context to bounded diagnostic text plus their own
+error codes, so callers need not understand the lower-level error tree.
 
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
 `StaticMeshGeometry.h` defines detached decoded sections and material mappings.
@@ -142,15 +143,19 @@ failure and cancellation retain their typed codes.
 Errors retain provider, key, source, recipe and payload causes. Successful rebuilds
 retain `CacheDecodeCause`. Authored candidate construction returns
 `std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>`,
-combining product ownership and outcome in one worker result and retaining derived-data,
-payload and LOD causes, provider descriptors, rejected input facts and budget
-estimates. Budget failures own the limit, accumulated bytes and rejected count/
-width; cancellation owns its phase and nested cause when available. Compilation
-diagnostics retain `BuildCause` while formatting their outer message.
+combining product ownership and outcome in one worker result. Its error contains
+only the authored operation's code and an owned message capped at 4096 bytes.
+Lower-level failures are formatted once at this boundary; input and budget
+messages include rejected values. Callers branch on codes such as `Cancelled`
+and display messages without parsing them. Compilation diagnostics retain this
+compact `BuildCause` instead of the lower-level error tree.
 Value/observation records `FStaticMeshBuildResult` and
 `FStaticMeshCollisionBuildResult` remain detached products.
-`FStaticMeshSynchronousResult` remains a report because persistence diagnostics
-are meaningful on success and failure. Compilation, cooked residency and Level
+`BuildStaticMeshSynchronously` returns
+`std::expected<FStaticMeshPersistenceDiagnostic, FStaticMeshSynchronousError>`.
+Success carries cache observations; failure carries a boundary code, bounded
+message and any persistence observations retained by completion. Cancellation
+and supersession have distinct codes. Compilation, cooked residency and Level
 mutation reports retain their independent lifecycle and partial-effect states.
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.

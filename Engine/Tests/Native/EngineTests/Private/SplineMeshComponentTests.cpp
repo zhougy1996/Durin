@@ -56,7 +56,7 @@ namespace
 		if (const auto Built = BuildStaticMeshSynchronously(
 			*Mesh, std::move(Imported)); !Built)
 		{
-			ADD_FAILURE() << FormatStaticMeshSynchronousError(Built.Error);
+			ADD_FAILURE() << FormatStaticMeshSynchronousError(Built.error());
 			return nullptr;
 		}
 		return Mesh;
@@ -336,7 +336,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
 	const auto SynchronousBuild1 = BuildStaticMeshSynchronously(*Pending, std::move(Imported));
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.Error);
+	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.error());
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());
 	MarkObjectHierarchyAsGarbage(World);

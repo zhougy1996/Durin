@@ -475,7 +475,7 @@ namespace Durin::Tests
 		if (const auto Built = BuildStaticMeshSynchronously(
 				*OutFixtures.StaticMesh, std::move(ImportedMesh)); !Built)
 		{
-			OutError = FormatStaticMeshSynchronousError(Built.Error);
+			OutError = FormatStaticMeshSynchronousError(Built.error());
 			return false;
 		}
 		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);

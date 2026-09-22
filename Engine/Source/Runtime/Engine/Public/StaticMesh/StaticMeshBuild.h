@@ -13,7 +13,6 @@
 namespace Durin
 {
 	struct FStaticMeshAuthoredBuildError;
-	enum class ETaskState : uint8;
 
 	// Immutable object facts captured before StaticMesh recipe work begins.
 	struct FStaticMeshReconciliationSnapshot
@@ -230,30 +229,16 @@ namespace Durin
 
 	enum class EStaticMeshAuthoredBuildError : uint8
 	{
-		None, NotStarted, Cancelled, Input, SourceBudget, RenderBuild, MaterialSlots,
+		NotStarted, Cancelled, Input, SourceBudget, RenderBuild, MaterialSlots,
 		SlotName, UVChannels, MetadataBudget, FinalizationBudget, Payload, LODPolicy,
 		CollisionBuild, ProviderChanged, RetainedBudget, WorkerException, TaskRetired
 	};
-	enum class EStaticMeshAuthoredBuildPhase : uint8 { Input, Render, Payload, Bounds, Ray, Collision, Retained };
+	// The orchestration boundary exposes its own codes, not the lower-level error tree.
+	// Message owns bounded diagnostic text; callers must not parse it for control flow.
 	struct FStaticMeshAuthoredBuildError
 	{
-		EStaticMeshAuthoredBuildError Code = EStaticMeshAuthoredBuildError::None;
-		EStaticMeshAuthoredBuildPhase Phase = EStaticMeshAuthoredBuildPhase::Input;
-		bool SourceValid = false;
-		float NormalizedSize = 0;
-		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		uint64 Index = 0;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		std::string SlotName;
-		std::optional<ETaskState> TaskState;
-		std::optional<FStaticMeshBuildMemoryEstimate> MemoryCause;
-		std::optional<FStaticMeshBuildProviderDescriptor> RenderDescriptor;
-		std::optional<FStaticMeshBuildProviderDescriptor> CollisionDescriptor;
-		std::optional<FStaticMeshDerivedDataError> DerivedDataCause;
-		std::optional<FStaticMeshPayloadError> PayloadCause;
-		std::optional<FStaticMeshLODPolicyError> LODCause;
+		EStaticMeshAuthoredBuildError Code = EStaticMeshAuthoredBuildError::NotStarted;
+		std::string Message;
 	};
 
 	ENGINE_API auto FormatStaticMeshAuthoredBuildError(const FStaticMeshAuthoredBuildError& Error) -> std::string;
@@ -287,28 +272,19 @@ namespace Durin
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
 		FStaticMeshSource Source, FStaticMeshBuildResult Product,
 		bool bMarkPackageDirty = true) -> std::expected<void, FStaticMeshDirectBuildError>;
-	struct FStaticMeshSubmissionError;
-	struct FStaticMeshCompilationDiagnostic;
-	enum class EStaticMeshSynchronousError : uint8 { None, Source, Submission, NoObservation, Completion };
+	enum class EStaticMeshSynchronousError : uint8 { Source, Submission, NoObservation, Completion, Cancelled, Superseded };
 	struct FStaticMeshSynchronousError
 	{
-		EStaticMeshSynchronousError Code = EStaticMeshSynchronousError::None;
-		FObjectKey Owner;
-		std::optional<FStaticMeshSourceError> SourceCause;
-		std::shared_ptr<const FStaticMeshSubmissionError> SubmissionCause;
-		std::shared_ptr<const FStaticMeshCompilationDiagnostic> CompletionCause;
-	};
-	struct FStaticMeshSynchronousResult
-	{
-		FStaticMeshSynchronousError Error;
+		EStaticMeshSynchronousError Code;
+		std::string Message;
+		// A failed publication can still have completed cache work.
 		FStaticMeshPersistenceDiagnostic PersistenceDiagnostic;
-		explicit operator bool() const { return Error.Code == EStaticMeshSynchronousError::None; }
 	};
 	ENGINE_API auto FormatStaticMeshSynchronousError(const FStaticMeshSynchronousError& Error) -> std::string;
 
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		const FStaticMeshSource& Source) -> FStaticMeshSynchronousResult;
+		const FStaticMeshSource& Source) -> std::expected<FStaticMeshPersistenceDiagnostic, FStaticMeshSynchronousError>;
 	// Fresh authored input boundary: capture once, build from seeded residency, then release.
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		FStaticMeshDecodedGeometry Geometry) -> FStaticMeshSynchronousResult;
+		FStaticMeshDecodedGeometry Geometry) -> std::expected<FStaticMeshPersistenceDiagnostic, FStaticMeshSynchronousError>;
 }

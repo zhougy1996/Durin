@@ -382,7 +382,7 @@ namespace Durin
 				{
 					if (!Record->Task.IsValid() || !Record->Task.IsComplete()
 						|| Record->Work->Done.load(std::memory_order_acquire)) continue;
-					Record->Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::TaskRetired, .TaskState = Record->Task.GetState()});
+					Record->Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::TaskRetired});
 					Record->Work->Request = {};
 					Record->Work->Done.store(true, std::memory_order_release);
 					Workers->Running.fetch_sub(1);

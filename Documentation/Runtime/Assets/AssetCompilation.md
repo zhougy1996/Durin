@@ -292,10 +292,12 @@ contract is unchanged. Cooked residency remains a separate manager.
 Authored `PostLoad` validates metadata and schedules background work without
 acquiring canonical geometry. Repeated identical current requests join;
 `BuildStaticMeshSynchronously` submits or joins through the same manager and
-finishes only that mesh. Its `FStaticMeshSynchronousResult` owns source,
-submission or complete terminal-observation causes without a text output;
-missing observations have a distinct error code. Successful cache warnings remain
-in PersistenceDiagnostic. Missing admission/provider capacity is an explicit
+finishes only that mesh. It returns `std::expected<FStaticMeshPersistenceDiagnostic,
+FStaticMeshSynchronousError>`: successful cache observations or a boundary error
+code and bounded owned message. Failure also carries any persistence observations
+retained by completion. Missing observations, cancellation and supersession have
+distinct codes; callers need not traverse completion or source errors.
+Missing admission/provider capacity is an explicit
 failure, with no inline recipe fallback. Interactive reimport prepares physical
 input synchronously, then submits at interactive priority. Source, render,
 collision, material bindings and prevalidated provenance become current within
@@ -316,9 +318,10 @@ Nonfatal cache warnings remain in typed `FStaticMeshPersistenceDiagnostic` and
 survive successful publication. Render and collision each retain separate cache
 read/write diagnostics and an optional family codec cause; no persistence text
 is stored. Underlying cache causes retain their classifications and request
-identity without retaining payload data. Error.BuildCause and Error.ApplicationCause retain typed failures
-and their owned nested context. `FormatStaticMeshCompilationDiagnostic` formats
-at presentation or pending outer adapters; there is no failure Message field.
+identity without retaining payload data. `Error.BuildCause` retains the authored
+build code and bounded message; `Error.ApplicationCause` retains application
+failure context. `FormatStaticMeshCompilationDiagnostic` formats the outer
+observation for presentation or synchronous adapters.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
 `CaptureNanoseconds`, `WorkerNanoseconds` and `PublicationNanoseconds` separate

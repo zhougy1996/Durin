@@ -1122,7 +1122,7 @@ TEST(FStaticMeshAuthoredCompilationTests, SealedCandidatePublishesWithoutProvide
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("AuthoredCandidateTest"));
 	std::string Error;
 	const auto SynchronousBuild1 = BuildStaticMeshSynchronously(*Mesh, MakeResidencyGeometry());
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.Error);
+	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.error());
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
@@ -1732,7 +1732,7 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	Barrier.Release();
 	const auto SynchronousBuild2 = BuildStaticMeshSynchronously(*Fixture.Mesh, Fixture.Mesh->GetSource());
-	EXPECT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild2.Error);
+	EXPECT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild2.error());
 	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	EXPECT_EQ(Identity, Fixture.Mesh->GetSource().GetIdentity());
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
@@ -1932,7 +1932,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ReimportDefersProvenanceAndSaveFailure
 	EXPECT_EQ(Missing.error().Filename, Fixture.SourcePath.generic_string());
 	EXPECT_EQ(AppliedImport, Fixture.Mesh->GetAssetImportData());
 	const auto SynchronousBuild3 = BuildStaticMeshSynchronously(*Fixture.Mesh, Fixture.Mesh->GetSource());
-	EXPECT_TRUE(SynchronousBuild3) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild3.Error);
+	EXPECT_TRUE(SynchronousBuild3) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild3.error());
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, CookProjectsMissingCpuDataWithoutPublishingAuthoredState)
@@ -2052,8 +2052,8 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 	const auto Synchronous = BuildStaticMeshSynchronously(*Fixture.Mesh, Fixture.Mesh->GetSource());
 	EXPECT_TRUE(Synchronous);
-	EXPECT_EQ(Synchronous.Error.Code, EStaticMeshSynchronousError::None);
-	EXPECT_EQ(Synchronous.PersistenceDiagnostic.Render.Write.Code, EAssetCacheError::Write);
+	ASSERT_TRUE(Synchronous);
+	EXPECT_EQ(Synchronous->Render.Write.Code, EAssetCacheError::Write);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySectionsAndConvexLimits)
@@ -2513,12 +2513,13 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildRetainsTypedRenderAndCollis
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
-TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause)
+TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateProviderFailureAndCancellation)
 {
 	using namespace Durin;
 	class FInvalidProductProvider final : public IStaticMeshBuildProvider
 	{
 	public:
+		bool bCancel = false;
 		auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor override
 		{
 			return {.ProducerIdentity = "InvalidProductFixture", .RenderBuilderVersion = 777, .CollisionBuilderVersion = 777};
@@ -2526,6 +2527,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause
 		auto BuildRender(const FStaticMeshRecipeBuildRequest&,
 			const FStaticMeshBuildExecutionControl&) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
 		{
+			if (bCancel) return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled});
 			return FStaticMeshRecipeBuildProduct{};
 		}
 		auto BuildCollision(const FStaticMeshCollisionRecipeRequest&,
@@ -2559,11 +2561,9 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause
 	EXPECT_NE(Outcome.error().PayloadCause->RenderCause->Code, EStaticMeshPayloadError::None);
 	EXPECT_EQ(Product.RenderData, nullptr);
 	const auto Authored = BuildStaticMeshAuthoredCandidate({.Source = Source, .bPersistDerivedData = false});
-	EXPECT_FALSE(Authored);
-	ASSERT_TRUE(Authored.error().DerivedDataCause);
-	EXPECT_EQ(Authored.error().DerivedDataCause->Code, EStaticMeshDerivedDataError::Payload);
-	ASSERT_TRUE(Authored.error().DerivedDataCause->PayloadCause);
-	EXPECT_EQ(Authored.error().DerivedDataCause->PayloadCause->Code, EStaticMeshCacheCodecError::RenderPayload);
+	ASSERT_FALSE(Authored);
+	EXPECT_EQ(Authored.error().Code, EStaticMeshAuthoredBuildError::RenderBuild);
+	EXPECT_EQ(Authored.error().Message, FormatStaticMeshDerivedDataError(Outcome.error()));
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedWorkerFailure"));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source, .bPersistDerivedData = false})) << Error;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -2571,15 +2571,18 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause
 	EXPECT_EQ(Diagnostic.Error.Code, EStaticMeshCompletionError::Build);
 	ASSERT_TRUE(Diagnostic.Error.BuildCause);
 	EXPECT_EQ(Diagnostic.Error.BuildCause->Code, EStaticMeshAuthoredBuildError::RenderBuild);
-	ASSERT_TRUE(Diagnostic.Error.BuildCause->DerivedDataCause);
-	EXPECT_EQ(Diagnostic.Error.BuildCause->DerivedDataCause->Code, EStaticMeshDerivedDataError::Payload);
+	EXPECT_EQ(Diagnostic.Error.BuildCause->Message, Authored.error().Message);
 	const auto Synchronous = BuildStaticMeshSynchronously(*Mesh, Source);
-	EXPECT_EQ(Synchronous.Error.Code, EStaticMeshSynchronousError::Completion);
-	ASSERT_TRUE(Synchronous.Error.CompletionCause);
-	EXPECT_EQ(Synchronous.Error.CompletionCause->Status, EStaticMeshCompilationStatus::Failed);
-	EXPECT_EQ(Synchronous.Error.CompletionCause->Error.Code, EStaticMeshCompletionError::Build);
-	ASSERT_TRUE(Synchronous.Error.CompletionCause->Error.BuildCause);
-	EXPECT_EQ(Synchronous.Error.CompletionCause->Error.BuildCause->Code, EStaticMeshAuthoredBuildError::RenderBuild);
+	ASSERT_FALSE(Synchronous);
+	EXPECT_EQ(Synchronous.error().Code, EStaticMeshSynchronousError::Completion);
+	EXPECT_EQ(Synchronous.error().Message, FormatStaticMeshCompilationDiagnostic(Diagnostic));
+	Provider.bCancel = true;
+	const auto Cancelled = BuildStaticMeshSynchronously(*Mesh, Source);
+	ASSERT_FALSE(Cancelled);
+	EXPECT_EQ(Cancelled.error().Code, EStaticMeshSynchronousError::Cancelled);
+	EXPECT_FALSE(Cancelled.error().Message.empty());
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Mesh));
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, DerivedResultRetainsSourceCancellationAndGeometryCounts)
@@ -2625,21 +2628,18 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	Request.NormalizedSize = std::numeric_limits<float>::quiet_NaN();
 	const auto Invalid = BuildStaticMeshAuthoredCandidate(Request);
 	Request.NormalizedSize = 1.5f;
+	ASSERT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.error().Code, EStaticMeshAuthoredBuildError::Input);
-	EXPECT_TRUE(Invalid.error().SourceValid);
-	EXPECT_TRUE(std::isnan(Invalid.error().NormalizedSize));
+	EXPECT_NE(Invalid.error().Message.find("normalized size nan"), std::string::npos);
 	const auto PayloadBytes = Source.GetGeometryBulk().GetPayloadSize();
 	const auto Budget = BuildStaticMeshAuthoredCandidate(Request, {.MaximumWorkingSetBytes = 1});
 	Request.Source = {};
 	Source = {};
+	ASSERT_FALSE(Budget);
 	EXPECT_EQ(Budget.error().Code, EStaticMeshAuthoredBuildError::SourceBudget);
-	ASSERT_TRUE(Budget.error().MemoryCause);
-	EXPECT_EQ(Budget.error().MemoryCause->Limit, 1u);
-	EXPECT_EQ(Budget.error().MemoryCause->Bytes, 0u);
-	EXPECT_EQ(Budget.error().MemoryCause->RejectedCount, PayloadBytes);
-	EXPECT_EQ(Budget.error().MemoryCause->RejectedWidth, 8u);
+	EXPECT_NE(Budget.error().Message.find(std::format("Limit 1, accumulated 0, rejected {} x 8 bytes", PayloadBytes)), std::string::npos);
+	EXPECT_LE(Budget.error().Message.size(), MaximumStaticMeshBuildDiagnosticBytes);
 	const auto Cancelled = BuildStaticMeshAuthoredCandidate({}, {.ShouldCancel = [] { return true; }});
-	EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
 	ASSERT_FALSE(Cancelled);
 	EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
 }
@@ -2655,7 +2655,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ApplicationFailureRetainsImportOwnersh
 	EXPECT_FALSE(Invalid.error().RenderDataPresent);
 	std::string Error;
 	const auto SynchronousBuild4 = BuildStaticMeshSynchronously(*Mesh, MakeResidencyGeometry());
-	ASSERT_TRUE(SynchronousBuild4) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild4.Error);
+	ASSERT_TRUE(SynchronousBuild4) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild4.error());
 	auto* Other = NewObject<DStaticMesh>(nullptr, FName("ForeignImportOwner"));
 	auto* ForeignImport = NewObject<DAssetImportData>(Other, FName("ForeignImport"));
 	const auto* OriginalRender = Mesh->GetRenderData();
@@ -2695,24 +2695,22 @@ TEST(FStaticMeshAuthoredCompilationTests, ApplicationFailureRetainsImportOwnersh
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, OriginalRevision);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureRetainsSourceAndSubmissionCauses)
+TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureExposesBoundaryCodeAndMessage)
 {
 	using namespace Durin;
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("SynchronousTypedFailure"));
 	auto Geometry = MakeResidencyGeometry();
 	Geometry.Meshes.front().Indices.back() = 77;
 	const auto SourceFailure = BuildStaticMeshSynchronously(*Mesh, std::move(Geometry));
-	EXPECT_EQ(SourceFailure.Error.Code, EStaticMeshSynchronousError::Source);
-	EXPECT_EQ(SourceFailure.Error.Owner, FObjectKey(Mesh));
-	ASSERT_TRUE(SourceFailure.Error.SourceCause);
-	EXPECT_EQ(SourceFailure.Error.SourceCause->Code, EStaticMeshSourceError::IndexRange);
-	EXPECT_EQ(SourceFailure.Error.SourceCause->Actual, 77u);
+	ASSERT_FALSE(SourceFailure);
+	EXPECT_EQ(SourceFailure.error().Code, EStaticMeshSynchronousError::Source);
+	EXPECT_FALSE(SourceFailure.error().Message.empty());
+	EXPECT_LE(SourceFailure.error().Message.size(), MaximumStaticMeshBuildDiagnosticBytes);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	const auto SubmissionFailure = BuildStaticMeshSynchronously(*Mesh, FStaticMeshSource{});
-	EXPECT_EQ(SubmissionFailure.Error.Code, EStaticMeshSynchronousError::Submission);
-	ASSERT_TRUE(SubmissionFailure.Error.SubmissionCause);
-	EXPECT_EQ(SubmissionFailure.Error.SubmissionCause->Code, EStaticMeshSubmissionError::Source);
-	EXPECT_EQ(SubmissionFailure.Error.SubmissionCause->Owner, FObjectKey(Mesh));
+	ASSERT_FALSE(SubmissionFailure);
+	EXPECT_EQ(SubmissionFailure.error().Code, EStaticMeshSynchronousError::Submission);
+	EXPECT_FALSE(SubmissionFailure.error().Message.empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Mesh));
 }
