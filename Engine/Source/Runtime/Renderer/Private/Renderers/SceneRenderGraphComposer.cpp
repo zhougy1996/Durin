@@ -62,7 +62,7 @@ namespace Durin
 			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
 			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
 		} GraphResources;
-		constexpr FRDGBudget SceneRenderBudget{
+		FRDGBudget SceneRenderBudget{
 			.MaxPasses = 256,
 			.MaxDependencies = 4096,
 			.MaxBufferTransitions = 4096,
@@ -73,6 +73,14 @@ namespace Durin
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
+		if (Features.ContactVisibility.HasPurpose(ESceneFeaturePurpose::Production)
+			&& Features.ContactVisibility.Decision.Route
+				== FContactShadowVisibilityRenderer::ERoute::Compute)
+		{
+			// Four GBuffer textures and scene depth switch to compute reads
+			// and back to graphics reads; the fragment baseline has neither.
+			SceneRenderBudget.RegressionMaxTextureTransitions += 2 * 5;
+		}
 		Graph.SetBudget(SceneRenderBudget);
 		Graph.EnablePassCulling();
 		auto ImportPersistentTexture = [&](std::string_view Name,
