@@ -75,6 +75,7 @@ namespace
 
 TEST(FSplineMeshComponentTests, DefaultObjectPublishesDiagnosticStateAndReflectsAuthoredFields)
 {
+	InitializeDObjectSystem();
 	auto* Component = NewObject<DSplineMeshComponent>(nullptr, "DefaultSplineMeshComponent");
 	ASSERT_NE(Component, nullptr);
 	const auto State = Component->GetDerivedState();
