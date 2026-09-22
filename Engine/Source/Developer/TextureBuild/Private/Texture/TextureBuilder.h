@@ -36,6 +36,6 @@ namespace Durin::TextureBuilder
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
 		float AlphaCoverageThreshold = 0.5f,
 		const FBuildExecutionControl* ExecutionControl = nullptr,
-		std::optional<bool> TransparencyOverride = {}) -> FTexture2DBuildResult;
+		std::optional<bool> TransparencyOverride = {}) -> std::expected<void, FTexture2DBuildError>;
 
 }

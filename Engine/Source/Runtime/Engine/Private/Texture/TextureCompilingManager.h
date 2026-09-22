@@ -81,7 +81,7 @@ namespace Durin
 		auto Submit(
 			DTexture2D& Texture,
 			FTexture2DCompilationRequest Request,
-			FTexture2DCompilationCompletion Completion) -> FTexture2DCompilationOperationResult;
+			FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto GetManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;

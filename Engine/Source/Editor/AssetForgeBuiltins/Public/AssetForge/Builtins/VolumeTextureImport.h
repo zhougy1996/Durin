@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FSourceHintError> SourceHintCause;
 		std::shared_ptr<const FEncodedSourceError> CaptureCause;
 		std::optional<FVolumeTextureTranslationError> TranslationCause;
-		std::optional<FTextureBuildOutcome> BuildCause;
+		std::optional<FTextureBuildError> BuildCause;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 	};

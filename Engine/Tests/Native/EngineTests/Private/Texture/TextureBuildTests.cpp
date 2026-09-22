@@ -32,11 +32,9 @@ namespace
 
 		auto Build(
 			const Durin::FTexture2DRecipeBuildRequest&,
-			Durin::FTexture2DRecipeBuildProduct& OutProduct,
-			const Durin::FTexture2DRecipeExecutionControl*) -> Durin::FTexture2DBuildResult override
+			const Durin::FTexture2DRecipeExecutionControl*) -> std::expected<Durin::FTexture2DRecipeBuildProduct, Durin::FTexture2DBuildError> override
 		{
-			OutProduct = {};
-			return {Durin::ETexture2DBuildStatus::Succeeded, {}};
+			return Durin::FTexture2DRecipeBuildProduct{};
 		}
 	};
 }
@@ -283,12 +281,12 @@ TEST(FTextureSourceTests, Texture2DPreservesSuppliedMipChainForRecipeBuild)
 	const auto Input = Texture->CreateBuildRequest({});
 	ASSERT_EQ(Input.SourceMips.size(), 3u);
 	Durin::FTexturePlatformData Platform;
-	const Durin::FTexture2DBuildResult BuildResult =
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult =
 		Durin::TextureBuilder::BuildMipChain(Input.SourceMips,
 		Durin::ETextureUsage::Color, true, Platform, 0,
 		Durin::ETextureCompressionQuality::Normal,
 		Durin::ETextureAlphaMipMode::Average, 0.5f, nullptr);
-	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.Error);
+	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 	EXPECT_EQ(Platform.Mips.size(), 3u);
 	EXPECT_EQ(Platform.Mips.back().Width, 1u);
 }
@@ -307,7 +305,7 @@ TEST(FTextureSourceTests, ImageRecipeRetainsAlphaPresentOnlyInSuppliedLowerMip)
 	Durin::FTexturePlatformData Platform;
 	const auto Result = Durin::TextureBuilder::BuildMipChain(
 		Mips, Durin::ETextureUsage::Color, true, Platform);
-	ASSERT_TRUE(Result) << Durin::FormatTexture2DBuildError(Result.Error);
+	ASSERT_TRUE(Result) << Durin::FormatTexture2DBuildError(Result.error());
 	EXPECT_EQ(Platform.PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_EQ(Platform.Mips.size(), 2u);
 }
@@ -453,10 +451,10 @@ TEST(FTextureSourceTests, RebuildPreservesAuthoredStorageAndRejectsMismatchedRep
 	const auto Rejected = Durin::BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest({}),
 		{.SourceReplacement = Different});
 	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.Error.Code, Durin::ETexture2DCompilationError::SourceMismatch);
-	EXPECT_EQ(Rejected.Error.ExpectedSourceIdentity, Identity);
-	EXPECT_EQ(Rejected.Error.ActualSourceIdentity, Different.GetIdentity());
-	EXPECT_EQ(Rejected.Error.ObjectPath, Texture->GetObjectPath());
+	EXPECT_EQ(Rejected.error().Code, Durin::ETexture2DCompilationError::SourceMismatch);
+	EXPECT_EQ(Rejected.error().ExpectedSourceIdentity, Identity);
+	EXPECT_EQ(Rejected.error().ActualSourceIdentity, Different.GetIdentity());
+	EXPECT_EQ(Rejected.error().ObjectPath, Texture->GetObjectPath());
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(Texture->GetPlatformData(), Platform);
 	ASSERT_TRUE(Durin::BuildTexture2DSynchronously(*Texture,
@@ -476,10 +474,10 @@ TEST(FTexture2DTests, CompilationAdmissionRetainsInputCauseWithoutPublishing)
 	const auto Empty = Durin::SubmitTexture2DCompilation(*Texture, {},
 		[&](Durin::FTexture2DCompilationResult) { ++Completions; });
 	EXPECT_FALSE(Empty);
-	EXPECT_EQ(Empty.Error.Code, Durin::ETexture2DCompilationError::InvalidSource);
-	ASSERT_TRUE(Empty.Error.InputCause);
-	EXPECT_EQ(Empty.Error.InputCause->Code, Durin::ETexture2DInputError::EmptyMips);
-	EXPECT_EQ(Empty.Error.ObjectPath, ObjectPath);
+	EXPECT_EQ(Empty.error().Code, Durin::ETexture2DCompilationError::InvalidSource);
+	ASSERT_TRUE(Empty.error().InputCause);
+	EXPECT_EQ(Empty.error().InputCause->Code, Durin::ETexture2DInputError::EmptyMips);
+	EXPECT_EQ(Empty.error().ObjectPath, ObjectPath);
 	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
 	EXPECT_EQ(Completions, 0u);
 	EXPECT_FALSE(Texture->HasPlatformData());
@@ -495,18 +493,18 @@ TEST(FTexture2DTests, CompilationAdmissionRetainsInputCauseWithoutPublishing)
 	Request.SourceIdentity = {};
 	const auto Missing = Durin::SubmitTexture2DCompilation(*Texture, {.Build = std::move(Request)});
 	EXPECT_FALSE(Missing);
-	EXPECT_EQ(Missing.Error.Code, Durin::ETexture2DCompilationError::MissingSourceIdentity);
+	EXPECT_EQ(Missing.error().Code, Durin::ETexture2DCompilationError::MissingSourceIdentity);
 	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
 
 	const auto Invalid = Durin::BuildTexture2DSynchronously(*Texture,
 		Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}), {});
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error.Code, Durin::ETexture2DCompilationError::BuildFailed);
-	ASSERT_TRUE(Invalid.Error.BuildCause);
-	EXPECT_EQ(Invalid.Error.BuildCause->Code, Durin::ETexture2DBuildError::InvalidInput);
-	ASSERT_TRUE(Invalid.Error.BuildCause->InputCause);
-	EXPECT_EQ(Invalid.Error.BuildCause->InputCause->Code, Durin::ETexture2DInputError::InvalidUsage);
-	EXPECT_EQ(Invalid.Error.BuildCause->InputCause->Settings.Usage, static_cast<Durin::ETextureUsage>(255));
+	EXPECT_EQ(Invalid.error().Code, Durin::ETexture2DCompilationError::BuildFailed);
+	ASSERT_TRUE(Invalid.error().BuildCause);
+	EXPECT_EQ(Invalid.error().BuildCause->Code, Durin::ETexture2DBuildError::InvalidInput);
+	ASSERT_TRUE(Invalid.error().BuildCause->InputCause);
+	EXPECT_EQ(Invalid.error().BuildCause->InputCause->Code, Durin::ETexture2DInputError::InvalidUsage);
+	EXPECT_EQ(Invalid.error().BuildCause->InputCause->Settings.Usage, static_cast<Durin::ETextureUsage>(255));
 	EXPECT_FALSE(Texture->HasPlatformData());
 }
 
@@ -557,9 +555,9 @@ TEST(FTexture2DBuildProviderTests, RejectsAmbiguityAndKeepsProductsValueOwned)
 
 	Durin::FTexture2DBuildProduct Product;
 	Durin::FTexture2DBuildInputIdentity Identity;
-	const Durin::FTexture2DBuildResult BuildResult =
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
-	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.Error);
+	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 	EXPECT_EQ(Request.SourceMips.front().GetPixels().size(), 4u);
 	EXPECT_TRUE(Identity.Provider.IsValid());
 	EXPECT_EQ(Identity.SourceIdentity, SourceIdentity);
@@ -583,11 +581,11 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildProduct Product;
 	Durin::FTexture2DBuildInputIdentity Identity;
-	const Durin::FTexture2DBuildResult BuildResult =
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
 	EXPECT_FALSE(BuildResult);
-	EXPECT_EQ(BuildResult.Status, Durin::ETexture2DBuildStatus::Failed);
-	EXPECT_EQ(BuildResult.Error.Code, Durin::ETexture2DBuildError::ProviderUnavailable);
+	ASSERT_FALSE(BuildResult);
+	EXPECT_EQ(BuildResult.error().Code, Durin::ETexture2DBuildError::ProviderUnavailable);
 	std::string Error;
 
 	Durin::FVolumeTextureSourceData VolumeSource;
@@ -597,21 +595,21 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	ASSERT_TRUE(VolumeSource.SetVoxelBytes(Durin::FByteBuffer(1)));
 	Durin::FVolumeTextureBuildProduct VolumeProduct;
 	auto BuildResult1 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = VolumeSource});
-	Error = BuildResult1.Outcome.Diagnostic;
-	VolumeProduct = BuildResult1 ? std::move(BuildResult1.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	EXPECT_FALSE(BuildResult1) << BuildResult1.Outcome.Diagnostic;
-	EXPECT_EQ(BuildResult1.Outcome.Code, Durin::ETextureBuildFailure::Unavailable);
-	EXPECT_FALSE(BuildResult1.Value);
+	Error = (BuildResult1 ? std::string{} : BuildResult1.error().Diagnostic);
+	VolumeProduct = BuildResult1 ? std::move(BuildResult1->Product) : Durin::FVolumeTextureBuildProduct{};
+	EXPECT_FALSE(BuildResult1) << (BuildResult1 ? std::string{} : BuildResult1.error().Diagnostic);
+	EXPECT_EQ(BuildResult1.error().Code, Durin::ETextureBuildFailure::Unavailable);
+	EXPECT_FALSE(BuildResult1.has_value());
 	EXPECT_EQ(Error, "The VolumeTexture build provider is unavailable.");
 	Durin::FTextureCubeCanonicalBuildInput CubeCanonicalInput;
 	Durin::FTextureCubeBuildProduct CubeProduct;
 	auto BuildResult2 = Durin::InvokeTextureCubeBuildProvider({});
-	Error = BuildResult2.Outcome.Diagnostic;
-	CubeCanonicalInput = BuildResult2 ? std::move(BuildResult2.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
-	CubeProduct = BuildResult2 ? std::move(BuildResult2.Value->Product) : Durin::FTextureCubeBuildProduct{};
-	EXPECT_FALSE(BuildResult2) << BuildResult2.Outcome.Diagnostic;
-	EXPECT_EQ(BuildResult2.Outcome.Code, Durin::ETextureBuildFailure::Unavailable);
-	EXPECT_FALSE(BuildResult2.Value);
+	Error = (BuildResult2 ? std::string{} : BuildResult2.error().Diagnostic);
+	CubeCanonicalInput = BuildResult2 ? std::move(BuildResult2->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+	CubeProduct = BuildResult2 ? std::move(BuildResult2->Product) : Durin::FTextureCubeBuildProduct{};
+	EXPECT_FALSE(BuildResult2) << (BuildResult2 ? std::string{} : BuildResult2.error().Diagnostic);
+	EXPECT_EQ(BuildResult2.error().Code, Durin::ETextureBuildFailure::Unavailable);
+	EXPECT_FALSE(BuildResult2.has_value());
 	EXPECT_EQ(Error, "The TextureCube build provider is unavailable.");
 
 	Modules.LoadModuleChecked("TextureBuild");
@@ -775,8 +773,8 @@ TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 				{
 					const auto Rejected = Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), {});
 					EXPECT_FALSE(Rejected);
-					EXPECT_EQ(Rejected.Error.Code, Durin::ETexture2DCompilationError::AdmissionRejected);
-					EXPECT_EQ(Rejected.Error.ObjectPath, Overflow->GetObjectPath());
+					EXPECT_EQ(Rejected.error().Code, Durin::ETexture2DCompilationError::AdmissionRejected);
+					EXPECT_EQ(Rejected.error().ObjectPath, Overflow->GetObjectPath());
 					// A throwing consumer must release its request slot and allow the rest to drain.
 					throw std::runtime_error("Completion failure for lifetime regression");
 				}
@@ -789,8 +787,8 @@ TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 	EXPECT_EQ(0u, CompletionCount);
 	const auto Rejected = Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), {});
 	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.Error.Code, Durin::ETexture2DCompilationError::AdmissionRejected);
-	EXPECT_EQ(Rejected.Error.ObjectPath, Overflow->GetObjectPath());
+	EXPECT_EQ(Rejected.error().Code, Durin::ETexture2DCompilationError::AdmissionRejected);
+	EXPECT_EQ(Rejected.error().ObjectPath, Overflow->GetObjectPath());
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(PendingLimit, CompletionCount);
 	EXPECT_EQ(0u, Durin::GetTexture2DCompilationManagerDiagnostics().ActiveRecordCount);
@@ -903,7 +901,7 @@ TEST(FVolumeTextureTests, RejectsInvalidMipFilterBeforeSourceReplacement)
 		.SourceData = Source,
 		.Settings = {.MipFilter = static_cast<Durin::EVolumeTextureMipFilter>(255)}}, {});
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Stage, Durin::ETextureBuildStage::Normalize);
+	EXPECT_EQ(Result.error().Stage, Durin::ETextureBuildStage::Normalize);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(Texture->GetBuildSettings().MipFilter, Durin::EVolumeTextureMipFilter::Box);
 	EXPECT_EQ(Texture->GetPlatformData(), nullptr);
@@ -924,10 +922,14 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	Durin::FVolumeTexturePlatformData Second;
 	std::string Error;
 	const Durin::FVolumeTextureBuildSettings Settings{};
-	ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
-		Source, Settings, First, Error)) << Error;
-	ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
-		Source, Settings, Second, Error)) << Error;
+	const auto FirstBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+		Source, Settings, First);
+	Error = FirstBuild ? std::string{} : FirstBuild.error().Diagnostic;
+	ASSERT_TRUE(FirstBuild) << Error;
+	const auto SecondBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+		Source, Settings, Second);
+	Error = SecondBuild ? std::string{} : SecondBuild.error().Diagnostic;
+	ASSERT_TRUE(SecondBuild) << Error;
 	ASSERT_EQ(First.Mips.size(), 2u);
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
@@ -959,8 +961,10 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTexturePlatformData Platform;
 	std::string Error;
-	ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
-		Source, {}, Platform, Error)) << Error;
+	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+		Source, {}, Platform);
+	Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
+	ASSERT_TRUE(MipBuild) << Error;
 	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Win64", "Game"}});
@@ -1009,9 +1013,9 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	Durin::FVolumeTextureBuildProduct Rejected;
 	std::string SchemaError;
 	auto BuildResult3 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	SchemaError = BuildResult3.Outcome.Diagnostic;
-	Rejected = BuildResult3 ? std::move(BuildResult3.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	EXPECT_FALSE(BuildResult3) << BuildResult3.Outcome.Diagnostic;
+	SchemaError = (BuildResult3 ? std::string{} : BuildResult3.error().Diagnostic);
+	Rejected = BuildResult3 ? std::move(BuildResult3->Product) : Durin::FVolumeTextureBuildProduct{};
+	EXPECT_FALSE(BuildResult3) << (BuildResult3 ? std::string{} : BuildResult3.error().Diagnostic);
 	EXPECT_FALSE(SchemaError.empty());
 	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion;
 	const Durin::FVolumeTextureBuildKeyInput GoldenKeyInput{
@@ -1030,13 +1034,13 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
 	auto BuildResult4 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult4.Outcome.Diagnostic;
-	First = BuildResult4 ? std::move(BuildResult4.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult4) << BuildResult4.Outcome.Diagnostic;
+	Error = (BuildResult4 ? std::string{} : BuildResult4.error().Diagnostic);
+	First = BuildResult4 ? std::move(BuildResult4->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult4) << (BuildResult4 ? std::string{} : BuildResult4.error().Diagnostic);
 	auto BuildResult5 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult5.Outcome.Diagnostic;
-	Second = BuildResult5 ? std::move(BuildResult5.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult5) << BuildResult5.Outcome.Diagnostic;
+	Error = (BuildResult5 ? std::string{} : BuildResult5.error().Diagnostic);
+	Second = BuildResult5 ? std::move(BuildResult5->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult5) << (BuildResult5 ? std::string{} : BuildResult5.error().Diagnostic);
 	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	EXPECT_EQ(Second.PersistenceDiagnostic.Read.Code, Durin::EAssetCacheError::None);
@@ -1052,18 +1056,18 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CachedBytes, CachePath));
 	Durin::FVolumeTextureBuildProduct Recovered;
 	auto BuildResult6 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult6.Outcome.Diagnostic;
-	Recovered = BuildResult6 ? std::move(BuildResult6.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult6) << BuildResult6.Outcome.Diagnostic;
+	Error = (BuildResult6 ? std::string{} : BuildResult6.error().Diagnostic);
+	Recovered = BuildResult6 ? std::move(BuildResult6->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult6) << (BuildResult6 ? std::string{} : BuildResult6.error().Diagnostic);
 	EXPECT_EQ(Recovered.Origin, Durin::EVolumeTextureBuildProductOrigin::Rebuilt);
 	EXPECT_EQ(Recovered.DerivedDataKey, First.DerivedDataKey);
 	EXPECT_EQ(Recovered.PersistenceDiagnostic.Read.Code, Durin::EAssetCacheError::Read);
 	EXPECT_LE(Durin::FormatAssetCacheDiagnostics(Recovered.PersistenceDiagnostic).size(), 2048u);
 	EXPECT_TRUE(Error.empty());
 	auto BuildResult7 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult7.Outcome.Diagnostic;
-	Second = BuildResult7 ? std::move(BuildResult7.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult7) << BuildResult7.Outcome.Diagnostic;
+	Error = (BuildResult7 ? std::string{} : BuildResult7.error().Diagnostic);
+	Second = BuildResult7 ? std::move(BuildResult7->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult7) << (BuildResult7 ? std::string{} : BuildResult7.error().Diagnostic);
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	EXPECT_EQ(Second.PersistenceDiagnostic.Read.Code, Durin::EAssetCacheError::None);
 	EXPECT_EQ(Second.PersistenceDiagnostic.Write.Code, Durin::EAssetCacheError::None);
@@ -1071,9 +1075,9 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Changed;
 	auto BuildResult8 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult8.Outcome.Diagnostic;
-	Changed = BuildResult8 ? std::move(BuildResult8.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult8) << BuildResult8.Outcome.Diagnostic;
+	Error = (BuildResult8 ? std::string{} : BuildResult8.error().Diagnostic);
+	Changed = BuildResult8 ? std::move(BuildResult8->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult8) << (BuildResult8 ? std::string{} : BuildResult8.error().Diagnostic);
 	EXPECT_NE(First.DerivedDataKey, Changed.DerivedDataKey);
 }
 
@@ -1093,9 +1097,9 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Durin::FVolumeTextureBuildProduct Product;
 	std::string Error;
 	auto BuildResult9 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
-	Error = BuildResult9.Outcome.Diagnostic;
-	Product = BuildResult9 ? std::move(BuildResult9.Value->Product) : Durin::FVolumeTextureBuildProduct{};
-	ASSERT_TRUE(BuildResult9) << BuildResult9.Outcome.Diagnostic;
+	Error = (BuildResult9 ? std::string{} : BuildResult9.error().Diagnostic);
+	Product = BuildResult9 ? std::move(BuildResult9->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult9) << (BuildResult9 ? std::string{} : BuildResult9.error().Diagnostic);
 	ASSERT_NE(Product.PlatformData, nullptr);
 	const Durin::FVolumeTexturePlatformData Expected = *Product.PlatformData;
 	const Durin::FCacheKeyProxy ExpectedKey = Product.DerivedDataKey;
@@ -1215,8 +1219,10 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 
 	Durin::FVolumeTexturePlatformData Platform;
 	std::string Error;
-	ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
-		Source, {}, Platform, Error)) << Error;
+	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+		Source, {}, Platform);
+	Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
+	ASSERT_TRUE(MipBuild) << Error;
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/LargeVolumeBlob", AssetPath));
@@ -1384,8 +1390,10 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		Settings.OutputFormat = Formats[Index];
 		Durin::FVolumeTexturePlatformData Platform;
 		std::string Error;
-		ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
-			Source, Settings, Platform, Error)) << Error;
+		const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+			Source, Settings, Platform);
+		Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
+		ASSERT_TRUE(MipBuild) << Error;
 		ASSERT_EQ(Platform.Mips.size(), 3u);
 		const std::array<uint32, 3> MiddleExtent{
 			Platform.Mips[1].Width, Platform.Mips[1].Height, Platform.Mips[1].Depth};
@@ -1420,17 +1428,17 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 	Durin::FTexture2DBuildProduct Product;
 	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildInputIdentity Identity;
-	const Durin::FTexture2DBuildResult BuildResult =
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
-	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.Error);
+	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 	EXPECT_TRUE(!Request.SourceMips.empty());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
 	EXPECT_TRUE(Product.DerivedDataKey.IsValid());
 
-	const Durin::FTexture2DBuildResult InvalidResult =
+	const std::expected<void, Durin::FTexture2DBuildError> InvalidResult =
 		Durin::InvokeTexture2DBuildProvider({}, Product, Identity);
 	EXPECT_FALSE(InvalidResult);
-	EXPECT_EQ(InvalidResult.Status, Durin::ETexture2DBuildStatus::Failed);
+	ASSERT_FALSE(InvalidResult);
 	EXPECT_FALSE(Product.DerivedDataKey.IsValid());
 }
 
@@ -1452,9 +1460,9 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	Durin::FTexture2DBuildProduct Product;
 	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildInputIdentity Identity;
-	const Durin::FTexture2DBuildResult BuildResult =
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
-	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.Error);
+	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 	EXPECT_TRUE(!Request.SourceMips.empty());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
 	EXPECT_TRUE(Product.DerivedDataKey.IsValid());
@@ -1674,8 +1682,8 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 	auto* Unpackaged = Durin::NewObject<Durin::DTexture2D>(nullptr, "UnpackagedRebuild");
 	const auto RejectedRebuild = Durin::AssetForge::Builtins::RebuildTexture2DFromSource(*Unpackaged, {});
 	EXPECT_FALSE(RejectedRebuild);
-	EXPECT_EQ(RejectedRebuild.Error.Code, Durin::ETexture2DCompilationError::MissingPackage);
-	EXPECT_EQ(RejectedRebuild.Error.ObjectPath, Unpackaged->GetObjectPath());
+	EXPECT_EQ(RejectedRebuild.error().Code, Durin::ETexture2DCompilationError::MissingPackage);
+	EXPECT_EQ(RejectedRebuild.error().ObjectPath, Unpackaged->GetObjectPath());
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "Texture2DCompletionDdc");
 	const std::filesystem::path Source =
@@ -1931,17 +1939,17 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 	auto Source = std::move(*ImageResult24);
 	Durin::FTexturePlatformData Average;
 	Durin::FTexturePlatformData Preserved;
-	const Durin::FTexture2DBuildResult AverageResult = Durin::TextureBuilder::BuildMipChain(
+	const std::expected<void, Durin::FTexture2DBuildError> AverageResult = Durin::TextureBuilder::BuildMipChain(
 		std::span(&Source, 1), Durin::ETextureUsage::Color, false,
 		Average, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::Average, 0.5f);
-	ASSERT_TRUE(AverageResult) << Durin::FormatTexture2DBuildError(AverageResult.Error);
-	EXPECT_TRUE(AverageResult.Error.Code == Durin::ETexture2DBuildError::None);
-	const Durin::FTexture2DBuildResult PreservedResult = Durin::TextureBuilder::BuildMipChain(
+	ASSERT_TRUE(AverageResult) << Durin::FormatTexture2DBuildError(AverageResult.error());
+	EXPECT_TRUE(AverageResult.has_value());
+	const std::expected<void, Durin::FTexture2DBuildError> PreservedResult = Durin::TextureBuilder::BuildMipChain(
 		std::span(&Source, 1), Durin::ETextureUsage::Color, false,
 		Preserved, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::PreserveCoverage, 0.5f);
-	ASSERT_TRUE(PreservedResult) << Durin::FormatTexture2DBuildError(PreservedResult.Error);
+	ASSERT_TRUE(PreservedResult) << Durin::FormatTexture2DBuildError(PreservedResult.error());
 	ASSERT_GE(Average.Mips.size(), 2u);
 	ASSERT_EQ(Preserved.Mips.size(), Average.Mips.size());
 
@@ -2001,7 +2009,7 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 	const Durin::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [&] { return ++CheckpointCount == 20; }};
 	Durin::FTexturePlatformData Platform;
-	const Durin::FTexture2DBuildResult BuildResult = Durin::TextureBuilder::BuildMipChain(
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult = Durin::TextureBuilder::BuildMipChain(
 		std::span(&Source, 1),
 		Durin::ETextureUsage::DataMask,
 		false,
@@ -2013,8 +2021,8 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 		&Control, false);
 	EXPECT_FALSE(BuildResult);
 	EXPECT_EQ(CheckpointCount, 20u);
-	EXPECT_EQ(BuildResult.Status, Durin::ETexture2DBuildStatus::Cancelled);
-	EXPECT_EQ(BuildResult.Error.Code, Durin::ETexture2DBuildError::Cancelled);
+	ASSERT_FALSE(BuildResult);
+	EXPECT_EQ(BuildResult.error().Code, Durin::ETexture2DBuildError::Cancelled);
 	EXPECT_FALSE(Platform.IsValid());
 }
 
@@ -2107,14 +2115,15 @@ TEST(FTexture2DTests, WorkerCompressionCancellationDrainsAndDiscardsOutput)
 			return Metrics.MipGenerationNanoseconds && ++CompressionCheckpoints == 20;
 		}, .Metrics = &Metrics};
 	FTexturePlatformData Platform;
-	FTexture2DBuildResult Result;
+	std::expected<void, FTexture2DBuildError> Result;
 	auto Task = Tasks::LaunchTask("Test.TextureCompressionCancellation", [&] {
 		Result = TextureBuilder::BuildMipChain(std::span(&Source, 1),
 			ETextureUsage::DataMask, false, Platform, 0, ETextureCompressionQuality::Normal,
 			ETextureAlphaMipMode::Average, 0.5f, &Control, false);
 	});
 	ASSERT_EQ(WaitTask(Task.GetCompletion().GetTaskHandle()).TaskState, ETaskState::Succeeded);
-	EXPECT_EQ(Result.Status, ETexture2DBuildStatus::Cancelled);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Code, ETexture2DBuildError::Cancelled);
 	EXPECT_EQ(CompressionCheckpoints, 20u);
 	EXPECT_TRUE(Platform.Mips.empty());
 }
@@ -2125,15 +2134,15 @@ TEST(FTexture2DTests, ValidationFailureIsNotReclassifiedAsCancellation)
 	const Durin::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [] { return true; }};
 	Durin::FTexturePlatformData Platform;
-	const Durin::FTexture2DBuildResult BuildResult = Durin::TextureBuilder::BuildMipChain(
+	const std::expected<void, Durin::FTexture2DBuildError> BuildResult = Durin::TextureBuilder::BuildMipChain(
 		std::span(&InvalidSource, 1), Durin::ETextureUsage::Color, true, Platform, 0,
 		Durin::ETextureCompressionQuality::Normal,
 		Durin::ETextureAlphaMipMode::Average, 0.5f, &Control);
 
-	EXPECT_EQ(BuildResult.Status, Durin::ETexture2DBuildStatus::Failed);
-	EXPECT_EQ(BuildResult.Error.Code, Durin::ETexture2DBuildError::InvalidInput);
-	ASSERT_TRUE(BuildResult.Error.InputCause);
-	EXPECT_EQ(BuildResult.Error.InputCause->Code, Durin::ETexture2DInputError::InvalidImage);
+	ASSERT_FALSE(BuildResult);
+	EXPECT_EQ(BuildResult.error().Code, Durin::ETexture2DBuildError::InvalidInput);
+	ASSERT_TRUE(BuildResult.error().InputCause);
+	EXPECT_EQ(BuildResult.error().InputCause->Code, Durin::ETexture2DInputError::InvalidImage);
 	EXPECT_FALSE(Platform.IsValid());
 }
 
@@ -2645,18 +2654,18 @@ TEST(FTexture2DTests, PropertySettersRetainInvalidSettingsAndCompilationCauses)
 	for (const auto* Result : {&Usage, &Quality, &Mode, &Threshold})
 	{
 		EXPECT_FALSE(*Result);
-		EXPECT_EQ(Result->Error.Code, ETexture2DCompilationError::InvalidSettings);
-		EXPECT_EQ(Result->Error.ObjectPath, Texture->GetObjectPath());
-		ASSERT_TRUE(Result->Error.InputCause);
+		EXPECT_EQ(Result->error().Code, ETexture2DCompilationError::InvalidSettings);
+		EXPECT_EQ(Result->error().ObjectPath, Texture->GetObjectPath());
+		ASSERT_TRUE(Result->error().InputCause);
 	}
-	EXPECT_EQ(Usage.Error.InputCause->Code, ETexture2DInputError::InvalidUsage);
-	EXPECT_EQ(static_cast<uint8>(Usage.Error.InputCause->Settings.Usage), 255u);
-	EXPECT_EQ(Quality.Error.InputCause->Code, ETexture2DInputError::InvalidCompressionQuality);
-	EXPECT_EQ(static_cast<uint8>(Quality.Error.InputCause->Settings.CompressionQuality), 255u);
-	EXPECT_EQ(Mode.Error.InputCause->Code, ETexture2DInputError::InvalidAlphaMipMode);
-	EXPECT_EQ(static_cast<uint8>(Mode.Error.InputCause->Settings.AlphaMipMode), 255u);
-	EXPECT_EQ(Threshold.Error.InputCause->Code, ETexture2DInputError::InvalidAlphaCoverageThreshold);
-	EXPECT_EQ(Threshold.Error.InputCause->Settings.AlphaCoverageThreshold, -1.0f);
+	EXPECT_EQ(Usage.error().InputCause->Code, ETexture2DInputError::InvalidUsage);
+	EXPECT_EQ(static_cast<uint8>(Usage.error().InputCause->Settings.Usage), 255u);
+	EXPECT_EQ(Quality.error().InputCause->Code, ETexture2DInputError::InvalidCompressionQuality);
+	EXPECT_EQ(static_cast<uint8>(Quality.error().InputCause->Settings.CompressionQuality), 255u);
+	EXPECT_EQ(Mode.error().InputCause->Code, ETexture2DInputError::InvalidAlphaMipMode);
+	EXPECT_EQ(static_cast<uint8>(Mode.error().InputCause->Settings.AlphaMipMode), 255u);
+	EXPECT_EQ(Threshold.error().InputCause->Code, ETexture2DInputError::InvalidAlphaCoverageThreshold);
+	EXPECT_EQ(Threshold.error().InputCause->Settings.AlphaCoverageThreshold, -1.0f);
 	EXPECT_EQ(Texture->GetUsage(), OriginalUsage);
 	EXPECT_EQ(Texture->GetCompressionQuality(), OriginalQuality);
 	EXPECT_EQ(Texture->GetAlphaMipMode(), OriginalMode);
@@ -2664,5 +2673,5 @@ TEST(FTexture2DTests, PropertySettersRetainInvalidSettingsAndCompilationCauses)
 	EXPECT_TRUE(SetTexture2DSRGB(*Texture, Texture->IsSRGB()));
 	const auto MissingPackage = SetTexture2DSRGB(*Texture, !Texture->IsSRGB());
 	EXPECT_FALSE(MissingPackage);
-	EXPECT_EQ(MissingPackage.Error.Code, ETexture2DCompilationError::MissingPackage);
+	EXPECT_EQ(MissingPackage.error().Code, ETexture2DCompilationError::MissingPackage);
 }

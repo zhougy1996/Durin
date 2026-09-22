@@ -4,25 +4,22 @@
 
 namespace Durin
 {
-	auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request,
-		FVolumeTextureRecipeBuildProduct& OutProduct,
-		std::string& OutError) -> bool
+	auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request) -> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError>
 	{
-		OutProduct = {};
+		FVolumeTextureRecipeBuildProduct Product;
 		const FVolumeTextureSourceData& SourceData = Request.SourceData.get();
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| !SourceData.IsValid()
 			|| SourceData.Format != Request.Settings.OutputFormat)
 		{
-			OutError = "Volume texture build source, settings, or target is incompatible.";
-			return false;
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+				"Volume texture build source, settings, or target is incompatible."});
 		}
 		auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
-		if (!VolumeTextureBuilder::BuildMipChain(
-			SourceData, Request.Settings, *PlatformData, OutError)) return false;
-		OutProduct.PlatformData = std::move(PlatformData);
-		OutError.clear();
-		return true;
+		if (auto Result = VolumeTextureBuilder::BuildMipChain(
+			SourceData, Request.Settings, *PlatformData); !Result) return std::unexpected(std::move(Result.error()));
+		Product.PlatformData = std::move(PlatformData);
+		return Product;
 	}
 }

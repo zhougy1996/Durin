@@ -9,17 +9,17 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FVolumeTextureSourceData& SourceData, const FVolumeTextureBuildSettings& Settings, FVolumeTextureBuildProduct Product, const FVolumeTextureResultApplicationContext& Context) -> FTextureBuildOutcome;
+		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FVolumeTextureSourceData& SourceData, const FVolumeTextureBuildSettings& Settings, FVolumeTextureBuildProduct Product, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
 	auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
-		-> TTextureBuildResult<FVolumeTextureBuildValue>
+		-> std::expected<FVolumeTextureBuildValue, FTextureBuildError>
 	{
-		FTextureBuildOutcome Outcome;
+		FTextureBuildError Outcome;
 		FVolumeTextureBuildProduct Product;
 #if !DURIN_WITH_EDITOR
 		Outcome.Diagnostic = "VolumeTexture authored build orchestration is unavailable outside editor builds.";
-		return {.Outcome = {ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)}};
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)});
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			IVolumeTextureBuildProvider>([&](IVolumeTextureBuildProvider& Provider) {
@@ -65,10 +65,10 @@ namespace Durin
 				auto Recipe = Provider.Build({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 				if (!Recipe)
 				{
-					Outcome = std::move(Recipe.Outcome);
+					Outcome = std::move(Recipe.error());
 					return false;
 				}
-				auto RecipeProduct = std::move(*Recipe.Value);
+				auto RecipeProduct = std::move(*Recipe);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
 					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
@@ -87,7 +87,7 @@ namespace Durin
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
 			&& Invocation.Value.has_value() && *Invocation.Value)
 		{
-			return {.Outcome = {ETextureBuildFailure::None}, .Value = FVolumeTextureBuildValue{std::move(Product)}};
+			return FVolumeTextureBuildValue{std::move(Product)};
 		}
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
 		{
@@ -109,17 +109,16 @@ namespace Durin
 		}
 		else if (Outcome.Diagnostic.empty())
 			Outcome.Diagnostic = "The VolumeTexture build provider failed without a diagnostic.";
-		if (Outcome.Code == ETextureBuildFailure::None) Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-		return {.Outcome = std::move(Outcome)};
+		return std::unexpected(std::move(Outcome));
 #endif
 	}
 
-	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> FTextureBuildOutcome
+	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>
 	{
 		CheckGameThread();
 		auto Result = InvokeVolumeTextureBuildProvider(Request);
-		if (!Result) return std::move(Result.Outcome);
-		return ApplyVolumeTextureBuildResult(Texture, Request.SourceData.get(), Request.Settings, std::move(Result.Value->Product), Context);
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return ApplyVolumeTextureBuildResult(Texture, Request.SourceData.get(), Request.Settings, std::move(Result->Product), Context);
 	}
 
 	namespace
@@ -130,7 +129,7 @@ namespace Durin
 			const FVolumeTextureBuildSettings& Settings,
 			FVolumeTextureBuildProduct Product,
 			const FVolumeTextureResultApplicationContext& Context
-		) -> FTextureBuildOutcome
+		) -> std::expected<void, FTextureBuildError>
 		{
 			CheckGameThread();
 			require(Product.PlatformData != nullptr);
@@ -140,15 +139,15 @@ namespace Durin
 			if (!Context.bPreserveSource)
 			{
 				auto Source = PrepareVolumeTextureSource(SourceData);
-				if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-					"VolumeTexture source preparation failed; see log for details."};
+				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
+					"VolumeTexture source preparation failed; see log for details."});
 				Texture.SetSource(std::move(*Source));
 			}
 			Texture.SetBuildSettings(Settings);
 			Texture.SetPlatformData(std::move(Product.PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
-			return {ETextureBuildFailure::None};
+			return {};
 	}
 	}
 }

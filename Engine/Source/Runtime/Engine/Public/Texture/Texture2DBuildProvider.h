@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include <expected>
 #include "Modules/ModularFeature.h"
 #include "Texture/Texture2DData.h"
 
@@ -33,12 +34,6 @@ namespace Durin
 		Image::FImageInfo Actual;
 		Image::FImageInfo Base;
 		FTexture2DBuildSettings Settings;
-	};
-	struct FTexture2DInputResult
-	{
-		FTexture2DInputError Error;
-		auto Succeeded() const -> bool { return Error.Code == ETexture2DInputError::None; }
-		explicit operator bool() const { return Succeeded(); }
 	};
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
 
@@ -76,13 +71,6 @@ namespace Durin
 		FTexture2DRecipeMetrics Metrics;
 	};
 
-	enum class ETexture2DBuildStatus : uint8
-	{
-		Succeeded,
-		Failed,
-		Cancelled
-	};
-
 	enum class ETaskState : uint8;
 	enum class ETexture2DBuildError : uint8
 	{
@@ -101,16 +89,6 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
 
-	struct FTexture2DBuildResult
-	{
-		ETexture2DBuildStatus Status = ETexture2DBuildStatus::Failed;
-		FTexture2DBuildError Error;
-
-		explicit operator bool() const
-		{
-			return Status == ETexture2DBuildStatus::Succeeded;
-		}
-	};
 
 	struct FTexture2DRecipeExecutionControl
 	{
@@ -119,10 +97,10 @@ namespace Durin
 	};
 
 	ENGINE_API auto ValidateTexture2DSourceMips(
-		std::span<const Image::FImage> Mips) -> FTexture2DInputResult;
+		std::span<const Image::FImage> Mips) -> std::expected<void, FTexture2DInputError>;
 
 	ENGINE_API auto ValidateTexture2DBuildSettings(
-		const FTexture2DBuildSettings& Settings) -> FTexture2DInputResult;
+		const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>;
 	ENGINE_API auto ResolveTexture2DSRGB(
 		const FTexture2DBuildSettings& Settings) -> bool;
 
@@ -131,13 +109,12 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 5;
+		static constexpr uint32 FeatureVersion = 6;
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(
 			const FTexture2DRecipeBuildRequest& Request,
-			FTexture2DRecipeBuildProduct& OutProduct,
-			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> FTexture2DBuildResult = 0;
+			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> = 0;
 	};
 
 }

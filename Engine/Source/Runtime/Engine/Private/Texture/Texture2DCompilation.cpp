@@ -99,7 +99,7 @@ struct FAssetState
 			FXxHash128 SourceIdentity,
 			const FTexture2DBuildSettings& Settings,
 			FTexture2DBuildProduct Product,
-			const FTexture2DResultApplicationContext& Context) -> FTexture2DCompilationOperationResult;
+			const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>;
 
 		auto GetTextureCompilingManager() -> std::shared_ptr<FTextureCompilingManager>
 		{
@@ -240,10 +240,10 @@ struct FAssetState
 					State->bLastRequestFailed = true;
 			}
 			DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
-				Result.AssetIdentity, FormatTexture2DCompilationError(Applied.Error));
+				Result.AssetIdentity, FormatTexture2DCompilationError(Applied.error()));
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = Applied.Error, .PersistenceDiagnostic = PersistenceDiagnostic});
+				.Error = Applied.error(), .PersistenceDiagnostic = PersistenceDiagnostic});
 			return;
 		}
 		{
@@ -337,37 +337,37 @@ struct FAssetState
 	auto FTextureCompilingManager::Submit(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
-		FTexture2DCompilationCompletion Completion) -> FTexture2DCompilationOperationResult
+		FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
 		if (Request.Build.DeferredSource && (!Request.Build.SourceMips.empty()
 			|| !Request.Build.DeferredSource->IsValid() || Request.Build.DeferredSource->GetOwner()
 			|| Request.Build.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
 			|| Request.Build.DeferredSource->GetIdentity() != Request.Build.SourceIdentity))
-			return {.Error = {.Code = ETexture2DCompilationError::InvalidSource}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource});
 		if (const auto Validation = ValidateTexture2DSourceMips(Request.Build.SourceMips); !Request.Build.DeferredSource && !Validation)
-			return {.Error = {.Code = ETexture2DCompilationError::InvalidSource,
-				.InputCause = Validation.Error, .ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource,
+				.InputCause = Validation.error(), .ObjectPath = Texture.GetObjectPath()});
 		if (Request.Build.SourceIdentity.IsZero())
-			return {.Error = {.Code = ETexture2DCompilationError::MissingSourceIdentity,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingSourceIdentity,
+				.ObjectPath = Texture.GetObjectPath()});
 		if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::ManagerUnavailable,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::ManagerUnavailable,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		if (!CompilationState)
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::ManagerNotStarted,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::ManagerNotStarted,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 
 		const std::string Identity = Texture.GetObjectPath();
 		const FObjectKey Owner = FObjectKey(&Texture);
 		if (IsObjectKeyNull(Owner))
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::InvalidOwner,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		const FTexture2DBuildSettings Settings = Request.Build.Settings;
 		const bool bSourceDecoderInvoked =
@@ -436,8 +436,8 @@ struct FAssetState
 			if (SupersededCompletion) SupersededCompletion({
 				.Status = ETexture2DCompilationStatus::Superseded,
 				.Error = {.Code = ETexture2DCompilationError::Superseded, .ObjectPath = Texture.GetObjectPath()}});
-			return {.Error = {.Code = ETexture2DCompilationError::AdmissionRejected,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::AdmissionRejected,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
@@ -613,17 +613,17 @@ struct FAssetState
 	auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
-		const FTexture2DResultApplicationContext& Context) -> FTexture2DCompilationOperationResult
+		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
 		FTexture2DBuildProduct Product;
 		FTexture2DBuildInputIdentity Identity;
-		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+		const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
 			Request, Product, Identity);
 		if (!BuildResult)
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::BuildFailed,
-				.BuildCause = BuildResult.Error, .ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::BuildFailed,
+				.BuildCause = BuildResult.error(), .ObjectPath = Texture.GetObjectPath()});
 		}
 		return ApplyTexture2DBuildResult(Texture, Request.SourceIdentity, Request.Settings,
 			std::move(Product), Context);
@@ -636,31 +636,31 @@ struct FAssetState
 		FXxHash128 SourceIdentity,
 		const FTexture2DBuildSettings& Settings,
 		FTexture2DBuildProduct Product,
-		const FTexture2DResultApplicationContext& Context) -> FTexture2DCompilationOperationResult
+		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
 		if (!Texture.GetPackage())
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::MissingPackage,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		if (!Product.PlatformData.IsValid()
 			|| !Product.DerivedDataKey.IsValid())
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::InvalidProduct,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidProduct,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		const FTextureSource& Source = Context.SourceReplacement
 			? *Context.SourceReplacement : Texture.GetSource();
 		if (!Source.IsValid() || Source.GetIdentity() != SourceIdentity)
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::SourceMismatch,
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::SourceMismatch,
 				.ObjectPath = Texture.GetObjectPath(), .ExpectedSourceIdentity = SourceIdentity,
-				.ActualSourceIdentity = Source.GetIdentity()}};
+				.ActualSourceIdentity = Source.GetIdentity()});
 		}
 		if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
-			return {.Error = {.Code = ETexture2DCompilationError::InvalidSettings,
-				.InputCause = Validation.Error, .ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSettings,
+				.InputCause = Validation.error(), .ObjectPath = Texture.GetObjectPath()});
 		auto PlatformData = std::make_unique<FTexturePlatformData>(
 			std::move(Product.PlatformData));
 		if (Context.SourceReplacement) Texture.SetSource(*Context.SourceReplacement);
@@ -683,13 +683,13 @@ struct FAssetState
 	auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
-		FTexture2DCompilationCompletion Completion) -> FTexture2DCompilationOperationResult
+		FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>
 	{
 		const auto Manager = GetTextureCompilingManager();
 		if (!Manager)
 		{
-			return {.Error = {.Code = ETexture2DCompilationError::ManagerUnavailable,
-				.ObjectPath = Texture.GetObjectPath()}};
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::ManagerUnavailable,
+				.ObjectPath = Texture.GetObjectPath()});
 		}
 		return Manager->Submit(
 			Texture, std::move(Request), std::move(Completion));

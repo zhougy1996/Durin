@@ -44,9 +44,9 @@ namespace Durin
 		return "Texture2D source mip chain is invalid.";
 	}
 
-	auto ValidateTexture2DSourceMips(std::span<const Image::FImage> Mips) -> FTexture2DInputResult
+	auto ValidateTexture2DSourceMips(std::span<const Image::FImage> Mips) -> std::expected<void, FTexture2DInputError>
 	{
-		if (Mips.empty()) return {{.Code = ETexture2DInputError::EmptyMips}};
+		if (Mips.empty()) return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::EmptyMips});
 		const auto& Base = Mips.front().GetInfo();
 		uint64 Bytes = 0;
 		for (size_t Index = 0; Index < Mips.size(); ++Index)
@@ -65,7 +65,7 @@ namespace Durin
 			else if (Index > 0 && Mips[Index - 1].GetInfo().Width == 1
 				&& Mips[Index - 1].GetInfo().Height == 1) Code = ETexture2DInputError::MipAfterTerminal;
 			if (Code != ETexture2DInputError::None)
-				return {{.Code = Code, .Index = Index, .Bytes = Bytes, .Actual = Info, .Base = Base}};
+				return std::unexpected(FTexture2DInputError{.Code = Code, .Index = Index, .Bytes = Bytes, .Actual = Info, .Base = Base});
 		}
 		return {};
 	}
@@ -93,14 +93,16 @@ namespace Durin
 		return Result;
 	}
 
-	auto ValidateTexture2DBuildSettings(const FTexture2DBuildSettings& Settings) -> FTexture2DInputResult
+	auto ValidateTexture2DBuildSettings(const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>
 	{
 		ETexture2DInputError Code = ETexture2DInputError::None;
 		if (!IsValidTextureUsage(Settings.Usage)) Code = ETexture2DInputError::InvalidUsage;
 		else if (!IsValidTextureCompressionQuality(Settings.CompressionQuality)) Code = ETexture2DInputError::InvalidCompressionQuality;
 		else if (!IsValidTextureAlphaMipMode(Settings.AlphaMipMode)) Code = ETexture2DInputError::InvalidAlphaMipMode;
 		else if (!IsValidTextureAlphaCoverageThreshold(Settings.AlphaCoverageThreshold)) Code = ETexture2DInputError::InvalidAlphaCoverageThreshold;
-		return Code == ETexture2DInputError::None ? FTexture2DInputResult{} : FTexture2DInputResult{{.Code = Code, .Settings = Settings}};
+		if (Code != ETexture2DInputError::None)
+			return std::unexpected(FTexture2DInputError{.Code = Code, .Settings = Settings});
+		return {};
 	}
 
 	auto ResolveTexture2DSRGB(const FTexture2DBuildSettings& Settings) -> bool
@@ -112,7 +114,7 @@ namespace Durin
 		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
+		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
 	{
 		OutProduct = {};
 		OutIdentity = {};
@@ -120,13 +122,13 @@ namespace Durin
 			|| !Request.DeferredSource->IsValid() || Request.DeferredSource->GetOwner()
 			|| Request.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
 			|| Request.DeferredSource->GetIdentity() != Request.SourceIdentity))
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::MissingSourceIdentity}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::MissingSourceIdentity});
 		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Request.DeferredSource && !Validation)
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (Request.SourceIdentity.IsZero())
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::MissingSourceIdentity}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::MissingSourceIdentity});
 		OutIdentity = {
 			.SourceIdentity = Request.SourceIdentity,
 			.Settings = Request.Settings,
@@ -134,16 +136,14 @@ namespace Durin
 			.TargetProfile = Request.TargetProfile};
 		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 #if !DURIN_WITH_EDITOR
-		return {ETexture2DBuildStatus::Failed,
-			{.Code = ETexture2DBuildError::AuthoredBuildUnavailable}};
+		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) {
+			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) -> std::expected<void, FTexture2DBuildError> {
 				OutIdentity.Provider = Provider.GetDescriptor();
 				if (!OutIdentity.Provider.IsValid())
 				{
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-						{.Code = ETexture2DBuildError::InvalidProviderDescriptor}};
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidProviderDescriptor});
 				}
 				const FTexture2DBuildKeyInput KeyInput{
 					.SourceIdentity = OutIdentity.SourceIdentity,
@@ -168,45 +168,41 @@ namespace Durin
 						.DerivedDataKey = Key,
 						.Provider = OutIdentity.Provider,
 						.Origin = ETexture2DBuildProductOrigin::CacheHit};
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Succeeded, {}};
+					return std::expected<void, FTexture2DBuildError>{};
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
 				{
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
-						{.Code = ETexture2DBuildError::Cancelled}};
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 				}
-				FTexture2DRecipeBuildProduct RecipeProduct;
 				FTexture2DBuildRequest Decoded;
 				if (Request.DeferredSource)
 				{
 					Decoded = MakeTexture2DBuildRequest(*Request.DeferredSource, Request.Settings);
 					if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
-						return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-							{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 				}
 				FTexture2DBuildMetrics RecipeMetrics;
 				const FTexture2DRecipeExecutionControl RecipeControl{
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
-				const FTexture2DBuildResult RecipeResult = Provider.Build({
+				auto RecipeResult = Provider.Build({
 					.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},
-					RecipeProduct, &RecipeControl);
-				if (!RecipeResult) return RecipeResult;
+					&RecipeControl);
+				if (!RecipeResult) return std::unexpected(std::move(RecipeResult.error()));
+				auto RecipeProduct = std::move(*RecipeResult);
 				if (!RecipeProduct.PlatformData.IsValid())
 				{
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-						{.Code = ETexture2DBuildError::InvalidProviderProduct}};
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidProviderProduct});
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
 				{
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
-						{.Code = ETexture2DBuildError::Cancelled}};
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 				}
 
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
@@ -229,7 +225,7 @@ namespace Durin
 					.Provider = OutIdentity.Provider,
 					.Metrics = RecipeMetrics,
 					.Origin = ETexture2DBuildProductOrigin::Rebuilt};
-				return FTexture2DBuildResult{ETexture2DBuildStatus::Succeeded, {}};
+				return std::expected<void, FTexture2DBuildError>{};
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
 			&& Invocation.Value.has_value())
@@ -239,16 +235,12 @@ namespace Durin
 		}
 		OutProduct = {};
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::ProviderUnavailable}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderUnavailable});
 		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::AmbiguousProvider}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AmbiguousProvider});
 		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::ProviderInvocationFailed}};
-		return {ETexture2DBuildStatus::Failed,
-			{.Code = ETexture2DBuildError::ProviderFailed}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderInvocationFailed});
+		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderFailed});
 #endif
 	}
 }

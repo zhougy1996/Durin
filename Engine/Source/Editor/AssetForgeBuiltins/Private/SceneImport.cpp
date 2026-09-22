@@ -774,11 +774,11 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
 		FTexture2DBuildInputIdentity Identity;
-		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+		const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
 			Request, OutProduct.Product, Identity, &Control);
 		if (!BuildResult)
 		{
-			OutError = Durin::FormatTexture2DBuildError(BuildResult.Error);
+			OutError = Durin::FormatTexture2DBuildError(BuildResult.error());
 			return false;
 		}
 		OutProduct.SourceData = std::move(*Translated);

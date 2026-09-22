@@ -212,7 +212,7 @@ namespace Durin
 		const auto Result = BuildVolumeTextureSynchronously(*this,
 			{.SourceData = BuildInput, .Settings = BuildSettings},
 			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
-		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.Diagnostic);
+		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.error().Diagnostic);
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData() -> bool

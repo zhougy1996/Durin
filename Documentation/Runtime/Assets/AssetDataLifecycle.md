@@ -265,7 +265,16 @@ Build contracts remain owned by Engine, and both build modules publicly depend
 on Engine. `Texture2DData.h` carries source/settings values and CPU platform
 mips; `Texture2DBuildProvider.h` exposes only the recipe seam, while
 `Texture2DBuild.h` owns requests, cache identity, persistence controls and
-observations. `StaticMeshData.h` supplies resource-free CPU streams and LOD
+observations. Texture providers return `std::expected<Product, Error>` with owned
+recipe products; Cube normalization likewise returns its canonical input by value.
+Texture2D input validation uses `FTexture2DInputError`, recipe failures use
+`FTexture2DBuildError`, and Cube/Volume failures use `FTextureBuildError` with
+their operation stage and diagnostic. Texture2D cancellation remains a distinct
+build error. Synchronous application and submission return expected void;
+accepted asynchronous completions retain their terminal state and persistence
+diagnostics. Expected success never requires inspecting an error sentinel, and
+does not add rollback or change cache-miss and persistence policies.
+`StaticMeshData.h` supplies resource-free CPU streams and LOD
 metadata. StaticMesh recipes return those owned values; Engine moves the arrays
 into `FStaticMeshRenderData`, and owns GPU resource initialization. Recipe and
 payload LODs share `FStaticMeshVertexData` without making the recipe product a

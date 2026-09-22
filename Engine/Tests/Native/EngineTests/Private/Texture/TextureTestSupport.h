@@ -194,7 +194,7 @@ namespace
 				.bSRGB = Texture.IsSRGB()});
 		Request.bPersistDerivedData = false;
 		const auto BuildResult = Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
-		EXPECT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.Error);
+		EXPECT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 		return Product.DerivedDataKey.ToString();
 	}
 

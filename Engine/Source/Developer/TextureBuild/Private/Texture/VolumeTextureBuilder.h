@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TextureBuildAPI.h"
+#include "Texture/TextureBuildOutcome.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin::VolumeTextureBuilder
@@ -9,6 +10,5 @@ namespace Durin::VolumeTextureBuilder
 	TEXTUREBUILD_API auto BuildMipChain(
 		const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
-		FVolumeTexturePlatformData& OutPlatformData,
-		std::string& OutError) -> bool;
+		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>;
 }

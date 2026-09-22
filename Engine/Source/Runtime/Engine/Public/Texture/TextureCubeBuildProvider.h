@@ -146,17 +146,17 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.TextureCubeBuildProvider";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 4;
 
 		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
 		virtual auto Normalize(
 			const FTextureCubeBuildRequest& Request
 		)
-			-> TTextureBuildResult<FTextureCubeCanonicalBuildInput> = 0;
+			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
 		virtual auto Build(
 			const FTextureCubeRecipeBuildRequest& Request
 		)
-			-> TTextureBuildResult<FTextureCubeRecipeBuildProduct> = 0;
+			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> = 0;
 	};
 
 	struct FTextureCubeBuildValue
@@ -166,7 +166,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
-		-> TTextureBuildResult<FTextureCubeBuildValue>;
+		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;
 	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
-		-> FTextureBuildOutcome;
+		-> std::expected<void, FTextureBuildError>;
 }

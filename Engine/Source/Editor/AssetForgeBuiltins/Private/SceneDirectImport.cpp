@@ -791,7 +791,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
 				{
 					co_return AddError(Result, EImportDiagnosticCategory::CandidateFailure,
-					                   "scene-materialization", FormatTexture2DInputError(Validation.Error),
+					                   "scene-materialization", FormatTexture2DInputError(Validation.error()),
 					                   Descriptor.StableIdentity);
 				}
 				Texture->SetSource(Output.Texture.SourceData);

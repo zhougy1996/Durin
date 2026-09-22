@@ -189,7 +189,7 @@ capture, translation and compilation causes. Factory reimport results retain
 submission or terminal compilation details through the manager callback. Admission
 failure still invokes no compilation completion; accepted requests retain the
 existing asynchronous publication and completion contract.
-Texture2D property-setting helpers return `FTexture2DCompilationOperationResult`
+Texture2D property-setting helpers return `std::expected<void, FTexture2DCompilationError>`
 directly. Invalid usage, quality, alpha mode or threshold retains the requested
 settings in the Engine input cause; unchanged values remain successful no-ops,
 and rebuild rejection preserves its original compilation error.

@@ -52,8 +52,10 @@ namespace
 				*EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
 			return false;
 		return std::visit([&](const auto& Source) {
-			return Durin::TextureCubeBuilder::ProjectEquirectangularTextureCube(
-				Source, {Settings.FaceDimension, Settings.ExposureEV}, OutSource, OutError);
+			auto Result = Durin::TextureCubeBuilder::ProjectEquirectangularTextureCube(
+				Source, {Settings.FaceDimension, Settings.ExposureEV}, OutSource);
+			if (!Result) OutError = Result.error().Diagnostic;
+			return Result.has_value();
 		}, Panorama);
 	}
 } // namespace

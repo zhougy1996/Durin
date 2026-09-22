@@ -114,7 +114,7 @@ namespace Durin::Editor::Texture
 			{
 				FTexture2DPropertyEditCause Cause;
 				Cause.Code = ETexture2DPropertyEditError::Settings;
-				Cause.InputCause = Validation.Error;
+				Cause.InputCause = Validation.error();
 				return Reject(std::move(Cause));
 			}
 			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
@@ -135,7 +135,7 @@ namespace Durin::Editor::Texture
 				if (Built) return {};
 				FTexture2DPropertyEditCause Cause;
 				Cause.Code = ETexture2DPropertyEditError::Compilation;
-				Cause.CompilationCause = Built.Error;
+				Cause.CompilationCause = Built.error();
 				return Reject(std::move(Cause));
 			}
 
@@ -167,7 +167,7 @@ namespace Durin::Editor::Texture
 							(*DeferredCompletion)(MakeDeferredResult(std::move(Result.Error)));
 						}); !Submitted)
 					{
-						(*DeferredCompletion)(MakeDeferredResult(Submitted.Error));
+						(*DeferredCompletion)(MakeDeferredResult(Submitted.error()));
 						return FPropertyEditDeferredCancel{};
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {

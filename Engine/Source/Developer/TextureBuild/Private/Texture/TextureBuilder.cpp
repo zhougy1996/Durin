@@ -60,21 +60,20 @@ namespace Durin::TextureBuilder
 		auto CompressTextureMip(const FReadOnlyMip& Source, EPixelFormat Format,
 			ETextureCompressionQuality Quality,
 			FTexture2DMipData& OutMip,
-			const FBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
+			const FBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
 		{
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
 			if (Layout.DataSize == 0 || Layout.RowPitch > std::numeric_limits<uint32>::max()
 				|| Layout.DataSize > std::numeric_limits<size_t>::max())
 			{
-				return {ETexture2DBuildStatus::Failed,
-					{.Code = ETexture2DBuildError::CompressedLayoutOverflow}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressedLayoutOverflow});
 			}
 
 			if (Format != EPixelFormat::BC1_UNORM && Format != EPixelFormat::BC1_UNORM_SRGB
 				&& Format != EPixelFormat::BC3_UNORM && Format != EPixelFormat::BC3_UNORM_SRGB
 				&& Format != EPixelFormat::BC5_UNORM && Format != EPixelFormat::BC7_UNORM
 				&& Format != EPixelFormat::BC7_UNORM_SRGB)
-				return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::UnsupportedPixelFormat}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
 
 			static std::once_flag EncoderInitFlag;
 			std::call_once(EncoderInitFlag, [] {
@@ -103,8 +102,7 @@ namespace Durin::TextureBuilder
 				BC7Params.m_uber_level = 2;
 				break;
 			default:
-				return {ETexture2DBuildStatus::Failed,
-					{.Code = ETexture2DBuildError::InvalidCompressionQuality}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidCompressionQuality});
 			}
 			const uint32 CompressionLevel = GetCompressionLevel(Quality);
 			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
@@ -164,10 +162,10 @@ namespace Durin::TextureBuilder
 				}
 			}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
 			if (bCancelled)
-				return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			if (Compression.State != ETaskState::Succeeded)
-				return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::CompressionTaskFailed, .TaskState = Compression.State}};
-			return {ETexture2DBuildStatus::Succeeded, {}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressionTaskFailed, .TaskState = Compression.State});
+			return {};
 		}
 
 		auto BuildNextMip(
@@ -348,7 +346,7 @@ namespace Durin::TextureBuilder
 		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
 		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
-		std::optional<bool> TransparencyOverride) -> FTexture2DBuildResult
+		std::optional<bool> TransparencyOverride) -> std::expected<void, FTexture2DBuildError>
 	{
 		using FClock = std::chrono::steady_clock;
 		auto IsCancelled = [ExecutionControl] {
@@ -360,26 +358,23 @@ namespace Durin::TextureBuilder
 		OutPlatformData = {};
 		if (const auto Validation = ValidateTexture2DSourceMips(SourceMips); !Validation)
 		{
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		}
 		if (!IsValidTextureUsage(Usage))
 		{
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidUsage}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidUsage});
 		}
 		if (!IsValidTextureCompressionQuality(CompressionQuality))
 		{
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::InvalidCompressionQuality}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidCompressionQuality});
 		}
 		if (!IsValidTextureAlphaMipMode(AlphaMipMode))
 		{
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidAlphaMipMode}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidAlphaMipMode});
 		}
 		if (!IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold))
 		{
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::InvalidAlphaCoverageThreshold}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidAlphaCoverageThreshold});
 		}
 		bool bHasTransparency = TransparencyOverride.value_or(false);
 		if (!TransparencyOverride)
@@ -392,7 +387,7 @@ namespace Durin::TextureBuilder
 				for (uint32 Y = 0; Y < Mip.GetInfo().Height && !bHasTransparency; ++Y)
 				{
 					if (Y % CancellationScanlineInterval == 0 && IsCancelled())
-						return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 					const size_t Row = static_cast<size_t>(Y) * Width * ChannelCount;
 					for (uint32 X = 0; X < Width; ++X)
 						if (Pixels[Row + static_cast<size_t>(X) * ChannelCount + 3] != std::byte{255})
@@ -407,8 +402,7 @@ namespace Durin::TextureBuilder
 		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, bHasTransparency);
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::UnsupportedPixelFormat}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
 		}
 		// FImage copies share the source allocation; no writable source copy is needed.
 		std::vector<Image::FImage> UncompressedMips(SourceMips.begin(), SourceMips.end());
@@ -425,7 +419,7 @@ namespace Durin::TextureBuilder
 				ExecutionControl))
 		{
 			OutPlatformData = {};
-			return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		}
 		const FClock::time_point MipStart = FClock::now();
 		while (SourceMips.size() == 1
@@ -434,14 +428,14 @@ namespace Durin::TextureBuilder
 			if (IsCancelled())
 			{
 				OutPlatformData = {};
-				return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			}
 			FTexture2DMipData NextMip;
 			if (!BuildNextMip(
 				UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
 			{
 				OutPlatformData = {};
-				return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			}
 			if (bPreserveAlphaCoverage)
 			{
@@ -452,7 +446,7 @@ namespace Durin::TextureBuilder
 					ExecutionControl))
 				{
 					OutPlatformData = {};
-					return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 				}
 			}
 			auto ImageResult1 = Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
@@ -461,7 +455,7 @@ namespace Durin::TextureBuilder
 			if (!ImageResult1)
 			{
 				OutPlatformData = {};
-				return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidMipLayout}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidMipLayout});
 			}
 			auto FrozenMip = std::move(*ImageResult1);
 			UncompressedMips.push_back(std::move(FrozenMip));
@@ -493,10 +487,10 @@ namespace Durin::TextureBuilder
 			if (IsCancelled())
 			{
 				OutPlatformData = {};
-				return {ETexture2DBuildStatus::Cancelled, {.Code = ETexture2DBuildError::Cancelled}};
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			}
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
-			const FTexture2DBuildResult CompressionResult = CompressTextureMip(
+			const std::expected<void, FTexture2DBuildError> CompressionResult = CompressTextureMip(
 				UncompressedMips[MipIndex], OutPlatformData.PixelFormat,
 				CompressionQuality, CompressedMip, ExecutionControl);
 			if (!CompressionResult)
@@ -513,10 +507,9 @@ namespace Durin::TextureBuilder
 		}
 		if (OutPlatformData.IsValid())
 		{
-			return {ETexture2DBuildStatus::Succeeded, {}};
+			return {};
 		}
 		OutPlatformData = {};
-		return {ETexture2DBuildStatus::Failed,
-			{.Code = ETexture2DBuildError::InvalidPlatformData}};
+		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidPlatformData});
 	}
 }

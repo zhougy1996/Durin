@@ -72,12 +72,6 @@ namespace Durin
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }
 	};
-	struct FTexture2DCompilationOperationResult
-	{
-		FTexture2DCompilationError Error;
-		auto Succeeded() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return Succeeded(); }
-	};
 	ENGINE_API auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string;
 
 	// Provides a thread-safe snapshot suitable for editor diagnostics.

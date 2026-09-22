@@ -100,18 +100,18 @@ namespace Durin::AssetForge::Builtins
 		const FTexture2DBuildSettings& Settings,
 		ETexture2DCompilationPriority Priority =
 			ETexture2DCompilationPriority::Interactive,
-		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DCompilationOperationResult;
+		FTexture2DCompilationCompletion Completion = {}) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DUsage(
-		DTexture2D& Texture, ETextureUsage Usage) -> FTexture2DCompilationOperationResult;
+		DTexture2D& Texture, ETextureUsage Usage) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DSRGB(
-		DTexture2D& Texture, bool bSRGB) -> FTexture2DCompilationOperationResult;
+		DTexture2D& Texture, bool bSRGB) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DMaxResolution(
-		DTexture2D& Texture, uint32 MaxResolution) -> FTexture2DCompilationOperationResult;
+		DTexture2D& Texture, uint32 MaxResolution) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DCompressionQuality(
 		DTexture2D& Texture,
-		ETextureCompressionQuality Quality) -> FTexture2DCompilationOperationResult;
+		ETextureCompressionQuality Quality) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DAlphaMipMode(
-		DTexture2D& Texture, ETextureAlphaMipMode Mode) -> FTexture2DCompilationOperationResult;
+		DTexture2D& Texture, ETextureAlphaMipMode Mode) -> std::expected<void, FTexture2DCompilationError>;
 	ASSETFORGEBUILTINS_API auto SetTexture2DAlphaCoverageThreshold(
-		DTexture2D& Texture, float Threshold) -> FTexture2DCompilationOperationResult;
+		DTexture2D& Texture, float Threshold) -> std::expected<void, FTexture2DCompilationError>;
 }

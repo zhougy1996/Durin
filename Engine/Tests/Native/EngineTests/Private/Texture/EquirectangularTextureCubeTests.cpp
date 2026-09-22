@@ -42,7 +42,9 @@ namespace Durin::TextureCubeBuilder
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
 		FTextureCubeDecodedFaces Cube;
-		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
+		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
+		Error = Projection ? std::string{} : Projection.error().Diagnostic;
+		ASSERT_TRUE(Projection) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{0, 255, 0, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::NegativeX), (std::array<uint8, 4>{255, 0, 0, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveY), (std::array<uint8, 4>{255, 255, 0, 255}));
@@ -64,7 +66,9 @@ namespace Durin::TextureCubeBuilder
 		Settings.FaceDimension = 1;
 		FTextureCubeDecodedFaces Cube;
 		std::string Error;
-		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
+		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
+		Error = Projection ? std::string{} : Projection.error().Diagnostic;
+		ASSERT_TRUE(Projection) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{188, 188, 188, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::NegativeX), (std::array<uint8, 4>{188, 188, 188, 255}));
 	}
@@ -80,7 +84,9 @@ namespace Durin::TextureCubeBuilder
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
 		FTextureCubeDecodedFaces Cube;
-		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
+		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
+		Error = Projection ? std::string{} : Projection.error().Diagnostic;
+		ASSERT_TRUE(Projection) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{232, 245, 252, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::NegativeX), (std::array<uint8, 4>{115, 165, 206, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveY), (std::array<uint8, 4>{245, 252, 255, 255}));
@@ -92,7 +98,9 @@ namespace Durin::TextureCubeBuilder
 		Panorama.Height = 1;
 		Panorama.Pixels.assign(6, 0.18f);
 		Settings.ExposureEV = 2.0f;
-		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
+		const auto ExposedProjection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
+		Error = ExposedProjection ? std::string{} : ExposedProjection.error().Diagnostic;
+		ASSERT_TRUE(ExposedProjection) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{221, 221, 221, 255}));
 	}
 
@@ -114,8 +122,10 @@ namespace Durin::TextureCubeBuilder
 		ASSERT_TRUE(ImageResult1) << Error;
 		auto Panorama = std::move(*ImageResult1);
 		FTextureCubePlatformData Cube;
-		ASSERT_TRUE(BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR}, Cube, Error)) << Error;
+		const auto BuiltCube = BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR}, Cube);
+		Error = BuiltCube ? std::string{} : BuiltCube.error().Diagnostic;
+		ASSERT_TRUE(BuiltCube) << Error;
 		for (const auto& Face : Cube.Faces)
 		{
 			ASSERT_EQ(Face.Mips.size(), 4u);
@@ -127,11 +137,17 @@ namespace Durin::TextureCubeBuilder
 					EXPECT_EQ(Pixel, (std::array<float, 4>{4, 8, 16, 1}));
 				}
 		}
-		EXPECT_FALSE(BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR}, Cube, Error));
+		const auto Oversized = BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR}, Cube);
+		Error = Oversized ? std::string{} : Oversized.error().Diagnostic;
+		ASSERT_FALSE(Oversized) << Error;
+		EXPECT_EQ(Oversized.error().Code, ETextureBuildFailure::BuildFailed);
+		EXPECT_EQ(Oversized.error().Stage, ETextureBuildStage::Recipe);
 		EXPECT_FALSE(Cube.IsValid());
-		EXPECT_FALSE(BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR}, Cube, Error));
+		const auto Overexposed = BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR}, Cube);
+		Error = Overexposed ? std::string{} : Overexposed.error().Diagnostic;
+		EXPECT_FALSE(Overexposed) << Error;
 		EXPECT_FALSE(Cube.IsValid());
 	}
 
@@ -140,23 +156,35 @@ namespace Durin::TextureCubeBuilder
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		uint32 FaceDimension = 99;
 		std::string Error;
-		EXPECT_FALSE(ValidateEquirectangularTextureCubeProjection(0, 0, Settings, false, FaceDimension, Error));
+		const auto ZeroDimensions = ValidateEquirectangularTextureCubeProjection(0, 0, Settings, false, FaceDimension);
+		Error = ZeroDimensions ? std::string{} : ZeroDimensions.error().Diagnostic;
+		ASSERT_FALSE(ZeroDimensions) << Error;
+		EXPECT_EQ(ZeroDimensions.error().Code, ETextureBuildFailure::InvalidInput);
+		EXPECT_EQ(ZeroDimensions.error().Stage, ETextureBuildStage::Normalize);
 		EXPECT_EQ(FaceDimension, 0u);
 		EXPECT_NE(Error.find("nonzero"), std::string::npos);
-		EXPECT_FALSE(ValidateEquirectangularTextureCubeProjection(8, 3, Settings, false, FaceDimension, Error));
+		const auto AspectRatio = ValidateEquirectangularTextureCubeProjection(8, 3, Settings, false, FaceDimension);
+		Error = AspectRatio ? std::string{} : AspectRatio.error().Diagnostic;
+		EXPECT_FALSE(AspectRatio) << Error;
 		EXPECT_NE(Error.find("2:1"), std::string::npos);
-		EXPECT_FALSE(ValidateEquirectangularTextureCubeProjection(16384, 8192, Settings, false, FaceDimension, Error));
+		const auto OverBudget = ValidateEquirectangularTextureCubeProjection(16384, 8192, Settings, false, FaceDimension);
+		Error = OverBudget ? std::string{} : OverBudget.error().Diagnostic;
+		EXPECT_FALSE(OverBudget) << Error;
 		EXPECT_NE(Error.find("33554432"), std::string::npos);
 
 		Settings.FaceDimension = MaximumProjectedCubeFaceDimension + 1;
-		EXPECT_FALSE(ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension, Error));
+		const auto OversizedFace = ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension);
+		Error = OversizedFace ? std::string{} : OversizedFace.error().Diagnostic;
+		EXPECT_FALSE(OversizedFace) << Error;
 		EXPECT_NE(Error.find("4096"), std::string::npos);
 
 		FTexturePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
 		FTextureCubeDecodedFaces Cube;
-		EXPECT_FALSE(ProjectEquirectangularTextureCube(LDR, {}, Cube, Error));
+		const auto InvalidLDR = ProjectEquirectangularTextureCube(LDR, {}, Cube);
+		Error = InvalidLDR ? std::string{} : InvalidLDR.error().Diagnostic;
+		EXPECT_FALSE(InvalidLDR) << Error;
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_NE(Error.find("storage"), std::string::npos);
 
@@ -165,14 +193,18 @@ namespace Durin::TextureCubeBuilder
 		HDR.Height = 1;
 		HDR.Pixels.assign(6, 1.0f);
 		HDR.Pixels[0] = std::numeric_limits<float>::quiet_NaN();
-		EXPECT_FALSE(ProjectEquirectangularTextureCube(HDR, {}, Cube, Error));
+		const auto NonfiniteHDR = ProjectEquirectangularTextureCube(HDR, {}, Cube);
+		Error = NonfiniteHDR ? std::string{} : NonfiniteHDR.error().Diagnostic;
+		EXPECT_FALSE(NonfiniteHDR) << Error;
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_NE(Error.find("nonfinite"), std::string::npos);
 
 		HDR.Pixels[0] = 1.0f;
 		Settings = {};
 		Settings.ExposureEV = 17.0f;
-		EXPECT_FALSE(ProjectEquirectangularTextureCube(HDR, Settings, Cube, Error));
+		const auto InvalidExposure = ProjectEquirectangularTextureCube(HDR, Settings, Cube);
+		Error = InvalidExposure ? std::string{} : InvalidExposure.error().Diagnostic;
+		EXPECT_FALSE(InvalidExposure) << Error;
 		EXPECT_NE(Error.find("between -16 and 16"), std::string::npos);
 	}
 
@@ -226,7 +258,9 @@ namespace Durin::TextureCubeBuilder
 		Settings.FaceDimension = 1;
 		FTextureCubeDecodedFaces Cube;
 		std::string Error;
-		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
+		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
+		Error = Projection ? std::string{} : Projection.error().Diagnostic;
+		ASSERT_TRUE(Projection) << Error;
 		EXPECT_NE(Cube.TransparencyMask, 0u);
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX)[3], 128u);
 	}

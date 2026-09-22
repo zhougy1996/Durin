@@ -123,7 +123,7 @@ namespace Durin
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
 			.bSourceDecoderInvoked = false}}); !Built)
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.Error));
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.error()));
 	}
 
 	auto DTexture2D::LoadCookedPlatformData() -> bool

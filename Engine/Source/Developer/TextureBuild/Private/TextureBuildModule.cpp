@@ -19,10 +19,9 @@ namespace Durin
 
 		auto Build(
 			const FTexture2DRecipeBuildRequest& Request,
-			FTexture2DRecipeBuildProduct& OutProduct,
-			const FTexture2DRecipeExecutionControl* ExecutionControl) -> FTexture2DBuildResult override
+			const FTexture2DRecipeExecutionControl* ExecutionControl) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
 		{
-			return BuildTexture2D(Request, OutProduct, ExecutionControl);
+			return BuildTexture2D(Request, ExecutionControl);
 		}
 	};
 
@@ -37,13 +36,9 @@ namespace Durin
 				.BuilderVersion = VolumeTextureBuilderVersion};
 		}
 
-		auto Build(const FVolumeTextureRecipeBuildRequest& Request) -> TTextureBuildResult<FVolumeTextureRecipeBuildProduct> override
+		auto Build(const FVolumeTextureRecipeBuildRequest& Request) -> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> override
 		{
-			FVolumeTextureRecipeBuildProduct Product;
-			std::string Error;
-			if (!BuildVolumeTexture(Request, Product, Error))
-				return {.Outcome = {ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, std::move(Error)}};
-			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
+			return BuildVolumeTexture(Request);
 		}
 	};
 
@@ -57,22 +52,14 @@ namespace Durin
 				.ProjectionVersion = TextureCubeProjectionVersion};
 		}
 
-		auto Normalize(const FTextureCubeBuildRequest& Request) -> TTextureBuildResult<FTextureCubeCanonicalBuildInput> override
+		auto Normalize(const FTextureCubeBuildRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
 		{
-			FTextureCubeCanonicalBuildInput Product;
-			std::string Error;
-			if (!NormalizeTextureCube(Request, Product, Error))
-				return {.Outcome = {ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, std::move(Error)}};
-			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
+			return NormalizeTextureCube(Request);
 		}
 
-		auto Build(const FTextureCubeRecipeBuildRequest& Request) -> TTextureBuildResult<FTextureCubeRecipeBuildProduct> override
+		auto Build(const FTextureCubeRecipeBuildRequest& Request) -> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> override
 		{
-			FTextureCubeRecipeBuildProduct Product;
-			std::string Error;
-			if (!BuildTextureCube(Request, Product, Error))
-				return {.Outcome = {ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, std::move(Error)}};
-			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
+			return BuildTextureCube(Request);
 		}
 	};
 

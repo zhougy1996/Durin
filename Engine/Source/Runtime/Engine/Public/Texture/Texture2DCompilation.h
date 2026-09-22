@@ -50,7 +50,7 @@ namespace Durin
 	ENGINE_API auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
-		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DCompilationOperationResult;
+		FTexture2DCompilationCompletion Completion = {}) -> std::expected<void, FTexture2DCompilationError>;
 	ENGINE_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic;
 	ENGINE_API auto GetTexture2DCompilationManagerDiagnostics()
@@ -62,7 +62,7 @@ namespace Durin
 	ENGINE_API auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
-		const FTexture2DResultApplicationContext& Context) -> FTexture2DCompilationOperationResult;
+		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>;
 }
 
 namespace Durin::AssetPrivate

@@ -9,18 +9,18 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> FTextureBuildOutcome;
+		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
 	auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
-		-> TTextureBuildResult<FTextureCubeBuildValue>
+		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
 	{
-		FTextureBuildOutcome Outcome;
+		FTextureBuildError Outcome;
 		FTextureCubeBuildProduct Product;
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 #if !DURIN_WITH_EDITOR
 		Outcome.Diagnostic = "TextureCube authored build orchestration is unavailable outside editor builds.";
-		return {.Outcome = {ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)}};
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)});
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider) {
@@ -35,10 +35,10 @@ namespace Durin
 				auto Normalized = Provider.Normalize(Request);
 				if (!Normalized)
 				{
-					Outcome = std::move(Normalized.Outcome);
+					Outcome = std::move(Normalized.error());
 					return false;
 				}
-				CanonicalInput = std::move(*Normalized.Value);
+				CanonicalInput = std::move(*Normalized);
 				const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
 				if ((!bHDR && !CanonicalInput.DecodedFaces.IsValid())
 					|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
@@ -105,10 +105,10 @@ namespace Durin
 						.ExposureEV = CanonicalInput.PanoramaExposureEV, .Output = CanonicalInput.Output}});
 				if (!Recipe)
 				{
-					Outcome = std::move(Recipe.Outcome);
+					Outcome = std::move(Recipe.error());
 					return false;
 				}
-				auto RecipeProduct = std::move(*Recipe.Value);
+				auto RecipeProduct = std::move(*Recipe);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
 					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
@@ -127,7 +127,7 @@ namespace Durin
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
 			&& Invocation.Value.has_value() && *Invocation.Value)
 		{
-			return {.Outcome = {ETextureBuildFailure::None}, .Value = FTextureCubeBuildValue{std::move(CanonicalInput), std::move(Product)}};
+			return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(Product)};
 		}
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
 		{
@@ -149,17 +149,16 @@ namespace Durin
 		}
 		else if (Outcome.Diagnostic.empty())
 			Outcome.Diagnostic = "The TextureCube build provider failed without a diagnostic.";
-		if (Outcome.Code == ETextureBuildFailure::None) Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-		return {.Outcome = std::move(Outcome)};
+		return std::unexpected(std::move(Outcome));
 #endif
 	}
 
-	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> FTextureBuildOutcome
+	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>
 	{
 		CheckGameThread();
 		auto Result = InvokeTextureCubeBuildProvider(Request);
-		if (!Result) return std::move(Result.Outcome);
-		return ApplyTextureCubeBuildResult(Texture, std::move(Result.Value->CanonicalInput), std::move(Result.Value->Product), Context);
+		if (!Result) return std::unexpected(std::move(Result.error()));
+		return ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->Product), Context);
 	}
 
 	namespace
@@ -169,7 +168,7 @@ namespace Durin
 			FTextureCubeCanonicalBuildInput CanonicalInput,
 			FTextureCubeBuildProduct Product,
 			const FTextureCubeResultApplicationContext& Context
-		) -> FTextureBuildOutcome
+		) -> std::expected<void, FTextureBuildError>
 		{
 			CheckGameThread();
 			require(Product.PlatformData != nullptr);
@@ -184,8 +183,8 @@ namespace Durin
 					? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(),
 						Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
 					: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
-				if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-					"TextureCube source preparation failed; see log for details."};
+				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
+					"TextureCube source preparation failed; see log for details."});
 				Texture.SetSource(std::move(*Source));
 			}
 			Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,
@@ -194,7 +193,7 @@ namespace Durin
 			Texture.SetPlatformData(std::move(PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
-			return {ETextureBuildFailure::None};
+			return {};
 	}
 	}
 }

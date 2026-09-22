@@ -105,15 +105,14 @@ namespace Durin::VolumeTextureBuilder
 
 	auto BuildMipChain(const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
-		FVolumeTexturePlatformData& OutPlatformData,
-		std::string& OutError) -> bool
+		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>
 	{
 		OutPlatformData = {};
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat
 			|| Settings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
-			OutError = "Volume texture build requires valid source with matching output format and box filtering.";
-			return false;
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+				"Volume texture build requires valid source with matching output format and box filtering."});
 		}
 		const FFormatLayout Layout = GetLayout(Settings.OutputFormat);
 		const uint32 BytesPerVoxel = Layout.Channels * Layout.BytesPerChannel;
@@ -129,8 +128,8 @@ namespace Durin::VolumeTextureBuilder
 		if (SourceVoxels.GetSize()
 			!= static_cast<uint64>(Base.DepthPitch) * Base.Depth)
 		{
-			OutError = "Volume texture authored voxel payload could not be read.";
-			return false;
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+				"Volume texture authored voxel payload could not be read."});
 		}
 		Base.Voxels.assign(
 			SourceVoxels.GetBytes().begin(), SourceVoxels.GetBytes().end());
@@ -140,8 +139,8 @@ namespace Durin::VolumeTextureBuilder
 				float Value = 0.0f;
 				if (!ReadChannel(Base.Voxels.data() + Offset, Channel, Layout, Value))
 				{
-					OutError = "Volume texture float source contains a nonfinite channel.";
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+						"Volume texture float source contains a nonfinite channel."});
 				}
 			}
 
@@ -193,11 +192,10 @@ namespace Durin::VolumeTextureBuilder
 		}
 		if (!Candidate.IsValid())
 		{
-			OutError = "Volume texture builder produced invalid platform data.";
-			return false;
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+				"Volume texture builder produced invalid platform data."});
 		}
 		OutPlatformData = std::move(Candidate);
-		OutError.clear();
-		return true;
+		return {};
 	}
 }

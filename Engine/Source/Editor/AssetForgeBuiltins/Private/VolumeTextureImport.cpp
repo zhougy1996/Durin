@@ -450,7 +450,7 @@ namespace Durin::AssetForge::Builtins
 					.Filename = Filename, .TranslationCause = Translated.error()});
 			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.SourceData = *Translated, .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
 			if (!BuildResult) return std::unexpected(FVolumeTextureRebuildError{.Code = EVolumeTextureRebuildError::Build,
-				.ObjectPath = Texture.GetObjectPath(), .Filename = Filename, .BuildCause = std::move(BuildResult)});
+				.ObjectPath = Texture.GetObjectPath(), .Filename = Filename, .BuildCause = std::move(BuildResult.error())});
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
 			if (!SaveOptions) return {};
 			DPackage* Package = Texture.GetPackage();

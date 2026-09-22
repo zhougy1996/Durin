@@ -312,16 +312,16 @@ namespace Durin
 				},
 				.Metrics = &RecipeMetrics};
 			FTexture2DBuildProduct Product;
-			const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+			const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
 				BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
-				Result.Error = {.Code = ETexture2DCompilationError::BuildFailed, .BuildCause = BuildResult.Error};
+				Result.Error = {.Code = ETexture2DCompilationError::BuildFailed, .BuildCause = BuildResult.error()};
 				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
 				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
 				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
 				Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
-				Result.Phase = BuildResult.Status == ETexture2DBuildStatus::Cancelled
+				Result.Phase = BuildResult.error().Code == ETexture2DBuildError::Cancelled
 					? ETexture2DCompilationPhase::Cancelled
 					: ETexture2DCompilationPhase::Failed;
 				if (Result.Phase == ETexture2DCompilationPhase::Failed)

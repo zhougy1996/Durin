@@ -156,8 +156,8 @@ namespace Durin
 				return Result;
 			}
 			auto Built = InvokeTextureCubeBuildProvider(Request);
-			if (Built) Result->Data = std::move(Built.Value->Product.PlatformData);
-			else Result->Error = Built.Outcome.Diagnostic.empty() ? "Cube platform build failed." : Built.Outcome.Diagnostic;
+			if (Built) Result->Data = std::move(Built->Product.PlatformData);
+			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;
 		}
 
@@ -318,7 +318,7 @@ namespace Durin
 		}
 		const auto Result = BuildTextureCubeSynchronously(*this, Request,
 			{.bSourceDecoderInvoked = false, .bPreserveSource = true});
-		if (!Result) DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Result.Diagnostic);
+		if (!Result) DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Result.error().Diagnostic);
 		return static_cast<bool>(Result);
 	}
 

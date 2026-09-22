@@ -9996,8 +9996,11 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	public:
 		uint32 Version = 1;
 		auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor override { return {"capture-recipe", Version}; }
-		auto Build(const FTexture2DRecipeBuildRequest&, FTexture2DRecipeBuildProduct&,
-			const FTexture2DRecipeExecutionControl*) -> FTexture2DBuildResult override { return {}; }
+		auto Build(const FTexture2DRecipeBuildRequest&,
+			const FTexture2DRecipeExecutionControl*) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
+		{
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderFailed});
+		}
 	} Recipe;
 	FModuleTestOwner RecipeOwner("CookRecipeFixture");
 	auto RecipeProvider = RecipeOwner.RegisterFeature<ITexture2DBuildProvider>(Recipe);

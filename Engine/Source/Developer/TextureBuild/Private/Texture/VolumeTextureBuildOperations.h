@@ -6,7 +6,5 @@
 namespace Durin
 {
 	TEXTUREBUILD_API auto BuildVolumeTexture(
-		const FVolumeTextureRecipeBuildRequest& Request,
-		FVolumeTextureRecipeBuildProduct& OutProduct,
-		std::string& OutError) -> bool;
+		const FVolumeTextureRecipeBuildRequest& Request) -> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError>;
 }

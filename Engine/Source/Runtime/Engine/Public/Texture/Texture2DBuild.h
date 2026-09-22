@@ -76,9 +76,11 @@ namespace Durin
 
 	// Invokes the single registered provider under its module-owned invocation
 	// gate. The returned product and identity contain only Engine-owned values.
+	// Failure clears OutProduct; OutIdentity retains observed input/provider
+	// identity for compilation diagnostics even when the recipe fails.
 	ENGINE_API auto InvokeTexture2DBuildProvider(
 		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> FTexture2DBuildResult;
+		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;
 }

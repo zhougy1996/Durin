@@ -6,17 +6,15 @@ namespace Durin
 {
 	auto BuildTexture2D(
 		const FTexture2DRecipeBuildRequest& Request,
-		FTexture2DRecipeBuildProduct& OutProduct,
-		const FTexture2DRecipeExecutionControl* ExecutionControl) -> FTexture2DBuildResult
+		const FTexture2DRecipeExecutionControl* ExecutionControl) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError>
 	{
-		OutProduct = {};
+		FTexture2DRecipeBuildProduct Product;
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
-			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
-			return {ETexture2DBuildStatus::Failed,
-				{.Code = ETexture2DBuildError::UnsupportedTarget}};
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedTarget});
 		}
 
 		TextureBuilder::FBuildMipChainMetrics RecipeMetrics;
@@ -24,19 +22,19 @@ namespace Durin
 			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 				: std::function<bool()>{},
 			.Metrics = &RecipeMetrics};
-		const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
+		const std::expected<void, FTexture2DBuildError> BuildResult = TextureBuilder::BuildMipChain(
 			Request.SourceMips, Request.Settings.Usage,
-			ResolveTexture2DSRGB(Request.Settings), OutProduct.PlatformData,
+			ResolveTexture2DSRGB(Request.Settings), Product.PlatformData,
 			Request.Settings.MaxResolution, Request.Settings.CompressionQuality,
 			Request.Settings.AlphaMipMode, Request.Settings.AlphaCoverageThreshold,
 			&Control);
-		if (!BuildResult) return BuildResult;
-		OutProduct.Metrics = {
+		if (!BuildResult) return std::unexpected(BuildResult.error());
+		Product.Metrics = {
 			.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds,
 			.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds,
 			.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes};
 		if (ExecutionControl && ExecutionControl->Metrics)
-			*ExecutionControl->Metrics = OutProduct.Metrics;
-		return {ETexture2DBuildStatus::Succeeded, {}};
+			*ExecutionControl->Metrics = Product.Metrics;
+		return Product;
 	}
 }

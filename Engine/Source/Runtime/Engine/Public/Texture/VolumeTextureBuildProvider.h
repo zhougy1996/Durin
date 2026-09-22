@@ -77,14 +77,14 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.VolumeTextureBuildProvider";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr uint32 FeatureVersion = 3;
 
 		virtual auto GetDescriptor() const
 			-> FVolumeTextureBuildProviderDescriptor = 0;
 		virtual auto Build(
 			const FVolumeTextureRecipeBuildRequest& Request
 		)
-			-> TTextureBuildResult<FVolumeTextureRecipeBuildProduct> = 0;
+			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> = 0;
 	};
 
 	struct FVolumeTextureBuildValue
@@ -93,7 +93,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
-		-> TTextureBuildResult<FVolumeTextureBuildValue>;
+		-> std::expected<FVolumeTextureBuildValue, FTextureBuildError>;
 	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
-		-> FTextureBuildOutcome;
+		-> std::expected<void, FTextureBuildError>;
 }
