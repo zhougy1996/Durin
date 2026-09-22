@@ -65,7 +65,7 @@ namespace Durin
 		COREDOBJECT_API auto InitializeDeprecation() -> void;
 		auto MatchesSerializedName(FName InName) const -> bool
 		{
-			return NamePrivate == InName || std::ranges::find(LegacyNames, InName) != LegacyNames.end();
+			return NamePrivate == InName || std::ranges::contains(LegacyNames, InName);
 		}
 		COREDOBJECT_API auto SetLegacyNames(std::span<const char* const> InLegacyNames) -> void;
 		COREDOBJECT_API auto GetValueSize() const -> uint32;

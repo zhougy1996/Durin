@@ -21,7 +21,7 @@ namespace Durin::Editor::Material
 		{
 			return !Pin.AcceptedTypes.empty() && Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
 				&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4
-				&& std::ranges::find(Pin.AcceptedTypes, EMaterialProgramValueType::Float) != Pin.AcceptedTypes.end()
+				&& std::ranges::contains(Pin.AcceptedTypes, EMaterialProgramValueType::Float)
 				? "\nScalar inputs are copied to every component." : "";
 		}
 		constexpr float PinExpansionHeight = 20.0f;
@@ -643,7 +643,7 @@ namespace Durin::Editor::Material
 			if (ImGui::MenuItem("Cut"))
 				CutNodes(Owner, Transactions, ContextSelection);
 			const bool CanRemoveSelection = std::ranges::none_of(View.Nodes, [&](const auto& Node) {
-				return std::ranges::find(ContextSelection, Node.Node.Id) != ContextSelection.end()
+				return std::ranges::contains(ContextSelection, Node.Node.Id)
 					&& !GraphDocument.GetSchema().CanRemove(Node.Node.bMaterialOutput);
 			});
 			if (ImGui::MenuItem("Delete", nullptr, false, CanRemoveSelection))
@@ -837,7 +837,7 @@ namespace Durin::Editor::Material
 			{
 				const auto& Data = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
 				FTopLevelAssetPath Path;
-				if (std::ranges::find(Data.AssetPath, '\0') != Data.AssetPath.end()
+				if (std::ranges::contains(Data.AssetPath, '\0')
 					&& FTopLevelAssetPath::TryCreate(Data.AssetPath.data(), Path))
 				{
 					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);

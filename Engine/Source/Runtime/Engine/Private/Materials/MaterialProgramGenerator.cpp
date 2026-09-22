@@ -431,7 +431,7 @@ float4 FragmentMain(
 			default: break;
 			}
 			const FMaterialCompilerParameterDeclaration Parameter{Node.GetParameterId(), Type};
-			if (std::ranges::find(Parameters, Parameter) == Parameters.end()) Parameters.push_back(Parameter);
+			if (!std::ranges::contains(Parameters, Parameter)) Parameters.push_back(Parameter);
 		}
 		const auto Layout = CompileMaterialLayout(Parameters);
 		if (!Layout) return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Generation,
@@ -523,7 +523,7 @@ float4 FragmentMain(
 					return Result;
 				}
 				const auto Accepted = Signature->Inputs[Slot];
-				if (std::ranges::find(Accepted, IR.Nodes[Input].ResultType) == Accepted.end())
+				if (!std::ranges::contains(Accepted, IR.Nodes[Input].ResultType))
 				{
 					Fail(EMaterialIRError::InputTypeMismatch);
 					return Result;

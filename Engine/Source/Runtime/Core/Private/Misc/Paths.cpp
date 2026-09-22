@@ -319,7 +319,7 @@ namespace Durin
 					"ContentWritable", "AuthoringWritable", "Dependencies"};
 				bool bUnknownField = false;
 				Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
-					if (std::ranges::find(Fields, Key) == Fields.end()) bUnknownField = true;
+					if (!std::ranges::contains(Fields, Key)) bUnknownField = true;
 				});
 				if (bUnknownField)
 				{

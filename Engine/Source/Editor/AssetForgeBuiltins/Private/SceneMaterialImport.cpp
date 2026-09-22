@@ -44,7 +44,7 @@ namespace Durin::AssetForge::Builtins
 			if (Path.GetView().starts_with(Prefix)) Paths.push_back(Path);
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 			if (auto* Package = Cast<DPackage>(Object); Package && Package->GetPackagePath().starts_with(Prefix)
-				&& std::ranges::find(Paths, Package->GetPackagePathIdentity()) == Paths.end())
+				&& !std::ranges::contains(Paths, Package->GetPackagePathIdentity()))
 				Paths.push_back(Package->GetPackagePathIdentity());
 		for (const auto& Path : Paths)
 		{

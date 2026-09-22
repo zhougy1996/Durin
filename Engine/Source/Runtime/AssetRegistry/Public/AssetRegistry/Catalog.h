@@ -43,8 +43,8 @@ namespace Durin
 			if (Asset.RedirectDestination.IsValid()
 				&& (Asset.RedirectDestination.GetAssetPath() == Asset.AssetPath
 					|| (Asset.RedirectDestination.GetPackagePath() != PackagePath
-						&& std::ranges::find(Dependencies,
-							Asset.RedirectDestination.GetPackagePath()) == Dependencies.end())))
+						&& !std::ranges::contains(Dependencies,
+							Asset.RedirectDestination.GetPackagePath()))))
 				return false;
 		}
 		return true;

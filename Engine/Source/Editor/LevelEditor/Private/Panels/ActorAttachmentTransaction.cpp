@@ -74,7 +74,7 @@ namespace Durin::Editor::Level
 		for (const FEntry& Entry : Entries)
 		{
 			DPackage* Package = Entry.Actor ? Entry.Actor->GetPackage() : nullptr;
-			if (Package && std::ranges::find(AffectedPackages, Package) == AffectedPackages.end())
+			if (Package && !std::ranges::contains(AffectedPackages, Package))
 				AffectedPackages.push_back(Package);
 		}
 	}

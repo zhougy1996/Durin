@@ -341,8 +341,7 @@ namespace Durin
 
 	auto DObject::WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool
 	{
-		return std::ranges::find(LoadedDeprecatedProperties, PropertyName)
-			!= LoadedDeprecatedProperties.end();
+		return std::ranges::contains(LoadedDeprecatedProperties, PropertyName);
 	}
 
 	auto DObject::SetLoadedCustomVersions(std::span<const std::pair<FGuid, int32>> Versions) -> void
@@ -615,8 +614,7 @@ namespace Durin
 			if (const DClass* SuperClass = Class->GetSuperClass())
 			{
 				const EClassDefaultObjectState SuperState = SuperClass->GetDefaultObjectState();
-				const bool bConstructedInThisBatch = std::ranges::find(ConstructedClasses, SuperClass)
-					!= ConstructedClasses.end();
+				const bool bConstructedInThisBatch = std::ranges::contains(ConstructedClasses, SuperClass);
 				if (SuperState == EClassDefaultObjectState::Uninitialized
 					|| (SuperState == EClassDefaultObjectState::Constructing && !bConstructedInThisBatch)
 					|| SuperState == EClassDefaultObjectState::Failed)

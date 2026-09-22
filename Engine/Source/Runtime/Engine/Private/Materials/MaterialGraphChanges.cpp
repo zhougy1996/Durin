@@ -148,8 +148,7 @@ namespace Durin
 			if (Before.Order != After.Order)
 				for (const auto Id : After.Order)
 					if (After.Nodes.at(Id).Class != DMaterialExpressionMaterialOutput::StaticClass()
-						&& std::ranges::find(After.Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)
-						== After.Presentation.Nodes.end()) Result.MarkNode(Id, N::Position);
+						&& !std::ranges::contains(After.Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)) Result.MarkNode(Id, N::Position);
 			return Result;
 		}
 	}

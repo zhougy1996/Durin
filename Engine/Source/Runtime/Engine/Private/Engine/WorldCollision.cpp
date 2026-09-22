@@ -29,8 +29,8 @@ namespace Durin
 			const DPrimitiveComponent* Component,
 			const FCollisionQueryParams& QueryParams) -> bool
 		{
-			return Component && std::ranges::find(
-				QueryParams.IgnoredActors, Component->GetOwner()) != QueryParams.IgnoredActors.end();
+			return Component && std::ranges::contains(
+				QueryParams.IgnoredActors, Component->GetOwner());
 		}
 
 		auto MapPhysicsHit(const FPhysicsQueryHit& Source, FHitResult& OutHit) -> bool

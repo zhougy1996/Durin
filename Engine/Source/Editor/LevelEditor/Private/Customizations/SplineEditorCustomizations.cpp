@@ -39,7 +39,7 @@ namespace Durin::Editor::Level
 
 		auto IsSelected(std::span<const FEditorSubElementSelection> Selection, const FEditorSubElementSelection& Element) -> bool
 		{
-			return std::ranges::find(Selection, Element) != Selection.end();
+			return std::ranges::contains(Selection, Element);
 		}
 
 		template<typename F>

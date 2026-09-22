@@ -96,8 +96,7 @@ namespace Durin
 		auto AssignRead = [&DeclaredPersistentInputs](auto& Parameter, const auto& Handle,
 			FRHITexture* Physical) {
 			if (!Handle || !Physical
-				|| std::ranges::find(DeclaredPersistentInputs, *Handle)
-					!= DeclaredPersistentInputs.end()) return;
+				|| std::ranges::contains(DeclaredPersistentInputs, *Handle)) return;
 			DeclaredPersistentInputs.push_back(*Handle);
 			Parameter = FRDGTextureParameter{*Handle,
 				{GetTextureAspects(Physical->GetFormat()), 0,

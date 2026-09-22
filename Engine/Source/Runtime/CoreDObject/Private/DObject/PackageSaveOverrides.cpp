@@ -65,8 +65,8 @@ namespace Durin
 			ObjectOverride = &Objects.back();
 		}
 		if (ObjectOverride->bOmitObject
-			|| std::ranges::find(ObjectOverride->Properties, &Property,
-				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end())
+			|| std::ranges::contains(ObjectOverride->Properties, &Property,
+				&FPropertySaveOverride::Property))
 			return FailSaveOverride(ESaveOverrideError::PropertyConflict, Object, &Property);
 		ObjectOverride->Properties.push_back({.Property = &Property});
 		return {};
@@ -118,8 +118,8 @@ namespace Durin
 		}
 		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
 		if (ObjectOverride && (ObjectOverride->bOmitObject
-			|| std::ranges::find(ObjectOverride->Properties, &Property,
-				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end()))
+			|| std::ranges::contains(ObjectOverride->Properties, &Property,
+				&FPropertySaveOverride::Property)))
 			return FailSaveOverride(ESaveOverrideError::PropertyConflict, Object, &Property);
 
 		FReflectedValueStorage Storage;

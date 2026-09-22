@@ -56,7 +56,7 @@ namespace Durin::Editor::Material
 				if (Definition.Type != EMaterialParameterType::Texture) continue;
 				DTexture2D* Texture = nullptr;
 				if (Material.GetTextureParameterValue(Definition.Name, Texture) && Texture
-					&& std::ranges::find(Result, Texture) == Result.end()) Result.push_back(Texture);
+					&& !std::ranges::contains(Result, Texture)) Result.push_back(Texture);
 			}
 			return Result;
 		}

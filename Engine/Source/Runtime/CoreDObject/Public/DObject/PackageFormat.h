@@ -18,8 +18,7 @@ namespace Durin::ObjectPackage
 
 	constexpr auto IsSupportedPackageReaderVersion(uint32 Version) -> bool
 	{
-		return std::ranges::find(SupportedPackageReaderVersions, Version)
-			!= SupportedPackageReaderVersions.end();
+		return std::ranges::contains(SupportedPackageReaderVersions, Version);
 	}
 
 	inline constexpr uint32 DastRegistryVersion = 2;

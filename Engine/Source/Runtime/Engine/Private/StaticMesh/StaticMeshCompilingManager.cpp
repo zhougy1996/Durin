@@ -372,7 +372,7 @@ namespace Durin
 
 			static auto Selected(const FRecord& Record, std::span<const FObjectKey> Owners) -> bool
 			{
-				return Owners.empty() || std::ranges::find(Owners, Record.Diagnostic.Owner) != Owners.end();
+				return Owners.empty() || std::ranges::contains(Owners, Record.Diagnostic.Owner);
 			}
 			auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
 			{

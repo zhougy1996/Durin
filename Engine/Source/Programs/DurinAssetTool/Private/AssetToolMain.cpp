@@ -858,7 +858,7 @@ namespace
 				std::cerr << "Error: invalid Engine Cook root '" << Value << "': " << Error << '\n';
 				return 1;
 			}
-			if (std::ranges::find(Roots, Path) == Roots.end()) Roots.push_back(std::move(Path));
+			if (!std::ranges::contains(Roots, Path)) Roots.push_back(std::move(Path));
 		}
 		const FAssetCatalogRefreshResult Refresh = RefreshAssetRegistry(
 			EAssetRegistryScanMode::FullValidation

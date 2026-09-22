@@ -68,8 +68,7 @@ namespace Durin
 			for (size_t Index = 0; Index < Classes.size(); ++Index)
 			{
 				if (!Classes[Index]) return false;
-				if (std::ranges::find(Classes.first(Index), Classes[Index])
-					!= Classes.first(Index).end()) return false;
+				if (std::ranges::contains(Classes.first(Index), Classes[Index])) return false;
 			}
 			return true;
 		}

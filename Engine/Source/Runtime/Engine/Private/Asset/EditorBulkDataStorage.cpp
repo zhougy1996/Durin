@@ -160,7 +160,7 @@ namespace Durin
 		Candidate.replace_extension(".dbulk");
 		std::error_code ErrorCode;
 		if (std::filesystem::is_regular_file(Candidate, ErrorCode)
-			&& std::ranges::find(Referenced, Candidate) == Referenced.end())
+			&& !std::ranges::contains(Referenced, Candidate))
 			OutPaths.push_back(Candidate);
 		if (ErrorCode)
 			return std::unexpected(FEditorBulkDataStorageError{.Code = EEditorBulkDataStorageError::FileSystem,

@@ -66,8 +66,7 @@ namespace Durin::RDGPrivate
 				{
 					return std::unexpected(FRDGMetadataError{ERDGMetadataError::MemberNameEmpty, MetadataContext(*Metadata, Member)});
 				}
-				if (std::ranges::find(MemberNames, Member.Name)
-					!= MemberNames.end())
+				if (std::ranges::contains(MemberNames, Member.Name))
 				{
 					return std::unexpected(FRDGMetadataError{ERDGMetadataError::MemberNameDuplicate, MetadataContext(*Metadata, Member)});
 				}
@@ -252,8 +251,8 @@ namespace Durin::RDGPrivate
 					{
 						return std::unexpected(FRDGMetadataError{ERDGMetadataError::ShaderBindingNameEmpty, MetadataContext(*Metadata, Member)});
 					}
-					if (std::ranges::find(ShaderBindingNames,
-						Member.ShaderBindingName) != ShaderBindingNames.end())
+					if (std::ranges::contains(ShaderBindingNames,
+						Member.ShaderBindingName))
 					{
 						return std::unexpected(FRDGMetadataError{ERDGMetadataError::ShaderBindingDuplicate, MetadataContext(*Metadata, Member)});
 					}

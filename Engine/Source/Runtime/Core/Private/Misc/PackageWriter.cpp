@@ -325,7 +325,7 @@ namespace Durin
 			std::ranges::transform(Native, Native.begin(), [](wchar_t C) { return static_cast<wchar_t>(std::towlower(C)); });
 			Normalized = Native;
 #endif
-			if (std::ranges::find(Access->Paths, Normalized) == Access->Paths.end()) Access->Paths.push_back(std::move(Normalized));
+			if (!std::ranges::contains(Access->Paths, Normalized)) Access->Paths.push_back(std::move(Normalized));
 		}
 		std::lock_guard Lock(FileAccessMutex);
 		for (const auto& Path : Access->Paths)

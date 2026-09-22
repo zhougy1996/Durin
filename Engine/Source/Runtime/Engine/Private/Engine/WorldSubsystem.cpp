@@ -55,7 +55,7 @@ namespace Durin
 			const FWorldSubsystemDescriptor DefaultPolicy{.Type = Registration.Descriptor.Type,
 				.Provider = Registration.Descriptor.Provider, .Dependencies = Registration.Descriptor.Dependencies};
 			const auto& Descriptor = Policy ? *Policy : DefaultPolicy;
-			if (!Descriptor.WorldTypes.empty() && std::ranges::find(Descriptor.WorldTypes, World.GetWorldType()) == Descriptor.WorldTypes.end()) continue;
+			if (!Descriptor.WorldTypes.empty() && !std::ranges::contains(Descriptor.WorldTypes, World.GetWorldType())) continue;
 			if (Descriptor.TickGroup >= ETickingGroup::Count)
 			{
 				State = EWorldSubsystemState::Failed;

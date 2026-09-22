@@ -20,12 +20,12 @@ namespace Durin
 
 	auto FCollisionQueryParams::AddIgnoredActor(const AActor* Actor) -> void
 	{
-		if (Actor && std::ranges::find(IgnoredActors, Actor) == IgnoredActors.end()) IgnoredActors.push_back(Actor);
+		if (Actor && !std::ranges::contains(IgnoredActors, Actor)) IgnoredActors.push_back(Actor);
 	}
 
 	auto FCollisionQueryParams::AddIgnoredComponent(const DPrimitiveComponent* Component) -> void
 	{
-		if (Component && std::ranges::find(IgnoredComponents, Component) == IgnoredComponents.end())
+		if (Component && !std::ranges::contains(IgnoredComponents, Component))
 			IgnoredComponents.push_back(Component);
 	}
 

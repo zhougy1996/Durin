@@ -191,7 +191,7 @@ namespace Durin
 					return static_cast<char>(std::toupper(static_cast<unsigned char>(Character)));
 				});
 				static constexpr std::array<std::string_view, 4> FixedDevices = {"CON", "PRN", "AUX", "NUL"};
-				if (std::ranges::find(FixedDevices, Stem) != FixedDevices.end()) return true;
+				if (std::ranges::contains(FixedDevices, Stem)) return true;
 				return Stem.size() == 4 && (Stem.starts_with("COM") || Stem.starts_with("LPT"))
 					   && Stem[3] >= '1' && Stem[3] <= '9';
 			});

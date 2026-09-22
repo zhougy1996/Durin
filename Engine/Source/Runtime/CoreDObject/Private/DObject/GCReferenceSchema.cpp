@@ -222,7 +222,7 @@ namespace Durin::Private
 			if (auto Operation = CompileProperty(Property)) Schema->Operations.push_back(std::move(Operation));
 		}, false);
 		Type->ReferenceSchema = std::move(Schema);
-		if (std::ranges::find(GAssembledTypes, Type) == GAssembledTypes.end()) GAssembledTypes.push_back(Type);
+		if (!std::ranges::contains(GAssembledTypes, Type)) GAssembledTypes.push_back(Type);
 	}
 
 	auto FGCReferenceSchemaRegistry::FinalizeAndAssemble(DStructBase* Type) -> void

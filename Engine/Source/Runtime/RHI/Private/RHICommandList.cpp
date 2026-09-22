@@ -233,7 +233,7 @@ namespace Durin
 	private:
 		auto AttachStorage(IRHICommandContext& Context) -> void
 		{
-			if (StorageOwner && std::ranges::find(StorageContexts, &Context) == StorageContexts.end())
+			if (StorageOwner && !std::ranges::contains(StorageContexts, &Context))
 			{
 				StorageContexts.push_back(&Context);
 				Context.RHISetReplayStorageOwner(StorageOwner);
@@ -262,7 +262,7 @@ namespace Durin
 		FRHICommandStorage() = default;
 		auto AddDependency(const FRHIPipelineCreationRequest& Request) -> bool
 		{
-			if (std::ranges::find(Dependencies, Request) != Dependencies.end()) return true;
+			if (std::ranges::contains(Dependencies, Request)) return true;
 			if (Dependencies.size() >= 256) return false;
 			Dependencies.push_back(Request);
 			return true;
@@ -1463,7 +1463,7 @@ namespace Durin
 				for (const FBatch& Batch : *Batches)
 				{
 					for (const auto& Dependency : Batch.GetDependencies())
-						if (std::ranges::find(Dependencies, Dependency) == Dependencies.end()) Dependencies.push_back(Dependency);
+						if (!std::ranges::contains(Dependencies, Dependency)) Dependencies.push_back(Dependency);
 					CommandCount = CheckedAddPayloadBytes(
 						CommandCount, Batch.GetCommandCount());
 					PayloadBytes = CheckedAddPayloadBytes(
@@ -1770,7 +1770,7 @@ namespace Durin
 		for (const auto& Wait : Desc.Waits)
 		{
 			requiref(Wait.GetState() != ERHIGPUSubmissionState::Invalid, "GPU submission has an invalid dependency.");
-			if (std::ranges::find(Recorded.Waits, Wait) == Recorded.Waits.end())
+			if (!std::ranges::contains(Recorded.Waits, Wait))
 				Recorded.Waits.push_back(Wait);
 		}
 		auto Lease = std::make_shared<FGPUSubmissionRecordingLease>();

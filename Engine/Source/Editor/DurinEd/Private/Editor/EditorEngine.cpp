@@ -224,7 +224,7 @@ namespace Durin
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
 			const auto& Windows = Mona::FMonaApplication::Get().GetWindows();
-			if (std::ranges::find(Windows, PlayWindow) == Windows.end())
+			if (!std::ranges::contains(Windows, PlayWindow))
 			{
 				ReleasePlayMouseCapture();
 				StopPlaySession();
@@ -490,7 +490,7 @@ namespace Durin
 			if (PlayWindow)
 			{
 				const auto& Windows = Mona::FMonaApplication::Get().GetWindows();
-				if (std::ranges::find(Windows, PlayWindow) != Windows.end()) Mona::FMonaApplication::Get().RequestDestroyWindow(PlayWindow);
+				if (std::ranges::contains(Windows, PlayWindow)) Mona::FMonaApplication::Get().RequestDestroyWindow(PlayWindow);
 			}
 			PlayWindowViewport.reset();
 			PlayWindowViewportClient.reset();

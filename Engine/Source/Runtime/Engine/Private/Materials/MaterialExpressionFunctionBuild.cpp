@@ -122,7 +122,7 @@ namespace Durin
 		if (bValidateAuthoring) return OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
 		if (const auto Bound = BoundInputs.find(PortId); Bound != BoundInputs.end()) return Bound->second;
 		if (Port->bRequired) return Fail(EMaterialFunctionError::RequiredFunctionInputNoBinding);
-		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::find(PortStack, PortId) != PortStack.end())
+		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::contains(PortStack, PortId))
 			return Fail(EMaterialFunctionError::InputDefaultsContainCycle);
 		PortStack.push_back(PortId);
 		MIR::FValue Value;
@@ -190,7 +190,7 @@ namespace Durin
 		const auto* Function = Call.Function.Get();
 		if (!IsValid(Function) || !Environment.FindFunction) return Emitter.Fail(EMaterialFunctionError::CallNoAvailableExpressionBody);
 		if (Shared->ActiveFunctions.size() >= MaterialFunctionMaxCallDepth
-			|| std::ranges::find(Shared->ActiveFunctions, Function) != Shared->ActiveFunctions.end())
+			|| std::ranges::contains(Shared->ActiveFunctions, Function))
 			return Emitter.Fail(EMaterialFunctionError::BuildContainsRecursionExceedsCallDepthBound);
 		auto Found = Shared->Functions.find(Function);
 		if (Found == Shared->Functions.end())
@@ -264,7 +264,7 @@ namespace Durin
 			if (!Input && !Output) continue;
 			const auto PortId = Input ? Input->Port.Id : Output->Port.Id;
 			const auto& Ports = Input ? Body.Signature.Inputs : Body.Signature.Outputs;
-			if (std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id) == Ports.end() || !TerminalIds.insert(PortId).second)
+			if (!std::ranges::contains(Ports, PortId, &FMaterialFunctionPort::Id) || !TerminalIds.insert(PortId).second)
 				{ Child.Fail(EMaterialFunctionError::InvalidTerminalPort); return; }
 			if (Output) OutputTerminals.emplace(PortId, Id);
 		}

@@ -76,7 +76,7 @@ namespace Durin
 		if (InParentWindow != nullptr)
 		{
 			ParentWindow = InParentWindow;
-			if (std::ranges::find(InParentWindow->ChildWindows, ThisWindow) == InParentWindow->ChildWindows.end())
+			if (!std::ranges::contains(InParentWindow->ChildWindows, ThisWindow))
 			{
 				InParentWindow->ChildWindows.push_back(ThisWindow);
 			}

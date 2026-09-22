@@ -58,7 +58,7 @@ namespace Durin::Editor
 	auto FTransactionObjectReferenceSet::Add(FPersistentObjectRef Reference) -> void
 	{
 		if (Reference.IsNull()
-			|| std::ranges::find(References, Reference) != References.end()) return;
+			|| std::ranges::contains(References, Reference)) return;
 		References.push_back(Reference);
 	}
 

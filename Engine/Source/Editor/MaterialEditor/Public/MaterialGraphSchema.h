@@ -30,7 +30,7 @@ namespace Durin::Editor::Material
 		}
 		static auto Accepts(std::span<const EMaterialProgramValueType> Types, EMaterialProgramValueType Source) -> bool
 		{
-			return std::ranges::find(Types, Source) != Types.end();
+			return std::ranges::contains(Types, Source);
 		}
 		static auto AcceptsPort(EMaterialProgramValueType Type, EMaterialProgramValueType Source) -> bool
 		{

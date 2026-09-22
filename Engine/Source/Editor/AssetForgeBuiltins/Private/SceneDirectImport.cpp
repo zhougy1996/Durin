@@ -659,7 +659,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 		for (auto *Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
 			if (auto *Package = Cast<DPackage>(Object);
 			    Package && Package->GetPackagePath().starts_with(Prefix) &&
-			    std::ranges::find(ExistingPaths, Package->GetPackagePathIdentity()) == ExistingPaths.end())
+			    !std::ranges::contains(ExistingPaths, Package->GetPackagePathIdentity()))
 				ExistingPaths.push_back(Package->GetPackagePathIdentity());
 		for (const auto &Path : ExistingPaths)
 		{

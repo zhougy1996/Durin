@@ -280,7 +280,7 @@ namespace Durin::Editor::Material
 			if (!Source.OutputId.IsValid()) return;
 			auto* Call = FindCall(State, Source.ExpressionId);
 			if (!Call || !Call->Function.IsValid()
-				|| std::ranges::find(Call->Outputs, Source.OutputId, &FMaterialFunctionOutputBinding::OutputId) != Call->Outputs.end()) return;
+				|| std::ranges::contains(Call->Outputs, Source.OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
 			const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
 			if (const auto Port = std::ranges::find(Ports, Source.OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
 				{ State.Modify(*Call); Call->Outputs.push_back({Port->Id, Port->Type}); }

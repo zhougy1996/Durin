@@ -68,13 +68,13 @@ namespace Durin
 		auto IsMaterialShaderType(const FShaderType* Type) -> bool
 		{
 			const auto& Types = FMaterialShaderType::GetTypeList();
-			return std::ranges::find(Types, Type) != Types.end();
+			return std::ranges::contains(Types, Type);
 		}
 
 		auto IsMeshMaterialShaderType(const FShaderType* Type) -> bool
 		{
 			const auto& Types = FMeshMaterialShaderType::GetTypeList();
-			return std::ranges::find(Types, Type) != Types.end();
+			return std::ranges::contains(Types, Type);
 		}
 	}
 

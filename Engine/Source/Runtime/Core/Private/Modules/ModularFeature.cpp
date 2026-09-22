@@ -48,7 +48,7 @@ namespace Durin
 
 		auto IsOwnerActiveOnThisThread(const Detail::FModuleOwnerState* Owner) -> bool
 		{
-			return std::ranges::find(GActiveModuleOwners, Owner) != GActiveModuleOwners.end();
+			return std::ranges::contains(GActiveModuleOwners, Owner);
 		}
 
 		auto MakeSnapshotLocked(

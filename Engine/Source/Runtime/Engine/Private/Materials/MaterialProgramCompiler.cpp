@@ -369,7 +369,7 @@ namespace Durin
 			if (Node.Opcode == EMaterialProgramOpcode::Parameter || Node.Opcode == EMaterialProgramOpcode::TextureParameter)
 			{
 				const auto Parameter = std::ranges::find(Input.Parameters, Node.GetParameterId(), &FMaterialCompilerParameterDeclaration::Id);
-				if (std::ranges::find(Result.ActiveParameters, Parameter->Id, &FMaterialCompilerParameterDeclaration::Id) == Result.ActiveParameters.end())
+				if (!std::ranges::contains(Result.ActiveParameters, Parameter->Id, &FMaterialCompilerParameterDeclaration::Id))
 					Result.ActiveParameters.push_back(*Parameter);
 			}
 		std::ranges::sort(Result.ActiveParameters, {}, &FMaterialCompilerParameterDeclaration::Id);

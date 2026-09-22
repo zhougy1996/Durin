@@ -355,7 +355,7 @@ namespace Durin::ObjectPackage
 					if (Schema == Frozen.Source->Schemas.end())
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidType, EPackageWriterReason::MissingStructSchema, Path);
 					for (const auto& Field : Schema->Fields)
-						if (ContainsHardReferenceType(Field.Type) && std::ranges::find(Value.FieldNames, Field.Name) == Value.FieldNames.end())
+						if (ContainsHardReferenceType(Field.Type) && !std::ranges::contains(Value.FieldNames, Field.Name))
 							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
 								EPackageWriterReason::MissingHardReferenceFields, Path);
 				}

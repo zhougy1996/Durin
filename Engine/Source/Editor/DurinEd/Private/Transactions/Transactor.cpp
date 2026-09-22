@@ -443,11 +443,11 @@ namespace Durin::Editor
 			if (DObject* Object = Record.GetObjectTarget())
 			{
 				DPackage* Package = Object->GetPackage();
-				if (Package && std::ranges::find(Packages, Package) == Packages.end())
+				if (Package && !std::ranges::contains(Packages, Package))
 					Packages.push_back(Package);
 			}
 			for (DPackage* Package : Record.GetAffectedPackages())
-				if (Package && std::ranges::find(Packages, Package) == Packages.end())
+				if (Package && !std::ranges::contains(Packages, Package))
 					Packages.push_back(Package);
 		}
 		return Packages;
@@ -1631,8 +1631,8 @@ namespace Durin
 					TransactionIds.push_back(Transaction.GetId());
 					for (DPackage* Affected : Transaction.GetAffectedPackages())
 						if (Affected
-							&& std::ranges::find(Packages, Affected) == Packages.end()
-							&& std::ranges::find(OtherPackages, Affected) == OtherPackages.end())
+							&& !std::ranges::contains(Packages, Affected)
+							&& !std::ranges::contains(OtherPackages, Affected))
 							OtherPackages.push_back(Affected);
 				}
 			for (DPackage* Package : Packages)

@@ -11,7 +11,7 @@ namespace Durin
 	auto FRenderPipelinePreparationBatch::Add(const FRHIPipelineCreationRequest& Request) -> void
 	{
 		if (Preparation && Preparation->Requests.size() < 4096
-			&& std::ranges::find(Preparation->Requests, Request) == Preparation->Requests.end())
+			&& !std::ranges::contains(Preparation->Requests, Request))
 			Preparation->Requests.push_back(Request);
 	}
 	auto FRenderPipelinePreparationBatch::Wait() -> bool

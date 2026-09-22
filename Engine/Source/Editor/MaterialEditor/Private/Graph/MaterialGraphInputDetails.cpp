@@ -226,14 +226,14 @@ namespace Durin::Editor::Material
 				for (uint8 Channel = 0; Channel < 4; ++Channel)
 				{
 					if (Channel) ImGui::SameLine();
-					bool Enabled = std::ranges::find(Swizzle->Components, Channel) != Swizzle->Components.end();
+					bool Enabled = std::ranges::contains(Swizzle->Components, Channel);
 					ImGui::BeginDisabled(Enabled && Swizzle->Components.size() == 1);
 					const bool Edited = ImGui::Checkbox(Labels[Channel], &Enabled);
 					ImGui::EndDisabled();
 					if (!Edited) continue;
 					std::vector<uint8> Mask;
 					for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
-						if (Candidate == Channel ? Enabled : std::ranges::find(Swizzle->Components, Candidate) != Swizzle->Components.end())
+						if (Candidate == Channel ? Enabled : std::ranges::contains(Swizzle->Components, Candidate))
 							Mask.push_back(Candidate);
 					Submit(Document.SetSwizzleComponents(Expression->Id, Mask, &Transactions));
 					return true;

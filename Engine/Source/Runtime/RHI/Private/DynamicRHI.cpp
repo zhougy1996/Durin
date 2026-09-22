@@ -48,7 +48,7 @@ namespace Durin
 		const auto& Capabilities = RHIGetQueueCapabilities();
 		const auto Point = FRHIGPUSyncPointBackend::GetPoint(SyncPoint);
 		if (Point.DeviceGeneration == 0 || Point.DeviceGeneration != Capabilities.DeviceGeneration
-			|| std::ranges::find(Capabilities.Queues, Point.Queue, &FRHIQueueInfo::Id) == Capabilities.Queues.end())
+			|| !std::ranges::contains(Capabilities.Queues, Point.Queue, &FRHIQueueInfo::Id))
 			return ERHIGPUSubmissionState::Invalid;
 		return SyncPoint.GetState();
 	}

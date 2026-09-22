@@ -538,7 +538,7 @@ namespace Durin
 			if (Depth > PropertyIdentityMaxDepth) return SetIdentityDiagnostic(Context, Path, Kind, DepthLimit, Unsupported);
 			if (!Struct->HasCompleteAuthoredFields())
 				return SetIdentityDiagnostic(Context, Path, Kind, IncompleteAuthoredFields, Unsupported);
-			if (std::ranges::find(Context.ActiveStructs, Struct) != Context.ActiveStructs.end())
+			if (std::ranges::contains(Context.ActiveStructs, Struct))
 				return SetIdentityDiagnostic(Context, Path, Kind, DescriptorCycle, Unsupported);
 			if (Struct->HasIdentical())
 				return Struct->GetOps().Identical(LeftValue, RightValue)
@@ -627,7 +627,7 @@ namespace Durin
 						SetIdentityDiagnostic(Context, Path, Kind, IncompleteAuthoredFields, Unsupported);
 						return false;
 					}
-					if (std::ranges::find(Context.ActiveStructs, Struct) != Context.ActiveStructs.end())
+					if (std::ranges::contains(Context.ActiveStructs, Struct))
 					{
 						SetIdentityDiagnostic(Context, Path, Kind, DescriptorCycle, Unsupported);
 						return false;
@@ -755,7 +755,7 @@ namespace Durin
 			const FName Name(LegacyName ? LegacyName : "");
 			check(!Name.IsNone());
 			check(Name != NamePrivate && "A property legacy name must differ from its current name.");
-			check(std::ranges::find(LegacyNames, Name) == LegacyNames.end()
+			check(!std::ranges::contains(LegacyNames, Name)
 				&& "Property legacy names must be unique.");
 			LegacyNames.push_back(Name);
 		}

@@ -246,7 +246,7 @@ namespace Durin::AssetForge::Builtins
 					const std::filesystem::path SourcePath(Source.Filename);
 					std::filesystem::path Relative = SourcePath.lexically_relative(SourceParent);
 					if (Relative.empty() || Relative.is_absolute()
-						|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
+						|| std::ranges::contains(Relative, std::filesystem::path("..")))
 					{
 						OutError = std::format(
 							"Scene source {} escapes its logical root.", Source.Filename);

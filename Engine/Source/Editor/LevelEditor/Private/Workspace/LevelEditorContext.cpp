@@ -155,12 +155,12 @@ namespace Durin::Editor::Level
 
 	auto FLevelEditorContext::IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool
 	{
-		return std::ranges::find(SelectedSubElements, Element) != SelectedSubElements.end();
+		return std::ranges::contains(SelectedSubElements, Element);
 	}
 
 	auto FLevelEditorContext::IsActorSelected(const AActor* Actor) const -> bool
 	{
-		return Actor && std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
+		return Actor && std::ranges::contains(SelectedActors, Actor, [](const TObjectPtr<AActor>& Entry) { return Entry.Get(); });
 	}
 
 	auto FLevelEditorContext::InvalidatePackageSavedState(DPackage* Package) const -> void

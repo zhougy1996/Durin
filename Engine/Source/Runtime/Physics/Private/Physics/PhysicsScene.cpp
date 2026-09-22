@@ -26,7 +26,7 @@ namespace Durin
 
 		auto IsIgnored(FPhysicsActorHandle Handle, const FPhysicsQueryFilter& Filter) -> bool
 		{
-			return std::ranges::find(Filter.IgnoredActors, Handle) != Filter.IgnoredActors.end();
+			return std::ranges::contains(Filter.IgnoredActors, Handle);
 		}
 
 		auto ResolveResponse(const FPhysicsFilterData& Body, const FPhysicsQueryFilter& Query)

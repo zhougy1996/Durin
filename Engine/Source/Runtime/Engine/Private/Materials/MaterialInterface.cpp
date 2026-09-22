@@ -134,7 +134,7 @@ namespace Durin
 		for (auto* Current = &Material; Current; Current = Current->GetParent())
 		{
 			if (Count == Chain.size()
-				|| std::find(Chain.begin(), Chain.begin() + Count, Current) != Chain.begin() + Count)
+				|| std::ranges::contains(Chain.begin(), Chain.begin() + Count, Current))
 			{
 				return {EMaterialPropertyError::ParentCycleOrDepthExceeded};
 			}

@@ -85,7 +85,7 @@ namespace Durin
 			{
 				const std::filesystem::path Normalized =
 					std::filesystem::absolute(File).lexically_normal();
-				if (std::ranges::find(OutFiles, Normalized) == OutFiles.end())
+				if (!std::ranges::contains(OutFiles, Normalized))
 					OutFiles.push_back(Normalized);
 			}
 			std::ranges::sort(OutFiles);
@@ -190,8 +190,7 @@ namespace Durin
 						"Could not inspect companion ownership for {}: {}",
 						Path.ToString(), Result.Message)};
 			if (bHasContributor
-				&& std::ranges::find(CompanionFiles, Candidate)
-					!= CompanionFiles.end())
+				&& std::ranges::contains(CompanionFiles, Candidate))
 				OutOwnership.Owners.push_back(Path);
 		}
 		std::ranges::sort(

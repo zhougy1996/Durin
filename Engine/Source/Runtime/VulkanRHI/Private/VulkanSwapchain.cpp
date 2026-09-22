@@ -86,7 +86,7 @@ namespace Durin::VulkanRHI
 	{
 		for (const vk::PresentModeKHR RequestedMode : GetPreferredPresentModes(Policy))
 		{
-			if (std::ranges::find(AvailablePresentModes, RequestedMode) != AvailablePresentModes.end())
+			if (std::ranges::contains(AvailablePresentModes, RequestedMode))
 			{
 				return RequestedMode;
 			}
@@ -143,8 +143,7 @@ namespace Durin::VulkanRHI
 		Configuration.SurfaceFormat = ChooseSwapSurfaceFormat(Input.Formats);
 		Configuration.PresentMode = ChooseSwapPresentMode(
 			Input.PresentModes, Input.PresentationPolicy);
-		if (std::ranges::find(Input.PresentModes, Configuration.PresentMode)
-			== Input.PresentModes.end())
+		if (!std::ranges::contains(Input.PresentModes, Configuration.PresentMode))
 			return std::unexpected("No policy-compatible present mode is supported.");
 		Configuration.Extent = ChooseSwapExtent(Input.Capabilities,
 			Input.RequestedWidth, Input.RequestedHeight);

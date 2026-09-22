@@ -30,13 +30,13 @@ namespace Durin::VulkanRHI
 		auto RetainAllocation(std::shared_ptr<void> Owner) -> void
 		{
 			require(Owner);
-			if (std::ranges::find(AllocationOwners, Owner) == AllocationOwners.end())
+			if (!std::ranges::contains(AllocationOwners, Owner))
 				AllocationOwners.push_back(std::move(Owner));
 		}
 		auto AddCompletionWait(const FRHIGPUSyncPointRef& SyncPoint) -> void
 		{
 			// Preserve every success dependency until its authority/state is validated.
-			if (std::ranges::find(CompletionWaits, SyncPoint) == CompletionWaits.end())
+			if (!std::ranges::contains(CompletionWaits, SyncPoint))
 				CompletionWaits.push_back(SyncPoint);
 		}
 

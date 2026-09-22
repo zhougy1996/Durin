@@ -171,7 +171,7 @@ namespace Durin
 		if (!IsAssetPackage() || !InAsset || InAsset->GetOuter() != this
 			|| InAsset->IsTemplateObject()
 			|| EnumHasAnyFlags(InAsset->GetObjectFlags(), EObjectFlags::Transient)) return false;
-		if (std::ranges::find(TopLevelAssets, InAsset) != TopLevelAssets.end()) return true;
+		if (std::ranges::contains(TopLevelAssets, InAsset)) return true;
 		if (!CanUseTopLevelAssetName(InAsset->GetFName())) return false;
 		TopLevelAssets.push_back(InAsset);
 		std::ranges::sort(TopLevelAssets, [](const DObject* Left, const DObject* Right) {

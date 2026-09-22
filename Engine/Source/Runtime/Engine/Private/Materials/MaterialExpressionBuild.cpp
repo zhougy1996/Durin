@@ -162,7 +162,7 @@ namespace Durin::MIR
 		{
 			if (Input.OutputIndex != 0 || !Input.OutputId.IsValid())
 				Fail(EMaterialFunctionError::CallConnectionsRequireOutputGUIDZeroOutputIndex);
-			else if (std::ranges::find(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId) == Call->Outputs.end())
+			else if (!std::ranges::contains(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId))
 				Fail(EMaterialFunctionError::CallOutputGUIDBound, Input.OutputId);
 		}
 		else if (Cast<DMaterialExpressionTextureSample2D>(&Expression) || Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression))
@@ -271,7 +271,7 @@ namespace Durin::MIR
 			const auto Input = Node.Inputs[Slot];
 			const auto Accepted = Signature->Inputs[Slot];
 			if (Input >= Result.IR.Nodes.size()
-				|| std::ranges::find(Accepted, Result.IR.Nodes[Input].ResultType) == Accepted.end())
+				|| !std::ranges::contains(Accepted, Result.IR.Nodes[Input].ResultType))
 				return Fail(EMaterialExpressionError::InputIncompatibleType);
 			Depth = std::max(Depth, Depths[Input] + 1);
 		}
@@ -359,8 +359,8 @@ namespace Durin::MIR
 			if (Default.empty()) return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
 			{
 				const auto Accepted = Signature->Inputs[Slot];
-				if (Default.size() > 4 || (std::ranges::find(Accepted,
-					static_cast<EMaterialProgramValueType>(Default.size() - 1)) == Accepted.end() && !(bScalarDefault && Default.size() == 1))
+				if (Default.size() > 4 || (!std::ranges::contains(Accepted,
+					static_cast<EMaterialProgramValueType>(Default.size() - 1)) && !(bScalarDefault && Default.size() == 1))
 					|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
 					return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
 			}

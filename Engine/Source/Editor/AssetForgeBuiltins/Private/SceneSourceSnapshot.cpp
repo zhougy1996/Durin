@@ -394,7 +394,7 @@ namespace Durin::AssetForge
 				if (Declaring.Filename.empty() || Relative.is_absolute()
 					|| Relative.has_root_name()
 					|| Request.RelativePath.find(':') != std::string::npos
-					|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
+					|| std::ranges::contains(Relative, std::filesystem::path("..")))
 				{
 					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
 						EImportDiagnosticCategory::UnsafeDependency, "dependency-capture",

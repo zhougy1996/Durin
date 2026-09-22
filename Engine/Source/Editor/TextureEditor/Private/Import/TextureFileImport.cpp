@@ -126,7 +126,7 @@ namespace Durin::Editor::Texture
 		if (!bMutationAllowed || bRunning || InFiles.empty() || InDirectory.empty()) return false;
 		Files.clear();
 		for (auto& File : InFiles)
-			if (std::ranges::find(Files, File) == Files.end()) Files.push_back(std::move(File));
+			if (!std::ranges::contains(Files, File)) Files.push_back(std::move(File));
 		Directory = std::move(InDirectory);
 		Next = SavedCount = 0;
 		Published.clear(); Errors.clear();

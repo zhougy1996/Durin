@@ -105,7 +105,7 @@ namespace Durin
 	auto FReimportManager::RegisterHandler(FReimportHandler& Handler) -> void
 	{
 		FReimportHandlerRegistry& Registry = GetReimportHandlerRegistry();
-		if (std::ranges::find(Registry.Handlers, &Handler) != Registry.Handlers.end())
+		if (std::ranges::contains(Registry.Handlers, &Handler))
 			return;
 		Registry.Handlers.push_back(&Handler);
 		Registry.bNeedsSorting = true;

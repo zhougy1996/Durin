@@ -101,7 +101,7 @@ namespace Durin
 		{
 			if (Selection.bWholeProject || (Selection.Mounts.empty() && Selection.Folders.empty()
 				&& Selection.Packages.empty())) return true;
-			if (std::ranges::find(Selection.Packages, Path) != Selection.Packages.end()) return true;
+			if (std::ranges::contains(Selection.Packages, Path)) return true;
 			if (std::ranges::any_of(Selection.Folders, [&](const std::string& Folder) {
 				const std::string_view Value = Path.GetView();
 				return Value.starts_with(Folder) && Value.size() > Folder.size()
@@ -206,8 +206,7 @@ namespace Durin
 			Package.bPlainResaveRequested = Record->EntryKind
 				== EAssetRegistryEntryKind::Asset
 				&& Selection.bAllowPlainResave
-				&& std::ranges::find(Selection.Packages, Record->PackagePath)
-					!= Selection.Packages.end();
+				&& std::ranges::contains(Selection.Packages, Record->PackagePath);
 			Package.bRecompressTextureSources = Selection.bRecompressTextureSources
 				&& Record->EntryKind == EAssetRegistryEntryKind::Asset;
 			Package.Evidence = Record->CanonicalizationEvidence;

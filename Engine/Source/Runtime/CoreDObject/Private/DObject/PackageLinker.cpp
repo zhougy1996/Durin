@@ -124,7 +124,7 @@ namespace Durin::ObjectPackage
 		{
 			if (Chain.size() > Imports.size() + Exports.size())
 				return std::unexpected(FLinkerError{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()});
-			if (std::ranges::find(Chain, Current) != Chain.end())
+			if (std::ranges::contains(Chain, Current))
 				return std::unexpected(FLinkerError{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()});
 			Chain.push_back(Current);
 			if (Current.IsImport())

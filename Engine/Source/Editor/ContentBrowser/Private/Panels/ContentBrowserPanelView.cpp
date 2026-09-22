@@ -945,8 +945,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				std::vector<FPackagePath> Referencers;
 				for (const FAssetPackageReferenceEdge& Edge :
 					 CaptureAssetReferenceIndex().FindReferencers(Path))
-					if (std::ranges::find(Referencers, Edge.SourcePackage)
-						== Referencers.end())
+					if (!std::ranges::contains(Referencers, Edge.SourcePackage))
 						Referencers.push_back(Edge.SourcePackage);
 				std::ranges::sort(
 					Referencers,

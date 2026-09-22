@@ -1383,7 +1383,7 @@ namespace Durin
 			for (const FObjectSaveOverride& Override : Options.SaveOverrides->GetObjects())
 			{
 				if (!Override.Object
-					|| std::ranges::find(FrozenObjects, Override.Object) == FrozenObjects.end())
+					|| !std::ranges::contains(FrozenObjects, Override.Object))
 				{
 					return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::OverrideOutsideGraph, .ObjectPath = Override.Object ? Override.Object->GetObjectPath() : std::string{}});
 				}
@@ -1487,7 +1487,7 @@ namespace Durin
 			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DefaultDelta, .Cause = DeltaDiagnostic});
 		}
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
-			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
+			return !std::ranges::contains(Objects, ObjectPlan.Object);
 		});
 		const auto& CustomVersions = Captured.CustomVersions;
 		FPackageCaptureError LinkerError;

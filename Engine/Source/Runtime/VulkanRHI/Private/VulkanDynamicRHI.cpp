@@ -577,18 +577,14 @@ namespace Durin::VulkanRHI
 			InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 		FVulkanDiagnosticAvailability AvailabilityCandidate;
 		AvailabilityCandidate.bRequested = ValidationPolicy.bRequestDiagnostics;
-		AvailabilityCandidate.bDebugUtilsSupported = std::ranges::find(
-			NegotiationInput.AvailableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
-			!= NegotiationInput.AvailableExtensions.end();
-		AvailabilityCandidate.bDebugUtilsActive = std::ranges::find(
-			Negotiation.EnabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
-			!= Negotiation.EnabledExtensions.end();
-		AvailabilityCandidate.bValidationLayerSupported = std::ranges::find(
-			NegotiationInput.AvailableLayers, "VK_LAYER_KHRONOS_validation")
-			!= NegotiationInput.AvailableLayers.end();
-		AvailabilityCandidate.bValidationLayerActive = std::ranges::find(
-			Negotiation.EnabledLayers, "VK_LAYER_KHRONOS_validation")
-			!= Negotiation.EnabledLayers.end();
+		AvailabilityCandidate.bDebugUtilsSupported = std::ranges::contains(
+			NegotiationInput.AvailableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		AvailabilityCandidate.bDebugUtilsActive = std::ranges::contains(
+			Negotiation.EnabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		AvailabilityCandidate.bValidationLayerSupported = std::ranges::contains(
+			NegotiationInput.AvailableLayers, "VK_LAYER_KHRONOS_validation");
+		AvailabilityCandidate.bValidationLayerActive = std::ranges::contains(
+			Negotiation.EnabledLayers, "VK_LAYER_KHRONOS_validation");
 		try
 		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -712,8 +708,8 @@ namespace Durin::VulkanRHI
 			Features2.setPNext(&Vulkan11Features);
 			Gpu.getFeatures2(&Features2);
 			if (Properties.apiVersion >= VK_API_VERSION_1_2
-				|| std::ranges::find(Candidate.Input.AvailableExtensions,
-					VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) != Candidate.Input.AvailableExtensions.end())
+				|| std::ranges::contains(Candidate.Input.AvailableExtensions,
+					VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME))
 			{
 				vk::PhysicalDeviceTimelineSemaphoreFeatures TimelineFeatures;
 				Features2.setPNext(&TimelineFeatures);
@@ -738,16 +734,16 @@ namespace Durin::VulkanRHI
 				Gpu.getFeatures2(&Features2);
 				Candidate.Input.bSynchronization2Feature = Vulkan13Features.synchronization2 == vk::True;
 			}
-			else if (std::ranges::find(Candidate.Input.AvailableExtensions,
-				VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) != Candidate.Input.AvailableExtensions.end())
+			else if (std::ranges::contains(Candidate.Input.AvailableExtensions,
+				VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME))
 			{
 				vk::PhysicalDeviceSynchronization2FeaturesKHR Synchronization2Features;
 				Features2.setPNext(&Synchronization2Features);
 				Gpu.getFeatures2(&Features2);
 				Candidate.Input.bSynchronization2Feature = Synchronization2Features.synchronization2 == vk::True;
 			}
-			if (std::ranges::find(Candidate.Input.AvailableExtensions,
-				VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) != Candidate.Input.AvailableExtensions.end())
+			if (std::ranges::contains(Candidate.Input.AvailableExtensions,
+				VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
 			{
 				vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT MaintenanceFeatures;
 				Features2.setPNext(&MaintenanceFeatures);

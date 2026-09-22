@@ -466,7 +466,7 @@ namespace Durin
 	{
 		if (InSceneViewport == nullptr || InSceneViewport->IsWindowBacked()) return;
 		InSceneViewport->InitializeViewState(RendererModule);
-		if (std::ranges::find(AuxiliarySceneViewports, InSceneViewport) == AuxiliarySceneViewports.end())
+		if (!std::ranges::contains(AuxiliarySceneViewports, InSceneViewport))
 		{
 			AuxiliarySceneViewports.push_back(InSceneViewport);
 		}

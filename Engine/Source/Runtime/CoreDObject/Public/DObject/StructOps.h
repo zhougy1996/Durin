@@ -54,8 +54,7 @@ namespace Durin
 
 		auto WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool
 		{
-			return std::ranges::find(LoadedDeprecatedProperties, PropertyName)
-				!= LoadedDeprecatedProperties.end();
+			return std::ranges::contains(LoadedDeprecatedProperties, PropertyName);
 		}
 
 	};

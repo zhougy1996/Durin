@@ -455,8 +455,7 @@ namespace Durin
 		});
 		for (const auto& ModuleInfo : ModulesToStop)
 		{
-			if (std::ranges::find(DeferredModules, ModuleInfo->ModuleName)
-				!= DeferredModules.end()) continue;
+			if (std::ranges::contains(DeferredModules, ModuleInfo->ModuleName)) continue;
 			if (ModuleInfo->State.load() != EModuleState::Active) continue;
 			const auto Result = ShutdownModule(ModuleInfo->ModuleName);
 			if (!Result.Succeeded())

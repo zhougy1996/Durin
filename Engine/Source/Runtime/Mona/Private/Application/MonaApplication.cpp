@@ -35,7 +35,7 @@ namespace Durin::Mona
 				return;
 			}
 
-			if (std::ranges::find(WindowDestroyQueue, InWindow) == WindowDestroyQueue.end())
+			if (!std::ranges::contains(WindowDestroyQueue, InWindow))
 			{
 				WindowDestroyQueue.push_back(InWindow);
 				NewlyQueuedWindows.push_back(InWindow);
@@ -110,7 +110,7 @@ namespace Durin::Mona
 		FMonaWindowHelper::CollectWindowAndDescendants(RootWindow, WindowHierarchy);
 		for (const std::shared_ptr<MWindow>& Window : WindowHierarchy)
 		{
-			if (std::ranges::find(Windows, Window) == Windows.end())
+			if (!std::ranges::contains(Windows, Window))
 			{
 				Windows.push_back(Window);
 			}

@@ -232,7 +232,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		for (const auto& Submission : Submissions)
 			for (const auto* Payload : Submission.Payloads)
-				if (std::ranges::find(Payload->AllocationOwners, Owner) != Payload->AllocationOwners.end())
+				if (std::ranges::contains(Payload->AllocationOwners, Owner))
 				{
 					require(Uses.Add(Submission.SyncPoint));
 					break;

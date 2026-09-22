@@ -224,7 +224,7 @@ namespace Durin::AssetToolsPrivate
 			/ ".durin-asset-mutation"
 			/ std::format("operation-{}", Staging.OperationId);
 		bool bCreatedRoot = false;
-		if (std::ranges::find(Staging.Roots, Root) == Staging.Roots.end())
+		if (!std::ranges::contains(Staging.Roots, Root))
 		{
 			std::error_code DirectoryError;
 			bCreatedRoot = std::filesystem::create_directories(

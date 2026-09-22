@@ -123,7 +123,7 @@ namespace Durin
 		std::vector<TObjectPtr<DMaterialFunctionInterface>> Dependencies;
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()); Call && Call->Function
-				&& std::ranges::find(Dependencies, Call->Function) == Dependencies.end()) Dependencies.push_back(Call->Function);
+				&& !std::ranges::contains(Dependencies, Call->Function)) Dependencies.push_back(Call->Function);
 
 		return Dependencies;
 	}

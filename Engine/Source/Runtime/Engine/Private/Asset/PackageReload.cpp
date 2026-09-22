@@ -82,7 +82,7 @@ namespace Durin
 			// Inner asset objects (for example import provenance) are admitted by
 			// exact registered class after the top-level family has been checked.
 			for (DClass* Class : GetDerivedClasses(DObject::StaticClass(), true))
-				if (Class && std::ranges::find(Result, Class) == Result.end())
+				if (Class && !std::ranges::contains(Result, Class))
 					Result.push_back(Class);
 			return Result;
 		}
@@ -377,7 +377,7 @@ namespace Durin
 			if (!IsValid(Package) || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
 					Reason::InvalidPackage));
-			if (std::ranges::find(Packages, Package) == Packages.end()) Packages.push_back(Package);
+			if (!std::ranges::contains(Packages, Package)) Packages.push_back(Package);
 		}
 		if (Injected(Request, EPackageReloadFaultPoint::PreflightBudget)
 			|| Packages.size() > Request.Budget.MaximumPackages)
@@ -425,7 +425,7 @@ namespace Durin
 			Paths.push_back(Path); Files.push_back(File);
 		}
 		std::erase_if(ExternalRenderConsumers, [&](DObject* Object) {
-			return std::ranges::find(OldObjects, Object) != OldObjects.end();
+			return std::ranges::contains(OldObjects, Object);
 		});
 
 		if (Injected(Request, EPackageReloadFaultPoint::QuiesceSelected))

@@ -390,8 +390,7 @@ namespace Durin::AssetPrivate
 		// Scan validated tags without constructing paths or resolving names for ordinary values.
 		auto HasNestedReplacement(const ObjectPackage::FSerializedValue& Value) -> bool
 		{
-			return std::ranges::find(Value.Provenances, ObjectPackage::EPropertyProvenance::Forced)
-				!= Value.Provenances.end()
+			return std::ranges::contains(Value.Provenances, ObjectPackage::EPropertyProvenance::Forced)
 				|| std::ranges::any_of(Value.Elements, HasNestedReplacement);
 		}
 
@@ -1221,7 +1220,7 @@ namespace Durin::AssetPrivate
 				for (const auto& Export : Application.Exports)
 				{
 					DClass* Class = FindClassByQualifiedName(FName(Export.Export->ClassName));
-					if (std::ranges::find(Options.AdmittedClasses, Class) == Options.AdmittedClasses.end())
+					if (!std::ranges::contains(Options.AdmittedClasses, Class))
 						return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::ClassNotAdmitted, .Subject = Export.Export->ClassName};
 				}
 			}
@@ -1241,9 +1240,8 @@ namespace Durin::AssetPrivate
 						return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::InjectedDependencyFailure};
 					if (IsAssetRegistryProjectionFenced(Path))
 						return {.Status = S::Busy, .PackagePath = Path, .Reason = R::DependencyProjectionFenced};
-					if (std::ranges::find(Sources, Path, &FPackageGraphSource::PackagePath) != Sources.end()) continue;
-					if (std::ranges::find(ExternalPackages, Path, &std::pair<FPackagePath, DPackage*>::first)
-						!= ExternalPackages.end()) continue;
+					if (std::ranges::contains(Sources, Path, &FPackageGraphSource::PackagePath)) continue;
+					if (std::ranges::contains(ExternalPackages, Path, &std::pair<FPackagePath, DPackage*>::first)) continue;
 					DPackage* Package = FindPackage(Path.GetView());
 					if (!Package && Options.DependencyLoadScope)
 					{

@@ -1151,7 +1151,7 @@ namespace Durin
 		if (Options.PreparedPublication && (Packages.size() != 1 || !Options.bRollbackOnRegistryFailure))
 			return Fail(Error(EAssetWriteError::InvalidData, "Prepared publication requires one package and rollback on Registry failure."));
 		if (RuntimeConfiguration.IsCooked()) return Fail(Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."));
-		if (Options.RootPackage && std::ranges::find(Packages, Options.RootPackage) == Packages.end())
+		if (Options.RootPackage && !std::ranges::contains(Packages, Options.RootPackage))
 			return Fail(Error(EAssetWriteError::InvalidData, "The root package is not part of the save batch."));
 		std::vector<DPackage*> Ordered(Packages.begin(), Packages.end());
 		std::stable_sort(Ordered.begin(), Ordered.end(), [&](DPackage* A, DPackage* B) {

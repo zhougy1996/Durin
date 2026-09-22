@@ -1692,7 +1692,7 @@ namespace Durin
 			{
 				const FObjectKey Handle = FObjectKey(Object);
 				if (!IsObjectKeyNull(Handle)
-					&& std::ranges::find(References, Handle) == References.end())
+					&& !std::ranges::contains(References, Handle))
 				{
 					References.push_back(Handle);
 				}

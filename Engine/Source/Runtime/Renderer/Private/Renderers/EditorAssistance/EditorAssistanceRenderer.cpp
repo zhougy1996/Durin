@@ -17,7 +17,7 @@ namespace Durin
 			std::span<const FPipelineKey> Keys,
 			const FPipelineKey& Expected) -> bool
 		{
-			return std::ranges::find(Keys, Expected) != Keys.end();
+			return std::ranges::contains(Keys, Expected);
 		}
 
 		auto MakePipelineKey(
