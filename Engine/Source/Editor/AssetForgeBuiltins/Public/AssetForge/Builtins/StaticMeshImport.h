@@ -34,8 +34,8 @@ namespace Durin::AssetForge::Builtins
 		std::vector<FSceneImportDiagnostic> DecodeCauses;
 		std::optional<FStaticMeshSourceError> SourceCause;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
-		std::optional<FStaticMeshSubmissionError> SubmissionCause;
-		std::optional<FStaticMeshCompilationDiagnostic> CompletionCause;
+		std::vector<std::string> SubmissionErrors;
+		std::optional<FStaticMeshCompilationResult> CompletionCause;
 	};
 	using FStaticMeshRebuildResult = std::expected<void, FStaticMeshRebuildError>;
 	ASSETFORGEBUILTINS_API auto FormatStaticMeshRebuildError(const FStaticMeshRebuildError& Error) -> std::string;

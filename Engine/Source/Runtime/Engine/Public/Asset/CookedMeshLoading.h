@@ -43,7 +43,7 @@ namespace Durin
 	enum class ETaskState : uint8;
 	struct FCookedMeshProductError;
 	struct FCookedMeshAdmissionError;
-	struct FStaticMeshPublicationError;
+	struct FStaticMeshBuildFailure;
 	enum class ECookedMeshLoadError : uint8
 	{
 		None, Unavailable, RenderRead, CollisionRead, Product, Publication,
@@ -60,7 +60,7 @@ namespace Durin
 		std::optional<ETaskState> TaskState;
 		std::shared_ptr<const FPackageResourceReadResult> ReadCause;
 		std::shared_ptr<const FCookedMeshProductError> ProductCause;
-		std::shared_ptr<const FStaticMeshPublicationError> PublicationCause;
+		std::shared_ptr<const FStaticMeshBuildFailure> PublicationCause;
 		std::shared_ptr<const FCookedMeshAdmissionError> AdmissionCause;
 	};
 	struct FCookedMeshLoadResult

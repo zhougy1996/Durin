@@ -37,7 +37,7 @@ namespace Durin
 		}
 
 		auto InitializeStaticMeshCandidate(
-			FStaticMeshRenderData& Candidate) -> std::expected<void, FStaticMeshPublicationError>
+			FStaticMeshRenderData& Candidate) -> std::expected<void, FStaticMeshBuildFailure>
 		{
 			if (GDynamicRHI == nullptr)
 			{
@@ -58,7 +58,7 @@ namespace Durin
 			if (!bInitialized.load(std::memory_order_acquire))
 			{
 				check(Candidate.GetNumInitializedResources() == 0);
-				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::ResourceInitialization});
+				return std::unexpected(FStaticMeshBuildFailure{"Static-mesh candidate resource initialization failed.", EStaticMeshBuildStage::Resources});
 			}
 			return {};
 		}
@@ -487,37 +487,22 @@ namespace Durin
 		return {};
 	}
 
-	auto FormatStaticMeshPublicationError(const FStaticMeshPublicationError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EStaticMeshPublicationError::None: return {};
-		case EStaticMeshPublicationError::MissingRenderData: return "Static-mesh publication requires render data.";
-		case EStaticMeshPublicationError::LODPolicy:
-			return Error.LODCause ? FormatStaticMeshLODPolicyError(*Error.LODCause) : "Static-mesh LOD policy is invalid.";
-		case EStaticMeshPublicationError::CollisionBuild:
-			return Error.CollisionCause ? Error.CollisionCause->ToString() : "Static-mesh collision build failed.";
-		case EStaticMeshPublicationError::ResourceInitialization: return "Static-mesh candidate resource initialization failed.";
-		}
-		return {};
-	}
-
 	auto DStaticMesh::CommitRenderDataCandidate(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition>* InMaterialSlots,
 		bool bBuildAuthoredCollision, FStaticMeshAuthoredCandidate* AuthoredCandidate,
-		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshPublicationError>
+		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure>
 	{
 		CheckStaticMeshUpdateThread();
 		if (InRenderData == nullptr)
 		{
-			return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::MissingRenderData});
+			return std::unexpected(FStaticMeshBuildFailure{"Static-mesh publication requires render data.", EStaticMeshBuildStage::Application});
 		}
 		if (!AuthoredCandidate)
 		{
 			if (const auto Policy = ValidateStaticMeshLODScreenSizes(InRenderData->LODResources); !Policy)
 			{
-				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::LODPolicy, .LODCause = Policy.error()});
+				return std::unexpected(FStaticMeshBuildFailure{FormatStaticMeshLODPolicyError(Policy.error()), EStaticMeshBuildStage::Validation});
 			}
 		}
 		if (!AuthoredCandidate)
@@ -542,7 +527,7 @@ namespace Durin
 			if (const auto Built = BuildCollisionCandidate(*InRenderData,
 				BodySetup->GetCollisionSourceMode(), BodySetup->GetCollisionQueryPolicy(),
 				CollisionSimple, CollisionComplex); !Built)
-				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::CollisionBuild, .CollisionCause = Built.error()});
+				return std::unexpected(Built.error());
 		}
 
 #if DURIN_BUILD_DEBUG
@@ -593,68 +578,53 @@ namespace Durin
 		return {};
 	}
 
-	auto FormatStaticMeshApplicationError(const FStaticMeshApplicationError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EStaticMeshApplicationError::None: return {};
-		case EStaticMeshApplicationError::Cancelled: return "StaticMesh application was cancelled.";
-		case EStaticMeshApplicationError::InvalidCandidate: return "StaticMesh application requires a live asset and a complete candidate.";
-		case EStaticMeshApplicationError::ImportAllocation: return "Could not allocate static-mesh import data.";
-		case EStaticMeshApplicationError::ImportOwnership: return "StaticMesh provenance must be a validated owned inner.";
-		case EStaticMeshApplicationError::ImportValidation:
-			return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "StaticMesh provenance validation failed.";
-		case EStaticMeshApplicationError::OwnerChanged: return "StaticMesh owner changed during candidate construction.";
-		case EStaticMeshApplicationError::CandidateMismatch: return "StaticMesh candidate does not match its application snapshot.";
-		case EStaticMeshApplicationError::MaterialBindings: return "StaticMesh material bindings changed during candidate construction.";
-		case EStaticMeshApplicationError::Publication:
-			return Error.PublicationCause ? FormatStaticMeshPublicationError(*Error.PublicationCause) : "StaticMesh publication failed.";
-		}
-		return {};
-	}
-
 	auto FStaticMeshBuilder::ApplyCandidate(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
 		bool bMarkPackageDirty, const FStaticMeshBuildExecutionControl& Control,
-		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshApplicationError>
+		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure>
 	{
 		CheckStaticMeshUpdateThread();
-		const auto Fail = [&](FStaticMeshApplicationError Error) -> std::expected<void, FStaticMeshApplicationError> {
-			Error.Owner = FObjectKey(&Mesh);
+		const auto Fail = [](FStaticMeshBuildFailure Error) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(std::move(Error));
 		};
-		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshApplicationError::Cancelled});
+		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
 		if (!IsValid(&Mesh) || !Candidate || !Candidate->Render.RenderData)
-			return Fail({.Code = EStaticMeshApplicationError::InvalidCandidate, .OwnerValid = IsValid(&Mesh),
-				.CandidatePresent = Candidate != nullptr, .RenderDataPresent = Candidate && Candidate->Render.RenderData != nullptr});
+			return Fail(FStaticMeshBuildFailure{std::format(
+				"StaticMesh application requires a live asset and a complete candidate (owner valid {}, candidate {}, render data {}).",
+				IsValid(&Mesh), Candidate != nullptr, Candidate && Candidate->Render.RenderData != nullptr),
+				EStaticMeshBuildStage::Application});
 		if (PreparedImportData)
 		{
 			if (PreparedImportData->GetOuter() != &Mesh)
-				return Fail({.Code = EStaticMeshApplicationError::ImportOwnership,
-					.ImportData = FObjectKey(PreparedImportData), .ImportOuter = FObjectKey(PreparedImportData->GetOuter())});
+				return Fail(FStaticMeshBuildFailure{std::format(
+					"StaticMesh provenance '{}' must be an owned inner of '{}'.",
+					PreparedImportData->GetObjectPath(), Mesh.GetObjectPath()), EStaticMeshBuildStage::Application});
 			if (const auto Validation = PreparedImportData->Validate(); !Validation)
-				return Fail({.Code = EStaticMeshApplicationError::ImportValidation, .ImportData = FObjectKey(PreparedImportData), .ImportCause = Validation.error()});
+				return Fail(FStaticMeshBuildFailure{FormatAssetImportDataError(Validation.error()), EStaticMeshBuildStage::Application});
 		}
-		const auto State = [](const FStaticMeshReconciliationSnapshot& Value) -> FStaticMeshApplicationState {
-			return {Value.SourceIdentity, Value.NormalizedSize, Value.Body, Value.BodyRevision,
-				Value.CollisionMode, Value.CollisionPolicy, Value.MaterialSlots.size()};
-		};
-		const auto SlotState = [](const FMeshMaterialSlotDefinition& Slot) -> FStaticMeshApplicationSlot {
-			return {Slot.Name.ToString(), Slot.SourceName, Slot.SourceMaterialIndex, FObjectKey(Slot.DefaultMaterial.Get())};
-		};
 		const auto Current = FStaticMeshBuilder::Capture(Mesh);
 		if (Current.SourceIdentity != Snapshot.SourceIdentity || Current.NormalizedSize != Snapshot.NormalizedSize
 			|| Current.Body != Snapshot.Body || Current.BodyRevision != Snapshot.BodyRevision
 			|| Current.CollisionMode != Snapshot.CollisionMode || Current.CollisionPolicy != Snapshot.CollisionPolicy
 			|| Current.MaterialSlots.size() != Snapshot.MaterialSlots.size())
-			return Fail({.Code = EStaticMeshApplicationError::OwnerChanged, .Expected = State(Snapshot), .Current = State(Current)});
+			return Fail(FStaticMeshBuildFailure{std::format(
+				"StaticMesh owner '{}' changed during candidate construction (source changed {}, size {} -> {}, body changed {}, revision {} -> {}, mode {} -> {}, policy {} -> {}, slots {} -> {}).",
+				Mesh.GetObjectPath(), Current.SourceIdentity != Snapshot.SourceIdentity,
+				Snapshot.NormalizedSize, Current.NormalizedSize, Current.Body != Snapshot.Body,
+				Snapshot.BodyRevision, Current.BodyRevision,
+				static_cast<uint8>(Snapshot.CollisionMode), static_cast<uint8>(Current.CollisionMode),
+				static_cast<uint8>(Snapshot.CollisionPolicy), static_cast<uint8>(Current.CollisionPolicy),
+				Snapshot.MaterialSlots.size(), Current.MaterialSlots.size()), EStaticMeshBuildStage::Application});
 		const auto& Request = Candidate->Request;
 		if (Request.NormalizedSize != Snapshot.NormalizedSize || Request.CollisionMode != Snapshot.CollisionMode
 			|| Request.CollisionPolicy != Snapshot.CollisionPolicy || Request.MaterialSlots.size() != Snapshot.MaterialSlots.size())
-			return Fail({.Code = EStaticMeshApplicationError::CandidateMismatch, .Expected = State(Snapshot),
-				.Input = FStaticMeshApplicationState{.SourceIdentity = Request.Source.GetIdentity(), .NormalizedSize = Request.NormalizedSize,
-					.CollisionMode = Request.CollisionMode, .CollisionPolicy = Request.CollisionPolicy, .SlotCount = Request.MaterialSlots.size()}});
+			return Fail(FStaticMeshBuildFailure{std::format(
+				"StaticMesh candidate does not match its application snapshot (size {} / {}, collision mode {} / {}, policy {} / {}, slots {} / {}).",
+				Request.NormalizedSize, Snapshot.NormalizedSize,
+				static_cast<uint8>(Request.CollisionMode), static_cast<uint8>(Snapshot.CollisionMode),
+				static_cast<uint8>(Request.CollisionPolicy), static_cast<uint8>(Snapshot.CollisionPolicy),
+				Request.MaterialSlots.size(), Snapshot.MaterialSlots.size()), EStaticMeshBuildStage::Application});
 		for (size_t Index = 0; Index < Snapshot.MaterialSlots.size(); ++Index)
 		{
 			const auto& Expected = Snapshot.MaterialSlots[Index];
@@ -664,18 +634,18 @@ namespace Durin
 				|| Expected.SourceMaterialIndex != Actual.SourceMaterialIndex || Expected.DefaultMaterial != Actual.DefaultMaterial
 				|| Expected.Name != Input.Name || Expected.SourceName != Input.SourceName
 				|| Expected.SourceMaterialIndex != Input.SourceMaterialIndex)
-				return Fail({.Code = EStaticMeshApplicationError::MaterialBindings, .SlotIndex = Index,
-					.ExpectedSlot = SlotState(Expected), .CurrentSlot = SlotState(Actual),
-					.InputSlot = FStaticMeshApplicationSlot{Input.Name.ToString(), Input.SourceName, Input.SourceMaterialIndex}});
+				return Fail(FStaticMeshBuildFailure{std::format(
+					"StaticMesh material bindings changed at slot {} (expected '{}', current '{}', input '{}').",
+					Index, Expected.Name.ToString(), Actual.Name.ToString(), Input.Name.ToString()), EStaticMeshBuildStage::Application});
 		}
 		for (size_t Index = 0; Index < Candidate->Render.MaterialSlots.size() && Index < Snapshot.MaterialSlots.size(); ++Index)
 			Candidate->Render.MaterialSlots[Index].DefaultMaterial = Snapshot.MaterialSlots[Index].DefaultMaterial;
-		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshApplicationError::Cancelled});
+		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
 		const bool bSlotMetadataChanged = Candidate->Render.bSlotMetadataChanged;
 		if (const auto Published = Mesh.CommitRenderDataCandidate(std::move(Candidate->Render.RenderData),
 			&Candidate->Render.MaterialSlots, true, Candidate.get(), PreparedImportData); !Published)
 		{
-			return Fail({.Code = EStaticMeshApplicationError::Publication, .PublicationCause = Published.error()});
+			return Fail(Published.error());
 		}
 		if (bSlotMetadataChanged)
 			ReportAssetLoadMutation(&Mesh, "Engine.StaticMesh.MaterialSlotsV1",
@@ -750,7 +720,7 @@ namespace Durin
 		{
 			DURIN_ERROR(
 				"Failed to create debug static mesh: {}",
-				FormatStaticMeshPublicationError(Published.error()));
+				(Published.error()).ToString());
 			MarkAsGarbage(Mesh);
 			return nullptr;
 		}
@@ -786,7 +756,7 @@ namespace Durin
 		case EStaticMeshReplacementError::SlotName: return "StaticMesh replacement requires unique non-None material slots.";
 		case EStaticMeshReplacementError::UVChannels: return "StaticMesh replacement exceeds the texture coordinate limit.";
 		case EStaticMeshReplacementError::Payload: return Error.PayloadCause ? FormatStaticMeshPayloadError(*Error.PayloadCause) : "StaticMesh replacement payload is invalid.";
-		case EStaticMeshReplacementError::Publication: return Error.PublicationCause ? FormatStaticMeshPublicationError(*Error.PublicationCause) : "StaticMesh replacement publication failed.";
+		case EStaticMeshReplacementError::Publication: return Error.PublicationCause ? (*Error.PublicationCause).ToString() : "StaticMesh replacement publication failed.";
 		}
 		return {};
 	}
@@ -869,7 +839,7 @@ namespace Durin
 		}
 		if (const auto Published = CommitRenderDataCandidate(std::move(InRenderData), &InMaterialSlots, false); !Published)
 		{
-			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())});
+			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())});
 		}
 		NotifyStaticMeshCompilationMutation(*this);
 		return {};

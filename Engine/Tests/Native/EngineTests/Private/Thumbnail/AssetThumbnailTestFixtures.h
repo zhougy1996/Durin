@@ -474,7 +474,7 @@ namespace Durin::Tests
 		Mesh.SourceMaterialIndex = 0;
 		if (const auto Built = OutFixtures.StaticMesh->Build(std::move(ImportedMesh)); !Built)
 		{
-			OutError = Built.error().ToString();
+			OutError = Durin::FormatStaticMeshBuildMessages(Built.error());
 			return false;
 		}
 		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);

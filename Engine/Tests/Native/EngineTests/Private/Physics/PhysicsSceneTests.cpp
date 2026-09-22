@@ -484,7 +484,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
 	const auto SynchronousBuild1 = Mesh->Build(std::move(Imported));
-	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error().ToString();
+	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
 	Mesh->SetCollisionSourceMode(Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
@@ -534,7 +534,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
 	const auto SynchronousBuild2 = Mesh->Build(Mesh->GetSource());
-	ASSERT_TRUE(SynchronousBuild2) << SynchronousBuild2.error().ToString();
+	ASSERT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild2.error());
 	EXPECT_EQ(Durin::FStaticMeshTestAccess::GetRenderDataUpdateError(Mesh).Code, Durin::EStaticMeshReplacementError::None);
 	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());

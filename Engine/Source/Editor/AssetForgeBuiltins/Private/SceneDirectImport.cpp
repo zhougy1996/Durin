@@ -583,7 +583,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			if (!Outcome)
 			{
 				Result = AddError(Result,
-				                  (!Outcome && Outcome.error().Code == EStaticMeshAuthoredBuildError::Cancelled)
+				                  (!Outcome && Outcome.error().IsCancelled())
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
 				                  "scene-build", Outcome.error().ToString(),
@@ -847,7 +847,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				{
 					co_return AddError(
 					    Result, EImportDiagnosticCategory::CandidateFailure, "scene-materialization",
-					    FormatStaticMeshApplicationError(Applied.error()), Descriptor.StableIdentity);
+					    (Applied.error()).ToString(), Descriptor.StableIdentity);
 				}
 			}
 		}

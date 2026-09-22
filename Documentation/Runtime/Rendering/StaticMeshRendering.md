@@ -53,10 +53,10 @@ are rejected before render-data publication rather than clamped per view.
 Engine validation returns `std::expected<void, FStaticMeshLODPolicyError>`, owning the failed LOD
 index/count and current/previous thresholds, including NaN or signed zero. It has
 no diagnostic-output overload. Candidate publication returns
-`std::expected<void, FStaticMeshPublicationError>`, retaining LOD-policy or collision-build causes and
-distinguishing missing render data from resource initialization failure. Failed
-preparation leaves the live product unchanged. Authored application retains
-PublicationCause; pending cooked-load contracts format explicitly.
+`std::expected<void, FStaticMeshBuildFailure>`, carrying a diagnostic stage and
+bounded message for LOD-policy, collision or resource initialization failures.
+Failed preparation leaves the live product unchanged. Authored application
+propagates the same failure; cooked loading retains its own residency result.
 
 The UE-named buffer resources have these responsibilities:
 

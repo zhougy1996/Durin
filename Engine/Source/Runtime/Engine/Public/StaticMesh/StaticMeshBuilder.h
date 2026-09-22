@@ -4,6 +4,7 @@
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
+#include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -11,8 +12,6 @@
 
 namespace Durin
 {
-	struct FStaticMeshAuthoredBuildError;
-
 	// Immutable object facts captured before StaticMesh recipe work begins.
 	struct FStaticMeshReconciliationSnapshot
 	{
@@ -132,111 +131,26 @@ namespace Durin
 		friend class FStaticMeshBuilder;
 	};
 
-	enum class EStaticMeshDerivedDataError : uint8
-	{
-		Cancelled, Unavailable, ProviderDescriptor, ProviderInvocation,
-		Key, Source, Recipe, Payload, MissingLOD, InvalidGeometry, InvalidProduct
-	};
-	struct FStaticMeshDerivedDataError
-	{
-		EStaticMeshDerivedDataError Code;
-		std::string Message;
-		ENGINE_API auto ToString() const -> std::string;
-	};
-
-	enum class EStaticMeshPublicationError : uint8
-	{
-		None, MissingRenderData, LODPolicy, CollisionBuild, ResourceInitialization
-	};
-	struct FStaticMeshPublicationError
-	{
-		EStaticMeshPublicationError Code = EStaticMeshPublicationError::None;
-		std::optional<FStaticMeshLODPolicyError> LODCause;
-		std::optional<FStaticMeshDerivedDataError> CollisionCause;
-	};
-
-	ENGINE_API auto FormatStaticMeshPublicationError(const FStaticMeshPublicationError& Error) -> std::string;
-
-	enum class EStaticMeshApplicationError : uint8
-	{
-		None, Cancelled, InvalidCandidate, ImportAllocation, ImportOwnership, ImportValidation,
-		OwnerChanged, CandidateMismatch, MaterialBindings, Publication
-	};
-	struct FStaticMeshApplicationState
-	{
-		FXxHash128 SourceIdentity;
-		float NormalizedSize = 0;
-		FObjectKey Body;
-		uint64 BodyRevision = 0;
-		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		uint64 SlotCount = 0;
-	};
-	struct FStaticMeshApplicationSlot
-	{
-		std::string Name;
-		std::string SourceName;
-		uint32 SourceMaterialIndex = 0;
-		FObjectKey DefaultMaterial;
-	};
-	struct FStaticMeshApplicationError
-	{
-		EStaticMeshApplicationError Code = EStaticMeshApplicationError::None;
-		FObjectKey Owner;
-		FObjectKey ImportData;
-		FObjectKey ImportOuter;
-		std::string ImportClass;
-		bool OwnerValid = false;
-		bool CandidatePresent = false;
-		bool RenderDataPresent = false;
-		uint64 SlotIndex = 0;
-		std::optional<FStaticMeshApplicationState> Expected;
-		std::optional<FStaticMeshApplicationState> Current;
-		std::optional<FStaticMeshApplicationState> Input;
-		std::optional<FStaticMeshApplicationSlot> ExpectedSlot;
-		std::optional<FStaticMeshApplicationSlot> CurrentSlot;
-		std::optional<FStaticMeshApplicationSlot> InputSlot;
-		std::optional<FAssetImportDataError> ImportCause;
-		std::optional<FStaticMeshPublicationError> PublicationCause;
-	};
-
-	ENGINE_API auto FormatStaticMeshApplicationError(const FStaticMeshApplicationError& Error) -> std::string;
-
-	enum class EStaticMeshAuthoredBuildError : uint8
-	{
-		NotStarted, Cancelled, Input, SourceBudget, RenderBuild, MaterialSlots,
-		SlotName, UVChannels, MetadataBudget, FinalizationBudget, Payload, LODPolicy,
-		CollisionBuild, ProviderChanged, RetainedBudget, WorkerException, TaskRetired
-	};
-	// The orchestration boundary exposes its own codes, not the lower-level error tree.
-	// Message owns bounded diagnostic text; callers must not parse it for control flow.
-	struct FStaticMeshAuthoredBuildError
-	{
-		EStaticMeshAuthoredBuildError Code = EStaticMeshAuthoredBuildError::NotStarted;
-		std::string Message;
-		ENGINE_API auto ToString() const -> std::string;
-	};
-
 	// Advanced detached building API. Ordinary asset callers use DStaticMesh::Build/AsyncBuild.
 	class FStaticMeshBuilder
 	{
 	public:
 		ENGINE_API static auto Build(
 			FStaticMeshBuildRequest Request,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError>;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure>;
 		ENGINE_API static auto BuildCollision(
 			const FStaticMeshRenderData& RenderData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			bool bPersistDerivedData = true,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError>;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>;
 		ENGINE_API static auto BuildCandidate(FStaticMeshAuthoredBuildRequest Request,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshBuildFailure>;
 		ENGINE_API static auto ApplyCandidate(DStaticMesh& Mesh,
 			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 			const FStaticMeshReconciliationSnapshot& Snapshot,
 			bool bMarkPackageDirty = true, const FStaticMeshBuildExecutionControl& Control = {},
-			DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshApplicationError>;
+			DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshBuildFailure>;
 		ENGINE_API static auto MakeRequest(FStaticMeshSource Source,
 			const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest;
 		ENGINE_API static auto Capture(const DStaticMesh& Mesh)

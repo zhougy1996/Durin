@@ -1100,7 +1100,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	DStaticMesh* Mesh = DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
 	std::string Error;
-	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Cold;
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Cold;
 	ASSERT_TRUE((Cold = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
@@ -1119,7 +1119,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	const uint64 FirstIdentity = FirstGeometry.GetIdentity();
 	Mesh->RebuildCollision();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EStaticMeshCollisionBuildStatus::Ready);
-	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Warm;
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Warm;
 	ASSERT_TRUE((Warm = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
@@ -1138,7 +1138,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_EQ(Rejected.Code, EStaticMeshCollisionError::DerivedData);
 	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	ASSERT_TRUE(Rejected.DerivedDataCause);
-	EXPECT_EQ(Rejected.DerivedDataCause->Code, EStaticMeshDerivedDataError::Recipe);
+	EXPECT_EQ(Rejected.DerivedDataCause->GetStage(), EStaticMeshBuildStage::Collision);
 	EXPECT_FALSE(Rejected.DerivedDataCause->ToString().empty());
 	FCollisionGeometryRef Preserved;
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
@@ -1151,8 +1151,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_EQ(Mesh->GetCollisionBuildError().Code, Durin::EStaticMeshCollisionError::None);
 	EXPECT_TRUE(Setup->BuildComplexGeometry(Preserved));
 	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
-	EXPECT_EQ(Rejected.DerivedDataCause->Code, EStaticMeshDerivedDataError::Recipe);
-	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Changed;
+	EXPECT_EQ(Rejected.DerivedDataCause->GetStage(), EStaticMeshBuildStage::Collision);
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Changed;
 	ASSERT_TRUE((Changed = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::ComplexOnly))) << Error;

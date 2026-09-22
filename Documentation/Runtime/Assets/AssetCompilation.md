@@ -246,19 +246,19 @@ are known.
 
 `DStaticMesh::AsyncBuild` accepts canonical source values and returns before
 recipe work. Rejection does not supersede earlier work or call completion.
-Its `std::expected<void, FStaticMeshSubmissionError>` reports admission failures
-as owned messages through `ToString()`; this alias reuses `FStaticMeshBuildError`.
-Rejected owner/settings/slot, provider, import-validation and budget details are
-formatted at rejection rather than exposed as a public error tree.
+Its `std::expected<void, std::vector<std::string>>` reports admission failures
+as owned messages. Rejected owner/settings/slot, provider, import-validation and
+budget details are formatted at rejection rather than exposed as a public error tree.
 Accepted requests deliver one `FStaticMeshCompilationResult` on GameThread:
-request ID, `Succeeded`, `Failed`, `Cancelled`, or `Superseded` status and optional
-error text. Cancellation/supersession remain states; successful cache fallback
-warnings are available only in diagnostic queries. Worker captures contain no object bindings.
-`FStaticMeshCompilationDiagnostic::Error` retains typed build, application,
-missing-save-package or save failures. Terminal status remains the lifecycle
-outcome. Publication preparation returns `std::expected<void, FStaticMeshApplicationError>`; rejected
-preparation retains its cause and never enters live application. Import save
-failures retain the complete asset result through SaveCause.
+request ID, `Succeeded`, `Failed`, `Cancelled`, or `Superseded` status and an
+`Errors` string array. Cancellation/supersession remain states; cache fallback
+warnings are available in diagnostic queries. Worker captures contain no object bindings.
+`FStaticMeshCompilationDiagnostic::Error` is an optional `FStaticMeshBuildFailure`
+with diagnostic stage, bounded message and internal cancellation identity.
+Build, application and resource publication propagate this same failure.
+Publication preparation returns `std::expected<void, FStaticMeshBuildFailure>`;
+rejected preparation never enters live application. Import save failures belong
+to the import completion result and do not alter successful compilation history.
 Owner records use generation-safe handles and recheck source, normalization,
 ordered material bindings, body parameters/revision, provenance identity and
 provider registration before applying the sealed candidate. Provider replacement
@@ -293,11 +293,10 @@ contract is unchanged. Cooked residency remains a separate manager.
 Authored `PostLoad` validates metadata and schedules background work without
 acquiring canonical geometry. Repeated identical current requests join;
 `DStaticMesh::Build` is a separate synchronous entrypoint. It directly constructs
-and applies the same sealed candidate, returning `std::expected<void, FStaticMeshBuildError>`.
+and applies the same sealed candidate, returning `std::expected<void, std::vector<std::string>>`.
 It cancels older requests for that mesh without waiting for workers or dispatching
 callbacks, and does not consume queue admission capacity or create compilation
-observations. Cache warnings are logged; fatal errors expose bounded `ToString()`
-text. See [Static Mesh Building](StaticMeshBuilding.md#provenance-and-compatibility).
+observations. Cache warnings are logged; fatal errors expose owned message arrays. See [Static Mesh Building](StaticMeshBuilding.md#provenance-and-compatibility).
 For `AsyncBuild`, success means admission only; callbacks and observations carry
 the final build/application outcome.
 Missing admission/provider capacity is an explicit
@@ -318,18 +317,16 @@ Request ID zero means no available observation, including evicted history.
 A nonzero observation describes its captured source identity and provider
 registration, not proof that the live asset still matches it. Match these facts
 before presenting it as current. `Render` and `Collision` are optional completed
-product observations with opaque DDC key, hit/rebuilt origin, payload bytes and
-cache read/write durations; absent values mean unavailable, never a cache miss.
+product observations with opaque DDC key and hit/rebuilt origin; absent values mean unavailable, never a cache miss.
 Nonfatal cache failures survive successful publication in a flat `CacheErrors`
 list. Each `FStaticMeshCacheError` identifies render/collision and read/decode/write,
 with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
 There are at most two errors per recipe (read or decode, followed by write);
 clean cache outcomes create no records. Backend and codec causes are translated
 at the cache boundary instead of retained as a nested diagnostic tree.
-`Error.BuildCause` retains the authored
-build code and bounded message; `Error.ApplicationCause` retains application
-failure context. `FormatStaticMeshCompilationDiagnostic` formats the outer
-observation for presentation or adapters waiting for async completion.
+The optional `Error` retains the original pipeline failure without a completion
+wrapper. `FormatStaticMeshCompilationDiagnostic` displays both fatal errors and
+retained cache warnings, including when application fails after a successful build.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
 Build observations retain cache origin and key, not timing or payload-size

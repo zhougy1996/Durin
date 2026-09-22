@@ -123,7 +123,7 @@ namespace StaticMeshBuildTestSupport
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
-			std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError> Product;
+			std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure> Product;
 			ASSERT_TRUE((Product = FStaticMeshBuilder::Build({.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
@@ -167,7 +167,7 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
-			std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError> Render;
+			std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure> Render;
 			ASSERT_TRUE((Render = FStaticMeshBuilder::Build(
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
 			ASSERT_EQ(Render->GetObservation().Origin, EStaticMeshBuildOrigin::Rebuilt);
@@ -176,7 +176,7 @@ namespace StaticMeshBuildTestSupport
 			const auto& LOD = Render->RenderData->LODResources.front();
 			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 			ASSERT_NE(Acceleration, nullptr);
-			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Collision;
+			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
 			ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Render->RenderData,
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -275,7 +275,7 @@ namespace StaticMeshBuildTestSupport
 				}});
 			ASSERT_TRUE(bRequested);
 			ASSERT_FALSE(Cancelled);
-			EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
+			EXPECT_TRUE(Cancelled.error().IsCancelled());
 			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - RequestedAt).count()));

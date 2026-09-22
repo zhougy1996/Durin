@@ -159,19 +159,19 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Validation = State.Validate(); !Validation)
 			{ Error.ImportCause = std::make_shared<FAssetImportDataError>(Validation.error()); return Reject(EStaticMeshRebuildError::ImportValidation); }
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
-			auto Result = std::make_shared<FStaticMeshCompilationDiagnostic>();
+			auto Result = std::make_shared<FStaticMeshCompilationResult>();
 			if (const auto Submitted = Mesh.AsyncBuild({
 				.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive,
-				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshApplicationError> {
+				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure> {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
 					auto* Data = NewObject<DStaticMeshImportData>(&Target, FName("AssetImportData_" + FGuid::NewGuid().ToString()));
-					if (!Data) return std::unexpected(FStaticMeshApplicationError{.Code = EStaticMeshApplicationError::ImportAllocation, .Owner = FObjectKey(&Target), .ImportClass = "DStaticMeshImportData"});
+					if (!Data) return std::unexpected(FStaticMeshBuildFailure{"Could not allocate DStaticMeshImportData.", EStaticMeshBuildStage::Application});
 					Data->SetState(State);
 					PreparedImportData = Data;
 					return {};
 				}}, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationResult& Value) {
 				auto Final = Value;
-				*Result = GetStaticMeshCompilationDiagnostic(Value.RequestId);
+				*Result = Value;
 				if (Value.Status == EStaticMeshCompilationStatus::Succeeded && Save)
 				{
 					auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner));
@@ -179,23 +179,23 @@ namespace Durin::AssetForge::Builtins
 					if (!Package)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
-						Result->Error = {.Code = EStaticMeshCompletionError::PackageUnavailable, .Owner = Owner};
+						Result->Errors.push_back("StaticMesh package is unavailable for save.");
 					}
 					else if (const auto Saved = SavePackages(std::span<DPackage* const>(&Package, 1), *Save).Result; !Saved)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
-						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetWriteResult>(Saved)};
+						Result->Errors.push_back(Saved.Message.substr(0, MaximumStaticMeshBuildDiagnosticBytes));
 					}
 				}
 				if (Result->Status != Value.Status)
 				{
 					Final.Status = Result->Status;
-					Final.Error.emplace(FormatStaticMeshCompletionError(Result->Error));
+					Final.Errors = Result->Errors;
 				}
 				if (Completion) Completion(Final);
 			}); !Submitted)
 			{
-				Error.SubmissionCause = Submitted.error();
+				Error.SubmissionErrors = Submitted.error();
 				return Reject(EStaticMeshRebuildError::Submission);
 			}
 			if (bAsync) return {};
@@ -224,8 +224,8 @@ namespace Durin::AssetForge::Builtins
 		case EStaticMeshRebuildError::Decode: return "Failed to decode StaticMesh source " + Error.Filename;
 		case EStaticMeshRebuildError::Source: return Error.SourceCause ? FormatStaticMeshSourceError(*Error.SourceCause) : "Invalid StaticMesh source.";
 		case EStaticMeshRebuildError::ImportValidation: return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "Invalid StaticMesh import data.";
-		case EStaticMeshRebuildError::Submission: return Error.SubmissionCause ? Error.SubmissionCause->ToString() : "StaticMesh compilation submission failed.";
-		case EStaticMeshRebuildError::Completion: return Error.CompletionCause ? FormatStaticMeshCompilationDiagnostic(*Error.CompletionCause) : "StaticMesh compilation failed.";
+		case EStaticMeshRebuildError::Submission: return !Error.SubmissionErrors.empty() ? FormatStaticMeshBuildMessages(Error.SubmissionErrors) : "StaticMesh compilation submission failed.";
+		case EStaticMeshRebuildError::Completion: return Error.CompletionCause ? Error.CompletionCause->ToString() : "StaticMesh compilation failed.";
 		case EStaticMeshRebuildError::ImportData: return "StaticMesh has no current family import data.";
 		case EStaticMeshRebuildError::MissingSource: return "StaticMesh has no source filename to reimport.";
 		}

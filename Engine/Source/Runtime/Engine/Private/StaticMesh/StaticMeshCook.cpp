@@ -270,7 +270,7 @@ namespace Durin
 		if (CanJoinStaticMeshCompilation(*this, Source)) return;
 		if (const auto Submitted = AsyncBuild({.Source = Source, .bMarkPackageDirty = false}); !Submitted)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Submitted.error().ToString());
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshBuildMessages(Submitted.error()));
 			return;
 		}
 	}
@@ -298,7 +298,7 @@ namespace Durin
 			return Error.ProductCause ? FormatCookedMeshProductError(*Error.ProductCause)
 				: "Cooked mesh product decoding failed.";
 		case ECookedMeshLoadError::Publication:
-			return Error.PublicationCause ? FormatStaticMeshPublicationError(*Error.PublicationCause)
+			return Error.PublicationCause ? (*Error.PublicationCause).ToString()
 				: "Cooked mesh publication failed.";
 		}
 		return "Unknown cooked mesh load failure.";
@@ -342,7 +342,7 @@ namespace Durin
 			std::move(Product.RenderData), nullptr, false); !Published)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
-				.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())}};
+				.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};
 		}
 		if (bRequiresCollision)
 		{
@@ -443,7 +443,7 @@ namespace Durin
 					std::move(Product.RenderData), nullptr, false); !Published)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Publication,
-						.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())}};
+						.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};
 				}
 				if (Product.bHasCollision)
 				{

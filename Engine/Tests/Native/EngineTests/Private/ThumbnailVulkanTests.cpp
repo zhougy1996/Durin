@@ -216,7 +216,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	};
 	ImportedSection.SourceMaterialIndex = 0;
 	const auto SynchronousBuild1 = StaticMeshFixture->Build(std::move(ImportedMesh));
-	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error().ToString();
+	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
 	Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(
 		StaticMeshMaterialPath,

@@ -11,18 +11,6 @@ namespace Durin
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
 
-	struct FAssetWriteResult;
-	enum class EStaticMeshCompletionError : uint8 { None, Build, Application, PackageUnavailable, Save };
-	struct FStaticMeshCompletionError
-	{
-		EStaticMeshCompletionError Code = EStaticMeshCompletionError::None;
-		FObjectKey Owner;
-		std::optional<FStaticMeshAuthoredBuildError> BuildCause;
-		std::optional<FStaticMeshApplicationError> ApplicationCause;
-		std::shared_ptr<const FAssetWriteResult> SaveCause;
-	};
-	ENGINE_API auto FormatStaticMeshCompletionError(const FStaticMeshCompletionError& Error) -> std::string;
-
 	struct FStaticMeshCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
@@ -35,11 +23,11 @@ namespace Durin
 		uint64 ProviderRegistration = 0;
 		std::optional<FStaticMeshBuildObservation> Render;
 		std::optional<FStaticMeshBuildObservation> Collision;
-		FStaticMeshCompletionError Error;
+		std::optional<FStaticMeshBuildFailure> Error;
 		std::vector<FStaticMeshCacheError> CacheErrors;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
-	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshApplicationError>(DStaticMesh&, DAssetImportData*&)>;
+	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshBuildFailure>(DStaticMesh&, DAssetImportData*&)>;
 
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
@@ -64,7 +52,7 @@ namespace Durin
 	{
 		uint64 RequestId = 0;
 		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
-		std::optional<FStaticMeshBuildError> Error;
+		std::vector<std::string> Errors;
 		ENGINE_API auto ToString() const -> std::string;
 	};
 	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationResult&)>;

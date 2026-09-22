@@ -21,33 +21,21 @@ namespace Durin
 
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationResult;
-	// Presentation-only failure; build stages and control-flow errors stay below this boundary.
-	struct FStaticMeshBuildError
-	{
-		ENGINE_API explicit FStaticMeshBuildError(std::string InMessage);
-		ENGINE_API explicit FStaticMeshBuildError(std::vector<std::string> InMessages);
-		ENGINE_API auto ToString() const -> std::string;
-	private:
-		std::vector<std::string> Messages;
-	};
 
-	using FStaticMeshSubmissionError = FStaticMeshBuildError;
+	// Joins caller-facing messages for display within the StaticMesh diagnostic budget.
+	ENGINE_API auto FormatStaticMeshBuildMessages(std::span<const std::string> Messages) -> std::string;
 
 	class DBodySetup;
 	class FStaticMeshAuthoredCandidate;
+	struct FStaticMeshBuildFailure;
 	struct FStaticMeshReconciliationSnapshot;
 	struct FStaticMeshBuildExecutionControl;
-	struct FStaticMeshApplicationError;
-	struct FStaticMeshPublicationError;
-	struct FStaticMeshDerivedDataError;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
 	enum class EBodySetupCollisionQueryPolicy : uint8;
 	enum class ECollisionGeometryKind : uint8;
 
 	struct FStaticMeshPayloadError;
-	struct FStaticMeshPublicationError;
-	struct FStaticMeshDerivedDataError;
 	enum class EStaticMeshReplacementError : uint8 { None, Source, MaterialSlots, SlotName, UVChannels, Payload, Publication };
 	struct FStaticMeshReplacementError
 	{
@@ -60,7 +48,7 @@ namespace Durin
 		uint64 Index = 0;
 		std::string SlotName;
 		std::shared_ptr<const FStaticMeshPayloadError> PayloadCause;
-		std::shared_ptr<const FStaticMeshPublicationError> PublicationCause;
+		std::shared_ptr<const FStaticMeshBuildFailure> PublicationCause;
 	};
 
 	enum class EStaticMeshCollisionError : uint8 { None, MissingRenderData, DerivedData, Publication };
@@ -69,7 +57,7 @@ namespace Durin
 		EStaticMeshCollisionError Code = EStaticMeshCollisionError::None;
 		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		std::shared_ptr<const FStaticMeshDerivedDataError> DerivedDataCause;
+		std::shared_ptr<const FStaticMeshBuildFailure> DerivedDataCause;
 	};
 	ENGINE_API auto FormatStaticMeshReplacementError(const FStaticMeshReplacementError& Error) -> std::string;
 	ENGINE_API auto FormatStaticMeshCollisionError(const FStaticMeshCollisionError& Error) -> std::string;
@@ -174,12 +162,12 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		// Owner-thread build and application. Does not submit or wait for compilation.
 		// Cancels older async requests; failure preserves the current mesh data.
-		ENGINE_API auto Build(const FStaticMeshSource& InSource) -> std::expected<void, FStaticMeshBuildError>;
-		ENGINE_API auto Build(FStaticMeshDecodedGeometry Geometry) -> std::expected<void, FStaticMeshBuildError>;
+		ENGINE_API auto Build(const FStaticMeshSource& InSource) -> std::expected<void, std::vector<std::string>>;
+		ENGINE_API auto Build(FStaticMeshDecodedGeometry Geometry) -> std::expected<void, std::vector<std::string>>;
 		// Success means accepted, not built. Completion is delivered by the owner-thread pump.
 		ENGINE_API auto AsyncBuild(FStaticMeshCompilationRequest Request,
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
-			-> std::expected<void, FStaticMeshSubmissionError>;
+			-> std::expected<void, std::vector<std::string>>;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
@@ -330,7 +318,7 @@ namespace Durin
 				InMaterialSlots,
 			bool bBuildAuthoredCollision = true,
 			FStaticMeshAuthoredCandidate* AuthoredCandidate = nullptr,
-			DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshPublicationError>;
+			DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshBuildFailure>;
 		friend class FStaticMeshBuilder;
 		auto LoadCookedRenderData() -> FCookedMeshLoadResult;
 		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
@@ -340,7 +328,7 @@ namespace Durin
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FCollisionGeometryRef& OutSimple,
-			FCollisionGeometryRef& OutComplex) const -> std::expected<void, FStaticMeshDerivedDataError>;
+			FCollisionGeometryRef& OutComplex) const -> std::expected<void, FStaticMeshBuildFailure>;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

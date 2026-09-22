@@ -16,7 +16,7 @@ Source acquisition and key factories return their successful values by value.
 Read `error()` only on failure; cancellation remains a distinct error code.
 Low-level operations retain their own structured context. The authored build boundary
 keeps codes needed by compilation control flow. The synchronous object-facing
-boundary exposes only bounded diagnostic text through `ToString()`, so callers
+boundary exposes only owned diagnostic strings, so callers
 need not understand build stages or the lower-level error tree.
 
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
@@ -57,7 +57,7 @@ Rejection preserves the source identity, canonical bytes and existing readers.
 Recipes receive only an owning decoded handle and recipe settings. Provider feature
 version 6 returns render/collision products as `std::expected<Product, FStaticMeshRecipeError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and complete
-physics-build diagnostics, including cancellation. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures to its own error code and bounded text.
+physics-build diagnostics, including cancellation. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
 `FStaticMeshBuilder::BuildCandidate` accepts value-only source, normalization,
@@ -66,9 +66,10 @@ ray and collision product. `FStaticMeshBuilder::ApplyCandidate` consumes it on t
 owner thread after checking the captured source/material/body facts and final
 cancellation state. It restores material object bindings from the owner-thread
 snapshot and performs no CPU collision, ray-tree or bounds construction.
-Its `std::expected<void, FStaticMeshApplicationError>` has no parallel success flag. Rejection owns object keys, expected/current/input facts and slot
-names, with nested import-validation or publication causes. Completion diagnostics
-retain `ApplicationCause`; completion/import adapters format explicitly.
+Its `std::expected<void, FStaticMeshBuildFailure>` has no parallel success flag.
+Rejection formats relevant owner, input and slot facts into bounded owned text.
+Application, publication and build share this failure representation; wrappers do
+not retain nested snapshots or reclassify a lower-level failure.
 Source, normalization, slots, render and collision become current before one
 registered-consumer refresh, including initial authored publication. Resource
 initialization and its targeted fence remain separate from detached CPU recipes.
@@ -140,22 +141,18 @@ retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; provider
 adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
 failures. Public derived-data builds return
-`std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError>` or
-`std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError>`.
+`std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure>` or
+`std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>`.
 Products are returned by value; failure and cancellation return no product.
-`FStaticMeshDerivedDataError` retains only its boundary code and bounded message;
-`ToString()` presents details translated from provider, key, source, recipe or
-payload failures. It has no success sentinel or nested cause tree. Successful rebuilds
-retain nonfatal cache failures as flat `FStaticMeshCacheError` records with
-render/collision kind, read/decode/write operation and bounded `ToString()` text.
-Clean hits and misses produce no error records. Authored candidate construction returns
-`std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>`,
-combining product ownership and outcome in one worker result. Its error contains
-only the authored operation's code and an owned message capped at 4096 bytes.
-Lower-level failures are formatted once at this boundary; input and budget
-messages include rejected values. Callers branch on codes such as `Cancelled`
-and display `error().ToString()` without parsing it. Compilation diagnostics retain this
-compact `BuildCause` instead of the lower-level error tree.
+Candidate construction, application and resource publication use the same
+`FStaticMeshBuildFailure`: a diagnostic stage, owned text capped at 4096 bytes,
+and `IsCancelled()` for internal control flow. Lower-level source, recipe,
+codec and validation errors are formatted at the pipeline boundary; the failure
+then propagates unchanged through candidate construction and completion diagnostics.
+There is no per-layer error enumeration or nested completion cause tree.
+Nonfatal cache failures remain separate flat `FStaticMeshCacheError` records with
+render/collision kind, read/decode/write operation and bounded text. Clean hits
+and misses produce no error records.
 `StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
 returns the render product; `BuildCollision` returns collision geometry;
 `BuildCandidate`/`ApplyCandidate` provide combined construction and owner-thread
@@ -165,24 +162,22 @@ Products expose owned CPU geometry and reconciled material data. Provider identi
 registration and material-upgrade flags are private to building/application.
 Read-only observations retain only cache origin and key; cache warnings have a
 separate read-only accessor. Products carry no timing or payload-size statistics.
-`DStaticMesh::Build` returns `std::expected<void, FStaticMeshBuildError>` after
-synchronous candidate construction and application. It does not submit, join,
-wait for, or create a diagnostic record in the compiling manager. Valid source
-input cancels older asynchronous requests for the same mesh without waiting or
-pumping their callbacks. Failed construction/application preserves live mesh data;
-success marks the package dirty. Nonfatal cache failures are logged at this boundary.
-`FStaticMeshBuildError` owns a private `std::vector<std::string>`. Its constructors
-cap the combined text, including line separators, at 4096 bytes. `ToString()`
-joins messages with newlines for presentation, without error codes
-or nested causes. Internal cancellation remains typed for async control flow. The decoded-geometry
-overload first validates and captures canonical source.
-`DStaticMesh::AsyncBuild` returns `std::expected<void, FStaticMeshSubmissionError>`
-for admission only. `FStaticMeshSubmissionError` reuses the presentation-only build
-error type. Accepted requests deliver `FStaticMeshCompilationResult` (request ID,
-terminal status and optional error text); detailed diagnostics remain a separate
-query. Include `StaticMeshCompilation.h` for its request,
-submission error and completion types. Compilation, cooked residency and Level
-mutation reports retain their independent lifecycle and partial-effect states.
+`DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
+after synchronous construction and application. It does not submit, join, wait
+for, or create a diagnostic record in the compiling manager. Valid source input
+cancels older asynchronous requests for the same mesh without waiting or pumping
+their callbacks. Failed construction/application preserves live mesh data;
+success marks the package dirty. Nonfatal cache failures are logged here.
+Caller-facing errors are plain string arrays; `FormatStaticMeshBuildMessages`
+joins them for display within a 4096-byte budget. The decoded-geometry overload
+first validates and captures canonical source.
+`DStaticMesh::AsyncBuild` returns the same expected/string-array shape for
+admission only. Accepted requests deliver `FStaticMeshCompilationResult` with
+request ID, terminal `Status` and an `Errors` string array. Cancellation and
+supersession are completion states, not public error codes. Detailed diagnostics
+remain a separate query. Import saving updates the import completion result,
+not compilation history. Compilation, cooked residency and Level mutation
+reports retain independent lifecycle and partial-effect states.
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 
