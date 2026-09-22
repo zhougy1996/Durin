@@ -1002,10 +1002,11 @@ TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRe
 	Object->Value = 6;
 	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, After));
 	Object->Value = 5;
-	FTransactionObjectRecord Record;
-	ASSERT_TRUE(FTransactionObjectRecord::Capture(Target, Before, After, Record));
+	auto Captured = FTransactionObjectRecord::Capture(Target, Before, After);
+	ASSERT_TRUE(Captured);
+	auto Record = std::move(*Captured);
 	ASSERT_TRUE(Record.Validate());
-	const auto Invalid = FTransactionObjectRecord::Capture(Target, {}, After, Record);
+	const auto Invalid = FTransactionObjectRecord::Capture(Target, {}, After);
 	ASSERT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.error().Code, ETransactionObjectRecordError::Payload);
 	EXPECT_EQ(Invalid.error().Owner, FObjectKey(Object));

@@ -53,10 +53,9 @@ Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining 
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 Recipes receive only an owning decoded handle and recipe settings. Provider feature
-version 5 returns `std::expected<void, FStaticMeshRecipeError>`.
+version 6 returns render/collision products as `std::expected<Product, FStaticMeshRecipeError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and complete
-physics-build diagnostics, including cancellation. Failed or canceled recipes clear
-the product. Derived-data orchestration retains `RecipeCause` in its typed error.
+physics-build diagnostics, including cancellation. Failed or canceled recipes return no product. Derived-data orchestration retains `RecipeCause` in its typed error.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
 `BuildStaticMeshAuthoredCandidate` accepts value-only source, normalization,
@@ -142,7 +141,8 @@ failures. Public derived-data builds return `std::expected<void, FStaticMeshDeri
 failure and cancellation retain their typed codes.
 Errors retain provider, key, source, recipe and payload causes. Successful rebuilds
 retain `CacheDecodeCause`. Authored candidate construction returns
-`std::expected<void, FStaticMeshAuthoredBuildError>`, retaining derived-data,
+`std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>`,
+combining product ownership and outcome in one worker result and retaining derived-data,
 payload and LOD causes, provider descriptors, rejected input facts and budget
 estimates. Budget failures own the limit, accumulated bytes and rejected count/
 width; cancellation owns its phase and nested cause when available. Compilation

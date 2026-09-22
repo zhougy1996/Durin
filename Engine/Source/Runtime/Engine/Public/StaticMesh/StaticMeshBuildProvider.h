@@ -140,17 +140,15 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 5;
+		static constexpr uint32 FeatureVersion = 6;
 
 		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
 		virtual auto BuildRender(
 			const FStaticMeshRecipeBuildRequest& Request,
-			FStaticMeshRecipeBuildProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError> = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> = 0;
 		virtual auto BuildCollision(
 			const FStaticMeshCollisionRecipeRequest& Request,
-			FStaticMeshCollisionRecipeProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError> = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError> = 0;
 	};
 
 }

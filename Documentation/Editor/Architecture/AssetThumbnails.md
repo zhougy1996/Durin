@@ -186,7 +186,10 @@ separate count-bounded LRU so failed or unsupported assets cannot grow the pool
 without bound.
 
 Rendered captures enqueue an RHI texture readback and remain `ReadbackPending`
-until later polling publishes tightly packed pixels. Neither submission nor
+until later polling publishes tightly packed pixels. `PollCapture` returns
+`std::expected<std::optional<FByteBuffer>, std::string>`: an empty optional while
+idle or pending, owned pixels once on completion, or a terminal error. Consuming
+the pixels returns the capture to idle. Neither submission nor
 polling waits for GPU completion. Vulkan retains the mapped range with its GPU
 submission ticket, invalidates host memory only after completion, and retires
 the range on the RHI owner. Cancellation discards pixel publication but preserves

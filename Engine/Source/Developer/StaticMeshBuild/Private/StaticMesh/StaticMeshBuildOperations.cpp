@@ -605,47 +605,41 @@ namespace Durin
 	}
 
 	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
-		FStaticMeshRecipeBuildProduct& OutProduct,
-		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<void, FStaticMeshRecipeError>
+		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError>
 	{
-		OutProduct = {};
+		FStaticMeshRecipeBuildProduct Product;
 		FStaticMeshRecipeError Error;
 		FRecipeControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildRenderRecipeInternal(Request, OutProduct, Error, Control);
+			const bool bSucceeded = BuildRenderRecipeInternal(Request, Product, Error, Control);
 			Control.Check();
-			if (!bSucceeded) OutProduct = {};
 			Error.Kind = EStaticMeshRecipeKind::Render;
-			if (bSucceeded) return {};
+			if (bSucceeded) return Product;
 			return std::unexpected(std::move(Error));
 		}
 		catch (const FRecipeCancelled&)
 		{
-			OutProduct = {};
 			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled, .Kind = EStaticMeshRecipeKind::Render});
 		}
 	}
 
 	auto FStaticMeshBuildOperations::BuildCollisionRecipe(const FStaticMeshCollisionRecipeRequest& Request,
-		FStaticMeshCollisionRecipeProduct& OutProduct,
-		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<void, FStaticMeshRecipeError>
+		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError>
 	{
-		OutProduct = {};
+		FStaticMeshCollisionRecipeProduct Product;
 		FStaticMeshRecipeError Error;
 		FRecipeControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildCollisionRecipeInternal(Request, OutProduct, Error, Control);
+			const bool bSucceeded = BuildCollisionRecipeInternal(Request, Product, Error, Control);
 			Control.Check();
-			if (!bSucceeded) OutProduct = {};
 			Error.Kind = EStaticMeshRecipeKind::Collision;
-			if (bSucceeded) return {};
+			if (bSucceeded) return Product;
 			return std::unexpected(std::move(Error));
 		}
 		catch (const FRecipeCancelled&)
 		{
-			OutProduct = {};
 			Error.Code = EStaticMeshRecipeError::Cancelled;
 			Error.Kind = EStaticMeshRecipeKind::Collision;
 			Error.Mode = Request.Mode;

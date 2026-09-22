@@ -229,12 +229,11 @@ namespace StaticMeshBuildTestSupport
 		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 		auto Request = MakeStaticMeshAuthoredBuildRequest(Source, Snapshot);
 		Request.bPersistDerivedData = false;
-		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
 		FStaticMeshBuildExecutionMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		const auto Outcome = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate,
+		auto Outcome = BuildStaticMeshAuthoredCandidate(std::move(Request),
 			{.ShouldCancel = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
@@ -244,6 +243,7 @@ namespace StaticMeshBuildTestSupport
 			}, .Metrics = &Metrics});
 		const auto Built = std::chrono::steady_clock::now();
 		ASSERT_TRUE(Outcome) << FormatStaticMeshAuthoredBuildError(Outcome.error());
+		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
 		ASSERT_TRUE(ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
@@ -265,9 +265,8 @@ namespace StaticMeshBuildTestSupport
 			uint64 Checks = 0;
 			bool bRequested = false;
 			std::chrono::steady_clock::time_point RequestedAt;
-			std::unique_ptr<FStaticMeshAuthoredCandidate> CancelledCandidate;
 			const auto Cancelled = BuildStaticMeshAuthoredCandidate(std::move(CancelRequest),
-				CancelledCandidate, {.ShouldCancel = [&] {
+				{.ShouldCancel = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)
 					{
@@ -279,7 +278,6 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(bRequested);
 			ASSERT_FALSE(Cancelled);
 			EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
-			EXPECT_FALSE(CancelledCandidate);
 			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - RequestedAt).count()));

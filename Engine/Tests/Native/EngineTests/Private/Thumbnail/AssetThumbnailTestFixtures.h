@@ -44,15 +44,17 @@ namespace Durin::Tests
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
-			const auto Capture = Pool.PollCapture(Pixels);
+			auto Capture = Pool.PollCapture();
 			if (!Capture)
 			{
 				Error = Capture.error();
 				return Editor::EThumbnailCaptureState::Failed;
 			}
-			const auto State = *Capture;
-			if (State != Editor::EThumbnailCaptureState::Rendering
-				&& State != Editor::EThumbnailCaptureState::ReadbackPending) return State;
+			if (Capture->has_value())
+			{
+				Pixels = std::move(**Capture);
+				return Editor::EThumbnailCaptureState::Ready;
+			}
 			if (std::chrono::steady_clock::now() >= Deadline)
 			{
 				Error = "Timed out waiting for thumbnail readback.";
@@ -238,7 +240,12 @@ namespace Durin::Tests
 			return Pool.SetView(View).and_then([&] { return Pool.BeginCapture(); });
 		}
 
-		auto PollCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
+		auto PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>
+		{
+			return Pool.PollCapture();
+		}
+
+		auto FinishCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
 			-> Editor::EThumbnailCaptureState
 		{
 			return FinishThumbnailCapture(Pool, OutPixels, OutError);

@@ -60,8 +60,7 @@ namespace Durin::Editor
 		DURINED_API static auto Capture(
 			const FPropertyEditTarget& Target,
 			FPropertyValueSnapshotPayload Before,
-			FPropertyValueSnapshotPayload After,
-			FTransactionObjectRecord& OutRecord) -> std::expected<void, FTransactionObjectRecordError>;
+			FPropertyValueSnapshotPayload After) -> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>;
 
 		auto IsNoOp() const -> bool { return Before == After; }
 		DURINED_API auto Validate() const -> std::expected<void, FTransactionObjectRecordError>;

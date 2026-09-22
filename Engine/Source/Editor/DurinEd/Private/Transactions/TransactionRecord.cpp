@@ -79,9 +79,8 @@ namespace Durin::Editor
 
 	auto FTransactionMemberLocator::Capture(
 		const FProperty* Property,
-		uint32 InArrayIndex,
-		FTransactionMemberLocator& OutLocator
-	) -> std::expected<void, FTransactionSnapshotError>
+		uint32 InArrayIndex
+	) -> std::expected<FTransactionMemberLocator, FTransactionSnapshotError>
 	{
 		FTransactionSnapshotError Error{.ArrayIndex = InArrayIndex};
 		if (!Property) { Error.Code = ETransactionSnapshotError::NullMember; return std::unexpected(std::move(Error)); }
@@ -99,8 +98,7 @@ namespace Durin::Editor
 		Locator.MemberName = Property->NamePrivate;
 		Locator.ArrayIndex = InArrayIndex;
 		Locator.CapturedProperty = Property;
-		OutLocator = Locator;
-		return {};
+		return Locator;
 	}
 
 	auto FTransactionMemberLocator::Resolve(const DObject* Target) const -> std::expected<FProperty*, FTransactionSnapshotError>
@@ -128,9 +126,8 @@ namespace Durin::Editor
 	auto FFocusedTransactionObjectSnapshot::Capture(
 		DObject* InTarget,
 		const FProperty* MemberProperty,
-		uint32 ArrayIndex,
-		FFocusedTransactionObjectSnapshot& OutSnapshot
-	) -> std::expected<void, FTransactionSnapshotError>
+		uint32 ArrayIndex
+	) -> std::expected<FFocusedTransactionObjectSnapshot, FTransactionSnapshotError>
 	{
 		FTransactionSnapshotError Error{
 			.Owner = FObjectKey(InTarget),
@@ -140,8 +137,10 @@ namespace Durin::Editor
 		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return std::unexpected(std::move(Error)); }
 		FFocusedTransactionObjectSnapshot Snapshot;
 		Snapshot.Target = FPersistentObjectRef(InTarget);
-		if (auto Result = FTransactionMemberLocator::Capture(MemberProperty, ArrayIndex, Snapshot.Member); !Result)
-		{ Result.error().Owner = Error.Owner; return Result; }
+		auto Member = FTransactionMemberLocator::Capture(MemberProperty, ArrayIndex);
+		if (!Member)
+		{ Member.error().Owner = Error.Owner; return std::unexpected(std::move(Member.error())); }
+		Snapshot.Member = std::move(*Member);
 		const auto Resolved = Snapshot.Member.Resolve(InTarget);
 		if (!Resolved) return std::unexpected(Resolved.error());
 		if (*Resolved != MemberProperty)
@@ -157,8 +156,7 @@ namespace Durin::Editor
 			const FPersistentObjectRef Reference = FPersistentObjectRef::FromKey(Handle);
 			if (Reference != Snapshot.Target) Snapshot.HardReferences.Add(Reference);
 		}
-		OutSnapshot = std::move(Snapshot);
-		return {};
+		return Snapshot;
 	}
 
 	auto FFocusedTransactionObjectSnapshot::AddReferencedObjects(

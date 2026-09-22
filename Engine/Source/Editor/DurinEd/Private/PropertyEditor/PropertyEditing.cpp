@@ -690,8 +690,7 @@ namespace Durin::Editor
 	auto FTransactionObjectRecord::Capture(
 		const FPropertyEditTarget& InTarget,
 		FPropertyValueSnapshotPayload InBefore,
-		FPropertyValueSnapshotPayload InAfter,
-		FTransactionObjectRecord& OutRecord) -> std::expected<void, FTransactionObjectRecordError>
+		FPropertyValueSnapshotPayload InAfter) -> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>
 	{
 		FTransactionObjectRecordError Error{
 			.Owner = FObjectKey(InTarget.Object),
@@ -720,13 +719,15 @@ namespace Durin::Editor
 
 		FTransactionObjectRecord Record;
 		Record.Target = FPersistentObjectRef(InTarget.Object);
-		if (const auto Result = FTransactionMemberLocator::Capture(
-			InTarget.SnapshotProperty, InTarget.SnapshotArrayIndex, Record.SnapshotMember); !Result)
+		const auto Member = FTransactionMemberLocator::Capture(
+			InTarget.SnapshotProperty, InTarget.SnapshotArrayIndex);
+		if (!Member)
 		{
 			Error.Code = ETransactionObjectRecordError::Member;
-			Error.MemberCause = Result.error();
+			Error.MemberCause = Member.error();
 			return std::unexpected(std::move(Error));
 		}
+		Record.SnapshotMember = *Member;
 		Record.LeafProperty = InTarget.LeafProperty;
 		Record.Path.reserve(InTarget.Path.size());
 		for (const FPropertyEditPathSegment& Segment : InTarget.Path)
@@ -738,8 +739,7 @@ namespace Durin::Editor
 		Record.Kind = InTarget.Kind;
 		Record.Before = std::move(InBefore);
 		Record.After = std::move(InAfter);
-		OutRecord = std::move(Record);
-		return {};
+		return Record;
 	}
 
 	auto FTransactionObjectRecord::BuildTarget(
@@ -948,9 +948,9 @@ namespace Durin::Editor
 				Reset();
 				return Result;
 			}
-			FTransactionObjectRecord Record;
-			if (const auto Capture = FTransactionObjectRecord::Capture(
-				Target, OriginalValue, CurrentValue, Record); !Capture)
+			auto Capture = FTransactionObjectRecord::Capture(
+				Target, OriginalValue, CurrentValue);
+			if (!Capture)
 			{
 				auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
 				const auto Cleanup = TransactionScope->Cancel();
@@ -961,7 +961,7 @@ namespace Durin::Editor
 				Reset();
 				return Result;
 			}
-			const FTransactorResult RecordResult = TransactionScope->Record(std::move(Record));
+			const FTransactorResult RecordResult = TransactionScope->Record(std::move(*Capture));
 			if (!RecordResult)
 			{
 				auto Result = Reject(FormatTransactorResult(RecordResult));
@@ -1098,15 +1098,15 @@ namespace Durin::Editor
 	auto FPropertyEditSession::UpdateTransactorRecord() -> FPropertyEditOperationResult
 	{
 		if (!Transactor || !TransactionScope || !TransactionScope->IsActive()) return {};
-		FTransactionObjectRecord Record;
-		if (const auto Capture = FTransactionObjectRecord::Capture(
-			Target, OriginalValue, CurrentValue, Record); !Capture)
+		auto Capture = FTransactionObjectRecord::Capture(
+			Target, OriginalValue, CurrentValue);
+		if (!Capture)
 		{
 			auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
 			return Result;
 		}
 		const FTransactorResult Result =
-			TransactionScope->UpdateRecord(TransactionRecordId, std::move(Record));
+			TransactionScope->UpdateRecord(TransactionRecordId, std::move(*Capture));
 		if (Result) return {};
 		auto Failure = Reject(FormatTransactorResult(Result));
 		return Failure;

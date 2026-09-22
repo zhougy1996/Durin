@@ -565,7 +565,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer UnavailableEnvironmentPixels;
 	EXPECT_EQ(
-		Pool.PollCapture(UnavailableEnvironmentPixels, Error),
+		Pool.FinishCapture(UnavailableEnvironmentPixels, Error),
 		Durin::Editor::EThumbnailCaptureState::Failed
 	);
 	EXPECT_TRUE(UnavailableEnvironmentPixels.empty());
@@ -578,7 +578,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer RecoveredReadback;
 	ASSERT_EQ(
-		Pool.PollCapture(RecoveredReadback, Error),
+		Pool.FinishCapture(RecoveredReadback, Error),
 		Durin::Editor::EThumbnailCaptureState::Ready
 	) << Error;
 	EXPECT_EQ(RecoveredReadback.size(), 64u * 64u * 4u);
@@ -589,7 +589,7 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer FailedEnvironmentPixels;
 	EXPECT_EQ(
-		Pool.PollCapture(FailedEnvironmentPixels, Error),
+		Pool.FinishCapture(FailedEnvironmentPixels, Error),
 		Durin::Editor::EThumbnailCaptureState::Failed
 	);
 	EXPECT_TRUE(FailedEnvironmentPixels.empty());
@@ -637,13 +637,9 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	EXPECT_TRUE(bCancelledCaptureStarted) << Error;
 	EXPECT_GT(QueuedReferenceCount, CubeReferenceBaseline);
 	EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
-	Durin::FByteBuffer CancelledPixels;
-	EXPECT_EQ(
-		Pool.PollCapture(CancelledPixels, Error),
-		Durin::Editor::EThumbnailCaptureState::Idle
-	);
-	EXPECT_TRUE(CancelledPixels.empty());
-	EXPECT_TRUE(Error.empty());
+	const auto Cancelled = Pool.PollCapture();
+	ASSERT_TRUE(Cancelled);
+	EXPECT_FALSE(Cancelled->has_value());
 }
 
 TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplacedAllocation)
@@ -706,13 +702,18 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	FByteBuffer Pixels;
 	EThumbnailCaptureState CaptureState{};
 	ASSERT_TRUE(WaitForResourcePublication([&] {
-		const auto Capture = Pool.PollCapture(Pixels);
-		CaptureState = Capture.value_or(EThumbnailCaptureState::Failed);
+		auto Capture = Pool.PollCapture();
+		CaptureState = !Capture ? EThumbnailCaptureState::Failed
+			: Capture->has_value() ? EThumbnailCaptureState::Ready : EThumbnailCaptureState::ReadbackPending;
 		if (!Capture) Error = Capture.error();
+		else if (Capture->has_value()) Pixels = std::move(**Capture);
 		return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
 	}));
 	ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;
 	ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
+	const auto Consumed = Pool.PollCapture();
+	ASSERT_TRUE(Consumed);
+	EXPECT_FALSE(Consumed->has_value());
 	const size_t Center = (32 * 64 + 32) * 4;
 	EXPECT_NEAR(std::to_integer<int>(Pixels[Center]), 128, 1);
 	EXPECT_NEAR(std::to_integer<int>(Pixels[Center + 1]), 128, 1);
@@ -791,9 +792,11 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 		FByteBuffer Pixels;
 		EThumbnailCaptureState CaptureState{};
 		ASSERT_TRUE(WaitForResourcePublication([&] {
-			const auto Capture = Pool.PollCapture(Pixels);
-			CaptureState = Capture.value_or(EThumbnailCaptureState::Failed);
+			auto Capture = Pool.PollCapture();
+			CaptureState = !Capture ? EThumbnailCaptureState::Failed
+				: Capture->has_value() ? EThumbnailCaptureState::Ready : EThumbnailCaptureState::ReadbackPending;
 			if (!Capture) Error = Capture.error();
+			else if (Capture->has_value()) Pixels = std::move(**Capture);
 			return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
 		}));
 		ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;

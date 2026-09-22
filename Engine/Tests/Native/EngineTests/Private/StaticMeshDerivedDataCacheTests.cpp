@@ -700,15 +700,15 @@ TEST(FStaticMeshBuildProviderTests, ReturnsDetachedCPUStreamsAndDiscardsCancelle
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	auto Source = std::make_shared<const FStaticMeshDecodedGeometry>(MakeResidencyGeometry());
-	FStaticMeshRecipeBuildProduct Product;
 	std::string Error;
 	const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
 		[&](IStaticMeshBuildProvider& Provider) {
-			return Provider.BuildRender({.Geometry = Source, .NormalizedSize = 2.0f}, Product);
+			return Provider.BuildRender({.Geometry = Source, .NormalizedSize = 2.0f});
 		});
 	ASSERT_EQ(Invocation.Status, EFeatureInvokeStatus::Invoked);
 	ASSERT_TRUE(Invocation.Value.has_value());
 	ASSERT_TRUE(*Invocation.Value);
+	const auto& Product = **Invocation.Value;
 	Source.reset();
 	ASSERT_EQ(Product.LODs.size(), 1u);
 	const auto& LOD = Product.LODs.front();
@@ -733,14 +733,14 @@ TEST(FStaticMeshBuildProviderTests, ReturnsDetachedCPUStreamsAndDiscardsCancelle
 	EXPECT_EQ(Product.MaterialSlots[0].Name, FName("Material"));
 	const auto Cancelled = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
 		[&](IStaticMeshBuildProvider& Provider) {
-			return Provider.BuildRender({}, Product, {.ShouldCancel = [] { return true; }});
+			return Provider.BuildRender({}, {.ShouldCancel = [] { return true; }});
 		});
 	ASSERT_EQ(Cancelled.Status, EFeatureInvokeStatus::Invoked);
 	ASSERT_TRUE(Cancelled.Value.has_value());
 	ASSERT_FALSE(*Cancelled.Value);
 	EXPECT_EQ(Cancelled.Value->error().Code, EStaticMeshRecipeError::Cancelled);
-	EXPECT_TRUE(Product.LODs.empty());
-	EXPECT_TRUE(Product.MaterialSlots.empty());
+	EXPECT_EQ(Product.LODs.size(), 1u);
+	EXPECT_EQ(Product.MaterialSlots.size(), 1u);
 }
 
 TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
@@ -1127,9 +1127,10 @@ TEST(FStaticMeshAuthoredCompilationTests, SealedCandidatePublishesWithoutProvide
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
-	std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-	ASSERT_TRUE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
-		Mesh->GetSource(), Snapshot), Candidate)) << Error;
+	auto Built = BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
+		Mesh->GetSource(), Snapshot));
+	ASSERT_TRUE(Built) << FormatStaticMeshAuthoredBuildError(Built.error());
+	auto Candidate = std::move(*Built);
 	const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
 	const auto CollisionIdentity = Candidate->GetCollision().Complex.GetIdentity();
 	ASSERT_NE(Ray, nullptr);
@@ -1157,9 +1158,10 @@ TEST(FStaticMeshAuthoredCompilationTests, CancelledAndStaleCandidatesPreserveLiv
 	for (const uint32 Scenario : {0u, 1u, 2u})
 	{
 		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
-		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-		ASSERT_TRUE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
-			Mesh->GetSource(), Snapshot), Candidate)) << Error;
+		auto Built = BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
+			Mesh->GetSource(), Snapshot));
+		ASSERT_TRUE(Built) << FormatStaticMeshAuthoredBuildError(Built.error());
+		auto Candidate = std::move(*Built);
 		if (Scenario == 1) ASSERT_TRUE(Mesh->RenameMaterialSlot(0, FName("Changed")));
 		if (Scenario == 2) Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::SimpleOnly);
 		const auto* Original = Mesh->GetRenderData();
@@ -1237,14 +1239,14 @@ namespace
 			ADD_FAILURE() << "Ambiguous providers must not be invoked.";
 			return {};
 		}
-		auto BuildRender(const Durin::FStaticMeshRecipeBuildRequest&, Durin::FStaticMeshRecipeBuildProduct&,
-			const Durin::FStaticMeshBuildExecutionControl&) -> std::expected<void, Durin::FStaticMeshRecipeError> override
+		auto BuildRender(const Durin::FStaticMeshRecipeBuildRequest&,
+			const Durin::FStaticMeshBuildExecutionControl&) -> std::expected<Durin::FStaticMeshRecipeBuildProduct, Durin::FStaticMeshRecipeError> override
 		{
 			ADD_FAILURE();
 			return std::unexpected(Durin::FStaticMeshRecipeError{.Code = Durin::EStaticMeshRecipeError::MissingGeometry});
 		}
-		auto BuildCollision(const Durin::FStaticMeshCollisionRecipeRequest&, Durin::FStaticMeshCollisionRecipeProduct&,
-			const Durin::FStaticMeshBuildExecutionControl&) -> std::expected<void, Durin::FStaticMeshRecipeError> override
+		auto BuildCollision(const Durin::FStaticMeshCollisionRecipeRequest&,
+			const Durin::FStaticMeshBuildExecutionControl&) -> std::expected<Durin::FStaticMeshCollisionRecipeProduct, Durin::FStaticMeshRecipeError> override
 		{
 			ADD_FAILURE();
 			return std::unexpected(Durin::FStaticMeshRecipeError{.Code = Durin::EStaticMeshRecipeError::MissingGeometry});
@@ -1576,10 +1578,8 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
-	std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-	EXPECT_FALSE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(Source, {}), Candidate,
+	EXPECT_FALSE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(Source, {}),
 		{.MaximumWorkingSetBytes = 1024}));
-	EXPECT_EQ(nullptr, Candidate);
 	EXPECT_EQ(SourceResource->GetReadStats().RequestCount, 0u);
 	EXPECT_EQ(OversizedResource->GetReadStats().RequestCount, 0u);
 }
@@ -2333,17 +2333,15 @@ TEST(FStaticMeshReplacementTests, CollisionConfigurationCanPrecedeCpuData)
 	MarkObjectHierarchyAsGarbage(Mesh);
 }
 
-TEST(FStaticMeshRecipeTests, RejectionOwnsMeshIndexAndClearsProduct)
+TEST(FStaticMeshRecipeTests, RejectionOwnsMeshIndexWithoutProduct)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	auto Source = std::make_shared<FStaticMeshDecodedGeometry>(MakeResidencyGeometry());
 	Source->Meshes[0].Name = "RejectedMesh";
 	Source->Meshes[0].Indices[1] = 99;
-	FStaticMeshRecipeBuildProduct Product;
-	Product.LODs.resize(1);
 	const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
-		[&](IStaticMeshBuildProvider& Provider) { return Provider.BuildRender({.Geometry = Source}, Product); });
+		[&](IStaticMeshBuildProvider& Provider) { return Provider.BuildRender({.Geometry = Source}); });
 	ASSERT_TRUE(Invocation.Value.has_value());
 	const auto Result = *Invocation.Value;
 	EXPECT_FALSE(Result);
@@ -2354,8 +2352,6 @@ TEST(FStaticMeshRecipeTests, RejectionOwnsMeshIndexAndClearsProduct)
 	EXPECT_EQ(Result.error().Index, 1u);
 	EXPECT_EQ(Result.error().Actual, 99u);
 	EXPECT_EQ(Result.error().Expected, 3u);
-	EXPECT_TRUE(Product.LODs.empty());
-	EXPECT_TRUE(Product.MaterialSlots.empty());
 }
 
 TEST(FStaticMeshRecipeTests, CollisionFailureAndCancellationRetainPhysicsCause)
@@ -2364,11 +2360,10 @@ TEST(FStaticMeshRecipeTests, CollisionFailureAndCancellationRetainPhysicsCause)
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	const std::array Positions{FVector3f(0, 0, 0), FVector3f(1, 0, 0), FVector3f(0, 1, 0)};
 	const std::array<uint32, 3> Indices{0, 1, 99};
-	FStaticMeshCollisionRecipeProduct Product;
 	const auto Invoke = [&](const FStaticMeshBuildExecutionControl& Control) {
 		return FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
 			[&](IStaticMeshBuildProvider& Provider) {
-				return Provider.BuildCollision({Positions, Indices, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0}, Product, Control);
+				return Provider.BuildCollision({Positions, Indices, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0}, Control);
 			});
 	};
 	const auto Failed = Invoke({});
@@ -2378,7 +2373,6 @@ TEST(FStaticMeshRecipeTests, CollisionFailureAndCancellationRetainPhysicsCause)
 	EXPECT_EQ(Failed.Value->error().Kind, EStaticMeshRecipeKind::Collision);
 	ASSERT_TRUE(Failed.Value->error().CollisionCause);
 	EXPECT_EQ(Failed.Value->error().CollisionCause->Status, ECollisionGeometryBuildStatus::InvalidInput);
-	EXPECT_FALSE(Product.Geometry);
 	uint32 Checks = 0;
 	const auto Cancelled = Invoke({.ShouldCancel = [&] { return ++Checks == 3; }});
 	ASSERT_TRUE(Cancelled.Value.has_value());
@@ -2386,7 +2380,6 @@ TEST(FStaticMeshRecipeTests, CollisionFailureAndCancellationRetainPhysicsCause)
 	EXPECT_EQ(Cancelled.Value->error().Code, EStaticMeshRecipeError::Cancelled);
 	ASSERT_TRUE(Cancelled.Value->error().CollisionCause);
 	EXPECT_EQ(Cancelled.Value->error().CollisionCause->Status, ECollisionGeometryBuildStatus::Cancelled);
-	EXPECT_FALSE(Product.Geometry);
 	const auto Budget = Invoke({.MaximumWorkingSetBytes = 1});
 	ASSERT_TRUE(Budget.Value.has_value());
 	EXPECT_EQ(Budget.Value->error().Code, EStaticMeshRecipeError::WorkingSet);
@@ -2530,14 +2523,13 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause
 		{
 			return {.ProducerIdentity = "InvalidProductFixture", .RenderBuilderVersion = 777, .CollisionBuilderVersion = 777};
 		}
-		auto BuildRender(const FStaticMeshRecipeBuildRequest&, FStaticMeshRecipeBuildProduct& Product,
-			const FStaticMeshBuildExecutionControl&) -> std::expected<void, FStaticMeshRecipeError> override
+		auto BuildRender(const FStaticMeshRecipeBuildRequest&,
+			const FStaticMeshBuildExecutionControl&) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
 		{
-			Product = {};
-			return {};
+			return FStaticMeshRecipeBuildProduct{};
 		}
-		auto BuildCollision(const FStaticMeshCollisionRecipeRequest&, FStaticMeshCollisionRecipeProduct&,
-			const FStaticMeshBuildExecutionControl&) -> std::expected<void, FStaticMeshRecipeError> override
+		auto BuildCollision(const FStaticMeshCollisionRecipeRequest&,
+			const FStaticMeshBuildExecutionControl&) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError> override
 		{
 			ADD_FAILURE() << "Render rejection must not invoke a collision recipe.";
 			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::CollisionInput});
@@ -2566,14 +2558,12 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidProviderProductRetainsPayloadCause
 	ASSERT_TRUE(Outcome.error().PayloadCause->RenderCause);
 	EXPECT_NE(Outcome.error().PayloadCause->RenderCause->Code, EStaticMeshPayloadError::None);
 	EXPECT_EQ(Product.RenderData, nullptr);
-	std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-	const auto Authored = BuildStaticMeshAuthoredCandidate({.Source = Source, .bPersistDerivedData = false}, Candidate);
+	const auto Authored = BuildStaticMeshAuthoredCandidate({.Source = Source, .bPersistDerivedData = false});
 	EXPECT_FALSE(Authored);
 	ASSERT_TRUE(Authored.error().DerivedDataCause);
 	EXPECT_EQ(Authored.error().DerivedDataCause->Code, EStaticMeshDerivedDataError::Payload);
 	ASSERT_TRUE(Authored.error().DerivedDataCause->PayloadCause);
 	EXPECT_EQ(Authored.error().DerivedDataCause->PayloadCause->Code, EStaticMeshCacheCodecError::RenderPayload);
-	EXPECT_EQ(Candidate, nullptr);
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedWorkerFailure"));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source, .bPersistDerivedData = false})) << Error;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -2633,15 +2623,13 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	FStaticMeshAuthoredBuildRequest Request{.Source = Source};
 	Request.NormalizedSize = std::numeric_limits<float>::quiet_NaN();
-	std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-	const auto Invalid = BuildStaticMeshAuthoredCandidate(Request, Candidate);
+	const auto Invalid = BuildStaticMeshAuthoredCandidate(Request);
 	Request.NormalizedSize = 1.5f;
 	EXPECT_EQ(Invalid.error().Code, EStaticMeshAuthoredBuildError::Input);
 	EXPECT_TRUE(Invalid.error().SourceValid);
 	EXPECT_TRUE(std::isnan(Invalid.error().NormalizedSize));
-	EXPECT_EQ(Candidate, nullptr);
 	const auto PayloadBytes = Source.GetGeometryBulk().GetPayloadSize();
-	const auto Budget = BuildStaticMeshAuthoredCandidate(Request, Candidate, {.MaximumWorkingSetBytes = 1});
+	const auto Budget = BuildStaticMeshAuthoredCandidate(Request, {.MaximumWorkingSetBytes = 1});
 	Request.Source = {};
 	Source = {};
 	EXPECT_EQ(Budget.error().Code, EStaticMeshAuthoredBuildError::SourceBudget);
@@ -2650,12 +2638,10 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	EXPECT_EQ(Budget.error().MemoryCause->Bytes, 0u);
 	EXPECT_EQ(Budget.error().MemoryCause->RejectedCount, PayloadBytes);
 	EXPECT_EQ(Budget.error().MemoryCause->RejectedWidth, 8u);
-	EXPECT_EQ(Candidate, nullptr);
-	const auto Cancelled = BuildStaticMeshAuthoredCandidate({}, Candidate, {.ShouldCancel = [] { return true; }});
+	const auto Cancelled = BuildStaticMeshAuthoredCandidate({}, {.ShouldCancel = [] { return true; }});
 	EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
 	ASSERT_FALSE(Cancelled);
 	EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
-	EXPECT_EQ(Candidate, nullptr);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ApplicationFailureRetainsImportOwnershipThroughCompletion)

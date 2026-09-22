@@ -83,8 +83,7 @@ namespace Durin::Editor
 	public:
 		DURINED_API static auto Capture(
 			const FProperty* Property,
-			uint32 ArrayIndex,
-			FTransactionMemberLocator& OutLocator) -> std::expected<void, FTransactionSnapshotError>;
+			uint32 ArrayIndex) -> std::expected<FTransactionMemberLocator, FTransactionSnapshotError>;
 		DURINED_API auto Resolve(
 			const DObject* Target) const -> std::expected<FProperty*, FTransactionSnapshotError>;
 
@@ -106,8 +105,7 @@ namespace Durin::Editor
 		DURINED_API static auto Capture(
 			DObject* Target,
 			const FProperty* MemberProperty,
-			uint32 ArrayIndex,
-			FFocusedTransactionObjectSnapshot& OutSnapshot) -> std::expected<void, FTransactionSnapshotError>;
+			uint32 ArrayIndex) -> std::expected<FFocusedTransactionObjectSnapshot, FTransactionSnapshotError>;
 
 		auto GetTarget() const -> const FPersistentObjectRef& { return Target; }
 		auto GetMember() const -> const FTransactionMemberLocator& { return Member; }

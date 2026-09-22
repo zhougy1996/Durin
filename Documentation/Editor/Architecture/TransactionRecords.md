@@ -113,21 +113,22 @@ time it resolves the exact target, finds the current member, verifies its
 declaring type and snapshot compatibility, allocates
 `FReflectedValueStorage`, and decodes into that detached storage.
 
-Member capture and focused capture/restore return
+Member and focused snapshot capture return their owned values in
+`std::expected<T, FTransactionSnapshotError>`. Detached restore returns
 `std::expected<void, FTransactionSnapshotError>`; member resolution returns
 `std::expected<FProperty*, FTransactionSnapshotError>`. They retain owned member and declaring-type names, array
 bounds, expected/actual property kinds and exact target keys; a stale detached
 restore preserves the snapshot's original key. Storage and payload failures
-retain their CoreDObject causes. Failed capture leaves its output unchanged,
-and failed detached restore preserves the caller's existing storage. Errors
+retain their CoreDObject causes. Failed capture returns no value, and failed detached restore preserves the
+caller's existing storage. Errors
 remain valid across successful retries. `FormatTransactionSnapshotError` is
 used only by presentation or pending outer result adapters.
 
 Detached restore does not mutate a live `DObject`, emit editor notifications,
 or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. Executable
 `FTransactionObjectRecord` values own both before and after payloads and feed
-them through the validated editor mutation pipeline. Their capture, validation
-and application APIs return `std::expected<void, FTransactionObjectRecordError>`.
+them through the validated editor mutation pipeline. Capture returns `std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>`;
+validation and application return `std::expected<void, FTransactionObjectRecordError>`.
 Object-record rejections preserve exact owner identity, member/snapshot/leaf facts,
 payload validity and kinds, selected history side, and typed member, path,
 draft or mutation causes. Capturing an invalid replacement leaves the previous

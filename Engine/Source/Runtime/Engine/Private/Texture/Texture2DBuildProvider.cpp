@@ -81,12 +81,10 @@ namespace Durin
 		for (uint32 Index = 0; Index < Source.GetLayers()[0].NumMips; ++Index)
 		{
 			const auto View = Mips.GetMipImage(0, 0, Index);
-			Image::FImage Image;
 			if (!View.IsValid()) return {.Settings = Settings};
-			auto ImageResult1 = Image::FImage::TryCreate(View.GetInfo(), Mips.GetMipData(0, 0, Index));
-			if (!ImageResult1) return {.Settings = Settings};
-			Image = std::move(*ImageResult1);
-			Result.SourceMips.push_back(std::move(Image));
+			auto ImageResult = Image::FImage::TryCreate(View.GetInfo(), Mips.GetMipData(0, 0, Index));
+			if (!ImageResult) return {.Settings = Settings};
+			Result.SourceMips.push_back(std::move(*ImageResult));
 		}
 		if (!ValidateTexture2DSourceMips(Result.SourceMips)) return {.Settings = Settings};
 		Result.SourceIdentity = Source.GetIdentity();

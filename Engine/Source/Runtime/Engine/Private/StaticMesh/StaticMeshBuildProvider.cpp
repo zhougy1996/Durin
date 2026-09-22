@@ -330,11 +330,10 @@ namespace Durin
 			std::vector<FStaticMeshRecipeMaterialSlot> RecipeSlots;
 			for (const auto& Slot : Request.Reconciliation.MaterialSlots)
 				RecipeSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
-			FStaticMeshRecipeBuildProduct RecipeProduct;
-			const std::expected<void, FStaticMeshRecipeError> RecipeOutcome = Provider.BuildRender({
+			auto RecipeOutcome = Provider.BuildRender({
 				.Geometry = std::move(*Decoded),
 				.PreviousMaterialSlots = RecipeSlots,
-				.NormalizedSize = Request.Reconciliation.NormalizedSize}, RecipeProduct, Control);
+				.NormalizedSize = Request.Reconciliation.NormalizedSize}, Control);
 			if (!RecipeOutcome)
 			{
 				OutError = {.Code = (!RecipeOutcome && RecipeOutcome.error().Code == EStaticMeshRecipeError::Cancelled)
@@ -342,6 +341,7 @@ namespace Durin
 				return false;
 			}
 			if (IsCancelled()) return false;
+			auto& RecipeProduct = *RecipeOutcome;
 			auto RenderData = AssembleRenderData(RecipeProduct, IsCancelled);
 			if (!RenderData) return false;
 			if (const auto Encoded = EncodeRenderData(*RenderData, Bytes, IsCancelled); !Encoded)
@@ -481,17 +481,16 @@ namespace Durin
 			if (IsCancelled()) return false;
 			if (!bCacheHit)
 			{
-				FStaticMeshCollisionRecipeProduct RecipeProduct;
-				const std::expected<void, FStaticMeshRecipeError> RecipeOutcome = Provider.BuildCollision(
-					{Positions, Indices, Mode, Policy}, RecipeProduct, Control);
-				if (!RecipeOutcome || !RecipeProduct.Geometry)
+				auto RecipeOutcome = Provider.BuildCollision(
+					{Positions, Indices, Mode, Policy}, Control);
+				if (!RecipeOutcome || !RecipeOutcome->Geometry)
 				{
 					OutError.Code = RecipeOutcome ? EStaticMeshDerivedDataError::InvalidProduct
 						: (!RecipeOutcome && RecipeOutcome.error().Code == EStaticMeshRecipeError::Cancelled) ? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Recipe;
 					if (!RecipeOutcome) OutError.RecipeCause = RecipeOutcome.error();
 					return false;
 				}
-				Geometry = std::move(RecipeProduct.Geometry);
+				Geometry = std::move(RecipeOutcome->Geometry);
 				if (IsCancelled()) return false;
 				if (const auto Encoded = EncodeCollision(Geometry, Policy, Bytes, IsCancelled); !Encoded)
 				{

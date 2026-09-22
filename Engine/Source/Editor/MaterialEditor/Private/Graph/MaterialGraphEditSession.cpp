@@ -16,7 +16,10 @@ namespace Durin::Editor::Material::GraphEditInternals
 			auto Property() const -> FProperty* { return Before.GetMember().Resolve(Object()).value_or(nullptr); }
 			auto Index() const -> uint32 { return Before.GetMember().GetArrayIndex(); }
 			auto Capture(DObject& Object, FProperty* Property, uint32 Index) -> std::expected<void, FTransactionSnapshotError>
-			{ return FFocusedTransactionObjectSnapshot::Capture(&Object, Property, Index, Before); }
+			{
+				return FFocusedTransactionObjectSnapshot::Capture(&Object, Property, Index)
+					.transform([&](auto Snapshot) { Before = std::move(Snapshot); });
+			}
 			auto CaptureAfter() -> std::expected<void, FTransactionSnapshotError>
 			{
 				auto Resolved = Before.GetMember().Resolve(Object());
@@ -25,7 +28,8 @@ namespace Durin::Editor::Material::GraphEditInternals
 					Resolved.error().Owner = Before.GetTarget().GetKey();
 					return std::unexpected(std::move(Resolved.error()));
 				}
-				return FFocusedTransactionObjectSnapshot::Capture(Object(), *Resolved, Index(), After);
+				return FFocusedTransactionObjectSnapshot::Capture(Object(), *Resolved, Index())
+					.transform([&](auto Snapshot) { After = std::move(Snapshot); });
 			}
 			auto IsNoOp() const -> bool { return Before.GetPayload() == After.GetPayload(); }
 			auto Restore(bool bBefore) const -> FTransactionCustomResult

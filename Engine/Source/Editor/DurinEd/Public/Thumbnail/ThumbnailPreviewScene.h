@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <optional>
 
 #include "Math/DurinMath.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
@@ -45,10 +46,9 @@ namespace Durin::Editor
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.
 		DURINED_API auto BeginCapture() -> std::expected<void, std::string>;
-		// Moves completed tightly-packed SRGBA8 pixels to the game thread.
-		// Pending/idle states are successful polls; terminal failures return unexpected.
-		DURINED_API auto PollCapture(
-			FByteBuffer& OutPixels) -> std::expected<EThumbnailCaptureState, std::string>;
+		// Returns completed tightly-packed SRGBA8 pixels, no value while idle/pending,
+		// or a terminal error. Completed pixels are consumed once per capture.
+		DURINED_API auto PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>;
 		DURINED_API auto Reset() -> void;
 
 	private:

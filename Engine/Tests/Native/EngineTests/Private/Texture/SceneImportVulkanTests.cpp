@@ -628,7 +628,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			EXPECT_TRUE(Pool.BeginCapture(false));
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
-				Pool.PollCapture(Pixels, Error),
+				Pool.FinishCapture(Pixels, Error),
 				ExpectedState) << Error;
 			Pool.Reset();
 			return Pixels;

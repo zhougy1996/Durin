@@ -82,11 +82,9 @@ namespace Durin
 	}
 
 	auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
-		std::unique_ptr<FStaticMeshAuthoredCandidate>& OutCandidate,
-		const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshAuthoredBuildError>
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>
 	{
-		OutCandidate.reset();
-		const auto Fail = [](FStaticMeshAuthoredBuildError Error) -> std::expected<void, FStaticMeshAuthoredBuildError> { return std::unexpected(std::move(Error)); };
+		const auto Fail = [](FStaticMeshAuthoredBuildError Error) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError> { return std::unexpected(std::move(Error)); };
 		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshAuthoredBuildError::Cancelled});
 		if (!Request.Source.IsValid() || !std::isfinite(Request.NormalizedSize) || Request.NormalizedSize <= 0
 			|| Request.MaterialSlots.size() > MaximumMeshMaterialSlots
@@ -215,8 +213,7 @@ namespace Durin
 		if (!bFits) return Fail({.Code = EStaticMeshAuthoredBuildError::RetainedBudget, .Phase = EStaticMeshAuthoredBuildPhase::Retained, .MemoryCause = Retained});
 		Request.Source.ReleaseGeometry();
 		Candidate->Request = std::move(Request);
-		OutCandidate = std::move(Candidate);
-		return {};
+		return Candidate;
 	}
 
 	auto FormatStaticMeshDirectBuildError(const FStaticMeshDirectBuildError& Error) -> std::string

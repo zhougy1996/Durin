@@ -577,8 +577,8 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  FormatStaticMeshSourceError(Initialized.error()), Descriptor.StableIdentity);
 				return;
 			}
-			const auto Outcome =
-			    BuildStaticMeshAuthoredCandidate({.Source = Output.StaticMeshSource}, Output.StaticMesh,
+			auto Outcome =
+			    BuildStaticMeshAuthoredCandidate({.Source = Output.StaticMeshSource},
 			                                     {.ShouldCancel = IsCancellationRequested});
 			if (!Outcome)
 			{
@@ -590,6 +590,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  Descriptor.StableIdentity);
 				return;
 			}
+			Output.StaticMesh = std::move(*Outcome);
 		}
 		++BuiltCount;
 	}

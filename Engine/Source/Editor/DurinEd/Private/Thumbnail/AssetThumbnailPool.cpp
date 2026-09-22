@@ -294,13 +294,8 @@ namespace Durin::Editor
 		auto FinishCapture() -> void
 		{
 			if (!ActiveJob || ScenePool == nullptr) return;
-			FByteBuffer Pixels;
-			const auto Capture = ScenePool->PollCapture(Pixels);
-			const auto State = Capture.value_or(EThumbnailCaptureState::Failed);
-			if (State == EThumbnailCaptureState::Rendering
-				|| State == EThumbnailCaptureState::ReadbackPending
-				|| State == EThumbnailCaptureState::Idle)
-				return;
+			auto Capture = ScenePool->PollCapture();
+			if (Capture && !Capture->has_value()) return;
 
 			FAssetThumbnailJob& Job = *ActiveJob;
 			FAssetThumbnailGenerationRequest& Request =
@@ -324,7 +319,7 @@ namespace Durin::Editor
 					Job)
 				&& Pipeline.CompletePixels(
 					Job,
-					Pixels,
+					**Capture,
 					Request.KeyInput.Output.Width,
 					Request.KeyInput.Output.Height,
 					{},
@@ -339,7 +334,7 @@ namespace Durin::Editor
 			{
 				QueueUpload(
 					Request,
-					std::move(Pixels),
+					std::move(**Capture),
 					Request.KeyInput.Output.Width,
 					Request.KeyInput.Output.Height);
 			}

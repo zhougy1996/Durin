@@ -18,17 +18,15 @@ namespace Durin
 		}
 
 		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
-			FStaticMeshRecipeBuildProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshRecipeError> override
+			const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
 		{
-			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, OutProduct, Control);
+			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, Control);
 		}
 
 		auto BuildCollision(const FStaticMeshCollisionRecipeRequest& Request,
-			FStaticMeshCollisionRecipeProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshRecipeError> override
+			const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError> override
 		{
-			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, OutProduct, Control);
+			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, Control);
 		}
 
 		auto StartupModule() -> void override

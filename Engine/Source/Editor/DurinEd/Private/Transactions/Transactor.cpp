@@ -592,9 +592,9 @@ namespace Durin::Editor
 							.ArrayIndex = ArrayIndex, .SnapshotCause = Capture.error()}};
 					return;
 				}
-				FTransactionObjectRecord ObjectRecord;
-				if (const auto Capture = FTransactionObjectRecord::Capture(
-						Modified->Target, Modified->Before, Modified->Before, ObjectRecord); !Capture)
+				auto Capture = FTransactionObjectRecord::Capture(
+						Modified->Target, Modified->Before, Modified->Before);
+				if (!Capture)
 				{
 					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 						.FailureCause = FTransactorFailure{.Code = ETransactorFailure::PrepareRecord,
@@ -602,7 +602,7 @@ namespace Durin::Editor
 							.ArrayIndex = ArrayIndex, .RecordCause = Capture.error()}};
 					return;
 				}
-				FTransactorResult RecordResult = Record(std::move(ObjectRecord));
+				FTransactorResult RecordResult = Record(std::move(*Capture));
 				if (!RecordResult)
 				{
 					Failure = std::move(RecordResult);
@@ -665,9 +665,9 @@ namespace Durin::Editor
 						.Member = Modified->Target.MemberProperty->NamePrivate.ToString(),
 						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .SnapshotCause = Capture.error()}};
 			}
-			FTransactionObjectRecord Record;
-			if (const auto Capture = FTransactionObjectRecord::Capture(Modified->Target,
-					Modified->Before, std::move(After), Record); !Capture)
+			auto Capture = FTransactionObjectRecord::Capture(Modified->Target,
+					Modified->Before, std::move(After));
+			if (!Capture)
 			{
 				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 					.FailureCause = FTransactorFailure{.Code = ETransactorFailure::FinalizeRecord,
@@ -675,7 +675,7 @@ namespace Durin::Editor
 						.Member = Modified->Target.MemberProperty->NamePrivate.ToString(),
 						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .RecordCause = Capture.error()}};
 			}
-			FTransactorResult Result = UpdateRecord(Modified->RecordId, std::move(Record));
+			FTransactorResult Result = UpdateRecord(Modified->RecordId, std::move(*Capture));
 			if (!Result) return Result;
 		}
 		return {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};

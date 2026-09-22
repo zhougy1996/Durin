@@ -104,11 +104,13 @@ namespace Durin
 			{
 				auto Request = MakeStaticMeshAuthoredBuildRequest(Source, CaptureStaticMeshReconciliation(*this));
 				Request.bPersistDerivedData = false;
-				if (const auto Built = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate); !Built)
+				auto Built = BuildStaticMeshAuthoredCandidate(std::move(Request));
+				if (!Built)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshAuthoredBuildError(Built.error()));
 					return;
 				}
+				Candidate = std::move(*Built);
 				Projection = Candidate->GetRenderData();
 			}
 			if (!Projection)

@@ -13,11 +13,9 @@ namespace Durin
 	public:
 		STATICMESHBUILD_API static auto BuildRenderRecipe(
 			const FStaticMeshRecipeBuildRequest& Request,
-			FStaticMeshRecipeBuildProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError>;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError>;
 		STATICMESHBUILD_API static auto BuildCollisionRecipe(
 			const FStaticMeshCollisionRecipeRequest& Request,
-			FStaticMeshCollisionRecipeProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError>;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError>;
 	};
 }

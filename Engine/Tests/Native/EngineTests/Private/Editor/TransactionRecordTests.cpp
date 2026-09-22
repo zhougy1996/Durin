@@ -392,11 +392,10 @@ namespace
 		DTransactionRecordParticipant* Target,
 		std::string_view Name) -> Durin::Editor::FFocusedTransactionObjectSnapshot
 	{
-		Durin::Editor::FFocusedTransactionObjectSnapshot Snapshot;
-		const auto Result = Durin::Editor::FFocusedTransactionObjectSnapshot::Capture(
-			Target, Property(Name), 0, Snapshot);
+		auto Result = Durin::Editor::FFocusedTransactionObjectSnapshot::Capture(
+			Target, Property(Name), 0);
 		EXPECT_TRUE(Result) << Durin::Editor::FormatTransactionSnapshotError(Result.error());
-		return Snapshot;
+		return Result ? std::move(*Result) : Durin::Editor::FFocusedTransactionObjectSnapshot{};
 	}
 }
 
@@ -549,7 +548,7 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 	EXPECT_EQ(Stale.error().Member, "Value");
 }
 
-TEST(FFocusedTransactionObjectSnapshotTests, TypedCaptureFailuresPreserveOutputsAndAllowRetry)
+TEST(FFocusedTransactionObjectSnapshotTests, TypedCaptureFailuresOwnErrorsAndAllowRetry)
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
@@ -559,14 +558,15 @@ TEST(FFocusedTransactionObjectSnapshotTests, TypedCaptureFailuresPreserveOutputs
 	Target->Value = 37;
 	auto Snapshot = CaptureSnapshot(Target, "Value");
 	const auto Before = Snapshot.GetPayload();
-	FTransactionMemberLocator Locator;
-	ASSERT_TRUE(FTransactionMemberLocator::Capture(Property("Value"), 0, Locator));
-	const auto Null = FTransactionMemberLocator::Capture(nullptr, 0, Locator);
+	const auto Captured = FTransactionMemberLocator::Capture(Property("Value"), 0);
+	ASSERT_TRUE(Captured);
+	const auto& Locator = *Captured;
+	const auto Null = FTransactionMemberLocator::Capture(nullptr, 0);
 	ASSERT_FALSE(Null);
 	EXPECT_EQ(Null.error().Code, ETransactionSnapshotError::NullMember);
 	EXPECT_EQ(Locator.GetMemberName(), FName("Value"));
 	const auto Bounds = FFocusedTransactionObjectSnapshot::Capture(
-		Target, Property("Value"), Property("Value")->GetArrayDim(), Snapshot);
+		Target, Property("Value"), Property("Value")->GetArrayDim());
 	ASSERT_FALSE(Bounds);
 	EXPECT_EQ(Bounds.error().Code, ETransactionSnapshotError::ArrayIndex);
 	EXPECT_EQ(Bounds.error().ArrayIndex, Property("Value")->GetArrayDim());
@@ -581,7 +581,9 @@ TEST(FFocusedTransactionObjectSnapshotTests, TypedCaptureFailuresPreserveOutputs
 	ASSERT_FALSE(MissingTarget);
 	EXPECT_EQ(MissingTarget.error().Code, ETransactionSnapshotError::InvalidTarget);
 	Target->Value = 41;
-	ASSERT_TRUE(FFocusedTransactionObjectSnapshot::Capture(Target, Property("Value"), 0, Snapshot));
+	auto Retried = FFocusedTransactionObjectSnapshot::Capture(Target, Property("Value"), 0);
+	ASSERT_TRUE(Retried);
+	Snapshot = std::move(*Retried);
 	EXPECT_EQ(Bounds.error().Member, "Value");
 	EXPECT_EQ(Bounds.error().Code, ETransactionSnapshotError::ArrayIndex);
 	FReflectedValueStorage Storage;

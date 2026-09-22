@@ -440,11 +440,9 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto FThumbnailPreviewScenePool::PollCapture(
-		FByteBuffer& OutPixels) -> std::expected<EThumbnailCaptureState, std::string>
+	auto FThumbnailPreviewScenePool::PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail capture polling must run on the game thread.");
-		OutPixels.clear();
 		std::lock_guard Lock(Impl->Capture->Mutex);
 		if (Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 		{
@@ -472,10 +470,13 @@ namespace Durin::Editor
 			}
 		}
 		if (Impl->Capture->State == EThumbnailCaptureState::Ready)
-			OutPixels = std::move(Impl->Capture->Pixels);
+		{
+			Impl->Capture->State = EThumbnailCaptureState::Idle;
+			return std::move(Impl->Capture->Pixels);
+		}
 		else if (Impl->Capture->State == EThumbnailCaptureState::Failed)
 			return std::unexpected(Impl->Capture->Error);
-		return Impl->Capture->State;
+		return std::nullopt;
 	}
 
 	auto FThumbnailPreviewScenePool::Reset() -> void

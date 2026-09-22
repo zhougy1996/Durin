@@ -131,8 +131,7 @@ namespace Durin
 		FStaticMeshCollisionBuildResult Collision;
 		friend class DStaticMesh;
 		friend ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest,
-			std::unique_ptr<FStaticMeshAuthoredCandidate>&,
-			const FStaticMeshBuildExecutionControl&) -> std::expected<void, FStaticMeshAuthoredBuildError>;
+			const FStaticMeshBuildExecutionControl&) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>;
 		friend ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
 			bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> std::expected<void, FStaticMeshApplicationError>;
@@ -142,8 +141,7 @@ namespace Durin
 		const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest;
 	// Completes render, collision and ray acceleration without touching an object.
 	ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
-		std::unique_ptr<FStaticMeshAuthoredCandidate>& OutCandidate,
-		const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshAuthoredBuildError>;
+		const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>;
 	// Validates owner freshness and cancellation before a single non-building application boundary.
 	ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,

@@ -34,8 +34,7 @@ namespace Durin
 			uint64 WorkerNanoseconds = 0;
 			std::atomic<bool> Cancelled = false;
 			std::atomic<bool> Done = false;
-			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
-			std::expected<void, FStaticMeshAuthoredBuildError> Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::NotStarted});
+			std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError> Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::NotStarted});
 		};
 		struct FWorkerState
 		{
@@ -334,14 +333,14 @@ namespace Durin
 							{
 								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
 								const auto WorkerStart = FClock::now();
-								Work->Outcome = BuildStaticMeshAuthoredCandidate(std::move(Work->Request), Work->Candidate,
+								Work->Outcome = BuildStaticMeshAuthoredCandidate(std::move(Work->Request),
 									{.ShouldCancel = [&] { return Work->Cancelled.load(std::memory_order_acquire) || Token.IsCancellationRequested(); },
 									.ExpectedProviderRegistration = Work->ProviderRegistration,
 									.MaximumWorkingSetBytes = Work->ReservedBytes});
 								Work->WorkerNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(FClock::now() - WorkerStart).count();
 								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 							}
-							catch (...) { Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::WorkerException}); Work->Candidate.reset(); }
+							catch (...) { Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::WorkerException}); }
 							Work->Request = {};
 							Work->Done.store(true, std::memory_order_release);
 							State->Running.fetch_sub(1);
@@ -385,7 +384,6 @@ namespace Durin
 						|| Record->Work->Done.load(std::memory_order_acquire)) continue;
 					Record->Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::TaskRetired, .TaskState = Record->Task.GetState()});
 					Record->Work->Request = {};
-					Record->Work->Candidate.reset();
 					Record->Work->Done.store(true, std::memory_order_release);
 					Workers->Running.fetch_sub(1);
 					Workers->Changed.notify_all();
@@ -408,8 +406,9 @@ namespace Durin
 						if (!Record->Work->Outcome) Record->Diagnostic.Error = {.Code = EStaticMeshCompletionError::Build,
 							.Owner = Record->Diagnostic.Owner, .BuildCause = Record->Work->Outcome.error()};
 						Record->Diagnostic.WorkerNanoseconds = Record->Work->WorkerNanoseconds;
-						if (const auto* Candidate = Record->Work->Candidate.get())
+						if (Record->Work->Outcome)
 						{
+							const auto& Candidate = *Record->Work->Outcome;
 							Record->Diagnostic.Render = Candidate->GetRenderObservation();
 							if (Candidate->GetCollision().DerivedDataKey.IsValid())
 								Record->Diagnostic.Collision = Candidate->GetCollisionObservation();
@@ -446,7 +445,7 @@ namespace Durin
 									? Record->PreparePublication(*Mesh, PreparedImportData) : std::expected<void, FStaticMeshApplicationError>{};
 								PublishingOwner = Record->Diagnostic.Owner;
 								if (Application)
-									Application = ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Record->Work->Candidate),
+									Application = ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(*Record->Work->Outcome),
 										Record->Snapshot, Record->bMarkPackageDirty, {}, PreparedImportData);
 								const bool Applied = static_cast<bool>(Application);
 								if (!Application)
@@ -483,7 +482,7 @@ namespace Durin
 				std::erase_if(Records, [&](const auto& Record) {
 					if (!Record->bDelivered || !Record->Work->Done.load(std::memory_order_acquire)
 						|| (Record->Task.IsValid() && !Record->Task.IsComplete())) return false;
-					Record->Work->Candidate.reset();
+					if (Record->Work->Outcome) Record->Work->Outcome->reset();
 					ReservedBytes -= Record->Diagnostic.ReservedBytes;
 					return true;
 				});
