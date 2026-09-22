@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineTestSupport.h"
+#include "StaticMeshTestAccess.h"
 #include "Asset/AssetCompilingManager.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -18,6 +19,15 @@
 
 namespace StaticMeshBuildTestSupport
 {
+	inline auto BuildRenderForTest(Durin::FStaticMeshBuildRequest Request,
+		const Durin::FStaticMeshBuildExecutionControl& Control = {},
+		std::vector<Durin::FStaticMeshCacheError>* Errors = nullptr)
+	{
+		if (Request.Reconciliation.MaterialSlots.empty() && Request.Source.IsValid())
+			Request.Reconciliation.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
+		return Durin::FStaticMeshBuilder::Build(std::move(Request), Control, Errors);
+	}
+
 	class FScopedDerivedDataCacheRestore
 	{
 	public:
@@ -123,8 +133,9 @@ namespace StaticMeshBuildTestSupport
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
-			std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure> Product;
-			ASSERT_TRUE((Product = FStaticMeshBuilder::Build({.Source = Source, .bPersistDerivedData = false}))) << Error;
+			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::vector<FStaticMeshCacheError> RenderCacheErrors;
+			ASSERT_TRUE((Product = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
 			if (bMeasure) std::cout << "residency_fixture triangles=" << Triangles << " retained_array_capacity_bytes=" << Retained
@@ -167,18 +178,18 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
-			std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure> Render;
-			ASSERT_TRUE((Render = FStaticMeshBuilder::Build(
+			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::vector<FStaticMeshCacheError> RenderCacheErrors;
+			ASSERT_TRUE((Render = BuildRenderForTest(
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
-			ASSERT_EQ(Render->GetObservation().Origin, EStaticMeshBuildOrigin::Rebuilt);
 			const auto RenderEnd = std::chrono::steady_clock::now();
-			ASSERT_NE(Render->RenderData, nullptr);
-			const auto& LOD = Render->RenderData->LODResources.front();
+			ASSERT_NE((*Render), nullptr);
+			const auto& LOD = (*Render)->LODResources.front();
 			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 			ASSERT_NE(Acceleration, nullptr);
 			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
-			ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Render->RenderData,
+			ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*(*Render),
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false))) << Error;
 			ASSERT_TRUE(Collision->Complex);
@@ -225,7 +236,9 @@ namespace StaticMeshBuildTestSupport
 		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		ASSERT_TRUE(Mesh->SetBodySetup(Body));
 		const auto Snapshot = FStaticMeshBuilder::Capture(*Mesh);
-		auto Request = FStaticMeshBuilder::MakeRequest(Source, Snapshot);
+		auto Input = Snapshot;
+		Input.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
+		auto Request = FStaticMeshBuilder::MakeRequest(Source, Input);
 		Request.bPersistDerivedData = false;
 		FStaticMeshBuildExecutionMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
@@ -244,7 +257,8 @@ namespace StaticMeshBuildTestSupport
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
-		ASSERT_TRUE(FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
+		auto PreparedSlots = Input.MaterialSlots;
+		ASSERT_TRUE(FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(Candidate), Snapshot, true, {}, nullptr, &PreparedSlots)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
@@ -258,7 +272,7 @@ namespace StaticMeshBuildTestSupport
 		for (const uint64 StopAfter : {Metrics.CancellationCheckpoints / 4,
 			Metrics.CancellationCheckpoints / 2, Metrics.CancellationCheckpoints * 3 / 4})
 		{
-			auto CancelRequest = FStaticMeshBuilder::MakeRequest(Source, Snapshot);
+			auto CancelRequest = FStaticMeshBuilder::MakeRequest(Source, Input);
 			CancelRequest.bPersistDerivedData = false;
 			uint64 Checks = 0;
 			bool bRequested = false;
@@ -327,7 +341,7 @@ namespace StaticMeshBuildTestSupport
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
-			ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .bPersistDerivedData = false},
+			ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
 				[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));
@@ -364,10 +378,6 @@ namespace StaticMeshBuildTestSupport
 		const auto Completed = GetStaticMeshCompilationDiagnostic(*Meshes[1]);
 		EXPECT_EQ(Completed.RequestId, Results[1]->RequestId);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Completed.Status);
-		ASSERT_TRUE(Completed.Render.has_value());
-		ASSERT_TRUE(Completed.Collision.has_value());
-		EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, Completed.Render->Origin);
-		EXPECT_TRUE(Completed.Render->DerivedDataKey.IsValid());
 		FCollisionGeometryRef Collision;
 		EXPECT_TRUE(Meshes[1]->GetBodySetup()->BuildComplexGeometry(Collision));
 		EXPECT_FALSE(Meshes[1]->GetSource().IsGeometryResident());

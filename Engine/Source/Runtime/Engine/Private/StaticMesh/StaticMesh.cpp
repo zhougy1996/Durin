@@ -582,17 +582,18 @@ namespace Durin
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
 		bool bMarkPackageDirty, const FStaticMeshBuildExecutionControl& Control,
-		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure>
+		DAssetImportData* PreparedImportData,
+		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots) -> std::expected<void, FStaticMeshBuildFailure>
 	{
 		CheckStaticMeshUpdateThread();
 		const auto Fail = [](FStaticMeshBuildFailure Error) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(std::move(Error));
 		};
 		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
-		if (!IsValid(&Mesh) || !Candidate || !Candidate->Render.RenderData)
+		if (!IsValid(&Mesh) || !Candidate || !Candidate->Render)
 			return Fail(FStaticMeshBuildFailure{std::format(
 				"StaticMesh application requires a live asset and a complete candidate (owner valid {}, candidate {}, render data {}).",
-				IsValid(&Mesh), Candidate != nullptr, Candidate && Candidate->Render.RenderData != nullptr),
+				IsValid(&Mesh), Candidate != nullptr, Candidate && Candidate->Render != nullptr),
 				EStaticMeshBuildStage::Application});
 		if (PreparedImportData)
 		{
@@ -617,40 +618,38 @@ namespace Durin
 				static_cast<uint8>(Snapshot.CollisionPolicy), static_cast<uint8>(Current.CollisionPolicy),
 				Snapshot.MaterialSlots.size(), Current.MaterialSlots.size()), EStaticMeshBuildStage::Application});
 		const auto& Request = Candidate->Request;
+		const auto& InputSlots = PreparedMaterialSlots ? *PreparedMaterialSlots : Snapshot.MaterialSlots;
 		if (Request.NormalizedSize != Snapshot.NormalizedSize || Request.CollisionMode != Snapshot.CollisionMode
-			|| Request.CollisionPolicy != Snapshot.CollisionPolicy || Request.MaterialSlots.size() != Snapshot.MaterialSlots.size())
+			|| Request.CollisionPolicy != Snapshot.CollisionPolicy || Request.MaterialSlots.size() != InputSlots.size())
 			return Fail(FStaticMeshBuildFailure{std::format(
 				"StaticMesh candidate does not match its application snapshot (size {} / {}, collision mode {} / {}, policy {} / {}, slots {} / {}).",
 				Request.NormalizedSize, Snapshot.NormalizedSize,
 				static_cast<uint8>(Request.CollisionMode), static_cast<uint8>(Snapshot.CollisionMode),
 				static_cast<uint8>(Request.CollisionPolicy), static_cast<uint8>(Snapshot.CollisionPolicy),
-				Request.MaterialSlots.size(), Snapshot.MaterialSlots.size()), EStaticMeshBuildStage::Application});
+				Request.MaterialSlots.size(), InputSlots.size()), EStaticMeshBuildStage::Application});
 		for (size_t Index = 0; Index < Snapshot.MaterialSlots.size(); ++Index)
 		{
 			const auto& Expected = Snapshot.MaterialSlots[Index];
 			const auto& Actual = Current.MaterialSlots[Index];
-			const auto& Input = Request.MaterialSlots[Index];
 			if (Expected.Name != Actual.Name || Expected.SourceName != Actual.SourceName
-				|| Expected.SourceMaterialIndex != Actual.SourceMaterialIndex || Expected.DefaultMaterial != Actual.DefaultMaterial
-				|| Expected.Name != Input.Name || Expected.SourceName != Input.SourceName
-				|| Expected.SourceMaterialIndex != Input.SourceMaterialIndex)
+				|| Expected.SourceMaterialIndex != Actual.SourceMaterialIndex || Expected.DefaultMaterial != Actual.DefaultMaterial)
 				return Fail(FStaticMeshBuildFailure{std::format(
-					"StaticMesh material bindings changed at slot {} (expected '{}', current '{}', input '{}').",
-					Index, Expected.Name.ToString(), Actual.Name.ToString(), Input.Name.ToString()), EStaticMeshBuildStage::Application});
+					"StaticMesh material bindings changed at slot {} (expected '{}', current '{}').",
+					Index, Expected.Name.ToString(), Actual.Name.ToString()), EStaticMeshBuildStage::Application});
 		}
-		for (size_t Index = 0; Index < Candidate->Render.MaterialSlots.size() && Index < Snapshot.MaterialSlots.size(); ++Index)
-			Candidate->Render.MaterialSlots[Index].DefaultMaterial = Snapshot.MaterialSlots[Index].DefaultMaterial;
-		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
-		const bool bSlotMetadataChanged = Candidate->Render.bSlotMetadataChanged;
-		if (const auto Published = Mesh.CommitRenderDataCandidate(std::move(Candidate->Render.RenderData),
-			&Candidate->Render.MaterialSlots, true, Candidate.get(), PreparedImportData); !Published)
+		for (size_t Index = 0; Index < InputSlots.size(); ++Index)
 		{
-			return Fail(Published.error());
+			const auto& Expected = InputSlots[Index];
+			const auto& Input = Request.MaterialSlots[Index];
+			if (Expected.Name != Input.Name || Expected.SourceName != Input.SourceName
+				|| Expected.SourceMaterialIndex != Input.SourceMaterialIndex)
+				return Fail(FStaticMeshBuildFailure{"StaticMesh candidate does not match the prepared material slots.", EStaticMeshBuildStage::Application});
 		}
-		if (bSlotMetadataChanged)
-			ReportAssetLoadMutation(&Mesh, "Engine.StaticMesh.MaterialSlotsV1",
-				"Static mesh material-slot identity metadata was upgraded.", EAssetLoadMutationKind::Upgrade);
-		if (bMarkPackageDirty || bSlotMetadataChanged) Mesh.MarkPackageDirty();
+		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
+		if (const auto Published = Mesh.CommitRenderDataCandidate(std::move(Candidate->Render),
+			PreparedMaterialSlots, true, Candidate.get(), PreparedImportData); !Published)
+			return Fail(Published.error());
+		if (bMarkPackageDirty) Mesh.MarkPackageDirty();
 		return {};
 	}
 

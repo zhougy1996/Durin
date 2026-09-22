@@ -21,8 +21,6 @@ namespace Durin
 		FXxHash128 SourceIdentity;
 		FStaticMeshBuildProviderDescriptor Descriptor;
 		uint64 ProviderRegistration = 0;
-		std::optional<FStaticMeshBuildObservation> Render;
-		std::optional<FStaticMeshBuildObservation> Collision;
 		std::optional<FStaticMeshBuildFailure> Error;
 		std::vector<FStaticMeshCacheError> CacheErrors;
 	};
@@ -40,6 +38,8 @@ namespace Durin
 	struct FStaticMeshCompilationRequest
 	{
 		FStaticMeshSource Source;
+		// Optional authoring input, installed only after successful construction and validation.
+		std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots;
 		EStaticMeshCompilationPriority Priority = EStaticMeshCompilationPriority::Background;
 		bool bPersistDerivedData = true;
 		bool bMarkPackageDirty = true;

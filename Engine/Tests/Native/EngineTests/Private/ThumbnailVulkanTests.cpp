@@ -1,3 +1,4 @@
+#include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
@@ -215,7 +216,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		2, 0, 3
 	};
 	ImportedSection.SourceMaterialIndex = 0;
-	const auto SynchronousBuild1 = StaticMeshFixture->Build(std::move(ImportedMesh));
+	const auto SynchronousBuild1 = Durin::FStaticMeshTestAccess::Build(StaticMeshFixture, std::move(ImportedMesh));
 	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
 	Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(

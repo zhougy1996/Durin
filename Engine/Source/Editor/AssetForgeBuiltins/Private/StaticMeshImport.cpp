@@ -18,6 +18,109 @@
 
 namespace Durin::AssetForge::Builtins
 {
+	auto ReconcileStaticMeshMaterialSlots(
+		std::span<const FMeshMaterialSlotDefinition> PreviousMaterialSlots,
+		std::span<const FStaticMeshImportedMaterialSlot> ImportedSlots) -> std::vector<FMeshMaterialSlotDefinition>
+	{
+		const std::vector<FMeshMaterialSlotDefinition> PreviousSlots(
+			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
+		std::vector<FMeshMaterialSlotDefinition> ReconciledSlots = PreviousSlots;
+		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
+		std::vector<bool> NewMatched(ImportedSlots.size(), false);
+		std::unordered_map<std::string, uint32> OldNameCounts;
+		std::unordered_map<std::string, uint32> NewNameCounts;
+		std::unordered_map<uint32, uint32> OldSourceIndexCounts;
+		std::unordered_map<uint32, uint32> NewSourceIndexCounts;
+		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
+		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedSlots) ++NewNameCounts[Slot.SourceName];
+		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
+		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
+
+		auto PreserveSlot = [&](size_t ImportedIndex, size_t OldIndex) {
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[ImportedIndex];
+			ReconciledSlots[OldIndex].SourceName = Imported.SourceName;
+			ReconciledSlots[OldIndex].SourceMaterialIndex = Imported.SourceMaterialIndex;
+			OldConsumed[OldIndex] = true;
+			NewMatched[ImportedIndex] = true;
+		};
+
+		for (size_t NewIndex = 0; NewIndex < ImportedSlots.size(); ++NewIndex)
+		{
+			const std::string& SourceName = ImportedSlots[NewIndex].SourceName;
+			if (SourceName.empty()) continue;
+			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
+			const auto It = std::ranges::find_if(PreviousSlots, [&](const auto& Slot) {
+				return Slot.SourceName == SourceName;
+			});
+			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
+		}
+
+		for (size_t NewIndex = 0; NewIndex < ImportedSlots.size(); ++NewIndex)
+		{
+			if (NewMatched[NewIndex]) continue;
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[NewIndex];
+			if (OldSourceIndexCounts[Imported.SourceMaterialIndex] != 1
+				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
+			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
+			{
+				const FMeshMaterialSlotDefinition& Previous = PreviousSlots[OldIndex];
+				if (OldConsumed[OldIndex]
+					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
+				PreserveSlot(NewIndex, OldIndex);
+				break;
+			}
+		}
+
+		auto MakeUniqueSlotName = [&](const FStaticMeshImportedMaterialSlot& Imported) {
+			std::string BaseName = Imported.Name.empty() ? Imported.SourceName : Imported.Name;
+			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
+			FName Candidate(BaseName);
+			uint32 Suffix = 1;
+			while (std::ranges::find_if(ReconciledSlots, [&](const auto& Slot) {
+				return Slot.Name == Candidate;
+			})
+				!= ReconciledSlots.end())
+			{
+				Candidate = FName(std::format("{}_{}", BaseName, Suffix++));
+			}
+			return Candidate;
+		};
+
+		for (size_t NewIndex = 0; NewIndex < ImportedSlots.size(); ++NewIndex)
+		{
+			if (NewMatched[NewIndex]) continue;
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[NewIndex];
+			FMeshMaterialSlotDefinition& Definition = ReconciledSlots.emplace_back();
+			Definition.Name = MakeUniqueSlotName(Imported);
+			Definition.SourceName = Imported.SourceName;
+			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
+			if (NewNameCounts[Imported.SourceName] > 1)
+			{
+				DURIN_WARN("Static mesh has ambiguous duplicate source material name '{}'; appended a stable slot.",
+					Imported.SourceName);
+			}
+		}
+
+		// Preserved editor slots that no longer map to an imported material must
+		// not alias a current source index. Scene publication validates lookups by
+		// source index, and an old unmatched slot can otherwise become ambiguous
+		// after a reorder followed by removal.
+		std::unordered_set<uint32> AssignedSourceIndices;
+		for (const FStaticMeshImportedMaterialSlot& Imported : ImportedSlots)
+			AssignedSourceIndices.insert(Imported.SourceMaterialIndex);
+		uint32 RetiredSourceIndex = 0;
+		for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
+		{
+			if (OldConsumed[OldIndex]) continue;
+			while (AssignedSourceIndices.contains(RetiredSourceIndex))
+				++RetiredSourceIndex;
+			ReconciledSlots[OldIndex].SourceMaterialIndex = RetiredSourceIndex;
+			AssignedSourceIndices.insert(RetiredSourceIndex++);
+		}
+
+		return ReconciledSlots;
+	}
+
 	namespace
 	{
 		constexpr uint64 MaximumStaticMeshEncodedBytes = 512ull * 1024ull * 1024ull;
@@ -147,8 +250,10 @@ namespace Durin::AssetForge::Builtins
 				Error.DecodeCauses = std::move(Scene.Diagnostics);
 				return Reject(EStaticMeshRebuildError::Decode);
 			}
+			auto Geometry = MakeStaticMeshDecodedGeometry(Scene);
+			auto MaterialSlots = ReconcileStaticMeshMaterialSlots(Mesh.GetMaterialSlots(), Geometry.MaterialSlots);
 			FStaticMeshSource Source;
-			if (const auto Initialized = Source.Initialize(MakeStaticMeshDecodedGeometry(Scene)); !Initialized)
+			if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
 			{
 				Error.SourceCause = Initialized.error();
 				return Reject(EStaticMeshRebuildError::Source);
@@ -161,7 +266,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
 			auto Result = std::make_shared<FStaticMeshCompilationResult>();
 			if (const auto Submitted = Mesh.AsyncBuild({
-				.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive,
+				.Source = Source, .PreparedMaterialSlots = std::move(MaterialSlots), .Priority = EStaticMeshCompilationPriority::Interactive,
 				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure> {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
 					auto* Data = NewObject<DStaticMeshImportData>(&Target, FName("AssetImportData_" + FGuid::NewGuid().ToString()));

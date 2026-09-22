@@ -13,6 +13,11 @@
 
 namespace Durin::AssetForge::Builtins
 {
+	// Import policy: preserve existing slot identities and bindings while matching the new source.
+	ASSETFORGEBUILTINS_API auto ReconcileStaticMeshMaterialSlots(
+		std::span<const FMeshMaterialSlotDefinition> PreviousMaterialSlots,
+		std::span<const FStaticMeshImportedMaterialSlot> ImportedSlots) -> std::vector<FMeshMaterialSlotDefinition>;
+
 	struct FEncodedSourceError;
 	enum class EStaticMeshRebuildError : uint8
 	{

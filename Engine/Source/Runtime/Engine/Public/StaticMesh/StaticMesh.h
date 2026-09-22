@@ -162,8 +162,12 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		// Owner-thread build and application. Does not submit or wait for compilation.
 		// Cancels older async requests; failure preserves the current mesh data.
-		ENGINE_API auto Build(const FStaticMeshSource& InSource) -> std::expected<void, std::vector<std::string>>;
-		ENGINE_API auto Build(FStaticMeshDecodedGeometry Geometry) -> std::expected<void, std::vector<std::string>>;
+		// Build reads fixed slot definitions. Authoring callers may supply prepared slots
+		// to install atomically with the result; Build never derives or reconciles them.
+		ENGINE_API auto Build(const FStaticMeshSource& InSource,
+			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots = std::nullopt) -> std::expected<void, std::vector<std::string>>;
+		ENGINE_API auto Build(FStaticMeshDecodedGeometry Geometry,
+			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots = std::nullopt) -> std::expected<void, std::vector<std::string>>;
 		// Success means accepted, not built. Completion is delivered by the owner-thread pump.
 		ENGINE_API auto AsyncBuild(FStaticMeshCompilationRequest Request,
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})

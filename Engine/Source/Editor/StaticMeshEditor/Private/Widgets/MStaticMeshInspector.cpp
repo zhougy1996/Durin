@@ -316,15 +316,6 @@ namespace Durin::Editor::StaticMesh
 				ImGui::TextWrapped("Request %llu: %s. %s. This operation record does not establish current settings or payload coherence.",
 					static_cast<unsigned long long>(Operation.RequestId), Phase,
 					Inspection.bOperationSourceMatches ? "Source identity matches" : "Different source identity");
-				for (const auto& [Name, Observation] : {std::pair{"Render", &Operation.Render}, std::pair{"Collision", &Operation.Collision}})
-				{
-					ImGui::TextWrapped("%s derived product: %s", Name, !*Observation ? "Observation unavailable" :
-						(*Observation)->Origin == EStaticMeshBuildOrigin::CacheHit ? "Observed DDC hit" : "Observed rebuild");
-					if (*Observation)
-					{
-						ImGui::TextWrapped("Key: %s", (*Observation)->DerivedDataKey.ToString().c_str());
-					}
-				}
 				const auto Message = FormatStaticMeshCompilationDiagnostic(Operation);
 				if (!Message.empty()) ImGui::TextWrapped("%s", Message.c_str());
 				ImGui::TextWrapped("Persistence is reported only by the operation diagnostic; a successful product does not prove a cache write. For build failure, restore/reimport source or explicitly rebuild disposable derived output. Cancelled or superseded work is not retried by inspection.");

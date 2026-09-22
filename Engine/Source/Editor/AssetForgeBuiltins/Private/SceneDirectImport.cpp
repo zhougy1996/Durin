@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Builtins/SceneImportData.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Threading/TaskComposition.h"
@@ -64,6 +65,7 @@ struct FPreparedSceneOutput
 	const FSceneOutputData *Descriptor = nullptr;
 	FPackagePath AssetPath;
 	FStaticMeshSource StaticMeshSource;
+	std::vector<FMeshMaterialSlotDefinition> StaticMeshMaterialSlots;
 	std::unique_ptr<FStaticMeshAuthoredCandidate> StaticMesh;
 	FSceneTextureBuildProduct Texture;
 	DObject *Candidate = nullptr;
@@ -569,16 +571,21 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 		}
 		else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 		{
+			auto Geometry = MakeStaticMeshDecodedGeometry(Data.Scene);
+			Output.StaticMeshMaterialSlots = ReconcileStaticMeshMaterialSlots({}, Geometry.MaterialSlots);
 			if (const auto Initialized =
-			        Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene));
+			        Output.StaticMeshSource.Initialize(std::move(Geometry));
 			    !Initialized)
 			{
 				Result = AddError(Result, EImportDiagnosticCategory::CandidateFailure, "scene-build",
 				                  FormatStaticMeshSourceError(Initialized.error()), Descriptor.StableIdentity);
 				return;
 			}
+			FStaticMeshAuthoredBuildRequest Request{.Source = Output.StaticMeshSource};
+			for (const auto& Slot : Output.StaticMeshMaterialSlots)
+				Request.MaterialSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
 			auto Outcome =
-			    FStaticMeshBuilder::BuildCandidate({.Source = Output.StaticMeshSource},
+			    FStaticMeshBuilder::BuildCandidate(std::move(Request),
 			                                     {.ShouldCancel = IsCancellationRequested});
 			if (!Outcome)
 			{
@@ -842,7 +849,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
 				if (const auto Applied = FStaticMeshBuilder::ApplyCandidate(
 				        *Mesh, std::move(Output.StaticMesh), FStaticMeshBuilder::Capture(*Mesh), true, {},
-				        ImportData);
+				        ImportData, &Output.StaticMeshMaterialSlots);
 				    !Applied)
 				{
 					co_return AddError(

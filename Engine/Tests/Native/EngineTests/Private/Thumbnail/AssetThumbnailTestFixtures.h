@@ -1,3 +1,4 @@
+#include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
@@ -472,7 +473,7 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		if (const auto Built = OutFixtures.StaticMesh->Build(std::move(ImportedMesh)); !Built)
+		if (const auto Built = Durin::FStaticMeshTestAccess::Build(OutFixtures.StaticMesh, std::move(ImportedMesh)); !Built)
 		{
 			OutError = Durin::FormatStaticMeshBuildMessages(Built.error());
 			return false;

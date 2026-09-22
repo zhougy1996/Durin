@@ -96,7 +96,7 @@ namespace Durin
 		}
 	};
 
-	// Stable slot metadata only; Engine retains and restores material bindings.
+	// Fixed slot metadata only; material object bindings remain with the operation owner.
 	struct FStaticMeshRecipeMaterialSlot
 	{
 		FName Name;
@@ -107,7 +107,7 @@ namespace Durin
 	struct FStaticMeshRecipeBuildRequest
 	{
 		FStaticMeshGeometryReadHandle Geometry;
-		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots;
+		std::span<const FStaticMeshRecipeMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
 	};
 
@@ -116,8 +116,6 @@ namespace Durin
 	{
 		std::vector<FStaticMeshBuildLOD> LODs;
 		FBox LocalBounds;
-		std::vector<FStaticMeshRecipeMaterialSlot> MaterialSlots;
-		bool bSlotMetadataChanged = false;
 	};
 
 	struct FStaticMeshCollisionRecipeRequest
@@ -140,7 +138,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 6;
+		static constexpr uint32 FeatureVersion = 7;
 
 		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
 		virtual auto BuildRender(

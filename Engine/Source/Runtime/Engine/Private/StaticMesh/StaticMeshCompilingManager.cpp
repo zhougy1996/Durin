@@ -45,6 +45,7 @@ namespace Durin
 		{
 			FStaticMeshCompilationDiagnostic Diagnostic;
 			FStaticMeshReconciliationSnapshot Snapshot;
+			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots;
 			FObjectKey Package;
 			FObjectKey ImportData;
 			FStaticMeshSource RequestedSource;
@@ -100,8 +101,9 @@ namespace Durin
 				if (!bAccepting || !IsValid(&Mesh)) return Reject("StaticMesh compilation is not accepting this owner.");
 				if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
 				const auto Snapshot = FStaticMeshBuilder::Capture(Mesh);
+				const auto& InputSlots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
 				if (!std::isfinite(Snapshot.NormalizedSize) || Snapshot.NormalizedSize <= 0
-					|| Snapshot.MaterialSlots.size() > MaximumMeshMaterialSlots)
+					|| InputSlots.size() > MaximumMeshMaterialSlots)
 					return Reject("StaticMesh compilation settings are invalid.");
 				if ((Snapshot.CollisionMode != EBodySetupCollisionSourceMode::None
 					&& Snapshot.CollisionMode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
@@ -111,9 +113,9 @@ namespace Durin
 						&& Snapshot.CollisionPolicy != EBodySetupCollisionQueryPolicy::SimpleAndComplex))
 					return Reject("StaticMesh collision compilation settings are invalid.");
 				std::unordered_set<FName> SlotNames;
-				for (size_t Index = 0; Index < Snapshot.MaterialSlots.size(); ++Index)
+				for (size_t Index = 0; Index < InputSlots.size(); ++Index)
 				{
-					const auto& Slot = Snapshot.MaterialSlots[Index];
+					const auto& Slot = InputSlots[Index];
 					if (Slot.Name.IsNone() || Slot.SourceName.size() > 4096 || !SlotNames.insert(Slot.Name).second)
 						return Reject(std::format("StaticMesh compilation requires bounded unique material slots (slot {}, name {}).", Index, Slot.Name.ToString()));
 				}
@@ -125,7 +127,7 @@ namespace Durin
 				const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
 				FStaticMeshBuildMemoryEstimate Memory{MaximumRequestBytes, 1024 * 1024};
 				if (!Memory.Add(WireBytes, 64) || !Memory.Add(Request.Source.GetMeshCount(), 1024)
-					|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), Snapshot.MaterialSlots.size()), 32768))
+					|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()), 32768))
 					return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
 				const uint64 Bytes = Memory.Bytes;
 				if (Records.size() >= MaximumRecords || Bytes > MaximumTotalBytes - ReservedBytes)
@@ -152,7 +154,10 @@ namespace Durin
 				Record->Completion = std::move(Completion);
 				Record->PreparePublication = std::move(Request.PreparePublication);
 				Record->Work = std::make_shared<FWork>();
-				Record->Work->Request = FStaticMeshBuilder::MakeRequest(std::move(Request.Source), Snapshot);
+				auto Input = Snapshot;
+				Record->PreparedMaterialSlots = std::move(Request.PreparedMaterialSlots);
+				if (Record->PreparedMaterialSlots) Input.MaterialSlots = *Record->PreparedMaterialSlots;
+				Record->Work->Request = FStaticMeshBuilder::MakeRequest(std::move(Request.Source), Input);
 				Record->Work->Request.Source.ReleaseGeometry();
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Request.bPersistDerivedData = Request.bPersistDerivedData;
@@ -223,7 +228,7 @@ namespace Durin
 				for (const auto& Record : Records)
 					if (Record->Diagnostic.Owner == FObjectKey(&Mesh) && !Record->Terminal && !Record->bDelivered)
 					{
-						Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparePublication;
+						Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparePublication && !Record->PreparedMaterialSlots;
 						Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
 					}
 			}
@@ -233,7 +238,7 @@ namespace Durin
 				CheckOwnerThread();
 				for (const auto& Record : Records)
 					if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
-						&& !Record->bDelivered && !Record->Terminal && !Record->PreparePublication
+						&& !Record->bDelivered && !Record->Terminal && !Record->PreparePublication && !Record->PreparedMaterialSlots
 						&& Record->RequestedSource.GetIdentity() == Source.GetIdentity() && IsCurrent(*Record, Mesh)
 						&& FObjectKey(const_cast<DAssetImportData*>(Mesh.GetAssetImportData())) == Record->ImportData
 						&& (!Record->ImportState || (Mesh.GetAssetImportData()
@@ -256,7 +261,7 @@ namespace Durin
 				for (const auto& Record : Records)
 					if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
 						&& !Record->bDelivered && !Record->Terminal
-						&& (Record->PreparePublication || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
+						&& (Record->PreparePublication || Record->PreparedMaterialSlots || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
 				return false;
 			}
 
@@ -415,9 +420,6 @@ namespace Durin
 						if (Record->Work->Outcome)
 						{
 							const auto& Candidate = *Record->Work->Outcome;
-							Record->Diagnostic.Render = Candidate->GetRenderObservation();
-							if (Candidate->GetCollision().GetObservation().DerivedDataKey.IsValid())
-								Record->Diagnostic.Collision = Candidate->GetCollisionObservation();
 							Record->Diagnostic.CacheErrors = Candidate->GetCacheErrors();
 						}
 						if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
@@ -441,7 +443,7 @@ namespace Durin
 							else if (!IsCurrent(*Record, *Mesh))
 							{
 								Record->Terminal = EStaticMeshCompilationStatus::Superseded;
-								Record->bRequeue = !Record->PreparePublication;
+								Record->bRequeue = !Record->PreparePublication && !Record->PreparedMaterialSlots;
 							}
 							else
 							{
@@ -451,7 +453,8 @@ namespace Durin
 								PublishingOwner = Record->Diagnostic.Owner;
 								if (Application)
 									Application = FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(*Record->Work->Outcome),
-										Record->Snapshot, Record->bMarkPackageDirty, {}, PreparedImportData);
+										Record->Snapshot, Record->bMarkPackageDirty, {}, PreparedImportData,
+										Record->PreparedMaterialSlots ? &*Record->PreparedMaterialSlots : nullptr);
 								const bool Applied = static_cast<bool>(Application);
 								if (!Application)
 								{
@@ -478,6 +481,7 @@ namespace Durin
 							.Priority = Record->Priority, .bMarkPackageDirty = Record->bMarkPackageDirty});
 					Record->RequestedSource = {};
 					Record->Snapshot = {};
+					Record->PreparedMaterialSlots.reset();
 					Record->ImportState.reset();
 					++Result.ProcessedCompletionCount;
 					if (Completion)

@@ -1,3 +1,4 @@
+#include "StaticMeshTestAccess.h"
 #include "Components/PropertyEditValidation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Components/SplineMeshComponent.h"
@@ -53,7 +54,7 @@ namespace
 			FVector3f(0.0f, 0.5f, 0.0f)};
 		Section.Indices = {0, 1, 2};
 		Section.SourceMaterialIndex = 0;
-		if (const auto Built = Mesh->Build(std::move(Imported)); !Built)
+		if (const auto Built = Durin::FStaticMeshTestAccess::Build(Mesh, std::move(Imported)); !Built)
 		{
 			ADD_FAILURE() << Durin::FormatStaticMeshBuildMessages(Built.error());
 			return nullptr;
@@ -335,7 +336,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	Section.Indices = {0, 1, 2};
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
-	const auto SynchronousBuild1 = Pending->Build(std::move(Imported));
+	const auto SynchronousBuild1 = Durin::FStaticMeshTestAccess::Build(Pending, std::move(Imported));
 	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());

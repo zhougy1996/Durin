@@ -2,7 +2,6 @@
 
 #include <expected>
 
-#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
@@ -32,12 +31,6 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	enum class EStaticMeshBuildOrigin : uint8
-	{
-		CacheHit,
-		Rebuilt
-	};
-
 	enum class EStaticMeshCacheOperation : uint8 { Read, Decode, Write };
 	// Nonfatal cache failure. Clean hits/misses create no error record.
 	struct FStaticMeshCacheError
@@ -51,42 +44,13 @@ namespace Durin
 		std::string Message;
 	};
 
-	// Bounded value-only observation, without payload ownership or backend paths.
-	struct FStaticMeshBuildObservation
-	{
-		EStaticMeshBuildOrigin Origin = EStaticMeshBuildOrigin::Rebuilt;
-		FCacheKeyProxy DerivedDataKey;
-	};
-
-	// Render product exposes owned geometry and reconciled material data only.
-	struct FStaticMeshBuildProduct
-	{
-		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
-		float NormalizedSize = 1.5f;
-		auto GetObservation() const -> const FStaticMeshBuildObservation& { return Observation; }
-		auto GetCacheErrors() const -> const std::vector<FStaticMeshCacheError>& { return CacheErrors; }
-	private:
-		FStaticMeshBuildObservation Observation;
-		std::vector<FStaticMeshCacheError> CacheErrors;
-		bool bSlotMetadataChanged = false;
-		FStaticMeshBuildProviderDescriptor Descriptor;
-		uint64 ProviderRegistration = 0;
-		friend class FStaticMeshBuilder;
-		friend class FStaticMeshAuthoredCandidate;
-	};
-
 	struct FStaticMeshCollisionBuildProduct
 	{
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
-		auto GetObservation() const -> const FStaticMeshBuildObservation& { return Observation; }
 		auto GetCacheErrors() const -> const std::vector<FStaticMeshCacheError>& { return CacheErrors; }
 	private:
-		FStaticMeshBuildObservation Observation;
 		std::vector<FStaticMeshCacheError> CacheErrors;
-		FStaticMeshBuildProviderDescriptor Descriptor;
-		uint64 ProviderRegistration = 0;
 		friend class FStaticMeshBuilder;
 		friend class FStaticMeshAuthoredCandidate;
 	};
@@ -106,26 +70,24 @@ namespace Durin
 	class FStaticMeshAuthoredCandidate
 	{
 	public:
-		auto GetRenderObservation() const -> FStaticMeshBuildObservation
-		{ return Render.Observation; }
-		auto GetCollisionObservation() const -> FStaticMeshBuildObservation
-		{ return Collision.Observation; }
 		auto GetCacheErrors() const -> std::vector<FStaticMeshCacheError>
 		{
-			auto Errors = Render.CacheErrors;
+			auto Errors = CacheErrors;
 			Errors.insert(Errors.end(), Collision.CacheErrors.begin(), Collision.CacheErrors.end());
 			return Errors;
 		}
 
-		auto GetRenderData() const -> const FStaticMeshRenderData* { return Render.RenderData.get(); }
+		auto GetRenderData() const -> const FStaticMeshRenderData* { return Render.get(); }
 		auto GetCollision() const -> const FStaticMeshCollisionBuildProduct& { return Collision; }
-		auto GetProviderRegistration() const -> uint64 { return Render.ProviderRegistration; }
+		auto GetProviderRegistration() const -> uint64 { return ProviderRegistration; }
 		auto GetSourceIdentity() const -> FXxHash128 { return Request.Source.GetIdentity(); }
 
 	private:
 		FStaticMeshAuthoredCandidate() = default;
 		FStaticMeshAuthoredBuildRequest Request;
-		FStaticMeshBuildProduct Render;
+		std::unique_ptr<FStaticMeshRenderData> Render;
+		std::vector<FStaticMeshCacheError> CacheErrors;
+		uint64 ProviderRegistration = 0;
 		FStaticMeshCollisionBuildProduct Collision;
 		friend class DStaticMesh;
 		friend class FStaticMeshBuilder;
@@ -137,7 +99,9 @@ namespace Durin
 	public:
 		ENGINE_API static auto Build(
 			FStaticMeshBuildRequest Request,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure>;
+			const FStaticMeshBuildExecutionControl& Control = {},
+			std::vector<FStaticMeshCacheError>* OutCacheErrors = nullptr,
+			uint64* OutProviderRegistration = nullptr) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 		ENGINE_API static auto BuildCollision(
 			const FStaticMeshRenderData& RenderData,
 			EBodySetupCollisionSourceMode Mode,
@@ -150,7 +114,8 @@ namespace Durin
 			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 			const FStaticMeshReconciliationSnapshot& Snapshot,
 			bool bMarkPackageDirty = true, const FStaticMeshBuildExecutionControl& Control = {},
-			DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshBuildFailure>;
+			DAssetImportData* PreparedImportData = nullptr,
+			std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots = nullptr) -> std::expected<void, FStaticMeshBuildFailure>;
 		ENGINE_API static auto MakeRequest(FStaticMeshSource Source,
 			const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest;
 		ENGINE_API static auto Capture(const DStaticMesh& Mesh)

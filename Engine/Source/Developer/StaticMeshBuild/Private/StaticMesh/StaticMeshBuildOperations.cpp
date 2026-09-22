@@ -29,21 +29,6 @@ namespace Durin
 				Check();
 			}
 		};
-
-		auto SlotDefinitionsEqual(
-			std::span<const FStaticMeshRecipeMaterialSlot> A,
-			std::span<const FStaticMeshRecipeMaterialSlot> B) -> bool
-		{
-			if (A.size() != B.size()) return false;
-			for (size_t Index = 0; Index < A.size(); ++Index)
-			{
-				if (A[Index].Name != B[Index].Name
-					|| A[Index].SourceName != B[Index].SourceName
-					|| A[Index].SourceMaterialIndex != B[Index].SourceMaterialIndex) return false;
-			}
-			return true;
-		}
-
 		auto SafeNormalize(const FVector3f& Value, const FVector3f& Fallback) -> FVector3f
 		{
 			return Math::NormalizeOr(Value, Fallback, VectorTolerance);
@@ -186,19 +171,17 @@ namespace Durin
 		}
 
 		auto BuildRenderDataCandidate(
-		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots,
+		std::span<const FStaticMeshRecipeMaterialSlot> MaterialSlots,
 		float NormalizedSize,
 		const FStaticMeshDecodedGeometry& ImportedData,
 		std::vector<FStaticMeshBuildLOD>& OutLODs,
 		FBox& OutBounds,
-		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
-		bool& bOutSlotMetadataChanged,
 		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 	{
 		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		bool bFits = Memory.Add(1, 1024 * 1024)
 			&& Memory.Add(ImportedData.Meshes.size(), 1024)
-			&& Memory.Add(std::max(PreviousMaterialSlots.size(), ImportedData.MaterialSlots.size()), 32768);
+			&& Memory.Add(std::max(MaterialSlots.size(), ImportedData.MaterialSlots.size()), 32768);
 		for (const auto& Mesh : ImportedData.Meshes)
 		{
 			Control.Tick();
@@ -209,115 +192,19 @@ namespace Durin
 			OutError = {.Code = EStaticMeshRecipeError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit};
 			return false;
 		}
-		const std::vector<FStaticMeshRecipeMaterialSlot> PreviousSlots(
-			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
-		std::vector<FStaticMeshRecipeMaterialSlot> ReconciledSlots = PreviousSlots;
-		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
-		std::vector<bool> NewMatched(ImportedData.MaterialSlots.size(), false);
-		std::vector<uint32> ImportedToStableSlot(
-			ImportedData.MaterialSlots.size(), std::numeric_limits<uint32>::max());
-		std::unordered_map<std::string, uint32> OldNameCounts;
-		std::unordered_map<std::string, uint32> NewNameCounts;
-		std::unordered_map<uint32, uint32> OldSourceIndexCounts;
-		std::unordered_map<uint32, uint32> NewSourceIndexCounts;
-		for (const FStaticMeshRecipeMaterialSlot& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
-		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewNameCounts[Slot.SourceName];
-		for (const FStaticMeshRecipeMaterialSlot& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
-		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
-
-		auto PreserveSlot = [&](size_t ImportedIndex, size_t OldIndex) {
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[ImportedIndex];
-			ReconciledSlots[OldIndex].SourceName = Imported.SourceName;
-			ReconciledSlots[OldIndex].SourceMaterialIndex = Imported.SourceMaterialIndex;
-			OldConsumed[OldIndex] = true;
-			NewMatched[ImportedIndex] = true;
-			ImportedToStableSlot[ImportedIndex] = static_cast<uint32>(OldIndex);
-		};
-
-		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
+		std::vector<uint32> ImportedToStableSlot;
+		for (const auto& Imported : ImportedData.MaterialSlots)
 		{
 			Control.Tick();
-			const std::string& SourceName = ImportedData.MaterialSlots[NewIndex].SourceName;
-			if (SourceName.empty()) continue;
-			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
-			const auto It = std::ranges::find_if(PreviousSlots, [&](const auto& Slot) {
-				Control.Tick();
-				return Slot.SourceName == SourceName;
-			});
-			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
-		}
-
-		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
-		{
-			Control.Tick();
-			if (NewMatched[NewIndex]) continue;
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
-			if (OldSourceIndexCounts[Imported.SourceMaterialIndex] != 1
-				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
-			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
+			const auto Slot = std::ranges::find(MaterialSlots, Imported.SourceMaterialIndex,
+				&FStaticMeshRecipeMaterialSlot::SourceMaterialIndex);
+			if (Slot == MaterialSlots.end())
 			{
-				Control.Tick();
-				const FStaticMeshRecipeMaterialSlot& Previous = PreviousSlots[OldIndex];
-				if (OldConsumed[OldIndex]
-					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
-				PreserveSlot(NewIndex, OldIndex);
-				break;
+				OutError = {.Code = EStaticMeshRecipeError::MissingMaterial, .Actual = Imported.SourceMaterialIndex};
+				return false;
 			}
+			ImportedToStableSlot.push_back(static_cast<uint32>(Slot - MaterialSlots.begin()));
 		}
-
-		auto MakeUniqueSlotName = [&](const FStaticMeshImportedMaterialSlot& Imported) {
-			std::string BaseName = Imported.Name.empty() ? Imported.SourceName : Imported.Name;
-			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
-			FName Candidate(BaseName);
-			uint32 Suffix = 1;
-			while (std::ranges::find_if(ReconciledSlots, [&](const auto& Slot) {
-				Control.Tick();
-				return Slot.Name == Candidate;
-			})
-				!= ReconciledSlots.end())
-			{
-				Candidate = FName(std::format("{}_{}", BaseName, Suffix++));
-			}
-			return Candidate;
-		};
-
-		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
-		{
-			Control.Tick();
-			if (NewMatched[NewIndex]) continue;
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
-			FStaticMeshRecipeMaterialSlot& Definition = ReconciledSlots.emplace_back();
-			Definition.Name = MakeUniqueSlotName(Imported);
-			Definition.SourceName = Imported.SourceName;
-			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
-			ImportedToStableSlot[NewIndex] = static_cast<uint32>(ReconciledSlots.size() - 1);
-			if (NewNameCounts[Imported.SourceName] > 1)
-			{
-				DURIN_WARN("Static mesh has ambiguous duplicate source material name '{}'; appended a stable slot.",
-					Imported.SourceName);
-			}
-		}
-
-		// Preserved editor slots that no longer map to an imported material must
-		// not alias a current source index. Scene publication validates lookups by
-		// source index, and an old unmatched slot can otherwise become ambiguous
-		// after a reorder followed by removal.
-		std::unordered_set<uint32> AssignedSourceIndices;
-		for (const FStaticMeshImportedMaterialSlot& Imported : ImportedData.MaterialSlots)
-			AssignedSourceIndices.insert(Imported.SourceMaterialIndex);
-		uint32 RetiredSourceIndex = 0;
-		for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
-		{
-			Control.Tick();
-			if (OldConsumed[OldIndex]) continue;
-			while (AssignedSourceIndices.contains(RetiredSourceIndex))
-				++RetiredSourceIndex;
-			ReconciledSlots[OldIndex].SourceMaterialIndex = RetiredSourceIndex;
-			AssignedSourceIndices.insert(RetiredSourceIndex++);
-		}
-
-		const bool bSlotMetadataChanged =
-			!SlotDefinitionsEqual(PreviousMaterialSlots, ReconciledSlots);
 
 		std::vector<FStaticMeshBuildLOD> LODs;
 		std::unordered_map<uint32, uint32> ImportedSourceToIndex;
@@ -513,8 +400,6 @@ namespace Durin
 		Control.Check();
 		OutBounds = LOD.LocalBounds;
 		OutLODs = std::move(LODs);
-		OutMaterialSlots = std::move(ReconciledSlots);
-		bOutSlotMetadataChanged = bSlotMetadataChanged;
 		OutError = {};
 		return true;
 	}
@@ -534,13 +419,11 @@ namespace Durin
 			return false;
 		}
 		return BuildRenderDataCandidate(
-			Request.PreviousMaterialSlots,
+			Request.MaterialSlots,
 			Request.NormalizedSize,
 			*Request.Geometry,
 			OutProduct.LODs,
 			OutProduct.LocalBounds,
-			OutProduct.MaterialSlots,
-			OutProduct.bSlotMetadataChanged,
 			OutError, Control);
 	}
 

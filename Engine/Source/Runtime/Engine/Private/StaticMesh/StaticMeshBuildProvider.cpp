@@ -117,12 +117,13 @@ namespace Durin
 
 		// Transfers recipe storage without copying vertex streams or initializing RHI resources.
 		auto AssembleRenderData(FStaticMeshRecipeBuildProduct& Product,
+			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			const std::function<bool()>& ShouldCancel) -> std::unique_ptr<FStaticMeshRenderData>
 		{
 			auto RenderData = std::make_unique<FStaticMeshRenderData>();
 			RenderData->LocalBounds = Product.LocalBounds;
-			RenderData->MaterialSlots.reserve(Product.MaterialSlots.size());
-			for (const auto& Slot : Product.MaterialSlots)
+			RenderData->MaterialSlots.reserve(MaterialSlots.size());
+			for (const auto& Slot : MaterialSlots)
 			{
 				if (ShouldCancel()) return {};
 				RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
@@ -239,8 +240,21 @@ namespace Durin
 #endif
 	auto FStaticMeshBuilder::Build(
 		FStaticMeshBuildRequest Request,
-		const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure>
+		const FStaticMeshBuildExecutionControl& Control, std::vector<FStaticMeshCacheError>* OutCacheErrors,
+		uint64* OutProviderRegistration) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
 	{
+		if (OutCacheErrors) OutCacheErrors->clear();
+		if (OutProviderRegistration) *OutProviderRegistration = 0;
+		if (Request.Reconciliation.MaterialSlots.size() > MaximumMeshMaterialSlots)
+			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh material-slot input exceeds the slot limit.", EStaticMeshBuildStage::Render});
+		std::unordered_set<FName> SlotNames;
+		std::unordered_set<uint32> SourceIndices;
+		for (const auto& Slot : Request.Reconciliation.MaterialSlots)
+		{
+			if (Slot.Name.IsNone() || Slot.SourceName.size() > 4096
+				|| !SlotNames.insert(Slot.Name).second || !SourceIndices.insert(Slot.SourceMaterialIndex).second)
+				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh requires bounded, uniquely named material slots with unambiguous source indices.", EStaticMeshBuildStage::Render});
+		}
 		bool bCancelled = false;
 		const auto IsCancelled = [&] {
 			bCancelled = bCancelled || Control.IsCancelled();
@@ -251,7 +265,7 @@ namespace Durin
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Render});
 #else
 		auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			IStaticMeshBuildProvider>([&](IStaticMeshBuildProvider& Provider) -> std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure> {
+			IStaticMeshBuildProvider>([&](IStaticMeshBuildProvider& Provider) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> {
 			const FStaticMeshBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
 			if (!Descriptor.IsValid())
 			{
@@ -282,14 +296,7 @@ namespace Durin
 				const auto Decoded = DecodeRenderData(Bytes, Request.Reconciliation.MaterialSlots, RenderData, IsCancelled);
 				if (Decoded)
 				{
-					FStaticMeshBuildProduct BuiltProduct;
-					BuiltProduct.RenderData = std::move(RenderData);
-					BuiltProduct.MaterialSlots = Request.Reconciliation.MaterialSlots;
-					BuiltProduct.NormalizedSize = Request.Reconciliation.NormalizedSize;
-					BuiltProduct.Observation.DerivedDataKey = Key;
-					BuiltProduct.Observation.Origin = EStaticMeshBuildOrigin::CacheHit;
-					BuiltProduct.Descriptor = Descriptor;
-					return BuiltProduct;
+					return RenderData;
 				}
 				CacheDecodeCause = Decoded.error();
 			}
@@ -305,7 +312,7 @@ namespace Durin
 				RecipeSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
 			auto RecipeOutcome = Provider.BuildRender({
 				.Geometry = std::move(*Decoded),
-				.PreviousMaterialSlots = RecipeSlots,
+				.MaterialSlots = RecipeSlots,
 				.NormalizedSize = Request.Reconciliation.NormalizedSize}, Control);
 			if (!RecipeOutcome)
 			{
@@ -315,46 +322,19 @@ namespace Durin
 			}
 			if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			auto& RecipeProduct = *RecipeOutcome;
-			auto RenderData = AssembleRenderData(RecipeProduct, IsCancelled);
+			auto RenderData = AssembleRenderData(RecipeProduct, Request.Reconciliation.MaterialSlots, IsCancelled);
 			if (!RenderData) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			if (const auto Encoded = EncodeRenderData(*RenderData, Bytes, IsCancelled); !Encoded)
 			{
 				return std::unexpected(FStaticMeshBuildFailure{FormatStaticMeshCacheCodecError(Encoded.error()), EStaticMeshBuildStage::Render});
 			}
-			std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
-			MaterialSlots.reserve(RecipeProduct.MaterialSlots.size());
-			for (size_t Index = 0; Index < RecipeProduct.MaterialSlots.size(); ++Index)
-			{
-				const auto& Slot = RecipeProduct.MaterialSlots[Index];
-				MaterialSlots.push_back({.Name = Slot.Name, .SourceName = Slot.SourceName,
-					.SourceMaterialIndex = Slot.SourceMaterialIndex});
-				if (Index < Request.Reconciliation.MaterialSlots.size())
-					MaterialSlots.back().DefaultMaterial =
-						Request.Reconciliation.MaterialSlots[Index].DefaultMaterial;
-			}
-			KeyInput.ReconciliationHash = BuildStaticMeshReconciliationHash(
-				MaterialSlots, Request.Reconciliation.NormalizedSize);
-			KeyResult = BuildStaticMeshDerivedDataKey(KeyInput);
-			if (!KeyResult)
-			{
-				return std::unexpected(FStaticMeshBuildFailure{FormatStaticMeshBuildKeyError(KeyResult.error()), EStaticMeshBuildStage::Render});
-			}
-			Key = *KeyResult;
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 			if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			if (Request.bPersistDerivedData)
 				AssetDerivedDataCache::Store(Key, Bytes,
 					MaximumStaticMeshPayloadBytes, StoreDiagnostic);
-			FStaticMeshBuildProduct BuiltProduct;
-			BuiltProduct.RenderData = std::move(RenderData);
-			BuiltProduct.MaterialSlots = std::move(MaterialSlots);
-			BuiltProduct.NormalizedSize = Request.Reconciliation.NormalizedSize;
-			BuiltProduct.Observation.DerivedDataKey = Key;
-			BuiltProduct.bSlotMetadataChanged = RecipeProduct.bSlotMetadataChanged;
-			BuiltProduct.Observation.Origin = EStaticMeshBuildOrigin::Rebuilt;
-			BuiltProduct.Descriptor = Descriptor;
-			BuiltProduct.CacheErrors = CollectCacheErrors(EStaticMeshRecipeKind::Render, LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
-			return BuiltProduct;
+			if (OutCacheErrors) *OutCacheErrors = CollectCacheErrors(EStaticMeshRecipeKind::Render, LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
+			return RenderData;
 		}, Control.ExpectedProviderRegistration);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 		if (!Invocation.WasInvoked() || !Invocation.Value)
@@ -367,7 +347,7 @@ namespace Durin
 			return std::unexpected(FStaticMeshBuildFailure{Message, EStaticMeshBuildStage::Render});
 		}
 		auto Outcome = std::move(*Invocation.Value);
-		if (Outcome) Outcome->ProviderRegistration = Invocation.RegistrationIdentity;
+		if (Outcome && OutProviderRegistration) *OutProviderRegistration = Invocation.RegistrationIdentity;
 		return Outcome;
 #endif
 	}
@@ -469,12 +449,7 @@ namespace Durin
 			if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 				OutProduct.Simple = Geometry;
 			else OutProduct.Complex = Geometry;
-			OutProduct.Observation.Origin = bCacheHit
-				? EStaticMeshBuildOrigin::CacheHit
-				: EStaticMeshBuildOrigin::Rebuilt;
-			OutProduct.Observation.DerivedDataKey = Key;
 			OutProduct.CacheErrors = CollectCacheErrors(EStaticMeshRecipeKind::Collision, LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
-			OutProduct.Descriptor = Descriptor;
 			return OutProduct;
 		}, Control.ExpectedProviderRegistration);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Collision));
@@ -488,7 +463,6 @@ namespace Durin
 			return std::unexpected(FStaticMeshBuildFailure{Message, EStaticMeshBuildStage::Collision});
 		}
 		auto Outcome = std::move(*Invocation.Value);
-		if (Outcome) Outcome->ProviderRegistration = Invocation.RegistrationIdentity;
 		return Outcome;
 #endif
 	}

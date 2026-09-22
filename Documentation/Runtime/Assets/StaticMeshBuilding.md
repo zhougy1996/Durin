@@ -55,7 +55,7 @@ Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining 
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 Recipes receive only an owning decoded handle and recipe settings. Provider feature
-version 6 returns render/collision products as `std::expected<Product, FStaticMeshRecipeError>`.
+version 7 returns render/collision products as `std::expected<Product, FStaticMeshRecipeError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and complete
 physics-build diagnostics, including cancellation. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
@@ -64,8 +64,12 @@ uses source identity even with unreadable canonical bulk; a miss acquires geomet
 slot metadata and collision settings and constructs a sealed combined render,
 ray and collision product. `FStaticMeshBuilder::ApplyCandidate` consumes it on the
 owner thread after checking the captured source/material/body facts and final
-cancellation state. It restores material object bindings from the owner-thread
-snapshot and performs no CPU collision, ray-tree or bounds construction.
+cancellation state. Build consumes fixed material-slot definitions and never reconciles,
+appends, renames or retires asset slots. Import/reimport performs that policy in
+`ReconcileStaticMeshMaterialSlots`, preserving matched bindings and stable positions.
+The operation supplies optional `PreparedMaterialSlots`; application installs them
+with source and render data only after successful validation. Ordinary rebuilds
+retain existing asset slots. Application performs no CPU collision, ray-tree or bounds construction.
 Its `std::expected<void, FStaticMeshBuildFailure>` has no parallel success flag.
 Rejection formats relevant owner, input and slot facts into bounded owned text.
 Application, publication and build share this failure representation; wrappers do
@@ -141,9 +145,9 @@ retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; provider
 adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
 failures. Public derived-data builds return
-`std::expected<FStaticMeshBuildProduct, FStaticMeshBuildFailure>` or
+`std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
 `std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>`.
-Products are returned by value; failure and cancellation return no product.
+Render data is returned with unique ownership; failure and cancellation return no product.
 Candidate construction, application and resource publication use the same
 `FStaticMeshBuildFailure`: a diagnostic stage, owned text capped at 4096 bytes,
 and `IsCancelled()` for internal control flow. Lower-level source, recipe,
@@ -154,14 +158,14 @@ Nonfatal cache failures remain separate flat `FStaticMeshCacheError` records wit
 render/collision kind, read/decode/write operation and bounded text. Clean hits
 and misses produce no error records.
 `StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
-returns the render product; `BuildCollision` returns collision geometry;
+returns render data; `BuildCollision` returns collision geometry;
 `BuildCandidate`/`ApplyCandidate` provide combined construction and owner-thread
 publication. `Capture` and `MakeRequest` prepare immutable worker inputs. The former
 free pipeline functions and mutable Product application wrapper are removed.
-Products expose owned CPU geometry and reconciled material data. Provider identity,
-registration and material-upgrade flags are private to building/application.
-Read-only observations retain only cache origin and key; cache warnings have a
-separate read-only accessor. Products carry no timing or payload-size statistics.
+Render output owns CPU geometry and the section-to-slot mapping. Asset slot
+definitions are inputs, not build outputs. Provider registration remains an
+internal guard across render/collision construction. Cache warnings are collected
+separately; render results carry no cache-origin, key or timing observation.
 `DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
 after synchronous construction and application. It does not submit, join, wait
 for, or create a diagnostic record in the compiling manager. Valid source input

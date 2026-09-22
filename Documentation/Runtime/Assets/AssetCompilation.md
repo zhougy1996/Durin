@@ -301,7 +301,10 @@ For `AsyncBuild`, success means admission only; callbacks and observations carry
 the final build/application outcome.
 Missing admission/provider capacity is an explicit
 failure, with no inline recipe fallback. Interactive reimport prepares physical
-input synchronously, then submits at interactive priority. Source, render,
+input and reconciled material slots synchronously, then submits at interactive priority.
+`PreparedMaterialSlots` remains on the owner thread; workers receive only slot
+metadata. Requests carrying prepared slots cannot join ordinary rebuilds or
+automatically requeue after owner edits. Source, render,
 collision, material bindings and prevalidated provenance become current within
 one consumer-refresh boundary. No recipe or metadata validation runs after its
 first live mutation. Cook finishes a pending source mutation only when needed,
@@ -316,8 +319,8 @@ They neither pump work nor perform source/cache I/O or initialize resources.
 Request ID zero means no available observation, including evicted history.
 A nonzero observation describes its captured source identity and provider
 registration, not proof that the live asset still matches it. Match these facts
-before presenting it as current. `Render` and `Collision` are optional completed
-product observations with opaque DDC key and hit/rebuilt origin; absent values mean unavailable, never a cache miss.
+before presenting it as current. Cache origin and DDC keys are implementation
+details and are not exposed through completion diagnostics.
 Nonfatal cache failures survive successful publication in a flat `CacheErrors`
 list. Each `FStaticMeshCacheError` identifies render/collision and read/decode/write,
 with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
@@ -329,8 +332,7 @@ wrapper. `FormatStaticMeshCompilationDiagnostic` displays both fatal errors and
 retained cache warnings, including when application fails after a successful build.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
-Build observations retain cache origin and key, not timing or payload-size
-statistics. Queue counts and reserved bytes remain for admission and lifecycle
+Completion diagnostics retain no cache-origin or per-product observation records. Queue counts and reserved bytes remain for admission and lifecycle
 accounting. CPU completion is independent of GPU readiness. Diagnostics own no
 source, payload, component or callback.
 

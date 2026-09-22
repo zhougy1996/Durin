@@ -1,3 +1,4 @@
+#include "StaticMeshTestAccess.h"
 #include "../StaticMeshTestAccess.h"
 #include "World/WorldServiceTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -483,7 +484,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
-	const auto SynchronousBuild1 = Mesh->Build(std::move(Imported));
+	const auto SynchronousBuild1 = Durin::FStaticMeshTestAccess::Build(Mesh, std::move(Imported));
 	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
 	Mesh->SetCollisionSourceMode(Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
