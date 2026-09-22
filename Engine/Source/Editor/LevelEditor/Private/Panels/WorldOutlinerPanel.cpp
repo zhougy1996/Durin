@@ -1,5 +1,7 @@
 #include "Panels/WorldOutlinerPanel.h"
 
+#include "Profiling/Profiling.h"
+
 #include "DObject/Package.h"
 #include "Panels/ActorAttachmentTransaction.h"
 #include "Panels/WorldOutlinerPresentation.h"
@@ -600,6 +602,7 @@ namespace Durin::Editor::Level
 
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.WorldOutliner");
 		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
 		{
 			ImGui::End();

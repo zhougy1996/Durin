@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::MonaImGui
 {
@@ -49,13 +50,19 @@ namespace Durin::MonaImGui
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
 		ImGuiMonaImpl_NewFrame();
-		ImGui::NewFrame();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.NewFrame");
+			ImGui::NewFrame();
+		}
 	}
 
 	auto FMonaImGuiBackend::Render() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
-		ImGui::Render();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.FinalizeDrawData");
+			ImGui::Render();
+		}
 
 		ImGuiIO& IO = ImGui::GetIO();
 
@@ -63,14 +70,21 @@ namespace Durin::MonaImGui
 		{
 			if (ShouldRenderMainViewportWithImGui())
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.SubmitMainViewport");
 				ImGuiRHIImpl_RenderMainViewport(MainViewport);
 			}
 		}
 
 		if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
 		{
-			ImGui::UpdatePlatformWindows();
-			ImGui::RenderPlatformWindowsDefault();
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdatePlatformWindows");
+				ImGui::UpdatePlatformWindows();
+			}
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.SubmitPlatformWindows");
+				ImGui::RenderPlatformWindowsDefault();
+			}
 		}
 
 		ImGuiRHIImpl_RetireUnregisteredTextures();

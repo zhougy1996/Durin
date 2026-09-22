@@ -1,4 +1,6 @@
 #include "Asset/RegistryOperations.h"
+
+#include "Profiling/Profiling.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/ContentBrowserFilesystem.h"
@@ -115,6 +117,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::DrawHostPresenters(
 		bool bInAllowAssetMutation) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.HostPresenters");
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return;
 		const auto Presenters = ::Durin::Editor::ContentBrowser::CaptureHostPresenters();
@@ -125,6 +128,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.PrepareForDraw");
 		// The host browser is constructed after workspace modules register their
 		// thumbnail renderers. Rebuild the restored directory snapshot once
 		// those registrations have completed and the panel is first submitted.

@@ -215,11 +215,7 @@ namespace Durin::Editor::Level
 			DrawValueRow("Engine tick", std::format("{:.2f} ms",
 				Timing.EngineTickMilliseconds),
 				"Main-thread elapsed time inside the engine tick, including world and editor updates. "
-				"Excludes the following deferred work, UI tick, UI frame construction, and submissions.");
-			DrawValueRow("UI tick", std::format("{:.2f} ms",
-				Timing.UITickMilliseconds),
-				"Main-thread elapsed time in the application tick, currently updating application time. "
-				"Window and panel construction is measured in UI frame build.");
+				"Excludes the following deferred work, UI frame construction, and submissions.");
 			DrawValueRow("UI frame build", std::format("{:.2f} ms",
 				Timing.UIFrameBuildMilliseconds),
 				"Main-thread elapsed time initializing the UI frame and drawing application windows and panels. "

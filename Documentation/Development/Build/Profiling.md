@@ -154,6 +154,17 @@ Repository call sites do not invoke `TracySetProgramName` directly. Core's
 profiling adapter formats and retains program-name storage because Tracy may
 consume the supplied character pointer asynchronously.
 
+The main-thread UI path is split into `EngineLoop.UIFrameBuild`,
+`EngineLoop.SceneSubmission`, `EngineLoop.UISubmission`, and
+`EngineLoop.RenderSyncWait`. UI frame construction contains
+`MonaImGui.PlatformNewFrame`, `MonaImGui.NewFrame`, and `Mona.DrawWindows`;
+window drawing includes `LevelEditor.DrawWorkspace`, its SceneViewport,
+WorldOutliner and Details zones, and `ContentBrowser.PrepareForDraw` and
+`ContentBrowser.HostPresenters`. UI submission separates draw-data finalization,
+main-viewport submission, platform-window updates, and platform-window submission
+under `MonaImGui.*`. These are CPU elapsed-time zones; frame synchronization may
+include downstream backlog. There is no separate UI tick phase.
+
 ### Task Correlation And Owner Plots
 
 Profiling builds correlate task phases with the same process-unique nonzero task

@@ -90,7 +90,10 @@ namespace Durin
 					EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
 				});
 			const double SyncStarted = FTime::Seconds();
-			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderSyncWait");
+				FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+			}
 			RecordEngineFrameRenderTimings(
 				static_cast<float>((SceneSubmissionStarted - UIFrameBuildStarted) * 1000.0),
 				static_cast<float>((UISubmissionStarted - SceneSubmissionStarted) * 1000.0),

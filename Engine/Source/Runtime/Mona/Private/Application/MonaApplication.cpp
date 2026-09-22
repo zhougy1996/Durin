@@ -1,5 +1,7 @@
 #include "Application/MonaApplication.h"
 
+#include "Profiling/Profiling.h"
+
 #include "CoreGlobals.h"
 
 #include "Application/MonaWindowHelper.h"
@@ -78,19 +80,12 @@ namespace Durin::Mona
 	auto FMonaApplication::Tick() -> void
 	{
 		PumpPlatformEvents();
-		TickUI();
 	}
 
 	auto FMonaApplication::PumpPlatformEvents() -> void
 	{
 		PollEvents();
 		ProcessDeferredEvents();
-	}
-
-	auto FMonaApplication::TickUI() -> void
-	{
-		TickTime();
-		TickAndDrawWidgets();
 	}
 
 	auto FMonaApplication::GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>
@@ -311,6 +306,7 @@ namespace Durin::Mona
 
 	auto FMonaApplication::DrawWindows() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Mona.DrawWindows");
 		for (const std::shared_ptr<MWindow>& Window : Windows)
 		{
 			if (Window != nullptr)
@@ -425,14 +421,6 @@ namespace Durin::Mona
 		}
 
 		return NewWindow;
-	}
-
-	auto FMonaApplication::TickTime() -> void
-	{
-	}
-
-	auto FMonaApplication::TickAndDrawWidgets() -> void
-	{
 	}
 
 	auto FMonaApplication::OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void

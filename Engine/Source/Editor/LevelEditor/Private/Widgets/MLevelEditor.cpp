@@ -399,6 +399,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.DrawWorkspace");
 		if (!Context || !DocumentController) return false;
 		DocumentController->DrawDialogs();
 		bWasActive = bActive;

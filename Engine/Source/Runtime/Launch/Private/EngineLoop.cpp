@@ -326,13 +326,7 @@ namespace Durin
 		GFrameCounter++;
 
 		auto& Application = Mona::FMonaApplication::Get();
-		const double UITickStarted = FTime::Seconds();
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ApplicationUI");
-			Application.TickUI();
-		}
-		RecordEngineFrameTickTimings(EngineTickMilliseconds,
-			static_cast<float>((FTime::Seconds() - UITickStarted) * 1000.0));
+		RecordEngineFrameTickTiming(EngineTickMilliseconds);
 		if (GIsRequestingExit) return;
 
 		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();

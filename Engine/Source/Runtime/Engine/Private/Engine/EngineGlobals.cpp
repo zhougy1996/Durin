@@ -22,10 +22,9 @@ namespace Durin
 	float GAverageFPS = 0.0f;
 	float GAverageMS = 0.0f;
 
-	auto RecordEngineFrameTickTimings(float EngineTickMilliseconds, float UITickMilliseconds) -> void
+	auto RecordEngineFrameTickTiming(float EngineTickMilliseconds) -> void
 	{
 		GCurrentFrameTiming.EngineTickMilliseconds = std::max(EngineTickMilliseconds, 0.0f);
-		GCurrentFrameTiming.UITickMilliseconds = std::max(UITickMilliseconds, 0.0f);
 	}
 
 	auto RecordEngineFrameRenderTimings(float UIFrameBuildMilliseconds,
@@ -65,8 +64,6 @@ namespace Durin
 				GEngineFrameTiming.FrameIntervalMilliseconds, FrameTimeMS);
 			GEngineFrameTiming.EngineTickMilliseconds = SmoothFrameMetric(
 				GEngineFrameTiming.EngineTickMilliseconds, Sample.EngineTickMilliseconds);
-			GEngineFrameTiming.UITickMilliseconds = SmoothFrameMetric(
-				GEngineFrameTiming.UITickMilliseconds, Sample.UITickMilliseconds);
 			GEngineFrameTiming.UIFrameBuildMilliseconds = SmoothFrameMetric(
 				GEngineFrameTiming.UIFrameBuildMilliseconds, Sample.UIFrameBuildMilliseconds);
 			GEngineFrameTiming.SceneSubmissionMilliseconds = SmoothFrameMetric(

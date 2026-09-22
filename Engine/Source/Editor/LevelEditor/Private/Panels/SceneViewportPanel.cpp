@@ -1,4 +1,6 @@
 #include "Panels/SceneViewportPanel.h"
+
+#include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
 #include "Asset/Asset.h"
@@ -245,6 +247,7 @@ namespace Durin::Editor::Level
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.SceneViewport");
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));

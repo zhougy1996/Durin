@@ -1,4 +1,6 @@
 #include "Panels/DetailsPanel.h"
+
+#include "Profiling/Profiling.h"
 #include "Panels/DetailsPanelTargeting.h"
 #include "PropertyEditor/PropertyView.h"
 
@@ -73,6 +75,7 @@ namespace Durin::Editor::Level
 
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details");
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
 			Workspace::Type, "Details", "Details", GetOpenPtr());

@@ -1,4 +1,6 @@
 #include "ImGuiMonaImpl.h"
+
+#include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "MonaImGui.h"
 
@@ -1166,6 +1168,7 @@ namespace Durin::MonaImGui
 
 	auto ImGuiMonaImpl_NewFrame() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.PlatformNewFrame");
 		const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow();
 		if (!MainWindow)
 		{

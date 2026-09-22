@@ -35,9 +35,6 @@ namespace Durin::Mona
 		// Samples platform input before gameplay consumes the current frame.
 		MONA_API auto PumpPlatformEvents() -> void;
 
-		// Advances application time and widgets after gameplay has updated.
-		MONA_API auto TickUI() -> void;
-
 		MONA_API auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
 
 		MONA_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
@@ -119,10 +116,6 @@ namespace Durin::Mona
 		FMonaApplication();
 
 		auto MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>;
-
-		auto TickTime() -> void;
-
-		auto TickAndDrawWidgets() -> void;
 
 		static std::shared_ptr<FMonaApplication> CurrentApplication;
 

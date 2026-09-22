@@ -50,12 +50,10 @@ it defaults to collapsed and never dirties level or asset packages.
 
 Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
 Overview reports the smoothed wall-clock frame interval and directly measured
-main-thread elapsed times for five non-overlapping call ranges:
+main-thread elapsed times for four non-overlapping call ranges:
 
 - `Engine tick`: `GEngine->Tick`, including editor/play world updates, before
   diagnostics, deferred work, async save polling, and asset compilation processing.
-- `UI tick`: `Application.TickUI`, currently updating application time; window
-  and panel construction belongs to `UI frame build`.
 - `UI frame build`: `Mona::NewFrame` initializes the platform/backend frame,
   followed by an explicit `Application.DrawWindows` when a UI backend is active.
   Window and panel construction stays before viewport redraw so scene submission
@@ -70,7 +68,7 @@ These are elapsed times, including any waits or scheduling delays inside their
 boundaries, not CPU utilization or render-thread/GPU execution times. They do
 not partition the entire frame: event processing, deferred work, garbage
 collection, begin/end render-frame command submission, and other loop overhead
-are outside these five ranges. Skipped
+are outside these four ranges. Skipped
 phases contribute zero to the next smoothed sample rather than reusing an old
 measurement. No frame-interval-minus-wait remainder is displayed.
 

@@ -9,7 +9,6 @@ namespace Durin
 		float FrameIntervalMilliseconds = 0.0f;
 		// Main-thread elapsed times for explicit call ranges, including waits within them.
 		float EngineTickMilliseconds = 0.0f;
-		float UITickMilliseconds = 0.0f;
 		float UIFrameBuildMilliseconds = 0.0f;
 		float SceneSubmissionMilliseconds = 0.0f;
 		float UISubmissionMilliseconds = 0.0f;
@@ -18,7 +17,7 @@ namespace Durin
 
 	extern ENGINE_API float GAverageFPS;
 	extern ENGINE_API float GAverageMS;
-	ENGINE_API auto RecordEngineFrameTickTimings(float EngineTickMilliseconds, float UITickMilliseconds) -> void;
+	ENGINE_API auto RecordEngineFrameTickTiming(float EngineTickMilliseconds) -> void;
 	ENGINE_API auto RecordEngineFrameRenderTimings(float UIFrameBuildMilliseconds,
 		float SceneSubmissionMilliseconds, float UISubmissionMilliseconds, float SyncWaitMilliseconds) -> void;
 	ENGINE_API auto CalculateFPSTimings() -> void;
