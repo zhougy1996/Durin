@@ -11,6 +11,7 @@ namespace Durin::Mona
 		bool bAdoptInitializationPresentationCandidate) -> bool;
 	MONA_API auto IsRenderingInitialized() -> bool;
 
+	// Initializes the UI frame. The caller draws application windows before Render().
 	MONA_API auto NewFrame() -> void;
 
 	MONA_API auto Render() -> void;

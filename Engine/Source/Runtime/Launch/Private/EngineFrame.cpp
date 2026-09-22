@@ -48,11 +48,10 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
 			if (GDynamicRHI == nullptr)
 			{
-				RecordEngineFrameRenderTimings(0.0f, 0.0f);
+				RecordEngineFrameRenderTimings(0.0f, 0.0f, 0.0f, 0.0f);
 				return;
 			}
 
-			const double SubmissionStarted = FTime::Seconds();
 			const uint64 LogicFrameCounter = GFrameCounter;
 			const uint64 RenderFrameCounter = GRenderFrameCounter;
 			auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
@@ -64,10 +63,26 @@ namespace Durin
 					AfterSkyLightingSmokeUpdate(CommandList);
 				});
 
-			Mona::NewFrame();
-			if (ShouldRedrawEngineViewports(Mode) && GEngine != nullptr)
-				GEngine->RedrawViewports();
-			Mona::Render();
+			const double UIFrameBuildStarted = FTime::Seconds();
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.UIFrameBuild");
+				Mona::NewFrame();
+				// UI construction determines viewport sizes and visibility before scene submission.
+				if (Mona::GetActiveUIBackend() != nullptr)
+					Mona::FMonaApplication::Get().DrawWindows();
+			}
+			const double SceneSubmissionStarted = FTime::Seconds();
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.SceneSubmission");
+				if (ShouldRedrawEngineViewports(Mode) && GEngine != nullptr)
+					GEngine->RedrawViewports();
+			}
+			const double UISubmissionStarted = FTime::Seconds();
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.UISubmission");
+				Mona::Render();
+			}
+			const double UISubmissionEnded = FTime::Seconds();
 
 			ENQUEUE_RENDER_COMMAND(EndFrame)(
 				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
@@ -77,7 +92,9 @@ namespace Durin
 			const double SyncStarted = FTime::Seconds();
 			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
 			RecordEngineFrameRenderTimings(
-				static_cast<float>((SyncStarted - SubmissionStarted) * 1000.0),
+				static_cast<float>((SceneSubmissionStarted - UIFrameBuildStarted) * 1000.0),
+				static_cast<float>((UISubmissionStarted - SceneSubmissionStarted) * 1000.0),
+				static_cast<float>((UISubmissionEnded - UISubmissionStarted) * 1000.0),
 				static_cast<float>((FTime::Seconds() - SyncStarted) * 1000.0));
 			GRenderFrameCounter++;
 		}

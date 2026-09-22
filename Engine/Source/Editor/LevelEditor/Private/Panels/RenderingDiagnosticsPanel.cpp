@@ -215,16 +215,23 @@ namespace Durin::Editor::Level
 			DrawValueRow("Engine tick", std::format("{:.2f} ms",
 				Timing.EngineTickMilliseconds),
 				"Main-thread elapsed time inside the engine tick, including world and editor updates. "
-				"Excludes the following deferred work, UI tick, and render submission.");
+				"Excludes the following deferred work, UI tick, UI frame construction, and submissions.");
 			DrawValueRow("UI tick", std::format("{:.2f} ms",
 				Timing.UITickMilliseconds),
-				"Main-thread elapsed time updating application time and ticking/drawing window widgets. "
-				"UI backend frame construction and render submission are measured separately.");
-			DrawValueRow("Render submission", std::format("{:.2f} ms",
-				Timing.RenderSubmissionMilliseconds),
-				"Main-thread elapsed time from render-frame command submission through UI backend frame "
-				"construction, viewport redraw, and UI rendering, ending before frame sync. "
-				"Includes waits within these calls; not render-thread or GPU execution time.");
+				"Main-thread elapsed time in the application tick, currently updating application time. "
+				"Window and panel construction is measured in UI frame build.");
+			DrawValueRow("UI frame build", std::format("{:.2f} ms",
+				Timing.UIFrameBuildMilliseconds),
+				"Main-thread elapsed time initializing the UI frame and drawing application windows and panels. "
+				"Includes platform updates and waits within UI construction; excludes UI submission.");
+			DrawValueRow("Scene submission", std::format("{:.2f} ms",
+				Timing.SceneSubmissionMilliseconds),
+				"Main-thread elapsed time preparing scene views and submitting viewport redraw commands. "
+				"Includes waits within redraw; not render-thread RDG or GPU execution time.");
+			DrawValueRow("UI submission", std::format("{:.2f} ms",
+				Timing.UISubmissionMilliseconds),
+				"Main-thread elapsed time finalizing UI draw data and submitting main and platform windows. "
+				"Includes waits within UI submission; excludes frame sync and render-thread/GPU execution.");
 			DrawValueRow("Render sync wait", std::format("{:.2f} ms",
 				Timing.RenderSyncWaitMilliseconds),
 				"Time blocked on render-thread pacing; may include RHI, GPU, Present, and VSync backlog.");

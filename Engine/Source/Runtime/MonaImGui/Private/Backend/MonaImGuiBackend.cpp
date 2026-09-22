@@ -50,9 +50,6 @@ namespace Durin::MonaImGui
 
 		ImGuiMonaImpl_NewFrame();
 		ImGui::NewFrame();
-
-		auto& App = Mona::FMonaApplication::Get();
-		App.DrawWindows();
 	}
 
 	auto FMonaImGuiBackend::Render() -> void

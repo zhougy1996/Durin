@@ -28,9 +28,12 @@ namespace Durin
 		GCurrentFrameTiming.UITickMilliseconds = std::max(UITickMilliseconds, 0.0f);
 	}
 
-	auto RecordEngineFrameRenderTimings(float SubmissionMilliseconds, float SyncWaitMilliseconds) -> void
+	auto RecordEngineFrameRenderTimings(float UIFrameBuildMilliseconds,
+		float SceneSubmissionMilliseconds, float UISubmissionMilliseconds, float SyncWaitMilliseconds) -> void
 	{
-		GCurrentFrameTiming.RenderSubmissionMilliseconds = std::max(SubmissionMilliseconds, 0.0f);
+		GCurrentFrameTiming.UIFrameBuildMilliseconds = std::max(UIFrameBuildMilliseconds, 0.0f);
+		GCurrentFrameTiming.SceneSubmissionMilliseconds = std::max(SceneSubmissionMilliseconds, 0.0f);
+		GCurrentFrameTiming.UISubmissionMilliseconds = std::max(UISubmissionMilliseconds, 0.0f);
 		GCurrentFrameTiming.RenderSyncWaitMilliseconds = std::max(SyncWaitMilliseconds, 0.0f);
 	}
 
@@ -64,8 +67,12 @@ namespace Durin
 				GEngineFrameTiming.EngineTickMilliseconds, Sample.EngineTickMilliseconds);
 			GEngineFrameTiming.UITickMilliseconds = SmoothFrameMetric(
 				GEngineFrameTiming.UITickMilliseconds, Sample.UITickMilliseconds);
-			GEngineFrameTiming.RenderSubmissionMilliseconds = SmoothFrameMetric(
-				GEngineFrameTiming.RenderSubmissionMilliseconds, Sample.RenderSubmissionMilliseconds);
+			GEngineFrameTiming.UIFrameBuildMilliseconds = SmoothFrameMetric(
+				GEngineFrameTiming.UIFrameBuildMilliseconds, Sample.UIFrameBuildMilliseconds);
+			GEngineFrameTiming.SceneSubmissionMilliseconds = SmoothFrameMetric(
+				GEngineFrameTiming.SceneSubmissionMilliseconds, Sample.SceneSubmissionMilliseconds);
+			GEngineFrameTiming.UISubmissionMilliseconds = SmoothFrameMetric(
+				GEngineFrameTiming.UISubmissionMilliseconds, Sample.UISubmissionMilliseconds);
 			GEngineFrameTiming.RenderSyncWaitMilliseconds = SmoothFrameMetric(
 				GEngineFrameTiming.RenderSyncWaitMilliseconds, Sample.RenderSyncWaitMilliseconds);
 		}
