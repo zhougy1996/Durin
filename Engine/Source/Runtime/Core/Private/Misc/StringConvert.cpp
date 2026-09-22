@@ -68,8 +68,13 @@ namespace Durin::StringUtils
 		if (WideStr.empty()) return {};
 #if defined(_WIN32)
 		const int SizeNeeded = WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t*>(WideStr.data()), static_cast<int>(WideStr.size()), nullptr, 0, nullptr, nullptr);
-		std::string Result(SizeNeeded, '\0');
-		WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t*>(WideStr.data()), static_cast<int>(WideStr.size()), Result.data(), SizeNeeded, nullptr, nullptr);
+		if (SizeNeeded <= 0) return {};
+		std::string Result;
+		Result.resize_and_overwrite(static_cast<size_t>(SizeNeeded),
+			[&](char* Buffer, size_t) noexcept -> size_t
+			{
+				return static_cast<size_t>(WideCharToMultiByte(CP_UTF8, 0, WideStr.data(), static_cast<int>(WideStr.size()), Buffer, SizeNeeded, nullptr, nullptr));
+			});
 		return Result;
 #else
 		static_assert(sizeof(wchar_t) == sizeof(uint32));
@@ -91,8 +96,13 @@ namespace Durin::StringUtils
 		if (Utf8Str.empty()) return {};
 #if defined(_WIN32)
 		const int SizeNeeded = MultiByteToWideChar(CP_UTF8, 0, Utf8Str.data(), static_cast<int>(Utf8Str.size()), nullptr, 0);
-		std::wstring Result(SizeNeeded, L'\0');
-		MultiByteToWideChar(CP_UTF8, 0, Utf8Str.data(), static_cast<int>(Utf8Str.size()), Result.data(), SizeNeeded);
+		if (SizeNeeded <= 0) return {};
+		std::wstring Result;
+		Result.resize_and_overwrite(static_cast<size_t>(SizeNeeded),
+			[&](wchar_t* Buffer, size_t) noexcept -> size_t
+			{
+				return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, Utf8Str.data(), static_cast<int>(Utf8Str.size()), Buffer, SizeNeeded));
+			});
 		return Result;
 #else
 		static_assert(sizeof(wchar_t) == sizeof(uint32));
