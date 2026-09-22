@@ -17,6 +17,11 @@ SETUP_COMMAND_SPEC = CommandSpec(
             action="store_true",
             help="use configured or automatically detected toolchain settings without prompting",
         ),
+        argument(
+            "--skip-development-tools",
+            action="store_true",
+            help="skip Tracy profiler and capture tools for CI or build-only environments",
+        ),
     ),
     defaults=(("bootstrap_action", "setup"),),
 )

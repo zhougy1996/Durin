@@ -168,6 +168,14 @@ class TestBootstrapRegistry:
         specification, namespace = self.registry.parse(['setup', '--non-interactive'])
         assert specification.name == 'setup'
         assert namespace.non_interactive
+        assert not namespace.skip_development_tools
+
+    def test_setup_forwards_development_tools_opt_out(self) -> None:
+        specification, namespace = self.registry.parse(['setup', '--non-interactive', '--skip-development-tools'])
+        with mock.patch.object(bootstrap_application, 'setup_checkout') as run:
+            self.registry.execute(specification, namespace, repository_root=REPOSITORY_ROOT, stdout=io.StringIO(), stderr=io.StringIO())
+        assert run.call_args.kwargs['skip_development_tools'] is True
+        assert run.call_args.kwargs['interactive'] is False
 
     def test_dependency_prepare_requires_exactly_one_selection_mode(self) -> None:
         for arguments in (['dependency', 'prepare'], ['dependency', 'prepare', '--all', '--libs', 'tracy']):
@@ -214,9 +222,9 @@ class TestSetupOrchestration:
         events: list[str] = []
         python = root / '.venv' / 'Scripts' / 'python.exe'
         selection = toolchain_selection.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda *_args, **_kwargs: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda *_args, **_kwargs: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda *_args, **_kwargs: events.append('python') or python):
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda *_args, **_kwargs: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda *_args, **_kwargs: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda *_args, **_kwargs: events.append('python') or python), mock.patch.object(setup, 'ensure_development_tools', side_effect=lambda *_args: events.append('tools')):
             assert setup.setup_repository(root) == python
-        assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python']
+        assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python', 'tools']
 
     def test_linked_worktree_setup_points_only_to_unified_prepare(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -226,14 +234,38 @@ class TestSetupOrchestration:
             setup.setup_repository(root)
         assert 'WorktreeTool' not in str(raised.value)
 
-    def test_setup_does_not_prepare_third_party_dependencies(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+    @pytest.mark.parametrize('skip_tools', [False, True])
+    def test_setup_prepares_development_tools_unless_skipped(self, tmp_path_factory: pytest.TempPathFactory, skip_tools: bool) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         python = root / '.venv' / 'Scripts' / 'python.exe'
         selection = toolchain_selection.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python):
-            setup.setup_repository(root)
-        assert not hasattr(setup, 'prepare_dependencies')
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'ensure_development_tools') as prepare:
+            setup.setup_repository(root, skip_development_tools=skip_tools)
+        if skip_tools:
+            prepare.assert_not_called()
+        else:
+            prepare.assert_called_once_with(mock.ANY, python, mock.ANY)
+
+    def test_development_tools_use_prepared_python_and_only_tool_package(self) -> None:
+        repository = RepositoryContext.load()
+        python = Path('prepared/python')
+        command_io = CommandIO(stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(setup, 'run_command') as run:
+            setup.ensure_development_tools(repository, python, command_io)
+        run.assert_called_once_with(
+            [str(python), str(repository.root / 'Tools/DurinDevTool/durin_dev_tool/__main__.py'),
+             'dependency', 'prepare', '--libs', 'tracy-tools'],
+            cwd=repository.root, command_io=command_io,
+        )
+
+    def test_development_tool_installation_failure_is_reported(self) -> None:
+        with mock.patch.object(setup.subprocess, 'run', return_value=mock.Mock(returncode=1)):
+            with pytest.raises(BootstrapError, match='Command failed'):
+                setup.ensure_development_tools(
+                    RepositoryContext.load(), Path('prepared/python'),
+                    CommandIO(stdout=io.StringIO(), stderr=io.StringIO()),
+                )
 
     def test_worktree_preparation_uses_shared_python_preflight(self) -> None:
         target = Path('C:/repo-feature')
@@ -272,8 +304,9 @@ class TestSetupOrchestration:
             _command_io: CommandIO,
             *,
             interactive: bool,
+            skip_development_tools: bool,
         ) -> Path:
-            del interactive
+            del interactive, skip_development_tools
             raise failure
 
         with mock.patch.object(bootstrap_application, 'setup_checkout', side_effect=fail_setup), pytest.raises(RuntimeError) as raised:

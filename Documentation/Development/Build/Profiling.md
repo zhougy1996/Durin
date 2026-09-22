@@ -7,8 +7,10 @@ There is no separate profiling preset or output directory.
 ## Preparation And Presets
 
 Configure and build automatically prepare the pinned Tracy `v0.13.1` client
-source when instrumentation is enabled. The optional host tools remain an
-explicit installation:
+source when instrumentation is enabled. Main-checkout `DevTool setup` installs
+the matching host tools on Windows by default. CI and build-only environments
+can use `setup --skip-development-tools`; configure/build do not install these
+tools. Existing workspaces can install or repair them explicitly:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools
@@ -36,8 +38,9 @@ match the pinned Tracy `v0.13.1` client.
 
 ## Editor Tool Workflow
 
-Install the matching Tracy host tools explicitly at
-`Engine/External/Packages/tracy-tools/0.13.1/Win64/` with:
+Setup installs the matching Tracy host tools at
+`Engine/External/Packages/tracy-tools/0.13.1/Win64/`. To install or repair them
+without rerunning setup:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools

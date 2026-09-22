@@ -86,13 +86,20 @@ uses a standard-library-only fallback until the prepared environment is ready.
 
 In a normal checkout, `DevTool setup` creates `.venv` and installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
-bindings and native `libclang` library). It does not download or compile
-repository-managed third-party dependencies. The first command that must
-configure a CMake tree prepares the ordinary and test dependencies required by
-that preset, and builds shared-install packages only for its effective Debug or
-Release configuration. Shipping reuses Release packages. A profiling preset
-also prepares the pinned Tracy client source, but never downloads the optional
-Tracy host tools.
+bindings and native `libclang` library). It then installs the pinned Tracy
+profiler and capture tool package on supported platforms (currently Windows).
+Existing matching tools are reused; unsupported platforms report a skip. Use
+`DevTool setup --non-interactive --skip-development-tools` for CI or build-only
+environments that do not need these tools. Downloads use the same verified,
+locked shared dependency store as explicit dependency preparation, so linked
+worktrees reuse the main checkout's installation.
+
+Setup does not download or compile engine third-party libraries. The first
+command that must configure a CMake tree prepares the ordinary and test
+dependencies required by that preset, and builds shared-install packages only
+for its effective Debug or Release configuration. Shipping reuses Release
+packages. Tracy-enabled builds also prepare the pinned client source;
+configure and build never require the profiler or capture tools.
 
 The confirmed Windows Visual Studio environment or validated macOS inherited
 environment is passed to every lazy third-party CMake configure and build

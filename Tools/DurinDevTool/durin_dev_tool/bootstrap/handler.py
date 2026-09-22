@@ -87,7 +87,12 @@ def _run_setup(command: _BootstrapCommand) -> None:
         and bool(getattr(sys.stdin, "isatty", lambda: False)())
         and bool(getattr(command.stdout, "isatty", lambda: False)())
     )
-    python = application.setup_checkout(command.repository, command.command_io, interactive=interactive)
+    python = application.setup_checkout(
+        command.repository,
+        command.command_io,
+        interactive=interactive,
+        skip_development_tools=getattr(command.namespace, "skip_development_tools", False),
+    )
     if command.session_state is not None:
         restart_prepared_shell(
             command.repository.root,

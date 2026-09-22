@@ -31,5 +31,10 @@ def setup_checkout(
     command_io: CommandIO,
     *,
     interactive: bool,
+    skip_development_tools: bool = False,
 ) -> Path:
-    return setup_repository(repository, command_io, interactive=interactive)
+    return setup_repository(
+        repository, command_io,
+        interactive=interactive,
+        skip_development_tools=skip_development_tools,
+    )

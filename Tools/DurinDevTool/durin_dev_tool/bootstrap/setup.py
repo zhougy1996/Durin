@@ -398,11 +398,30 @@ def select_setup_toolchain(
     )
 
 
+def ensure_development_tools(
+    repository: RepositoryContext,
+    python: Path,
+    command_io: CommandIO,
+) -> None:
+    """Use the prepared interpreter even when setup started with system Python."""
+    command_io.out("Preparing Tracy profiler and capture tools...")
+    run_command(
+        [
+            str(python),
+            str(repository.root / "Tools/DurinDevTool/durin_dev_tool/__main__.py"),
+            "dependency", "prepare", "--libs", "tracy-tools",
+        ],
+        cwd=repository.root,
+        command_io=command_io,
+    )
+
+
 def setup_repository(
     repository: RepositoryContext | Path,
     command_io: CommandIO | None = None,
     *,
     interactive: bool = False,
+    skip_development_tools: bool = False,
 ) -> Path:
     """Prepare a main checkout in preflight-before-mutation order."""
     repository = _repository(repository)
@@ -442,6 +461,8 @@ def setup_repository(
             raise BootstrapError(str(exc)) from exc
         ensure_vscode_configuration(repository, command_io)
         python = ensure_python_environment(repository, command_io)
+        if not skip_development_tools:
+            ensure_development_tools(repository, python, command_io)
     except OSError as exc:
         raise BootstrapError(str(exc)) from exc
     command_io.out("Durin setup completed successfully.")
