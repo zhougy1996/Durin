@@ -310,6 +310,20 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_EQ(Submission->TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
 	EXPECT_EQ(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
+	std::optional<Durin::FReimportResult> Superseded, Canceled;
+	Durin::FReimportManager::Reimport(*Texture, {.bSave = false},
+		[&](Durin::FReimportResult Result) { Superseded = std::move(Result); });
+	Durin::FReimportManager::Reimport(*Texture, {.bSave = false},
+		[&](Durin::FReimportResult Result) { Canceled = std::move(Result); });
+	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Superseded);
+	ASSERT_TRUE(Canceled);
+	EXPECT_EQ(Superseded->Status, Durin::EReimportStatus::Superseded);
+	EXPECT_EQ(Canceled->Status, Durin::EReimportStatus::Canceled);
+	EXPECT_TRUE(Superseded->Interrupted());
+	EXPECT_TRUE(Canceled->Interrupted());
+	EXPECT_EQ(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));

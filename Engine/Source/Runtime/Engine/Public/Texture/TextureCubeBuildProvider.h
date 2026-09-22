@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Texture/TextureBuildOperation.h"
+
 #include "Asset/AssetCacheDiagnostic.h"
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
@@ -166,7 +168,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
-		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;
+		-> std::expected<FTextureCubeBuildValue, FTextureBuildOperationError>;
 	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
-		-> std::expected<void, FTextureBuildError>;
+		-> std::expected<void, FTextureBuildOperationError>;
 }

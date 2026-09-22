@@ -670,3 +670,61 @@ TEST_F(FTextureImportQueueTests, TeardownDrainsActiveCompilationAndDiscardsCandi
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 }
+
+TEST_F(FTextureImportQueueTests, CompilationCancellationIsNotAnImportFailure)
+{
+	Editor::Texture::FTextureFileImport Importer;
+	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
+	DPackage* Package = nullptr;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Package && std::chrono::steady_clock::now() < Deadline)
+	{
+		Importer.Tick();
+		Package = FindPackage(Destination + "wall_normal");
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_NE(Package, nullptr);
+	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
+	ASSERT_NE(Texture, nullptr);
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+	ASSERT_TRUE(Drain(Importer));
+	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
+	EXPECT_EQ(Importer.GetFailedCount(), 0u);
+	EXPECT_EQ(Importer.GetSavedCount(), 0u);
+	EXPECT_EQ(FindPackage(Destination + "wall_normal"), nullptr);
+}
+
+TEST_F(FTextureImportQueueTests, SupersededImportDoesNotUnloadNewCompilation)
+{
+	Editor::Texture::FTextureFileImport Importer;
+	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
+	DPackage* Package = nullptr;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Package && std::chrono::steady_clock::now() < Deadline)
+	{
+		Importer.Tick();
+		Package = FindPackage(Destination + "wall_normal");
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_NE(Package, nullptr);
+	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
+	ASSERT_NE(Texture, nullptr);
+	auto Prepared = PrepareTexture2DImport(Source.generic_string());
+	ASSERT_TRUE(Prepared);
+	std::optional<FTexture2DCompilationResult> Replacement;
+	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
+		{.Build = MakeTexture2DBuildRequest(Prepared->Source),
+		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
+		[&](FTexture2DCompilationResult Value) { Replacement = std::move(Value); }));
+	Importer.Tick();
+	EXPECT_FALSE(Importer.IsRunning());
+	EXPECT_EQ(Importer.GetSupersededCount(), 1u);
+	EXPECT_EQ(Importer.GetFailedCount(), 0u);
+	EXPECT_EQ(Importer.GetSavedCount(), 0u);
+	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Replacement);
+	EXPECT_TRUE(Replacement->Succeeded());
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}

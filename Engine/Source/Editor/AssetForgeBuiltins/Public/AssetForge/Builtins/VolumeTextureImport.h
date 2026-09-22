@@ -8,7 +8,7 @@
 #include "Image/ImageDecoder.h"
 #include "Asset/SourceHint.h"
 #include "Misc/MountPaths.h"
-#include "Texture/TextureBuildOutcome.h"
+#include "Texture/TextureBuildOperation.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin { struct FAssetImportDataError; }
@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins
 		std::optional<FSourceHintError> SourceHintCause;
 		std::shared_ptr<const FEncodedSourceError> CaptureCause;
 		std::optional<FVolumeTextureTranslationError> TranslationCause;
-		std::optional<FTextureBuildError> BuildCause;
+		std::optional<FTextureBuildOperationError> BuildCause;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 	};

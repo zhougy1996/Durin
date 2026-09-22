@@ -8,13 +8,14 @@
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureCompilingManager.h"
+#include "Texture2DBuildDiagnostics.h"
 
 namespace Durin
 {
 	auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string
 	{
 		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
-		if (Error.BuildCause) return FormatTexture2DBuildError(*Error.BuildCause);
+		if (!Error.InputReason.empty()) return Error.InputReason;
 		if (Error.ImportCause) return FormatAssetImportDataError(*Error.ImportCause);
 		if (Error.SaveCause) return Error.SaveCause->Message;
 		switch (Error.Code)
@@ -610,6 +611,23 @@ struct FAssetState
 		}
 	}
 
+	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
+		const FTexture2DBuildExecutionControl* ExecutionControl)
+		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
+	{
+		FTexture2DBuildProduct Product;
+		FTexture2DBuildInputIdentity Identity;
+		const auto Built = InvokeTexture2DBuildProvider(Request, Product, Identity, ExecutionControl);
+		if (Built) return Product;
+		const auto Failure = TexturePrivate::MakeCompilationBuildFailure(Built.error());
+		if (Failure.Code == ETexture2DCompilationError::Cancelled)
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Canceled});
+		DURIN_ERROR_CATEGORY("Texture", "Detached Texture2D build failed: {}", FormatTexture2DBuildError(Built.error()));
+		return std::unexpected(FTextureBuildOperationError{Failure.InputReason.empty()
+			? ETextureBuildOperationFailure::Failed : ETextureBuildOperationFailure::InvalidInput,
+			Failure.InputReason});
+	}
+
 	auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
@@ -622,8 +640,10 @@ struct FAssetState
 			Request, Product, Identity);
 		if (!BuildResult)
 		{
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::BuildFailed,
-				.BuildCause = BuildResult.error(), .ObjectPath = Texture.GetObjectPath()});
+			if (BuildResult.error().Code != ETexture2DBuildError::Cancelled)
+				DURIN_ERROR_CATEGORY("Texture", "Texture2D build failed for {}: {}",
+					Texture.GetObjectPath(), FormatTexture2DBuildError(BuildResult.error()));
+			return std::unexpected(TexturePrivate::MakeCompilationBuildFailure(BuildResult.error()));
 		}
 		return ApplyTexture2DBuildResult(Texture, Request.SourceIdentity, Request.Settings,
 			std::move(Product), Context);

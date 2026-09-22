@@ -269,11 +269,21 @@ observations. Texture providers return `std::expected<Product, Error>` with owne
 recipe products; Cube normalization likewise returns its canonical input by value.
 Texture2D input validation uses `FTexture2DInputError`, recipe failures use
 `FTexture2DBuildError`, and Cube/Volume failures use `FTextureBuildError` with
-their operation stage and diagnostic. Texture2D cancellation remains a distinct
-build error. Synchronous application and submission return expected void;
-accepted asynchronous completions retain their terminal state and persistence
-diagnostics. Expected success never requires inspecting an error sentinel, and
-does not add rollback or change cache-miss and persistence policies.
+their recipe stage and diagnostic. Pure recipes and source preparation do not log.
+Engine records synchronous failures once and retains asynchronous Texture2D recipe
+causes in `FTexture2DCompilationDiagnostic::BuildCause`, separate from completion
+errors. Cube/Volume public orchestration and `BuildTexture2DDetached` return
+`FTextureBuildOperationError`: failed, invalid input with a concise reason, or
+canceled. Object-level Texture2D completion errors likewise carry an actionable
+`InputReason` instead of a nested recipe cause. The internal platform-cache worker
+passes its diagnostic to the Engine completion owner for reporting.
+
+Synchronous application and submission return expected void; accepted asynchronous
+completions retain succeeded, failed, canceled, and superseded states. Cache
+read/decode failures fall back to a rebuild, and cache write failures do not turn
+usable products into import failures. Persistence diagnostics remain independently
+observable. Expected does not imply rollback; publication effects retain their
+existing owner and contract.
 `StaticMeshData.h` supplies resource-free CPU streams and LOD
 metadata. StaticMesh recipes return those owned values; Engine moves the arrays
 into `FStaticMeshRenderData`, and owns GPU resource initialization. Recipe and

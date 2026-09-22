@@ -144,6 +144,7 @@ namespace Durin::Editor::MainFrame
 			}
 		auto Completion = [ReportError](
 				FReimportResult Result) mutable {
+				if (Result.Interrupted()) return;
 				if (!Result)
 				{
 					if (ReportError) ReportError(Result.Message.empty()

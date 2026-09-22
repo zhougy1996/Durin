@@ -60,7 +60,8 @@ namespace Durin
 	struct FTexture2DCompilationError
 	{
 		ETexture2DCompilationError Code = ETexture2DCompilationError::None;
-		std::optional<FTexture2DBuildError> BuildCause;
+		// Concise actionable input reason; internal recipe causes stay in diagnostics.
+		std::string InputReason;
 		std::optional<ETaskState> TaskState;
 		std::optional<FTexture2DInputError> InputCause;
 		std::string ObjectPath;
@@ -83,6 +84,7 @@ namespace Durin
 		std::string AssetIdentity;
 		std::string DerivedDataKey;
 		FTexture2DCompilationError Error;
+		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;
 		uint64 QueuedNanoseconds = 0;
 		uint64 WorkerNanoseconds = 0;

@@ -3,6 +3,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataCache.h"
 #include "TextureDerivedDataKey.h"
+#include "TextureBuildDiagnostics.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -12,7 +13,7 @@ namespace Durin
 		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
-	auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
+	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
 	{
 		FTextureBuildError Outcome;
@@ -64,7 +65,7 @@ namespace Durin
 					if (!CanonicalSource)
 					{
 						Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize,
-							"TextureCube canonical source preparation failed."};
+							CanonicalSource.error()};
 						return false;
 					}
 					CanonicalHash = CanonicalSource->GetIdentity();
@@ -153,12 +154,22 @@ namespace Durin
 #endif
 	}
 
-	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>
+	auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
+		-> std::expected<FTextureCubeBuildValue, FTextureBuildOperationError>
+	{
+		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
+		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
+		return std::move(*Result);
+	}
+
+	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
 		CheckGameThread();
-		auto Result = InvokeTextureCubeBuildProvider(Request);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->Product), Context);
+		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
+		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
+		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->Product), Context);
+		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
+		return {};
 	}
 
 	namespace
@@ -184,7 +195,7 @@ namespace Durin
 						Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
 					: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
 				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-					"TextureCube source preparation failed; see log for details."});
+					Source.error()});
 				Texture.SetSource(std::move(*Source));
 			}
 			Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,

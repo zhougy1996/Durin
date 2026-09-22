@@ -128,7 +128,7 @@ namespace Durin::Editor::Texture
 		for (auto& File : InFiles)
 			if (!std::ranges::contains(Files, File)) Files.push_back(std::move(File));
 		Directory = std::move(InDirectory);
-		Next = SavedCount = 0;
+		Next = SavedCount = SupersededCount = 0;
 		Published.clear(); Errors.clear();
 		TimingDetails.clear();
 		bCancelRequested = false;
@@ -164,10 +164,22 @@ namespace Durin::Editor::Texture
 			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 			const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Active);
 			auto* Package = Active->GetPackage();
+			if (Completion->value().Status == ETexture2DCompilationStatus::Canceled
+				|| Completion->value().Status == ETexture2DCompilationStatus::Superseded)
+			{
+				const bool bSuperseded = Completion->value().Status == ETexture2DCompilationStatus::Superseded;
+				Active.Reset();
+				Completion.reset();
+				// A newer operation owns a superseded asset; do not unload its package.
+				if (bSuperseded) { ++SupersededCount; ++Next; }
+				else UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
+				FinishBatch();
+				return;
+			}
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
 			std::optional<FAssetOperationResult> Saved;
-			if (Completion->value().bSucceeded && !SaveOperation)
+			if ((Completion->value().Status == ETexture2DCompilationStatus::Succeeded) && !SaveOperation)
 			{
 				if (!bSaveStarted)
 				{
@@ -189,7 +201,7 @@ namespace Durin::Editor::Texture
 			}
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
-			if (Completion->value().bSucceeded)
+			if ((Completion->value().Status == ETexture2DCompilationStatus::Succeeded))
 			{
 				const auto SaveStart = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 				const auto Result = Saved ? std::move(*Saved) : Save(Path);
@@ -233,7 +245,7 @@ namespace Durin::Editor::Texture
 			CompilationStart = std::chrono::steady_clock::now();
 			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data),
 				[Cell = Completion](FTexture2DCompilationResult Value) {
-					*Cell = FCompletion{.bSucceeded = Value.Succeeded(),
+					*Cell = FCompletion{.Status = Value.Status,
 						.Message = Value.Succeeded() ? std::string{} : FormatTexture2DCompilationError(Value.Error)};
 				});
 			if (!Result) { Completion.reset(); Fail(Result.Message); return; }

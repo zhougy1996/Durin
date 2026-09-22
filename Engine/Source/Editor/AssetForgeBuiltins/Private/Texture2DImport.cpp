@@ -447,7 +447,10 @@ namespace Durin::AssetForge::Builtins
 			[Completion](FTexture2DCompilationResult Result) mutable {
 				if (Completion) Completion(Result.Succeeded()
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure,
+					: FReimportResult{Result.Status == ETexture2DCompilationStatus::Canceled
+						? EReimportStatus::Canceled
+						: Result.Status == ETexture2DCompilationStatus::Superseded
+							? EReimportStatus::Superseded : EReimportStatus::SourceOrBuildFailure,
 						FormatTexture2DCompilationError(Result.Error), std::make_shared<FTexture2DFactoryError>(Result.Error)});
 			}, true, false);
 		if (!Submitted && Completion)
@@ -475,7 +478,10 @@ namespace Durin::AssetForge::Builtins
 			[Completion](FTexture2DCompilationResult Result) mutable {
 				if (Completion) Completion(Result.Succeeded()
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure,
+					: FReimportResult{Result.Status == ETexture2DCompilationStatus::Canceled
+						? EReimportStatus::Canceled
+						: Result.Status == ETexture2DCompilationStatus::Superseded
+							? EReimportStatus::Superseded : EReimportStatus::SourceOrBuildFailure,
 						FormatTexture2DCompilationError(Result.Error), std::make_shared<FTexture2DFactoryError>(Result.Error)});
 			}, true, false, Requested);
 		if (!Submitted && Completion)

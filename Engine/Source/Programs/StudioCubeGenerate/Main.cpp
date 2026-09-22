@@ -109,7 +109,7 @@ auto main(int Count, char** Args) -> int
 	const auto Built = BuildTextureCubeSynchronously(*Cube, Request, {});
 	if (!Built)
 	{
-		std::cerr << Built.error().Diagnostic;
+		std::cerr << FormatTextureBuildOperationError(Built.error());
 		return 1;
 	}
 	const auto Saved = SavePackage(Package);

@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureCubeBuildProvider.h"
+#include "TextureBuildDiagnostics.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
@@ -155,7 +156,7 @@ namespace Durin
 				if (Result->Error.empty()) Result->Error = "Invalid cube source payload.";
 				return Result;
 			}
-			auto Built = InvokeTextureCubeBuildProvider(Request);
+			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 			if (Built) Result->Data = std::move(Built->Product.PlatformData);
 			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;
@@ -318,7 +319,6 @@ namespace Durin
 		}
 		const auto Result = BuildTextureCubeSynchronously(*this, Request,
 			{.bSourceDecoderInvoked = false, .bPreserveSource = true});
-		if (!Result) DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Result.error().Diagnostic);
 		return static_cast<bool>(Result);
 	}
 
@@ -335,12 +335,11 @@ namespace Durin
 	}
 
 	auto PrepareTextureCubeSource(
-		const FTextureCubeDecodedFaces& Value) -> std::optional<FTextureSource>
+		const FTextureCubeDecodedFaces& Value) -> std::expected<FTextureSource, std::string>
 	{
 		if (!Value.IsValid())
 		{
-			DURIN_WARN("TextureCube source data is invalid.");
-			return std::nullopt;
+			return std::unexpected(std::string("TextureCube source data is invalid."));
 		}
 		FByteBuffer Bytes;
 		Bytes.reserve(Value.Faces[0].GetPixels().size() * TextureCubeFaceCount);
@@ -356,21 +355,19 @@ namespace Durin
 			Value.SourceChannelCounts[0], Value.TransparencyMask,
 			ETextureSourceCompression::Zstd))
 		{
-			DURIN_WARN("TextureCube source data could not be initialized.");
-			return std::nullopt;
+			return std::unexpected(std::string("TextureCube source data could not be initialized."));
 		}
 		return NewSource;
 	}
 
 	auto PrepareTextureCubePanoramaSource(Image::FImageView Value,
-		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>
+		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::expected<FTextureSource, std::string>
 	{
 		FTextureSource NewSource;
 		if (!NewSource.InitLongLatCube(Value, SourceChannelCount,
 			TransparencyMask, ETextureSourceCompression::Zstd))
 		{
-			DURIN_WARN("TextureCube panorama source data could not be initialized.");
-			return std::nullopt;
+			return std::unexpected(std::string("TextureCube panorama source data could not be initialized."));
 		}
 		return NewSource;
 	}

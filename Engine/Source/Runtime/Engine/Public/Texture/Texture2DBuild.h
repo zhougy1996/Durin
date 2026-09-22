@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Texture/TextureBuildOperation.h"
+
 #include "Asset/AssetCacheDiagnostic.h"
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
@@ -74,7 +76,13 @@ namespace Durin
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 	};
 
-	// Invokes the single registered provider under its module-owned invocation
+	// Operation boundary for detached consumers such as scene import. Engine records
+	// recipe diagnostics; callers receive only failure disposition and input reasons.
+	ENGINE_API auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
+		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
+		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>;
+
+	// Diagnostic seam for the Engine compiling manager. Invokes the single provider
 	// gate. The returned product and identity contain only Engine-owned values.
 	// Failure clears OutProduct; OutIdentity retains observed input/provider
 	// identity for compilation diagnostics even when the recipe fails.

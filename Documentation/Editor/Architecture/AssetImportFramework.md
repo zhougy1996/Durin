@@ -172,8 +172,9 @@ classifies missing files, unsupported formats/layouts, missing cube-face roles,
 and prepared-source mismatches; filename, role, layout and prepared filename
 remain available without parsing presentation text. `ToString` formats these
 entries for presentation. StaticMesh settings rejection and Texture2D source-hint
-or compilation rejection retain their Engine-owned typed causes, including nested
-settings, build, import and save context. Remaining internal string producers still require
+or compilation rejection retain their Engine-owned operation causes, including
+settings, import and save context. Texture recipe diagnostics remain in Engine;
+ordinary build failure exposes a status and user-correctable input exposes a concise reason. Remaining internal string producers still require
 migration; the text entry is an explicit transitional contract.
 Texture2D source translation returns `expected<FTextureSource,
 FTexture2DTranslationError>`, retaining Core decode causes and dimension/channel
@@ -188,7 +189,12 @@ submission returns expected void for admission and retains typed package/mount/s
 capture, translation and compilation causes. Factory reimport results retain
 submission or terminal compilation details through the manager callback. Admission
 failure still invokes no compilation completion; accepted requests retain the
-existing asynchronous publication and completion contract.
+existing asynchronous publication and completion contract. Texture2D reimport
+preserves canceled and superseded outcomes; editor callers do not present them as
+build errors or successful imports. Batch texture import also preserves these
+states: canceled items stop the batch without a failure entry, while superseded
+items are counted separately and leave the asset/package to the newer operation.
+Previously published assets and pending-save retry behavior are preserved.
 Texture2D property-setting helpers return `std::expected<void, FTexture2DCompilationError>`
 directly. Invalid usage, quality, alpha mode or threshold retains the requested
 settings in the Engine input cause; unchanged values remain successful no-ops,
@@ -207,8 +213,8 @@ are distinct. Failure has no source value; the rebuild error retains the
 translation cause directly. Volume rebuild and public reimport return expected
 void and retain object/source identity, mount classification, source-hint,
 capture, translation, import-data and save causes. Build failures retain the
-complete current build outcome; its diagnostic contract and the reimport
-framework string adapters remain pending migrations. `FReimportResult` retains
+operation disposition and actionable input reason, without the underlying
+provider diagnostic chain. `FReimportResult` retains
 module-owned factory details in `FactoryCause`; persistence failures retain the
 complete asset result in `SaveCause` without replacing other retained context.
 VolumeTexture reimport propagates its concrete rebuild error to the final callback.

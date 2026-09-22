@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Texture/Texture.h"
@@ -126,7 +128,7 @@ namespace Durin
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Payload-backed input may require a synchronous read.
 	ENGINE_API auto PrepareVolumeTextureSource(
-		const FVolumeTextureSourceData& Value) -> std::optional<FTextureSource>;
+		const FVolumeTextureSourceData& Value) -> std::expected<FTextureSource, std::string>;
 
 	// Package-backed volume asset with owned updates and last-successful GPU publication.
 	DCLASS()

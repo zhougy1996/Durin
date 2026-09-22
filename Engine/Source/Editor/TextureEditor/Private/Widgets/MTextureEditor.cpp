@@ -814,6 +814,7 @@ namespace Durin::Editor::Texture
 	{
 		if (!Texture) return;
 		FReimportManager::Reimport(*Texture, {}, [this](FReimportResult Result) {
+			if (Result.Interrupted()) return;
 			if (!Result) SetError(Result.Message.empty()
 				? "Texture2D reimport failed." : std::move(Result.Message));
 			else SourceReferenceIndex.Invalidate();
@@ -840,6 +841,7 @@ namespace Durin::Editor::Texture
 		const std::array Files{Result.FilePath};
 		FReimportManager::ReimportFromFiles(*Texture, Files, {},
 			[this](FReimportResult Reimported) {
+				if (Reimported.Interrupted()) return;
 				if (!Reimported) SetError(Reimported.Message.empty()
 					? "Texture2D reimport from file failed."
 					: std::move(Reimported.Message));

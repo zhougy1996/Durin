@@ -39,6 +39,8 @@ namespace Durin
 		SourceOrBuildFailure,
 		Succeeded,
 		PersistenceFailure,
+		Canceled,
+		Superseded,
 	};
 
 	struct FReimportResult
@@ -51,6 +53,10 @@ namespace Durin
 		auto Succeeded() const -> bool
 		{
 			return Status == EReimportStatus::Succeeded;
+		}
+		auto Interrupted() const -> bool
+		{
+			return Status == EReimportStatus::Canceled || Status == EReimportStatus::Superseded;
 		}
 		explicit operator bool() const { return Succeeded(); }
 	};

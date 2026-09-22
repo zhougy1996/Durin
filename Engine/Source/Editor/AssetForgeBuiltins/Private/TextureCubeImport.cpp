@@ -144,7 +144,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			if (!std::visit([&](auto&& Decoded) {
 					auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Decoded), .Settings = Settings}}, {});
-					OutError = (BuildResult ? std::string{} : BuildResult.error().Diagnostic);
+					OutError = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 					return static_cast<bool>(BuildResult);
 				},
 							std::move(Panorama))
@@ -175,7 +175,7 @@ namespace Durin::AssetForge::Builtins
 			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError))
 				return false;
 			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
-			OutError = (BuildResult ? std::string{} : BuildResult.error().Diagnostic);
+			OutError = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 			if (!BuildResult
 				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;
 			return SaveImportedCube(Texture, OutError, SaveOptions);
@@ -501,7 +501,7 @@ namespace Durin::AssetForge::Builtins
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
 		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
-		Error = (BuildResult ? std::string{} : BuildResult.error().Diagnostic);
+		Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 		CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 		Product = BuildResult ? std::move(BuildResult->Product) : Durin::FTextureCubeBuildProduct{};
 		if (!BuildResult)
@@ -528,7 +528,7 @@ namespace Durin::AssetForge::Builtins
 		if (!TranslateTextureCubePanoramaSource(Bytes, std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
 			|| !std::visit([&](auto&& Source) {
 				   auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Source), .Settings = Settings}});
-				   Error = (BuildResult ? std::string{} : BuildResult.error().Diagnostic);
+				   Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 				   CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 				   Product = BuildResult ? std::move(BuildResult->Product) : Durin::FTextureCubeBuildProduct{};
 				   return static_cast<bool>(BuildResult);

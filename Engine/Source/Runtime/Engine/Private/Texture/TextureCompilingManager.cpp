@@ -1,4 +1,5 @@
 #include "Texture/TextureCompilingManager.h"
+#include "Texture2DBuildDiagnostics.h"
 
 #include "Texture/Texture2DBuild.h"
 
@@ -316,7 +317,8 @@ namespace Durin
 				BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
-				Result.Error = {.Code = ETexture2DCompilationError::BuildFailed, .BuildCause = BuildResult.error()};
+				Result.BuildCause = BuildResult.error();
+				Result.Error = TexturePrivate::MakeCompilationBuildFailure(BuildResult.error());
 				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
 				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
 				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
@@ -366,6 +368,7 @@ namespace Durin
 				std::lock_guard RequestStateLock(RequestState->Mutex);
 				RequestState->Diagnostic.Phase = Result.Phase;
 				RequestState->Diagnostic.Error = Result.Error;
+				RequestState->Diagnostic.BuildCause = Result.BuildCause;
 				RequestState->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				RequestState->Diagnostic.Metrics = Result.Metrics;
 				RequestState->Diagnostic.FailurePhase = Result.FailurePhase;

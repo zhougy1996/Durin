@@ -773,14 +773,13 @@ namespace Durin::AssetForge::Builtins
 		{ OutError = FormatTexture2DTranslationError(Translated.error()); return false; }
 		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
-		FTexture2DBuildInputIdentity Identity;
-		const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
-			Request, OutProduct.Product, Identity, &Control);
+		auto BuildResult = BuildTexture2DDetached(Request, &Control);
 		if (!BuildResult)
 		{
-			OutError = Durin::FormatTexture2DBuildError(BuildResult.error());
+			OutError = FormatTextureBuildOperationError(BuildResult.error());
 			return false;
 		}
+		OutProduct.Product = std::move(*BuildResult);
 		OutProduct.SourceData = std::move(*Translated);
 		OutError.clear();
 		return true;

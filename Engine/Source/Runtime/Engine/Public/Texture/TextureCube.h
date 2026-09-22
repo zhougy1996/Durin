@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
@@ -53,12 +55,12 @@ namespace Durin
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Packs the supplied faces into the canonical authored source.
 	ENGINE_API auto PrepareTextureCubeSource(
-		const FTextureCubeDecodedFaces& Value) -> std::optional<FTextureSource>;
+		const FTextureCubeDecodedFaces& Value) -> std::expected<FTextureSource, std::string>;
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Converts the supplied in-memory panorama.
 	ENGINE_API auto PrepareTextureCubePanoramaSource(Image::FImageView Value,
-		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>;
+		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::expected<FTextureSource, std::string>;
 
 	DCLASS()
 	class DTextureCube : public DTexture

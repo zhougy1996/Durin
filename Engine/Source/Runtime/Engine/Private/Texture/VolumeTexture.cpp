@@ -212,7 +212,6 @@ namespace Durin
 		const auto Result = BuildVolumeTextureSynchronously(*this,
 			{.SourceData = BuildInput, .Settings = BuildSettings},
 			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
-		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.error().Diagnostic);
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData() -> bool
@@ -222,18 +221,16 @@ namespace Durin
 	}
 
 	auto PrepareVolumeTextureSource(
-		const FVolumeTextureSourceData& Value) -> std::optional<FTextureSource>
+		const FVolumeTextureSourceData& Value) -> std::expected<FTextureSource, std::string>
 	{
 		if (!Value.IsValid())
 		{
-			DURIN_WARN("VolumeTexture source data is invalid.");
-			return std::nullopt;
+			return std::unexpected(std::string("VolumeTexture source data is invalid."));
 		}
 		const FPackageResourceReadResult Read = Value.Voxels.GetPayload().Wait();
 		if (!Read)
 		{
-			DURIN_WARN("VolumeTexture source payload could not be read: {}", FormatPackageResourceReadError(Read));
-			return std::nullopt;
+			return std::unexpected(std::format("VolumeTexture source payload could not be read: {}", FormatPackageResourceReadError(Read)));
 		}
 		FTextureSource NewSource;
 		const FTextureSourceBlock Block{.Width = Value.Width, .Height = Value.Height,
@@ -244,8 +241,7 @@ namespace Durin
 			ETextureSourceGammaSpace::Linear, Read->GetBytes(), 0, 0,
 			ETextureSourceCompression::Zstd))
 		{
-			DURIN_WARN("VolumeTexture source data could not be initialized.");
-			return std::nullopt;
+			return std::unexpected(std::string("VolumeTexture source data could not be initialized."));
 		}
 		return NewSource;
 	}

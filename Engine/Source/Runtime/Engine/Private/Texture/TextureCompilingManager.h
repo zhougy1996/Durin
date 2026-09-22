@@ -35,6 +35,7 @@ namespace Durin
 		FAssetCacheDiagnostics PersistenceDiagnostic;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 		FTexture2DCompilationError Error;
+		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;
 		FTexture2DBuildInputIdentity InputIdentity;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;

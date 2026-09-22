@@ -40,7 +40,7 @@ namespace Durin::AssetForge::Builtins
 		case EVolumeTextureRebuildError::Translation:
 			return Error.TranslationCause ? FormatVolumeTextureTranslationError(*Error.TranslationCause) : "VolumeTexture source translation failed.";
 		case EVolumeTextureRebuildError::Build:
-			return Error.BuildCause ? Error.BuildCause->Diagnostic : "VolumeTexture build failed.";
+			return Error.BuildCause ? FormatTextureBuildOperationError(*Error.BuildCause) : "VolumeTexture build failed.";
 		case EVolumeTextureRebuildError::ImportValidation:
 			return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "VolumeTexture import data is invalid.";
 		case EVolumeTextureRebuildError::ImportAllocation: return "Could not allocate asset import data.";

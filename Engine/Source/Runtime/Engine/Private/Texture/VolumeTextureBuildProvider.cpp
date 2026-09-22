@@ -3,6 +3,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataCache.h"
 #include "TextureDerivedDataKey.h"
+#include "TextureBuildDiagnostics.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -12,7 +13,7 @@ namespace Durin
 		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FVolumeTextureSourceData& SourceData, const FVolumeTextureBuildSettings& Settings, FVolumeTextureBuildProduct Product, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
-	auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
+	static auto BuildVolumeTextureWithDiagnostic(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<FVolumeTextureBuildValue, FTextureBuildError>
 	{
 		FTextureBuildError Outcome;
@@ -113,12 +114,22 @@ namespace Durin
 #endif
 	}
 
-	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>
+	auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
+		-> std::expected<FVolumeTextureBuildValue, FTextureBuildOperationError>
+	{
+		auto Result = BuildVolumeTextureWithDiagnostic(Request);
+		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
+		return std::move(*Result);
+	}
+
+	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
 		CheckGameThread();
-		auto Result = InvokeVolumeTextureBuildProvider(Request);
-		if (!Result) return std::unexpected(std::move(Result.error()));
-		return ApplyVolumeTextureBuildResult(Texture, Request.SourceData.get(), Request.Settings, std::move(Result->Product), Context);
+		auto Result = BuildVolumeTextureWithDiagnostic(Request);
+		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
+		auto Applied = ApplyVolumeTextureBuildResult(Texture, Request.SourceData.get(), Request.Settings, std::move(Result->Product), Context);
+		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
+		return {};
 	}
 
 	namespace
@@ -140,7 +151,7 @@ namespace Durin
 			{
 				auto Source = PrepareVolumeTextureSource(SourceData);
 				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-					"VolumeTexture source preparation failed; see log for details."});
+					Source.error()});
 				Texture.SetSource(std::move(*Source));
 			}
 			Texture.SetBuildSettings(Settings);
