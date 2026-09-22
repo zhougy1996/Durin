@@ -285,6 +285,11 @@ namespace Durin
 		const FShaderReflectionData& Reflection,
 		std::vector<FShaderParameterBinding>& OutBindings) -> FShaderOperationResult;
 
+	RENDERCORE_API auto PrepareShaderParametersImpl(FRHIShader* Shader,
+		const FShaderParametersMetadata& Metadata,
+		std::span<const FShaderParameterBinding> Bindings, const void* Data)
+		-> std::shared_ptr<const FRHIShaderParameterBatch>;
+
 	RENDERCORE_API auto SetShaderParametersImpl(
 		FRHICommandListBase& RHICmdList,
 		FRHIShader* RHIShader,

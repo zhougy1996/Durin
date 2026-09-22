@@ -4,6 +4,7 @@
 #include "Renderers/ViewRenderTelemetry.h"
 
 #include "SceneView.h"
+#include "Math/Box.h"
 
 #include <vector>
 
@@ -30,6 +31,20 @@ namespace Durin
 		EPrimitiveVisibilityClassification Classification =
 			EPrimitiveVisibilityClassification::Invalid;
 	};
+
+	struct FPrimitiveVisibilityInput
+	{
+		FBox WorldBounds;
+		bool bVisible = false;
+	};
+	struct FSceneVisibilityClassification
+	{
+		std::vector<EPrimitiveVisibilityClassification> Primitives;
+		size_t TaskCount = 0;
+	};
+	// Consumes owned values only; no worker retains or reads a scene pointer.
+	RENDERER_API auto ClassifySceneVisibility(std::vector<FPrimitiveVisibilityInput> Inputs,
+		const FSceneView& View, bool bAllowTasks = true) -> FSceneVisibilityClassification;
 
 	// Candidate lists and optional diagnostics; storage can be reused between views.
 	struct FSceneVisibilityResult

@@ -76,7 +76,14 @@ first write, draw preparation requires every reflected array element and
 scalar to be populated, validates view usage and ranges, and checks dynamic
 uniform alignment. Canonical layout elements and the sorted resource snapshot
 are walked once in set, binding, and array-element order; the same validated
-correspondence performs Vulkan kind/view/state checks and emits dynamic offsets.
+correspondence validates Vulkan kinds and view usage when bindings change.
+A compact list of dynamic-uniform and image resource indices preserves sorted
+set/binding/array order. Each draw checks dynamic offsets for device alignment
+and buffer bounds and checks current image-view access before descriptor reuse.
+Unchanged bindings skip the structural layout walk. Set
+`DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION=on` before RHI initialization to repeat
+the complete structural walk on every draw for diagnosis; access/range checks
+remain enabled in either mode. The mode is captured by each command context.
 Missing, null, mismatched, duplicate, and trailing records therefore retain a
 deterministic rejection point without a per-element snapshot search. Dynamic
 offsets are ordered submission data and do not
@@ -96,13 +103,35 @@ work share this reflected location and snapshot vocabulary.
 
 ## Bounded Vulkan Caches
 
-Descriptor snapshots are scoped to one command context, PSO, and current
-frame-pool generation. Hash lookup is a fast reject and complete resource
-equality confirms a hit. Each context is bounded to 512 snapshots and 8192
-descriptor values. Deterministic least-recently-used eviction releases retained
-resources; beginning the corresponding frame generation clears snapshots
-before another generation uses them. Native descriptor pools belong to bounded
-completion-token batches and reset only after their maximum use token completes.
+Graphics descriptor snapshots contain one set and are scoped to one command
+context and current frame-pool generation. The device's descriptor-layout cache
+interns complete structural layouts and keeps their handles stable for device
+life. A set snapshot can therefore be reused across PSOs only when its layout
+handle and every binding/array resource value match. Hashes are fast rejects;
+complete resource equality confirms hits. The set index and dynamic offsets are
+external to this identity. Every draw explicitly binds the full set sequence,
+including sparse empty sets, so Vulkan pipeline-layout prefix compatibility does
+not authorize implicit inheritance. Pending parameters remain PSO-local.
+
+Each pending set holds a weak selection into the bounded context cache. An
+unchanged selection bypasses hashing and lookup. Changes to a resource, type,
+size or non-dynamic offset invalidate only that set's selection. Pending owner
+arrays rebuild only for sets whose resource membership changes. Material updates
+therefore preserve common-set ownership and descriptors. Binding insertion dirties
+resource ordering; replacement preserves order. Dynamic offsets still undergo
+draw-time validation. Eviction or frame clear expires selections without retaining
+historical snapshots in pipeline state. PSO deletion releases pending parameters;
+compatible cached sets remain bounded and available to other PSOs.
+
+Each context is bounded to 512 set snapshots and 8192 descriptor values.
+Deterministic least-recently-used eviction releases retained resources. A set
+larger than the value budget can be used for the current draw but is not retained
+in the cache. Beginning the corresponding frame generation clears snapshots
+before another generation uses them. Native descriptor pools belong to bounded batches whose allocation leases are
+retained by recorded and submitted payloads; reset waits for those owners to
+release them after discard or completion.
+`DescriptorSnapshots` and descriptor-allocation statistics count individual
+graphics sets; the compute path still counts complete dispatch snapshots.
 
 Each device also owns bounded structural-layout and graphics-PSO caches:
 

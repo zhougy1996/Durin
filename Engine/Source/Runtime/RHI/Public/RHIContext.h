@@ -85,7 +85,7 @@ namespace Durin
 		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;
-		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
+		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
 		virtual auto RHIDraw(const FRHIDrawArguments& Arguments) -> void = 0;
 		virtual auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void = 0;
 		virtual auto RHIDispatch(uint32, uint32, uint32) -> void

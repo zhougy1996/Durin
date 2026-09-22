@@ -43,6 +43,8 @@ namespace Durin
 		struct FCompiledPassRuntime final
 		{
 			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
+			const FRDGRecordingPassExecute* RecordingExecute = nullptr;
+			ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
 			// Borrows immutable declaration storage for the builder execution lifetime.

@@ -184,8 +184,20 @@ and prerequisite identities are distinct.
 terminal state was observed; InvalidTask, SelfWait, DependencyCycle and
 UnsupportedThread do not prove completion. `WaitAll` preserves one result per
 input. GameThread rejects unknown or transitive deferred requirements;
-executing tasks reject unknown external requirements. RenderingThread cannot
-wait. Waits do not pump GameThread callbacks. Kernel Worker helping runs CPU
+executing tasks reject unknown external requirements. RenderingThread rejects
+ordinary task and scope waits. It may wait for an explicit independent CPU leaf
+created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
+uses Worker execution and ordinary scheduler/owner lifetime. It rejects launch
+prerequisites, external completion and non-Worker targets. An independent leaf
+cannot submit children, acquire dynamic task dependencies, block on nonterminal
+tasks, or wait for a nonquiescent scope. Contract violations reject checked-kernel
+admission with `InvalidExecutionContract`; ordinary construction treats them as
+programming violations. Completed values remain readable without blocking.
+The callable must not depend on owner-thread, RHI, I/O or other external progress;
+these ordinary C++ effects remain a caller contract. This explicit declaration
+permits render preparation/recording joins without relaxing general wait policy.
+Cancellation and exceptions still publish the normal terminal state, and result
+access still requires success. Waits do not pump GameThread callbacks. Kernel Worker helping runs CPU
 work; I/O helping stays within the blocking-I/O authority, including a
 single-thread I/O parent waiting for its child.
 

@@ -2395,6 +2395,139 @@ TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactio
 	FRHIResource::DeleteResources(Resources);
 }
 
+namespace
+{
+	class FPublicationTestDeclaration final : public Durin::FRHIVertexDeclaration
+	{
+	public:
+		Durin::FVertexDeclarationElementList Elements;
+		auto GetElements() const -> const Durin::FVertexDeclarationElementList& override { return Elements; }
+	};
+
+	struct FGeometryPublicationFixture
+	{
+		Durin::FMeshGeometryElement Element;
+		FGeometryPublicationFixture()
+		{
+			using namespace Durin;
+			Element.ElementId = 13;
+			Element.Draw = {.bIndexed = false, .ElementCount = 3};
+			Element.Vertices = {new FRHIBuffer(FRHIBufferCreateDesc::CreateVertex("PublishedGeometry", 36)), {36, 0, 12, 12}};
+		}
+		auto MakeBinding() const -> std::unique_ptr<Durin::FStaticMeshBatchBinding>
+		{
+			using namespace Durin;
+			auto Binding = std::make_unique<FStaticMeshBatchBinding>();
+			auto* Declaration = new FPublicationTestDeclaration;
+			Declaration->Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
+			Binding->Declaration = Declaration;
+			Binding->DeclarationElements = Declaration->Elements;
+			Binding->Streams = {{0, Element.Vertices.Buffer, 0, 12}};
+			Binding->NumVertices = 3;
+			return Binding;
+		}
+		~FGeometryPublicationFixture()
+		{
+			Element = {};
+			std::vector<Durin::FRHIResource*> Resources;
+			Durin::FRHIResource::GatherResourcesToDelete(Resources);
+			Durin::FRHIResource::DeleteResources(Resources);
+		}
+	};
+}
+
+TEST(FRendererSceneContractTests, GeometryPublicationRejectsInvalidRangesInputsAndDuplicateIds)
+{
+	using namespace Durin;
+	FGeometryPublicationFixture Fixture;
+	auto ExpectFailure = [](const FMeshGeometryRecord::FResult& Result, EGeometrySubmissionOutcome Outcome) {
+		EXPECT_FALSE(Result);
+		if (!Result) EXPECT_EQ(Result.error(), Outcome);
+	};
+	ExpectFailure(FMeshGeometryRecord::Publish({}, {Fixture.Element}), EGeometrySubmissionOutcome::ResourceFailure);
+	ExpectFailure(FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {}), EGeometrySubmissionOutcome::Empty);
+	ExpectFailure(FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Fixture.Element, Fixture.Element}), EGeometrySubmissionOutcome::InvalidSubmission);
+	auto Invalid = Fixture.Element;
+	Invalid.Draw.ElementCount = 6;
+	ExpectFailure(FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Invalid}), EGeometrySubmissionOutcome::InvalidSubmission);
+	Invalid = Fixture.Element;
+	Invalid.Vertices.Buffer = nullptr;
+	ExpectFailure(FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Invalid}), EGeometrySubmissionOutcome::ResourceFailure);
+	auto Binding = Fixture.MakeBinding();
+	Binding->Streams[0].Offset = 12;
+	ExpectFailure(FMeshGeometryRecord::Publish(std::move(Binding), {Fixture.Element}), EGeometrySubmissionOutcome::InvalidSubmission);
+	Binding = Fixture.MakeBinding();
+	Binding->DeclarationElements[0].Stride = 16;
+	ExpectFailure(FMeshGeometryRecord::Publish(std::move(Binding), {Fixture.Element}), EGeometrySubmissionOutcome::InvalidSubmission);
+	Invalid = Fixture.Element;
+	Invalid.ElementId = 99;
+	Invalid.Draw.ElementCount = 0;
+	auto Published = FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Invalid, Fixture.Element});
+	ASSERT_TRUE(Published);
+	ASSERT_EQ((*Published)->GetElements().size(), 1u);
+	EXPECT_EQ((*Published)->GetElements()[0].ElementId, Fixture.Element.ElementId);
+}
+
+TEST(FRendererSceneContractTests, PublishedGeometryAdmissionRejectsMixedOrMismatchedSnapshots)
+{
+	using namespace Durin;
+	FGeometryPublicationFixture Fixture;
+	auto Published = FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Fixture.Element});
+	ASSERT_TRUE(Published);
+	FMeshBatch Batch;
+	Batch.PrimitiveId = FPrimitiveComponentId(81);
+	Batch.WorldBounds = FBox(FVector3(-1.0), FVector3(1.0));
+	Batch.GeometryRecord = *Published;
+	Batch.Binding = (*Published)->GetBinding();
+	Batch.FactoryKey = Batch.Binding->GetFactoryKey();
+	Batch.LayoutKey = Batch.Binding->GetLayoutKey();
+	FMeshBatchCollector Collector(EMeshCollectionPurpose::Receiver);
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+	Batch.PublishedMaterials.resize(1);
+	Batch.Elements.emplace_back();
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+	Batch.Elements.clear();
+	Batch.Binding = Fixture.MakeBinding();
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+	Batch.Binding = (*Published)->GetBinding();
+	Batch.LocalToWorld = FMatrix(0.0);
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+	Batch.LocalToWorld = FMatrix(1.0);
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Submitted);
+	ASSERT_EQ(Collector.GetBatches().size(), 1u);
+	EXPECT_TRUE(Collector.GetBatches()[0].Elements.empty());
+	const auto View = Collector.GetBatches()[0].GetElement(0);
+	EXPECT_EQ(&View.Draw, &(*Published)->GetElements()[0].Draw);
+	Fixture.Element.Draw.ElementCount = 300;
+	EXPECT_EQ(View.Draw.ElementCount, 3u);
+	EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+}
+
+TEST(FRendererSceneContractTests, GeometryRebindingSharesStorageAndRetainsPriorRevision)
+{
+	using namespace Durin;
+	FGeometryPublicationFixture Fixture;
+	auto Published = FMeshGeometryRecord::Publish(Fixture.MakeBinding(), {Fixture.Element});
+	ASSERT_TRUE(Published);
+	const auto OldId = (*Published)->GetRecordId();
+	auto InvalidBinding = Fixture.MakeBinding();
+	InvalidBinding->Streams.clear();
+	auto Failed = (*Published)->WithBinding(std::move(InvalidBinding));
+	ASSERT_FALSE(Failed);
+	EXPECT_EQ(Failed.error(), EGeometrySubmissionOutcome::ResourceFailure);
+	EXPECT_EQ((*Published)->GetRecordId(), OldId);
+	auto Rebound = (*Published)->WithBinding(Fixture.MakeBinding());
+	ASSERT_TRUE(Rebound);
+	EXPECT_NE((*Rebound)->GetRecordId(), OldId);
+	EXPECT_EQ((*Rebound)->GetGeometryId(), (*Published)->GetGeometryId());
+	EXPECT_EQ((*Rebound)->GetElements().data(), (*Published)->GetElements().data());
+	EXPECT_NE((*Rebound)->GetBinding(), (*Published)->GetBinding());
+	std::weak_ptr<const FMeshGeometryRecord> Old = *Published;
+	Published->reset();
+	EXPECT_TRUE(Old.expired());
+	EXPECT_TRUE((*Rebound)->GetElements()[0].Vertices.IsValid());
+}
+
 TEST(FRendererSceneContractTests, PrimitiveCollectionHasAnEmptyDefault)
 {
 	using namespace Durin;
@@ -2868,6 +3001,167 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
+}
+
+TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContracts)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	FShaderReflectionData Reflection;
+	Reflection.ResourceBindings = {
+		{.SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer},
+		{.SetIndex = 1, .BindingIndex = 2, .Type = ERHIBindingType::UniformBuffer},
+		{.SetIndex = 1, .BindingIndex = 27, .Type = ERHIBindingType::UniformBuffer}};
+	const FCompiledSurfaceBindingLayout Layout(Reflection);
+	ASSERT_TRUE(Layout.IsValid());
+	ASSERT_EQ(Layout.GetEntries().size(), 3u);
+	EXPECT_EQ(Layout.GetEntries()[0].Source, FCompiledSurfaceBindingLayout::ESource::View);
+	EXPECT_EQ(Layout.GetEntries()[1].Source, FCompiledSurfaceBindingLayout::ESource::Material);
+	EXPECT_EQ(Layout.GetEntries()[2].Source, FCompiledSurfaceBindingLayout::ESource::HitProxy);
+	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
+	{
+		auto Invalid = Reflection;
+		switch (Mutation)
+		{
+		case 0: Invalid.ResourceBindings[0].SetIndex = 2; break;
+		case 1: Invalid.ResourceBindings[0].Type = ERHIBindingType::Texture; break;
+		case 2: Invalid.ResourceBindings[0].ArraySize = 2; break;
+		case 3: Invalid.ResourceBindings.push_back(Invalid.ResourceBindings[0]); break;
+		case 4: Invalid.ResourceBindings[0].BindingIndex = 18; break;
+		}
+		EXPECT_FALSE(FCompiledSurfaceBindingLayout(Invalid).IsValid()) << Mutation;
+	}
+}
+
+TEST(FRendererSceneContractTests, CommandTemplatesInvalidatePolicyAndRetireUnseenEntries)
+{
+	using namespace Durin;
+	FStaticMeshDrawCommandCache Cache;
+	Cache.BeginSubmission();
+	auto Command = std::make_shared<FStaticMeshDrawCommandTemplate>();
+	Command->Material = GetErrorMaterialRenderData();
+	const FStaticMeshDrawCommandCache::FKey Key{11, 2, Command->Material.Representation.GetRecordId(), 0};
+	Cache.Store(Key, Command);
+	Cache.EndSubmission();
+	Cache.BeginSubmission();
+	EXPECT_EQ(Cache.Find(Key, Command->Material), Command);
+	auto ChangedMaterial = Command->Material;
+	ChangedMaterial.PlanningPassIdentity.bTwoSided = !ChangedMaterial.PlanningPassIdentity.bTwoSided;
+	EXPECT_FALSE(Cache.Find(Key, ChangedMaterial));
+	for (uint32 Index = 0; Index < Key.size(); ++Index)
+	{
+		auto ChangedKey = Key;
+		++ChangedKey[Index];
+		EXPECT_FALSE(Cache.Find(ChangedKey, Command->Material));
+	}
+	Cache.EndSubmission();
+	EXPECT_EQ(Cache.Num(), 1u);
+	std::weak_ptr<const FStaticMeshDrawCommandTemplate> Weak = Command;
+	Cache.BeginSubmission();
+	Cache.EndSubmission();
+	EXPECT_EQ(Cache.Num(), 0u);
+	EXPECT_FALSE(Weak.expired());
+	Command.reset();
+	EXPECT_TRUE(Weak.expired());
+}
+
+TEST(FRendererSceneContractTests, CompactOrderingMatchesFullKeysAndRetainsTemplateStorage)
+{
+	using namespace Durin;
+	FMeshDrawSortKey Original;
+	Original.VertexFactory = {3, 7, 1};
+	Original.PrimitiveId = 9;
+	Original.BatchId = 2;
+	Original.SelectedLODIndex = 1;
+	Original.SectionIndex = 4;
+	auto MakeVisible = [](const FMeshDrawSortKey& Full) {
+		auto Owner = std::make_shared<FStaticMeshDrawCommandTemplate>();
+		Owner->SortKey = Full;
+		FVisibleMeshDrawSortKey Visible;
+		Visible.State = {Owner, &Owner->SortKey};
+		Visible.PrimitiveId = Full.PrimitiveId;
+		Visible.BatchId = Full.BatchId;
+		Visible.SelectedLODIndex = Full.SelectedLODIndex;
+		return Visible;
+	};
+	const auto Visible = MakeVisible(Original);
+	EXPECT_EQ(Visible.GetState().VertexFactory, Original.VertexFactory);
+	for (uint32 Field = 0; Field < 7; ++Field)
+	{
+		auto Changed = Original;
+		switch (Field)
+		{
+		case 0: Changed.Pipeline[0]++; break;
+		case 1: Changed.VertexFactory[0]++; break;
+		case 2: Changed.Geometry[0]++; break;
+		case 3: Changed.PrimitiveId++; Changed.SectionIndex = 0; break;
+		case 4: Changed.BatchId++; Changed.SectionIndex = 0; break;
+		case 5: Changed.SelectedLODIndex++; Changed.SectionIndex = 0; break;
+		case 6: Changed.SectionIndex++; break;
+		}
+		const auto Other = MakeVisible(Changed);
+		EXPECT_EQ(Visible <=> Other, Original <=> Changed) << Field;
+	}
+	auto Shared = Visible;
+	Shared.PrimitiveId++;
+	EXPECT_LT(Visible, Shared);
+	EXPECT_EQ(Shared.GetState().VertexFactory.data(), Visible.GetState().VertexFactory.data());
+}
+
+TEST(FRendererSceneContractTests, AdjacentBindingGroupsRebindOnAnyChangeFailureOrBoundary)
+{
+	using namespace Durin;
+	FMeshDrawBindingGroup Group;
+	std::array<int, 6> Owners{};
+	uint32 BindCalls = 0;
+	auto Bind = [&](int Pipeline, int Vertex, int Fragment, bool bSuccess = true) {
+		return Group.Apply(&Owners[Pipeline], &Owners[Vertex], Fragment < 0 ? nullptr : &Owners[Fragment], [&] {
+			++BindCalls;
+			return bSuccess;
+		});
+	};
+	ASSERT_TRUE(Bind(0, 1, 2));
+	ASSERT_TRUE(Bind(0, 1, 2));
+	EXPECT_EQ(BindCalls, 1u);
+	ASSERT_TRUE(Bind(0, 3, 2)); // vertex change must also rebind the complete fragment state
+	ASSERT_TRUE(Bind(0, 3, 4));
+	ASSERT_TRUE(Bind(5, 3, 4));
+	EXPECT_EQ(BindCalls, 4u);
+	EXPECT_FALSE(Bind(0, 1, 2, false));
+	ASSERT_TRUE(Bind(5, 3, 4)); // failed partial binding invalidates even the preceding group
+	EXPECT_EQ(BindCalls, 6u);
+	Group = {}; // new pass or intervening non-mesh work
+	ASSERT_TRUE(Bind(5, 3, 4));
+	EXPECT_EQ(BindCalls, 7u);
+	ASSERT_TRUE(Bind(0, 1, -1));
+	ASSERT_TRUE(Bind(0, 1, -1)); // opaque shadow has no fragment resources
+	EXPECT_EQ(BindCalls, 8u);
+}
+
+TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnFailure)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	FShaderReflectionData Reflection;
+	Reflection.ResourceBindings = {{.SetIndex = 1, .BindingIndex = 2,
+		.Type = ERHIBindingType::UniformBuffer}};
+	const FCompiledSurfaceBindingLayout Layout(Reflection);
+	FResolvedSurfaceMaterial Material;
+	Material.bCompiledLayout = true;
+	FPreparedSurfaceMaterialBindings Bindings;
+	const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
+	const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+		"PreparedSurface", 64, 16, EBufferUsageFlags::UniformBuffer));
+	const FRHIUniformBufferRange Range{Buffer.GetReference(), 16, 32};
+	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		Range, {}, {}, {}, Bindings));
+	ASSERT_EQ(Bindings.GetResources().size(), 1u);
+	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
+	EXPECT_EQ(Bindings.GetResources()[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
+	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Buffer.GetReference(), 48, 32}, {}, {}, {}, Bindings));
+	EXPECT_EQ(Bindings.GetShader(), nullptr);
+	EXPECT_TRUE(Bindings.GetResources().empty());
 }
 
 TEST(FRendererSceneContractTests, ResolvesRegisteredMeshFactoriesWithoutFamilyDispatch)

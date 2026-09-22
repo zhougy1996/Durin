@@ -65,13 +65,18 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	std::string Error;
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = std::move(Source), .bPersistDerivedData = false, .bMarkPackageDirty = false})) << Error;
+	// Initial publication must supply the authored slot table; ordinary builds retain existing slots.
+	ASSERT_TRUE(Mesh->AsyncBuild({.Source = std::move(Source),
+		.PreparedMaterialSlots = std::vector<FMeshMaterialSlotDefinition>{{.Name = FName("Default"), .SourceName = "Default", .SourceMaterialIndex = 0}},
+		.bPersistDerivedData = false, .bMarkPackageDirty = false})) << Error;
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	auto* Asset = NewObject<DRoadNet>(nullptr, "LoadedSceneRoad");
 	ASSERT_TRUE(Asset->SetDefinition(Definition(), Error)) << Error;
 	auto* Actor = NewObject<ARoadNetActor>(nullptr, "LoadedRoadPreview");
 	Actor->SetPreviewMesh(Mesh);
 	Actor->SetRoadNet(Asset);
+	EXPECT_EQ(GetStaticMeshCompilationDiagnostic(*Mesh).Status, EStaticMeshCompilationStatus::Succeeded)
+		<< FormatStaticMeshCompilationDiagnostic(GetStaticMeshCompilationDiagnostic(*Mesh));
 	EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	Actor->PostLoad();
 	const auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();

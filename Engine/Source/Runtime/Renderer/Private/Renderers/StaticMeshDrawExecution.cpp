@@ -79,7 +79,7 @@ namespace Durin::RendererPrivate
 	auto FStaticMeshGeometryBinding::IsValid() const -> bool
 	{
 		return Primitive.CollectedBinding && Primitive.CollectedBinding->Declaration
-			&& Draw.Geometry.Validate(Draw.Vertices.Range, Draw.Indices.Range) == EGeometrySubmissionOutcome::Submitted;
+			&& Draw.Command && Draw.Command->Geometry.Validate(Draw.Command->Vertices.Range, Draw.Command->Indices.Range) == EGeometrySubmissionOutcome::Submitted;
 	}
 
 	auto FStaticMeshGeometryBinding::GetVertexDeclaration() const
@@ -90,24 +90,24 @@ namespace Durin::RendererPrivate
 	}
 
 	auto FStaticMeshGeometryBinding::Bind(
-		FRHICommandListImmediate& CommandList
+		FRHICommandList& CommandList
 	) const -> void
 	{
 		check(IsValid());
 		for (const auto& Stream : Primitive.CollectedBinding->Streams)
 			CommandList.BindVertexBuffer(Stream.StreamIndex, Stream.VertexBuffer, Stream.Offset);
-		if (Draw.Geometry.bIndexed)
-			CommandList.BindIndexBuffer(Draw.Indices.Buffer, static_cast<uint32>(Draw.Indices.Range.ByteOffset));
+		if (Draw.Command->Geometry.bIndexed)
+			CommandList.BindIndexBuffer(Draw.Command->Indices.Buffer, static_cast<uint32>(Draw.Command->Indices.Range.ByteOffset));
 	}
 
 	auto FStaticMeshGeometryBinding::DrawIndexed(
-		FRHICommandListImmediate& CommandList
+		FRHICommandList& CommandList
 	) const -> void
 	{
 		check(IsValid());
-		if (Draw.Geometry.bIndexed)
-			CommandList.DrawIndexed(Draw.Geometry.GetIndexedDrawArguments());
+		if (Draw.Command->Geometry.bIndexed)
+			CommandList.DrawIndexed(Draw.Command->Geometry.GetIndexedDrawArguments());
 		else
-			CommandList.Draw(Draw.Geometry.GetDrawArguments());
+			CommandList.Draw(Draw.Command->Geometry.GetDrawArguments());
 	}
 } // namespace Durin::RendererPrivate

@@ -147,6 +147,7 @@ namespace Durin
 		size_t ShadowTargetLogicalBytes = 0;
 		size_t ShadowTargetBackendBytes = 0;
 		size_t ShadowAttemptedDraws = 0;
+		size_t ShadowWorkerRecordingChunks = 0;
 		size_t ShadowSuccessfulDraws = 0;
 		size_t ShadowRejectedDraws = 0;
 		std::array<size_t, static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)>

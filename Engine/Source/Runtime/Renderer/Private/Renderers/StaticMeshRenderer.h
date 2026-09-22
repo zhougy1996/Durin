@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Misc/CoreTypes.h"
+#include "RendererAPI.h"
 #include "Renderers/MeshRendererExecution.h"
 
 #include <memory>
@@ -11,6 +12,8 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
+	class FRHICommandList;
+	struct FStaticMeshRenderObservations;
 	struct FPreparedStaticMeshView;
 	struct FResolvedStaticMeshView;
 	struct FResolvedMeshPipeline;
@@ -27,12 +30,20 @@ namespace Durin
 	class FStaticMeshRenderer final
 	{
 	public:
-		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView) -> bool;
+		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView) -> bool;
+		auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
+			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
+			const FRHIUniformBufferRange& Lighting, bool bShadow = false) -> bool;
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials
 		);
 		~FStaticMeshRenderer();
+		// Pure recording over prepared immutable resources; counters belong to the caller.
+		RENDERER_API static auto RecordShadow(FRHICommandList& CommandList,
+			const FPreparedStaticMeshView& PreparedView, const FResolvedStaticMeshView& ResolvedView)
+			-> FStaticMeshRenderObservations;
 
 		FStaticMeshRenderer(const FStaticMeshRenderer&) = delete;
 		auto operator=(const FStaticMeshRenderer&)
@@ -53,13 +64,6 @@ namespace Durin
 			const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView
 		) -> FGeometryResolutionResult;
-		auto ExecuteShadow_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& ShadowView,
-			const FRHIUniformBufferRange& FallbackLighting,
-			const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView
-		) -> bool;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -72,7 +76,7 @@ namespace Durin
 			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView
 		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained = false
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView, bool bHybridRetained = false, FMeshDrawBindingGroup* BindingGroup = nullptr
 		) -> void;
 		auto FinalizeExecution_RenderThread(FResolvedStaticMeshView& ResolvedView)
 			-> void;
@@ -91,16 +95,14 @@ namespace Durin
 			bool bGBuffer, bool bShadow = false) -> bool;
 
 	private:
-		auto DrawSection_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode,
+		static auto RecordPreparedSection(
+			FRHICommandList& CommandList,
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
 			const FResolvedStaticMeshView& ResolvedView,
 			bool bShadowDepth = false,
-			bool bHybridRetained = false
+			bool bHybridRetained = false,
+			FMeshDrawBindingGroup* BindingGroup = nullptr
 		) -> bool;
 		auto EnsureMaterialSamplers_RenderThread(
 			const FMaterialRenderBinding& MaterialBinding
@@ -119,7 +121,7 @@ namespace Durin
 			FGBufferRenderer& GBuffer,
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
-			const FResolvedStaticMeshView& ResolvedView
+			const FResolvedStaticMeshView& ResolvedView, FMeshDrawBindingGroup& BindingGroup
 		) -> bool;
 		struct FState;
 

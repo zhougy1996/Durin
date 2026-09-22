@@ -878,6 +878,9 @@ namespace Durin
 				FRDGBuilder::FCompiledState::FCompiledPassRuntime Runtime{
 					.ParameterizedExecute = ScheduledIndex < State->Passes.size()
 						? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
+					.RecordingExecute = ScheduledIndex < State->Passes.size()
+						? &State->Passes[ScheduledIndex].RecordingExecute : nullptr,
+					.RecordingPolicy = Pass.RecordingPolicy,
 					.ParameterLayout = Pass.ParameterLayout,
 					.Parameters = Pass.Parameters,
 					.OptionalAliases = Pass.OptionalAliases.View()};

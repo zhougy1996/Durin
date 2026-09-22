@@ -627,6 +627,9 @@ namespace Durin
 		uint64 ExpectedParentTaskId = 0;
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;
+		// Independent CPU leaves may be joined by RenderingThread. No task
+		// dependencies, external completion, child submission or blocking waits.
+		bool bIndependentCPU = false;
 	};
 
 	struct FTaskContinuationOptions

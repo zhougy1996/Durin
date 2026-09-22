@@ -19,6 +19,13 @@ namespace Durin
 		return RenderData;
 	}
 
+	auto FStaticMeshSceneProxy::CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot>
+	{
+		CheckRenderingThread();
+		return CaptureStaticMeshLODSelection(RenderData ? std::span<const FStaticMeshLODResources>(RenderData->LODResources)
+			: std::span<const FStaticMeshLODResources>{});
+	}
+
 	auto FStaticMeshSceneProxy::GetLocalBounds() const -> FBox
 	{
 		return RenderData != nullptr ? RenderData->LocalBounds : FBox{};
@@ -53,7 +60,6 @@ namespace Durin
 	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
 		FMeshBatchCollector& Collector) const -> void
 	{
-		auto Binding = std::make_shared<FStaticMeshBatchBinding>();
-		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector, std::move(Binding));
+		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector);
 	}
 }

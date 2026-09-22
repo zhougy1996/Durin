@@ -90,6 +90,7 @@ namespace Durin
 		EnvironmentLighting.ReleaseResources_RenderThread();
 		SurfaceMaterials.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
+		MeshCommandCache.Reset();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();
 		GBufferDebugRenderer.ReleaseResources_RenderThread();

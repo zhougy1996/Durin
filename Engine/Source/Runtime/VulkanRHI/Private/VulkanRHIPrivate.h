@@ -231,6 +231,10 @@ namespace Durin::VulkanRHI
 		uint64 Sync2ImageBarriers = 0;
 		uint64 LegacyImageBarriers = 0;
 		uint64 BindingValidationVisits = 0;
+		uint64 DescriptorDrawValidationVisits = 0;
+		uint64 DescriptorSorts = 0;
+		uint64 DescriptorHashes = 0;
+		uint64 DescriptorOwnerRebuilds = 0;
 		uint64 DescriptorOccupancyVerificationVisits = 0;
 		uint64 DescriptorOccupancyMutations = 0;
 	};
@@ -247,6 +251,10 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanLegacyImageBarrierCount;
 	extern std::atomic<int32> GVulkanBarrierPathOverride;
 	extern std::atomic<uint64> GVulkanBindingValidationVisitCount;
+	extern std::atomic<uint64> GVulkanDescriptorDrawValidationVisitCount;
+	extern std::atomic<uint64> GVulkanDescriptorSortCount;
+	extern std::atomic<uint64> GVulkanDescriptorHashCount;
+	extern std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount;
 	extern std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount;
 	extern std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount;
 #endif

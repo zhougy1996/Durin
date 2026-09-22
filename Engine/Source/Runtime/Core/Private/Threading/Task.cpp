@@ -588,6 +588,7 @@ namespace Durin
 			ETaskPriority InPriority,
 			uint64 InEstimatedPayloadBytes,
 			bool bInQueueOnSaturation,
+			bool bInIndependentCPU,
 			uint64 InEstimatedResultBytes,
 			FTaskAttribution InAttribution,
 			std::shared_ptr<FTaskScopeState> InScope,
@@ -611,6 +612,7 @@ namespace Durin
 			, Priority(InPriority)
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
 			, bQueueOnSaturation(bInQueueOnSaturation)
+			, bIndependentCPU(bInIndependentCPU)
 			, EstimatedResultBytes(InEstimatedResultBytes)
 			, Attribution(InAttribution)
 			, Scope(std::move(InScope))
@@ -814,6 +816,8 @@ namespace Durin
 
 		// Inspect one node lock at a time. Terminal ancestors impose no executor
 		// requirement; pinning each frontier keeps concurrent publication safe.
+		auto IsIndependentCPU() const -> bool { return bIndependentCPU; }
+
 		auto RequiresGameThread(bool bOnlyUnknown = false) const -> bool
 		{
 			// Most waits inspect a short chain. Pin and deduplicate that graph on
@@ -1016,6 +1020,7 @@ namespace Durin
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		bool bQueueOnSaturation = false;
+		const bool bIndependentCPU;
 		uint64 SchedulerStorageBytes = 0;
 		uint64 EstimatedResultBytes = 0;
 		uint64 RetainedResultBytes = 0;
@@ -1410,6 +1415,15 @@ namespace Durin
 					return {};
 				}
 
+				if ((GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+					|| (Options.bIndependentCPU && (Target != ETaskTarget::AnyWorker
+						|| Options.bExternalCompletion || !Options.Prerequisites.empty())))
+				{
+					RecordRejectedTask(Options.Attribution);
+					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+					return {};
+				}
+
 				for (const FTaskHandle& Prerequisite : Options.Prerequisites)
 				{
 					if (!Prerequisite.State || Prerequisite.State->PinScheduler().get() != this)
@@ -1481,6 +1495,7 @@ namespace Durin
 						Priority,
 						EstimatedPayloadBytes,
 						Options.bQueueOnSaturation,
+						Options.bIndependentCPU,
 						EstimatedResultBytes,
 						Options.Attribution,
 						SelectedScope,
@@ -2048,7 +2063,8 @@ namespace Durin
 			}
 		}
 
-		if (IsInRenderingThread()) return ETaskScopeWaitResult::UnsupportedThread;
+		if (IsInRenderingThread() || (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU()))
+			return ETaskScopeWaitResult::UnsupportedThread;
 		if (GIsGameThreadIdInitialized && IsInGameThread() && std::ranges::any_of(Tasks, [](const std::shared_ptr<FTaskStateData>& Task) {
 			return Task->GetTarget() == ETaskTarget::GameThreadDeferred;
 		}))
@@ -3724,6 +3740,8 @@ namespace Durin
 				std::lock_guard Lock(DependencyMutex);
 				if (!Task.State || !Inner.State || Task.State->PinScheduler() != Inner.State->PinScheduler())
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Inner.GetTaskId()};
+				if (Task.State->IsIndependentCPU())
+					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
 				if (Task.State == Inner.State || Inner.State->DependsOn(Task.State.get()))
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, Inner.GetTaskId()};
 				Task.State->SetDynamicDependency(Inner.State, bCancelInner);
@@ -3788,7 +3806,9 @@ namespace Durin
 			return {ETaskWaitStatus::DependencyCycle, State};
 		}
 
-		if (IsInRenderingThread())
+		if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+			return {ETaskWaitStatus::UnsupportedThread, State};
+		if (IsInRenderingThread() && !Task.State->IsIndependentCPU())
 		{
 			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
 			return {ETaskWaitStatus::UnsupportedThread, State};

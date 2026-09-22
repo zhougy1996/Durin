@@ -272,13 +272,7 @@ namespace Durin::RendererPrivate
 			static_cast<uint32>(PipelineKey.LayoutKey.HashValue), static_cast<uint32>(PipelineKey.LayoutKey.HashValue >> 32),
 			static_cast<uint32>(PipelineKey.Topology)
 		};
-		const FByteView UniformPayload =
-			Representation.GetUniformPayload();
-		Result.MaterialUniform.reserve(UniformPayload.size());
-		for (const std::byte Byte : UniformPayload)
-		{
-			Result.MaterialUniform.push_back(Byte);
-		}
+		Result.MaterialUniform.Representation = Representation;
 
 		if (NumVertices != 0)
 		{
@@ -310,7 +304,7 @@ namespace Durin::RendererPrivate
 
 	inline auto MakeStaticMeshDrawSortKey(
 		const FPreparedStaticMeshPrimitive& Primitive,
-		const FPreparedStaticMeshDraw& Draw
+		const FStaticMeshDrawCommandTemplate& Draw
 	) -> FMeshDrawSortKey
 	{
 		const auto Elements = Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->DeclarationElements : FVertexDeclarationElementList{};

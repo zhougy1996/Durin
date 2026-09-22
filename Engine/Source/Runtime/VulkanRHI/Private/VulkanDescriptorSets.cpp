@@ -359,6 +359,9 @@ namespace Durin::VulkanRHI
 		}
 		FPoolBatch& Batch = GetActiveBatch();
 		Batch.RetirementOrder = NextRetirementOrder++;
+		// Context caches must stop selecting handles from this allocation batch,
+		// even if the next recording chunk arrives before another BeginFrame.
+		++Generation;
 		ActiveOwner.reset();
 		ActiveBatchIndex = std::numeric_limits<uint32>::max();
 	}

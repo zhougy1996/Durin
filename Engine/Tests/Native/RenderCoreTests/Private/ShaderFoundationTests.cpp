@@ -887,6 +887,41 @@ namespace Durin
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, SceneUniform));
 	}
 
+	TEST(FShaderFoundationTests, PreparedTypedParametersSnapshotDynamicUniformArrays)
+	{
+		struct FParameters { std::array<FRHIUniformBufferRange, 2> Transforms; };
+		const std::array Metadata = {
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::Transforms)>(
+				"Transforms", static_cast<uint32>(offsetof(FParameters, Transforms)))};
+		const auto ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({.Name = "Transforms",
+			.StageFlags = EShaderStageFlags::Vertex, .SetIndex = 1, .BindingIndex = 3,
+			.Type = ERHIBindingType::UniformBuffer, .ArraySize = 2});
+		std::vector<FShaderParameterBinding> Bindings;
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings));
+		const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"PreparedTransforms", 128, 16, EBufferUsageFlags::UniformBuffer));
+		const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		FParameters Parameters{{FRHIUniformBufferRange{Buffer.GetReference(), 16, 32},
+			FRHIUniformBufferRange{Buffer.GetReference(), 64, 32}}};
+		const auto Batch = PrepareShaderParametersImpl(Shader.GetReference(), ParametersMetadata, Bindings, &Parameters);
+		ASSERT_TRUE(Batch);
+		Parameters.Transforms = {};
+		ASSERT_EQ(Batch->GetParameters().size(), 2u);
+		for (uint32 Index = 0; Index < 2; ++Index)
+		{
+			const auto& Resource = Batch->GetParameters()[Index];
+			EXPECT_EQ(Resource.SetIndex, 1u);
+			EXPECT_EQ(Resource.BindingIndex, 3u);
+			EXPECT_EQ(Resource.ArrayElement, Index);
+			EXPECT_EQ(Resource.Offset, Index == 0 ? 16u : 64u);
+			ASSERT_EQ(Resource.Resource->GetResourceType(), ERHIResourceType::BufferView);
+			EXPECT_EQ(static_cast<FRHIBufferView*>(Resource.Resource)->GetBuffer(), Buffer.GetReference());
+		}
+		EXPECT_FALSE(PrepareShaderParametersImpl(Shader.GetReference(), ParametersMetadata, Bindings, &Parameters));
+	}
+
 	TEST(FShaderFoundationTests, ShaderMapInitializeUsesDynamicUniformMetadataInPipelineLayout)
 	{
 		struct FParameters

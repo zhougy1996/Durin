@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 ## Ownership Boundary
 
@@ -27,8 +27,186 @@ ranges and buffer views instead of borrowing asset LOD/section/factory objects.
 Provider LOD values remain diagnostic data. Material and deformation snapshots
 are immutable for the prepared frame.
 
+`CaptureStaticMeshLODSelection` copies screen-size thresholds and readiness into
+`FMeshLODSelectionSnapshot`, without retaining resource or proxy pointers. Resource
+and snapshot overloads of LOD selection share the same algorithm: threshold
+equality chooses higher detail, invalid size/threshold input requests LOD zero,
+and availability searches lower detail before higher detail. A snapshot remains
+stable across later readiness changes. Capturing requires stable source resources;
+the values alone do not retain geometry or certify later resource readiness.
+
+Providers may opt into `CaptureLODSelection_RenderThread`; static and spline mesh
+providers return owned threshold/readiness snapshots, while other providers
+default to their original collection-time selection. Renderer captures world
+bounds alongside these snapshots, then `PrepareMeshViewFacts` computes projected
+size and requested/available LODs without scene or proxy access. At 256 primitives
+it uses independent CPU tasks in waves of at most eight 128-primitive chunks;
+small views run inline. Ordered facts are passed through `FMeshCollectionContext`
+to collection, which still resolves materials, spline bindings and current
+geometry readiness on the rendering thread. Capture and collection occur within
+one render command without intervening scene mutation. A failed pure task discards
+partial facts and retries inline, draining all launched work before returning.
+
+`CollectStaticMeshView_RenderThread` finishes scene/proxy reads before publishing
+an immutable `FCollectedStaticMeshView`. It owns primitive IDs and classification,
+projection fallback facts, collection outcomes, admitted batch values, and the
+view matrices/policy consumed by preparation. It does not retain scene-info or
+proxy pointers. `PrepareCollectedStaticMeshView_RenderThread` can replay those
+values after source destruction or geometry republication. The ordinary view
+entrypoint composes collection and replay. Collection also captures the canonical
+input binding, factory/layout compatibility, per-element pass support and dynamic
+input-validation outcome. Replay performs no factory registry lookup or virtual
+capability calls and does not repeat geometry input validation. Published geometry
+keeps its validated-publication path. Preparation counters attribute consumed
+collection facts to the resulting view; replay is not another physical validation.
+`ResolveCollectedStaticMeshView_RenderThread` resolves shared transform, material
+and command caches into an immutable `FStaticMeshPreparationInputs` owner. It
+retains the collected view, copied transform facts, selected command templates,
+material indices and the material-table extent. Template build/reuse facts remain
+per-element attribution, not shared mutable counters. `PrepareStaticMeshInputs`
+uses only this owner to form and sort pass lists, assign dense indices/groups,
+and accumulate result-local telemetry; it has no command list or cache parameter
+and no rendering-thread affinity.
+Input owners must outlive every consumer. Dynamic providers retain their existing
+binding-resource retirement contract; arbitrary external mutation of published
+bindings is not supported by this boundary.
+
+`PrepareStaticMeshInputChunk` consumes a contiguous primitive range and retains
+its input owner. It produces unsorted local pass vectors, primitive indices,
+material-table indices and local counters. `MergeStaticMeshPreparationChunks`
+validates common input identity and exact non-overlapping coverage before moving
+any outputs, then concatenates in original primitive order and offsets primitive
+indices. Only the final combined view performs global ordering, dense resolved
+indices, material grouping and transition accounting. Arrival order cannot change
+these results. Missing, duplicate, invalid or mixed-input ranges return explicit
+errors without publishing a partial view; an empty view uses one empty chunk.
+The inline path shares the same range builder and finalizer.
+
+`StartStaticMeshPreparation` runs small views inline and dispatches views with at
+least 256 primitives as independent CPU tasks. Each chunk covers at most 128
+primitives; an owning work object retains at most eight active tasks and refills
+that window during `FinishStaticMeshPreparation`. Workers capture immutable
+inputs and range bounds only. The rendering thread joins through the task
+system's explicit independent-CPU contract. Results carry task count and join
+duration; chunk counters remain local until deterministic merge. The first failed
+or canceled chunk in range order cancels and drains remaining tasks, and no partial
+view is returned. Abandoning the owning work object also cancels and drains it.
+Pre-canceled inline work returns cancellation without replay. A missing scheduler
+uses the inline path. `DURIN_MESH_PREPARATION=inline` or `tasks` overrides the
+ordinary view wrapper's size policy for diagnosis. These fixed thresholds are
+correctness defaults, not measured performance acceptance.
+
+The production frame starts receiver preparation immediately after visibility
+collection and joins it before combined translucent geometry consumes the result.
+Environment, light, shadow and cloud preparation can proceed while its initial
+task window runs. Shadow preparation starts every cascade before joining them in
+cascade order for raster bias and telemetry. Collection and shared-cache resolution
+remain rendering-thread operations; subsequent cache growth cannot change an
+already frozen input. With three cascades, one frame retains at most 32 active
+mesh preparation tasks. Required receiver failure rejects resource resolution;
+shadow failure uses the existing all-cascade readiness fallback.
+
+Successful static-mesh resource initialization publishes one immutable
+`FMeshGeometryRecord` per LOD, with a process-unique nonzero record ID.
+It owns section draw ranges, bounds, material-slot indices, vertex/index buffer
+views and a retained local input binding. Receiver and cascade collection share
+the publication while independently selecting LOD and resolving current materials.
+Collection does not reread asset section geometry or rebuild local declarations
+and stream arrays. Prepared primitives retain the publication. Resource release
+withdraws the asset's record; replacement or initialization after release publishes
+new IDs. Repeated initialization of an unchanged ready LOD preserves its ID.
+Previously prepared records retain their old RHI resources until their consumers
+release them, under the existing submission retirement contract. There is no
+global registry or retained history; storage is bounded by current asset LODs and
+live consumers. Published CPU geometry must be replaced through the resource
+publication boundary rather than mutated in place.
+
+Publication consumes a unique input binding and validates element identity,
+draw/stream ranges, resource usage, instance inputs and declaration compatibility.
+Only read-only spans and bindings are exposed. An admitted batch contains either
+dynamic elements or a publication plus an aligned material array. Mixing these
+forms, substituting the publication's input binding or mismatching material counts
+is rejected. Published batches and Renderer preparation read the validated span
+directly, without copying or revalidating geometry per view. Primitive transforms,
+bounds, LOD selection, duplicate batch identity and pass eligibility are still
+checked at collection/preparation. Independent providers can explicitly opt into
+the same publication API; view-dependent providers retain dynamic validation.
+
+Spline proxies retain at most one publication per LOD, keyed by geometry record ID
+and the accepted deformation state. Accepted deformation updates clear those
+bindings; rejected revisions leave them intact. Material updates do not invalidate
+geometry. A binding revision shares the original immutable geometry span and its
+geometry ID while assigning a new record ID and validating the new inputs once.
+These caches are render-thread-only and are not worker-safe mutable state.
+
+Published geometry may also use the renderer-owned mesh command-template cache.
+Each immutable template owns its geometry publication, material publication,
+logical pipeline identity, geometry views and stable ordering facts. The key uses
+geometry record ID, element index, material record ID and the selected raster,
+depth, preparation-mode, winding and deformation-domain policy. Material planning
+identity and compiled-program ownership are checked on lookup. Dynamic providers
+without a geometry publication construct a fresh template for the selected view.
+Templates contain no view matrix, view depth, uniform range or transient RDG
+resource. Shader/device readiness is resolved separately for every submission.
+
+The cache is shared by receiver and cascade preparation and retains only entries
+touched by the latest submission. End-of-preparation cleanup also runs on failure;
+device-resource release clears all entries. During preparation, storage is bounded
+by the union of the preceding and current submission's templates. Prepared frames
+retain their selected templates independently, so eviction cannot invalidate old
+frames. Per-view depth and primitive/LOD ordering identities are recomputed while
+instantiating a visible draw; camera changes do not invalidate stable templates.
+
+Material time is also submission state: `PrepareMeshViewUniform` uploads the
+current view's `MaterialTimeSeconds` independently of cached geometry, material
+publications and command templates. Reusing those records must preserve animated
+shader inputs. Explicit time values remain deterministic across repeated renders;
+an unspecified time is resolved by `RenderView` before preparing the view.
+
+Visible mesh draws contain compact template references, dense indices, world sort
+center/depth and optional per-view raster bias; they do not copy template geometry,
+material, pipeline or layout arrays. A compile-time bound limits this record to
+128 bytes. Visible ordering keys retain an alias to immutable template sort state
+and keep primitive/batch/LOD tie-breakers separately. Combined translucent lists
+share the same sort state. Comparison preserves pipeline, material, vertex input,
+geometry, primitive, batch, LOD and section order, with translucent depth first.
+Cascade raster-bias magnitudes remain dynamic draw state and do not enter the
+pipeline-cache identity or mutate templates shared with another view.
+
+Recording shares a complete binding group across adjacent compatible draws.
+The group identifies the retained pipeline, vertex batch and fragment batch;
+changing any member submits the whole group again. A failed bind clears the
+group. The state is local to one uninterrupted mesh recording span and starts
+empty at every pass boundary or after non-mesh pipeline/parameter work. Forward,
+retained-forward, sorted translucency, GBuffer and cascades use this rule without
+reordering draws. Geometry inputs and dynamic shadow bias are still submitted
+per draw. Hit-proxy draws retain their distinct prepared ID bindings. This does
+not imply per-descriptor-set reuse when only one part of a group changes.
+
+`FStaticMeshRenderer::RecordShadow` consumes const prepared/resolved views on a
+regular command list and returns local draw observations. It does not inspect
+renderer caches or modify the shared resolved view. Geometry and prepared surface
+binding replay also accept regular lists. `CaptureCascade_RenderThread` retains
+the exact shadow target and attachment view; `RecordCascade` consumes that value
+and owns the complete render-pass scope, including graphics pipeline selection.
+Directional-shadow RDG passes declare one exact array layer per cascade and
+produce typed local observations. A serial consumer reads every cascade value,
+merges telemetry and invokes depth capture only after ordered list assembly.
+Prepared/resolved view references remain valid until synchronous graph execution
+has joined every recording task; command payloads retain native resources for
+later replay. Workers do not access renderer state or publish global telemetry.
+
+The automatic shadow policy enables independent recording at 256 total cascade
+draws; smaller workloads use owned serial lists. A single cascade or unavailable
+scheduler remains inline. `DURIN_SHADOW_RECORDING=immediate|serial|parallel` selects
+diagnostic comparison paths; unset/other values use the automatic policy. An
+active shadow GPU timing sink always selects the immediate path because its
+query spans all cascades. `ShadowWorkerRecordingChunks` counts actual worker
+recordings, reduced from local observations on the rendering thread. Each list
+clears/stores only its own layer; no intra-pass render-pass splitting is enabled.
+
 Renderer-owned mesh vertex-factory implementations supply compatible vertex
-shader types and typed vertex parameter binding. Shader-type compilation
+shader types and typed vertex parameter preparation. Shader-type compilation
 metadata supplies the same options to authored material maps and cook. Forward,
 shadow and GBuffer execution use the registered factory/layout identity; pass
 state and material policy remain with each pass. Pipeline identities include
@@ -68,6 +246,8 @@ Distinct IDs still undergo exact comparison when entering a submission's uniform
 groups, preserving deduplication of independently published equal materials.
 Prepared bindings and resolved surface uniform views retain the immutable material
 publication instead of copying its arrays or revalidating its layout per section.
+Sort keys retain that publication too; identical IDs compare immediately and
+distinct publications preserve byte-wise uniform ordering without payload copies.
 After draw sorting, a separate dense material-group schedule assigns uniform
 indices without changing translucent ordering. Resource preparation uploads
 one transform per prepared primitive/view and one material payload per group;
@@ -83,6 +263,32 @@ Forward, GBuffer, masked-shadow, and hit-proxy fragments use the same binding
 contract; changing it advances the material pass-contract version so stale cooked
 programs cannot be accepted. Uniform storage belongs to the current submission
 and is rebuilt for new views, frames, and resource-resolution attempts.
+
+Surface shader instances compile reflection into immutable binding layouts.
+Before recording, receiver and cascade resolution builds concrete fragment
+bindings once per material uniform group, pass and selected shader; compatible
+draws retain the same batch. Hit-proxy preparation also resolves its fragment
+bindings before opening the render pass. Missing resources, unsupported layouts
+and invalid uniform ranges fail preparation. Recording consumes the retained
+batch without reflection traversal or material resource-vector construction.
+
+`FRHIShaderParameterBatch` canonicalizes resource views before recording and owns
+the shader and every canonical resource. Recorded commands share its immutable
+parameter span, preserving ownership through submission retirement. Reusing a
+batch does not recreate views or copy its parameter array. Command payload
+accounting conservatively charges the retained array storage for each command
+reference. Backend descriptor processing remains separate from this binding
+contract.
+
+Vertex factories prepare immutable RHI parameter batches before recording too.
+Their preparation operation may upload deformation data, but cannot bind a
+pipeline or emit draws. Its inputs are the selected immutable factory binding,
+shader and prepared transform range. A submission shares its result across
+sections with the same primitive and selected vertex shader; distinct views
+prepare independent ranges. Spline and independent dynamic factories upload
+their deformation data here. Forward, shadow, GBuffer, retained-forward and hit
+proxy recording consume the resulting batches without constructing typed
+parameter arrays or allocating deformation uniforms inside a render pass.
 
 Preparation/resource/execution measurements live in family-specific
 observation values rather than the resolved correctness record surface. Common
@@ -125,14 +331,15 @@ both resolution boundaries as an explicit graph pass; it is never performed by
 logical preparation.
 
 Static-mesh resource resolution retains immutable pipeline payloads in each
-resolved draw record. Forward and shadow records retain their selected payload;
+resolved draw record. Forward, GBuffer and shadow records retain their selected payload;
 hybrid retained-forward preparation stores a separate variant. Section recording
 consumes these references directly without rebuilding a pipeline key or searching
 the renderer cache. Cache growth, eviction, or replacement cannot invalidate a
 prepared reference. Each new resolution attempt clears prior draw references;
 shader/device generation checks still occur during resource resolution. These
 references belong to the current submission and do not cache draw state across
-frames. GBuffer pipeline binding remains owned by the GBuffer renderer.
+frames. GBuffer recording binds its retained payload without a pipeline-cache
+lookup; the payload also retains the resolved fragment RHI shader.
 
 ## Resource Lifetime Classes
 
@@ -326,8 +533,9 @@ pass merging, and PSO centralization remain separate measured decisions.
 
 ## Scene Budgets and Capture
 
-`FSceneRenderGraphComposer` sets observational regression ceilings of 12 declared
-passes, 28 dependencies, and 32 physical texture transitions. Structural limits
+`FSceneRenderGraphComposer` sets observational regression ceilings of 15 declared
+passes, 36 dependencies, and 34 physical texture transitions. These include
+independent shadow-layer passes and their typed observation consumer. Structural limits
 are 256 passes and 4096 dependencies, buffer transitions, and texture
 transitions. No cross-pass buffers are currently declared, so no measured buffer
 regression ceiling is selected. Debug CPU ceilings are 5 milliseconds to compile

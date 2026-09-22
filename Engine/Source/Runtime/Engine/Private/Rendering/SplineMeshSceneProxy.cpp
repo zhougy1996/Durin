@@ -49,6 +49,7 @@ namespace Durin
 			|| !Math::IsFinite(InDynamicData.LocalBounds.Min)
 			|| !Math::IsFinite(InDynamicData.LocalBounds.Max)) return false;
 		DynamicData = std::move(InDynamicData);
+		GeometryBindings.clear();
 		++AcceptedDynamicUpdateCount;
 		return true;
 	}
@@ -56,8 +57,35 @@ namespace Durin
 	auto FSplineMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
 		FMeshBatchCollector& Collector) const -> void
 	{
-		auto Binding = std::make_shared<FSplineMeshBatchBinding>();
+		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector);
+	}
+
+	auto FSplineMeshSceneProxy::CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot>
+	{
+		CheckRenderingThread();
+		return CaptureStaticMeshLODSelection(RenderData ? std::span<const FStaticMeshLODResources>(RenderData->LODResources)
+			: std::span<const FStaticMeshLODResources>{});
+	}
+
+	auto FSplineMeshSceneProxy::ResolveGeometryRecord_RenderThread(uint32 LODIndex,
+		const FMeshGeometryRecord& Geometry) const
+		-> std::shared_ptr<const FMeshGeometryRecord>
+	{
+		CheckRenderingThread();
+		check(RenderData && LODIndex < RenderData->LODResources.size());
+		GeometryBindings.resize(RenderData->LODResources.size());
+		auto& Cached = GeometryBindings[LODIndex];
+		if (Cached.GeometryRecordId == Geometry.GetRecordId() && Cached.Record)
+			return Cached.Record;
+		auto Binding = std::make_unique<FSplineMeshBatchBinding>();
+		Binding->Declaration = Geometry.GetBinding()->Declaration;
+		Binding->DeclarationElements = Geometry.GetBinding()->DeclarationElements;
+		Binding->Streams = Geometry.GetBinding()->Streams;
+		Binding->NumVertices = Geometry.GetBinding()->NumVertices;
 		Binding->DynamicData = DynamicData;
-		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector, std::move(Binding));
+		auto Record = Geometry.WithBinding(std::move(Binding));
+		if (!Record) return {};
+		Cached = {Geometry.GetRecordId(), std::move(*Record)};
+		return Cached.Record;
 	}
 }

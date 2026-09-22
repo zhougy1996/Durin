@@ -4,6 +4,8 @@
 #include <format>
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
+#include "Threading/TaskComposition.h"
+#include <deque>
 
 namespace Durin::RDGPrivate
 {
@@ -298,6 +300,72 @@ namespace Durin
 		FScopedMicrosecondTimer RecordingTimer(State->Phases.RecordingMicroseconds);
 		State->Lifecycle = ERDGBuilderState::Recording;
 		State->ExecutionResult = std::unexpected(FRDGExecutionError{ERDGStateError::RecordingIncomplete});
+		uint32 DeclarationCount = 0;
+		for (const auto& Pass : Compiled->Passes) DeclarationCount = std::max(DeclarationCount, Pass.DeclarationIndex + 1);
+		std::vector<uint32> DeclarationToCompiled(DeclarationCount, UINT32_MAX);
+		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
+			DeclarationToCompiled[Compiled->Passes[Index].DeclarationIndex] = Index;
+		std::vector<uint32> PrerequisiteEnd(Compiled->Passes.size(), 0);
+		for (const auto& Edge : Compiled->Dependencies)
+		{
+			const uint32 Before = DeclarationToCompiled[Edge.BeforePass], After = DeclarationToCompiled[Edge.AfterPass];
+			require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
+			PrerequisiteEnd[After] = std::max(PrerequisiteEnd[After], Before + 1);
+		}
+		auto RecordOwned = [this](uint32 Index) {
+			FRHICommandList Recorded;
+			const auto& Pass = Compiled->Passes[Index];
+			const auto& Runtime = Compiled->RuntimePasses[Index];
+			const FRDGPassResources Resources(*this, Index);
+			const FRDGParameterResolver Resolver(Resources, Runtime.ParameterLayout,
+				Runtime.OptionalAliases, Runtime.Parameters, Pass.Name, Pass.Type);
+			(*Runtime.RecordingExecute)(Recorded, Resolver);
+			Recorded.FinishRecording();
+			return Recorded;
+		};
+		std::deque<FRHICommandList> ReadyRecordings;
+		auto PrepareRecordingWave = [&](uint32 First) -> bool {
+			auto Eligible = [&](uint32 Index) {
+				const auto& Runtime = Compiled->RuntimePasses[Index];
+				return Runtime.RecordingPolicy == ERDGRecordingPolicy::Parallel
+					&& Runtime.RecordingExecute && *Runtime.RecordingExecute;
+			};
+			uint32 End = First + 1;
+			if (IsTaskSchedulerRunning() && Eligible(First))
+				while (End < Compiled->Passes.size() && End - First < 8
+					&& Eligible(End) && PrerequisiteEnd[End] <= First) ++End;
+			if (End == First + 1)
+			{
+				ReadyRecordings.push_back(RecordOwned(First));
+				return true;
+			}
+			struct FPendingRecordings
+			{
+				std::vector<Tasks::TTask<FRHICommandList>> Work;
+				~FPendingRecordings()
+				{
+					for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task.GetCompletion());
+					for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+				}
+			} Pending;
+			// Allocate handle storage before launching work that borrows this graph.
+			// A vector growth failure must not orphan an already-running callback.
+			Pending.Work.reserve(End - First);
+			for (uint32 Index = First; Index < End; ++Index)
+				Pending.Work.push_back(Tasks::LaunchIndependentTask("RDG.RecordPass", [RecordOwned, Index] { return RecordOwned(Index); }));
+			for (auto& Task : Pending.Work)
+			{
+				const auto Wait = Task.Wait();
+				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+				if (Wait.TaskState != ETaskState::Succeeded)
+				{
+					ReadyRecordings.clear();
+					return false;
+				}
+				ReadyRecordings.push_back(std::move(Task).TakeResult());
+			}
+			return true;
+		};
 		FRHIGPUSyncPointRef InitialSignal;
 		if (!InitialReleases.empty())
 		{
@@ -336,7 +404,8 @@ namespace Durin
 				DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 				const auto& Runtime = Compiled->RuntimePasses[Index];
 				RecordBarrierBatch(CommandList, PreparedPassBarriers[Index], PreparedTransitions);
-				if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
+				if ((Runtime.ParameterizedExecute && *Runtime.ParameterizedExecute)
+					|| (Runtime.RecordingExecute && *Runtime.RecordingExecute))
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RDG.PassCallback");
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
@@ -345,7 +414,15 @@ namespace Durin
 						Runtime.ParameterLayout, Runtime.OptionalAliases,
 						Runtime.Parameters,
 						Pass.Name, Pass.Type);
-					(*Runtime.ParameterizedExecute)(CommandList, Resolver);
+					if (Runtime.RecordingExecute && *Runtime.RecordingExecute)
+					{
+						if (ReadyRecordings.empty() && !PrepareRecordingWave(Index))
+							return std::unexpected(FRDGPreparationError{ERDGStateError::RecordingIncomplete});
+						auto Recorded = std::move(ReadyRecordings.front());
+						ReadyRecordings.pop_front();
+						CommandList.QueueCommandList(std::move(Recorded));
+					}
+					else (*Runtime.ParameterizedExecute)(CommandList, Resolver);
 				}
 			}
 			for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);

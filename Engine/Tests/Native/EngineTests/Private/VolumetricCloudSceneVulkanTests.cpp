@@ -339,14 +339,15 @@ namespace Durin
 		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 6u);
 		// Contact shadows are disabled throughout; absent cloud inputs also omit
 		// the cloud-shadow producer and its completion dependencies.
-		const std::array<uint32, 6> ExpectedPasses{7, 7, 10, 10, 10, 10};
-		const std::array<uint32, 6> ExpectedDependencies{11, 11, 21, 21, 21, 21};
+		// Shadow recording declares three layer passes and one typed consumer.
+		const std::array<uint32, 6> ExpectedPasses{10, 10, 13, 13, 13, 13};
+		const std::array<uint32, 6> ExpectedDependencies{19, 19, 29, 29, 29, 29};
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
 		// Logical handoffs preserve each of the three directional-shadow layers.
 		const std::array<uint32, 6> ExpectedTextureSubresources{15, 15, 32, 18, 32, 18};
-		// Three directional-shadow layers share one compatible entry barrier.
-		const std::array<uint32, 6> ExpectedTextureTransitions{13, 13, 30, 16, 30, 16};
+		// Each independent shadow list now has its own entry barrier.
+		const std::array<uint32, 6> ExpectedTextureTransitions{15, 15, 32, 18, 32, 18};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{
 			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
@@ -440,7 +441,7 @@ namespace Durin
 		RenderOffscreen(false, false);
 		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 7u);
 		const auto& WithoutAO = GSceneCloudGraphCaptures.back();
-		EXPECT_EQ(WithoutAO.Statistics.DeclaredPasses, 9u);
+		EXPECT_EQ(WithoutAO.Statistics.DeclaredPasses, 12u);
 		EXPECT_FALSE(std::ranges::any_of(WithoutAO.Passes, [](const auto& Pass) {
 			return Pass.Name == "Scene.AmbientOcclusion";
 		}));

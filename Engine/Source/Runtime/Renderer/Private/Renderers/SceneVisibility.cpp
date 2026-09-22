@@ -6,9 +6,83 @@
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "Profiling/Profiling.h"
+#include "Threading/TaskComposition.h"
+#include <deque>
 
 namespace Durin
 {
+	auto ClassifySceneVisibility(std::vector<FPrimitiveVisibilityInput> Inputs,
+		const FSceneView& View, bool bAllowTasks) -> FSceneVisibilityClassification
+	{
+		using EClass = EPrimitiveVisibilityClassification;
+		FViewFrustum Frustum{};
+		const bool bCulling = View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
+		const bool bValid = !bCulling || TryBuildViewFrustum(View, Frustum);
+		auto Owner = std::make_shared<const std::vector<FPrimitiveVisibilityInput>>(std::move(Inputs));
+		auto ClassifyRange = [Owner, Frustum, bCulling, bValid](size_t First, size_t Count) {
+			std::vector<EClass> Classes;
+			Classes.reserve(Count);
+			for (size_t Index = First; Index < First + Count; ++Index)
+			{
+				const auto& Input = (*Owner)[Index];
+				EClass Classification;
+				if (!Input.bVisible) Classification = EClass::Hidden;
+				else if (!bCulling) Classification = EClass::VisibleCullingDisabled;
+				else if (!bValid) Classification = EClass::VisibleInvalidViewFallback;
+				else
+				{
+					switch (ClassifyWorldBounds(Frustum, Input.WorldBounds))
+					{
+					case EViewBoundsClassification::Inside: Classification = EClass::VisibleInside; break;
+					case EViewBoundsClassification::Intersecting: Classification = EClass::VisibleIntersecting; break;
+					case EViewBoundsClassification::Outside: Classification = EClass::FrustumCulled; break;
+					case EViewBoundsClassification::InvalidBounds: Classification = EClass::VisibleInvalidBoundsFallback; break;
+					default: Classification = EClass::VisibleInvalidBoundsFallback; break;
+					}
+				}
+				Classes.push_back(Classification);
+			}
+			return Classes;
+		};
+		if (!bAllowTasks || Owner->size() < 1024 || !IsTaskSchedulerRunning())
+			return {ClassifyRange(0, Owner->size()), 0};
+		struct FPending
+		{
+			std::deque<Tasks::TTask<std::vector<EClass>>> Tasks;
+			~FPending()
+			{
+				for (auto& Task : Tasks) Durin::Tasks::Cancel(Task.GetCompletion());
+				for (auto& Task : Tasks) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
+			}
+		} Pending;
+		FSceneVisibilityClassification Result;
+		Result.Primitives.reserve(Owner->size());
+		size_t Next = 0;
+		auto Launch = [&] {
+			const size_t First = Next, Count = std::min(size_t(512), Owner->size() - Next);
+			Pending.Tasks.push_back(Tasks::LaunchIndependentTask("Renderer.ClassifyVisibility",
+				[ClassifyRange, First, Count] { return ClassifyRange(First, Count); }));
+			Next += Count;
+			++Result.TaskCount;
+		};
+		while (Next < Owner->size() && Pending.Tasks.size() < 8) Launch();
+		while (!Pending.Tasks.empty())
+		{
+			auto Task = std::move(Pending.Tasks.front());
+			Pending.Tasks.pop_front();
+			const auto Wait = Task.Wait();
+			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+			// No externally visible effect has occurred: retry the pure classification
+			// inline. Scope exit drains outstanding work before publishing the result.
+			if (Wait.TaskState != ETaskState::Succeeded)
+				return {ClassifyRange(0, Owner->size()), Result.TaskCount};
+			auto Classes = std::move(Task).TakeResult();
+			Result.Primitives.insert(Result.Primitives.end(), Classes.begin(), Classes.end());
+			if (Next < Owner->size()) Launch();
+		}
+		return Result;
+	}
+
 	auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
@@ -24,70 +98,24 @@ namespace Durin
 		if (bCollectPrimitiveRecords)
 			Result.PrimitiveRecords.reserve(SceneInfos.size());
 
-		FViewFrustum Frustum;
-		const bool bCullingEnabled =
-			View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
-		const bool bValidView =
-			!bCullingEnabled || TryBuildViewFrustum(View, Frustum);
-
-		for (const FPrimitiveSceneInfo* SceneInfo : SceneInfos)
+		std::vector<FPrimitiveVisibilityInput> Inputs;
+		Inputs.reserve(SceneInfos.size());
+		for (const auto* Info : SceneInfos)
+			Inputs.push_back({Info ? Info->GetWorldBounds() : FBox{}, Info && Info->IsVisible()});
+		const auto Classified = ClassifySceneVisibility(std::move(Inputs), View);
+		for (size_t Index = 0; Index < SceneInfos.size(); ++Index)
 		{
+			const auto* SceneInfo = SceneInfos[Index];
 			check(SceneInfo != nullptr);
-			if (SceneInfo == nullptr)
-			{
-				continue;
-			}
+			if (!SceneInfo) continue;
 			++Telemetry.Visibility.SubmittedPrimitives;
-
-			EPrimitiveVisibilityClassification Classification =
-				EPrimitiveVisibilityClassification::Invalid;
-			bool bVisible = false;
-			if (!SceneInfo->IsVisible())
-			{
-				Classification = EPrimitiveVisibilityClassification::Hidden;
-				++Telemetry.Visibility.HiddenPrimitives;
-			}
-			else if (!bCullingEnabled)
-			{
-				Classification =
-					EPrimitiveVisibilityClassification::VisibleCullingDisabled;
-				bVisible = true;
-			}
-			else if (!bValidView)
-			{
-				Classification =
-					EPrimitiveVisibilityClassification::VisibleInvalidViewFallback;
-				bVisible = true;
-				++Telemetry.Visibility.InvalidViewFallbacks;
-			}
-			else
-			{
-				switch (ClassifyWorldBounds(Frustum, SceneInfo->GetWorldBounds()))
-				{
-				case EViewBoundsClassification::Inside:
-					Classification =
-						EPrimitiveVisibilityClassification::VisibleInside;
-					bVisible = true;
-					break;
-				case EViewBoundsClassification::Intersecting:
-					Classification =
-						EPrimitiveVisibilityClassification::VisibleIntersecting;
-					bVisible = true;
-					break;
-				case EViewBoundsClassification::Outside:
-					Classification =
-						EPrimitiveVisibilityClassification::FrustumCulled;
-					++Telemetry.Visibility.FrustumCulledPrimitives;
-					break;
-				case EViewBoundsClassification::InvalidBounds:
-					Classification = EPrimitiveVisibilityClassification::
-						VisibleInvalidBoundsFallback;
-					bVisible = true;
-					++Telemetry.Visibility.InvalidBoundsFallbacks;
-					break;
-				}
-			}
-
+			const auto Classification = Classified.Primitives[Index];
+			const bool bVisible = Classification != EPrimitiveVisibilityClassification::Hidden
+				&& Classification != EPrimitiveVisibilityClassification::FrustumCulled;
+			Telemetry.Visibility.HiddenPrimitives += Classification == EPrimitiveVisibilityClassification::Hidden;
+			Telemetry.Visibility.FrustumCulledPrimitives += Classification == EPrimitiveVisibilityClassification::FrustumCulled;
+			Telemetry.Visibility.InvalidViewFallbacks += Classification == EPrimitiveVisibilityClassification::VisibleInvalidViewFallback;
+			Telemetry.Visibility.InvalidBoundsFallbacks += Classification == EPrimitiveVisibilityClassification::VisibleInvalidBoundsFallback;
 			const bool bClassificationValid = Classification
 				!= EPrimitiveVisibilityClassification::Invalid;
 			checkf(bClassificationValid,

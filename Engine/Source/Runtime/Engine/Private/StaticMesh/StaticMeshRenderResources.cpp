@@ -3,6 +3,8 @@
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 #include "RHI.h"
+#include "Rendering/MeshGeometryRecord.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 
 namespace Durin
 {
@@ -439,8 +441,45 @@ namespace Durin
 			ReleaseResources();
 			return false;
 		}
-		for (FStaticMeshLODResources& LOD : LODResources)
+		for (size_t Index = 0; Index < LODResources.size(); ++Index)
 		{
+			auto& LOD = LODResources[Index];
+			if (LOD.bReadyForRendering && LOD.GeometryRecord) continue;
+			const auto& Factory = LODVertexFactories[Index].VertexFactory;
+			auto Binding = std::make_unique<FStaticMeshBatchBinding>();
+			Binding->Declaration = Factory.GetDeclaration();
+			Binding->DeclarationElements = Factory.GetDeclarationElements();
+			Binding->Streams = Factory.GetStreams();
+			Binding->NumVertices = LOD.GetNumVertices();
+			std::vector<FMeshGeometryElement> Elements;
+			Elements.reserve(LOD.Sections.size());
+			const auto& Position = LOD.VertexBuffers.PositionVertexBuffer;
+			for (uint32 SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
+			{
+				const auto& Section = LOD.Sections[SectionIndex];
+				FMeshGeometryElement Element;
+				Element.ElementId = SectionIndex;
+				Element.LocalBounds = Section.LocalBounds;
+				Element.MaterialSlotDiagnostic = Section.MaterialSlotIndex;
+				Element.Draw.ElementCount = Section.IndexCount;
+				Element.Draw.FirstElement = Section.FirstIndex;
+				Element.Draw.MinVertexIndex = Section.MinVertexIndex;
+				Element.Draw.MaxVertexIndex = Section.MaxVertexIndex;
+				Element.Vertices.Buffer = Position.GetRHI();
+				Element.Vertices.Range = {static_cast<uint64>(Position.GetNumVertices()) * Position.GetStride(),
+					0, Position.GetStride(), Position.GetStride()};
+				Element.Indices.Buffer = LOD.IndexBuffer.GetRHI();
+				Element.Indices.Range = {static_cast<uint64>(LOD.GetNumIndices()) * sizeof(uint32),
+					0, sizeof(uint32), sizeof(uint32)};
+				Elements.push_back(std::move(Element));
+			}
+			auto Record = FMeshGeometryRecord::Publish(std::move(Binding), std::move(Elements));
+			if (!Record)
+			{
+				ReleaseResources();
+				return false;
+			}
+			LOD.GeometryRecord = std::move(*Record);
 			LOD.bReadyForRendering = true;
 		}
 		return true;
@@ -458,6 +497,7 @@ namespace Durin
 			: LODResources | std::views::reverse)
 		{
 			LOD.bReadyForRendering = false;
+			LOD.GeometryRecord.reset();
 			ReleaseStaticMeshResource(LOD.IndexBuffer);
 			LOD.VertexBuffers.ReleaseResources();
 		}

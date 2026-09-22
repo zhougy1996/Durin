@@ -337,7 +337,12 @@ namespace Durin
 			bool FixedPipelinesReady = true;
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
-					Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes) && FixedPipelinesReady;
+					Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
+					ResolvedSceneResources.Receiver.StaticMeshes) && FixedPipelinesReady;
+			if (FixedPipelinesReady)
+				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
+					CommandList, &Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
+					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer);
 			if (FeaturePlan.Deferred.IsEnabled())
 				FixedPipelinesReady = Renderer.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled())

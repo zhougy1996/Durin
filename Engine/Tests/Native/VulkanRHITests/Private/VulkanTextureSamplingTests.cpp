@@ -1338,6 +1338,15 @@ namespace Durin
 				Commands.PushConstants(EShaderStageFlags::Compute, 0,
 					sizeof(Increment), &Increment);
 				Commands.SetShaderParameters(SecondShader, Parameters);
+				// Repeat the same bindings after pool retirement without relying on
+				// BeginFrame to clear the compute cache. Constants/state must survive.
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+					VulkanRHI::SubmitAndRetireDescriptorPoolsForTesting();
+					VulkanRHI::WaitForAllVulkanSubmissionsForTesting();
+				});
+#endif
 				Commands.Dispatch(4, 1, 1);
 				Commands.SwitchPipeline(ERHIPipeline::None);
 				Commands.TransitionTextures(std::array{FRHITextureTransition{

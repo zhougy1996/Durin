@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	class FMeshGeometryRecord;
 	// Stores one normalized 16-bit tangent frame in the tangent stream.
 	struct FStaticMeshPackedTangentBasis
 	{
@@ -342,6 +343,7 @@ namespace Durin
 		// Caches aggregate GPU-buffer and matching vertex-factory readiness
 		// for render-thread LOD selection.
 		bool bReadyForRendering = false;
+		std::shared_ptr<const FMeshGeometryRecord> GeometryRecord;
 
 		auto GetNumVertices() const -> uint32
 		{

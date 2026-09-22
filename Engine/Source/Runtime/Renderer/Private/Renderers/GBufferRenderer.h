@@ -13,7 +13,8 @@
 
 namespace Durin
 {
-	namespace RendererPrivate { struct FResolvedSurfaceMaterial; }
+	namespace RendererPrivate { class FMeshVertexShaderBinding; class FCompiledSurfaceBindingLayout; class FPreparedSurfaceMaterialBindings; }
+	struct FGBufferPipeline;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 
@@ -23,7 +24,7 @@ namespace Durin
 	class RENDERER_API FGBufferRenderer final
 	{
 	public:
-		struct FPipeline;
+		using FPipeline = FGBufferPipeline;
 
 		static constexpr uint64 BytesPerPixel = 16;
 		static constexpr uint64 MaximumRetainedBytes =
@@ -58,18 +59,6 @@ namespace Durin
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 		};
 
-		struct FVertexParameters
-		{
-			FRHIUniformBufferRange Transform;
-			const FVertexFactoryBinding* Binding = nullptr;
-		};
-
-		struct FFragmentParameters
-		{
-			const RendererPrivate::FResolvedSurfaceMaterial* Compiled = nullptr;
-			FRHIUniformBufferRange Material;
-			FRHIUniformBufferRange View;
-		};
 
 		FGBufferRenderer(FRendererResourceCoordinator& InCoordinator);
 		~FGBufferRenderer();
@@ -80,12 +69,16 @@ namespace Durin
 		static auto DescribeTargets(uint32 Width, uint32 Height)
 			-> std::array<FRHITextureCreateDesc, 4>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
-			-> FPipeline*;
+			-> std::shared_ptr<const FPipeline>;
+		auto GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
+			-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>;
+		auto GetFragmentShader(const FPipeline& Pipeline) const -> FRHIShader*;
+		auto GetSurfaceLayout(const FPipeline& Pipeline) const -> const RendererPrivate::FCompiledSurfaceBindingLayout&;
 		auto BindPipeline_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPipeline& Pipeline,
-			const FVertexParameters& VertexParameters,
-			const FFragmentParameters& FragmentParameters) -> bool;
+			const FPipeline& Pipeline,
+			const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
+			const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

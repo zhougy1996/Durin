@@ -290,7 +290,7 @@ namespace Durin::Tasks
 	{
 	template<typename F, typename T = typename Detail::TSpawnResult<std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
-	auto LaunchTaskImpl(FTaskScopeToken Scope, uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto LaunchTaskImpl(FTaskScopeToken Scope, uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false)
 		-> TTask<T>
 	{
 		using FAdmission = Detail::TConstruction<TTask<T>>;
@@ -301,6 +301,7 @@ namespace Durin::Tasks
 			auto State = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Bytes);
 			FTaskLaunchOptions Launch;
 			Launch.Scope = Scope;
+			Launch.bIndependentCPU = bIndependentCPU;
 			Launch.ExpectedParentTaskId = ParentTaskId;
 			Launch.Attribution = Options.Attribution;
 			Launch.CancellationToken = Options.Cancellation;
@@ -355,6 +356,17 @@ namespace Durin::Tasks
 	{
 		Options.DebugName = Name;
 		return Detail::LaunchTaskImpl(Options.Scope, 0, ETaskExecutor::Worker, Options, std::forward<F>(Function));
+	}
+
+	// Declares a CPU-only leaf: the callable must not depend on owner-thread,
+	// RHI, I/O, or external progress. The scheduler enforces task-level leaf
+	// restrictions; the caller owns the callable's ordinary C++ side effects.
+	template<typename F>
+	auto LaunchIndependentTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
+	{
+		Options.DebugName = Name;
+		return Detail::LaunchTaskImpl(Options.Scope, 0, ETaskExecutor::Worker,
+			Options, std::forward<F>(Function), true);
 	}
 
 	// A completion prerequisite contributes no result ownership to this success edge.

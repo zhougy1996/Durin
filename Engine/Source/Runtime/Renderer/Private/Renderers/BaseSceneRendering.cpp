@@ -291,20 +291,21 @@ namespace Durin
 			RetainedOpaque, "HybridRetainedOpaqueRenderPass"
 		);
 		SetViewRect();
+		FMeshDrawBindingGroup RetainedBindings;
 		for (const EMeshBasePass Pass : {
 				 EMeshBasePass::Opaque, EMeshBasePass::Masked
 			 })
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (!Draw.bSupportsGBuffer || Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
+				if (!Draw.Command->bSupportsGBuffer || Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Pass, Draw,
 						Inputs.Receiver.StaticMeshes,
-						ResolvedSceneResources.Receiver.StaticMeshes, true
+						ResolvedSceneResources.Receiver.StaticMeshes, true, &RetainedBindings
 					);
 				}
 		}
@@ -378,6 +379,7 @@ namespace Durin
 				ResolvedSceneResources.Receiver.StaticMeshes
 			);
 		}
+		FMeshDrawBindingGroup TranslucentBindings;
 		for (const FPreparedTranslucentSceneDraw& Draw :
 			 Inputs.Receiver.TranslucentGeometry)
 		{
@@ -387,7 +389,7 @@ namespace Durin
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes
+					ResolvedSceneResources.Receiver.StaticMeshes, false, &TranslucentBindings
 				);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(

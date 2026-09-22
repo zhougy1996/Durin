@@ -281,6 +281,7 @@ namespace Durin::VulkanRHI
 
 		auto PrepareForUse() -> void;
 		auto GetAllocationOwner() const -> std::shared_ptr<void> { require(ActiveOwner); return ActiveOwner; }
+		auto GetGeneration() const -> uint64 { return Generation; }
 		auto RetireUsedPools() -> void;
 		auto GetBatchTokensForTesting() const
 			-> std::array<FVulkanCompletionToken, FrameInFlight>;
@@ -303,6 +304,7 @@ namespace Durin::VulkanRHI
 		std::vector<FPoolBatch> Batches;
 		uint32 ActiveBatchIndex = std::numeric_limits<uint32>::max();
 		uint64 NextRetirementOrder = 1;
+		uint64 Generation = 0;
 		struct FAllocationLease {};
 		std::shared_ptr<void> ActiveOwner;
 	};

@@ -73,6 +73,23 @@ namespace Durin
 		uint32 Size = 0;
 	};
 
+	// Canonical resource views resolved before recording and retained for every
+	// command that references this immutable batch. Creation is fallible.
+	class FRHIShaderParameterBatch final
+	{
+	public:
+		RHI_API static auto Create(FRHIShader* Shader, std::span<const FRHIShaderParameterResource> Parameters)
+			-> std::shared_ptr<const FRHIShaderParameterBatch>;
+		auto GetShader() const -> FRHIShader* { return Shader; }
+		auto GetParameters() const -> std::span<const FRHIShaderParameterResource> { return Parameters; }
+		RHI_API auto GetRetainedPayloadBytes() const -> size_t;
+	private:
+		FRHIShaderParameterBatch() = default;
+		FShaderRHIRef Shader;
+		std::vector<FRHIShaderParameterResource> Parameters;
+		std::vector<TRefCountPtr<FRHIResource>> Resources;
+	};
+
 	enum class ERHIShaderBindingError : uint8
 	{
 		InvalidStage,

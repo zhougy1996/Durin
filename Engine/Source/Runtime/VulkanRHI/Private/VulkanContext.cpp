@@ -983,7 +983,7 @@ namespace Durin::VulkanRHI
 		PipelineState->PushConstants(*this, StageFlags, Offset, Size, Data);
 	}
 
-	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		CheckVulkanRHIThread();
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)

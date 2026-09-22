@@ -304,6 +304,17 @@ namespace Durin
 	}
 
 	template<typename ShaderType>
+	auto PrepareShaderParameters(const TMaterialShaderRef<ShaderType>& Shader,
+		const typename ShaderType::FParameters& Parameters)
+		-> std::shared_ptr<const FRHIShaderParameterBatch>
+	{
+		const auto* Content = Shader.GetShader();
+		if (!Content || !Shader.GetRHIShader(false)) return {};
+		return PrepareShaderParametersImpl(Shader.GetRHIShader(false),
+			*ShaderType::GetParametersMetadata(), Content->GetParameterBindings(), &Parameters);
+	}
+
+	template<typename ShaderType>
 	auto SetShaderParameters(
 		FRHICommandListBase& RHICmdList,
 		const TMaterialShaderRef<ShaderType>& Shader,

@@ -230,6 +230,10 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanLegacyImageBarrierCount = 0;
 	std::atomic<int32> GVulkanBarrierPathOverride = -1;
 	std::atomic<uint64> GVulkanBindingValidationVisitCount = 0;
+	std::atomic<uint64> GVulkanDescriptorDrawValidationVisitCount = 0;
+	std::atomic<uint64> GVulkanDescriptorSortCount = 0;
+	std::atomic<uint64> GVulkanDescriptorHashCount = 0;
+	std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount = 0;
 	std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount = 0;
 	std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount = 0;
 	std::atomic<uint64> GVulkanDebugMessengerCreatedCount = 0;
@@ -964,6 +968,10 @@ namespace Durin::VulkanRHI
 		GVulkanSync2ImageBarrierCount.store(0, std::memory_order_release);
 		GVulkanLegacyImageBarrierCount.store(0, std::memory_order_release);
 		GVulkanBindingValidationVisitCount.store(0, std::memory_order_release);
+		GVulkanDescriptorDrawValidationVisitCount.store(0, std::memory_order_release);
+		GVulkanDescriptorSortCount.store(0, std::memory_order_release);
+		GVulkanDescriptorHashCount.store(0, std::memory_order_release);
+		GVulkanDescriptorOwnerRebuildCount.store(0, std::memory_order_release);
 		GVulkanDescriptorOccupancyVerificationVisitCount.store(0, std::memory_order_release);
 		GVulkanDescriptorOccupancyMutationCount.store(0, std::memory_order_release);
 	}
@@ -976,6 +984,10 @@ namespace Durin::VulkanRHI
 			.Sync2ImageBarriers = GVulkanSync2ImageBarrierCount.load(std::memory_order_acquire),
 			.LegacyImageBarriers = GVulkanLegacyImageBarrierCount.load(std::memory_order_acquire),
 			.BindingValidationVisits = GVulkanBindingValidationVisitCount.load(std::memory_order_acquire),
+			.DescriptorDrawValidationVisits = GVulkanDescriptorDrawValidationVisitCount.load(std::memory_order_acquire),
+			.DescriptorSorts = GVulkanDescriptorSortCount.load(std::memory_order_acquire),
+			.DescriptorHashes = GVulkanDescriptorHashCount.load(std::memory_order_acquire),
+			.DescriptorOwnerRebuilds = GVulkanDescriptorOwnerRebuildCount.load(std::memory_order_acquire),
 			.DescriptorOccupancyVerificationVisits = GVulkanDescriptorOccupancyVerificationVisitCount.load(std::memory_order_acquire),
 			.DescriptorOccupancyMutations = GVulkanDescriptorOccupancyMutationCount.load(std::memory_order_acquire)};
 	}

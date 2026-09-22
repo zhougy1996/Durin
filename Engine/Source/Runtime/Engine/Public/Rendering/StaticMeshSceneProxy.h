@@ -17,6 +17,7 @@ namespace Durin
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
 		ENGINE_API auto GetLocalBounds() const -> FBox override;
+		ENGINE_API auto CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot> override;
 		ENGINE_API auto ResolveMaterialRenderData_RenderThread(
 			uint32 SlotIndex) const -> const FMaterialRenderData&;
 		auto GetNumMaterials() const -> uint32 { return static_cast<uint32>(Materials.size()); }

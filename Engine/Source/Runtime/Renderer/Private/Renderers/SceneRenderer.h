@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderers/StaticMeshRenderPreparation.h"
+
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/DirectionalShadowRenderer.h"
@@ -122,6 +124,7 @@ namespace Durin
 		FSceneViewStateRegistry ViewStates;
 		// Used only during serial render-thread preparation; retains candidate capacity.
 		FSceneVisibilityResult VisibilityScratch;
+		FStaticMeshDrawCommandCache MeshCommandCache;
 		uint64 RenderSubmissionSerial = 0;
 		FSceneRenderGraphWarnings RenderGraphWarnings;
 	};

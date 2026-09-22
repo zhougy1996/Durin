@@ -209,61 +209,107 @@ namespace Durin::RendererPrivate
 		return State->Counters;
 	}
 
-	auto BindCompiledSurfaceMaterial(
-		FRHICommandListImmediate& CommandList, FRHIShader* Shader,
-		const FShaderReflectionData& Reflection,
-		const FResolvedSurfaceMaterial& Material,
-		const FRHIUniformBufferRange& MaterialBuffer,
-		const FRHIUniformBufferRange& Lighting,
-		const FRHIUniformBufferRange& HitProxy,
-		const FRHIUniformBufferRange& View) -> bool
+	FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection)
 	{
-		if (!Shader || !Material.bCompiledLayout
-			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
-		std::vector<FRHIShaderParameterResource> Resources;
+		Entries.reserve(Reflection.ResourceBindings.size());
 		for (const auto& Binding : Reflection.ResourceBindings)
 		{
-			if (Binding.SetIndex > 1 || Binding.ArraySize != 1) return false;
-			FRHIShaderParameterResource Resource;
-			Resource.SetIndex = Binding.SetIndex;
-			Resource.BindingIndex = Binding.BindingIndex;
-			Resource.Type = Binding.Type;
-			ERHIBindingType Expected = ERHIBindingType::Texture;
+			if (Binding.SetIndex > 1 || Binding.ArraySize != 1) return;
+			if (std::ranges::any_of(Entries, [&](const FEntry& Entry) {
+				return Entry.SetIndex == Binding.SetIndex && Entry.BindingIndex == Binding.BindingIndex;
+			})) return;
+			FEntry Entry{Binding.SetIndex, Binding.BindingIndex, Binding.Type};
 			const uint32 Slot = Binding.BindingIndex;
 			const bool bView = Binding.SetIndex == 0 && Slot == 0;
 			const bool bMaterialSet = Slot == 2 || Slot == 27 || Slot >= MaterialTextureBindingBase;
-			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return false;
+			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return;
+			ERHIBindingType Expected = ERHIBindingType::Texture;
 			if (bView || Slot == 1 || Slot == 2 || Slot == 27)
 			{
-				const auto& Range = bView ? View : Slot == 27 ? HitProxy : Slot == 1 ? Lighting : MaterialBuffer;
-				Resource.Resource = Range.Buffer;
-				Resource.Offset = Range.Offset;
-				Resource.Size = Range.Size;
-				if (Range.Size == 0) return false;
+				Entry.Source = bView ? ESource::View : Slot == 27 ? ESource::HitProxy
+					: Slot == 1 ? ESource::Lighting : ESource::Material;
 				Expected = ERHIBindingType::UniformBuffer;
-				Resource.Type = ERHIBindingType::UniformBufferDynamic;
+				Entry.Type = ERHIBindingType::UniformBufferDynamic;
 			}
 			else if (Slot >= MaterialTextureBindingBase)
 			{
-				const uint32 Index = (Slot - MaterialTextureBindingBase) / 2;
-				if (Index >= Material.CompiledTextures.size()) return false;
-				if ((Slot - MaterialTextureBindingBase) % 2 == 0) Resource.Resource = Material.CompiledTextures[Index];
-				else { Resource.Resource = Material.CompiledSamplers[Index]; Expected = ERHIBindingType::Sampler; }
+				Entry.ResourceIndex = (Slot - MaterialTextureBindingBase) / 2;
+				const bool bSampler = (Slot - MaterialTextureBindingBase) % 2 != 0;
+				Entry.Source = bSampler ? ESource::Sampler : ESource::Texture;
+				Expected = bSampler ? ERHIBindingType::Sampler : ERHIBindingType::Texture;
 			}
 			else switch (Slot)
 			{
-			case 19: Resource.Resource = Material.EnvironmentIrradiance; break;
-			case 20: Resource.Resource = Material.EnvironmentPrefiltered; break;
-			case 21: Resource.Resource = Material.EnvironmentBrdfLut; break;
-			case 22: Resource.Resource = Material.EnvironmentSampler; Expected = ERHIBindingType::Sampler; break;
-			case 25: Resource.Resource = Material.DirectionalShadowTexture; break;
-			case 26: Resource.Resource = Material.DirectionalShadowSampler; Expected = ERHIBindingType::Sampler; break;
-			default: return false;
+			case 19: Entry.Source = ESource::EnvironmentIrradiance; break;
+			case 20: Entry.Source = ESource::EnvironmentPrefiltered; break;
+			case 21: Entry.Source = ESource::EnvironmentBrdfLut; break;
+			case 22: Entry.Source = ESource::EnvironmentSampler; Expected = ERHIBindingType::Sampler; break;
+			case 25: Entry.Source = ESource::DirectionalShadowTexture; break;
+			case 26: Entry.Source = ESource::DirectionalShadowSampler; Expected = ERHIBindingType::Sampler; break;
+			default: return;
 			}
-			if (!Resource.Resource || Binding.Type != Expected) return false;
+			if (Binding.Type != Expected) return;
+			Entries.push_back(Entry);
+		}
+		bValid = true;
+	}
+
+	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
+		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
+		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
+		const FRHIUniformBufferRange& View, FPreparedSurfaceMaterialBindings& OutBindings) -> bool
+	{
+		OutBindings = {};
+		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
+			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
+		std::vector<FRHIShaderParameterResource> Resources;
+		Resources.reserve(Layout.GetEntries().size());
+		using ESource = FCompiledSurfaceBindingLayout::ESource;
+		for (const auto& Entry : Layout.GetEntries())
+		{
+			FRHIShaderParameterResource Resource;
+			Resource.SetIndex = Entry.SetIndex;
+			Resource.BindingIndex = Entry.BindingIndex;
+			Resource.Type = Entry.Type;
+			const FRHIUniformBufferRange* Range = nullptr;
+			switch (Entry.Source)
+			{
+			case ESource::View: Range = &View; break;
+			case ESource::Lighting: Range = &Lighting; break;
+			case ESource::Material: Range = &MaterialBuffer; break;
+			case ESource::HitProxy: Range = &HitProxy; break;
+			case ESource::Texture:
+				if (Entry.ResourceIndex >= Material.CompiledTextures.size()) return false;
+				Resource.Resource = Material.CompiledTextures[Entry.ResourceIndex]; break;
+			case ESource::Sampler:
+				if (Entry.ResourceIndex >= Material.CompiledSamplers.size()) return false;
+				Resource.Resource = Material.CompiledSamplers[Entry.ResourceIndex]; break;
+			case ESource::EnvironmentIrradiance: Resource.Resource = Material.EnvironmentIrradiance; break;
+			case ESource::EnvironmentPrefiltered: Resource.Resource = Material.EnvironmentPrefiltered; break;
+			case ESource::EnvironmentBrdfLut: Resource.Resource = Material.EnvironmentBrdfLut; break;
+			case ESource::EnvironmentSampler: Resource.Resource = Material.EnvironmentSampler; break;
+			case ESource::DirectionalShadowTexture: Resource.Resource = Material.DirectionalShadowTexture; break;
+			case ESource::DirectionalShadowSampler: Resource.Resource = Material.DirectionalShadowSampler; break;
+			}
+			if (Range)
+			{
+				if (!Range->Buffer || Range->Size == 0 || Range->Offset > Range->Buffer->GetSize()
+					|| Range->Size > Range->Buffer->GetSize() - Range->Offset) return false;
+				Resource.Resource = Range->Buffer;
+				Resource.Offset = Range->Offset;
+				Resource.Size = Range->Size;
+			}
+			if (!Resource.Resource) return false;
 			Resources.push_back(Resource);
 		}
-		CommandList.SetShaderParameters(Shader, Resources);
+		OutBindings.Batch = FRHIShaderParameterBatch::Create(Shader, Resources);
+		return OutBindings.Batch != nullptr;
+	}
+
+	auto FPreparedSurfaceMaterialBindings::Bind(FRHICommandList& CommandList) const -> bool
+	{
+		if (!Batch) return false;
+		CommandList.SetPreparedShaderParameters(Batch);
 		return true;
 	}
 

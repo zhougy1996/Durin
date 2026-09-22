@@ -14,9 +14,12 @@ namespace Durin::RendererPrivate
 	public:
 		virtual ~FMeshVertexShaderBinding() = default;
 		virtual auto GetRHIShader(bool bRequired = true) const -> FRHIShader* = 0;
-		virtual auto Bind(FRHICommandListImmediate& CommandList,
+		// Runs before recording. Upload view-dependent data and return owned
+		// parameters without binding a pipeline or emitting draw commands.
+		// One primitive/shader pair may share the result across its sections.
+		virtual auto Prepare(FRHICommandListImmediate& CommandList,
 			const FRHIUniformBufferRange& Transform,
-			const FVertexFactoryBinding& Binding) const -> bool = 0;
+			const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> = 0;
 	};
 
 	class FMeshVertexFactoryImplementation

@@ -9,8 +9,11 @@
 #include "RHIResources.h"
 #include "Scene.h"
 #include "SceneView.h"
+#include "Threading/TaskComposition.h"
+#include "Renderers/ViewPreparationMath.h"
 
 #include <vector>
+#include <deque>
 #include <map>
 #include <unordered_map>
 
@@ -18,9 +21,29 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
+	class FStaticMeshDrawCommandCache;
+	struct FMeshViewPreparationInput
+	{
+		FBox WorldBounds;
+		std::optional<FMeshLODSelectionSnapshot> LODs;
+	};
+	struct FMeshViewPreparationFact
+	{
+		FProjectedScreenSizeResult Projected;
+		std::optional<FPreparedMeshLODSelection> LOD;
+	};
+	struct FMeshViewPreparationFacts
+	{
+		std::vector<FMeshViewPreparationFact> Primitives;
+		size_t TaskCount = 0;
+	};
+	RENDERER_API auto PrepareMeshViewFacts(std::vector<FMeshViewPreparationInput> Inputs,
+		const FSceneView& View, bool bAllowTasks = true) -> FMeshViewPreparationFacts;
+
 	// Command-local facts only. Providers still collect independently for each view/LOD.
 	struct FStaticMeshPreparationCache
 	{
+		FStaticMeshDrawCommandCache* Commands = nullptr;
 		struct FTransform
 		{
 			FMatrix LocalToWorld{1.0};
@@ -69,32 +92,59 @@ namespace Durin
 		uint32 SelectedLODIndex = 0;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		std::shared_ptr<const FVertexFactoryInputBinding> CollectedBinding;
+		std::shared_ptr<const FMeshGeometryRecord> GeometryRecord;
 		FMatrix LocalToWorld{1.0};
 		// Validated inverse-transpose in shader uniform storage order.
 		FMatrix4f NormalToWorld{1.0f};
 	};
 
-	// References its owning prepared primitive by index so vector relocation is safe.
-	struct FPreparedStaticMeshDraw
+	// View-independent interpretation of one published element and pass policy.
+	struct FStaticMeshDrawCommandTemplate
 	{
-		uint32 ResolvedIndex = 0;
-		uint32 PrimitiveIndex = 0;
-		// Dense uniform group assigned after draw sorting.
-		uint32 MaterialUniformIndex = UINT32_MAX;
 		uint64 SectionIndex = 0;
 		FGeometryDrawRange Geometry;
 		FGeometryBufferView Vertices;
 		FGeometryBufferView Indices;
 		uint32 MaterialSlotDiagnostic = 0;
 		bool bSupportsGBuffer = true;
-		FVector3 SortCenter{0.0};
-		// Finite descending key: squared world distance or signed view depth.
-		double TranslucentSortDepth = 0.0;
 		FMaterialRenderData Material;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FEffectiveMeshPipelineKey PipelineKey;
 		FMeshDrawSortKey SortKey;
+		std::shared_ptr<const FMeshGeometryRecord> GeometryOwner;
 	};
+
+	// Cache retention is bounded to the templates touched by one submission.
+	// Old frames independently retain their immutable selected templates.
+	class FStaticMeshDrawCommandCache
+	{
+	public:
+		using FKey = std::array<uint64, 4>;
+		RENDERER_API auto BeginSubmission() -> void;
+		RENDERER_API auto EndSubmission() -> void;
+		RENDERER_API auto Find(const FKey& Key, const FMaterialRenderData& Material)
+			-> std::shared_ptr<const FStaticMeshDrawCommandTemplate>;
+		RENDERER_API auto Store(const FKey& Key, std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command) -> void;
+		auto Num() const -> size_t { return Entries.size(); }
+		auto Reset() -> void { Entries.clear(); }
+	private:
+		struct FEntry { std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command; bool bUsed = false; };
+		std::map<FKey, FEntry> Entries;
+	};
+
+	// Compact per-view references; all stable state belongs to the template.
+	struct FPreparedStaticMeshDraw
+	{
+		std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command;
+		FVisibleMeshDrawSortKey SortKey;
+		std::optional<std::array<float, 3>> RasterBias;
+		uint32 ResolvedIndex = 0;
+		uint32 PrimitiveIndex = 0;
+		uint32 MaterialUniformIndex = UINT32_MAX;
+		FVector3 SortCenter{0.0};
+		double TranslucentSortDepth = 0.0;
+	};
+	static_assert(sizeof(FPreparedStaticMeshDraw) <= 128, "Visible mesh draws must retain compact references, not stable payload copies.");
 
 	struct FPreparedStaticMeshView
 	{
@@ -141,9 +191,15 @@ namespace Durin
 		size_t VertexFactoryTransitions = 0;
 		size_t GeometryTransitions = 0;
 		uint64 SortingNanoseconds = 0;
+		size_t PreparationTaskCount = 0;
+		uint64 PreparationJoinNanoseconds = 0;
 		size_t SharedPrimitiveFactBuilds = 0;
 		size_t SelectedLODFactBuilds = 0;
 		size_t SharedSectionFactBuilds = 0;
+		size_t DynamicGeometryInputValidations = 0;
+		size_t PublishedGeometryElements = 0;
+		size_t CommandTemplateBuilds = 0;
+		size_t CommandTemplateReuses = 0;
 
 		auto GetDraw(uint32 Index) const -> const FPreparedStaticMeshDraw&
 		{
@@ -167,8 +223,11 @@ namespace Durin
 
 	struct FStaticMeshRenderObservations
 	{
+		bool bRecordedOnWorker = false;
 		size_t PrimitiveUniformUploads = 0;
 		size_t MaterialUniformUploads = 0;
+		size_t PreparedSurfaceBindingBatches = 0;
+		size_t SurfaceBindingBatchReuses = 0;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -220,6 +279,139 @@ namespace Durin
 				? &*Draws[Draw.ResolvedIndex].MaterialBinding : nullptr;
 		}
 	};
+
+	// Owns collected geometry/material values after all scene/proxy reads finish.
+	// Dynamic provider bindings retain their existing resource-retirement contract.
+	struct FCollectedStaticMeshView
+	{
+		struct FElementFacts
+		{
+			EGeometrySubmissionOutcome InputOutcome = EGeometrySubmissionOutcome::Submitted;
+			bool bSupportsPreparation = false;
+			bool bSupportsGBuffer = false;
+		};
+		struct FBatch
+		{
+			FMeshBatch Batch;
+			std::shared_ptr<const FVertexFactoryInputBinding> InputBinding;
+			bool bFactoryCompatible = false;
+			std::vector<FElementFacts> Elements;
+		};
+		struct FPrimitive
+		{
+			FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
+			bool bPresent = false;
+			bool bSplineMesh = false;
+			bool bProjectedSizeFallback = false;
+			decltype(FPreparedStaticMeshView::SubmissionOutcomes) Outcomes{};
+			std::vector<FBatch> Batches;
+		};
+		FSceneView View;
+		ERasterMode RasterMode = ERasterMode::Solid;
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full;
+		std::vector<FPrimitive> Primitives;
+	};
+
+	RENDERER_API auto CollectStaticMeshView_RenderThread(
+		const FRHICommandListImmediate& CommandList,
+		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
+		const FSceneView& View, ERasterMode RasterMode,
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full)
+		-> std::shared_ptr<const FCollectedStaticMeshView>;
+
+	// Every shared-cache decision is resolved before this immutable owner is
+	// published. Logical consumers need neither a command list nor a cache.
+	struct FStaticMeshPreparationInputs
+	{
+		struct FElement
+		{
+			std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command;
+			uint32 MaterialUniformIndex = 0;
+			bool bTemplateReused = false;
+		};
+		struct FBatch
+		{
+			FStaticMeshPreparationCache::FTransform Transform;
+			std::vector<FElement> Elements;
+		};
+		std::shared_ptr<const FCollectedStaticMeshView> Collected;
+		std::vector<std::vector<FBatch>> Primitives;
+		size_t MaterialCount = 0;
+	};
+
+	RENDERER_API auto ResolveCollectedStaticMeshView_RenderThread(
+		const FRHICommandListImmediate& CommandList,
+		std::shared_ptr<const FCollectedStaticMeshView> Collected,
+		FStaticMeshPreparationCache* SharedCache = nullptr) -> std::shared_ptr<const FStaticMeshPreparationInputs>;
+
+	struct FStaticMeshPreparationChunk
+	{
+		std::shared_ptr<const FStaticMeshPreparationInputs> Inputs;
+		size_t FirstPrimitive = 0;
+		size_t PrimitiveCount = 0;
+		FPreparedStaticMeshView Output;
+	};
+
+	enum class EStaticMeshPreparationMergeError : uint8
+	{
+		EmptyChunks,
+		MismatchedInputs,
+		InvalidRange,
+		IncompleteCoverage,
+		TooManyPrimitives,
+	};
+
+	RENDERER_API auto PrepareStaticMeshInputChunk(
+		std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
+		size_t FirstPrimitive, size_t PrimitiveCount) -> FStaticMeshPreparationChunk;
+
+	RENDERER_API auto MergeStaticMeshPreparationChunks(std::vector<FStaticMeshPreparationChunk> Chunks)
+		-> std::expected<FPreparedStaticMeshView, EStaticMeshPreparationMergeError>;
+
+	enum class EStaticMeshPreparationPolicy : uint8 { Auto, Inline, Tasks };
+	struct FStaticMeshPreparationWork
+	{
+		struct FSlot
+		{
+			size_t Index;
+			Tasks::TTask<FStaticMeshPreparationChunk> Task;
+		};
+		std::shared_ptr<const FStaticMeshPreparationInputs> Inputs;
+		std::optional<FPreparedStaticMeshView> InlineOutput;
+		std::deque<FSlot> Active;
+		FTaskCancellationToken Cancellation;
+		bool bCanceled = false;
+		size_t NextPrimitive = 0;
+		size_t LaunchedChunks = 0;
+		FStaticMeshPreparationWork() = default;
+		FStaticMeshPreparationWork(FStaticMeshPreparationWork&&) noexcept = default;
+		FStaticMeshPreparationWork(const FStaticMeshPreparationWork&) = delete;
+		auto operator=(FStaticMeshPreparationWork&&) -> FStaticMeshPreparationWork& = delete;
+		RENDERER_API ~FStaticMeshPreparationWork();
+	};
+	struct FStaticMeshPreparationError
+	{
+		size_t ChunkIndex = 0;
+		ETaskState State = ETaskState::Failed;
+		std::optional<EStaticMeshPreparationMergeError> MergeError;
+	};
+	RENDERER_API auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
+		EStaticMeshPreparationPolicy Policy = EStaticMeshPreparationPolicy::Auto,
+		FTaskCancellationToken Cancellation = {}) -> FStaticMeshPreparationWork;
+	RENDERER_API auto FinishStaticMeshPreparation(FStaticMeshPreparationWork Work)
+		-> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError>;
+
+	RENDERER_API auto PrepareStaticMeshInputs(const FStaticMeshPreparationInputs& Resolved) -> FPreparedStaticMeshView;
+
+	RENDERER_API auto PrepareCollectedStaticMeshView_RenderThread(
+		const FRHICommandListImmediate& CommandList,
+		std::shared_ptr<const FCollectedStaticMeshView> Collected,
+		FStaticMeshPreparationCache* SharedCache = nullptr) -> FPreparedStaticMeshView;
+	RENDERER_API auto StartCollectedStaticMeshView_RenderThread(
+		const FRHICommandListImmediate& CommandList,
+		std::shared_ptr<const FCollectedStaticMeshView> Collected,
+		FStaticMeshPreparationCache* SharedCache = nullptr) -> FStaticMeshPreparationWork;
+	RENDERER_API auto FinishStaticMeshView(FStaticMeshPreparationWork Work) -> FPreparedStaticMeshView;
 
 	RENDERER_API auto PrepareStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,

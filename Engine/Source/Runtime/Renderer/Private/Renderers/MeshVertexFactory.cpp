@@ -46,22 +46,21 @@ namespace Durin::RendererPrivate
 			{
 				return Shader.GetRHIShader(bRequired);
 			}
-			auto Bind(FRHICommandListImmediate& CommandList,
+			auto Prepare(FRHICommandListImmediate& CommandList,
 				const FRHIUniformBufferRange& Transform,
-				const FVertexFactoryBinding& Binding) const -> bool override
+				const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> override
 			{
 				typename TShader::FParameters Parameters;
 				Parameters.Transform = Transform;
 				if constexpr (bSpline)
 				{
 					const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(&Binding);
-					if (!Spline || Spline->GetLayoutKey() != FSplineMeshBatchBinding{}.GetLayoutKey()) return false;
+					if (!Spline || Spline->GetLayoutKey() != FSplineMeshBatchBinding{}.GetLayoutKey()) return {};
 					const auto Uniform = MakeSplineMeshUniform(Spline->DynamicData.Params);
 					Parameters.SplineMesh = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 				}
-				else if (Binding.GetLayoutKey() != FStaticMeshBatchBinding{}.GetLayoutKey()) return false;
-				SetShaderParameters(CommandList, Shader, Parameters);
-				return true;
+				else if (Binding.GetLayoutKey() != FStaticMeshBatchBinding{}.GetLayoutKey()) return {};
+				return PrepareShaderParameters(Shader, Parameters);
 			}
 		private:
 			TMaterialShaderRef<TShader> Shader;

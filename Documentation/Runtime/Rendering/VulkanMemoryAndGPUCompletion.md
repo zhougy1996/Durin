@@ -183,6 +183,13 @@ batch and waits their queue-qualified sync points. Unsubmitted external owners a
 rejected as a pressure wait target. This lookup is limited to pressure and
 diagnostics, not ordinary binds. The legacy test token array derives its graphics
 projection from payload ownership and never controls reuse.
+Pool retirement increments an allocation generation. Before each graphics draw
+or compute dispatch, the context invalidates descriptor snapshots from a previous
+generation while preserving pending resource bindings and dynamic offsets. This
+also covers pre-recorded command chunks replayed after retirement without an
+intervening `BeginFrame`; an old cache hit must never bind a retired native set
+or retain the next batch's unrelated allocation lease. Device teardown destroys
+both the pool and its context caches.
 Command-context descriptor snapshots remain bounded
 and frame-local as binding caches, but clearing a snapshot never authorizes an
 in-flight native pool reset. Command buffers and submission fences return to
@@ -191,7 +198,9 @@ path.
 
 Live descriptor snapshot and retained-value occupancy belong to the command
 context and change in the same operation that commits insertion, eviction,
-frame clear, pipeline deletion, or context reset. Failed candidates and cache
+frame clear, or context reset. Graphics pipeline deletion releases its pending
+parameters; context-owned compatible set snapshots survive until bounded eviction
+or clear. Failed candidates and cache
 hits are occupancy-neutral. Statistics reset preserves these exact live totals
 while clearing accumulated counters; production cache mutations do not derive
 them by traversing every pipeline state.

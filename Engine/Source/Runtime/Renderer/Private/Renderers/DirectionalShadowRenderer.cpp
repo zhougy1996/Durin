@@ -48,6 +48,11 @@ namespace Durin
 		GShadowDepthCaptureSink.store(Sink, std::memory_order_release);
 	}
 
+	auto HasShadowDepthTimingQuerySink() -> bool
+	{
+		return GShadowDepthTimingQuerySink.load(std::memory_order_acquire) != nullptr;
+	}
+
 	FDirectionalShadowRenderer::FDirectionalShadowRenderer(
 		FRendererResourceCoordinator& InCoordinator)
 		: Coordinator(InCoordinator), State(std::make_unique<FState>())
@@ -159,6 +164,8 @@ namespace Durin
 			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList,
 				Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade], false, false, true);
+			if (bReady) bReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
+				Shadow.StaticMeshes[Cascade], ResolvedShadow.StaticMeshes[Cascade], State->FallbackLighting, true);
 		}
 		if (!bReady)
 		{
@@ -168,10 +175,41 @@ namespace Durin
 		return bReady;
 	}
 
+	auto FDirectionalShadowRenderer::CaptureCascade_RenderThread(FRHITexture* Target, uint32 Cascade) const
+		-> std::optional<FDirectionalShadowCascadeRecording>
+	{
+		check(IsInRenderingThread());
+		const auto* Resources = State->Resources.GetPayload();
+		if (!Resources || !Resources->Target || Target != Resources->Target
+			|| Cascade >= Resources->DepthAttachmentViews.size() || !Resources->DepthAttachmentViews[Cascade]) return {};
+		return FDirectionalShadowCascadeRecording{Resources->Target, Resources->DepthAttachmentViews[Cascade]};
+	}
+
+	auto FDirectionalShadowRenderer::RecordCascade(FRHICommandList& Commands,
+		const FDirectionalShadowCascadeRecording& Recording,
+		const FPreparedStaticMeshView& Prepared, const FResolvedStaticMeshView& Resolved)
+		-> FStaticMeshRenderObservations
+	{
+		check(!Commands.IsInsideRenderPass());
+		check(Recording.Target && Recording.DepthAttachment);
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		FRHIRenderPassInfo Pass{};
+		Pass.RenderTargetLayout = RenderTargetLayouts::MakeDirectionalShadowDepth();
+		Pass.DepthStencilRenderTarget = Recording.Target;
+		Pass.DepthStencilRenderTargetView = Recording.DepthAttachment;
+		Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
+		Commands.BeginRenderPass(Pass, "DirectionalShadowCascadeDepthRenderPass");
+		Commands.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(DirectionalShadowResolution),
+			static_cast<float>(DirectionalShadowResolution), 1.0f);
+		Commands.SetScissor(0.0f, 0.0f, static_cast<float>(DirectionalShadowResolution), static_cast<float>(DirectionalShadowResolution));
+		auto Counts = FStaticMeshRenderer::RecordShadow(Commands, Prepared, Resolved);
+		Commands.EndRenderPass();
+		return Counts;
+	}
+
 	auto FDirectionalShadowRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* Target,
-		FStaticMeshRenderer& StaticMeshes,
 		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
 		FViewRenderTelemetry& Telemetry) -> bool
@@ -189,30 +227,37 @@ namespace Durin
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 		}
+		std::array<FStaticMeshRenderObservations, DirectionalShadowCascadeCount> Counts;
 		for (uint32 CascadeIndex = 0;
 			CascadeIndex < Shadow.View.CascadeCount; ++CascadeIndex)
 		{
-			const auto& Cascade = Shadow.View.Cascades[CascadeIndex];
-			FRHIRenderPassInfo Pass{};
-			Pass.RenderTargetLayout =
-				RenderTargetLayouts::MakeDirectionalShadowDepth();
-			Pass.DepthStencilRenderTarget = Target;
-			Pass.DepthStencilRenderTargetView =
-				Resources->DepthAttachmentViews[CascadeIndex];
-			Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
-			CommandList.BeginRenderPass(Pass,
-				"DirectionalShadowCascadeDepthRenderPass");
-			CommandList.SetViewport(0.0f, 0.0f, 0.0f,
-				static_cast<float>(DirectionalShadowResolution),
-				static_cast<float>(DirectionalShadowResolution), 1.0f);
-			CommandList.SetScissor(0.0f, 0.0f,
-				static_cast<float>(DirectionalShadowResolution),
-				static_cast<float>(DirectionalShadowResolution));
-			StaticMeshes.ExecuteShadow_RenderThread(
-				CommandList, Cascade.CasterView, State->FallbackLighting,
-				Shadow.StaticMeshes[CascadeIndex],
+			const auto Recording = CaptureCascade_RenderThread(Target, CascadeIndex);
+			require(Recording.has_value());
+			Counts[CascadeIndex] = RecordCascade(CommandList, *Recording, Shadow.StaticMeshes[CascadeIndex],
 				ResolvedShadow.StaticMeshes[CascadeIndex]);
-			CommandList.EndRenderPass();
+		}
+		if (TimingQuery)
+		{
+			CommandList.EndGPUTimingQuery(TimingQuery);
+			Sink(TimingQuery);
+		}
+		Complete_RenderThread(CommandList, Target, std::span(Counts).first(Shadow.View.CascadeCount),
+			ResolvedShadow, Telemetry);
+		return true;
+	}
+
+	auto FDirectionalShadowRenderer::Complete_RenderThread(FRHICommandListImmediate& Commands,
+		FRHITexture* Target, std::span<const FStaticMeshRenderObservations> Counts,
+		FResolvedDirectionalShadow& ResolvedShadow, FViewRenderTelemetry& Telemetry) -> void
+	{
+		check(IsInRenderingThread());
+		for (uint32 CascadeIndex = 0; CascadeIndex < Counts.size(); ++CascadeIndex)
+		{
+			Telemetry.DirectionalShadow.ShadowWorkerRecordingChunks += Counts[CascadeIndex].bRecordedOnWorker;
+			auto& Observations = ResolvedShadow.StaticMeshes[CascadeIndex].Observations;
+			Observations.AttemptedDraws += Counts[CascadeIndex].AttemptedDraws;
+			Observations.SuccessfulDraws += Counts[CascadeIndex].SuccessfulDraws;
+			Observations.RejectedDraws += Counts[CascadeIndex].RejectedDraws;
 			auto& CascadeTelemetry = Telemetry.DirectionalShadow.ShadowCascades[CascadeIndex];
 			CascadeTelemetry.AttemptedDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws;
@@ -224,17 +269,11 @@ namespace Durin
 			Telemetry.DirectionalShadow.ShadowAttemptedDraws += CascadeTelemetry.AttemptedDraws;
 			Telemetry.DirectionalShadow.ShadowSuccessfulDraws += CascadeTelemetry.SuccessfulDraws;
 		}
-		if (TimingQuery)
-		{
-			CommandList.EndGPUTimingQuery(TimingQuery);
-			Sink(TimingQuery);
-		}
 		if (const auto Capture = GShadowDepthCaptureSink.load(std::memory_order_acquire))
-			Capture(CommandList, Target, Shadow.View.CascadeCount);
+			Capture(Commands, Target, static_cast<uint32>(Counts.size()));
 		Telemetry.DirectionalShadow.ShadowRejectedDraws =
 			Telemetry.DirectionalShadow.ShadowAttemptedDraws
 				- Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
-		return true;
 	}
 
 	auto FDirectionalShadowRenderer::GetTexture_RenderThread() const

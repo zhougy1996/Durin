@@ -8,7 +8,7 @@ namespace Durin
 	using namespace RendererPrivate;
 	namespace
 	{
-		class FHitProxyFragmentShader final : public FMaterialShader
+		class FHitProxyFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FHitProxyFragmentShader)
@@ -16,7 +16,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_MATERIAL_SHADER(FHitProxyFragmentShader, FMaterialShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FHitProxyFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "HitProxyFragmentMain");
 		};
 		DURIN_IMPLEMENT_MATERIAL_SHADER(FHitProxyFragmentShader);
@@ -68,7 +68,8 @@ namespace Durin
 			FPreparedStaticMeshSurfaceMaterial Material;
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange Id;
-			bool bErrorMaterial = false;
+			FPreparedSurfaceMaterialBindings FragmentBindings;
+			std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
 		};
 	}
 
@@ -103,32 +104,31 @@ namespace Durin
 				FHitProxyDraw Item;
 				Item.Primitive = Prepared.GetPrimitive(Draw);
 				Item.Draw = &Draw;
-				const auto Factory = FindMeshVertexFactory(Draw.PipelineKey.FactoryKey);
+				const auto Factory = FindMeshVertexFactory(Draw.Command->PipelineKey.FactoryKey);
 				FMaterialRenderBinding Binding;
 				if (!Item.Primitive || !Factory || !Factory->GetShaderType(MaterialMeshPassForward)
-					|| !ResolvePreparedMaterialBinding(Draw.Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
+					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
 				FShaderCompileOptions Options;
-				const auto& Identity = Draw.Material.PlanningPassIdentity.ShaderMap;
+				const auto& Identity = Draw.Command->Material.PlanningPassIdentity.ShaderMap;
 				Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Identity.BlendMode)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Identity.ShadingModel)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
 				if (!InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
 					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
-					Draw.Material.CompiledProgram.get(), Options, Item.ShaderMap)) { bReady = false; break; }
+					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap)) { bReady = false; break; }
 				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);
 				Item.Fragment = TMaterialShaderRef<FHitProxyFragmentShader>(Item.ShaderMap);
 				if (!Item.Vertex || !Item.Vertex->GetRHIShader(false) || !Item.Fragment.GetRHIShader(false)) { bReady = false; break; }
-				Item.bErrorMaterial = Binding.bError;
-				if (!Item.bErrorMaterial && (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
+				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding)
-						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material))) { bReady = false; break; }
+						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				FGraphicsPipelineStateInitializer Pipeline;
 				Pipeline.RenderTargetLayout = MakeHitProxyLayout();
 				Pipeline.BoundShaders.VertexShader = Item.Vertex->GetRHIShader();
 				Pipeline.BoundShaders.FragmentShader = Item.Fragment.GetRHIShader();
 				Pipeline.VertexDeclaration = Item.Primitive->CollectedBinding->Declaration;
-				Pipeline.PrimitiveTopology = Draw.PipelineKey.Topology;
-				Pipeline.RasterizerState = Draw.PipelineKey.Rasterizer;
+				Pipeline.PrimitiveTopology = Draw.Command->PipelineKey.Topology;
+				Pipeline.RasterizerState = Draw.Command->PipelineKey.Rasterizer;
 				Pipeline.RasterizerState.PolygonMode = ERHIPolygonMode::Fill;
 				Pipeline.DepthStencilState.bEnableTest = true;
 				Pipeline.DepthStencilState.bEnableWrite = true;
@@ -142,6 +142,10 @@ namespace Durin
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(FVector3f(View.ViewLocation), 0.f)};
 				Item.Id = Commands.AllocateDynamicUniformBuffer(&Id, sizeof(Id));
+				if (!PrepareCompiledSurfaceMaterial(Item.Fragment.GetRHIShader(false), Item.Fragment.GetShader()->GetSurfaceLayout(),
+					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform, Item.FragmentBindings)) { bReady = false; break; }
+				Item.VertexBindings = Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding);
+				if (!Item.VertexBindings) { bReady = false; break; }
 				Draws.push_back(std::move(Item));
 			}
 		});
@@ -220,15 +224,8 @@ namespace Durin
 			Commands.SetGraphicsPipelineState(*Item.Pipeline);
 			FStaticMeshGeometryBinding Geometry(*Item.Primitive, *Item.Draw);
 			Geometry.Bind(Commands);
-			if (!Item.Vertex->Bind(Commands, Item.Transform, *Item.Primitive->CollectedBinding)) { bReady = false; break; }
-			if (Item.bErrorMaterial)
-			{
-				FHitProxyFragmentShader::FParameters Parameters;
-				Parameters.HitProxy = Item.Id;
-				SetShaderParameters(Commands, Item.Fragment, Parameters);
-			}
-			else if (!BindCompiledSurfaceMaterial(Commands, Item.Fragment.GetRHIShader(),
-				Item.Fragment.GetShader()->GetReflection(), Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform)) { bReady = false; break; }
+			Commands.SetPreparedShaderParameters(Item.VertexBindings);
+			if (!Item.FragmentBindings.Bind(Commands)) { bReady = false; break; }
 			Geometry.DrawIndexed(Commands);
 		}
 		if (bReady && OverlayBuffer)

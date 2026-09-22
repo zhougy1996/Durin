@@ -16,14 +16,14 @@ namespace Durin
 	namespace
 	{
 
-		class FGBufferFragmentShader final : public FMaterialShader
+		class FGBufferFragmentShader final : public RendererPrivate::FCompiledSurfaceMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, FMaterialShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, RendererPrivate::FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"GeometryFragmentMain");
 		};
@@ -66,11 +66,12 @@ namespace Durin
 		}
 	} // namespace
 
-	struct FGBufferRenderer::FPipeline
+	struct FGBufferPipeline
 	{
 		FMaterialShaderMap ShaderMap;
 		std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding> Vertex;
 		TMaterialShaderRef<FGBufferFragmentShader> Fragment;
+		FShaderRHIRef FragmentRHI;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 		FXxHash64 FactoryKey;
@@ -88,7 +89,7 @@ namespace Durin
 
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FGBufferPipelineKey, std::unique_ptr<FPipeline>>
+		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>>
 			Pipelines{ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
 	};
@@ -118,7 +119,7 @@ namespace Durin
 			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT)};
 	}
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
-		const FPipelineRequest& Request) -> FPipeline*
+		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>
 	{
 		if (Request.VertexDeclaration == nullptr
 			|| Request.Material.ShaderMap.BlendMode
@@ -215,16 +216,17 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread();
 		PipelineGeneration.Shader = Shaders->ShaderMap.GetGeneration().Shader;
 		using FPipelineResult =
-			TRenderResourceCreateResult<std::unique_ptr<FPipeline>>;
-		std::unique_ptr<FPipeline>* Pipeline = PipelineEntry.Slot.Resolve(
+			TRenderResourceCreateResult<std::shared_ptr<const FPipeline>>;
+		std::shared_ptr<const FPipeline>* Pipeline = PipelineEntry.Slot.Resolve(
 			PipelineGeneration,
 			[&PipelineEntry, Shaders, PipelineKey,
 			 VertexDeclaration = Request.VertexDeclaration]()
 				-> FPipelineResult {
-				auto Candidate = std::make_unique<FPipeline>();
+				auto Candidate = std::make_shared<FPipeline>();
 				Candidate->ShaderMap = Shaders->ShaderMap;
 				Candidate->Vertex = Shaders->Vertex;
 				Candidate->Fragment = Shaders->Fragment;
+				Candidate->FragmentRHI = Candidate->Fragment.GetRHIShader();
 				Candidate->VertexDeclaration = VertexDeclaration;
 				Candidate->FactoryKey = PipelineKey.FactoryKey;
 				Candidate->LayoutKey = PipelineKey.LayoutKey;
@@ -260,25 +262,39 @@ namespace Durin
 				return FPipelineResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnostic);
-		return Pipeline != nullptr ? Pipeline->get() : nullptr;
+		return Pipeline != nullptr ? *Pipeline : nullptr;
 	}
 
 	auto FGBufferRenderer::BindPipeline_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPipeline& Pipeline,
-		const FVertexParameters& VertexParameters,
-		const FFragmentParameters& FragmentParameters) -> bool
+		const FPipeline& Pipeline,
+		const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
+		const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool
 	{
-		if (Pipeline.PipelineState == nullptr) return false;
+		if (Pipeline.PipelineState == nullptr || FragmentBindings.GetShader() != Pipeline.FragmentRHI) return false;
+		if (!VertexBindings || VertexBindings->GetShader() != Pipeline.Vertex->GetRHIShader(false)) return false;
 		CommandList.SetGraphicsPipelineState(*Pipeline.PipelineState);
-		if (!VertexParameters.Binding || VertexParameters.Binding->GetFactoryKey() != Pipeline.FactoryKey
-			|| VertexParameters.Binding->GetLayoutKey() != Pipeline.LayoutKey
-			|| !Pipeline.Vertex->Bind(CommandList, VertexParameters.Transform, *VertexParameters.Binding)) return false;
+		CommandList.SetPreparedShaderParameters(VertexBindings);
 
-		if (FragmentParameters.Compiled && FragmentParameters.Compiled->bCompiledLayout)
-			return RendererPrivate::BindCompiledSurfaceMaterial(CommandList, Pipeline.Fragment.GetRHIShader(),
-				Pipeline.Fragment.GetReflection(), *FragmentParameters.Compiled, FragmentParameters.Material, {}, {}, FragmentParameters.View);
-		return false;
+		return FragmentBindings.Bind(CommandList);
+	}
+
+	auto FGBufferRenderer::GetVertexBinding(const FPipeline& Pipeline, const FVertexFactoryBinding& Binding) const
+		-> std::shared_ptr<const RendererPrivate::FMeshVertexShaderBinding>
+	{
+		if (Binding.GetFactoryKey() != Pipeline.FactoryKey || Binding.GetLayoutKey() != Pipeline.LayoutKey) return {};
+		return Pipeline.Vertex;
+	}
+
+	auto FGBufferRenderer::GetFragmentShader(const FPipeline& Pipeline) const -> FRHIShader*
+	{
+		return Pipeline.FragmentRHI;
+	}
+
+	auto FGBufferRenderer::GetSurfaceLayout(const FPipeline& Pipeline) const
+		-> const RendererPrivate::FCompiledSurfaceBindingLayout&
+	{
+		return Pipeline.Fragment.GetShader()->GetSurfaceLayout();
 	}
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void

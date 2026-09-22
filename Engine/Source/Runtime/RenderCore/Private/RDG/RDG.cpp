@@ -527,7 +527,8 @@ namespace Durin
 		ERDGPassType Type,
 		const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
 		std::shared_ptr<void> Lifetime,
-		FRDGParameterizedPassExecute ParameterizedExecute)
+		FRDGParameterizedPassExecute ParameterizedExecute, FRDGRecordingPassExecute RecordingExecute,
+		ERDGRecordingPolicy RecordingPolicy)
 		-> FRDGPassHandle
 	{
 		RequireBuilding();
@@ -561,6 +562,8 @@ namespace Durin
 		ParameterizedPass.Name = Name;
 		ParameterizedPass.Type = Type;
 		ParameterizedPass.ParameterizedExecute = std::move(ParameterizedExecute);
+		ParameterizedPass.RecordingExecute = std::move(RecordingExecute);
+		ParameterizedPass.RecordingPolicy = RecordingPolicy;
 		ParameterizedPass.ParameterLayout = Layout;
 		ParameterizedPass.Parameters = Parameters;
 

@@ -17,6 +17,7 @@ namespace Durin::Tasks
 		UniqueConsumerClaimed,
 		DependencyCycle,
 		InvalidCallable,
+		InvalidExecutionContract,
 	};
 
 	// Zero means no particular task is associated with the rejection.

@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 ## Ownership Boundary
 
@@ -212,6 +212,34 @@ never discard the whole resource; buffer barriers cover the complete allocation.
 
 `FRDGBuilder::Execute` records each pre-pass batch, invokes the pass
 callback with a pass-scoped resource view, and then records final batches.
+`AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
+same frozen typed parameters/resolver. Its callback must close every render pass,
+diagnostic region and timing query; the graph seals and queues the list only after
+the callback returns successfully. The list owns captured command resources after
+builder destruction. An exception destroys that callback's unpublished list and
+leaves the graph failed. This does not roll back previously queued passes.
+These callbacks default to serial recording. `ERDGRecordingPolicy::Parallel`
+declares an independent CPU callback: it may read frozen parameters/resources and
+access declared typed values, but cannot mutate renderer caches, global telemetry
+or graph metadata, launch child tasks, or depend on RHI/owner-thread progress.
+Eligible consecutive callbacks form waves of at most eight. Every compiled
+dependency, including typed-value and explicit edges, cuts a wave before its
+consumer; serial callbacks also cut waves. Single-pass waves and unavailable
+schedulers run inline. Worker results are joined in pass order and the complete
+wave must succeed before any of its lists is queued. Failure or cancellation
+discards that wave and drains every launched task; earlier queued waves remain.
+Task-handle storage is reserved before dispatch so allocation failure cannot
+orphan work borrowing the graph. A failed graph remains consumed: later callbacks
+and extraction publication do not run, and another `Execute` cannot replay its
+accepted prefix. Queued command payloads retain their owners independently of
+the graph and release them when replay storage retires.
+Immediate-only `AddPass` callbacks remain supported. Barriers,
+queue ownership and submission assembly remain on the immediate timeline; an
+owned recording callback cannot use immediate allocation, readback or flush APIs.
+Assembly follows `QueueCommandList` admission rules: the immediate list must not
+be inside a render pass, diagnostic region or timing query when the owned list
+is inserted. Migrating a caller with surrounding scopes requires moving those
+scopes to a supported recording boundary first.
 Lookup of a foreign, undeclared, incorrectly typed, or unavailable handle is
 an unrecoverable authoring-contract failure. Graphics, compute, and copy passes
 accept only their corresponding graphics/attachment, compute, and transfer

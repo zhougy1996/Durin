@@ -26,3 +26,27 @@ FragmentOutput FragmentMrtMain()
 	Output.Color1 = Output.Color0;
 	return Output;
 }
+
+struct DynamicColor { float4 Color; };
+[[vk::binding(5, 2)]] ConstantBuffer<DynamicColor> DynamicColors[2];
+
+[shader("fragment")]
+float4 FragmentDynamicMain() : SV_Target
+{
+	return 0.5 * (DynamicColors[0].Color + DynamicColors[1].Color);
+}
+
+[[vk::binding(3, 0)]] ConstantBuffer<DynamicColor> FrequencyPass;
+[[vk::binding(7, 2)]] ConstantBuffer<DynamicColor> FrequencyMaterial;
+
+[shader("fragment")]
+float4 FragmentFrequencyMain() : SV_Target
+{
+    return FrequencyPass.Color * FrequencyMaterial.Color;
+}
+
+[shader("fragment")]
+float4 FragmentFrequencyAlternateMain() : SV_Target
+{
+    return FrequencyMaterial.Color * FrequencyPass.Color;
+}

@@ -41,50 +41,6 @@ namespace Durin
 
 namespace Durin::RendererPrivate
 {
-	template <typename TForwardShaderRef, typename TMaskedShadowShaderRef,
-		typename TDrawSubmission>
-	auto ExecuteMeshSurfacePass_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		ESurfaceMaterialPass Pass,
-		const FRHIUniformBufferRange& Lighting,
-		const FRHIUniformBufferRange& View,
-		const FResolvedSurfaceMaterial* Material,
-		const FRHIUniformBufferRange& MaterialBuffer,
-		const TForwardShaderRef& ForwardShader,
-		const TMaskedShadowShaderRef& MaskedShadowShader,
-		TDrawSubmission&& SubmitDraw) -> bool
-	{
-		check(IsInRenderingThread());
-		check(CommandList.IsInsideRenderPass());
-		switch (Pass)
-		{
-		case ESurfaceMaterialPass::OpaqueShadow:
-			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
-			return true;
-		case ESurfaceMaterialPass::MaskedShadow:
-			if (Material && Material->bCompiledLayout)
-			{
-				if (!MaskedShadowShader || !BindCompiledSurfaceMaterial(CommandList,
-					MaskedShadowShader.GetRHIShader(), MaskedShadowShader.GetReflection(), *Material, MaterialBuffer, Lighting, {}, View)) return false;
-				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
-				return true;
-			}
-			return false;
-		case ESurfaceMaterialPass::Forward:
-			if (Material && Material->bCompiledLayout)
-			{
-				if (!ForwardShader || !BindCompiledSurfaceMaterial(CommandList,
-					ForwardShader.GetRHIShader(), ForwardShader.GetReflection(), *Material, MaterialBuffer, Lighting, {}, View)) return false;
-				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
-				return true;
-			}
-			return false;
-		case ESurfaceMaterialPass::GBuffer:
-			return false;
-		}
-		return false;
-	}
-
 	template<typename TPreparedView>
 	auto GetBasePassBucket(
 		TPreparedView& PreparedView,

@@ -50,8 +50,12 @@ namespace Durin
 		auto CanonicalizeShaderParameters(
 			std::span<const FRHIShaderParameterResource> Input,
 			std::vector<FRHIShaderParameterResource>& Output,
-			std::vector<TRefCountPtr<FRHIResource>>& CreatedViews) -> void
+			std::vector<TRefCountPtr<FRHIResource>>& CreatedViews, bool bFallible = false) -> bool
 		{
+			auto Fail = [bFallible](const char* Message) -> bool {
+				if (!bFallible) checkf(false, "{}", Message);
+				return false;
+			};
 			Output.assign(Input.begin(), Input.end());
 			CreatedViews.reserve(Output.size());
 			for (FRHIShaderParameterResource& Parameter : Output)
@@ -60,18 +64,19 @@ namespace Durin
 				if (Parameter.Type == ERHIBindingType::Texture || Parameter.Type == ERHIBindingType::StorageImage)
 				{
 					if (Parameter.Resource->GetResourceType() == ERHIResourceType::TextureView) continue;
-					auto* Texture = static_cast<FRHITexture*>(Parameter.Resource);
-					if (Texture->GetResourceType() == ERHIResourceType::TextureReference)
+					auto* TextureResource = Parameter.Resource;
+					if (TextureResource->GetResourceType() == ERHIResourceType::TextureReference)
 					{
-						Texture = static_cast<FRHITextureReference*>(Texture)->GetReferencedTexture_RenderThread();
+						TextureResource = static_cast<FRHITextureReference*>(TextureResource)->GetReferencedTexture_RenderThread();
 					}
-					checkf(Texture && Texture->GetResourceType() == ERHIResourceType::Texture,
-						"Shader texture binding requires a texture or texture view.");
+					if (!TextureResource || TextureResource->GetResourceType() != ERHIResourceType::Texture)
+						return Fail("Shader texture binding requires a texture or texture view.");
+					auto* Texture = static_cast<FRHITexture*>(TextureResource);
 					FRHITextureViewDesc Desc = MakeDefaultTextureViewDesc(*Texture,
 						Parameter.Type == ERHIBindingType::StorageImage
 							? ERHITextureViewUsage::Storage : ERHITextureViewUsage::Sampled);
 					FTextureViewRHIRef View = CreateTextureViewForRecording(Texture, Desc);
-					checkf(View, "Shader texture binding could not create its canonical view.");
+					if (!View) return Fail("Shader texture binding could not create its canonical view.");
 					Parameter.Resource = View.GetReference();
 					CreatedViews.emplace_back(View.GetReference());
 					continue;
@@ -82,8 +87,8 @@ namespace Durin
 					|| Parameter.Type == ERHIBindingType::StorageBuffer)
 				{
 					if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView) continue;
-					checkf(Parameter.Resource->GetResourceType() == ERHIResourceType::Buffer,
-						"Shader buffer binding requires a buffer or buffer view.");
+					if (Parameter.Resource->GetResourceType() != ERHIResourceType::Buffer)
+						return Fail("Shader buffer binding requires a buffer or buffer view.");
 					auto* Buffer = static_cast<FRHIBuffer*>(Parameter.Resource);
 					const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
 					const uint64 ViewOffset = bDynamic ? 0 : Parameter.Offset;
@@ -91,9 +96,8 @@ namespace Durin
 						? Parameter.Size : Buffer->GetSize() - Parameter.Offset;
 					if (bDynamic)
 					{
-						checkf(Parameter.Offset <= Buffer->GetSize()
-							&& ViewSize <= Buffer->GetSize() - Parameter.Offset,
-							"Dynamic uniform range exceeds its parent buffer.");
+						if (Parameter.Offset > Buffer->GetSize() || ViewSize > Buffer->GetSize() - Parameter.Offset)
+							return Fail("Dynamic uniform range exceeds its parent buffer.");
 					}
 					ERHIBufferViewType ViewType = ERHIBufferViewType::Uniform;
 					if (Parameter.Type == ERHIBindingType::StorageBuffer)
@@ -104,16 +108,36 @@ namespace Durin
 					}
 					const FRHIBufferViewDesc Desc{ViewOffset, ViewSize, ViewType, EPixelFormat::Unknown};
 					FBufferViewRHIRef View = CreateBufferViewForRecording(Buffer, Desc);
-					checkf(View, "Shader buffer binding could not create its canonical view.");
+					if (!View) return Fail("Shader buffer binding could not create its canonical view.");
 					Parameter.Resource = View.GetReference();
 					Parameter.Size = 0;
 					if (!bDynamic) Parameter.Offset = 0;
 					CreatedViews.emplace_back(View.GetReference());
 					continue;
 				}
-				checkf(false, "Unsupported shader parameter binding type.");
+				return Fail("Unsupported shader parameter binding type.");
 			}
+			return true;
 		}
+	}
+
+	auto FRHIShaderParameterBatch::Create(FRHIShader* InShader, std::span<const FRHIShaderParameterResource> InParameters)
+		-> std::shared_ptr<const FRHIShaderParameterBatch>
+	{
+		if (!InShader || std::ranges::any_of(InParameters, [](const auto& Parameter) { return !Parameter.Resource; })) return {};
+		auto Batch = std::shared_ptr<FRHIShaderParameterBatch>(new FRHIShaderParameterBatch);
+		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
+		if (!CanonicalizeShaderParameters(InParameters, Batch->Parameters, CreatedViews, true)) return {};
+		Batch->Shader = InShader;
+		Batch->Resources.reserve(Batch->Parameters.size());
+		for (const auto& Parameter : Batch->Parameters) Batch->Resources.emplace_back(Parameter.Resource);
+		return Batch;
+	}
+
+	auto FRHIShaderParameterBatch::GetRetainedPayloadBytes() const -> size_t
+	{
+		return CheckedAddPayloadBytes(Parameters.capacity() * sizeof(FRHIShaderParameterResource),
+			Resources.capacity() * sizeof(TRefCountPtr<FRHIResource>));
 	}
 
 	class FRHICommandReplayContext
@@ -1346,11 +1370,28 @@ namespace Durin
 			FByteBuffer Data;
 		};
 
+		struct FSetPreparedShaderParametersCommand
+		{
+			explicit FSetPreparedShaderParametersCommand(std::shared_ptr<const FRHIShaderParameterBatch> InBatch)
+				: Batch(std::move(InBatch)) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetPipelineContext("SetPreparedShaderParameters")
+					.RHISetShaderParameters(Batch->GetShader(), Batch->GetParameters());
+			}
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				// Conservative per-reference charge preserves queue admission bounds.
+				return Batch->GetRetainedPayloadBytes();
+			}
+			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
+		};
+
 		struct FSetShaderParametersCommand
 		{
 			FSetShaderParametersCommand(
 				FRHIShader* InShader,
-				std::span<FRHIShaderParameterResource> InParameters)
+				std::span<const FRHIShaderParameterResource> InParameters)
 				: Shader(InShader)
 				, Parameters(InParameters.begin(), InParameters.end())
 			{
@@ -2183,7 +2224,7 @@ namespace Durin
 		RecordCommand<FPushConstantsCommand>(StageFlags, Offset, Size, Data);
 	}
 
-	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<const FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics
 			|| ActivePipeline == ERHIPipeline::Compute,
@@ -2193,10 +2234,21 @@ namespace Durin
 			"Compute shader parameters require a compute shader.");
 		std::vector<FRHIShaderParameterResource> CanonicalParameters;
 		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
-		CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews);
+		if (!CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews)) return;
 		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputeRequest : ActiveGraphicsRequest;
 		if (Request.IsAccepted()) requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FSetShaderParametersCommand>(InShader, CanonicalParameters);
+	}
+
+	auto FRHICommandListBase::SetPreparedShaderParameters(std::shared_ptr<const FRHIShaderParameterBatch> Batch) -> void
+	{
+		checkf(Batch && (ActivePipeline == ERHIPipeline::Graphics || ActivePipeline == ERHIPipeline::Compute),
+			"Prepared shader parameters require a batch and an active pipeline.");
+		checkf(ActivePipeline != ERHIPipeline::Compute || Batch->GetShader()->GetFrequency() == EShaderFrequency::Compute,
+			"Compute shader parameters require a compute shader.");
+		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputeRequest : ActiveGraphicsRequest;
+		if (Request.IsAccepted()) requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		RecordCommand<FSetPreparedShaderParametersCommand>(std::move(Batch));
 	}
 
 	FRHICommandListImmediate::FRHICommandListImmediate(

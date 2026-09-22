@@ -91,7 +91,7 @@ namespace Durin
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override {}
 			auto RHIBlockUntilGPUIdle() -> void override { ++GPUIdleCount; }
 			auto RHIPushConstants(EShaderStageFlags, uint32, uint32, const void*) -> void override {}
-			auto RHISetShaderParameters(FRHIShader*, const std::span<FRHIShaderParameterResource>&) -> void override {}
+			auto RHISetShaderParameters(FRHIShader*, const std::span<const FRHIShaderParameterResource>&) -> void override {}
 			auto RHIDraw(const FRHIDrawArguments&) -> void override {}
 			auto RHIDrawIndexed(const FRHIDrawIndexedArguments&) -> void override {}
 

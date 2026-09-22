@@ -137,13 +137,11 @@ namespace Durin
 		return Storage;
 	}
 
-	auto SetShaderParametersImpl(
-		FRHICommandListBase& RHICmdList,
-		FRHIShader* RHIShader,
+	static auto ResolveShaderParameterResources(
 		const FShaderParametersMetadata& ParametersMetadata,
 		std::span<const FShaderParameterBinding> ParameterBindings,
 		const void* ParameterData
-	) -> void
+	) -> std::vector<FRHIShaderParameterResource>
 	{
 		checkf(ParameterData != nullptr, "Shader parameter data must not be null");
 		checkf(
@@ -213,7 +211,22 @@ namespace Durin
 			}
 		}
 
-		RHICmdList.SetShaderParameters(RHIShader, ResourceParameters);
+		return ResourceParameters;
+	}
+
+	auto PrepareShaderParametersImpl(FRHIShader* Shader,
+		const FShaderParametersMetadata& Metadata,
+		std::span<const FShaderParameterBinding> Bindings, const void* Data)
+		-> std::shared_ptr<const FRHIShaderParameterBatch>
+	{
+		return FRHIShaderParameterBatch::Create(Shader, ResolveShaderParameterResources(Metadata, Bindings, Data));
+	}
+
+	auto SetShaderParametersImpl(FRHICommandListBase& Commands, FRHIShader* Shader,
+		const FShaderParametersMetadata& Metadata,
+		std::span<const FShaderParameterBinding> Bindings, const void* Data) -> void
+	{
+		Commands.SetShaderParameters(Shader, ResolveShaderParameterResources(Metadata, Bindings, Data));
 	}
 
 	auto SetRDGShaderParametersImpl(

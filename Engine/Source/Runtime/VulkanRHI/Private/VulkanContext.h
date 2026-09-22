@@ -110,7 +110,7 @@ namespace Durin::VulkanRHI
 
 		auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override;
 
-		auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void override;
+		auto RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void override;
 
 		auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override;
 

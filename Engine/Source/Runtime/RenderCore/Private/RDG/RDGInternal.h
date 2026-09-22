@@ -108,6 +108,8 @@ namespace Durin::RDGPrivate
 		std::vector<FGraphUse> Uses;
 		std::vector<uint32> Prerequisites;
 		FRDGParameterizedPassExecute ParameterizedExecute;
+		FRDGRecordingPassExecute RecordingExecute;
+		ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial;
 		bool bRoot = false;
 		// Terminal exports consume contents but may hand off a writable access state.
 		bool bExport = false;

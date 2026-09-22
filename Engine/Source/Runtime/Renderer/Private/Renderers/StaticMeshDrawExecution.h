@@ -87,8 +87,8 @@ namespace Durin::RendererPrivate
 
 		auto IsValid() const -> bool;
 		auto GetVertexDeclaration() const -> FVertexDeclarationRHIRef;
-		auto Bind(FRHICommandListImmediate& CommandList) const -> void;
-		auto DrawIndexed(FRHICommandListImmediate& CommandList) const -> void;
+		auto Bind(FRHICommandList& CommandList) const -> void;
+		auto DrawIndexed(FRHICommandList& CommandList) const -> void;
 
 	private:
 		const FPreparedStaticMeshPrimitive& Primitive;

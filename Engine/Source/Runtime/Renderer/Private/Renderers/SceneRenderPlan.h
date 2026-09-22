@@ -30,7 +30,7 @@ namespace Durin
 			EPreparedTranslucentGeometryFamily::StaticMesh;
 		uint32 DrawIndex = 0;
 		double SortDepth = 0.0;
-		FMeshDrawSortKey SortKey;
+		FVisibleMeshDrawSortKey SortKey;
 	};
 
 	// Owns the fitted logical view for one command.

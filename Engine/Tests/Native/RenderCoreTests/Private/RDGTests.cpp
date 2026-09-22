@@ -5,6 +5,9 @@
 #include "RHICommandList.h"
 #include "RHIContext.h"
 #include "Shader/Shader.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
 
@@ -166,7 +169,7 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIBlockUntilGPUIdle"; }
 			auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIPushConstants"; }
-			auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void override
+			auto RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHISetShaderParameters"; }
 			auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIDraw"; }
@@ -1502,6 +1505,235 @@ namespace Durin
 		const auto Result = Builder.Execute(GetCommandList());
 		EXPECT_EQ(Durin::GetRDGExecutionStatus(Result), ERDGExecutionStatus::Recorded) << (Result ? "success" : ToString(Result.error()));
 		EXPECT_EQ(Calls, Parameters.size());
+	}
+
+	TEST_F(FRDGTests, OwnedRecordingPreservesTypedDependenciesAndReplayOrder)
+	{
+		std::vector<int> Replay;
+		FBarrierRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		auto& Commands = Executor.GetImmediateCommandList();
+		{
+			FRDGBuilder Builder;
+			const auto Value = Builder.CreateValue<FTypedValuePayload>("RecordedValue", "recorded-value");
+			auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
+			Write->Output = {Value};
+			Builder.AddRecordingPass("OwnedProducer", ERDGPassType::Copy, std::move(Write),
+				[&](FRHICommandList& Recorded, const FTypedValueWriteParameters& Parameters, const FRDGParameterResolver& Resolver) {
+					EXPECT_FALSE(Recorded.IsFinished());
+					Resolver.WriteValue(Parameters.Output).Value = 73;
+					Recorded.EnqueueLambda([&Replay] { Replay.push_back(1); });
+				});
+			auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
+			Read->Input = {Value};
+			const auto Consumer = Builder.AddPass("ImmediateConsumer", ERDGPassType::Copy, std::move(Read),
+				[&](FRHICommandListImmediate& Immediate, const FTypedValueReadParameters& Parameters, const FRDGParameterResolver& Resolver) {
+					EXPECT_EQ(Resolver.ReadValue(Parameters.Input).Value, 73);
+					Immediate.EnqueueLambda([&Replay] { Replay.push_back(2); });
+				});
+			Builder.MarkPassRoot(Consumer);
+			ASSERT_TRUE(Builder.Execute(Commands));
+			EXPECT_TRUE(Replay.empty());
+		}
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(Replay, (std::vector<int>{1, 2}));
+	}
+
+	TEST_F(FRDGTests, ParallelRecordingRunsWorkersBeforeOrderedTypedConsumer)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		std::vector<int> Replay;
+		std::array<uint32, 2> WorkerThreads{};
+		FBarrierRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		auto& Commands = Executor.GetImmediateCommandList();
+		FRDGBuilder Builder;
+		const auto Value = Builder.CreateValue<FTypedValuePayload>("ParallelValue", "parallel-value");
+		auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
+		Write->Output = {Value};
+		Builder.AddRecordingPass("Producer", ERDGPassType::Copy, std::move(Write),
+			[&](FRHICommandList& Recorded, const FTypedValueWriteParameters& Parameters, const FRDGParameterResolver& Resolver) {
+				WorkerThreads[0] = FPlatformLTS::GetCurrentThreadId();
+				Resolver.WriteValue(Parameters.Output).Value = 73;
+				Recorded.EnqueueLambda([&Replay] { Replay.push_back(1); });
+			}, ERDGRecordingPolicy::Parallel);
+		const auto Independent = Builder.AddRecordingPass("Independent", ERDGPassType::Copy,
+			Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+			[&](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+				WorkerThreads[1] = FPlatformLTS::GetCurrentThreadId();
+				Recorded.EnqueueLambda([&Replay] { Replay.push_back(2); });
+			}, ERDGRecordingPolicy::Parallel);
+		auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
+		Read->Input = {Value};
+		const auto Consumer = Builder.AddRecordingPass("Consumer", ERDGPassType::Copy, std::move(Read),
+			[&](FRHICommandList& Recorded, const FTypedValueReadParameters& Parameters, const FRDGParameterResolver& Resolver) {
+				EXPECT_EQ(Resolver.ReadValue(Parameters.Input).Value, 73);
+				EXPECT_NE(WorkerThreads[1], 0u);
+				Recorded.EnqueueLambda([&Replay] { Replay.push_back(3); });
+			}, ERDGRecordingPolicy::Parallel);
+		Builder.AddPassDependency(Independent, Consumer);
+		Builder.MarkPassRoot(Consumer);
+		ASSERT_TRUE(Builder.Execute(Commands));
+		for (uint32 Worker : WorkerThreads) { EXPECT_NE(Worker, 0u); EXPECT_NE(Worker, GGameThreadId); }
+		EXPECT_TRUE(Replay.empty());
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(Replay, (std::vector<int>{1, 2, 3}));
+	}
+
+	TEST_F(FRDGTests, ParallelRecordingRetainsPayloadsAcrossWavesAndGraphDestruction)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		std::array<std::weak_ptr<int>, 19> Owners;
+		std::array<uint32, 19> Threads{};
+		std::vector<int> Replay;
+		FBarrierRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		auto& Commands = Executor.GetImmediateCommandList();
+		{
+			FRDGBuilder Builder;
+			for (uint32 Index = 0; Index < Owners.size(); ++Index)
+			{
+				const auto Pass = Builder.AddRecordingPass(std::to_string(Index), ERDGPassType::Copy,
+					Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+					[&, Index](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+						Threads[Index] = FPlatformLTS::GetCurrentThreadId();
+						auto Payload = std::make_shared<int>(static_cast<int>(Index));
+						Owners[Index] = Payload;
+						Recorded.EnqueueLambda([Payload, &Replay] { Replay.push_back(*Payload); }, sizeof(int));
+					}, ERDGRecordingPolicy::Parallel);
+				Builder.MarkPassRoot(Pass);
+			}
+			ASSERT_TRUE(Builder.Execute(Commands));
+		}
+		EXPECT_TRUE(Replay.empty());
+		for (uint32 Index = 0; Index < Owners.size(); ++Index)
+		{
+			EXPECT_FALSE(Owners[Index].expired());
+			EXPECT_NE(Threads[Index], 0u);
+			EXPECT_NE(Threads[Index], GGameThreadId);
+		}
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		ASSERT_EQ(Replay.size(), Owners.size());
+		for (uint32 Index = 0; Index < Owners.size(); ++Index)
+		{
+			EXPECT_EQ(Replay[Index], Index);
+			EXPECT_TRUE(Owners[Index].expired());
+		}
+	}
+
+	TEST_F(FRDGTests, FailedParallelWaveDrainsOwnersWithholdsExtractionAndPreservesPriorCommands)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		for (uint32 FailureIndex : {0u, 7u, 8u, 15u})
+		{
+			SCOPED_TRACE(FailureIndex);
+			std::array<std::weak_ptr<int>, 16> Owners;
+			std::atomic<uint32> Recorders = 0;
+			std::vector<int> Replay;
+			bool bConsumerCalled = false;
+			FBarrierRecordingContext Backend;
+			FRHICommandListExecutor Executor(Backend);
+			auto& Commands = Executor.GetImmediateCommandList();
+			auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+				"Unpublished", 8, 8, EPixelFormat::RGBA8_UNORM).SetFlags(ETextureCreateFlags::ShaderResource));
+			FTextureRHIRef Extracted;
+			{
+				FRDGBuilder Builder;
+				const auto External = Builder.RegisterExternalTexture(Texture, "Unpublished",
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+				Builder.QueueTextureExtraction(External, &Extracted, ERHIAccess::GraphicsShaderRead);
+				const auto Prefix = Builder.AddPass("PriorCommands", ERDGPassType::Copy,
+					Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+					[&](FRHICommandListImmediate& Immediate, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+						Immediate.EnqueueLambda([&Replay] { Replay.push_back(-1); });
+					});
+				Builder.MarkPassRoot(Prefix);
+				for (uint32 Index = 0; Index < Owners.size(); ++Index)
+				{
+					const auto Pass = Builder.AddRecordingPass(std::to_string(Index), ERDGPassType::Copy,
+						Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+						[&, Index](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+							++Recorders;
+							auto Payload = std::make_shared<int>(static_cast<int>(Index));
+							Owners[Index] = Payload;
+							Recorded.EnqueueLambda([Payload, &Replay] { Replay.push_back(*Payload); }, sizeof(int));
+							if (Index == FailureIndex) throw std::runtime_error("Injected wave failure");
+						}, ERDGRecordingPolicy::Parallel);
+					Builder.MarkPassRoot(Pass);
+				}
+				const auto Consumer = Builder.AddPass("UnreachedConsumer", ERDGPassType::Copy,
+					Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+					[&](FRHICommandListImmediate&, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+						bConsumerCalled = true;
+					});
+				Builder.MarkPassRoot(Consumer);
+				EXPECT_FALSE(Builder.Execute(Commands));
+				EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
+				EXPECT_FALSE(Extracted);
+				EXPECT_FALSE(bConsumerCalled);
+				for (uint32 Index = 0; Index < Owners.size(); ++Index)
+					EXPECT_EQ(Owners[Index].expired(), Index >= (FailureIndex / 8) * 8);
+				const auto CompletedRecorders = Recorders.load();
+				EXPECT_GT(CompletedRecorders, FailureIndex);
+				EXPECT_FALSE(Builder.Execute(Commands));
+				EXPECT_EQ(Recorders.load(), CompletedRecorders);
+			}
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			std::vector<int> Expected{-1};
+			for (uint32 Index = 0; Index < (FailureIndex / 8) * 8; ++Index) Expected.push_back(Index);
+			EXPECT_EQ(Replay, Expected);
+			for (const auto& Owner : Owners) EXPECT_TRUE(Owner.expired());
+		}
+	}
+
+	TEST_F(FRDGTests, FailedParallelRecordingDiscardsTheWholeWave)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		bool bReplayed = false;
+		FRDGBuilder Builder;
+		for (int Index = 0; Index < 2; ++Index)
+		{
+			const auto Pass = Builder.AddRecordingPass(std::to_string(Index), ERDGPassType::Copy,
+				Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+				[&, Index](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+					Recorded.EnqueueLambda([&bReplayed] { bReplayed = true; });
+					if (Index == 0) throw std::runtime_error("Injected parallel failure");
+				}, ERDGRecordingPolicy::Parallel);
+			Builder.MarkPassRoot(Pass);
+		}
+		EXPECT_FALSE(Builder.Execute(GetCommandList()));
+		EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
+		EXPECT_FALSE(bReplayed);
+		EXPECT_EQ(GetCommandList().GetNumRecordedCommands(), 0u);
+	}
+
+	TEST_F(FRDGTests, FailedOwnedRecordingDiscardsItsUnpublishedCommands)
+	{
+		std::weak_ptr<int> Retained;
+		bool bReplayed = false;
+		FRDGBuilder Builder;
+		const auto Pass = Builder.AddRecordingPass("ThrowingRecorder", ERDGPassType::Copy,
+			Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+			[&](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+				auto Owner = std::make_shared<int>(7);
+				Retained = Owner;
+				Recorded.EnqueueLambda([Owner, &bReplayed] { bReplayed = true; }, sizeof(int));
+				throw std::runtime_error("Injected owned recording failure");
+			});
+		Builder.MarkPassRoot(Pass);
+		EXPECT_THROW(static_cast<void>(Builder.Execute(GetCommandList())), std::runtime_error);
+		EXPECT_TRUE(Retained.expired());
+		EXPECT_FALSE(bReplayed);
+		EXPECT_EQ(GetCommandList().GetNumRecordedCommands(), 0u);
+		EXPECT_EQ(Builder.GetState(), ERDGBuilderState::Failed);
 	}
 
 	TEST_F(FRDGTests, RejectsMalformedGraphParameterMetadataAtomically)

@@ -330,7 +330,7 @@ namespace Durin
 			}
 			auto RHISetShaderParameters(
 				FRHIShader* InShader,
-				const std::span<FRHIShaderParameterResource>& InParameters) -> void override
+				const std::span<const FRHIShaderParameterResource>& InParameters) -> void override
 			{
 				Operations.emplace_back("ShaderParameters");
 				ObservedShader = InShader;
@@ -1642,6 +1642,61 @@ namespace Durin
 		FRHICommandList Destination(std::move(Source));
 		EXPECT_EQ(Destination.GetNumRecordedDrawCommands(), 2u);
 		EXPECT_EQ(Source.GetNumRecordedDrawCommands(), 0u);
+	}
+
+	TEST(FRHICommandListTests, PreparedParametersRetainCanonicalResourcesAcrossRepeatedReplay)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Immediate = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"PreparedBuffer", 64, 16, EBufferUsageFlags::UniformBuffer));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		std::vector<FRHIShaderParameterResource> Parameters{{
+			.Resource = Buffer.GetReference(), .SetIndex = 1, .BindingIndex = 2,
+			.Type = ERHIBindingType::UniformBufferDynamic, .Offset = 16, .Size = 32}};
+		auto Batch = FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters);
+		ASSERT_TRUE(Batch);
+		ASSERT_EQ(Batch->GetParameters().size(), 1u);
+		auto* CanonicalView = Batch->GetParameters()[0].Resource;
+		ASSERT_EQ(CanonicalView->GetResourceType(), ERHIResourceType::BufferView);
+		EXPECT_EQ(static_cast<FRHIBufferView*>(CanonicalView)->GetBuffer(), Buffer.GetReference());
+		Parameters[0].Resource = nullptr;
+		Parameters[0].Offset = 48;
+		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
+		Immediate.SetPreparedShaderParameters(Batch);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, CanonicalView);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Offset, 16u);
+		Immediate.SetPreparedShaderParameters(Batch);
+		std::weak_ptr<const FRHIShaderParameterBatch> WeakBatch = Batch;
+		Batch.reset();
+		EXPECT_FALSE(WeakBatch.expired());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, CanonicalView);
+		EXPECT_TRUE(WeakBatch.expired());
+		RHIFlushDeferredResources();
+		EXPECT_EQ(Buffer->GetRefCount(), 1u);
+		EXPECT_EQ(Shader->GetRefCount(), 1u);
+	}
+
+	TEST(FRHICommandListTests, PreparedParametersRejectMissingResourcesAndInvalidRanges)
+	{
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"InvalidPreparedBuffer", 64, 16, EBufferUsageFlags::UniformBuffer));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		std::vector<FRHIShaderParameterResource> Parameters{{
+			.Resource = Buffer.GetReference(), .Type = ERHIBindingType::UniformBufferDynamic,
+			.Offset = 48, .Size = 32}};
+		EXPECT_FALSE(FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters));
+		Parameters[0].Offset = 0;
+		Parameters[0].Resource = nullptr;
+		EXPECT_FALSE(FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters));
+		EXPECT_FALSE(FRHIShaderParameterBatch::Create(nullptr, {}));
+		Parameters[0].Resource = Buffer.GetReference();
+		Parameters[0].Type = ERHIBindingType::Texture;
+		EXPECT_FALSE(FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPayloadsAreOwnedUntilReplay)

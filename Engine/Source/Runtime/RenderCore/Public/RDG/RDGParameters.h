@@ -740,4 +740,8 @@ namespace Durin
 		FRHICommandListImmediate&, const FRDGPassResources&)>;
 	using FRDGParameterizedPassExecute = std::function<void(
 		FRHICommandListImmediate&, const FRDGParameterResolver&)>;
+	class FRHICommandList;
+	enum class ERDGRecordingPolicy : uint8 { Serial, Parallel };
+	using FRDGRecordingPassExecute = std::function<void(
+		FRHICommandList&, const FRDGParameterResolver&)>;
 } // namespace Durin

@@ -187,6 +187,7 @@ namespace Durin
 			SortedTranslucency, "HybridSortedTranslucencyRenderPass"
 		);
 		SetViewRect();
+		FMeshDrawBindingGroup TranslucentBindings;
 		for (const FPreparedTranslucentSceneDraw& Draw :
 			 Inputs.Receiver.TranslucentGeometry)
 		{
@@ -196,7 +197,7 @@ namespace Durin
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes, true
+					ResolvedSceneResources.Receiver.StaticMeshes, true, &TranslucentBindings
 				);
 		}
 		CommandList.EndRenderPass();

@@ -5,6 +5,7 @@
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
 #include "VertexFactory.h"
+#include "Rendering/MeshGeometryRecord.h"
 
 namespace Durin
 {
@@ -24,6 +25,11 @@ namespace Durin
 	};
 
 	// Render-thread input whose lifetime is restricted to the collection call.
+	struct FPreparedMeshLODSelection
+	{
+		uint32 Requested = 0;
+		uint32 Selected = std::numeric_limits<uint32>::max();
+	};
 	struct FMeshCollectionContext
 	{
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
@@ -33,6 +39,7 @@ namespace Durin
 		EMeshCollectionProjectionStatus ProjectionStatus = EMeshCollectionProjectionStatus::InvalidView;
 		bool bForceLOD0 = false;
 		EMeshCollectionPurpose Purpose = EMeshCollectionPurpose::Receiver;
+		std::optional<FPreparedMeshLODSelection> PreparedLOD;
 	};
 
 	// One materialized element with explicit direct draw and stream ranges.
@@ -48,6 +55,18 @@ namespace Durin
 		uint32 MaterialSlotDiagnostic = 0;
 	};
 
+	struct FMeshBatchElementView
+	{
+		uint64 ElementId;
+		const FGeometryDrawRange& Draw;
+		const FGeometryBufferView& Vertices;
+		const FGeometryBufferView& Indices;
+		std::span<const FGeometryBufferView> InstanceStreams;
+		const FMaterialRenderData& Material;
+		const FBox& LocalBounds;
+		uint32 MaterialSlotDiagnostic;
+	};
+
 	// Value snapshots and retained bindings survive provider updates. Borrowed
 	// asset data inside a concrete binding still obeys its retirement fence.
 	struct FMeshBatch
@@ -59,15 +78,35 @@ namespace Durin
 		FXxHash64 FactoryKey;
 		FXxHash64 LayoutKey;
 		std::shared_ptr<const FVertexFactoryBinding> Binding;
+		FMeshGeometryRecord::FRef GeometryRecord;
 		bool bReceiver = true;
 		bool bShadowCaster = true;
 		std::vector<FMeshBatchElement> Elements;
+		// Exactly one material per published element. Dynamic batches use Elements.
+		std::vector<FMaterialRenderData> PublishedMaterials;
 		// Optional provider diagnostics; execution never dereferences an asset LOD.
 		uint32 RequestedLOD = 0;
 		uint32 SelectedLOD = 0;
 		uint32 LODCount = 1;
 		uint64 AcceptedDynamicUpdates = 0;
 		uint64 RetainedDeformationBytes = 0;
+
+		auto GetNumElements() const -> size_t
+		{
+			return GeometryRecord ? GeometryRecord->GetElements().size() : Elements.size();
+		}
+		auto GetElement(size_t Index) const -> FMeshBatchElementView
+		{
+			if (GeometryRecord)
+			{
+				const auto& Element = GeometryRecord->GetElements()[Index];
+				return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
+					Element.InstanceStreams, PublishedMaterials[Index], Element.LocalBounds, Element.MaterialSlotDiagnostic};
+			}
+			const auto& Element = Elements[Index];
+			return {Element.ElementId, Element.Draw, Element.Vertices, Element.Indices,
+				Element.InstanceStreams, Element.Material, Element.LocalBounds, Element.MaterialSlotDiagnostic};
+		}
 	};
 
 	// Owns admitted snapshots. A rejected batch cannot partially enter the frame.
@@ -102,7 +141,12 @@ namespace Durin
 			if ((Purpose == EMeshCollectionPurpose::Receiver && !Batch.bReceiver)
 				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.bShadowCaster))
 				return EGeometrySubmissionOutcome::Excluded;
-			if (Batch.Elements.empty()) return EGeometrySubmissionOutcome::Empty;
+			if ((Batch.GeometryRecord && (!Batch.Elements.empty()
+				|| Batch.PublishedMaterials.size() != Batch.GetNumElements()
+				|| Batch.Binding != Batch.GeometryRecord->GetBinding()))
+				|| (!Batch.GeometryRecord && !Batch.PublishedMaterials.empty()))
+				return EGeometrySubmissionOutcome::InvalidSubmission;
+			if (Batch.GetNumElements() == 0) return EGeometrySubmissionOutcome::Empty;
 			if (Batch.PrimitiveId == InvalidPrimitiveComponentId
 				|| !Math::IsFinite(Batch.LocalToWorld)
 				|| !Batch.WorldBounds.bIsValid
@@ -123,6 +167,11 @@ namespace Durin
 			if (std::ranges::any_of(Batches, [&](const FMeshBatch& Existing) {
 				return Existing.PrimitiveId == Batch.PrimitiveId && Existing.BatchId == Batch.BatchId;
 			})) return EGeometrySubmissionOutcome::InvalidSubmission;
+			if (Batch.GeometryRecord)
+			{
+				Batches.push_back(std::move(Batch));
+				return EGeometrySubmissionOutcome::Submitted;
+			}
 			bool bHasDraws = false;
 			for (size_t Index = 0; Index < Batch.Elements.size(); ++Index)
 			{
@@ -130,28 +179,10 @@ namespace Durin
 				for (size_t Previous = 0; Previous < Index; ++Previous)
 					if (Batch.Elements[Previous].ElementId == Element.ElementId)
 						return EGeometrySubmissionOutcome::InvalidSubmission;
-				const auto Outcome = Element.Draw.Validate(Element.Vertices.Range, Element.Indices.Range);
+				const auto Outcome = ValidateMeshGeometryElement(Element.Draw, Element.Vertices,
+					Element.Indices, Element.InstanceStreams);
 				if (Outcome == EGeometrySubmissionOutcome::Empty) continue;
 				if (Outcome != EGeometrySubmissionOutcome::Submitted) return Outcome;
-				if (Element.Draw.bIndexed && Element.Indices.Range.ByteOffset > std::numeric_limits<uint32>::max())
-					return EGeometrySubmissionOutcome::Unsupported;
-				if (!Element.Vertices.IsValid()
-					|| (Element.Draw.bIndexed && !Element.Indices.IsValid()))
-					return EGeometrySubmissionOutcome::ResourceFailure;
-				if (Element.Draw.bIndexed && Element.Indices.Buffer->GetStride() != Element.Indices.Range.ElementBytes)
-					return EGeometrySubmissionOutcome::InvalidSubmission;
-				if (!EnumHasAnyFlags(Element.Vertices.Buffer->GetUsage(), EBufferUsageFlags::VertexBuffer)
-					|| (Element.Draw.bIndexed && !EnumHasAnyFlags(
-						Element.Indices.Buffer->GetUsage(), EBufferUsageFlags::IndexBuffer)))
-					return EGeometrySubmissionOutcome::InvalidSubmission;
-				for (const auto& Stream : Element.InstanceStreams)
-				{
-					if (!Stream.Range.Contains(Element.Draw.FirstInstance, Element.Draw.InstanceCount))
-						return EGeometrySubmissionOutcome::InvalidSubmission;
-					if (!Stream.IsValid()) return EGeometrySubmissionOutcome::ResourceFailure;
-					if (!EnumHasAnyFlags(Stream.Buffer->GetUsage(), EBufferUsageFlags::VertexBuffer))
-						return EGeometrySubmissionOutcome::InvalidSubmission;
-				}
 				bHasDraws = true;
 			}
 			if (!bHasDraws) return EGeometrySubmissionOutcome::Empty;

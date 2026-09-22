@@ -1606,6 +1606,84 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(BlockingTask).TaskState);
 	}
 
+	TEST(FTaskTests, RenderingThreadJoinsExplicitIndependentCPUWork)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (const int Outcome : {0, 1, 2})
+		{
+			const bool Fail = Outcome == 1;
+			FThreadEvent Started, Release, Returned;
+			auto Blocker = SubmitKernelTask("IndependentQueueBlocker", [&] { Started.Trigger(); Release.Wait(); });
+			ASSERT_TRUE(Started.WaitFor(1.0));
+			auto Task = Tasks::LaunchIndependentTask("IndependentRenderPreparation", [Fail] {
+				if (Fail) throw std::runtime_error("independent task failure");
+				return 42;
+			});
+			FWaitTaskRunnable Runnable(Task.GetCompletion().GetTaskHandle(), Returned);
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
+				"IndependentRenderingJoin", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
+			EXPECT_NE(Thread, nullptr);
+			if (Thread) EXPECT_FALSE(Returned.WaitFor(0.02));
+			if (Outcome == 2) EXPECT_TRUE(Tasks::Cancel(Task.GetCompletion()));
+			Release.Trigger();
+			if (Thread)
+			{
+				EXPECT_TRUE(Returned.WaitFor(2.0));
+				Thread->WaitForCompletion();
+				EXPECT_EQ(Runnable.ObservedResult.WaitStatus, ETaskWaitStatus::Completed);
+				EXPECT_EQ(Runnable.ObservedResult.TaskState, Outcome == 2 ? ETaskState::Canceled : Fail ? ETaskState::Failed : ETaskState::Succeeded);
+			}
+			EXPECT_EQ(WaitTask(Blocker).TaskState, ETaskState::Succeeded);
+			if (Outcome == 0) EXPECT_EQ(Task.GetResult(), 42);
+		}
+	}
+
+	TEST(FTaskTests, IndependentCPUContractRejectsDependenciesChildrenAndBlockingWaits)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskScope Scope = CreateTaskScope();
+		Tasks::FTaskExecutionOptions SourceOptions;
+		SourceOptions.Scope = Scope.GetToken();
+		auto Source = Tasks::TCompletionSource<void>::Create(SourceOptions);
+		auto Pending = Source.TakeTask();
+		const FTaskHandle PendingHandle = Pending.GetCompletion().GetTaskHandle();
+		Scope.Close(ETaskScopeCloseMode::Drain);
+		for (int InvalidKind = 0; InvalidKind < 3; ++InvalidKind)
+		{
+			FTaskLaunchOptions Options;
+			Options.bIndependentCPU = true;
+			if (InvalidKind == 0) Options.Prerequisites = std::span<const FTaskHandle>(&PendingHandle, 1);
+			if (InvalidKind == 1) Options.bExternalCompletion = true;
+			if (InvalidKind == 2) Options.Target = ETaskTarget::BlockingIO;
+			auto Admission = Private::TryLaunchCancelableTaskWithCompletion("InvalidIndependent",
+				[](const FTaskCancellationToken&) {}, {}, Options);
+			ASSERT_FALSE(Admission.HasValue());
+			EXPECT_EQ(Admission.GetError().Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
+		}
+		auto Leaf = Tasks::LaunchIndependentTask("IndependentLeafContract", [&] {
+			auto Child = Private::TryLaunchCancelableTaskWithCompletion("ForbiddenChild",
+				[](const FTaskCancellationToken&) {}, {}, {});
+			EXPECT_FALSE(Child.HasValue());
+			if (!Child.HasValue()) EXPECT_EQ(Child.GetError().Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
+			EXPECT_EQ(WaitTask(PendingHandle).WaitStatus, ETaskWaitStatus::UnsupportedThread);
+			EXPECT_EQ(Scope.WaitFor(0.01), ETaskScopeWaitResult::UnsupportedThread);
+			return true;
+		});
+		const auto LeafHandle = Leaf.GetCompletion().GetTaskHandle();
+		EXPECT_TRUE(Leaf.GetResult());
+		const auto Dynamic = Private::FTaskRuntimeAccess::BindDynamicDependency(LeafHandle, PendingHandle);
+		ASSERT_TRUE(Dynamic);
+		EXPECT_EQ(Dynamic->Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
+		EXPECT_TRUE(Source.TrySetValue());
+		Pending.GetResult();
+	}
+
 	TEST(FTaskTests, RenderingThreadWaitIsRejected)
 	{
 		ShutdownTaskScheduler(false);

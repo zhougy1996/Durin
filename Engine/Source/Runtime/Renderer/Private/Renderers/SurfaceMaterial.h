@@ -28,7 +28,44 @@ namespace Durin
 			GBuffer,
 		};
 
-		class FSurfaceFragmentShader final : public FMaterialShader
+		class FCompiledSurfaceBindingLayout
+		{
+		public:
+			enum class ESource : uint8
+			{
+				View, Lighting, Material, HitProxy, Texture, Sampler,
+				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
+				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
+			};
+			struct FEntry
+			{
+				uint32 SetIndex = 0;
+				uint32 BindingIndex = 0;
+				ERHIBindingType Type = ERHIBindingType::Texture;
+				ESource Source = ESource::Texture;
+				uint32 ResourceIndex = 0;
+			};
+			RENDERER_API explicit FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection);
+			auto IsValid() const -> bool { return bValid; }
+			auto GetEntries() const -> std::span<const FEntry> { return Entries; }
+		private:
+			bool bValid = false;
+			std::vector<FEntry> Entries;
+		};
+
+		// Typed surface shaders compile their resource mapping at instance creation.
+		class FCompiledSurfaceMaterialShader : public FMaterialShader
+		{
+		public:
+			FCompiledSurfaceMaterialShader(const FShaderType* Type, FShaderMapBase* Map,
+				const FShaderReflectionData& Reflection)
+				: FMaterialShader(Type, Map, Reflection), SurfaceLayout(Reflection) {}
+			auto GetSurfaceLayout() const -> const FCompiledSurfaceBindingLayout& { return SurfaceLayout; }
+		private:
+			FCompiledSurfaceBindingLayout SurfaceLayout;
+		};
+
+		class FSurfaceFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
@@ -43,7 +80,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(DirectionalShadowSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FMaterialShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"FragmentMain");
 		};
@@ -56,7 +93,7 @@ namespace Durin
 				"OpaqueShadowFragmentMain");
 		};
 
-		class FSurfaceMaskedShadowFragmentShader final : public FMaterialShader
+		class FSurfaceMaskedShadowFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
@@ -64,7 +101,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FMaterialShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"ShadowFragmentMain");
 		};
@@ -98,14 +135,31 @@ namespace Durin
 			}
 		};
 
-		auto BindCompiledSurfaceMaterial(
-			FRHICommandListImmediate& CommandList, FRHIShader* Shader,
-			const FShaderReflectionData& Reflection,
+		// Prepared before recording; retains every resource referenced by the span.
+		class FPreparedSurfaceMaterialBindings
+		{
+		public:
+			auto GetShader() const -> FRHIShader* { return Batch ? Batch->GetShader() : nullptr; }
+			auto GetResources() const -> std::span<const FRHIShaderParameterResource>
+			{
+				return Batch ? Batch->GetParameters() : std::span<const FRHIShaderParameterResource>{};
+			}
+			RENDERER_API auto Bind(FRHICommandList& CommandList) const -> bool;
+		private:
+			friend RENDERER_API auto PrepareCompiledSurfaceMaterial(FRHIShader*, const FCompiledSurfaceBindingLayout&,
+				const FResolvedSurfaceMaterial&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
+				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&, FPreparedSurfaceMaterialBindings&) -> bool;
+			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
+		};
+
+		RENDERER_API auto PrepareCompiledSurfaceMaterial(
+			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,
 			const FRHIUniformBufferRange& MaterialBuffer,
-			const FRHIUniformBufferRange& Lighting = {},
-			const FRHIUniformBufferRange& HitProxy = {},
-			const FRHIUniformBufferRange& View = {}) -> bool;
+			const FRHIUniformBufferRange& Lighting,
+			const FRHIUniformBufferRange& HitProxy,
+			const FRHIUniformBufferRange& View,
+			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
 
 		class FSurfaceMaterialResources final
 		{

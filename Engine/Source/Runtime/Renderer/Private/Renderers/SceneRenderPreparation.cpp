@@ -28,6 +28,14 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
 		FStaticMeshPreparationCache MeshPreparationCache;
+		Renderer.MeshCommandCache.BeginSubmission();
+		struct FEndCommandSubmission
+		{
+			FStaticMeshDrawCommandCache& Cache;
+			~FEndCommandSubmission() { Cache.EndSubmission(); }
+		} EndCommandSubmission{Renderer.MeshCommandCache};
+		MeshPreparationCache.Commands = &Renderer.MeshCommandCache;
+		std::optional<FStaticMeshPreparationWork> ReceiverWork;
 		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
 		{
@@ -53,6 +61,10 @@ namespace Durin
 			PrepareSceneVisibility(
 				*Scene, RenderView, Telemetry.View, Visibility
 			);
+			ReceiverWork.emplace(StartCollectedStaticMeshView_RenderThread(CommandList,
+				CollectStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
+					RenderView.Settings.Mode.RasterMode), &MeshPreparationCache));
+			Visibility.SceneInfos.clear();
 			if (!PreparedView.Environment)
 				if (const auto Sky = Scene->GetProceduralSky_RenderThread())
 				{
@@ -119,6 +131,20 @@ namespace Durin
 						)
 												.count());
 					const auto& CasterTable = PreparedView.DirectionalShadow->Casters;
+					std::vector<FStaticMeshPreparationWork> CascadeWork;
+					CascadeWork.reserve(PreparedView.DirectionalShadow->View.CascadeCount);
+					for (uint32 CascadeIndex = 0;
+						CascadeIndex < PreparedView.DirectionalShadow->View.CascadeCount; ++CascadeIndex)
+					{
+						const auto Start = std::chrono::steady_clock::now();
+						CascadeWork.push_back(StartCollectedStaticMeshView_RenderThread(CommandList,
+							CollectStaticMeshView_RenderThread(CommandList, CasterTable.Cascades[CascadeIndex].SceneInfos,
+								PreparedView.DirectionalShadow->View.Cascades[CascadeIndex].CasterView,
+								ERasterMode::Solid, ERenderPreparationMode::ShadowDepth), &MeshPreparationCache));
+						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
+							static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+								std::chrono::steady_clock::now() - Start).count());
+					}
 					Telemetry.View.DirectionalShadow.ShadowSceneTraversals =
 						CasterTable.SceneTraversals;
 					Telemetry.View.DirectionalShadow.ShadowUniqueSubmittedCasters =
@@ -173,11 +199,7 @@ namespace Durin
 							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
 						const auto StaticSplineStart =
 							std::chrono::steady_clock::now();
-						StaticMeshes = PrepareStaticMeshView_RenderThread(
-							CommandList, Casters.SceneInfos, Cascade.CasterView,
-							ERasterMode::Solid,
-							ERenderPreparationMode::ShadowDepth, &MeshPreparationCache
-						);
+						StaticMeshes = FinishStaticMeshView(std::move(CascadeWork[CascadeIndex]));
 						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
 													std::chrono::nanoseconds>(
@@ -199,14 +221,8 @@ namespace Durin
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)
 								{
-									auto& Raster = Draw.PipelineKey.Rasterizer;
-									Raster.bEnableDepthBias = true;
-									Raster.DepthBiasConstantFactor =
-										Cascade.Bias.RasterConstant;
-									Raster.DepthBiasSlopeFactor =
-										Cascade.Bias.RasterSlope;
-									Raster.DepthBiasClamp =
-										Cascade.Bias.RasterClamp;
+									Draw.RasterBias = {Cascade.Bias.RasterConstant,
+										Cascade.Bias.RasterSlope, Cascade.Bias.RasterClamp};
 								}
 						};
 						ApplyRasterBias(StaticMeshes);
@@ -248,18 +264,7 @@ namespace Durin
 					PreparedView.DirectionalShadow.reset();
 				}
 			}
-			PreparedView.Receiver.StaticMeshes = PrepareStaticMeshView_RenderThread(
-				CommandList,
-				Visibility.SceneInfos,
-				RenderView,
-				RenderView.Settings.Mode.RasterMode,
-				ERenderPreparationMode::Full, &MeshPreparationCache
-			);
-			Visibility.SceneInfos.clear();
 		}
-		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
-		Telemetry.View.CombinedTranslucentGeometryDraws =
-			PreparedView.Receiver.TranslucentGeometry.size();
 		if (Scene != nullptr)
 		{
 			FVolumetricCloudSceneSnapshot Cloud;
@@ -288,6 +293,9 @@ namespace Durin
 				);
 			}
 		}
+		if (ReceiverWork) PreparedView.Receiver.StaticMeshes = FinishStaticMeshView(std::move(*ReceiverWork));
+		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
+		Telemetry.View.CombinedTranslucentGeometryDraws = PreparedView.Receiver.TranslucentGeometry.size();
 		return {
 			.Result = ERenderViewResult::Success,
 			.Plan = std::move(PreparedView)};

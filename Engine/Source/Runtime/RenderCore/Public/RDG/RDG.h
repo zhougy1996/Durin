@@ -106,6 +106,34 @@ namespace Durin
 				Layout, Data, AllocationIndex,
 				std::move(Lifetime), std::move(ErasedExecute));
 		}
+		// Records a complete pass into an owned list. No immediate-only operations
+		// are available; render passes and diagnostic scopes must close in the callback.
+		// Parallel additionally promises independent CPU work using immutable inputs
+		// and declared values, without shared cache writes or owner-thread progress.
+		template<typename ParameterStruct, typename Execute>
+		requires CRDGParameters<ParameterStruct>
+			&& std::invocable<Execute&, FRHICommandList&, const ParameterStruct&, const FRDGParameterResolver&>
+		auto AddRecordingPass(std::string_view Name, ERDGPassType Type,
+			TRDGParametersRef<ParameterStruct>&& Parameters, Execute&& ExecuteCallback,
+			ERDGRecordingPolicy Policy = ERDGRecordingPolicy::Serial) -> FRDGPassHandle
+		{
+			RequireBuilding();
+			ParameterStruct* TypedData = Parameters.Data;
+			FRDGRecordingPassExecute ErasedExecute =
+				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
+					FRHICommandList& CommandList, const FRDGParameterResolver& Resolver) mutable {
+					std::invoke(Callback, CommandList, static_cast<const ParameterStruct&>(*TypedData), Resolver);
+				};
+			auto Lifetime = Parameters.Lifetime.lock();
+			void* Data = std::exchange(Parameters.Data, nullptr);
+			const auto* Layout = std::exchange(Parameters.Layout, nullptr);
+			if (!Layout) Layout = GetRDGParameterLayout<ParameterStruct>();
+			Parameters.Lifetime.reset();
+			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
+				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
+			return AddParameterizedPass(Name, Type, Layout, Data, AllocationIndex,
+				std::move(Lifetime), {}, std::move(ErasedExecute), Policy);
+		}
 		// Building only: Producer must precede Consumer in this builder. Retaining
 		// Consumer retains Producer; invalid declarations fail compilation.
 		RENDERCORE_API auto AddPassDependency(FRDGPassHandle Producer,
@@ -264,7 +292,8 @@ namespace Durin
 			ERDGPassType Type,
 			const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
 			std::shared_ptr<void> Lifetime,
-			FRDGParameterizedPassExecute ParameterizedExecute)
+			FRDGParameterizedPassExecute ParameterizedExecute, FRDGRecordingPassExecute RecordingExecute = {},
+			ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial)
 			-> FRDGPassHandle;
 		// Validates test authority once and appends a complete texture declaration.
 		auto DeclareTextureUse(FRDGPassHandle Pass, FRDGTextureHandle Texture,

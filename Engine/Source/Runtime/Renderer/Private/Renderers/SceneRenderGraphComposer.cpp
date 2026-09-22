@@ -67,9 +67,11 @@ namespace Durin
 			.MaxDependencies = 4096,
 			.MaxBufferTransitions = 4096,
 			.MaxTextureTransitions = 4096,
-			.RegressionMaxPasses = 12,
-			.RegressionMaxDependencies = 28,
-			.RegressionMaxTextureTransitions = 32,
+			// Three shadow layer passes and their typed-result consumer replace
+			// the single shadow pass (+3 passes, +8 edges, +2 barrier calls).
+			.RegressionMaxPasses = 15,
+			.RegressionMaxDependencies = 36,
+			.RegressionMaxTextureTransitions = 34,
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
@@ -177,7 +179,6 @@ namespace Durin
 				.Graph = Graph, .ShadowRecord = DirectionalShadow,
 				.Shadow = GraphResources.DirectionalShadow,
 				.Renderer = Renderer.DirectionalShadowRenderer,
-				.StaticMeshes = Renderer.StaticMeshRenderer,
 				.Resolved = Resolved.Scene, .Telemetry = Telemetry});
 		const auto GBufferOutput = FGBufferRendering::AddPasses({
 			.Graph = Graph, .View = PreparedRenderView,

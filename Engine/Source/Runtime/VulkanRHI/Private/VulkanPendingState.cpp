@@ -11,11 +11,13 @@
 #include "VulkanView.h"
 #include "RHIShaderParameterValidationInternal.h"
 
+#include <cstdlib>
+
 namespace Durin::VulkanRHI
 {
 	static auto UpdateDescriptorSets(FVulkanDevice& Device,
 		std::span<const FRHIShaderParameterResource> Resources,
-		std::span<const vk::DescriptorSet> DescriptorSets) -> void
+		std::span<const vk::DescriptorSet> DescriptorSets, uint32 FirstSet = 0) -> void
 	{
 		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
 		std::vector<vk::DescriptorBufferInfo> BufferInfos;
@@ -31,11 +33,11 @@ namespace Durin::VulkanRHI
 			{
 				continue;
 			}
-			check(Resource.SetIndex < DescriptorSets.size());
+			check(Resource.SetIndex >= FirstSet && Resource.SetIndex - FirstSet < DescriptorSets.size());
 
 			vk::WriteDescriptorSet DescriptorWrite{};
 			DescriptorWrite
-				.setDstSet(DescriptorSets[Resource.SetIndex])
+				.setDstSet(DescriptorSets[Resource.SetIndex - FirstSet])
 				.setDstBinding(Resource.BindingIndex)
 				.setDstArrayElement(Resource.ArrayElement)
 				.setDescriptorType(ToVulkan_RHIBindingType(Resource.Type))
@@ -115,7 +117,7 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanPendingComputeState::SetShaderParameters(FRHIShader* InShader,
-		std::span<FRHIShaderParameterResource> InResourceParameters) -> void
+		std::span<const FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		check(CurrentPipelineState && InShader);
 		const FComputePipelineStateKey& Key = CurrentPipelineState->GetKey();
@@ -200,6 +202,12 @@ namespace Durin::VulkanRHI
 		FVulkanCommandListContext& InContext) -> void
 	{
 		check(CurrentPipelineState);
+		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
+		if (DescriptorPoolGeneration != Generation)
+		{
+			ClearDescriptorSetCache();
+			DescriptorPoolGeneration = Generation;
+		}
 		std::ranges::sort(PendingResources,
 			[](const FRHIShaderParameterResource& A,
 				const FRHIShaderParameterResource& B) {
@@ -316,6 +324,8 @@ namespace Durin::VulkanRHI
 	FVulkanPendingGraphicsState::FVulkanPendingGraphicsState(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
+		const char* Validation = std::getenv("DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION");
+		bFullDescriptorValidation = Validation && std::string_view(Validation) == "on";
 	}
 
 	auto FVulkanPendingGraphicsState::SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, vk::CommandBuffer InCmdBuffer) -> void
@@ -354,7 +364,7 @@ namespace Durin::VulkanRHI
 		DepthBiasSlopeFactor = SlopeFactor;
 	}
 
-	auto FVulkanPendingGraphicsState::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	auto FVulkanPendingGraphicsState::SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		// Shader resource state is scoped to the currently bound PSO descriptor state.
 		check(CurrentDescriptorState);
@@ -379,10 +389,13 @@ namespace Durin::VulkanRHI
 		CurrentDescriptorState->SetShaderParameters(InShader, InResourceParameters);
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
+			if (PendingSets.size() <= ResourceParameter.SetIndex)
+				PendingSets.resize(static_cast<size_t>(ResourceParameter.SetIndex) + 1);
+			auto& Set = PendingSets[ResourceParameter.SetIndex];
 			const auto FoundIt = std::ranges::find_if(PendingShaderResources, [&ResourceParameter](const FRHIShaderParameterResource& ExistingParameter) {
 				return ExistingParameter.SetIndex == ResourceParameter.SetIndex
 					&& ExistingParameter.BindingIndex == ResourceParameter.BindingIndex
@@ -392,26 +405,49 @@ namespace Durin::VulkanRHI
 			if (FoundIt == PendingShaderResources.end())
 			{
 				PendingShaderResources.push_back(ResourceParameter);
+				bPendingResourcesSorted = false;
+				bStructureValidated = false;
+				Set.Selected.reset();
+				Set.bOwnersDirty = true;
 			}
 			else
 			{
+				Set.bOwnersDirty |= FoundIt->Resource != ResourceParameter.Resource;
+				if (FoundIt->Resource != ResourceParameter.Resource || FoundIt->Type != ResourceParameter.Type
+					|| FoundIt->Size != ResourceParameter.Size
+					|| (ResourceParameter.Type != ERHIBindingType::UniformBufferDynamic && FoundIt->Offset != ResourceParameter.Offset))
+				{
+					bStructureValidated = false;
+					Set.Selected.reset();
+				}
 				*FoundIt = ResourceParameter;
 			}
 		}
-		std::vector<TRefCountPtr<FRHIResource>> NewResourceOwners;
-		NewResourceOwners.reserve(PendingShaderResources.size());
-		for (FRHIShaderParameterResource& Resource : PendingShaderResources)
+		for (uint32 SetIndex = 0; SetIndex < PendingSets.size(); ++SetIndex)
 		{
-			NewResourceOwners.emplace_back(Resource.Resource);
-			Resource.Resource = NewResourceOwners.back().GetReference();
+			auto& Set = PendingSets[SetIndex];
+			if (!Set.bOwnersDirty) continue;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanDescriptorOwnerRebuildCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+			std::vector<TRefCountPtr<FRHIResource>> NewOwners;
+			for (const auto& Resource : PendingShaderResources)
+				if (Resource.SetIndex == SetIndex) NewOwners.emplace_back(Resource.Resource);
+			Set.ResourceOwners = std::move(NewOwners);
+			Set.bOwnersDirty = false;
 		}
-		PendingResourceOwners = std::move(NewResourceOwners);
 	}
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
 	{
 		check(CurrentPipelineState);
 		check(CurrentDescriptorState);
+		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
+		if (DescriptorPoolGeneration != Generation)
+		{
+			ClearDescriptorSetCache();
+			DescriptorPoolGeneration = Generation;
+		}
 
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
@@ -435,10 +471,9 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::ClearDescriptorSetCache() -> void
 	{
-		for (const auto& Entry : PipelineStates)
-		{
-			Entry.second->ClearDescriptorSetCache();
-		}
+		RemoveDescriptorCacheOccupancy(DescriptorEntryOccupancy, DescriptorValueOccupancy);
+		DescriptorSetCache.clear();
+		DescriptorSetCacheIndex.clear();
 		VerifyDescriptorCacheOccupancy();
 	}
 
@@ -463,23 +498,17 @@ namespace Durin::VulkanRHI
 		CurrentPipelineState = nullptr;
 		CurrentDescriptorState = nullptr;
 		PipelineStates.clear();
-		VerifyDescriptorCacheOccupancy();
-	}
-
-	auto FVulkanGraphicsPipelineDescriptorState::ClearDescriptorSetCache() -> void
-	{
-		uint64 ValueCount = 0;
-		for (const auto& Entry : DescriptorSetCache) ValueCount += Entry.Resources.size();
-		Owner.RemoveDescriptorCacheOccupancy(DescriptorSetCache.size(), ValueCount);
-		DescriptorSetCache.clear();
-		DescriptorSetCacheIndex.clear();
+		ClearDescriptorSetCache();
 	}
 
 	auto FVulkanGraphicsPipelineDescriptorState::Reset() -> void
 	{
 		PendingShaderResources.clear();
-		PendingResourceOwners.clear();
-		ClearDescriptorSetCache();
+		bPendingResourcesSorted = true;
+		bStructureValidated = false;
+		DrawValidationResourceIndices.clear();
+		PendingSets.clear();
+		ResolvedDescriptorSets.clear();
 	}
 
 	auto FVulkanPendingGraphicsState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
@@ -515,54 +544,6 @@ namespace Durin::VulkanRHI
 		});
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::CalculatePendingDescriptorHash() const -> uint64
-	{
-		FXxHash64Builder HashBuilder;
-		for (const FRHIShaderParameterResource& Resource : PendingShaderResources)
-		{
-			HashBuilder.UpdateValue(Resource.SetIndex);
-			HashBuilder.UpdateValue(Resource.BindingIndex);
-			HashBuilder.UpdateValue(Resource.ArrayElement);
-			HashBuilder.UpdateValue(Resource.Type);
-			HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
-			HashBuilder.UpdateValue(Resource.Size);
-			if (Resource.Type != ERHIBindingType::UniformBufferDynamic)
-			{
-				HashBuilder.UpdateValue(Resource.Offset);
-			}
-		}
-		return HashBuilder.Finalize().HashValue;
-	}
-
-	auto FVulkanGraphicsPipelineDescriptorState::AreDescriptorResourcesEqual(
-		const std::vector<FRHIShaderParameterResource>& A,
-		const std::vector<FRHIShaderParameterResource>& B
-	) -> bool
-	{
-		if (A.size() != B.size())
-		{
-			return false;
-		}
-
-		for (size_t Index = 0; Index < A.size(); ++Index)
-		{
-			if (A[Index].Resource != B[Index].Resource
-				|| A[Index].SetIndex != B[Index].SetIndex
-				|| A[Index].BindingIndex != B[Index].BindingIndex
-				|| A[Index].ArrayElement != B[Index].ArrayElement
-				|| A[Index].Type != B[Index].Type
-				|| A[Index].Size != B[Index].Size)
-			{
-				return false;
-			}
-			if (A[Index].Type != ERHIBindingType::UniformBufferDynamic && A[Index].Offset != B[Index].Offset)
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
 	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw
 	{
 		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState.GetDescriptorSetsLayout();
@@ -572,119 +553,188 @@ namespace Durin::VulkanRHI
 			return {};
 		}
 
-		SortDescriptorResources(PendingShaderResources);
-		std::vector<uint32> DynamicOffsets;
-		DynamicOffsets.reserve(PendingShaderResources.size());
-		uint64 BindingValidationVisits = 0;
-		const auto CompletenessResult = RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			PipelineState.GetKey().PipelineLayout, PendingShaderResources,
-			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
-				const FRHIShaderParameterResource& ResourceRecord) {
-					const FBindingLayoutItem& Binding = *Element.Binding;
-					const FRHIResource* Resource = ResourceRecord.Resource;
-					if (Binding.Type == ERHIBindingType::UniformBuffer
-						|| Binding.Type == ERHIBindingType::UniformBufferDynamic
-						|| Binding.Type == ERHIBindingType::StorageBuffer)
-					{
-						checkf(Resource->GetResourceType() == ERHIResourceType::BufferView,
-							"Buffer descriptor requires a canonical buffer view.");
-						const auto* View = static_cast<const FRHIBufferView*>(Resource);
-						const bool bUniform = Binding.Type != ERHIBindingType::StorageBuffer;
-						checkf(bUniform
-								? View->GetDesc().Type == ERHIBufferViewType::Uniform
-								: View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
-									|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage,
-							"Buffer descriptor view usage is incompatible with its binding type.");
-						if (Binding.Type == ERHIBindingType::UniformBufferDynamic)
-						{
-							const uint64 Alignment = Device.GetGpuProperties().limits
-								.minUniformBufferOffsetAlignment;
-							checkf(Alignment == 0 || (ResourceRecord.Offset % Alignment) == 0,
-								"Dynamic uniform offset is not device-aligned.");
-							DynamicOffsets.push_back(ResourceRecord.Offset);
-						}
-					}
-					else if (Binding.Type == ERHIBindingType::Texture
-						|| Binding.Type == ERHIBindingType::StorageImage)
-					{
-						checkf(Resource->GetResourceType() == ERHIResourceType::TextureView,
-							"Image descriptor requires a canonical texture view.");
-						const auto* View = static_cast<const FRHITextureView*>(Resource);
-						checkf(Binding.Type == ERHIBindingType::Texture
-								? View->GetDesc().Usage == ERHITextureViewUsage::Sampled
-								: View->GetDesc().Usage == ERHITextureViewUsage::Storage,
-							"Image descriptor view usage is incompatible with its binding type.");
-						const auto* VulkanTexture = static_cast<const FVulkanTexture*>(
-							View->GetTexture());
-						const ERHIAccess ExpectedAccess = Binding.Type == ERHIBindingType::Texture
-							? ERHIAccess::GraphicsShaderRead
-							: ERHIAccess::GraphicsShaderReadWrite;
-						ERHIAccess TrackedAccess = ERHIAccess::None;
-						checkf(ValidateVulkanTextureDescriptorState(
-							VulkanTexture->GetStateTracker(), View->GetDesc().Range,
-							Binding.Type, TrackedAccess),
-							"Image descriptor binding state mismatch: texture='{}', set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
-							VulkanTexture->GetDebugName(),
-							Element.SetIndex, Binding.Slot, Element.ArrayElement,
-							static_cast<uint32>(Binding.Type), static_cast<uint32>(ExpectedAccess),
-							static_cast<uint32>(TrackedAccess));
-					}
-					else
-						checkf(Resource->GetResourceType() == ERHIResourceType::Sampler,
-							"Sampler descriptor requires a sampler resource.");
-				}, &BindingValidationVisits);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		GVulkanBindingValidationVisitCount.fetch_add(
-			BindingValidationVisits, std::memory_order_relaxed);
-#endif
-		checkf(CompletenessResult, "Invalid shader binding snapshot: {}", ToString(CompletenessResult.error()));
-		const uint64 DescriptorHash = CalculatePendingDescriptorHash();
-
-		// Hash is a fast reject only; resource equality is still checked before cache reuse.
-		const auto [FirstCandidate, LastCandidate] = DescriptorSetCacheIndex.equal_range(DescriptorHash);
-		for (auto Candidate = FirstCandidate; Candidate != LastCandidate; ++Candidate)
+		if (!bPendingResourcesSorted)
 		{
-			FVulkanDescriptorSetCacheEntry& Entry = DescriptorSetCache[Candidate->second];
-			if (AreDescriptorResourcesEqual(Entry.Resources, PendingShaderResources))
+			SortDescriptorResources(PendingShaderResources);
+			bPendingResourcesSorted = true;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanDescriptorSortCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		}
+		if (!bStructureValidated || Owner.bFullDescriptorValidation)
+		{
+			PendingSets.resize(LayoutHandles.size());
+			size_t NextResource = 0;
+			for (uint32 SetIndex = 0; SetIndex < PendingSets.size(); ++SetIndex)
+			{
+				auto& Set = PendingSets[SetIndex];
+				Set.FirstResource = NextResource;
+				while (NextResource < PendingShaderResources.size()
+					&& PendingShaderResources[NextResource].SetIndex == SetIndex) ++NextResource;
+				Set.ResourceCount = NextResource - Set.FirstResource;
+			}
+			DrawValidationResourceIndices.clear();
+			uint64 BindingValidationVisits = 0;
+			const auto CompletenessResult = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+				PipelineState.GetKey().PipelineLayout, PendingShaderResources,
+				[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
+					const FRHIShaderParameterResource& ResourceRecord) {
+						const FBindingLayoutItem& Binding = *Element.Binding;
+						const FRHIResource* Resource = ResourceRecord.Resource;
+						if (Binding.Type == ERHIBindingType::UniformBufferDynamic
+							|| Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::StorageImage)
+							DrawValidationResourceIndices.push_back(static_cast<size_t>(&ResourceRecord - PendingShaderResources.data()));
+						if (Binding.Type == ERHIBindingType::UniformBuffer
+							|| Binding.Type == ERHIBindingType::UniformBufferDynamic
+							|| Binding.Type == ERHIBindingType::StorageBuffer)
+						{
+							checkf(Resource->GetResourceType() == ERHIResourceType::BufferView,
+								"Buffer descriptor requires a canonical buffer view.");
+							const auto* View = static_cast<const FRHIBufferView*>(Resource);
+							const bool bUniform = Binding.Type != ERHIBindingType::StorageBuffer;
+							checkf(bUniform
+									? View->GetDesc().Type == ERHIBufferViewType::Uniform
+									: View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
+										|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage,
+								"Buffer descriptor view usage is incompatible with its binding type.");
+						}
+						else if (Binding.Type == ERHIBindingType::Texture
+							|| Binding.Type == ERHIBindingType::StorageImage)
+						{
+							checkf(Resource->GetResourceType() == ERHIResourceType::TextureView,
+								"Image descriptor requires a canonical texture view.");
+							const auto* View = static_cast<const FRHITextureView*>(Resource);
+							checkf(Binding.Type == ERHIBindingType::Texture
+									? View->GetDesc().Usage == ERHITextureViewUsage::Sampled
+									: View->GetDesc().Usage == ERHITextureViewUsage::Storage,
+								"Image descriptor view usage is incompatible with its binding type.");
+						}
+						else
+							checkf(Resource->GetResourceType() == ERHIResourceType::Sampler,
+								"Sampler descriptor requires a sampler resource.");
+					}, &BindingValidationVisits);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanBindingValidationVisitCount.fetch_add(
+				BindingValidationVisits, std::memory_order_relaxed);
+#endif
+			checkf(CompletenessResult, "Invalid shader binding snapshot: {}", ToString(CompletenessResult.error()));
+			bStructureValidated = true;
+		}
+		std::vector<uint32> DynamicOffsets;
+		DynamicOffsets.reserve(DrawValidationResourceIndices.size());
+		for (const size_t Index : DrawValidationResourceIndices)
+		{
+			const auto& Record = PendingShaderResources[Index];
+			if (Record.Type == ERHIBindingType::UniformBufferDynamic)
+			{
+				const auto* View = static_cast<const FRHIBufferView*>(Record.Resource);
+				const uint64 Alignment = Device.GetGpuProperties().limits.minUniformBufferOffsetAlignment;
+				checkf(Alignment == 0 || (Record.Offset % Alignment) == 0,
+					"Dynamic uniform offset is not device-aligned.");
+				const uint64 BufferSize = View->GetBuffer()->GetSize();
+				const uint64 Offset = View->GetDesc().Offset + static_cast<uint64>(Record.Offset);
+				checkf(Offset <= BufferSize && View->GetDesc().Size <= BufferSize - Offset,
+					"Dynamic uniform descriptor range exceeds its buffer.");
+				DynamicOffsets.push_back(Record.Offset);
+			}
+			else
+			{
+				const auto* View = static_cast<const FRHITextureView*>(Record.Resource);
+				const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+				const ERHIAccess ExpectedAccess = Record.Type == ERHIBindingType::Texture
+					? ERHIAccess::GraphicsShaderRead : ERHIAccess::GraphicsShaderReadWrite;
+				ERHIAccess TrackedAccess = ERHIAccess::None;
+				checkf(ValidateVulkanTextureDescriptorState(Texture->GetStateTracker(), View->GetDesc().Range,
+					Record.Type, TrackedAccess),
+					"Image descriptor binding state mismatch: texture='{}', set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
+					Texture->GetDebugName(), Record.SetIndex, Record.BindingIndex, Record.ArrayElement,
+					static_cast<uint32>(Record.Type), static_cast<uint32>(ExpectedAccess), static_cast<uint32>(TrackedAccess));
+			}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanDescriptorDrawValidationVisitCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		}
+		ResolvedDescriptorSets.resize(LayoutHandles.size());
+		for (uint32 SetIndex = 0; SetIndex < PendingSets.size(); ++SetIndex)
+		{
+			auto& Set = PendingSets[SetIndex];
+			auto Entry = Set.Selected.lock();
+			if (Entry)
 			{
 				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
-				Owner.TouchDescriptorCacheEntry(Entry);
-				return FDescriptorSetsForDraw{&Entry.DescriptorSets, std::move(DynamicOffsets)};
+				Owner.TouchDescriptorCacheEntry(*Entry);
+			}
+			else
+			{
+				FVulkanDescriptorRequirements Requirements;
+				Requirements.MaxSets = 1;
+				for (const auto& Binding : DescriptorSetsLayout.GetInfo().GetLayouts()[SetIndex].LayoutBindings)
+					Requirements.DescriptorCounts[Binding.descriptorType] += Binding.descriptorCount;
+				Entry = Owner.ResolveDescriptorSet(LayoutHandles[SetIndex],
+					std::span<const FRHIShaderParameterResource>(PendingShaderResources).subspan(Set.FirstResource, Set.ResourceCount),
+					Requirements, SetIndex);
+				Set.Selected = Entry;
+			}
+			ResolvedDescriptorSets[SetIndex] = Entry->DescriptorSet;
+		}
+		return {&ResolvedDescriptorSets, std::move(DynamicOffsets)};
+	}
+
+	auto FVulkanPendingGraphicsState::ResolveDescriptorSet(vk::DescriptorSetLayout Layout,
+		std::span<const FRHIShaderParameterResource> Resources,
+		const FVulkanDescriptorRequirements& Requirements, uint32 SetIndex) -> std::shared_ptr<FDescriptorEntry>
+	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanDescriptorHashCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		FXxHash64Builder HashBuilder;
+		HashBuilder.UpdateValue(Layout);
+		for (const auto& Resource : Resources)
+		{
+			HashBuilder.UpdateValue(Resource.BindingIndex);
+			HashBuilder.UpdateValue(Resource.ArrayElement);
+			HashBuilder.UpdateValue(Resource.Type);
+			HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
+			HashBuilder.UpdateValue(Resource.Size);
+			if (Resource.Type != ERHIBindingType::UniformBufferDynamic) HashBuilder.UpdateValue(Resource.Offset);
+		}
+		const uint64 Hash = HashBuilder.Finalize().HashValue;
+		const auto [First, Last] = DescriptorSetCacheIndex.equal_range(Hash);
+		for (auto Candidate = First; Candidate != Last; ++Candidate)
+		{
+			auto& Entry = DescriptorSetCache[Candidate->second];
+			// The device layout cache interns complete structural layouts. Set index
+			// is external to compatibility; every draw explicitly binds all sets.
+			if (Entry->Layout == Layout && std::ranges::equal(Entry->Resources, Resources,
+				[](const auto& A, const auto& B) {
+					return A.Resource == B.Resource && A.BindingIndex == B.BindingIndex
+						&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
+						&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset);
+				}))
+			{
+				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
+				TouchDescriptorCacheEntry(*Entry);
+				return Entry;
 			}
 		}
 		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Misses;
-
-		FVulkanDescriptorSetCacheEntry NewEntry;
-		NewEntry.Hash = DescriptorHash;
-		NewEntry.Resources = PendingShaderResources;
-		NewEntry.ResourceOwners.reserve(NewEntry.Resources.size());
-		for (FRHIShaderParameterResource& Resource : NewEntry.Resources)
-		{
-			NewEntry.ResourceOwners.emplace_back(Resource.Resource);
-			Resource.Resource = NewEntry.ResourceOwners.back().GetReference();
-		}
-
-		NewEntry.DescriptorSets = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
-			LayoutHandles,
-			DescriptorSetsLayout.GetInfo().GetDescriptorRequirements()
-		);
-
-		UpdateDescriptorSets(Device, NewEntry.Resources, NewEntry.DescriptorSets);
+		auto Entry = std::make_shared<FDescriptorEntry>();
+		Entry->Hash = Hash;
+		Entry->Layout = Layout;
+		Entry->Resources.assign(Resources.begin(), Resources.end());
+		Entry->ResourceOwners.reserve(Resources.size());
+		for (const auto& Resource : Resources) Entry->ResourceOwners.emplace_back(Resource.Resource);
+		Entry->DescriptorSet = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
+			std::span<const vk::DescriptorSetLayout>(&Layout, 1), Requirements).front();
+		UpdateDescriptorSets(Device, Resources, std::span<const vk::DescriptorSet>(&Entry->DescriptorSet, 1), SetIndex);
 		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.NativeCreations;
 		++Device.AccessPipelineCacheStatistics().Get().DescriptorAllocations;
-		DescriptorSetCache.push_back(std::move(NewEntry));
-		DescriptorSetCacheIndex.emplace(DescriptorHash, DescriptorSetCache.size() - 1);
-		FVulkanDescriptorSetCacheEntry& CommittedEntry = DescriptorSetCache.back();
-		Owner.AddDescriptorCacheOccupancy(1, CommittedEntry.Resources.size());
-		Owner.TouchDescriptorCacheEntry(CommittedEntry);
-		Owner.EnforceDescriptorCacheBudget();
-		for (FVulkanDescriptorSetCacheEntry& Entry : DescriptorSetCache)
-		{
-			if (Entry.LastUsed == Owner.DescriptorAccessSerial)
-				return FDescriptorSetsForDraw{&Entry.DescriptorSets, std::move(DynamicOffsets)};
-		}
-		checkf(false, "A newly created descriptor snapshot exceeded the configured cache budget.");
-		return {};
+		DescriptorSetCache.push_back(Entry);
+		DescriptorSetCacheIndex.emplace(Hash, DescriptorSetCache.size() - 1);
+		AddDescriptorCacheOccupancy(1, Resources.size());
+		TouchDescriptorCacheEntry(*Entry);
+		EnforceDescriptorCacheBudget();
+		return Entry;
 	}
 
 	auto FVulkanPendingGraphicsState::TouchDescriptorCacheEntry(
@@ -737,17 +787,11 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		uint64 EntryCount = 0;
 		uint64 ValueCount = 0;
-		for (const auto& State : PipelineStates | std::views::values)
+		for (const auto& Entry : DescriptorSetCache)
 		{
-			GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(
-				1, std::memory_order_relaxed);
-			EntryCount += State->DescriptorSetCache.size();
-			for (const auto& Entry : State->DescriptorSetCache)
-			{
-				GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(
-					1, std::memory_order_relaxed);
-				ValueCount += Entry.Resources.size();
-			}
+			GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(1, std::memory_order_relaxed);
+			++EntryCount;
+			ValueCount += Entry->Resources.size();
 		}
 		checkfSlow(EntryCount == DescriptorEntryOccupancy
 			&& ValueCount == DescriptorValueOccupancy,
@@ -757,39 +801,22 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::EnforceDescriptorCacheBudget() -> void
 	{
-		while (true)
+		while (DescriptorEntryOccupancy > 512 || DescriptorValueOccupancy > 8192)
 		{
-			if (DescriptorEntryOccupancy <= 512 && DescriptorValueOccupancy <= 8192)
-				break;
-			FVulkanGraphicsPipelineDescriptorState* VictimState = nullptr;
-			size_t VictimIndex = 0;
-			uint64 Oldest = std::numeric_limits<uint64>::max();
-			for (const auto& State : PipelineStates | std::views::values)
-			{
-				for (size_t Index = 0; Index < State->DescriptorSetCache.size(); ++Index)
-				{
-					const auto& Entry = State->DescriptorSetCache[Index];
-					if (Entry.LastUsed < Oldest)
-					{
-						Oldest = Entry.LastUsed;
-						VictimState = State.get();
-						VictimIndex = Index;
-					}
-				}
-			}
-			check(VictimState);
-			RemoveDescriptorCacheOccupancy(1,
-				VictimState->DescriptorSetCache[VictimIndex].Resources.size());
-			VictimState->DescriptorSetCache.erase(VictimState->DescriptorSetCache.begin() + VictimIndex);
-			VictimState->RebuildCacheIndex();
+			const auto Victim = std::ranges::min_element(DescriptorSetCache, {},
+				[](const auto& Entry) { return Entry->LastUsed; });
+			check(Victim != DescriptorSetCache.end());
+			RemoveDescriptorCacheOccupancy(1, (*Victim)->Resources.size());
+			DescriptorSetCache.erase(Victim);
+			RebuildDescriptorCacheIndex();
 			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Evictions;
 		}
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::RebuildCacheIndex() -> void
+	auto FVulkanPendingGraphicsState::RebuildDescriptorCacheIndex() -> void
 	{
 		DescriptorSetCacheIndex.clear();
 		for (size_t Index = 0; Index < DescriptorSetCache.size(); ++Index)
-			DescriptorSetCacheIndex.emplace(DescriptorSetCache[Index].Hash, Index);
+			DescriptorSetCacheIndex.emplace(DescriptorSetCache[Index]->Hash, Index);
 	}
 } // namespace Durin::VulkanRHI

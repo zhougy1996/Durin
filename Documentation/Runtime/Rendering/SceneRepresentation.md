@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-22
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -94,6 +94,17 @@ separate visible, prepared, rejected, section/triangle, accepted dynamic-update,
 and retained-deformation values and conserve candidates against outcomes.
 Material binding updates dispatch through the base
 primitive-proxy contract rather than a StaticMesh branch in `FScene`.
+
+View visibility copies world bounds and visible flags into owned value inputs
+before classification. `ClassifySceneVisibility` captures the frustum and these
+values only; its workers never access scene infos, proxies or global counters.
+At 1,024 candidates it uses independent CPU tasks with at most 512 inputs per
+chunk and eight active tasks. Smaller inputs and unavailable schedulers run
+inline. Ordered merge precedes caller-thread pointer mapping and telemetry
+accumulation. Failed task classification publishes no partial result and retries
+the pure computation inline; outstanding tasks are drained before return.
+Candidate and diagnostic pointers still borrow scene storage and must be consumed
+before mutation. This is not permission to mutate the scene concurrently.
 
 ## View-Local Environment Overrides
 

@@ -37,6 +37,10 @@
 #include "SceneTestAccess.h"
 #include "SceneView.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "GeometryDepthCaptureTestSupport.h"
+#include "Renderers/DirectionalShadowRenderer.h"
+#include "ShaderBuild/ShaderPaths.h"
+#include "Misc/FileHelper.h"
 
 #include <gtest/gtest.h>
 
@@ -53,6 +57,13 @@
 #include <string_view>
 #include <vector>
 
+namespace Durin::Tests
+{
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FDepthCaptureVertexShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FDepthCaptureFragmentShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FShadowCaptureFragmentShader);
+}
+
 namespace
 {
 	constexpr uint32 CaptureWidth = 257;
@@ -64,6 +75,15 @@ namespace
 	public:
 		auto SetUp() -> void override
 		{
+			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+			Durin::GIsGameThreadIdInitialized = true;
+			const auto Root = Durin::Testing::CreateTestFixtureDirectory("ShadowDepthQualification");
+			std::filesystem::create_directories(Root / "Source");
+			const auto Source = Durin::Tests::DepthCaptureSource;
+			ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span(
+				reinterpret_cast<const std::byte*>(Source.data()), Source.size()), Root / "Source/Depth.slang"));
+			Durin::FShaderPaths::RegisterMountPoint("/GeometryQualification/",
+				(Root / "Source").generic_string(), (Root / "Cache").generic_string());
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 		}
@@ -148,9 +168,32 @@ namespace
 		Durin::EDirectionalShadowCandidate Candidate =
 			Durin::EDirectionalShadowCandidate::SingleMap;
 		bool bPerspective = false;
+		const char* RecordingPolicy = "auto";
+	};
+
+	// Workers receive the policy selected before dispatch, never the environment.
+	struct FScopedShadowRecordingPolicy
+	{
+		std::string Previous;
+		explicit FScopedShadowRecordingPolicy(const char* Value)
+		{
+			if (const char* Existing = std::getenv("DURIN_SHADOW_RECORDING")) Previous = Existing;
+			Set(Value);
+		}
+		~FScopedShadowRecordingPolicy() { Set(Previous.c_str()); }
+		static auto Set(const char* Value) -> void
+		{
+#if defined(_WIN32)
+			_putenv_s("DURIN_SHADOW_RECORDING", Value);
+#else
+			if (*Value) setenv("DURIN_SHADOW_RECORDING", Value, 1);
+			else unsetenv("DURIN_SHADOW_RECORDING");
+#endif
+		}
 	};
 
 	Durin::FViewRenderTelemetry GLastTelemetry;
+	std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount>* GDepthLayerCapture = nullptr;
 	Durin::FRDGCapture GLastSceneRenderGraphCapture;
 	bool GReceivedSceneRenderGraphCapture = false;
 	Durin::FByteBuffer* GHDRSceneColorPixels = nullptr;
@@ -843,13 +886,31 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Fixtures.push_back({.Name = "q2_cascades_index_perspective", .Primitives = {{{24.0, 0.0, 0.0}, {7.0, 7.0, 1.0}, 90.0}, {{22.0, 0.5, 0.0}, {2.0, 2.0, 1.0}, 90.0}}, .LightDirection = {-1.0, 0.2, -0.25}, .DiagnosticMode = Durin::EDirectionalShadowDiagnosticMode::CascadeIndex, .FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium, .Candidate = Durin::EDirectionalShadowCandidate::ThreeCascades, .bPerspective = true});
 	const std::filesystem::path OutputDirectory =
 		Durin::Testing::CreateTestFixtureDirectory("DirectionalShadowQ0Baseline");
+	const size_t RecordingParityStart = Fixtures.size();
+	const auto CascadeFixture = Fixtures.back();
+	for (const char* Policy : {"immediate", "serial", "parallel"})
+	{
+		auto Fixture = CascadeFixture;
+		Fixture.Name = std::format("cascades_recording_{}", Policy);
+		Fixture.DiagnosticMode = Durin::EDirectionalShadowDiagnosticMode::Lit;
+		Fixture.RecordingPolicy = Policy;
+		// Populate the far cascade as well as the near/middle layers. Include
+		// reversed winding and masked fragments in the native depth comparison.
+		Fixture.Primitives.push_back({.Translation = {160.0, 30.0, 0.0},
+			.Scale = {-15.0, 15.0, 1.0}, .RotationYDegrees = 90.0});
+		Fixture.Primitives.push_back({.Translation = {158.0, 35.0, 0.0},
+			.Scale = {5.0, 5.0, 1.0}, .RotationYDegrees = 90.0, .bMasked = true});
+		Fixtures.push_back(std::move(Fixture));
+	}
 	std::vector<Durin::FByteBuffer> Captures;
+	std::vector<std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount>> DepthCaptures;
 	std::vector<FCaptureStatistics> Statistics;
 	Captures.reserve(Fixtures.size());
 	Statistics.reserve(Fixtures.size());
 
 	for (const FFixture& Fixture : Fixtures)
 	{
+		const FScopedShadowRecordingPolicy RecordingPolicy(Fixture.RecordingPolicy);
 		Durin::FSceneTestOwner SceneOwner;
 		Durin::FScene& Scene = *SceneOwner;
 		for (size_t Index = 0; Index < Fixture.Primitives.size(); ++Index)
@@ -867,6 +928,14 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		Durin::FlushRenderingCommands();
 
 		auto Pixels = std::make_shared<Durin::FByteBuffer>();
+		std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount> DepthLayers;
+		GDepthLayerCapture = std::string_view(Fixture.RecordingPolicy) == "auto" ? nullptr : &DepthLayers;
+		if (GDepthLayerCapture)
+			Durin::SetShadowDepthCaptureSink(+[](Durin::FRHICommandListImmediate& Commands, Durin::FRHITexture* Depth, uint32 Count) {
+				ASSERT_EQ(Count, Durin::DirectionalShadowCascadeCount);
+				for (uint32 Layer = 0; Layer < Count; ++Layer)
+					Durin::Tests::ReadGeometryTexture(Commands, Depth, (*GDepthLayerCapture)[Layer], true, Layer);
+			});
 		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 			[&Renderer, &Scene, &Fixture, Pixels](
 				Durin::FRHICommandListImmediate& CommandList
@@ -927,19 +996,28 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		);
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(Pixels->size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
+		Durin::SetShadowDepthCaptureSink(nullptr);
+		GDepthLayerCapture = nullptr;
+		if (std::string_view(Fixture.RecordingPolicy) != "auto") DepthCaptures.push_back(std::move(DepthLayers));
 		if (Fixture.bCastShadows)
 		{
 			ASSERT_TRUE(GReceivedSceneRenderGraphCapture);
-			const auto ShadowOutput = std::ranges::find_if(
-				GLastSceneRenderGraphCapture.Parameters, [](const auto& Parameter) {
-					return Parameter.FieldPath ==
-						"FDirectionalShadowPassParameters.Resources.DirectionalShadowOutput";
-				});
-			ASSERT_NE(ShadowOutput, GLastSceneRenderGraphCapture.Parameters.end());
-			ASSERT_TRUE(ShadowOutput->bPresent);
-			EXPECT_EQ(ShadowOutput->TextureRange.FirstArrayLayer, 0u);
-			EXPECT_EQ(ShadowOutput->TextureRange.NumArrayLayers,
-				GLastTelemetry.DirectionalShadow.ShadowCascadeCount);
+			uint32 CoveredLayers = 0;
+			for (const auto& Parameter : GLastSceneRenderGraphCapture.Parameters)
+			{
+				if (!Parameter.FieldPath.ends_with(".Resources.DirectionalShadowOutput")) continue;
+				ASSERT_TRUE(Parameter.bPresent);
+				for (uint32 Layer = Parameter.TextureRange.FirstArrayLayer;
+					Layer < Parameter.TextureRange.FirstArrayLayer + Parameter.TextureRange.NumArrayLayers; ++Layer)
+				{
+					ASSERT_LT(Layer, Durin::DirectionalShadowCascadeCount);
+					EXPECT_EQ(CoveredLayers & (1u << Layer), 0u);
+					CoveredLayers |= 1u << Layer;
+				}
+			}
+			EXPECT_EQ(CoveredLayers, (1u << GLastTelemetry.DirectionalShadow.ShadowCascadeCount) - 1u);
+			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowWorkerRecordingChunks,
+				std::string_view(Fixture.RecordingPolicy) == "parallel" ? 3u : 0u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 1u);
 			EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
@@ -985,6 +1063,28 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	}
 
 	ASSERT_EQ(Captures.size(), Fixtures.size());
+	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 1]);
+	EXPECT_EQ(Captures[RecordingParityStart], Captures[RecordingParityStart + 2]);
+	ASSERT_EQ(DepthCaptures.size(), 3u);
+	for (uint32 Layer = 0; Layer < Durin::DirectionalShadowCascadeCount; ++Layer)
+	{
+		const auto& Reference = DepthCaptures[0][Layer];
+		ASSERT_EQ(Reference.size(), static_cast<size_t>(Durin::DirectionalShadowResolution)
+			* Durin::DirectionalShadowResolution * sizeof(float));
+		EXPECT_EQ(Reference, DepthCaptures[1][Layer]) << "serial layer=" << Layer;
+		EXPECT_EQ(Reference, DepthCaptures[2][Layer]) << "parallel layer=" << Layer;
+		size_t Covered = 0;
+		for (size_t Offset = 0; Offset < Reference.size(); Offset += sizeof(float))
+		{
+			float Depth;
+			std::memcpy(&Depth, Reference.data() + Offset, sizeof(Depth));
+			ASSERT_TRUE(std::isfinite(Depth));
+			ASSERT_GE(Depth, 0.0f);
+			ASSERT_LE(Depth, 1.0f);
+			Covered += Depth < 1.0f;
+		}
+		EXPECT_GT(Covered, 0u) << "empty shadow layer=" << Layer;
+	}
 	ASSERT_EQ(Statistics.size(), Fixtures.size());
 	EXPECT_NE(Captures[CascadeFixtureStart], Captures[8]);
 	const std::array<size_t, 3> MotionChangedPixels{

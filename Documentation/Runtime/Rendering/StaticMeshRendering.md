@@ -83,9 +83,13 @@ Initialization is render-thread-only and follows a fixed order:
 2. Initialize position, tangent, texcoord, color, then index buffers for every
    LOD.
 3. Initialize each LOD's `FLocalVertexFactory` after its buffers are ready.
+4. Publish a validated immutable per-LOD geometry record, as defined by the
+   [frame preparation contract](RendererFramePreparation.md#ownership-boundary).
 
 Release runs in reverse order: all vertex factories first, then each LOD's
-index buffer and vertex buffers. Initialization is idempotent, and any partial
+index buffer and vertex buffers; current geometry publications are withdrawn.
+Prepared consumers retain their owned RHI inputs until retirement. Initialization
+is idempotent, including the record ID of an unchanged ready LOD, and any partial
 failure releases all resources already initialized so a later retry starts
 clean.
 

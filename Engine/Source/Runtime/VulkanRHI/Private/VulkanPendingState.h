@@ -4,6 +4,7 @@
 
 namespace Durin::VulkanRHI
 {
+	struct FVulkanDescriptorRequirements;
 	class FVulkanCommandListContext;
 	class FVulkanDevice;
 	class FVulkanGraphicsPipelineState;
@@ -20,7 +21,7 @@ namespace Durin::VulkanRHI
 		auto SetComputePipelineState(FVulkanComputePipelineState& InPipelineState,
 			vk::CommandBuffer InCmdBuffer) -> void;
 		auto SetShaderParameters(FRHIShader* InShader,
-			std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
+			std::span<const FRHIShaderParameterResource> InResourceParameters) -> void;
 		auto PushConstants(FVulkanCommandListContext& InContext,
 			EShaderStageFlags StageFlags, uint32 Offset, uint32 Size,
 			const void* Data) -> void;
@@ -43,6 +44,7 @@ namespace Durin::VulkanRHI
 		std::vector<FRHIShaderParameterResource> CachedResources;
 		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
 		std::vector<vk::DescriptorSet> CachedDescriptorSets;
+		uint64 DescriptorPoolGeneration = 0;
 	};
 
 	// Descriptor state owned by one graphics PSO within a command context.
@@ -59,11 +61,9 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGraphicsPipelineDescriptorState() { Reset(); }
 
-		auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
+		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void;
 
 		auto GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw;
-
-		auto ClearDescriptorSetCache() -> void;
 
 		auto Reset() -> void;
 
@@ -74,23 +74,26 @@ namespace Durin::VulkanRHI
 			uint64 Hash = 0;
 			std::vector<FRHIShaderParameterResource> Resources;
 			std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
-			std::vector<vk::DescriptorSet> DescriptorSets;
+			vk::DescriptorSetLayout Layout{};
+			vk::DescriptorSet DescriptorSet{};
 			uint64 LastUsed = 0;
 		};
 
-		auto CalculatePendingDescriptorHash() const -> uint64;
-		auto RebuildCacheIndex() -> void;
-
-		static auto AreDescriptorResourcesEqual(
-			const std::vector<FRHIShaderParameterResource>& A,
-			const std::vector<FRHIShaderParameterResource>& B
-		) -> bool;
+		struct FPendingSet
+		{
+			std::weak_ptr<FVulkanDescriptorSetCacheEntry> Selected;
+			std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
+			bool bOwnersDirty = false;
+			size_t FirstResource = 0;
+			size_t ResourceCount = 0;
+		};
 
 		std::vector<FRHIShaderParameterResource> PendingShaderResources;
-		std::vector<TRefCountPtr<FRHIResource>> PendingResourceOwners;
-
-		std::vector<FVulkanDescriptorSetCacheEntry> DescriptorSetCache;
-		std::unordered_multimap<uint64, size_t> DescriptorSetCacheIndex;
+		bool bPendingResourcesSorted = true;
+		bool bStructureValidated = false;
+		std::vector<size_t> DrawValidationResourceIndices;
+		std::vector<FPendingSet> PendingSets;
+		std::vector<vk::DescriptorSet> ResolvedDescriptorSets;
 		FVulkanPendingGraphicsState& Owner;
 
 		friend class FVulkanPendingGraphicsState;
@@ -114,7 +117,7 @@ namespace Durin::VulkanRHI
 		auto SetDepthBias(float ConstantFactor, float Clamp,
 			float SlopeFactor) -> void;
 
-		auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
+		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void;
 
 		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
 
@@ -135,6 +138,11 @@ namespace Durin::VulkanRHI
 
 		auto FindOrAddDescriptorState(FVulkanGraphicsPipelineState& InPipelineState) -> FVulkanGraphicsPipelineDescriptorState&;
 		auto TouchDescriptorCacheEntry(FVulkanGraphicsPipelineDescriptorState::FVulkanDescriptorSetCacheEntry& Entry) -> void;
+		using FDescriptorEntry = FVulkanGraphicsPipelineDescriptorState::FVulkanDescriptorSetCacheEntry;
+		auto ResolveDescriptorSet(vk::DescriptorSetLayout Layout,
+			std::span<const FRHIShaderParameterResource> Resources,
+			const FVulkanDescriptorRequirements& Requirements, uint32 SetIndex) -> std::shared_ptr<FDescriptorEntry>;
+		auto RebuildDescriptorCacheIndex() -> void;
 		auto EnforceDescriptorCacheBudget() -> void;
 		auto AddDescriptorCacheOccupancy(uint64 EntryCount, uint64 ValueCount) -> void;
 		auto RemoveDescriptorCacheOccupancy(uint64 EntryCount, uint64 ValueCount) -> void;
@@ -155,8 +163,12 @@ namespace Durin::VulkanRHI
 
 		// Owns descriptor states; pipeline keys are non-owning.
 		std::unordered_map<FVulkanGraphicsPipelineState*, std::unique_ptr<FVulkanGraphicsPipelineDescriptorState>> PipelineStates;
+		std::vector<std::shared_ptr<FDescriptorEntry>> DescriptorSetCache;
+		uint64 DescriptorPoolGeneration = 0;
+		std::unordered_multimap<uint64, size_t> DescriptorSetCacheIndex;
 		uint64 DescriptorAccessSerial = 0;
 		uint64 DescriptorEntryOccupancy = 0;
 		uint64 DescriptorValueOccupancy = 0;
+		bool bFullDescriptorValidation = false;
 	};
 } // namespace Durin::VulkanRHI

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Rendering/MeshBatch.h"
+#include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "StaticMesh/StaticMeshLODSelection.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -9,11 +10,10 @@
 namespace Durin
 {
 	// One asset-specific selection/material algorithm shared by both providers.
-	template <typename TProxy, typename TBinding>
+	template <typename TProxy>
 	auto CollectStaticMeshAssetBatches(const TProxy& Proxy,
 		const FStaticMeshRenderData* RenderData,
-		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector,
-		std::shared_ptr<TBinding> Binding) -> void
+		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
 	{
 		CheckRenderingThread();
 		if (!RenderData || RenderData->LODResources.empty()
@@ -22,59 +22,53 @@ namespace Durin
 			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
 			return;
 		}
-		const uint32 RequestedLOD = Context.bForceLOD0 ? 0u
-			: SelectStaticMeshLOD(Context.NormalizedScreenSize, RenderData->LODResources);
-		const uint32 SelectedLOD = ResolveAvailableStaticMeshLOD(
-			RequestedLOD, RenderData->LODResources);
-		if (SelectedLOD == InvalidStaticMeshLODIndex)
+		const uint32 RequestedLOD = Context.PreparedLOD ? Context.PreparedLOD->Requested
+			: Context.bForceLOD0 ? 0u : SelectStaticMeshLOD(Context.NormalizedScreenSize, RenderData->LODResources);
+		const uint32 SelectedLOD = Context.PreparedLOD ? Context.PreparedLOD->Selected
+			: ResolveAvailableStaticMeshLOD(RequestedLOD, RenderData->LODResources);
+		if (RequestedLOD >= RenderData->LODResources.size() || SelectedLOD >= RenderData->LODResources.size()
+			|| !RenderData->LODResources[SelectedLOD].bReadyForRendering)
 		{
 			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
 			return;
 		}
 		const auto& LOD = RenderData->LODResources[SelectedLOD];
-		const auto& VertexFactory = RenderData->LODVertexFactories[SelectedLOD].VertexFactory;
-		Binding->Declaration = VertexFactory.GetDeclaration();
-		Binding->DeclarationElements = VertexFactory.GetDeclarationElements();
-		Binding->Streams = VertexFactory.GetStreams();
-		Binding->NumVertices = LOD.GetNumVertices();
+		auto Record = LOD.GeometryRecord;
+		if (!Record)
+		{
+			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
+			return;
+		}
+		if constexpr (std::same_as<TProxy, FSplineMeshSceneProxy>)
+		{
+			Record = Proxy.ResolveGeometryRecord_RenderThread(SelectedLOD, *Record);
+			if (!Record)
+			{
+				Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
+				return;
+			}
+		}
+		const auto& Inputs = Record->GetBinding();
 		FMeshBatch Batch;
 		Batch.PrimitiveId = Context.PrimitiveId;
 		Batch.LocalToWorld = Context.LocalToWorld;
 		Batch.WorldBounds = Context.WorldBounds;
-		Batch.FactoryKey = Binding->GetFactoryKey();
-		Batch.LayoutKey = Binding->GetLayoutKey();
-		Batch.Binding = std::move(Binding);
+		Batch.FactoryKey = Inputs->GetFactoryKey();
+		Batch.LayoutKey = Inputs->GetLayoutKey();
+		Batch.Binding = Inputs;
+		Batch.GeometryRecord = Record;
 		Batch.RequestedLOD = RequestedLOD;
 		Batch.SelectedLOD = SelectedLOD;
 		Batch.LODCount = static_cast<uint32>(RenderData->LODResources.size());
-		if constexpr (std::same_as<TBinding, FSplineMeshBatchBinding>)
+		if constexpr (std::same_as<TProxy, FSplineMeshSceneProxy>)
 		{
 			Batch.AcceptedDynamicUpdates = Proxy.GetAcceptedDynamicUpdateCount();
 			Batch.RetainedDeformationBytes = sizeof(FSplineMeshRenderDynamicData);
 		}
-		Batch.Elements.reserve(LOD.Sections.size());
-		const auto& Position = LOD.VertexBuffers.PositionVertexBuffer;
-		for (uint32 SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
+		Batch.PublishedMaterials.reserve(Record->GetElements().size());
+		for (const auto& Geometry : Record->GetElements())
 		{
-			const auto& Section = LOD.Sections[SectionIndex];
-			if (Section.IndexCount == 0 || static_cast<uint64>(Section.FirstIndex)
-				+ Section.IndexCount > LOD.IndexBuffer.GetIndices().size()) continue;
-			FMeshBatchElement Element;
-			Element.ElementId = SectionIndex;
-			Element.LocalBounds = Section.LocalBounds;
-			Element.MaterialSlotDiagnostic = Section.MaterialSlotIndex;
-			Element.Draw.ElementCount = Section.IndexCount;
-			Element.Draw.FirstElement = Section.FirstIndex;
-			Element.Draw.MinVertexIndex = Section.MinVertexIndex;
-			Element.Draw.MaxVertexIndex = Section.MaxVertexIndex;
-			Element.Vertices.Buffer = Position.GetRHI();
-			Element.Vertices.Range = {static_cast<uint64>(Position.GetNumVertices()) * Position.GetStride(),
-				0, Position.GetStride(), Position.GetStride()};
-			Element.Indices.Buffer = LOD.IndexBuffer.GetRHI();
-			Element.Indices.Range = {static_cast<uint64>(LOD.GetNumIndices()) * sizeof(uint32),
-				0, sizeof(uint32), sizeof(uint32)};
-			Element.Material = Proxy.ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex);
-			Batch.Elements.push_back(std::move(Element));
+			Batch.PublishedMaterials.push_back(Proxy.ResolveMaterialRenderData_RenderThread(Geometry.MaterialSlotDiagnostic));
 		}
 		Collector.Add(std::move(Batch));
 	}
