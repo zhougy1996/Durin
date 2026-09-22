@@ -21,6 +21,7 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
@@ -276,7 +277,7 @@ namespace Durin
 
 		if (FragmentParameters.Compiled && FragmentParameters.Compiled->bCompiledLayout)
 			return RendererPrivate::BindCompiledSurfaceMaterial(CommandList, Pipeline.Fragment.GetRHIShader(),
-				Pipeline.Fragment.GetReflection(), *FragmentParameters.Compiled, FragmentParameters.Material);
+				Pipeline.Fragment.GetReflection(), *FragmentParameters.Compiled, FragmentParameters.Material, {}, {}, FragmentParameters.View);
 		return false;
 	}
 

@@ -16,7 +16,7 @@ namespace Durin
 			};
 			Append(CompiledMaterialRenderLayoutVersion);
 			Append(MaterialTextureBindingBase);
-			Append(MaterialUniformControlBytes);
+			Append(MaterialUniformHeaderBytes);
 			Append(Layout.UniformPayloadSize);
 			Append(Layout.UniformFieldCount);
 			Append(Layout.ResourceFieldCount);
@@ -48,7 +48,7 @@ namespace Durin
 		std::vector<FMaterialCompilerParameterDeclaration> Ordered(Parameters.begin(), Parameters.end());
 		std::ranges::sort(Ordered, {}, &FMaterialCompilerParameterDeclaration::Id);
 		auto& Layout = Result.Layout;
-		Layout.UniformPayloadSize = MaterialUniformControlBytes;
+		Layout.UniformPayloadSize = MaterialUniformHeaderBytes;
 		FGuid Previous;
 		for (const auto& Parameter : Ordered)
 		{
@@ -82,7 +82,7 @@ namespace Durin
 		const uint64 Resources = Layout.ResourceFieldCount;
 		if (Resources > MaterialRenderMaxResourceCount
 			|| Resources + 4 > Limits.SampledImages || Resources + 2 > Limits.Samplers
-			|| Limits.UniformBuffers < 4 || 2 * Resources + 12 > Limits.StageResources
+			|| Limits.UniformBuffers < 5 || 2 * Resources + 13 > Limits.StageResources
 			|| Layout.UniformPayloadSize > MaterialRenderMaxUniformPayloadBytes
 			|| Layout.UniformPayloadSize > Limits.UniformBufferBytes)
 			return Reject(EMaterialLayoutError::ResourceLimit);

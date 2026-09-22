@@ -11,13 +11,80 @@
 namespace Durin
 {
 	using namespace RendererPrivate;
+	namespace
+	{
+		auto MaterialFactHash(const FMaterialRenderRepresentation& Representation) -> uint64
+		{
+			FXxHash64Builder Hash;
+			Hash.Update(Representation.GetUniformPayload());
+			Hash.UpdateValue(Representation.GetLayout().Identity.Version);
+			Hash.UpdateValue(Representation.GetLayout().Identity.Id);
+			Hash.UpdateValue(Representation.IsError());
+			for (const auto& Resource : Representation.GetResources()) Hash.UpdateValue(Resource.GetReference());
+			for (const auto& Sampler : Representation.GetSamplers())
+			{
+				Hash.UpdateValue(Sampler.MinFilter);
+				Hash.UpdateValue(Sampler.MagFilter);
+				Hash.UpdateValue(Sampler.AddressU);
+				Hash.UpdateValue(Sampler.AddressV);
+			}
+			for (const auto Fallback : Representation.GetTextureFallbacks()) Hash.UpdateValue(Fallback);
+			return Hash.Finalize().HashValue;
+		}
+	}
+
+	auto FStaticMeshPreparationCache::ResolveTransform(FPrimitiveComponentId PrimitiveId,
+		uint64 BatchId, const FMatrix& LocalToWorld) -> const FTransform&
+	{
+		auto [It, bInserted] = Transforms.try_emplace({PrimitiveId.Value, BatchId});
+		auto& Fact = It->second;
+		if (!bInserted && Fact.LocalToWorld == LocalToWorld) return Fact;
+		++TransformBuilds;
+		Fact.LocalToWorld = LocalToWorld;
+		Fact.bValid = false;
+		if (!Math::IsFinite(LocalToWorld)) return Fact;
+		Fact.Determinant = Math::LinearDeterminant(LocalToWorld);
+		FMatrix WorldToLocal;
+		if (!std::isfinite(Fact.Determinant) || !Math::TryInverse(LocalToWorld, WorldToLocal)) return Fact;
+		Fact.NormalToWorld = Math::TransposeToFloat(Math::Transpose(WorldToLocal));
+		Fact.bValid = Math::IsFinite(FMatrix(Fact.NormalToWorld));
+		return Fact;
+	}
+
+	auto FStaticMeshPreparationCache::ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>
+	{
+		const auto& Representation = Material.Representation;
+		const uint64 Hash = MaterialFactHash(Representation);
+		const auto [Begin, End] = MaterialIndices.equal_range(Hash);
+		for (auto It = Begin; It != End; ++It)
+		{
+			const auto& Cached = Materials[It->second];
+			// Hash collisions and equal uniforms with different textures/layouts are distinct.
+			if (Cached.IsError() == Representation.IsError()
+				&& Cached.GetLayout() == Representation.GetLayout()
+				&& std::ranges::equal(Cached.GetUniformPayload(), Representation.GetUniformPayload())
+				&& std::ranges::equal(Cached.GetResources(), Representation.GetResources())
+				&& std::ranges::equal(Cached.GetSamplers(), Representation.GetSamplers())
+				&& std::ranges::equal(Cached.GetTextureFallbacks(), Representation.GetTextureFallbacks()))
+				return It->second;
+		}
+		++MaterialBuilds;
+		FMaterialRenderBinding Binding;
+		if (!ResolveMaterialBinding(Material, Binding, "StaticMeshMaterialSelection")) return std::nullopt;
+		const uint32 Index = static_cast<uint32>(Materials.size());
+		Materials.push_back(Material.Representation);
+		// Resolution may have selected ErrorMaterial; hash its final representation.
+		MaterialIndices.emplace(MaterialFactHash(Material.Representation), Index);
+		return Index;
+	}
 
 	auto PrepareStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		ERenderPreparationMode Mode
+		ERenderPreparationMode Mode,
+		FStaticMeshPreparationCache* SharedCache
 	) -> FPreparedStaticMeshView
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareStaticMeshes");
@@ -25,6 +92,8 @@ namespace Durin
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh preparation must occur before the scene render pass.");
 		FPreparedStaticMeshView Result;
+		FStaticMeshPreparationCache LocalCache;
+		auto& Cache = SharedCache ? *SharedCache : LocalCache;
 		Result.Primitives.reserve(SceneInfos.size());
 		auto PrepareSceneInfo = [&](const FPrimitiveSceneInfo* SceneInfo) {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshPrimitive");
@@ -93,29 +162,14 @@ namespace Durin
 				if (SelectedLODIndex != RequestedLODIndex) ++Result.ResourceFallbacks;
 				++Result.SelectedLODFactBuilds;
 				const FMatrix& LocalToWorld = Batch.LocalToWorld;
-				if (!Math::IsFinite(LocalToWorld))
-				{
-					return;
-				}
 				FMatrix4f NormalToWorld;
 				double Determinant;
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshTransforms");
-					Determinant = Math::LinearDeterminant(LocalToWorld);
-					FMatrix WorldToLocal;
-					if (!std::isfinite(Determinant)
-						|| !Math::TryInverse(LocalToWorld, WorldToLocal))
-					{
-						return;
-					}
-					NormalToWorld = Math::TransposeToFloat(
-						Math::Transpose(WorldToLocal)
-					);
-					if (!Math::IsFinite(FMatrix(NormalToWorld)))
-					{
-						return;
-					}
-
+					const auto& Transform = Cache.ResolveTransform(SceneInfo->GetId(), Batch.BatchId, LocalToWorld);
+					if (!Transform.bValid) return;
+					Determinant = Transform.Determinant;
+					NormalToWorld = Transform.NormalToWorld;
 				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
@@ -160,10 +214,9 @@ namespace Durin
 					Item.Material = std::move(Element.Material);
 					{
 						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveMeshMaterial");
-						FMaterialRenderBinding LogicalBinding;
-						if (!ResolveMaterialBinding(Item.Material, LogicalBinding,
-								"StaticMeshMaterialSelection"))
-							continue;
+						const auto MaterialIndex = Cache.ResolveMaterial(Item.Material);
+						if (!MaterialIndex) continue;
+						Item.MaterialUniformIndex = *MaterialIndex;
 
 					}
 					Item.PrimitiveIndex = PrimitiveIndex;
@@ -344,6 +397,19 @@ namespace Durin
 				}
 			);
 			AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
+			// Build a separate group schedule without disturbing translucent draw order.
+			std::vector<uint32> UniformGroups(Cache.Materials.size(), UINT32_MAX);
+			for (auto* Bucket : {&Result.Opaque, &Result.Masked, &Result.Translucent})
+				for (auto& Draw : *Bucket)
+				{
+					auto& Group = UniformGroups[Draw.MaterialUniformIndex];
+					if (Group == UINT32_MAX)
+					{
+						Group = static_cast<uint32>(Result.MaterialUniformGroups.size());
+						Result.MaterialUniformGroups.push_back({Draw.ResolvedIndex});
+					}
+					Draw.MaterialUniformIndex = Group;
+				}
 			Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
 																std::chrono::nanoseconds>(
 																std::chrono::steady_clock::now() - SortingStart

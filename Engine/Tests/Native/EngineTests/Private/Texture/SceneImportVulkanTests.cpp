@@ -152,7 +152,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	}
 	std::filesystem::create_directories(Root / "Engine/Content/Renderer");
 	for (const std::string_view File : {
-		"DefaultStudioCube.dasset"})
+		"ThumbnailStudioCube.dasset"})
 	{
 		std::filesystem::copy_file(
 			BuiltInEnvironmentRoot / File,
@@ -803,7 +803,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TexturePath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LODContractPath));
 	Durin::FPackagePath StudioPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/DefaultStudioCube", StudioPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/ThumbnailStudioCube", StudioPath));
 	ASSERT_TRUE(Durin::UnloadPackage(StudioPath));
 	Durin::CollectGarbage();
 	RendererLifecycle.Shutdown();

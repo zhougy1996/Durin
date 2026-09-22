@@ -191,13 +191,13 @@ namespace Durin
 			std::string_view Name,
 			uint32 BindingIndex,
 			ERHIBindingType Type,
-			EShaderStageFlags StageFlags
+			EShaderStageFlags StageFlags, uint32 SetIndex = 0
 		) -> void
 		{
 			const FShaderResourceBinding* Binding =
 				FindBinding(Shader, Name);
 			ASSERT_NE(Binding, nullptr) << Name;
-			EXPECT_EQ(Binding->SetIndex, 0u) << Name;
+			EXPECT_EQ(Binding->SetIndex, SetIndex) << Name;
 			EXPECT_EQ(Binding->BindingIndex, BindingIndex) << Name;
 			EXPECT_EQ(Binding->Type, Type) << Name;
 			EXPECT_EQ(Binding->ArraySize, 1u) << Name;
@@ -435,15 +435,16 @@ namespace Durin
 			"Transform",
 			0,
 			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Vertex
+			EShaderStageFlags::Vertex, 1
 		);
 		EXPECT_TRUE(FragmentShader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
 		FShaderOperationResult ErrorMessage;
 		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
-		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
-		const auto& SetLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
+		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 2u);
+		EXPECT_TRUE(PipelineLayout.BindingLayouts[0].BindingLayouts.empty());
+		const auto& SetLayout = PipelineLayout.BindingLayouts[1].BindingLayouts;
 		ASSERT_EQ(SetLayout.size(), 1u);
 		EXPECT_EQ(SetLayout[0].Slot, 0u);
 		EXPECT_EQ(SetLayout[0].Type, ERHIBindingType::UniformBuffer);

@@ -37,9 +37,9 @@ struct TransformUniform
     float4 TransformParams;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<TransformUniform> Transform;
+[[vk::binding(0, 1)]] ConstantBuffer<TransformUniform> Transform;
 #if DURIN_SPLINE_MESH
-[[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
+[[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
 
 [shader("vertex")]
@@ -108,6 +108,6 @@ float4 FragmentMain(VSOutput input,
 }
 
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-[[vk::binding(27, 0)]] ConstantBuffer<HitProxyUniform> HitProxy;
+[[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz))); }

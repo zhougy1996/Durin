@@ -58,6 +58,26 @@ record per draw; each record co-locates the optional material binding and
 readiness bit. Submission-local geometry performs no pointer-keyed draw,
 primitive, material-binding, or batch-readiness lookup.
 
+Preparation shares validated transform and exact material-representation facts
+between the receiver and directional-shadow cascades within one submission.
+Providers still collect batches independently for each view and LOD; batch
+identity alone never authorizes reuse of a changed transform or material.
+After draw sorting, a separate dense material-group schedule assigns uniform
+indices without changing translucent ordering. Resource preparation uploads
+one transform per prepared primitive/view and one material payload per group;
+recording reads these arrays directly, without lazy uniform-cache searches.
+
+Mesh material descriptor set 0 contains view/pass controls and lighting resources;
+set 1 contains primitive transforms, deformation, material parameters/textures,
+and hit-proxy IDs. Material time, the view lighting switch, and specular-AA control
+are uploaded once per required view/pass, independently of material payloads.
+Material shading models remain shader permutations. The reserved material header
+is retained for layout stability and is no longer overwritten with view controls.
+Forward, GBuffer, masked-shadow, and hit-proxy fragments use the same binding
+contract; changing it advances the material pass-contract version so stale cooked
+programs cannot be accepted. Uniform storage belongs to the current submission
+and is rebuilt for new views, frames, and resource-resolution attempts.
+
 Preparation/resource/execution measurements live in family-specific
 observation values rather than the resolved correctness record surface. Common
 conservation helpers finalize those observations, and the scene telemetry
@@ -97,6 +117,16 @@ descriptions through the Renderer RDG allocator. There is no resolved frame-targ
 container or scene-name publication step. Directional-shadow command recording follows
 both resolution boundaries as an explicit graph pass; it is never performed by
 logical preparation.
+
+Static-mesh resource resolution retains immutable pipeline payloads in each
+resolved draw record. Forward and shadow records retain their selected payload;
+hybrid retained-forward preparation stores a separate variant. Section recording
+consumes these references directly without rebuilding a pipeline key or searching
+the renderer cache. Cache growth, eviction, or replacement cannot invalidate a
+prepared reference. Each new resolution attempt clears prior draw references;
+shader/device generation checks still occur during resource resolution. These
+references belong to the current submission and do not cache draw state across
+frames. GBuffer pipeline binding remains owned by the GBuffer renderer.
 
 ## Resource Lifetime Classes
 

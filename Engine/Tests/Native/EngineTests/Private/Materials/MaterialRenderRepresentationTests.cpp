@@ -20,7 +20,7 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 	EXPECT_EQ(Error.GetLayout(), Durin::MakeErrorMaterialRenderLayout());
 	EXPECT_EQ(Error.GetLayout().Identity.Version, Durin::CompiledMaterialRenderLayoutVersion);
 	EXPECT_TRUE(Error.GetLayout().Fields.empty());
-	ASSERT_EQ(Error.GetUniformPayload().size(), Durin::MaterialUniformControlBytes);
+	ASSERT_EQ(Error.GetUniformPayload().size(), Durin::MaterialUniformHeaderBytes);
 	EXPECT_TRUE(std::ranges::all_of(Error.GetUniformPayload(),
 		[](std::byte Byte) { return Byte == std::byte{0}; }));
 	EXPECT_TRUE(Error.GetResources().empty());
@@ -551,7 +551,7 @@ TEST(FMaterialRenderRepresentationTests, CompiledLayoutPreservesTypedValuesAndSa
 	FMaterialRenderRepresentationBuilder EmptyBuilder(Empty.Layout);
 	ASSERT_TRUE(EmptyBuilder.Build(Representation, Diagnostic));
 	EXPECT_TRUE(Representation.GetResources().empty());
-	EXPECT_EQ(Representation.GetUniformPayload().size(), MaterialUniformControlBytes);
+	EXPECT_EQ(Representation.GetUniformPayload().size(), MaterialUniformHeaderBytes);
 }
 
 TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWithoutRecompiling)

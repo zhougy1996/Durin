@@ -7,6 +7,7 @@
 #include <compare>
 #include <cstddef>
 #include <optional>
+#include <memory>
 #include <vector>
 
 namespace Durin
@@ -72,9 +73,14 @@ namespace Durin
 		auto operator<=>(const FMeshDrawSortKey&) const = default;
 	};
 
+	struct FResolvedMeshPipeline;
+
 	struct FResolvedMeshDrawRecord
 	{
 		std::optional<FMaterialRenderBinding> MaterialBinding;
+		// Own immutable preparation results independently of cache growth/eviction.
+		std::shared_ptr<const FResolvedMeshPipeline> Pipeline;
+		std::shared_ptr<const FResolvedMeshPipeline> HybridPipeline;
 		bool bReady = false;
 	};
 

@@ -39,6 +39,7 @@
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/StaticMeshDrawExecution.h"
 #include "SceneTestAccess.h"
 #include "SceneInfo.h"
 #include "StaticMesh/StaticMesh.h"
@@ -653,10 +654,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			Durin::FSceneView FirstView;
 			FirstView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			FirstView.ViewLocation = Durin::FVector3(0.0, 0.0, -10.0);
+			Durin::FStaticMeshPreparationCache SharedFacts;
 			const Durin::FPreparedStaticMeshView First =
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList, Scene.GetPrimitiveSceneInfos(), FirstView,
-					Durin::ERasterMode::Wireframe
+					Durin::ERasterMode::Wireframe, Durin::ERenderPreparationMode::Full, &SharedFacts
 				);
 			Summary->Opaque = First.Opaque.size();
 			Summary->Masked = First.Masked.size();
@@ -682,6 +684,28 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				First.Translucent.front().PipelineKey.ColorBlend.bEnable;
 			Summary->FirstViewDistance =
 				First.Translucent.front().TranslucentSortDepth;
+			const size_t TransformBuilds = SharedFacts.TransformBuilds;
+			const size_t MaterialBuilds = SharedFacts.MaterialBuilds;
+			EXPECT_GT(TransformBuilds, 0u);
+			EXPECT_GT(MaterialBuilds, 0u);
+			// Multiple sections of one batch use exactly one upload in this view.
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			Durin::FResolvedStaticMeshView Uniforms;
+			const auto& Draw = First.Opaque.front();
+			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, FirstView, First, Uniforms));
+			const auto A = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
+			const auto B = Uniforms.PrimitiveUniforms[First.Masked.front().PrimitiveIndex];
+			EXPECT_NE(A.Buffer, nullptr);
+			EXPECT_EQ(A.Buffer, B.Buffer);
+			EXPECT_EQ(A.Offset, B.Offset);
+			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, First.Primitives.size());
+			Durin::FSceneView CascadeView = FirstView;
+			CascadeView.ViewProjectionMatrix[3][0] += 1.0;
+			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, CascadeView, First, Uniforms));
+			const auto C = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
+			EXPECT_TRUE(C.Buffer != A.Buffer || C.Offset != A.Offset);
+			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, 2 * First.Primitives.size());
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 
 			Durin::FSceneView SecondView;
 			SecondView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
@@ -689,9 +713,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			const Durin::FPreparedStaticMeshView Second =
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList, Scene.GetPrimitiveSceneInfos(), SecondView,
-					Durin::ERasterMode::Solid
+					Durin::ERasterMode::Solid, Durin::ERenderPreparationMode::Full, &SharedFacts
 				);
 			ASSERT_EQ(Second.GetNumSections(), First.GetNumSections());
+			EXPECT_EQ(SharedFacts.TransformBuilds, TransformBuilds);
+			EXPECT_EQ(SharedFacts.MaterialBuilds, MaterialBuilds);
+			EXPECT_EQ(Second.Opaque.front().MaterialUniformIndex, First.Opaque.front().MaterialUniformIndex);
 			Summary->SecondViewDistance =
 				Second.Translucent.front().TranslucentSortDepth;
 			EXPECT_EQ(Second.Opaque.front().PipelineKey.Rasterizer.PolygonMode, Durin::ERHIPolygonMode::Fill);
@@ -1340,6 +1367,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		ASSERT_EQ(Snapshot.GetNumSections(), 4u);
 		EXPECT_EQ(Snapshot.Opaque.size(), 2u);
 		EXPECT_EQ(Snapshot.Masked.size(), 2u);
+		EXPECT_EQ(Snapshot.Opaque[0].MaterialUniformIndex, Snapshot.Opaque[1].MaterialUniformIndex);
+		EXPECT_EQ(Snapshot.Masked[0].MaterialUniformIndex, Snapshot.Masked[1].MaterialUniformIndex);
+		for (uint32 Group = 0; Group < Snapshot.MaterialUniformGroups.size(); ++Group)
+			EXPECT_EQ(Snapshot.GetDraw(Snapshot.MaterialUniformGroups[Group].RepresentativeDraw).MaterialUniformIndex, Group);
 		EXPECT_GE(Snapshot.Opaque.front().SectionIndex, uint64{1} << 48);
 		EXPECT_GE(Snapshot.Primitives.front().BatchId, uint64{1} << 40);
 		EXPECT_EQ(Snapshot.Masked.front().Geometry.FirstElement, 3u);
@@ -1761,4 +1792,51 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	ShutdownRenderingThread();
 	FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, SharedFactsRejectChangedTransformsAndMaterialResources)
+{
+	using namespace Durin;
+	FStaticMeshPreparationCache Cache;
+	const FPrimitiveComponentId Id(1);
+	const FMatrix Transform = Math::ScaleMatrix(FVector3(-2.0, 3.0, 4.0));
+	EXPECT_TRUE(Cache.ResolveTransform(Id, 1, Transform).bValid);
+	EXPECT_LT(Cache.ResolveTransform(Id, 1, Transform).Determinant, 0.0);
+	EXPECT_EQ(Cache.TransformBuilds, 1u);
+	EXPECT_TRUE(Cache.ResolveTransform(Id, 2, FMatrix(1.0)).bValid);
+	EXPECT_EQ(Cache.TransformBuilds, 2u);
+	EXPECT_FALSE(Cache.ResolveTransform(Id, 1, Math::ScaleMatrix(FVector3(0.0))).bValid);
+	EXPECT_TRUE(Cache.ResolveTransform(Id, 1, Transform).bValid);
+	EXPECT_EQ(Cache.TransformBuilds, 4u);
+
+	const FGuid Scalar = FGuid::NewGuid();
+	const FGuid Texture = FGuid::NewGuid();
+	const std::array Declarations{
+		FMaterialCompilerParameterDeclaration{Scalar, EMaterialParameterType::Scalar},
+		FMaterialCompilerParameterDeclaration{Texture, EMaterialParameterType::Texture}};
+	const auto Layout = CompileMaterialLayout(Declarations);
+	ASSERT_TRUE(Layout);
+	FMaterialRenderRepresentationBuilder Builder(Layout.Layout);
+	ASSERT_TRUE(Builder.SetScalar(Scalar, 1.0f));
+	ASSERT_TRUE(Builder.SetTexture(Texture, {}, {}, EMaterialTextureFallback::White));
+	FMaterialRenderData First;
+	FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(Builder.Build(First.Representation, Diagnostic));
+	const auto FirstIndex = Cache.ResolveMaterial(First);
+	ASSERT_TRUE(FirstIndex);
+	FMaterialRenderData Copy = First;
+	EXPECT_EQ(Cache.ResolveMaterial(Copy), FirstIndex);
+	EXPECT_EQ(Cache.MaterialBuilds, 1u);
+	ASSERT_TRUE(Builder.SetTexture(Texture, {}, {}, EMaterialTextureFallback::Black));
+	FMaterialRenderData Other;
+	ASSERT_TRUE(Builder.Build(Other.Representation, Diagnostic));
+	const auto OtherIndex = Cache.ResolveMaterial(Other);
+	ASSERT_TRUE(OtherIndex);
+	EXPECT_NE(OtherIndex, FirstIndex);
+	ASSERT_TRUE(Builder.SetScalar(Scalar, 2.0f));
+	ASSERT_TRUE(Builder.Build(Other.Representation, Diagnostic));
+	const auto ChangedIndex = Cache.ResolveMaterial(Other);
+	EXPECT_NE(ChangedIndex, OtherIndex);
+	EXPECT_NE(ChangedIndex, FirstIndex);
+	EXPECT_EQ(Cache.MaterialBuilds, 3u);
 }

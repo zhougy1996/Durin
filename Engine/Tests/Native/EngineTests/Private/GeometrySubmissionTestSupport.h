@@ -196,8 +196,8 @@ struct Output {
 };
 struct TransformData { float4x4 LocalToClip; float4x4 LocalToWorld; float4x4 NormalToWorld; float4 TransformParams; };
 struct DeformationData { float4 displacementScale; };
-[[vk::binding(0,0)]] ConstantBuffer<TransformData> Transform;
-[[vk::binding(24,0)]] ConstantBuffer<DeformationData> Deformation;
+[[vk::binding(0,1)]] ConstantBuffer<TransformData> Transform;
+[[vk::binding(24,1)]] ConstantBuffer<DeformationData> Deformation;
 [shader("vertex")]
 Output VertexMain(Input input) {
  float3 p = input.position * Deformation.displacementScale.w + Deformation.displacementScale.xyz + input.instanceOffset.xyz;

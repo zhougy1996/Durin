@@ -2,6 +2,7 @@
 #include "Backend/RHICompletionBackend.h"
 
 #include "RHICommandList.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -295,6 +296,7 @@ namespace Durin
 	auto FDynamicRHI::RHIBeginFrame_RenderThread(
 		FRHICommandListImmediate& RHICmdList) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.BeginFrame.FlushRHIThread");
 		RHICmdList.ImmediateFlush(
 			EImmediateFlushType::FlushRHIThread,
 			ERHISubmitFlags::BeginFrame);

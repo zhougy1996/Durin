@@ -20,6 +20,7 @@
 #include "ApplicationCoreGlobals.h"
 #include "VulkanDescriptorSets.h"
 #include "Misc/Version.h"
+#include "Profiling/Profiling.h"
 
 // Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -283,8 +284,11 @@ namespace Durin::VulkanRHI
 		check(!GRHIThread || IsInRenderingThread());
 		FDynamicRHI::RHIBeginFrame_RenderThread(RHICmdList);
 		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
-		GCommandListExecutor.ExecuteSynchronousOperation(true,
-			[&Allocator]() { Allocator.PrepareForProducer(); });
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.PrepareUniformBufferSync");
+			GCommandListExecutor.ExecuteSynchronousOperation(true,
+				[&Allocator]() { Allocator.PrepareForProducer(); });
+		}
 		Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
 			static_cast<uint32>(
 				GCommandListExecutor.GetFrameNumber() % FrameInFlight));

@@ -34,6 +34,7 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentIrradiance);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentPrefiltered);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentBrdfLut);
@@ -60,6 +61,7 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FMaterialShader,
@@ -101,7 +103,8 @@ namespace Durin
 			const FResolvedSurfaceMaterial& Material,
 			const FRHIUniformBufferRange& MaterialBuffer,
 			const FRHIUniformBufferRange& Lighting = {},
-			const FRHIUniformBufferRange& HitProxy = {}) -> bool;
+			const FRHIUniformBufferRange& HitProxy = {},
+			const FRHIUniformBufferRange& View = {}) -> bool;
 
 		class FSurfaceMaterialResources final
 		{
@@ -122,8 +125,6 @@ namespace Durin
 			auto Resolve_RenderThread(
 				const FMaterialRenderBinding& Binding,
 				ESurfaceMaterialPass Pass,
-				bool bLit,
-				bool bEnableSpecularAA,
 				FRHITexture* DirectionalShadowTexture,
 				FRHISampler* DirectionalShadowSampler,
 				FResolvedSurfaceMaterial& OutMaterial) const -> bool;

@@ -716,7 +716,7 @@ TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleRes
 	EXPECT_EQ(Binding.LayoutIdentity.Version, Durin::CompiledMaterialRenderLayoutVersion);
 	EXPECT_TRUE(Binding.CompiledTextures.empty());
 	EXPECT_TRUE(Binding.CompiledSamplers.empty());
-	EXPECT_EQ(Binding.CompiledUniformPayload.size(), Durin::MaterialUniformControlBytes);
+	EXPECT_EQ(Binding.CompiledUniformPayload.size(), Durin::MaterialUniformHeaderBytes);
 }
 
 namespace

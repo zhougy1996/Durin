@@ -96,15 +96,15 @@ struct VSOutput
     float2 uv3 : TEXCOORD6;
 };
 )";
-		OutSource += "struct MaterialUniform\n{\n    // x: material time; y: reserved; z: lighting; w: specular AA.\n    float4 SurfaceParams;\n";
+		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
 		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
-			"[[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;\n";
+			"[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\nstruct MeshViewUniform { float4 Parameters; };\n[[vk::binding(0, 0)]] ConstantBuffer<MeshViewUniform> MeshView;\n";
 		for (uint32 Index = 0; Index < Layout.ResourceFieldCount; ++Index)
 			OutSource += std::format(
-				"[[vk::binding({}, 0)]] Texture2D<float4> MaterialTexture{};\n"
-				"[[vk::binding({}, 0)]] SamplerState MaterialSampler{};\n",
+				"[[vk::binding({}, 1)]] Texture2D<float4> MaterialTexture{};\n"
+				"[[vk::binding({}, 1)]] SamplerState MaterialSampler{};\n",
 				MaterialTextureBindingBase + 2 * Index, Index,
 				MaterialTextureBindingBase + 2 * Index + 1, Index);
 		OutSource += R"(
@@ -161,7 +161,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 				// Authored operations must be expanded before source generation.
 				break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
-			case EMaterialProgramOpcode::Time: Expression = "Material.SurfaceParams.x"; break;
+			case EMaterialProgramOpcode::Time: Expression = "MeshView.Parameters.x"; break;
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
@@ -299,7 +299,7 @@ FResolvedGeneratedSurfaceShading ResolveGeneratedSurfaceShading(
     result.normalFrame = EvaluateMaterialNormalFrame(input.worldNormal,
         input.worldTangent, surface.tangentNormal, isFrontFace);
     result.effectiveRoughness = FilterSpecularRoughness(surface.roughness,
-        result.normalFrame.shadingNormal, Material.SurfaceParams.w > 0.5);
+        result.normalFrame.shadingNormal, MeshView.Parameters.w > 0.5);
     return result;
 }
 struct GeometryPassFragmentOutput
@@ -338,7 +338,7 @@ GeometryPassFragmentOutput GeometryFragmentMain(
 #endif
 }
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-[[vk::binding(27, 0)]] ConstantBuffer<HitProxyUniform> HitProxy;
+[[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0
 {
@@ -374,7 +374,7 @@ float4 FragmentMain(
 #if DURIN_MATERIAL_SHADING_MODEL == 1
     return float4(s.baseColor + s.emissive, s.opacity);
 #else
-    if (Material.SurfaceParams.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
+    if (MeshView.Parameters.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
     FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
         input.worldPosition, shading.normalFrame.shadingNormal,
         Lighting.ViewPosition.xyz);
@@ -648,16 +648,23 @@ float4 FragmentMain(
 			const auto& Stage = Stages[Index];
 			if (!Stage.Code || Stage.Code->empty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
-				|| Stage.Reflection.ResourceBindings.size() > 2 * Layout.ResourceFieldCount + 8)
+				|| Stage.Reflection.ResourceBindings.size() > 2 * Layout.ResourceFieldCount + 9)
 				return Rejected;
-			std::unordered_set<uint32> Seen;
+			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
 			{
-				if (Binding.SetIndex != 0 || Binding.ArraySize != 1 || Binding.StageFlags != EShaderStageFlags::Fragment
-					|| !Seen.insert(Binding.BindingIndex).second) return Rejected;
+				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != EShaderStageFlags::Fragment
+					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
-				if (Slot == 2 || (Index == 0 && Slot == 1))
+				const bool bMaterialSet = Slot == 2 || Slot == 27 || Slot >= MaterialTextureBindingBase;
+				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
+				if (Slot == 0)
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != "MeshView") return Rejected;
+				}
+				else if (Slot == 2 || (Index == 0 && Slot == 1))
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != (Slot == 2 ? "Material" : "Lighting")) return Rejected;

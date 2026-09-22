@@ -613,8 +613,8 @@ TEST(FMaterialProgramCompilerTests,
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 4u);
-	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 20u);
-	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 13u);
+	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
+	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
@@ -1019,7 +1019,8 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("input.worldPosition"), std::string::npos);
-	EXPECT_NE(Source.Source.find("Material.SurfaceParams.x"), std::string::npos);
+	EXPECT_NE(Source.Source.find("MeshView.Parameters.x"), std::string::npos);
+	EXPECT_EQ(Source.Source.find("Material.SurfaceParams"), std::string::npos);
 	EXPECT_EQ(Source.Source.find("materialTime :"), std::string::npos);
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const auto Compiled = MIR::Compile(Input);
@@ -1027,11 +1028,18 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	for (const auto& Stage : Compiled.CompiledShaders)
 	{
-		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, 2u,
-			[](const auto& Binding) { return Binding.BindingIndex; });
+		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, "MeshView",
+			&FShaderResourceBinding::Name);
 		ASSERT_NE(Uniform, Stage.Reflection.ResourceBindings.end()) << Stage.SourceEntryPoint;
-		EXPECT_EQ(Uniform->Name, "Material");
+		EXPECT_EQ(Uniform->SetIndex, 0u);
+		EXPECT_EQ(Uniform->BindingIndex, 0u);
+		for (const auto& Binding : Stage.Reflection.ResourceBindings)
+			if (Binding.Name == "Material") EXPECT_EQ(Binding.SetIndex, 1u);
 	}
+	auto WrongSet = Compiled.CompiledShaders;
+	for (auto& Binding : WrongSet.front().Reflection.ResourceBindings)
+		if (Binding.Name == "MeshView") Binding.SetIndex = 1;
+	EXPECT_FALSE(ValidateMaterialCompiledStages(WrongSet, Compiled.Layout));
 
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float3));

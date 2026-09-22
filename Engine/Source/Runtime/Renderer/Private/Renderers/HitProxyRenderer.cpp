@@ -14,6 +14,7 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FHitProxyFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(HitProxy);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FHitProxyFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "HitProxyFragmentMain");
@@ -92,6 +93,7 @@ namespace Durin
 		{
 			if (!Entry.Id || !Entry.PrimitiveId || !Ids.emplace(Entry.PrimitiveId, Entry.Id.Value).second) { Fail(); return; }
 		}
+		const auto ViewUniform = PrepareMeshViewUniform(Commands, View, false);
 		std::vector<FHitProxyDraw> Draws;
 		bool bReady = true;
 		ForEachBasePassBucket(Prepared, [&](const auto& Bucket, EMeshBasePass) {
@@ -118,8 +120,8 @@ namespace Durin
 				if (!Item.Vertex || !Item.Vertex->GetRHIShader(false) || !Item.Fragment.GetRHIShader(false)) { bReady = false; break; }
 				Item.bErrorMaterial = Binding.bError;
 				if (!Item.bErrorMaterial && (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
-					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding, View.MaterialTimeSeconds)
-						.Prepare(ESurfaceMaterialPass::MaskedShadow, false, false, nullptr, nullptr, Item.Material))) { bReady = false; break; }
+					|| !FStaticMeshSurfaceMaterialPreparer(Commands, SurfaceMaterials, &Binding)
+						.Prepare(ESurfaceMaterialPass::MaskedShadow, nullptr, nullptr, Item.Material))) { bReady = false; break; }
 				FGraphicsPipelineStateInitializer Pipeline;
 				Pipeline.RenderTargetLayout = MakeHitProxyLayout();
 				Pipeline.BoundShaders.VertexShader = Item.Vertex->GetRHIShader();
@@ -226,7 +228,7 @@ namespace Durin
 				SetShaderParameters(Commands, Item.Fragment, Parameters);
 			}
 			else if (!BindCompiledSurfaceMaterial(Commands, Item.Fragment.GetRHIShader(),
-				Item.Fragment.GetShader()->GetReflection(), Item.Material.Surface, Item.Material.Uniform, {}, Item.Id)) { bReady = false; break; }
+				Item.Fragment.GetShader()->GetReflection(), Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform)) { bReady = false; break; }
 			Geometry.DrawIndexed(Commands);
 		}
 		if (bReady && OverlayBuffer)

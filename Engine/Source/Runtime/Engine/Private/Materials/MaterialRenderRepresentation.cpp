@@ -21,7 +21,7 @@ namespace Durin
 	}
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
 		: Layout(MakeErrorMaterialRenderLayout())
-		, UniformPayload(MaterialUniformControlBytes, std::byte{0})
+		, UniformPayload(MaterialUniformHeaderBytes, std::byte{0})
 		, bError(true)
 	{
 	}

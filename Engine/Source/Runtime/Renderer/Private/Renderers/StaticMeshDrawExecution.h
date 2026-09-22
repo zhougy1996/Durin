@@ -10,7 +10,7 @@ namespace Durin::RendererPrivate
 		FRHIUniformBufferRange Transform;
 	};
 
-	// Owns resolved material state and its per-draw uniform allocation.
+	// Owns resolved material state and the uniform allocation shared by a draw group.
 	struct FPreparedStaticMeshSurfaceMaterial
 	{
 		FResolvedSurfaceMaterial Surface;
@@ -24,31 +24,27 @@ namespace Durin::RendererPrivate
 		FStaticMeshSurfaceMaterialPreparer(
 			FRHICommandListImmediate& InCommandList,
 			FSurfaceMaterialResources& InSurfaceMaterials,
-			const FMaterialRenderBinding* InMaterialBinding,
-			double InMaterialTimeSeconds
+			const FMaterialRenderBinding* InMaterialBinding
 		)
 			: CommandList(InCommandList)
 			, SurfaceMaterials(InSurfaceMaterials)
 			, MaterialBinding(InMaterialBinding)
-			, MaterialTimeSeconds(InMaterialTimeSeconds)
 		{
 		}
 
 		auto IsValid() const -> bool { return MaterialBinding != nullptr; }
 		auto Prepare(
 			ESurfaceMaterialPass Pass,
-			bool bEnableLighting,
-			bool bEnableSpecularAA,
 			FRHITexture* DirectionalShadowTexture,
 			FRHISampler* DirectionalShadowSampler,
-			FPreparedStaticMeshSurfaceMaterial& OutMaterial
+			FPreparedStaticMeshSurfaceMaterial& OutMaterial,
+			const FRHIUniformBufferRange& SharedUniform = {}
 		) const -> bool;
 
 	private:
 		FRHICommandListImmediate& CommandList;
 		FSurfaceMaterialResources& SurfaceMaterials;
 		const FMaterialRenderBinding* MaterialBinding = nullptr;
-		double MaterialTimeSeconds = 0.0;
 	};
 
 	// Builds the pass-independent primitive uniforms consumed by StaticMesh vertex shaders.
@@ -70,6 +66,12 @@ namespace Durin::RendererPrivate
 		FRHICommandListImmediate& CommandList;
 		const FSceneView& View;
 	};
+
+	auto PrepareMeshViewUniform(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bLighting) -> FRHIUniformBufferRange;
+
+	RENDERER_API auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
+		const FSceneView& View, const FPreparedStaticMeshView& Prepared,
+		FResolvedStaticMeshView& Resolved) -> bool;
 
 	// Validates, binds, and submits the geometry referenced by one prepared draw.
 	class FStaticMeshGeometryBinding

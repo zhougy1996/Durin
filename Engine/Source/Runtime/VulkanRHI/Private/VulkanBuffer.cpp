@@ -4,6 +4,7 @@
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
+#include "Profiling/Profiling.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanCommandBuffer.h"
@@ -208,6 +209,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicUniformBufferAllocator::PrepareForProducer() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.UniformBuffer.PrepareForProducer");
 		CheckVulkanRHIThread();
 		check(ActiveProducerIndex == std::numeric_limits<uint32>::max());
 		Device.PollQueues();
@@ -228,7 +230,10 @@ namespace Durin::VulkanRHI
 			check(Oldest != ProducerStates.end());
 			GVulkanMemoryBaselineTracker.RecordArenaWait(
 				EVulkanAllocationClassCandidate::DynamicUpload);
-			Device.WaitForUses(Oldest->Uses);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.UniformBuffer.WaitForUses");
+				Device.WaitForUses(Oldest->Uses);
+			}
 			ActiveProducerIndex = static_cast<uint32>(
 				std::distance(ProducerStates.begin(), Oldest));
 		}

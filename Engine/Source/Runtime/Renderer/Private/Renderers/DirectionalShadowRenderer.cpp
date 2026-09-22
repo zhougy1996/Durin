@@ -156,6 +156,9 @@ namespace Durin
 			bReady = !Shadow.StaticMeshes[Cascade].bResourceFailure && StaticMeshes.PrepareShadowResources_RenderThread(
 				CommandList, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
+			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList,
+				Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
+				ResolvedShadow.StaticMeshes[Cascade], false, false, true);
 		}
 		if (!bReady)
 		{

@@ -13,6 +13,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	struct FPreparedStaticMeshView;
 	struct FResolvedStaticMeshView;
+	struct FResolvedMeshPipeline;
 	struct FPreparedStaticMeshDraw;
 	struct FPreparedStaticMeshPrimitive;
 	struct FMaterialRenderBinding;
@@ -45,7 +46,7 @@ namespace Durin
 		) -> FGeometryResolutionResult;
 		auto PrepareHybridRetainedResources_RenderThread(
 			const FPreparedStaticMeshView& PreparedView,
-			const FResolvedStaticMeshView& ResolvedView
+			FResolvedStaticMeshView& ResolvedView
 		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -84,6 +85,11 @@ namespace Durin
 		) -> FGeometryExecutionResult;
 		auto ReleaseResources_RenderThread() -> void;
 
+		auto PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
+			const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
+			FResolvedStaticMeshView& ResolvedView, bool bProductionDeferred,
+			bool bGBuffer, bool bShadow = false) -> bool;
+
 	private:
 		auto DrawSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -103,6 +109,7 @@ namespace Durin
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
 			const FMaterialRenderBinding& MaterialBinding,
+			std::shared_ptr<const FResolvedMeshPipeline>& OutPipeline,
 			bool bShadowDepth = false,
 			bool bHybridRetained = false
 		) -> bool;

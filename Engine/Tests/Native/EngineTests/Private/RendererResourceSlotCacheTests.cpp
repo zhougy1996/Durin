@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "RendererResourceSlotCache.h"
+#include <memory>
 
 namespace Durin
 {
@@ -9,6 +10,53 @@ namespace Durin
 		using EDependency = ERenderResourceGenerationDependency;
 		using FResult = TRenderResourceCreateResult<int>;
 		using FCache = TRendererResourceSlotCache<int, int>;
+
+		TEST(FRendererResourceSlotCacheTests, PreparedPayloadSurvivesGrowthEvictionAndReset)
+		{
+			using FPayload = std::shared_ptr<const int>;
+			using FOwnedResult = TRenderResourceCreateResult<FPayload>;
+			TRendererResourceSlotCache<int, FPayload> Cache(EDependency::Shader);
+			FRenderResourceGeneration Generation;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			const auto* Resolved = Cache.FindOrAdd(1).Slot.Resolve(Generation,
+				[] { return FOwnedResult::Success(std::make_shared<const int>(42)); }, Reporter);
+			ASSERT_NE(Resolved, nullptr);
+			FPayload PreparedDraw = *Resolved;
+			std::weak_ptr<const int> Lifetime = PreparedDraw;
+			for (int Key = 2; Key < 128; ++Key) Cache.FindOrAdd(Key);
+			EXPECT_EQ(*PreparedDraw, 42);
+			EXPECT_EQ(*Cache.Find(1)->Slot.GetPayload(), PreparedDraw);
+			Cache.FindOrAddBounded(128, 127);
+			EXPECT_EQ(Cache.Find(1), nullptr);
+			EXPECT_FALSE(Lifetime.expired());
+			Cache.Reset();
+			EXPECT_EQ(*PreparedDraw, 42);
+			PreparedDraw.reset();
+			EXPECT_TRUE(Lifetime.expired());
+		}
+
+		TEST(FRendererResourceSlotCacheTests, NewGenerationPublishesWithoutChangingPreparedPayload)
+		{
+			using FPayload = std::shared_ptr<const int>;
+			using FOwnedResult = TRenderResourceCreateResult<FPayload>;
+			TRendererResourceSlotCache<int, FPayload> Cache(EDependency::Shader);
+			FRenderResourceGeneration Generation;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			int Builds = 0;
+			auto Build = [&] { return FOwnedResult::Success(std::make_shared<const int>(++Builds)); };
+			auto& Slot = Cache.FindOrAdd(1).Slot;
+			const auto* First = Slot.Resolve(Generation, Build, Reporter);
+			ASSERT_NE(First, nullptr);
+			FPayload PreparedDraw = *First;
+			EXPECT_EQ(*Slot.Resolve(Generation, Build, Reporter), PreparedDraw);
+			EXPECT_EQ(Builds, 1);
+			Generation.Advance(EDependency::Shader);
+			const auto* Second = Slot.Resolve(Generation, Build, Reporter);
+			ASSERT_NE(Second, nullptr);
+			EXPECT_NE(*Second, PreparedDraw);
+			EXPECT_EQ(**Second, 2);
+			EXPECT_EQ(*PreparedDraw, 1);
+		}
 
 		auto MakeCacheFailure() -> FRenderResourceCreateError
 		{

@@ -3,6 +3,7 @@
 #include "RendererAPI.h"
 
 #include "Renderers/MeshRenderPreparationCommon.h"
+#include "Renderers/SurfaceMaterial.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Rendering/MeshBatch.h"
 #include "RHIResources.h"
@@ -10,10 +11,33 @@
 #include "SceneView.h"
 
 #include <vector>
+#include <map>
+#include <unordered_map>
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
+
+	// Command-local facts only. Providers still collect independently for each view/LOD.
+	struct FStaticMeshPreparationCache
+	{
+		struct FTransform
+		{
+			FMatrix LocalToWorld{1.0};
+			FMatrix4f NormalToWorld{1.0f};
+			double Determinant = 0.0;
+			bool bValid = false;
+		};
+		std::map<std::pair<uint64, uint64>, FTransform> Transforms;
+		std::unordered_multimap<uint64, uint32> MaterialIndices;
+		std::vector<FMaterialRenderRepresentation> Materials;
+		size_t TransformBuilds = 0;
+		size_t MaterialBuilds = 0;
+
+		RENDERER_API auto ResolveTransform(FPrimitiveComponentId PrimitiveId,
+			uint64 BatchId, const FMatrix& LocalToWorld) -> const FTransform&;
+		RENDERER_API auto ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>;
+	};
 
 	// Larger values draw first. View depth is signed along the engine's +X
 	// camera axis and is independent of the projection's device-depth convention.
@@ -54,6 +78,8 @@ namespace Durin
 	{
 		uint32 ResolvedIndex = 0;
 		uint32 PrimitiveIndex = 0;
+		// Dense uniform group assigned after draw sorting.
+		uint32 MaterialUniformIndex = UINT32_MAX;
 		uint64 SectionIndex = 0;
 		FGeometryDrawRange Geometry;
 		FGeometryBufferView Vertices;
@@ -71,6 +97,11 @@ namespace Durin
 
 	struct FPreparedStaticMeshView
 	{
+		struct FMaterialUniformGroup
+		{
+			uint32 RepresentativeDraw = 0;
+		};
+		std::vector<FMaterialUniformGroup> MaterialUniformGroups;
 		std::vector<FPreparedStaticMeshPrimitive> Primitives;
 		std::vector<FPreparedStaticMeshDraw> Opaque;
 		std::vector<FPreparedStaticMeshDraw> Masked;
@@ -113,6 +144,14 @@ namespace Durin
 		size_t SelectedLODFactBuilds = 0;
 		size_t SharedSectionFactBuilds = 0;
 
+		auto GetDraw(uint32 Index) const -> const FPreparedStaticMeshDraw&
+		{
+			if (Index < Opaque.size()) return Opaque[Index];
+			Index -= static_cast<uint32>(Opaque.size());
+			if (Index < Masked.size()) return Masked[Index];
+			return Translucent[Index - Masked.size()];
+		}
+
 		auto GetNumSections() const -> size_t
 		{
 			return Opaque.size() + Masked.size() + Translucent.size();
@@ -127,6 +166,8 @@ namespace Durin
 
 	struct FStaticMeshRenderObservations
 	{
+		size_t PrimitiveUniformUploads = 0;
+		size_t MaterialUniformUploads = 0;
 		size_t ResourcePreparationAttemptedDraws = 0;
 		size_t ResourcePreparationSuccessfulDraws = 0;
 		size_t ResourcePreparationRejectedDraws = 0;
@@ -150,7 +191,17 @@ namespace Durin
 	// Owns fallible bindings without mutating logical draws.
 	struct FResolvedStaticMeshView
 	{
+		struct FMaterialUniform
+		{
+			RendererPrivate::FResolvedSurfaceMaterial Surface;
+			FRHIUniformBufferRange Uniform;
+		};
 		std::vector<FResolvedMeshDrawRecord> Draws;
+		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
+		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
+		std::array<FRHIUniformBufferRange, 3> ViewUniforms;
+		// Forward, GBuffer, and masked-shadow slots are prepared before recording.
+		std::vector<std::array<std::optional<FMaterialUniform>, 3>> MaterialUniforms;
 		FRHITexture* DirectionalShadowTexture = nullptr;
 		FRHISampler* DirectionalShadowSampler = nullptr;
 		FStaticMeshRenderObservations Observations;
@@ -174,6 +225,7 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		ERenderPreparationMode Mode = ERenderPreparationMode::Full
+		ERenderPreparationMode Mode = ERenderPreparationMode::Full,
+		FStaticMeshPreparationCache* SharedCache = nullptr
 	) -> FPreparedStaticMeshView;
 } // namespace Durin

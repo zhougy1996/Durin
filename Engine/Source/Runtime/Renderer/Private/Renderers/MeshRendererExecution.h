@@ -47,6 +47,7 @@ namespace Durin::RendererPrivate
 		FRHICommandListImmediate& CommandList,
 		ESurfaceMaterialPass Pass,
 		const FRHIUniformBufferRange& Lighting,
+		const FRHIUniformBufferRange& View,
 		const FResolvedSurfaceMaterial* Material,
 		const FRHIUniformBufferRange& MaterialBuffer,
 		const TForwardShaderRef& ForwardShader,
@@ -64,7 +65,7 @@ namespace Durin::RendererPrivate
 			if (Material && Material->bCompiledLayout)
 			{
 				if (!MaskedShadowShader || !BindCompiledSurfaceMaterial(CommandList,
-					MaskedShadowShader.GetRHIShader(), MaskedShadowShader.GetReflection(), *Material, MaterialBuffer, Lighting)) return false;
+					MaskedShadowShader.GetRHIShader(), MaskedShadowShader.GetReflection(), *Material, MaterialBuffer, Lighting, {}, View)) return false;
 				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
 				return true;
 			}
@@ -73,7 +74,7 @@ namespace Durin::RendererPrivate
 			if (Material && Material->bCompiledLayout)
 			{
 				if (!ForwardShader || !BindCompiledSurfaceMaterial(CommandList,
-					ForwardShader.GetRHIShader(), ForwardShader.GetReflection(), *Material, MaterialBuffer, Lighting)) return false;
+					ForwardShader.GetRHIShader(), ForwardShader.GetReflection(), *Material, MaterialBuffer, Lighting, {}, View)) return false;
 				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
 				return true;
 			}

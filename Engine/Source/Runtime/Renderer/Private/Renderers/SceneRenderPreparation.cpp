@@ -27,6 +27,7 @@ namespace Durin
 		const FSceneViewRenderOptions& Options = Context.Logical.Options;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
+		FStaticMeshPreparationCache MeshPreparationCache;
 		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
 		{
@@ -175,7 +176,7 @@ namespace Durin
 						StaticMeshes = PrepareStaticMeshView_RenderThread(
 							CommandList, Casters.SceneInfos, Cascade.CasterView,
 							ERasterMode::Solid,
-							ERenderPreparationMode::ShadowDepth
+							ERenderPreparationMode::ShadowDepth, &MeshPreparationCache
 						);
 						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<
@@ -251,7 +252,8 @@ namespace Durin
 				CommandList,
 				Visibility.SceneInfos,
 				RenderView,
-				RenderView.Settings.Mode.RasterMode
+				RenderView.Settings.Mode.RasterMode,
+				ERenderPreparationMode::Full, &MeshPreparationCache
 			);
 			Visibility.SceneInfos.clear();
 		}

@@ -1,22 +1,43 @@
 #include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 
-#include <cstring>
 
 namespace Durin::RendererPrivate
 {
+	auto PrepareMeshViewUniform(FRHICommandListImmediate& CommandList, const FSceneView& View,
+		bool bLighting) -> FRHIUniformBufferRange
+	{
+		const FVector4f Parameters(static_cast<float>(View.MaterialTimeSeconds), 0.0f,
+			bLighting ? 1.0f : 0.0f, bLighting && View.Settings.Mode.bEnableSpecularAA ? 1.0f : 0.0f);
+		return CommandList.AllocateDynamicUniformBuffer(&Parameters, sizeof(Parameters));
+	}
+	auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
+		const FSceneView& View, const FPreparedStaticMeshView& Prepared,
+		FResolvedStaticMeshView& Resolved) -> bool
+	{
+		Resolved.PrimitiveUniforms.clear();
+		Resolved.PrimitiveUniforms.reserve(Prepared.Primitives.size());
+		for (const auto& Primitive : Prepared.Primitives)
+		{
+			const auto Uniform = FStaticMeshPrimitiveUniformPreparer(CommandList, View).Prepare(Primitive).Transform;
+			if (!Uniform.Buffer) return false;
+			Resolved.PrimitiveUniforms.push_back(Uniform);
+			++Resolved.Observations.PrimitiveUniformUploads;
+		}
+		return true;
+	}
+
 	auto FStaticMeshSurfaceMaterialPreparer::Prepare(
 		ESurfaceMaterialPass Pass,
-		bool bEnableLighting,
-		bool bEnableSpecularAA,
 		FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler,
-		FPreparedStaticMeshSurfaceMaterial& OutMaterial
+		FPreparedStaticMeshSurfaceMaterial& OutMaterial,
+		const FRHIUniformBufferRange& SharedUniform
 	) const -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareSurfaceMaterial");
 		if (MaterialBinding == nullptr || !SurfaceMaterials.Resolve_RenderThread(
-			*MaterialBinding, Pass, bEnableLighting, bEnableSpecularAA,
+			*MaterialBinding, Pass,
 			DirectionalShadowTexture, DirectionalShadowSampler,
 			OutMaterial.Surface))
 		{
@@ -24,14 +45,10 @@ namespace Durin::RendererPrivate
 		}
 		if (OutMaterial.Surface.bCompiledLayout)
 		{
-			// Time is constant for the view, so supply it directly to fragment stages.
-			// The reserved control slot precedes all authored material parameters.
-			const float Time = static_cast<float>(MaterialTimeSeconds);
-			std::memcpy(OutMaterial.Surface.CompiledUniformPayload.data(), &Time, sizeof(Time));
-			OutMaterial.Uniform = CommandList.AllocateDynamicUniformBuffer(
+			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : CommandList.AllocateDynamicUniformBuffer(
 				OutMaterial.Surface.CompiledUniformPayload.data(),
 				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
-			return true;
+			return OutMaterial.Uniform.Buffer != nullptr;
 		}
 		return false;
 	}

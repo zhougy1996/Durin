@@ -109,8 +109,6 @@ namespace Durin::RendererPrivate
 	auto FSurfaceMaterialResources::Resolve_RenderThread(
 		const FMaterialRenderBinding& Binding,
 		ESurfaceMaterialPass Pass,
-		bool bLit,
-		bool bEnableSpecularAA,
 		FRHITexture* DirectionalShadowTexture,
 		FRHISampler* DirectionalShadowSampler,
 		FResolvedSurfaceMaterial& OutMaterial) const -> bool
@@ -126,10 +124,8 @@ namespace Durin::RendererPrivate
 		{
 			const size_t Count = Binding.CompiledTextures.size();
 			if (Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
-				|| Binding.CompiledUniformPayload.size() < MaterialUniformControlBytes) return false;
+				|| Binding.CompiledUniformPayload.size() < MaterialUniformHeaderBytes) return false;
 			OutMaterial.CompiledUniformPayload = Binding.CompiledUniformPayload;
-			const FVector4f Controls(0.0f, 0.0f, bLit ? 1.0f : 0.0f, bLit && bEnableSpecularAA ? 1.0f : 0.0f);
-			std::memcpy(OutMaterial.CompiledUniformPayload.data(), &Controls, sizeof(Controls));
 			if (Binding.bError) return Count == 0;
 			for (size_t Index = 0; Index < Count; ++Index)
 			{
@@ -218,22 +214,27 @@ namespace Durin::RendererPrivate
 		const FResolvedSurfaceMaterial& Material,
 		const FRHIUniformBufferRange& MaterialBuffer,
 		const FRHIUniformBufferRange& Lighting,
-		const FRHIUniformBufferRange& HitProxy) -> bool
+		const FRHIUniformBufferRange& HitProxy,
+		const FRHIUniformBufferRange& View) -> bool
 	{
 		if (!Shader || !Material.bCompiledLayout
 			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
 		std::vector<FRHIShaderParameterResource> Resources;
 		for (const auto& Binding : Reflection.ResourceBindings)
 		{
-			if (Binding.SetIndex != 0 || Binding.ArraySize != 1) return false;
+			if (Binding.SetIndex > 1 || Binding.ArraySize != 1) return false;
 			FRHIShaderParameterResource Resource;
+			Resource.SetIndex = Binding.SetIndex;
 			Resource.BindingIndex = Binding.BindingIndex;
 			Resource.Type = Binding.Type;
 			ERHIBindingType Expected = ERHIBindingType::Texture;
 			const uint32 Slot = Binding.BindingIndex;
-			if (Slot == 1 || Slot == 2 || Slot == 27)
+			const bool bView = Binding.SetIndex == 0 && Slot == 0;
+			const bool bMaterialSet = Slot == 2 || Slot == 27 || Slot >= MaterialTextureBindingBase;
+			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return false;
+			if (bView || Slot == 1 || Slot == 2 || Slot == 27)
 			{
-				const auto& Range = Slot == 27 ? HitProxy : Slot == 1 ? Lighting : MaterialBuffer;
+				const auto& Range = bView ? View : Slot == 27 ? HitProxy : Slot == 1 ? Lighting : MaterialBuffer;
 				Resource.Resource = Range.Buffer;
 				Resource.Offset = Range.Offset;
 				Resource.Size = Range.Size;

@@ -64,11 +64,12 @@ namespace Durin
 
 	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = 4;
 	inline constexpr uint32 MaterialTextureBindingBase = 32;
-	inline constexpr uint32 MaterialUniformControlBytes = 16;
+	// Reserved padding keeps authored offsets stable; view/pass controls are separate.
+	inline constexpr uint32 MaterialUniformHeaderBytes = 16;
 
 	// Target policy, further clamped to the active device when one is available.
-	// Reserves four sampled images, two samplers and three uniform buffers for
-	// lighting, environment, shadows and geometry in the shared descriptor set.
+	// Reserves four sampled images, two samplers and five uniform buffers for
+	// view/pass controls, lighting, material, geometry and deformation/selection.
 	struct FMaterialCompilerResourceLimits
 	{
 		uint32 SampledImages = 16;

@@ -235,6 +235,23 @@ namespace Durin
 			}
 		}
 
+		// Explicit vk::binding spaces are carried by global variable layouts.
+		// A type-layout descriptor range may instead describe an implicit set 0.
+		auto ResolveDeclaredBindingLocation(slang::TypeLayoutReflection* TypeLayout,
+			SlangInt BindingRangeIndex, slang::ParameterCategory Category,
+			SlangInt& SpaceIndex, SlangInt& RegisterIndex) -> void
+		{
+			const auto* Leaf = TypeLayout->getBindingRangeLeafVariable(BindingRangeIndex);
+			for (unsigned Index = 0; Index < TypeLayout->getFieldCount(); ++Index)
+			{
+				auto* Field = TypeLayout->getFieldByIndex(Index);
+				if (Field->getVariable() != Leaf) continue;
+				SpaceIndex = static_cast<SlangInt>(Field->getBindingSpace(Category));
+				RegisterIndex = static_cast<SlangInt>(Field->getOffset(Category));
+				return;
+			}
+		}
+
 		auto IsBindingRangeUsed(
 			slang::TypeLayoutReflection* TypeLayout,
 			SlangInt BindingRangeIndex,
@@ -271,9 +288,12 @@ namespace Durin
 					return std::unexpected(FShaderError{.Code = EShaderError::ReflectionDescriptorSetInvalid, .Parameter = std::string(BindingName)});
 				}
 
-				SpaceIndex = DescriptorSetIndex;
+				// Slang's descriptor-set table is compact; its ordinal is not the
+				// declared Vulkan space (notably when a shader only uses set 1).
+				SpaceIndex = TypeLayout->getDescriptorSetSpaceOffset(DescriptorSetIndex);
 				RegisterIndex = TypeLayout->getDescriptorSetDescriptorRangeIndexOffset(DescriptorSetIndex, DescriptorRangeIndex);
 				Category = TypeLayout->getDescriptorSetDescriptorRangeCategory(DescriptorSetIndex, DescriptorRangeIndex);
+				ResolveDeclaredBindingLocation(TypeLayout, BindingRangeIndex, Category, SpaceIndex, RegisterIndex);
 				break;
 			}
 			case slang::BindingType::VaryingInput:
@@ -358,8 +378,12 @@ namespace Durin
 					FShaderResourceBinding Binding;
 					Binding.Name = BindingName;
 					Binding.StageFlags = StageFlags;
-					Binding.SetIndex = static_cast<uint32>(DescriptorSetIndex);
-					Binding.BindingIndex = static_cast<uint32>(TypeLayout->getDescriptorSetDescriptorRangeIndexOffset(DescriptorSetIndex, DescriptorRangeIndex));
+					SlangInt SpaceIndex = TypeLayout->getDescriptorSetSpaceOffset(DescriptorSetIndex);
+					SlangInt RegisterIndex = TypeLayout->getDescriptorSetDescriptorRangeIndexOffset(DescriptorSetIndex, DescriptorRangeIndex);
+					const auto Category = TypeLayout->getDescriptorSetDescriptorRangeCategory(DescriptorSetIndex, DescriptorRangeIndex);
+					ResolveDeclaredBindingLocation(TypeLayout, BindingRangeIndex, Category, SpaceIndex, RegisterIndex);
+					Binding.SetIndex = static_cast<uint32>(SpaceIndex);
+					Binding.BindingIndex = static_cast<uint32>(RegisterIndex);
 					Binding.ArraySize = static_cast<uint32>(TypeLayout->getBindingRangeBindingCount(BindingRangeIndex));
 
 					switch (BindingType)
@@ -696,7 +720,7 @@ namespace Durin
 		auto GlobalSession = GlobalSessions.Acquire();
 		const char* BuildTag = GlobalSession->getBuildTagString();
 		return std::format(
-			"{}:{};target={};profile={}",
+			"{}:{};target={};profile={};reflection=3",
 			FSlangSessionEnvironment::BackendName,
 			BuildTag ? BuildTag : "unknown",
 			FSlangSessionEnvironment::TargetIdentity,
