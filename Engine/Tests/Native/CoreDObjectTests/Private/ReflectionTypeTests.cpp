@@ -16,6 +16,7 @@
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"
 #include "DObject/PropertyKindTraits.h"
+#include "DObject/PropertyValueIterator.h"
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -4246,6 +4247,175 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::MarkAsGarbage(Owner);
 		Durin::MarkAsGarbage(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorVisitsNestedStorageAndFixedArrays)
+	{
+		EnsureDObjectInitialized();
+		auto* Owner = Durin::NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, "ValueIteratorOwner");
+		Durin::FPropertyValueIterator It(Owner->GetClass(), Owner);
+		std::vector<int32> Values;
+		std::vector<const void*> FixedValues;
+		bool SawMapKey = false;
+		for (; It; ++It)
+		{
+			const auto Chain = It.GetPropertyChain();
+			ASSERT_FALSE(Chain.empty());
+			EXPECT_EQ(Chain.back(), It.Key());
+			if (It.Key()->GetKind() == Durin::DurinCodeGen::EPropertyGenFlags::Int32)
+				Values.push_back(*static_cast<const int32*>(It.Value()));
+			if (It.Key()->NamePrivate == Durin::FName("Fixed"))
+			{
+				EXPECT_EQ(It.GetArrayIndex(), FixedValues.size());
+				FixedValues.push_back(It.Value());
+			}
+			if (It.Key()->NamePrivate == Durin::FName("Map_Key"))
+			{
+				SawMapKey = true;
+				EXPECT_EQ(*static_cast<const std::string*>(It.Value()), "Value");
+				ASSERT_EQ(Chain.size(), 2);
+				EXPECT_EQ(Chain.front()->NamePrivate, Durin::FName("Map"));
+			}
+		}
+		EXPECT_EQ(Values, (std::vector<int32>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}));
+		EXPECT_EQ(FixedValues, (std::vector<const void*>{&Owner->Fixed[0], &Owner->Fixed[1]}));
+		EXPECT_TRUE(SawMapKey);
+		EXPECT_EQ(It.GetStatus(), Durin::EContainerOpResult::Success);
+		EXPECT_EQ(It.Key(), nullptr);
+		EXPECT_EQ(It.Value(), nullptr);
+		EXPECT_TRUE(It.GetPropertyChain().empty());
+		++It;
+		EXPECT_FALSE(It);
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorSkipsOnlyCurrentSubtree)
+	{
+		EnsureDObjectInitialized();
+		auto* Owner = Durin::NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, "ValueIteratorSkipOwner");
+		auto* Fixed = Owner->GetClass()->FindPropertyByName("Fixed");
+		Durin::FPropertyValueIterator It(Fixed, Owner);
+		ASSERT_TRUE(It);
+		It.SkipRecursiveProperty();
+		++It;
+		ASSERT_TRUE(It);
+		EXPECT_EQ(It.Key(), Fixed);
+		EXPECT_EQ(It.GetArrayIndex(), 1);
+		++It;
+		ASSERT_TRUE(It);
+		EXPECT_EQ(It.Value(), &Owner->Fixed[1].RuntimeValue);
+		EXPECT_EQ(It.GetPropertyChain(), (std::vector<const Durin::FProperty*>{Fixed, It.Key()}));
+		Durin::FPropertyValueIterator Shallow(Fixed, Owner, {.bRecursive = false});
+		size_t Count = 0;
+		for (; Shallow; ++Shallow) ++Count;
+		EXPECT_EQ(Count, 2);
+		Owner->Array.clear();
+		Durin::FPropertyValueIterator Empty(Owner->GetClass()->FindPropertyByName("Array"), Owner);
+		ASSERT_TRUE(Empty);
+		++Empty;
+		EXPECT_FALSE(Empty);
+		EXPECT_EQ(Empty.GetStatus(), Durin::EContainerOpResult::Success);
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorReportsInvalidAndUnsupportedStorage)
+	{
+		using namespace Durin;
+		FPropertyValueIterator Empty;
+		EXPECT_FALSE(Empty);
+		EXPECT_EQ(Empty.GetStatus(), EContainerOpResult::Success);
+		FPropertyValueIterator Invalid(static_cast<const FProperty*>(nullptr), nullptr);
+		EXPECT_FALSE(Invalid);
+		EXPECT_EQ(Invalid.GetStatus(), EContainerOpResult::InvalidInput);
+		FNumericProperty Inner({}, "Inner", EObjectFlags::NoFlags, EPropertyFlags::None,
+			1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		FArrayOps Ops;
+		Ops.ContainerSize = sizeof(int32);
+		Ops.ContainerAlignment = alignof(int32);
+		Ops.Initialize = [](void* Value) { std::construct_at(static_cast<int32*>(Value)); };
+		Ops.Destroy = [](void* Value) { std::destroy_at(static_cast<int32*>(Value)); };
+		FArrayProperty Array({}, "Array", EObjectFlags::NoFlags, EPropertyFlags::None,
+			1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Array, nullptr, &Ops);
+		Array.SetInner(&Inner);
+		int32 Storage = 0;
+		FPropertyValueIterator It(&Array, &Storage);
+		ASSERT_TRUE(It);
+		++It;
+		EXPECT_FALSE(It);
+		EXPECT_EQ(It.GetStatus(), EContainerOpResult::Unsupported);
+		Ops.Flags = EArrayOpsFlags::ConstTraversal;
+		Ops.VisitConst = [](const void* Value, FArrayConstVisitor Visitor, void* Context) {
+			Visitor(Context, 0, Value);
+			return EContainerOpResult::BackendRejected;
+		};
+		FPropertyValueIterator Failed(&Array, &Storage);
+		++Failed;
+		EXPECT_FALSE(Failed);
+		EXPECT_EQ(Failed.GetStatus(), EContainerOpResult::BackendRejected);
+		EXPECT_TRUE(Failed.GetPropertyChain().empty());
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorHandlesDeepStorageWithoutRecursiveCalls)
+	{
+		using namespace Durin;
+		struct FNode { const FNode* Next = nullptr; };
+		std::vector<FNode> Nodes(4096);
+		for (size_t Index = 1; Index < Nodes.size(); ++Index) Nodes[Index - 1].Next = &Nodes[Index];
+		FArrayOps Ops;
+		Ops.ContainerSize = sizeof(FNode);
+		Ops.ContainerAlignment = alignof(FNode);
+		Ops.Initialize = [](void* Value) { std::construct_at(static_cast<FNode*>(Value)); };
+		Ops.Destroy = [](void* Value) { std::destroy_at(static_cast<FNode*>(Value)); };
+		Ops.Flags = EArrayOpsFlags::ConstTraversal;
+		Ops.VisitConst = [](const void* Value, FArrayConstVisitor Visitor, void* Context) {
+			if (const auto* Next = static_cast<const FNode*>(Value)->Next) Visitor(Context, 0, Next);
+			return EContainerOpResult::Success;
+		};
+		FArrayProperty Array({}, "Children", EObjectFlags::NoFlags, EPropertyFlags::None,
+			1, 0, sizeof(FNode), DurinCodeGen::EPropertyGenFlags::Array, nullptr, &Ops);
+		Array.SetInner(&Array);
+		FPropertyValueIterator It(&Array, Nodes.data());
+		size_t Count = 0;
+		for (; It; ++It)
+		{
+			ASSERT_LT(Count, Nodes.size());
+			EXPECT_EQ(It.Value(), &Nodes[Count++]);
+		}
+		EXPECT_EQ(Count, Nodes.size());
+		EXPECT_EQ(It.GetStatus(), EContainerOpResult::Success);
+		Array.SetInner(nullptr);
+	}
+
+	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorHonorsInheritanceDeprecationAndAccessors)
+	{
+		using namespace Durin;
+		EnsureDObjectInitialized();
+		DGCReferenceSchemaBaseForTest::StaticClass();
+		auto* Owner = NewObject<DGCReferenceSchemaDerivedForTest>(nullptr, "ValueIteratorDerived");
+		FPropertyValueIterator Inherited(Owner->GetClass(), Owner, {.bRecursive = false});
+		ASSERT_TRUE(Inherited);
+		EXPECT_EQ(Inherited.Key()->NamePrivate, FName("BaseReference"));
+		EXPECT_EQ(Inherited.Value(), &Owner->BaseReference);
+		FPropertyValueIterator Own(Owner->GetClass(), Owner, {.bRecursive = false, .bIncludeSuper = false});
+		for (; Own; ++Own)
+		{
+			EXPECT_NE(Own.Key()->NamePrivate, FName("BaseReference"));
+			EXPECT_NE(Own.Key()->NamePrivate, FName("RawReference"));
+		}
+		FNumericProperty Property({}, "Value_DEPRECATED", EObjectFlags::NoFlags, EPropertyFlags::Deprecated,
+			2, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		Property.InitializeDeprecation();
+		Property.SetValueAccessors(nullptr, [](const void* Container, uint32 Index) -> const void* {
+			return &static_cast<const int32*>(Container)[2 - Index];
+		});
+		const int32 Values[]{0, 11, 22};
+		FPropertyValueIterator Filtered(&Property, Values, {.bIncludeDeprecated = false});
+		EXPECT_FALSE(Filtered);
+		EXPECT_EQ(Filtered.GetStatus(), EContainerOpResult::Success);
+		FPropertyValueIterator All(&Property, Values);
+		ASSERT_TRUE(All);
+		EXPECT_EQ(All.Value(), &Values[2]);
+		++All;
+		ASSERT_TRUE(All);
+		EXPECT_EQ(All.Value(), &Values[1]);
 	}
 
 	TEST(FCoreDObjectReflectionTests, EditorOnlyFilteringRecursesThroughStructContainers)
