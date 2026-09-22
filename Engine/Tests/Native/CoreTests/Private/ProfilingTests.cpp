@@ -41,22 +41,32 @@ namespace Durin
 		EXPECT_NE(Diagnostic.find("second process"), std::string::npos);
 	}
 
-	TEST(FProfilingTests, DisabledMacrosDoNotEvaluateArguments)
+#if DURIN_WITH_TRACY
+	TEST(FProfilingTests, EnabledIdentityMacroEvaluatesArgumentsOnce)
 	{
-		static_assert(DURIN_WITH_TRACY == 0);
 		int EvaluationCount = 0;
-
-		DURIN_PROFILE_CPU_ZONE_NAMED((++EvaluationCount, "Unexpected"));
-		DURIN_PROFILE_CPU_ZONE_TEXT((++EvaluationCount, "Unexpected"));
-		DURIN_PROFILE_STARTUP_FIRST_PRESENT();
-		DURIN_PROFILE_THREAD((++EvaluationCount, "Unexpected"));
 		DURIN_PROFILE_PROGRAM_IDENTITY(
-			(++EvaluationCount, "Unexpected"),
-			(++EvaluationCount, "Unexpected"),
-			++EvaluationCount
+			(++EvaluationCount, "DurinEditor"),
+			(++EvaluationCount, "ProfilingTest"),
+			(++EvaluationCount, 42)
 		);
+		EXPECT_EQ(EvaluationCount, 3);
+		EXPECT_EQ(Profiling::GetProgramIdentity(), "DurinEditor | ProfilingTest | PID 42");
+	}
+#endif
 
-		EXPECT_EQ(EvaluationCount, 0);
+	TEST(FProfilingTests, ZoneAnnotationsAcceptOwnedAndBorrowedText)
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Tests.Profiling.Annotations");
+		const std::string Owned = "owned annotation";
+		DURIN_PROFILE_CPU_ZONE_TEXT(Owned);
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Owned));
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::string("temporary annotation"));
+		DURIN_PROFILE_CPU_ZONE_TEXT("literal annotation");
+		int EvaluationCount = 0;
+		DURIN_PROFILE_CPU_ZONE_TEXT((++EvaluationCount, Owned));
+		// An on-demand zone may be inactive; an active annotation evaluates once.
+		EXPECT_LE(EvaluationCount, 1);
 	}
 
 	TEST(FProfilingTests, StartupMilestonesRetainTheFirstObservation)

@@ -11,6 +11,7 @@ durin_add_native_test(CoreUtilityTests
 		Private/BinaryEnvelopeTests.cpp
 		Private/CheckedArithmeticTests.cpp
 		Private/ColorTests.cpp
+		Private/DisabledProfilingTests.cpp
 		Private/ConsoleCommandTests.cpp
 		Private/GuidTests.cpp
 		Private/JsonTests.cpp
@@ -30,6 +31,11 @@ durin_add_native_test(CoreUtilityTests
 	INCLUDE_DIRECTORIES "${_durin_assertion_fixture_dir}"
 	DEPENDENCIES CoreAssertionHeaderNoPCH CoreAssertionHeaderSharedPCH CoreAssertionHeaderModuleConsumer
 )
+
+# This translation unit explicitly tests the disabled header contract even when
+# the runtime and the shared PCH enable Tracy. Never override the target mode.
+set_source_files_properties(Private/DisabledProfilingTests.cpp PROPERTIES
+	SKIP_PRECOMPILE_HEADERS ON)
 
 durin_add_native_test(ImageCodecTests
 	KIND contract
