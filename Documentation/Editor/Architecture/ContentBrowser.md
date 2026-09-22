@@ -156,7 +156,7 @@ redirector resolves and opens its final real asset; redirectors are excluded
 from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
 Files reported as owned by Engine's registered companion contributors cannot
-be renamed or deleted independently; the owning asset operation must be used.
+be renamed, moved, or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
 Every authorable asset uses AssetTools editor save actions over Engine's sole
@@ -225,9 +225,28 @@ through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
 
-Asset and folder moves use one opaque forward-only Engine mutation job.
-AssetTools calls `ResumeForward`; authored relocation never enters global
-object-edit Undo/Redo history.
+Content-item drag and drop supports ordinary files, folders, and mixed selections.
+Dragging an already selected item preserves the selection. A single real asset
+keeps the shared asset payload used by other editors; other selections carry
+owned physical paths and execute after view traversal. Folder rename uses the
+same content-move planner. Selected descendants are collapsed under selected
+folders; empty directories are preserved.
+
+The service validates all physical roots before writing: no overwrite or merge,
+no mount roots, no destination inside a selected source, no reparse traversal,
+no unknown `.dasset` packages, and no independent managed-companion move.
+Folder companions require their owners in the asset batch. Registered packages
+use one synchronous AssetTools relocation batch; ordinary files use journaled
+filesystem renames within the same writable scanned mount. Cross-device copying
+is not supported. Authored relocation never enters global object-edit Undo/Redo.
+
+Ordinary moves are restored on failure, with restoration failures explicitly
+reported and a full refresh requested. AssetTools retains responsibility for
+partial asset effects and backup diagnostics; there is no mixed-operation crash
+atomicity guarantee. A committed relocation with pending registry projection
+retains the ordinary moves. Source cleanup only removes empty directories;
+remaining redirectors or cleanup errors produce a warning rather than a false
+move failure. See [asset mutation](../../Runtime/Assets/AssetCatalogAndMutation.md#synchronous-relocation).
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning

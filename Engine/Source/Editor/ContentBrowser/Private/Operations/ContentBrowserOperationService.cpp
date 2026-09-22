@@ -1,5 +1,6 @@
 #include "Operations/ContentBrowserOperationService.h"
 #include "Panels/ContentBrowserFilesystem.h"
+#include "Panels/ContentBrowserChanges.h"
 
 #include "Asset/PackageSerialization.h"
 #include "AssetTools/AssetDeletion.h"
@@ -255,18 +256,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
 			std::string Warning;
-			const FContentBrowserOperationResult Result = RenameFolder(Item, NewName, Warning);
-			if (!Result) return Publish(Result);
-			FContentBrowserOperationResult Outcome = Result;
-			Outcome.FocusPhysicalPath = NormalizePath(
-				(std::filesystem::path(Item.PhysicalPath).parent_path()
-					/ std::filesystem::path(NewName)).generic_string());
-			Outcome.Warning = std::move(Warning);
-			Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Item.PhysicalPath,
-				Outcome.FocusPhysicalPath, Item.VirtualPath, Outcome.RevealAssetPath,
-				Item.Kind == EContentBrowserItemKind::Folder});
-			Outcome.bContentChanged = true;
-		return Publish(std::move(Outcome));
+			return Publish(RenameFolder(Item, NewName, Warning));
 		}
 
 		FAssetCompanionOwnership Ownership;
@@ -402,246 +392,253 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserOperationService::RenameFolder(
-		const FContentBrowserItem& Item,
-		std::string_view NewName,
+		const FContentBrowserItem& Item, std::string_view NewName,
 		std::string& OutWarning) -> FContentBrowserOperationResult
 	{
-		const std::filesystem::path OldFolder(Item.PhysicalPath);
-		const std::filesystem::path NewFolder =
-			OldFolder.parent_path() / std::filesystem::path(NewName);
-		const FContentBrowserPaths::FMountPath OldMount =
-			Paths.ResolveMountPath(OldFolder.generic_string());
-		const FContentBrowserPaths::FMountPath NewMount =
-			Paths.ResolveMountPath(NewFolder.generic_string());
-		if (!OldMount || !NewMount || OldMount.Mount != NewMount.Mount)
-			return {
-				EAssetWriteError::InvalidPath,
-				"Folder moves must stay inside the same automatically scanned content mount."};
-		if (!OldMount.Mount->bContentWritable)
-			return {
-				EAssetWriteError::ReadOnlyMode,
-				"This content mount is not content-writable. Choose a writable mount before renaming the folder."};
-		const ContentBrowserFilesystem::FPathProbe NewFolderProbe =
-			ContentBrowserFilesystem::Probe(NewFolder);
-		if (NewFolderProbe.Error)
-			return {
-				EAssetWriteError::IoError,
-				std::format("Could not inspect the folder rename destination: {}", NewFolderProbe.Error.message())};
-		if (NewFolderProbe.Exists())
-			return {
-				EAssetWriteError::InvalidPath,
-				"A folder with that name already exists."};
+		const FContentMove Request{Item,
+			(std::filesystem::path(Item.PhysicalPath).parent_path() / NewName).generic_string()};
+		auto Result = MoveContent(std::span{&Request, 1});
+		OutWarning = Result.Warning;
+		return Result;
+	}
 
-		const std::string OldVirtual =
-			Paths.PhysicalToVirtualDirectory(OldFolder.generic_string());
-		const std::string NewVirtual =
-			Paths.PhysicalToVirtualDirectory(NewFolder.generic_string());
-		if (OldVirtual.empty() || NewVirtual.empty())
-			return {EAssetWriteError::InvalidPath, "The folder path is invalid."};
+	// All physical paths and package mappings are collected before touching disk.
+	auto FContentBrowserOperationService::MoveItems(
+		std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
+		-> FContentBrowserOperationResult
+	{
+		std::vector<FContentMove> Requests;
+		for (const auto& Item : Items)
+			Requests.push_back({Item, (std::filesystem::path(PhysicalDirectory)
+				/ std::filesystem::path(Item.PhysicalPath).filename()).generic_string()});
+		return Publish(MoveContent(Requests));
+	}
 
-		std::vector<FEditorAssetMove> Moves;
-		std::unordered_set<std::string> ManagedFiles;
-		std::vector<std::filesystem::path> RelativeDirectories;
-		for (const auto& [Path, Data]
-			: CaptureAssetCatalogSnapshot().Assets)
+	auto FContentBrowserOperationService::MoveContent(std::span<const FContentMove> Requests)
+		-> FContentBrowserOperationResult
+	{
+		if (const auto Allowed = QueryMutation(); !Allowed) return Allowed;
+		Paths.RefreshMountSnapshot();
+		using namespace ContentBrowserChanges;
+		std::vector<FContentMove> Roots;
+		for (auto Request : Requests)
 		{
-			if (!FPaths::IsLexicalDescendantPath(
-					NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true))
-				continue;
-			if (!Path.GetView().starts_with(OldVirtual))
-				return {
-					EAssetWriteError::InvalidPath,
-					"An asset inside the folder has an inconsistent virtual path."};
-
-			FPackagePath NewPath;
-			if (!FPackagePath::TryCreate(
-					NewVirtual
-						+ std::string(Path.GetView().substr(OldVirtual.size())),
-					NewPath))
-				return {
-					EAssetWriteError::InvalidPath,
-					"The destination contains an invalid asset path."};
-			if (const FAssetCatalogEntry Existing =
-					FindAssetExact(NewPath))
-				return {
-					EAssetWriteError::AlreadyExists,
-					Existing->EntryKind == EAssetRegistryEntryKind::Redirector
-						? std::format(
-							"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another folder name.",
-							NewPath.ToString(), Existing->RedirectDestination.ToString())
-						: std::format(
-							"Asset {} already exists. Choose another folder name or remove the existing asset.",
-							NewPath.ToString())};
-			if (FindResidentPackage(NewPath))
-				return {
-					EAssetWriteError::AlreadyExists,
-					std::format(
-						"A loaded package already uses {}. Close it or choose another folder name.",
-						NewPath.ToString())};
-
-			Moves.push_back({Path, NewPath});
-			const std::filesystem::path AssetFile(Data.PhysicalPath);
-			ManagedFiles.insert(NormalizePath(AssetFile.generic_string()));
+			Request.Item.PhysicalPath = NormalizePath(Request.Item.PhysicalPath);
+			Request.Destination = NormalizePath(Request.Destination);
+			if (SamePath(Request.Item.PhysicalPath, Request.Destination)) continue;
+			const bool Covered = std::ranges::any_of(Requests, [&](const auto& Other) {
+				return Other.Item.Kind == EContentBrowserItemKind::Folder
+					&& !SamePath(Other.Item.PhysicalPath, Request.Item.PhysicalPath)
+					&& Within(Request.Item.PhysicalPath, Other.Item.PhysicalPath);
+			});
+			if (Covered) continue;
+			if (std::ranges::any_of(Roots, [&](const auto& Other) {
+				return SamePath(Other.Item.PhysicalPath, Request.Item.PhysicalPath);
+			})) continue;
+			Roots.push_back(std::move(Request));
 		}
-
-		std::error_code Ec;
-		for (std::filesystem::recursive_directory_iterator It(
-				 OldFolder,
-				 std::filesystem::directory_options::skip_permission_denied, Ec),
-			 End;
-			 !Ec && It != End;
-			 It.increment(Ec))
-		{
-			if (It->is_directory(Ec))
-				RelativeDirectories.push_back(
-					std::filesystem::relative(It->path(), OldFolder, Ec));
-			if (It->is_regular_file(Ec))
-			{
-				const std::string PhysicalPath =
-					NormalizePath(It->path().generic_string());
-				if (ManagedFiles.contains(PhysicalPath)) continue;
-				FAssetCompanionOwnership Ownership;
-				const FAssetWriteResult OwnershipResult =
-					QueryAssetCompanionOwnership(PhysicalPath, Ownership);
-				if (!OwnershipResult)
-					return {
-						OwnershipResult.Error,
-						std::format(
-							"Could not inspect ownership for {}: {}",
-							It->path().filename().generic_string(),
-							OwnershipResult.Message)};
-				if (Ownership.State
-					== EAssetCompanionOwnershipState::Ambiguous)
-					return {
-						EAssetWriteError::InUse,
-						std::format(
-							"Folder file {} is claimed by multiple assets.",
-							It->path().filename().generic_string())};
-				if (Ownership.State == EAssetCompanionOwnershipState::Owned)
-				{
-					ManagedFiles.insert(PhysicalPath);
-					continue;
-				}
-				return {
-					EAssetWriteError::IoError,
-					std::format(
-						"Folder contains an unmanaged file: {}. Move it separately before renaming the folder.",
-						It->path().filename().generic_string())};
-			}
-		}
-		if (Ec)
-			return {
-				EAssetWriteError::IoError,
-				std::format("Could not inspect folder contents: {}", Ec.message())};
-
-		if (Moves.empty())
-		{
-			std::filesystem::rename(OldFolder, NewFolder, Ec);
-			return Ec
-				? FAssetWriteResult{
-					  EAssetWriteError::IoError,
-					  std::format("Folder rename failed: {}", Ec.message())}
-				: FAssetWriteResult{};
-		}
-
-		if (const auto Allowed = ValidateMoves(Moves); !Allowed) return Allowed;
-		std::vector<std::filesystem::path> CreatedDirectories;
-		for (const std::filesystem::path& RelativeDirectory : RelativeDirectories)
-		{
-			const std::filesystem::path DestinationDirectory =
-				NewFolder / RelativeDirectory;
-			const ContentBrowserFilesystem::FPathProbe DestinationDirectoryProbe =
-				ContentBrowserFilesystem::Probe(DestinationDirectory);
-			if (DestinationDirectoryProbe.Error)
-				return {EAssetWriteError::IoError, std::format(
-					"Could not inspect an empty destination directory: {}",
-					DestinationDirectoryProbe.Error.message())};
-			const bool bExisted = DestinationDirectoryProbe.Exists();
-			Ec.clear();
-			std::filesystem::create_directories(DestinationDirectory, Ec);
-			if (!Ec)
-			{
-				if (!bExisted) CreatedDirectories.push_back(DestinationDirectory);
-				continue;
-			}
-			for (auto It = CreatedDirectories.rbegin();
-				It != CreatedDirectories.rend(); ++It)
-			{
-				std::error_code RemoveError;
-				std::filesystem::remove(*It, RemoveError);
-			}
-			return {EAssetWriteError::IoError, std::format(
-				"Could not prepare an empty destination directory: {}",
-				Ec.message())};
-		}
-
-		const FContentBrowserOperationResult MoveResult = MoveAssets(Moves);
-		if (!MoveResult)
-		{
-			for (auto It = CreatedDirectories.rbegin();
-				It != CreatedDirectories.rend(); ++It)
-			{
-				std::error_code RemoveError;
-				std::filesystem::remove(*It, RemoveError);
-			}
-			return MoveResult;
-		}
-
+		if (Roots.empty()) return {};
+		struct FPhysicalMove { std::filesystem::path Source; std::filesystem::path Destination; };
+		std::vector<FPhysicalMove> Files;
+		std::vector<std::filesystem::path> Directories;
 		std::vector<std::filesystem::path> OldDirectories;
-		Ec.clear();
-		const ContentBrowserFilesystem::FPathProbe OldFolderProbe =
-			ContentBrowserFilesystem::Probe(OldFolder);
-		if (OldFolderProbe.Error)
+		std::vector<FEditorAssetMove> AssetMoves;
+		struct FCompanion { std::string Path; FAssetCompanionOwnership Ownership; bool bIndependent; };
+		std::vector<FCompanion> Companions;
+		const auto Catalog = CaptureAssetCatalogSnapshot();
+		FContentBrowserOperationResult Outcome;
+		std::error_code Ec;
+		for (const auto& Root : Roots)
 		{
-			OutWarning = std::format(
-				"Assets were moved successfully, but the source folder could not be inspected for cleanup: {}",
-				OldFolderProbe.Error.message());
-			return MoveResult;
-		}
-		if (OldFolderProbe.Exists())
-		{
-			for (std::filesystem::recursive_directory_iterator It(
-					 OldFolder,
-					 std::filesystem::directory_options::skip_permission_denied,
-					 Ec),
-				 End;
-				 !Ec && It != End;
-				 It.increment(Ec))
-				if (It->is_directory(Ec)) OldDirectories.push_back(It->path());
-			if (Ec)
+			const auto& Source = Root.Item.PhysicalPath;
+			const auto& Destination = Root.Destination;
+			const auto SourceMount = Paths.ResolveMountPath(Source);
+			const auto DestinationMount = Paths.ResolveMountPath(Destination);
+			if (!SourceMount || !DestinationMount || SourceMount.Mount != DestinationMount.Mount)
+				return {EAssetWriteError::InvalidPath, "Content moves must stay inside the same automatically scanned content mount."};
+			if (!SourceMount.Mount->bContentWritable)
+				return {EAssetWriteError::ReadOnlyMode, "Content moves require a writable content mount."};
+			if (SamePath(Source, SourceMount.Mount->PhysicalRoot))
+				return {EAssetWriteError::InvalidPath, "Content mount roots cannot be moved."};
+			for (const auto& Other : Roots)
 			{
-				OutWarning = std::format(
-					"Assets were moved successfully, but the source folder could not be inspected for cleanup: {}",
-					Ec.message());
-				return MoveResult;
+				if (Within(Destination, Other.Item.PhysicalPath))
+					return {EAssetWriteError::InvalidPath, "A destination cannot be inside a selected source."};
+				if (&Other != &Root && SamePath(Destination, Other.Destination))
+					return {EAssetWriteError::AlreadyExists, "Selected items have the same destination."};
 			}
-			std::ranges::sort(
-				OldDirectories,
-				[](const auto& A, const auto& B) {
-					return A.native().size() > B.native().size();
-				});
-			for (const auto& Directory : OldDirectories)
-			{
-				Ec.clear();
-				if (!RemoveDirectory(Directory, Ec) && !Ec) continue;
-				if (Ec)
+			const auto Probe = ContentBrowserFilesystem::Probe(Destination);
+			if (Probe.Error) return {EAssetWriteError::IoError, Probe.Error.message()};
+			if (Probe.Exists()) return {EAssetWriteError::AlreadyExists, "An item with that name already exists."};
+			const auto Parent = std::filesystem::path(Destination).parent_path();
+			if (!std::filesystem::is_directory(Parent, Ec) || Ec)
+				return {EAssetWriteError::InvalidPath, "The destination directory does not exist."};
+			std::filesystem::path Reparse;
+			if (IsReparsePoint(SourceMount.Mount->PhysicalRoot, Ec) || Ec
+				|| FindReparsePointInPath(SourceMount.Mount->PhysicalRoot, Source, Reparse, Ec) || Ec
+				|| FindReparsePointInPath(SourceMount.Mount->PhysicalRoot, Parent, Reparse, Ec) || Ec)
+				return {EAssetWriteError::InvalidPath, "Content moves cannot traverse reparse points or unreadable paths."};
+			const bool bFolder = Root.Item.Kind == EContentBrowserItemKind::Folder;
+			if (std::filesystem::is_directory(Source, Ec) != bFolder || Ec)
+				return {EAssetWriteError::InvalidPath, "The source content type has changed."};
+			auto Collect = [&](const std::filesystem::path& Path, const std::filesystem::path& Target,
+				bool bIndependent) -> FAssetWriteResult {
+				if (IsReparsePoint(Path, Ec) || Ec)
+					return {EAssetWriteError::InvalidPath, "Content moves cannot include reparse points or unreadable entries."};
+				const auto EntryMount = Paths.ResolveMountPath(Path.generic_string());
+				if (!EntryMount || EntryMount.Mount != SourceMount.Mount)
+					return {EAssetWriteError::InvalidPath, "A folder contains a different content mount."};
+				if (std::filesystem::is_directory(Path, Ec))
 				{
-					OutWarning = std::format(
-						"Assets were moved successfully, but source-folder cleanup failed for {}: {}",
-						Directory.generic_string(), Ec.message());
-					return MoveResult;
+					Directories.push_back(Target);
+					OldDirectories.push_back(Path);
+					return {};
+				}
+				if (Ec || !std::filesystem::is_regular_file(Path, Ec) || Ec)
+					return {EAssetWriteError::InvalidPath, "The source is not a regular file or directory."};
+				const std::string Physical = NormalizePath(Path.generic_string());
+				for (const auto& [Package, Data] : Catalog.Assets)
+				{
+					if (!SamePath(Physical, Data.PhysicalPath)) continue;
+					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+						return {EAssetWriteError::InvalidPath, "Fix Up redirectors before moving this content."};
+					FPackagePath NewPath;
+					auto Virtual = Paths.ResolveMountPath(Target.generic_string()).VirtualPath;
+					if (!Virtual.ends_with(".dasset"))
+						return {EAssetWriteError::InvalidPath, "The destination package extension is invalid."};
+					Virtual.resize(Virtual.size() - 7);
+					if (!FPackagePath::TryCreate(Virtual, NewPath))
+						return {EAssetWriteError::InvalidPath, "The destination asset path is invalid."};
+					if (FindAssetExact(NewPath) || FindResidentPackage(NewPath))
+						return {EAssetWriteError::AlreadyExists, "The destination asset path is already occupied."};
+					AssetMoves.push_back({Package, NewPath});
+					for (const auto& Asset : Data.TopLevelAssets)
+					{
+						FTopLevelAssetPath NewAsset;
+						if (FTopLevelAssetPath::TryCreate(NewPath, Asset.AssetPath.GetAssetName(), NewAsset))
+							Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Physical,
+								Target.generic_string(), Asset.AssetPath.ToString(), NewAsset.ToString()});
+					}
+					return {};
+				}
+				if (StringUtils::FoldAscii(Path.extension().string()) == ".dasset")
+					return {EAssetWriteError::InvalidPath, "An unregistered asset package cannot be moved as an ordinary file."};
+				FAssetCompanionOwnership Ownership;
+				if (const auto Result = QueryAssetCompanionOwnership(Physical, Ownership); !Result) return Result;
+				if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
+				{
+					Companions.push_back({Physical, std::move(Ownership), bIndependent});
+					return {};
+				}
+				Files.push_back({Path, Target});
+				return {};
+			};
+			if (const auto Result = Collect(Source, Destination, !bFolder); !Result) return Result;
+			if (bFolder)
+			{
+				for (std::filesystem::recursive_directory_iterator It(Source, Ec), End;
+					!Ec && It != End; It.increment(Ec))
+				{
+					const auto Relative = It->path().lexically_relative(Source);
+					if (const auto Result = Collect(It->path(), std::filesystem::path(Destination) / Relative, false); !Result)
+						return Result;
+				}
+				if (Ec) return {EAssetWriteError::IoError, "Could not inspect the entire source folder: " + Ec.message()};
+			}
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Source, Destination,
+				bFolder ? Paths.PhysicalToVirtualDirectory(Source) : std::string{},
+				bFolder ? Paths.PhysicalToVirtualDirectory(Destination) : std::string{}, bFolder});
+		}
+		for (const auto& Companion : Companions)
+		{
+			if (Companion.bIndependent || Companion.Ownership.State == EAssetCompanionOwnershipState::Ambiguous
+				|| std::ranges::any_of(Companion.Ownership.Owners, [&](const auto& Owner) {
+					return std::ranges::none_of(AssetMoves, [&](const auto& Move) { return Move.OldPath == Owner; });
+				}))
+				return {EAssetWriteError::InUse, "Move the owning asset instead of its managed companion: " + Companion.Path};
+		}
+		if (const auto Allowed = ValidateMoves(AssetMoves); !Allowed) return Allowed;
+		std::vector<std::filesystem::path> CreatedDirectories;
+		size_t MovedFiles = 0;
+		auto RollBack = [&](FContentBrowserOperationResult Result) {
+			std::string Errors;
+			while (MovedFiles > 0)
+			{
+				const auto& File = Files[--MovedFiles];
+				const auto Probe = ContentBrowserFilesystem::Probe(File.Source);
+				if (Probe.Error || Probe.Exists())
+					Errors += " Cannot restore " + File.Source.generic_string() + "; source occupied or unreadable.";
+				else
+				{
+					std::filesystem::rename(File.Destination, File.Source, Ec);
+					if (Ec) Errors += " Cannot restore " + File.Source.generic_string() + ": " + Ec.message();
 				}
 			}
-			Ec.clear();
-			if (!RemoveDirectory(OldFolder, Ec) || Ec)
+			for (auto It = CreatedDirectories.rbegin(); It != CreatedDirectories.rend(); ++It)
 			{
-				OutWarning = std::format(
-					"Assets were moved successfully, but the source folder is not empty or could not be removed: {}",
-					Ec ? Ec.message() : OldFolder.generic_string());
-				return MoveResult;
+				std::filesystem::remove(*It, Ec);
+				if (Ec) Errors += " Could not remove destination directory " + It->generic_string() + ": " + Ec.message();
 			}
+			if (!Errors.empty())
+			{
+				Result.Status.Message += Errors;
+				Result.Warning += Errors;
+				Result.Status.Effect = EAssetWriteEffect::ContentUncertain;
+				if (Result.AssetResult)
+				{
+					Result.AssetResult->State = EAssetOperationTerminalState::ContentUncertain;
+					Result.AssetResult->Message += Errors;
+				}
+				Result.bContentChanged = true;
+			}
+			Result.Changes = {};
+			Result.Changes.bFullRefresh = Result.bContentChanged;
+			return Result;
+		};
+		// Create parents before children; never merge into existing destinations.
+		std::ranges::sort(Directories, {}, [](const auto& Path) { return Path.native().size(); });
+		for (const auto& Directory : Directories)
+		{
+			if (!std::filesystem::create_directory(Directory, Ec) || Ec)
+				return RollBack({EAssetWriteError::IoError, "Could not create destination directory: " + Directory.generic_string()});
+			CreatedDirectories.push_back(Directory);
 		}
-		return MoveResult;
+		for (const auto& File : Files)
+		{
+			const auto Probe = ContentBrowserFilesystem::Probe(File.Destination);
+			if (Probe.Error || Probe.Exists())
+				return RollBack({EAssetWriteError::AlreadyExists, "The destination changed during the move."});
+			std::filesystem::rename(File.Source, File.Destination, Ec);
+			if (Ec) return RollBack({EAssetWriteError::IoError, "File move failed: " + Ec.message()});
+			++MovedFiles;
+		}
+		if (!AssetMoves.empty())
+		{
+			auto Result = MoveAssets(AssetMoves);
+			const bool bCommitted = Result.Status.Effect == EAssetWriteEffect::ContentCommittedProjectionPending
+				|| (Result.AssetResult && Result.AssetResult->State == EAssetOperationTerminalState::ContentCommittedProjectionPending);
+			if (!Result && !bCommitted)
+			{
+				// AssetTools owns partial-effect diagnostics and backups. Never attempt inverse relocation.
+				Result.bContentChanged = true;
+				return RollBack(std::move(Result));
+			}
+			Outcome.AssetResult = std::move(Result.AssetResult);
+			Outcome.Status = std::move(Result.Status);
+			Outcome.Warning = std::move(Result.Warning);
+			if (bCommitted) Outcome.Changes.bFullRefresh = true;
+		}
+		std::ranges::sort(OldDirectories, [](const auto& A, const auto& B) { return A.native().size() > B.native().size(); });
+		for (const auto& Directory : OldDirectories)
+		{
+			Ec.clear();
+			if (!RemoveDirectory(Directory, Ec) || Ec)
+				Outcome.Warning = "Content was moved successfully, but a source folder could not be removed (redirectors or cleanup failed): "
+					+ Directory.generic_string();
+		}
+		Outcome.FocusPhysicalPath = Roots.front().Destination;
+		Outcome.bContentChanged = true;
+		return Outcome;
 	}
 
 	auto FContentBrowserOperationService::CreateFolder(

@@ -659,7 +659,10 @@ namespace Durin::Editor::ContentBrowser::Private
 					const ImVec2 CursorAfterTile = ImGui::GetCursorScreenPos();
 					const bool bHovered = ImGui::IsItemHovered();
 					bContentItemHovered |= bHovered;
-					if (ImGui::IsItemClicked()) SelectItem(Index);
+					if (ImGui::IsItemClicked() && (!bSelected || ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) SelectItem(Index);
+					const ImVec2 DragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+					if (bHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && DragDelta.x == 0 && DragDelta.y == 0
+						&& !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) SelectItem(Index);
 					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						QueueContentAction([this, Item] { OpenItem(Item); });
 					BeginAssetDragDrop(Item);
@@ -813,7 +816,11 @@ namespace Durin::Editor::ContentBrowser::Private
 						"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
 					ImGui::Selectable(Label.c_str(), SelectionState.Selected.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
 					bContentItemHovered |= ImGui::IsItemHovered();
-					if (ImGui::IsItemClicked()) SelectItem(static_cast<size_t>(Index));
+					if (ImGui::IsItemClicked() && (!SelectionState.Selected.contains(Item.StableId())
+						|| ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) SelectItem(static_cast<size_t>(Index));
+					const ImVec2 DragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+					if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && DragDelta.x == 0 && DragDelta.y == 0
+						&& !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) SelectItem(static_cast<size_t>(Index));
 					if (ImGui::IsItemHovered()
 						&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						QueueContentAction([this, Item] { OpenItem(Item); });
@@ -1129,7 +1136,25 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
 	{
-		if (Item.Kind != EContentBrowserItemKind::Asset || !ImGui::BeginDragDropSource()) return;
+		if (Item.Kind == EContentBrowserItemKind::Redirector || !ImGui::BeginDragDropSource()) return;
+		std::vector<FContentBrowserItem> Items;
+		if (SelectionState.Selected.contains(Item.StableId()))
+			for (const auto& Selected : Model.GetItems())
+				if (SelectionState.Selected.contains(Selected.StableId())) Items.push_back(Selected);
+		if (Items.empty()) Items.push_back(Item);
+		if (Items.size() != 1 || Items.front().Kind != EContentBrowserItemKind::Asset)
+		{
+			std::string Paths;
+			for (const auto& Selected : Items)
+			{
+				Paths += Selected.PhysicalPath;
+				Paths.push_back('\0');
+			}
+			ImGui::SetDragDropPayload("DURIN_CONTENT_ITEMS", Paths.data(), Paths.size(), ImGuiCond_Once);
+			ImGui::Text("Move %zu content item(s)", Items.size());
+			ImGui::EndDragDropSource();
+			return;
+		}
 		::Durin::Editor::FAssetDragDropPayload Payload;
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
@@ -1142,6 +1167,29 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (!bAllowAssetMutation) return;
 		if (!ImGui::BeginDragDropTarget()) return;
+		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload("DURIN_CONTENT_ITEMS"); Payload && Payload->IsDelivery())
+		{
+			std::vector<FContentBrowserItem> Items;
+			std::string_view Remaining(static_cast<const char*>(Payload->Data), static_cast<size_t>(Payload->DataSize));
+			while (!Remaining.empty())
+			{
+				const auto End = Remaining.find('\0');
+				if (End == std::string_view::npos || End == 0) { Items.clear(); break; }
+				std::string Path(Remaining.substr(0, End));
+				std::error_code Error;
+				const bool bFolder = std::filesystem::is_directory(Path, Error);
+				Items.push_back({.Kind = bFolder ? EContentBrowserItemKind::Folder : EContentBrowserItemKind::File,
+					.PhysicalPath = std::move(Path)});
+				Remaining.remove_prefix(End + 1);
+			}
+			const std::string Destination = bPhysicalDirectory ? std::string(DestinationDirectory)
+				: Model.VirtualToPhysical(DestinationDirectory);
+			if (!Items.empty()) QueueContentAction([this, Items = std::move(Items), Destination] {
+				const auto Result = Operations.MoveItems(Items, Destination);
+				if (!Result) SetError(Result.Status.Message);
+				if (!Result.Warning.empty()) SetWarning(Result.Warning);
+			});
+		}
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 		{
 			const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);

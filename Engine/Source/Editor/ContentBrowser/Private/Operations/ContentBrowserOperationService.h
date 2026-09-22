@@ -221,6 +221,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto CreateFolder(std::string_view PhysicalDirectory)
 			-> FContentBrowserOperationResult;
 		auto Move(std::span<const FEditorAssetMove> Moves) -> FContentBrowserOperationResult;
+		auto MoveItems(std::span<const FContentBrowserItem> Items, std::string_view PhysicalDirectory)
+			-> FContentBrowserOperationResult;
 		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
 			-> FContentBrowserOperationResult;
 		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors)
@@ -235,6 +237,12 @@ namespace Durin::Editor::ContentBrowser::Private
 
 
 	private:
+		struct FContentMove
+		{
+			FContentBrowserItem Item;
+			std::string Destination;
+		};
+		auto MoveContent(std::span<const FContentMove> Requests) -> FContentBrowserOperationResult;
 		auto AnalyzeDeletion(std::span<const FContentBrowserItem> Items,
 			FAssetDeletionOperation& OutOperation) const -> FContentDeletionPlanPtr;
 		struct FDeletionSession

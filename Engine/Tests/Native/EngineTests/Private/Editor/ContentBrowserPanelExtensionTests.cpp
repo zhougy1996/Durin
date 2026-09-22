@@ -6,6 +6,7 @@
 #include "NativeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "imgui_internal.h"
+#include "Asset/AssetDragDrop.h"
 
 #include <gtest/gtest.h>
 
@@ -43,6 +44,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			Panel.ViewMode = EContentBrowserViewMode::Details;
 		}
 		static auto DrawContent(FContentBrowserPanel& Panel) -> void { Panel.DrawContentArea(); }
+		static auto BeginDrag(FContentBrowserPanel& Panel) -> void
+		{ Panel.BeginAssetDragDrop(Panel.Model.GetItems().front()); }
 		static auto SetReimportQuery(FContentBrowserPanel& Panel, FContentBrowserPanel::FQueryReimport Query) -> void
 		{ Panel.QueryReimport = std::move(Query); }
 		static auto DrawItemMenu(FContentBrowserPanel& Panel) -> void
@@ -237,5 +240,59 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		EXPECT_EQ(Queries, 3);
 		Panel.StopRequestAdmission();
+	}
+}
+
+namespace Durin::Editor::ContentBrowser::Private
+{
+	TEST(FContentBrowserPanelExtensionTests, DragPayloadSupportsMixedSelectionAndRetainsAssetCompatibility)
+	{
+		InitializeDObjectSystem();
+		const std::string Root = Testing::CreateTestFixtureDirectory("BrowserDragPayload").generic_string();
+		ImGuiContext* UI = ImGui::CreateContext();
+		struct FCleanup { ImGuiContext* UI; ~FCleanup() { ImGui::DestroyContext(UI); } } Cleanup{UI};
+		auto& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1200, 900);
+		IO.DeltaTime = 1.0f / 60.0f;
+		unsigned char* Pixels;
+		int Width, Height;
+		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
+		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
+			std::make_shared<FMountedContentReconciliationState>(), {});
+		const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
+			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
+		const FContentBrowserItem File{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt",
+			.PhysicalPath = Root + "/notes.txt"};
+		auto Drag = [&](std::vector<FContentBrowserItem> Items, const char* ExpectedType) {
+			FContentBrowserPanelTestAccess::SetSelection(Panel, Root, std::move(Items));
+			IO.MouseDown[0] = true;
+			ImGui::NewFrame();
+			ImGui::Begin("Drag test");
+			ImGui::Button("Source");
+			// Establish the same active-widget and threshold state as a pointer drag.
+			ImGui::SetActiveID(UI->LastItemData.ID, ImGui::GetCurrentWindow());
+			UI->ActiveIdMouseButton = 0;
+			IO.MouseDragMaxDistanceSqr[0] = 10000;
+			FContentBrowserPanelTestAccess::BeginDrag(Panel);
+			const ImGuiPayload* Payload = ImGui::GetDragDropPayload();
+			EXPECT_NE(Payload, nullptr);
+			if (Payload)
+			{
+				EXPECT_TRUE(Payload->IsDataType(ExpectedType));
+				if (Payload->IsDataType("DURIN_CONTENT_ITEMS"))
+				{
+					const std::string Paths(static_cast<const char*>(Payload->Data), Payload->DataSize);
+					EXPECT_NE(Paths.find(File.PhysicalPath), std::string::npos);
+					EXPECT_NE(Paths.find(Asset.PhysicalPath), std::string::npos);
+				}
+			}
+			ImGui::End();
+			ImGui::EndFrame();
+			ImGui::ClearDragDrop();
+			ImGui::ClearActiveID();
+		};
+		Drag({Asset, File}, "DURIN_CONTENT_ITEMS");
+		Drag({Asset}, ::Durin::Editor::AssetDragDropPayloadType);
 	}
 }
