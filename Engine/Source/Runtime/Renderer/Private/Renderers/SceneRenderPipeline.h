@@ -53,7 +53,6 @@ namespace Durin
 		struct FObservation final
 		{
 			FSceneRenderTelemetry Telemetry;
-			bool bReportedRegressionOverage = false;
 			bool bReportedExecutionFailure = false;
 		};
 

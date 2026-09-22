@@ -15,6 +15,7 @@
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneRenderResults.h"
+#include "Renderers/SceneRenderGraphWarnings.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -122,5 +123,6 @@ namespace Durin
 		// Used only during serial render-thread preparation; retains candidate capacity.
 		FSceneVisibilityResult VisibilityScratch;
 		uint64 RenderSubmissionSerial = 0;
+		FSceneRenderGraphWarnings RenderGraphWarnings;
 	};
 } // namespace Durin

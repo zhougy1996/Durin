@@ -615,6 +615,43 @@ TEST(FRendererSceneContractTests, ContactShadowPilotsComposeExactGraphicsAndComp
 	EXPECT_EQ(Compute->Members.back().Use, Durin::ERDGUse::Write);
 }
 
+TEST(FRendererSceneContractTests, GraphWarningsDeduplicateAcrossAlternatingViewsAndHealthyFrames)
+{
+	Durin::FSceneRenderGraphWarnings Warnings;
+	Durin::FRDGBudget Budget{.RegressionMaxTextureTransitions = 32};
+	Durin::FRDGStatistics Statistics;
+	Statistics.TextureTransitions = 42;
+	Statistics.bTextureTransitionRegressionBudgetExceeded = true;
+	EXPECT_TRUE(Warnings.ShouldReport(Statistics, Budget));
+	EXPECT_FALSE(Warnings.ShouldReport(Statistics, Budget));
+	++Statistics.TextureTransitions;
+	EXPECT_TRUE(Warnings.ShouldReport(Statistics, Budget));
+	EXPECT_FALSE(Warnings.ShouldReport({}, Budget));
+	--Statistics.TextureTransitions;
+	EXPECT_FALSE(Warnings.ShouldReport(Statistics, Budget));
+	++Budget.RegressionMaxTextureTransitions;
+	EXPECT_TRUE(Warnings.ShouldReport(Statistics, Budget));
+	Durin::FSceneRenderGraphWarnings OtherRenderer;
+	EXPECT_TRUE(OtherRenderer.ShouldReport(Statistics, Budget));
+}
+
+TEST(FRendererSceneContractTests, GraphWarningsBoundVaryingDiagnostics)
+{
+	Durin::FSceneRenderGraphWarnings Warnings;
+	Durin::FRDGBudget Budget{.RegressionMaxPasses = 12};
+	Durin::FRDGStatistics Statistics;
+	Statistics.DeclaredPasses = 13;
+	Statistics.bPassRegressionBudgetExceeded = true;
+	for (uint32 Index = 0; Index < Durin::FSceneRenderGraphWarnings::MaxWarnings; ++Index)
+	{
+		EXPECT_FALSE(Warnings.IsFull());
+		EXPECT_TRUE(Warnings.ShouldReport(Statistics, Budget));
+		++Statistics.DeclaredPasses;
+	}
+	EXPECT_TRUE(Warnings.IsFull());
+	EXPECT_FALSE(Warnings.ShouldReport(Statistics, Budget));
+}
+
 TEST(FRendererSceneContractTests, SceneFeaturePlanOwnsPurposesAndExactRoutes)
 {
 	Durin::FSceneFrameFeaturePlan Plan;

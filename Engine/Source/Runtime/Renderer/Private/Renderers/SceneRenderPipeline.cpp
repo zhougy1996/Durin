@@ -389,8 +389,7 @@ namespace Durin
 			Renderer.ViewGPUTimingSink(std::move(Timing));
 		}
 		const FRDGStatistics Statistics = Graph.GetStatistics();
-		if (Statistics.IsStructuralRegressionBudgetExceeded()
-			&& !Observation.bReportedRegressionOverage)
+		if (Renderer.RenderGraphWarnings.ShouldReport(Statistics, Graph.GetBudget()))
 		{
 			const FRDGBudget& Budget = Graph.GetBudget();
 			DURIN_WARN(
@@ -403,7 +402,10 @@ namespace Durin
 				Budget.RegressionMaxBufferTransitions,
 				Statistics.TextureTransitions,
 				Budget.RegressionMaxTextureTransitions, Statistics.TextureTransitionSubresources);
-			Observation.bReportedRegressionOverage = true;
+			if (Renderer.RenderGraphWarnings.IsFull())
+				DURIN_WARN("Scene render graph regression warning limit reached; "
+					"further warnings are suppressed for this renderer. "
+					"Render graph captures still contain complete statistics.");
 		}
 		const bool Executed = Result.has_value();
 		if (!Executed
