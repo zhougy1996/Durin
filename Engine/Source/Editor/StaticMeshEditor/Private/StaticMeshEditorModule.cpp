@@ -79,11 +79,8 @@ namespace Durin
 		}
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 
-		std::string Error;
-		::Durin::Editor::FThumbnailRendererRegistrationHandle ThumbnailHandle =
-			ThumbnailManager.RegisterScoped(
-				std::make_unique<DStaticMeshThumbnailRenderer>(),
-				Error);
+		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
+				std::make_unique<DStaticMeshThumbnailRenderer>());
 		if (!ThumbnailHandle)
 		{
 			UnregisterStaticMeshEditor();
@@ -91,7 +88,8 @@ namespace Durin
 		}
 		ThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
-				std::move(ThumbnailHandle));
+				std::move(*ThumbnailHandle));
+		std::string Error;
 		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
 			.Id = "static-mesh.import-static-mesh",
 			.Label = "Static Mesh (Geometry Only)...",

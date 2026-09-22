@@ -51,28 +51,25 @@ namespace Durin::Editor::Texture
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
 				return {.State = EThumbnailRendererSessionState::ReadyToRender};
 			}
-			auto PreparePreview(IThumbnailPreviewScene& Scene, std::string& Error) -> bool override
+			auto PreparePreview(IThumbnailPreviewScene& Scene) -> std::expected<void, std::string> override
 			{
 				Snapshot = Texture.IsValid() ? Texture.Get()->GetPublishedTexture() : FTextureRHIRef{};
-				if (!Snapshot) { Error = "Texture2D built allocation is unavailable."; return false; }
+				if (!Snapshot) { return std::unexpected("Texture2D built allocation is unavailable."); }
 				return Scene.SetImageRenderer([Input = Snapshot, Display = Options](
 					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
 					return RenderTexturePreview(Commands, Input, Width, Height, Display);
-				}, Error);
+				});
 			}
-			auto ValidatePreparedInput(
-				std::string& Error) const -> bool override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
 			{
 				if (!Texture.IsValid() || Texture.Get()->IsResourceUpdatePending() || !Snapshot
 					|| !Texture.Get()->HasUsableResource() || Texture.Get()->GetPublishedTexture() != Snapshot
 					|| Texture.Get()->GetPlatformDataShared() != Platform || Texture.Get()->GetUsage() != Options.Usage
 					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != AssetRevision)
 				{
-					Error = "Texture2D changed while its thumbnail was being generated.";
-					return false;
+					return std::unexpected("Texture2D changed while its thumbnail was being generated.");
 				}
-				Error.clear();
-				return true;
+				return {};
 			}
 			auto ResetPreview() -> void override
 			{
@@ -106,15 +103,13 @@ namespace Durin::Editor::Texture
 
 	auto DTextureThumbnailRenderer::CaptureGenerationRequest(
 		const ::Durin::Editor::FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration,
-		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
-		std::string& OutError) -> bool
+		uint64 RendererGeneration) -> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string>
 	{
-		OutRequest = {};
+		::Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
+
 		if (Request.Asset.AssetClassName != GetRegistration().AssetClassName)
 		{
-			OutError = "The Texture2D thumbnail renderer received the wrong asset class.";
-			return false;
+			return std::unexpected("The Texture2D thumbnail renderer received the wrong asset class.");
 		}
 		const FTopLevelAssetCatalogEntry Entry =
 			FindTopLevelAssetExact(Request.Asset.AssetPath);
@@ -123,33 +118,30 @@ namespace Durin::Editor::Texture
 			|| static_cast<uint64>(Entry.Package->FileSize) != Request.Asset.FileSize
 			|| Entry.Package->LastWriteTimeTicks != Request.Asset.LastWriteTimeTicks)
 		{
-			OutError = "Texture2D thumbnail registry data is missing or changed.";
-			return false;
+			return std::unexpected("Texture2D thumbnail registry data is missing or changed.");
 		}
 		// Capture package identity only. Loading and GPU readiness belong to the
 		// scheduled cold-miss session; warm cache hits never inspect source pixels.
-		OutRequest.KeyInput.Asset = Request.Asset;
-		OutRequest.KeyInput.RendererName = GetRegistration().RendererName;
-		OutRequest.KeyInput.GeneratorSchemaVersion = GetRegistration().GeneratorSchemaVersion;
-		OutRequest.KeyInput.Output = {.Width = 256, .Height = 256};
-		OutRequest.KeyInput.PreviewFixtureIdentity = "Texture2D.Built.Auto.RGBA";
-		OutRequest.KeyInput.PreviewFixtureVersion = 1;
-		OutRequest.KeyInput.ShaderContractVersion = 2;
-		OutRequest.Input = std::make_shared<FTextureThumbnailGenerationInput>(Request.Asset.AssetPath);
-		OutRequest.RendererGeneration = RendererGeneration;
-		OutRequest.RequestSerial = Request.RequestSerial;
-		OutRequest.bHasTransparency = true;
-		OutError.clear();
-		return true;
+		GenerationRequest.KeyInput.Asset = Request.Asset;
+		GenerationRequest.KeyInput.RendererName = GetRegistration().RendererName;
+		GenerationRequest.KeyInput.GeneratorSchemaVersion = GetRegistration().GeneratorSchemaVersion;
+		GenerationRequest.KeyInput.Output = {.Width = 256, .Height = 256};
+		GenerationRequest.KeyInput.PreviewFixtureIdentity = "Texture2D.Built.Auto.RGBA";
+		GenerationRequest.KeyInput.PreviewFixtureVersion = 1;
+		GenerationRequest.KeyInput.ShaderContractVersion = 2;
+		GenerationRequest.Input = std::make_shared<FTextureThumbnailGenerationInput>(Request.Asset.AssetPath);
+		GenerationRequest.RendererGeneration = RendererGeneration;
+		GenerationRequest.RequestSerial = Request.RequestSerial;
+		GenerationRequest.bHasTransparency = true;
+		return GenerationRequest;
 	}
 
 	auto DTextureThumbnailRenderer::CreateGenerationSession(
-		const FAssetThumbnailGenerationRequest&, const IAssetThumbnailGenerationInput& Input,
-		std::string& Error) -> std::unique_ptr<IThumbnailRendererSession>
+		const FAssetThumbnailGenerationRequest&, const IAssetThumbnailGenerationInput& Input)
+		-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
 	{
 		const auto* Typed = dynamic_cast<const FTextureThumbnailGenerationInput*>(&Input);
-		if (!Typed) { Error = "Invalid Texture2D thumbnail input."; return nullptr; }
-		Error.clear();
+		if (!Typed) { return std::unexpected("Invalid Texture2D thumbnail input."); }
 		return std::make_unique<FTextureThumbnailSession>(Typed->AssetPath);
 	}
 } // namespace Durin::Editor::Texture

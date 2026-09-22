@@ -624,8 +624,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::FByteBuffer Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
-				Mesh, Material, Durin::FTransform(), Error)) << Error;
-			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
+				Mesh, Material, Durin::FTransform()));
+			EXPECT_TRUE(Pool.BeginCapture(false));
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "HAL/Platform.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -14,5 +16,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	};
 
 	auto IsSupportedSourceImageExtension(std::string_view Extension) -> bool;
-	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension, FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool;
+	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension)
+		-> std::expected<FDecodedSourceImageThumbnail, std::string>;
 } // namespace Durin::Editor::ContentBrowser::Private

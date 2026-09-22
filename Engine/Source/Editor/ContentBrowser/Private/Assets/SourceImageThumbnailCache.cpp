@@ -104,7 +104,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint32 ActiveDecodeCount = 0;
 		bool bShuttingDown = false;
 
-
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
 			if (Entry.Texture && Mona::GetActiveUIBackend())
@@ -245,9 +244,12 @@ namespace Durin::Editor::ContentBrowser::Private
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
-					Result.bSucceeded = BypassDisk
-						? DecodeSourceImageThumbnail(PhysicalPath, 256, Result.Thumbnail, Result.Error)
-						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime, Result.Thumbnail, Result.Error);
+					auto Decoded = BypassDisk
+						? DecodeSourceImageThumbnail(PhysicalPath, 256)
+						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime);
+					Result.bSucceeded = Decoded.has_value();
+					if (Decoded) Result.Thumbnail = std::move(*Decoded);
+					else Result.Error = std::move(Decoded.error());
 					return Result;
 				}, DecodeOptions);
 				++ActiveDecodeCount;

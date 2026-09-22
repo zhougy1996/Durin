@@ -104,8 +104,8 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterScoped(
-		std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>(), Error);
-	ASSERT_TRUE(Existing) << Error;
+		std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>());
+	ASSERT_TRUE(Existing) << Existing.error();
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	const uint64 ExistingGeneration = ThumbnailManager.Find(ClassName).Generation;

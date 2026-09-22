@@ -141,11 +141,9 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
-		std::string Error;
 		auto MaterialHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
-				DMaterial::StaticClass()->GetQualifiedName().ToString()),
-			Error);
+				DMaterial::StaticClass()->GetQualifiedName().ToString()));
 		if (!MaterialHandle)
 		{
 			WorkspaceRegistration.reset();
@@ -153,11 +151,10 @@ namespace Durin
 		}
 		MaterialThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
-				std::move(MaterialHandle));
+				std::move(*MaterialHandle));
 		auto InstanceHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
-				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
-			Error);
+				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
 		if (!InstanceHandle)
 		{
 			MaterialThumbnailRegistration.reset();
@@ -166,7 +163,7 @@ namespace Durin
 		}
 		MaterialInstanceThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
-				std::move(InstanceHandle));
+				std::move(*InstanceHandle));
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {
 			std::string Error;

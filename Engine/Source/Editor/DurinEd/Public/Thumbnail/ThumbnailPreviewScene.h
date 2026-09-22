@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Math/DurinMath.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/ThumbnailRenderer.h"
@@ -35,20 +37,18 @@ namespace Durin::Editor
 		DURINED_API auto GetDiagnostic() const -> std::string;
 		DURINED_API auto GetWorld() -> DWorld* override;
 		DURINED_API auto SetView(
-			const FThumbnailPreviewView& View,
-			std::string& OutError) -> bool override;
+			const FThumbnailPreviewView& View) -> std::expected<void, std::string> override;
 		DURINED_API auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment,
-			std::string& OutError) -> bool override;
-		DURINED_API auto SetImageRenderer(FThumbnailImageRenderer Renderer,
-			std::string& OutError) -> bool override;
+			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> override;
+		DURINED_API auto SetImageRenderer(FThumbnailImageRenderer Renderer)
+			-> std::expected<void, std::string> override;
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.
-		DURINED_API auto BeginCapture(std::string& OutError) -> bool;
+		DURINED_API auto BeginCapture() -> std::expected<void, std::string>;
 		// Moves completed tightly-packed SRGBA8 pixels to the game thread.
+		// Pending/idle states are successful polls; terminal failures return unexpected.
 		DURINED_API auto PollCapture(
-			FByteBuffer& OutPixels,
-			std::string& OutError) -> EThumbnailCaptureState;
+			FByteBuffer& OutPixels) -> std::expected<EThumbnailCaptureState, std::string>;
 		DURINED_API auto Reset() -> void;
 
 	private:

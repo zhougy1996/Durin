@@ -188,13 +188,11 @@ namespace
 
 		auto CaptureGenerationRequest(
 			const Editor::FAssetThumbnailRequest&,
-			uint64,
-			Editor::FAssetThumbnailGenerationRequest& OutRequest,
-			std::string& OutError) -> bool override
+			uint64) -> std::expected<Editor::FAssetThumbnailGenerationRequest, std::string> override
 		{
-			OutRequest = {};
-			OutError = "Route-only test renderer.";
-			return false;
+			Editor::FAssetThumbnailGenerationRequest OutRequest;
+
+			return std::unexpected("Route-only test renderer.");
 		}
 
 	private:
@@ -362,12 +360,9 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	const FAssetCatalogEntry AssetData =
 		FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
-	std::string RegistrationError;
-	auto ThumbnailRegistration =
-		Editor::GetDefaultThumbnailManager().RegisterScoped(
-			std::make_unique<FRouteOnlyThumbnailRenderer>(AssetData->AssetClassName),
-			RegistrationError);
-	ASSERT_TRUE(ThumbnailRegistration) << RegistrationError;
+	auto ThumbnailRegistration = Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<FRouteOnlyThumbnailRenderer>(AssetData->AssetClassName));
+	ASSERT_TRUE(ThumbnailRegistration) << ThumbnailRegistration.error();
 
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));

@@ -86,25 +86,17 @@ namespace Durin::Editor
 				|| CurrentRenderer.Generation != Entry.RendererGeneration)
 				return false;
 
-			FAssetThumbnailGenerationRequest GenerationRequest;
-			FThumbnailRenderingInfo Registration;
-			std::string Error;
-			if (!Registry.Capture(Request, Entry.RendererGeneration,
-					GenerationRequest, Registration, Error))
+			auto Captured = Registry.Capture(Request, Entry.RendererGeneration);
+			if (!Captured)
 			{
 				Entry.State = EAssetThumbnailState::Invalid;
-				Entry.Diagnostic = Error.empty()
+				Entry.Diagnostic = Captured.error().empty()
 					? "The thumbnail renderer rejected the asset."
-					: std::move(Error);
+					: std::move(Captured.error());
 				return false;
 			}
 
-			GenerationRequest.KeyInput.Asset = Request.Asset;
-			GenerationRequest.KeyInput.RendererName = Registration.RendererName;
-			GenerationRequest.KeyInput.GeneratorSchemaVersion =
-				Registration.GeneratorSchemaVersion;
-			GenerationRequest.RendererGeneration = Entry.RendererGeneration;
-			GenerationRequest.RequestSerial = Request.RequestSerial;
+			auto GenerationRequest = std::move(*Captured);
 			Entry.CacheKey = BuildAssetThumbnailCacheKey(GenerationRequest.KeyInput);
 			Entry.GenerationRequest = GenerationRequest;
 			Entry.bCaptured = true;

@@ -53,7 +53,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	Durin::Editor::FPreviewMeshResources Resources;
 	std::string Error;
-	ASSERT_TRUE(Resources.Initialize(Error)) << Error;
+	ASSERT_TRUE(Resources.Initialize());
 	auto* Sphere = Resources.GetSphere();
 	auto* Box = Resources.GetBox();
 	ASSERT_NE(Sphere, nullptr);
@@ -74,7 +74,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 		Consumer = {};
 		Durin::CollectGarbage();
 		EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
-		ASSERT_TRUE(Resources.Initialize(Error)) << Error;
+		ASSERT_TRUE(Resources.Initialize());
 		EXPECT_EQ(Resources.GetSphere(), Sphere);
 		EXPECT_EQ(Resources.GetBox(), Box);
 		EXPECT_EQ(Sphere->GetRenderData(), SphereData);

@@ -105,7 +105,6 @@ namespace Durin
 			return false;
 		EditorWorld = GetWorld();
 
-
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
 		if (auto Result = InitializeEditorSubsystems(); !Result)
@@ -123,9 +122,8 @@ namespace Durin
 				return false;
 			}
 			PreviewMeshResources = std::make_unique<Editor::FPreviewMeshResources>();
-			std::string Error;
-			if (!PreviewMeshResources->Initialize(Error))
-				DURIN_WARN("Editor preview mesh warmup failed: {}", Error);
+			if (const auto Warmup = PreviewMeshResources->Initialize(); !Warmup)
+				DURIN_WARN("Editor preview mesh warmup failed: {}", Warmup.error());
 		}
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);

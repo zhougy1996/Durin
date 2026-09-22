@@ -31,16 +31,6 @@ namespace Durin::Editor::StaticMesh
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 		}
 
-		auto FailStaticMeshThumbnailView(
-			FStaticMeshThumbnailRendererView& OutView,
-			std::string& OutError,
-			std::string_view Error) -> bool
-		{
-			OutView = {};
-			OutError = Error;
-			return false;
-		}
-
 		auto QualifyDiagnostic(const FTopLevelAssetPath& AssetPath, std::string_view Detail)
 			-> std::string
 		{
@@ -156,17 +146,16 @@ namespace Durin::Editor::StaticMesh
 			}
 
 			auto PreparePreview(
-				::Durin::Editor::IThumbnailPreviewScene& PreviewScene,
-				std::string& OutError) -> bool override
+				::Durin::Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
 				PreparedResourceRevision = StaticMesh ? StaticMesh->GetRenderResourceStatus().Revision : 0;
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
 					: std::nullopt;
-				FStaticMeshThumbnailRendererView ThumbnailView;
-				if (!Bounds || !CalculateStaticMeshThumbnailRendererView({
-						.LocalBounds = Bounds.value_or(FBox()),
+				if (!Bounds) return std::unexpected(QualifyDiagnostic(Input.AssetPath, "The mesh bounds are unavailable."));
+				auto ViewResult = CalculateStaticMeshThumbnailRendererView({
+						.LocalBounds = *Bounds,
 						.OutputAspectRatio =
 							static_cast<double>(Input.VisualContract.Output.Width)
 							/ static_cast<double>(Input.VisualContract.Output.Height),
@@ -175,13 +164,12 @@ namespace Durin::Editor::StaticMesh
 						.CameraDirection = FVector3(
 							Input.VisualContract.CameraDirectionX,
 							Input.VisualContract.CameraDirectionY,
-							Input.VisualContract.CameraDirectionZ)},
-					ThumbnailView,
-					OutError))
+							Input.VisualContract.CameraDirectionZ)});
+				if (!ViewResult)
 				{
-					OutError = QualifyDiagnostic(Input.AssetPath, OutError);
-					return false;
+					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
 				}
+				const auto& ThumbnailView = *ViewResult;
 				World = PreviewScene.GetWorld();
 				Actor = World
 					? World->SpawnActor<AActor>("StaticMeshThumbnailPreviewActor")
@@ -192,10 +180,9 @@ namespace Durin::Editor::StaticMesh
 					: nullptr;
 				if (Component == nullptr || StaticMesh == nullptr)
 				{
-					OutError = QualifyDiagnostic(
-						Input.AssetPath, "The preview component is unavailable.");
 					ResetPreview();
-					return false;
+					return std::unexpected(QualifyDiagnostic(
+						Input.AssetPath, "The preview component is unavailable."));
 				}
 				Component->ClearMaterialOverrides();
 				Component->SetStaticMesh(StaticMesh);
@@ -233,23 +220,20 @@ namespace Durin::Editor::StaticMesh
 					.ClearAlpha = Input.VisualContract.bOutputOpaque
 						? 1.0f
 						: 0.0f};
-				if (!PreviewScene.SetView(View, OutError))
+				if (auto ViewResult = PreviewScene.SetView(View); !ViewResult)
 				{
-					OutError = QualifyDiagnostic(Input.AssetPath, OutError);
 					ResetPreview();
-					return false;
+					return std::unexpected(QualifyDiagnostic(Input.AssetPath, ViewResult.error()));
 				}
-				return true;
+				return {};
 			}
 
-			auto ValidatePreparedInput(
-				std::string& OutError) const -> bool override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
 			{
 				if (StaticMesh == nullptr || Component == nullptr)
 				{
-					OutError = QualifyDiagnostic(
-						Input.AssetPath, "The StaticMesh asset is unavailable.");
-					return false;
+					return std::unexpected(QualifyDiagnostic(
+						Input.AssetPath, "The StaticMesh asset is unavailable."));
 				}
 				const FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
@@ -258,13 +242,11 @@ namespace Durin::Editor::StaticMesh
 					|| StaticMesh->GetPackage()->GetEditRevision() != AssetRevision
 					|| Status.Revision != PreparedResourceRevision)
 				{
-					OutError = std::format(
+					return std::unexpected(std::format(
 						"StaticMesh '{}' changed while its thumbnail was being generated.",
-						Input.AssetPath.ToString());
-					return false;
+						Input.AssetPath.ToString()));
 				}
-				OutError.clear();
-				return true;
+				return {};
 			}
 
 			auto ResetPreview() -> void override
@@ -308,19 +290,15 @@ namespace Durin::Editor::StaticMesh
 
 	auto DStaticMeshThumbnailRenderer::CaptureGenerationRequest(
 		const ::Durin::Editor::FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration,
-		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
-		std::string& OutError) -> bool
+		uint64 RendererGeneration) -> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string>
 	{
-		OutRequest = {};
-		OutError.clear();
+		::Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
+
 		const ::Durin::Editor::FThumbnailRenderingInfo Registration =
 			GetRegistration();
 		if (Request.Asset.AssetClassName != Registration.AssetClassName)
 		{
-			OutError =
-				"The StaticMesh thumbnail renderer received the wrong asset class.";
-			return false;
+			return std::unexpected("The StaticMesh thumbnail renderer received the wrong asset class.");
 		}
 
 		const FAssetCatalogSnapshot Catalog =
@@ -329,17 +307,15 @@ namespace Durin::Editor::StaticMesh
 			Catalog.FindExact(Request.Asset.PackagePath);
 		if (Root == nullptr)
 		{
-			OutError = std::format(
+			return std::unexpected(std::format(
 				"StaticMesh thumbnail registry data is missing for {}.",
-				Request.Asset.AssetPath.ToString());
-			return false;
+				Request.Asset.AssetPath.ToString()));
 		}
 		if (MakeStaticMeshThumbnailFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
-			OutError = std::format(
+			return std::unexpected(std::format(
 				"StaticMesh thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.AssetPath.ToString());
-			return false;
+				Request.Asset.AssetPath.ToString()));
 		}
 
 		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
@@ -350,12 +326,9 @@ namespace Durin::Editor::StaticMesh
 				.Package = MakeStaticMeshThumbnailFingerprint(Data),
 				.Dependencies = Data.Dependencies});
 		}
-		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(
-				Request.Asset.PackagePath, Nodes, Dependencies, OutError))
-		{
-			return false;
-		}
+		auto Dependencies = ::Durin::Editor::BuildAssetThumbnailDependencyClosure(
+			Request.Asset.PackagePath, Nodes);
+		if (!Dependencies) return std::unexpected(std::move(Dependencies.error()));
 
 		::Durin::Editor::FThumbnailVisualContract Visual;
 		const FStaticMeshThumbnailRendererViewInput ViewContract;
@@ -369,7 +342,7 @@ namespace Durin::Editor::StaticMesh
 			static_cast<float>(ViewContract.VerticalFieldOfViewDegrees);
 		Visual.bOutputOpaque =
 			FStaticMeshThumbnailRendererContract::bOutputOpaque;
-		OutRequest.KeyInput = {
+		GenerationRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
 				FStaticMeshThumbnailRendererContract::PreviewFixtureIdentity),
@@ -377,84 +350,73 @@ namespace Durin::Editor::StaticMesh
 				FStaticMeshThumbnailRendererContract::PreviewFixtureVersion,
 			.ShaderContractVersion =
 				FStaticMeshThumbnailRendererContract::ShaderContractVersion,
-			.Dependencies = std::move(Dependencies)};
-		OutRequest.Input =
+			.Dependencies = std::move(*Dependencies)};
+		GenerationRequest.Input =
 			std::make_shared<FStaticMeshThumbnailRendererGenerationInput>(
 				Request.Asset.AssetPath, std::move(Visual));
-		OutRequest.RendererGeneration = RendererGeneration;
-		OutRequest.RequestSerial = Request.RequestSerial;
-		return true;
+		GenerationRequest.RendererGeneration = RendererGeneration;
+		GenerationRequest.RequestSerial = Request.RequestSerial;
+		return GenerationRequest;
 	}
 
 	auto DStaticMeshThumbnailRenderer::CreateGenerationSession(
 		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
-		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
-		std::string& OutError)
-		-> std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>
+		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
+		-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string>
 	{
 		const auto* StaticMeshInput =
 			dynamic_cast<const FStaticMeshThumbnailRendererGenerationInput*>(&Input);
 		if (StaticMeshInput == nullptr)
 		{
-			OutError = "The StaticMesh thumbnail generation input is invalid.";
-			return nullptr;
+			return std::unexpected("The StaticMesh thumbnail generation input is invalid.");
 		}
-		OutError.clear();
 		return std::make_unique<FStaticMeshThumbnailGenerationSession>(*StaticMeshInput);
 	}
 
 	auto CalculateStaticMeshThumbnailRendererView(
-		const FStaticMeshThumbnailRendererViewInput& Input,
-		FStaticMeshThumbnailRendererView& OutView,
-		std::string& OutError) -> bool
+		const FStaticMeshThumbnailRendererViewInput& Input)
+		-> std::expected<FStaticMeshThumbnailRendererView, std::string>
 	{
 		if (!Input.LocalBounds.bIsValid
 			|| !Math::IsFinite(Input.LocalBounds.Min)
 			|| !Math::IsFinite(Input.LocalBounds.Max))
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail bounds must be finite and valid.");
+			return std::unexpected("Static-mesh thumbnail bounds must be finite and valid.");
 		}
 
 		if (!std::isfinite(Input.OutputAspectRatio) || Input.OutputAspectRatio <= 0.0)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail output aspect ratio must be positive and finite.");
+			return std::unexpected("Static-mesh thumbnail output aspect ratio must be positive and finite.");
 		}
 		if (!std::isfinite(Input.VerticalFieldOfViewDegrees)
 			|| Input.VerticalFieldOfViewDegrees <= 0.0
 			|| Input.VerticalFieldOfViewDegrees >= 180.0)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail field of view must be between zero and 180 degrees.");
+			return std::unexpected("Static-mesh thumbnail field of view must be between zero and 180 degrees.");
 		}
 		if (!std::isfinite(Input.ImageMargin)
 			|| Input.ImageMargin < 0.0
 			|| Input.ImageMargin >= 1.0)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail image margin must be in [0, 1).");
+			return std::unexpected("Static-mesh thumbnail image margin must be in [0, 1).");
 		}
 
 		FVector3 CameraDirection;
 		if (!Math::TryNormalize(Input.CameraDirection, CameraDirection))
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail camera direction must be finite and non-zero.");
+			return std::unexpected("Static-mesh thumbnail camera direction must be finite and non-zero.");
 		}
 		const FVector3 CameraForward = -CameraDirection;
 		FVector3 CameraRight;
 		if (!Math::TryNormalize(
 				Math::Cross(FVectorConstants::Up, CameraForward), CameraRight))
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail camera direction cannot be parallel to world up.");
+			return std::unexpected("Static-mesh thumbnail camera direction cannot be parallel to world up.");
 		}
 		FVector3 CameraUp;
 		if (!Math::TryNormalize(Math::Cross(CameraForward, CameraRight), CameraUp))
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail camera basis is invalid.");
+			return std::unexpected("Static-mesh thumbnail camera basis is invalid.");
 		}
 
 		const double HalfVerticalFieldOfViewRadians =
@@ -468,8 +430,7 @@ namespace Durin::Editor::StaticMesh
 			|| UsableVerticalTangent <= 0.0
 			|| UsableHorizontalTangent <= 0.0)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail projection is invalid.");
+			return std::unexpected("Static-mesh thumbnail projection is invalid.");
 		}
 
 		const FVector3 BoundsCenter = Input.LocalBounds.GetCenter();
@@ -495,8 +456,7 @@ namespace Durin::Editor::StaticMesh
 			CameraDistance, MinimumRequiredDepth - MinimumDepthOffset);
 		if (!std::isfinite(CameraDistance) || CameraDistance <= 0.0)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail camera distance is invalid.");
+			return std::unexpected("Static-mesh thumbnail camera distance is invalid.");
 		}
 
 		double MinimumDepth = std::numeric_limits<double>::max();
@@ -524,8 +484,7 @@ namespace Durin::Editor::StaticMesh
 			|| NearClipDistance <= 0.0
 			|| FarClipDistance <= NearClipDistance)
 		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail clip planes are invalid.");
+			return std::unexpected("Static-mesh thumbnail clip planes are invalid.");
 		}
 
 		FStaticMeshThumbnailRendererView Result;
@@ -538,8 +497,6 @@ namespace Durin::Editor::StaticMesh
 		Result.CameraDistance = CameraDistance;
 		Result.NearClipDistance = NearClipDistance;
 		Result.FarClipDistance = FarClipDistance;
-		OutView = Result;
-		OutError.clear();
-		return true;
+		return Result;
 	}
 } // namespace Durin::Editor::StaticMesh

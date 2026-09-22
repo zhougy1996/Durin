@@ -317,8 +317,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::filesystem::path Path = WriteBinaryFixture(
 			"ThumbnailTransparent.png", std::as_bytes(std::span{PngBytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
-		ASSERT_TRUE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error)) << Error;
+
+		auto ThumbnailResult1 = DecodeSourceImageThumbnail(Path.generic_string(), 256);
+		ASSERT_TRUE(ThumbnailResult1);
+		Thumbnail = std::move(*ThumbnailResult1);
 		EXPECT_EQ(Thumbnail.Width, 2u);
 		EXPECT_EQ(Thumbnail.Height, 1u);
 		EXPECT_EQ(Thumbnail.Pixels.size(), 8u);
@@ -336,8 +338,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::filesystem::path Path = WriteBinaryFixture(
 			"Thumbnail.jpg", std::as_bytes(std::span{JpegBytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
-		ASSERT_TRUE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error)) << Error;
+
+		auto ThumbnailResult2 = DecodeSourceImageThumbnail(Path.generic_string(), 256);
+		ASSERT_TRUE(ThumbnailResult2);
+		Thumbnail = std::move(*ThumbnailResult2);
 		EXPECT_EQ(Thumbnail.Width, 1u);
 		EXPECT_EQ(Thumbnail.Height, 1u);
 		EXPECT_FALSE(Thumbnail.bHasTransparency);
@@ -358,8 +362,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		TgaBytes[17] = std::byte{0x20};
 		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailLarge.tga", TgaBytes);
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
-		ASSERT_TRUE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error)) << Error;
+
+		auto ThumbnailResult3 = DecodeSourceImageThumbnail(Path.generic_string(), 256);
+		ASSERT_TRUE(ThumbnailResult3);
+		Thumbnail = std::move(*ThumbnailResult3);
 		EXPECT_EQ(Thumbnail.Width, 256u);
 		EXPECT_EQ(Thumbnail.Height, 128u);
 		EXPECT_EQ(Thumbnail.Pixels.size(), 256u * 128u * 4u);
@@ -371,9 +377,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::filesystem::path Path = WriteBinaryFixture(
 			"ThumbnailCorrupt.png", std::as_bytes(std::span{Bytes}));
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
-		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));
-		EXPECT_FALSE(Error.empty());
+
+		auto ThumbnailResult4 = DecodeSourceImageThumbnail(Path.generic_string(), 256);
+		ASSERT_FALSE(ThumbnailResult4);
+		EXPECT_FALSE(ThumbnailResult4.error().empty());
 	}
 
 	TEST(FSourceImageThumbnailTests, RejectsOversizedImageBeforeFullResolutionDecode)
@@ -385,11 +392,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
 		const std::filesystem::path Path = WriteBinaryFixture(
 			"ThumbnailOversized.png", std::as_bytes(std::span{PngBytes}));
-		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
-		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));
-		EXPECT_EQ(Error, "The decoded image is too large.");
-		EXPECT_TRUE(Thumbnail.Pixels.empty());
+
+		auto ThumbnailResult5 = DecodeSourceImageThumbnail(Path.generic_string(), 256);
+		ASSERT_FALSE(ThumbnailResult5);
+		EXPECT_EQ(ThumbnailResult5.error(), "The decoded image is too large.");
 	}
 
 	TEST(FSourceImageThumbnailTests, PersistsResizedPngAndServesWarmInstanceWithoutSourceDecode)
@@ -405,17 +411,21 @@ namespace Durin::Editor::ContentBrowser::Private
 		const auto LastWriteTime = std::filesystem::last_write_time(Source);
 		FSourceImageThumbnailDiskCacheSettings Settings{.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot};
 		FDecodedSourceImageThumbnail First;
-		std::string Error;
+
 		{
 			FSourceImageThumbnailDiskCache Cache(Settings);
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, First, Error)) << Error;
+			auto ThumbnailResult6 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult6);
+			First = std::move(*ThumbnailResult6);
 			EXPECT_EQ(Cache.GetStats().SourceDecodes, 1u);
 		}
 		ASSERT_EQ(CountPngObjects(CacheRoot), 1u);
 
 		FDecodedSourceImageThumbnail Warm;
 		FSourceImageThumbnailDiskCache Cache(Settings);
-		ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Warm, Error)) << Error;
+		auto ThumbnailResult7 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+		ASSERT_TRUE(ThumbnailResult7);
+		Warm = std::move(*ThumbnailResult7);
 		EXPECT_EQ(Cache.GetStats().CacheHits, 1u);
 		EXPECT_EQ(Cache.GetStats().SourceDecodes, 0u);
 		EXPECT_EQ(Warm.Pixels, First.Pixels);
@@ -433,19 +443,25 @@ namespace Durin::Editor::ContentBrowser::Private
 		const uintmax_t FileSize = std::filesystem::file_size(Source);
 		const auto LastWriteTime = std::filesystem::last_write_time(Source);
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
+
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult8 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult8);
+			Thumbnail = std::move(*ThumbnailResult8);
 		}
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot, .GeneratorVersion = 2});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult9 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult9);
+			Thumbnail = std::move(*ThumbnailResult9);
 			EXPECT_EQ(Cache.GetStats().SourceDecodes, 1u);
 		}
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot, .MaximumDimension = 128});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult10 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult10);
+			Thumbnail = std::move(*ThumbnailResult10);
 			EXPECT_EQ(Cache.GetStats().SourceDecodes, 1u);
 		}
 		ASSERT_EQ(CountPngObjects(CacheRoot), 3u);
@@ -461,14 +477,18 @@ namespace Durin::Editor::ContentBrowser::Private
 		ASSERT_GT(CorruptObjectCount, 0u);
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult11 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult11);
+			Thumbnail = std::move(*ThumbnailResult11);
 			EXPECT_EQ(Cache.GetStats().SourceDecodes, 1u);
 			EXPECT_GE(Cache.GetStats().Regenerations, 1u);
 		}
 		for (const auto& Entry : std::filesystem::recursive_directory_iterator(CacheRoot))
 			if (Entry.path().extension() == ".png") std::filesystem::remove(Entry.path());
 		FSourceImageThumbnailDiskCache MissingObjectCache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-		ASSERT_TRUE(MissingObjectCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+		auto ThumbnailResult12 = MissingObjectCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+		ASSERT_TRUE(ThumbnailResult12);
+		Thumbnail = std::move(*ThumbnailResult12);
 		EXPECT_EQ(MissingObjectCache.GetStats().SourceDecodes, 1u);
 		EXPECT_GE(MissingObjectCache.GetStats().Regenerations, 1u);
 
@@ -477,12 +497,15 @@ namespace Durin::Editor::ContentBrowser::Private
 			Stream.put('\0');
 		}
 		FSourceImageThumbnailDiskCache ChangedSourceCache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-		ASSERT_TRUE(ChangedSourceCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+		auto ThumbnailResult13 = ChangedSourceCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+		ASSERT_TRUE(ThumbnailResult13);
+		Thumbnail = std::move(*ThumbnailResult13);
 		EXPECT_EQ(ChangedSourceCache.GetStats().SourceDecodes, 1u);
 
 		std::filesystem::remove(Source);
 		FSourceImageThumbnailDiskCache MissingSourceCache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-		EXPECT_FALSE(MissingSourceCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error));
+		auto ThumbnailResult14 = MissingSourceCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+		ASSERT_FALSE(ThumbnailResult14);
 		EXPECT_EQ(MissingSourceCache.GetStats().CacheHits, 0u);
 	}
 
@@ -498,10 +521,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		const uintmax_t FileSize = std::filesystem::file_size(Source);
 		const auto LastWriteTime = std::filesystem::last_write_time(Source);
 		FDecodedSourceImageThumbnail Thumbnail;
-		std::string Error;
+
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult15 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult15);
+			Thumbnail = std::move(*ThumbnailResult15);
 		}
 		{
 			std::ofstream Stream(CacheRoot / "Index.bin", std::ios::binary | std::ios::trunc);
@@ -509,7 +534,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		{
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot});
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+			auto ThumbnailResult16 = Cache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+			ASSERT_TRUE(ThumbnailResult16);
+			Thumbnail = std::move(*ThumbnailResult16);
 			EXPECT_EQ(Cache.GetStats().SourceDecodes, 1u);
 		}
 		FSourceImageThumbnailDiskCache IncompatibleCache({
@@ -517,7 +544,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			.SourceIdentityRoot = SourceRoot,
 			.OutputEncodingVersion = 2,
 		});
-		ASSERT_TRUE(IncompatibleCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime, Thumbnail, Error)) << Error;
+		auto ThumbnailResult17 = IncompatibleCache.LoadOrGenerate(Source.generic_string(), FileSize, LastWriteTime);
+		ASSERT_TRUE(ThumbnailResult17);
+		Thumbnail = std::move(*ThumbnailResult17);
 		EXPECT_EQ(IncompatibleCache.GetStats().SourceDecodes, 1u);
 	}
 
@@ -539,9 +568,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			FSourceImageThumbnailDiskCache Cache({.CacheRoot = CacheRoot, .SourceIdentityRoot = SourceRoot, .DiskBudgetBytes = 128});
 			FDecodedSourceImageThumbnail Thumbnail;
-			std::string Error;
-			ASSERT_TRUE(Cache.LoadOrGenerate(Source.generic_string(), std::filesystem::file_size(Source),
-				std::filesystem::last_write_time(Source), Thumbnail, Error)) << Error;
+
+			auto ThumbnailResult18 = Cache.LoadOrGenerate(Source.generic_string(), std::filesystem::file_size(Source),
+				std::filesystem::last_write_time(Source));
+			ASSERT_TRUE(ThumbnailResult18);
+			Thumbnail = std::move(*ThumbnailResult18);
 		}
 		uint64 TotalObjectBytes = 0;
 		for (const auto& Entry : std::filesystem::recursive_directory_iterator(CacheRoot))

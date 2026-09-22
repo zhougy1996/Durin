@@ -290,24 +290,19 @@ namespace Durin::Editor
 	}
 
 	auto FThumbnailPreviewScenePool::SetView(
-		const FThumbnailPreviewView& View,
-		std::string& OutError
-	) -> bool
+		const FThumbnailPreviewView& View) -> std::expected<void, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
-		OutError.clear();
 		if (!IsAvailable())
 		{
-			OutError = Impl->Error;
-			return false;
+			return std::unexpected(Impl->Error);
 		}
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
 				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
-				OutError = "A rendered-thumbnail capture is already in flight.";
-				return false;
+				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
 		}
 		if (View.NearClipDistance <= 0.0
@@ -315,32 +310,26 @@ namespace Durin::Editor
 			|| View.VerticalFieldOfViewDegrees <= 0.0
 			|| View.VerticalFieldOfViewDegrees >= 180.0)
 		{
-			OutError = "The rendered-thumbnail preview view is invalid.";
-			return false;
+			return std::unexpected("The rendered-thumbnail preview view is invalid.");
 		}
 		Impl->View = BuildView(Impl->Output, View);
-		return true;
+		return {};
 	}
 
 	auto FThumbnailPreviewScenePool::SetViewEnvironment(
-		const FViewEnvironmentOverride& Environment,
-		std::string& OutError
-	) -> bool
+		const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
-		OutError.clear();
 		if (!IsAvailable())
 		{
-			OutError = Impl->Error;
-			return false;
+			return std::unexpected(Impl->Error);
 		}
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
 				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
-				OutError = "A rendered-thumbnail capture is already in flight.";
-				return false;
+				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
 		}
 		if (Environment.TextureReference == nullptr
@@ -350,41 +339,34 @@ namespace Durin::Editor
 			|| !std::isfinite(Environment.Intensity)
 			|| Environment.Intensity < 0.0f)
 		{
-			OutError = "The rendered-thumbnail view environment is invalid.";
-			return false;
+			return std::unexpected("The rendered-thumbnail view environment is invalid.");
 		}
 		Impl->Environment = Environment;
 		Impl->Environment->Rotation = Math::Normalize(Environment.Rotation);
-		return true;
+		return {};
 	}
 
-	auto FThumbnailPreviewScenePool::SetImageRenderer(FThumbnailImageRenderer Renderer,
-		std::string& OutError) -> bool
+	auto FThumbnailPreviewScenePool::SetImageRenderer(FThumbnailImageRenderer Renderer)
+		-> std::expected<void, std::string>
 	{
 		checkf(IsInGameThread(), "Thumbnail image setup must run on the game thread.");
-		OutError.clear();
 		std::lock_guard Lock(Impl->Capture->Mutex);
 		if (!IsAvailable() || !Renderer
 			|| Impl->Capture->State == EThumbnailCaptureState::Rendering
 			|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 		{
-			OutError = "Thumbnail image capture is unavailable or already in flight.";
-			return false;
+			return std::unexpected("Thumbnail image capture is unavailable or already in flight.");
 		}
 		Impl->ImageRenderer = std::move(Renderer);
-		return true;
+		return {};
 	}
 
-	auto FThumbnailPreviewScenePool::BeginCapture(
-		std::string& OutError
-	) -> bool
+	auto FThumbnailPreviewScenePool::BeginCapture() -> std::expected<void, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail capture must start on the game thread.");
-		OutError.clear();
 		if (!IsAvailable())
 		{
-			OutError = Impl->Error;
-			return false;
+			return std::unexpected(Impl->Error);
 		}
 
 		uint64 Generation = 0;
@@ -393,8 +375,7 @@ namespace Durin::Editor
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
 				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
-				OutError = "A rendered-thumbnail capture is already in flight.";
-				return false;
+				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
 			Impl->Capture->State = EThumbnailCaptureState::Rendering;
 			Impl->Capture->Pixels.clear();
@@ -456,17 +437,14 @@ namespace Durin::Editor
 				Capture->State = Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
 			}
 		);
-		return true;
+		return {};
 	}
 
 	auto FThumbnailPreviewScenePool::PollCapture(
-		FByteBuffer& OutPixels,
-		std::string& OutError
-	) -> EThumbnailCaptureState
+		FByteBuffer& OutPixels) -> std::expected<EThumbnailCaptureState, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail capture polling must run on the game thread.");
 		OutPixels.clear();
-		OutError.clear();
 		std::lock_guard Lock(Impl->Capture->Mutex);
 		if (Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 		{
@@ -496,7 +474,7 @@ namespace Durin::Editor
 		if (Impl->Capture->State == EThumbnailCaptureState::Ready)
 			OutPixels = std::move(Impl->Capture->Pixels);
 		else if (Impl->Capture->State == EThumbnailCaptureState::Failed)
-			OutError = Impl->Capture->Error;
+			return std::unexpected(Impl->Capture->Error);
 		return Impl->Capture->State;
 	}
 

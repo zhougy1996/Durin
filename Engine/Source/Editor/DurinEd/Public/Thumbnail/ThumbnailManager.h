@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "DObject/Object.h"
 
@@ -88,8 +90,8 @@ namespace Durin
 		bool bHasTransparency = true;
 
 		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
-		DURINED_API auto BeginRenderedSession(std::string& OutError) const
-			-> IThumbnailRendererSession*;
+		DURINED_API auto BeginRenderedSession() const
+			-> std::expected<IThumbnailRendererSession*, std::string>;
 		DURINED_API auto GetRenderedSession() const
 			-> IThumbnailRendererSession*;
 		DURINED_API auto ReleaseRenderedSession() const -> void;
@@ -118,15 +120,13 @@ namespace Durin
 		virtual auto GetRegistration() const -> FThumbnailRenderingInfo = 0;
 		virtual auto CaptureGenerationRequest(
 			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration,
-			FAssetThumbnailGenerationRequest& OutRequest,
-			std::string& OutError) -> bool = 0;
+			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string> = 0;
 		// Renderers that require a preview scene override this cold-miss hook;
 		// canonical-pixel renderers leave it unsupported.
 		DURINED_API virtual auto CreateGenerationSession(
 			const FAssetThumbnailGenerationRequest&,
-			const IAssetThumbnailGenerationInput&,
-			std::string& OutError) -> std::unique_ptr<IThumbnailRendererSession>;
+			const IAssetThumbnailGenerationInput&)
+			-> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>;
 	protected:
 		DURINED_API explicit DThumbnailRenderer(
 			const FObjectInitializer& ObjectInitializer);
@@ -188,12 +188,12 @@ namespace Durin
 		// Unregister on GameThread after stopping thumbnail consumers and draining work,
 		// before unloading renderer code. Removal invalidates outstanding sessions.
 		DURINED_API auto Register(
-			std::shared_ptr<DThumbnailRenderer> Renderer,
-			std::string& OutError) -> bool;
+			std::shared_ptr<DThumbnailRenderer> Renderer) -> std::expected<void, std::string>;
 		DURINED_API auto RegisterScoped(
-			std::unique_ptr<DThumbnailRenderer> Renderer,
-			std::string& OutError) -> FThumbnailRendererRegistrationHandle;
-		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
+			std::unique_ptr<DThumbnailRenderer> Renderer)
+			-> std::expected<FThumbnailRendererRegistrationHandle, std::string>;
+		// Reports whether a registration was removed; absence needs no diagnostic.
+		DURINED_API auto Unregister(std::string_view AssetClassName) -> bool;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
@@ -209,10 +209,7 @@ namespace Durin
 		friend class FAssetThumbnailRequestQueue;
 		auto Capture(
 			const FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration,
-			FAssetThumbnailGenerationRequest& OutRequest,
-			FThumbnailRenderingInfo& OutRegistration,
-			std::string& OutError) -> bool;
+			uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>;
 
 		std::shared_ptr<Detail::DThumbnailManagerState> State;
 		std::unique_ptr<FAssetThumbnailPool> SharedPool;

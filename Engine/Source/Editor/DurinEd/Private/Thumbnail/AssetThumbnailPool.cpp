@@ -295,9 +295,8 @@ namespace Durin::Editor
 		{
 			if (!ActiveJob || ScenePool == nullptr) return;
 			FByteBuffer Pixels;
-			std::string Error;
-			const EThumbnailCaptureState State =
-				ScenePool->PollCapture(Pixels, Error);
+			const auto Capture = ScenePool->PollCapture(Pixels);
+			const auto State = Capture.value_or(EThumbnailCaptureState::Failed);
 			if (State == EThumbnailCaptureState::Rendering
 				|| State == EThumbnailCaptureState::ReadbackPending
 				|| State == EThumbnailCaptureState::Idle)
@@ -308,17 +307,16 @@ namespace Durin::Editor
 				Job.ScheduledJob.GenerationRequest;
 			IThumbnailRendererSession* Session =
 				Request.GetRenderedSession();
-			if (State == EThumbnailCaptureState::Failed)
+			if (!Capture)
 			{
 				Pipeline.CompleteRender(
-					Job, Error);
+					Job, Capture.error());
 			}
-			else if (Session == nullptr
-				|| !Session->ValidatePreparedInput(Error))
+			else if (auto Validation = Session ? Session->ValidatePreparedInput()
+				: std::expected<void, std::string>(std::unexpected("The rendered-thumbnail renderer was removed.")); !Validation)
 			{
-				if (Error.empty()) Error = "The rendered-thumbnail renderer was removed.";
-				Pipeline.CompleteRender(
-					Job, Error);
+				Pipeline.CompleteRender(Job, Validation.error().empty()
+					? "The rendered-thumbnail input is no longer valid." : Validation.error());
 			}
 			else if (Pipeline.CompleteRender(
 					Job)
@@ -331,10 +329,12 @@ namespace Durin::Editor
 					Request.KeyInput.Output.Height,
 					{},
 					[Session]() {
-						std::string ValidationError;
-						Session->ValidatePreparedInput(
-							ValidationError);
-						return ValidationError;
+						auto Validation = Session->ValidatePreparedInput();
+						if (Validation) return std::string{};
+						// CompletePixels uses an empty diagnostic to indicate success.
+						return Validation.error().empty()
+							? std::string("The rendered-thumbnail input is no longer valid.")
+							: std::move(Validation.error());
 					}))
 			{
 				QueueUpload(
@@ -418,17 +418,19 @@ namespace Durin::Editor
 					? ScenePool->GetDiagnostic()
 					: "The rendered-thumbnail scene is unavailable.";
 			}
-			else if (!Session->PreparePreview(*ScenePool, Error))
+			else if (auto Prepared = Session->PreparePreview(*ScenePool); !Prepared)
 			{
-				if (Error.empty()) Error = "The renderer could not prepare its preview.";
+				Error = Prepared.error().empty()
+					? "The renderer could not prepare its preview." : std::move(Prepared.error());
 			}
 			else
 			{
 				++PreviewSceneAssignments;
-				if (!Session->ValidatePreparedInput(Error)
-					|| !ScenePool->BeginCapture(Error))
+				if (auto Capture = Session->ValidatePreparedInput().and_then(
+					[this] { return ScenePool->BeginCapture(); }); !Capture)
 				{
-					if (Error.empty()) Error = "The preview capture could not start.";
+					Error = Capture.error().empty()
+						? "The preview capture could not start." : std::move(Capture.error());
 				}
 				else
 				{
@@ -575,16 +577,14 @@ namespace Durin::Editor
 				ResetActive();
 				return;
 			}
-			std::string Error;
-			IThumbnailRendererSession* Session =
-				Request.BeginRenderedSession(Error);
-			if (Session == nullptr)
+			auto Session = Request.BeginRenderedSession();
+			if (!Session)
 			{
-				Pipeline.CompleteLoad(Job, Error);
+				Pipeline.CompleteLoad(Job, Session.error());
 				ResetActive();
 				return;
 			}
-			const FThumbnailRendererSessionUpdate Update = Session->Load();
+			const FThumbnailRendererSessionUpdate Update = (*Session)->Load();
 			if (!Pipeline.CompleteLoad(
 					Job, Update.Diagnostic))
 			{

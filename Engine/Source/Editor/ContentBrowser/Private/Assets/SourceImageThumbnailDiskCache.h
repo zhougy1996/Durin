@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Assets/SourceImageThumbnailDecoder.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -35,8 +37,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		FSourceImageThumbnailDiskCache& operator=(const FSourceImageThumbnailDiskCache&) = delete;
 
 		auto LoadOrGenerate(std::string_view PhysicalPath, uintmax_t FileSize,
-			const std::filesystem::file_time_type& LastWriteTime, FDecodedSourceImageThumbnail& OutThumbnail,
-			std::string& OutError) -> bool;
+			const std::filesystem::file_time_type& LastWriteTime)
+			-> std::expected<FDecodedSourceImageThumbnail, std::string>;
 		auto GetStats() const -> FSourceImageThumbnailDiskCacheStats;
 
 	private:

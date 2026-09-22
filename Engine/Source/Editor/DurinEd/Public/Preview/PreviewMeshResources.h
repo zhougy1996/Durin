@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Asset/AssetRetention.h"
 
 namespace Durin
@@ -24,7 +26,7 @@ namespace Durin::Editor
 		// GameThread startup only: finishes mesh compilation/loading and, when RHI is
 		// available, resource initialization. Repeated calls do no work until Reset.
 		// A partial failure preserves successfully loaded meshes and reports a diagnostic.
-		DURINED_API auto Initialize(std::string& OutError) -> bool;
+		DURINED_API auto Initialize() -> std::expected<void, std::string>;
 		// Call after preview consumers retire, before renderer/module shutdown.
 		DURINED_API auto Reset() -> void;
 		DURINED_API auto GetSphere() const -> DStaticMesh*;

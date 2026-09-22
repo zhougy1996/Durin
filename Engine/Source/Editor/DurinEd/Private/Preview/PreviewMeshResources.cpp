@@ -8,13 +8,13 @@
 
 namespace Durin::Editor
 {
-	auto FPreviewMeshResources::Initialize(std::string& OutError) -> bool
+	auto FPreviewMeshResources::Initialize() -> std::expected<void, std::string>
 	{
 		checkf(IsInGameThread(), "Preview mesh warmup must run on the game thread.");
 		if (bInitialized)
 		{
-			OutError = Diagnostic;
-			return Diagnostic.empty();
+			if (!Diagnostic.empty()) return std::unexpected(Diagnostic);
+			return {};
 		}
 		bInitialized = true;
 		constexpr std::array Paths{SphereAssetPath, BoxAssetPath};
@@ -75,8 +75,8 @@ namespace Durin::Editor
 					Report(Index, "GPU render resources could not be initialized.");
 			}
 		}
-		OutError = Diagnostic;
-		return Diagnostic.empty();
+		if (!Diagnostic.empty()) return std::unexpected(Diagnostic);
+		return {};
 	}
 
 	auto FPreviewMeshResources::Reset() -> void

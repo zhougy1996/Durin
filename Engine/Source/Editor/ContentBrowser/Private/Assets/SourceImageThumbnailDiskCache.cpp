@@ -52,16 +52,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		auto DecodeCachedPng(FByteView Bytes, uint32 MaximumDimension,
-			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
+			FDecodedSourceImageThumbnail& OutThumbnail) -> bool
 		{
 			auto DecodeResult = Image::DecodeImageFromMemory(Bytes, {MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4});
-			OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
 			if (!DecodeResult)
 				return false;
 			auto Image = std::move(*DecodeResult);
 			if (Image.Width == 0 || Image.Height == 0 || Image.Width > MaximumDimension || Image.Height > MaximumDimension)
 			{
-				OutError = "Cached thumbnail dimensions are invalid.";
 				return false;
 			}
 			OutThumbnail.Width = Image.Width;
@@ -119,24 +117,21 @@ namespace Durin::Editor::ContentBrowser::Private
 	FSourceImageThumbnailDiskCache::~FSourceImageThumbnailDiskCache() = default;
 
 	auto FSourceImageThumbnailDiskCache::LoadOrGenerate(std::string_view PhysicalPath, uintmax_t FileSize,
-		const std::filesystem::file_time_type& LastWriteTime, FDecodedSourceImageThumbnail& OutThumbnail,
-		std::string& OutError) -> bool
+		const std::filesystem::file_time_type& LastWriteTime)
+		-> std::expected<FDecodedSourceImageThumbnail, std::string>
 	{
-		OutThumbnail = {};
-		OutError.clear();
+		FDecodedSourceImageThumbnail OutThumbnail;
 		std::error_code SourceError;
 		const std::filesystem::path SourcePath(PhysicalPath);
 		const uintmax_t CurrentFileSize = std::filesystem::file_size(SourcePath, SourceError);
 		if (SourceError)
 		{
-			OutError = "The source image no longer exists.";
-			return false;
+			return std::unexpected("The source image no longer exists.");
 		}
 		const std::filesystem::file_time_type CurrentLastWriteTime = std::filesystem::last_write_time(SourcePath, SourceError);
 		if (SourceError)
 		{
-			OutError = "Unable to read the source image timestamp.";
-			return false;
+			return std::unexpected("Unable to read the source image timestamp.");
 		}
 		const bool bFingerprintChanged = CurrentFileSize != FileSize || CurrentLastWriteTime != LastWriteTime;
 		const uintmax_t EffectiveFileSize = bFingerprintChanged ? CurrentFileSize : FileSize;
@@ -156,8 +151,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			FByteBuffer EncodedBytes;
 			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == ::Durin::Editor::EThumbnailObjectLoadResult::Hit)
 			{
-				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
-					return true;
+				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail))
+					return OutThumbnail;
 				Impl->ObjectStore.Invalidate(Desired.Key);
 			}
 		}
@@ -166,14 +161,16 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::lock_guard Lock(Impl->Mutex);
 			++Impl->SourceDecodes;
 		}
-		if (!DecodeSourceImageThumbnail(PhysicalPath, Impl->Settings.MaximumDimension, OutThumbnail, OutError)) return false;
-		if (Desired.SourceIdentity.empty()) return true;
+		auto Decoded = DecodeSourceImageThumbnail(PhysicalPath, Impl->Settings.MaximumDimension);
+		if (!Decoded) return std::unexpected(std::move(Decoded.error()));
+		OutThumbnail = std::move(*Decoded);
+		if (Desired.SourceIdentity.empty()) return OutThumbnail;
 
 		FByteBuffer EncodedBytes;
 		if (!Image::EncodeRgba8Png(
-				OutThumbnail.Pixels, OutThumbnail.Width, OutThumbnail.Height, EncodedBytes)) return true;
+				OutThumbnail.Pixels, OutThumbnail.Width, OutThumbnail.Height, EncodedBytes)) return OutThumbnail;
 		Impl->ObjectStore.Store(Desired.Key, EncodedBytes);
-		return true;
+		return OutThumbnail;
 	}
 
 	auto FSourceImageThumbnailDiskCache::GetStats() const -> FSourceImageThumbnailDiskCacheStats

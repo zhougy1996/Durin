@@ -119,10 +119,8 @@ namespace Durin
 			return false;
 		}
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
-		std::string Error;
 		auto Texture2DHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DTextureThumbnailRenderer>(),
-			Error);
+			std::make_unique<DTextureThumbnailRenderer>());
 		if (!Texture2DHandle)
 		{
 			UnregisterTextureEditor();
@@ -130,10 +128,9 @@ namespace Durin
 		}
 		Texture2DThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
-				std::move(Texture2DHandle));
+				std::move(*Texture2DHandle));
 		auto TextureCubeHandle = ThumbnailManager.RegisterScoped(
-			std::make_unique<DTextureCubeThumbnailRenderer>(),
-			Error);
+			std::make_unique<DTextureCubeThumbnailRenderer>());
 		if (!TextureCubeHandle)
 		{
 			UnregisterTextureEditor();
@@ -141,7 +138,8 @@ namespace Durin
 		}
 		TextureCubeThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
-				std::move(TextureCubeHandle));
+				std::move(*TextureCubeHandle));
+		std::string Error;
 		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
 			.Id = "texture.import-texture",
 			.Label = "From File...",

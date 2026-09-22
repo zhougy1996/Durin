@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Math/Box.h"
 #include "Math/Transform.h"
 #include "StaticMeshEditorAPI.h"
@@ -72,19 +74,16 @@ namespace Durin::Editor::StaticMesh
 			-> ::Durin::Editor::FThumbnailRenderingInfo override;
 		STATICMESHEDITOR_API auto CaptureGenerationRequest(
 			const ::Durin::Editor::FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration,
-			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
-			std::string& OutError) -> bool override;
+			uint64 RendererGeneration)
+			-> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override;
 		STATICMESHEDITOR_API auto CreateGenerationSession(
 			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
-			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
-			std::string& OutError)
-			-> std::unique_ptr<::Durin::Editor::IThumbnailRendererSession> override;
+			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
+			-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string> override;
 	};
 
 	// Fits all finite, valid bounds corners, including zero-thickness bounds, inside the image margin.
 	STATICMESHEDITOR_API auto CalculateStaticMeshThumbnailRendererView(
-		const FStaticMeshThumbnailRendererViewInput& Input,
-		FStaticMeshThumbnailRendererView& OutView,
-		std::string& OutError) -> bool;
+		const FStaticMeshThumbnailRendererViewInput& Input)
+		-> std::expected<FStaticMeshThumbnailRendererView, std::string>;
 } // namespace Durin::Editor::StaticMesh

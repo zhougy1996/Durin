@@ -2,6 +2,8 @@
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
 #pragma once
+
+#include <expected>
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
@@ -42,7 +44,13 @@ namespace Durin::Tests
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		for (;;)
 		{
-			const auto State = Pool.PollCapture(Pixels, Error);
+			const auto Capture = Pool.PollCapture(Pixels);
+			if (!Capture)
+			{
+				Error = Capture.error();
+				return Editor::EThumbnailCaptureState::Failed;
+			}
+			const auto State = *Capture;
 			if (State != Editor::EThumbnailCaptureState::Rendering
 				&& State != Editor::EThumbnailCaptureState::ReadbackPending) return State;
 			if (std::chrono::steady_clock::now() >= Deadline)
@@ -106,15 +114,14 @@ namespace Durin::Tests
 		{
 			View.bForceLOD0 = bForceLOD0;
 		}
-		auto SetView(std::string& OutError) -> bool
+		auto SetView() -> std::expected<void, std::string>
 		{
-			return Pool.SetView(View, OutError);
+			return Pool.SetView(View);
 		}
 		auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment,
-			std::string& OutError) -> bool
+			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string>
 		{
-			return Pool.SetViewEnvironment(Environment, OutError);
+			return Pool.SetViewEnvironment(Environment);
 		}
 
 		auto GetSphereMesh() -> DStaticMesh*
@@ -136,8 +143,7 @@ namespace Durin::Tests
 		auto SetMaterial(
 			DStaticMesh* Mesh,
 			DMaterialInterface* Material,
-			const FTransform& Transform,
-			std::string& OutError) -> bool
+			const FTransform& Transform) -> std::expected<void, std::string>
 		{
 			ResetActor();
 			DWorld* World = Pool.GetWorld();
@@ -150,20 +156,18 @@ namespace Durin::Tests
 				: nullptr;
 			if (Mesh == nullptr || Material == nullptr || Component == nullptr)
 			{
-				OutError = "The material test preview is unavailable.";
 				ResetActor();
-				return false;
+				return std::unexpected("The material test preview is unavailable.");
 			}
 			Component->SetStaticMesh(Mesh);
 			for (uint32 SlotIndex = 0; SlotIndex < Component->GetNumMaterials(); ++SlotIndex)
 				Component->SetMaterial(SlotIndex, Material);
 			Component->SetWorldTransform(Transform);
-			return Pool.SetView(View, OutError);
+			return Pool.SetView(View);
 		}
 
 		auto SetTextureCube(
-			DTextureCube* TextureCube,
-			std::string& OutError) -> bool
+			DTextureCube* TextureCube) -> std::expected<void, std::string>
 		{
 			ResetActor();
 			const FRHITextureReferenceRef TextureReference = TextureCube
@@ -171,23 +175,22 @@ namespace Durin::Tests
 				: FRHITextureReferenceRef{};
 			if (TextureReference == nullptr)
 			{
-				OutError = "The TextureCube test preview is unavailable.";
-				return false;
+				return std::unexpected("The TextureCube test preview is unavailable.");
 			}
 			View.VerticalFieldOfViewDegrees =
 				Math::RadiansToDegrees(2.0 * std::atan(1.0 / static_cast<double>(
 					1.0f / std::tan(Math::DegreesToRadians(
 						Editor::Texture::FTextureCubeThumbnailRendererVisualContract::
 							VerticalFieldOfViewDegrees) * 0.5f))));
-			return Pool.SetView(View, OutError)
-				&& Pool.SetViewEnvironment(
-					{.TextureReference = TextureReference}, OutError);
+			return Pool.SetView(View).and_then([&] {
+				return Pool.SetViewEnvironment({.TextureReference = TextureReference});
+			});
 		}
 
 		auto SetStaticMesh(
 			DStaticMesh* StaticMesh,
-			const Editor::StaticMesh::FStaticMeshThumbnailRendererView& ThumbnailView,
-			std::string& OutError) -> bool
+			const Editor::StaticMesh::FStaticMeshThumbnailRendererView& ThumbnailView)
+			-> std::expected<void, std::string>
 		{
 			ResetActor();
 			DWorld* World = Pool.GetWorld();
@@ -200,9 +203,8 @@ namespace Durin::Tests
 				: nullptr;
 			if (StaticMesh == nullptr || Component == nullptr)
 			{
-				OutError = "The StaticMesh test preview is unavailable.";
 				ResetActor();
-				return false;
+				return std::unexpected("The StaticMesh test preview is unavailable.");
 			}
 			Component->SetStaticMesh(StaticMesh);
 			Component->SetWorldTransform(ThumbnailView.MeshTransform);
@@ -224,16 +226,16 @@ namespace Durin::Tests
 				ThumbnailView.CameraUp.z};
 			View.NearClipDistance = ThumbnailView.NearClipDistance;
 			View.FarClipDistance = ThumbnailView.FarClipDistance;
-			return Pool.SetView(View, OutError);
+			return Pool.SetView(View);
 		}
 
-		auto BeginCapture(std::string& OutError, bool bOutputOpaque = true) -> bool
+		auto BeginCapture(bool bOutputOpaque = true) -> std::expected<void, std::string>
 		{
 			View.ClearRed = bOutputOpaque ? Contract.BackgroundRed : 0.0f;
 			View.ClearGreen = bOutputOpaque ? Contract.BackgroundGreen : 0.0f;
 			View.ClearBlue = bOutputOpaque ? Contract.BackgroundBlue : 0.0f;
 			View.ClearAlpha = bOutputOpaque ? 1.0f : 0.0f;
-			return Pool.SetView(View, OutError) && Pool.BeginCapture(OutError);
+			return Pool.SetView(View).and_then([&] { return Pool.BeginCapture(); });
 		}
 
 		auto PollCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)

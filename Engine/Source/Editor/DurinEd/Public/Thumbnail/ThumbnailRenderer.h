@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "SceneView.h"
 #include "Thumbnail/ThumbnailManager.h"
 
@@ -9,7 +11,6 @@ namespace Durin
 
 	namespace Editor
 	{
-
 	// Reports the renderer-owned cold-generation state observed by the shared core.
 	enum class EThumbnailRendererSessionState : uint8
 	{
@@ -57,16 +58,12 @@ namespace Durin
 
 		virtual auto GetWorld() -> DWorld* = 0;
 		virtual auto SetView(
-			const FThumbnailPreviewView& View,
-			std::string& OutError) -> bool = 0;
+			const FThumbnailPreviewView& View) -> std::expected<void, std::string> = 0;
 		virtual auto SetViewEnvironment(
-			const FViewEnvironmentOverride& Environment,
-			std::string& OutError) -> bool = 0;
-		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer,
-			std::string& OutError) -> bool
+			const FViewEnvironmentOverride& Environment) -> std::expected<void, std::string> = 0;
+		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer) -> std::expected<void, std::string>
 		{
-			OutError = "This preview scene does not support image rendering.";
-			return false;
+			return std::unexpected("This preview scene does not support image rendering.");
 		}
 	};
 
@@ -85,10 +82,8 @@ namespace Durin
 		virtual auto Load() -> FThumbnailRendererSessionUpdate = 0;
 		virtual auto PollResources() -> FThumbnailRendererSessionUpdate = 0;
 		virtual auto PreparePreview(
-			IThumbnailPreviewScene& PreviewScene,
-			std::string& OutError) -> bool = 0;
-		virtual auto ValidatePreparedInput(
-			std::string& OutError) const -> bool = 0;
+			IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> = 0;
+		virtual auto ValidatePreparedInput() const -> std::expected<void, std::string> = 0;
 		virtual auto ResetPreview() -> void = 0;
 	};
 

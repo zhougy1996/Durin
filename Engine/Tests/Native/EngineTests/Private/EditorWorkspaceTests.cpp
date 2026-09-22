@@ -39,10 +39,10 @@ namespace
 			return {"Durin::DMaterial", "PickerThumbnailTest", 1};
 		}
 		auto CaptureGenerationRequest(const Durin::Editor::FAssetThumbnailRequest&,
-			uint64, Durin::Editor::FAssetThumbnailGenerationRequest&, std::string&) -> bool override
+			uint64) -> std::expected<Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override
 		{
 			ADD_FAILURE() << "This test must not execute thumbnail generation.";
-			return false;
+			return std::unexpected("Unexpected thumbnail generation.");
 		}
 	};
 
@@ -924,11 +924,10 @@ TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
 		.FormatVersion = 10, .ObjectCount = 1});
 	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 10});
 	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
-	std::string ThumbnailError;
 	auto& ThumbnailManager = Editor::GetDefaultThumbnailManager();
 	auto Registration = ThumbnailManager.RegisterScoped(
-		std::make_unique<FPickerThumbnailRenderer>(), ThumbnailError);
-	ASSERT_TRUE(Registration) << ThumbnailError;
+		std::make_unique<FPickerThumbnailRenderer>());
+	ASSERT_TRUE(Registration) << Registration.error();
 	auto& ThumbnailPool = ThumbnailManager.GetSharedPool();
 	ImGuiContext* Context = ImGui::CreateContext();
 	ImGuiIO& IO = ImGui::GetIO();

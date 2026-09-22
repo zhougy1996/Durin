@@ -18,11 +18,9 @@ namespace Durin::Editor
 
 	auto DThumbnailRenderer::CreateGenerationSession(
 		const FAssetThumbnailGenerationRequest&,
-		const IAssetThumbnailGenerationInput&,
-		std::string& OutError) -> std::unique_ptr<IThumbnailRendererSession>
+		const IAssetThumbnailGenerationInput&) -> std::expected<std::unique_ptr<IThumbnailRendererSession>, std::string>
 	{
-		OutError = "The thumbnail renderer produces no preview-scene session.";
-		return {};
+		return std::unexpected("The thumbnail renderer produces no preview-scene session.");
 	}
 	namespace Detail
 	{
@@ -105,33 +103,28 @@ namespace Durin::Editor
 
 		auto RegisterRenderer(
 			const std::shared_ptr<Detail::DThumbnailManagerState>& State,
-			std::shared_ptr<DThumbnailRenderer> Renderer,
-			std::string& OutError) -> uint64
+			std::shared_ptr<DThumbnailRenderer> Renderer) -> std::expected<uint64, std::string>
 		{
 			if (State->bShuttingDown)
 			{
-				OutError = "Thumbnail renderer registration is closed during shutdown.";
-				return 0;
+				return std::unexpected("Thumbnail renderer registration is closed during shutdown.");
 			}
 			if (!Renderer)
 			{
-				OutError = "Cannot register a null thumbnail renderer.";
-				return 0;
+				return std::unexpected("Cannot register a null thumbnail renderer.");
 			}
 			const FThumbnailRenderingInfo Registration =
 				Renderer->GetRegistration();
 			if (Registration.AssetClassName.empty() || Registration.RendererName.empty()
 				|| Registration.GeneratorSchemaVersion == 0)
 			{
-				OutError = "Thumbnail renderers require an asset class, renderer name, and nonzero generator schema.";
-				return 0;
+				return std::unexpected("Thumbnail renderers require an asset class, renderer name, and nonzero generator schema.");
 			}
 			if (State->Renderers.contains(Registration.AssetClassName))
 			{
-				OutError = std::format(
+				return std::unexpected(std::format(
 					"A thumbnail renderer is already registered for asset class {}.",
-					Registration.AssetClassName);
-				return 0;
+					Registration.AssetClassName));
 			}
 			const uint64 Generation = State->NextGeneration++;
 			State->Renderers.emplace(
@@ -139,7 +132,6 @@ namespace Durin::Editor
 				Detail::DThumbnailManagerState::FEntry{
 					.Renderer = std::move(Renderer),
 					.Generation = Generation});
-			OutError.clear();
 			return Generation;
 		}
 	} // namespace
@@ -187,39 +179,33 @@ namespace Durin::Editor
 		return RendererLease.GetInput();
 	}
 
-	auto FAssetThumbnailGenerationRequest::BeginRenderedSession(
-		std::string& OutError) const -> IThumbnailRendererSession*
+	auto FAssetThumbnailGenerationRequest::BeginRenderedSession() const -> std::expected<IThumbnailRendererSession*, std::string>
 	{
 		const std::shared_ptr LeaseState = RendererLease.State;
 		if (!LeaseState || !LeaseState->bActive.load(std::memory_order_acquire))
 		{
-			OutError = "The thumbnail renderer registration is no longer active.";
-			return nullptr;
+			return std::unexpected("The thumbnail renderer registration is no longer active.");
 		}
 		if (LeaseState->Session)
 		{
-			OutError.clear();
 			return LeaseState->Session.get();
 		}
 		if (!LeaseState->Renderer)
 		{
-			OutError = "The thumbnail renderer does not implement rendered generation sessions.";
-			return nullptr;
+			return std::unexpected("The thumbnail renderer does not implement rendered generation sessions.");
 		}
 		if (!LeaseState->Input)
 		{
-			OutError = "The thumbnail renderer did not capture generation input.";
-			return nullptr;
+			return std::unexpected("The thumbnail renderer did not capture generation input.");
 		}
-		LeaseState->Session = LeaseState->Renderer->CreateGenerationSession(
-			*this, *LeaseState->Input, OutError);
-		if (!LeaseState->Session)
-		{
-			if (OutError.empty())
-				OutError = "The thumbnail renderer could not create a generation session.";
-			return nullptr;
-		}
-		OutError.clear();
+		auto Session = LeaseState->Renderer->CreateGenerationSession(*this, *LeaseState->Input);
+		if (!Session)
+			return std::unexpected(Session.error().empty()
+				? "The thumbnail renderer could not create a generation session."
+				: std::move(Session.error()));
+		if (!*Session)
+			return std::unexpected("The thumbnail renderer returned an empty generation session.");
+		LeaseState->Session = std::move(*Session);
 		return LeaseState->Session.get();
 	}
 
@@ -277,44 +263,28 @@ namespace Durin::Editor
 	}
 
 	auto DThumbnailManager::Register(
-		std::shared_ptr<DThumbnailRenderer> Renderer,
-		std::string& OutError
-	) -> bool
+		std::shared_ptr<DThumbnailRenderer> Renderer) -> std::expected<void, std::string>
 	{
-		return RegisterRenderer(
-			State, std::move(Renderer), OutError) != 0;
+		const auto Registration = RegisterRenderer(State, std::move(Renderer));
+		if (!Registration) return std::unexpected(Registration.error());
+		return {};
 	}
 
 	auto DThumbnailManager::RegisterScoped(
-		std::unique_ptr<DThumbnailRenderer> Renderer,
-		std::string& OutError) -> FThumbnailRendererRegistrationHandle
+		std::unique_ptr<DThumbnailRenderer> Renderer)
+		-> std::expected<FThumbnailRendererRegistrationHandle, std::string>
 	{
 		std::shared_ptr<DThumbnailRenderer> SharedRenderer = std::move(Renderer);
-		const uint64 RegistrationId =
-			RegisterRenderer(State, std::move(SharedRenderer),
-				OutError);
-		return RegistrationId != 0
-			? FThumbnailRendererRegistrationHandle(State, RegistrationId)
-			: FThumbnailRendererRegistrationHandle{};
+		const auto RegistrationId = RegisterRenderer(State, std::move(SharedRenderer));
+		if (!RegistrationId) return std::unexpected(RegistrationId.error());
+		return FThumbnailRendererRegistrationHandle(State, *RegistrationId);
 	}
 
-	auto DThumbnailManager::Unregister(
-		std::string_view AssetClassName,
-		std::string& OutError
-	) -> bool
+	auto DThumbnailManager::Unregister(std::string_view AssetClassName) -> bool
 	{
 		const auto It = State->Renderers.find(std::string(AssetClassName));
-		if (It == State->Renderers.end())
-		{
-			OutError = std::format(
-				"No thumbnail renderer is registered for asset class {}.",
-				AssetClassName);
-			return false;
-		}
-		const uint64 RegistrationId = It->second.Generation;
-		RemoveRendererRegistration(State, RegistrationId);
-		OutError.clear();
-		return true;
+		return It != State->Renderers.end()
+			&& RemoveRendererRegistration(State, It->second.Generation);
 	}
 
 	auto DThumbnailManager::Find(
@@ -328,29 +298,30 @@ namespace Durin::Editor
 
 	auto DThumbnailManager::Capture(
 		const FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration,
-		FAssetThumbnailGenerationRequest& OutRequest,
-		FThumbnailRenderingInfo& OutRegistration,
-		std::string& OutError) -> bool
+		uint64 RendererGeneration) -> std::expected<FAssetThumbnailGenerationRequest, std::string>
 	{
 		const auto It = State->Renderers.find(Request.Asset.AssetClassName);
 		if (It == State->Renderers.end() || It->second.Generation != RendererGeneration)
 		{
-			OutError = std::format(
+			return std::unexpected(std::format(
 				"No current thumbnail renderer is registered for asset class {}.",
-				Request.Asset.AssetClassName);
-			return false;
+				Request.Asset.AssetClassName));
 		}
 		Detail::DThumbnailManagerState::FEntry& Entry = It->second;
-		if (!Entry.Renderer->CaptureGenerationRequest(
-				Request, RendererGeneration, OutRequest, OutError))
-			return false;
+		auto Captured = Entry.Renderer->CaptureGenerationRequest(Request, RendererGeneration);
+		if (!Captured) return std::unexpected(std::move(Captured.error()));
+		auto& GenerationRequest = *Captured;
 
-		OutRegistration = Entry.Renderer->GetRegistration();
+		const auto Registration = Entry.Renderer->GetRegistration();
+		GenerationRequest.KeyInput.Asset = Request.Asset;
+		GenerationRequest.KeyInput.RendererName = Registration.RendererName;
+		GenerationRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
+		GenerationRequest.RendererGeneration = RendererGeneration;
+		GenerationRequest.RequestSerial = Request.RequestSerial;
 		auto LeaseState =
 			std::make_shared<Detail::FAssetThumbnailGenerationLeaseState>();
-		LeaseState->Cancellation = OutRequest.Cancellation;
-		LeaseState->Input = std::move(OutRequest.Input);
+		LeaseState->Cancellation = GenerationRequest.Cancellation;
+		LeaseState->Input = std::move(GenerationRequest.Input);
 		LeaseState->Renderer = Entry.Renderer;
 		Entry.Leases.erase(
 			std::remove_if(
@@ -359,9 +330,8 @@ namespace Durin::Editor
 				[](const auto& Lease) { return Lease.expired(); }),
 			Entry.Leases.end());
 		Entry.Leases.push_back(LeaseState);
-		OutRequest.RendererLease = FAssetThumbnailGenerationLease(std::move(LeaseState));
-		OutError.clear();
-		return true;
+		GenerationRequest.RendererLease = FAssetThumbnailGenerationLease(std::move(LeaseState));
+		return std::move(GenerationRequest);
 	}
 
 	auto DThumbnailManager::Shutdown() -> void

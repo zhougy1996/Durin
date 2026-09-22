@@ -19,16 +19,14 @@ namespace Durin::Editor
 	} // namespace
 	auto BuildAssetThumbnailDependencyClosure(
 		const FPackagePath& Root,
-		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot,
-		std::vector<FAssetThumbnailPackageFingerprint>& OutDependencies,
-		std::string& OutError) -> bool
+		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot)
+		-> std::expected<std::vector<FAssetThumbnailPackageFingerprint>, std::string>
 	{
-		OutDependencies.clear();
-		OutError.clear();
+		std::vector<FAssetThumbnailPackageFingerprint> Dependencies;
+
 		if (!Root.IsValid())
 		{
-			OutError = "The thumbnail dependency root is invalid.";
-			return false;
+			return std::unexpected("The thumbnail dependency root is invalid.");
 		}
 
 		std::unordered_map<std::string_view, const FAssetThumbnailDependencyNode*> Nodes;
@@ -37,23 +35,20 @@ namespace Durin::Editor
 		{
 			if (!Node.Package.PackagePath.IsValid())
 			{
-				OutError = "The Asset Registry snapshot contains an invalid package path.";
-				return false;
+				return std::unexpected("The Asset Registry snapshot contains an invalid package path.");
 			}
 			const auto [It, bInserted] = Nodes.emplace(Node.Package.PackagePath.GetView(), &Node);
 			if (!bInserted)
 			{
-				OutError = std::format("The Asset Registry snapshot contains a duplicate entry for '{}'.",
-					Node.Package.PackagePath.GetView());
-				return false;
+				return std::unexpected(std::format("The Asset Registry snapshot contains a duplicate entry for '{}'.",
+					Node.Package.PackagePath.GetView()));
 			}
 		}
 
 		const auto RootIt = Nodes.find(Root.GetView());
 		if (RootIt == Nodes.end())
 		{
-			OutError = std::format("The Asset Registry has no entry for thumbnail root '{}'.", Root.GetView());
-			return false;
+			return std::unexpected(std::format("The Asset Registry has no entry for thumbnail root '{}'.", Root.GetView()));
 		}
 
 		std::unordered_set<std::string_view> Visited;
@@ -76,19 +71,17 @@ namespace Durin::Editor
 				const auto DependencyIt = Nodes.find(DependencyPath);
 				if (DependencyIt == Nodes.end())
 				{
-					OutDependencies.clear();
-					OutError = std::format("The Asset Registry has no entry for thumbnail dependency '{}'.", DependencyPath);
-					return false;
+					return std::unexpected(std::format("The Asset Registry has no entry for thumbnail dependency '{}'.", DependencyPath));
 				}
-				OutDependencies.push_back(DependencyIt->second->Package);
+				Dependencies.push_back(DependencyIt->second->Package);
 				Pending.push_back(DependencyIt->second);
 			}
 		}
 
-		std::ranges::sort(OutDependencies, {}, [](const FAssetThumbnailPackageFingerprint& Package) {
+		std::ranges::sort(Dependencies, {}, [](const FAssetThumbnailPackageFingerprint& Package) {
 			return Package.PackagePath.GetView();
 		});
-		return true;
+		return Dependencies;
 	}
 
 	auto BuildAssetThumbnailCacheKey(const FAssetThumbnailKeyInput& Input) -> std::string

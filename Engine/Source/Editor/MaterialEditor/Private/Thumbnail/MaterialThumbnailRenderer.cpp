@@ -61,17 +61,18 @@ namespace Durin::Editor::Material
 			return Result;
 		}
 
-		auto GetMaterialResourceRevision(
-			DMaterialInterface* Material,
-			bool& bOutReady,
-			std::string& OutError) -> uint64
+		struct FMaterialThumbnailResource
 		{
-			bOutReady = false;
-			OutError.clear();
+			uint64 Revision;
+			bool bReady;
+		};
+
+		auto GetMaterialResourceRevision(
+			DMaterialInterface* Material) -> std::expected<FMaterialThumbnailResource, std::string>
+		{
 			if (Material == nullptr)
 			{
-				OutError = "The material asset is unavailable.";
-				return 0;
+				return std::unexpected("The material asset is unavailable.");
 			}
 			uint64 Revision = 0;
 			DMaterialInterface* Current = Material;
@@ -86,10 +87,9 @@ namespace Durin::Editor::Material
 			}
 			if (BaseMaterial == nullptr)
 			{
-				OutError = Current == nullptr
+				return std::unexpected(Current == nullptr
 					? "The material instance has no valid parent."
-					: "The material instance parent chain contains a cycle.";
-				return 0;
+					: "The material instance parent chain contains a cycle.");
 			}
 			const FMaterialCompileStatus& CompileStatus =
 				Material->GetMaterialCompileStatus();
@@ -99,44 +99,37 @@ namespace Durin::Editor::Material
 				if (CompileStatus.State == EMaterialCompileState::Deferred
 					|| CompileStatus.State == EMaterialCompileState::Pending
 					|| CompileStatus.State == EMaterialCompileState::Running)
-					return Revision == 0 ? 1 : Revision;
+					return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, false};
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
-				OutError = !Diagnostics.empty() && !Durin::FormatMaterialError(Diagnostics.front().Source.Error).empty()
+				return std::unexpected(!Diagnostics.empty() && !Durin::FormatMaterialError(Diagnostics.front().Source.Error).empty()
 					? Durin::FormatMaterialError(Diagnostics.front().Source.Error)
-					: "The material has no current compiled program.";
-				return 0;
+					: "The material has no current compiled program.");
 			}
 			for (DTexture2D* Texture : GetTextureDependencies(*Material))
 			{
-				if (!Texture->IsAsyncCacheComplete()) return Revision;
+				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{Revision, false};
 				if (!Texture->HasPlatformData())
 				{
-					OutError = "A referenced material texture is not built.";
-					return 0;
+					return std::unexpected("A referenced material texture is not built.");
 				}
-				if (Texture->IsResourceUpdatePending()) return Revision;
+				if (Texture->IsResourceUpdatePending()) return FMaterialThumbnailResource{Revision, false};
 				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed
 					&& !Texture->HasUsableResource())
 				{
-					OutError = "A referenced material texture render resource failed.";
-					return 0;
+					return std::unexpected("A referenced material texture render resource failed.");
 				}
-				if (!Texture->HasUsableResource()) return Revision;
+				if (!Texture->HasUsableResource()) return FMaterialThumbnailResource{Revision, false};
 			}
-			bOutReady = true;
-			return Revision == 0 ? 1 : Revision;
+			return FMaterialThumbnailResource{Revision == 0 ? 1 : Revision, true};
 		}
 
 		auto GetMaterialAssetRevision(
-			DMaterialInterface* Material,
-			std::string& OutError) -> uint64
+			DMaterialInterface* Material) -> std::expected<uint64, std::string>
 		{
-			OutError.clear();
 			const DPackage* Package = Material ? Material->GetPackage() : nullptr;
 			if (Package == nullptr)
 			{
-				OutError = "The material asset package is unavailable.";
-				return 0;
+				return std::unexpected("The material asset package is unavailable.");
 			}
 			return Package->GetEditRevision();
 		}
@@ -241,13 +234,14 @@ namespace Durin::Editor::Material
 							? "The rendered-thumbnail sphere mesh is unavailable."
 							: std::move(SphereError)};
 				}
-				AssetRevision = GetMaterialAssetRevision(Material, SphereError);
-				if (!SphereError.empty())
+				const auto Revision = GetMaterialAssetRevision(Material);
+				if (!Revision)
 				{
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = std::move(SphereError)};
+						.Diagnostic = Revision.error()};
 				}
+				AssetRevision = *Revision;
 				bAssetsLoaded = true;
 				return {
 					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
@@ -263,14 +257,12 @@ namespace Durin::Editor::Material
 					const auto Loaded = FinishLoad();
 					if (!bAssetsLoaded) return Loaded;
 				}
-				bool bReady = false;
-				std::string Error;
-				GetMaterialResourceRevision(Material, bReady, Error);
-				if (!Error.empty())
+				auto Resource = GetMaterialResourceRevision(Material);
+				if (!Resource)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.Diagnostic = std::move(Error)};
-				if (!bReady)
+						.Diagnostic = std::move(Resource.error())};
+				if (!Resource->bReady)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				if (Sphere == nullptr)
@@ -303,37 +295,34 @@ namespace Durin::Editor::Material
 				const bool bSphereReady = SphereStatus.Readiness
 					== EStaticMeshRenderResourceReadiness::Ready;
 				return {
-					.State = bReady && bSphereReady
+					.State = Resource->bReady && bSphereReady
 						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
 						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
 
 			auto PreparePreview(
-				::Durin::Editor::IThumbnailPreviewScene& PreviewScene,
-				std::string& OutError) -> bool override
+				::Durin::Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
-				if (!Material) { OutError = "The material is unavailable."; return false; }
-				bool bReady = false;
-				const uint64 MaterialRevision = GetMaterialResourceRevision(Material, bReady, OutError);
-				if (!bReady || !OutError.empty() || !Sphere) return false;
-				PreparedResourceRevision = CombineResourceRevision(MaterialRevision, Sphere->GetRenderResourceStatus().Revision);
+				if (!Material) { return std::unexpected("The material is unavailable."); }
+				auto Resource = GetMaterialResourceRevision(Material);
+				if (!Resource) return std::unexpected(std::move(Resource.error()));
+				if (!Resource->bReady || !Sphere) return std::unexpected("The material preview resources are not ready.");
+				PreparedResourceRevision = CombineResourceRevision(Resource->Revision, Sphere->GetRenderResourceStatus().Revision);
 				DependencySnapshots.clear();
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
 					auto Snapshot = Texture->GetPublishedTexture();
 					if (!Snapshot || Texture->IsResourceUpdatePending())
 					{
-						OutError = "The material texture snapshot is not ready.";
-						return false;
+						return std::unexpected("The material texture snapshot is not ready.");
 					}
 					DependencySnapshots.push_back({Texture, std::move(Snapshot)});
 				}
 				World = PreviewScene.GetWorld();
 				if (World == nullptr || Sphere == nullptr)
 				{
-					OutError = "The rendered-thumbnail material preview is unavailable.";
-					return false;
+					return std::unexpected("The rendered-thumbnail material preview is unavailable.");
 				}
 				Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
 				Component = Actor
@@ -342,9 +331,8 @@ namespace Durin::Editor::Material
 					: nullptr;
 				if (Sphere == nullptr || Component == nullptr || Material == nullptr)
 				{
-					OutError = "The rendered-thumbnail material preview is unavailable.";
 					ResetPreview();
-					return false;
+					return std::unexpected("The rendered-thumbnail material preview is unavailable.");
 				}
 				Component->SetStaticMesh(Sphere);
 				for (uint32 SlotIndex = 0; SlotIndex < Component->GetNumMaterials(); ++SlotIndex)
@@ -352,43 +340,37 @@ namespace Durin::Editor::Material
 				FTransform Transform;
 				Transform.Scale3D = FVector3(MaterialThumbnailSphereScale);
 				Component->SetWorldTransform(Transform);
-				if (!PreviewScene.SetView(MakeMaterialPreviewView(), OutError))
+				if (auto ViewResult = PreviewScene.SetView(MakeMaterialPreviewView()); !ViewResult)
 				{
 					ResetPreview();
-					return false;
+					return std::unexpected(std::move(ViewResult.error()));
 				}
-				return true;
+				return {};
 			}
 
-			auto ValidatePreparedInput(
-				std::string& OutError) const -> bool override
+			auto ValidatePreparedInput() const -> std::expected<void, std::string> override
 			{
 				if (Component == nullptr || !AreDependencySnapshotsCurrent())
 				{
-					OutError = "A material texture changed while its thumbnail was being generated.";
-					return false;
+					return std::unexpected("A material texture changed while its thumbnail was being generated.");
 				}
-				const uint64 MaterialAssetRevision = GetMaterialAssetRevision(
-					Material, OutError);
-				if (!OutError.empty()) return false;
-				bool bReady = false;
-				const uint64 MaterialRevision = GetMaterialResourceRevision(
-					Material, bReady, OutError);
-				if (!OutError.empty()) return false;
+				auto MaterialAssetRevision = GetMaterialAssetRevision(Material);
+				if (!MaterialAssetRevision) return std::unexpected(std::move(MaterialAssetRevision.error()));
+				auto Resource = GetMaterialResourceRevision(Material);
+				if (!Resource) return std::unexpected(std::move(Resource.error()));
 				const FStaticMeshRenderResourceStatus SphereStatus = Sphere
 					? Sphere->GetRenderResourceStatus()
 					: FStaticMeshRenderResourceStatus{};
 				const uint64 Revision = CombineResourceRevision(
-					MaterialRevision, SphereStatus.Revision);
-				if (!bReady || Material == nullptr
+					Resource->Revision, SphereStatus.Revision);
+				if (!Resource->bReady || Material == nullptr
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
-					|| MaterialAssetRevision != AssetRevision
+					|| *MaterialAssetRevision != AssetRevision
 					|| Revision != PreparedResourceRevision)
 				{
-					OutError = "The material changed while its thumbnail was being generated.";
-					return false;
+					return std::unexpected("The material changed while its thumbnail was being generated.");
 				}
-				return true;
+				return {};
 			}
 
 			auto ResetPreview() -> void override
@@ -460,27 +442,23 @@ namespace Durin::Editor::Material
 
 	auto DMaterialThumbnailRenderer::CaptureGenerationRequest(
 		const ::Durin::Editor::FAssetThumbnailRequest& Request,
-		uint64 RendererGeneration,
-		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
-		std::string& OutError) -> bool
+		uint64 RendererGeneration) -> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string>
 	{
-		OutRequest = {};
-		OutError.clear();
+		::Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
+
 		if (Request.Asset.AssetClassName != AssetClassName)
 		{
-			OutError = "The material thumbnail renderer received the wrong asset class.";
-			return false;
+			return std::unexpected("The material thumbnail renderer received the wrong asset class.");
 		}
 
 		const FAssetDependencyClosureSnapshot Closure =
 			CaptureAssetDependencyClosure(Request.Asset.PackagePath);
 		if (!Closure)
 		{
-			OutError = FormatAssetRegistryError(Closure.Result).empty()
+			return std::unexpected(FormatAssetRegistryError(Closure.Result).empty()
 				? std::format("Material thumbnail registry data is missing for {}.",
 					Request.Asset.AssetPath.ToString())
-				: FormatAssetRegistryError(Closure.Result);
-			return false;
+				: FormatAssetRegistryError(Closure.Result));
 		}
 		const auto RootIt = std::ranges::find_if(
 			Closure.Assets,
@@ -489,16 +467,14 @@ namespace Durin::Editor::Material
 			});
 		if (RootIt == Closure.Assets.end())
 		{
-			OutError = "The material dependency closure omitted its root asset.";
-			return false;
+			return std::unexpected("The material dependency closure omitted its root asset.");
 		}
 		const FAssetData* Root = &*RootIt;
 		if (MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
-			OutError = std::format(
+			return std::unexpected(std::format(
 				"Material thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.AssetPath.ToString());
-			return false;
+				Request.Asset.AssetPath.ToString()));
 		}
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
@@ -507,7 +483,7 @@ namespace Durin::Editor::Material
 				Dependencies.push_back(MakeFingerprint(Data));
 
 		const ::Durin::Editor::FThumbnailVisualContract Visual;
-		OutRequest.KeyInput = {
+		GenerationRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
 				::Durin::Editor::FThumbnailVisualContract::SphereAssetPath),
@@ -515,26 +491,23 @@ namespace Durin::Editor::Material
 				::Durin::Editor::FThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
-		OutRequest.Input =
+		GenerationRequest.Input =
 			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.AssetPath);
-		OutRequest.RendererGeneration = RendererGeneration;
-		OutRequest.RequestSerial = Request.RequestSerial;
-		return true;
+		GenerationRequest.RendererGeneration = RendererGeneration;
+		GenerationRequest.RequestSerial = Request.RequestSerial;
+		return GenerationRequest;
 	}
 
 	auto DMaterialThumbnailRenderer::CreateGenerationSession(
 		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
-		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
-		std::string& OutError)
-		-> std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>
+		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
+		-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string>
 	{
 		const auto* MaterialInput = dynamic_cast<const FMaterialThumbnailGenerationInput*>(&Input);
 		if (MaterialInput == nullptr)
 		{
-			OutError = "The material thumbnail generation input is invalid.";
-			return nullptr;
+			return std::unexpected("The material thumbnail generation input is invalid.");
 		}
-		OutError.clear();
 		return std::make_unique<FMaterialThumbnailGenerationSession>(
 			MaterialInput->AssetPath, AssetClassName);
 	}

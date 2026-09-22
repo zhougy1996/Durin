@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "MaterialEditorAPI.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 #include "Thumbnail/DefaultSizedThumbnailRenderer.h"
@@ -17,14 +19,12 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto GetRegistration() const -> ::Durin::Editor::FThumbnailRenderingInfo override;
 		MATERIALEDITOR_API auto CaptureGenerationRequest(
 			const ::Durin::Editor::FAssetThumbnailRequest& Request,
-			uint64 RendererGeneration,
-			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
-			std::string& OutError) -> bool override;
+			uint64 RendererGeneration)
+			-> std::expected<::Durin::Editor::FAssetThumbnailGenerationRequest, std::string> override;
 		MATERIALEDITOR_API auto CreateGenerationSession(
 			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
-			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
-			std::string& OutError)
-			-> std::unique_ptr<::Durin::Editor::IThumbnailRendererSession> override;
+			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input)
+			-> std::expected<std::unique_ptr<::Durin::Editor::IThumbnailRendererSession>, std::string> override;
 
 	private:
 		std::string AssetClassName;

@@ -45,19 +45,17 @@ namespace Durin::Editor::ContentBrowser::Private
 		return Image::IsSupportedImageExtension(Extension);
 	}
 
-	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension, FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
+	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension)
+		-> std::expected<FDecodedSourceImageThumbnail, std::string>
 	{
-		OutThumbnail = {};
-		OutError.clear();
+		FDecodedSourceImageThumbnail OutThumbnail;
 		if (MaximumDimension == 0)
 		{
-			OutError = "Thumbnail size must be greater than zero.";
-			return false;
+			return std::unexpected("Thumbnail size must be greater than zero.");
 		}
 
 		auto DecodeResult = Image::DecodeImageFromFile(FilePath, ThumbnailDecodeLimits);
-		OutError = DecodeResult ? std::string{} : Image::ToString(DecodeResult.error());
-		if (!DecodeResult) return false;
+		if (!DecodeResult) return std::unexpected(Image::ToString(DecodeResult.error()));
 		auto SourceImage = std::move(*DecodeResult);
 
 		const uint32 SourceWidth = SourceImage.Width;
@@ -79,6 +77,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				break;
 			}
 		}
-		return true;
+		return OutThumbnail;
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

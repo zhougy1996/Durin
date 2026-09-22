@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Thumbnail/AssetThumbnailTypes.h"
 
 namespace Durin::Editor
@@ -27,9 +29,8 @@ namespace Durin::Editor
 	// Builds a sorted transitive dependency snapshot; missing or conflicting registry data is invalid.
 	DURINED_API auto BuildAssetThumbnailDependencyClosure(
 		const FPackagePath& Root,
-		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot,
-		std::vector<FAssetThumbnailPackageFingerprint>& OutDependencies,
-		std::string& OutError) -> bool;
+		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot)
+		-> std::expected<std::vector<FAssetThumbnailPackageFingerprint>, std::string>;
 
 	// Hashes explicit little-endian fields rather than formatted text or native struct memory.
 	DURINED_API auto BuildAssetThumbnailCacheKey(const FAssetThumbnailKeyInput& Input) -> std::string;
