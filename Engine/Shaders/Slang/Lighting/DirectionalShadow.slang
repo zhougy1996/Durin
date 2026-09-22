@@ -123,7 +123,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 	float receiverWorld = 0.0;
 	float normalWorld = 0.0;
 	bool totalClamped = false;
-	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.0001);
+	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.00005);
 	float3 finalCoordinate = receiverCoordinate;
 	float validTapWeight = 0.0;
 	float finalComparison = SampleDirectionalShadowKernel(
