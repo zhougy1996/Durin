@@ -5,6 +5,7 @@
 #include "SceneInfo.h"
 #include "Rendering/MeshBatch.h"
 #include "Renderers/MeshVertexFactory.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -18,6 +19,7 @@ namespace Durin
 		ERenderPreparationMode Mode
 	) -> FPreparedStaticMeshView
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareStaticMeshes");
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh preparation must occur before the scene render pass.");
 		FPreparedStaticMeshView Result;

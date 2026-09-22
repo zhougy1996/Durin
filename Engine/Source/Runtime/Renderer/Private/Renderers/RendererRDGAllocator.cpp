@@ -4,6 +4,7 @@
 #include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Profiling/Profiling.h"
 
 #include <algorithm>
 #include <array>
@@ -288,6 +289,7 @@ namespace Durin
 		std::span<const FRDGAllocationRequest> Requests,
 		FRDGAllocatedResources& OutResources) -> FRDGAllocationResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.AllocateRDGResources");
 		check(IsInRenderingThread());
 		const auto& Generation = Coordinator.GetGeneration_RenderThread();
 		// Pool validity must not depend on the owner's invalidation callback.

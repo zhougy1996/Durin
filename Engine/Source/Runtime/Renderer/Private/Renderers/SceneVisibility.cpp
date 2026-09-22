@@ -5,6 +5,7 @@
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Scene.h"
 #include "SceneInfo.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -15,6 +16,7 @@ namespace Durin
 		FSceneVisibilityResult& Result,
 		bool bCollectPrimitiveRecords) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareVisibility");
 		Telemetry.Visibility = {};
 		Result.PrimitiveRecords.clear();
 		Result.SceneInfos.clear();

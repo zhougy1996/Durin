@@ -8,6 +8,7 @@
 #include "Asset/Asset.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Profiling/Profiling.h"
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "SceneView.h"
@@ -20,6 +21,7 @@ namespace Durin
 		FSceneFrameContext& Context
 	) -> FSceneRenderPreparationResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareView");
 		FScene* Scene = Context.Logical.Scene;
 		FSceneView& RenderView = Context.Logical.RenderView;
 		const FSceneViewRenderOptions& Options = Context.Logical.Options;
@@ -68,6 +70,7 @@ namespace Durin
 			);
 			if (!PreparedView.Lighting.Lights.Directional.empty())
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareDirectionalShadows");
 				++Telemetry.View.DirectionalShadow.ShadowSelectedLights;
 				const FPreparedDirectionalLight& Selected =
 					PreparedView.Lighting.Lights.Directional.front();
@@ -135,6 +138,7 @@ namespace Durin
 						 CascadeIndex < PreparedView.DirectionalShadow->View.CascadeCount;
 						 ++CascadeIndex)
 					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareShadowCascade");
 						const auto& Cascade =
 							PreparedView.DirectionalShadow->View.Cascades[CascadeIndex];
 						auto& CascadeTelemetry =
@@ -293,6 +297,7 @@ namespace Durin
 		FSceneFrameContext& Context
 	) -> ERenderViewResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveSceneResources");
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.Context.View;
@@ -367,6 +372,7 @@ namespace Durin
 		const FRendererQualificationPolicy& Qualification
 	) const -> FSceneFrameFeaturePlan
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.BuildFeaturePlan");
 		const FSceneView& View = PreparedView.Context.View;
 		FSceneFrameFeaturePlan Plan;
 		auto AddPurpose = [](FSceneFeatureDecision& Feature,

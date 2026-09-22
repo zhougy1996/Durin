@@ -76,6 +76,7 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderViewSubmission");
 		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Renderer.RenderSubmissionSerial;
 		// First consumption joins all admitted PSOs from a preparation attempt on
@@ -85,7 +86,10 @@ namespace Durin
 			FRenderPipelinePreparationBatch Batch;
 			const auto Result = ExecutePreparedAttempt_RenderThread(CommandList, Scene, View,
 				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture);
-			if (!Batch.Wait()) return Result;
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");
+				if (!Batch.Wait()) return Result;
+			}
 		}
 		return ERenderViewResult::RendererResourcesUnavailable;
 	}
@@ -142,24 +146,27 @@ namespace Durin
 		Context.Logical.Width = Width;
 		Context.Logical.Height = Height;
 		Context.Logical.bPresentOutput = bPresentOutput;
-		if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
 		{
-			return ERenderViewResult::RendererResourcesUnavailable;
-		}
-		// Generate before Scene Color. World-driven scenes already admitted work
-		// at frame start; extra views must not move their refresh deadline.
-		// Failure is non-fatal: StaticMeshRenderer binds the complete black
-		// environment fallback set instead.
-		if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
-			Renderer.UpdateSkyLighting_RenderThread(CommandList, *Scene);
-		EnvironmentLighting.SelectScene_RenderThread(Scene);
-		// Sky resources include a static index upload, so initialize them before
-		// entering the Scene Color render pass.
-		const bool bSkyBoxResourcesReady =
-			SkyBoxRenderer.EnsureResources_RenderThread();
-		if (Options.Environment && !bSkyBoxResourcesReady)
-		{
-			return ERenderViewResult::RendererResourcesUnavailable;
+			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureViewResources");
+			if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
+			{
+				return ERenderViewResult::RendererResourcesUnavailable;
+			}
+			// Generate before Scene Color. World-driven scenes already admitted work
+			// at frame start; extra views must not move their refresh deadline.
+			// Failure is non-fatal: StaticMeshRenderer binds the complete black
+			// environment fallback set instead.
+			if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
+				Renderer.UpdateSkyLighting_RenderThread(CommandList, *Scene);
+			EnvironmentLighting.SelectScene_RenderThread(Scene);
+			// Sky resources include a static index upload, so initialize them before
+			// entering the Scene Color render pass.
+			const bool bSkyBoxResourcesReady =
+				SkyBoxRenderer.EnsureResources_RenderThread();
+			if (Options.Environment && !bSkyBoxResourcesReady)
+			{
+				return ERenderViewResult::RendererResourcesUnavailable;
+			}
 		}
 		Context.Logical.RenderView = FSceneRenderer::FitViewToOutput(
 			View, Width, Height);
@@ -223,123 +230,126 @@ namespace Durin
 		Context.Features.Plan = BuildSceneFrameFeaturePlan(
 			PreparedView, Options, Width, Height, Qualification);
 		FSceneFrameFeaturePlan& FeaturePlan = Context.Features.Plan;
-		const RenderTargetLayouts::EViewportOutput ViewportOutput =
-			GetViewportOutput(bPresentOutput);
-		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
-				PreparedView.Context.RendererSimpleElements,
-				OutputTarget->GetFormat());
-		RendererEditorAssistance::FPrepared& PreparedEditorAssistance =
-			Context.Logical.EditorAssistance;
-		if (!EditorAssistanceRequest.IsEmpty())
-			PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
-				CommandList, RenderView, EditorAssistanceRequest,
-				PreparedView.Context.RendererSimpleElements);
-		Context.Logical.bHasEditorAssistance =
-			PreparedEditorAssistance.HasDrawableOperation();
-		if (Context.Logical.bHasEditorAssistance)
-			FeaturePlan.EditorAssistance.Purposes =
-				ESceneFeaturePurpose::Production;
-		const bool bWantsProductionDeferred =
-			FeaturePlan.RequiresProductionDeferred();
-		Context.Resolved.bHybridRetainedResourcesReady =
-			!bWantsProductionDeferred
-			|| StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
-					PreparedView.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes
-				);
-		if (!Context.Resolved.bHybridRetainedResourcesReady)
-			return ERenderViewResult::RendererResourcesUnavailable;
-		const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
-		auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
-		const bool bForceContactShadowVisibilityFragment =
-			Qualification.bForceFragmentContactVisibility
-			|| RenderView.Settings.DirectionalShadow.ContactRoutePreference
-				== EContactShadowRoutePreference::Fragment;
-		const bool bForceContactShadowVisibilityCompute =
-			!Qualification.bForceFragmentContactVisibility
-			&& RenderView.Settings.DirectionalShadow.ContactRoutePreference
-				== EContactShadowRoutePreference::Compute;
-		if (FeaturePlan.ContactVisibility.IsEnabled()
-			&& PreparedView.DirectionalShadow)
 		{
-			PreparedContactRoute = ContactShadowRenderer.PrepareRoute_RenderThread(
-				CommandList, true, bNeedsGBuffer,
-				!bForceContactShadowVisibilityCompute,
-				!bForceContactShadowVisibilityFragment, RenderView,
-				PreparedView.DirectionalShadow->View.LightDirection, Width, Height);
+			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareFeatureResources");
+			const RenderTargetLayouts::EViewportOutput ViewportOutput =
+				GetViewportOutput(bPresentOutput);
+			const RendererEditorAssistance::FRequest EditorAssistanceRequest =
+				FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
+					PreparedView.Context.RendererSimpleElements,
+					OutputTarget->GetFormat());
+			RendererEditorAssistance::FPrepared& PreparedEditorAssistance =
+				Context.Logical.EditorAssistance;
+			if (!EditorAssistanceRequest.IsEmpty())
+				PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
+					CommandList, RenderView, EditorAssistanceRequest,
+					PreparedView.Context.RendererSimpleElements);
+			Context.Logical.bHasEditorAssistance =
+				PreparedEditorAssistance.HasDrawableOperation();
+			if (Context.Logical.bHasEditorAssistance)
+				FeaturePlan.EditorAssistance.Purposes =
+					ESceneFeaturePurpose::Production;
+			const bool bWantsProductionDeferred =
+				FeaturePlan.RequiresProductionDeferred();
+			Context.Resolved.bHybridRetainedResourcesReady =
+				!bWantsProductionDeferred
+				|| StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
+						PreparedView.Receiver.StaticMeshes,
+						ResolvedSceneResources.Receiver.StaticMeshes
+					);
+			if (!Context.Resolved.bHybridRetainedResourcesReady)
+				return ERenderViewResult::RendererResourcesUnavailable;
+			const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
+			auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
+			const bool bForceContactShadowVisibilityFragment =
+				Qualification.bForceFragmentContactVisibility
+				|| RenderView.Settings.DirectionalShadow.ContactRoutePreference
+					== EContactShadowRoutePreference::Fragment;
+			const bool bForceContactShadowVisibilityCompute =
+				!Qualification.bForceFragmentContactVisibility
+				&& RenderView.Settings.DirectionalShadow.ContactRoutePreference
+					== EContactShadowRoutePreference::Compute;
+			if (FeaturePlan.ContactVisibility.IsEnabled()
+				&& PreparedView.DirectionalShadow)
+			{
+				PreparedContactRoute = ContactShadowRenderer.PrepareRoute_RenderThread(
+					CommandList, true, bNeedsGBuffer,
+					!bForceContactShadowVisibilityCompute,
+					!bForceContactShadowVisibilityFragment, RenderView,
+					PreparedView.DirectionalShadow->View.LightDirection, Width, Height);
+			}
+			FRHITexture*& CloudWeatherTexture = Context.Resolved.CloudWeatherTexture;
+			const bool bForceCloudFragment =
+				Qualification.bForceFragmentVolumetricCloud;
+			if (ResolvedSceneResources.VolumetricCloud)
+			{
+				CloudWeatherTexture = ResolvedSceneResources.VolumetricCloud->Textures.Weather;
+				if (!CloudWeatherTexture)
+					CloudWeatherTexture = DefaultTextures.Get_RenderThread(
+						EDefaultTexture::White);
+			}
+			if (FeaturePlan.CloudShadow.IsEnabled()
+				&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
+			{
+				const auto Prepared =
+					VolumetricCloudShadowRenderer.PrepareRoute_RenderThread(CommandList,
+					{.bRequested = true,
+						.BaseDensity = ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity,
+						.DetailDensity = ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity,
+						.Weather = CloudWeatherTexture,
+						.DensitySampler =
+							ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler,
+						.Parameters = PreparedView.VolumetricCloud->Parameters,
+						.View = &RenderView,
+						.QualityTier = CanonicalizeVolumetricCloudQuality(
+							RenderView.Settings.VolumetricCloud.Quality),
+						.Width = Width, .Height = Height},
+					true, !bForceCloudFragment);
+				FeaturePlan.CloudShadow.Decision = Prepared;
+			}
+			if (FeaturePlan.CloudSpatial.IsEnabled()
+				&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
+			{
+				auto Textures = ResolvedSceneResources.VolumetricCloud->Textures;
+				Textures.Weather = CloudWeatherTexture;
+				Textures.SceneDepth = nullptr;
+				const auto Prepared = VolumetricCloudRenderer.PrepareRoute_RenderThread(
+					CommandList,
+					{.bRequested = true,
+						.Textures = Textures,
+						.Parameters = PreparedView.VolumetricCloud->Parameters,
+						.View = &RenderView,
+						.QualityTier = CanonicalizeVolumetricCloudQuality(
+							RenderView.Settings.VolumetricCloud.Quality),
+						.SuccessfulSequence = TemporalContext.SuccessfulSequence,
+						.Width = static_cast<uint32>(std::max(
+							FeaturePlan.CloudSpatial.Extent.x, 0)),
+						.Height = static_cast<uint32>(std::max(
+							FeaturePlan.CloudSpatial.Extent.y, 0)),
+						.OutputWidth = Width,
+						.OutputHeight = Height},
+					true, !bForceCloudFragment);
+				FeaturePlan.CloudSpatial.Decision = Prepared;
+			}
+			bool FixedPipelinesReady = true;
+			if (FeaturePlan.GBuffer.IsEnabled())
+				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
+					Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes) && FixedPipelinesReady;
+			if (FeaturePlan.Deferred.IsEnabled())
+				FixedPipelinesReady = Renderer.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+			if (FeaturePlan.AmbientOcclusion.IsEnabled())
+				FixedPipelinesReady = Renderer.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+			if (FeaturePlan.GBufferDebug.IsEnabled())
+				FixedPipelinesReady = Renderer.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+			if (FeaturePlan.CloudSpatial.IsEnabled() && PreparedView.VolumetricCloud)
+			{
+				FixedPipelinesReady = VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList) && FixedPipelinesReady;
+				if (!FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(RenderView.Settings.VolumetricCloud.Quality).IsFullResolution())
+					FixedPipelinesReady = VolumetricCloudRenderer.EnsureTemporalResources_RenderThread(CommandList) && FixedPipelinesReady;
+			}
+			if (!FixedPipelinesReady || FRenderPipelinePreparationBatch::HasPending())
+				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		FRHITexture*& CloudWeatherTexture = Context.Resolved.CloudWeatherTexture;
-		const bool bForceCloudFragment =
-			Qualification.bForceFragmentVolumetricCloud;
-		if (ResolvedSceneResources.VolumetricCloud)
-		{
-			CloudWeatherTexture = ResolvedSceneResources.VolumetricCloud->Textures.Weather;
-			if (!CloudWeatherTexture)
-				CloudWeatherTexture = DefaultTextures.Get_RenderThread(
-					EDefaultTexture::White);
-		}
-		if (FeaturePlan.CloudShadow.IsEnabled()
-			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
-		{
-			const auto Prepared =
-				VolumetricCloudShadowRenderer.PrepareRoute_RenderThread(CommandList,
-				{.bRequested = true,
-					.BaseDensity = ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity,
-					.DetailDensity = ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity,
-					.Weather = CloudWeatherTexture,
-					.DensitySampler =
-						ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler,
-					.Parameters = PreparedView.VolumetricCloud->Parameters,
-					.View = &RenderView,
-					.QualityTier = CanonicalizeVolumetricCloudQuality(
-						RenderView.Settings.VolumetricCloud.Quality),
-					.Width = Width, .Height = Height},
-				true, !bForceCloudFragment);
-			FeaturePlan.CloudShadow.Decision = Prepared;
-		}
-		if (FeaturePlan.CloudSpatial.IsEnabled()
-			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
-		{
-			auto Textures = ResolvedSceneResources.VolumetricCloud->Textures;
-			Textures.Weather = CloudWeatherTexture;
-			Textures.SceneDepth = nullptr;
-			const auto Prepared = VolumetricCloudRenderer.PrepareRoute_RenderThread(
-				CommandList,
-				{.bRequested = true,
-					.Textures = Textures,
-					.Parameters = PreparedView.VolumetricCloud->Parameters,
-					.View = &RenderView,
-					.QualityTier = CanonicalizeVolumetricCloudQuality(
-						RenderView.Settings.VolumetricCloud.Quality),
-					.SuccessfulSequence = TemporalContext.SuccessfulSequence,
-					.Width = static_cast<uint32>(std::max(
-						FeaturePlan.CloudSpatial.Extent.x, 0)),
-					.Height = static_cast<uint32>(std::max(
-						FeaturePlan.CloudSpatial.Extent.y, 0)),
-					.OutputWidth = Width,
-					.OutputHeight = Height},
-				true, !bForceCloudFragment);
-			FeaturePlan.CloudSpatial.Decision = Prepared;
-		}
-		bool FixedPipelinesReady = true;
-		if (FeaturePlan.GBuffer.IsEnabled())
-			FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
-				Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes) && FixedPipelinesReady;
-		if (FeaturePlan.Deferred.IsEnabled())
-			FixedPipelinesReady = Renderer.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
-		if (FeaturePlan.AmbientOcclusion.IsEnabled())
-			FixedPipelinesReady = Renderer.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
-		if (FeaturePlan.GBufferDebug.IsEnabled())
-			FixedPipelinesReady = Renderer.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
-		if (FeaturePlan.CloudSpatial.IsEnabled() && PreparedView.VolumetricCloud)
-		{
-			FixedPipelinesReady = VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList) && FixedPipelinesReady;
-			if (!FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(RenderView.Settings.VolumetricCloud.Quality).IsFullResolution())
-				FixedPipelinesReady = VolumetricCloudRenderer.EnsureTemporalResources_RenderThread(CommandList) && FixedPipelinesReady;
-		}
-		if (!FixedPipelinesReady || FRenderPipelinePreparationBatch::HasPending())
-			return ERenderViewResult::RendererResourcesUnavailable;
 		FRDGBuilder Graph;
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;
@@ -365,7 +375,7 @@ namespace Durin
 		FSceneFrameContext::FObservation& Observation
 	) -> bool
 	{
-
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGraph");
 		FGPUTimingQueryRHIRef Timing;
 		if (Renderer.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
 		if (Timing) CommandList.BeginGPUTimingQuery(Timing);

@@ -1,5 +1,6 @@
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
+#include "Profiling/Profiling.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 
@@ -101,6 +102,7 @@ namespace Durin
 	auto FRDGBuilder::Execute(FRHICommandListImmediate& CommandList,
 		FRDGAllocator* Allocator) -> FRDGExecutionResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.Execute");
 		if (State->Lifecycle != ERDGBuilderState::Building)
 			return std::unexpected(ERDGStateError::BuilderConsumed);
 		State->Lifecycle = ERDGBuilderState::Compiling;
@@ -135,6 +137,7 @@ namespace Durin
 	auto FRDGBuilder::Record(
 		FRHICommandListImmediate& CommandList, FRDGAllocator* Allocator) -> FRDGPreparationResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.Record");
 		FScopedMicrosecondTimer ExecuteTimer(State->ExecuteMicroseconds);
 		FScopedMicrosecondTimer PreparationTimer(State->Phases.PreparationMicroseconds);
 		if (Allocator != nullptr && !Compiled->AllocationRequests.empty())
@@ -294,6 +297,7 @@ namespace Durin
 		}
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordBatch");
 			if (bExplicitSubmissions)
 			{
 				FRHIGPUSubmissionDesc Desc{.Queue = PhysicalQueue(Batch.Queue)};
@@ -317,11 +321,13 @@ namespace Durin
 			}
 			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
 				const auto& Pass = Compiled->Passes[Index];
 				const auto& Runtime = Compiled->RuntimePasses[Index];
 				RecordBarrierBatch(CommandList, PreparedPassBarriers[Index], PreparedTransitions);
 				if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
 				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("RDG.PassCallback");
 					const FRDGPassResources Resources(*this, Index);
 					const FRDGParameterResolver Resolver(Resources,
 						Runtime.ParameterLayout, Runtime.OptionalAliases,

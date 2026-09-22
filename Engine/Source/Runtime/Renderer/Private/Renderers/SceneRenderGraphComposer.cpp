@@ -24,6 +24,7 @@ namespace Durin
 		FSceneRenderer& Renderer,
 		FSceneFrameContext& Context) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ComposeGraph");
 		const auto& Logical = Context.Logical;
 		auto& Resolved = Context.Resolved;
 		const auto& PreparedView = *Logical.PreparedView;

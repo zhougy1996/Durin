@@ -1,5 +1,6 @@
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::RDGPrivate
 {
@@ -724,6 +725,7 @@ namespace Durin
 
 	auto FRDGBuilder::Compile() -> FRDGCompileResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.Compile");
 		FScopedMicrosecondTimer CompileTimer(State->CompileMicroseconds);
 		FScopedMicrosecondTimer ValidationTimer(State->Phases.ValidationMicroseconds);
 		if (State->PendingConstructions != 0)
