@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 #include "Physics/BodySetup.h"
@@ -107,7 +109,6 @@ namespace Durin
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
-
 	enum class EStaticMeshCollisionPayloadOperation : uint8 { Extract, Construct };
 	enum class EStaticMeshCollisionPayloadError : uint8
 	{
@@ -130,22 +131,18 @@ namespace Durin
 		uint32 Ordinal = 0;
 		FVector3 Position = FVector3(0);
 	};
-	struct FStaticMeshCollisionPayloadResult
-	{
-		FStaticMeshCollisionPayloadError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshCollisionPayloadError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshCollisionPayloadError(const FStaticMeshCollisionPayloadError& Error) -> std::string;
 
 	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshCollisionPayloadResult;
+		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshCollisionPayloadError>;
 	ENGINE_API auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshCollisionPayloadResult;
+		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshCollisionPayloadError>;
 
 	enum class EStaticMeshPayloadError : uint8
 	{
@@ -179,12 +176,6 @@ namespace Durin
 		std::optional<FStaticMeshPayloadSection> Section;
 	};
 
-	struct FStaticMeshPayloadResult
-	{
-		FStaticMeshPayloadError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshPayloadError::None; }
-	};
-
 	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
 
 	enum class EArchiveFailureCode : uint8;
@@ -205,11 +196,7 @@ namespace Durin
 		std::optional<FStaticMeshPayloadError> RenderCause;
 		std::optional<FStaticMeshCollisionPayloadError> CollisionCause;
 	};
-	struct FStaticMeshCacheCodecResult
-	{
-		FStaticMeshCacheCodecError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshCacheCodecError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshCacheCodecError(const FStaticMeshCacheCodecError& Error) -> std::string;
 
 	enum class EArchiveFailureCode : uint8;
@@ -226,11 +213,11 @@ namespace Durin
 	ENGINE_API auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshPayloadResult;
+		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
 
 	// Reconstructs CPU render data; runtime-only names and source material indices remain empty.
 	ENGINE_API auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshPayloadResult;
+		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
 }

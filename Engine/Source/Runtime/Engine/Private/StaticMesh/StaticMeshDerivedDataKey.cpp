@@ -51,26 +51,26 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto BuildKeyBytes(const T& Input) -> FStaticMeshBuildKeyBytesResult
+		auto BuildKeyBytes(const T& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
 		{
 			if (Input.TargetPlatform != EStaticMeshTargetPlatform::Win64)
-				return {.Error = {.Code = EStaticMeshBuildKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform}};
+				return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
 			if (Ar.IsError())
-				return {.Error = {.Code = EStaticMeshBuildKeyError::Archive, .TargetPlatform = Input.TargetPlatform,
-					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
-			return {.Bytes = std::move(Bytes)};
+				return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive, .TargetPlatform = Input.TargetPlatform,
+					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path});
+			return Bytes;
 		}
 
 		template<typename T>
-		auto BuildKey(const T& Input, std::string_view Bucket) -> FStaticMeshBuildKeyResult
+		auto BuildKey(const T& Input, std::string_view Bucket) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>
 		{
 			auto Encoded = BuildKeyBytes(Input);
-			if (!Encoded) return {.Error = std::move(Encoded.Error)};
-			return {.Key = FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
-				DerivedData::FCacheBucket::FromString(Bucket), FXxHash128::HashBuffer(Encoded.Bytes)))};
+			if (!Encoded) return std::unexpected(std::move(Encoded.error()));
+			return FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
+				DerivedData::FCacheBucket::FromString(Bucket), FXxHash128::HashBuffer(*Encoded)));
 		}
 
 	}
@@ -111,19 +111,19 @@ namespace Durin
 		return {};
 	}
 
-	auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult
+	auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
 	{
 		return BuildKeyBytes(Input);
 	}
-	auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyResult
+	auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>
 	{
 		return BuildKey(Input, StaticMeshCacheBucket);
 	}
-	auto BuildStaticMeshCollisionDerivedDataKeyBytes(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult
+	auto BuildStaticMeshCollisionDerivedDataKeyBytes(const FStaticMeshCollisionBuildKeyInput& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
 	{
 		return BuildKeyBytes(Input);
 	}
-	auto BuildStaticMeshCollisionDerivedDataKey(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyResult
+	auto BuildStaticMeshCollisionDerivedDataKey(const FStaticMeshCollisionBuildKeyInput& Input) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>
 	{
 		return BuildKey(Input, StaticMeshCollisionCacheBucket);
 	}

@@ -45,7 +45,7 @@ namespace Durin
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
 		FCollisionGeometryRef& OutSimple,
-		FCollisionGeometryRef& OutComplex) const -> FStaticMeshDerivedDataResult
+		FCollisionGeometryRef& OutComplex) const -> std::expected<void, FStaticMeshDerivedDataError>
 	{
 		FStaticMeshCollisionBuildResult Product;
 		const auto Built = BuildStaticMeshCollisionDerivedData(SourceRenderData, Mode, Policy, Product);
@@ -121,7 +121,7 @@ namespace Durin
 				CollisionBuildError = {.Code = EStaticMeshCollisionError::Publication, .Mode = Mode, .Policy = BodySetup->GetCollisionQueryPolicy()};
 			}
 			else CollisionBuildError = {.Code = EStaticMeshCollisionError::DerivedData, .Mode = Mode,
-				.Policy = BodySetup->GetCollisionQueryPolicy(), .DerivedDataCause = std::make_shared<FStaticMeshDerivedDataError>(Built.Error)};
+				.Policy = BodySetup->GetCollisionQueryPolicy(), .DerivedDataCause = std::make_shared<FStaticMeshDerivedDataError>(Built.error())};
 		}
 		DURIN_ERROR("Static mesh '{}' collision build failed: {}", GetObjectPath(), FormatStaticMeshCollisionError(CollisionBuildError));
 	}

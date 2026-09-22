@@ -22,18 +22,18 @@ namespace Durin
 	}
 
 	auto ValidateStaticMeshMaterialOverrides(
-		std::span<const TObjectPtr<DMaterialInterface>> Overrides) -> FStaticMeshMaterialOverrideResult
+		std::span<const TObjectPtr<DMaterialInterface>> Overrides) -> std::expected<void, FStaticMeshMaterialOverrideError>
 	{
 		if (Overrides.size() > MaximumMeshMaterialSlots)
-			return {{.Code = EStaticMeshMaterialOverrideError::TooManySlots,
-				.ActualCount = Overrides.size(), .MaximumCount = MaximumMeshMaterialSlots}};
+			return std::unexpected(FStaticMeshMaterialOverrideError{.Code = EStaticMeshMaterialOverrideError::TooManySlots,
+				.ActualCount = Overrides.size(), .MaximumCount = MaximumMeshMaterialSlots});
 		for (size_t Index = 0; Index < Overrides.size(); ++Index)
 		{
 			auto* Object = reinterpret_cast<DObject*>(Overrides[Index].Get());
 			if (Object && !Cast<DMaterialInterface>(Object))
-				return {{.Code = EStaticMeshMaterialOverrideError::IncompatibleObject,
+				return std::unexpected(FStaticMeshMaterialOverrideError{.Code = EStaticMeshMaterialOverrideError::IncompatibleObject,
 					.Index = Index, .ObjectPath = Object->GetObjectPath(),
-					.ActualType = Object->GetClass()->GetQualifiedName().ToString()}};
+					.ActualType = Object->GetClass()->GetQualifiedName().ToString()});
 		}
 		return {};
 	}

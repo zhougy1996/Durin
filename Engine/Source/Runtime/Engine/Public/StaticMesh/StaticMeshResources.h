@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "StaticMesh/StaticMeshData.h"
 #include "Rendering/PositionVertexBuffer.h"
@@ -395,14 +397,10 @@ namespace Durin
 		float ScreenSize = 0.0f;
 		float PreviousScreenSize = 0.0f;
 	};
-	struct FStaticMeshLODPolicyResult
-	{
-		FStaticMeshLODPolicyError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshLODPolicyError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshLODPolicyError(const FStaticMeshLODPolicyError& Error) -> std::string;
 
 	// Validates the published policy: finite, [0, 1], strictly descending, and final zero.
 	ENGINE_API auto ValidateStaticMeshLODScreenSizes(
-		std::span<const FStaticMeshLODResources> LODResources) -> FStaticMeshLODPolicyResult;
+		std::span<const FStaticMeshLODResources> LODResources) -> std::expected<void, FStaticMeshLODPolicyError>;
 }

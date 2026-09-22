@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Asset/AssetCompilingManager.h"
 
@@ -40,7 +42,7 @@ namespace Durin
 		FStaticMeshPersistenceDiagnostic PersistenceDiagnostic;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
-	using FStaticMeshPublicationPreparation = std::function<FStaticMeshApplicationResult(DStaticMesh&, DAssetImportData*&)>;
+	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshApplicationError>(DStaticMesh&, DAssetImportData*&)>;
 
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
@@ -91,15 +93,11 @@ namespace Durin
 		std::optional<EFeatureInvokeStatus> InvocationStatus;
 		std::optional<FStaticMeshBuildProviderDescriptor> Descriptor;
 	};
-	struct FStaticMeshSubmissionResult
-	{
-		FStaticMeshSubmissionError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshSubmissionError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshSubmissionError(const FStaticMeshSubmissionError& Error) -> std::string;
 
 	ENGINE_API auto SubmitStaticMeshCompilation(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
-		FStaticMeshCompilationCompletion Completion = {}) -> FStaticMeshSubmissionResult;
+		FStaticMeshCompilationCompletion Completion = {}) -> std::expected<void, FStaticMeshSubmissionError>;
 	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;

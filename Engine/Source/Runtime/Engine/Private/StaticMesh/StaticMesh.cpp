@@ -37,7 +37,7 @@ namespace Durin
 		}
 
 		auto InitializeStaticMeshCandidate(
-			FStaticMeshRenderData& Candidate) -> FStaticMeshPublicationResult
+			FStaticMeshRenderData& Candidate) -> std::expected<void, FStaticMeshPublicationError>
 		{
 			if (GDynamicRHI == nullptr)
 			{
@@ -58,7 +58,7 @@ namespace Durin
 			if (!bInitialized.load(std::memory_order_acquire))
 			{
 				check(Candidate.GetNumInitializedResources() == 0);
-				return {{.Code = EStaticMeshPublicationError::ResourceInitialization}};
+				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::ResourceInitialization});
 			}
 			return {};
 		}
@@ -100,7 +100,6 @@ namespace Durin
 			return false;
 		}
 
-
 	}
 
 	auto FormatStaticMeshImportSettingsError(const FStaticMeshImportSettingsError& Error) -> std::string
@@ -114,7 +113,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FStaticMeshImportSettings::Validate() const -> FStaticMeshImportSettingsResult
+	auto FStaticMeshImportSettings::Validate() const -> std::expected<void, FStaticMeshImportSettingsError>
 	{
 		FVector3f UnusedVector;
 		uint32 ForwardComponent = 0;
@@ -124,11 +123,11 @@ namespace Durin
 			&& ImportAxisVector(RightAxis, UnusedVector, RightComponent)
 			&& ImportAxisVector(UpAxis, UnusedVector, UpComponent);
 		if (!bAxesKnown)
-			return {.Error = {.Code = EStaticMeshImportSettingsError::UnknownAxis,
-				.ForwardAxis = ForwardAxis, .RightAxis = RightAxis, .UpAxis = UpAxis}};
+			return std::unexpected(FStaticMeshImportSettingsError{.Code = EStaticMeshImportSettingsError::UnknownAxis,
+				.ForwardAxis = ForwardAxis, .RightAxis = RightAxis, .UpAxis = UpAxis});
 		if (ForwardComponent == RightComponent || ForwardComponent == UpComponent || RightComponent == UpComponent)
-			return {.Error = {.Code = EStaticMeshImportSettingsError::RepeatedAxis,
-				.ForwardAxis = ForwardAxis, .RightAxis = RightAxis, .UpAxis = UpAxis}};
+			return std::unexpected(FStaticMeshImportSettingsError{.Code = EStaticMeshImportSettingsError::RepeatedAxis,
+				.ForwardAxis = ForwardAxis, .RightAxis = RightAxis, .UpAxis = UpAxis});
 		return {};
 	}
 
@@ -457,24 +456,24 @@ namespace Durin
 		return "Unknown static mesh slot rename failure.";
 	}
 
-	auto DStaticMesh::RenameMaterialSlot(uint32 SlotIndex, FName Name) -> FStaticMeshSlotRenameResult
+	auto DStaticMesh::RenameMaterialSlot(uint32 SlotIndex, FName Name) -> std::expected<void, FStaticMeshSlotRenameError>
 	{
 		if (SlotIndex >= MaterialSlots.size())
 		{
-			return {.Error = {.Code = EStaticMeshSlotRenameError::Index, .Owner = FObjectKey(this),
-				.Index = SlotIndex, .SlotCount = MaterialSlots.size(), .Name = Name.ToString()}};
+			return std::unexpected(FStaticMeshSlotRenameError{.Code = EStaticMeshSlotRenameError::Index, .Owner = FObjectKey(this),
+				.Index = SlotIndex, .SlotCount = MaterialSlots.size(), .Name = Name.ToString()});
 		}
 		if (Name.IsNone())
 		{
-			return {.Error = {.Code = EStaticMeshSlotRenameError::EmptyName, .Owner = FObjectKey(this),
-				.Index = SlotIndex, .SlotCount = MaterialSlots.size(), .Name = Name.ToString()}};
+			return std::unexpected(FStaticMeshSlotRenameError{.Code = EStaticMeshSlotRenameError::EmptyName, .Owner = FObjectKey(this),
+				.Index = SlotIndex, .SlotCount = MaterialSlots.size(), .Name = Name.ToString()});
 		}
 		const auto Existing = std::ranges::find(MaterialSlots, Name, &FMeshMaterialSlotDefinition::Name);
 		if (Existing != MaterialSlots.end() && Existing != MaterialSlots.begin() + SlotIndex)
 		{
-			return {.Error = {.Code = EStaticMeshSlotRenameError::DuplicateName, .Owner = FObjectKey(this),
+			return std::unexpected(FStaticMeshSlotRenameError{.Code = EStaticMeshSlotRenameError::DuplicateName, .Owner = FObjectKey(this),
 				.Index = SlotIndex, .SlotCount = MaterialSlots.size(),
-				.ConflictingIndex = static_cast<uint64>(std::distance(MaterialSlots.begin(), Existing)), .Name = Name.ToString()}};
+				.ConflictingIndex = static_cast<uint64>(std::distance(MaterialSlots.begin(), Existing)), .Name = Name.ToString()});
 		}
 		if (MaterialSlots[SlotIndex].Name == Name)
 		{
@@ -507,18 +506,18 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition>* InMaterialSlots,
 		bool bBuildAuthoredCollision, FStaticMeshAuthoredCandidate* AuthoredCandidate,
-		DAssetImportData* PreparedImportData) -> FStaticMeshPublicationResult
+		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshPublicationError>
 	{
 		CheckStaticMeshUpdateThread();
 		if (InRenderData == nullptr)
 		{
-			return {{.Code = EStaticMeshPublicationError::MissingRenderData}};
+			return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::MissingRenderData});
 		}
 		if (!AuthoredCandidate)
 		{
 			if (const auto Policy = ValidateStaticMeshLODScreenSizes(InRenderData->LODResources); !Policy)
 			{
-				return {{.Code = EStaticMeshPublicationError::LODPolicy, .LODCause = Policy.Error}};
+				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::LODPolicy, .LODCause = Policy.error()});
 			}
 		}
 		if (!AuthoredCandidate)
@@ -543,7 +542,7 @@ namespace Durin
 			if (const auto Built = BuildCollisionCandidate(*InRenderData,
 				BodySetup->GetCollisionSourceMode(), BodySetup->GetCollisionQueryPolicy(),
 				CollisionSimple, CollisionComplex); !Built)
-				return {{.Code = EStaticMeshPublicationError::CollisionBuild, .CollisionCause = Built.Error}};
+				return std::unexpected(FStaticMeshPublicationError{.Code = EStaticMeshPublicationError::CollisionBuild, .CollisionCause = Built.error()});
 		}
 
 #if DURIN_BUILD_DEBUG
@@ -618,12 +617,12 @@ namespace Durin
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
 		bool bMarkPackageDirty, const FStaticMeshBuildExecutionControl& Control,
-		DAssetImportData* PreparedImportData) -> FStaticMeshApplicationResult
+		DAssetImportData* PreparedImportData) -> std::expected<void, FStaticMeshApplicationError>
 	{
 		CheckStaticMeshUpdateThread();
-		const auto Fail = [&](FStaticMeshApplicationError Error) -> FStaticMeshApplicationResult {
+		const auto Fail = [&](FStaticMeshApplicationError Error) -> std::expected<void, FStaticMeshApplicationError> {
 			Error.Owner = FObjectKey(&Mesh);
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		};
 		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshApplicationError::Cancelled});
 		if (!IsValid(&Mesh) || !Candidate || !Candidate->Render.RenderData)
@@ -676,7 +675,7 @@ namespace Durin
 		if (const auto Published = Mesh.CommitRenderDataCandidate(std::move(Candidate->Render.RenderData),
 			&Candidate->Render.MaterialSlots, true, Candidate.get(), PreparedImportData); !Published)
 		{
-			return Fail({.Code = EStaticMeshApplicationError::Publication, .PublicationCause = Published.Error});
+			return Fail({.Code = EStaticMeshApplicationError::Publication, .PublicationCause = Published.error()});
 		}
 		if (bSlotMetadataChanged)
 			ReportAssetLoadMutation(&Mesh, "Engine.StaticMesh.MaterialSlotsV1",
@@ -751,7 +750,7 @@ namespace Durin
 		{
 			DURIN_ERROR(
 				"Failed to create debug static mesh: {}",
-				FormatStaticMeshPublicationError(Published.Error));
+				FormatStaticMeshPublicationError(Published.error()));
 			MarkAsGarbage(Mesh);
 			return nullptr;
 		}
@@ -796,7 +795,7 @@ namespace Durin
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-		float InNormalizedSize) -> FStaticMeshReplacementResult
+		float InNormalizedSize) -> std::expected<void, FStaticMeshReplacementError>
 	{
 		CheckStaticMeshUpdateThread();
 		if (!InSource.IsValid() || !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
@@ -806,7 +805,7 @@ namespace Durin
 			RenderDataUpdateError = {.Code = EStaticMeshReplacementError::Source,
 				.SourceValid = InSource.IsValid(), .NormalizedSize = InNormalizedSize};
 			DURIN_ERROR("Static mesh '{}' source replacement failed: {}", GetObjectPath(), FormatStaticMeshReplacementError(RenderDataUpdateError));
-			return {RenderDataUpdateError};
+			return std::unexpected(RenderDataUpdateError);
 		}
 		NormalizedSize = InNormalizedSize;
 		InSource.ReleaseGeometry();
@@ -816,7 +815,7 @@ namespace Durin
 
 	auto DStaticMesh::ReplaceRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> FStaticMeshReplacementResult
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>
 	{
 		CheckStaticMeshUpdateThread();
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
@@ -825,9 +824,9 @@ namespace Durin
 		RenderDataUpdateError = {};
 		if (const auto Replaced = ValidateAndReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots)); !Replaced)
 		{
-			RenderDataUpdateError = Replaced.Error;
+			RenderDataUpdateError = Replaced.error();
 			DURIN_ERROR("Static mesh '{}' render-data replacement failed: {}", GetObjectPath(), FormatStaticMeshReplacementError(RenderDataUpdateError));
-			return {RenderDataUpdateError};
+			return std::unexpected(RenderDataUpdateError);
 		}
 		CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 		RebuildCollisionData(false);
@@ -837,15 +836,15 @@ namespace Durin
 
 	auto DStaticMesh::ValidateAndReplaceRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> FStaticMeshReplacementResult
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>
 	{
 		CheckStaticMeshUpdateThread();
 		if (!InRenderData || InMaterialSlots.empty()
 			|| InMaterialSlots.size() > MaximumMeshMaterialSlots
 			|| InRenderData->MaterialSlots.size() != InMaterialSlots.size())
 		{
-			return {{.Code = EStaticMeshReplacementError::MaterialSlots, .RenderDataPresent = InRenderData != nullptr,
-				.Actual = InMaterialSlots.size(), .Expected = InRenderData ? InRenderData->MaterialSlots.size() : 0}};
+			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::MaterialSlots, .RenderDataPresent = InRenderData != nullptr,
+				.Actual = InMaterialSlots.size(), .Expected = InRenderData ? InRenderData->MaterialSlots.size() : 0});
 		}
 		std::unordered_set<FName> SlotNames;
 		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
@@ -853,24 +852,24 @@ namespace Durin
 			const auto& Slot = InMaterialSlots[Index];
 			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
 			{
-				return {{.Code = EStaticMeshReplacementError::SlotName, .Index = Index, .SlotName = Slot.Name.ToString()}};
+				return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::SlotName, .Index = Index, .SlotName = Slot.Name.ToString()});
 			}
 		}
 		for (size_t Index = 0; Index < InRenderData->LODResources.size(); ++Index)
 		{
 			const auto& LOD = InRenderData->LODResources[Index];
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-				return {{.Code = EStaticMeshReplacementError::UVChannels,
-					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels, .Index = Index}};
+				return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::UVChannels,
+					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels, .Index = Index});
 		}
 		FStaticMeshPayloadData ValidatedPayload;
 		if (const auto Result = MakeStaticMeshPayloadData(*InRenderData, ValidatedPayload); !Result)
 		{
-			return {{.Code = EStaticMeshReplacementError::Payload, .PayloadCause = std::make_shared<FStaticMeshPayloadError>(Result.Error)}};
+			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Payload, .PayloadCause = std::make_shared<FStaticMeshPayloadError>(Result.error())});
 		}
 		if (const auto Published = CommitRenderDataCandidate(std::move(InRenderData), &InMaterialSlots, false); !Published)
 		{
-			return {{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.Error)}};
+			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())});
 		}
 		NotifyStaticMeshCompilationMutation(*this);
 		return {};

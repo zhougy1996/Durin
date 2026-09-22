@@ -246,7 +246,7 @@ are known.
 
 `SubmitStaticMeshCompilation` accepts canonical source values and returns before
 recipe work. Rejection does not supersede earlier work or call completion.
-Its `FStaticMeshSubmissionResult` derives success from a typed error without a
+Its `std::expected<void, FStaticMeshSubmissionError>` represents admission separately from typed rejection, without a
 diagnostic-output parameter. Errors own rejected owner/settings/slot facts,
 provider invocation/descriptor context, import-validation causes and request or
 global admission budget counts. Pending synchronous/import adapters format
@@ -255,7 +255,7 @@ Accepted requests deliver one `Succeeded`, `Failed`, `Cancelled`, or `Superseded
 terminal result on GameThread. Worker captures contain no object bindings.
 `FStaticMeshCompilationDiagnostic::Error` retains typed build, application,
 missing-save-package or save failures. Terminal status remains the lifecycle
-outcome. Publication preparation returns `FStaticMeshApplicationResult`; rejected
+outcome. Publication preparation returns `std::expected<void, FStaticMeshApplicationError>`; rejected
 preparation retains its cause and never enters live application. Import save
 failures retain the complete asset result through SaveCause.
 Owner records use generation-safe handles and recheck source, normalization,

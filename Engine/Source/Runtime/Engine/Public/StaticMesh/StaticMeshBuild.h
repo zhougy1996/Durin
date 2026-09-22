@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Asset/AssetCacheDiagnostic.h"
@@ -10,7 +12,7 @@
 
 namespace Durin
 {
-	struct FStaticMeshAuthoredBuildResult;
+	struct FStaticMeshAuthoredBuildError;
 	enum class ETaskState : uint8;
 
 	// Immutable object facts captured before StaticMesh recipe work begins.
@@ -130,10 +132,10 @@ namespace Durin
 		friend class DStaticMesh;
 		friend ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>&,
-			const FStaticMeshBuildExecutionControl&) -> FStaticMeshAuthoredBuildResult;
+			const FStaticMeshBuildExecutionControl&) -> std::expected<void, FStaticMeshAuthoredBuildError>;
 		friend ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
-			bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshApplicationResult;
+			bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> std::expected<void, FStaticMeshApplicationError>;
 	};
 
 	ENGINE_API auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshSource Source,
@@ -141,13 +143,13 @@ namespace Durin
 	// Completes render, collision and ray acceleration without touching an object.
 	ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
 		std::unique_ptr<FStaticMeshAuthoredCandidate>& OutCandidate,
-		const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshAuthoredBuildResult;
+		const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshAuthoredBuildError>;
 	// Validates owner freshness and cancellation before a single non-building application boundary.
 	ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
 		bool bMarkPackageDirty = true, const FStaticMeshBuildExecutionControl& Control = {},
-		DAssetImportData* PreparedImportData = nullptr) -> FStaticMeshApplicationResult;
+		DAssetImportData* PreparedImportData = nullptr) -> std::expected<void, FStaticMeshApplicationError>;
 
 	enum class EStaticMeshDerivedDataError : uint8
 	{
@@ -167,16 +169,7 @@ namespace Durin
 		std::optional<FStaticMeshRecipeError> RecipeCause;
 		std::optional<FStaticMeshCacheCodecError> PayloadCause;
 	};
-	struct FStaticMeshDerivedDataResult
-	{
-		FStaticMeshDerivedDataError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshDerivedDataError::None; }
-		auto GetStatus() const -> EStaticMeshBuildStatus
-		{
-			return Error.Code == EStaticMeshDerivedDataError::None ? EStaticMeshBuildStatus::Succeeded
-				: Error.Code == EStaticMeshDerivedDataError::Cancelled ? EStaticMeshBuildStatus::Cancelled : EStaticMeshBuildStatus::Failed;
-		}
-	};
+
 	ENGINE_API auto FormatStaticMeshDerivedDataError(const FStaticMeshDerivedDataError& Error) -> std::string;
 
 	enum class EStaticMeshPublicationError : uint8
@@ -189,11 +182,7 @@ namespace Durin
 		std::optional<FStaticMeshLODPolicyError> LODCause;
 		std::optional<FStaticMeshDerivedDataError> CollisionCause;
 	};
-	struct FStaticMeshPublicationResult
-	{
-		FStaticMeshPublicationError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshPublicationError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshPublicationError(const FStaticMeshPublicationError& Error) -> std::string;
 
 	enum class EStaticMeshApplicationError : uint8
@@ -238,16 +227,7 @@ namespace Durin
 		std::optional<FAssetImportDataError> ImportCause;
 		std::optional<FStaticMeshPublicationError> PublicationCause;
 	};
-	struct FStaticMeshApplicationResult
-	{
-		FStaticMeshApplicationError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshApplicationError::None; }
-		auto GetStatus() const -> EStaticMeshBuildStatus
-		{
-			return Error.Code == EStaticMeshApplicationError::None ? EStaticMeshBuildStatus::Succeeded
-				: Error.Code == EStaticMeshApplicationError::Cancelled ? EStaticMeshBuildStatus::Cancelled : EStaticMeshBuildStatus::Failed;
-		}
-	};
+
 	ENGINE_API auto FormatStaticMeshApplicationError(const FStaticMeshApplicationError& Error) -> std::string;
 
 	enum class EStaticMeshAuthoredBuildError : uint8
@@ -277,29 +257,20 @@ namespace Durin
 		std::optional<FStaticMeshPayloadError> PayloadCause;
 		std::optional<FStaticMeshLODPolicyError> LODCause;
 	};
-	struct FStaticMeshAuthoredBuildResult
-	{
-		FStaticMeshAuthoredBuildError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshAuthoredBuildError::None; }
-		auto GetStatus() const -> EStaticMeshBuildStatus
-		{
-			return Error.Code == EStaticMeshAuthoredBuildError::None ? EStaticMeshBuildStatus::Succeeded
-				: Error.Code == EStaticMeshAuthoredBuildError::Cancelled ? EStaticMeshBuildStatus::Cancelled : EStaticMeshBuildStatus::Failed;
-		}
-	};
+
 	ENGINE_API auto FormatStaticMeshAuthoredBuildError(const FStaticMeshAuthoredBuildError& Error) -> std::string;
 
 	ENGINE_API auto BuildStaticMeshDerivedData(
 		FStaticMeshBuildRequest Request,
 		FStaticMeshBuildResult& OutProduct,
-		const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshDerivedDataResult;
+		const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshDerivedDataError>;
 	ENGINE_API auto BuildStaticMeshCollisionDerivedData(
 		const FStaticMeshRenderData& RenderData,
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
 		FStaticMeshCollisionBuildResult& OutProduct,
 		bool bPersistDerivedData = true,
-		const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshDerivedDataResult;
+		const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshDerivedDataError>;
 
 	// Capture on the asset's owner thread before dispatching detached work.
 	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
@@ -311,17 +282,13 @@ namespace Durin
 		std::optional<FStaticMeshReplacementError> RenderCause;
 		std::optional<FStaticMeshCollisionError> CollisionCause;
 	};
-	struct FStaticMeshDirectBuildResult
-	{
-		FStaticMeshDirectBuildError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshDirectBuildError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshDirectBuildError(const FStaticMeshDirectBuildError& Error) -> std::string;
 
 	// Applies directly on the owner thread without rollback; reports CPU/collision build failure.
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
 		FStaticMeshSource Source, FStaticMeshBuildResult Product,
-		bool bMarkPackageDirty = true) -> FStaticMeshDirectBuildResult;
+		bool bMarkPackageDirty = true) -> std::expected<void, FStaticMeshDirectBuildError>;
 	struct FStaticMeshSubmissionError;
 	struct FStaticMeshCompilationDiagnostic;
 	enum class EStaticMeshSynchronousError : uint8 { None, Source, Submission, NoObservation, Completion };

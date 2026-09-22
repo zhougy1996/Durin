@@ -481,18 +481,18 @@ TEST(FStaticMeshPayloadCodecTests,
 	LODs[1].ScreenSize = std::numeric_limits<float>::quiet_NaN();
 	const auto NonFinite = ValidateStaticMeshLODScreenSizes(LODs);
 	EXPECT_FALSE(NonFinite);
-	EXPECT_EQ(NonFinite.Error.Code, EStaticMeshLODPolicyError::InvalidScreenSize);
-	EXPECT_EQ(NonFinite.Error.LODIndex, 1u);
-	EXPECT_EQ(NonFinite.Error.LODCount, 3u);
+	EXPECT_EQ(NonFinite.error().Code, EStaticMeshLODPolicyError::InvalidScreenSize);
+	EXPECT_EQ(NonFinite.error().LODIndex, 1u);
+	EXPECT_EQ(NonFinite.error().LODCount, 3u);
 	LODs = std::vector<FStaticMeshLODResources>(1);
-	EXPECT_TRUE(std::isnan(NonFinite.Error.ScreenSize));
+	EXPECT_TRUE(std::isnan(NonFinite.error().ScreenSize));
 	LODs.front().ScreenSize = -0.0f;
 	const auto SignedZero = ValidateStaticMeshLODScreenSizes(LODs);
 	EXPECT_FALSE(SignedZero);
-	EXPECT_EQ(SignedZero.Error.Code, EStaticMeshLODPolicyError::InvalidScreenSize);
+	EXPECT_EQ(SignedZero.error().Code, EStaticMeshLODPolicyError::InvalidScreenSize);
 	LODs.clear();
-	EXPECT_TRUE(std::signbit(SignedZero.Error.ScreenSize));
-	EXPECT_EQ(ValidateStaticMeshLODScreenSizes(LODs).Error.Code, EStaticMeshLODPolicyError::Empty);
+	EXPECT_TRUE(std::signbit(SignedZero.error().ScreenSize));
+	EXPECT_EQ(ValidateStaticMeshLODScreenSizes(LODs).error().Code, EStaticMeshLODPolicyError::Empty);
 	LODs.resize(2);
 	LODs[0].ScreenSize = 0.5f;
 	LODs[1].ScreenSize = 0.5f;
@@ -502,13 +502,13 @@ TEST(FStaticMeshPayloadCodecTests,
 	const auto Final = ValidateStaticMeshLODScreenSizes(LODs);
 	EXPECT_FALSE(Final);
 	LODs.clear();
-	EXPECT_EQ(Order.Error.Code, EStaticMeshLODPolicyError::NotDescending);
-	EXPECT_EQ(Order.Error.LODIndex, 1u);
-	EXPECT_EQ(Order.Error.ScreenSize, 0.5f);
-	EXPECT_EQ(Order.Error.PreviousScreenSize, 0.5f);
-	EXPECT_EQ(Final.Error.Code, EStaticMeshLODPolicyError::MissingFinalZero);
-	EXPECT_EQ(Final.Error.LODIndex, 1u);
-	EXPECT_EQ(Final.Error.ScreenSize, 0.25f);
+	EXPECT_EQ(Order.error().Code, EStaticMeshLODPolicyError::NotDescending);
+	EXPECT_EQ(Order.error().LODIndex, 1u);
+	EXPECT_EQ(Order.error().ScreenSize, 0.5f);
+	EXPECT_EQ(Order.error().PreviousScreenSize, 0.5f);
+	EXPECT_EQ(Final.error().Code, EStaticMeshLODPolicyError::MissingFinalZero);
+	EXPECT_EQ(Final.error().LODIndex, 1u);
+	EXPECT_EQ(Final.error().ScreenSize, 0.25f);
 }
 
 TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
@@ -1049,24 +1049,24 @@ TEST(FStaticMeshCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGe
 	FCollisionGeometryRef Output = Geometry;
 	uint32 Checks = 0;
 	const auto Cancelled = MakeStaticMeshCollisionGeometry(Payload, Output, [&] { return ++Checks == 2; });
-	EXPECT_EQ(Cancelled.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Cancelled.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
 	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
 	Payload.SourceOrdinals[1] = 3;
 	const auto Duplicate = MakeStaticMeshCollisionGeometry(Payload, Output);
-	EXPECT_EQ(Duplicate.Error.Code, EStaticMeshCollisionPayloadError::DuplicateOrdinal);
-	EXPECT_EQ(Duplicate.Error.Index, 1u);
-	EXPECT_EQ(Duplicate.Error.Ordinal, 3u);
-	EXPECT_EQ(Duplicate.Error.VertexCount, 4u);
-	EXPECT_EQ(Duplicate.Error.IndexCount, 6u);
+	EXPECT_EQ(Duplicate.error().Code, EStaticMeshCollisionPayloadError::DuplicateOrdinal);
+	EXPECT_EQ(Duplicate.error().Index, 1u);
+	EXPECT_EQ(Duplicate.error().Ordinal, 3u);
+	EXPECT_EQ(Duplicate.error().VertexCount, 4u);
+	EXPECT_EQ(Duplicate.error().IndexCount, 6u);
 	Payload.SourceOrdinals[1] = 8;
 	Payload.LeafTriangles = {99};
 	const auto Unknown = MakeStaticMeshCollisionGeometry(Payload, Output);
-	EXPECT_EQ(Unknown.Error.Code, EStaticMeshCollisionPayloadError::UnknownOrdinal);
-	EXPECT_EQ(Unknown.Error.Index, 0u);
-	EXPECT_EQ(Unknown.Error.Ordinal, 99u);
+	EXPECT_EQ(Unknown.error().Code, EStaticMeshCollisionPayloadError::UnknownOrdinal);
+	EXPECT_EQ(Unknown.error().Index, 0u);
+	EXPECT_EQ(Unknown.error().Ordinal, 99u);
 	Payload = {};
-	EXPECT_EQ(Unknown.Error.SourceMode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	EXPECT_EQ(Unknown.Error.OrdinalCount, 2u);
+	EXPECT_EQ(Unknown.error().SourceMode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	EXPECT_EQ(Unknown.error().OrdinalCount, 2u);
 	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
 }
 
@@ -1077,17 +1077,17 @@ TEST(FStaticMeshCollisionPayloadTests, InvalidExtractionAndCancellationPreserveO
 	Output.Positions.push_back(FVector3f(7, 8, 9));
 	const auto Invalid = MakeStaticMeshCollisionPayloadData({},
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output);
-	EXPECT_EQ(Invalid.Error.Code, EStaticMeshCollisionPayloadError::InvalidGeometry);
-	EXPECT_EQ(Invalid.Error.Operation, EStaticMeshCollisionPayloadOperation::Extract);
+	EXPECT_EQ(Invalid.error().Code, EStaticMeshCollisionPayloadError::InvalidGeometry);
+	EXPECT_EQ(Invalid.error().Operation, EStaticMeshCollisionPayloadOperation::Extract);
 	EXPECT_EQ(Output.Positions, (std::vector<FVector3f>{FVector3f(7, 8, 9)}));
 	const auto Cancelled = MakeStaticMeshCollisionPayloadData({},
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output, [] { return true; });
-	EXPECT_EQ(Cancelled.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Cancelled.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
 	EXPECT_EQ(Output.Positions.size(), 1u);
 	FCollisionGeometryRef Geometry;
 	const auto Construct = MakeStaticMeshCollisionGeometry(Output, Geometry, [] { return true; });
-	EXPECT_EQ(Construct.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
-	EXPECT_EQ(Construct.Error.Operation, EStaticMeshCollisionPayloadOperation::Construct);
+	EXPECT_EQ(Construct.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Construct.error().Operation, EStaticMeshCollisionPayloadOperation::Construct);
 }
 
 TEST(FStaticMeshPayloadConversionTests, RejectionOwnsStreamAndSectionContext)
@@ -1099,11 +1099,11 @@ TEST(FStaticMeshPayloadConversionTests, RejectionOwnsStreamAndSectionContext)
 	Payload.LODs[0].TexCoords[0].pop_back();
 	const auto Stream = MakeStaticMeshRenderData(Payload, Output);
 	EXPECT_FALSE(Stream);
-	EXPECT_EQ(Stream.Error.Code, EStaticMeshPayloadError::UVStreamCount);
-	EXPECT_EQ(Stream.Error.LODIndex, 0u);
-	EXPECT_EQ(Stream.Error.Channel, 0u);
-	EXPECT_EQ(Stream.Error.Actual, 2u);
-	EXPECT_EQ(Stream.Error.Expected, 3u);
+	EXPECT_EQ(Stream.error().Code, EStaticMeshPayloadError::UVStreamCount);
+	EXPECT_EQ(Stream.error().LODIndex, 0u);
+	EXPECT_EQ(Stream.error().Channel, 0u);
+	EXPECT_EQ(Stream.error().Actual, 2u);
+	EXPECT_EQ(Stream.error().Expected, 3u);
 	EXPECT_EQ(Output.get(), Original);
 
 	Payload = MakeSingleSectionFixture();
@@ -1111,17 +1111,17 @@ TEST(FStaticMeshPayloadConversionTests, RejectionOwnsStreamAndSectionContext)
 	const auto Section = MakeStaticMeshRenderData(Payload, Output);
 	EXPECT_FALSE(Section);
 	Payload = {};
-	EXPECT_EQ(Section.Error.Code, EStaticMeshPayloadError::SectionVertexMismatch);
-	EXPECT_EQ(Section.Error.LODIndex, 0u);
-	EXPECT_EQ(Section.Error.SectionIndex, 0u);
-	ASSERT_TRUE(Section.Error.Section);
-	EXPECT_EQ(Section.Error.Section->MinVertexIndex, 1u);
-	EXPECT_EQ(Section.Error.Actual, 0u);
-	EXPECT_EQ(Section.Error.Expected, 1u);
-	EXPECT_EQ(Section.Error.AdditionalActual, 2u);
-	EXPECT_EQ(Section.Error.AdditionalExpected, 2u);
+	EXPECT_EQ(Section.error().Code, EStaticMeshPayloadError::SectionVertexMismatch);
+	EXPECT_EQ(Section.error().LODIndex, 0u);
+	EXPECT_EQ(Section.error().SectionIndex, 0u);
+	ASSERT_TRUE(Section.error().Section);
+	EXPECT_EQ(Section.error().Section->MinVertexIndex, 1u);
+	EXPECT_EQ(Section.error().Actual, 0u);
+	EXPECT_EQ(Section.error().Expected, 1u);
+	EXPECT_EQ(Section.error().AdditionalActual, 2u);
+	EXPECT_EQ(Section.error().AdditionalExpected, 2u);
 	EXPECT_EQ(Output.get(), Original);
-	EXPECT_FALSE(FormatStaticMeshPayloadError(Section.Error).empty());
+	EXPECT_FALSE(FormatStaticMeshPayloadError(Section.error()).empty());
 }
 
 TEST(FStaticMeshPayloadConversionTests, RejectionOwnsAttributeAndIndexValues)
@@ -1132,18 +1132,18 @@ TEST(FStaticMeshPayloadConversionTests, RejectionOwnsAttributeAndIndexValues)
 	const auto Attribute = MakeStaticMeshRenderData(Payload, Output);
 	EXPECT_FALSE(Attribute);
 	Payload = MakeSingleSectionFixture();
-	EXPECT_EQ(Attribute.Error.Code, EStaticMeshPayloadError::NonFiniteAttribute);
-	EXPECT_EQ(Attribute.Error.Stream, EStaticMeshPayloadStream::Tangent);
-	EXPECT_EQ(Attribute.Error.ElementIndex, 1u);
-	EXPECT_TRUE(std::isinf(Attribute.Error.Value.w));
+	EXPECT_EQ(Attribute.error().Code, EStaticMeshPayloadError::NonFiniteAttribute);
+	EXPECT_EQ(Attribute.error().Stream, EStaticMeshPayloadStream::Tangent);
+	EXPECT_EQ(Attribute.error().ElementIndex, 1u);
+	EXPECT_TRUE(std::isinf(Attribute.error().Value.w));
 	Payload.LODs[0].Indices[2] = 99;
 	const auto Index = MakeStaticMeshRenderData(Payload, Output);
 	EXPECT_FALSE(Index);
 	Payload = {};
-	EXPECT_EQ(Index.Error.Code, EStaticMeshPayloadError::IndexRange);
-	EXPECT_EQ(Index.Error.ElementIndex, 2u);
-	EXPECT_EQ(Index.Error.Actual, 99u);
-	EXPECT_EQ(Index.Error.Expected, 3u);
+	EXPECT_EQ(Index.error().Code, EStaticMeshPayloadError::IndexRange);
+	EXPECT_EQ(Index.error().ElementIndex, 2u);
+	EXPECT_EQ(Index.error().Actual, 99u);
+	EXPECT_EQ(Index.error().Expected, 3u);
 	EXPECT_EQ(Output, nullptr);
 }
 
@@ -1156,23 +1156,23 @@ TEST(FStaticMeshPayloadConversionTests, InvalidExtractionAndCancellationPreserve
 	uint32 Checks = 0;
 	const auto Construction = MakeStaticMeshRenderData(Payload, RenderData, [&] { return ++Checks == 3; });
 	EXPECT_FALSE(Construction);
-	EXPECT_EQ(Construction.Error.Code, EStaticMeshPayloadError::Cancelled);
+	EXPECT_EQ(Construction.error().Code, EStaticMeshPayloadError::Cancelled);
 	EXPECT_EQ(RenderData.get(), Original);
 	FStaticMeshPayloadData Output;
 	Output.MaterialSlotCount = 123;
 	Checks = 0;
 	const auto Extraction = MakeStaticMeshPayloadData(*RenderData, Output, [&] { return ++Checks == 3; });
 	EXPECT_FALSE(Extraction);
-	EXPECT_EQ(Extraction.Error.Code, EStaticMeshPayloadError::Cancelled);
+	EXPECT_EQ(Extraction.error().Code, EStaticMeshPayloadError::Cancelled);
 	EXPECT_EQ(Output.MaterialSlotCount, 123u);
 	EXPECT_TRUE(Output.LODs.empty());
 	RenderData->LODResources[0].NumTexCoords = MaxStaticMeshUVChannels + 1;
 	const auto Invalid = MakeStaticMeshPayloadData(*RenderData, Output);
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error.Code, EStaticMeshPayloadError::UVChannelCount);
-	EXPECT_EQ(Invalid.Error.LODIndex, 0u);
-	EXPECT_EQ(Invalid.Error.Actual, MaxStaticMeshUVChannels + 1u);
-	EXPECT_EQ(Invalid.Error.Expected, MaxStaticMeshUVChannels);
+	EXPECT_EQ(Invalid.error().Code, EStaticMeshPayloadError::UVChannelCount);
+	EXPECT_EQ(Invalid.error().LODIndex, 0u);
+	EXPECT_EQ(Invalid.error().Actual, MaxStaticMeshUVChannels + 1u);
+	EXPECT_EQ(Invalid.error().Expected, MaxStaticMeshUVChannels);
 	EXPECT_EQ(Output.MaterialSlotCount, 123u);
 	EXPECT_TRUE(Output.LODs.empty());
 }

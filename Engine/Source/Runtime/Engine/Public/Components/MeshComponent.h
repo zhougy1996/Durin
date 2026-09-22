@@ -45,7 +45,7 @@ namespace Durin
 	private:
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
-		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> FStaticMeshMaterialOverrideResult;
+		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> std::expected<void, FStaticMeshMaterialOverrideError>;
 
 		// Keep dormant indices across mesh replacement; only non-null overrides are authored.
 		DPROPERTY()

@@ -604,10 +604,9 @@ namespace Durin
 		return true;
 	}
 
-
 	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
 		FStaticMeshRecipeBuildProduct& OutProduct,
-		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshRecipeResult
+		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<void, FStaticMeshRecipeError>
 	{
 		OutProduct = {};
 		FStaticMeshRecipeError Error;
@@ -618,18 +617,19 @@ namespace Durin
 			Control.Check();
 			if (!bSucceeded) OutProduct = {};
 			Error.Kind = EStaticMeshRecipeKind::Render;
-			return {std::move(Error)};
+			if (bSucceeded) return {};
+			return std::unexpected(std::move(Error));
 		}
 		catch (const FRecipeCancelled&)
 		{
 			OutProduct = {};
-			return {{.Code = EStaticMeshRecipeError::Cancelled, .Kind = EStaticMeshRecipeKind::Render}};
+			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled, .Kind = EStaticMeshRecipeKind::Render});
 		}
 	}
 
 	auto FStaticMeshBuildOperations::BuildCollisionRecipe(const FStaticMeshCollisionRecipeRequest& Request,
 		FStaticMeshCollisionRecipeProduct& OutProduct,
-		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshRecipeResult
+		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<void, FStaticMeshRecipeError>
 	{
 		OutProduct = {};
 		FStaticMeshRecipeError Error;
@@ -640,7 +640,8 @@ namespace Durin
 			Control.Check();
 			if (!bSucceeded) OutProduct = {};
 			Error.Kind = EStaticMeshRecipeKind::Collision;
-			return {std::move(Error)};
+			if (bSucceeded) return {};
+			return std::unexpected(std::move(Error));
 		}
 		catch (const FRecipeCancelled&)
 		{
@@ -648,7 +649,7 @@ namespace Durin
 			Error.Code = EStaticMeshRecipeError::Cancelled;
 			Error.Kind = EStaticMeshRecipeKind::Collision;
 			Error.Mode = Request.Mode;
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 	}
 

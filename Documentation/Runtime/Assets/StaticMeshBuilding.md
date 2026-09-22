@@ -4,12 +4,16 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 ## Source ownership and publication
 
-Source, recipe, application, payload, key, and derived-build APIs return typed
-results with owned failure context, without diagnostic-output parameters. Adapters
+Source, recipe, application, payload, key, and derived-build APIs return
+`std::expected<T, E>` directly, with operation-owned failure context and no
+redundant success flag. Commands and conversions retaining caller-owned outputs
+return `std::expected<void, E>` and preserve their documented output behavior.
+Source acquisition and key factories return their successful values by value.
+Read `error()` only on failure; cancellation remains a distinct error code. Adapters
 format at presentation boundaries; the sections below define output preservation
 and nested causes for each operation.
 
@@ -45,11 +49,11 @@ in identity prevents reuse of the previous cache. Existing cooked-load, GPU and
 collision revisions continue to qualify runtime state independently.
 
 Fresh standalone/Scene import initializes source once before Engine DDC lookup.
-Initialization returns `FStaticMeshSourceResult`, retaining owned validation,
+Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining owned validation,
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 Recipes receive only an owning decoded handle and recipe settings. Provider feature
-version 4 returns `FStaticMeshRecipeResult`.
+version 5 returns `std::expected<void, FStaticMeshRecipeError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and complete
 physics-build diagnostics, including cancellation. Failed or canceled recipes clear
 the product. Derived-data orchestration retains `RecipeCause` in its typed error.
@@ -61,7 +65,7 @@ ray and collision product. `ApplyStaticMeshAuthoredCandidate` consumes it on the
 owner thread after checking the captured source/material/body facts and final
 cancellation state. It restores material object bindings from the owner-thread
 snapshot and performs no CPU collision, ray-tree or bounds construction.
-Its `FStaticMeshApplicationResult` has no stored success flag. Rejection owns object keys, expected/current/input facts and slot
+Its `std::expected<void, FStaticMeshApplicationError>` has no parallel success flag. Rejection owns object keys, expected/current/input facts and slot
 names, with nested import-validation or publication causes. Completion diagnostics
 retain `ApplicationCause`; completion/import adapters format explicitly.
 Source, normalization, slots, render and collision become current before one
@@ -93,7 +97,7 @@ source, and cooked loading uses neither source acquisition nor a build provider.
 
 ## Payload results and cancellation
 
-Source acquisition returns `FStaticMeshSourceReadResult`, retaining resource-read causes, Archive code/path and owned validation
+Source acquisition returns `std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
 counts, mesh/field identity and rejected values. It supports a borrowed cancellation
 predicate under its residency lock; the predicate must not reenter that source. A canceled decode never publishes
 partial residency. Ray construction supports borrowed cancellation through its
@@ -101,11 +105,11 @@ triangle/bounds loops and sort/partition work. Null optional ray acceleration
 retains exact reference traversal. Render/collision payload conversion, encoding,
 decoding and validation also accept borrowed predicates and check at most every
 256 scalar/record work units. Collision payload extraction and reconstruction
-return `FStaticMeshCollisionPayloadResult`, owning geometry/mode, counts, rejected
+return `std::expected<void, FStaticMeshCollisionPayloadError>`, owning geometry/mode, counts, rejected
 indices/ordinals and vertex context. Construction latches cancellation across
 the physics builder so it cannot become a topology rejection. Both APIs
 preserve output on failure. Archive/provider adapters format explicitly; CookedMesh product errors retain
-`CollisionCause`. Render conversion returns `FStaticMeshPayloadResult` with owned
+`CollisionCause`. Render conversion returns `std::expected<void, FStaticMeshPayloadError>` with owned
 LOD/stream/section indices, rejected attribute values, bounds and actual/expected
 counts or ranges. It preserves outputs on rejection/cancellation; CookedMesh product errors retain `RenderCause`.
 Cooked product decoding returns `FCookedMeshProductResult`, preserving Archive
@@ -134,15 +138,20 @@ platform. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; provider
 adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
-failures. Public derived-data builds return `FStaticMeshDerivedDataResult`;
-success/cancellation derives from its typed code.
+failures. Public derived-data builds return `std::expected<void, FStaticMeshDerivedDataError>`;
+failure and cancellation retain their typed codes.
 Errors retain provider, key, source, recipe and payload causes. Successful rebuilds
 retain `CacheDecodeCause`. Authored candidate construction returns
-`FStaticMeshAuthoredBuildResult`, retaining derived-data,
+`std::expected<void, FStaticMeshAuthoredBuildError>`, retaining derived-data,
 payload and LOD causes, provider descriptors, rejected input facts and budget
 estimates. Budget failures own the limit, accumulated bytes and rejected count/
 width; cancellation owns its phase and nested cause when available. Compilation
 diagnostics retain `BuildCause` while formatting their outer message.
+Value/observation records `FStaticMeshBuildResult` and
+`FStaticMeshCollisionBuildResult` remain detached products.
+`FStaticMeshSynchronousResult` remains a report because persistence diagnostics
+are meaningful on success and failure. Compilation, cooked residency and Level
+mutation reports retain their independent lifecycle and partial-effect states.
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 

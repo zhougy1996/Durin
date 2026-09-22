@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "Collision/CollisionGeometry.h"
 #include "Modules/ModularFeature.h"
@@ -10,14 +12,6 @@
 
 namespace Durin
 {
-	// Detached build outcome, independent of request supersession and resource readiness.
-	enum class EStaticMeshBuildStatus : uint8
-	{
-		Succeeded,
-		Failed,
-		Cancelled
-	};
-
 	enum class EStaticMeshRecipeError : uint8
 	{
 		None, MissingGeometry, VertexLimit, TriangleList, NonFinitePosition, IndexRange,
@@ -41,16 +35,7 @@ namespace Durin
 		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
 		std::optional<FCollisionGeometryBuildDiagnostics> CollisionCause;
 	};
-	struct FStaticMeshRecipeResult
-	{
-		FStaticMeshRecipeError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshRecipeError::None; }
-		auto GetStatus() const -> EStaticMeshBuildStatus
-		{
-			return Error.Code == EStaticMeshRecipeError::None ? EStaticMeshBuildStatus::Succeeded
-				: Error.Code == EStaticMeshRecipeError::Cancelled ? EStaticMeshBuildStatus::Cancelled : EStaticMeshBuildStatus::Failed;
-		}
-	};
+
 	ENGINE_API auto FormatStaticMeshRecipeError(const FStaticMeshRecipeError& Error) -> std::string;
 
 	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
@@ -155,17 +140,17 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 4;
+		static constexpr uint32 FeatureVersion = 5;
 
 		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
 		virtual auto BuildRender(
 			const FStaticMeshRecipeBuildRequest& Request,
 			FStaticMeshRecipeBuildProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshRecipeResult = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError> = 0;
 		virtual auto BuildCollision(
 			const FStaticMeshCollisionRecipeRequest& Request,
 			FStaticMeshCollisionRecipeProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshRecipeResult = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshRecipeError> = 0;
 	};
 
 }

@@ -123,12 +123,12 @@ namespace Durin
 
 		auto RestoreRuntimeMetadata(
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			FStaticMeshRenderData& RenderData) -> FStaticMeshCacheCodecResult
+			FStaticMeshRenderData& RenderData) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
 			{
-				return {{.Code = EStaticMeshCacheCodecError::MaterialSlots, .Operation = EStaticMeshCacheCodecOperation::DecodeRender,
-					.Actual = RenderData.MaterialSlots.size(), .Expected = MaterialSlots.size()}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::MaterialSlots, .Operation = EStaticMeshCacheCodecOperation::DecodeRender,
+					.Actual = RenderData.MaterialSlots.size(), .Expected = MaterialSlots.size()});
 			}
 			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
 			{
@@ -180,7 +180,7 @@ namespace Durin
 			return RenderData;
 		}
 
-		auto ArchiveCodecFailure(const FArchive& Ar, EStaticMeshCacheCodecOperation Operation) -> FStaticMeshCacheCodecResult
+		auto ArchiveCodecFailure(const FArchive& Ar, EStaticMeshCacheCodecOperation Operation) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			FStaticMeshCacheCodecError Error{.Code = EStaticMeshCacheCodecError::Archive, .Operation = Operation, .Actual = Ar.Tell()};
 			if (const auto* Failure = Ar.GetFailure())
@@ -188,15 +188,15 @@ namespace Durin
 				Error.ArchiveCode = Failure->Code;
 				Error.ArchivePath = Failure->Path;
 			}
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
 		auto EncodeRenderData(const FStaticMeshRenderData& RenderData, FByteBuffer& OutBytes,
-			const std::function<bool()>& ShouldCancel) -> FStaticMeshCacheCodecResult
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			FStaticMeshPayloadData Payload;
 			if (const auto Built = MakeStaticMeshPayloadData(RenderData, Payload, ShouldCancel); !Built)
-				return {{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::EncodeRender, .RenderCause = Built.Error}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::EncodeRender, .RenderCause = Built.error()});
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
@@ -208,23 +208,23 @@ namespace Durin
 
 		auto DecodeRenderData(FByteView Bytes, std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-			const std::function<bool()>& ShouldCancel) -> FStaticMeshCacheCodecResult
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			FStaticMeshPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
 			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeRender);
 			if (const auto Built = MakeStaticMeshRenderData(Payload, OutRenderData, ShouldCancel); !Built)
-				return {{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeRender, .RenderCause = Built.Error}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeRender, .RenderCause = Built.error()});
 			return RestoreRuntimeMetadata(MaterialSlots, *OutRenderData);
 		}
 
 		auto EncodeCollision(const FCollisionGeometryRef& Geometry, EBodySetupCollisionQueryPolicy Policy,
-			FByteBuffer& OutBytes, const std::function<bool()>& ShouldCancel) -> FStaticMeshCacheCodecResult
+			FByteBuffer& OutBytes, const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			FStaticMeshCollisionPayloadData Payload;
 			if (const auto Built = MakeStaticMeshCollisionPayloadData(Geometry, Policy, Payload, ShouldCancel); !Built)
-				return {{.Code = EStaticMeshCacheCodecError::CollisionPayload, .Operation = EStaticMeshCacheCodecOperation::EncodeCollision, .CollisionCause = Built.Error}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::CollisionPayload, .Operation = EStaticMeshCacheCodecOperation::EncodeCollision, .CollisionCause = Built.error()});
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
@@ -236,17 +236,17 @@ namespace Durin
 
 		auto DecodeCollision(FByteView Bytes, EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy, FCollisionGeometryRef& OutGeometry,
-			const std::function<bool()>& ShouldCancel) -> FStaticMeshCacheCodecResult
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
 		{
 			FStaticMeshCollisionPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
 			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeCollision);
 			if (Payload.SourceMode != Mode || Payload.QueryPolicy != Policy)
-				return {{.Code = EStaticMeshCacheCodecError::CollisionMetadata, .Operation = EStaticMeshCacheCodecOperation::DecodeCollision,
-					.ActualMode = Payload.SourceMode, .ExpectedMode = Mode, .ActualPolicy = Payload.QueryPolicy, .ExpectedPolicy = Policy}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::CollisionMetadata, .Operation = EStaticMeshCacheCodecOperation::DecodeCollision,
+					.ActualMode = Payload.SourceMode, .ExpectedMode = Mode, .ActualPolicy = Payload.QueryPolicy, .ExpectedPolicy = Policy});
 			if (const auto Built = MakeStaticMeshCollisionGeometry(Payload, OutGeometry, ShouldCancel); !Built)
-				return {{.Code = EStaticMeshCacheCodecError::CollisionPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeCollision, .CollisionCause = Built.Error}};
+				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::CollisionPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeCollision, .CollisionCause = Built.error()});
 			return {};
 		}
 
@@ -293,10 +293,10 @@ namespace Durin
 			auto KeyResult = BuildStaticMeshDerivedDataKey(KeyInput);
 			if (!KeyResult)
 			{
-				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.Error};
+				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.error()};
 				return false;
 			}
-			FCacheKeyProxy Key = KeyResult.Key;
+			FCacheKeyProxy Key = *KeyResult;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FByteBuffer Bytes;
 			std::optional<FStaticMeshCacheCodecError> CacheDecodeCause;
@@ -319,26 +319,26 @@ namespace Durin
 						.PayloadBytes = Bytes.size()};
 					return true;
 				}
-				CacheDecodeCause = Decoded.Error;
+				CacheDecodeCause = Decoded.error();
 			}
 			if (IsCancelled()) return false;
 			auto Decoded = Request.Source.AcquireGeometry(IsCancelled);
 			if (!Decoded)
-				OutError = {.Code = Decoded.Error.Code == EStaticMeshSourceError::Cancelled
-					? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Source, .SourceCause = Decoded.Error};
+				OutError = {.Code = Decoded.error().Code == EStaticMeshSourceError::Cancelled
+					? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Source, .SourceCause = Decoded.error()};
 			if (IsCancelled() || !Decoded) return false;
 			std::vector<FStaticMeshRecipeMaterialSlot> RecipeSlots;
 			for (const auto& Slot : Request.Reconciliation.MaterialSlots)
 				RecipeSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
 			FStaticMeshRecipeBuildProduct RecipeProduct;
-			const FStaticMeshRecipeResult RecipeOutcome = Provider.BuildRender({
-				.Geometry = std::move(Decoded.Geometry),
+			const std::expected<void, FStaticMeshRecipeError> RecipeOutcome = Provider.BuildRender({
+				.Geometry = std::move(*Decoded),
 				.PreviousMaterialSlots = RecipeSlots,
 				.NormalizedSize = Request.Reconciliation.NormalizedSize}, RecipeProduct, Control);
 			if (!RecipeOutcome)
 			{
-				OutError = {.Code = RecipeOutcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
-					? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Recipe, .RecipeCause = RecipeOutcome.Error};
+				OutError = {.Code = (!RecipeOutcome && RecipeOutcome.error().Code == EStaticMeshRecipeError::Cancelled)
+					? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Recipe, .RecipeCause = RecipeOutcome.error()};
 				return false;
 			}
 			if (IsCancelled()) return false;
@@ -346,7 +346,7 @@ namespace Durin
 			if (!RenderData) return false;
 			if (const auto Encoded = EncodeRenderData(*RenderData, Bytes, IsCancelled); !Encoded)
 			{
-				OutError = {.Code = EStaticMeshDerivedDataError::Payload, .PayloadCause = Encoded.Error};
+				OutError = {.Code = EStaticMeshDerivedDataError::Payload, .PayloadCause = Encoded.error()};
 				return false;
 			}
 			std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
@@ -365,10 +365,10 @@ namespace Durin
 			KeyResult = BuildStaticMeshDerivedDataKey(KeyInput);
 			if (!KeyResult)
 			{
-				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.Error};
+				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.error()};
 				return false;
 			}
-			Key = KeyResult.Key;
+			Key = *KeyResult;
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 			if (IsCancelled()) return false;
 			if (Request.bPersistDerivedData)
@@ -457,10 +457,10 @@ namespace Durin
 			const auto KeyResult = BuildStaticMeshCollisionDerivedDataKey(KeyInput);
 			if (!KeyResult)
 			{
-				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.Error};
+				OutError = {.Code = EStaticMeshDerivedDataError::Key, .KeyCause = KeyResult.error()};
 				return false;
 			}
-			const FCacheKeyProxy Key = KeyResult.Key;
+			const FCacheKeyProxy Key = *KeyResult;
 			FByteBuffer Bytes;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FCollisionGeometryRef Geometry;
@@ -475,27 +475,27 @@ namespace Durin
 				bCacheHit = bool(Decoded);
 				if (!Decoded)
 				{
-					CacheDecodeCause = Decoded.Error;
+					CacheDecodeCause = Decoded.error();
 				}
 			}
 			if (IsCancelled()) return false;
 			if (!bCacheHit)
 			{
 				FStaticMeshCollisionRecipeProduct RecipeProduct;
-				const FStaticMeshRecipeResult RecipeOutcome = Provider.BuildCollision(
+				const std::expected<void, FStaticMeshRecipeError> RecipeOutcome = Provider.BuildCollision(
 					{Positions, Indices, Mode, Policy}, RecipeProduct, Control);
 				if (!RecipeOutcome || !RecipeProduct.Geometry)
 				{
 					OutError.Code = RecipeOutcome ? EStaticMeshDerivedDataError::InvalidProduct
-						: RecipeOutcome.GetStatus() == EStaticMeshBuildStatus::Cancelled ? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Recipe;
-					if (!RecipeOutcome) OutError.RecipeCause = RecipeOutcome.Error;
+						: (!RecipeOutcome && RecipeOutcome.error().Code == EStaticMeshRecipeError::Cancelled) ? EStaticMeshDerivedDataError::Cancelled : EStaticMeshDerivedDataError::Recipe;
+					if (!RecipeOutcome) OutError.RecipeCause = RecipeOutcome.error();
 					return false;
 				}
 				Geometry = std::move(RecipeProduct.Geometry);
 				if (IsCancelled()) return false;
 				if (const auto Encoded = EncodeCollision(Geometry, Policy, Bytes, IsCancelled); !Encoded)
 				{
-					OutError = {.Code = EStaticMeshDerivedDataError::Payload, .PayloadCause = Encoded.Error};
+					OutError = {.Code = EStaticMeshDerivedDataError::Payload, .PayloadCause = Encoded.error()};
 					return false;
 				}
 				OutError = {};
@@ -533,27 +533,29 @@ namespace Durin
 
 	auto BuildStaticMeshDerivedData(FStaticMeshBuildRequest Request,
 		FStaticMeshBuildResult& OutProduct,
-		const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshDerivedDataResult
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshDerivedDataError>
 	{
 		FStaticMeshDerivedDataError Error;
 		const bool bSucceeded = BuildStaticMeshDerivedDataInternal(std::move(Request), OutProduct, Error, Control);
 		if (Control.IsCancelled()) Error.Code = EStaticMeshDerivedDataError::Cancelled;
 		else if (!bSucceeded && Error.Code == EStaticMeshDerivedDataError::None) Error.Code = EStaticMeshDerivedDataError::InvalidProduct;
-		if (Error.Code != EStaticMeshDerivedDataError::None) OutProduct = {};
-		return {std::move(Error)};
+		if (Error.Code == EStaticMeshDerivedDataError::None) return {};
+		OutProduct = {};
+		return std::unexpected(std::move(Error));
 	}
 
 	auto BuildStaticMeshCollisionDerivedData(const FStaticMeshRenderData& RenderData,
 		EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
 		FStaticMeshCollisionBuildResult& OutProduct, bool bPersistDerivedData,
-		const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshDerivedDataResult
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshDerivedDataError>
 	{
 		FStaticMeshDerivedDataError Error;
 		const bool bSucceeded = BuildStaticMeshCollisionDerivedDataInternal(RenderData, Mode, Policy, OutProduct, Error, bPersistDerivedData, Control);
 		if (Control.IsCancelled()) Error.Code = EStaticMeshDerivedDataError::Cancelled;
 		else if (!bSucceeded && Error.Code == EStaticMeshDerivedDataError::None) Error.Code = EStaticMeshDerivedDataError::InvalidProduct;
 		Error.Kind = EStaticMeshRecipeKind::Collision;
-		if (Error.Code != EStaticMeshDerivedDataError::None) OutProduct = {};
-		return {std::move(Error)};
+		if (Error.Code == EStaticMeshDerivedDataError::None) return {};
+		OutProduct = {};
+		return std::unexpected(std::move(Error));
 	}
 }

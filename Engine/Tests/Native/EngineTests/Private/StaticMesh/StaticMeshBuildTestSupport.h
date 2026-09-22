@@ -117,9 +117,9 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(Source.Initialize(std::move(Input)));
 			const auto Read = Source.AcquireGeometry();
 			ASSERT_TRUE(Read);
-			auto Decoded = Read.Geometry;
+			auto Decoded = *Read;
 			EXPECT_EQ(Decoded->Meshes.front().Positions.size(), Triangles * 3);
-			EXPECT_EQ(Source.AcquireGeometry().Geometry, Decoded);
+			EXPECT_EQ(Source.AcquireGeometry().value(), Decoded);
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
@@ -243,7 +243,7 @@ namespace StaticMeshBuildTestSupport
 				return false;
 			}, .Metrics = &Metrics});
 		const auto Built = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Outcome) << FormatStaticMeshAuthoredBuildError(Outcome.Error);
+		ASSERT_TRUE(Outcome) << FormatStaticMeshAuthoredBuildError(Outcome.error());
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
 		ASSERT_TRUE(ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
@@ -277,7 +277,8 @@ namespace StaticMeshBuildTestSupport
 					return false;
 				}});
 			ASSERT_TRUE(bRequested);
-			EXPECT_EQ(Cancelled.GetStatus(), EStaticMeshBuildStatus::Cancelled);
+			ASSERT_FALSE(Cancelled);
+			EXPECT_EQ(Cancelled.error().Code, EStaticMeshAuthoredBuildError::Cancelled);
 			EXPECT_FALSE(CancelledCandidate);
 			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(

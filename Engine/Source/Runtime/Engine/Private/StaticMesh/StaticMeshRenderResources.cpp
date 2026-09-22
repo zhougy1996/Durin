@@ -609,9 +609,9 @@ namespace Durin
 	}
 
 	auto ValidateStaticMeshLODScreenSizes(
-		std::span<const FStaticMeshLODResources> LODResources) -> FStaticMeshLODPolicyResult
+		std::span<const FStaticMeshLODResources> LODResources) -> std::expected<void, FStaticMeshLODPolicyError>
 	{
-		if (LODResources.empty()) return {{.Code = EStaticMeshLODPolicyError::Empty}};
+		if (LODResources.empty()) return std::unexpected(FStaticMeshLODPolicyError{.Code = EStaticMeshLODPolicyError::Empty});
 		for (size_t LODIndex = 0; LODIndex < LODResources.size(); ++LODIndex)
 		{
 			const float ScreenSize = LODResources[LODIndex].ScreenSize;
@@ -621,18 +621,18 @@ namespace Durin
 				|| (ScreenSize == 0.0f && std::signbit(ScreenSize)))
 			{
 				Error.Code = EStaticMeshLODPolicyError::InvalidScreenSize;
-				return {Error};
+				return std::unexpected(Error);
 			}
 			if (LODIndex > 0 && ScreenSize >= LODResources[LODIndex - 1].ScreenSize)
 			{
 				Error.Code = EStaticMeshLODPolicyError::NotDescending;
-				return {Error};
+				return std::unexpected(Error);
 			}
 		}
 		if (LODResources.back().ScreenSize != 0.0f)
-			return {{.Code = EStaticMeshLODPolicyError::MissingFinalZero,
+			return std::unexpected(FStaticMeshLODPolicyError{.Code = EStaticMeshLODPolicyError::MissingFinalZero,
 				.LODIndex = LODResources.size() - 1, .LODCount = LODResources.size(),
-				.ScreenSize = LODResources.back().ScreenSize}};
+				.ScreenSize = LODResources.back().ScreenSize});
 		return {};
 	}
 }

@@ -254,28 +254,28 @@ namespace Durin
 	}
 
 	auto FStaticMeshSource::Initialize(
-		FStaticMeshDecodedGeometry Value) -> FStaticMeshSourceResult
+		FStaticMeshDecodedGeometry Value) -> std::expected<void, FStaticMeshSourceError>
 	{
 		uint64 WireBytes = 0;
 		FStaticMeshSourceError Validation;
 		if (!ValidateStaticMeshDecodedGeometry(Value, Validation, &WireBytes))
 		{
-			return {std::move(Validation)};
+			return std::unexpected(std::move(Validation));
 		}
 		FByteBuffer Bytes;
 		Bytes.reserve(static_cast<size_t>(WireBytes));
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshSourceGeometry(Ar, Value);
 		if (Ar.IsError())
-			return {{.Code = EStaticMeshSourceError::EncodeArchive,
-				.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
+			return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::EncodeArchive,
+				.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path});
 		if (Bytes.size() > MaximumStaticMeshSourceBytes)
-			return {{.Code = EStaticMeshSourceError::EncodedSize, .Actual = Bytes.size(), .Expected = MaximumStaticMeshSourceBytes}};
+			return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::EncodedSize, .Actual = Bytes.size(), .Expected = MaximumStaticMeshSourceBytes});
 		FStaticMeshSource Candidate;
 		Candidate.Geometry = Geometry;
 		if (const auto Updated = Candidate.Geometry.UpdatePayload(FSharedByteBuffer::Take(std::move(Bytes))); !Updated)
 		{
-			return {{.Code = EStaticMeshSourceError::BulkUpdate, .BulkCause = Updated.error()}};
+			return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::BulkUpdate, .BulkCause = Updated.error()});
 		}
 		Candidate.MaterialSlotCount = static_cast<uint32>(Value.MaterialSlots.size());
 		Candidate.MeshCount = static_cast<uint32>(Value.Meshes.size());
@@ -286,7 +286,7 @@ namespace Durin
 	}
 
 	auto FStaticMeshSource::AcquireGeometry(const std::function<bool()>& ShouldCancel) const
-		-> FStaticMeshSourceReadResult
+		-> std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>
 	{
 		std::lock_guard Lock(ResidencyMutex);
 		FSourceReadControl Control{ShouldCancel};
@@ -294,46 +294,46 @@ namespace Durin
 		{
 			Control.Check();
 			const FXxHash128 Identity = GetIdentity();
-			if (ResidentGeometry && ResidentIdentity == Identity) return {.Geometry = ResidentGeometry};
+			if (ResidentGeometry && ResidentIdentity == Identity) return ResidentGeometry;
 			ResidentGeometry.reset();
 			if (!IsValid())
 			{
-				return {.Error = {.Code = EStaticMeshSourceError::InvalidHeader, .SlotCount = MaterialSlotCount, .MeshCount = MeshCount}};
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::InvalidHeader, .SlotCount = MaterialSlotCount, .MeshCount = MeshCount});
 			}
 			const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
 			Control.Check();
 			if (!Payload)
 			{
-				return {.Error = {.Code = EStaticMeshSourceError::Read, .ReadCause = Payload}};
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload});
 			}
 			const FByteView Bytes = Payload->GetBytes();
 			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshSourceBytes)
 			{
-				return {.Error = {.Code = EStaticMeshSourceError::PayloadSize, .Actual = Bytes.size(), .Expected = Geometry.GetPayloadSize()}};
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::PayloadSize, .Actual = Bytes.size(), .Expected = Geometry.GetPayloadSize()});
 			}
 			auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 			SerializeStaticMeshSourceGeometry(Ar, *Decoded, &Control);
 			if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			{
-				return {.Error = {.Code = EStaticMeshSourceError::Archive, .Actual = Ar.Tell(), .Expected = Bytes.size(),
-					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::Archive, .Actual = Ar.Tell(), .Expected = Bytes.size(),
+					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path});
 			}
 			if (Decoded->MaterialSlots.size() != MaterialSlotCount || Decoded->Meshes.size() != MeshCount)
 			{
-				return {.Error = {.Code = EStaticMeshSourceError::MetadataCounts, .SlotCount = Decoded->MaterialSlots.size(), .MeshCount = Decoded->Meshes.size(),
-					.ExpectedSlotCount = MaterialSlotCount, .ExpectedMeshCount = MeshCount}};
+				return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::MetadataCounts, .SlotCount = Decoded->MaterialSlots.size(), .MeshCount = Decoded->Meshes.size(),
+					.ExpectedSlotCount = MaterialSlotCount, .ExpectedMeshCount = MeshCount});
 			}
 			FStaticMeshSourceError Validation;
-			if (!ValidateStaticMeshDecodedGeometry(*Decoded, Validation, nullptr, &Control)) return {.Error = std::move(Validation)};
+			if (!ValidateStaticMeshDecodedGeometry(*Decoded, Validation, nullptr, &Control)) return std::unexpected(std::move(Validation));
 			Control.Check();
 			ResidentIdentity = Identity;
 			ResidentGeometry = std::move(Decoded);
-			return {.Geometry = ResidentGeometry};
+			return ResidentGeometry;
 		}
 		catch (const FSourceReadCancelled&)
 		{
-			return {.Error = {.Code = EStaticMeshSourceError::Cancelled}};
+			return std::unexpected(FStaticMeshSourceError{.Code = EStaticMeshSourceError::Cancelled});
 		}
 	}
 

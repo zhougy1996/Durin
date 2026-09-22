@@ -350,7 +350,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::InvalidPlan,
 				"scene-plan", !DestinationDirectory.IsValid()
-					? "Scene import plan settings are invalid." : FormatStaticMeshImportSettingsError(SettingsValidation.Error));
+					? "Scene import plan settings are invalid." : FormatStaticMeshImportSettingsError(SettingsValidation.error()));
 			return false;
 		}
 		OutPlan = {};

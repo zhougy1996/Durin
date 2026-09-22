@@ -98,7 +98,7 @@ namespace Durin
 			FCollisionGeometryRef Geometry;
 			if (const auto Built = MakeStaticMeshCollisionGeometry(CollisionPayload, Geometry); !Built)
 			{
-				return {{.Code = ECookedMeshProductError::CollisionConstruction, .CollisionCause = Built.Error}};
+				return {{.Code = ECookedMeshProductError::CollisionConstruction, .CollisionCause = Built.error()}};
 			}
 			if (CollisionMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 				Candidate.SimpleCollision = std::move(Geometry);
@@ -118,7 +118,7 @@ namespace Durin
 				.Actual = Payload.MaterialSlotCount, .Expected = MaterialSlots.size()}};
 		if (const auto Result = MakeStaticMeshRenderData(Payload, Candidate.RenderData); !Result)
 		{
-			return {{.Code = ECookedMeshProductError::RenderConstruction, .RenderCause = Result.Error}};
+			return {{.Code = ECookedMeshProductError::RenderConstruction, .RenderCause = Result.error()}};
 		}
 		if (const auto Result = RestoreStaticMeshRuntimeMetadata(MaterialSlots, *Candidate.RenderData); !Result)
 			return Result;

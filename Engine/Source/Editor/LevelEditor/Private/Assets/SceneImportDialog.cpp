@@ -118,8 +118,8 @@ namespace Durin::Editor::Level
 		if (PreviousDirectory != DestinationDirectory.GetPath()) bMaterialPreviewDirty = true;
 		const FContentDirectoryValidation DestinationValidation = DestinationDirectory.Inspect();
 		const auto SettingsValidation = Coordinates.GetSettings().Validate();
-		const bool bImportSettingsValid = SettingsValidation.Succeeded();
-		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
+		const bool bImportSettingsValid = SettingsValidation.has_value();
+		const std::string ImportSettingsError = SettingsValidation ? std::string{} : FormatStaticMeshImportSettingsError(SettingsValidation.error());
 		if (!Session && bSourceExists && bSupportedSource && bImportSettingsValid && DestinationValidation)
 		{
 			Session = std::make_unique<AssetForge::Builtins::FSceneImportSession>(

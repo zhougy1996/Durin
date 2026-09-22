@@ -4,8 +4,6 @@
 #include "Serialization/Archive.h"
 #include "Serialization/BinaryFormat.h"
 
-
-
 namespace Durin
 {
 	namespace
@@ -46,7 +44,6 @@ namespace Durin
 		inline constexpr uint32 StaticMeshChunkCompressionZstandard = 1;
 		inline constexpr uint64 StaticMeshMaximumCompressionRatio = 64;
 
-
 		auto IsFinite(const FVector2f& Value) -> bool
 		{
 			return std::isfinite(Value.x) && std::isfinite(Value.y);
@@ -77,14 +74,14 @@ namespace Durin
 				&& static_cast<double>(static_cast<float>(Bounds.Max.z)) == Bounds.Max.z;
 		}
 
-		auto ValidatePayload(const FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> FStaticMeshPayloadResult
+		auto ValidatePayload(const FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> std::expected<void, FStaticMeshPayloadError>
 		{
 			FStaticMeshPayloadError Error;
 			const auto Reject = [&](EStaticMeshPayloadError Code, uint64 Actual = 0, uint64 Expected = 0) {
 				Error.Code = Code;
 				Error.Actual = Actual;
 				Error.Expected = Expected;
-				return FStaticMeshPayloadResult{Error};
+				return std::unexpected(Error);
 			};
 			Error.Bounds = Payload.LocalBounds;
 			if (!IsValidBounds(Payload.LocalBounds)) return Reject(EStaticMeshPayloadError::Bounds);
@@ -429,7 +426,6 @@ namespace Durin
 				.AllowTrailingZeroPadding = true};
 		}
 
-
 	}
 
 	auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string
@@ -472,7 +468,7 @@ namespace Durin
 	auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel) -> FStaticMeshPayloadResult
+		const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshPayloadError>
 	try
 	{
 		FPayloadBuildControl Control{ShouldCancel};
@@ -503,8 +499,8 @@ namespace Durin
 			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-				return {{.Code = EStaticMeshPayloadError::UVChannelCount, .LODIndex = Payload.LODs.size() - 1,
-					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels}};
+				return std::unexpected(FStaticMeshPayloadError{.Code = EStaticMeshPayloadError::UVChannelCount, .LODIndex = Payload.LODs.size() - 1,
+					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels});
 			LOD.bHasVertexColors =
 				SourceLOD.bHasColorVertexData;
 			const auto& SourceTexCoords =
@@ -541,13 +537,13 @@ namespace Durin
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return {{.Code = EStaticMeshPayloadError::Cancelled}};
+		return std::unexpected(FStaticMeshPayloadError{.Code = EStaticMeshPayloadError::Cancelled});
 	}
 
 	auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		const std::function<bool()>& ShouldCancel) -> FStaticMeshPayloadResult
+		const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshPayloadError>
 	try
 	{
 		FPayloadBuildControl Control{ShouldCancel};
@@ -609,7 +605,7 @@ namespace Durin
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return {{.Code = EStaticMeshPayloadError::Cancelled}};
+		return std::unexpected(FStaticMeshPayloadError{.Code = EStaticMeshPayloadError::Cancelled});
 	}
 
 	namespace
@@ -619,7 +615,6 @@ namespace Durin
 			return (Offset + StaticMeshCollisionPayloadAlignment - 1)
 				& ~(static_cast<uint64>(StaticMeshCollisionPayloadAlignment) - 1);
 		}
-
 
 	}
 
@@ -650,18 +645,18 @@ namespace Durin
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel) -> FStaticMeshCollisionPayloadResult
+		const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCollisionPayloadError>
 	try
 	{
 		auto Reject = [&](EStaticMeshCollisionPayloadError Code, uint64 Index = 0, FVector3 Position = FVector3(0)) {
-			FStaticMeshCollisionPayloadResult Result{.Error = {.Code = Code,
+			std::expected<void, FStaticMeshCollisionPayloadError> Result = std::unexpected(FStaticMeshCollisionPayloadError{.Code = Code,
 				.Operation = EStaticMeshCollisionPayloadOperation::Extract,
 				.VertexCount = Geometry ? Geometry.GetVertexCount() : 0,
 				.IndexCount = Geometry ? uint64(Geometry.GetTriangleCount()) * 3 : 0,
 				.NodeCount = Geometry ? Geometry.GetNodeCount() : 0,
 				.LeafCount = Geometry ? Geometry.GetLeafTriangleCount() : 0,
-				.Index = Index, .Position = Position}};
-			if (Geometry) Result.Error.GeometryKind = Geometry.GetKind();
+				.Index = Index, .Position = Position});
+			if (Geometry) Result.error().GeometryKind = Geometry.GetKind();
 			return Result;
 		};
 		FPayloadBuildControl Control{ShouldCancel};
@@ -720,22 +715,22 @@ namespace Durin
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return {.Error = {.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Extract}};
+		return std::unexpected(FStaticMeshCollisionPayloadError{.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Extract});
 	}
 
 	auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		const std::function<bool()>& ShouldCancel) -> FStaticMeshCollisionPayloadResult
+		const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCollisionPayloadError>
 	try
 	{
 		auto Reject = [&](EStaticMeshCollisionPayloadError Code, uint64 Index = 0, uint32 Ordinal = 0,
 			FVector3 Position = FVector3(0)) {
-			return FStaticMeshCollisionPayloadResult{.Error = {.Code = Code,
+			return std::unexpected(FStaticMeshCollisionPayloadError{.Code = Code,
 				.Operation = EStaticMeshCollisionPayloadOperation::Construct, .SourceMode = Payload.SourceMode,
 				.VertexCount = Payload.Positions.size(), .IndexCount = Payload.Indices.size(),
 				.OrdinalCount = Payload.SourceOrdinals.size(), .NodeCount = Payload.Nodes.size(),
-				.LeafCount = Payload.LeafTriangles.size(), .Index = Index, .Ordinal = Ordinal, .Position = Position}};
+				.LeafCount = Payload.LeafTriangles.size(), .Index = Index, .Ordinal = Ordinal, .Position = Position});
 		};
 		bool bCancelled = false;
 		const std::function<bool()> Cancelled = [&] {
@@ -795,7 +790,7 @@ namespace Durin
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return {.Error = {.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Construct}};
+		return std::unexpected(FStaticMeshCollisionPayloadError{.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Construct});
 	}
 
 	auto FStaticMeshPayloadData::Serialize(FArchive& Ar,
@@ -815,7 +810,7 @@ namespace Durin
 		{
 			if (const auto Result = ValidatePayload(*this, Control); !Result)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.error()));
 				return;
 			}
 			for (uint32 Index = 0; Index < 6; ++Index)
@@ -862,7 +857,7 @@ namespace Durin
 			}
 		if (Ar.IsLoading())
 		{
-			if (const auto Result = ValidatePayload(*this, Control); !Result) Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
+			if (const auto Result = ValidatePayload(*this, Control); !Result) Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.error()));
 			return;
 		}
 		std::array<FChunkedPayloadInput, 6> Inputs;
@@ -951,7 +946,7 @@ namespace Durin
 			}
 			FCollisionGeometryRef Validation;
 			if (const auto Built = MakeStaticMeshCollisionGeometry(*this, Validation, ShouldCancel); !Built)
-				return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
+				return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.error()));
 			if (SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 			{
 				std::map<uint32, uint32> OrdinalToTriangle;
@@ -1058,7 +1053,7 @@ namespace Durin
 		if (!Nodes.empty()) LeafTriangles = SourceOrdinals;
 		FCollisionGeometryRef Validation;
 		if (const auto Built = MakeStaticMeshCollisionGeometry(*this, Validation, ShouldCancel); !Built)
-			return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
+			return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.error()));
 	}
 	catch (const FPayloadBuildCancelled&)
 	{

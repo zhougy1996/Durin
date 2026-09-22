@@ -93,7 +93,7 @@ namespace Durin::AssetForge::Builtins
 				return std::unexpected(std::move(Error));
 			};
 			if (const auto Validation = Settings.Validate(); !Validation)
-			{ Error.SettingsCause = Validation.Error; return Reject(EStaticMeshRebuildError::Settings); }
+			{ Error.SettingsCause = Validation.error(); return Reject(EStaticMeshRebuildError::Settings); }
 			std::filesystem::path OwningPackagePath;
 			bool bPackaged = false;
 			if (const auto* Package = Mesh.GetPackage())
@@ -150,7 +150,7 @@ namespace Durin::AssetForge::Builtins
 			FStaticMeshSource Source;
 			if (const auto Initialized = Source.Initialize(MakeStaticMeshDecodedGeometry(Scene)); !Initialized)
 			{
-				Error.SourceCause = Initialized.Error;
+				Error.SourceCause = Initialized.error();
 				return Reject(EStaticMeshRebuildError::Source);
 			}
 			auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
@@ -162,10 +162,10 @@ namespace Durin::AssetForge::Builtins
 			auto Result = std::make_shared<FStaticMeshCompilationDiagnostic>();
 			if (const auto Submitted = SubmitStaticMeshCompilation(Mesh, {
 				.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive,
-				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> FStaticMeshApplicationResult {
+				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshApplicationError> {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
 					auto* Data = NewObject<DStaticMeshImportData>(&Target, FName("AssetImportData_" + FGuid::NewGuid().ToString()));
-					if (!Data) return {{.Code = EStaticMeshApplicationError::ImportAllocation, .Owner = FObjectKey(&Target), .ImportClass = "DStaticMeshImportData"}};
+					if (!Data) return std::unexpected(FStaticMeshApplicationError{.Code = EStaticMeshApplicationError::ImportAllocation, .Owner = FObjectKey(&Target), .ImportClass = "DStaticMeshImportData"});
 					Data->SetState(State);
 					PreparedImportData = Data;
 					return {};
@@ -189,7 +189,7 @@ namespace Durin::AssetForge::Builtins
 				if (Completion) Completion(*Result);
 			}); !Submitted)
 			{
-				Error.SubmissionCause = Submitted.Error;
+				Error.SubmissionCause = Submitted.error();
 				return Reject(EStaticMeshRebuildError::Submission);
 			}
 			if (bAsync) return {};
@@ -272,7 +272,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (Diagnostics) Diagnostics->ReportFailure({
 				.Code = EFactoryError::StaticMeshSettings, .Filename = std::string(Filename),
-				.StaticMeshSettingsCause = std::make_shared<FStaticMeshImportSettingsError>(Validation.Error)});
+				.StaticMeshSettingsCause = std::make_shared<FStaticMeshImportSettingsError>(Validation.error())});
 			return nullptr;
 		}
 		auto* Mesh = NewObject<DStaticMesh>(InClass, Package, InName, Flags);

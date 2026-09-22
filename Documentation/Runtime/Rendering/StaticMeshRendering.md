@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -50,10 +50,10 @@ and the final LOD is exactly zero. The first threshold satisfying
 Builders without authored values generate `2^-(LODIndex + 1)` and force the
 final value to zero; a single-LOD mesh therefore uses `[0]`. Invalid policies
 are rejected before render-data publication rather than clamped per view.
-Engine validation returns `FStaticMeshLODPolicyResult`, owning the failed LOD
+Engine validation returns `std::expected<void, FStaticMeshLODPolicyError>`, owning the failed LOD
 index/count and current/previous thresholds, including NaN or signed zero. It has
 no diagnostic-output overload. Candidate publication returns
-`FStaticMeshPublicationResult`, retaining LOD-policy or collision-build causes and
+`std::expected<void, FStaticMeshPublicationError>`, retaining LOD-policy or collision-build causes and
 distinguishing missing render data from resource initialization failure. Failed
 preparation leaves the live product unchanged. Authored application retains
 PublicationCause; pending cooked-load contracts format explicitly.
@@ -123,7 +123,7 @@ Collision errors are stored separately as `FStaticMeshCollisionError`, retaining
 mode/policy and derived-data causes; collision failure can leave CPU data usable.
 `ApplyStaticMeshBuildResult` returns typed render/collision causes and preserves
 its existing dirtying behavior. Status checks never depend on diagnostic text.
-`RenameMaterialSlot` returns `FStaticMeshSlotRenameResult`, owning the rejected
+`RenameMaterialSlot` returns `std::expected<void, FStaticMeshSlotRenameError>`, owning the rejected
 name, index/count, conflicting slot index and object key. Failure changes no slot
 or dirty state; same-name success is a no-op. Successful changes still update the
 live render slot, notify compilation and dirty the package.
@@ -170,7 +170,7 @@ authority. See [Runtime Collision](../Physics/Collision.md).
 asset's one destruction fence. `IsReadyForFinishDestroy()` remains false until
 that fence and the normal `DObject` lifecycle are complete; `FinishDestroy()`
 then destroys the aggregate. Engine termination drains ordinary DObject and
-render-command ownership while the asset keeps this same release contract—no
+render-command ownership while the asset keeps this same release contract鈥攏o
 StaticMesh-specific shutdown registry or global render flush is required.
 
 ## Editor Thumbnail Contract
@@ -357,7 +357,7 @@ does not provide per-triangle ordering for intersecting geometry.
 
 ## Material Binding Contract
 
-`ValidateStaticMeshMaterialOverrides` returns `FStaticMeshMaterialOverrideResult`.
+`ValidateStaticMeshMaterialOverrides` returns `std::expected<void, FStaticMeshMaterialOverrideError>`.
 Slot-limit errors retain actual/maximum counts; incompatible-object errors own
 the failing index, object path and type. Validation does not mutate overrides.
 `FormatStaticMeshMaterialOverrideError` accepts the consumer name only at the

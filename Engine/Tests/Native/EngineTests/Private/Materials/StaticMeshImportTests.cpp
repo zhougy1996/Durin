@@ -61,12 +61,12 @@ TEST(FStaticMeshImportTests, StaticMeshImportSettingsValidateDistinctAxes)
 	Settings.RightAxis = Durin::EStaticMeshImportAxis::PositiveZ;
 	const auto Validation = Settings.Validate();
 	EXPECT_FALSE(Validation);
-	EXPECT_EQ(Validation.Error.Code, Durin::EStaticMeshImportSettingsError::RepeatedAxis);
-	EXPECT_EQ(Validation.Error.RightAxis, Durin::EStaticMeshImportAxis::PositiveZ);
+	EXPECT_EQ(Validation.error().Code, Durin::EStaticMeshImportSettingsError::RepeatedAxis);
+	EXPECT_EQ(Validation.error().RightAxis, Durin::EStaticMeshImportAxis::PositiveZ);
 	Settings.UpAxis = static_cast<Durin::EStaticMeshImportAxis>(255);
 	const auto Unknown = Settings.Validate();
-	EXPECT_EQ(Unknown.Error.Code, Durin::EStaticMeshImportSettingsError::UnknownAxis);
-	EXPECT_EQ(Unknown.Error.UpAxis, static_cast<Durin::EStaticMeshImportAxis>(255));
+	EXPECT_EQ(Unknown.error().Code, Durin::EStaticMeshImportSettingsError::UnknownAxis);
+	EXPECT_EQ(Unknown.error().UpAxis, static_cast<Durin::EStaticMeshImportAxis>(255));
 }
 
 TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)

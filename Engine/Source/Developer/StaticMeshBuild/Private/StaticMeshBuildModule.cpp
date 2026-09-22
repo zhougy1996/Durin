@@ -19,14 +19,14 @@ namespace Durin
 
 		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
 			FStaticMeshRecipeBuildProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshRecipeResult override
+			const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshRecipeError> override
 		{
 			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, OutProduct, Control);
 		}
 
 		auto BuildCollision(const FStaticMeshCollisionRecipeRequest& Request,
 			FStaticMeshCollisionRecipeProduct& OutProduct,
-			const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshRecipeResult override
+			const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshRecipeError> override
 		{
 			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, OutProduct, Control);
 		}

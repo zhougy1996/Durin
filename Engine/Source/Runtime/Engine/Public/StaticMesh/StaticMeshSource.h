@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "Asset/EditorBulkData.h"
 #include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMeshSource.gen.h"
@@ -39,17 +41,7 @@ namespace Durin
 		std::optional<FPackageResourceReadResult> ReadCause;
 		std::optional<FEditorBulkDataError> BulkCause;
 	};
-	struct FStaticMeshSourceResult
-	{
-		FStaticMeshSourceError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshSourceError::None; }
-	};
-	struct FStaticMeshSourceReadResult
-	{
-		FStaticMeshGeometryReadHandle Geometry;
-		FStaticMeshSourceError Error;
-		explicit operator bool() const { return Error.Code == EStaticMeshSourceError::None; }
-	};
+
 	ENGINE_API auto FormatStaticMeshSourceError(const FStaticMeshSourceError& Error) -> std::string;
 
 	// Canonical authored value. Mutation/reflection loading requires exclusive owner access.
@@ -65,11 +57,11 @@ namespace Durin
 		ENGINE_API auto operator=(const FStaticMeshSource& Other) -> FStaticMeshSource&;
 
 		// Validates the complete candidate before replacement and seeds residency without decoding.
-		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value) -> FStaticMeshSourceResult;
+		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value) -> std::expected<void, FStaticMeshSourceError>;
 		// May read bulk and block. Concurrent callers share one successful decode; failures are not cached.
 		// Cancellation is borrowed under the residency lock and must not reenter this source.
 		ENGINE_API auto AcquireGeometry(
-			const std::function<bool()>& ShouldCancel = {}) const -> FStaticMeshSourceReadResult;
+			const std::function<bool()>& ShouldCancel = {}) const -> std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>;
 		// Drops only this value's decoded ownership, never canonical bulk or outstanding readers.
 		ENGINE_API auto ReleaseGeometry() const -> void;
 		ENGINE_API auto IsGeometryResident() const -> bool;

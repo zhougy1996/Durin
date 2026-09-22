@@ -98,7 +98,7 @@ namespace Durin
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (const auto Validation = ValidateOverrideMaterials(OverrideMaterials); !Validation)
-			return RejectLoadedObjectGraph(GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.Error, "mesh component"));
+			return RejectLoadedObjectGraph(GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.error(), "mesh component"));
 		return {};
 	}
 
@@ -107,7 +107,7 @@ namespace Durin
 		Super::PostLoad();
 		if (const auto Validation = ValidateOverrideMaterials(OverrideMaterials); !Validation)
 		{
-			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.Error, "mesh component"));
+			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.error(), "mesh component"));
 			OverrideMaterials.clear();
 		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
@@ -153,7 +153,7 @@ namespace Durin
 			Overrides.push_back(Material);
 		}
 		const auto Validation = ValidateOverrideMaterials(Overrides);
-		if (!Validation) return RejectEnginePropertyEdit(*this, Proposal, Validation.Error);
+		if (!Validation) return RejectEnginePropertyEdit(*this, Proposal, Validation.error());
 		return {};
 	}
 
@@ -170,7 +170,7 @@ namespace Durin
 	}
 
 	auto DMeshComponent::ValidateOverrideMaterials(
-		std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> FStaticMeshMaterialOverrideResult
+		std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> std::expected<void, FStaticMeshMaterialOverrideError>
 	{
 		return ValidateStaticMeshMaterialOverrides(Overrides);
 	}

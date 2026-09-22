@@ -126,8 +126,8 @@ namespace Durin::Editor::StaticMesh
 			BrowseDestination();
 		const FAssetDestinationValidation DestinationValidation = Destination.Inspect();
 		const auto SettingsValidation = Coordinates.GetSettings().Validate();
-		const bool bImportSettingsValid = SettingsValidation.Succeeded();
-		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
+		const bool bImportSettingsValid = SettingsValidation.has_value();
+		const std::string ImportSettingsError = SettingsValidation ? std::string{} : FormatStaticMeshImportSettingsError(SettingsValidation.error());
 
 		if (DestinationValidation.bAssetPathValid
 			&& DestinationValidation.bMountedDestination && bSourceExists

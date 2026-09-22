@@ -74,9 +74,6 @@ namespace Durin
 			return true;
 		}
 
-
-
-
 	}
 
 	auto DStaticMesh::Serialize(FArchive& Ar) -> void
@@ -109,7 +106,7 @@ namespace Durin
 				Request.bPersistDerivedData = false;
 				if (const auto Built = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshAuthoredBuildError(Built.Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshAuthoredBuildError(Built.error()));
 					return;
 				}
 				Projection = Candidate->GetRenderData();
@@ -124,7 +121,7 @@ namespace Durin
 			FByteBuffer RenderBytes;
 			if (const auto Result = MakeStaticMeshPayloadData(*Projection, Payload); !Result)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.error()));
 				return;
 			}
 			if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
@@ -157,7 +154,7 @@ namespace Durin
 				else if (const auto Built = BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
 					BodySetup->GetCollisionQueryPolicy(), Simple, Complex); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshDerivedDataError(Built.Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshDerivedDataError(Built.error()));
 					return;
 				}
 				const FCollisionGeometryRef& Geometry =
@@ -168,7 +165,7 @@ namespace Durin
 				if (const auto Built = MakeStaticMeshCollisionPayloadData(
 					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.error()));
 					return;
 				}
 				FCanonicalMemoryWriter CollisionWriter(
@@ -271,7 +268,7 @@ namespace Durin
 		if (CanJoinStaticMeshCompilation(*this, Source)) return;
 		if (const auto Submitted = SubmitStaticMeshCompilation(*this, {.Source = Source, .bMarkPackageDirty = false}); !Submitted)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshSubmissionError(Submitted.Error));
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshSubmissionError(Submitted.error()));
 			return;
 		}
 	}
@@ -343,7 +340,7 @@ namespace Durin
 			std::move(Product.RenderData), nullptr, false); !Published)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
-				.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.Error)}};
+				.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())}};
 		}
 		if (bRequiresCollision)
 		{
@@ -444,7 +441,7 @@ namespace Durin
 					std::move(Product.RenderData), nullptr, false); !Published)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Publication,
-						.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.Error)}};
+						.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.error())}};
 				}
 				if (Product.bHasCollision)
 				{
@@ -508,6 +505,5 @@ namespace Durin
 		}
 		return {};
 	}
-
 
 }

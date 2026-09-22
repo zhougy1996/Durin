@@ -574,7 +574,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			    !Initialized)
 			{
 				Result = AddError(Result, EImportDiagnosticCategory::CandidateFailure, "scene-build",
-				                  FormatStaticMeshSourceError(Initialized.Error), Descriptor.StableIdentity);
+				                  FormatStaticMeshSourceError(Initialized.error()), Descriptor.StableIdentity);
 				return;
 			}
 			const auto Outcome =
@@ -583,10 +583,10 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			if (!Outcome)
 			{
 				Result = AddError(Result,
-				                  Outcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
+				                  (!Outcome && Outcome.error().Code == EStaticMeshAuthoredBuildError::Cancelled)
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
-				                  "scene-build", FormatStaticMeshAuthoredBuildError(Outcome.Error),
+				                  "scene-build", FormatStaticMeshAuthoredBuildError(Outcome.error()),
 				                  Descriptor.StableIdentity);
 				return;
 			}
@@ -846,7 +846,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				{
 					co_return AddError(
 					    Result, EImportDiagnosticCategory::CandidateFailure, "scene-materialization",
-					    FormatStaticMeshApplicationError(Applied.Error), Descriptor.StableIdentity);
+					    FormatStaticMeshApplicationError(Applied.error()), Descriptor.StableIdentity);
 				}
 			}
 		}

@@ -35,7 +35,7 @@ namespace Durin::AssetForge::Builtins
 		if (auto Validation = ValidateSingleSource(*this, "StaticMesh"); !Validation) return Validation;
 		if (const auto Validation = ImportSettings.Validate(); !Validation)
 		{
-			return RejectImportData(FormatStaticMeshImportSettingsError(Validation.Error));
+			return RejectImportData(FormatStaticMeshImportSettingsError(Validation.error()));
 		}
 		return {};
 	}

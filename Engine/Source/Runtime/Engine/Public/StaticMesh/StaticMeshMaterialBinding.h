@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
 
@@ -17,16 +19,11 @@ namespace Durin
 		std::string ObjectPath;
 		std::string ActualType;
 	};
-	struct FStaticMeshMaterialOverrideResult
-	{
-		FStaticMeshMaterialOverrideError Error;
-		auto Succeeded() const -> bool { return Error.Code == EStaticMeshMaterialOverrideError::None; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+
 	ENGINE_API auto FormatStaticMeshMaterialOverrideError(const FStaticMeshMaterialOverrideError& Error,
 		std::string_view ConsumerName) -> std::string;
 
 	// Shared positional-override validation used by every StaticMesh geometry consumer.
 	ENGINE_API auto ValidateStaticMeshMaterialOverrides(
-		std::span<const TObjectPtr<DMaterialInterface>> Overrides) -> FStaticMeshMaterialOverrideResult;
+		std::span<const TObjectPtr<DMaterialInterface>> Overrides) -> std::expected<void, FStaticMeshMaterialOverrideError>;
 }

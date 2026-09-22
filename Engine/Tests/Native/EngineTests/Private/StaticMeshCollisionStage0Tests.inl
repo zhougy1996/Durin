@@ -973,10 +973,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 	std::string Error;
 	const Durin::FByteBuffer KeyBytes =
-		BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput).Bytes;
+		BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput).value();
 	EXPECT_EQ(KeyBytes.size(), 38u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "01a75c9d6203686e307cc52a38543a74");
-	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput).Key.ToString(),
+	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput).value().ToString(),
 		"01a75c9d6203686e307cc52a38543a74");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
@@ -1040,7 +1040,6 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	ASSERT_TRUE(OverflowReader.IsError());
 	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
 	EXPECT_TRUE(Discarded.Positions.empty());
-
 
 	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
 	FStaticMeshCollisionPayloadData Decoded;

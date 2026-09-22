@@ -83,10 +83,10 @@ namespace Durin
 
 	auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
 		std::unique_ptr<FStaticMeshAuthoredCandidate>& OutCandidate,
-		const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshAuthoredBuildResult
+		const FStaticMeshBuildExecutionControl& Control) -> std::expected<void, FStaticMeshAuthoredBuildError>
 	{
 		OutCandidate.reset();
-		const auto Fail = [](FStaticMeshAuthoredBuildError Error) -> FStaticMeshAuthoredBuildResult { return {std::move(Error)}; };
+		const auto Fail = [](FStaticMeshAuthoredBuildError Error) -> std::expected<void, FStaticMeshAuthoredBuildError> { return std::unexpected(std::move(Error)); };
 		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshAuthoredBuildError::Cancelled});
 		if (!Request.Source.IsValid() || !std::isfinite(Request.NormalizedSize) || Request.NormalizedSize <= 0
 			|| Request.MaterialSlots.size() > MaximumMeshMaterialSlots
@@ -115,9 +115,9 @@ namespace Durin
 			Candidate->Render, Control);
 		if (!RenderOutcome)
 		{
-			return Fail({.Code = RenderOutcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
+			return Fail({.Code = (!RenderOutcome && RenderOutcome.error().Code == EStaticMeshDerivedDataError::Cancelled)
 				? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::RenderBuild,
-				.Phase = EStaticMeshAuthoredBuildPhase::Render, .DerivedDataCause = RenderOutcome.Error});
+				.Phase = EStaticMeshAuthoredBuildPhase::Render, .DerivedDataCause = RenderOutcome.error()});
 		}
 		auto& Render = Candidate->Render;
 		if (!Render.RenderData || Render.MaterialSlots.empty()
@@ -158,11 +158,11 @@ namespace Durin
 		};
 		FStaticMeshPayloadData Payload;
 		if (const auto Result = MakeStaticMeshPayloadData(*Render.RenderData, Payload, ShouldCancel); !Result)
-			return Fail({.Code = Result.Error.Code == EStaticMeshPayloadError::Cancelled ? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::Payload,
-				.Phase = EStaticMeshAuthoredBuildPhase::Payload, .PayloadCause = Result.Error});
+			return Fail({.Code = Result.error().Code == EStaticMeshPayloadError::Cancelled ? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::Payload,
+				.Phase = EStaticMeshAuthoredBuildPhase::Payload, .PayloadCause = Result.error()});
 		if (const auto Policy = ValidateStaticMeshLODScreenSizes(Render.RenderData->LODResources); !Policy)
 			return Fail({.Code = bCancelled ? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::LODPolicy,
-				.Phase = EStaticMeshAuthoredBuildPhase::Payload, .LODCause = Policy.Error});
+				.Phase = EStaticMeshAuthoredBuildPhase::Payload, .LODCause = Policy.error()});
 		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshAuthoredBuildError::Cancelled, .Phase = EStaticMeshAuthoredBuildPhase::Payload});
 		if (!Render.RenderData->RecalculateBounds(ShouldCancel))
 			return Fail({.Code = EStaticMeshAuthoredBuildError::Cancelled, .Phase = EStaticMeshAuthoredBuildPhase::Bounds});
@@ -181,9 +181,9 @@ namespace Durin
 			Request.bPersistDerivedData, CollisionControl);
 		if (!CollisionOutcome)
 		{
-			return Fail({.Code = CollisionOutcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
+			return Fail({.Code = (!CollisionOutcome && CollisionOutcome.error().Code == EStaticMeshDerivedDataError::Cancelled)
 				? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::CollisionBuild,
-				.Phase = EStaticMeshAuthoredBuildPhase::Collision, .DerivedDataCause = CollisionOutcome.Error});
+				.Phase = EStaticMeshAuthoredBuildPhase::Collision, .DerivedDataCause = CollisionOutcome.error()});
 		}
 		if (Request.CollisionMode != EBodySetupCollisionSourceMode::None
 			&& (Render.Descriptor.ProducerIdentity != Candidate->Collision.Descriptor.ProducerIdentity
@@ -232,7 +232,7 @@ namespace Durin
 
 	auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
 		FStaticMeshSource Source, FStaticMeshBuildResult Product,
-		bool bMarkPackageDirty) -> FStaticMeshDirectBuildResult
+		bool bMarkPackageDirty) -> std::expected<void, FStaticMeshDirectBuildError>
 	{
 		const auto Replaced = Mesh.ReplaceSourceRenderData(std::move(Source),
 			std::move(Product.RenderData), std::move(Product.MaterialSlots),
@@ -246,10 +246,10 @@ namespace Durin
 		}
 		// Source settings can change even if the subsequent build fails.
 		if (bMarkPackageDirty || (bPublishedRenderData && Product.bSlotMetadataChanged)) Mesh.MarkPackageDirty();
-		if (!Replaced) return {{.Code = EStaticMeshDirectBuildError::Render, .RenderCause = Replaced.Error}};
+		if (!Replaced) return std::unexpected(FStaticMeshDirectBuildError{.Code = EStaticMeshDirectBuildError::Render, .RenderCause = Replaced.error()});
 		if (Mesh.GetCollisionBuildStatus() == EStaticMeshCollisionBuildStatus::Failed)
 		{
-			return {{.Code = EStaticMeshDirectBuildError::Collision, .CollisionCause = Mesh.GetCollisionBuildError()}};
+			return std::unexpected(FStaticMeshDirectBuildError{.Code = EStaticMeshDirectBuildError::Collision, .CollisionCause = Mesh.GetCollisionBuildError()});
 		}
 		return {};
 	}
@@ -275,7 +275,7 @@ namespace Durin
 			if (const auto Submitted = SubmitStaticMeshCompilation(Mesh, {.Source = Source,
 				.Priority = EStaticMeshCompilationPriority::Interactive}); !Submitted)
 				return {.Error = {.Code = EStaticMeshSynchronousError::Submission, .Owner = FObjectKey(&Mesh),
-					.SubmissionCause = std::make_shared<FStaticMeshSubmissionError>(Submitted.Error)}};
+					.SubmissionCause = std::make_shared<FStaticMeshSubmissionError>(Submitted.error())}};
 		}
 		FAssetCompilingManager::Get().FinishCompilationForObject(Mesh);
 		auto Diagnostic = GetStaticMeshCompilationDiagnostic(Mesh);
@@ -290,7 +290,7 @@ namespace Durin
 	{
 		FStaticMeshSource Source;
 		if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
-			return {.Error = {.Code = EStaticMeshSynchronousError::Source, .Owner = FObjectKey(&Mesh), .SourceCause = Initialized.Error}};
+			return {.Error = {.Code = EStaticMeshSynchronousError::Source, .Owner = FObjectKey(&Mesh), .SourceCause = Initialized.error()}};
 		return BuildStaticMeshSynchronously(Mesh, Source);
 	}
 }

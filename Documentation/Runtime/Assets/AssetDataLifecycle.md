@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-22
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -27,7 +27,7 @@ expected owned `FAssetImportInfo` only after validation. Object and family-speci
 return the same contract. StaticMesh and VolumeTexture validate the base schema
 first, then format axis, source-role or atlas details into the owned diagnostic
 text; no polymorphic cause object is retained. Axis validation returns
-`FStaticMeshImportSettingsResult` with the rejected axis combination. Consumers
+`std::expected<void, FStaticMeshImportSettingsError>` with the rejected axis combination. Consumers
 format with `FormatAssetImportDataError` at presentation boundaries.
 `DAssetImportData::SetState` and its family-specific setters require this validated
 state, return void, and only install fields and notify compilation changes.
