@@ -47,6 +47,7 @@ namespace Durin
 		int EvaluationCount = 0;
 
 		DURIN_PROFILE_CPU_ZONE_NAMED((++EvaluationCount, "Unexpected"));
+		DURIN_PROFILE_CPU_ZONE_TEXT((++EvaluationCount, "Unexpected"));
 		DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 		DURIN_PROFILE_THREAD((++EvaluationCount, "Unexpected"));
 		DURIN_PROFILE_PROGRAM_IDENTITY(

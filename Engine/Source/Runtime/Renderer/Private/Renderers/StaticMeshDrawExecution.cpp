@@ -1,3 +1,4 @@
+#include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 
 #include <cstring>
@@ -13,6 +14,7 @@ namespace Durin::RendererPrivate
 		FPreparedStaticMeshSurfaceMaterial& OutMaterial
 	) const -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareSurfaceMaterial");
 		if (MaterialBinding == nullptr || !SurfaceMaterials.Resolve_RenderThread(
 			*MaterialBinding, Pass, bEnableLighting, bEnableSpecularAA,
 			DirectionalShadowTexture, DirectionalShadowSampler,
@@ -38,6 +40,7 @@ namespace Durin::RendererPrivate
 		const FPreparedStaticMeshPrimitive& Primitive
 	) const -> FStaticMeshPrimitiveUniformBindings
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PreparePrimitiveUniform");
 		FStaticMeshTransformUniform TransformUniform;
 		TransformUniform.LocalToClip = Math::TransposeToFloat(
 			View.ViewProjectionMatrix * Primitive.LocalToWorld

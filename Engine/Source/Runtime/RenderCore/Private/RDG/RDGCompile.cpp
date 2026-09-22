@@ -1,3 +1,4 @@
+#include <format>
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
 #include "Profiling/Profiling.h"
@@ -300,6 +301,7 @@ namespace Durin::RDGPrivate
 		auto ValidateGraphResources(std::span<const FGraphResource> Resources)
 			-> std::expected<void, FRDGIdentityError>
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.ValidateGraphResources");
 			std::unordered_set<std::string_view> Names;
 			Names.reserve(Resources.size());
 			for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size();
@@ -339,6 +341,7 @@ namespace Durin::RDGPrivate
 			std::span<const FGraphResource> Resources,
 			FDependencyGraph& Graph) -> FRDGCompileResult
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.ValidateGraphPasses");
 			std::unordered_set<std::string_view> Names;
 			Names.reserve(Passes.size());
 			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
@@ -371,6 +374,7 @@ namespace Durin::RDGPrivate
 			std::span<const FGraphResource> Resources,
 			const FResourceUseTable& ResourceUses) -> std::expected<void, FRDGIdentityError>
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.ValidateTypedValueWriters");
 			for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size();
 				++ResourceIndex)
 			{
@@ -428,6 +432,7 @@ namespace Durin::RDGPrivate
 			const FTrackingLayout& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> FRDGCompileResult
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildHazardDependencies");
 			if (auto Error = ValidateBufferContents(Passes, Resources, Work); !Error.has_value()) return Error;
 			std::vector<FDependencyCellState> States(Cells.Ranges.size());
 			for (size_t Index = 0; Index < Cells.Ranges.size(); ++Index)
@@ -487,6 +492,7 @@ namespace Durin::RDGPrivate
 			std::span<const FRDGDependency> Dependencies, bool bEnableCulling)
 			-> std::vector<bool>
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.FindRetainedPasses");
 			std::vector<bool> Retained(Passes.size(), !bEnableCulling);
 			if (!bEnableCulling) return Retained;
 
@@ -662,6 +668,7 @@ namespace Durin::RDGPrivate
 	auto BuildResourceUseTable(FGraphPassView Passes,
 		uint32 ResourceCount) -> FResourceUseTable
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildResourceUseTable");
 		FResourceUseTable ResourceUses;
 		ResourceUses.Offsets.resize(static_cast<size_t>(ResourceCount) + 1, 0);
 		for (size_t Index = 0; Index < Passes.size(); ++Index)
@@ -681,6 +688,7 @@ namespace Durin::RDGPrivate
 		const FResourceUseTable& ResourceUses, FRangeWork& Work)
 		-> std::expected<FTrackingLayout, FRDGLimitError>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildTrackingLayout");
 		FTrackingLayout Result;
 		Result.Resources.resize(Resources.size());
 		for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size(); ++ResourceIndex)
@@ -726,6 +734,7 @@ namespace Durin
 	auto FRDGBuilder::Compile() -> FRDGCompileResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.Compile");
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("passes={} resources={}", State->Passes.size(), State->Resources.size()));
 		FScopedMicrosecondTimer CompileTimer(State->CompileMicroseconds);
 		FScopedMicrosecondTimer ValidationTimer(State->Phases.ValidationMicroseconds);
 		if (State->PendingConstructions != 0)
@@ -825,203 +834,206 @@ namespace Durin
 			State->bEnableCulling);
 
 		CullingTimer.Stop();
-		FScopedMicrosecondTimer PlanTimer(State->Phases.PlanMicroseconds);
-		auto CompiledState = std::make_unique<FRDGBuilder::FCompiledState>();
-		CompiledState->Owner = State->Owner;
-		CompiledState->Resources = State->Resources;
-		CompiledState->Backings.resize(ResourceCount);
-		for (uint32 Index = 0; Index < ResourceCount; ++Index)
 		{
-			CompiledState->Backings[Index].Texture = State->Resources[Index].Texture;
-			CompiledState->Backings[Index].Buffer = State->Resources[Index].Buffer;
-		}
-		CompiledState->Budget = State->Budget;
-		CompiledState->Passes.reserve(PassCount);
-		CompiledState->RuntimePasses.reserve(PassCount);
-		CompiledState->Dependencies.reserve(
-			DependencyGraph.Dependencies.size());
-		CompiledState->ResourceLifetimes.reserve(ResourceCount);
-		CompiledState->AllocationRequests.reserve(ResourceCount);
-		for (const auto& Edge : DependencyGraph.Dependencies)
-			if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
-				CompiledState->Dependencies.push_back(Edge);
-		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
-		{
-			const auto& Resource = State->Resources[ResourceIndex];
-			CompiledState->ResourceLifetimes.push_back({Resource.Name, std::numeric_limits<uint32>::max(), 0, Resource.bExternal, true});
-		}
-
-		std::vector<uint32> LastResourcePass(ResourceCount, std::numeric_limits<uint32>::max());
-		size_t BufferTransitionCount = 0;
-		size_t TextureTransitionCount = 0;
-		for (uint32 ScheduledIndex = 0; ScheduledIndex < PassCount; ++ScheduledIndex)
-		{
-			if (!Retained[ScheduledIndex]) continue;
-			const auto& Pass = Passes[ScheduledIndex];
-			const uint32 CompiledPassIndex = static_cast<uint32>(CompiledState->Passes.size());
-			FRDGCompiledPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
-				.DeclarationIndex = ScheduledIndex,
-				.ParameterStructName = Pass.ParameterLayout != nullptr
-					&& Pass.ParameterLayout->Metadata->StructName != nullptr
-					? Pass.ParameterLayout->Metadata->StructName : ""};
-			FRDGBuilder::FCompiledState::FCompiledPassRuntime Runtime{
-				.ParameterizedExecute = ScheduledIndex < State->Passes.size()
-					? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
-				.ParameterLayout = Pass.ParameterLayout,
-				.Parameters = Pass.Parameters,
-				.OptionalAliases = Pass.OptionalAliases.View()};
-			Runtime.ResourceIndices.reserve(Pass.Uses.size());
-			size_t ValueUseCount = 0;
-			size_t BufferUseCount = 0;
-			size_t TextureUseCount = 0;
-			for (const auto& Use : Pass.Uses)
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildExecutionPlan");
+			FScopedMicrosecondTimer PlanTimer(State->Phases.PlanMicroseconds);
+			auto CompiledState = std::make_unique<FRDGBuilder::FCompiledState>();
+			CompiledState->Owner = State->Owner;
+			CompiledState->Resources = State->Resources;
+			CompiledState->Backings.resize(ResourceCount);
+			for (uint32 Index = 0; Index < ResourceCount; ++Index)
 			{
-				if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
-					++ValueUseCount;
-				if (Use.Kind == ERDGResourceKind::Buffer) ++BufferUseCount;
-				else if (Use.Kind == ERDGResourceKind::Texture) ++TextureUseCount;
+				CompiledState->Backings[Index].Texture = State->Resources[Index].Texture;
+				CompiledState->Backings[Index].Buffer = State->Resources[Index].Buffer;
 			}
-			Runtime.ValueUses.reserve(ValueUseCount);
-			CompiledPass.Barriers.Reserve(BufferUseCount, TextureUseCount);
-			for (const auto& Use : Pass.Uses)
+			CompiledState->Budget = State->Budget;
+			CompiledState->Passes.reserve(PassCount);
+			CompiledState->RuntimePasses.reserve(PassCount);
+			CompiledState->Dependencies.reserve(
+				DependencyGraph.Dependencies.size());
+			CompiledState->ResourceLifetimes.reserve(ResourceCount);
+			CompiledState->AllocationRequests.reserve(ResourceCount);
+			for (const auto& Edge : DependencyGraph.Dependencies)
+				if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
+					CompiledState->Dependencies.push_back(Edge);
+			for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 			{
-				if (LastResourcePass[Use.ResourceIndex] != CompiledPassIndex)
-				{
-					LastResourcePass[Use.ResourceIndex] = CompiledPassIndex;
-					Runtime.ResourceIndices.push_back(Use.ResourceIndex);
-				}
-				if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
-					Runtime.ValueUses.emplace_back(Use.ResourceIndex, Use.Use);
-				auto& Lifetime = CompiledState->ResourceLifetimes[Use.ResourceIndex];
-				Lifetime.FirstPass = std::min(Lifetime.FirstPass, CompiledPassIndex);
-				Lifetime.LastPass = CompiledPassIndex;
-				Lifetime.bCulled = false;
+				const auto& Resource = State->Resources[ResourceIndex];
+				CompiledState->ResourceLifetimes.push_back({Resource.Name, std::numeric_limits<uint32>::max(), 0, Resource.bExternal, true});
 			}
-			CompiledState->Passes.push_back(std::move(CompiledPass));
-			CompiledState->RuntimePasses.push_back(std::move(Runtime));
-		}
 
-		auto& Execution = CompiledState->ExecutionPlan;
-		const uint32 ScheduledCount = static_cast<uint32>(CompiledState->Passes.size());
-		std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
-		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
-			DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
-		std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
-		std::optional<FRDGLimitError> TransitionError;
-		const bool bTraversed = TraverseExecutionStates(Cells, State->Resources,
-			Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
-			[&](const FRDGTransitionCapture& Event, size_t CellIndex) -> bool
+			std::vector<uint32> LastResourcePass(ResourceCount, std::numeric_limits<uint32>::max());
+			size_t BufferTransitionCount = 0;
+			size_t TextureTransitionCount = 0;
+			for (uint32 ScheduledIndex = 0; ScheduledIndex < PassCount; ++ScheduledIndex)
 			{
-				if (Event.Kind != ERDGTransitionKind::RHIBarrier) return true;
-				const auto& Resource = State->Resources[Event.ResourceId];
-				auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
-					: CompiledState->Passes[Event.PassIndex].Barriers;
-				FRDGResourceHandoff Handoff{Event.ResourceId,
-					{Event.bFinal ? ScheduledCount : Event.PassIndex},
-					static_cast<uint32>(Resource.Kind == ERDGResourceKind::Texture
-						? Barriers.GetTextureTransitions().size() : Barriers.GetBufferTransitions().size()),
-					Resource.Kind == ERDGResourceKind::Texture};
-				Handoff.SourceQueue = Event.SourceQueue;
-				for (uint32 Producer : RangeUsers[CellIndex])
-					if (Producer != UINT32_MAX && Producer != Handoff.Consumer.Index)
-						Handoff.Producers.push_back({Producer});
-				Execution.Handoffs.push_back(std::move(Handoff));
-				if (Resource.Kind == ERDGResourceKind::Texture)
+				if (!Retained[ScheduledIndex]) continue;
+				const auto& Pass = Passes[ScheduledIndex];
+				const uint32 CompiledPassIndex = static_cast<uint32>(CompiledState->Passes.size());
+				FRDGCompiledPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
+					.DeclarationIndex = ScheduledIndex,
+					.ParameterStructName = Pass.ParameterLayout != nullptr
+						&& Pass.ParameterLayout->Metadata->StructName != nullptr
+						? Pass.ParameterLayout->Metadata->StructName : ""};
+				FRDGBuilder::FCompiledState::FCompiledPassRuntime Runtime{
+					.ParameterizedExecute = ScheduledIndex < State->Passes.size()
+						? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
+					.ParameterLayout = Pass.ParameterLayout,
+					.Parameters = Pass.Parameters,
+					.OptionalAliases = Pass.OptionalAliases.View()};
+				Runtime.ResourceIndices.reserve(Pass.Uses.size());
+				size_t ValueUseCount = 0;
+				size_t BufferUseCount = 0;
+				size_t TextureUseCount = 0;
+				for (const auto& Use : Pass.Uses)
 				{
-					if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
-					{
-						TransitionError = SafetyLimit(ERDGLimit::TextureTransitions, TextureTransitionCount, State->Budget.MaxTextureTransitions);
-						return false;
-					}
-					Barriers.AddTransition(FRDGTextureTransition{Event.ResourceId, Event.TextureRange,
-						Event.Before, Event.After, Event.bDiscardContents});
+					if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
+						++ValueUseCount;
+					if (Use.Kind == ERDGResourceKind::Buffer) ++BufferUseCount;
+					else if (Use.Kind == ERDGResourceKind::Texture) ++TextureUseCount;
 				}
-				else
+				Runtime.ValueUses.reserve(ValueUseCount);
+				CompiledPass.Barriers.Reserve(BufferUseCount, TextureUseCount);
+				for (const auto& Use : Pass.Uses)
 				{
-					if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
+					if (LastResourcePass[Use.ResourceIndex] != CompiledPassIndex)
 					{
-						TransitionError = SafetyLimit(ERDGLimit::BufferTransitions, BufferTransitionCount, State->Budget.MaxBufferTransitions);
-						return false;
+						LastResourcePass[Use.ResourceIndex] = CompiledPassIndex;
+						Runtime.ResourceIndices.push_back(Use.ResourceIndex);
 					}
-					Barriers.AddTransition(FRDGBufferTransition{Event.ResourceId, Event.BufferOffset,
-						Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
+					if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
+						Runtime.ValueUses.emplace_back(Use.ResourceIndex, Use.Use);
+					auto& Lifetime = CompiledState->ResourceLifetimes[Use.ResourceIndex];
+					Lifetime.FirstPass = std::min(Lifetime.FirstPass, CompiledPassIndex);
+					Lifetime.LastPass = CompiledPassIndex;
+					Lifetime.bCulled = false;
 				}
-				return true;
-			}, [&](uint32 Declaration, const FGraphUse&, size_t CellIndex, const FRangeCell&, bool) {
+				CompiledState->Passes.push_back(std::move(CompiledPass));
+				CompiledState->RuntimePasses.push_back(std::move(Runtime));
+			}
+
+			auto& Execution = CompiledState->ExecutionPlan;
+			const uint32 ScheduledCount = static_cast<uint32>(CompiledState->Passes.size());
+			std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
+			for (uint32 Index = 0; Index < ScheduledCount; ++Index)
+				DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
+			std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
+			std::optional<FRDGLimitError> TransitionError;
+			const bool bTraversed = TraverseExecutionStates(Cells, State->Resources,
+				Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
+				[&](const FRDGTransitionCapture& Event, size_t CellIndex) -> bool
+				{
+					if (Event.Kind != ERDGTransitionKind::RHIBarrier) return true;
+					const auto& Resource = State->Resources[Event.ResourceId];
+					auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
+						: CompiledState->Passes[Event.PassIndex].Barriers;
+					FRDGResourceHandoff Handoff{Event.ResourceId,
+						{Event.bFinal ? ScheduledCount : Event.PassIndex},
+						static_cast<uint32>(Resource.Kind == ERDGResourceKind::Texture
+							? Barriers.GetTextureTransitions().size() : Barriers.GetBufferTransitions().size()),
+						Resource.Kind == ERDGResourceKind::Texture};
+					Handoff.SourceQueue = Event.SourceQueue;
+					for (uint32 Producer : RangeUsers[CellIndex])
+						if (Producer != UINT32_MAX && Producer != Handoff.Consumer.Index)
+							Handoff.Producers.push_back({Producer});
+					Execution.Handoffs.push_back(std::move(Handoff));
+					if (Resource.Kind == ERDGResourceKind::Texture)
+					{
+						if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
+						{
+							TransitionError = SafetyLimit(ERDGLimit::TextureTransitions, TextureTransitionCount, State->Budget.MaxTextureTransitions);
+							return false;
+						}
+						Barriers.AddTransition(FRDGTextureTransition{Event.ResourceId, Event.TextureRange,
+							Event.Before, Event.After, Event.bDiscardContents});
+					}
+					else
+					{
+						if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
+						{
+							TransitionError = SafetyLimit(ERDGLimit::BufferTransitions, BufferTransitionCount, State->Budget.MaxBufferTransitions);
+							return false;
+						}
+						Barriers.AddTransition(FRDGBufferTransition{Event.ResourceId, Event.BufferOffset,
+							Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
+					}
+					return true;
+				}, [&](uint32 Declaration, const FGraphUse&, size_t CellIndex, const FRangeCell&, bool) {
+					const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
+					RangeUsers[CellIndex][bAsync ? 1 : 0] = DeclarationToSubmission[Declaration];
+				});
+			if (!bTraversed) return std::unexpected(TransitionError.value_or(Work.Error()));
+			CompactTextureBarriers(CompiledState->Passes, CompiledState->FinalBarriers, Execution);
+
+			Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
+			for (uint32 Index = 0; Index < ScheduledCount; ++Index)
+			{
+				const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
 				const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
-				RangeUsers[CellIndex][bAsync ? 1 : 0] = DeclarationToSubmission[Declaration];
-			});
-		if (!bTraversed) return std::unexpected(TransitionError.value_or(Work.Error()));
-		CompactTextureBarriers(CompiledState->Passes, CompiledState->FinalBarriers, Execution);
-
-		Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
-		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
-		{
-			const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
-			const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
-			Execution.Batches.push_back({.Id = {Index},
-				.Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics,
-				.FirstPass = Index, .NumPasses = 1});
-		}
-		if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()
-			|| !CompiledState->FinalBarriers.GetTextureTransitions().empty())
-			Execution.Batches.push_back({.Id = {ScheduledCount},
-				.FirstPass = ScheduledCount, .bEpilogue = true});
-		Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
-		for (const auto& Edge : CompiledState->Dependencies)
-		{
-			const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
-			const uint32 After = DeclarationToSubmission[Edge.AfterPass];
-			require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
-			Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
-		}
-		// Preserve FIFO within each logical queue without serializing independent
-		// branches. Publication joins both terminal queue prefixes.
-		std::array<uint32, 2> QueueTails{UINT32_MAX, UINT32_MAX};
-		for (const auto& Batch : Execution.Batches)
-		{
-			auto& Tail = QueueTails[static_cast<size_t>(Batch.Queue)];
-			if (Tail != UINT32_MAX)
-				Execution.Dependencies.push_back({{Tail}, Batch.Id, ERDGDependencyKind::Execution, "queue-order"});
-			if (Batch.bEpilogue && QueueTails[1] != UINT32_MAX)
-				Execution.Dependencies.push_back({{QueueTails[1]}, Batch.Id, ERDGDependencyKind::Execution, "queue-join"});
-			Tail = Batch.Id.Index;
-		}
-		for (const auto& Handoff : Execution.Handoffs)
-			for (const auto Producer : Handoff.Producers)
-				if (Execution.Batches[Producer.Index].Queue != Execution.Batches[Handoff.Consumer.Index].Queue)
-					Execution.Dependencies.push_back({Producer, Handoff.Consumer,
-						ERDGDependencyKind::Execution, "resource-handoff"});
-
-		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
-		{
-			const auto& Resource = State->Resources[ResourceIndex];
-			const auto& Lifetime = CompiledState->ResourceLifetimes[ResourceIndex];
-			if (!Lifetime.bCulled && !Resource.bExternal
-				&& Resource.Kind != ERDGResourceKind::Token)
-			{
-				CompiledState->AllocationRequests.push_back({
-					.ResourceId = ResourceIndex,
-					.Kind = Resource.Kind,
-					.TextureDesc = Resource.TextureDesc,
-					.BufferDesc = Resource.BufferDesc,
-					.FirstPass = Lifetime.FirstPass,
-					.LastPass = Lifetime.LastPass,
-					.ObservationTag = Resource.ObservationTag,
-					.bExtracted = Resource.IsExported()});
+				Execution.Batches.push_back({.Id = {Index},
+					.Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics,
+					.FirstPass = Index, .NumPasses = 1});
 			}
+			if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()
+				|| !CompiledState->FinalBarriers.GetTextureTransitions().empty())
+				Execution.Batches.push_back({.Id = {ScheduledCount},
+					.FirstPass = ScheduledCount, .bEpilogue = true});
+			Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
+			for (const auto& Edge : CompiledState->Dependencies)
+			{
+				const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
+				const uint32 After = DeclarationToSubmission[Edge.AfterPass];
+				require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
+				Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
+			}
+			// Preserve FIFO within each logical queue without serializing independent
+			// branches. Publication joins both terminal queue prefixes.
+			std::array<uint32, 2> QueueTails{UINT32_MAX, UINT32_MAX};
+			for (const auto& Batch : Execution.Batches)
+			{
+				auto& Tail = QueueTails[static_cast<size_t>(Batch.Queue)];
+				if (Tail != UINT32_MAX)
+					Execution.Dependencies.push_back({{Tail}, Batch.Id, ERDGDependencyKind::Execution, "queue-order"});
+				if (Batch.bEpilogue && QueueTails[1] != UINT32_MAX)
+					Execution.Dependencies.push_back({{QueueTails[1]}, Batch.Id, ERDGDependencyKind::Execution, "queue-join"});
+				Tail = Batch.Id.Index;
+			}
+			for (const auto& Handoff : Execution.Handoffs)
+				for (const auto Producer : Handoff.Producers)
+					if (Execution.Batches[Producer.Index].Queue != Execution.Batches[Handoff.Consumer.Index].Queue)
+						Execution.Dependencies.push_back({Producer, Handoff.Consumer,
+							ERDGDependencyKind::Execution, "resource-handoff"});
+
+			for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
+			{
+				const auto& Resource = State->Resources[ResourceIndex];
+				const auto& Lifetime = CompiledState->ResourceLifetimes[ResourceIndex];
+				if (!Lifetime.bCulled && !Resource.bExternal
+					&& Resource.Kind != ERDGResourceKind::Token)
+				{
+					CompiledState->AllocationRequests.push_back({
+						.ResourceId = ResourceIndex,
+						.Kind = Resource.Kind,
+						.TextureDesc = Resource.TextureDesc,
+						.BufferDesc = Resource.BufferDesc,
+						.FirstPass = Lifetime.FirstPass,
+						.LastPass = Lifetime.LastPass,
+						.ObservationTag = Resource.ObservationTag,
+						.bExtracted = Resource.IsExported()});
+				}
+			}
+			std::ranges::sort(CompiledState->Dependencies,
+				[](const auto& A, const auto& B) {
+					return std::tie(A.BeforePass, A.AfterPass, A.Cause)
+						< std::tie(B.BeforePass, B.AfterPass, B.Cause);
+				});
+			CompiledState->Retained = Retained;
+			if (bHasExport)
+				CompiledState->ExportPass = std::move(Export);
+			Diagnostics.reset();
+			Compiled = std::move(CompiledState);
+			State->bCompiled = true;
 		}
-		std::ranges::sort(CompiledState->Dependencies,
-			[](const auto& A, const auto& B) {
-				return std::tie(A.BeforePass, A.AfterPass, A.Cause)
-					< std::tie(B.BeforePass, B.AfterPass, B.Cause);
-			});
-		CompiledState->Retained = Retained;
-		if (bHasExport)
-			CompiledState->ExportPass = std::move(Export);
-		Diagnostics.reset();
-		Compiled = std::move(CompiledState);
-		State->bCompiled = true;
 		return {};
 	}
 

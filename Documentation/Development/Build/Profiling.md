@@ -139,6 +139,8 @@ The supported operations are:
 
 - `DURIN_PROFILE_CPU_ZONE()`
 - `DURIN_PROFILE_CPU_ZONE_NAMED("Stable.Name")`
+- `DURIN_PROFILE_CPU_ZONE_TEXT(Text)` attaches bounded text to the current zone;
+  its argument is evaluated only while that zone is active.
 - `DURIN_PROFILE_FRAME_MARK()`
 - `DURIN_PROFILE_THREAD(Name)`
 - `DURIN_PROFILE_PROGRAM_IDENTITY(RuntimeVariant, ProjectName, ProcessId)`
@@ -146,6 +148,18 @@ The supported operations are:
 Zone names use bounded, stable strings that describe an owned operation, such as
 `EngineLoop.GameLogic` or `QueuedTask.Execute`. Do not include asset paths,
 object names, task ids, or other unbounded per-item data in zone names.
+
+Renderer view zones separate visibility, mesh collection, transform preparation,
+input validation, material resolution, sorting, and draw recording. Mesh view
+zone text reports candidate and prepared draw counts and the shadow route.
+`RDG.Compile` reports declared pass and resource counts, with child zones for
+validation, range tracking, hazard dependencies, culling, and execution planning.
+`RDG.RecordPass` and `RDG.PassCallback` attach the pass name (up to 128 bytes),
+while `RDG.AllocateResources` reports request, reuse, and failure counts.
+These annotations describe each invocation, not frame-wide totals; shadow
+cascades and multiple views may prepare the same primitive repeatedly. Detailed
+mesh zones add profiling overhead while capturing, so compare like-for-like
+captures when assessing improvements.
 
 When `DURIN_WITH_TRACY=0`, these macros do not require Tracy headers or symbols
 and do not evaluate their profiling-only arguments. Tracy types must not appear

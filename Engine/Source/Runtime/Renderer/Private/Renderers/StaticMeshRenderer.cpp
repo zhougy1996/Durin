@@ -1,3 +1,4 @@
+#include "Profiling/Profiling.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Renderers/StaticMeshDrawExecution.h"
@@ -193,6 +194,7 @@ namespace Durin
 		FResolvedStaticMeshView& ResolvedView
 	) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteShadow");
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		bool bComplete = true;
@@ -229,6 +231,7 @@ namespace Durin
 		bool bHybridRetained
 	) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureSectionResources");
 		check(IsInRenderingThread());
 		if (Primitive.CollectedBinding == nullptr)
 		{
@@ -565,6 +568,7 @@ namespace Durin
 		FResolvedStaticMeshView& ResolvedView
 	) -> FGeometryExecutionResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGBuffer");
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		bool bComplete = true;
@@ -650,6 +654,7 @@ namespace Durin
 		const FResolvedStaticMeshView& ResolvedView
 	) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.DrawGBufferSection");
 		const FStaticMeshGeometryBinding Geometry(Primitive, Item);
 		if (!Geometry.IsValid())
 		{
@@ -702,6 +707,7 @@ namespace Durin
 		bool bHybridRetained
 	) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.DrawSection");
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
 		const FStaticMeshGeometryBinding Geometry(Primitive, Item);

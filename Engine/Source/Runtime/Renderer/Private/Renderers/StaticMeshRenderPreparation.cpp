@@ -1,3 +1,4 @@
+#include <format>
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
@@ -20,11 +21,13 @@ namespace Durin
 	) -> FPreparedStaticMeshView
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareStaticMeshes");
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("candidates={} shadow={}", SceneInfos.size(), Mode == ERenderPreparationMode::ShadowDepth));
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh preparation must occur before the scene render pass.");
 		FPreparedStaticMeshView Result;
 		Result.Primitives.reserve(SceneInfos.size());
 		auto PrepareSceneInfo = [&](const FPrimitiveSceneInfo* SceneInfo) {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshPrimitive");
 			if (SceneInfo == nullptr)
 			{
 				++Result.RejectedPrimitives;
@@ -56,7 +59,10 @@ namespace Durin
 			Context.Purpose = Mode == ERenderPreparationMode::ShadowDepth
 				? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver;
 			FMeshBatchCollector Collector(Context.Purpose);
-			SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshBatches");
+				SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
+			}
 			for (size_t I = 0; I < Result.SubmissionOutcomes.size(); ++I)
 				Result.SubmissionOutcomes[I] += Collector.GetOutcomeCount(static_cast<EGeometrySubmissionOutcome>(I));
 			Result.bResourceFailure |= Collector.GetOutcomeCount(EGeometrySubmissionOutcome::ResourceFailure) != 0;
@@ -68,6 +74,7 @@ namespace Durin
 			auto Batches = std::move(Collector).TakeBatches();
 			const size_t FirstPrimitiveBatch = Result.Primitives.size();
 			auto PrepareBatch = [&](FMeshBatch& Batch) {
+				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshBatch");
 				const auto Binding = std::dynamic_pointer_cast<const FVertexFactoryInputBinding>(Batch.Binding);
 				if (!Binding || !Binding->Declaration || Binding->Streams.empty())
 				{
@@ -90,21 +97,26 @@ namespace Durin
 				{
 					return;
 				}
-				const double Determinant = Math::LinearDeterminant(LocalToWorld);
-				FMatrix WorldToLocal;
-				if (!std::isfinite(Determinant)
-					|| !Math::TryInverse(LocalToWorld, WorldToLocal))
+				FMatrix4f NormalToWorld;
+				double Determinant;
 				{
-					return;
-				}
-				const FMatrix4f NormalToWorld = Math::TransposeToFloat(
-					Math::Transpose(WorldToLocal)
-				);
-				if (!Math::IsFinite(FMatrix(NormalToWorld)))
-				{
-					return;
-				}
+					DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareMeshTransforms");
+					Determinant = Math::LinearDeterminant(LocalToWorld);
+					FMatrix WorldToLocal;
+					if (!std::isfinite(Determinant)
+						|| !Math::TryInverse(LocalToWorld, WorldToLocal))
+					{
+						return;
+					}
+					NormalToWorld = Math::TransposeToFloat(
+						Math::Transpose(WorldToLocal)
+					);
+					if (!Math::IsFinite(FMatrix(NormalToWorld)))
+					{
+						return;
+					}
 
+				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
 				Result.Primitives.push_back({.PrimitiveId = SceneInfo->GetId(), .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld});
@@ -113,41 +125,47 @@ namespace Durin
 
 				for (auto& Element : Batch.Elements)
 				{
-					const bool bResourceViewsMatch = std::ranges::any_of(Binding->Streams, [&](const auto& Stream) {
-						return Stream.VertexBuffer == Element.Vertices.Buffer && Stream.Offset == Element.Vertices.Range.ByteOffset
-							&& Stream.Stride == Element.Vertices.Range.Stride;
-					}) && std::ranges::all_of(Element.InstanceStreams, [&](const auto& Instance) {
-						return std::ranges::any_of(Binding->Streams, [&](const auto& Stream) {
-							return Stream.VertexBuffer == Instance.Buffer && Stream.Offset == Instance.Range.ByteOffset
-								&& Stream.Stride == Instance.Range.Stride
-								&& std::ranges::any_of(Binding->DeclarationElements, [&](const auto& Attribute) {
-									return Attribute.Type != EVertexElementType::None && Attribute.StreamIndex == Stream.StreamIndex
-										&& Attribute.InputRate == FRHIVertexElementIdentity::EInputRate::Instance;
-								});
+					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ValidateMeshInputs");
+						const bool bResourceViewsMatch = std::ranges::any_of(Binding->Streams, [&](const auto& Stream) {
+							return Stream.VertexBuffer == Element.Vertices.Buffer && Stream.Offset == Element.Vertices.Range.ByteOffset
+								&& Stream.Stride == Element.Vertices.Range.Stride;
+						}) && std::ranges::all_of(Element.InstanceStreams, [&](const auto& Instance) {
+							return std::ranges::any_of(Binding->Streams, [&](const auto& Stream) {
+								return Stream.VertexBuffer == Instance.Buffer && Stream.Offset == Instance.Range.ByteOffset
+									&& Stream.Stride == Instance.Range.Stride
+									&& std::ranges::any_of(Binding->DeclarationElements, [&](const auto& Attribute) {
+										return Attribute.Type != EVertexElementType::None && Attribute.StreamIndex == Stream.StreamIndex
+											&& Attribute.InputRate == FRHIVertexElementIdentity::EInputRate::Instance;
+									});
+							});
 						});
-					});
-					const auto InputOutcome = bResourceViewsMatch ? Binding->ValidateInputs(Element.Draw) : EGeometrySubmissionOutcome::InvalidSubmission;
-					if (InputOutcome != EGeometrySubmissionOutcome::Submitted)
-					{
-						++Result.SubmissionOutcomes[static_cast<size_t>(InputOutcome)];
-						Result.bResourceFailure |= InputOutcome == EGeometrySubmissionOutcome::ResourceFailure;
-						continue;
-					}
-					if (!Factory->Supports(Mode == ERenderPreparationMode::ShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward, Element.Draw))
-					{
-						++Result.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Unsupported)];
-						continue;
+						const auto InputOutcome = bResourceViewsMatch ? Binding->ValidateInputs(Element.Draw) : EGeometrySubmissionOutcome::InvalidSubmission;
+						if (InputOutcome != EGeometrySubmissionOutcome::Submitted)
+						{
+							++Result.SubmissionOutcomes[static_cast<size_t>(InputOutcome)];
+							Result.bResourceFailure |= InputOutcome == EGeometrySubmissionOutcome::ResourceFailure;
+							continue;
+						}
+						if (!Factory->Supports(Mode == ERenderPreparationMode::ShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward, Element.Draw))
+						{
+							++Result.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Unsupported)];
+							continue;
+						}
 					}
 					const size_t TriangleCount = Element.Draw.Topology == EGeometryTopology::TriangleList ? Element.Draw.ElementCount / 3 : 0;
 					const uint64 SectionIndex = Element.ElementId;
 					++Result.SharedSectionFactBuilds;
 					FPreparedStaticMeshDraw Item;
 					Item.Material = std::move(Element.Material);
-					FMaterialRenderBinding LogicalBinding;
-					if (!ResolveMaterialBinding(Item.Material, LogicalBinding,
-							"StaticMeshMaterialSelection"))
-						continue;
+					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveMeshMaterial");
+						FMaterialRenderBinding LogicalBinding;
+						if (!ResolveMaterialBinding(Item.Material, LogicalBinding,
+								"StaticMeshMaterialSelection"))
+							continue;
 
+					}
 					Item.PrimitiveIndex = PrimitiveIndex;
 					Item.SectionIndex = SectionIndex;
 					Item.Geometry = Element.Draw;
@@ -283,53 +301,56 @@ namespace Durin
 		std::ranges::for_each(SceneInfos, PrepareSceneInfo);
 		Result.RejectedSplinePrimitives = Result.VisibleSplineCandidates
 										  - std::min(Result.VisibleSplineCandidates, Result.PreparedSplinePrimitives);
-		const auto SortingStart = std::chrono::steady_clock::now();
-		auto CountInputStateGroups = [](const auto& Bucket) -> size_t {
-			if (Bucket.empty())
-			{
-				return 0;
-			}
-			size_t Groups = 1;
-			for (size_t Index = 1; Index < Bucket.size(); ++Index)
-			{
-				const FMeshDrawSortKey& Previous =
-					Bucket[Index - 1].SortKey;
-				const FMeshDrawSortKey& Current = Bucket[Index].SortKey;
-				const bool bStateChanged = Previous.Pipeline != Current.Pipeline
-										   || Previous.MaterialUniform != Current.MaterialUniform
-										   || Previous.VertexFactory != Current.VertexFactory;
-				Groups += bStateChanged ? 1u : 0u;
-			}
-			return Groups;
-		};
-		Result.OpaqueInputStateGroups = CountInputStateGroups(Result.Opaque);
-		Result.MaskedInputStateGroups = CountInputStateGroups(Result.Masked);
-		auto StateSort = [](const FPreparedStaticMeshDraw& A,
-							const FPreparedStaticMeshDraw& B) {
-			return A.SortKey < B.SortKey;
-		};
-		std::ranges::sort(Result.Opaque, StateSort);
-		std::ranges::sort(Result.Masked, StateSort);
-		std::ranges::sort(
-			Result.Translucent,
-			[](const FPreparedStaticMeshDraw& A,
-			   const FPreparedStaticMeshDraw& B) {
-				if (A.TranslucentSortDepth
-					!= B.TranslucentSortDepth)
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.SortMeshDraws");
+			const auto SortingStart = std::chrono::steady_clock::now();
+			auto CountInputStateGroups = [](const auto& Bucket) -> size_t {
+				if (Bucket.empty())
 				{
-					return A.TranslucentSortDepth
-						   > B.TranslucentSortDepth;
+					return 0;
 				}
+				size_t Groups = 1;
+				for (size_t Index = 1; Index < Bucket.size(); ++Index)
+				{
+					const FMeshDrawSortKey& Previous =
+						Bucket[Index - 1].SortKey;
+					const FMeshDrawSortKey& Current = Bucket[Index].SortKey;
+					const bool bStateChanged = Previous.Pipeline != Current.Pipeline
+											   || Previous.MaterialUniform != Current.MaterialUniform
+											   || Previous.VertexFactory != Current.VertexFactory;
+					Groups += bStateChanged ? 1u : 0u;
+				}
+				return Groups;
+			};
+			Result.OpaqueInputStateGroups = CountInputStateGroups(Result.Opaque);
+			Result.MaskedInputStateGroups = CountInputStateGroups(Result.Masked);
+			auto StateSort = [](const FPreparedStaticMeshDraw& A,
+								const FPreparedStaticMeshDraw& B) {
 				return A.SortKey < B.SortKey;
-			}
-		);
-		AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
-		Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
-															std::chrono::nanoseconds>(
-															std::chrono::steady_clock::now() - SortingStart
-		)
-															.count());
+			};
+			std::ranges::sort(Result.Opaque, StateSort);
+			std::ranges::sort(Result.Masked, StateSort);
+			std::ranges::sort(
+				Result.Translucent,
+				[](const FPreparedStaticMeshDraw& A,
+				   const FPreparedStaticMeshDraw& B) {
+					if (A.TranslucentSortDepth
+						!= B.TranslucentSortDepth)
+					{
+						return A.TranslucentSortDepth
+							   > B.TranslucentSortDepth;
+					}
+					return A.SortKey < B.SortKey;
+				}
+			);
+			AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
+			Result.SortingNanoseconds = static_cast<uint64>(std::chrono::duration_cast<
+																std::chrono::nanoseconds>(
+																std::chrono::steady_clock::now() - SortingStart
+			)
+																.count());
 
+		}
 		auto CountStateFacts = [&Result](const auto& Bucket) -> size_t {
 			if (Bucket.empty())
 			{
@@ -401,6 +422,7 @@ namespace Durin
 		check(bPassTriangleCountersConserved);
 		check(bRequestedHistogramConserved);
 		check(bSelectedHistogramConserved);
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("prepared_batches={} draws={} opaque={} masked={} translucent={}", Result.Primitives.size(), Result.GetNumSections(), Result.Opaque.size(), Result.Masked.size(), Result.Translucent.size()));
 		return Result;
 	}
 } // namespace Durin

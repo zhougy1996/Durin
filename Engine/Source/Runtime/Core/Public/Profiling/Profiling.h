@@ -215,6 +215,13 @@ namespace Durin::Profiling
 
 	#define DURIN_PROFILE_CPU_ZONE() ZoneScoped
 	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ZoneScopedN(Name)
+	// Attach bounded detail to the current zone; evaluate only while connected.
+	#define DURIN_PROFILE_CPU_ZONE_TEXT(Text) \
+		do { if (ZoneIsActive) { \
+			const auto& DurinProfileTextStorage = (Text); \
+			const std::string_view DurinProfileTextView{DurinProfileTextStorage}; \
+			ZoneText(DurinProfileTextView.data(), DurinProfileTextView.size()); \
+		} } while (false)
 	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
 		ZoneScopedN("Task.Execute"); \
 		if (ZoneIsActive) { \
@@ -238,6 +245,7 @@ namespace Durin::Profiling
 
 	#define DURIN_PROFILE_CPU_ZONE() ((void)0)
 	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ((void)0)
+	#define DURIN_PROFILE_CPU_ZONE_TEXT(Text) ((void)0)
 	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
 		::Durin::Profiling::TaskExecution(TaskId, ScopeId, OwnerId, CategoryId, Target)
 	#define DURIN_PROFILE_FRAME_MARK() ((void)0)

@@ -1,6 +1,7 @@
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
 #include "Profiling/Profiling.h"
+#include <format>
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 
@@ -155,7 +156,16 @@ namespace Durin
 				for (auto& Request : AsyncRequests) Request.Retirement = State->AllocationRetirement;
 				Requests = AsyncRequests;
 			}
-			auto AllocationResult = Allocator->Allocate(Requests, Candidate);
+			auto AllocationResult = [&] {
+				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.AllocateResources");
+				auto Result = Allocator->Allocate(Requests, Candidate);
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::format(
+					"requests={} reuse_hits={} reuse_misses={} failures={} success={}",
+					Requests.size(), Candidate.Statistics.ReuseHits,
+					Candidate.Statistics.ReuseMisses, Candidate.Statistics.Failures,
+					Result.has_value()));
+				return Result;
+			}();
 			Compiled->AllocationStatistics = Candidate.Statistics;
 			if (!AllocationResult.has_value())
 			{
@@ -323,11 +333,13 @@ namespace Durin
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
 				const auto& Pass = Compiled->Passes[Index];
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 				const auto& Runtime = Compiled->RuntimePasses[Index];
 				RecordBarrierBatch(CommandList, PreparedPassBarriers[Index], PreparedTransitions);
 				if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RDG.PassCallback");
+					DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 					const FRDGPassResources Resources(*this, Index);
 					const FRDGParameterResolver Resolver(Resources,
 						Runtime.ParameterLayout, Runtime.OptionalAliases,
