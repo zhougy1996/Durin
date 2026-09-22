@@ -1,37 +1,34 @@
 # CPU Profiling
 
-Durin provides opt-in Tracy CPU instrumentation through isolated Release
-profiling presets. Ordinary Debug, Release, Shipping, setup, and worktree
-workflows do not require or link Tracy.
+Durin includes Tracy CPU instrumentation by default in Debug and Release builds
+of Editor and Game. Game Shipping builds exclude Tracy at compile and link time.
+There is no separate profiling preset or output directory.
 
 ## Preparation And Presets
 
-The first configure or build using a profiling preset prepares the pinned Tracy
-`v0.13.1` client source. It does not download the optional host tools. To
-prepare or repair both explicitly:
+Configure and build automatically prepare the pinned Tracy `v0.13.1` client
+source when instrumentation is enabled. The optional host tools remain an
+explicit installation:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools
 ```
 
-The supported profiling presets are:
-
-- `Win64-Release-DurinEditor-Profiling`
-- `Win64-Release-DurinGame-Profiling`
-
-Build them through DurinDevTool:
+Use the ordinary Release builds for representative performance captures:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
-.\DevTool.bat build --preset Win64-Release-DurinGame-Profiling --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
+.\DevTool.bat build --preset Win64-Release-DurinGame --target all
 ```
 
-Both use `CMAKE_BUILD_TYPE=Release`, set `DURIN_PRESET_ROLE=Profiling`, enable
-`DURIN_ENABLE_TRACY`, and write binaries beneath
-`Engine/Binaries/Win64/Release-Profiling/`. Shipping rejects Tracy during
-configuration. Their ordinary third-party runtime DLLs are shared with standard
-Release builds beneath `Engine/Binaries/Win64/Release/ThirdParty/`; the
-profiling-only Tracy runtime remains in the selected profiling runtime directory.
+`DURIN_ENABLE_TRACY=AUTO` is the default and enables instrumentation for every
+non-Shipping configuration. Advanced builds can explicitly set it to `OFF` for
+an uninstrumented baseline or `ON` to enable it. Shipping rejects `ON` during
+configuration. Registered presets explicitly select `AUTO`, so reconfiguration
+also updates older build trees that cached the former `OFF` default; apply
+explicit overrides on the configure command. Client DLLs live alongside the
+selected runtime in the ordinary Debug or Release output directory. Host tools
+are not required to run an instrumented application.
 
 The client is configured for on-demand, localhost-only capture. Capturing is
 optional at runtime. The repository-managed profiler and capture tool always
@@ -57,9 +54,8 @@ After opening a project in DurinEditor, use `Tools > Profiling`:
 - `Tool Status...` reports the expected/client versions, resolved managed path,
   missing required files, and focused repair command.
 
-A normal Editor may launch Tracy to inspect a separate Release Profiling Game.
-Capturing the current Editor requires running the
-`Win64-Release-DurinEditor-Profiling` output. The Editor does not claim a
+An Editor may launch Tracy to inspect itself or a separate development Game.
+Both Debug and Release builds support capture by default. The Editor does not claim a
 connection when the external process launches: Tracy's discovery screen owns
 target selection and displays each advertised data port.
 
@@ -128,7 +124,7 @@ restarting Editor or Game. The prepared upstream source remains unchanged.
 
 If a connection fails:
 
-1. Confirm the target is a Release Profiling build and is still running.
+1. Confirm the target has Tracy enabled and is still running.
 2. Select the port advertised for that exact runtime, project, and PID rather
    than assuming 8086.
 3. Remove a shared `TRACY_PORT` override or assign unique fixed ports.
@@ -188,14 +184,17 @@ The adapter has 1,024 fixed slots matching the task attribution bound. With
 Tracy disabled its entry points are inline no-ops accepting only fixed-width
 values; they perform no label resolution, formatting, allocation, or Tracy
 call. Profiler instrumentation runs only after winning state transitions and
-outside task-state, scheduler, and executor queue locks, so capture connection
+outside task-state, scheduler, and executor queue locks. High-frequency task
+message formatting and aggregate plot preparation are skipped while disconnected;
+execution-zone text is formatted only for an active zone. Attribution registration
+remains available for later connections. Capture connection
 or failure cannot control scheduling.
 
 ## Runtime Ownership
 
-Profiling builds produce one shared `TracyClient.dll` in the selected runtime
+Instrumented builds produce one shared `TracyClient.dll` in the selected runtime
 variant directory. Every instrumented module links that same process-wide
-runtime. Ordinary output directories contain no Tracy runtime.
+runtime. Shipping outputs contain no Tracy runtime.
 
 The initial integration covers CPU frame, thread, task, renderer, and asset
 boundaries. GPU, allocation, lock, frame-image, sampling, and call-stack

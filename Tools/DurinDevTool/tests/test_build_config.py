@@ -99,10 +99,8 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert profile.presets == (
             'Win64-Debug-DurinEditor',
             'Win64-Release-DurinEditor',
-            'Win64-Release-DurinEditor-Profiling',
             'Win64-Debug-DurinGame',
             'Win64-Release-DurinGame',
-            'Win64-Release-DurinGame-Profiling',
             'Win64-Shipping-DurinGame',
         )
 
@@ -154,15 +152,16 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert base['architecture']['value'] == 'arm64'
         assert base['cacheVariables']['BUILD_TESTING'] == 'ON'
 
-    def test_profiling_presets_are_release_isolated_and_enable_tracy(self) -> None:
+    def test_presets_use_automatic_tracy_without_profiling_variants(self) -> None:
         presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
-        for runtime_variant in ('DurinEditor', 'DurinGame'):
-            preset = presets[f'Win64-Release-{runtime_variant}-Profiling']
-            assert selection.preset_cache_string(preset, 'CMAKE_BUILD_TYPE') == 'Release'
-            assert selection.preset_cache_string(preset, 'DURIN_RUNTIME_VARIANT') == runtime_variant
-            assert selection.preset_cache_string(preset, 'DURIN_PRESET_ROLE') == 'Profiling'
-            assert selection.preset_cache_bool(preset, 'DURIN_ENABLE_TRACY')
-            assert selection.preset_output_configuration(preset) == 'Release-Profiling'
+        assert not any(name.endswith('-Profiling') for name in presets)
+        for preset in presets.values():
+            configuration = selection.preset_cache_string(preset, 'CMAKE_BUILD_TYPE', required=False)
+            if not configuration:
+                continue
+            value = selection.preset_cache_string(preset, 'DURIN_ENABLE_TRACY')
+            assert value == 'AUTO'
+            assert selection.tracy_enabled(value, configuration) == (configuration != 'Shipping')
 
     def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
         profiles = config_io.load_profiles(BUILD_PATHS.profile_file)
@@ -203,11 +202,10 @@ from durin_dev_tool.build import purge, recovery, runtime
         with pytest.raises(errors.BuildToolError, match='Available presets'):
             selection.select_preset(profile, presets, requested='missing', preset_file=BUILD_PATHS.preset_file)
 
-    def test_output_configuration_uses_preset_role(self) -> None:
-        standard = models.ConfigurePreset('debug', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Debug'}})
-        profiling = models.ConfigurePreset('profiling', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Release', 'DURIN_PRESET_ROLE': 'Profiling'}})
-        assert selection.preset_output_configuration(standard) == 'Debug'
-        assert selection.preset_output_configuration(profiling) == 'Release-Profiling'
+    def test_output_configuration_uses_build_type(self) -> None:
+        for configuration in ('Debug', 'Release', 'Shipping'):
+            preset = models.ConfigurePreset('test', {'cacheVariables': {'CMAKE_BUILD_TYPE': configuration}})
+            assert selection.preset_output_configuration(preset) == configuration
 
     def test_explicit_cmake_path_takes_precedence(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

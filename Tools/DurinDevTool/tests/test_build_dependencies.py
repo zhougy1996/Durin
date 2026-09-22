@@ -16,13 +16,14 @@ def make_context(
     *,
     configuration: str = "Debug",
     testing: str = "ON",
-    tracy: str = "OFF",
+    tracy: str | None = None,
     defines: tuple[str, ...] = (),
 ) -> build_context.BuildContext:
     preset = request_fixtures.make_preset(testing=testing)
     cache = dict(preset.values["cacheVariables"])
     cache["CMAKE_BUILD_TYPE"] = configuration
-    cache["DURIN_ENABLE_TRACY"] = tracy
+    if tracy is not None:
+        cache["DURIN_ENABLE_TRACY"] = tracy
     preset = replace(preset, values={**preset.values, "cacheVariables": cache})
     request = request_fixtures.command_request(
         models.Action.CONFIGURE,
@@ -45,7 +46,7 @@ def make_output() -> BuildOutput:
 
 
 def test_debug_configure_prepares_only_debug_ordinary_and_test_dependencies() -> None:
-    context = make_context()
+    context = make_context(tracy="OFF")
     with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies") as prepare:
         dependencies.prepare_configure_dependencies(context, make_output())
     request = prepare.call_args.args[1]
@@ -60,7 +61,7 @@ def test_shipping_reuses_release_dependencies() -> None:
     assert dependencies.dependency_configuration(make_context(configuration="Shipping")) == "Release"
 
 
-def test_profiling_configure_prepares_tracy_client_without_tools() -> None:
+def test_enabled_configure_prepares_tracy_client_without_tools() -> None:
     context = make_context(configuration="Release", tracy="ON")
     with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies") as prepare:
         dependencies.prepare_configure_dependencies(context, make_output())
@@ -91,3 +92,22 @@ def test_dependency_failure_is_reported_as_build_failure() -> None:
     context = make_context()
     with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies", side_effect=BootstrapError("download failed")), pytest.raises(errors.BuildToolError, match="Could not prepare configure dependencies"):
         dependencies.prepare_configure_dependencies(context, make_output())
+
+
+@pytest.mark.parametrize("configuration", ["Debug", "Release", "Shipping"])
+@pytest.mark.parametrize("tracy", [None, "AUTO", "OFF"])
+def test_automatic_dependency_policy(configuration: str, tracy: str | None) -> None:
+    context = make_context(configuration=configuration, tracy=tracy)
+    with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies") as prepare:
+        dependencies.prepare_configure_dependencies(context, make_output())
+    expected = configuration != "Shipping" and tracy != "OFF"
+    assert prepare.call_count == (2 if expected else 1)
+    if expected:
+        assert prepare.call_args_list[1].args[1].libraries == "tracy"
+
+
+def test_explicit_off_overrides_automatic_policy() -> None:
+    context = make_context(tracy="AUTO", defines=("DURIN_ENABLE_TRACY:STRING=OFF",))
+    with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies") as prepare:
+        dependencies.prepare_configure_dependencies(context, make_output())
+    assert prepare.call_count == 1

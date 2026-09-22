@@ -16,15 +16,14 @@ class TestCore:
     make_profile = staticmethod(request_fixtures.make_profile)
     make_preset = staticmethod(request_fixtures.make_preset)
 
-    def test_runtime_path_uses_runtime_variant_and_preset_role(self) -> None:
+    def test_runtime_path_uses_runtime_variant_and_configuration(self) -> None:
         preset = self.make_preset()
         values = dict(preset.values)
         cache = dict(values['cacheVariables'])
         cache['CMAKE_BUILD_TYPE'] = 'Release'
-        cache['DURIN_PRESET_ROLE'] = 'Profiling'
-        preset = models.ConfigurePreset('profiling', {**values, 'cacheVariables': cache})
+        preset = models.ConfigurePreset('release', {**values, 'cacheVariables': cache})
         path = build_runtime.runtime_executable_path(self.make_profile(), preset, root=Path('repo'))
-        assert path == Path('repo/Engine/Binaries/Win64/Release-Profiling/Runtime/DurinEditor/DurinEditor.exe')
+        assert path == Path('repo/Engine/Binaries/Win64/Release/Runtime/DurinEditor/DurinEditor.exe')
     def test_run_application_reports_how_to_build_missing_runtime(self) -> None:
         preset = self.make_preset()
         request = request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions())

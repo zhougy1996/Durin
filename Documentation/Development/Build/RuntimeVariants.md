@@ -41,14 +41,14 @@ built on demand rather than by the default `all` target. Multiple presets can
 map to the same runtime variant and final-output directories; their operational
 roles are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
-Profiling is also preset behavior rather than a runtime variant. The dedicated
-Release profiling presets keep `DurinEditor` or `DurinGame` as the runtime
-variant and use `DURIN_PRESET_ROLE=Profiling` for output isolation. See
+Tracy instrumentation is enabled by default in Debug and Release for both
+runtime variants and excluded from Game Shipping. There are no separate
+profiling presets. See
 `Documentation/Development/Build/Profiling.md`.
 
 DurinHeaderTool emits configuration-independent metadata under
 `Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/`. Debug, Release, and
-Profiling presets for the same runtime variant intentionally share this
+Shipping presets for the same runtime variant intentionally share this
 metadata within a worktree, including each module's persistent `DHTState`.
 Phase-state records still validate their platform, runtime variant, DHT and
 native-libclang fingerprints, schema, parser/generator context, and semantic

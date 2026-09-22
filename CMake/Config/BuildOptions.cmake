@@ -17,7 +17,15 @@ if(NOT DURIN_RUNTIME_VARIANT MATCHES "^(DurinEditor|DurinGame)$")
 	message(FATAL_ERROR "DURIN_RUNTIME_VARIANT must be DurinEditor or DurinGame.")
 endif()
 
-option(DURIN_ENABLE_TRACY "Enable Tracy CPU profiling instrumentation." OFF)
+set(DURIN_ENABLE_TRACY "AUTO" CACHE STRING "Tracy instrumentation: AUTO (non-Shipping), ON, or OFF.")
+set_property(CACHE DURIN_ENABLE_TRACY PROPERTY STRINGS AUTO ON OFF)
+if(DURIN_ENABLE_TRACY STREQUAL "AUTO")
+	if(CMAKE_BUILD_TYPE STREQUAL "Shipping")
+		set(DURIN_ENABLE_TRACY OFF)
+	else()
+		set(DURIN_ENABLE_TRACY ON)
+	endif()
+endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Shipping" AND DURIN_ENABLE_TRACY)
 	message(FATAL_ERROR "DURIN_ENABLE_TRACY cannot be enabled for Shipping builds.")
 endif()
@@ -35,19 +43,11 @@ else()
 	set(DURIN_WITH_TRACY 0)
 endif()
 
-set(DURIN_PRESET_ROLE "Standard" CACHE STRING "Operational role of the active preset.")
-set_property(CACHE DURIN_PRESET_ROLE PROPERTY STRINGS Standard Profiling)
-if(NOT DURIN_PRESET_ROLE MATCHES "^(Standard|Profiling)$")
-	message(FATAL_ERROR "DURIN_PRESET_ROLE must be Standard or Profiling.")
-endif()
 set(DURIN_OUTPUT_CONFIG "$<CONFIG>")
-if(DURIN_PRESET_ROLE STREQUAL "Profiling")
-	string(APPEND DURIN_OUTPUT_CONFIG "-Profiling")
-endif()
 set(DURIN_THIRDPARTY_OUTPUT_CONFIG "$<CONFIG>")
 message(STATUS
 	"Durin build: runtime variant=${DURIN_RUNTIME_VARIANT}, "
-	"configuration=${CMAKE_BUILD_TYPE}, preset role=${DURIN_PRESET_ROLE}, "
+	"configuration=${CMAKE_BUILD_TYPE}, "
 	"Tracy=${DURIN_ENABLE_TRACY}, application tests=${DURIN_ENABLE_APPLICATION_TESTS}"
 )
 

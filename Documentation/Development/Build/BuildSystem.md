@@ -175,11 +175,9 @@ invalidate cached parses when this contract changes.
 Each worktree owns its `Build/`, `Binaries/`, and `Intermediate/` trees. Use
 separate worktrees when workflows need concurrent writers. Within one worktree,
 presets have distinct CMake `binaryDir` values, while final outputs are derived
-from the CMake configuration and preset role. Profiling uses the
-`Release-Profiling` output configuration; standard Release uses `Release`.
-Third-party runtime DLLs are role-independent and are deployed beneath
-`Binaries/<Platform>/<CMakeConfig>/ThirdParty/`, so standard Release and
-Release Profiling reuse the same copies.
+from the CMake configuration. Tracy uses the ordinary Debug and Release runtime
+directories; there is no separate profiling configuration. Third-party runtime
+DLLs are deployed beneath `Binaries/<Platform>/<CMakeConfig>/ThirdParty/`.
 
 A preset's `binaryDir` isolates CMake, object, and Ninja state only—not DHT
 metadata. All presets in a worktree must still follow the single-writer workflow

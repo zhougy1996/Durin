@@ -175,6 +175,7 @@ namespace Durin::Profiling
 
 		inline auto TaskEnqueued(uint64 TaskId, uint64 ScopeId, uint16 OwnerId, uint16 CategoryId, uint8 Target) noexcept -> void
 		{
+			if (!TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
 				"enqueue", TaskId, ScopeId, OwnerId, CategoryId, Target, 0);
 			TracyMessage(Message.Bytes.data(), Message.Length);
@@ -184,6 +185,7 @@ namespace Durin::Profiling
 
 		inline auto TaskTerminal(uint64 TaskId, uint64 ScopeId, uint16 OwnerId, uint16 CategoryId, uint8 Target, uint8 TerminalReason) noexcept -> void
 		{
+			if (!TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
 				"terminal", TaskId, ScopeId, OwnerId, CategoryId, Target, TerminalReason);
 			TracyMessage(Message.Bytes.data(), Message.Length);
@@ -199,6 +201,7 @@ namespace Durin::Profiling
 			uint64 ResultBytes,
 			uint64 RetainedResultBytes) noexcept -> void
 		{
+			if (!TracyIsConnected) return;
 			const Private::FTaskProfilerSlot& Slot = Private::GetTaskProfilerSlot(OwnerId, CategoryId);
 			const std::array<uint64, static_cast<size_t>(Private::ETaskProfilerPlot::Count)> Values{
 				QueueDepth, Running, Rejected, PayloadBytes, ResultBytes, RetainedResultBytes
@@ -214,9 +217,11 @@ namespace Durin::Profiling
 	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ZoneScopedN(Name)
 	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
 		ZoneScopedN("Task.Execute"); \
-		const auto DurinTaskProfilerExecutionMessage = ::Durin::Profiling::Private::FormatTaskProfilerMessage( \
-			"execute", TaskId, ScopeId, OwnerId, CategoryId, Target, 0, DebugName); \
-		ZoneText(DurinTaskProfilerExecutionMessage.Bytes.data(), DurinTaskProfilerExecutionMessage.Length)
+		if (ZoneIsActive) { \
+			const auto DurinTaskProfilerExecutionMessage = ::Durin::Profiling::Private::FormatTaskProfilerMessage( \
+				"execute", TaskId, ScopeId, OwnerId, CategoryId, Target, 0, DebugName); \
+			ZoneText(DurinTaskProfilerExecutionMessage.Bytes.data(), DurinTaskProfilerExecutionMessage.Length); \
+		}
 	#define DURIN_PROFILE_FRAME_MARK() FrameMark
 	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() TracyMessageL("Startup.FirstPresent")
 	#define DURIN_PROFILE_THREAD(Name) tracy::SetThreadName(Name)

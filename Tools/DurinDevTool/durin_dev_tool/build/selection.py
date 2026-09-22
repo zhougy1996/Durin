@@ -112,6 +112,11 @@ def preset_install_directory(preset: ConfigurePreset, *, root: Path) -> Path | N
 
 
 def preset_output_configuration(preset: ConfigurePreset) -> str:
-    configuration = preset_cache_string(preset, "CMAKE_BUILD_TYPE")
-    preset_role = preset_cache_string(preset, "DURIN_PRESET_ROLE", required=False)
-    return f"{configuration}-Profiling" if preset_role == "Profiling" else configuration
+    return preset_cache_string(preset, "CMAKE_BUILD_TYPE")
+
+
+def tracy_enabled(value: str, configuration: str) -> bool:
+    """Resolve the CMake AUTO policy, including presets without an override."""
+    if not value or value.strip().upper() == "AUTO":
+        return configuration != "Shipping"
+    return value.strip().upper() in {"1", "ON", "TRUE", "YES", "Y"}

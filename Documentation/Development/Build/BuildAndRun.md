@@ -400,7 +400,7 @@ the changed behavior needs its distinct configuration or runtime graph:
 | Optimized behavior, configuration-dependent code, concurrency, memory layout, undefined-behavior risk, or a merge/release qualification gate | Corresponding Release Editor preset |
 | Game startup, cooked runtime behavior, runtime-only modules, or an Editor/Game dependency boundary | Corresponding Debug or Release Game preset |
 | Shipping-only macros, logging removal, packaging behavior, or release qualification | Corresponding Shipping Game preset |
-| Profiling integration or instrumentation | Corresponding Profiling preset |
+| Profiling integration or instrumentation | Corresponding ordinary Release preset; Shipping when changing exclusion rules |
 
 A Release Editor preset is therefore a periodic or risk-triggered lane, not a
 mandatory companion to every Debug Editor build. Broad runtime and
@@ -416,7 +416,6 @@ is not the intended target:
 ```powershell
 .\DevTool.bat build --preset Win64-Release-DurinEditor --target all
 .\DevTool.bat rebuild --preset Win64-Shipping-DurinGame --target all
-.\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
 ./DevTool build --preset MacOS-arm64-Release-DurinEditor --target all
 ```
 

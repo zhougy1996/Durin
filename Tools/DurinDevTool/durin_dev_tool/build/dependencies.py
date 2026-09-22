@@ -10,7 +10,7 @@ from ..context import CommandIO, RepositoryContext
 from .build_context import BuildContext
 from .errors import BuildToolError
 from .output import BuildOutput
-from .selection import preset_cache_bool, preset_cache_string
+from .selection import preset_cache_bool, preset_cache_string, tracy_enabled
 
 
 def _definition_values(definitions: Iterable[str]) -> dict[str, str]:
@@ -69,7 +69,10 @@ def prepare_configure_dependencies(context: BuildContext, output: BuildOutput) -
             command_io=command_io,
             environment=context.environment,
         )
-        if _effective_bool(context, "DURIN_ENABLE_TRACY"):
+        if tracy_enabled(
+            _effective_string(context, "DURIN_ENABLE_TRACY"),
+            _effective_string(context, "CMAKE_BUILD_TYPE"),
+        ):
             prepare_dependencies(
                 repository,
                 DependencyRequest(

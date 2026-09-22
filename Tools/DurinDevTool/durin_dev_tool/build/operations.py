@@ -15,7 +15,7 @@ from .build_context import BuildContext, create_build_context, derive_build_cont
 from .errors import BuildToolError
 from .models import Action
 from .requests import BaseRequest, ConcreteRequest, SimpleRequest, ConfigureRequest
-from .selection import preset_cache_string
+from .selection import preset_cache_string, tracy_enabled
 from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
 from .locations import resolve_all_locations, resolve_location
 from .opener import open_location
@@ -219,21 +219,11 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
             state_directory=repository_config.paths.state_directory,
         ).path,
         "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
-        "Preset role": preset_cache_string(
-            context.preset,
-            "DURIN_PRESET_ROLE",
-            required=False,
-        )
-        or "Standard",
         "Tracy": (
-            "enabled"
-            if preset_cache_string(
-                context.preset,
-                "DURIN_ENABLE_TRACY",
-                required=False,
-            ).upper()
-            in {"1", "ON", "TRUE", "YES"}
-            else "disabled"
+            "enabled" if tracy_enabled(
+                preset_cache_string(context.preset, "DURIN_ENABLE_TRACY", required=False),
+                preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
+            ) else "disabled"
         ),
         "Toolchain context": "resolved" if toolchain_resolved else "unresolved",
         "Parallel jobs": context.jobs or f"unresolved (default: {jobs_default})",

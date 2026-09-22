@@ -108,15 +108,13 @@ class TestVSCodeConfigLifecycle:
         assert tuple(configurations) == (
             'Win64-Debug-DurinEditor',
             'Win64-Release-DurinEditor',
-            'Win64-Release-DurinEditor-Profiling',
             'Win64-Debug-DurinGame',
             'Win64-Release-DurinGame',
-            'Win64-Release-DurinGame-Profiling',
             'Win64-Shipping-DurinGame',
         )
         assert 'Win64-Debug-DurinEditor-FastConfigure' not in configurations
-        assert configurations['Win64-Release-DurinEditor-Profiling']['program'] == (
-            '${workspaceFolder}/Engine/Binaries/Win64/Release-Profiling/'
+        assert configurations['Win64-Release-DurinEditor']['program'] == (
+            '${workspaceFolder}/Engine/Binaries/Win64/Release/'
             'Runtime/DurinEditor/DurinEditor.exe'
         )
         assert configurations['Win64-Shipping-DurinGame']['program'] == (
