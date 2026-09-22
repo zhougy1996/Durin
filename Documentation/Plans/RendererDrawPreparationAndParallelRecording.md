@@ -9,16 +9,49 @@ Completed:
 
 ## Current Status
 
-Planning only; no stage is accepted and no performance improvement is claimed.
+Implementation started; no stage is accepted and no performance improvement is claimed.
 The source audit follows `f3c835e51`, which introduced shared preparation facts,
 dense uniform groups and separate view/material descriptor sets. The user
 reports no obvious reduction in render-thread time. This is qualitative feedback,
 not a controlled benchmark. That commit's correctness results do not establish
 the performance baseline or acceptance of this plan.
 
-Next work is Stage 0: establish comparable captures and freeze the lifetime,
-invalidation and command-list ownership contracts before changing execution.
-Do not expand the existing per-draw caches as a substitute for this work.
+On 2026-09-22 the user explicitly deferred performance testing to their own
+follow-up and requested refactoring first. This overrides the requirement to
+freeze measured budgets before implementation, but does not close any performance
+gate. Baseline captures, numeric budgets and performance acceptance remain pending.
+Correctness and ownership validation remain required during implementation.
+
+The first change establishes immutable material publication records. Each accepted
+representation owns a counted immutable payload and a process-unique nonzero
+revision ID; copies and prepared binding views retain that payload. Successful
+publication assigns a new ID, while copies preserve it. The terminal error record
+is shared. Failed publication returns the error record and its existing diagnostic.
+Record lifetime ends after the last asset/proxy, prepared view or binding releases
+it; there is no global record registry or historical cache. Retained storage is
+bounded by live published revisions and their consumers. Texture-reference contents
+are still resolved on the render thread under existing device/resource-generation
+rules; a record ID does not certify backend texture readiness.
+
+Stage 1 material publication is implemented: representation copies share storage,
+bindings retain read-only payload/resource views, resolved surface uniforms retain
+the same owner, and collection recognizes repeated record IDs before exact
+deduplication. Separately published equal records still compare exactly at their
+first admission to submission-local uniform groups; this is not a persistent
+geometry or mesh-command cache. Geometry publication and Stages 2–6 remain open.
+
+Validation so far: `build --target all` passed on the default
+`Win64-Debug-DurinEditor` profile. `MaterialRuntimeTests
+FMaterialRenderRepresentationTests.*` passed 11 cases, including revision sharing,
+binding lifetime after source replacement/destruction, failed publication, and
+independently published equal content. Performance testing remains user-owned.
+`test affected --report` also passed all 50 selected targets, including the full
+material runtime/cook coverage, `RendererSceneContractTests`,
+`StaticMeshRenderPreparationVulkanTests`, resource reload, thumbnail/viewport
+consumers and `SandboxGameplayTests`. The receipt is
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml` (local artifact).
+Changed-document validation and `git diff --check` passed. These results qualify
+the material-publication change only; they do not close the complete Stage 1 gate.
 
 ## Goal
 
@@ -146,10 +179,14 @@ The screenshot and previous test passes cannot close this gate.
 
 Dependencies: Stage 0. Outcome: unchanged scenes stop repeating stable preparation.
 
-- [ ] Publish immutable geometry records per eligible batch/LOD and accepted
-  material binding records at scene-update boundaries; preserve fallback diagnostics.
-- [ ] Carry record IDs through collection; eliminate repeated layout validation,
-  material-array copying and content hashing for unchanged published records.
+- [x] Publish immutable accepted material records and retained binding views;
+  preserve publication validation, error fallback and old-revision lifetime.
+- [ ] Publish immutable geometry records per eligible batch/LOD at scene-update
+  boundaries; preserve fallback diagnostics.
+- [x] Carry material record IDs through collection; eliminate repeated layout
+  validation, material-array copying and content hashing for unchanged publications.
+- [ ] Carry geometry record IDs through collection and eliminate repeated stable
+  geometry interpretation.
 - [ ] Share stable records across receiver and cascade views while retaining
   independent visibility, LOD, pass eligibility and transparent ordering.
 - [ ] Add targeted invalidation for material parameters/resources, geometry/LOD

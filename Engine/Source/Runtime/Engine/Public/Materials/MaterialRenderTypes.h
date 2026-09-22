@@ -49,10 +49,16 @@ namespace Durin
 
 	// Immutable after construction; no reflected object or raw resource pointer
 	// is retained in the published representation.
+	struct FMaterialRenderBinding;
+	class FMaterialRenderRepresentation;
+	ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
+		FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	class FMaterialRenderRepresentation final
 	{
 	public:
 		ENGINE_API FMaterialRenderRepresentation();
+		FMaterialRenderRepresentation(const FMaterialRenderRepresentation&) = default;
+		auto operator=(const FMaterialRenderRepresentation&) -> FMaterialRenderRepresentation& = default;
 
 		ENGINE_API static auto TryCreate(
 			FMaterialRenderRepresentationInput Input,
@@ -65,8 +71,10 @@ namespace Durin
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
 		ENGINE_API auto IsError() const -> bool;
-		auto GetSamplers() const -> std::span<const FMaterialSamplerState> { return Samplers; }
-		auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback> { return TextureFallbacks; }
+		ENGINE_API auto GetSamplers() const -> std::span<const FMaterialSamplerState>;
+		ENGINE_API auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>;
+		ENGINE_API auto GetRecordId() const -> uint64;
+		ENGINE_API auto GetContentHash() const -> uint64;
 
 	private:
 		FMaterialRenderRepresentation(
@@ -77,23 +85,28 @@ namespace Durin
 			std::vector<EMaterialTextureFallback> InFallbacks,
 			bool bInError);
 
-		FMaterialRenderLayout Layout;
-		FByteBuffer UniformPayload;
-		std::vector<FRHITextureReferenceRef> Resources;
-		std::vector<FMaterialSamplerState> Samplers;
-		std::vector<EMaterialTextureFallback> TextureFallbacks;
-		bool bError = false;
+		struct FStorage;
+		std::shared_ptr<const FStorage> Storage;
+		friend auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
+			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	};
 
 	struct FMaterialRenderBinding
 	{
 		bool bError = false;
 		FMaterialRenderLayoutIdentity LayoutIdentity;
-		FByteBuffer CompiledUniformPayload;
-		std::vector<FRHITextureReferenceRef> CompiledTextures;
-		std::vector<FMaterialSamplerState> CompiledSamplers;
-		std::vector<EMaterialTextureFallback> CompiledTextureFallbacks;
-
+		FByteView CompiledUniformPayload;
+		std::span<const FRHITextureReferenceRef> CompiledTextures;
+		std::span<const FMaterialSamplerState> CompiledSamplers;
+		std::span<const EMaterialTextureFallback> CompiledTextureFallbacks;
+		// Copying a binding retains its immutable publication, including all views.
+		FMaterialRenderBinding() = default;
+		FMaterialRenderBinding(const FMaterialRenderBinding&) = default;
+		auto operator=(const FMaterialRenderBinding&) -> FMaterialRenderBinding& = default;
+	private:
+		std::shared_ptr<const void> Owner;
+		friend auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
+			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	};
 
 	ENGINE_API auto TryGetMaterialRenderBinding(

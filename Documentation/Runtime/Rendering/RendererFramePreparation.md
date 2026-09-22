@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-22
 
 ## Ownership Boundary
 
@@ -62,6 +62,12 @@ Preparation shares validated transform and exact material-representation facts
 between the receiver and directional-shadow cascades within one submission.
 Providers still collect batches independently for each view and LOD; batch
 identity alone never authorizes reuse of a changed transform or material.
+Repeated material publications are identified by immutable record IDs; unchanged
+IDs bypass content comparison, and content hashes are computed at publication.
+Distinct IDs still undergo exact comparison when entering a submission's uniform
+groups, preserving deduplication of independently published equal materials.
+Prepared bindings and resolved surface uniform views retain the immutable material
+publication instead of copying its arrays or revalidating its layout per section.
 After draw sorting, a separate dense material-group schedule assigns uniform
 indices without changing translucent ordering. Resource preparation uploads
 one transform per prepared primitive/view and one material payload per group;

@@ -77,7 +77,7 @@ namespace Durin::RendererPrivate
 		check(IsInRenderingThread());
 		if (Pass == ESurfaceMaterialPass::OpaqueShadow || Binding.bError) return true;
 		if (Binding.LayoutIdentity.Version != CompiledMaterialRenderLayoutVersion) return false;
-		std::vector<FMaterialSamplerState> RequiredSamplers = Binding.CompiledSamplers;
+		std::vector<FMaterialSamplerState> RequiredSamplers(Binding.CompiledSamplers.begin(), Binding.CompiledSamplers.end());
 		if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
 		for (size_t Role = 0; Role < RequiredSamplers.size(); ++Role)
 		{
@@ -125,6 +125,7 @@ namespace Durin::RendererPrivate
 			const size_t Count = Binding.CompiledTextures.size();
 			if (Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
 				|| Binding.CompiledUniformPayload.size() < MaterialUniformHeaderBytes) return false;
+			OutMaterial.PublishedBinding = Binding;
 			OutMaterial.CompiledUniformPayload = Binding.CompiledUniformPayload;
 			if (Binding.bError) return Count == 0;
 			for (size_t Index = 0; Index < Count; ++Index)

@@ -1,6 +1,70 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 
+TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWithoutCopying)
+{
+	using namespace Durin;
+	const FGuid Scalar{2, 0, 0, 1};
+	auto Representation = MakeRenderFixture();
+	const auto Revision = Representation.GetRecordId();
+	const auto Copy = Representation;
+	ASSERT_NE(Revision, 0u);
+	EXPECT_EQ(Copy.GetRecordId(), Revision);
+	EXPECT_EQ(Copy.GetUniformPayload().data(), Representation.GetUniformPayload().data());
+	FMaterialRenderBinding Retained;
+	FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Retained, Diagnostic));
+	const auto Offset = std::ranges::find(Representation.GetLayout().Fields,
+		Scalar, &FMaterialRenderField::ParameterId)->Offset;
+	const auto* OriginalPayload = Retained.CompiledUniformPayload.data();
+	for (uint32 Draw = 0; Draw < 128; ++Draw)
+	{
+		FMaterialRenderBinding Binding;
+		ASSERT_TRUE(TryGetMaterialRenderBinding(Copy, Binding, Diagnostic));
+		EXPECT_EQ(Binding.CompiledUniformPayload.data(), OriginalPayload);
+	}
+	FMaterialRenderRepresentationBuilder Update(Representation);
+	ASSERT_TRUE(Update.SetScalar(Scalar, 3.0f));
+	ASSERT_TRUE(Update.Build(Representation, Diagnostic));
+	EXPECT_NE(Representation.GetRecordId(), Revision);
+	EXPECT_EQ(Copy.GetRecordId(), Revision);
+	EXPECT_FLOAT_EQ(ReadFloat(Retained.CompiledUniformPayload, Offset), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), Offset), 3.0f);
+	EXPECT_NE(Representation.GetUniformPayload().data(), OriginalPayload);
+}
+
+TEST(FMaterialRenderRepresentationTests, BindingOutlivesPublicationAndFailedReplacement)
+{
+	using namespace Durin;
+	FMaterialRenderBinding Retained;
+	FMaterialRenderValidationDiagnostic Diagnostic;
+	uint32 Offset = 0;
+	{
+		auto Representation = MakeRenderFixture();
+		Offset = std::ranges::find(Representation.GetLayout().Fields,
+			FGuid{2, 0, 0, 1}, &FMaterialRenderField::ParameterId)->Offset;
+		ASSERT_TRUE(TryGetMaterialRenderBinding(Representation, Retained, Diagnostic));
+		FMaterialRenderRepresentationBuilder Invalid(Representation);
+		ASSERT_TRUE(Invalid.SetScalar(FGuid{2, 0, 0, 1}, std::numeric_limits<float>::quiet_NaN()));
+		EXPECT_FALSE(Invalid.Build(Representation, Diagnostic));
+		EXPECT_EQ(Diagnostic.Failure, EMaterialRenderValidationFailure::NonFiniteValue);
+		EXPECT_TRUE(Representation.IsError());
+		EXPECT_EQ(Representation.GetRecordId(), FMaterialRenderRepresentation().GetRecordId());
+	}
+	const auto Copy = Retained;
+	Retained = {};
+	EXPECT_FLOAT_EQ(ReadFloat(Copy.CompiledUniformPayload, Offset), 1.0f);
+}
+
+TEST(FMaterialRenderRepresentationTests, IndependentPublicationsHaveDistinctIdsAndEqualContentHashes)
+{
+	const auto First = MakeRenderFixture();
+	const auto Second = MakeRenderFixture();
+	EXPECT_NE(First.GetRecordId(), Second.GetRecordId());
+	EXPECT_EQ(First.GetContentHash(), Second.GetContentHash());
+	EXPECT_TRUE(std::ranges::equal(First.GetUniformPayload(), Second.GetUniformPayload()));
+}
+
 TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPacking)
 {
 	const Durin::FMaterialRenderLayout Layout =
@@ -535,10 +599,10 @@ TEST(FMaterialRenderRepresentationTests, CompiledLayoutPreservesTypedValuesAndSa
 	}
 	FMaterialRenderRepresentationInput Input;
 	Input.Layout = Compiled.Layout;
-	Input.UniformPayload = Binding.CompiledUniformPayload;
-	Input.Resources = Binding.CompiledTextures;
-	Input.Samplers = Binding.CompiledSamplers;
-	Input.TextureFallbacks = Binding.CompiledTextureFallbacks;
+	Input.UniformPayload.assign(Binding.CompiledUniformPayload.begin(), Binding.CompiledUniformPayload.end());
+	Input.Resources.assign(Binding.CompiledTextures.begin(), Binding.CompiledTextures.end());
+	Input.Samplers.assign(Binding.CompiledSamplers.begin(), Binding.CompiledSamplers.end());
+	Input.TextureFallbacks.assign(Binding.CompiledTextureFallbacks.begin(), Binding.CompiledTextureFallbacks.end());
 	Input.UniformPayload[0] = std::byte{1};
 	EXPECT_FALSE(FMaterialRenderRepresentation::TryCreate(Input, Representation, Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, EMaterialRenderValidationFailure::NonZeroPadding);

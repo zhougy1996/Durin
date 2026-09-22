@@ -72,7 +72,8 @@ namespace Durin
 		struct FResolvedSurfaceMaterial
 		{
 			bool bCompiledLayout = false;
-			FByteBuffer CompiledUniformPayload;
+			FMaterialRenderBinding PublishedBinding;
+			FByteView CompiledUniformPayload;
 			std::vector<FRHITexture*> CompiledTextures;
 			std::vector<FRHISampler*> CompiledSamplers;
 			FRHITexture* EnvironmentIrradiance = nullptr;

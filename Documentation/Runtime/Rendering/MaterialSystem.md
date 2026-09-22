@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -700,6 +700,21 @@ zero padding, and resource counts before publication. Invalid construction
 returns the complete deterministic ErrorMaterial representation and a diagnostic;
 it never publishes a partially filled payload. The representation retains no
 reflected object or raw texture pointer.
+
+Each publication has a process-unique nonzero record ID and shared immutable
+storage. Copying a representation preserves its ID and retains the layout,
+payload and resource arrays without copying them. A successful builder publication
+gets a new ID; failed construction selects the shared error terminal. Content
+hashing occurs during publication. IDs are runtime revision tokens, not serialized
+asset identities, shader generations or backend readiness proofs.
+
+`TryGetMaterialRenderBinding` retains this validated publication and exposes
+read-only spans; it does not revalidate the immutable layout or copy payload and
+resource arrays. Binding copies keep their own counted owner, so replacing or
+destroying the source representation cannot invalidate a prepared binding.
+Storage retires after its last consumer, without a global historical record cache.
+Texture references still resolve their current render-thread resources through
+the existing generation and readiness checks.
 
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,

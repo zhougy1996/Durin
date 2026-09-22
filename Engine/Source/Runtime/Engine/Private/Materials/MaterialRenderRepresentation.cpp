@@ -1,7 +1,20 @@
 #include "Materials/MaterialRenderTypes.h"
+#include "Hash/XxHash.h"
+#include <atomic>
 
 namespace Durin
 {
+	struct FMaterialRenderRepresentation::FStorage
+	{
+		FMaterialRenderLayout Layout;
+		FByteBuffer UniformPayload;
+		std::vector<FRHITextureReferenceRef> Resources;
+		std::vector<FMaterialSamplerState> Samplers;
+		std::vector<EMaterialTextureFallback> TextureFallbacks;
+		bool bError = false;
+		uint64 RecordId = 0;
+		uint64 ContentHash = 0;
+	};
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,
@@ -20,10 +33,10 @@ namespace Durin
 
 	}
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
-		: Layout(MakeErrorMaterialRenderLayout())
-		, UniformPayload(MaterialUniformHeaderBytes, std::byte{0})
-		, bError(true)
 	{
+		static const FMaterialRenderRepresentation Error(MakeErrorMaterialRenderLayout(),
+			FByteBuffer(MaterialUniformHeaderBytes, std::byte{0}), {}, {}, {}, true);
+		Storage = Error.Storage;
 	}
 
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation(
@@ -33,13 +46,27 @@ namespace Durin
 		std::vector<FMaterialSamplerState> InSamplers,
 		std::vector<EMaterialTextureFallback> InFallbacks,
 		bool bInError)
-		: Layout(std::move(InLayout))
-		, UniformPayload(std::move(InUniformPayload))
-		, Resources(std::move(InResources))
-		, Samplers(std::move(InSamplers))
-		, TextureFallbacks(std::move(InFallbacks))
-		, bError(bInError)
 	{
+		static std::atomic<uint64> NextRecordId{1};
+		const uint64 Id = NextRecordId.fetch_add(1, std::memory_order_relaxed);
+		checkf(Id != 0, "Material publication record IDs exhausted.");
+		FXxHash64Builder Hash;
+		Hash.Update(InUniformPayload);
+		Hash.UpdateValue(InLayout.Identity.Version);
+		Hash.UpdateValue(InLayout.Identity.Id);
+		Hash.UpdateValue(bInError);
+		for (const auto& Resource : InResources) Hash.UpdateValue(Resource.GetReference());
+		for (const auto& Sampler : InSamplers)
+		{
+			Hash.UpdateValue(Sampler.MinFilter);
+			Hash.UpdateValue(Sampler.MagFilter);
+			Hash.UpdateValue(Sampler.AddressU);
+			Hash.UpdateValue(Sampler.AddressV);
+		}
+		for (const auto Fallback : InFallbacks) Hash.UpdateValue(Fallback);
+		Storage = std::make_shared<const FStorage>(FStorage{
+			std::move(InLayout), std::move(InUniformPayload), std::move(InResources),
+			std::move(InSamplers), std::move(InFallbacks), bInError, Id, Hash.Finalize().HashValue});
 	}
 
 	auto FMaterialRenderRepresentation::TryCreate(
@@ -139,25 +166,34 @@ namespace Durin
 	auto FMaterialRenderRepresentation::GetLayout() const
 		-> const FMaterialRenderLayout&
 	{
-		return Layout;
+		return Storage->Layout;
 	}
 
 	auto FMaterialRenderRepresentation::GetUniformPayload() const
 		-> FByteView
 	{
-		return UniformPayload;
+		return Storage->UniformPayload;
 	}
 
 	auto FMaterialRenderRepresentation::GetResources() const
 		-> std::span<const FRHITextureReferenceRef>
 	{
-		return Resources;
+		return Storage->Resources;
 	}
 
 	auto FMaterialRenderRepresentation::IsError() const -> bool
 	{
-		return bError;
+		return Storage->bError;
 	}
+
+	auto FMaterialRenderRepresentation::GetSamplers() const -> std::span<const FMaterialSamplerState>
+	{ return Storage->Samplers; }
+	auto FMaterialRenderRepresentation::GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>
+	{ return Storage->TextureFallbacks; }
+	auto FMaterialRenderRepresentation::GetRecordId() const -> uint64
+	{ return Storage->RecordId; }
+	auto FMaterialRenderRepresentation::GetContentHash() const -> uint64
+	{ return Storage->ContentHash; }
 
 	auto TryGetMaterialRenderBinding(
 		const FMaterialRenderRepresentation& Representation,
@@ -169,13 +205,15 @@ namespace Durin
 		OutDiagnostic = {};
 		if (Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
-			if (!ValidateMaterialRenderLayout(Representation.GetLayout(), OutDiagnostic)) return false;
+			// TryCreate validates before immutable publication. Retain the publication
+			// instead of validating and copying its layout and arrays for each draw.
+			OutBinding.Owner = Representation.Storage;
 			OutBinding.bError = Representation.IsError();
 			OutBinding.LayoutIdentity = Representation.GetLayout().Identity;
-			OutBinding.CompiledUniformPayload.assign(Representation.GetUniformPayload().begin(), Representation.GetUniformPayload().end());
-			OutBinding.CompiledTextures.assign(Representation.GetResources().begin(), Representation.GetResources().end());
-			OutBinding.CompiledSamplers.assign(Representation.GetSamplers().begin(), Representation.GetSamplers().end());
-			OutBinding.CompiledTextureFallbacks.assign(Representation.GetTextureFallbacks().begin(), Representation.GetTextureFallbacks().end());
+			OutBinding.CompiledUniformPayload = Representation.GetUniformPayload();
+			OutBinding.CompiledTextures = Representation.GetResources();
+			OutBinding.CompiledSamplers = Representation.GetSamplers();
+			OutBinding.CompiledTextureFallbacks = Representation.GetTextureFallbacks();
 			return true;
 		}
 		return SetValidationFailure(OutDiagnostic,

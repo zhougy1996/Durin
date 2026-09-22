@@ -30,6 +30,7 @@ namespace Durin
 		};
 		std::map<std::pair<uint64, uint64>, FTransform> Transforms;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
+		std::unordered_map<uint64, uint32> MaterialRecordIndices;
 		std::vector<FMaterialRenderRepresentation> Materials;
 		size_t TransformBuilds = 0;
 		size_t MaterialBuilds = 0;

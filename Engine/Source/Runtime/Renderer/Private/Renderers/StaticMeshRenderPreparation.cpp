@@ -15,21 +15,7 @@ namespace Durin
 	{
 		auto MaterialFactHash(const FMaterialRenderRepresentation& Representation) -> uint64
 		{
-			FXxHash64Builder Hash;
-			Hash.Update(Representation.GetUniformPayload());
-			Hash.UpdateValue(Representation.GetLayout().Identity.Version);
-			Hash.UpdateValue(Representation.GetLayout().Identity.Id);
-			Hash.UpdateValue(Representation.IsError());
-			for (const auto& Resource : Representation.GetResources()) Hash.UpdateValue(Resource.GetReference());
-			for (const auto& Sampler : Representation.GetSamplers())
-			{
-				Hash.UpdateValue(Sampler.MinFilter);
-				Hash.UpdateValue(Sampler.MagFilter);
-				Hash.UpdateValue(Sampler.AddressU);
-				Hash.UpdateValue(Sampler.AddressV);
-			}
-			for (const auto Fallback : Representation.GetTextureFallbacks()) Hash.UpdateValue(Fallback);
-			return Hash.Finalize().HashValue;
+			return Representation.GetContentHash();
 		}
 	}
 
@@ -54,6 +40,9 @@ namespace Durin
 	auto FStaticMeshPreparationCache::ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>
 	{
 		const auto& Representation = Material.Representation;
+		const uint64 RecordId = Representation.GetRecordId();
+		if (const auto It = MaterialRecordIndices.find(RecordId); It != MaterialRecordIndices.end())
+			return It->second;
 		const uint64 Hash = MaterialFactHash(Representation);
 		const auto [Begin, End] = MaterialIndices.equal_range(Hash);
 		for (auto It = Begin; It != End; ++It)
@@ -66,7 +55,10 @@ namespace Durin
 				&& std::ranges::equal(Cached.GetResources(), Representation.GetResources())
 				&& std::ranges::equal(Cached.GetSamplers(), Representation.GetSamplers())
 				&& std::ranges::equal(Cached.GetTextureFallbacks(), Representation.GetTextureFallbacks()))
+			{
+				MaterialRecordIndices.emplace(RecordId, It->second);
 				return It->second;
+			}
 		}
 		++MaterialBuilds;
 		FMaterialRenderBinding Binding;
@@ -75,6 +67,7 @@ namespace Durin
 		Materials.push_back(Material.Representation);
 		// Resolution may have selected ErrorMaterial; hash its final representation.
 		MaterialIndices.emplace(MaterialFactHash(Material.Representation), Index);
+		MaterialRecordIndices.emplace(Material.Representation.GetRecordId(), Index);
 		return Index;
 	}
 
