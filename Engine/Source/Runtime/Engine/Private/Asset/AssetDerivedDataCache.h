@@ -5,6 +5,7 @@
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Asset/AssetCacheDiagnostic.h"
+#include "Asset/AssetBuildCacheWarning.h"
 
 namespace Durin::AssetDerivedDataCache
 {
@@ -84,6 +85,20 @@ namespace Durin::AssetDerivedDataCache
 		}
 		return true;
 	}
+	// Cache rejection is recovered locally; callers receive warnings, not another failure domain.
+	inline auto CollectBuildWarnings(const FOperationDiagnostic& Read,
+		const FOperationDiagnostic& Write, const std::optional<std::string>& Decode)
+		-> std::vector<FAssetBuildCacheWarning>
+	{
+		std::vector<FAssetBuildCacheWarning> Warnings;
+		if (Read.Code != EAssetCacheError::None)
+			Warnings.emplace_back(EAssetBuildCacheOperation::Read, FormatAssetCacheDiagnostic(Read));
+		if (Decode) Warnings.emplace_back(EAssetBuildCacheOperation::Decode, *Decode);
+		if (Write.Code != EAssetCacheError::None)
+			Warnings.emplace_back(EAssetBuildCacheOperation::Write, FormatAssetCacheDiagnostic(Write));
+		return Warnings;
+	}
+
 }
 
 #endif

@@ -106,10 +106,11 @@ contains executable preparation logic. `FPhysicsCookResult` owns the cooked geom
 and nonfatal cache diagnostics. `PhysicsCookBuilderVersion` owns cooker compatibility
 and contributes to collision DDC/payload versions and the package cook fingerprint.
 The version remains 2 because the geometry algorithm and serialized format are unchanged.
-Physics input preparation, cooking, admission and installation return
-`FPhysicsCookFailure`, with typed cancellation and bounded text. Nonfatal cache
-warnings use `FPhysicsCacheError`, independent of StaticMesh diagnostics.
-`PhysicsDerivedData.h/.cpp` owns the DCOL payload, validation and codec diagnostics;
+Physics input preparation, cooking and admission return `FPhysicsCookFailure`,
+with typed cancellation and bounded text. Recoverable cache warnings use the shared
+Asset type `FAssetBuildCacheWarning`. Private cache codecs format their rejection
+once; they do not expose a separate codec error domain.
+`PhysicsDerivedData.h/.cpp` owns the DCOL payload and typed validation failures;
 `PhysicsCookDerivedDataKey.h/.cpp` owns the collision cache key and key failures.
 The shared archive platform identifier belongs to Asset. Existing payload identifiers,
 canonical bytes, schema versions and the historical `StaticMeshCollision/Objects`
@@ -121,11 +122,16 @@ advances request/resource revisions, and refreshes physics consumers.
 `CreatePhysicsMeshesAsync` accepts a provider capture and submits bounded work;
 `CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
 only. Accepted asynchronous work delivers `FOnAsyncPhysicsCookFinished` once on
-the owner-thread pump, including cancellation; rejected admission returns an error.
+the owner-thread pump. Its `FPhysicsCookCompletionResult` distinguishes Succeeded,
+Failed, Cancelled and Superseded; only Failed carries the original cook failure.
+The immediate return reports admission only; rejected admission has no callback.
 Disabled collision completes inline without submitting work. Callbacks must tolerate
 owner destruction.
-The setup owns `EPhysicsMeshBuildStatus`, `FPhysicsMeshBuildError`, and stale-result
-rejection through `ApplyPhysicsMeshes`. Workers never mutate it.
+The setup owns `EPhysicsMeshBuildStatus` and an optional `FPhysicsCookFailure`;
+there is no second owner-error wrapper. Cancellation clears the stored failure.
+`ApplyPhysicsMeshes` returns Applied, Superseded or Failed. Stale results do not
+change live state; incompatible geometry on a current request stores an Installation
+failure. Workers never mutate the setup.
 
 The mesh setters invalidate derived collision and schedule when a collision source
 is available, even without CPU RenderData. Missing source retains configuration as

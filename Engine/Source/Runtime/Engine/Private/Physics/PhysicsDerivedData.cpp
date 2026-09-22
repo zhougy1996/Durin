@@ -30,24 +30,6 @@ namespace Durin
 
 	}
 
-	auto FormatPhysicsCacheCodecError(const FPhysicsCacheCodecError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EPhysicsCacheCodecError::None: return {};
-		case EPhysicsCacheCodecError::CollisionPayload:
-			return Error.CollisionCause ? FormatPhysicsCollisionPayloadError(*Error.CollisionCause) : "Physics payload conversion failed.";
-		case EPhysicsCacheCodecError::Archive:
-			return std::format("Physics cache operation {} failed at byte {} (Archive code {}, path '{}').",
-				static_cast<int>(Error.Operation), Error.Actual, Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
-		case EPhysicsCacheCodecError::CollisionMetadata:
-			return std::format("Cached physics mode/policy ({}/{}) does not match ({}/{}).",
-				static_cast<int>(Error.ActualMode), static_cast<int>(Error.ActualPolicy),
-				static_cast<int>(Error.ExpectedMode), static_cast<int>(Error.ExpectedPolicy));
-		}
-		return {};
-	}
-
 	auto FormatPhysicsCollisionPayloadError(const FPhysicsCollisionPayloadError& Error) -> std::string
 	{
 		switch (Error.Code)

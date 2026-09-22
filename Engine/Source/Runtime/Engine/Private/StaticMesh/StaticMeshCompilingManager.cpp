@@ -33,11 +33,11 @@ namespace Durin
 		{
 			uint64 ProviderRegistration = 0;
 			FStaticMeshBuildRequest Request;
-			std::vector<FStaticMeshCacheError> CacheErrors;
+			std::vector<FAssetBuildCacheWarning> CacheWarnings;
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
 			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ Outcome = FStaticMeshBuilder::Build(std::move(Request), Control, &CacheErrors, ProviderRegistration); }
+			{ Outcome = FStaticMeshBuilder::Build(std::move(Request), Control, &CacheWarnings, ProviderRegistration); }
 		};
 		struct FCollisionWork
 		{
@@ -507,9 +507,16 @@ namespace Durin
 				else
 				{
 					const auto& Collision = *Record->Work->Collision().Outcome;
-					const bool Installed = Body->ApplyPhysicsMeshes(Expected.RequestGeneration, Collision.Simple, Collision.Complex);
-					Record->Terminal = Installed ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed;
-					for (const auto& Warning : Collision.GetCacheErrors()) DURIN_WARN("{}", Warning.ToString());
+					for (const auto& Warning : Collision.GetCacheWarnings()) DURIN_WARN("Physics {}", Warning.ToString());
+					switch (Body->ApplyPhysicsMeshes(Expected.RequestGeneration, Collision.Simple, Collision.Complex))
+					{
+					case EPhysicsMeshApplyResult::Applied: Record->Terminal = EStaticMeshCompilationStatus::Succeeded; break;
+					case EPhysicsMeshApplyResult::Superseded: Record->Terminal = EStaticMeshCompilationStatus::Superseded; break;
+					case EPhysicsMeshApplyResult::Failed:
+						Record->Terminal = EStaticMeshCompilationStatus::Failed;
+						Record->Work->Collision().Outcome = std::unexpected(*Body->GetPhysicsMeshBuildError());
+						break;
+					}
 				}
 			}
 
@@ -519,7 +526,7 @@ namespace Durin
 				if (!Record->Work->Render().Outcome) Record->Diagnostic.Error = Record->Work->Render().Outcome.error();
 				if (Record->Work->Render().Outcome)
 				{
-					Record->Diagnostic.CacheErrors = Record->Work->Render().CacheErrors;
+					Record->Diagnostic.CacheWarnings = Record->Work->Render().CacheWarnings;
 				}
 				if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
 					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
@@ -621,7 +628,21 @@ namespace Durin
 					Record->PreparedMaterialSlots.reset();
 					Record->ImportState.reset();
 					++Result.ProcessedCompletionCount;
-					if (PhysicsCompletion) PhysicsCompletion(*Record->Terminal == EStaticMeshCompilationStatus::Succeeded);
+					if (PhysicsCompletion)
+					{
+						FPhysicsCookCompletionResult Completed;
+						switch (*Record->Terminal)
+						{
+						case EStaticMeshCompilationStatus::Succeeded: Completed.Status = EPhysicsCookCompletionStatus::Succeeded; break;
+						case EStaticMeshCompilationStatus::Cancelled: Completed.Status = EPhysicsCookCompletionStatus::Cancelled; break;
+						case EStaticMeshCompilationStatus::Superseded: Completed.Status = EPhysicsCookCompletionStatus::Superseded; break;
+						case EStaticMeshCompilationStatus::Failed:
+							Completed.Status = EPhysicsCookCompletionStatus::Failed;
+							Completed.Error = Record->Work->Collision().Outcome.error();
+							break;
+						}
+						PhysicsCompletion(Completed);
+					}
 					if (Completion)
 					{
 						FStaticMeshCompilationResult Completed{.RequestId = Record->Diagnostic.RequestId, .Status = *Record->Terminal};
@@ -702,7 +723,7 @@ namespace Durin
 	auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string
 	{
 		auto Message = Diagnostic.Error ? Diagnostic.Error->ToString() : std::string{};
-		for (const auto& Error : Diagnostic.CacheErrors)
+		for (const auto& Error : Diagnostic.CacheWarnings)
 		{
 			if (!Message.empty()) Message += "\n";
 			Message += Error.ToString();

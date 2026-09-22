@@ -1,5 +1,4 @@
 #include "Physics/PhysicsCookFailure.h"
-#include "Physics/PhysicsCookDiagnostics.h"
 
 namespace Durin
 {
@@ -13,10 +12,4 @@ namespace Durin
 		return Error;
 	}
 
-	auto FPhysicsCacheError::ToString() const -> std::string
-	{
-		const auto OperationName = Operation == EPhysicsCacheOperation::Read ? "read"
-			: Operation == EPhysicsCacheOperation::Decode ? "decode" : "write";
-		return std::format("Physics cache {}: {}", OperationName, Message);
-	}
 }

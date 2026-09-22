@@ -40,62 +40,44 @@ namespace Durin
 			return Hash.Finalize();
 		}
 
-		auto ArchiveCodecFailure(const FArchive& Ar, EPhysicsCacheCodecOperation Operation) -> std::expected<void, FPhysicsCacheCodecError>
+		auto ArchiveCodecFailure(const FArchive& Ar) -> std::expected<void, std::string>
 		{
-			FPhysicsCacheCodecError Error{.Code = EPhysicsCacheCodecError::Archive, .Operation = Operation, .Actual = Ar.Tell()};
-			if (const auto* Failure = Ar.GetFailure())
-			{
-				Error.ArchiveCode = Failure->Code;
-				Error.ArchivePath = Failure->Path;
-			}
-			return std::unexpected(std::move(Error));
+			const auto* Failure = Ar.GetFailure();
+			return std::unexpected(std::format("Payload archive failed at byte {} (Archive code {}, path '{}'): {}",
+				Ar.Tell(), Failure ? static_cast<int>(Failure->Code) : -1,
+				Failure ? Failure->Path : std::string{}, Ar.GetError()));
 		}
 
 		auto EncodeCollision(const FCollisionGeometryRef& Geometry, EBodySetupCollisionQueryPolicy Policy,
-			FByteBuffer& OutBytes, const std::function<bool()>& ShouldCancel) -> std::expected<void, FPhysicsCacheCodecError>
+			FByteBuffer& OutBytes, const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
 		{
 			FPhysicsCollisionPayloadData Payload;
 			if (const auto Built = MakePhysicsCollisionPayloadData(Geometry, Policy, Payload, ShouldCancel); !Built)
-				return std::unexpected(FPhysicsCacheCodecError{.Code = EPhysicsCacheCodecError::CollisionPayload, .Operation = EPhysicsCacheCodecOperation::EncodeCollision, .CollisionCause = Built.error()});
+				return std::unexpected(FormatPhysicsCollisionPayloadError(Built.error()));
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
 			if (!Ar.IsError()) return {};
-			const auto Failure = ArchiveCodecFailure(Ar, EPhysicsCacheCodecOperation::EncodeCollision);
+			const auto Failure = ArchiveCodecFailure(Ar);
 			OutBytes.clear();
 			return Failure;
 		}
 
 		auto DecodeCollision(FByteView Bytes, EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy, FCollisionGeometryRef& OutGeometry,
-			const std::function<bool()>& ShouldCancel) -> std::expected<void, FPhysicsCacheCodecError>
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
 		{
 			FPhysicsCollisionPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EPhysicsCacheCodecOperation::DecodeCollision);
+			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar);
 			if (Payload.SourceMode != Mode || Payload.QueryPolicy != Policy)
-				return std::unexpected(FPhysicsCacheCodecError{.Code = EPhysicsCacheCodecError::CollisionMetadata, .Operation = EPhysicsCacheCodecOperation::DecodeCollision,
-					.ActualMode = Payload.SourceMode, .ExpectedMode = Mode, .ActualPolicy = Payload.QueryPolicy, .ExpectedPolicy = Policy});
+				return std::unexpected(std::format("Cached physics mode/policy ({}/{}) does not match ({}/{}).", static_cast<int>(Payload.SourceMode), static_cast<int>(Payload.QueryPolicy), static_cast<int>(Mode), static_cast<int>(Policy)));
 			if (const auto Built = MakePhysicsCollisionGeometry(Payload, OutGeometry, ShouldCancel); !Built)
-				return std::unexpected(FPhysicsCacheCodecError{.Code = EPhysicsCacheCodecError::CollisionPayload, .Operation = EPhysicsCacheCodecOperation::DecodeCollision, .CollisionCause = Built.error()});
+				return std::unexpected(FormatPhysicsCollisionPayloadError(Built.error()));
 			return {};
 		}
 
-		auto CollectCacheErrors(
-			const AssetDerivedDataCache::FOperationDiagnostic& Read,
-			const AssetDerivedDataCache::FOperationDiagnostic& Write,
-			const std::optional<FPhysicsCacheCodecError>& Decode) -> std::vector<FPhysicsCacheError>
-		{
-			std::vector<FPhysicsCacheError> Errors;
-			if (Read.Code != EAssetCacheError::None)
-				Errors.emplace_back( EPhysicsCacheOperation::Read, FormatAssetCacheDiagnostic(Read));
-			if (Decode)
-				Errors.emplace_back( EPhysicsCacheOperation::Decode, FormatPhysicsCacheCodecError(*Decode));
-			if (Write.Code != EAssetCacheError::None)
-				Errors.emplace_back( EPhysicsCacheOperation::Write, FormatAssetCacheDiagnostic(Write));
-			return Errors;
-		}
 
 	}
 #endif
@@ -137,7 +119,7 @@ namespace Durin
 		const auto Key = *KeyResult;
 		FByteBuffer Bytes;
 		AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic, StoreDiagnostic;
-		std::optional<FPhysicsCacheCodecError> DecodeCause;
+		std::optional<std::string> DecodeCause;
 		if (AssetDerivedDataCache::Load(Key, std::min(MaximumPhysicsCollisionPayloadBytes,
 			Control.MaximumWorkingSetBytes / 16), Bytes, LoadDiagnostic) == AssetDerivedDataCache::ELoadResult::Hit)
 		{
@@ -166,7 +148,7 @@ namespace Durin
 			if (const auto Encoded = EncodeCollision(Geometry, Policy, Bytes, IsCancelled); !Encoded)
 			{
 				if (IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Cook));
-				return Fail(FormatPhysicsCacheCodecError(Encoded.error()));
+				return Fail(Encoded.error());
 			}
 			if (IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Cook));
 			if (Info.bPersistDerivedData) AssetDerivedDataCache::Store(Key, Bytes, MaximumPhysicsCollisionPayloadBytes, StoreDiagnostic);
@@ -177,7 +159,7 @@ namespace Durin
 		if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0) Result.Simple = std::move(Geometry);
 		else Result.Complex = std::move(Geometry);
 #if DURIN_WITH_EDITOR
-		Result.CacheErrors = CollectCacheErrors( LoadDiagnostic, StoreDiagnostic, DecodeCause);
+		Result.CacheWarnings = AssetDerivedDataCache::CollectBuildWarnings(LoadDiagnostic, StoreDiagnostic, DecodeCause);
 #endif
 		return Result;
 	}

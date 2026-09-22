@@ -112,22 +112,6 @@ namespace Durin
 	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
 
 	enum class EArchiveFailureCode : uint8;
-	enum class EStaticMeshCacheCodecError : uint8 { None, RenderPayload, Archive, MaterialSlots };
-	enum class EStaticMeshCacheCodecOperation : uint8 { EncodeRender, DecodeRender };
-	struct FStaticMeshCacheCodecError
-	{
-		EStaticMeshCacheCodecError Code = EStaticMeshCacheCodecError::None;
-		EStaticMeshCacheCodecOperation Operation = EStaticMeshCacheCodecOperation::EncodeRender;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::string ArchivePath;
-		std::optional<FStaticMeshPayloadError> RenderCause;
-	};
-
-	ENGINE_API auto FormatStaticMeshCacheCodecError(const FStaticMeshCacheCodecError& Error) -> std::string;
-
-	enum class EArchiveFailureCode : uint8;
 	enum class EStaticMeshBuildKeyError : uint8 { None, UnsupportedTarget, Archive };
 	struct FStaticMeshBuildKeyError
 	{

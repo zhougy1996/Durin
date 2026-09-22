@@ -134,6 +134,27 @@ call. Contiguous allocation/copy, container hashing/packing, archive I/O and
 compression remain indivisible library calls; cooperative cancellation has no
 hard wall-clock deadline and includes scratch destruction before return.
 
+## Error-handling boundaries
+
+An interface returns failure when its caller must stop, recover, or report an
+unsatisfied operation. Intermediate layers preserve that failure instead of
+inventing another wrapper. Diagnostic detail alone does not require a new type.
+
+| Boundary | Caller responsibility |
+| --- | --- |
+| Source acquisition, collision input preparation, recipe/build/cook | Stop on invalid or unavailable input; preserve the original reason and cancellation. |
+| Payload validation and cooked loading | Reject malformed data; keep structured validation details available to non-cache callers. |
+| Cache read/decode/write | Rebuild rejected cache entries; report recoverable warnings without failing a valid product on cache write failure. |
+| Async admission | Report whether work was accepted; accepted work has a separate completion. |
+| Async completion | Distinguish success, failure, cancellation and supersession; ordinary failure carries its cause. |
+| Physics installation | Reject stale requests as Superseded without mutation; retain an Installation failure for incompatible current geometry. |
+| Queries, capture, invalidation and cancellation | Use values or lifecycle operations; do not add nested failure objects. |
+
+Render finalization and public publication still validate externally supplied data.
+Their failures are necessary even when the normal builder already validates its own
+product. Waiting for a task is a barrier; inspect its completion or owner state for
+the build outcome.
+
 ## Provenance and compatibility
 
 StaticMesh source provenance stores one normalized project-relative or external
@@ -145,8 +166,9 @@ canonical DDC key also includes builder version 4, render-payload schema 5, and 
 platform. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; provider
-adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
-failures. Public derived-data builds return
+adapters format explicitly. Private cache codecs return a rejection message to the
+cache boundary, where decode rejection triggers rebuilding. Public payload validators
+retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
 `std::expected<FPhysicsCookResult, FPhysicsCookFailure>`.
 Render data is returned with unique ownership; failure and cancellation return no product.
@@ -157,9 +179,13 @@ codec and validation errors are formatted at the pipeline boundary; the failure
 then propagates unchanged through candidate construction and completion diagnostics.
 There is no per-layer error enumeration or nested completion cause tree.
 Physics preparation, cooking and installation use `FPhysicsCookFailure` independently.
-Nonfatal cache failures use `FStaticMeshCacheError` for render work and
-`FPhysicsCacheError` for physics work, each with operation and bounded text. Clean hits
-and misses produce no error records.
+Both pipelines report recoverable cache problems through `FAssetBuildCacheWarning`,
+with operation and bounded text. Clean hits and misses produce no warning records.
+Cache read/decode failures rebuild from source; write failures do not invalidate an
+in-memory product. Invalid source, recipe or payload data still fails validation.
+Queries, cancellation, invalidation and snapshot capture do not introduce another
+error domain. Async admission and eventual completion are separate contracts;
+cancellation and supersession are completion states, not ordinary build failures.
 `StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
 returns validated render data with bounds and ray-query acceleration;
 `FPhysicsCookHelper::Cook` returns collision geometry from owned LOD0

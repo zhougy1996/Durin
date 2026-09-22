@@ -32,34 +32,16 @@ namespace Durin
 			Error.MeshName, Error.SectionName, Error.Index, Error.Actual, Error.Expected);
 	}
 
-	auto FormatStaticMeshCacheCodecError(const FStaticMeshCacheCodecError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EStaticMeshCacheCodecError::None: return {};
-		case EStaticMeshCacheCodecError::RenderPayload:
-			return Error.RenderCause ? FormatStaticMeshPayloadError(*Error.RenderCause) : "StaticMesh render payload conversion failed.";
-		case EStaticMeshCacheCodecError::Archive:
-			return std::format("StaticMesh cache payload operation {} failed at byte {} (Archive code {}, path '{}').",
-				static_cast<int>(Error.Operation), Error.Actual, Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
-		case EStaticMeshCacheCodecError::MaterialSlots:
-			return std::format("Cached StaticMesh material slot count {} does not match asset metadata count {}.", Error.Actual, Error.Expected);
-
-		}
-		return {};
-	}
-
 #if DURIN_WITH_EDITOR
 	namespace
 	{
 		auto RestoreRuntimeMetadata(
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			FStaticMeshRenderData& RenderData) -> std::expected<void, FStaticMeshCacheCodecError>
+			FStaticMeshRenderData& RenderData) -> std::expected<void, std::string>
 		{
 			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
 			{
-				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::MaterialSlots, .Operation = EStaticMeshCacheCodecOperation::DecodeRender,
-					.Actual = RenderData.MaterialSlots.size(), .Expected = MaterialSlots.size()});
+				return std::unexpected(std::format("Cached material slot count {} does not match {}.", RenderData.MaterialSlots.size(), MaterialSlots.size()));
 			}
 			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
 			{
@@ -112,68 +94,51 @@ namespace Durin
 			return RenderData;
 		}
 
-		auto ArchiveCodecFailure(const FArchive& Ar, EStaticMeshCacheCodecOperation Operation) -> std::expected<void, FStaticMeshCacheCodecError>
+		auto ArchiveCodecFailure(const FArchive& Ar) -> std::expected<void, std::string>
 		{
-			FStaticMeshCacheCodecError Error{.Code = EStaticMeshCacheCodecError::Archive, .Operation = Operation, .Actual = Ar.Tell()};
-			if (const auto* Failure = Ar.GetFailure())
-			{
-				Error.ArchiveCode = Failure->Code;
-				Error.ArchivePath = Failure->Path;
-			}
-			return std::unexpected(std::move(Error));
+			const auto* Failure = Ar.GetFailure();
+			return std::unexpected(std::format("Payload archive failed at byte {} (Archive code {}, path '{}'): {}",
+				Ar.Tell(), Failure ? static_cast<int>(Failure->Code) : -1,
+				Failure ? Failure->Path : std::string{}, Ar.GetError()));
 		}
 
 		auto EncodeRenderData(const FStaticMeshRenderData& RenderData, FByteBuffer& OutBytes,
-			const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
 		{
 			FStaticMeshPayloadData Payload;
 			if (const auto Built = MakeStaticMeshPayloadData(RenderData, Payload, ShouldCancel); !Built)
-				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::EncodeRender, .RenderCause = Built.error()});
+				return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
 			if (!Ar.IsError()) return {};
-			const auto Failure = ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::EncodeRender);
+			const auto Failure = ArchiveCodecFailure(Ar);
 			OutBytes.clear();
 			return Failure;
 		}
 
 		auto DecodeRenderData(FByteView Bytes, std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-			const std::function<bool()>& ShouldCancel) -> std::expected<void, FStaticMeshCacheCodecError>
+			const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
 		{
 			FStaticMeshPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(Ar, ShouldCancel);
-			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar, EStaticMeshCacheCodecOperation::DecodeRender);
+			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar);
 			if (const auto Built = MakeStaticMeshRenderData(Payload, OutRenderData, ShouldCancel); !Built)
-				return std::unexpected(FStaticMeshCacheCodecError{.Code = EStaticMeshCacheCodecError::RenderPayload, .Operation = EStaticMeshCacheCodecOperation::DecodeRender, .RenderCause = Built.error()});
+				return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
 			return RestoreRuntimeMetadata(MaterialSlots, *OutRenderData);
 		}
 
-		auto CollectCacheErrors(
-			const AssetDerivedDataCache::FOperationDiagnostic& Read,
-			const AssetDerivedDataCache::FOperationDiagnostic& Write,
-			const std::optional<FStaticMeshCacheCodecError>& Decode) -> std::vector<FStaticMeshCacheError>
-		{
-			std::vector<FStaticMeshCacheError> Errors;
-			if (Read.Code != EAssetCacheError::None)
-				Errors.emplace_back( EStaticMeshCacheOperation::Read, FormatAssetCacheDiagnostic(Read));
-			if (Decode)
-				Errors.emplace_back( EStaticMeshCacheOperation::Decode, FormatStaticMeshCacheCodecError(*Decode));
-			if (Write.Code != EAssetCacheError::None)
-				Errors.emplace_back( EStaticMeshCacheOperation::Write, FormatAssetCacheDiagnostic(Write));
-			return Errors;
-		}
 
 	}
 
 #endif
 	auto FStaticMeshBuilder::Build(
 		FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control, std::vector<FStaticMeshCacheError>* OutCacheErrors, uint64 ExpectedProviderRegistration) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
+		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings, uint64 ExpectedProviderRegistration) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
 	{
-		if (OutCacheErrors) OutCacheErrors->clear();
+		if (OutCacheWarnings) OutCacheWarnings->clear();
 		if (Control.IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 		if (!Request.Source.IsValid() || !std::isfinite(Request.Reconciliation.NormalizedSize)
 			|| Request.Reconciliation.NormalizedSize <= 0)
@@ -225,7 +190,7 @@ namespace Durin
 			FCacheKeyProxy Key = *KeyResult;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FByteBuffer Bytes;
-			std::optional<FStaticMeshCacheCodecError> CacheDecodeCause;
+			std::optional<std::string> CacheDecodeCause;
 			if (AssetDerivedDataCache::Load(
 				Key, std::min(MaximumStaticMeshPayloadBytes, Control.MaximumWorkingSetBytes / 16),
 				Bytes, LoadDiagnostic) == AssetDerivedDataCache::ELoadResult::Hit)
@@ -264,14 +229,15 @@ namespace Durin
 			if (!RenderData) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			if (const auto Encoded = EncodeRenderData(*RenderData, Bytes, IsCancelled); !Encoded)
 			{
-				return std::unexpected(FStaticMeshBuildFailure{FormatStaticMeshCacheCodecError(Encoded.error()), EStaticMeshBuildStage::Render});
+				if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
+				return std::unexpected(FStaticMeshBuildFailure{Encoded.error(), EStaticMeshBuildStage::Render});
 			}
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 			if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			if (Request.bPersistDerivedData)
 				AssetDerivedDataCache::Store(Key, Bytes,
 					MaximumStaticMeshPayloadBytes, StoreDiagnostic);
-			if (OutCacheErrors) *OutCacheErrors = CollectCacheErrors( LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
+			if (OutCacheWarnings) *OutCacheWarnings = AssetDerivedDataCache::CollectBuildWarnings(LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
 			return RenderData;
 		}, ExpectedProviderRegistration);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));

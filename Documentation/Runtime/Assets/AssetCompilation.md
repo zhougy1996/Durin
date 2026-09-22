@@ -314,12 +314,12 @@ A nonzero observation describes its captured source identity and provider
 registration, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.
-Nonfatal cache failures survive successful publication in a flat `CacheErrors`
-list. Each `FStaticMeshCacheError` identifies a render-cache read/decode/write operation,
+Nonfatal cache failures survive successful publication in a flat `CacheWarnings`
+list. Each `FAssetBuildCacheWarning` identifies a cache read/decode/write operation,
 with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
-Physics results use independent `FPhysicsCookFailure` and `FPhysicsCacheError` types;
-the shared scheduler preserves each product's error type.
-There are at most two errors per recipe (read or decode, followed by write);
+Physics results use an independent `FPhysicsCookFailure` and the same Asset cache
+warning type; the shared scheduler preserves each product's fatal error type.
+There are at most two cache warnings per recipe (read or decode, followed by write);
 clean cache outcomes create no records. Backend and codec causes are translated
 at the cache boundary instead of retained as a nested diagnostic tree.
 The optional `Error` retains the original pipeline failure without a completion

@@ -3,7 +3,7 @@
 #include <expected>
 
 #include "EngineAPI.h"
-#include "StaticMesh/StaticMeshBuildDiagnostics.h"
+#include "Asset/AssetBuildCacheWarning.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
 #include "StaticMesh/StaticMesh.h"
@@ -35,7 +35,7 @@ namespace Durin
 		ENGINE_API static auto Build(
 			FStaticMeshBuildRequest Request,
 			const FAssetBuildTaskContext& Control = {},
-			std::vector<FStaticMeshCacheError>* OutCacheErrors = nullptr, uint64 ExpectedProviderRegistration = 0) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+			std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr, uint64 ExpectedProviderRegistration = 0) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 		// Validate and finish detached CPU data before publication, including non-recipe inputs.
 		ENGINE_API static auto FinalizeRenderData(FStaticMeshRenderData& Render,
 			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;

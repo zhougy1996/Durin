@@ -1070,7 +1070,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< Durin::FormatPhysicsMeshBuildError(Mesh->GetCollisionBuildError());
+		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	const FStaticMeshCollisionInspection Inspection = InspectStaticMeshCollision(*Mesh);
 	EXPECT_EQ(Inspection.Mode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	EXPECT_EQ(Inspection.Policy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
@@ -1111,7 +1111,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< Durin::FormatPhysicsMeshBuildError(Mesh->GetCollisionBuildError());
+		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	DBodySetup* Setup = Mesh->GetBodySetup();
 	ASSERT_NE(Setup, nullptr);
 	EXPECT_EQ(Setup->GetCollisionSourceMode(),
@@ -1137,11 +1137,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_EQ(Setup->GetCollisionSourceMode(), EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	const auto Rejected = Mesh->GetCollisionBuildError();
-	EXPECT_EQ(Rejected.Code, EPhysicsMeshBuildError::DerivedData);
-	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
-	ASSERT_TRUE(Rejected.DerivedDataCause);
-	EXPECT_EQ(Rejected.DerivedDataCause->GetStage(), EPhysicsCookStage::Cook);
-	EXPECT_FALSE(Rejected.DerivedDataCause->ToString().empty());
+	ASSERT_TRUE(Rejected);
+
+	EXPECT_EQ(Rejected->GetStage(), EPhysicsCookStage::Cook);
+	EXPECT_FALSE(Rejected->ToString().empty());
 	FCollisionGeometryRef Preserved;
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
 	EXPECT_FALSE(Setup->BuildSimpleGeometry(Preserved));
@@ -1152,10 +1151,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
-	EXPECT_EQ(Mesh->GetCollisionBuildError().Code, Durin::EPhysicsMeshBuildError::None);
+	EXPECT_FALSE(Mesh->GetCollisionBuildError());
 	EXPECT_TRUE(Setup->BuildComplexGeometry(Preserved));
-	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
-	EXPECT_EQ(Rejected.DerivedDataCause->GetStage(), EPhysicsCookStage::Cook);
+	EXPECT_EQ(Rejected->GetStage(), EPhysicsCookStage::Cook);
 	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Changed;
 	ASSERT_TRUE((Changed = FPhysicsCookHelper::Cook(StaticMeshBuildTestSupport::CaptureCollisionCookInfoForTest(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -1163,12 +1161,12 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< Durin::FormatPhysicsMeshBuildError(Mesh->GetCollisionBuildError());
+		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	EXPECT_EQ(Setup->GetCollisionQueryPolicy(), EBodySetupCollisionQueryPolicy::ComplexOnly);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< Durin::FormatPhysicsMeshBuildError(Mesh->GetCollisionBuildError());
+		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
 	FPaths::SetDerivedDataCacheDirForTests(PreviousCache);
 	MarkObjectHierarchyAsGarbage(Mesh);

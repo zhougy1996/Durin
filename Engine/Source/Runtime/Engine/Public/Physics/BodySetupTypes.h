@@ -1,6 +1,8 @@
 #pragma once
 
+#include <optional>
 #include "EngineAPI.h"
+#include "Physics/PhysicsCookFailure.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "BodySetupTypes.gen.h"
@@ -25,18 +27,15 @@ namespace Durin
 		SimpleAndComplex
 	};
 
-	using FOnAsyncPhysicsCookFinished = std::function<void(bool)>;
-	struct FPhysicsCookFailure;
-	enum class EPhysicsMeshBuildError : uint8 { None, MissingCollisionSource, DerivedData, Publication };
-	struct FPhysicsMeshBuildError
+	enum class EPhysicsCookCompletionStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
+	struct FPhysicsCookCompletionResult
 	{
-		EPhysicsMeshBuildError Code = EPhysicsMeshBuildError::None;
-		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		std::shared_ptr<const FPhysicsCookFailure> DerivedDataCause;
+		EPhysicsCookCompletionStatus Status = EPhysicsCookCompletionStatus::Failed;
+		// Present only for Failed; cancellation and supersession are terminal states.
+		std::optional<FPhysicsCookFailure> Error;
 	};
-	ENGINE_API auto FormatPhysicsMeshBuildError(const FPhysicsMeshBuildError& Error) -> std::string;
-
+	using FOnAsyncPhysicsCookFinished = std::function<void(const FPhysicsCookCompletionResult&)>;
+	enum class EPhysicsMeshApplyResult : uint8 { Applied, Superseded, Failed };
 
 	enum class EPhysicsMeshBuildStatus : uint8 { Unavailable, Pending, Ready, Failed };
 }

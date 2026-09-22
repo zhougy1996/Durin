@@ -229,9 +229,9 @@ namespace Durin
 		return BodySetup ? BodySetup->GetPhysicsMeshBuildStatus() : EPhysicsMeshBuildStatus::Ready;
 	}
 
-	auto DStaticMesh::GetCollisionBuildError() const -> const FPhysicsMeshBuildError&
+	auto DStaticMesh::GetCollisionBuildError() const -> const std::optional<FPhysicsCookFailure>&
 	{
-		static const FPhysicsMeshBuildError NoError;
+		static const std::optional<FPhysicsCookFailure> NoError;
 		return BodySetup ? BodySetup->GetPhysicsMeshBuildError() : NoError;
 	}
 

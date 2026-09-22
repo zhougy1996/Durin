@@ -10,13 +10,6 @@
 
 namespace Durin
 {
-	auto FStaticMeshCacheError::ToString() const -> std::string
-	{
-		const auto OperationName = Operation == EStaticMeshCacheOperation::Read ? "read"
-			: Operation == EStaticMeshCacheOperation::Decode ? "decode" : "write";
-		return std::format("StaticMesh render cache {}: {}", OperationName, Message);
-	}
-
 	auto FStaticMeshBuilder::Capture(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
@@ -129,10 +122,10 @@ namespace Durin
 		const auto Snapshot = FStaticMeshBuilder::Capture(*this);
 		auto Input = Snapshot;
 		if (PreparedMaterialSlots) Input.MaterialSlots = *PreparedMaterialSlots;
-		std::vector<FStaticMeshCacheError> Warnings;
+		std::vector<FAssetBuildCacheWarning> Warnings;
 		auto Render = FStaticMeshBuilder::Build({.Reconciliation = Input, .Source = InSource}, {}, &Warnings);
 		if (!Render) return std::unexpected(std::vector<std::string>{Render.error().ToString()});
-		for (const auto& Warning : Warnings) DURIN_WARN("{}", Warning.ToString());
+		for (const auto& Warning : Warnings) DURIN_WARN("StaticMesh {}", Warning.ToString());
 		if (const auto Applied = CommitStaticMeshBuild(*this, std::move(*Render), InSource, Snapshot, true, {}, nullptr,
 			PreparedMaterialSlots ? &*PreparedMaterialSlots : nullptr); !Applied)
 			return std::unexpected(std::vector<std::string>{Applied.error().ToString()});

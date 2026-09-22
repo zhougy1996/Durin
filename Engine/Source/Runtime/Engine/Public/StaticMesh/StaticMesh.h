@@ -207,7 +207,7 @@ namespace Durin
 		ENGINE_API auto NotifyCollisionSettingsChanged() -> void;
 		ENGINE_API auto GetCollisionBuildStatus() const -> EPhysicsMeshBuildStatus;
 		// Last collision build error, including admission and worker failure.
-		ENGINE_API auto GetCollisionBuildError() const -> const FPhysicsMeshBuildError&;
+		ENGINE_API auto GetCollisionBuildError() const -> const std::optional<FPhysicsCookFailure>&;
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()

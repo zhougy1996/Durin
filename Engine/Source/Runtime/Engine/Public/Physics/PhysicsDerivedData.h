@@ -74,25 +74,4 @@ namespace Durin
 		FCollisionGeometryRef& OutGeometry,
 		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FPhysicsCollisionPayloadError>;
 
-	enum class EArchiveFailureCode : uint8;
-	enum class EPhysicsCacheCodecError : uint8 { None, CollisionPayload, Archive, CollisionMetadata };
-	enum class EPhysicsCacheCodecOperation : uint8 { EncodeCollision, DecodeCollision };
-	struct FPhysicsCacheCodecError
-	{
-		EPhysicsCacheCodecError Code = EPhysicsCacheCodecError::None;
-		EPhysicsCacheCodecOperation Operation = EPhysicsCacheCodecOperation::EncodeCollision;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::string ArchivePath;
-		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		std::optional<FPhysicsCollisionPayloadError> CollisionCause;
-	};
-
-	ENGINE_API auto FormatPhysicsCacheCodecError(const FPhysicsCacheCodecError& Error) -> std::string;
-
-
 }

@@ -4,7 +4,7 @@
 #include "Physics/PhysicsCookVersion.h"
 #include "Physics/CookBodySetupInfo.h"
 #include "Collision/CollisionGeometry.h"
-#include "Physics/PhysicsCookDiagnostics.h"
+#include "Asset/AssetBuildCacheWarning.h"
 
 namespace Durin
 {
@@ -12,9 +12,9 @@ namespace Durin
 	{
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
-		auto GetCacheErrors() const -> const std::vector<FPhysicsCacheError>& { return CacheErrors; }
+		auto GetCacheWarnings() const -> const std::vector<FAssetBuildCacheWarning>& { return CacheWarnings; }
 	private:
-		std::vector<FPhysicsCacheError> CacheErrors;
+		std::vector<FAssetBuildCacheWarning> CacheWarnings;
 		friend class FPhysicsCookHelper;
 	};
 

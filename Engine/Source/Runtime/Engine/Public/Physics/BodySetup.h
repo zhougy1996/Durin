@@ -29,6 +29,7 @@ namespace Durin
 		ENGINE_API explicit DBodySetup(const FObjectInitializer& ObjectInitializer);
 		// Owner-thread lifecycle. Async capture owns its inputs and never retains the provider.
 		// Accepted work completes once through the owner pump; rejected admission has no callback.
+		// The return value reports admission only. Completion separates failure from cancellation/supersession.
 		// Disabled collision needs no task and completes inline. Callbacks must tolerate owner destruction.
 		ENGINE_API auto InvalidatePhysicsData() -> void;
 		ENGINE_API auto CreatePhysicsMeshesAsync(const IInterface_CollisionDataProvider& Provider,
@@ -45,11 +46,12 @@ namespace Durin
 				return EPhysicsMeshBuildStatus::Ready;
 			return PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready ? EPhysicsMeshBuildStatus::Unavailable : PhysicsMeshStatus;
 		}
-		auto GetPhysicsMeshBuildError() const -> const FPhysicsMeshBuildError& { return PhysicsMeshError; }
+		auto GetPhysicsMeshBuildError() const -> const std::optional<FPhysicsCookFailure>& { return PhysicsMeshError; }
 		auto GetPhysicsMeshRequestGeneration() const -> uint64 { return PhysicsMeshRequestGeneration; }
-		// Only the matching request may install resources or report failure.
+		// Stale requests return Superseded without changing the current state or its error.
+		// A matching request that rejects geometry stores the installation failure once.
 		ENGINE_API auto ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
-			const FCollisionGeometryRef& Complex) -> bool;
+			const FCollisionGeometryRef& Complex) -> EPhysicsMeshApplyResult;
 		ENGINE_API auto FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void;
 		ENGINE_API auto CancelPhysicsMeshes(uint64 Generation) -> void;
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
@@ -84,7 +86,7 @@ namespace Durin
 	private:
 		auto NotifyPhysicsDataChanged() -> void;
 		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
-		FPhysicsMeshBuildError PhysicsMeshError;
+		std::optional<FPhysicsCookFailure> PhysicsMeshError;
 		uint64 PhysicsMeshRequestGeneration = 1;
 		DPROPERTY()
 		EBodySetupShapeType ShapeType = EBodySetupShapeType::None;
