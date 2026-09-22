@@ -87,7 +87,7 @@ namespace Durin
 
 		struct FStorage;
 		std::shared_ptr<const FStorage> Storage;
-		friend auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
+		friend ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
 			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	};
 
@@ -105,7 +105,7 @@ namespace Durin
 		auto operator=(const FMaterialRenderBinding&) -> FMaterialRenderBinding& = default;
 	private:
 		std::shared_ptr<const void> Owner;
-		friend auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
+		friend ENGINE_API auto TryGetMaterialRenderBinding(const FMaterialRenderRepresentation&,
 			FMaterialRenderBinding&, FMaterialRenderValidationDiagnostic&) -> bool;
 	};
 
