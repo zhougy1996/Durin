@@ -1,4 +1,5 @@
 #pragma once
+#include "Physics/PhysicsDerivedData.h"
 
 #include "EngineAPI.h"
 #include "Materials/MeshMaterialSlot.h"
@@ -28,7 +29,7 @@ namespace Durin
 		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		std::optional<FStaticMeshCollisionPayloadError> CollisionCause;
+		std::optional<FPhysicsCollisionPayloadError> CollisionCause;
 		std::optional<FStaticMeshPayloadError> RenderCause;
 	};
 

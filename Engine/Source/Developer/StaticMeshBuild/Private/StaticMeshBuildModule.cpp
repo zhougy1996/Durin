@@ -14,19 +14,13 @@ namespace Durin
 		auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor override
 		{
 			return {.ProducerIdentity = "Durin.StaticMeshBuild",
-				.RenderBuilderVersion = 4, .CollisionBuilderVersion = 2};
+				.RenderBuilderVersion = 4};
 		}
 
 		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
-			const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
+			const FAssetBuildTaskContext& Control) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
 		{
 			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, Control);
-		}
-
-		auto BuildCollision(const FStaticMeshCollisionRecipeRequest& Request,
-			const FStaticMeshBuildExecutionControl& Control) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError> override
-		{
-			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, Control);
 		}
 
 		auto StartupModule() -> void override

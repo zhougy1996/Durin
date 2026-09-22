@@ -3,8 +3,8 @@
 #include <expected>
 
 #include "EngineAPI.h"
+#include "Asset/PayloadTargetPlatform.h"
 #include "Hash/XxHash.h"
-#include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -24,22 +24,6 @@ namespace Durin
 	inline constexpr uint64 MaximumStaticMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
 	inline const FGuid StaticMeshPrimaryCookedPayloadId{
 		0x6d9f79b5, 0x7b684d91, 0xa42c2a60, 0x63fcab16};
-	inline constexpr uint32 StaticMeshCollisionPayloadSchemaVersion = 2;
-	inline constexpr uint32 StaticMeshCollisionBuilderVersion = 2;
-	inline constexpr uint32 StaticMeshCollisionPayloadAlignment = 16;
-	inline constexpr uint32 StaticMeshCollisionPayloadHeaderSize = 64;
-	inline constexpr uint32 StaticMeshCollisionPayloadChunkEntrySize = 32;
-	inline constexpr uint32 MaximumStaticMeshCollisionPayloadChunks = 8;
-	inline constexpr uint64 MaximumStaticMeshCollisionPayloadBytes = 256ull * 1024ull * 1024ull;
-	inline const FGuid StaticMeshCollisionCookedPayloadId{
-		0x3c10f7d1, 0x92fa4e20, 0xb544ad79, 0x1d788064};
-
-	// Identifies a disk-compatible static-mesh build target independently of host platform enums.
-	enum class EStaticMeshTargetPlatform : uint32
-	{
-		Unknown = 0,
-		Win64 = 1
-	};
 
 	// Identifies one top-level record array in the version-one DMSH payload.
 	enum class EStaticMeshPayloadChunkType : uint32
@@ -93,57 +77,6 @@ namespace Durin
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
-	struct FStaticMeshCollisionPayloadData
-	{
-		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		std::vector<FVector3f> Positions;
-		std::vector<uint32> Indices;
-		std::vector<uint32> SourceOrdinals;
-		std::vector<FCollisionGeometryNode> Nodes;
-		std::vector<uint32> LeafTriangles;
-
-		// Loads in place; discard failures. The byte owner checks completion before publication.
-		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const std::function<bool()>& ShouldCancel = {}) -> void;
-	};
-
-	enum class EStaticMeshCollisionPayloadOperation : uint8 { Extract, Construct };
-	enum class EStaticMeshCollisionPayloadError : uint8
-	{
-		None, InvalidGeometry, InvalidVertex, FloatStorage, InvalidTriangle, InvalidNode,
-		InvalidMembership, InconsistentCounts, NonFinitePosition, UnexpectedBvh,
-		DuplicateOrdinal, UnknownOrdinal, InvalidSourceMode, InvalidTopology, Cancelled,
-	};
-	struct FStaticMeshCollisionPayloadError
-	{
-		EStaticMeshCollisionPayloadError Code = EStaticMeshCollisionPayloadError::None;
-		EStaticMeshCollisionPayloadOperation Operation = EStaticMeshCollisionPayloadOperation::Construct;
-		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		std::optional<ECollisionGeometryKind> GeometryKind;
-		uint64 VertexCount = 0;
-		uint64 IndexCount = 0;
-		uint64 OrdinalCount = 0;
-		uint64 NodeCount = 0;
-		uint64 LeafCount = 0;
-		uint64 Index = 0;
-		uint32 Ordinal = 0;
-		FVector3 Position = FVector3(0);
-	};
-
-	ENGINE_API auto FormatStaticMeshCollisionPayloadError(const FStaticMeshCollisionPayloadError& Error) -> std::string;
-
-	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
-		const FCollisionGeometryRef& Geometry,
-		EBodySetupCollisionQueryPolicy QueryPolicy,
-		FStaticMeshCollisionPayloadData& OutPayload,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshCollisionPayloadError>;
-	ENGINE_API auto MakeStaticMeshCollisionGeometry(
-		const FStaticMeshCollisionPayloadData& Payload,
-		FCollisionGeometryRef& OutGeometry,
-		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshCollisionPayloadError>;
-
 	enum class EStaticMeshPayloadError : uint8
 	{
 		None, Bounds, MaterialSlotCount, LODCount, ScreenSize, ScreenSizeOrder,
@@ -179,8 +112,8 @@ namespace Durin
 	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
 
 	enum class EArchiveFailureCode : uint8;
-	enum class EStaticMeshCacheCodecError : uint8 { None, RenderPayload, CollisionPayload, Archive, MaterialSlots, CollisionMetadata };
-	enum class EStaticMeshCacheCodecOperation : uint8 { EncodeRender, DecodeRender, EncodeCollision, DecodeCollision };
+	enum class EStaticMeshCacheCodecError : uint8 { None, RenderPayload, Archive, MaterialSlots };
+	enum class EStaticMeshCacheCodecOperation : uint8 { EncodeRender, DecodeRender };
 	struct FStaticMeshCacheCodecError
 	{
 		EStaticMeshCacheCodecError Code = EStaticMeshCacheCodecError::None;
@@ -189,12 +122,7 @@ namespace Durin
 		uint64 Expected = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
-		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		std::optional<FStaticMeshPayloadError> RenderCause;
-		std::optional<FStaticMeshCollisionPayloadError> CollisionCause;
 	};
 
 	ENGINE_API auto FormatStaticMeshCacheCodecError(const FStaticMeshCacheCodecError& Error) -> std::string;
@@ -204,7 +132,7 @@ namespace Durin
 	struct FStaticMeshBuildKeyError
 	{
 		EStaticMeshBuildKeyError Code = EStaticMeshBuildKeyError::None;
-		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
+		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
 	};

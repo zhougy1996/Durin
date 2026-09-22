@@ -1,3 +1,5 @@
+#include "Physics/PhysicsDerivedData.h"
+#include "Physics/PhysicsCookHelper.h"
 #include "Asset/OfflinePreparation.h"
 #include "Logging/LogMacros.h"
 #include "StaticMesh/StaticMesh.h"
@@ -97,21 +99,21 @@ namespace Durin
 		FBulkData* CollisionField = &CookedCollisionData;
 		if (Ar.IsSaving())
 		{
-			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
+			std::unique_ptr<FStaticMeshRenderData> DetachedRender;
 			const FStaticMeshRenderData* Projection = RenderData.get();
 			std::string Error;
 			if (Source.IsValid())
 			{
-				auto Request = FStaticMeshBuilder::MakeRequest(Source, FStaticMeshBuilder::Capture(*this));
+				FStaticMeshBuildRequest Request{.Reconciliation = FStaticMeshBuilder::Capture(*this), .Source = Source};
 				Request.bPersistDerivedData = false;
-				auto Built = FStaticMeshBuilder::BuildCandidate(std::move(Request));
+				auto Built = FStaticMeshBuilder::Build(std::move(Request));
 				if (!Built)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
 					return;
 				}
-				Candidate = std::move(*Built);
-				Projection = Candidate->GetRenderData();
+				DetachedRender = std::move(*Built);
+				Projection = DetachedRender.get();
 			}
 			if (!Projection)
 			{
@@ -148,26 +150,25 @@ namespace Durin
 				&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
 			{
 				FCollisionGeometryRef Simple, Complex;
-				if (Candidate)
+				auto Data = GetPhysicsTriMeshData();
+				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error().ToString()); return; }
+				auto Collision = FPhysicsCookHelper::Cook(BodySetup->GetCookInfo(std::move(*Data), false));
+				if (!Collision)
 				{
-					Simple = Candidate->GetCollision().Simple;
-					Complex = Candidate->GetCollision().Complex;
-				}
-				else if (const auto Built = BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
-					BodySetup->GetCollisionQueryPolicy(), Simple, Complex); !Built)
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
+					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error().ToString());
 					return;
 				}
+				Simple = std::move(Collision->Simple);
+				Complex = std::move(Collision->Complex);
 				const FCollisionGeometryRef& Geometry =
 					BodySetup->GetCollisionSourceMode()
 						== EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Simple : Complex;
-				FStaticMeshCollisionPayloadData CollisionPayload;
+				FPhysicsCollisionPayloadData CollisionPayload;
 				FByteBuffer CollisionBytes;
-				if (const auto Built = MakeStaticMeshCollisionPayloadData(
+				if (const auto Built = MakePhysicsCollisionPayloadData(
 					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.error()));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatPhysicsCollisionPayloadError(Built.error()));
 					return;
 				}
 				FCanonicalMemoryWriter CollisionWriter(
@@ -338,8 +339,9 @@ namespace Durin
 		CollisionRead.Lock.Reset();
 		Read.Lock.Reset();
 
-		if (const auto Published = CommitRenderDataCandidate(
-			std::move(Product.RenderData), nullptr, false); !Published)
+		FStaticMeshRenderStateRecreateContext Refresh(this);
+		if (const auto Published = CommitPreparedMeshData(
+			std::move(Product.RenderData), nullptr); !Published)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
 				.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};
@@ -439,8 +441,8 @@ namespace Durin
 				}
 				FStaticMeshRenderStateRecreateContext RecreateContext(Mesh);
 				FStaticMeshCookedProduct Product = std::move(Typed->Product);
-				if (const auto Published = Mesh->CommitRenderDataCandidate(
-					std::move(Product.RenderData), nullptr, false); !Published)
+				if (const auto Published = Mesh->CommitPreparedMeshData(
+					std::move(Product.RenderData), nullptr); !Published)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Publication,
 						.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};

@@ -1,3 +1,4 @@
+#include "Physics/PhysicsDerivedData.h"
 #include "Asset/CookedMeshProducts.h"
 
 #include "Serialization/Archive.h"
@@ -58,7 +59,7 @@ namespace Durin
 				static_cast<int>(Error.ActualMode), static_cast<int>(Error.ActualPolicy),
 				static_cast<int>(Error.ExpectedMode), static_cast<int>(Error.ExpectedPolicy));
 		case ECookedMeshProductError::CollisionConstruction:
-			return Error.CollisionCause ? FormatStaticMeshCollisionPayloadError(*Error.CollisionCause) : "Cooked collision construction failed.";
+			return Error.CollisionCause ? FormatPhysicsCollisionPayloadError(*Error.CollisionCause) : "Cooked collision construction failed.";
 		case ECookedMeshProductError::RenderConstruction:
 			return Error.RenderCause ? FormatStaticMeshPayloadError(*Error.RenderCause) : "Cooked render construction failed.";
 		case ECookedMeshProductError::MaterialSlotCount:
@@ -82,7 +83,7 @@ namespace Durin
 			if (CollisionBytes.empty())
 				return {{.Code = ECookedMeshProductError::MissingCollision,
 					.ExpectedMode = CollisionMode, .ExpectedPolicy = CollisionPolicy}};
-			FStaticMeshCollisionPayloadData CollisionPayload;
+			FPhysicsCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
 				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 			CollisionPayload.Serialize(CollisionAr);
@@ -96,7 +97,7 @@ namespace Durin
 					.ActualPolicy = CollisionPayload.QueryPolicy, .ExpectedPolicy = CollisionPolicy}};
 			}
 			FCollisionGeometryRef Geometry;
-			if (const auto Built = MakeStaticMeshCollisionGeometry(CollisionPayload, Geometry); !Built)
+			if (const auto Built = MakePhysicsCollisionGeometry(CollisionPayload, Geometry); !Built)
 			{
 				return {{.Code = ECookedMeshProductError::CollisionConstruction, .CollisionCause = Built.error()}};
 			}
@@ -122,6 +123,11 @@ namespace Durin
 		}
 		if (const auto Result = RestoreStaticMeshRuntimeMetadata(MaterialSlots, *Candidate.RenderData); !Result)
 			return Result;
+		Candidate.RenderData->RecalculateBounds();
+#if DURIN_WITH_EDITOR
+		for (auto& LOD : Candidate.RenderData->LODResources)
+			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD);
+#endif
 		OutProduct = std::move(Candidate);
 		return {};
 	}

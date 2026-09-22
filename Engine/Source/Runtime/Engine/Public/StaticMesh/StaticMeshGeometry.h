@@ -6,6 +6,15 @@ namespace Durin
 {
 	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
 
+	struct FStaticMeshPositionNormalization
+	{
+		FVector3f Center;
+		float Scale;
+	};
+	// Shared by render and collision projections; preserves identical float arithmetic.
+	ENGINE_API auto GetStaticMeshPositionNormalization(const FBox& Bounds, float NormalizedSize)
+		-> std::optional<FStaticMeshPositionNormalization>;
+
 	// Maps an imported material to its stable source identity.
 	struct FStaticMeshImportedMaterialSlot
 	{

@@ -55,37 +55,39 @@ Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining 
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 Recipes receive only an owning decoded handle and recipe settings. Provider feature
-version 7 returns render/collision products as `std::expected<Product, FStaticMeshRecipeError>`.
-Errors own mesh/section identity, rejected indices/values, budget facts and complete
-physics-build diagnostics, including cancellation. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures once into a bounded pipeline failure, preserving cancellation.
+version 9 returns render products as `std::expected<Product, FStaticMeshRecipeError>`.
+Errors own mesh/section identity, rejected indices/values, budget facts and
+cancellation. Physics cooking has no registered recipe provider. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
-`FStaticMeshBuilder::BuildCandidate` accepts value-only source, normalization,
-slot metadata and collision settings and constructs a sealed combined render,
-ray and collision product. `FStaticMeshBuilder::ApplyCandidate` consumes it on the
-owner thread after checking the captured source/material/body facts and final
-cancellation state. Build consumes fixed material-slot definitions and never reconciles,
-appends, renames or retires asset slots. Import/reimport performs that policy in
-`ReconcileStaticMeshMaterialSlots`, preserving matched bindings and stable positions.
-The operation supplies optional `PreparedMaterialSlots`; application installs them
-with source and render data only after successful validation. Ordinary rebuilds
-retain existing asset slots. Application performs no CPU collision, ray-tree or bounds construction.
-Its `std::expected<void, FStaticMeshBuildFailure>` has no parallel success flag.
-Rejection formats relevant owner, input and slot facts into bounded owned text.
-Application, publication and build share this failure representation; wrappers do
-not retain nested snapshots or reclassify a lower-level failure.
-Source, normalization, slots, render and collision become current before one
-registered-consumer refresh, including initial authored publication. Resource
-initialization and its targeted fence remain separate from detached CPU recipes.
-Destructive render/source replacement is private to `DStaticMesh`; focused tests
-use `FStaticMeshTestAccess`. Ordinary callers use the candidate publication path.
+`FStaticMeshBuilder::Build` constructs owned, validated render data, including
+bounds and optional ray acceleration. `CommitStaticMeshBuild` consumes that prepared
+render data on the owner thread after checking the captured source, normalization,
+material bindings and cancellation state. It does no bounds, ray or collision
+construction. Resource initialization precedes live mutation. Source, slots,
+render and prevalidated import provenance become current within one consumer
+refresh boundary. A changed accepted source or normalization invalidates derived
+collision there; rebuilding the same accepted geometry preserves physics resources.
+`PublishStaticMeshRenderData` is a separate render-only entry point for a finalized
+projection of the current accepted geometry. It does not change source, BodySetup,
+collision readiness, or collision scheduling.
 
-Authored PostLoad schedules this combined path through `Durin.StaticMesh`.
-Interactive standalone import/reimport await async completion. `DStaticMesh::Build`
-directly builds and applies a sealed candidate on the owner thread. Scene retains detached
-synchronous all-or-nothing orchestration. Cook builds a detached target product
-without replacing the authored CPU mesh. Cooked loading remains a separate
-residency domain. Bounds/getters/scene preparation never finish authored work.
+Build consumes fixed material-slot definitions and never reconciles, appends,
+renames or retires asset slots. Import/reimport owns that policy through
+`ReconcileStaticMeshMaterialSlots`, preserving matched bindings and stable positions.
+`PreparedMaterialSlots` remains operation-owned until successful render publication.
+Ordinary rebuilds retain existing slots. Render failure preserves previous state;
+the private destructive test replacement retains its explicit destructive behavior.
+
+Authored PostLoad, ordinary Build/AsyncBuild, standalone import/reimport and Scene
+import complete at asset commit. The transaction schedules missing collision as an
+independent operation, with its own readiness and error. Collision failure never
+rolls back accepted source, slots, provenance or render data and never changes a
+successful render completion into a failure. Cook independently builds detached
+render and required collision projections; missing required collision fails cook.
+Cooked decoding validates both existing payloads and prepares bounds/ray data
+before installing them within one consumer refresh boundary, without editor recipes.
+Bounds/getters/scene preparation never finish authored work.
 
 Preview/components retain the previous accepted mesh until publication. An
 initially empty preview waits for CPU data; thumbnail readiness returns pending
@@ -111,7 +113,7 @@ triangle/bounds loops and sort/partition work. Null optional ray acceleration
 retains exact reference traversal. Render/collision payload conversion, encoding,
 decoding and validation also accept borrowed predicates and check at most every
 256 scalar/record work units. Collision payload extraction and reconstruction
-return `std::expected<void, FStaticMeshCollisionPayloadError>`, owning geometry/mode, counts, rejected
+return `std::expected<void, FPhysicsCollisionPayloadError>`, owning geometry/mode, counts, rejected
 indices/ordinals and vertex context. Construction latches cancellation across
 the physics builder so it cannot become a topology rejection. Both APIs
 preserve output on failure. Archive/provider adapters format explicitly; CookedMesh product errors retain
@@ -146,33 +148,38 @@ or partial bytes; provider
 adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
 failures. Public derived-data builds return
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
-`std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>`.
+`std::expected<FPhysicsCookResult, FPhysicsCookFailure>`.
 Render data is returned with unique ownership; failure and cancellation return no product.
-Candidate construction, application and resource publication use the same
+Render construction, application and resource publication use
 `FStaticMeshBuildFailure`: a diagnostic stage, owned text capped at 4096 bytes,
 and `IsCancelled()` for internal control flow. Lower-level source, recipe,
 codec and validation errors are formatted at the pipeline boundary; the failure
 then propagates unchanged through candidate construction and completion diagnostics.
 There is no per-layer error enumeration or nested completion cause tree.
-Nonfatal cache failures remain separate flat `FStaticMeshCacheError` records with
-render/collision kind, read/decode/write operation and bounded text. Clean hits
+Physics preparation, cooking and installation use `FPhysicsCookFailure` independently.
+Nonfatal cache failures use `FStaticMeshCacheError` for render work and
+`FPhysicsCacheError` for physics work, each with operation and bounded text. Clean hits
 and misses produce no error records.
 `StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
 returns validated render data with bounds and ray-query acceleration;
-`FStaticMeshCollisionBuilder::Build` returns collision geometry from owned LOD0
+`FPhysicsCookHelper::Cook` returns collision geometry from owned LOD0
 positions/indices copied into a detached value snapshot, with per-request
 settings captured independently of render ownership. Workers read the snapshot
 without mutating it; moving a request transfers its arrays without copying.
-`BuildCandidate`/`ApplyCandidate` provide combined construction and owner-thread
-publication. `Capture` and `MakeRequest` prepare immutable worker inputs. The former
-free pipeline functions and mutable Product application wrapper are removed.
+`Capture` records owner facts for render publication. Collision capture copies
+LOD0 streams only for source-less procedural/debug meshes. Authored collision uses
+`IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask`: its typed task acquires canonical source
+and creates normalized positions/indices on the worker without RenderData or RHI.
+Both projections use `GetStaticMeshPositionNormalization` to preserve identical
+coordinates. No public combined render/collision build product exists.
 Render output owns CPU geometry and the section-to-slot mapping. Asset slot
 definitions are inputs, not build outputs. Provider registration remains an
-internal guard across render/collision construction. Cache warnings are collected
+internal guard for render operations only. Physics Cook calls the linked PhysicsCore
+geometry builders directly, without a registered StaticMesh provider. Cache warnings are collected
 separately; render results carry no cache-origin, key or timing observation.
 `DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
-after synchronous construction and application. It does not submit, join, wait
-for, or create a diagnostic record in the compiling manager. Valid source input
+after synchronous construction and application. Its render work does not submit, join, wait for or create a render diagnostic
+record in the compiling manager; the asset commit schedules missing collision. Valid source input
 cancels older asynchronous requests for the same mesh without waiting or pumping
 their callbacks. Failed construction/application preserves live mesh data;
 success marks the package dirty. Nonfatal cache failures are logged here.

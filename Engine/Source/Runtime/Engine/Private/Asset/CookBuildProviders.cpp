@@ -3,6 +3,7 @@
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/VolumeTextureBuildProvider.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
+#include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::AssetPrivate
@@ -18,7 +19,6 @@ namespace Durin::AssetPrivate
 			if constexpr (requires { Descriptor.BuilderVersion; }) Writer.WriteU32(Descriptor.BuilderVersion);
 			if constexpr (requires { Descriptor.ProjectionVersion; }) Writer.WriteU32(Descriptor.ProjectionVersion);
 			if constexpr (requires { Descriptor.RenderBuilderVersion; }) Writer.WriteU32(Descriptor.RenderBuilderVersion);
-			if constexpr (requires { Descriptor.CollisionBuilderVersion; }) Writer.WriteU32(Descriptor.CollisionBuilderVersion);
 			return Writer.TakeBytes();
 		}
 
@@ -39,7 +39,15 @@ namespace Durin::AssetPrivate
 		if (Family == "texture2d") return ReadDescriptor<ITexture2DBuildProvider>(Out);
 		if (Family == "texture-cube") return ReadDescriptor<ITextureCubeBuildProvider>(Out);
 		if (Family == "volume-texture") return ReadDescriptor<IVolumeTextureBuildProvider>(Out);
-		if (Family == "static-mesh") return ReadDescriptor<IStaticMeshBuildProvider>(Out);
+		if (Family == "static-mesh")
+		{
+			if (!ReadDescriptor<IStaticMeshBuildProvider>(Out)) return false;
+			FBinaryWriter PhysicsVersion;
+			PhysicsVersion.WriteU32(PhysicsCookBuilderVersion);
+			const auto& Bytes = PhysicsVersion.GetBytes();
+			Out.insert(Out.end(), Bytes.begin(), Bytes.end());
+			return true;
+		}
 		return false;
 	}
 }

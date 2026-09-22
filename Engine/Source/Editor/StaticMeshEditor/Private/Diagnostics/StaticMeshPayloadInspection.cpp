@@ -1,3 +1,4 @@
+#include "Physics/PhysicsDerivedData.h"
 #include "Diagnostics/StaticMeshPayloadInspection.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -14,8 +15,8 @@ namespace Durin
 		Result.Mode = EBodySetupCollisionSourceMode::None;
 		Result.Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		Result.GeometryKind = ECollisionGeometryKind::Primitive;
-		Result.BuilderVersion = StaticMeshCollisionBuilderVersion;
-		Result.SchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
+		Result.BuilderVersion = PhysicsCookBuilderVersion;
+		Result.SchemaVersion = PhysicsCollisionPayloadSchemaVersion;
 		if (!BodySetup) return Result;
 		Result.Mode = BodySetup->GetCollisionSourceMode();
 		Result.Policy = BodySetup->GetCollisionQueryPolicy();

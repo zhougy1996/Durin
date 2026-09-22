@@ -1,3 +1,4 @@
+#include "Physics/PhysicsDerivedData.h"
 #include <expected>
 #include <gtest/gtest.h>
 
@@ -148,14 +149,14 @@ namespace
 
 	auto EncodePayload(
 		const FStaticMeshPayloadData& Payload,
-		EStaticMeshTargetPlatform Platform,
+		EAssetPayloadTargetPlatform Platform,
 		Durin::FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		Durin::FByteBuffer Candidate;
 		FCanonicalMemoryWriter Ar(Candidate,
 			EArchivePurpose::DerivedDataPayload,
-			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar);
 		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
 		if (Ar.IsError()) return false;
@@ -165,13 +166,13 @@ namespace
 
 	auto DecodePayload(
 		Durin::FByteView Bytes,
-		EStaticMeshTargetPlatform Platform,
+		EAssetPayloadTargetPlatform Platform,
 		FStaticMeshPayloadData& OutPayload) -> std::expected<void, FArchiveFailure>
 	{
 		FStaticMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes,
 			EArchivePurpose::DerivedDataPayload,
-			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64" : "", "Game"}});
 		Candidate.Serialize(Ar);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			return std::unexpected(*Ar.GetFailure());
@@ -183,7 +184,7 @@ namespace
 	{
 		Durin::FByteBuffer Bytes;
 		std::string Error;
-		EXPECT_TRUE(EncodePayload(Payload, EStaticMeshTargetPlatform::Win64, Bytes, Error)) << Error;
+		EXPECT_TRUE(EncodePayload(Payload, EAssetPayloadTargetPlatform::Win64, Bytes, Error)) << Error;
 		return Bytes;
 	}
 
@@ -238,7 +239,7 @@ namespace
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
 		const uint32 SentinelSlotCount = Sentinel.MaterialSlotCount;
 		const std::expected<void, FArchiveFailure> Result =
-			DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
+			DecodePayload(Bytes, EAssetPayloadTargetPlatform::Win64, Sentinel);
 		ASSERT_FALSE(Result);
 		if (ExpectedCode.has_value())
 			EXPECT_EQ(Result.error().Code, *ExpectedCode);
@@ -429,7 +430,7 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 
 		FStaticMeshPayloadData Decoded;
 		const std::expected<void, FArchiveFailure> DecodeResult =
-			DecodePayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
+			DecodePayload(First, EAssetPayloadTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 		ExpectEquivalent(Decoded, Fixture);
 
@@ -453,7 +454,7 @@ TEST(FStaticMeshPayloadCodecTests,
 
 		FStaticMeshPayloadData Decoded;
 		const std::expected<void, FArchiveFailure> Result = DecodePayload(
-			First, EStaticMeshTargetPlatform::Win64, Decoded);
+			First, EAssetPayloadTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(Result) << Result.error().Message;
 		ExpectEquivalent(Decoded, Fixture);
 		ASSERT_EQ(Decoded.LODs.size(), LODCount);
@@ -518,7 +519,7 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 
 	FStaticMeshPayloadData Decoded;
 	const std::expected<void, FArchiveFailure> DecodeResult =
-		DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
+		DecodePayload(Bytes, EAssetPayloadTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	ExpectEquivalent(Decoded, Fixture);
 
@@ -922,7 +923,7 @@ TEST(FStaticMeshPayloadCodecTests,
 	Durin::FByteBuffer Sentinel{std::byte{1}, std::byte{2}, std::byte{3}};
 	std::string Error;
 	EXPECT_FALSE(EncodePayload(
-		Invalid, EStaticMeshTargetPlatform::Win64, Sentinel, Error));
+		Invalid, EAssetPayloadTargetPlatform::Win64, Sentinel, Error));
 	EXPECT_EQ(Sentinel, (Durin::FByteBuffer{
 		std::byte{1}, std::byte{2}, std::byte{3}}));
 }
@@ -933,7 +934,7 @@ TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRe
 	const Durin::FByteBuffer Optional = AddUnknownOptionalChunk(Valid, false);
 	FStaticMeshPayloadData Decoded;
 	const std::expected<void, FArchiveFailure> DecodeResult =
-		DecodePayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
+		DecodePayload(Optional, EAssetPayloadTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	ExpectEquivalent(Decoded, MakeSingleSectionFixture());
 
@@ -947,12 +948,12 @@ TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublis
 	Invalid.LODs[0].Positions[0].x = std::numeric_limits<float>::quiet_NaN();
 	Durin::FByteBuffer Bytes{std::byte{1}, std::byte{2}, std::byte{3}};
 	std::string Error;
-	EXPECT_FALSE(EncodePayload(Invalid, EStaticMeshTargetPlatform::Win64, Bytes, Error));
+	EXPECT_FALSE(EncodePayload(Invalid, EAssetPayloadTargetPlatform::Win64, Bytes, Error));
 	EXPECT_EQ(Bytes, (Durin::FByteBuffer{
 		std::byte{1}, std::byte{2}, std::byte{3}}));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(EncodePayload(
-		MakeSingleSectionFixture(), static_cast<EStaticMeshTargetPlatform>(2), Bytes, Error));
+		MakeSingleSectionFixture(), static_cast<EAssetPayloadTargetPlatform>(2), Bytes, Error));
 }
 
 TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSaveSources)
@@ -1032,10 +1033,10 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveTargetIsRequiredBeforePayloadTransfer)
 		}
 	};
 	Check(FStaticMeshPayloadData{});
-	Check(FStaticMeshCollisionPayloadData{});
+	Check(FPhysicsCollisionPayloadData{});
 }
 
-TEST(FStaticMeshCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGeometry)
+TEST(FPhysicsCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGeometry)
 {
 	using namespace Durin;
 	const std::array Vertices{FVector3(0, 0, 0), FVector3(1, 0, 0), FVector3(1, 1, 0), FVector3(0, 1, 0)};
@@ -1043,25 +1044,25 @@ TEST(FStaticMeshCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGe
 	const std::array<uint32, 2> Ordinals{3, 8};
 	const auto Geometry = FCollisionGeometryRef::MakeTriangleMesh(Vertices, Indices, Ordinals);
 	ASSERT_TRUE(Geometry);
-	FStaticMeshCollisionPayloadData Payload;
-	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry,
+	FPhysicsCollisionPayloadData Payload;
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
 	FCollisionGeometryRef Output = Geometry;
 	uint32 Checks = 0;
-	const auto Cancelled = MakeStaticMeshCollisionGeometry(Payload, Output, [&] { return ++Checks == 2; });
-	EXPECT_EQ(Cancelled.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
+	const auto Cancelled = MakePhysicsCollisionGeometry(Payload, Output, [&] { return ++Checks == 2; });
+	EXPECT_EQ(Cancelled.error().Code, EPhysicsCollisionPayloadError::Cancelled);
 	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
 	Payload.SourceOrdinals[1] = 3;
-	const auto Duplicate = MakeStaticMeshCollisionGeometry(Payload, Output);
-	EXPECT_EQ(Duplicate.error().Code, EStaticMeshCollisionPayloadError::DuplicateOrdinal);
+	const auto Duplicate = MakePhysicsCollisionGeometry(Payload, Output);
+	EXPECT_EQ(Duplicate.error().Code, EPhysicsCollisionPayloadError::DuplicateOrdinal);
 	EXPECT_EQ(Duplicate.error().Index, 1u);
 	EXPECT_EQ(Duplicate.error().Ordinal, 3u);
 	EXPECT_EQ(Duplicate.error().VertexCount, 4u);
 	EXPECT_EQ(Duplicate.error().IndexCount, 6u);
 	Payload.SourceOrdinals[1] = 8;
 	Payload.LeafTriangles = {99};
-	const auto Unknown = MakeStaticMeshCollisionGeometry(Payload, Output);
-	EXPECT_EQ(Unknown.error().Code, EStaticMeshCollisionPayloadError::UnknownOrdinal);
+	const auto Unknown = MakePhysicsCollisionGeometry(Payload, Output);
+	EXPECT_EQ(Unknown.error().Code, EPhysicsCollisionPayloadError::UnknownOrdinal);
 	EXPECT_EQ(Unknown.error().Index, 0u);
 	EXPECT_EQ(Unknown.error().Ordinal, 99u);
 	Payload = {};
@@ -1070,24 +1071,24 @@ TEST(FStaticMeshCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGe
 	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
 }
 
-TEST(FStaticMeshCollisionPayloadTests, InvalidExtractionAndCancellationPreserveOutput)
+TEST(FPhysicsCollisionPayloadTests, InvalidExtractionAndCancellationPreserveOutput)
 {
 	using namespace Durin;
-	FStaticMeshCollisionPayloadData Output;
+	FPhysicsCollisionPayloadData Output;
 	Output.Positions.push_back(FVector3f(7, 8, 9));
-	const auto Invalid = MakeStaticMeshCollisionPayloadData({},
+	const auto Invalid = MakePhysicsCollisionPayloadData({},
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output);
-	EXPECT_EQ(Invalid.error().Code, EStaticMeshCollisionPayloadError::InvalidGeometry);
-	EXPECT_EQ(Invalid.error().Operation, EStaticMeshCollisionPayloadOperation::Extract);
+	EXPECT_EQ(Invalid.error().Code, EPhysicsCollisionPayloadError::InvalidGeometry);
+	EXPECT_EQ(Invalid.error().Operation, EPhysicsCollisionPayloadOperation::Extract);
 	EXPECT_EQ(Output.Positions, (std::vector<FVector3f>{FVector3f(7, 8, 9)}));
-	const auto Cancelled = MakeStaticMeshCollisionPayloadData({},
+	const auto Cancelled = MakePhysicsCollisionPayloadData({},
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output, [] { return true; });
-	EXPECT_EQ(Cancelled.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Cancelled.error().Code, EPhysicsCollisionPayloadError::Cancelled);
 	EXPECT_EQ(Output.Positions.size(), 1u);
 	FCollisionGeometryRef Geometry;
-	const auto Construct = MakeStaticMeshCollisionGeometry(Output, Geometry, [] { return true; });
-	EXPECT_EQ(Construct.error().Code, EStaticMeshCollisionPayloadError::Cancelled);
-	EXPECT_EQ(Construct.error().Operation, EStaticMeshCollisionPayloadOperation::Construct);
+	const auto Construct = MakePhysicsCollisionGeometry(Output, Geometry, [] { return true; });
+	EXPECT_EQ(Construct.error().Code, EPhysicsCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Construct.error().Operation, EPhysicsCollisionPayloadOperation::Construct);
 }
 
 TEST(FStaticMeshPayloadConversionTests, RejectionOwnsStreamAndSectionContext)
@@ -1222,8 +1223,8 @@ TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsModeAndPolicy)
 	const std::array<uint32, 12> Indices{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3};
 	const auto Geometry = FCollisionGeometryRef::MakeConvexHull(Vertices, Indices);
 	ASSERT_TRUE(Geometry);
-	FStaticMeshCollisionPayloadData Payload;
-	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	FPhysicsCollisionPayloadData Payload;
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
 	FByteBuffer Bytes;
 	FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 	Payload.Serialize(Ar);

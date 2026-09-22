@@ -66,7 +66,7 @@ struct FPreparedSceneOutput
 	FPackagePath AssetPath;
 	FStaticMeshSource StaticMeshSource;
 	std::vector<FMeshMaterialSlotDefinition> StaticMeshMaterialSlots;
-	std::unique_ptr<FStaticMeshAuthoredCandidate> StaticMesh;
+	std::unique_ptr<FStaticMeshRenderData> StaticMesh;
 	FSceneTextureBuildProduct Texture;
 	DObject *Candidate = nullptr;
 	DPackage *Package = nullptr;
@@ -581,11 +581,10 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  FormatStaticMeshSourceError(Initialized.error()), Descriptor.StableIdentity);
 				return;
 			}
-			FStaticMeshAuthoredBuildRequest Request{.Source = Output.StaticMeshSource};
-			for (const auto& Slot : Output.StaticMeshMaterialSlots)
-				Request.MaterialSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
+			FStaticMeshBuildRequest Request{.Reconciliation = {.MaterialSlots = Output.StaticMeshMaterialSlots},
+				.Source = Output.StaticMeshSource};
 			auto Outcome =
-			    FStaticMeshBuilder::BuildCandidate(std::move(Request),
+			    FStaticMeshBuilder::Build(std::move(Request),
 			                                     {.ShouldCancel = IsCancellationRequested});
 			if (!Outcome)
 			{
@@ -847,8 +846,8 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				}
 				ImportData->SourceIdentity = RootFilename;
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
-				if (const auto Applied = FStaticMeshBuilder::ApplyCandidate(
-				        *Mesh, std::move(Output.StaticMesh), FStaticMeshBuilder::Capture(*Mesh), true, {},
+				if (const auto Applied = CommitStaticMeshBuild(
+				        *Mesh, std::move(Output.StaticMesh), Output.StaticMeshSource, FStaticMeshBuilder::Capture(*Mesh), true, {},
 				        ImportData, &Output.StaticMeshMaterialSlots);
 				    !Applied)
 				{

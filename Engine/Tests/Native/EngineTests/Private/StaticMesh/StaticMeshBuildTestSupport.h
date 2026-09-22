@@ -1,4 +1,5 @@
 #pragma once
+#include "Physics/PhysicsCookHelper.h"
 
 #include "EngineTestSupport.h"
 #include "StaticMeshTestAccess.h"
@@ -19,8 +20,21 @@
 
 namespace StaticMeshBuildTestSupport
 {
+	inline auto CaptureCollisionCookInfoForTest(const Durin::FStaticMeshRenderData& Render,
+		Durin::EBodySetupCollisionSourceMode Mode, Durin::EBodySetupCollisionQueryPolicy Policy,
+		bool bPersistDerivedData = true) -> Durin::FCookBodySetupInfo
+	{
+		Durin::FCookBodySetupInfo Info{.Mode = Mode, .Policy = Policy, .bPersistDerivedData = bPersistDerivedData};
+		if (Mode != Durin::EBodySetupCollisionSourceMode::None && !Render.LODResources.empty())
+		{
+			Info.TriangleMeshDesc.Positions = Render.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
+			Info.TriangleMeshDesc.Indices = Render.LODResources.front().IndexBuffer.GetIndices();
+		}
+		return Info;
+	}
+
 	inline auto BuildRenderForTest(Durin::FStaticMeshBuildRequest Request,
-		const Durin::FStaticMeshBuildExecutionControl& Control = {},
+		const Durin::FAssetBuildTaskContext& Control = {},
 		std::vector<Durin::FStaticMeshCacheError>* Errors = nullptr)
 	{
 		if (Request.Reconciliation.MaterialSlots.empty() && Request.Source.IsValid())
@@ -150,7 +164,7 @@ namespace StaticMeshBuildTestSupport
 		}
 	}
 
-	inline auto CheckCandidateBudgets(bool bMeasure) -> void
+	inline auto CheckDetachedBuildBudgets(bool bMeasure) -> void
 	{
 		using namespace Durin;
 		FScopedDerivedDataCacheRestore RestoreCache;
@@ -187,9 +201,9 @@ namespace StaticMeshBuildTestSupport
 			const auto& LOD = (*Render)->LODResources.front();
 			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 			ASSERT_NE(Acceleration, nullptr);
-			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure> Collision;
+			std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
-			ASSERT_TRUE((Collision = FStaticMeshCollisionBuilder::Build(FStaticMeshCollisionBuilder::Capture(*(*Render),
+			ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)))) << Error;
 			ASSERT_TRUE(Collision->Complex);
@@ -210,12 +224,12 @@ namespace StaticMeshBuildTestSupport
 		}
 	}
 
-	inline auto CheckCandidatePublicationAndCancellation(bool bMeasure) -> void
+	inline auto CheckRenderPublicationAndCancellation(bool bMeasure) -> void
 	{
 		using namespace Durin;
 		FScopedDerivedDataCacheRestore RestoreCache;
 		FPaths::SetDerivedDataCacheDirForTests(
-			(Testing::GetTestWorkDirectory() / "CompleteCandidateTimingCache").generic_string());
+			(Testing::GetTestWorkDirectory() / "RenderPublicationTimingCache").generic_string());
 		FStaticMeshDecodedGeometry Geometry = MakeResidencyGeometry();
 		auto& Section = Geometry.Meshes.front();
 		Section.Positions.clear();
@@ -231,20 +245,20 @@ namespace StaticMeshBuildTestSupport
 		FStaticMeshSource Source;
 		ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 		Source.ReleaseGeometry();
-		auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("CompleteCandidateTiming"));
+		auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("RenderPublicationTiming"));
 		auto* Body = NewObject<DBodySetup>(Mesh, FName("BodySetup"));
 		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		ASSERT_TRUE(Mesh->SetBodySetup(Body));
 		const auto Snapshot = FStaticMeshBuilder::Capture(*Mesh);
 		auto Input = Snapshot;
 		Input.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
-		auto Request = FStaticMeshBuilder::MakeRequest(Source, Input);
+		auto Request = FStaticMeshBuildRequest{.Reconciliation = Input, .Source = Source};
 		Request.bPersistDerivedData = false;
-		FStaticMeshBuildExecutionMetrics Metrics;
+		FAssetBuildTaskMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		auto Outcome = FStaticMeshBuilder::BuildCandidate(std::move(Request),
+		auto Outcome = FStaticMeshBuilder::Build(std::move(Request),
 			{.ShouldCancel = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
@@ -256,14 +270,14 @@ namespace StaticMeshBuildTestSupport
 		ASSERT_TRUE(Outcome) << Outcome.error().ToString();
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
-		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
+		const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
 		auto PreparedSlots = Input.MaterialSlots;
-		ASSERT_TRUE(FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(Candidate), Snapshot, true, {}, nullptr, &PreparedSlots)) << Error;
+		ASSERT_TRUE(CommitStaticMeshBuild(*Mesh, std::move(Candidate), Source, Snapshot, true, {}, nullptr, &PreparedSlots)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
 		EXPECT_GT(Metrics.CancellationCheckpoints, bMeasure ? 1000u : 4u);
-		if (bMeasure) std::cout << "complete_candidate_fixture triangles=" << (bMeasure ? 100000u : 32u) << " build_ns="
+		if (bMeasure) std::cout << "render_build_fixture triangles=" << (bMeasure ? 100000u : 32u) << " build_ns="
 			<< std::chrono::duration_cast<std::chrono::nanoseconds>(Built - Start).count()
 			<< " publication_ns=" << std::chrono::duration_cast<std::chrono::nanoseconds>(Published - Built).count()
 			<< " checkpoints=" << Metrics.CancellationCheckpoints
@@ -272,12 +286,12 @@ namespace StaticMeshBuildTestSupport
 		for (const uint64 StopAfter : {Metrics.CancellationCheckpoints / 4,
 			Metrics.CancellationCheckpoints / 2, Metrics.CancellationCheckpoints * 3 / 4})
 		{
-			auto CancelRequest = FStaticMeshBuilder::MakeRequest(Source, Input);
+			auto CancelRequest = FStaticMeshBuildRequest{.Reconciliation = Input, .Source = Source};
 			CancelRequest.bPersistDerivedData = false;
 			uint64 Checks = 0;
 			bool bRequested = false;
 			std::chrono::steady_clock::time_point RequestedAt;
-			const auto Cancelled = FStaticMeshBuilder::BuildCandidate(std::move(CancelRequest),
+			const auto Cancelled = FStaticMeshBuilder::Build(std::move(CancelRequest),
 				{.ShouldCancel = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)
@@ -294,12 +308,12 @@ namespace StaticMeshBuildTestSupport
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - RequestedAt).count()));
 		}
-		if (bMeasure) std::cout << "complete_candidate_cancellation_fixture samples=3 maximum_cancel_to_return_ns="
+		if (bMeasure) std::cout << "render_build_cancellation_fixture samples=3 maximum_cancel_to_return_ns="
 			<< MaximumCancellationNanoseconds << std::endl;
 
 	}
 
-	inline auto CheckConcurrentCandidates(bool bMeasure) -> void
+	inline auto CheckConcurrentRenderBuilds(bool bMeasure) -> void
 	{
 		using namespace Durin;
 		FAssetCompilingManager::Get().FinishAllCompilation();
@@ -337,7 +351,7 @@ namespace StaticMeshBuildTestSupport
 		FStaticMeshWorkerBarrier Barrier(EStaticMeshCompilationPhase::Mailbox);
 		for (size_t Index = 0; Index < Meshes.size(); ++Index)
 		{
-			Meshes[Index] = NewObject<DStaticMesh>(nullptr, FName(std::format("ConcurrentCandidate{}", Index)));
+			Meshes[Index] = NewObject<DStaticMesh>(nullptr, FName(std::format("ConcurrentRenderBuild{}", Index)));
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
@@ -354,7 +368,7 @@ namespace StaticMeshBuildTestSupport
 		malloc_zone_statistics(nullptr, &AllocationStats);
 		rusage Usage{};
 		ASSERT_EQ(0, getrusage(RUSAGE_SELF, &Usage));
-		if (bMeasure) std::cout << "concurrent_candidate_memory reserved_bytes=" << Held.ReservedBytes
+		if (bMeasure) std::cout << "concurrent_render_build_memory reserved_bytes=" << Held.ReservedBytes
 			<< " default_zone_in_use=" << AllocationStats.size_in_use
 			<< " process_peak_rss_bytes=" << Usage.ru_maxrss << std::endl;
 #endif
@@ -372,7 +386,7 @@ namespace StaticMeshBuildTestSupport
 #if defined(__APPLE__)
 		AllocationSampler.request_stop();
 		AllocationSampler.join();
-		if (bMeasure) std::cout << "concurrent_candidate_allocation sampled_default_zone_peak_bytes="
+		if (bMeasure) std::cout << "concurrent_render_build_allocation sampled_default_zone_peak_bytes="
 			<< SampledAllocationPeak.load() << " sample_interval_ms=1" << std::endl;
 #endif
 		const auto Completed = GetStaticMeshCompilationDiagnostic(*Meshes[1]);

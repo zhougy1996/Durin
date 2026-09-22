@@ -39,6 +39,7 @@ namespace Durin
 
 		ENGINE_API auto GetCollisionStateRevision() const -> uint64 override;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
+		auto HandleStaticMeshCollisionDataChanged(DStaticMesh* ChangedMesh) -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;

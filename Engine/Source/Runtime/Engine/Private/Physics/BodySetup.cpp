@@ -1,5 +1,9 @@
 #include "Physics/BodySetup.h"
-#include "StaticMesh/StaticMeshCompilation.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Physics/PhysicsMeshCompilation.h"
+#include "Physics/PhysicsMeshInputTask.h"
+#include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
 
 namespace Durin
 {
@@ -7,13 +11,120 @@ namespace Durin
 	{
 		auto NotifyBodyMutation(DBodySetup& Body) -> void
 		{
+			Body.InvalidatePhysicsData();
 			if (auto* Mesh = Cast<DStaticMesh>(Body.GetOuter()); Mesh && Mesh->GetBodySetup() == &Body)
-				NotifyStaticMeshCompilationMutation(*Mesh);
+				Mesh->NotifyCollisionSettingsChanged();
 		}
 	}
 	DBodySetup::DBodySetup(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+	}
+
+	auto FormatPhysicsMeshBuildError(const FPhysicsMeshBuildError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EPhysicsMeshBuildError::None: return {};
+		case EPhysicsMeshBuildError::MissingCollisionSource: return "Physics mesh creation requires a collision data source.";
+		case EPhysicsMeshBuildError::DerivedData: return Error.DerivedDataCause ? Error.DerivedDataCause->ToString() : "Physics cook failed.";
+		case EPhysicsMeshBuildError::Publication: return "Could not install physics geometry.";
+		}
+		return {};
+	}
+
+	auto DBodySetup::NotifyPhysicsDataChanged() -> void
+	{
+		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); Mesh && Mesh->GetBodySetup() == this)
+			Mesh->NotifyCollisionDataChanged();
+	}
+
+	auto DBodySetup::InvalidatePhysicsData() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		++PhysicsMeshRequestGeneration;
+		CancelPhysicsMeshCompilation(*this);
+		CachedSimpleCollision = {};
+		CachedComplexCollision = {};
+		CachedGeometry = {};
+		++Revision;
+		PhysicsMeshError = {};
+		PhysicsMeshStatus = CollisionSourceMode == EBodySetupCollisionSourceMode::None
+			? EPhysicsMeshBuildStatus::Ready : EPhysicsMeshBuildStatus::Unavailable;
+		NotifyPhysicsDataChanged();
+	}
+
+	auto DBodySetup::CreatePhysicsMeshesAsync(const IInterface_CollisionDataProvider& Provider,
+		bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion) -> std::expected<void, FPhysicsCookFailure>
+	{
+		InvalidatePhysicsData();
+		if (CollisionSourceMode == EBodySetupCollisionSourceMode::None)
+		{
+			if (Completion) Completion(true);
+			return {};
+		}
+		auto Source = Provider.CreatePhysicsMeshInputTask();
+		if (!Source)
+		{
+			FailPhysicsMeshes(PhysicsMeshRequestGeneration, Source.error());
+			if (!Provider.ContainsPhysicsTriMeshData()) PhysicsMeshError.Code = EPhysicsMeshBuildError::MissingCollisionSource;
+			return std::unexpected(Source.error());
+		}
+		const auto Submitted = SubmitPhysicsMeshCompilation(*this, std::move(*Source), bPersistDerivedData, std::move(Completion));
+		if (!Submitted) FailPhysicsMeshes(PhysicsMeshRequestGeneration, Submitted.error());
+		else PhysicsMeshStatus = EPhysicsMeshBuildStatus::Pending;
+		return Submitted;
+	}
+
+	auto DBodySetup::CreatePhysicsMeshes(const IInterface_CollisionDataProvider& Provider,
+		bool bPersistDerivedData) -> std::expected<void, FPhysicsCookFailure>
+	{
+		if (const auto Submitted = CreatePhysicsMeshesAsync(Provider, bPersistDerivedData); !Submitted) return Submitted;
+		FinishPhysicsMeshes();
+		if (PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready) return {};
+		if (PhysicsMeshError.DerivedDataCause) return std::unexpected(*PhysicsMeshError.DerivedDataCause);
+		return std::unexpected(FPhysicsCookFailure{"Physics mesh creation did not complete.", EPhysicsCookStage::Cook});
+	}
+
+	auto DBodySetup::GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData) const -> FCookBodySetupInfo
+	{
+		return {std::move(Data), CollisionSourceMode, CollisionQueryPolicy, bPersistDerivedData};
+	}
+
+	auto DBodySetup::FinishPhysicsMeshes() -> void { FinishPhysicsMeshCompilation(*this); }
+
+	auto DBodySetup::ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
+		const FCollisionGeometryRef& Complex) -> bool
+	{
+		if (Generation != PhysicsMeshRequestGeneration || PhysicsMeshStatus != EPhysicsMeshBuildStatus::Pending) return false;
+		if (SetCollisionGeometry(Simple, Complex)) return true;
+		FailPhysicsMeshes(Generation, FPhysicsCookFailure{"Could not install physics meshes.", EPhysicsCookStage::Installation});
+		PhysicsMeshError.Code = EPhysicsMeshBuildError::Publication;
+		return false;
+	}
+
+	auto DBodySetup::FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void
+	{
+		if (Generation != PhysicsMeshRequestGeneration) return;
+		PhysicsMeshStatus = Error.IsCancelled() ? EPhysicsMeshBuildStatus::Unavailable : EPhysicsMeshBuildStatus::Failed;
+		PhysicsMeshError = {.Code = EPhysicsMeshBuildError::DerivedData, .Mode = CollisionSourceMode,
+			.Policy = CollisionQueryPolicy, .DerivedDataCause = std::make_shared<FPhysicsCookFailure>(std::move(Error))};
+	}
+
+	auto DBodySetup::CancelPhysicsMeshes(uint64 Generation) -> void
+	{
+		if (Generation == PhysicsMeshRequestGeneration && PhysicsMeshStatus == EPhysicsMeshBuildStatus::Pending)
+		{
+			++PhysicsMeshRequestGeneration;
+			PhysicsMeshStatus = EPhysicsMeshBuildStatus::Unavailable;
+		}
+	}
+
+	auto DBodySetup::BeginDestroy() -> void
+	{
+		++PhysicsMeshRequestGeneration;
+		CancelPhysicsMeshCompilation(*this);
+		Super::BeginDestroy();
 	}
 
 		auto DBodySetup::SetBox(const FVector3& HalfExtent, const FVector3& InCenter) -> bool
@@ -26,7 +137,6 @@ namespace Durin
 		Center = InCenter;
 		++Revision;
 		NotifyBodyMutation(*this);
-		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -41,7 +151,6 @@ namespace Durin
 		Center = InCenter;
 		++Revision;
 		NotifyBodyMutation(*this);
-		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -56,7 +165,6 @@ namespace Durin
 		Center = InCenter;
 		++Revision;
 		NotifyBodyMutation(*this);
-		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -155,17 +263,15 @@ namespace Durin
 		CachedComplexCollision = Complex;
 		++CollisionBuildRevision;
 		++Revision;
-		NotifyBodyMutation(*this);
+		PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
+		PhysicsMeshError = {};
+		NotifyPhysicsDataChanged();
 		return true;
 	}
 
 	auto DBodySetup::ClearCollisionGeometry() -> void
 	{
-		CachedSimpleCollision = {};
-		CachedComplexCollision = {};
-		++CollisionBuildRevision;
-		++Revision;
-		NotifyBodyMutation(*this);
+		InvalidatePhysicsData();
 	}
 
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool

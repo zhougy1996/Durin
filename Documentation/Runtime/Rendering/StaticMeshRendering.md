@@ -52,9 +52,10 @@ final value to zero; a single-LOD mesh therefore uses `[0]`. Invalid policies
 are rejected before render-data publication rather than clamped per view.
 Engine validation returns `std::expected<void, FStaticMeshLODPolicyError>`, owning the failed LOD
 index/count and current/previous thresholds, including NaN or signed zero. It has
-no diagnostic-output overload. Candidate publication returns
+no diagnostic-output overload. Prepared render publication returns
 `std::expected<void, FStaticMeshBuildFailure>`, carrying a diagnostic stage and
-bounded message for LOD-policy, collision or resource initialization failures.
+bounded message for render validation or resource initialization failures. Collision
+has independent readiness and cannot relabel successful render publication.
 Failed preparation leaves the live product unchanged. Authored application
 propagates the same failure; cooked loading retains its own residency result.
 
@@ -118,9 +119,10 @@ render data.
 Private `ReplaceRenderDataDestructively`/`ReplaceSourceRenderDataDestructively`
 retain the internal no-rollback CPU replacement behavior and typed last error.
 Focused tests access them through `FStaticMeshTestAccess`; ordinary callers use
-`DStaticMesh::Build` or `AsyncBuild`, which validate a sealed candidate before
-publication and retain the previous mesh on failure. The old mutable Product
-application wrapper is removed. Collision errors remain separate; status checks
+`DStaticMesh::Build` or `AsyncBuild`, which finalize render data before
+publication and retain the previous mesh on render failure. Publication clears old
+derived collision and schedules independent collision work. Import follows this
+same completion contract; collision failure does not roll back the new render state. Collision errors remain separate; status checks
 never depend on diagnostic text.
 `RenameMaterialSlot` returns `std::expected<void, FStaticMeshSlotRenameError>`, owning the rejected
 name, index/count, conflicting slot index and object key. Failure changes no slot

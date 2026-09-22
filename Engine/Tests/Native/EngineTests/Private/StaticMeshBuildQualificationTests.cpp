@@ -8,17 +8,17 @@ TEST(FStaticMeshBuildQualificationTests, RepresentativeGeometry)
 	CheckSourceResidency(true);
 }
 
-TEST(FStaticMeshBuildQualificationTests, RepresentativeCandidateBudgets)
+TEST(FStaticMeshBuildQualificationTests, RepresentativeDetachedBuildBudgets)
 {
-	CheckCandidateBudgets(true);
+	CheckDetachedBuildBudgets(true);
 }
 
-TEST(FStaticMeshBuildQualificationTests, MeasuresCompleteCandidateAndPublicationSeparately)
+TEST(FStaticMeshBuildQualificationTests, MeasuresRenderBuildAndPublicationSeparately)
 {
-	CheckCandidatePublicationAndCancellation(true);
+	CheckRenderPublicationAndCancellation(true);
 }
 
-TEST(FStaticMeshBuildQualificationTests, ConcurrentLargeCandidatesSeparateCostsAndRetainCancelledBytes)
+TEST(FStaticMeshBuildQualificationTests, ConcurrentLargeRenderBuildsSeparateCostsAndRetainCancelledBytes)
 {
-	CheckConcurrentCandidates(true);
+	CheckConcurrentRenderBuilds(true);
 }

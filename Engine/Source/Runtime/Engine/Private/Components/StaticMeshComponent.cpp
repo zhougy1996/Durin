@@ -163,12 +163,16 @@ namespace Durin
 	}
 
 
+	auto DStaticMeshComponent::HandleStaticMeshCollisionDataChanged(DStaticMesh* ChangedMesh) -> void
+	{
+		if (ChangedMesh == StaticMesh.Get()) RecreatePhysicsState();
+	}
+
 	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{
 		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get()) return;
 
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
 	}
 
 }

@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Physics/BodySetupTypes.h"
+#include "Physics/CookBodySetupInfo.h"
 #include "DObject/Object.h"
 #include "Physics/PhysicsTypes.h"
 
@@ -26,6 +27,31 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DBodySetup(const FObjectInitializer& ObjectInitializer);
+		// Owner-thread lifecycle. Async capture owns its inputs and never retains the provider.
+		// Accepted work completes once through the owner pump; rejected admission has no callback.
+		// Disabled collision needs no task and completes inline. Callbacks must tolerate owner destruction.
+		ENGINE_API auto InvalidatePhysicsData() -> void;
+		ENGINE_API auto CreatePhysicsMeshesAsync(const IInterface_CollisionDataProvider& Provider,
+			bool bPersistDerivedData = true, FOnAsyncPhysicsCookFinished Completion = {}) -> std::expected<void, FPhysicsCookFailure>;
+		ENGINE_API auto CreatePhysicsMeshes(const IInterface_CollisionDataProvider& Provider,
+			bool bPersistDerivedData = true) -> std::expected<void, FPhysicsCookFailure>;
+		// Assemble the detached cook descriptor from prepared geometry and current body settings.
+		ENGINE_API auto GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData = true) const -> FCookBodySetupInfo;
+		ENGINE_API auto FinishPhysicsMeshes() -> void;
+		ENGINE_API auto BeginDestroy() -> void override;
+		auto GetPhysicsMeshBuildStatus() const -> EPhysicsMeshBuildStatus
+		{
+			if (CollisionSourceMode == EBodySetupCollisionSourceMode::None || CachedSimpleCollision || CachedComplexCollision)
+				return EPhysicsMeshBuildStatus::Ready;
+			return PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready ? EPhysicsMeshBuildStatus::Unavailable : PhysicsMeshStatus;
+		}
+		auto GetPhysicsMeshBuildError() const -> const FPhysicsMeshBuildError& { return PhysicsMeshError; }
+		auto GetPhysicsMeshRequestGeneration() const -> uint64 { return PhysicsMeshRequestGeneration; }
+		// Only the matching request may install resources or report failure.
+		ENGINE_API auto ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
+			const FCollisionGeometryRef& Complex) -> bool;
+		ENGINE_API auto FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void;
+		ENGINE_API auto CancelPhysicsMeshes(uint64 Generation) -> void;
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetCapsule(double Radius, double HalfHeight, const FVector3& Center = FVector3(0.0)) -> bool;
@@ -56,6 +82,10 @@ namespace Durin
 		auto GetCollisionBuildRevision() const -> uint64 { return CollisionBuildRevision; }
 
 	private:
+		auto NotifyPhysicsDataChanged() -> void;
+		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
+		FPhysicsMeshBuildError PhysicsMeshError;
+		uint64 PhysicsMeshRequestGeneration = 1;
 		DPROPERTY()
 		EBodySetupShapeType ShapeType = EBodySetupShapeType::None;
 

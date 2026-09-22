@@ -9,7 +9,7 @@ namespace Durin
 	// Diagnostic location, independent of the compilation lifecycle.
 	enum class EStaticMeshBuildStage : uint8
 	{
-		Build, Source, Render, Collision, Validation, Application, Resources
+		Build, Source, Render, Validation, Application, Resources
 	};
 
 	// Advanced pipeline failure, shared by detached workers and owner-thread application.

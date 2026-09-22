@@ -244,71 +244,64 @@ are known.
 
 ## StaticMesh Completion
 
-`DStaticMesh::AsyncBuild` accepts canonical source values and returns before
-recipe work. Rejection does not supersede earlier work or call completion.
-Its `std::expected<void, std::vector<std::string>>` reports admission failures
-as owned messages. Rejected owner/settings/slot, provider, import-validation and
-budget details are formatted at rejection rather than exposed as a public error tree.
-Accepted requests deliver one `FStaticMeshCompilationResult` on GameThread:
-request ID, `Succeeded`, `Failed`, `Cancelled`, or `Superseded` status and an
-`Errors` string array. Cancellation/supersession remain states; cache fallback
-warnings are available in diagnostic queries. Worker captures contain no object bindings.
-`FStaticMeshCompilationDiagnostic::Error` is an optional `FStaticMeshBuildFailure`
-with diagnostic stage, bounded message and internal cancellation identity.
-Build, application and resource publication propagate this same failure.
-Publication preparation returns `std::expected<void, FStaticMeshBuildFailure>`;
-rejected preparation never enters live application. Import save failures belong
-to the import completion result and do not alter successful compilation history.
-Owner records use generation-safe handles and recheck source, normalization,
-ordered material bindings, body parameters/revision, provenance identity and
-provider registration before applying the sealed candidate. Provider replacement
-cannot reuse an older request even when its builder versions are unchanged.
+`Durin.StaticMesh` uses one task scope, bounded queue and owner-thread mailbox
+for separate render and collision records. Ordinary Build/AsyncBuild, PostLoad
+and import complete at asset commit; collision failure is reported through
+`GetCollisionBuildStatus` and `GetCollisionBuildError`. Pending render work alone
+does not imply pending collision. Render callbacks never wait for collision.
+Asset-level finish drains render records and BodySetup records belonging to selected
+assets. `FinishStaticMeshCompilation` can select Render, Collision, or All;
+`DBodySetup::FinishPhysicsMeshes` selects only one setup. Render-only barriers never
+wait for collision. Shutdown stops
+admission, cancels both kinds and drains workers before releasing storage.
+
+Render workers own detached source and slot metadata, without material object
+bindings. The owner snapshot retains bindings and provenance until publication.
+Application rechecks source identity, normalization, slot bindings, provenance and
+provider registration. Source-changing operations are discarded after owner edits,
+without automatic requeue. Current-source rebuilds may requeue stale render facts.
+Synchronous Build cancels older work, builds CPU render data directly and publishes
+it, returning owned error strings. AsyncBuild success means admission only; its
+completion describes the render result. Import publishes source, render, prepared
+slots and provenance in one refresh boundary. Collision failure does not undo it.
+
+Collision records belong to BodySetup, not to its mesh. They own a detached
+`FPhysicsMeshInputTask` and `FCookBodySetupInfo` settings snapshot. Source acquisition, normalization
+and collision cooking run without render publication. A retry captures fresh source
+and supersedes the earlier request. Publication checks the BodySetup object key,
+settings revision and request generation,
+then asks BodySetup to apply or reject the result. `FAssetBuildTaskContext` carries
+only borrowed cancellation, checkpoint metrics and the working-set reservation.
+Provider registration guards only render work. Collision admission, cooking and
+installation do not query the render provider registry; provider removal or ambiguity
+cannot invalidate a physics request. Manager code never writes mesh
+collision state or refreshes components directly.
+Direct BodySetup settings changes and mesh setters share the same invalidation
+boundary. Invalidation clears derived geometry and refreshes component physics
+bodies immediately; accepted collision installation refreshes them again.
+Authored primitives survive render replacement. Installing/clearing geometry does
+not recursively schedule a request or invalidate render work.
 
 The manager allows two workers, 32 outstanding records, 1 GiB total reservation
-and at most 512 MiB per request. Admission uses checked arithmetic for
+and 512 MiB per request. Render admission uses checked arithmetic for
 `1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
-Detached decoding/recipes/finalization check conservative working-set envelopes
-before expansion; cache reads are bounded by the reservation and complete
-candidate capacities are checked before mailbox publication. Recipe providers
-must honor the borrowed working-set limit before allocating their products.
-Cancellation delivery does not release a still-running task's record or bytes.
-History retains at most 128 value-only diagnostics; presentation messages are
-bounded to 4096 bytes.
+Authored collision reserves `1 MiB + 64 * canonical bytes + 1024 * mesh count`
+without decoding on the owner thread. Source-less resident captures reserve
+`1 MiB + 512 * positions + 192 * indices`. Provider captures declare the complete
+working-set bound, and builders enforce construction envelopes. Canceled
+records keep their count and byte charges until their task and retained products
+retire. Collision-only work never changes render resource revision.
 
-Background and interactive queues are FIFO, with at most four interactive
-dispatches before an eligible background request. Each aggregate pump admits
-at most two StaticMesh terminals within a 2 ms soft deadline. `PumpIdentity`
-shares this budget across aggregate quota-reclamation passes. Once application
-starts, resource preparation and the atomic consumer refresh may exceed that
-soft deadline. Explicit selected finish drains only matching records.
+Background and interactive queues are FIFO with at most four interactive dispatches
+before eligible background work. Each pump processes at most two terminals within
+a shared 2 ms soft deadline. Resource preparation and consumer refresh can exceed
+that soft deadline. History retains at most 128 render diagnostics. Collision
+cache warnings are logged independently; successful collision work is not reported
+as another successful render compilation.
 
-Accepted owner edits invalidate publication immediately; reflected changes are
-also detected at application. Initial pending edits and stale reflected facts
-requeue valid current input. Destruction cancels before resource release; queue
-ownership does not prevent package GC. Stop-admission cancels accepted work;
-shutdown drains worker scope and callbacks before releasing them. A drained typed
-StaticMesh manager can restart; the process aggregate's terminal shutdown
-contract is unchanged. Cooked residency remains a separate manager.
-
-Authored `PostLoad` validates metadata and schedules background work without
-acquiring canonical geometry. Repeated identical current requests join;
-`DStaticMesh::Build` is a separate synchronous entrypoint. It directly constructs
-and applies the same sealed candidate, returning `std::expected<void, std::vector<std::string>>`.
-It cancels older requests for that mesh without waiting for workers or dispatching
-callbacks, and does not consume queue admission capacity or create compilation
-observations. Cache warnings are logged; fatal errors expose owned message arrays. See [Static Mesh Building](StaticMeshBuilding.md#provenance-and-compatibility).
-For `AsyncBuild`, success means admission only; callbacks and observations carry
-the final build/application outcome.
-Missing admission/provider capacity is an explicit
-failure, with no inline recipe fallback. Interactive reimport prepares physical
-input and reconciled material slots synchronously, then submits at interactive priority.
-`PreparedMaterialSlots` remains on the owner thread; workers receive only slot
-metadata. Requests carrying prepared slots cannot join ordinary rebuilds or
-automatically requeue after owner edits. Source, render,
-collision, material bindings and prevalidated provenance become current within
-one consumer-refresh boundary. No recipe or metadata validation runs after its
-first live mutation. Cook finishes a pending source mutation only when needed,
-then builds a detached target projection without publishing authored CPU data.
+Cook waits for a pending source mutation when needed, then independently builds
+required detached projections without publishing authored CPU data. Cooked
+residency remains a separate manager and invokes no editor recipe.
 
 The request-ID overload of `GetStaticMeshCompilationDiagnostic` retrieves the exact
 completion even when the owner has newer work or has been destroyed. An expired
@@ -322,8 +315,10 @@ registration, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.
 Nonfatal cache failures survive successful publication in a flat `CacheErrors`
-list. Each `FStaticMeshCacheError` identifies render/collision and read/decode/write,
+list. Each `FStaticMeshCacheError` identifies a render-cache read/decode/write operation,
 with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
+Physics results use independent `FPhysicsCookFailure` and `FPhysicsCacheError` types;
+the shared scheduler preserves each product's error type.
 There are at most two errors per recipe (read or decode, followed by write);
 clean cache outcomes create no records. Backend and codec causes are translated
 at the cache boundary instead of retained as a nested diagnostic tree.

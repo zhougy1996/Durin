@@ -95,6 +95,11 @@ namespace
 	{
 		auto Result = std::make_unique<Durin::FStaticMeshRenderData>();
 		Result->MaterialSlots.resize(4);
+		for (uint32 Index = 0; Index < 4; ++Index)
+		{
+			Result->MaterialSlots[Index].Name = std::format("Section{}", Index);
+			Result->MaterialSlots[Index].SourceMaterialIndex = Index;
+		}
 		Result->LODResources.resize(1);
 		auto& LOD = Result->LODResources[0];
 		const std::vector<Durin::FVector3f> Positions{

@@ -84,32 +84,77 @@ returns the same identity; successful collision-relevant setters invalidate
 geometry. Material, thumbnail, and render-readiness changes do not.
 The BodySetup source-mode and query-policy setters require declared enum values
 and return void; external input is validated before calling them.
-The mesh-level `SetCollisionSourceMode` and `SetCollisionQueryPolicy` accept
-configuration, invalidate derived collision, and rebuild when CPU data is resident.
-Without CPU data, configuration is retained for later publication. `RebuildCollision`
-explicitly retries; absent CPU data is a failure unless compilation is pending.
-Failure keeps the new configuration with no derived collision, leaves rendering
-usable, and logs the asset path and cause. `GetCollisionBuildStatus` reports
-Unavailable, Pending, Ready (including disabled derived collision), or Failed;
-`GetCollisionBuildError` retains the direct build error until invalidation or a
-successful publication. Async compilation retains its own terminal diagnostics.
-Setting an unchanged value does not retry; callers use `RebuildCollision`.
+`IInterface_CollisionDataProvider` exposes `ContainsPhysicsTriMeshData` and
+`GetPhysicsTriMeshData`. The latter synchronously returns owning
+`FTriMeshCollisionData` arrays; it never returns a callback or deferred data source.
+`CreatePhysicsMeshInputTask` is Durin's asynchronous preparation extension: its
+repeatable `FPhysicsMeshInputTask::Execute` runs from detached inputs, with no
+DObject, provider or render-resource references. Authored StaticMesh tasks capture
+canonical source and normalization, then acquire/decode on the worker. The default
+provider implementation captures actual arrays on the owner thread; source-less
+procedural/debug meshes copy resident LOD0.
 
-`DStaticMesh` retains its setup and a detached canonical LOD 0 collision snapshot
-independently from render data. Collision is opt-in: `None`, `SimpleHull`, or
-`ComplexMesh`; imported meshes never silently use render bounds or triangles.
+`DBodySetup::GetCookInfo` combines prepared geometry with mode, policy and cache
+settings into the owning value `FCookBodySetupInfo`. `FPhysicsCookHelper::Cook`
+reads that descriptor and directly calls PhysicsCore convex/triangle geometry
+builders. `IStaticMeshBuildProvider` only supplies render recipes; its presence,
+registration identity and module lifetime do not affect physics cooking. Editor
+cooks retain collision DDC reads/writes; non-editor explicit cooking uses the
+linked geometry implementation without DDC. Async admission snapshots the settings first, and the worker fills
+`TriangleMeshDesc` after preparation, before cooking. Neither data structure
+contains executable preparation logic. `FPhysicsCookResult` owns the cooked geometry
+and nonfatal cache diagnostics. `PhysicsCookBuilderVersion` owns cooker compatibility
+and contributes to collision DDC/payload versions and the package cook fingerprint.
+The version remains 2 because the geometry algorithm and serialized format are unchanged.
+Physics input preparation, cooking, admission and installation return
+`FPhysicsCookFailure`, with typed cancellation and bounded text. Nonfatal cache
+warnings use `FPhysicsCacheError`, independent of StaticMesh diagnostics.
+`PhysicsDerivedData.h/.cpp` owns the DCOL payload, validation and codec diagnostics;
+`PhysicsCookDerivedDataKey.h/.cpp` owns the collision cache key and key failures.
+The shared archive platform identifier belongs to Asset. Existing payload identifiers,
+canonical bytes, schema versions and the historical `StaticMeshCollision/Objects`
+cache bucket remain unchanged; the bucket spelling is a compatibility identity,
+not a code dependency.
+
+`DBodySetup::InvalidatePhysicsData` cancels prior requests, clears derived geometry,
+advances request/resource revisions, and refreshes physics consumers.
+`CreatePhysicsMeshesAsync` accepts a provider capture and submits bounded work;
+`CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
+only. Accepted asynchronous work delivers `FOnAsyncPhysicsCookFinished` once on
+the owner-thread pump, including cancellation; rejected admission returns an error.
+Disabled collision completes inline without submitting work. Callbacks must tolerate
+owner destruction.
+The setup owns `EPhysicsMeshBuildStatus`, `FPhysicsMeshBuildError`, and stale-result
+rejection through `ApplyPhysicsMeshes`. Workers never mutate it.
+
+The mesh setters invalidate derived collision and schedule when a collision source
+is available, even without CPU RenderData. Missing source retains configuration as
+Unavailable; explicit `RebuildCollision` reports a missing-source failure.
+Failure retains the new configuration without derived geometry and leaves rendering
+usable. Mesh status/error accessors forward to BodySetup. Ready includes disabled
+derived collision. Unchanged settings do not retry; use `RebuildCollision`.
+
+Each collision request owns a detached input task and cook descriptor; the mesh retains
+its setup and installed immutable geometry, without a per-generation snapshot cache. Collision is opt-in: `None`, `ConvexHullFromLOD0`, or
+`TriangleMeshFromLOD0`; imported meshes never silently use render bounds or triangles.
 `SimpleOnly`, `ComplexOnly`, and `SimpleAndComplex` select the published resource
 without changing component filters. The qualified `/Engine/Models/Box` asset
 continues to derive its authored Box setup from verified LOD 0 bounds.
 
 Editor derived data uses the separate `StaticMeshCollision/Objects` namespace
 and a key containing collision builder/schema/platform versions, exact source
-identity, import-space settings, mode/policy, and canonical bytes. Async authored builds and
-reimports replace render data, BodySetup state, collision resources, and revisions
-transactionally. Engine-owned operation results retain cache origin, key,
-payload bytes, and persistence diagnostics; neither asset nor physics owner
-stores that history. `DBodySetup::SetCollisionGeometry` validates compatible
-immutable values and advances revisions without accepting build metadata.
+geometry hash, mode/policy, and target platform. Asset commits with changed source
+or normalization invalidate prior derived collision and schedule independently.
+Same-geometry commits and pure render publication preserve physics resources.
+Failure cannot roll back accepted render/source state.
+Invalidation and successful collision installation refresh registered component
+physics bodies through a collision-specific notification. Render-data notifications
+refresh only rendering for StaticMeshComponent. Stale results are rejected using
+BodySetup identity, request/settings revisions and provider registration. Render-only pending work is
+not collision readiness. Authored primitives survive render replacement.
+`DBodySetup::SetCollisionGeometry` validates compatible immutable values and advances
+revisions without accepting build metadata or recursively scheduling compilation.
+Engine operations retain bounded cache warnings; cache-origin history is not exposed.
 A cache miss or corruption is rebuildable only
 while detached source inputs exist.
 

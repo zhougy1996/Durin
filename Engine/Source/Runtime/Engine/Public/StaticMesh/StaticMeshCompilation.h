@@ -7,6 +7,10 @@
 
 namespace Durin
 {
+	enum class EStaticMeshCompilationProducts : uint8 { Render, Collision, All };
+	ENGINE_API auto FinishStaticMeshCompilation(DStaticMesh& Mesh,
+		EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult;
+
 	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
@@ -65,7 +69,6 @@ namespace Durin
 	// Returns RequestId == 0 after the bounded history entry has expired.
 	ENGINE_API auto GetStaticMeshCompilationDiagnostic(uint64 RequestId) -> FStaticMeshCompilationDiagnostic;
 	ENGINE_API auto GetStaticMeshCompilationManagerDiagnostics() -> FStaticMeshCompilationManagerDiagnostics;
-	// Invalidation is deferred: callbacks are dispatched by the owner-thread pump.
 	ENGINE_API auto CancelStaticMeshCompilation(DStaticMesh& Mesh) -> void;
 	ENGINE_API auto NotifyStaticMeshCompilationMutation(DStaticMesh& Mesh) -> void;
 

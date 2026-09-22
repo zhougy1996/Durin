@@ -33,7 +33,7 @@ namespace Durin
 	{
 		auto ValidateTargetPlatform(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform) -> bool
+			EAssetPayloadTargetPlatform TargetPlatform) -> bool
 		{
 			if (Ar.IsLoading())
 			{
@@ -41,7 +41,7 @@ namespace Durin
 					"StaticMesh build-key input is save-only.");
 				return false;
 			}
-			if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
+			if (TargetPlatform != EAssetPayloadTargetPlatform::Win64)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"StaticMesh derived-data target is unsupported.");
@@ -53,7 +53,7 @@ namespace Durin
 		template<typename T>
 		auto BuildKeyBytes(const T& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
 		{
-			if (Input.TargetPlatform != EStaticMeshTargetPlatform::Win64)
+			if (Input.TargetPlatform != EAssetPayloadTargetPlatform::Win64)
 				return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
@@ -85,18 +85,6 @@ namespace Durin
 			<< BuilderVersion << PayloadSchemaVersion << Platform;
 	}
 
-	auto FStaticMeshCollisionBuildKeyInput::Serialize(FArchive& Ar) -> void
-	{
-		if (!ValidateTargetPlatform(Ar, TargetPlatform)) return;
-		uint32 KeySchemaVersion = StaticMeshCollisionKeySchemaVersion;
-		uint8 Mode = static_cast<uint8>(SourceMode);
-		uint8 Policy = static_cast<uint8>(QueryPolicy);
-		uint32 Platform = static_cast<uint32>(TargetPlatform);
-		Ar << KeySchemaVersion << GeometryHash.HashLow << GeometryHash.HashHigh
-			<< Mode << Policy
-			<< WeldToleranceBits << BuilderVersion << PayloadSchemaVersion << Platform;
-	}
-
 	auto FormatStaticMeshBuildKeyError(const FStaticMeshBuildKeyError& Error) -> std::string
 	{
 		switch (Error.Code)
@@ -119,14 +107,7 @@ namespace Durin
 	{
 		return BuildKey(Input, StaticMeshCacheBucket);
 	}
-	auto BuildStaticMeshCollisionDerivedDataKeyBytes(const FStaticMeshCollisionBuildKeyInput& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
-	{
-		return BuildKeyBytes(Input);
-	}
-	auto BuildStaticMeshCollisionDerivedDataKey(const FStaticMeshCollisionBuildKeyInput& Input) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>
-	{
-		return BuildKey(Input, StaticMeshCollisionCacheBucket);
-	}
+
 }
 
 #endif

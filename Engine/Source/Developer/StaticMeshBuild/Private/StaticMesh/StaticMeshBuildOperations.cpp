@@ -14,7 +14,7 @@ namespace Durin
 		// Unwinds only the synchronous recipe stack; no exception crosses the provider ABI.
 		struct FRecipeControl
 		{
-			const FStaticMeshBuildExecutionControl& Execution;
+			const FAssetBuildTaskContext& Execution;
 			uint32 WorkSinceCheckpoint = 0;
 
 			auto Check() const -> void
@@ -178,7 +178,7 @@ namespace Durin
 		FBox& OutBounds,
 		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 	{
-		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
+		FAssetBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		bool bFits = Memory.Add(1, 1024 * 1024)
 			&& Memory.Add(ImportedData.Meshes.size(), 1024)
 			&& Memory.Add(std::max(MaterialSlots.size(), ImportedData.MaterialSlots.size()), 32768);
@@ -364,23 +364,16 @@ namespace Durin
 			Control.Tick();
 			SourceBounds.AddPoint(FVector3(Position));
 		}
-		const FVector3f BoundsMin(SourceBounds.Min);
-		const FVector3f BoundsMax(SourceBounds.Max);
-
-		const FVector3f BoundsCenter = (BoundsMin + BoundsMax) * 0.5f;
-		const FVector3f BoundsExtent = BoundsMax - BoundsMin;
-		const float MaxDimension = std::max(BoundsExtent.x, std::max(BoundsExtent.y, BoundsExtent.z));
-		if (MaxDimension <= 0.0f)
+		const auto Normalization = GetStaticMeshPositionNormalization(SourceBounds, NormalizedSize);
+		if (!Normalization)
 		{
 			OutError = {.Code = EStaticMeshRecipeError::Bounds, .Bounds = SourceBounds};
 			return false;
 		}
-
-		const float Scale = NormalizedSize / MaxDimension;
 		for (FVector3f& Position : Positions)
 		{
 			Control.Tick();
-			Position = (Position - BoundsCenter) * Scale;
+			Position = (Position - Normalization->Center) * Normalization->Scale;
 		}
 		LOD.LocalBounds.Reset();
 		for (const auto& Position : Positions)
@@ -427,68 +420,8 @@ namespace Durin
 			OutError, Control);
 	}
 
-	static auto BuildCollisionRecipeInternal(
-		const FStaticMeshCollisionRecipeRequest& Request,
-		FStaticMeshCollisionRecipeProduct& OutProduct,
-		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
-	{
-		OutProduct = {};
-		Control.Check();
-		if (Request.Mode == EBodySetupCollisionSourceMode::None)
-		{
-			OutError = {};
-			return true;
-		}
-		if (Request.Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			&& Request.Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
-		{
-			OutError = {.Code = EStaticMeshRecipeError::CollisionMode, .Mode = Request.Mode};
-			return false;
-		}
-		if (Request.Positions.empty() || Request.Indices.empty()
-			|| Request.Indices.size() % 3 != 0)
-		{
-			OutError = {.Code = EStaticMeshRecipeError::CollisionInput, .VertexCount = Request.Positions.size(), .IndexCount = Request.Indices.size(), .Mode = Request.Mode};
-			return false;
-		}
-		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
-		if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Request.Positions.size(), 512)
-			|| !Memory.Add(Request.Indices.size(), 192))
-		{
-			OutError = {.Code = EStaticMeshRecipeError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit, .VertexCount = Request.Positions.size(), .IndexCount = Request.Indices.size(), .Mode = Request.Mode};
-			return false;
-		}
-		FCollisionGeometryBuildDiagnostics Diagnostics;
-		std::vector<FVector3> CollisionPositions;
-		CollisionPositions.reserve(Request.Positions.size());
-		for (const FVector3f& Position : Request.Positions)
-		{
-			Control.Tick();
-			CollisionPositions.emplace_back(Position);
-		}
-		Control.Check();
-		const std::function<bool()> ShouldCancel = [&] { return Control.Execution.IsCancelled(); };
-		OutProduct.Geometry =
-			Request.Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			? FCollisionGeometryRef::BuildConvexHull(CollisionPositions, &Diagnostics, ShouldCancel)
-			: FCollisionGeometryRef::BuildTriangleMesh(
-				CollisionPositions, Request.Indices, &Diagnostics, ShouldCancel);
-		if (Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled)
-		{
-			OutError = {.Code = EStaticMeshRecipeError::Cancelled, .Mode = Request.Mode, .CollisionCause = Diagnostics};
-			return false;
-		}
-		if (!OutProduct.Geometry)
-		{
-			OutError = {.Code = EStaticMeshRecipeError::CollisionBuild, .Mode = Request.Mode, .CollisionCause = Diagnostics};
-			return false;
-		}
-		OutError = {};
-		return true;
-	}
-
 	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
-		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError>
+		const FAssetBuildTaskContext& Execution) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError>
 	{
 		FStaticMeshRecipeBuildProduct Product;
 		FStaticMeshRecipeError Error;
@@ -497,36 +430,12 @@ namespace Durin
 		{
 			const bool bSucceeded = BuildRenderRecipeInternal(Request, Product, Error, Control);
 			Control.Check();
-			Error.Kind = EStaticMeshRecipeKind::Render;
 			if (bSucceeded) return Product;
 			return std::unexpected(std::move(Error));
 		}
 		catch (const FRecipeCancelled&)
 		{
-			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled, .Kind = EStaticMeshRecipeKind::Render});
-		}
-	}
-
-	auto FStaticMeshBuildOperations::BuildCollisionRecipe(const FStaticMeshCollisionRecipeRequest& Request,
-		const FStaticMeshBuildExecutionControl& Execution) -> std::expected<FStaticMeshCollisionRecipeProduct, FStaticMeshRecipeError>
-	{
-		FStaticMeshCollisionRecipeProduct Product;
-		FStaticMeshRecipeError Error;
-		FRecipeControl Control{Execution};
-		try
-		{
-			const bool bSucceeded = BuildCollisionRecipeInternal(Request, Product, Error, Control);
-			Control.Check();
-			Error.Kind = EStaticMeshRecipeKind::Collision;
-			if (bSucceeded) return Product;
-			return std::unexpected(std::move(Error));
-		}
-		catch (const FRecipeCancelled&)
-		{
-			Error.Code = EStaticMeshRecipeError::Cancelled;
-			Error.Kind = EStaticMeshRecipeKind::Collision;
-			Error.Mode = Request.Mode;
-			return std::unexpected(std::move(Error));
+			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled});
 		}
 	}
 

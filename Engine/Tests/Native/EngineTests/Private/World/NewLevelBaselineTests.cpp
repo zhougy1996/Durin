@@ -135,6 +135,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Mesh = MeshLoad.value_or(nullptr);
 	ASSERT_TRUE(MeshLoad) << (MeshLoad ? std::string{} : MeshLoad.error().Message);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	EXPECT_FALSE(Mesh->GetPackage()->IsDirty());
 
 	Durin::FPackagePath LevelPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
@@ -183,7 +184,8 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	EXPECT_EQ(Inspection.Header.Dependencies.front(), MeshPath);
 
 	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	const auto MeshUnload = Durin::UnloadPackage(MeshPath);
+	ASSERT_TRUE(MeshUnload) << MeshUnload.Message;
 	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;

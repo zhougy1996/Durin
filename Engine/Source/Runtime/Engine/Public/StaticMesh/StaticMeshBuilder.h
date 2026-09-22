@@ -3,6 +3,7 @@
 #include <expected>
 
 #include "EngineAPI.h"
+#include "StaticMesh/StaticMeshBuildDiagnostics.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
 #include "StaticMesh/StaticMesh.h"
@@ -17,10 +18,6 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		FXxHash128 SourceIdentity;
-		FObjectKey Body;
-		uint64 BodyRevision = 0;
-		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 	};
 
 	// Detached Engine request; cache policy is not forwarded to recipe code.
@@ -31,112 +28,33 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	enum class EStaticMeshCacheOperation : uint8 { Read, Decode, Write };
-	// Nonfatal cache failure. Clean hits/misses create no error record.
-	struct FStaticMeshCacheError
-	{
-		FStaticMeshCacheError(EStaticMeshRecipeKind InKind, EStaticMeshCacheOperation InOperation, std::string InMessage)
-			: Kind(InKind), Operation(InOperation), Message(InMessage.substr(0, 960)) {}
-		EStaticMeshRecipeKind Kind;
-		EStaticMeshCacheOperation Operation;
-		ENGINE_API auto ToString() const -> std::string;
-	private:
-		std::string Message;
-	};
-
-	struct FStaticMeshCollisionBuildProduct
-	{
-		FCollisionGeometryRef Simple;
-		FCollisionGeometryRef Complex;
-		auto GetCacheErrors() const -> const std::vector<FStaticMeshCacheError>& { return CacheErrors; }
-	private:
-		std::vector<FStaticMeshCacheError> CacheErrors;
-		friend class FStaticMeshCollisionBuilder;
-		friend class FStaticMeshAuthoredCandidate;
-	};
-
-	// Detached value snapshot owned by one request; workers only read its arrays.
-	struct FStaticMeshCollisionBuildRequest
-	{
-		std::vector<FVector3f> Positions;
-		std::vector<uint32> Indices;
-		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		bool bPersistDerivedData = true;
-	};
-
-	class FStaticMeshCollisionBuilder
-	{
-	public:
-		ENGINE_API static auto Capture(const FStaticMeshRenderData& Render,
-			EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
-			bool bPersistDerivedData = true) -> FStaticMeshCollisionBuildRequest;
-		ENGINE_API static auto Build(const FStaticMeshCollisionBuildRequest& Request,
-			const FStaticMeshBuildExecutionControl& Control = {})
-			-> std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshBuildFailure>;
-	};
-
-	// Value-only worker input; material object bindings remain in the owner-thread snapshot.
-	struct FStaticMeshAuthoredBuildRequest
-	{
-		FStaticMeshSource Source;
-		std::vector<FStaticMeshRecipeMaterialSlot> MaterialSlots;
-		float NormalizedSize = 1.5f;
-		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		bool bPersistDerivedData = true;
-	};
-
-	// Sealed CPU product: only the builder can create one, and only owner-thread application consumes it.
-	class FStaticMeshAuthoredCandidate
-	{
-	public:
-		auto GetCacheErrors() const -> std::vector<FStaticMeshCacheError>
-		{
-			auto Errors = CacheErrors;
-			Errors.insert(Errors.end(), Collision.CacheErrors.begin(), Collision.CacheErrors.end());
-			return Errors;
-		}
-
-		auto GetRenderData() const -> const FStaticMeshRenderData* { return Render.get(); }
-		auto GetCollision() const -> const FStaticMeshCollisionBuildProduct& { return Collision; }
-		auto GetProviderRegistration() const -> uint64 { return ProviderRegistration; }
-		auto GetSourceIdentity() const -> FXxHash128 { return Request.Source.GetIdentity(); }
-
-	private:
-		FStaticMeshAuthoredCandidate() = default;
-		FStaticMeshAuthoredBuildRequest Request;
-		std::unique_ptr<FStaticMeshRenderData> Render;
-		std::vector<FStaticMeshCacheError> CacheErrors;
-		uint64 ProviderRegistration = 0;
-		FStaticMeshCollisionBuildProduct Collision;
-		friend class DStaticMesh;
-		friend class FStaticMeshBuilder;
-	};
-
 	// Advanced detached building API. Ordinary asset callers use DStaticMesh::Build/AsyncBuild.
 	class FStaticMeshBuilder
 	{
 	public:
 		ENGINE_API static auto Build(
 			FStaticMeshBuildRequest Request,
-			const FStaticMeshBuildExecutionControl& Control = {},
-			std::vector<FStaticMeshCacheError>* OutCacheErrors = nullptr,
-			uint64* OutProviderRegistration = nullptr) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+			const FAssetBuildTaskContext& Control = {},
+			std::vector<FStaticMeshCacheError>* OutCacheErrors = nullptr, uint64 ExpectedProviderRegistration = 0) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 		// Validate and finish detached CPU data before publication, including non-recipe inputs.
 		ENGINE_API static auto FinalizeRenderData(FStaticMeshRenderData& Render,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
-		ENGINE_API static auto BuildCandidate(FStaticMeshAuthoredBuildRequest Request,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshBuildFailure>;
-		ENGINE_API static auto ApplyCandidate(DStaticMesh& Mesh,
-			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
-			const FStaticMeshReconciliationSnapshot& Snapshot,
-			bool bMarkPackageDirty = true, const FStaticMeshBuildExecutionControl& Control = {},
-			DAssetImportData* PreparedImportData = nullptr,
-			std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots = nullptr) -> std::expected<void, FStaticMeshBuildFailure>;
-		ENGINE_API static auto MakeRequest(FStaticMeshSource Source,
-			const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest;
+			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
 		ENGINE_API static auto Capture(const DStaticMesh& Mesh)
 			-> FStaticMeshReconciliationSnapshot;
 	};
+
+	// Accept source, slots, provenance and finalized render data as one asset transaction.
+	// Collision invalidation/admission belongs to this boundary, not render publication.
+	// Replace a finalized render projection of the current accepted geometry.
+	// Source and physics resources remain unchanged; geometry edits use CommitStaticMeshBuild.
+	ENGINE_API auto PublishStaticMeshRenderData(DStaticMesh& Mesh,
+		std::unique_ptr<FStaticMeshRenderData> Render) -> std::expected<void, FStaticMeshBuildFailure>;
+
+	ENGINE_API auto CommitStaticMeshBuild(DStaticMesh& Mesh,
+		std::unique_ptr<FStaticMeshRenderData> Render, FStaticMeshSource Source,
+		const FStaticMeshReconciliationSnapshot& Snapshot,
+		bool bMarkPackageDirty = true, const FAssetBuildTaskContext& Control = {},
+		DAssetImportData* PreparedImportData = nullptr,
+		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots = nullptr,
+		bool bPersistCollisionDerivedData = true) -> std::expected<void, FStaticMeshBuildFailure>;
 }
