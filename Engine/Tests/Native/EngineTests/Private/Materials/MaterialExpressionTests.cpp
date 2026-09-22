@@ -9,65 +9,6 @@
 #include "Asset/OfflinePreparation.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
-#include "DObject/DurinPropertyTypes.h"
-
-TEST(FMaterialExpressionTests, ReflectedInputTraversalPreservesAuthoredFingerprint)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	TStrongObjectPtr<DMaterialExpressionMultiply> Numeric(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
-	TStrongObjectPtr<DMaterialExpressionMakeSurface> Base(NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None));
-	TStrongObjectPtr<DMaterialExpressionSetSurfaceAttributes> Set(NewObject<DMaterialExpressionSetSurfaceAttributes>(nullptr, NAME_None));
-	TStrongObjectPtr<DMaterialExpressionMaterialOutput> Terminal(NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None));
-	Numeric->Id = {1, 2, 3, 1}; Base->Id = {1, 2, 3, 2}; Set->Id = {1, 2, 3, 3}; Terminal->Id = {1, 2, 3, 4};
-	Numeric->A.SetConstant({0.25f}); Numeric->B.SetConstant({0.75f});
-	Set->Surface = {Base->Id};
-	Set->Attributes = {{EMaterialSurfaceOutput::Roughness, {Numeric->Id}}, {EMaterialSurfaceOutput::Metallic, {}}};
-	Set->Attributes[0].Source.SetConstant({0.375f});
-	Set->Attributes[1].Source.SetConstant({0.625f});
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.bUseMaterialAttributes = true;
-	Outputs.Surface = {Set->Id};
-	const std::array<DMaterialExpression*, 4> Graph{Numeric.Get(), Base.Get(), Set.Get(), Terminal.Get()};
-	const auto Fingerprint = [&] {
-		FXxHash128 Hash;
-		EXPECT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Outputs, &Hash));
-		return Hash.ToString();
-	};
-	// Captured from the pre-iterator admission walk; guards hash scope and order.
-	EXPECT_EQ(Fingerprint(), "bf32178772d1e2571eb054d6cbe3c985");
-	Numeric->B.Constant[0] = 0.5f;
-	EXPECT_EQ(Fingerprint(), "8dbfd4f682d35772521deebdf0778145");
-	Set->Attributes[0].Source.UseConstant = false;
-	EXPECT_EQ(Fingerprint(), "59b6b0aa92601a5892bb46151a85f20d");
-	Terminal->Outputs.Roughness.SetConstant({0.875f});
-	EXPECT_EQ(Fingerprint(), "59b6b0aa92601a5892bb46151a85f20d");
-}
-
-TEST(FMaterialExpressionTests, ReflectedInputTraversalFailureDoesNotPublishFingerprint)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	TStrongObjectPtr<DMaterialExpressionSetSurfaceAttributes> Set(NewObject<DMaterialExpressionSetSurfaceAttributes>(nullptr, NAME_None));
-	Set->Id = {1, 2, 3, 1};
-	auto* Attributes = static_cast<FArrayProperty*>(Set->GetClass()->FindPropertyByName("Attributes"));
-	ASSERT_NE(Attributes, nullptr);
-	struct FRestoreInner
-	{
-		FArrayProperty* Array;
-		FProperty* Inner;
-		~FRestoreInner() { Array->SetInner(Inner); }
-	} Restore{Attributes, Attributes->GetInner()};
-	Attributes->SetInner(nullptr);
-	const std::array<DMaterialExpression*, 1> Graph{Set.Get()};
-	const FXxHash128 Original = FXxHash128::HashBuffer(std::string_view("preserved"));
-	FXxHash128 Fingerprint = Original;
-	const auto Result = MIR::FGraphBuilder::ValidateSurface(Graph, {}, &Fingerprint);
-	ASSERT_FALSE(Result);
-	ASSERT_FALSE(Result.Diagnostics.empty());
-	EXPECT_EQ(Result.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialExpressionError::AuthoredInputTraversalFailed));
-	EXPECT_EQ(Fingerprint, Original);
-}
 
 TEST(FMaterialExpressionTests, SnapshotFailureHasNoPayloadAndCanBeRetried)
 {

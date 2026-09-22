@@ -48,13 +48,6 @@ Canonical inactive storage is finite zero with an appropriate input width; it
 does not define the fallback. Authored fingerprints include the flag and retained
 components, while shader identity still uses the resolved compiler representation.
 
-Admission reads numeric input storage with `FPropertyValueIterator`, filtering
-for Struct properties. It hashes top-level numeric inputs first, then the numeric
-sources inside Surface attribute overrides in array order. Matched numeric inputs
-are treated as leaves. Terminal `Outputs` remain owned by surface finalization;
-admission must not recursively hash them a second time. Reflected traversal failure
-produces `AuthoredInputTraversalFailed` and prevents successful publication.
-
 Authored graph custom version 4 and terminal output version 3 are required.
 Older packages are rejected. The repository's two materials and three standard
 functions were converted with a temporary reader and canonical resave; no

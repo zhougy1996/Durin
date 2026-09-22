@@ -74,7 +74,6 @@ namespace Durin
 				case EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound: return "Expression inputs contain a cycle or exceed the traversal depth bound.";
 				case EMaterialExpressionError::BuildOutputNotRegistered: return "Expression Build did not register the requested output.";
 				case EMaterialExpressionError::BuildOutputAlreadyRegistered: return "Expression Build registered an output more than once.";
-				case EMaterialExpressionError::AuthoredInputTraversalFailed: return "Unable to read reflected material input values.";
 				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build registered an invalid IR index.";
 				case EMaterialExpressionError::InvalidTextureDefaultConsumer: return "A texture default may only be consumed by sampling or a function texture port.";
 				case EMaterialExpressionError::OpcodeResultWidthInputCountInvalid: return "Expression opcode, result width, or input count is invalid.";
