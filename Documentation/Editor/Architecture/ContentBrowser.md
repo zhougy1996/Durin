@@ -110,6 +110,15 @@ using their frame snapshots.
 
 ## Hidden Content
 
+Assets, folders, and ordinary source, configuration, and documentation files are
+visible by default. `.dbulk` files are internal package payloads and never appear
+as ordinary file rows, including orphan payloads and case variants of the
+extension. This presentation filter applies to browsing, recursive search, and
+the Files filter; enabling hidden files does not expose package internals.
+Physical snapshots and recursive mutation scope remain complete. No ownership
+is inferred from a shared filename stem, so ordinary source files remain visible.
+Redirectors remain opt-in through `Show redirectors` or the Redirectors filter.
+
 Any item beneath a path component whose name starts with `.` is hidden by
 default. The Content Browser settings menu provides an explicit `Show hidden
 files and folders` option. Hidden-content visibility is independent of whether

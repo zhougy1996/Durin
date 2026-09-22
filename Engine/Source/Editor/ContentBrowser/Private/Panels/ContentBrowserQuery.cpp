@@ -75,6 +75,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (size_t Index = 0; Index < Snapshot->Items.size(); ++Index)
 		{
 			const auto& Item = Snapshot->Items[Index];
+			// Package bulk payloads are internal even when their owner is missing.
+			// Filter the presentation, not the physical snapshot or operation scope.
+			if (Item.Kind == EContentBrowserItemKind::File
+				&& StringUtils::FoldAscii(std::filesystem::path(Item.PhysicalPath).extension().string()) == ".dbulk")
+				continue;
 			if (Item.Kind == EContentBrowserItemKind::Redirector
 				&& !Settings.bShowRedirectors
 				&& Settings.TypeFilter != EContentBrowserTypeFilter::Redirectors)

@@ -284,6 +284,36 @@ TEST_F(FContentBrowserModelTests, QueryKeepsStableTiesAndCopiesOnlySelectedComma
 	EXPECT_TRUE(ContentBrowserQuery::Project({}, "/content", Query).empty());
 }
 
+TEST_F(FContentBrowserModelTests, BulkPayloadVisibilityDoesNotDependOnOwnershipOrHiddenFileSettings)
+{
+	auto Snapshot = std::make_shared<FContentBrowserItemsSnapshot>();
+	Snapshot->Items = {
+		{.Kind = EContentBrowserItemKind::Asset, .Name = "Mesh", .PhysicalPath = "/content/Mesh.dasset"},
+		{.Name = "Mesh.dbulk", .PhysicalPath = "/content/Mesh.dbulk"},
+		{.Name = "Orphan.DBULK", .PhysicalPath = "/content/Orphan.DBULK"},
+		{.Name = "Mesh.fbx", .PhysicalPath = "/content/Mesh.fbx"},
+		{.Name = "settings.json", .PhysicalPath = "/content/settings.json"},
+		{.Name = "README.md", .PhysicalPath = "/content/README.md"},
+		{.Name = "Nested.dbulk", .PhysicalPath = "/content/sub/Nested.dbulk"},
+		{.Name = ".hidden.txt", .PhysicalPath = "/content/.hidden.txt"},
+		{.Kind = EContentBrowserItemKind::Folder, .Name = "folder.dbulk", .PhysicalPath = "/content/folder.dbulk"}};
+	FContentBrowserQuerySettings Query;
+	EXPECT_EQ(ContentBrowserQuery::Project(Snapshot, "/content", Query).size(), 5);
+	Query.TypeFilter = EContentBrowserTypeFilter::Files;
+	EXPECT_EQ(ContentBrowserQuery::Project(Snapshot, "/content", Query).size(), 4);
+	Query.bShowHiddenFiles = true;
+	EXPECT_EQ(ContentBrowserQuery::Project(Snapshot, "/content", Query).size(), 5);
+	Query.Search = "Nested.dbulk";
+	EXPECT_TRUE(ContentBrowserQuery::Project(Snapshot, "/content", Query).empty());
+	Query.Search = "Orphan";
+	EXPECT_TRUE(ContentBrowserQuery::Project(Snapshot, "/content", Query).empty());
+	Query.Search = "Mesh";
+	const auto Files = ContentBrowserQuery::Project(Snapshot, "/content", Query);
+	ASSERT_EQ(Files.size(), 1);
+	EXPECT_EQ(Files.front().Name, "Mesh.fbx");
+	EXPECT_EQ(Snapshot->Items.size(), 9);
+}
+
 TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPublishedSnapshot)
 {
 	FContentBrowserModel Model;
@@ -665,6 +695,8 @@ TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackag
 		RawSource << "raw";
 		std::ofstream AssetPackage(Root / "Content/Raw.dasset");
 		AssetPackage << "package";
+		std::ofstream(Root / "Content/Raw.dbulk") << "bulk";
+		std::ofstream(Root / "Content/Orphan.DBULK") << "orphan";
 	}
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
@@ -675,7 +707,9 @@ TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackag
 	EXPECT_EQ(File->FileSize, 3);
 	EXPECT_TRUE(std::ranges::none_of(
 		Model.GetItems(),
-		[](const FContentBrowserItem& Item) { return Item.Name == "Raw.dasset"; }));
+		[](const FContentBrowserItem& Item) {
+			return Item.Name == "Raw.dasset" || Item.Name == "Raw.dbulk" || Item.Name == "Orphan.DBULK";
+		}));
 }
 
 TEST_F(FContentBrowserModelTests, SkipsFailedSnapshotEntryAndKeepsLaterEntries)
