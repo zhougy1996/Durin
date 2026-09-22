@@ -106,7 +106,7 @@ namespace Durin
 	};
 	enum class ERDGLimit : uint8
 	{
-		Passes, Resources, Uses, Dependencies, RangeCells, RangeCellCandidates, CellVisits, TextureTransitions, BufferTransitions, AllocationBytes
+		Passes, Resources, Uses, Dependencies, RangeCells, RangeCellCandidates, CellVisits, TextureTransitions, BufferTransitions, AllocationBytes, UploadPayloadBytes
 	};
 	struct FRDGResourceContractContext
 	{

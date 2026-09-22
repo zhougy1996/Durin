@@ -269,6 +269,14 @@ namespace Durin
 				ObservedBufferOffset = Offset;
 				ObservedBufferData.assign(Data.begin(), Data.end());
 			}
+			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+				Durin::FByteView Data) -> void override
+			{
+				Operations.emplace_back("UploadBuffer");
+				ObservedBuffer = Buffer;
+				ObservedBufferOffset = Offset;
+				ObservedBufferData.assign(Data.begin(), Data.end());
+			}
 			auto RHIInitializeTexture(FRHITexture*) -> void override
 			{
 				Operations.emplace_back("InitializeTexture");
@@ -2175,6 +2183,26 @@ namespace Durin
 		std::fill(Source.begin(), Source.end(), std::byte{9});
 		Executor.Submit({&Commands}, ERHISubmitFlags::None);
 
+		EXPECT_EQ(Context.ObservedBuffer, Buffer.GetReference());
+		EXPECT_EQ(Context.ObservedBufferOffset, 5u);
+		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));
+	}
+
+	TEST(FRHICommandListTests, GraphBufferUploadsOwnSourceBytesUntilReplay)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(16);
+		std::array<std::byte, 4> Source{
+			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+
+		FRHICommandList Commands;
+		Commands.UploadBuffer(Buffer.GetReference(), 5, Source);
+		Commands.FinishRecording();
+		std::fill(Source.begin(), Source.end(), std::byte{9});
+		Executor.Submit({&Commands}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations.back(), "UploadBuffer");
 		EXPECT_EQ(Context.ObservedBuffer, Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedBufferOffset, 5u);
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));

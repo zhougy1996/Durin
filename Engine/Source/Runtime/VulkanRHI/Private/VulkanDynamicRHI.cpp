@@ -249,11 +249,20 @@ namespace Durin::VulkanRHI
 		const uint32 FrameIndex = static_cast<uint32>(
 			Args.FrameNumber % FrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();
-		Device->PollQueues();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.PollQueues");
+			Device->PollQueues();
+		}
 		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
-		Frame.Prepare();
-		Device->GetGlobalDescriptorPool().PrepareForUse();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.FrameSlotWait");
+			Frame.Prepare();
+		}
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.DescriptorPreparation");
+			Device->GetGlobalDescriptorPool().PrepareForUse();
+		}
 		Device->GetImmediateContext()->RHIBeginFrame(Args);
 		if (auto* Compute = Device->GetQueueContext(Device->GetComputeQueue()->GetId()); Compute && Compute != Device->GetImmediateContext())
 			Compute->RHIBeginFrame(Args);
@@ -289,9 +298,12 @@ namespace Durin::VulkanRHI
 			GCommandListExecutor.ExecuteSynchronousOperation(true,
 				[&Allocator]() { Allocator.PrepareForProducer(); });
 		}
-		Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
-			static_cast<uint32>(
-				GCommandListExecutor.GetFrameNumber() % FrameInFlight));
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.StorageProducerReset");
+			Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
+				static_cast<uint32>(
+					GCommandListExecutor.GetFrameNumber() % FrameInFlight));
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
@@ -451,10 +463,13 @@ namespace Durin::VulkanRHI
 			return Result;
 		}
 
-		GCommandListExecutor.ExecuteSynchronousOperation(true,
-			[&Allocator, Size]() {
-				Allocator.ReservePage(Size);
-			});
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.UniformBuffer.OverflowReserveSync");
+			GCommandListExecutor.ExecuteSynchronousOperation(true,
+				[&Allocator, Size]() {
+					Allocator.ReservePage(Size);
+				});
+		}
 		requiref(Allocator.TryAllocate(Data, Size, Result),
 			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
 		return Result;
@@ -474,8 +489,11 @@ namespace Durin::VulkanRHI
 		auto& Allocator = Device->GetDynamicStorageBufferAllocator();
 		FRHIStorageBufferRange Result;
 		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return Result;
-		GCommandListExecutor.ExecuteSynchronousOperation(true,
-			[&Allocator, FrameIndex, Size]() { Allocator.ReservePage(FrameIndex, Size); });
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.StorageBuffer.OverflowReserveSync");
+			GCommandListExecutor.ExecuteSynchronousOperation(true,
+				[&Allocator, FrameIndex, Size]() { Allocator.ReservePage(FrameIndex, Size); });
+		}
 		if (!Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return {};
 		return Result;
 	}

@@ -18,6 +18,7 @@ namespace Durin
 		std::vector<FRDGCompileError> DeclarationErrors;
 		bool bEnableCulling = false;
 		FRDGBudget Budget;
+		uint64 QueuedUploadBytes = 0;
 		ERDGBuilderState Lifecycle = ERDGBuilderState::Building;
 		std::optional<FRDGExecutionResult> ExecutionResult;
 		std::vector<FRHIGPUSyncPointRef> SubmissionSyncPoints;

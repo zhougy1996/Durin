@@ -102,7 +102,7 @@ namespace Durin
 		}
 
 		// Captures backend payloads after RDG scratch storage and graph storage expire.
-		class FBarrierRecordingContext final : public IRHICommandContext
+		class FBarrierRecordingContext : public IRHICommandContext
 		{
 		public:
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo&, FName) -> void override
@@ -151,6 +151,8 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHICopyTexture"; }
 			auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIWriteBuffer"; }
+			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override
+			{ ADD_FAILURE() << "Unexpected backend operation: RHIUploadBuffer"; }
 			auto RHIInitializeTexture(FRHITexture* Texture) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIInitializeTexture"; }
 			auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void override
@@ -175,6 +177,24 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIDraw"; }
 			auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIDrawIndexed"; }
+		};
+
+		class FUploadRecordingContext final : public FBarrierRecordingContext
+		{
+		public:
+			struct FUpload
+			{
+				FRHIBuffer* Buffer = nullptr;
+				uint32 Offset = 0;
+				FByteBuffer Data;
+			};
+			std::vector<FUpload> Uploads;
+			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+				FByteView Data) -> void override
+			{
+				Uploads.push_back({Buffer, Offset,
+					FByteBuffer(Data.begin(), Data.end())});
+			}
 		};
 
 		class FRDGTests : public testing::Test
@@ -1019,6 +1039,103 @@ namespace Durin
 		EXPECT_TRUE(Builder.Capture().bCompiled);
 		EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 		EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
+	}
+
+	TEST_F(FRDGTests, QueuedBufferUploadsCopySourcesAndDeclareExactRanges)
+	{
+		FUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		FRDGBuilder Builder;
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			16, 4, EBufferUsageFlags::DestinationCopy
+				| EBufferUsageFlags::UnorderedAccess)}, "UploadTarget");
+		std::array<std::byte, 4> Source{
+			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+		Builder.QueueBufferUpload(Buffer, 0, Source);
+		Builder.QueueBufferUploadOwned(Buffer, 8,
+			FByteBuffer{std::byte{5}, std::byte{6}});
+		std::fill(Source.begin(), Source.end(), std::byte{9});
+
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.Uploads.size(), 2u);
+		EXPECT_EQ(Context.Uploads[0].Offset, 0u);
+		EXPECT_EQ(Context.Uploads[0].Data,
+			(FByteBuffer{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}}));
+		EXPECT_EQ(Context.Uploads[1].Offset, 8u);
+		EXPECT_EQ(Context.Uploads[1].Data,
+			(FByteBuffer{std::byte{5}, std::byte{6}}));
+		ASSERT_FALSE(Context.BufferBatches.empty());
+		EXPECT_EQ(Context.BufferBatches.front().front().RequiredAfter,
+			ERHIAccess::TransferWrite);
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_EQ(Capture.Uses[0].BufferOffset, 0u);
+		EXPECT_EQ(Capture.Uses[0].BufferSize, 4u);
+		EXPECT_EQ(Capture.Uses[1].BufferOffset, 8u);
+		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
+	}
+
+	TEST_F(FRDGTests, QueuedBufferUploadRejectsOutOfRangeData)
+	{
+		FRDGBuilder Builder;
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			16, 4, EBufferUsageFlags::DestinationCopy)}, "UploadTarget");
+		const std::array Data{std::byte{1}, std::byte{2}};
+		Builder.QueueBufferUpload(Buffer, 15, Data);
+		const auto Result = Builder.Execute(GetCommandList());
+		ASSERT_FALSE(Result.has_value());
+		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGUseError::BufferRangeInvalid));
+		FRDGBuilder EmptyBuilder;
+		const auto EmptyBuffer = EmptyBuilder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			16, 4, EBufferUsageFlags::DestinationCopy)}, "EmptyTarget");
+		EmptyBuilder.QueueBufferUpload(EmptyBuffer, 0, {});
+		const auto EmptyResult = EmptyBuilder.Execute(GetCommandList());
+		ASSERT_FALSE(EmptyResult.has_value());
+		EXPECT_TRUE(HasRDGTestReason(EmptyResult.error(),
+			ERDGUseError::BufferRangeInvalid));
+	}
+
+	TEST_F(FRDGTests, QueuedBufferUploadRejectsOversizeSourceBeforeRecording)
+	{
+		constexpr size_t Size = 16 * 1024 * 1024 + 1;
+		FRDGBuilder Builder;
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			static_cast<uint32>(Size), 1, EBufferUsageFlags::DestinationCopy)},
+			"UploadTarget");
+		const FByteBuffer Source(Size);
+		Builder.QueueBufferUpload(Buffer, 0, Source);
+		const auto Result = Builder.Execute(GetCommandList());
+		ASSERT_FALSE(Result.has_value());
+		const auto* Error = FindRDGTestDetail<FRDGLimitError>(Result.error());
+		ASSERT_NE(Error, nullptr);
+		EXPECT_EQ(Error->Dimension, ERDGLimit::UploadPayloadBytes);
+	}
+
+	TEST_F(FRDGTests, StructuredBufferHelperCopiesAndUploadsInitialContents)
+	{
+		FUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		FRDGBuilder Builder;
+		std::array<std::byte, 8> Source{
+			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+			std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
+		Builder.CreateStructuredBuffer("Elements", 4, Source);
+		std::fill(Source.begin(), Source.end(), std::byte{0});
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.Uploads.size(), 1u);
+		EXPECT_EQ(Context.Uploads[0].Data,
+			(FByteBuffer{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+				std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}}));
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Resources.size(), 1u);
+		EXPECT_EQ(Capture.Resources[0].BufferSize, 8u);
+		EXPECT_EQ(Capture.Resources[0].BufferStride, 4u);
 	}
 
 	TEST_F(FRDGTests, FinalizedDeclarationsRejectLateMutation)

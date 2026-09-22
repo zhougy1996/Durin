@@ -212,6 +212,18 @@ never discard the whole resource; buffer barriers cover the complete allocation.
 
 `FRDGBuilder::Execute` records each pre-pass batch, invokes the pass
 callback with a pass-scoped resource view, and then records final batches.
+`QueueBufferUpload` copies a byte span; `QueueBufferUploadOwned` moves a byte
+buffer. Each creates a Copy recording pass with an exact `TransferWrite` byte
+use and an RHI `UploadBuffer` command. The destination must declare
+`DestinationCopy`. A single upload owns at most 16 MiB and a builder admits at
+most 32 MiB of queued CPU payload capacity. Invalid ranges, missing copy usage,
+or excess payload fail compilation before any upload command is recorded.
+`CreateStructuredBuffer` and `CreateStructuredBufferOwned` create a buffer
+with structured, shader-resource, and copy-destination usage, then queue its
+complete initial contents through the same path. Their byte size must be a
+nonzero multiple of the element stride.
+The graph retains source bytes through recording while the RHI command takes
+its own copy. Graph destruction or cancellation releases callback-owned bytes.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
 same frozen typed parameters/resolver. Its callback must close every render pass,
 diagnostic region and timing query; the graph seals and queues the list only after

@@ -96,6 +96,11 @@ packed CPU bytes before returning the range. These paths do not introduce a
 whole-device idle wait or a second layout tracker. Arena ownership, bounds, and
 reuse are defined by [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 
+The graph-specific `UploadBuffer` uses the same owned source and staging path,
+but leaves the written destination range in `TransferWrite`. RDG supplies the
+next transition from its declared use. Mapped destinations transition from
+`HostWrite`; device-local destinations copy from a retired staging range.
+
 Legacy static-buffer uploads, shader-resource or storage texture uploads, and
 CPU-readback textures receive compatibility copy usage during Vulkan creation.
 New callers should still declare `SourceCopy` and `DestinationCopy` explicitly

@@ -5,6 +5,7 @@
 #include "RHIContext.h"
 #include "RHIThread.h"
 #include "Threading/RunnableThread.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -1115,8 +1116,9 @@ namespace Durin
 				FRHIBuffer* InBuffer,
 				uint32 InOffset,
 				const void* InData,
-				uint32 InSize)
-				: Buffer(InBuffer), Offset(InOffset), Data(InSize)
+				uint32 InSize,
+				bool bInGraphUpload = false)
+				: Buffer(InBuffer), Offset(InOffset), Data(InSize), bGraphUpload(bInGraphUpload)
 			{
 				check(Buffer && InData && InSize != 0);
 				check(Offset <= Buffer->GetSize() && InSize <= Buffer->GetSize() - Offset);
@@ -1128,9 +1130,10 @@ namespace Durin
 
 			auto Execute(void* ReplayContext) -> void
 			{
-				GetReplayContext(ReplayContext)
-					.GetOperationContext("WriteBuffer")
-					.RHIWriteBuffer(Buffer.GetReference(), Offset, Data);
+				auto& Context = GetReplayContext(ReplayContext)
+					.GetOperationContext(bGraphUpload ? "UploadBuffer" : "WriteBuffer");
+				if (bGraphUpload) Context.RHIUploadBuffer(Buffer.GetReference(), Offset, Data);
+				else Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data);
 			}
 
 			auto GetOwnedPayloadBytes() const -> size_t
@@ -1141,6 +1144,7 @@ namespace Durin
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
 			FByteBuffer Data;
+			bool bGraphUpload;
 		};
 
 		struct FTextureReadbackCommand
@@ -2172,6 +2176,14 @@ namespace Durin
 		RecordCommand<FWriteBufferCommand>(Buffer, OffsetBytes, Data, Size);
 	}
 
+	auto FRHICommandListBase::UploadBuffer(
+		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
+	{
+		check(Data.size() <= UINT32_MAX);
+		RecordCommand<FWriteBufferCommand>(Buffer, Offset, Data.data(),
+			static_cast<uint32>(Data.size()), true);
+	}
+
 	auto FRHICommandListBase::UpdateUniformBuffer(
 		FRHIBuffer* UniformBuffer,
 		const void* Data,
@@ -2672,6 +2684,7 @@ namespace Durin
 			const auto ReplayStart = std::chrono::steady_clock::now();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::BeginFrame))
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.BeginFrame.Replay");
 				const FRHIBeginFrameArgs BeginFrameArgs{
 					.FrameNumber = State->FrameNumber.load(std::memory_order_acquire)
 				};

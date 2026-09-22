@@ -45,6 +45,19 @@ namespace Durin
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGBufferHandle;
+		// Declares an exact TransferWrite range and owns the bytes until recording.
+		RENDERCORE_API auto QueueBufferUpload(FRDGBufferHandle Buffer,
+			uint32 Offset, FByteView Data) -> FRDGPassHandle;
+		RENDERCORE_API auto QueueBufferUploadOwned(FRDGBufferHandle Buffer,
+			uint32 Offset, FByteBuffer Data) -> FRDGPassHandle;
+		RENDERCORE_API auto CreateStructuredBuffer(std::string_view Name,
+			uint32 Stride, FByteView Data,
+			EBufferUsageFlags AdditionalUsage = EBufferUsageFlags::None)
+			-> FRDGBufferHandle;
+		RENDERCORE_API auto CreateStructuredBufferOwned(std::string_view Name,
+			uint32 Stride, FByteBuffer Data,
+			EBufferUsageFlags AdditionalUsage = EBufferUsageFlags::None)
+			-> FRDGBufferHandle;
 		RENDERCORE_API auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
 		// Exports the complete resource through a terminal consumer. Every subresource
 		// must have valid stored contents; Destination is published only after success.

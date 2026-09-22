@@ -2998,6 +2998,11 @@ namespace Durin::VulkanRHI
 		bool bMainPresentRecorded = false;
 		RenderAndPresent(Viewport, bMainPresentRecorded);
 		EXPECT_TRUE(bMainPresentRecorded);
+		// The render-thread flush only records the present. Submit it before a
+		// direct RHI-thread swapchain recreation can replace its image owners.
+		FRHICommandListImmediate::Get().ImmediateFlush(
+			EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::SubmitToGPU);
 		for (uint32 Generation = 0; Generation < 5; ++Generation)
 		{
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [VulkanViewport]() {
@@ -3065,6 +3070,9 @@ namespace Durin::VulkanRHI
 		bool bDetachedPresentRecorded = false;
 		RenderAndPresent(DetachedViewport, bDetachedPresentRecorded);
 		EXPECT_TRUE(bDetachedPresentRecorded);
+		FRHICommandListImmediate::Get().ImmediateFlush(
+			EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::SubmitToGPU);
 		DetachedViewport = nullptr;
 
 		Viewport = nullptr;

@@ -873,6 +873,56 @@ namespace Durin
 		EXPECT_NE(ExplicitFirst.GetReference(), ExplicitSecond.GetReference());
 	}
 
+	TEST(FVulkanTextureSamplingTests, GraphBufferUploadLeavesTransferWriteInlineAndThreaded)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* InMode) { _putenv_s("DURIN_RHI_EXECUTION", InMode); }
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext())) << Mode;
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
+				FRHIBufferCreateDesc::Create("GraphUpload", 16, 4,
+					EBufferUsageFlags::DestinationCopy | EBufferUsageFlags::SourceCopy));
+			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("GraphUploadReadback", 2, 2,
+					EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::DestinationCopy
+						| ETextureCreateFlags::CPUReadback
+						| ETextureCreateFlags::ShaderResource));
+			ASSERT_TRUE(Buffer && Texture) << Mode;
+			std::array<uint8, 16> Source{};
+			for (uint32 Index = 0; Index < Source.size(); ++Index)
+				Source[Index] = static_cast<uint8>(Index + 1);
+			Commands.UploadBuffer(Buffer.GetReference(), 0,
+				std::as_bytes(std::span{Source}));
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+				Buffer, 0, 16, ERHIAccess::TransferWrite,
+				ERHIAccess::TransferRead}});
+			const FRHITextureSubresourceRange WholeColor{
+				ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				Texture, WholeColor, ERHIAccess::Discard,
+				ERHIAccess::TransferWrite}});
+			Commands.CopyBufferToTexture(Buffer, Texture,
+				std::array{FRHIBufferTextureCopyRegion{.TextureExtent = {2, 2, 1}}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				Texture, WholeColor, ERHIAccess::TransferWrite,
+				ERHIAccess::GraphicsShaderRead}});
+			FByteBuffer Actual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual)) << Mode;
+			EXPECT_EQ(Actual, (FByteBuffer(std::as_bytes(std::span{Source}).begin(),
+				std::as_bytes(std::span{Source}).end()))) << Mode;
+		}
+	}
+
 	TEST(FVulkanTextureSamplingTests, PublicCopyMatrixPreservesExactBytesInlineAndThreaded)
 	{
 		for (const char* Mode : {"inline", "threaded"})

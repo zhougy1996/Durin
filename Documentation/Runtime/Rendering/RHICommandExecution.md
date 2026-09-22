@@ -176,7 +176,10 @@ Immediate flush behavior is explicit:
 - `FlushRHIThreadFlushResources` also performs ordered deferred deletion after
   preceding batch references have been released.
 
-Buffer and texture uploads are recorded and own their source bytes. Operations
+Buffer and texture uploads are recorded and own their source bytes.
+`UploadBuffer` records an owned byte snapshot like `WriteBuffer`, but leaves
+the written range in `TransferWrite` for a graph-managed next barrier.
+`WriteBuffer` keeps its canonical-access restoration contract. Operations
 that must return a completed result—buffer lock scopes, texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.

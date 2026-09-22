@@ -4,6 +4,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanQueue.h"
 #include "VulkanRHIPrivate.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -293,6 +294,7 @@ namespace Durin::VulkanRHI
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
 		const vk::ResultValue<uint32> Result = [&] {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.AcquireImage");
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			if (ConsumeVulkanSwapchainAcquireTimeoutForTest())
 				return vk::ResultValue<uint32>{vk::Result::eTimeout, 0};
@@ -372,6 +374,7 @@ namespace Durin::VulkanRHI
 		vk::Result Result = vk::Result::eSuccess;
 		try
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.PresentImage");
 			Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
 		}
 		catch (const vk::SystemError& Error)

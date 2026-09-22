@@ -162,6 +162,28 @@ namespace Durin::RDGPrivate
 namespace Durin
 {
 	using namespace RDGPrivate;
+	namespace
+	{
+		struct FBufferUploadParameters final
+		{
+			FRDGBufferParameter Buffer;
+
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRDGResourceParameterMemberMetadata<FBufferUploadParameters,
+						decltype(Buffer), FRDGBufferParameter>("Buffer",
+							offsetof(FBufferUploadParameters, Buffer),
+							ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes, ERDGUse::Write,
+							ERHIAccess::TransferWrite, true)};
+				static const auto Metadata =
+					MakeInlineRDGParametersMetadata<FBufferUploadParameters>(
+						"FBufferUploadParameters", Members);
+				return &Metadata;
+			}
+		};
+	}
 
 	FRDGBuilder::FRDGBuilder()
 		: Compiled(std::make_unique<FCompiledState>()), State(std::make_unique<FState>())
@@ -415,6 +437,124 @@ namespace Durin
 		Resource.FinalAccess = FinalAccess;
 		State->Resources.push_back(std::move(Resource));
 		return {State->Owner, Index};
+	}
+
+	auto FRDGBuilder::QueueBufferUpload(FRDGBufferHandle Buffer,
+		uint32 Offset, FByteView Data) -> FRDGPassHandle
+	{
+		RequireBuilding();
+		if (Data.empty())
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::BufferRangeInvalid});
+			return {};
+		}
+		constexpr uint64 MaxSingleUploadBytes = 16ull * 1024 * 1024;
+		if (Data.size() > MaxSingleUploadBytes)
+		{
+			State->DeclarationErrors.push_back(FRDGLimitError{
+				ERDGLimit::UploadPayloadBytes, Data.size(), MaxSingleUploadBytes});
+			return {};
+		}
+		return QueueBufferUploadOwned(Buffer, Offset,
+			FByteBuffer(Data.begin(), Data.end()));
+	}
+
+	auto FRDGBuilder::QueueBufferUploadOwned(FRDGBufferHandle Buffer,
+		uint32 Offset, FByteBuffer Data) -> FRDGPassHandle
+	{
+		RequireBuilding();
+		if (Buffer.Owner != State->Owner || Buffer.Index >= State->Resources.size()
+			|| State->Resources[Buffer.Index].Kind != ERDGResourceKind::Buffer)
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::ResourceHandleInvalid});
+			return {};
+		}
+		const auto& Desc = State->Resources[Buffer.Index].BufferDesc;
+		if (Data.empty() || Data.size() > UINT32_MAX
+			|| Offset > Desc.Size || Data.size() > Desc.Size - Offset)
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::BufferRangeInvalid,
+				FRDGUseErrorContext{.ResourceIndex = Buffer.Index,
+					.BufferOffset = Offset, .BufferSize = Data.size(),
+					.BufferCapacity = Desc.Size}});
+			return {};
+		}
+		if (!EnumHasAllFlags(Desc.Usage, EBufferUsageFlags::DestinationCopy))
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::RequiredAccessInvalid});
+			return {};
+		}
+		constexpr uint64 MaxSingleUploadBytes = 16ull * 1024 * 1024;
+		constexpr uint64 MaxQueuedUploadBytes = 32ull * 1024 * 1024;
+		const uint64 OwnedBytes = Data.capacity();
+		if (OwnedBytes > MaxSingleUploadBytes
+			|| OwnedBytes > MaxQueuedUploadBytes - State->QueuedUploadBytes)
+		{
+			State->DeclarationErrors.push_back(FRDGLimitError{
+				ERDGLimit::UploadPayloadBytes,
+				State->QueuedUploadBytes + OwnedBytes,
+				MaxQueuedUploadBytes});
+			return {};
+		}
+		State->QueuedUploadBytes += OwnedBytes;
+		auto Parameters = AllocParameters<FBufferUploadParameters>();
+		Parameters->Buffer = {Buffer, Offset, Data.size()};
+		const std::string Name = "BufferUpload_" + std::to_string(State->Passes.size());
+		return AddRecordingPass(Name, ERDGPassType::Copy,
+			std::move(Parameters),
+			[Data = std::move(Data)](FRHICommandList& Commands,
+				const FBufferUploadParameters& Params,
+				const FRDGParameterResolver& Resolver) {
+				Commands.UploadBuffer(Resolver.GetBuffer(Params.Buffer),
+					static_cast<uint32>(Params.Buffer.Offset), Data);
+			});
+	}
+
+	auto FRDGBuilder::CreateStructuredBuffer(std::string_view Name,
+		uint32 Stride, FByteView Data,
+		EBufferUsageFlags AdditionalUsage) -> FRDGBufferHandle
+	{
+		RequireBuilding();
+		if (Stride == 0 || Data.empty() || Data.size() % Stride != 0)
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::BufferRangeInvalid});
+			return {};
+		}
+		constexpr uint64 MaxSingleUploadBytes = 16ull * 1024 * 1024;
+		if (Data.size() > MaxSingleUploadBytes)
+		{
+			State->DeclarationErrors.push_back(FRDGLimitError{
+				ERDGLimit::UploadPayloadBytes, Data.size(), MaxSingleUploadBytes});
+			return {};
+		}
+		return CreateStructuredBufferOwned(Name, Stride,
+			FByteBuffer(Data.begin(), Data.end()), AdditionalUsage);
+	}
+
+	auto FRDGBuilder::CreateStructuredBufferOwned(std::string_view Name,
+		uint32 Stride, FByteBuffer Data,
+		EBufferUsageFlags AdditionalUsage) -> FRDGBufferHandle
+	{
+		RequireBuilding();
+		if (Stride == 0 || Data.empty() || Data.size() > UINT32_MAX
+			|| Data.size() % Stride != 0)
+		{
+			State->DeclarationErrors.push_back(FRDGUseError{
+				ERDGUseError::BufferRangeInvalid});
+			return {};
+		}
+		const FRDGBufferHandle Buffer = CreateBuffer({.Buffer = FRHIBufferDesc(
+			static_cast<uint32>(Data.size()), Stride,
+			EBufferUsageFlags::StructuredBuffer
+				| EBufferUsageFlags::ShaderResource
+				| EBufferUsageFlags::DestinationCopy | AdditionalUsage)}, Name);
+		QueueBufferUploadOwned(Buffer, 0, std::move(Data));
+		return Buffer;
 	}
 
 	auto FRDGBuilder::CreateToken(std::string_view Name)

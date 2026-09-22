@@ -18,6 +18,7 @@ namespace Durin
 			case ERDGLimit::TextureTransitions: return "texture-transitions";
 			case ERDGLimit::BufferTransitions: return "buffer-transitions";
 			case ERDGLimit::AllocationBytes: return "allocation-bytes";
+			case ERDGLimit::UploadPayloadBytes: return "upload-payload-bytes";
 			}
 			return "unknown-limit";
 		}

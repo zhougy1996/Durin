@@ -132,6 +132,7 @@ namespace Durin
 		RHI_API auto SetDepthBias(float ConstantFactor, float Clamp,
 			float SlopeFactor) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
+		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;

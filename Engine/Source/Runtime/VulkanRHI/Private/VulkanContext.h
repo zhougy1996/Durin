@@ -83,6 +83,7 @@ namespace Durin::VulkanRHI
 			std::span<const FRHITextureCopyRegion> Regions) -> void override;
 
 		auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override;
+		auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override;
 
 		auto RHIInitializeTexture(FRHITexture* Texture) -> void override;
 

@@ -103,6 +103,23 @@ namespace Durin::VulkanRHI
 		uint32 Offset,
 		FByteView Data) -> void
 	{
+		WriteImpl(Context, Offset, Data, true);
+	}
+
+	auto FVulkanBuffer::Upload(
+		FVulkanCommandListContext& Context,
+		uint32 Offset,
+		FByteView Data) -> void
+	{
+		WriteImpl(Context, Offset, Data, false);
+	}
+
+	auto FVulkanBuffer::WriteImpl(
+		FVulkanCommandListContext& Context,
+		uint32 Offset,
+		FByteView Data,
+		bool bRestoreCanonicalAccess) -> void
+	{
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
@@ -110,7 +127,8 @@ namespace Durin::VulkanRHI
 			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());
 			FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
 			StateTracker.Apply(Offset, Data.size(), ERHIAccess::HostWrite);
-			const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
+			const ERHIAccess FinalAccess = bRestoreCanonicalAccess
+				? GetCanonicalBufferAccess(GetUsage()) : ERHIAccess::TransferWrite;
 			if (FinalAccess != ERHIAccess::None)
 			{
 				const std::array Transition{FRHIBufferTransition{
@@ -141,8 +159,9 @@ namespace Durin::VulkanRHI
 			Staging.GetOffset(), Offset, Data.size()}};
 		Context.RHICopyBuffer(StagingBuffer, this, CopyRegions);
 
-		const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
-		if (FinalAccess != ERHIAccess::None)
+		const ERHIAccess FinalAccess = bRestoreCanonicalAccess
+			? GetCanonicalBufferAccess(GetUsage()) : ERHIAccess::TransferWrite;
+		if (bRestoreCanonicalAccess && FinalAccess != ERHIAccess::None)
 		{
 			const std::array PostCopyTransition{FRHIBufferTransition{
 				this, Offset, Data.size(), ERHIAccess::TransferWrite, FinalAccess}};
