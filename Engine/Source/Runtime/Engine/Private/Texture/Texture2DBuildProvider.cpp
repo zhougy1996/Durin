@@ -25,10 +25,6 @@ namespace Durin
 		case ETexture2DBuildError::ProviderFailed: return "The Texture2D build provider failed without a diagnostic.";
 		case ETexture2DBuildError::UnsupportedTarget: return "Texture2D build target is unsupported.";
 		case ETexture2DBuildError::CompressedLayoutOverflow: return "Compressed texture mip layout exceeds supported limits.";
-		case ETexture2DBuildError::InvalidCompressionQuality: return "Texture compression quality is invalid.";
-		case ETexture2DBuildError::InvalidUsage: return "Texture usage preset is invalid.";
-		case ETexture2DBuildError::InvalidAlphaMipMode: return "Texture alpha mip mode is invalid.";
-		case ETexture2DBuildError::InvalidAlphaCoverageThreshold: return "Texture alpha coverage threshold must be greater than zero and less than one.";
 		case ETexture2DBuildError::UnsupportedPixelFormat: return "Selected pixel format is not supported by the current RHI backend.";
 		case ETexture2DBuildError::InvalidMipLayout: return "Generated texture mip layout is invalid.";
 		case ETexture2DBuildError::InvalidPlatformData: return "Failed to build texture platform data.";

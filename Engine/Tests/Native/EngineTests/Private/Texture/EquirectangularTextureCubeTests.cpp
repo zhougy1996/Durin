@@ -155,38 +155,32 @@ namespace Durin::TextureCubeBuilder
 	{
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		uint32 FaceDimension = 99;
-		std::string Error;
 		const auto ZeroDimensions = ValidateEquirectangularTextureCubeProjection(0, 0, Settings, false, FaceDimension);
-		Error = ZeroDimensions ? std::string{} : ZeroDimensions.error().Diagnostic;
-		ASSERT_FALSE(ZeroDimensions) << Error;
+		ASSERT_FALSE(ZeroDimensions);
 		EXPECT_EQ(ZeroDimensions.error().Code, ETextureBuildFailure::InvalidInput);
 		EXPECT_EQ(ZeroDimensions.error().Stage, ETextureBuildStage::Normalize);
 		EXPECT_EQ(FaceDimension, 0u);
-		EXPECT_NE(Error.find("nonzero"), std::string::npos);
+		EXPECT_EQ(ZeroDimensions.error().CubeInputCause, ETextureCubeInputError::EmptyDimensions);
 		const auto AspectRatio = ValidateEquirectangularTextureCubeProjection(8, 3, Settings, false, FaceDimension);
-		Error = AspectRatio ? std::string{} : AspectRatio.error().Diagnostic;
-		EXPECT_FALSE(AspectRatio) << Error;
-		EXPECT_NE(Error.find("2:1"), std::string::npos);
+		ASSERT_FALSE(AspectRatio);
+		EXPECT_EQ(AspectRatio.error().CubeInputCause, ETextureCubeInputError::AspectRatio);
 		const auto OverBudget = ValidateEquirectangularTextureCubeProjection(16384, 8192, Settings, false, FaceDimension);
-		Error = OverBudget ? std::string{} : OverBudget.error().Diagnostic;
-		EXPECT_FALSE(OverBudget) << Error;
-		EXPECT_NE(Error.find("33554432"), std::string::npos);
+		ASSERT_FALSE(OverBudget);
+		EXPECT_EQ(OverBudget.error().CubeInputCause, ETextureCubeInputError::PixelLimit);
 
 		Settings.FaceDimension = MaximumProjectedCubeFaceDimension + 1;
 		const auto OversizedFace = ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension);
-		Error = OversizedFace ? std::string{} : OversizedFace.error().Diagnostic;
-		EXPECT_FALSE(OversizedFace) << Error;
-		EXPECT_NE(Error.find("4096"), std::string::npos);
+		ASSERT_FALSE(OversizedFace);
+		EXPECT_EQ(OversizedFace.error().CubeInputCause, ETextureCubeInputError::FaceDimensionLimit);
 
 		FTexturePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
 		FTextureCubeDecodedFaces Cube;
 		const auto InvalidLDR = ProjectEquirectangularTextureCube(LDR, {}, Cube);
-		Error = InvalidLDR ? std::string{} : InvalidLDR.error().Diagnostic;
-		EXPECT_FALSE(InvalidLDR) << Error;
+		ASSERT_FALSE(InvalidLDR);
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
-		EXPECT_NE(Error.find("storage"), std::string::npos);
+		EXPECT_EQ(InvalidLDR.error().CubeInputCause, ETextureCubeInputError::PixelStorage);
 
 		FTexturePanoramaFloatImage HDR;
 		HDR.Width = 2;
@@ -194,18 +188,16 @@ namespace Durin::TextureCubeBuilder
 		HDR.Pixels.assign(6, 1.0f);
 		HDR.Pixels[0] = std::numeric_limits<float>::quiet_NaN();
 		const auto NonfiniteHDR = ProjectEquirectangularTextureCube(HDR, {}, Cube);
-		Error = NonfiniteHDR ? std::string{} : NonfiniteHDR.error().Diagnostic;
-		EXPECT_FALSE(NonfiniteHDR) << Error;
+		ASSERT_FALSE(NonfiniteHDR);
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
-		EXPECT_NE(Error.find("nonfinite"), std::string::npos);
+		EXPECT_EQ(NonfiniteHDR.error().CubeInputCause, ETextureCubeInputError::InvalidRadiance);
 
 		HDR.Pixels[0] = 1.0f;
 		Settings = {};
 		Settings.ExposureEV = 17.0f;
 		const auto InvalidExposure = ProjectEquirectangularTextureCube(HDR, Settings, Cube);
-		Error = InvalidExposure ? std::string{} : InvalidExposure.error().Diagnostic;
-		EXPECT_FALSE(InvalidExposure) << Error;
-		EXPECT_NE(Error.find("between -16 and 16"), std::string::npos);
+		ASSERT_FALSE(InvalidExposure);
+		EXPECT_EQ(InvalidExposure.error().CubeInputCause, ETextureCubeInputError::Exposure);
 	}
 
 	TEST(FEquirectangularTextureCubeTests, DecodedFacesShareSourceStorageAndRetainMetadataAfterOwnerRelease)

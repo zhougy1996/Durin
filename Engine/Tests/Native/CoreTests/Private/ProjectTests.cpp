@@ -68,27 +68,19 @@ TEST(FProjectTests, PlatformProcessReportsExistingExecutable)
 	EXPECT_TRUE(std::filesystem::is_regular_file(Executable));
 }
 
-TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
+TEST(FProjectTests, PlatformProcessLaunchFailureRetainsPathAndSystemError)
 {
 #if defined(_WIN32)
 	constexpr std::string_view MissingExecutable = "Z:/DurinTests/MissingProfiler.exe";
-	std::string Error;
-
-	const auto LaunchProcessResult = Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {});
-	Error = LaunchProcessResult ? std::string{} : LaunchProcessResult.error().ToString();
-	EXPECT_FALSE(LaunchProcessResult.has_value());
-	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
-	EXPECT_NE(Error.find("Windows error"), std::string::npos);
 #elif defined(__APPLE__)
 	constexpr std::string_view MissingExecutable = "/DurinTests/MissingProfiler";
-	std::string Error;
-
-	const auto LaunchProcessResult2 = Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {});
-	Error = LaunchProcessResult2 ? std::string{} : LaunchProcessResult2.error().ToString();
-	EXPECT_FALSE(LaunchProcessResult2.has_value());
-	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
-	EXPECT_NE(Error.find("macOS error"), std::string::npos);
 #endif
+	const auto Result = Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {});
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Code, Durin::EPlatformProcessError::Launch);
+	EXPECT_EQ(Result.error().Path, MissingExecutable);
+	ASSERT_TRUE(Result.error().NativeError);
+	EXPECT_NE(*Result.error().NativeError, 0);
 }
 
 #if defined(_WIN32)
@@ -109,19 +101,13 @@ TEST(FProjectTests, PlatformProcessDistinguishesExitCodeFromLaunchFailure)
 #if defined(__APPLE__)
 TEST(FProjectTests, PlatformProcessExecutesAndReportsNativeReturnCode)
 {
-	int32_t ReturnCode = 0;
-	std::string Error;
 	const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'exit 7'");
-	Error = ExecuteProcessResult ? std::string{} : ExecuteProcessResult.error().ToString();
-	if (ExecuteProcessResult) ReturnCode = *ExecuteProcessResult;
-	ASSERT_TRUE(ExecuteProcessResult.has_value()) << Error;
-	EXPECT_EQ(ReturnCode, 7);
+	ASSERT_TRUE(ExecuteProcessResult) << ExecuteProcessResult.error().ToString();
+	EXPECT_EQ(*ExecuteProcessResult, 7);
 
 	const auto ExecuteProcessResult2 = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'unfinished");
-	Error = ExecuteProcessResult2 ? std::string{} : ExecuteProcessResult2.error().ToString();
-	if (ExecuteProcessResult2) ReturnCode = *ExecuteProcessResult2;
-	EXPECT_FALSE(ExecuteProcessResult2.has_value());
-	EXPECT_NE(Error.find("unfinished"), std::string::npos);
+	ASSERT_FALSE(ExecuteProcessResult2);
+	EXPECT_EQ(ExecuteProcessResult2.error().Code, Durin::EPlatformProcessError::InvalidArguments);
 }
 
 TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
@@ -133,25 +119,23 @@ TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
 		usleep(20000);
 		_exit(0);
 	}
-	std::string Error;
 	const auto WaitForProcessExitResult = Durin::FPlatformProcess::WaitForProcessExit(static_cast<uint32>(Child));
-	Error = WaitForProcessExitResult ? std::string{} : WaitForProcessExitResult.error().ToString();
-	EXPECT_TRUE(WaitForProcessExitResult.has_value()) << Error;
+	EXPECT_TRUE(WaitForProcessExitResult) << WaitForProcessExitResult.error().ToString();
 	int Status = 0;
 	EXPECT_EQ(waitpid(Child, &Status, 0), Child);
 }
 
 TEST(FProjectTests, PlatformOpenPathRejectsEmptyAndMissingPathsWithDiagnostics)
 {
-	std::string Error;
 	const auto OpenPathResult = Durin::FPlatformProcess::OpenPath({});
-	Error = OpenPathResult ? std::string{} : OpenPathResult.error().ToString();
-	EXPECT_FALSE(OpenPathResult.has_value());
-	EXPECT_FALSE(Error.empty());
+	ASSERT_FALSE(OpenPathResult);
+	EXPECT_EQ(OpenPathResult.error().Code, Durin::EPlatformProcessError::InvalidArguments);
 	const auto OpenPathResult2 = Durin::FPlatformProcess::OpenPath("/DurinTests/MissingOpenPath");
-	Error = OpenPathResult2 ? std::string{} : OpenPathResult2.error().ToString();
-	EXPECT_FALSE(OpenPathResult2.has_value());
-	EXPECT_NE(Error.find("MissingOpenPath"), std::string::npos);
+	ASSERT_FALSE(OpenPathResult2);
+	EXPECT_EQ(OpenPathResult2.error().Code, Durin::EPlatformProcessError::OpenPath);
+	EXPECT_EQ(OpenPathResult2.error().Path, "/DurinTests/MissingOpenPath");
+	ASSERT_TRUE(OpenPathResult2.error().ExitCode);
+	EXPECT_NE(*OpenPathResult2.error().ExitCode, 0);
 }
 #endif
 

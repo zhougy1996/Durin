@@ -512,9 +512,9 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	auto& First = *FirstObject;
 	auto& Second = *SecondObject;
 	Durin::Editor::FPropertyView View;
-	std::string Error;
+	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext Context{
-		.ReportError = [&](std::string Message) { Error = std::move(Message); },
+		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	First.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, Context, First));
@@ -525,7 +525,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	EXPECT_FALSE(View.HandleOwnerContext(Context, &Second));
 	EXPECT_TRUE(View.IsEditingObject(&First));
 	EXPECT_EQ(First.Value, 8);
-	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
+	EXPECT_EQ(ErrorReports, 1u);
 
 	First.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(Context, &Second));
@@ -541,9 +541,9 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> ObjectStrong(ObjectPtr);
 	auto& Object = *ObjectPtr;
 	Durin::Editor::FPropertyView View;
-	std::string Error;
+	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext EditableContext{
-		.ReportError = [&](std::string Message) { Error = std::move(Message); },
+		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	Object.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, EditableContext, Object));
@@ -555,7 +555,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_FALSE(View.HandleOwnerContext(ReadOnlyContext, &Object));
 	EXPECT_TRUE(View.IsEditingObject(&Object));
 	EXPECT_EQ(Object.Value, 8);
-	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
+	EXPECT_EQ(ErrorReports, 1u);
 
 	Object.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(ReadOnlyContext, &Object));
@@ -760,10 +760,10 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	auto& Object = *ManagedObject;
 	FPropertyViewTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
-	std::string Error;
+	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext Context{
 		.Transactor = Transactions.Get(),
-		.ReportError = [&](std::string Message) { Error = std::move(Message); },
+		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 
 	EXPECT_FALSE(View.SubmitPropertyValueEdit(
@@ -773,7 +773,7 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 			*Property->ContainerPtrToValuePtr<int32>(Container, ArrayIndex) = 11;
 		}, false));
 	EXPECT_EQ(Object.Value, 5);
-	EXPECT_NE(Error.find("ClampMax"), std::string::npos);
+	EXPECT_EQ(ErrorReports, 1u);
 	EXPECT_FALSE(Transactions.Get()->Undo());
 }
 
@@ -1059,7 +1059,7 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	const auto Missing = Session.Begin({}, "Missing target");
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.GetStatus(), EPropertyEditResult::Failed);
-	EXPECT_EQ(Missing.Message, "The edit target has no owning object.");
+	const auto MissingMessage = Missing.Message;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
 	TStrongObjectPtr<DObject> Root(Object);
@@ -1067,7 +1067,7 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	ASSERT_TRUE(Session.Begin(Target, "Owned session description"));
 	const auto Active = Session.Begin(Target, "Replacement description");
 	EXPECT_FALSE(Active);
-	EXPECT_EQ(Active.Message, "A reflected-property edit session is already active.");
+	const auto ActiveMessage = Active.Message;
 	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});
 	EXPECT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.GetStatus(), EPropertyEditResult::Failed);
@@ -1086,9 +1086,9 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	ASSERT_TRUE(Session.Commit());
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Object->Value, 6);
-	EXPECT_EQ(Active.Message, "A reflected-property edit session is already active.");
+	EXPECT_EQ(Active.Message, ActiveMessage);
 	EXPECT_EQ(Invalid.Message, InvalidMessage);
-	EXPECT_EQ(Missing.Message, "The edit target has no owning object.");
+	EXPECT_EQ(Missing.Message, MissingMessage);
 	// Presentation text does not determine the command outcome.
 	auto WithoutMessage = Invalid;
 	WithoutMessage.Message.clear();

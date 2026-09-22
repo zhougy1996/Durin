@@ -16,30 +16,23 @@ namespace Durin
 	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
 	{
-		FTextureBuildError Outcome;
-		FTextureCubeBuildProduct Product;
-		FTextureCubeCanonicalBuildInput CanonicalInput;
 #if !DURIN_WITH_EDITOR
-		Outcome.Diagnostic = "TextureCube authored build orchestration is unavailable outside editor builds.";
-		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)});
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, "TextureCube authored build orchestration is unavailable outside editor builds."});
 #else
-		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider) {
+		auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
+			ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider)
+				-> std::expected<FTextureCubeBuildValue, FTextureBuildError> {
 				const FTextureCubeBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
 				if (!Descriptor.IsValid())
 				{
-					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-					Outcome.Diagnostic = "The TextureCube build provider descriptor is invalid.";
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Provider, "The TextureCube build provider descriptor is invalid."});
 				}
-				Outcome.Stage = ETextureBuildStage::Normalize;
 				auto Normalized = Provider.Normalize(Request);
 				if (!Normalized)
 				{
-					Outcome = std::move(Normalized.error());
-					return false;
+					return std::unexpected(std::move(Normalized.error()));
 				}
-				CanonicalInput = std::move(*Normalized);
+				auto CanonicalInput = std::move(*Normalized);
 				const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
 				if ((!bHDR && !CanonicalInput.DecodedFaces.IsValid())
 					|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
@@ -53,8 +46,7 @@ namespace Durin
 					|| CanonicalInput.PanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
 					|| CanonicalInput.OriginalSourceWidth == 0 || CanonicalInput.OriginalSourceHeight == 0)
 				{
-					Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."};
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."});
 				}
 				FXxHash128 CanonicalHash = CanonicalInput.SourceIdentity;
 				if (bHDR || CanonicalHash.IsZero())
@@ -64,9 +56,8 @@ namespace Durin
 						: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
 					if (!CanonicalSource)
 					{
-						Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize,
-							CanonicalSource.error()};
-						return false;
+						return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize,
+							CanonicalSource.error()});
 					}
 					CanonicalHash = CanonicalSource->GetIdentity();
 				}
@@ -83,8 +74,9 @@ namespace Durin
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile
 				};
-				const FCacheKeyProxy Key = BuildTextureCubeDerivedDataKey(KeyInput, Outcome.Diagnostic);
-				if (!Key.IsValid()) return false;
+				std::string KeyDiagnostic;
+				const FCacheKeyProxy Key = BuildTextureCubeDerivedDataKey(KeyInput, KeyDiagnostic);
+				if (!Key.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Normalize, std::move(KeyDiagnostic)});
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				auto PlatformData = std::make_unique<FTextureCubePlatformData>();
@@ -93,11 +85,11 @@ namespace Durin
 					Request.TargetPlatform, Request.TargetProfile,
 					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
-					Product = {.PlatformData = std::move(PlatformData), .DerivedDataKey = Key, .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::CacheHit};
-					return true;
+					return FTextureCubeBuildValue{std::move(CanonicalInput), FTextureCubeBuildProduct{
+						.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
+						.Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::CacheHit}};
 				}
 
-				Outcome.Stage = ETextureBuildStage::Recipe;
 				auto Recipe = Provider.Build({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
 					.bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile,
@@ -106,15 +98,12 @@ namespace Durin
 						.ExposureEV = CanonicalInput.PanoramaExposureEV, .Output = CanonicalInput.Output}});
 				if (!Recipe)
 				{
-					Outcome = std::move(Recipe.error());
-					return false;
+					return std::unexpected(std::move(Recipe.error()));
 				}
 				auto RecipeProduct = std::move(*Recipe);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
-					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-					Outcome.Diagnostic = "TextureCube provider returned invalid platform data.";
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Recipe, "TextureCube provider returned invalid platform data."});
 				}
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 				if (Request.bPersistDerivedData)
@@ -122,35 +111,21 @@ namespace Durin
 						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
-				Product = {.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key, .PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)}, .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt};
-				return true;
+				return FTextureCubeBuildValue{std::move(CanonicalInput), FTextureCubeBuildProduct{
+						.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key,
+						.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
+						.Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt}};
 			});
-		if (Invocation.Status == EFeatureInvokeStatus::Invoked
-			&& Invocation.Value.has_value() && *Invocation.Value)
-		{
-			return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(Product)};
-		}
+		if (Invocation.Status == EFeatureInvokeStatus::Invoked && Invocation.Value)
+			return std::move(*Invocation.Value);
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-		{
-			Outcome.Code = ETextureBuildFailure::Unavailable;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "The TextureCube build provider is unavailable.";
-		}
-		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-		{
-			Outcome.Code = ETextureBuildFailure::Ambiguous;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "Multiple TextureCube build providers are registered.";
-		}
-		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-		{
-			Outcome.Code = ETextureBuildFailure::InvocationFailed;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "The TextureCube build provider invocation failed.";
-		}
-		else if (Outcome.Diagnostic.empty())
-			Outcome.Diagnostic = "The TextureCube build provider failed without a diagnostic.";
-		return std::unexpected(std::move(Outcome));
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider,
+				"The TextureCube build provider is unavailable."});
+		if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Ambiguous, ETextureBuildStage::Provider,
+				"Multiple TextureCube build providers are registered."});
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvocationFailed, ETextureBuildStage::Provider,
+			"The TextureCube build provider invocation failed."});
 #endif
 	}
 

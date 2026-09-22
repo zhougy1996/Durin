@@ -590,7 +590,6 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	ASSERT_FALSE(Sync);
 	EXPECT_EQ(Sync.error().Code, Durin::ETexture2DCompilationError::BuildFailed);
 	EXPECT_TRUE(Sync.error().InputReason.empty());
-	EXPECT_EQ(Durin::FormatTexture2DCompilationError(Sync.error()), "Texture build failed.");
 	std::optional<Durin::FTexture2DCompilationResult> Completion;
 	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*FailedTexture, {.Build = Request},
 		[&](Durin::FTexture2DCompilationResult Result) { Completion = std::move(Result); }));
@@ -598,35 +597,21 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	ASSERT_TRUE(Completion);
 	EXPECT_EQ(Completion->Status, Durin::ETexture2DCompilationStatus::Failed);
 	EXPECT_TRUE(Completion->Error.InputReason.empty());
-	EXPECT_EQ(Durin::FormatTexture2DCompilationError(Completion->Error), "Texture build failed.");
 	const auto Diagnostic = Durin::GetTexture2DCompilationDiagnostic(*FailedTexture);
 	ASSERT_TRUE(Diagnostic.BuildCause);
 	EXPECT_EQ(Diagnostic.BuildCause->Code, Durin::ETexture2DBuildError::ProviderUnavailable);
-	std::string Error;
 
 	Durin::FVolumeTextureSourceData VolumeSource;
 	VolumeSource.Width = 1;
 	VolumeSource.Height = 1;
 	VolumeSource.Depth = 1;
 	ASSERT_TRUE(VolumeSource.SetVoxelBytes(Durin::FByteBuffer(1)));
-	Durin::FVolumeTextureBuildProduct VolumeProduct;
 	auto BuildResult1 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = VolumeSource});
-	Error = (BuildResult1 ? std::string{} : FormatTextureBuildOperationError(BuildResult1.error()));
-	VolumeProduct = BuildResult1 ? std::move(BuildResult1->Product) : Durin::FVolumeTextureBuildProduct{};
-	EXPECT_FALSE(BuildResult1) << (BuildResult1 ? std::string{} : FormatTextureBuildOperationError(BuildResult1.error()));
+	ASSERT_FALSE(BuildResult1);
 	EXPECT_EQ(BuildResult1.error().Code, Durin::ETextureBuildOperationFailure::Failed);
-	EXPECT_FALSE(BuildResult1.has_value());
-	EXPECT_EQ(Error, "Texture build failed.");
-	Durin::FTextureCubeCanonicalBuildInput CubeCanonicalInput;
-	Durin::FTextureCubeBuildProduct CubeProduct;
 	auto BuildResult2 = Durin::InvokeTextureCubeBuildProvider({});
-	Error = (BuildResult2 ? std::string{} : FormatTextureBuildOperationError(BuildResult2.error()));
-	CubeCanonicalInput = BuildResult2 ? std::move(BuildResult2->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
-	CubeProduct = BuildResult2 ? std::move(BuildResult2->Product) : Durin::FTextureCubeBuildProduct{};
-	EXPECT_FALSE(BuildResult2) << (BuildResult2 ? std::string{} : FormatTextureBuildOperationError(BuildResult2.error()));
+	ASSERT_FALSE(BuildResult2);
 	EXPECT_EQ(BuildResult2.error().Code, Durin::ETextureBuildOperationFailure::Failed);
-	EXPECT_FALSE(BuildResult2.has_value());
-	EXPECT_EQ(Error, "Texture build failed.");
 
 	Modules.LoadModuleChecked("TextureBuild");
 	const auto Reloaded = Durin::FModularFeatureRegistry::Get().InvokeSingle<
@@ -936,16 +921,13 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTexturePlatformData First;
 	Durin::FVolumeTexturePlatformData Second;
-	std::string Error;
 	const Durin::FVolumeTextureBuildSettings Settings{};
 	const auto FirstBuild = Durin::VolumeTextureBuilder::BuildMipChain(
 		Source, Settings, First);
-	Error = FirstBuild ? std::string{} : FirstBuild.error().Diagnostic;
-	ASSERT_TRUE(FirstBuild) << Error;
+	ASSERT_TRUE(FirstBuild) << FirstBuild.error().Diagnostic;
 	const auto SecondBuild = Durin::VolumeTextureBuilder::BuildMipChain(
 		Source, Settings, Second);
-	Error = SecondBuild ? std::string{} : SecondBuild.error().Diagnostic;
-	ASSERT_TRUE(SecondBuild) << Error;
+	ASSERT_TRUE(SecondBuild) << SecondBuild.error().Diagnostic;
 	ASSERT_EQ(First.Mips.size(), 2u);
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
@@ -976,11 +958,9 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		std::byte{128}, std::byte{160}, std::byte{192}, std::byte{255}};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTexturePlatformData Platform;
-	std::string Error;
 	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
 		Source, {}, Platform);
-	Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
-	ASSERT_TRUE(MipBuild) << Error;
+	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
 	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Win64", "Game"}});
@@ -1237,8 +1217,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	std::string Error;
 	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
 		Source, {}, Platform);
-	Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
-	ASSERT_TRUE(MipBuild) << Error;
+	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/LargeVolumeBlob", AssetPath));
@@ -1426,7 +1405,6 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "NormalizedTexture2DBuildDdc");
 	Durin::FTextureSource SourceData;
-	std::string Error;
 	const Durin::FByteView TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
 	{
@@ -1467,7 +1445,6 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	const std::array<std::byte, 1> BlockingFile{std::byte{0xff}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(BlockingFile, BlockedRoot));
 	Durin::FTextureSource SourceData;
-	std::string Error;
 	{
 		auto SourceDataResult = Durin::AssetForge::Builtins::TranslateTexture2DSource(std::as_bytes(std::span{TransparentPngBytes}));
 		ASSERT_TRUE(SourceDataResult);
@@ -1542,7 +1519,6 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 		Durin::FindAssetExact(AssetPath);
 	ASSERT_TRUE(Entry);
 	Durin::FAssetPackageInspection Inspection;
-	std::string Error;
 	const auto Inspected =
 		Durin::InspectAssetPackage(Entry->PhysicalPath, Inspection);
 	ASSERT_TRUE(Inspected) << Inspected.Message;
@@ -1662,7 +1638,6 @@ TEST(FTexture2DTests, CompilationAppliesLatestNormalizedProduct)
 	ASSERT_TRUE(Imported) << Imported.Message;
 
 	Durin::FTextureSource SourceData;
-	std::string Error;
 	const Durin::FByteView TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
 	{

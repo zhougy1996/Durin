@@ -79,7 +79,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.VolumeTextureBuildProvider";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 4;
 
 		virtual auto GetDescriptor() const
 			-> FVolumeTextureBuildProviderDescriptor = 0;

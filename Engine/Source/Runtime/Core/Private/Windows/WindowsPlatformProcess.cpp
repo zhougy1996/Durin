@@ -52,12 +52,14 @@ namespace Durin
 		{
 			const DWORD Error = GetLastError();
 			if (Error == ERROR_INVALID_PARAMETER) return {};
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("OpenProcess failed with error {}.", Error)});
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("OpenProcess failed with error {}.", Error), {}, Error});
 		}
 		const DWORD WaitResult = WaitForSingleObject(Process, INFINITE);
+		const DWORD Error = WaitResult == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
 		CloseHandle(Process);
 		if (WaitResult == WAIT_OBJECT_0) return {};
-		return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("WaitForSingleObject failed with result {}.", WaitResult)});
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format("WaitForSingleObject failed with result {}.", WaitResult), {},
+			WaitResult == WAIT_FAILED ? std::optional<int64>(Error) : std::nullopt});
 	}
 
 	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, std::string_view Arguments) -> std::expected<void, FPlatformProcessError>
@@ -69,7 +71,7 @@ namespace Durin
 		if (!CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &StartupInfo, &ProcessInfo))
 		{
 			const DWORD Error = GetLastError();
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format("Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error))});
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format("Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error)), std::string(Executable), Error});
 		}
 		CloseHandle(ProcessInfo.hThread);
 		CloseHandle(ProcessInfo.hProcess);
@@ -83,7 +85,7 @@ namespace Durin
 			ShellExecuteW(nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL)
 		);
 		if (Result > 32) return {};
-		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result)});
+		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result), std::string(Path), Result});
 	}
 
 	auto FWindowsPlatformProcess::ExecuteProcess(
@@ -100,7 +102,7 @@ namespace Durin
 		{
 			const DWORD Error = GetLastError();
 			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format(
-				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error))});
+				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error)), std::string(Executable), Error});
 		}
 		CloseHandle(ProcessInfo.hThread);
 		const DWORD WaitResult = WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
@@ -112,7 +114,7 @@ namespace Durin
 		if (!bReadExitCode)
 		{
 			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::format(
-				"Could not wait for \"{}\": {}.", Executable, FormatWindowsError(Error))});
+				"Could not wait for \"{}\": {}.", Executable, FormatWindowsError(Error)), std::string(Executable), Error});
 		}
 		return static_cast<int32>(ExitCode);
 	}

@@ -82,14 +82,11 @@ namespace Durin
 
 		auto Spawn(
 			std::string_view Executable,
-			std::vector<std::string> Arguments,
-			pid_t& OutProcess,
-			std::string* OutError) -> bool
+			std::vector<std::string> Arguments) -> std::expected<pid_t, FPlatformProcessError>
 		{
 			if (Executable.empty())
 			{
-				if (OutError) *OutError = "Process executable path is empty.";
-				return false;
+				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, "Process executable path is empty."});
 			}
 
 			std::string ExecutableStorage(Executable);
@@ -100,8 +97,9 @@ namespace Durin
 				ArgumentPointers.push_back(Argument.data());
 			ArgumentPointers.push_back(nullptr);
 
+			pid_t ChildProcess = 0;
 			const int SpawnResult = posix_spawn(
-				&OutProcess,
+				&ChildProcess,
 				ExecutableStorage.c_str(),
 				nullptr,
 				nullptr,
@@ -109,14 +107,12 @@ namespace Durin
 				environ);
 			if (SpawnResult != 0)
 			{
-				if (OutError)
-					*OutError = std::format(
-						"Could not launch \"{}\": {}.",
-						Executable, FormatErrno(SpawnResult));
-				return false;
+				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
+					std::format("Could not launch \"{}\": {}.", Executable, FormatErrno(SpawnResult)),
+					std::string(Executable), SpawnResult});
 			}
 
-			return true;
+			return ChildProcess;
 		}
 
 		auto WaitForChild(pid_t ChildProcess, int32& OutReturnCode, std::string* OutError) -> bool
@@ -217,10 +213,10 @@ namespace Durin
 		std::string Error;
 		std::vector<std::string> ParsedArguments;
 		if (!ParseArguments(Arguments, ParsedArguments, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error)});
-		pid_t ChildProcess = 0;
-		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::move(Error)});
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error), std::string(Executable)});
+		const auto Spawned = Spawn(Executable, std::move(ParsedArguments));
+		if (!Spawned) return std::unexpected(Spawned.error());
+		const pid_t ChildProcess = *Spawned;
 		std::thread([ChildProcess] {
 			int32 ReturnCode = 0;
 			(void)WaitForChild(ChildProcess, ReturnCode, nullptr);
@@ -235,10 +231,10 @@ namespace Durin
 		std::string Error;
 		std::vector<std::string> ParsedArguments;
 		if (!ParseArguments(Arguments, ParsedArguments, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error)});
-		pid_t ChildProcess = 0;
-		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::move(Error)});
+			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error), std::string(Executable)});
+		const auto Spawned = Spawn(Executable, std::move(ParsedArguments));
+		if (!Spawned) return std::unexpected(Spawned.error());
+		const pid_t ChildProcess = *Spawned;
 		int32 ReturnCode = 0;
 		if (!WaitForChild(ChildProcess, ReturnCode, &Error))
 			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Wait, std::move(Error)});
@@ -258,6 +254,6 @@ namespace Durin
 		const int32 ReturnCode = *Result;
 		if (ReturnCode == 0) return {};
 		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format(
-			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode)});
+			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode), std::string(Path), std::nullopt, ReturnCode});
 	}
 }

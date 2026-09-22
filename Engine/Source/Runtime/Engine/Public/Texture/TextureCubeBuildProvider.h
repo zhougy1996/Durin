@@ -148,7 +148,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.TextureCubeBuildProvider";
-		static constexpr uint32 FeatureVersion = 4;
+		static constexpr uint32 FeatureVersion = 5;
 
 		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
 		virtual auto Normalize(

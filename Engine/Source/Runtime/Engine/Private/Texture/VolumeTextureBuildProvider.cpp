@@ -16,27 +16,22 @@ namespace Durin
 	static auto BuildVolumeTextureWithDiagnostic(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<FVolumeTextureBuildValue, FTextureBuildError>
 	{
-		FTextureBuildError Outcome;
-		FVolumeTextureBuildProduct Product;
 #if !DURIN_WITH_EDITOR
-		Outcome.Diagnostic = "VolumeTexture authored build orchestration is unavailable outside editor builds.";
-		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)});
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, "VolumeTexture authored build orchestration is unavailable outside editor builds."});
 #else
-		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			IVolumeTextureBuildProvider>([&](IVolumeTextureBuildProvider& Provider) {
+		auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
+			IVolumeTextureBuildProvider>([&](IVolumeTextureBuildProvider& Provider)
+				-> std::expected<FVolumeTextureBuildValue, FTextureBuildError> {
 				const FVolumeTextureBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
 				if (!Descriptor.IsValid())
 				{
-					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-					Outcome.Diagnostic = "The VolumeTexture build provider descriptor is invalid.";
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Provider, "The VolumeTexture build provider descriptor is invalid."});
 				}
 				const FVolumeTextureSourceData& Source = Request.SourceData.get();
 				if (!Source.IsValid() || Source.Format != Request.Settings.OutputFormat
 					|| Request.Settings.MipFilter != EVolumeTextureMipFilter::Box)
 				{
-					Outcome = {ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, "VolumeTexture source or build settings are invalid or incompatible."};
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, "VolumeTexture source or build settings are invalid or incompatible."});
 				}
 				const FVolumeTextureBuildKeyInput KeyInput{
 					.CanonicalSourceIdentity = Source.GetIdentity(),
@@ -48,8 +43,9 @@ namespace Durin
 					.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile};
-				const FCacheKeyProxy Key = BuildVolumeTextureDerivedDataKey(KeyInput, Outcome.Diagnostic);
-				if (!Key.IsValid()) return false;
+				std::string KeyDiagnostic;
+				const FCacheKeyProxy Key = BuildVolumeTextureDerivedDataKey(KeyInput, KeyDiagnostic);
+				if (!Key.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Provider, std::move(KeyDiagnostic)});
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
@@ -58,23 +54,20 @@ namespace Durin
 					Request.TargetPlatform, Request.TargetProfile,
 					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
-					Product = {.PlatformData = std::move(PlatformData), .DerivedDataKey = Key, .Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::CacheHit};
-					return true;
+					return FVolumeTextureBuildValue{FVolumeTextureBuildProduct{
+						.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
+						.Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::CacheHit}};
 				}
 
-				Outcome.Stage = ETextureBuildStage::Recipe;
 				auto Recipe = Provider.Build({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 				if (!Recipe)
 				{
-					Outcome = std::move(Recipe.error());
-					return false;
+					return std::unexpected(std::move(Recipe.error()));
 				}
 				auto RecipeProduct = std::move(*Recipe);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
-					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
-					Outcome.Diagnostic = "VolumeTexture provider returned invalid platform data.";
-					return false;
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Recipe, "VolumeTexture provider returned invalid platform data."});
 				}
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 				if (Request.bPersistDerivedData)
@@ -82,35 +75,21 @@ namespace Durin
 						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
-				Product = {.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key, .PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)}, .Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::Rebuilt};
-				return true;
+				return FVolumeTextureBuildValue{FVolumeTextureBuildProduct{
+						.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key,
+						.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
+						.Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::Rebuilt}};
 			});
-		if (Invocation.Status == EFeatureInvokeStatus::Invoked
-			&& Invocation.Value.has_value() && *Invocation.Value)
-		{
-			return FVolumeTextureBuildValue{std::move(Product)};
-		}
+		if (Invocation.Status == EFeatureInvokeStatus::Invoked && Invocation.Value)
+			return std::move(*Invocation.Value);
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-		{
-			Outcome.Code = ETextureBuildFailure::Unavailable;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "The VolumeTexture build provider is unavailable.";
-		}
-		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-		{
-			Outcome.Code = ETextureBuildFailure::Ambiguous;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "Multiple VolumeTexture build providers are registered.";
-		}
-		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-		{
-			Outcome.Code = ETextureBuildFailure::InvocationFailed;
-			Outcome.Stage = ETextureBuildStage::Provider;
-			Outcome.Diagnostic = "The VolumeTexture build provider invocation failed.";
-		}
-		else if (Outcome.Diagnostic.empty())
-			Outcome.Diagnostic = "The VolumeTexture build provider failed without a diagnostic.";
-		return std::unexpected(std::move(Outcome));
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider,
+				"The VolumeTexture build provider is unavailable."});
+		if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Ambiguous, ETextureBuildStage::Provider,
+				"Multiple VolumeTexture build providers are registered."});
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvocationFailed, ETextureBuildStage::Provider,
+			"The VolumeTexture build provider invocation failed."});
 #endif
 	}
 

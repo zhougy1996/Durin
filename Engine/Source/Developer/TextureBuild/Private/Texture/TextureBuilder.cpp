@@ -102,7 +102,9 @@ namespace Durin::TextureBuilder
 				BC7Params.m_uber_level = 2;
 				break;
 			default:
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidCompressionQuality});
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput,
+					.InputCause = FTexture2DInputError{.Code = ETexture2DInputError::InvalidCompressionQuality,
+						.Settings = {.CompressionQuality = Quality}}});
 			}
 			const uint32 CompressionLevel = GetCompressionLevel(Quality);
 			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
@@ -360,22 +362,11 @@ namespace Durin::TextureBuilder
 		{
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		}
-		if (!IsValidTextureUsage(Usage))
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidUsage});
-		}
-		if (!IsValidTextureCompressionQuality(CompressionQuality))
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidCompressionQuality});
-		}
-		if (!IsValidTextureAlphaMipMode(AlphaMipMode))
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidAlphaMipMode});
-		}
-		if (!IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold))
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidAlphaCoverageThreshold});
-		}
+		const FTexture2DBuildSettings Settings{
+			.Usage = Usage, .CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode, .AlphaCoverageThreshold = AlphaCoverageThreshold};
+		if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		bool bHasTransparency = TransparencyOverride.value_or(false);
 		if (!TransparencyOverride)
 		{

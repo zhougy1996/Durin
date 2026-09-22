@@ -247,7 +247,6 @@ namespace Durin
 			auto PreparePreview(
 				Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
-				std::string OutError;
 				Editor::FThumbnailPreviewView View;
 				View.CameraPosition = {2.0, -2.0, 1.0};
 				if (auto ViewResult = PreviewScene.SetView(View); !ViewResult) return ViewResult;

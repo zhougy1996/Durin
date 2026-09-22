@@ -77,8 +77,7 @@ namespace Durin
 		None, InvalidInput, CompressionTaskFailed,
 		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidProviderDescriptor, Cancelled,
 		InvalidProviderProduct, ProviderUnavailable, AmbiguousProvider, ProviderInvocationFailed,
-		ProviderFailed, UnsupportedTarget, CompressedLayoutOverflow, InvalidCompressionQuality,
-		InvalidUsage, InvalidAlphaMipMode, InvalidAlphaCoverageThreshold, UnsupportedPixelFormat,
+		ProviderFailed, UnsupportedTarget, CompressedLayoutOverflow, UnsupportedPixelFormat,
 		InvalidMipLayout, InvalidPlatformData,
 	};
 	struct FTexture2DBuildError
@@ -109,7 +108,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 6;
+		static constexpr uint32 FeatureVersion = 7;
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(
