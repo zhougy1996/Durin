@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class DWorld;
-	enum class EEditorPickingPrimitiveFamily : uint8;
 	// Selects when a registered primitive may create and publish its physics body.
 	enum class EPhysicsStateCreationPolicy : uint8
 	{
@@ -68,10 +67,6 @@ namespace Durin
 		// Requests policy-owned creation; a required request may block only at an explicit lifecycle barrier.
 		ENGINE_API virtual auto RequestPhysicsStateCreation(bool bWaitUntilReady = false) -> bool;
 
-#if DURIN_WITH_EDITOR
-		// Produces finite local bounds and a supported picking family for the editor scene index.
-		ENGINE_API virtual auto GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool;
-#endif
 
 	protected:
 		ENGINE_API auto OnUpdateTransform() -> void override;
@@ -83,7 +78,7 @@ namespace Durin
 		auto DestroyPhysicsState() -> void;
 		auto GetPhysicsWorld() const -> DWorld*;
 #if DURIN_WITH_EDITOR
-		auto NotifyEditorPickingMutation(bool bRetired = false) -> void;
+		auto NotifyPrimitiveSceneMutation(bool bRetired = false) -> void;
 #endif
 
 	private:

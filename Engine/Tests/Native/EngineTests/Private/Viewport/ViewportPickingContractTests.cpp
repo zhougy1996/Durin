@@ -369,6 +369,11 @@ TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAnd
 	EXPECT_EQ(Submit(), 0u);
 	Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
 	EXPECT_EQ(Submit(), 1u);
+	// Geometry admission belongs to the editor even though the runtime identity stays registered.
+	Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(nullptr);
+	EXPECT_EQ(Submit(), 0u);
+	Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(SharedMesh);
+	EXPECT_EQ(Submit(), 1u);
 	EXPECT_GT(Index->GetDiagnostics().Mutations, 0u);
 	EXPECT_GT(Index->GetDiagnostics().Rebuilds, 0u);
 	EXPECT_LE(Index->GetDiagnostics().CandidatePrimitives, 5u);

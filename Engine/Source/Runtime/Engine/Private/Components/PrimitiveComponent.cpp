@@ -25,7 +25,7 @@ namespace Durin
 		EnsurePrimitiveComponentId();
 		CreateRenderState();
 #if DURIN_WITH_EDITOR
-		NotifyEditorPickingMutation();
+		NotifyPrimitiveSceneMutation();
 #endif
 		ApplyPhysicsStateCreationPolicy();
 	}
@@ -36,7 +36,7 @@ namespace Durin
 		DestroyPhysicsState();
 		DestroyRenderState();
 #if DURIN_WITH_EDITOR
-		NotifyEditorPickingMutation(true);
+		NotifyPrimitiveSceneMutation(true);
 #endif
 		Super::OnUnregister();
 	}
@@ -301,7 +301,7 @@ namespace Durin
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy)
 			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Transform)
 			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
-			NotifyEditorPickingMutation();
+			NotifyPrimitiveSceneMutation();
 #endif
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
@@ -358,18 +358,11 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITOR
-	auto DPrimitiveComponent::GetEditorPickingLocalBounds(
-		FBox&, EEditorPickingPrimitiveFamily&
-	) const -> bool
-	{
-		return false;
-	}
-
-	auto DPrimitiveComponent::NotifyEditorPickingMutation(bool bRetired) -> void
+	auto DPrimitiveComponent::NotifyPrimitiveSceneMutation(bool bRetired) -> void
 	{
 		AActor* Owner = GetOwner();
 		if (auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr)
-			Level->NotifyEditorPickingPrimitiveChanged(this, bRetired);
+			Level->GetPrimitiveSceneChanges().Notify(this, bRetired);
 	}
 #endif
 } // namespace Durin

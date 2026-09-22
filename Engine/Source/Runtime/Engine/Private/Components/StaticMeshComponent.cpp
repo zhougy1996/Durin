@@ -4,7 +4,6 @@
 #include "Components/ComponentMaterialOverride.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/Level.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "Physics/BodySetup.h"
@@ -163,17 +162,6 @@ namespace Durin
 		Super::OnRegister();
 	}
 
-#if DURIN_WITH_EDITOR
-	auto DStaticMeshComponent::GetEditorPickingLocalBounds(
-		FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool
-	{
-		const FStaticMeshRenderData* Data = StaticMesh ? StaticMesh->GetRenderData() : nullptr;
-		if (!Data || Data->LODResources.empty()) return false;
-		OutBounds = Data->LODResources[0].LocalBounds;
-		OutFamily = EEditorPickingPrimitiveFamily::StaticMesh;
-		return OutBounds.bIsValid && Math::IsFinite(OutBounds.Min) && Math::IsFinite(OutBounds.Max);
-	}
-#endif
 
 	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{

@@ -6,7 +6,6 @@
 
 #include "DObject/DurinPropertyTypes.h"
 #include "Rendering/SplineMeshSceneProxy.h"
-#include "Engine/Level.h"
 #include "Rendering/SceneInterface.h"
 #include "Materials/MaterialInterface.h"
 #include "Spline/SplineMeshDeformer.h"
@@ -110,7 +109,7 @@ namespace Durin
 		else if (bRebuildDeformation)
 		{
 #if DURIN_WITH_EDITOR
-			if (IsRegistered()) NotifyEditorPickingMutation();
+			if (IsRegistered()) NotifyPrimitiveSceneMutation();
 #endif
 			PushDynamicDataToScene();
 		}
@@ -429,16 +428,6 @@ namespace Durin
 		}
 	}
 
-#if DURIN_WITH_EDITOR
-	auto DSplineMeshComponent::GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool
-	{
-		const auto State = GetDerivedState();
-		if (!State || !State->IsValid()) return false;
-		OutBounds = State->ConservativeLocalBounds;
-		OutFamily = EEditorPickingPrimitiveFamily::SplineMesh;
-		return OutBounds.bIsValid && Math::IsFinite(OutBounds.Min) && Math::IsFinite(OutBounds.Max);
-	}
-#endif
 
 	auto DSplineMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{

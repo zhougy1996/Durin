@@ -92,9 +92,6 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-#if DURIN_WITH_EDITOR
-		ENGINE_API auto GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool override;
-#endif
 
 	private:
 		friend class FStaticMeshRenderStateRecreateContext;

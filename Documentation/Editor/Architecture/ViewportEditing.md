@@ -95,9 +95,15 @@ destruction, mode exit, cancellation, and a newer click retire old work;
 camera movement alone does not reinterpret the immutable clicked view.
 
 `FLevelEditorContext` owns one game-thread `FViewportPickingSceneIndex` for its
-active Level and shares it with every attached viewport service. Engine emits
-monotonic editor-only primitive mutation batches for registration, retirement,
-transform, owner visibility, and mesh/proxy replacement. Subscription begins with a complete snapshot. A missing revision,
+active Level and shares it with every attached viewport service. Each Level owns
+an editor-build `FPrimitiveSceneChanges` source that publishes monotonic primitive
+invalidation batches with weak identity, registration generation, and retirement.
+It contains no picking family or bounds policy. The editor captures StaticMesh
+and SplineMesh bounds synchronously when receiving each batch, before queuing
+its immutable index updates. Registration, retirement, transform, owner visibility,
+and mesh/proxy replacement invalidate consumers; render-state dirty notifications
+remain a conservative invalidation source, including changes unrelated to picking.
+Subscription begins with a complete snapshot. A missing revision,
 invalid batch, Level replacement, or an index build that cannot satisfy its
 64 MiB budget makes the complete request use reference discovery; a stale
 partial candidate table is never queried.

@@ -1,12 +1,69 @@
 #include "Viewport/ViewportPickingSceneIndex.h"
 
 #include "Components/PrimitiveComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "Engine/Level.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 #include "Engine/Actor.h"
 
 namespace Durin::Editor::Level
 {
 	namespace
 	{
+		// Picking support and geometry bounds are editor policy, not Level responsibilities.
+		auto GetPickingLocalBounds(DPrimitiveComponent* Component, FBox& OutBounds) -> bool
+		{
+			if (auto* Spline = Cast<DSplineMeshComponent>(Component))
+			{
+				const auto State = Spline->GetDerivedState();
+				if (!State || !State->IsValid()) return false;
+				OutBounds = State->ConservativeLocalBounds;
+			}
+			else if (auto* Mesh = Cast<DStaticMeshComponent>(Component))
+			{
+				const DStaticMesh* Asset = Mesh->GetStaticMesh();
+				const FStaticMeshRenderData* Data = Asset ? Asset->GetRenderData() : nullptr;
+				if (!Data || Data->LODResources.empty()) return false;
+				OutBounds = Data->LODResources[0].LocalBounds;
+			}
+			else return false;
+			return OutBounds.bIsValid && Math::IsFinite(OutBounds.Min) && Math::IsFinite(OutBounds.Max);
+		}
+
+		auto CapturePickingBatch(const FPrimitiveSceneMutationBatch& Source) -> FViewportPickingMutationBatch
+		{
+			FViewportPickingMutationBatch Batch;
+			Batch.Revision = Source.Revision;
+			Batch.bCompleteSnapshot = Source.bCompleteSnapshot;
+			Batch.Mutations.reserve(Source.Mutations.size());
+			for (const FPrimitiveSceneMutation& Change : Source.Mutations)
+			{
+				FViewportPickingMutation Mutation;
+				static_cast<FPrimitiveSceneMutation&>(Mutation) = Change;
+				AActor* Actor = Change.Actor.Get();
+				DPrimitiveComponent* Component = Change.Component.Get();
+				Mutation.bVisible = Actor && !Actor->IsHidden();
+				FBox LocalBounds;
+				if (!Change.bRetired && Component && GetPickingLocalBounds(Component, LocalBounds))
+				{
+					const FMatrix Transform = Component->GetRenderMatrix();
+					if (Math::IsFinite(Transform))
+						for (uint32 Corner = 0; Corner < 8; ++Corner)
+						{
+							const FVector3 Point(
+								(Corner & 1u) ? LocalBounds.Max.x : LocalBounds.Min.x,
+								(Corner & 2u) ? LocalBounds.Max.y : LocalBounds.Min.y,
+								(Corner & 4u) ? LocalBounds.Max.z : LocalBounds.Min.z);
+							Mutation.WorldBounds.AddPoint(FVector3(Transform * FVector4(Point, 1.0)));
+						}
+				}
+				Batch.Mutations.push_back(std::move(Mutation));
+			}
+			return Batch;
+		}
+
 		constexpr double RayEpsilon = 1.e-8;
 		constexpr double FatBoundsScale = 0.1;
 		constexpr double MinimumFatMargin = 0.01;
@@ -51,13 +108,15 @@ namespace Durin::Editor::Level
 		}
 	}
 
+	auto FViewportPickingSceneIndex::GetLevel() const -> DLevel* { return Level.Get(); }
+
 	FViewportPickingSceneIndex::FViewportPickingSceneIndex() = default;
 	FViewportPickingSceneIndex::~FViewportPickingSceneIndex() { Retire(); }
 
 	auto FViewportPickingSceneIndex::Retire() -> void
 	{
 		if (DLevel* Current = Level.Get(); Current && Subscription)
-			Current->UnsubscribeEditorPickingPrimitives(Subscription);
+			Current->GetPrimitiveSceneChanges().Unsubscribe(Subscription);
 		Level = nullptr;
 		Subscription = 0;
 		AppliedRevision = 0;
@@ -77,8 +136,8 @@ namespace Durin::Editor::Level
 		Level = InLevel;
 		if (!InLevel) return;
 		const std::weak_ptr<FViewportPickingSceneIndex> WeakThis = weak_from_this();
-		Subscription = InLevel->SubscribeEditorPickingPrimitives(
-			[WeakThis](const FEditorPickingPrimitiveMutationBatch& Batch)
+		Subscription = InLevel->GetPrimitiveSceneChanges().Subscribe(
+			[WeakThis](const FPrimitiveSceneMutationBatch& Batch)
 			{
 				if (const std::shared_ptr<FViewportPickingSceneIndex> Index = WeakThis.lock())
 					Index->ReceiveBatch(Batch);
@@ -86,16 +145,15 @@ namespace Durin::Editor::Level
 		if (!Subscription) Retire();
 	}
 
-	auto FViewportPickingSceneIndex::ReceiveBatch(const FEditorPickingPrimitiveMutationBatch& Batch) -> void
+	auto FViewportPickingSceneIndex::ReceiveBatch(const FPrimitiveSceneMutationBatch& Batch) -> void
 	{
-		PendingBatches.push_back(Batch);
+		PendingBatches.push_back(CapturePickingBatch(Batch));
 	}
 
-	auto FViewportPickingSceneIndex::IsAdmissible(const FEditorPickingPrimitiveMutation& Mutation) -> bool
+	auto FViewportPickingSceneIndex::IsAdmissible(const FViewportPickingMutation& Mutation) -> bool
 	{
 		return !Mutation.bRetired && Mutation.bVisible && Mutation.Actor.Get() && Mutation.Component.Get()
 			&& Mutation.PrimitiveId != InvalidPrimitiveComponentId
-			&& Mutation.Family != EEditorPickingPrimitiveFamily::Unsupported
 			&& Mutation.WorldBounds.bIsValid && Math::IsFinite(Mutation.WorldBounds.Min)
 			&& Math::IsFinite(Mutation.WorldBounds.Max);
 	}
@@ -106,15 +164,15 @@ namespace Durin::Editor::Level
 		return {Exact.Min - Margin, Exact.Max + Margin};
 	}
 
-	auto FViewportPickingSceneIndex::ApplySnapshot(const FEditorPickingPrimitiveMutationBatch& Batch) -> bool
+	auto FViewportPickingSceneIndex::ApplySnapshot(const FViewportPickingMutationBatch& Batch) -> bool
 	{
 		Leaves.clear();
-		for (const FEditorPickingPrimitiveMutation& Mutation : Batch.Mutations)
+		for (const FViewportPickingMutation& Mutation : Batch.Mutations)
 		{
 			if (!IsAdmissible(Mutation)) continue;
 			FLeaf Leaf;
 			Leaf.Candidate = {Mutation.PrimitiveId, Mutation.Actor, Mutation.Component,
-				Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration, Mutation.Family};
+				Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration};
 			Leaf.ExactBounds = Mutation.WorldBounds;
 			Leaf.FatBounds = MakeFatBounds(Mutation.WorldBounds);
 			Leaves.insert_or_assign(Mutation.PrimitiveId.Value, std::move(Leaf));
@@ -126,7 +184,7 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FViewportPickingSceneIndex::ApplyMutation(const FEditorPickingPrimitiveMutation& Mutation) -> bool
+	auto FViewportPickingSceneIndex::ApplyMutation(const FViewportPickingMutation& Mutation) -> bool
 	{
 		++Diagnostics.Mutations;
 		if (!IsAdmissible(Mutation))
@@ -139,7 +197,7 @@ namespace Durin::Editor::Level
 		{
 			FLeaf Leaf;
 			Leaf.Candidate = {Mutation.PrimitiveId, Mutation.Actor, Mutation.Component,
-				Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration, Mutation.Family};
+				Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration};
 			Leaf.ExactBounds = Mutation.WorldBounds;
 			Leaf.FatBounds = MakeFatBounds(Mutation.WorldBounds);
 			Leaves.emplace(Mutation.PrimitiveId.Value, std::move(Leaf));
@@ -148,7 +206,7 @@ namespace Durin::Editor::Level
 		}
 		FLeaf& Leaf = Existing->second;
 		Leaf.Candidate = {Mutation.PrimitiveId, Mutation.Actor, Mutation.Component,
-			Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration, Mutation.Family};
+			Mutation.PrimitiveId.Value, Mutation.RegistrationGeneration};
 		Leaf.ExactBounds = Mutation.WorldBounds;
 		if (!Contains(Leaf.FatBounds, Mutation.WorldBounds))
 		{
@@ -163,7 +221,7 @@ namespace Durin::Editor::Level
 	{
 		DLevel* Current = Level.Get();
 		if (!Current || !Subscription) return false;
-		for (const FEditorPickingPrimitiveMutationBatch& Batch : PendingBatches)
+		for (const FViewportPickingMutationBatch& Batch : PendingBatches)
 		{
 			if (Batch.bCompleteSnapshot)
 			{
@@ -172,10 +230,10 @@ namespace Durin::Editor::Level
 			}
 			if (!bComplete || Batch.Revision != AppliedRevision + 1)
 			{
-				ApplySnapshot(Current->CaptureEditorPickingPrimitiveSnapshot());
+				ApplySnapshot(CapturePickingBatch(Current->GetPrimitiveSceneChanges().CaptureSnapshot()));
 				break;
 			}
-			for (const FEditorPickingPrimitiveMutation& Mutation : Batch.Mutations)
+			for (const FViewportPickingMutation& Mutation : Batch.Mutations)
 				if (!ApplyMutation(Mutation)) return false;
 			AppliedRevision = Batch.Revision;
 		}

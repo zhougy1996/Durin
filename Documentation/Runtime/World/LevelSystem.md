@@ -35,6 +35,15 @@ Hosts explicitly initialize [World subsystems](WorldSubsystems.md) before
 Level attachment. Services survive Level changes; attachment notifications
 precede component registration and detachment notifications follow unregistration.
 
+In editor builds, each Level owns `FPrimitiveSceneChanges`, a game-thread
+observation source for registered primitive identity and lifecycle invalidation.
+Subscription synchronously supplies a complete snapshot, followed by ordered
+revisioned batches. Observers must capture derived data during notification and
+must not mutate the scene reentrantly. The source retains no components and does
+not classify picking support or compute query bounds; these policies belong to
+[viewport picking](../../Editor/Architecture/ViewportEditing.md#semantic-picking-contract).
+With no observers, changes advance the revision without constructing batches.
+
 A world starts without an active level. Actor operations safely return empty or fail until a level is activated. The editor supports this empty state: scene panels remain available, while level-dependent editing actions are disabled.
 
 Scene persistence stores the actor list, primary camera, component relative transforms, attachment parents, and camera projection settings. Attachment children and world transforms are derived. After package fields are applied, `DLevel::PostLoad` validates ownership and attachment cycles, rebuilds child lists, and recalculates world transforms before the package load is published.
