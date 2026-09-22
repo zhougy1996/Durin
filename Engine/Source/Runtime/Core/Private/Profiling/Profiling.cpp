@@ -1,8 +1,25 @@
 #include "Profiling/Profiling.h"
 #include "Logging/LogMacros.h"
 
+#if DURIN_WITH_TRACY
+namespace tracy
+{
+	// Exported by Durin's build-local bridge in the pinned shared Tracy client.
+	TRACY_API uint16_t DurinGetListenPort() noexcept;
+}
+#endif
+
 namespace Durin::Profiling
 {
+	auto GetConnectionState() noexcept -> FConnectionState
+	{
+#if DURIN_WITH_TRACY
+		return {true, TracyIsConnected, tracy::DurinGetListenPort()};
+#else
+		return {};
+#endif
+	}
+
 	namespace
 	{
 		constexpr int64 UnrecordedStartupTime = -1;

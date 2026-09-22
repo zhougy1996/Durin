@@ -75,6 +75,10 @@ namespace Durin::Editor::MainFrame
 	auto FProfilingToolService::QueryStatus() const -> FTracyToolStatus
 	{
 		FTracyToolStatus Status;
+		const Profiling::FConnectionState Connection = Profiling::GetConnectionState();
+		Status.bCanConnect = BuildConnectionArguments(Connection, &Status.ConnectionDiagnostic).has_value();
+		if (Status.bCanConnect)
+			Status.ConnectionDiagnostic = std::format("Current Editor is listening at 127.0.0.1:{}.", Connection.ListenPort);
 		FJsonDocument ToolsManifest;
 		if (!LoadManifest(RootDirectory / ToolsManifestPath, ToolsManifest, Status.Diagnostic)) return Status;
 
@@ -159,6 +163,29 @@ namespace Durin::Editor::MainFrame
 		return std::format("\"{}\"", std::filesystem::path(CapturePath).lexically_normal().generic_string());
 	}
 
+	auto FProfilingToolService::BuildConnectionArguments(
+		const Profiling::FConnectionState& Connection,
+		std::string* OutError
+	) -> std::optional<std::string>
+	{
+		if (!Connection.bEnabled)
+		{
+			if (OutError) *OutError = "This Editor was built without Tracy. Enable DURIN_ENABLE_TRACY and rebuild to profile it.";
+			return std::nullopt;
+		}
+		if (Connection.bConnected)
+		{
+			if (OutError) *OutError = "A Tracy profiler or capture tool is already connected to this Editor. Disconnect it before starting another session.";
+			return std::nullopt;
+		}
+		if (Connection.ListenPort == 0)
+		{
+			if (OutError) *OutError = "This Editor's Tracy listener is not ready. Retry shortly; if it stays unavailable, check for occupied ports or a conflicting TRACY_PORT override.";
+			return std::nullopt;
+		}
+		return std::format("-a 127.0.0.1 -p {}", Connection.ListenPort);
+	}
+
 	auto FProfilingToolService::LaunchProfiler(std::string* OutError) const -> bool
 	{
 		const FTracyToolStatus Status = QueryStatus();
@@ -168,7 +195,9 @@ namespace Durin::Editor::MainFrame
 			return false;
 		}
 
-		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(Status.ProfilerPath, {});
+		const auto Arguments = BuildConnectionArguments(Profiling::GetConnectionState(), OutError);
+		if (!Arguments) return false;
+		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(Status.ProfilerPath, *Arguments);
 		if (LaunchProcessResult.has_value()) return true;
 		if (OutError)
 			*OutError = std::format(

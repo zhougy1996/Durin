@@ -3,6 +3,7 @@
 #include "HAL/PlatformProcess.h"
 #include "NativeTestSupport.h"
 #include "ProfilingToolService.h"
+#include "Profiling/Profiling.h"
 
 #include <fstream>
 
@@ -129,9 +130,30 @@ namespace Durin::Editor::MainFrame
 
 	TEST_F(FProfilingToolServiceTests, RegistersExpectedMenuActions)
 	{
-		EXPECT_EQ(FProfilingToolService::LaunchProfilerLabel, "Launch Tracy Profiler");
+		EXPECT_EQ(FProfilingToolService::LaunchProfilerLabel, "Profile This Editor");
 		EXPECT_EQ(FProfilingToolService::OpenCaptureLabel, "Open Tracy Capture...");
 		EXPECT_EQ(FProfilingToolService::OpenCaptureDirectoryLabel, "Open Capture Directory");
 		EXPECT_EQ(FProfilingToolService::ShowStatusLabel, "Tool Status...");
+	}
+
+	TEST_F(FProfilingToolServiceTests, ConnectsToActualLocalPortIncludingNonDefaultAndOverridePorts)
+	{
+		for (uint16 Port : {uint16{8086}, uint16{8101}, uint16{29000}})
+		{
+			const auto Arguments = FProfilingToolService::BuildConnectionArguments({true, false, Port});
+			ASSERT_TRUE(Arguments.has_value());
+			EXPECT_EQ(*Arguments, std::format("-a 127.0.0.1 -p {}", Port));
+		}
+	}
+
+	TEST_F(FProfilingToolServiceTests, DoesNotGuessAnEndpointWhenClientIsUnavailableOrBusy)
+	{
+		std::string Error;
+		EXPECT_FALSE(FProfilingToolService::BuildConnectionArguments({false, false, 0}, &Error));
+		EXPECT_NE(Error.find("built without Tracy"), std::string::npos);
+		EXPECT_FALSE(FProfilingToolService::BuildConnectionArguments({true, false, 0}, &Error));
+		EXPECT_NE(Error.find("listener is not ready"), std::string::npos);
+		EXPECT_FALSE(FProfilingToolService::BuildConnectionArguments({true, true, 8090}, &Error));
+		EXPECT_NE(Error.find("already connected"), std::string::npos);
 	}
 }

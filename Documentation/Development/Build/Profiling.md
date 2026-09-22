@@ -48,8 +48,8 @@ without rerunning setup:
 
 After opening a project in DurinEditor, use `Tools > Profiling`:
 
-- `Launch Tracy Profiler` starts the managed official profiler as an independent
-  process.
+- `Profile This Editor` starts the managed official profiler as an independent
+  process and connects to the current Editor on its actual localhost port.
 - `Open Tracy Capture...` selects a `.tracy` file and opens it explicitly in the
   matching managed profiler.
 - `Open Capture Directory` creates, when needed, and opens the ignored
@@ -57,10 +57,16 @@ After opening a project in DurinEditor, use `Tools > Profiling`:
 - `Tool Status...` reports the expected/client versions, resolved managed path,
   missing required files, and focused repair command.
 
-An Editor may launch Tracy to inspect itself or a separate development Game.
-Both Debug and Release builds support capture by default. The Editor does not claim a
-connection when the external process launches: Tracy's discovery screen owns
-target selection and displays each advertised data port.
+Both Debug and Release builds support capture by default. `Profile This Editor`
+passes `-a 127.0.0.1 -p <actual-port>` to the matching profiler; it does not
+assume port 8086 or select a different Editor/Game process. The action is disabled
+with a reason when this Editor was built without Tracy, its listener is not ready
+(or failed to bind), or a profiler/capture tool is already connected. `Tool Status`
+and the action tooltip show the local endpoint or connection diagnostic. Opening
+saved captures remains available independently of this Editor's client state.
+Launching the process requests a connection; it does not claim the handshake
+succeeded. To inspect a separate Game, launch the managed profiler independently
+and select that Game through Tracy discovery.
 
 If the managed tools are missing, malformed, or version-mismatched, actions that
 need the profiler are disabled and show the status reason. A launch failure
@@ -84,6 +90,12 @@ project without relaunching republishes the identity with the selected project.
 
 Durin does not set `TRACY_PORT`. With no developer override, Tracy searches
 ports 8086 through 8105 and advertises the selected data port through discovery.
+The build-local client bridge publishes the successfully bound port through an
+atomic value in the shared Tracy runtime, and clears it when the worker exits.
+Core exposes only the enabled/connected state and port to Editor; no Tracy types
+cross the engine API. Prepared upstream source remains unchanged, and configure
+fails if the pinned source no longer matches the bridge patch. This preserves
+automatic port search and explicit overrides for one-click connection.
 Use the discovered port instead of assuming every process is on 8086. An
 explicit `TRACY_PORT` remains a developer-owned override and disables the
 automatic search for that process. Profiling runtimes and the Editor tool-status

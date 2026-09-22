@@ -12,6 +12,16 @@
 
 namespace Durin::Profiling
 {
+	struct FConnectionState
+	{
+		bool bEnabled = false;
+		bool bConnected = false;
+		// Zero until the client successfully binds, or when it cannot listen.
+		uint16 ListenPort = 0;
+	};
+
+	CORE_API auto GetConnectionState() noexcept -> FConnectionState;
+
 	enum class EStartupMilestone : uint8
 	{
 		ProcessEntry,

@@ -66,6 +66,39 @@ string(REPLACE
 	_durin_tracy_profiler_contents
 	"${_durin_tracy_profiler_contents}"
 )
+# Expose the actual bound port, not the requested/default port. Keep this
+# bridge in the shared client so every instrumented module sees one endpoint.
+set(_durin_tracy_worker_entry "void Profiler::Worker()\n{")
+set(_durin_tracy_listening_entry "#ifndef TRACY_NO_BROADCAST\n    m_broadcast =")
+foreach(_durin_tracy_endpoint_anchor IN ITEMS _durin_tracy_worker_entry _durin_tracy_listening_entry)
+	string(FIND "${_durin_tracy_profiler_contents}" "${${_durin_tracy_endpoint_anchor}}" _durin_tracy_endpoint_offset)
+	if(_durin_tracy_endpoint_offset EQUAL -1)
+		message(FATAL_ERROR "Tracy v0.13.1 endpoint bridge no longer matches public/client/TracyProfiler.cpp.")
+	endif()
+endforeach()
+set(_durin_tracy_endpoint_bridge [=[
+static std::atomic<uint16_t> s_durinListenPort { 0 };
+
+TRACY_API uint16_t DurinGetListenPort() noexcept
+{
+    return s_durinListenPort.load( std::memory_order_acquire );
+}
+
+void Profiler::Worker()
+{]=])
+string(REPLACE "${_durin_tracy_worker_entry}" "${_durin_tracy_endpoint_bridge}"
+	_durin_tracy_profiler_contents "${_durin_tracy_profiler_contents}")
+set(_durin_tracy_publish_endpoint [=[
+    s_durinListenPort.store( static_cast<uint16_t>( dataPort ), std::memory_order_release );
+    struct DurinListenPortScope
+    {
+        ~DurinListenPortScope() { s_durinListenPort.store( 0, std::memory_order_release ); }
+    } durinListenPortScope;
+
+#ifndef TRACY_NO_BROADCAST
+    m_broadcast =]=])
+string(REPLACE "${_durin_tracy_listening_entry}" "${_durin_tracy_publish_endpoint}"
+	_durin_tracy_profiler_contents "${_durin_tracy_profiler_contents}")
 file(CONFIGURE
 	OUTPUT "${_durin_tracy_patched_profiler}"
 	CONTENT "${_durin_tracy_profiler_contents}"

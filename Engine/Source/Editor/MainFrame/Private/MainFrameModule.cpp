@@ -651,11 +651,11 @@ namespace Durin::Editor::MainFrame
 					bStatusOpen = true;
 				};
 
-				ImGui::BeginDisabled(!Status.bAvailable);
+				ImGui::BeginDisabled(!Status.bAvailable || !Status.bCanConnect);
 				const bool bLaunchProfiler = ImGui::MenuItem(FProfilingToolService::LaunchProfilerLabel.data());
 				ImGui::EndDisabled();
-				if (!Status.bAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-					ImGui::SetTooltip("%s", Status.Diagnostic.c_str());
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+					ImGui::SetTooltip("%s", (Status.bAvailable ? Status.ConnectionDiagnostic : Status.Diagnostic).c_str());
 				if (bLaunchProfiler)
 				{
 					std::string Error;
@@ -683,7 +683,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::Separator();
 				if (ImGui::MenuItem(FProfilingToolService::ShowStatusLabel.data()))
 				{
-					StatusMessage = Status.Diagnostic;
+					StatusMessage = Status.Diagnostic + "\n" + Status.ConnectionDiagnostic;
 					if (!Status.ExpectedVersion.empty())
 						StatusMessage += std::format("\nExpected Tracy version: {}.", Status.ExpectedVersion);
 					if (!Status.PackagePath.empty())
