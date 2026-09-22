@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "DurinEdAPI.h"
 
 #include "DObject/Archive.h"
@@ -73,17 +75,6 @@ namespace Durin::Editor
 		std::optional<FPropertySnapshotError> SnapshotCause;
 		std::optional<FPropertyValueError> ValueCause;
 	};
-	struct FTransactionSnapshotResult
-	{
-		FTransactionSnapshotError Error;
-		explicit operator bool() const { return Error.Code == ETransactionSnapshotError::None; }
-	};
-	struct FTransactionMemberResolveResult
-	{
-		FProperty* Property = nullptr;
-		FTransactionSnapshotError Error;
-		explicit operator bool() const { return Error.Code == ETransactionSnapshotError::None; }
-	};
 	DURINED_API auto FormatTransactionSnapshotError(const FTransactionSnapshotError& Error) -> std::string;
 
 	// Locates one top-level reflected member and records the type expected by its payload.
@@ -93,9 +84,9 @@ namespace Durin::Editor
 		DURINED_API static auto Capture(
 			const FProperty* Property,
 			uint32 ArrayIndex,
-			FTransactionMemberLocator& OutLocator) -> FTransactionSnapshotResult;
+			FTransactionMemberLocator& OutLocator) -> std::expected<void, FTransactionSnapshotError>;
 		DURINED_API auto Resolve(
-			const DObject* Target) const -> FTransactionMemberResolveResult;
+			const DObject* Target) const -> std::expected<FProperty*, FTransactionSnapshotError>;
 
 		auto GetDeclaringType() const -> FName { return DeclaringType; }
 		auto GetMemberName() const -> FName { return MemberName; }
@@ -116,7 +107,7 @@ namespace Durin::Editor
 			DObject* Target,
 			const FProperty* MemberProperty,
 			uint32 ArrayIndex,
-			FFocusedTransactionObjectSnapshot& OutSnapshot) -> FTransactionSnapshotResult;
+			FFocusedTransactionObjectSnapshot& OutSnapshot) -> std::expected<void, FTransactionSnapshotError>;
 
 		auto GetTarget() const -> const FPersistentObjectRef& { return Target; }
 		auto GetMember() const -> const FTransactionMemberLocator& { return Member; }
@@ -128,7 +119,7 @@ namespace Durin::Editor
 
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto RestoreDetached(
-			FReflectedValueStorage& OutStorage) const -> FTransactionSnapshotResult;
+			FReflectedValueStorage& OutStorage) const -> std::expected<void, FTransactionSnapshotError>;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 
 	private:

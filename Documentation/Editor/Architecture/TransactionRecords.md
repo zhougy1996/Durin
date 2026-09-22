@@ -4,7 +4,7 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 ## Scope
 
@@ -21,10 +21,10 @@ run on the game thread under CoreDObject's synchronous collection contract.
 
 ## Custom Replay Results
 
-`FTransactionRecord::Apply` calls `ITransactionCustomChange::Replay` and preserves
-its `FTransactionCustomError` in `CustomCause`. Material parameter replay reports
+`FTransactionRecord::Apply` calls `ITransactionCustomChange::Replay` and formats
+its `FTransactionCustomError` into the record result message. Material parameter replay reports
 an unavailable target or a material write error with owned parameter identity and
-nested `FMaterialError`; record formatting renders that cause at presentation time.
+nested `FMaterialError`; the record boundary renders that cause once.
 Material presentation replay distinguishes expired targets from rejected writes,
 owning the captured target path and changed/candidate node count. Captured path
 storage participates in transaction memory accounting.
@@ -60,8 +60,9 @@ complete transaction or direct-replay failure before returning. Viewport and
 outliner callers consume the message directly; they do not traverse history
 causes. The public actor-support query returns a boolean.
 `Replay` is the required typed entry point for every custom change. The interface
-has no boolean Undo/Redo methods or legacy rejection adapter. Record errors retain
-`CustomCause`; operation details are presentation metadata, not failure storage.
+has no boolean Undo/Redo methods or legacy rejection adapter. Typed replay errors
+remain local to that API; record results expose messages. Operation details are
+presentation metadata, not failure storage.
 
 ## Exact Participant Identity
 
@@ -112,8 +113,9 @@ time it resolves the exact target, finds the current member, verifies its
 declaring type and snapshot compatibility, allocates
 `FReflectedValueStorage`, and decodes into that detached storage.
 
-Member capture/resolution and focused capture/restore return typed transaction
-snapshot errors. They retain owned member and declaring-type names, array
+Member capture and focused capture/restore return
+`std::expected<void, FTransactionSnapshotError>`; member resolution returns
+`std::expected<FProperty*, FTransactionSnapshotError>`. They retain owned member and declaring-type names, array
 bounds, expected/actual property kinds and exact target keys; a stale detached
 restore preserves the snapshot's original key. Storage and payload failures
 retain their CoreDObject causes. Failed capture leaves its output unchanged,
@@ -125,12 +127,15 @@ Detached restore does not mutate a live `DObject`, emit editor notifications,
 or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. Executable
 `FTransactionObjectRecord` values own both before and after payloads and feed
 them through the validated editor mutation pipeline. Their capture, validation
-and application APIs return `FTransactionObjectRecordResult` without string
-outputs. Rejections preserve exact owner identity, member/snapshot/leaf facts,
+and application APIs return `std::expected<void, FTransactionObjectRecordError>`.
+Object-record rejections preserve exact owner identity, member/snapshot/leaf facts,
 payload validity and kinds, selected history side, and typed member, path,
 draft or mutation causes. Capturing an invalid replacement leaves the previous
 record intact; successful history retries do not alter prior error values.
-Transactor/session results preserve the causes; presentation adapters format them.
+The enclosing `FTransactionRecord` formats these errors at its boundary and
+returns `FTransactionRecordResult`, an alias for
+`std::expected<void, std::string>`. History consumers handle recovery disposition
+and messages rather than inspecting property-specific causes.
 
 `FFocusedTransactionObjectSnapshot::AddReferencedObjects(...)` reports the target
 and every distinct hard payload reference exactly once. It never reports weak

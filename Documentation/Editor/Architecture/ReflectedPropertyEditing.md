@@ -209,14 +209,14 @@ storage internally, while sessions and transactions retain only the stable
 snapshot root and owned path.
 
 `FPropertyEditTarget::Validate` and internal path resolution return typed
-`FPropertyEditPathResult`. Rejections retain owned member/leaf/snapshot names,
+`std::expected<void, FPropertyEditPathError>`. Rejections retain owned member/leaf/snapshot names,
 path selectors and indices, Map key bytes/snapshots, snapshot storage presence,
 array bounds, container return codes and nested key-capture errors. Failed
 resolution leaves its output unchanged. Detached drafts retain path errors as
 causes; transaction and session results preserve these causes for presentation.
 
-`FPropertyValueDraft` derives initialization validity and operation success from
-typed errors. It owns root names, indices and lifecycle/layout facts and retains
+`FPropertyValueDraft` retains typed initialization errors and returns
+`std::expected<void, FPropertyValueDraftError>` from its operations. It owns root names, indices and lifecycle/layout facts and retains
 nested snapshot, value-storage and path failures without formatting. Invalid
 drafts return their initialization cause from subsequent operations. A failed
 restore leaves an initialized draft available for retry; successful operations
@@ -230,8 +230,10 @@ invokes the pre hook, captures the normalized draft, writes live storage once,
 and recaptures the actual value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
 
-The internal generic and deferred execution results derive success from
-`FPropertyMutationError`; changed/deferred flags describe successful disposition.
+Generic mutation returns `std::expected<void, FPropertyMutationError>`.
+Execution results retain the changed flag alongside mutation errors and actual
+storage snapshots, including snapshots recovered after failure. Deferred state
+derives from the retained action rather than a separate flag.
 Errors retain owner/member identity, phase, origin and mutation kind, with typed
 draft, snapshot or object-validation causes. Failed publication and recapture
 retain the primary cause separately from rollback and recovery-capture errors.
@@ -412,14 +414,13 @@ arrays, and maps.
 `EditPropertyValue()` and the container-recursion helpers are private so callers
 cannot construct unsafe container addresses or edit paths.
 
-Proposed-value capture retains draft initialization/resolution/capture and value
-validation causes in a typed local result; it has no diagnostic-output parameter.
-Submission callers format only when reporting the rejected proposal to the host.
-Map mutation callbacks return typed container results and operation kinds, or a
-draft-resolution cause. A rejected mutation stops before validation and snapshot
-capture so subsequent work cannot replace its original cause. Array add/remove
-callbacks retain `FPropertyContainerError` from resize, including counts and
-lifecycle requirements, and reject the proposal before capture or submission.
+Proposed-value capture returns `std::expected<void, std::string>` at the view
+boundary. Draft, validation and container errors become display messages where
+they are handled; submission callers report the message without inspecting nested
+diagnostics. Map callbacks preserve the operation name and container result in
+the message; array callbacks format the resize error. A rejected mutation stops
+before validation and snapshot capture so subsequent work cannot replace its
+original failure. Lower-level draft and transaction APIs retain typed errors.
 
 Leaf widgets are separated from submission. A widget reads the displayed value
 into ordinary temporary state and returns a detached assignment proposal that

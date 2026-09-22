@@ -2822,9 +2822,7 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	const auto Failed = Transactions->Undo();
 	ASSERT_FALSE(Failed);
 	ASSERT_TRUE(Failed.ApplyCause);
-	ASSERT_TRUE(Failed.ApplyCause->Error.RecordCause.CustomCause);
-	EXPECT_EQ(Failed.ApplyCause->Error.RecordCause.CustomCause->Code, ETransactionCustomError::MembershipChanged);
-	EXPECT_EQ(Failed.ApplyCause->Error.RecordCause.CustomCause->NodeCount, Nodes.size());
+	EXPECT_EQ(Failed.ApplyCause->Message, "The graph participants changed outside history.");
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());
@@ -3805,7 +3803,7 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	EXPECT_EQ(FormatMaterialGraphCommandResult(CleanupFailed), "Commit failed. Cleanup: Restore failed.");
 }
 
-TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMaterialCauseAndAllowsRepair)
+TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3819,26 +3817,20 @@ TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMaterialCauseAndAllows
 		Definition.Id, Definition.Value, FMaterialParameterValue::MakeScalar(.75f)));
 	const auto Failed = Record.Apply(false, EPropertyChangeOrigin::Redo);
 	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.Error.Code, ETransactionRecordError::CustomRejected);
-	ASSERT_TRUE(Failed.Error.CustomCause);
-	EXPECT_EQ(Failed.Error.CustomCause->Code, ETransactionCustomError::MaterialWrite);
-	EXPECT_EQ(Failed.Error.CustomCause->ParameterId, Definition.Id);
-	ASSERT_TRUE(Failed.Error.CustomCause->MaterialCause);
-	EXPECT_EQ(Failed.Error.CustomCause->MaterialCause->Code,
-		FMaterialError::FCode(EMaterialParameterError::NotFound));
+	const auto Message = Failed.error();
+	EXPECT_EQ(Message, std::format("Material declaration does not exist. [parameter {}]", Definition.Id.ToString()));
 	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition));
 	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .75f);
 	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
-	EXPECT_EQ(Failed.Error.CustomCause->MaterialCause->ParameterId, Definition.Id);
+	EXPECT_EQ(Failed.error(), Message);
 }
 
-TEST(FMaterialGraphOperationsTests, PresentationReplayRetainsExpiredTargetIdentity)
+TEST(FMaterialGraphOperationsTests, PresentationReplayReportsExpiredTarget)
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "ExpiredPresentationOwner");
-	const auto Path = Material->GetObjectPath();
 	const auto NodeId = FGuid::NewGuid();
 	const FMaterialGraphPresentation Before{.Nodes = {{NodeId, 10, 20}}};
 	const FMaterialGraphPresentation After{.Nodes = {{NodeId, 30, 40}}};
@@ -3848,14 +3840,10 @@ TEST(FMaterialGraphOperationsTests, PresentationReplayRetainsExpiredTargetIdenti
 	CollectGarbage();
 	const auto Failed = Record.Apply(true, EPropertyChangeOrigin::Undo);
 	ASSERT_FALSE(Failed);
-	ASSERT_TRUE(Failed.Error.CustomCause);
-	EXPECT_EQ(Failed.Error.CustomCause->Code, ETransactionCustomError::TargetUnavailable);
-	EXPECT_EQ(Failed.Error.CustomCause->TargetPath, Path);
-	EXPECT_EQ(Failed.Error.CustomCause->NodeCount, 1u);
+	EXPECT_EQ(Failed.error(), "The custom transaction target is unavailable.");
 	const auto Redo = Record.Apply(false, EPropertyChangeOrigin::Redo);
-	ASSERT_TRUE(Redo.Error.CustomCause);
-	EXPECT_EQ(Redo.Error.CustomCause->Code, ETransactionCustomError::TargetUnavailable);
-	EXPECT_EQ(Failed.Error.CustomCause->TargetPath, Path);
+	ASSERT_FALSE(Redo);
+	EXPECT_EQ(Redo.error(), Failed.error());
 }
 
 TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndoState)

@@ -72,11 +72,6 @@ namespace Durin::Editor
 		std::optional<EContainerOpResult> ContainerCause;
 		std::optional<FPropertySnapshotError> SnapshotCause;
 	};
-	struct FPropertyEditPathResult
-	{
-		FPropertyEditPathError Error;
-		explicit operator bool() const { return Error.Code == EPropertyEditPathError::None; }
-	};
 	DURINED_API auto FormatPropertyEditPathError(const FPropertyEditPathError& Error) -> std::string;
 
 	enum class EPropertyValueDraftError : uint8
@@ -100,11 +95,6 @@ namespace Durin::Editor
 		std::optional<FPropertyEditPathError> PathCause;
 	};
 
-	struct FPropertyValueDraftResult
-	{
-		FPropertyValueDraftError Error;
-		explicit operator bool() const { return Error.Code == EPropertyValueDraftError::None; }
-	};
 
 	DURINED_API auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string;
 
@@ -127,11 +117,6 @@ namespace Durin::Editor
 		std::optional<FPropertySnapshotError> RollbackCause;
 		std::optional<FPropertySnapshotError> RecoveryCaptureCause;
 	};
-	struct FPropertyMutationResult
-	{
-		FPropertyMutationError Error;
-		explicit operator bool() const { return Error.Code == EPropertyMutationError::None; }
-	};
 	DURINED_API auto FormatPropertyMutationError(const FPropertyMutationError& Error) -> std::string;
 
 	// Describes a reflected edit using a stable snapshot root and logical path.
@@ -151,7 +136,7 @@ namespace Durin::Editor
 		FByteBuffer LogicalIdentity;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
-		DURINED_API auto Validate() const -> FPropertyEditPathResult;
+		DURINED_API auto Validate() const -> std::expected<void, FPropertyEditPathError>;
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FPropertyEditTarget;
 		DURINED_API auto ForStructMember(const FProperty* Property, uint32 ArrayIndex = 0) const -> FPropertyEditTarget;
 		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FPropertyEditTarget;

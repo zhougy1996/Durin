@@ -35,7 +35,6 @@ namespace Durin::Editor
 		Redo,
 	};
 
-	struct FTransactionRecordError;
 	struct FTransactorResult;
 	enum class ETransactionCompletionError : uint8 { None, Operation, Finalization };
 	struct FTransactionCompletionError
@@ -43,7 +42,7 @@ namespace Durin::Editor
 		ETransactionCompletionError Code = ETransactionCompletionError::None;
 		FTransactionId TransactionId = 0;
 		ETransactionOperation Operation = ETransactionOperation::Execute;
-		std::shared_ptr<const FTransactionRecordError> RecordCause;
+		std::string Message;
 		std::shared_ptr<const FTransactorResult> FinalizationCause;
 	};
 	struct FTransactionCompletionResult

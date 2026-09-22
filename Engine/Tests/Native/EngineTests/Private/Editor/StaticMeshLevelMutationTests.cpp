@@ -219,17 +219,13 @@ TEST(FStaticMeshLevelMutationTests, RedoRefusesNameCollisionWithoutChangingHisto
 	const auto Rejected = Transactions->Redo();
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
-	ASSERT_TRUE(Rejected.ApplyCause->Error.RecordCause.CustomCause);
-	const auto& Cause = *Rejected.ApplyCause->Error.RecordCause.CustomCause;
-	EXPECT_EQ(Cause.Code, Durin::Editor::ETransactionCustomError::ActorNameCollision);
-	EXPECT_EQ(Cause.TargetLabel, "Managed");
-	EXPECT_EQ(Cause.TargetPath, Fixture.Level->GetObjectPath());
-	EXPECT_FALSE(Cause.CleanupCause);
+	const auto& Message = Rejected.ApplyCause->Message;
+	EXPECT_EQ(Message, "The requested actor name is occupied.");
 	EXPECT_TRUE(Transactions->CanRedo());
 	EXPECT_EQ(Fixture.Level->FindActorByName("Managed"), Collision);
 	ASSERT_TRUE(Fixture.Level->DestroyActor(Collision));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Cause.TargetLabel, "Managed");
+	EXPECT_EQ(Message, "The requested actor name is occupied.");
 	Transactions->Reset();
 }
 

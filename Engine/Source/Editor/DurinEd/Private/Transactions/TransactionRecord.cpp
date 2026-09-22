@@ -81,18 +81,18 @@ namespace Durin::Editor
 		const FProperty* Property,
 		uint32 InArrayIndex,
 		FTransactionMemberLocator& OutLocator
-	) -> FTransactionSnapshotResult
+	) -> std::expected<void, FTransactionSnapshotError>
 	{
 		FTransactionSnapshotError Error{.ArrayIndex = InArrayIndex};
-		if (!Property) { Error.Code = ETransactionSnapshotError::NullMember; return {Error}; }
+		if (!Property) { Error.Code = ETransactionSnapshotError::NullMember; return std::unexpected(std::move(Error)); }
 		Error.Member = Property->NamePrivate.ToString();
 		Error.ArrayDim = Property->GetArrayDim();
 		Error.ExpectedKind = Property->GetKind();
 		const DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
-		if (!DeclaringClass) { Error.Code = ETransactionSnapshotError::MemberOwner; return {Error}; }
+		if (!DeclaringClass) { Error.Code = ETransactionSnapshotError::MemberOwner; return std::unexpected(std::move(Error)); }
 		Error.DeclaringType = DeclaringClass->GetQualifiedName().ToString();
 		if (InArrayIndex >= Property->GetArrayDim())
-		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return std::unexpected(std::move(Error)); }
 
 		FTransactionMemberLocator Locator;
 		Locator.DeclaringType = DeclaringClass->GetQualifiedName();
@@ -103,26 +103,26 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto FTransactionMemberLocator::Resolve(const DObject* Target) const -> FTransactionMemberResolveResult
+	auto FTransactionMemberLocator::Resolve(const DObject* Target) const -> std::expected<FProperty*, FTransactionSnapshotError>
 	{
 		FTransactionSnapshotError Error{
 			.Owner = FObjectKey(Target), .Member = MemberName.ToString(),
 			.DeclaringType = DeclaringType.ToString(), .ArrayIndex = ArrayIndex,
 			.ExpectedKind = CapturedProperty ? CapturedProperty->GetKind() : DurinCodeGen::EPropertyGenFlags::None};
 		if (!Target || !IsValid(Target))
-		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return {nullptr, Error}; }
+		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return std::unexpected(std::move(Error)); }
 		DClass* TargetClass = Target->GetClass();
 		FProperty* Property = TargetClass ? TargetClass->FindPropertyByName(MemberName) : nullptr;
 		const DClass* DeclaringClass = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
 		if (Property) { Error.ArrayDim = Property->GetArrayDim(); Error.ActualKind = Property->GetKind(); }
 		if (DeclaringClass) Error.ActualDeclaringType = DeclaringClass->GetQualifiedName().ToString();
 		if (!Property || !DeclaringClass || DeclaringClass->GetQualifiedName() != DeclaringType)
-		{ Error.Code = ETransactionSnapshotError::MissingMember; return {nullptr, Error}; }
+		{ Error.Code = ETransactionSnapshotError::MissingMember; return std::unexpected(std::move(Error)); }
 		if (ArrayIndex >= Property->GetArrayDim())
-		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return {nullptr, Error}; }
+		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return std::unexpected(std::move(Error)); }
 		if (!ArePropertySnapshotTypesCompatible(CapturedProperty, Property))
-		{ Error.Code = ETransactionSnapshotError::IncompatibleMember; return {nullptr, Error}; }
-		return {Property, {}};
+		{ Error.Code = ETransactionSnapshotError::IncompatibleMember; return std::unexpected(std::move(Error)); }
+		return Property;
 	}
 
 	auto FFocusedTransactionObjectSnapshot::Capture(
@@ -130,27 +130,27 @@ namespace Durin::Editor
 		const FProperty* MemberProperty,
 		uint32 ArrayIndex,
 		FFocusedTransactionObjectSnapshot& OutSnapshot
-	) -> FTransactionSnapshotResult
+	) -> std::expected<void, FTransactionSnapshotError>
 	{
 		FTransactionSnapshotError Error{
 			.Owner = FObjectKey(InTarget),
 			.Member = MemberProperty ? MemberProperty->NamePrivate.ToString() : std::string{},
 			.ArrayIndex = ArrayIndex};
 		if (!IsValid(InTarget))
-		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return std::unexpected(std::move(Error)); }
 		FFocusedTransactionObjectSnapshot Snapshot;
 		Snapshot.Target = FPersistentObjectRef(InTarget);
 		if (auto Result = FTransactionMemberLocator::Capture(MemberProperty, ArrayIndex, Snapshot.Member); !Result)
-		{ Result.Error.Owner = Error.Owner; return Result; }
+		{ Result.error().Owner = Error.Owner; return Result; }
 		const auto Resolved = Snapshot.Member.Resolve(InTarget);
-		if (!Resolved) return {Resolved.Error};
-		if (Resolved.Property != MemberProperty)
-		{ Error.Code = ETransactionSnapshotError::MemberIdentity; return {Error}; }
+		if (!Resolved) return std::unexpected(Resolved.error());
+		if (*Resolved != MemberProperty)
+		{ Error.Code = ETransactionSnapshotError::MemberIdentity; return std::unexpected(std::move(Error)); }
 		if (const auto Result = CapturePropertyValuePayload(MemberProperty, InTarget, ArrayIndex, Snapshot.Payload); !Result)
 		{
 			Error.Code = ETransactionSnapshotError::Capture;
 			Error.SnapshotCause = Result.error();
-			return {Error};
+			return std::unexpected(std::move(Error));
 		}
 		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
@@ -170,16 +170,16 @@ namespace Durin::Editor
 
 	auto FFocusedTransactionObjectSnapshot::RestoreDetached(
 		FReflectedValueStorage& OutStorage
-	) const -> FTransactionSnapshotResult
+	) const -> std::expected<void, FTransactionSnapshotError>
 	{
 		const auto Resolved = Member.Resolve(Target.Resolve());
 		if (!Resolved)
 		{
-			auto Error = Resolved.Error;
+			auto Error = Resolved.error();
 			Error.Owner = Target.GetKey();
-			return {Error};
+			return std::unexpected(std::move(Error));
 		}
-		FProperty* Property = Resolved.Property;
+		FProperty* Property = *Resolved;
 		FTransactionSnapshotError Error{
 			.Owner = Target.GetKey(), .Member = Member.GetMemberName().ToString(),
 			.DeclaringType = Member.GetDeclaringType().ToString(),
@@ -187,9 +187,9 @@ namespace Durin::Editor
 			.ExpectedKind = Property->GetKind(), .ActualKind = Property->GetKind()};
 		FReflectedValueStorage Storage;
 		if (const auto Result = Storage.DefaultConstruct(Property, Member.GetArrayIndex()); !Result)
-		{ Error.Code = ETransactionSnapshotError::Storage; Error.ValueCause = Result.error(); return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::Storage; Error.ValueCause = Result.error(); return std::unexpected(std::move(Error)); }
 		if (const auto Result = RestorePropertyValuePayload(Property, Storage.GetContainer(), Member.GetArrayIndex(), Payload); !Result)
-		{ Error.Code = ETransactionSnapshotError::Restore; Error.SnapshotCause = Result.error(); return {Error}; }
+		{ Error.Code = ETransactionSnapshotError::Restore; Error.SnapshotCause = Result.error(); return std::unexpected(std::move(Error)); }
 		OutStorage = std::move(Storage);
 		return {};
 	}

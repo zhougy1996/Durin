@@ -60,11 +60,11 @@ namespace Durin::Editor
 		if (Result.RejectionCause) Message = FormatTransactorRejection(*Result.RejectionCause);
 		else if (Result.ApplyCause)
 		{
-			Message = FormatTransactionApplyError(Result.ApplyCause->Error);
+			Message = Result.ApplyCause->Message;
 			if (Result.Code == ETransactorResultCode::RecoveryRequired)
 			{
 				for (const auto& Failure : Result.ApplyCause->RollbackFailures)
-					Message += std::format(" Rollback record {} failed: {}", Failure.RecordIndex, FormatTransactionRecordError(Failure.Error));
+					Message += std::format(" Rollback record {} failed: {}", Failure.RecordIndex, Failure.Message);
 				Message += " Transaction history is disabled; reload the editor session after recovering affected data.";
 			}
 		}
@@ -112,7 +112,7 @@ namespace Durin::Editor
 
 	auto FormatTransactionCompletionError(const FTransactionCompletionError& Error) -> std::string
 	{
-		if (Error.RecordCause) return FormatTransactionRecordError(*Error.RecordCause);
+		if (!Error.Message.empty()) return Error.Message;
 		if (Error.FinalizationCause) return FormatTransactorResult(*Error.FinalizationCause);
 		switch (Error.Code)
 		{
@@ -123,21 +123,6 @@ namespace Durin::Editor
 		return {};
 	}
 
-	auto FormatTransactionRecordError(const FTransactionRecordError& Error) -> std::string
-	{
-		if (Error.ObjectCause) return FormatTransactionObjectRecordError(*Error.ObjectCause);
-		if (Error.Code == ETransactionRecordError::MissingCustom) return "The custom transaction change is unavailable.";
-		if (Error.Code == ETransactionRecordError::CustomRejected)
-			return Error.CustomCause
-				? FormatTransactionCustomError(*Error.CustomCause) : "The custom transaction rejected replay.";
-		return {};
-	}
-
-	auto FormatTransactionApplyError(const FTransactionApplyError& Error) -> std::string
-	{
-		return FormatTransactionRecordError(Error.RecordCause);
-	}
-
 	auto FTransactionRecord::Validate() const -> FTransactionRecordResult
 	{
 		return std::visit([&](const auto& Record) -> FTransactionRecordResult {
@@ -145,9 +130,9 @@ namespace Durin::Editor
 			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
 			{
 				const auto Result = Record.Validate();
-				if (!Result) return {{.Code = ETransactionRecordError::Object, .ObjectCause = Result.Error}};
+				if (!Result) return std::unexpected(FormatTransactionObjectRecordError(Result.error()));
 			}
-			else if (!Record) return {{.Code = ETransactionRecordError::MissingCustom}};
+			else if (!Record) return std::unexpected(std::string("The custom transaction change is unavailable."));
 			return {};
 		}, Data);
 	}
@@ -217,16 +202,13 @@ namespace Durin::Editor
 			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
 			{
 				const auto Result = Record.Apply(bBefore, Origin);
-				if (!Result) return {{.Code = ETransactionRecordError::Object,
-					.Before = bBefore, .Origin = Origin, .ObjectCause = Result.Error}};
+				if (!Result) return std::unexpected(FormatTransactionObjectRecordError(Result.error()));
 			}
 			else
 			{
-				if (!Record) return {{.Code = ETransactionRecordError::MissingCustom, .Before = bBefore, .Origin = Origin}};
+				if (!Record) return std::unexpected(std::string("The custom transaction change is unavailable."));
 				if (const auto Applied = Record->Replay(bBefore ? ETransactionOperation::Undo : ETransactionOperation::Redo); !Applied)
-					return {{.Code = ETransactionRecordError::CustomRejected, .Before = bBefore, .Origin = Origin,
-						.CustomDescription = std::string(Record->GetDescription()),
-						.CustomCause = Applied.Error}};
+					return std::unexpected(FormatTransactionCustomError(Applied.Error));
 			}
 			return {};
 		}, Data);
@@ -367,21 +349,15 @@ namespace Durin::Editor
 		for (size_t Index = 0; Index < Records.size(); ++Index)
 		{
 			if (const auto Result = Records[Index].Validate(); !Result)
-				return {.Status = ETransactionApplyStatus::ValidationFailed,
-					.Error = {.Code = ETransactionApplyError::Validation,
-						.TransactionId = Id, .RecordIndex = Index, .RecordCause = Result.Error}};
+				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
+					.RecordIndex = Index, .Message = Result.error()});
 		}
 		return {};
 	}
 
 	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin) -> FTransactionApplyResult
 	{
-		if (auto Result = Validate(); !Result)
-		{
-			Result.Error.Undo = bUndo;
-			Result.Error.Origin = Origin;
-			return Result;
-		}
+		if (auto Result = Validate(); !Result) return Result;
 		std::vector<size_t> Applied;
 		Applied.reserve(Records.size());
 		for (size_t Step = 0; Step < Records.size(); ++Step)
@@ -389,18 +365,15 @@ namespace Durin::Editor
 			const size_t Index = bUndo ? Records.size() - 1 - Step : Step;
 			if (const auto Application = Records[Index].Apply(bUndo, Origin); !Application)
 			{
-				FTransactionApplyResult Result{.Status = ETransactionApplyStatus::Restored,
-					.Error = {.Code = ETransactionApplyError::Execution, .TransactionId = Id,
-						.RecordIndex = Index, .Undo = bUndo, .Origin = Origin, .RecordCause = Application.Error}};
+				FTransactionApplyError Error{.Status = ETransactionApplyFailure::Restored,
+					.RecordIndex = Index, .Message = Application.error()};
 				for (auto It = Applied.rbegin(); It != Applied.rend(); ++It)
 				{
 					if (const auto Rollback = Records[*It].Apply(!bUndo, Origin); !Rollback)
-					{
-						Result.Status = ETransactionApplyStatus::RecoveryRequired;
-						Result.RollbackFailures.push_back({*It, Rollback.Error});
-					}
+						Error.RollbackFailures.push_back({*It, Rollback.error()});
 				}
-				return Result;
+				if (!Error.RollbackFailures.empty()) Error.Status = ETransactionApplyFailure::RecoveryRequired;
+				return std::unexpected(std::move(Error));
 			}
 			Applied.push_back(Index);
 		}
@@ -626,7 +599,7 @@ namespace Durin::Editor
 					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 						.FailureCause = FTransactorFailure{.Code = ETransactorFailure::PrepareRecord,
 							.Owner = FObjectKey(Object), .Member = Property->NamePrivate.ToString(),
-							.ArrayIndex = ArrayIndex, .RecordCause = Capture.Error}};
+							.ArrayIndex = ArrayIndex, .RecordCause = Capture.error()}};
 					return;
 				}
 				FTransactorResult RecordResult = Record(std::move(ObjectRecord));
@@ -700,7 +673,7 @@ namespace Durin::Editor
 					.FailureCause = FTransactorFailure{.Code = ETransactorFailure::FinalizeRecord,
 						.Owner = FObjectKey(Modified->Target.Object),
 						.Member = Modified->Target.MemberProperty->NamePrivate.ToString(),
-						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .RecordCause = Capture.Error}};
+						.ArrayIndex = Modified->Target.SnapshotArrayIndex, .RecordCause = Capture.error()}};
 			}
 			FTransactorResult Result = UpdateRecord(Modified->RecordId, std::move(Record));
 			if (!Result) return Result;
@@ -909,7 +882,7 @@ namespace Durin
 			{
 				Transaction.SetDeferredOperationCompletion({});
 				PendingTransactionId = 0;
-				return HandleApplyFailure(Transaction, std::move(ApplyResult));
+				return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 			}
 			if (Transaction.IsDeferredOperationPending())
 			{
@@ -1083,7 +1056,7 @@ namespace Durin
 		{
 			Transaction.SetDeferredOperationCompletion({});
 			PendingTransactionId = 0;
-			return HandleApplyFailure(Transaction, std::move(ApplyResult));
+			return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 		}
 		if (Transaction.IsDeferredOperationPending())
 			return {.Code = ETransactorResultCode::Succeeded,
@@ -1126,7 +1099,7 @@ namespace Durin
 		{
 			Transaction.SetDeferredOperationCompletion({});
 			PendingTransactionId = 0;
-			return HandleApplyFailure(Transaction, std::move(ApplyResult));
+			return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 		}
 		if (Transaction.IsDeferredOperationPending())
 			return {.Code = ETransactorResultCode::Succeeded,
@@ -1142,13 +1115,13 @@ namespace Durin
 			.TransactionId = Transaction.GetId()};
 	}
 
-	auto DTransBuffer::HandleApplyFailure(const FTransaction& Transaction, FTransactionApplyResult Result) -> FTransactorResult
+	auto DTransBuffer::HandleApplyFailure(const FTransaction& Transaction, FTransactionApplyError Error) -> FTransactorResult
 	{
-		const bool bRecoveryRequired = Result.Status == ETransactionApplyStatus::RecoveryRequired;
+		const bool bRecoveryRequired = Error.Status == ETransactionApplyFailure::RecoveryRequired;
 		State = bRecoveryRequired ? ETransactorState::RecoveryRequired : ETransactorState::Idle;
 		FTransactorResult Failure{.Code = bRecoveryRequired ? ETransactorResultCode::RecoveryRequired : ETransactorResultCode::Failed,
-			.TransactionId = Transaction.GetId(), .RollbackFailures = Result.RollbackFailures,
-			.ApplyCause = std::make_shared<FTransactionApplyResult>(std::move(Result))};
+			.TransactionId = Transaction.GetId(),
+			.ApplyCause = std::make_shared<FTransactionApplyError>(std::move(Error))};
 		const std::string Message = FormatTransactorResult(Failure);
 		if (bRecoveryRequired)
 		{

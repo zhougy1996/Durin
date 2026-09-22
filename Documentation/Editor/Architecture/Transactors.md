@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-22
 
 ## Service Ownership
 
@@ -101,17 +101,18 @@ preserves the original preparation failure. Undo, Redo, Reset, and limit
 changes are rejected while recording. Undo validates all records before
 writing, then applies property records in reverse order; Redo applies them
 forward. Partial failure rolls back records already applied and leaves the
-cursor unchanged. `FTransaction::Apply` returns a value distinguishing validation
-failure, restored execution failure, and failed compensation. Record validation
-and application return typed errors without string outputs. Transaction errors
-retain the transaction ID, failed record index, direction, origin and record
-cause. Each failed rollback retains its own index and typed record error.
-Success derives from the error code; compensation status describes storage
-recovery independently. Property records preserve their complete typed causes.
-The pending custom-change boolean contract maps to a custom rejection code and
-retains its description/details for presentation until that contract migrates.
-`FTransactorResult::ApplyCause` preserves the entire execution result through the
-outer transactor result. Record implementations must
+cursor unchanged. `FTransactionRecordResult` aliases
+`std::expected<void, std::string>`: the record boundary formats property/custom
+errors once, and callers receive an owned message without nested diagnostics.
+`FTransactionApplyResult` aliases `std::expected<void, FTransactionApplyError>`.
+Success has no payload. Failure retains a disposition (validation failed,
+execution restored, or recovery required), the failed record index and message,
+and each failed rollback's index and message. Transaction identity and direction
+remain with the executing transaction and outer transactor operation.
+`FTransactorResult::ApplyCause` retains only this flat failure data, including the
+sole rollback-failure list. Deferred operation failures also retain an owned
+message in `FTransactionCompletionError`, not a record-specific cause chain.
+Record implementations must
 leave their own state unchanged or compensate internally when returning failure.
 
 Failed compensation puts the buffer in RecoveryRequired, invalidates affected

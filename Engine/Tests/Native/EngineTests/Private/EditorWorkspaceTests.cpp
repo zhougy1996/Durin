@@ -204,7 +204,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 	Durin::Editor::FTransactionObjectRecord Record;
 	const auto Capture = Durin::Editor::FTransactionObjectRecord::Capture(Target, Snapshot, Snapshot, Record);
-	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.Error);
+	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.error());
 	ASSERT_TRUE(Buffer->Record(Scope.ScopeId, std::move(Record)));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);

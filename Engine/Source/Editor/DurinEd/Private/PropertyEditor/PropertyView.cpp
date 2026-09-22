@@ -257,44 +257,30 @@ namespace Durin::Editor
 			}
 		}
 
-		struct FProposedPropertyValueResult
+		// Proposal failures end at the view boundary; callers only display the message.
+		auto CheckMapMutation(EContainerOpResult Result, std::string_view Operation)
+			-> std::expected<void, std::string>
 		{
-			std::optional<FPropertyValueDraftError> DraftCause;
-			std::optional<FPropertyEditValueError> ValidationCause;
-			std::optional<FPropertyContainerError> ArrayCause;
-			EContainerOpResult ContainerCause = EContainerOpResult::Success;
-			EPropertyChangeKind Operation{};
-			explicit operator bool() const { return !DraftCause && !ValidationCause && !ArrayCause && ContainerCause == EContainerOpResult::Success; }
-		};
-
-		auto FormatProposedPropertyValueResult(const FProposedPropertyValueResult& Result) -> std::string
-		{
-			if (Result.DraftCause) return FormatPropertyValueDraftError(*Result.DraftCause);
-			if (Result.ValidationCause) return ToString(*Result.ValidationCause);
-			if (Result.ArrayCause) return ToString(*Result.ArrayCause);
-			if (Result.ContainerCause != EContainerOpResult::Success)
-				return std::format("Reflected map {} failed (result {}).",
-					Result.Operation == EPropertyChangeKind::MapInsert ? "insertion"
-					: Result.Operation == EPropertyChangeKind::MapRemove ? "removal" : "key rename",
-					static_cast<uint32>(Result.ContainerCause));
-			return {};
+			if (Result == EContainerOpResult::Success) return {};
+			return std::unexpected(std::format("Reflected map {} failed (result {}).",
+				Operation, static_cast<uint32>(Result)));
 		}
 
 		template<typename TWriteProposed>
 		auto CaptureProposedPropertyValue(const FPropertyEditTarget& Target,
-			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot) -> FProposedPropertyValueResult
+			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot) -> std::expected<void, std::string>
 		{
 			FPropertyValueDraft Draft(Target);
-			if (!Draft.IsValid()) return {.DraftCause = Draft.GetError()};
+			if (!Draft.IsValid()) return std::unexpected(FormatPropertyValueDraftError(Draft.GetError()));
 			FResolvedPropertyValue DraftValue;
 			if (auto Result = Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex); !Result)
-				return {.DraftCause = std::move(Result.Error)};
+				return std::unexpected(FormatPropertyValueDraftError(Result.error()));
 			if (auto Written = WriteProposed(DraftValue, &Draft); !Written) return Written;
 			auto Validation = ValidatePropertyEditValue(
 				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex());
-			if (!Validation) return {.ValidationCause = std::move(Validation.error())};
+			if (!Validation) return std::unexpected(ToString(Validation.error()));
 			auto Result = Draft.Capture(OutSnapshot);
-			if (!Result) return {.DraftCause = std::move(Result.Error)};
+			if (!Result) return std::unexpected(FormatPropertyValueDraftError(Result.error()));
 			return {};
 		}
 
@@ -1089,10 +1075,10 @@ namespace Durin::Editor
 				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
 					Edit.AssignValue(const_cast<FProperty*>(DraftValue.Property),
 						DraftValue.Container, DraftValue.ArrayIndex);
-					return FProposedPropertyValueResult{};
+					return std::expected<void, std::string>{};
 				}, Proposed); !Captured)
 			{
-				ReportError(Context, FormatProposedPropertyValueResult(Captured));
+				ReportError(Context, Captured.error());
 			}
 			else
 			{
@@ -1145,13 +1131,13 @@ namespace Durin::Editor
 			StructuralTarget.Kind = Kind;
 			FPropertyValueSnapshot Proposed;
 			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) -> FProposedPropertyValueResult {
+				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) -> std::expected<void, std::string> {
 					auto Mutated = Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
-					if (!Mutated) return {.ArrayCause = std::move(Mutated.error())};
+					if (!Mutated) return std::unexpected(ToString(Mutated.error()));
 					return {};
 				}, Proposed); !Captured)
 			{
-				ReportError(Context, FormatProposedPropertyValueResult(Captured));
+				ReportError(Context, Captured.error());
 				return false;
 			}
 			return SubmitPropertyEdit(Context, StructuralTarget, Proposed, false);
@@ -1246,7 +1232,7 @@ namespace Durin::Editor
 					return Mutation(DraftValue, *Draft);
 				}, Proposed); !Captured)
 			{
-				ReportError(Context, FormatProposedPropertyValueResult(Captured));
+				ReportError(Context, Captured.error());
 				return false;
 			}
 
@@ -1345,11 +1331,11 @@ namespace Durin::Editor
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key.GetPayload();
 							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
-								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> FProposedPropertyValueResult {
+								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> std::expected<void, std::string> {
 									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 									const EContainerOpResult Result = DraftProperty->InsertChecked(
 										DraftMap.Container, DraftKey, DraftValue, DraftMap.ArrayIndex);
-									return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapInsert};
+									return CheckMapMutation(Result, "insertion");
 								});
 							if (bChanged) MapInsertDraft = {};
 						}
@@ -1411,11 +1397,11 @@ namespace Durin::Editor
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot.GetPayload();
 					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
-						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> FProposedPropertyValueResult {
+						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> std::expected<void, std::string> {
 							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 							const EContainerOpResult Result = DraftProperty->RemoveChecked(
 								DraftMap.Container, Key, DraftMap.ArrayIndex);
-							return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapRemove};
+							return CheckMapMutation(Result, "removal");
 						});
 				}
 				else if (bKeyChanged)
@@ -1449,18 +1435,18 @@ namespace Durin::Editor
 						else
 						{
 							bChanged |= SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
-								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft) -> FProposedPropertyValueResult {
+								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft) -> std::expected<void, std::string> {
 									const FProperty* DraftProperty = nullptr;
 									void* DraftContainer = nullptr;
 									uint32 DraftArrayIndex = 0;
 									if (const auto Result = Draft.Resolve(EditTarget, DraftProperty, DraftContainer, DraftArrayIndex); !Result)
 									{
-										return {.DraftCause = Result.Error};
+										return std::unexpected(FormatPropertyValueDraftError(Result.error()));
 									}
 									auto* DraftMap = static_cast<const FMapProperty*>(DraftProperty);
 									const EContainerOpResult Result = DraftMap->RenameKeyChecked(
 										DraftContainer, Key, ProposedKey, DraftArrayIndex);
-									return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapKeyRename};
+									return CheckMapMutation(Result, "key rename");
 								}, true);
 						}
 					}
@@ -1525,10 +1511,10 @@ namespace Durin::Editor
 		if (const auto Captured = CaptureProposedPropertyValue(Target,
 			[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
 				AssignValue(const_cast<FProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
-				return FProposedPropertyValueResult{};
+				return std::expected<void, std::string>{};
 			}, Proposed); !Captured)
 		{
-			ReportError(Context, FormatProposedPropertyValueResult(Captured));
+			ReportError(Context, Captured.error());
 			return false;
 		}
 		const bool bSubmitted = SubmitPropertyEdit(Context, Target, Proposed, bContinuous);

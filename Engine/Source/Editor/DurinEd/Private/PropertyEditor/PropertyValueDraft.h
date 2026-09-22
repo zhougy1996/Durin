@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "DObject/Property.h"
 #include "PropertyEditor/PropertyEditing.h"
 
@@ -14,7 +16,7 @@ namespace Durin::Editor
 	};
 
 	auto ResolveReflectedPropertyValue(const FPropertyEditTarget& Target,
-		FResolvedPropertyValue& OutValue) -> FPropertyEditPathResult;
+		FResolvedPropertyValue& OutValue) -> std::expected<void, FPropertyEditPathError>;
 
 	// Owns detached snapshot-root storage and retains typed initialization failures.
 	class FPropertyValueDraft
@@ -30,27 +32,28 @@ namespace Durin::Editor
 			Context.ValueSize = Property ? Property->GetValueSize() : 0;
 			Context.ValueAlignment = Property ? Property->GetValueAlignment() : 0;
 			if (!Property || !Target.SnapshotContainer)
-				InitializationError = Reject(EPropertyValueDraftError::MissingRoot).Error;
+				InitializationError = Reject(EPropertyValueDraftError::MissingRoot).error();
 			else if (Property->HasValueAccessors())
-				InitializationError = Reject(EPropertyValueDraftError::Accessors).Error;
+				InitializationError = Reject(EPropertyValueDraftError::Accessors).error();
 			else if (!Context.HasLifecycle || !Context.ValueSize || !Context.ValueAlignment)
-				InitializationError = Reject(EPropertyValueDraftError::Lifecycle).Error;
+				InitializationError = Reject(EPropertyValueDraftError::Lifecycle).error();
 			if (!IsValid()) return;
 
 			FPropertyValueSnapshotPayload Current;
 			if (const auto Result = CapturePropertyValuePayload(Property, Target.SnapshotContainer, ArrayIndex, Current); !Result)
 			{
-				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.error()).Error;
+				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.error()).error();
 				return;
 			}
 			if (const auto Result = Storage.DefaultConstruct(Property, ArrayIndex); !Result)
 			{
-				InitializationError = Reject(EPropertyValueDraftError::Storage).Error;
+				InitializationError = Reject(EPropertyValueDraftError::Storage).error();
 				InitializationError.ValueCause = Result.error();
 				return;
 			}
 			Memory = Storage.GetContainer();
-			InitializationError = Restore(Current).Error;
+			if (const auto Result = Restore(Current); !Result)
+				InitializationError = Result.error();
 		}
 
 		FPropertyValueDraft(const FPropertyValueDraft&) = delete;
@@ -61,22 +64,23 @@ namespace Durin::Editor
 		auto GetRootContainer() const -> void* { return Memory; }
 		auto GetRootArrayIndex() const -> uint32 { return ArrayIndex; }
 
-		auto Restore(const FPropertyValueSnapshotPayload& Snapshot) -> FPropertyValueDraftResult
+		auto Restore(const FPropertyValueSnapshotPayload& Snapshot) -> std::expected<void, FPropertyValueDraftError>
 		{
-			if (!IsValid()) return {InitializationError};
+			if (!IsValid()) return std::unexpected(InitializationError);
 			const auto Result = RestorePropertyValuePayload(Property, Memory, ArrayIndex, Snapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Restore, Result.error());
+			if (!Result) return SnapshotFailure(EPropertyValueDraftError::Restore, Result.error());
+			return {};
 		}
 
 		auto Resolve(const FPropertyEditTarget& Source, const FProperty*& OutProperty,
-			void*& OutContainer, uint32& OutArrayIndex) const -> FPropertyValueDraftResult
+			void*& OutContainer, uint32& OutArrayIndex) const -> std::expected<void, FPropertyValueDraftError>
 		{
-			if (!IsValid()) return {InitializationError};
+			if (!IsValid()) return std::unexpected(InitializationError);
 			if (Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
 			{
 				auto Result = Reject(EPropertyValueDraftError::RootMismatch);
-				Result.Error.RequestedRoot = Source.SnapshotProperty ? Source.SnapshotProperty->NamePrivate.ToString() : std::string{};
-				Result.Error.RequestedArrayIndex = Source.SnapshotArrayIndex;
+				Result.error().RequestedRoot = Source.SnapshotProperty ? Source.SnapshotProperty->NamePrivate.ToString() : std::string{};
+				Result.error().RequestedArrayIndex = Source.SnapshotArrayIndex;
 				return Result;
 			}
 			FPropertyEditTarget DraftTarget = Source;
@@ -85,7 +89,7 @@ namespace Durin::Editor
 			if (const auto Path = ResolveReflectedPropertyValue(DraftTarget, Resolved); !Path)
 			{
 				auto Result = Reject(EPropertyValueDraftError::Path);
-				Result.Error.PathCause = Path.Error;
+				Result.error().PathCause = Path.error();
 				return Result;
 			}
 			OutProperty = Resolved.Property;
@@ -94,31 +98,33 @@ namespace Durin::Editor
 			return {};
 		}
 
-		auto Capture(FPropertyValueSnapshotPayload& OutSnapshot) const -> FPropertyValueDraftResult
+		auto Capture(FPropertyValueSnapshotPayload& OutSnapshot) const -> std::expected<void, FPropertyValueDraftError>
 		{
-			if (!IsValid()) return {InitializationError};
+			if (!IsValid()) return std::unexpected(InitializationError);
 			const auto Result = CapturePropertyValuePayload(Property, Memory, ArrayIndex, OutSnapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
+			if (!Result) return SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
+			return {};
 		}
 
-		auto Capture(FPropertyValueSnapshot& OutSnapshot) const -> FPropertyValueDraftResult
+		auto Capture(FPropertyValueSnapshot& OutSnapshot) const -> std::expected<void, FPropertyValueDraftError>
 		{
-			if (!IsValid()) return {InitializationError};
+			if (!IsValid()) return std::unexpected(InitializationError);
 			const auto Result = CapturePropertyValue(Property, Memory, ArrayIndex, OutSnapshot);
-			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
+			if (!Result) return SnapshotFailure(EPropertyValueDraftError::Capture, Result.error());
+			return {};
 		}
 
 	private:
-		auto Reject(EPropertyValueDraftError Code) const -> FPropertyValueDraftResult
+		auto Reject(EPropertyValueDraftError Code) const -> std::expected<void, FPropertyValueDraftError>
 		{
 			auto Error = Context;
 			Error.Code = Code;
-			return {std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
-		auto SnapshotFailure(EPropertyValueDraftError Code, const FPropertySnapshotError& Cause) const -> FPropertyValueDraftResult
+		auto SnapshotFailure(EPropertyValueDraftError Code, const FPropertySnapshotError& Cause) const -> std::expected<void, FPropertyValueDraftError>
 		{
 			auto Result = Reject(Code);
-			Result.Error.SnapshotCause = Cause;
+			Result.error().SnapshotCause = Cause;
 			return Result;
 		}
 		const FProperty* Property = nullptr;

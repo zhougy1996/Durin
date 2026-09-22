@@ -73,11 +73,11 @@ namespace Durin::Editor
 		}
 
 		auto RejectMutation(const FPropertyEditTarget& Target, EPropertyChangePhase Phase,
-			EPropertyChangeOrigin Origin, EPropertyMutationError Code) -> FPropertyMutationResult
+			EPropertyChangeOrigin Origin, EPropertyMutationError Code) -> std::expected<void, FPropertyMutationError>
 		{
-			return {{.Code = Code, .Owner = FObjectKey(Target.Object),
+			return std::unexpected(FPropertyMutationError{.Code = Code, .Owner = FObjectKey(Target.Object),
 				.Member = Target.MemberProperty ? Target.MemberProperty->NamePrivate.ToString() : std::string{},
-				.Phase = Phase, .Origin = Origin, .Kind = Target.Kind}};
+				.Phase = Phase, .Origin = Origin, .Kind = Target.Kind});
 		}
 
 		auto MakeEventPath(const FPropertyEditTarget& Target) -> std::vector<FPropertyPathSegment>
@@ -115,12 +115,12 @@ namespace Durin::Editor
 			EPropertyChangeOrigin Origin,
 			FPropertyValueSnapshotPayload* OutAppliedValue,
 			FDeferredMutation* OutDeferred
-		) -> FPropertyMutationResult
+		) -> std::expected<void, FPropertyMutationError>
 		{
 			auto Reject = [&](EPropertyMutationError Code) { return RejectMutation(Target, Phase, Origin, Code); };
 			auto RejectDraft = [&](const FPropertyValueDraftError& Cause) {
 				auto Result = Reject(EPropertyMutationError::Draft);
-				Result.Error.DraftCause = Cause;
+				Result.error().DraftCause = Cause;
 				return Result;
 			};
 			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(Target); }))
@@ -131,19 +131,19 @@ namespace Durin::Editor
 			if (const auto Capture = CaptureTargetValue(Target, Before); !Capture)
 			{
 				auto Result = Reject(EPropertyMutationError::CaptureBefore);
-				Result.Error.SnapshotCause = Capture.error();
+				Result.error().SnapshotCause = Capture.error();
 				return Result;
 			}
 			FPropertyValueDraft Draft(Target);
 			if (const auto Result = Draft.Restore(ProposedValue); !Result)
-				return RejectDraft(Result.Error);
+				return RejectDraft(Result.error());
 
 			FResolvedPropertyValue DraftLeaf;
 			const auto LeafResult = Draft.Resolve(Target, DraftLeaf.Property, DraftLeaf.Container, DraftLeaf.ArrayIndex);
 			const bool bResolvedLeaf = static_cast<bool>(LeafResult);
 			if (!bResolvedLeaf && Target.Kind != EPropertyChangeKind::MapKeyRename
 				&& Target.Kind != EPropertyChangeKind::MapRemove)
-				return RejectDraft(LeafResult.Error);
+				return RejectDraft(LeafResult.error());
 
 			std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
 			FPropertyEditProposal Proposal{
@@ -165,20 +165,20 @@ namespace Durin::Editor
 				if (const auto Validation = Extension.PreEdit(*Target.Object, Proposal); !Validation)
 				{
 					auto Result = Reject(EPropertyMutationError::ExtensionValidation);
-					Result.Error.ValidationCause = Validation.error();
+					Result.error().ValidationCause = Validation.error();
 					return Result;
 				}
 			}
 			if (const auto Validation = Target.Object->PreEditChangeProperty(Proposal); !Validation)
 			{
 				auto Result = Reject(EPropertyMutationError::ObjectValidation);
-				Result.Error.ValidationCause = Validation.error();
+				Result.error().ValidationCause = Validation.error();
 				return Result;
 			}
 
 			FPropertyValueSnapshotPayload Normalized;
 			if (const auto Result = Draft.Capture(Normalized); !Result)
-				return RejectDraft(Result.Error);
+				return RejectDraft(Result.error());
 			if (Proposal.DeferredAction)
 			{
 				if (!OutDeferred)
@@ -190,14 +190,14 @@ namespace Durin::Editor
 			}
 			auto Recover = [&](EPropertyMutationError Code, const FPropertySnapshotError& Cause) {
 				auto Result = Reject(Code);
-				Result.Error.SnapshotCause = Cause;
+				Result.error().SnapshotCause = Cause;
 				const auto Rollback = RestoreTargetValue(Target, Before);
-				if (!Rollback) Result.Error.RollbackCause = Rollback.error();
+				if (!Rollback) Result.error().RollbackCause = Rollback.error();
 				if (OutAppliedValue)
 				{
 					if (Rollback) *OutAppliedValue = Before;
 					else if (const auto Capture = CaptureTargetValue(Target, *OutAppliedValue); !Capture)
-						Result.Error.RecoveryCaptureCause = Capture.error();
+						Result.error().RecoveryCaptureCause = Capture.error();
 				}
 				return Result;
 			};
@@ -214,7 +214,7 @@ namespace Durin::Editor
 		auto RejectPath(const FPropertyEditTarget& Target, EPropertyEditPathError Code,
 			uint64 Index = 0, uint64 Actual = 0, uint64 Expected = 0,
 			std::optional<EContainerOpResult> ContainerCause = {},
-			std::optional<FPropertySnapshotError> SnapshotCause = {}) -> FPropertyEditPathResult
+			std::optional<FPropertySnapshotError> SnapshotCause = {}) -> std::expected<void, FPropertyEditPathError>
 		{
 			FPropertyEditPathError Error{.Code = Code, .Owner = FObjectKey(Target.Object),
 				.Member = Target.MemberProperty ? Target.MemberProperty->NamePrivate.ToString() : std::string{},
@@ -226,10 +226,10 @@ namespace Durin::Editor
 			for (const auto& Segment : Target.Path)
 				Error.Path.push_back({Segment.Property ? Segment.Property->NamePrivate.ToString() : std::string{},
 					Segment.Selector, Segment.Index, Segment.MapKeyData, Segment.MapKey});
-			return {.Error = std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 
-		auto ValidateTarget(const FPropertyEditTarget& Target) -> FPropertyEditPathResult
+		auto ValidateTarget(const FPropertyEditTarget& Target) -> std::expected<void, FPropertyEditPathError>
 		{
 			if (!Target.Object) return RejectPath(Target, EPropertyEditPathError::MissingOwner);
 			if (!Target.MemberProperty || !Target.LeafProperty || !Target.SnapshotProperty || !Target.SnapshotContainer)
@@ -256,7 +256,7 @@ namespace Durin::Editor
 			NotifyOnly,
 		};
 
-		// Reports whether a container mutation changed storage and its resulting index.
+		// Retains actual storage even on failure, plus any pending deferred action.
 		struct FMutationExecutionResult
 		{
 			FPropertyValueSnapshotPayload AppliedValue;
@@ -264,7 +264,7 @@ namespace Durin::Editor
 			FPropertyMutationError Error;
 			explicit operator bool() const { return Error.Code == EPropertyMutationError::None; }
 			bool bChanged = false;
-			bool bDeferred = false;
+			auto IsDeferred() const -> bool { return static_cast<bool>(Deferred.Action); }
 		};
 
 		auto NotifyMutation(
@@ -302,13 +302,13 @@ namespace Durin::Editor
 			FMutationExecutionResult Result;
 			if (const auto Publication = RestoreTargetValue(Target, ProposedValue); !Publication)
 			{
-				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::Publication).Error;
+				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::Publication).error();
 				Result.Error.SnapshotCause = Publication.error();
 				return Result;
 			}
 			if (const auto Capture = CaptureTargetValue(Target, Result.AppliedValue); !Capture)
 			{
-				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::CaptureAfter).Error;
+				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::CaptureAfter).error();
 				Result.Error.SnapshotCause = Capture.error();
 				return Result;
 			}
@@ -334,22 +334,18 @@ namespace Durin::Editor
 			}
 			if (!Value)
 			{
-				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::MissingValue).Error;
+				Result.Error = RejectMutation(Target, Phase, Origin, EPropertyMutationError::MissingValue).error();
 				return Result;
 			}
 
 			if (const auto Mutation = ApplyGenericMutation(
 				Target, *Value, Phase, Origin, &Result.AppliedValue, &Result.Deferred); !Mutation)
 			{
-				Result.Error = Mutation.Error;
+				Result.Error = Mutation.error();
 				return Result;
 			}
 
-			if (Result.Deferred.Action)
-			{
-				Result.bDeferred = true;
-				return Result;
-			}
+			if (Result.IsDeferred()) return Result;
 			Result.bChanged = !PreviousValue || !(Result.AppliedValue == *PreviousValue);
 			if (Phase != EPropertyChangePhase::Interactive || Result.bChanged) NotifyMutation(Target, Phase, Origin);
 			return Result;
@@ -414,7 +410,7 @@ namespace Durin::Editor
 		FPropertyEditSession* Owner = nullptr;
 	};
 
-	auto FPropertyEditTarget::Validate() const -> FPropertyEditPathResult { return ValidateTarget(*this); }
+	auto FPropertyEditTarget::Validate() const -> std::expected<void, FPropertyEditPathError> { return ValidateTarget(*this); }
 
 	auto FormatPropertyEditPathError(const FPropertyEditPathError& Error) -> std::string
 	{
@@ -448,7 +444,7 @@ namespace Durin::Editor
 	auto ResolveReflectedPropertyValue(
 		const FPropertyEditTarget& Target,
 		FResolvedPropertyValue& OutValue
-	) -> FPropertyEditPathResult
+	) -> std::expected<void, FPropertyEditPathError>
 	{
 		if (const auto Valid = ValidateTarget(Target); !Valid) return Valid;
 		if (Target.Path.front().Property != Target.SnapshotProperty)
@@ -678,9 +674,9 @@ namespace Durin::Editor
 		}
 	}
 
-	auto FTransactionObjectRecord::Reject(ETransactionObjectRecordError Code) const -> FTransactionObjectRecordResult
+	auto FTransactionObjectRecord::Reject(ETransactionObjectRecordError Code) const -> std::expected<void, FTransactionObjectRecordError>
 	{
-		return {{.Code = Code, .Owner = Target.GetKey(),
+		return std::unexpected(FTransactionObjectRecordError{.Code = Code, .Owner = Target.GetKey(),
 			.Member = SnapshotMember.GetMemberName().ToString(),
 			.Snapshot = SnapshotMember.GetMemberName().ToString(),
 			.Leaf = LeafProperty ? LeafProperty->NamePrivate.ToString() : std::string{},
@@ -688,14 +684,14 @@ namespace Durin::Editor
 			.PathFirst = !Path.empty() && Path.front().Property ? Path.front().Property->NamePrivate.ToString() : std::string{},
 			.PathLast = !Path.empty() && Path.back().Property ? Path.back().Property->NamePrivate.ToString() : std::string{},
 			.ObjectOwnedStorage = true,
-			.BeforeValid = Before.IsValid(), .AfterValid = After.IsValid()}};
+			.BeforeValid = Before.IsValid(), .AfterValid = After.IsValid()});
 	}
 
 	auto FTransactionObjectRecord::Capture(
 		const FPropertyEditTarget& InTarget,
 		FPropertyValueSnapshotPayload InBefore,
 		FPropertyValueSnapshotPayload InAfter,
-		FTransactionObjectRecord& OutRecord) -> FTransactionObjectRecordResult
+		FTransactionObjectRecord& OutRecord) -> std::expected<void, FTransactionObjectRecordError>
 	{
 		FTransactionObjectRecordError Error{
 			.Owner = FObjectKey(InTarget.Object),
@@ -711,16 +707,16 @@ namespace Durin::Editor
 		if (const auto Validation = ValidateTarget(InTarget); !Validation)
 		{
 			Error.Code = ETransactionObjectRecordError::Target;
-			Error.PathCause = std::make_shared<FPropertyEditPathError>(Validation.Error);
-			return {Error};
+			Error.PathCause = std::make_shared<FPropertyEditPathError>(Validation.error());
+			return std::unexpected(std::move(Error));
 		}
 		if (InTarget.SnapshotContainer != InTarget.Object
 			|| InTarget.SnapshotProperty != InTarget.MemberProperty)
-			{ Error.Code = ETransactionObjectRecordError::SnapshotRoot; return {Error}; }
+			{ Error.Code = ETransactionObjectRecordError::SnapshotRoot; return std::unexpected(std::move(Error)); }
 		if (!InBefore.IsValid() || !InAfter.IsValid()
 			|| !ArePropertySnapshotTypesCompatible(InBefore.GetProperty(), InTarget.SnapshotProperty)
 			|| !ArePropertySnapshotTypesCompatible(InAfter.GetProperty(), InTarget.SnapshotProperty))
-			{ Error.Code = ETransactionObjectRecordError::Payload; return {Error}; }
+			{ Error.Code = ETransactionObjectRecordError::Payload; return std::unexpected(std::move(Error)); }
 
 		FTransactionObjectRecord Record;
 		Record.Target = FPersistentObjectRef(InTarget.Object);
@@ -728,8 +724,8 @@ namespace Durin::Editor
 			InTarget.SnapshotProperty, InTarget.SnapshotArrayIndex, Record.SnapshotMember); !Result)
 		{
 			Error.Code = ETransactionObjectRecordError::Member;
-			Error.MemberCause = Result.Error;
-			return {Error};
+			Error.MemberCause = Result.error();
+			return std::unexpected(std::move(Error));
 		}
 		Record.LeafProperty = InTarget.LeafProperty;
 		Record.Path.reserve(InTarget.Path.size());
@@ -747,18 +743,18 @@ namespace Durin::Editor
 	}
 
 	auto FTransactionObjectRecord::BuildTarget(
-		FPropertyEditTarget& OutTarget) const -> FTransactionObjectRecordResult
+		FPropertyEditTarget& OutTarget) const -> std::expected<void, FTransactionObjectRecordError>
 	{
 		DObject* Object = Target.Resolve();
 		const auto Resolved = SnapshotMember.Resolve(Object);
 		if (!Resolved)
 		{
 			auto Result = Reject(ETransactionObjectRecordError::Member);
-			Result.Error.MemberCause = Resolved.Error;
-			Result.Error.MemberCause->Owner = Target.GetKey();
+			Result.error().MemberCause = Resolved.error();
+			Result.error().MemberCause->Owner = Target.GetKey();
 			return Result;
 		}
-		FProperty* Member = Resolved.Property;
+		FProperty* Member = *Resolved;
 		if (Path.empty() || Path.front().Property != Member
 			|| Path.back().Property != LeafProperty)
 			return Reject(ETransactionObjectRecordError::Path);
@@ -780,14 +776,14 @@ namespace Durin::Editor
 		if (const auto Validation = ValidateTarget(Result); !Validation)
 		{
 			auto Failure = Reject(ETransactionObjectRecordError::Target);
-			Failure.Error.PathCause = std::make_shared<FPropertyEditPathError>(Validation.Error);
+			Failure.error().PathCause = std::make_shared<FPropertyEditPathError>(Validation.error());
 			return Failure;
 		}
 		OutTarget = std::move(Result);
 		return {};
 	}
 
-	auto FTransactionObjectRecord::Validate() const -> FTransactionObjectRecordResult
+	auto FTransactionObjectRecord::Validate() const -> std::expected<void, FTransactionObjectRecordError>
 	{
 		FPropertyEditTarget TargetValue;
 		if (const auto Result = BuildTarget(TargetValue); !Result) return Result;
@@ -797,8 +793,8 @@ namespace Durin::Editor
 			if (const auto Result = Draft.Restore(*Payload); !Result)
 			{
 				auto Failure = Reject(ETransactionObjectRecordError::Draft);
-				Failure.Error.Before = Payload == &Before;
-				Failure.Error.DraftCause = std::make_shared<FPropertyValueDraftError>(Result.Error);
+				Failure.error().Before = Payload == &Before;
+				Failure.error().DraftCause = std::make_shared<FPropertyValueDraftError>(Result.error());
 				return Failure;
 			}
 			const FProperty* ResolvedProperty = nullptr;
@@ -808,8 +804,8 @@ namespace Durin::Editor
 				ResolvedArrayIndex); !Result)
 			{
 				auto Failure = Reject(ETransactionObjectRecordError::Draft);
-				Failure.Error.Before = Payload == &Before;
-				Failure.Error.DraftCause = std::make_shared<FPropertyValueDraftError>(Result.Error);
+				Failure.error().Before = Payload == &Before;
+				Failure.error().DraftCause = std::make_shared<FPropertyValueDraftError>(Result.error());
 				return Failure;
 			}
 		}
@@ -818,12 +814,12 @@ namespace Durin::Editor
 
 	auto FTransactionObjectRecord::Apply(
 		bool bBefore,
-		EPropertyChangeOrigin Origin) const -> FTransactionObjectRecordResult
+		EPropertyChangeOrigin Origin) const -> std::expected<void, FTransactionObjectRecordError>
 	{
 		FPropertyEditTarget TargetValue;
 		if (auto Result = BuildTarget(TargetValue); !Result)
 		{
-			Result.Error.Before = bBefore;
+			Result.error().Before = bBefore;
 			return Result;
 		}
 		const FPropertyValueSnapshotPayload& Value = bBefore ? Before : After;
@@ -833,14 +829,14 @@ namespace Durin::Editor
 		if (!Result)
 		{
 			auto Failure = Reject(ETransactionObjectRecordError::Mutation);
-			Failure.Error.Before = bBefore;
-			Failure.Error.MutationCause = std::make_shared<FPropertyMutationError>(Result.Error);
+			Failure.error().Before = bBefore;
+			Failure.error().MutationCause = std::make_shared<FPropertyMutationError>(Result.Error);
 			return Failure;
 		}
-		if (Result.bDeferred)
+		if (Result.IsDeferred())
 		{
 			auto Failure = Reject(ETransactionObjectRecordError::Deferred);
-			Failure.Error.Before = bBefore;
+			Failure.error().Before = bBefore;
 			return Failure;
 		}
 		TargetValue.Object->MarkPackageDirty();
@@ -916,7 +912,7 @@ namespace Durin::Editor
 		Target = InTarget;
 		if (const auto Validation = ValidateTarget(Target); !Validation)
 		{
-			auto Result = Reject(FormatPropertyEditPathError(Validation.Error));
+			auto Result = Reject(FormatPropertyEditPathError(Validation.error()));
 			Reset();
 			return Result;
 		}
@@ -956,7 +952,7 @@ namespace Durin::Editor
 			if (const auto Capture = FTransactionObjectRecord::Capture(
 				Target, OriginalValue, CurrentValue, Record); !Capture)
 			{
-				auto Result = Reject(FormatTransactionObjectRecordError(Capture.Error));
+				auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
 				const auto Cleanup = TransactionScope->Cancel();
 				if (Cleanup.Code == ETransactorResultCode::Rejected
 					|| Cleanup.Code == ETransactorResultCode::Failed
@@ -1014,7 +1010,7 @@ namespace Durin::Editor
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return Failure;
 		}
-		if (Result.bDeferred)
+		if (Result.IsDeferred())
 		{
 			bDeferredPending = true;
 			DeferredOwnerState = std::make_shared<FDeferredOwnerState>();
@@ -1044,10 +1040,10 @@ namespace Durin::Editor
 			FMutationExecutionResult Rollback = ExecuteMutation(
 				Target, &PreviousValue, nullptr, EMutationOperation::Apply,
 				EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit);
-			if (Rollback && !Rollback.bDeferred)
+			if (Rollback && !Rollback.IsDeferred())
 				CurrentValue = std::move(Rollback.AppliedValue);
 			if (!Rollback) Update.Message += " Rollback also failed: " + FormatPropertyMutationError(Rollback.Error);
-			if (Rollback.bDeferred) Update.Message += " Rollback requires deferred validation.";
+			if (Rollback.IsDeferred()) Update.Message += " Rollback requires deferred validation.";
 			return Update;
 		}
 		return {.Status = Result.bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
@@ -1106,7 +1102,7 @@ namespace Durin::Editor
 		if (const auto Capture = FTransactionObjectRecord::Capture(
 			Target, OriginalValue, CurrentValue, Record); !Capture)
 		{
-			auto Result = Reject(FormatTransactionObjectRecordError(Capture.Error));
+			auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
 			return Result;
 		}
 		const FTransactorResult Result =

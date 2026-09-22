@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "DurinEdAPI.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "DObject/Object.h"
@@ -55,57 +57,31 @@ namespace Durin::Editor
 		RecoveryRequired,
 	};
 
-	enum class ETransactionApplyStatus : uint8
+	enum class ETransactionApplyFailure : uint8
 	{
-		Succeeded,
 		ValidationFailed,
 		Restored,
 		RecoveryRequired
 	};
 
-	enum class ETransactionRecordError : uint8 { None, Object, MissingCustom, CustomRejected };
-	struct FTransactionRecordError
-	{
-		ETransactionRecordError Code = ETransactionRecordError::None;
-		bool Before = false;
-		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
-		std::optional<FTransactionObjectRecordError> ObjectCause;
-		std::string CustomDescription;
-		// Presentation details retained from the pending custom-change contract.
-		std::optional<FTransactionCustomError> CustomCause;
-	};
-	struct FTransactionRecordResult
-	{
-		FTransactionRecordError Error;
-		explicit operator bool() const { return Error.Code == ETransactionRecordError::None; }
-	};
-	DURINED_API auto FormatTransactionRecordError(const FTransactionRecordError& Error) -> std::string;
+	using FTransactionRecordResult = std::expected<void, std::string>;
 
-	enum class ETransactionApplyError : uint8 { None, Validation, Execution };
-	struct FTransactionApplyError
-	{
-		ETransactionApplyError Code = ETransactionApplyError::None;
-		FTransactionId TransactionId = 0;
-		size_t RecordIndex = 0;
-		bool Undo = false;
-		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
-		FTransactionRecordError RecordCause;
-	};
 	struct FTransactionRollbackFailure
 	{
 		size_t RecordIndex = 0;
-		FTransactionRecordError Error;
+		std::string Message;
 	};
 
-	// Separates restored storage from incomplete compensation without flattening causes.
-	struct [[nodiscard]] FTransactionApplyResult
+	// Retains execution disposition and messages without exposing record-specific errors.
+	struct FTransactionApplyError
 	{
-		ETransactionApplyStatus Status = ETransactionApplyStatus::Succeeded;
-		FTransactionApplyError Error;
+		ETransactionApplyFailure Status = ETransactionApplyFailure::ValidationFailed;
+		size_t RecordIndex = 0;
+		std::string Message;
 		std::vector<FTransactionRollbackFailure> RollbackFailures;
-		explicit operator bool() const { return Error.Code == ETransactionApplyError::None; }
 	};
-	DURINED_API auto FormatTransactionApplyError(const FTransactionApplyError& Error) -> std::string;
+
+	using FTransactionApplyResult = std::expected<void, FTransactionApplyError>;
 
 	enum class ETransactorRejectionReason : uint8
 	{
@@ -162,8 +138,7 @@ namespace Durin::Editor
 		uint64 RecordId = 0;
 		ETransactorNotice Notice = ETransactorNotice::None;
 		size_t NoticeCount = 0;
-		std::vector<FTransactionRollbackFailure> RollbackFailures;
-		std::shared_ptr<const FTransactionApplyResult> ApplyCause;
+		std::shared_ptr<const FTransactionApplyError> ApplyCause;
 		std::optional<FTransactorRejection> RejectionCause;
 		std::optional<FTransactorFailure> FailureCause;
 		std::shared_ptr<const FTransactorResult> CleanupCause;
@@ -427,7 +402,7 @@ namespace Durin
 			bool bCheckpointValid = false;
 		};
 
-		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyResult Result) -> Editor::FTransactorResult;
+		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyError Error) -> Editor::FTransactorResult;
 		auto CheckThread() const -> void;
 		auto Reject(Editor::ETransactorRejectionReason Reason, uint64 RequestedId = 0,
 			std::string_view ModuleName = {},
