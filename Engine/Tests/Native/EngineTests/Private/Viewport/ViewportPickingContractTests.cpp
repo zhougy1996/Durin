@@ -2,7 +2,7 @@
 #include "Components/SplineMeshComponent.h"
 #include "LevelEditorViewportEditing.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportPickingService.h"
 

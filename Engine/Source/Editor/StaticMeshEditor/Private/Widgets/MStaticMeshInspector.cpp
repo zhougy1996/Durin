@@ -316,10 +316,6 @@ namespace Durin::Editor::StaticMesh
 				ImGui::TextWrapped("Request %llu: %s. %s. This operation record does not establish current settings or payload coherence.",
 					static_cast<unsigned long long>(Operation.RequestId), Phase,
 					Inspection.bOperationSourceMatches ? "Source identity matches" : "Different source identity");
-				ImGui::TextWrapped("Capture / worker / publication: %llu / %llu / %llu ns",
-					static_cast<unsigned long long>(Operation.CaptureNanoseconds),
-					static_cast<unsigned long long>(Operation.WorkerNanoseconds),
-					static_cast<unsigned long long>(Operation.PublicationNanoseconds));
 				for (const auto& [Name, Observation] : {std::pair{"Render", &Operation.Render}, std::pair{"Collision", &Operation.Collision}})
 				{
 					ImGui::TextWrapped("%s derived product: %s", Name, !*Observation ? "Observation unavailable" :
@@ -327,10 +323,6 @@ namespace Durin::Editor::StaticMesh
 					if (*Observation)
 					{
 						ImGui::TextWrapped("Key: %s", (*Observation)->DerivedDataKey.ToString().c_str());
-						ImGui::TextWrapped("Payload %llu bytes; cache read / write %llu / %llu ns",
-							static_cast<unsigned long long>((*Observation)->PayloadBytes),
-							static_cast<unsigned long long>((*Observation)->CacheReadNanoseconds),
-							static_cast<unsigned long long>((*Observation)->CacheWriteNanoseconds));
 					}
 				}
 				const auto Message = FormatStaticMeshCompilationDiagnostic(Operation);

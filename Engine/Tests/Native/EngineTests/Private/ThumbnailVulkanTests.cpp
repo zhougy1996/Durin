@@ -16,7 +16,7 @@
 #include "NativeTestSupport.h"
 #include "Preview/PreviewMeshResources.h"
 #include "RHICommandList.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
@@ -215,9 +215,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		2, 0, 3
 	};
 	ImportedSection.SourceMaterialIndex = 0;
-	const auto SynchronousBuild1 = Durin::BuildStaticMeshSynchronously(
-		*StaticMeshFixture, std::move(ImportedMesh));
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.error());
+	const auto SynchronousBuild1 = StaticMeshFixture->Build(std::move(ImportedMesh));
+	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error().ToString();
 	Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(
 		StaticMeshMaterialPath,

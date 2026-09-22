@@ -13,7 +13,7 @@
 #include "Hash/XxHash.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
@@ -102,12 +102,12 @@ namespace Durin
 			std::string Error;
 			if (Source.IsValid())
 			{
-				auto Request = MakeStaticMeshAuthoredBuildRequest(Source, CaptureStaticMeshReconciliation(*this));
+				auto Request = FStaticMeshBuilder::MakeRequest(Source, FStaticMeshBuilder::Capture(*this));
 				Request.bPersistDerivedData = false;
-				auto Built = BuildStaticMeshAuthoredCandidate(std::move(Request));
+				auto Built = FStaticMeshBuilder::BuildCandidate(std::move(Request));
 				if (!Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshAuthoredBuildError(Built.error()));
+					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
 					return;
 				}
 				Candidate = std::move(*Built);
@@ -156,7 +156,7 @@ namespace Durin
 				else if (const auto Built = BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
 					BodySetup->GetCollisionQueryPolicy(), Simple, Complex); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshDerivedDataError(Built.error()));
+					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
 					return;
 				}
 				const FCollisionGeometryRef& Geometry =
@@ -268,9 +268,9 @@ namespace Durin
 			return;
 		}
 		if (CanJoinStaticMeshCompilation(*this, Source)) return;
-		if (const auto Submitted = SubmitStaticMeshCompilation(*this, {.Source = Source, .bMarkPackageDirty = false}); !Submitted)
+		if (const auto Submitted = AsyncBuild({.Source = Source, .bMarkPackageDirty = false}); !Submitted)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshSubmissionError(Submitted.error()));
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Submitted.error().ToString());
 			return;
 		}
 	}

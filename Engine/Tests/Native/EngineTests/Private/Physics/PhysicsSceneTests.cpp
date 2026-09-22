@@ -1,3 +1,4 @@
+#include "../StaticMeshTestAccess.h"
 #include "World/WorldServiceTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageSerialization.h"
@@ -23,7 +24,7 @@
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsScene.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -482,9 +483,8 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
-	const auto SynchronousBuild1 = Durin::BuildStaticMeshSynchronously(
-		*Mesh, std::move(Imported));
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.error());
+	const auto SynchronousBuild1 = Mesh->Build(std::move(Imported));
+	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error().ToString();
 	Mesh->SetCollisionSourceMode(Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
@@ -528,14 +528,14 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetPublishedBodySetupRevision(), Mesh->GetBodySetup()->GetRevision());
 
-	Mesh->ReplaceRenderData(nullptr, {});
-	EXPECT_NE(Mesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None);
+	Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {});
+	EXPECT_NE(Durin::FStaticMeshTestAccess::GetRenderDataUpdateError(Mesh).Code, Durin::EStaticMeshReplacementError::None);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
-	const auto SynchronousBuild2 = Durin::BuildStaticMeshSynchronously(*Mesh, Mesh->GetSource());
-	ASSERT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild2.error());
-	EXPECT_EQ(Mesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None);
+	const auto SynchronousBuild2 = Mesh->Build(Mesh->GetSource());
+	ASSERT_TRUE(SynchronousBuild2) << SynchronousBuild2.error().ToString();
+	EXPECT_EQ(Durin::FStaticMeshTestAccess::GetRenderDataUpdateError(Mesh).Code, Durin::EStaticMeshReplacementError::None);
 	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 

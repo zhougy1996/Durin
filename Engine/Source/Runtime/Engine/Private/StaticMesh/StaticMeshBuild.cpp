@@ -1,33 +1,24 @@
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
 #include "Asset/Asset.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
+#include "Logging/LogMacros.h"
 #include "DObject/ObjectLifecycle.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
 {
-	auto FormatStaticMeshCacheDiagnostics(const FStaticMeshCacheDiagnostics& Diagnostic) -> std::string
+	auto FStaticMeshCacheError::ToString() const -> std::string
 	{
-		auto Read = Diagnostic.DecodeCause ? FormatStaticMeshCacheCodecError(*Diagnostic.DecodeCause) : FormatAssetCacheDiagnostic(Diagnostic.Read);
-		auto Write = FormatAssetCacheDiagnostic(Diagnostic.Write);
-		constexpr size_t MaximumBytes = 2048;
-		if (Read.empty()) return Write.substr(0, MaximumBytes);
-		if (Write.empty()) return Read.substr(0, MaximumBytes);
-		constexpr size_t Budget = (MaximumBytes - 13) / 2;
-		return "Read: " + Read.substr(0, Budget) + "; Put: " + Write.substr(0, Budget);
+		const auto OperationName = Operation == EStaticMeshCacheOperation::Read ? "read"
+			: Operation == EStaticMeshCacheOperation::Decode ? "decode" : "write";
+		return std::format("StaticMesh {} cache {}: {}",
+			Kind == EStaticMeshRecipeKind::Render ? "render" : "collision", OperationName, Message);
 	}
 
-	auto FormatStaticMeshPersistenceDiagnostic(const FStaticMeshPersistenceDiagnostic& Diagnostic) -> std::string
-	{
-		auto Render = FormatStaticMeshCacheDiagnostics(Diagnostic.Render);
-		auto Collision = FormatStaticMeshCacheDiagnostics(Diagnostic.Collision);
-		if (Render.empty()) return Collision;
-		if (Collision.empty()) return Render;
-		return (Render + " " + Collision).substr(0, MaximumStaticMeshBuildDiagnosticBytes);
-	}
-
-	auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
+	auto FStaticMeshBuilder::Capture(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
 		DBodySetup* Body = Mesh.GetBodySetup();
@@ -41,7 +32,7 @@ namespace Durin
 			.CollisionPolicy = Body ? Body->GetCollisionQueryPolicy() : EBodySetupCollisionQueryPolicy::SimpleAndComplex};
 	}
 
-	auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshSource Source,
+	auto FStaticMeshBuilder::MakeRequest(FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest
 	{
 		FStaticMeshAuthoredBuildRequest Request;
@@ -54,10 +45,10 @@ namespace Durin
 		return Request;
 	}
 
-	auto FormatStaticMeshAuthoredBuildError(const FStaticMeshAuthoredBuildError& Error) -> std::string
+	auto FStaticMeshAuthoredBuildError::ToString() const -> std::string
 	{
-		if (!Error.Message.empty()) return Error.Message.substr(0, MaximumStaticMeshBuildDiagnosticBytes);
-		switch (Error.Code)
+		if (!Message.empty()) return Message.substr(0, MaximumStaticMeshBuildDiagnosticBytes);
+		switch (Code)
 		{
 		case EStaticMeshAuthoredBuildError::NotStarted: return "StaticMesh candidate build has not started.";
 		case EStaticMeshAuthoredBuildError::Cancelled: return "StaticMesh candidate build was cancelled.";
@@ -81,16 +72,16 @@ namespace Durin
 		return {};
 	}
 
-	auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
+	auto FStaticMeshBuilder::BuildCandidate(FStaticMeshAuthoredBuildRequest Request,
 		const FStaticMeshBuildExecutionControl& Control) -> std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError>
 	{
 		const auto Fail = [](FStaticMeshAuthoredBuildError Error) {
-			Error.Message = FormatStaticMeshAuthoredBuildError(Error);
+			Error.Message = Error.ToString();
 			return std::unexpected(std::move(Error));
 		};
 		const auto BudgetFailure = [&](EStaticMeshAuthoredBuildError Code, const FStaticMeshBuildMemoryEstimate& Memory) {
 			return Fail({.Code = Code, .Message = std::format("{} Limit {}, accumulated {}, rejected {} x {} bytes.",
-				FormatStaticMeshAuthoredBuildError({.Code = Code}), Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth)});
+				FStaticMeshAuthoredBuildError{.Code = Code}.ToString(), Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth)});
 		};
 		if (Control.IsCancelled()) return Fail({.Code = EStaticMeshAuthoredBuildError::Cancelled});
 		if (!Request.Source.IsValid() || !std::isfinite(Request.NormalizedSize) || Request.NormalizedSize <= 0
@@ -116,15 +107,16 @@ namespace Durin
 		for (const auto& Slot : Request.MaterialSlots)
 			Reconciliation.MaterialSlots.push_back({.Name = Slot.Name,
 				.SourceName = Slot.SourceName, .SourceMaterialIndex = Slot.SourceMaterialIndex});
-		const auto RenderOutcome = BuildStaticMeshDerivedData({.Reconciliation = std::move(Reconciliation),
+		auto RenderOutcome = FStaticMeshBuilder::Build({.Reconciliation = std::move(Reconciliation),
 			.Source = Request.Source, .bPersistDerivedData = Request.bPersistDerivedData},
-			Candidate->Render, Control);
+			Control);
 		if (!RenderOutcome)
 		{
 			return Fail({.Code = RenderOutcome.error().Code == EStaticMeshDerivedDataError::Cancelled
 				? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::RenderBuild,
-				.Message = FormatStaticMeshDerivedDataError(RenderOutcome.error())});
+				.Message = RenderOutcome.error().ToString()});
 		}
+		Candidate->Render = std::move(*RenderOutcome);
 		auto& Render = Candidate->Render;
 		if (!Render.RenderData || Render.MaterialSlots.empty()
 			|| Render.MaterialSlots.size() > MaximumMeshMaterialSlots
@@ -183,15 +175,16 @@ namespace Durin
 #endif
 		FStaticMeshBuildExecutionControl CollisionControl = Control;
 		CollisionControl.ExpectedProviderRegistration = Render.ProviderRegistration;
-		const auto CollisionOutcome = BuildStaticMeshCollisionDerivedData(*Render.RenderData,
-			Request.CollisionMode, Request.CollisionPolicy, Candidate->Collision,
+		auto CollisionOutcome = FStaticMeshBuilder::BuildCollision(*Render.RenderData,
+			Request.CollisionMode, Request.CollisionPolicy,
 			Request.bPersistDerivedData, CollisionControl);
 		if (!CollisionOutcome)
 		{
 			return Fail({.Code = CollisionOutcome.error().Code == EStaticMeshDerivedDataError::Cancelled
 				? EStaticMeshAuthoredBuildError::Cancelled : EStaticMeshAuthoredBuildError::CollisionBuild,
-				.Message = FormatStaticMeshDerivedDataError(CollisionOutcome.error())});
+				.Message = CollisionOutcome.error().ToString()});
 		}
+		Candidate->Collision = std::move(*CollisionOutcome);
 		if (Request.CollisionMode != EBodySetupCollisionSourceMode::None
 			&& (Render.Descriptor.ProducerIdentity != Candidate->Collision.Descriptor.ProducerIdentity
 				|| Render.Descriptor.RenderBuilderVersion != Candidate->Collision.Descriptor.RenderBuilderVersion
@@ -224,88 +217,67 @@ namespace Durin
 		return Candidate;
 	}
 
-	auto FormatStaticMeshDirectBuildError(const FStaticMeshDirectBuildError& Error) -> std::string
+	FStaticMeshBuildError::FStaticMeshBuildError(std::string InMessage)
+		: FStaticMeshBuildError(std::vector<std::string>{std::move(InMessage)})
 	{
-		switch (Error.Code)
+	}
+
+	FStaticMeshBuildError::FStaticMeshBuildError(std::vector<std::string> InMessages)
+		: Messages(std::move(InMessages))
+	{
+		size_t Bytes = 0;
+		for (size_t Index = 0; Index < Messages.size(); ++Index)
 		{
-		case EStaticMeshDirectBuildError::None: return {};
-		case EStaticMeshDirectBuildError::Render: return Error.RenderCause ? FormatStaticMeshReplacementError(*Error.RenderCause) : "StaticMesh render replacement failed.";
-		case EStaticMeshDirectBuildError::Collision: return Error.CollisionCause ? FormatStaticMeshCollisionError(*Error.CollisionCause) : "StaticMesh collision replacement failed.";
+			const size_t SeparatorBytes = Index == 0 ? 0 : 1;
+			if (Bytes + SeparatorBytes >= MaximumStaticMeshBuildDiagnosticBytes)
+			{
+				Messages.resize(Index);
+				break;
+			}
+			auto& Message = Messages[Index];
+			Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes - Bytes - SeparatorBytes));
+			Bytes += SeparatorBytes + Message.size();
 		}
+	}
+
+	auto FStaticMeshBuildError::ToString() const -> std::string
+	{
+		std::string Text;
+		for (size_t Index = 0; Index < Messages.size(); ++Index)
+		{
+			if (Index != 0) Text += '\n';
+			Text += Messages[Index];
+		}
+		return Text;
+	}
+
+	auto DStaticMesh::Build(const FStaticMeshSource& InSource) -> std::expected<void, FStaticMeshBuildError>
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!IsValid(this))
+			return std::unexpected(FStaticMeshBuildError{"StaticMesh build requires a valid owner."});
+		if (!InSource.IsValid())
+			return std::unexpected(FStaticMeshBuildError{"StaticMesh build requires valid canonical source metadata."});
+		// Retire older work without pumping callbacks or waiting for unrelated compilation.
+		CancelStaticMeshCompilation(*this);
+		const auto Snapshot = FStaticMeshBuilder::Capture(*this);
+		auto Candidate = FStaticMeshBuilder::BuildCandidate(FStaticMeshBuilder::MakeRequest(InSource, Snapshot));
+		if (!Candidate)
+			return std::unexpected(FStaticMeshBuildError{Candidate.error().ToString()});
+		for (const auto& Warning : (*Candidate)->GetCacheErrors()) DURIN_WARN("{}", Warning.ToString());
+		if (const auto Applied = FStaticMeshBuilder::ApplyCandidate(*this, std::move(*Candidate), Snapshot); !Applied)
+			return std::unexpected(FStaticMeshBuildError{
+				FormatStaticMeshApplicationError(Applied.error())});
 		return {};
 	}
 
-	auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
-		FStaticMeshSource Source, FStaticMeshBuildResult Product,
-		bool bMarkPackageDirty) -> std::expected<void, FStaticMeshDirectBuildError>
+	auto DStaticMesh::Build(FStaticMeshDecodedGeometry Geometry) -> std::expected<void, FStaticMeshBuildError>
 	{
-		const auto Replaced = Mesh.ReplaceSourceRenderData(std::move(Source),
-			std::move(Product.RenderData), std::move(Product.MaterialSlots),
-			Product.NormalizedSize);
-		const bool bPublishedRenderData = static_cast<bool>(Replaced);
-		if (bPublishedRenderData && Product.bSlotMetadataChanged)
-		{
-			ReportAssetLoadMutation(&Mesh, "Engine.StaticMesh.MaterialSlotsV1",
-				"Static mesh material-slot identity metadata was upgraded.",
-				EAssetLoadMutationKind::Upgrade);
-		}
-		// Source settings can change even if the subsequent build fails.
-		if (bMarkPackageDirty || (bPublishedRenderData && Product.bSlotMetadataChanged)) Mesh.MarkPackageDirty();
-		if (!Replaced) return std::unexpected(FStaticMeshDirectBuildError{.Code = EStaticMeshDirectBuildError::Render, .RenderCause = Replaced.error()});
-		if (Mesh.GetCollisionBuildStatus() == EStaticMeshCollisionBuildStatus::Failed)
-		{
-			return std::unexpected(FStaticMeshDirectBuildError{.Code = EStaticMeshDirectBuildError::Collision, .CollisionCause = Mesh.GetCollisionBuildError()});
-		}
-		return {};
-	}
-
-	auto FormatStaticMeshSynchronousError(const FStaticMeshSynchronousError& Error) -> std::string
-	{
-		return Error.Message;
-	}
-
-	auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		const FStaticMeshSource& Source) -> std::expected<FStaticMeshPersistenceDiagnostic, FStaticMeshSynchronousError>
-	{
-		if (!CanJoinStaticMeshCompilation(Mesh, Source))
-		{
-			if (const auto Submitted = SubmitStaticMeshCompilation(Mesh, {.Source = Source,
-				.Priority = EStaticMeshCompilationPriority::Interactive}); !Submitted)
-				return std::unexpected(FStaticMeshSynchronousError{.Code = EStaticMeshSynchronousError::Submission,
-					.Message = FormatStaticMeshSubmissionError(Submitted.error()).substr(0, MaximumStaticMeshBuildDiagnosticBytes)});
-		}
-		FAssetCompilingManager::Get().FinishCompilationForObject(Mesh);
-		auto Diagnostic = GetStaticMeshCompilationDiagnostic(Mesh);
-		if (Diagnostic.RequestId == 0)
-			return std::unexpected(FStaticMeshSynchronousError{.Code = EStaticMeshSynchronousError::NoObservation,
-				.Message = "StaticMesh compilation completed without an available observation."});
-		if (Diagnostic.Status != EStaticMeshCompilationStatus::Succeeded)
-		{
-			auto Code = EStaticMeshSynchronousError::Completion;
-			auto Message = FormatStaticMeshCompilationDiagnostic(Diagnostic);
-			if (Diagnostic.Status == EStaticMeshCompilationStatus::Cancelled)
-			{
-				Code = EStaticMeshSynchronousError::Cancelled;
-				Message = "StaticMesh compilation was cancelled.";
-			}
-			else if (Diagnostic.Status == EStaticMeshCompilationStatus::Superseded)
-			{
-				Code = EStaticMeshSynchronousError::Superseded;
-				Message = "StaticMesh compilation was superseded.";
-			}
-			return std::unexpected(FStaticMeshSynchronousError{.Code = Code, .Message = std::move(Message),
-				.PersistenceDiagnostic = std::move(Diagnostic.PersistenceDiagnostic)});
-		}
-		return std::move(Diagnostic.PersistenceDiagnostic);
-	}
-
-	auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		FStaticMeshDecodedGeometry Geometry) -> std::expected<FStaticMeshPersistenceDiagnostic, FStaticMeshSynchronousError>
-	{
-		FStaticMeshSource Source;
-		if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
-			return std::unexpected(FStaticMeshSynchronousError{.Code = EStaticMeshSynchronousError::Source,
-				.Message = FormatStaticMeshSourceError(Initialized.error()).substr(0, MaximumStaticMeshBuildDiagnosticBytes)});
-		return BuildStaticMeshSynchronously(Mesh, Source);
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		FStaticMeshSource InSource;
+		if (const auto Initialized = InSource.Initialize(std::move(Geometry)); !Initialized)
+			return std::unexpected(FStaticMeshBuildError{
+				FormatStaticMeshSourceError(Initialized.error())});
+		return Build(InSource);
 	}
 }

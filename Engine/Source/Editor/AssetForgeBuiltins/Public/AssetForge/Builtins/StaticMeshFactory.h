@@ -15,10 +15,10 @@ namespace Durin::AssetForge::Builtins
 	class ASSETFORGEBUILTINS_API FStaticMeshFactoryError final : public IFactoryErrorDetail
 	{
 	public:
-		explicit FStaticMeshFactoryError(FStaticMeshCompilationDiagnostic Diagnostic) : Cause(std::move(Diagnostic)) {}
+		explicit FStaticMeshFactoryError(FStaticMeshCompilationResult Diagnostic) : Cause(std::move(Diagnostic)) {}
 		auto Format() const -> std::string override;
 		explicit FStaticMeshFactoryError(FStaticMeshRebuildError Error) : Cause(std::move(Error)) {}
-		std::variant<FStaticMeshRebuildError, FStaticMeshCompilationDiagnostic> Cause;
+		std::variant<FStaticMeshRebuildError, FStaticMeshCompilationResult> Cause;
 	};
 
 	DCLASS()

@@ -115,14 +115,13 @@ owns the displaced render data in a local `std::unique_ptr`. No scene proxy,
 vertex factory, render command, or material/thumbnail consumer owns concrete
 render data.
 
-Direct `ReplaceRenderData`/`ReplaceSourceRenderData` return typed CPU replacement
-results and retain `FStaticMeshReplacementError` on the object. They invalidate
-old derived data first; failed replacement preserves the existing no-rollback
-contract. Errors own rejected source/slot/UV facts and payload/publication causes.
-Collision errors are stored separately as `FStaticMeshCollisionError`, retaining
-mode/policy and derived-data causes; collision failure can leave CPU data usable.
-`ApplyStaticMeshBuildResult` returns typed render/collision causes and preserves
-its existing dirtying behavior. Status checks never depend on diagnostic text.
+Private `ReplaceRenderDataDestructively`/`ReplaceSourceRenderDataDestructively`
+retain the internal no-rollback CPU replacement behavior and typed last error.
+Focused tests access them through `FStaticMeshTestAccess`; ordinary callers use
+`DStaticMesh::Build` or `AsyncBuild`, which validate a sealed candidate before
+publication and retain the previous mesh on failure. The old mutable Product
+application wrapper is removed. Collision errors remain separate; status checks
+never depend on diagnostic text.
 `RenameMaterialSlot` returns `std::expected<void, FStaticMeshSlotRenameError>`, owning the rejected
 name, index/count, conflicting slot index and object key. Failure changes no slot
 or dirty state; same-name success is a no-op. Successful changes still update the

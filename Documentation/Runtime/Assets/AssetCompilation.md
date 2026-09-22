@@ -244,15 +244,16 @@ are known.
 
 ## StaticMesh Completion
 
-`SubmitStaticMeshCompilation` accepts canonical source values and returns before
+`DStaticMesh::AsyncBuild` accepts canonical source values and returns before
 recipe work. Rejection does not supersede earlier work or call completion.
-Its `std::expected<void, FStaticMeshSubmissionError>` represents admission separately from typed rejection, without a
-diagnostic-output parameter. Errors own rejected owner/settings/slot facts,
-provider invocation/descriptor context, import-validation causes and request or
-global admission budget counts. Pending synchronous/import adapters format
-explicitly at their outer contracts.
-Accepted requests deliver one `Succeeded`, `Failed`, `Cancelled`, or `Superseded`
-terminal result on GameThread. Worker captures contain no object bindings.
+Its `std::expected<void, FStaticMeshSubmissionError>` reports admission failures
+as owned messages through `ToString()`; this alias reuses `FStaticMeshBuildError`.
+Rejected owner/settings/slot, provider, import-validation and budget details are
+formatted at rejection rather than exposed as a public error tree.
+Accepted requests deliver one `FStaticMeshCompilationResult` on GameThread:
+request ID, `Succeeded`, `Failed`, `Cancelled`, or `Superseded` status and optional
+error text. Cancellation/supersession remain states; successful cache fallback
+warnings are available only in diagnostic queries. Worker captures contain no object bindings.
 `FStaticMeshCompilationDiagnostic::Error` retains typed build, application,
 missing-save-package or save failures. Terminal status remains the lifecycle
 outcome. Publication preparation returns `std::expected<void, FStaticMeshApplicationError>`; rejected
@@ -291,12 +292,14 @@ contract is unchanged. Cooked residency remains a separate manager.
 
 Authored `PostLoad` validates metadata and schedules background work without
 acquiring canonical geometry. Repeated identical current requests join;
-`BuildStaticMeshSynchronously` submits or joins through the same manager and
-finishes only that mesh. It returns `std::expected<FStaticMeshPersistenceDiagnostic,
-FStaticMeshSynchronousError>`: successful cache observations or a boundary error
-code and bounded owned message. Failure also carries any persistence observations
-retained by completion. Missing observations, cancellation and supersession have
-distinct codes; callers need not traverse completion or source errors.
+`DStaticMesh::Build` is a separate synchronous entrypoint. It directly constructs
+and applies the same sealed candidate, returning `std::expected<void, FStaticMeshBuildError>`.
+It cancels older requests for that mesh without waiting for workers or dispatching
+callbacks, and does not consume queue admission capacity or create compilation
+observations. Cache warnings are logged; fatal errors expose bounded `ToString()`
+text. See [Static Mesh Building](StaticMeshBuilding.md#provenance-and-compatibility).
+For `AsyncBuild`, success means admission only; callbacks and observations carry
+the final build/application outcome.
 Missing admission/provider capacity is an explicit
 failure, with no inline recipe fallback. Interactive reimport prepares physical
 input synchronously, then submits at interactive priority. Source, render,
@@ -305,6 +308,9 @@ one consumer-refresh boundary. No recipe or metadata validation runs after its
 first live mutation. Cook finishes a pending source mutation only when needed,
 then builds a detached target projection without publishing authored CPU data.
 
+The request-ID overload of `GetStaticMeshCompilationDiagnostic` retrieves the exact
+completion even when the owner has newer work or has been destroyed. An expired
+history entry returns request ID zero.
 `GetStaticMeshCompilationDiagnostic` and
 `GetStaticMeshCompilationManagerDiagnostics` are owner-thread, value-only reads.
 They neither pump work nor perform source/cache I/O or initialize resources.
@@ -314,21 +320,22 @@ registration, not proof that the live asset still matches it. Match these facts
 before presenting it as current. `Render` and `Collision` are optional completed
 product observations with opaque DDC key, hit/rebuilt origin, payload bytes and
 cache read/write durations; absent values mean unavailable, never a cache miss.
-Nonfatal cache warnings remain in typed `FStaticMeshPersistenceDiagnostic` and
-survive successful publication. Render and collision each retain separate cache
-read/write diagnostics and an optional family codec cause; no persistence text
-is stored. Underlying cache causes retain their classifications and request
-identity without retaining payload data. `Error.BuildCause` retains the authored
+Nonfatal cache failures survive successful publication in a flat `CacheErrors`
+list. Each `FStaticMeshCacheError` identifies render/collision and read/decode/write,
+with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
+There are at most two errors per recipe (read or decode, followed by write);
+clean cache outcomes create no records. Backend and codec causes are translated
+at the cache boundary instead of retained as a nested diagnostic tree.
+`Error.BuildCause` retains the authored
 build code and bounded message; `Error.ApplicationCause` retains application
 failure context. `FormatStaticMeshCompilationDiagnostic` formats the outer
-observation for presentation or synchronous adapters.
+observation for presentation or adapters waiting for async completion.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
-`CaptureNanoseconds`, `WorkerNanoseconds` and `PublicationNanoseconds` separate
-owner capture, detached construction and owner application. Zero denotes an
-unmeasured/not-reached phase. Publication includes provenance preparation,
-resource preparation and consumer refresh; CPU completion is independent of GPU
-readiness. Diagnostics own no source, payload, component or callback.
+Build observations retain cache origin and key, not timing or payload-size
+statistics. Queue counts and reserved bytes remain for admission and lifecycle
+accounting. CPU completion is independent of GPU readiness. Diagnostics own no
+source, payload, component or callback.
 
 Initial-edit replacement waits for the retiring worker's storage to be released
 before reclaiming that record's admission capacity. Explicit cancellation or a

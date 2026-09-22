@@ -2,7 +2,7 @@
 
 #include <expected>
 
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace Durin
@@ -35,11 +35,8 @@ namespace Durin
 		uint64 ProviderRegistration = 0;
 		std::optional<FStaticMeshBuildObservation> Render;
 		std::optional<FStaticMeshBuildObservation> Collision;
-		uint64 CaptureNanoseconds = 0;
-		uint64 WorkerNanoseconds = 0;
-		uint64 PublicationNanoseconds = 0;
 		FStaticMeshCompletionError Error;
-		FStaticMeshPersistenceDiagnostic PersistenceDiagnostic;
+		std::vector<FStaticMeshCacheError> CacheErrors;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
 	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshApplicationError>(DStaticMesh&, DAssetImportData*&)>;
@@ -62,46 +59,23 @@ namespace Durin
 		// Application validates it before mutation and installs its pointer within the refresh boundary.
 		FStaticMeshPublicationPreparation PreparePublication;
 	};
-	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationDiagnostic&)>;
-
-	enum class EStaticMeshSubmissionError : uint8
+	// Ordinary completion contains no scheduling, cache or provider diagnostics.
+	struct FStaticMeshCompilationResult
 	{
-		None, Unavailable, Owner, Source, Settings, CollisionSettings, MaterialSlots,
-		ImportValidation, RequestBudget, AdmissionBudget, Provider
+		uint64 RequestId = 0;
+		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
+		std::optional<FStaticMeshBuildError> Error;
+		ENGINE_API auto ToString() const -> std::string;
 	};
-	struct FStaticMeshSubmissionError
-	{
-		EStaticMeshSubmissionError Code = EStaticMeshSubmissionError::None;
-		FObjectKey Owner;
-		bool Accepting = false;
-		bool OwnerValid = false;
-		FXxHash128 SourceIdentity;
-		float NormalizedSize = 0;
-		uint64 SlotCount = 0;
-		uint64 SlotIndex = 0;
-		std::string SlotName;
-		std::string SourceName;
-		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		uint64 RecordCount = 0;
-		uint64 RecordLimit = 0;
-		uint64 ReservedBytes = 0;
-		uint64 RequestedBytes = 0;
-		uint64 ByteLimit = 0;
-		std::optional<FAssetImportDataError> ImportCause;
-		std::optional<FStaticMeshBuildMemoryEstimate> MemoryCause;
-		std::optional<EFeatureInvokeStatus> InvocationStatus;
-		std::optional<FStaticMeshBuildProviderDescriptor> Descriptor;
-	};
+	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationResult&)>;
 
-	ENGINE_API auto FormatStaticMeshSubmissionError(const FStaticMeshSubmissionError& Error) -> std::string;
-
-	ENGINE_API auto SubmitStaticMeshCompilation(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
-		FStaticMeshCompilationCompletion Completion = {}) -> std::expected<void, FStaticMeshSubmissionError>;
 	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto GetStaticMeshCompilationDiagnostic(const DStaticMesh& Mesh) -> FStaticMeshCompilationDiagnostic;
+	// Query a particular completion even after its owner is destroyed or superseded.
+	// Returns RequestId == 0 after the bounded history entry has expired.
+	ENGINE_API auto GetStaticMeshCompilationDiagnostic(uint64 RequestId) -> FStaticMeshCompilationDiagnostic;
 	ENGINE_API auto GetStaticMeshCompilationManagerDiagnostics() -> FStaticMeshCompilationManagerDiagnostics;
 	// Invalidation is deferred: callbacks are dispatched by the owner-thread pump.
 	ENGINE_API auto CancelStaticMeshCompilation(DStaticMesh& Mesh) -> void;

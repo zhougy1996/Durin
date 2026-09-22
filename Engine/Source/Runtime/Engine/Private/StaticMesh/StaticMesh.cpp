@@ -17,7 +17,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -496,7 +496,7 @@ namespace Durin
 		case EStaticMeshPublicationError::LODPolicy:
 			return Error.LODCause ? FormatStaticMeshLODPolicyError(*Error.LODCause) : "Static-mesh LOD policy is invalid.";
 		case EStaticMeshPublicationError::CollisionBuild:
-			return Error.CollisionCause ? FormatStaticMeshDerivedDataError(*Error.CollisionCause) : "Static-mesh collision build failed.";
+			return Error.CollisionCause ? Error.CollisionCause->ToString() : "Static-mesh collision build failed.";
 		case EStaticMeshPublicationError::ResourceInitialization: return "Static-mesh candidate resource initialization failed.";
 		}
 		return {};
@@ -613,7 +613,7 @@ namespace Durin
 		return {};
 	}
 
-	auto ApplyStaticMeshAuthoredCandidate(DStaticMesh& Mesh,
+	auto FStaticMeshBuilder::ApplyCandidate(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
 		bool bMarkPackageDirty, const FStaticMeshBuildExecutionControl& Control,
@@ -643,7 +643,7 @@ namespace Durin
 		const auto SlotState = [](const FMeshMaterialSlotDefinition& Slot) -> FStaticMeshApplicationSlot {
 			return {Slot.Name.ToString(), Slot.SourceName, Slot.SourceMaterialIndex, FObjectKey(Slot.DefaultMaterial.Get())};
 		};
-		const auto Current = CaptureStaticMeshReconciliation(Mesh);
+		const auto Current = FStaticMeshBuilder::Capture(Mesh);
 		if (Current.SourceIdentity != Snapshot.SourceIdentity || Current.NormalizedSize != Snapshot.NormalizedSize
 			|| Current.Body != Snapshot.Body || Current.BodyRevision != Snapshot.BodyRevision
 			|| Current.CollisionMode != Snapshot.CollisionMode || Current.CollisionPolicy != Snapshot.CollisionPolicy
@@ -791,7 +791,7 @@ namespace Durin
 		return {};
 	}
 
-	auto DStaticMesh::ReplaceSourceRenderData(
+	auto DStaticMesh::ReplaceSourceRenderDataDestructively(
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
@@ -810,10 +810,10 @@ namespace Durin
 		NormalizedSize = InNormalizedSize;
 		InSource.ReleaseGeometry();
 		Source = std::move(InSource);
-		return ReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots));
+		return ReplaceRenderDataDestructively(std::move(InRenderData), std::move(InMaterialSlots));
 	}
 
-	auto DStaticMesh::ReplaceRenderData(
+	auto DStaticMesh::ReplaceRenderDataDestructively(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>
 	{

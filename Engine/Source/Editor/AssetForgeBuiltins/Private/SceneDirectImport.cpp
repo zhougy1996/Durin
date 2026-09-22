@@ -27,7 +27,7 @@
 #include "RenderingThread.h"
 #include "SceneImportInternal.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
@@ -578,7 +578,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				return;
 			}
 			auto Outcome =
-			    BuildStaticMeshAuthoredCandidate({.Source = Output.StaticMeshSource},
+			    FStaticMeshBuilder::BuildCandidate({.Source = Output.StaticMeshSource},
 			                                     {.ShouldCancel = IsCancellationRequested});
 			if (!Outcome)
 			{
@@ -586,7 +586,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  (!Outcome && Outcome.error().Code == EStaticMeshAuthoredBuildError::Cancelled)
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
-				                  "scene-build", FormatStaticMeshAuthoredBuildError(Outcome.error()),
+				                  "scene-build", Outcome.error().ToString(),
 				                  Descriptor.StableIdentity);
 				return;
 			}
@@ -840,8 +840,8 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				}
 				ImportData->SourceIdentity = RootFilename;
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
-				if (const auto Applied = ApplyStaticMeshAuthoredCandidate(
-				        *Mesh, std::move(Output.StaticMesh), CaptureStaticMeshReconciliation(*Mesh), true, {},
+				if (const auto Applied = FStaticMeshBuilder::ApplyCandidate(
+				        *Mesh, std::move(Output.StaticMesh), FStaticMeshBuilder::Capture(*Mesh), true, {},
 				        ImportData);
 				    !Applied)
 				{

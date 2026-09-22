@@ -38,7 +38,7 @@ namespace Durin::Editor::StaticMesh
 	{
 		FObjectKey Owner;
 		FPackagePath Package;
-		std::optional<FStaticMeshCompilationDiagnostic> Result;
+		std::optional<FStaticMeshCompilationResult> Result;
 		bool bSaveFailed = false;
 	};
 
@@ -272,7 +272,7 @@ namespace Durin::Editor::StaticMesh
 		if (!Operation || !Operation->Result) return false;
 		if (Operation->Result->Status != EStaticMeshCompilationStatus::Succeeded)
 		{
-			const auto Message = FormatStaticMeshCompilationDiagnostic(*Operation->Result);
+			const auto Message = Operation->Result->ToString();
 			SetError(Message.empty() ? "StaticMesh import did not complete." : Message);
 			const auto Package = Operation->Package;
 			Operation.reset();

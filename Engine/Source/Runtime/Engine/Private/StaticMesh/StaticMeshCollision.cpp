@@ -5,7 +5,7 @@
 #include "Logging/LogMacros.h"
 #include "Threading/RunnableThread.h"
 #include "Physics/BodySetup.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
@@ -17,7 +17,7 @@ namespace Durin
 		{
 		case EStaticMeshCollisionError::None: return {};
 		case EStaticMeshCollisionError::MissingRenderData: return "Static-mesh collision build requires published CPU render data.";
-		case EStaticMeshCollisionError::DerivedData: return Error.DerivedDataCause ? FormatStaticMeshDerivedDataError(*Error.DerivedDataCause) : "StaticMesh collision build failed.";
+		case EStaticMeshCollisionError::DerivedData: return Error.DerivedDataCause ? Error.DerivedDataCause->ToString() : "StaticMesh collision build failed.";
 		case EStaticMeshCollisionError::Publication: return "Static mesh could not publish collision geometry.";
 		}
 		return {};
@@ -47,11 +47,10 @@ namespace Durin
 		FCollisionGeometryRef& OutSimple,
 		FCollisionGeometryRef& OutComplex) const -> std::expected<void, FStaticMeshDerivedDataError>
 	{
-		FStaticMeshCollisionBuildResult Product;
-		const auto Built = BuildStaticMeshCollisionDerivedData(SourceRenderData, Mode, Policy, Product);
-		if (!Built) return Built;
-		OutSimple = std::move(Product.Simple);
-		OutComplex = std::move(Product.Complex);
+		auto Built = FStaticMeshBuilder::BuildCollision(SourceRenderData, Mode, Policy);
+		if (!Built) return std::unexpected(std::move(Built.error()));
+		OutSimple = std::move(Built->Simple);
+		OutComplex = std::move(Built->Complex);
 		return {};
 	}
 	auto DStaticMesh::SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void

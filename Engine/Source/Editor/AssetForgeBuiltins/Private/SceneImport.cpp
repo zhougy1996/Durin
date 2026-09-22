@@ -14,7 +14,7 @@
 #include "SceneImportInternal.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "StaticMeshImportAdapter.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DBuild.h"
 

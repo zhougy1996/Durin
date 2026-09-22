@@ -25,7 +25,7 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 
@@ -53,10 +53,9 @@ namespace
 			FVector3f(0.0f, 0.5f, 0.0f)};
 		Section.Indices = {0, 1, 2};
 		Section.SourceMaterialIndex = 0;
-		if (const auto Built = BuildStaticMeshSynchronously(
-			*Mesh, std::move(Imported)); !Built)
+		if (const auto Built = Mesh->Build(std::move(Imported)); !Built)
 		{
-			ADD_FAILURE() << FormatStaticMeshSynchronousError(Built.error());
+			ADD_FAILURE() << Built.error().ToString();
 			return nullptr;
 		}
 		return Mesh;
@@ -336,8 +335,8 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	Section.Indices = {0, 1, 2};
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
-	const auto SynchronousBuild1 = BuildStaticMeshSynchronously(*Pending, std::move(Imported));
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.error());
+	const auto SynchronousBuild1 = Pending->Build(std::move(Imported));
+	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error().ToString();
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());
 	MarkObjectHierarchyAsGarbage(World);

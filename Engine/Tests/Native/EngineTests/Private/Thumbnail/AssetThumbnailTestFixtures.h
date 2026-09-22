@@ -26,7 +26,7 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "RenderingThread.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
@@ -472,10 +472,9 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		if (const auto Built = BuildStaticMeshSynchronously(
-				*OutFixtures.StaticMesh, std::move(ImportedMesh)); !Built)
+		if (const auto Built = OutFixtures.StaticMesh->Build(std::move(ImportedMesh)); !Built)
 		{
-			OutError = FormatStaticMeshSynchronousError(Built.error());
+			OutError = Built.error().ToString();
 			return false;
 		}
 		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);

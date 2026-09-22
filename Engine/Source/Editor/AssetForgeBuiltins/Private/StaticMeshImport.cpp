@@ -13,7 +13,7 @@
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "StaticMeshImportAdapter.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
 namespace Durin::AssetForge::Builtins
@@ -160,7 +160,7 @@ namespace Durin::AssetForge::Builtins
 			{ Error.ImportCause = std::make_shared<FAssetImportDataError>(Validation.error()); return Reject(EStaticMeshRebuildError::ImportValidation); }
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
 			auto Result = std::make_shared<FStaticMeshCompilationDiagnostic>();
-			if (const auto Submitted = SubmitStaticMeshCompilation(Mesh, {
+			if (const auto Submitted = Mesh.AsyncBuild({
 				.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive,
 				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshApplicationError> {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
@@ -169,8 +169,9 @@ namespace Durin::AssetForge::Builtins
 					Data->SetState(State);
 					PreparedImportData = Data;
 					return {};
-				}}, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationDiagnostic& Value) {
-				*Result = Value;
+				}}, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationResult& Value) {
+				auto Final = Value;
+				*Result = GetStaticMeshCompilationDiagnostic(Value.RequestId);
 				if (Value.Status == EStaticMeshCompilationStatus::Succeeded && Save)
 				{
 					auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner));
@@ -186,7 +187,12 @@ namespace Durin::AssetForge::Builtins
 						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetWriteResult>(Saved)};
 					}
 				}
-				if (Completion) Completion(*Result);
+				if (Result->Status != Value.Status)
+				{
+					Final.Status = Result->Status;
+					Final.Error.emplace(FormatStaticMeshCompletionError(Result->Error));
+				}
+				if (Completion) Completion(Final);
 			}); !Submitted)
 			{
 				Error.SubmissionCause = Submitted.error();
@@ -218,7 +224,7 @@ namespace Durin::AssetForge::Builtins
 		case EStaticMeshRebuildError::Decode: return "Failed to decode StaticMesh source " + Error.Filename;
 		case EStaticMeshRebuildError::Source: return Error.SourceCause ? FormatStaticMeshSourceError(*Error.SourceCause) : "Invalid StaticMesh source.";
 		case EStaticMeshRebuildError::ImportValidation: return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "Invalid StaticMesh import data.";
-		case EStaticMeshRebuildError::Submission: return Error.SubmissionCause ? FormatStaticMeshSubmissionError(*Error.SubmissionCause) : "StaticMesh compilation submission failed.";
+		case EStaticMeshRebuildError::Submission: return Error.SubmissionCause ? Error.SubmissionCause->ToString() : "StaticMesh compilation submission failed.";
 		case EStaticMeshRebuildError::Completion: return Error.CompletionCause ? FormatStaticMeshCompilationDiagnostic(*Error.CompletionCause) : "StaticMesh compilation failed.";
 		case EStaticMeshRebuildError::ImportData: return "StaticMesh has no current family import data.";
 		case EStaticMeshRebuildError::MissingSource: return "StaticMesh has no source filename to reimport.";
@@ -229,7 +235,7 @@ namespace Durin::AssetForge::Builtins
 	auto FStaticMeshFactoryError::Format() const -> std::string
 	{
 		if (const auto* Rebuild = std::get_if<FStaticMeshRebuildError>(&Cause)) return FormatStaticMeshRebuildError(*Rebuild);
-		return FormatStaticMeshCompilationDiagnostic(std::get<FStaticMeshCompilationDiagnostic>(Cause));
+		return std::get<FStaticMeshCompilationResult>(Cause).ToString();
 	}
 
 	DStaticMeshFactory::DStaticMeshFactory(
@@ -338,10 +344,10 @@ namespace Durin::AssetForge::Builtins
 		}
 		const auto Submitted = RebuildFromFilename(*Mesh, Source->Hint,
 			Source->HintBase, State.ImportSettings, nullptr, {},
-			[Completion](const FStaticMeshCompilationDiagnostic& Result) {
+			[Completion](const FStaticMeshCompilationResult& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatStaticMeshCompilationDiagnostic(Result),
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.ToString(),
 						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
 		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.error()),
@@ -378,10 +384,10 @@ namespace Durin::AssetForge::Builtins
 		}
 		const auto Submitted = RebuildFromFilename(*Mesh, {}, ESourceHintBase::Absolute,
 			Data->GetStaticMeshState().ImportSettings, nullptr, Requested,
-			[Completion](const FStaticMeshCompilationDiagnostic& Result) {
+			[Completion](const FStaticMeshCompilationResult& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatStaticMeshCompilationDiagnostic(Result),
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.ToString(),
 						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
 		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.error()),

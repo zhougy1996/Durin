@@ -31,7 +31,6 @@ namespace Durin
 			FStaticMeshAuthoredBuildRequest Request;
 			uint64 ProviderRegistration = 0;
 			uint64 ReservedBytes = 0;
-			uint64 WorkerNanoseconds = 0;
 			std::atomic<bool> Cancelled = false;
 			std::atomic<bool> Done = false;
 			std::expected<std::unique_ptr<FStaticMeshAuthoredCandidate>, FStaticMeshAuthoredBuildError> Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::NotStarted});
@@ -94,51 +93,47 @@ namespace Durin
 				FStaticMeshCompilationCompletion Completion) -> std::expected<void, FStaticMeshSubmissionError>
 			{
 				CheckOwnerThread();
-				const auto CaptureStart = FClock::now();
-				const auto Reject = [&](FStaticMeshSubmissionError Error) -> std::expected<void, FStaticMeshSubmissionError> {
-					Error.Owner = FObjectKey(&Mesh);
-					return std::unexpected(std::move(Error));
+				const auto Reject = [](std::string Message) -> std::expected<void, FStaticMeshSubmissionError> {
+					return std::unexpected(FStaticMeshSubmissionError{std::move(Message)});
 				};
-				if (!bAccepting || !IsValid(&Mesh)) return Reject({.Code = EStaticMeshSubmissionError::Owner, .Accepting = bAccepting, .OwnerValid = IsValid(&Mesh)});
-				if (!Request.Source.IsValid()) return Reject({.Code = EStaticMeshSubmissionError::Source, .SourceIdentity = Request.Source.GetIdentity()});
-				const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
+				if (!bAccepting || !IsValid(&Mesh)) return Reject("StaticMesh compilation is not accepting this owner.");
+				if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
+				const auto Snapshot = FStaticMeshBuilder::Capture(Mesh);
 				if (!std::isfinite(Snapshot.NormalizedSize) || Snapshot.NormalizedSize <= 0
 					|| Snapshot.MaterialSlots.size() > MaximumMeshMaterialSlots)
-					return Reject({.Code = EStaticMeshSubmissionError::Settings, .NormalizedSize = Snapshot.NormalizedSize, .SlotCount = Snapshot.MaterialSlots.size()});
+					return Reject("StaticMesh compilation settings are invalid.");
 				if ((Snapshot.CollisionMode != EBodySetupCollisionSourceMode::None
 					&& Snapshot.CollisionMode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 					&& Snapshot.CollisionMode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 					|| (Snapshot.CollisionPolicy != EBodySetupCollisionQueryPolicy::SimpleOnly
 						&& Snapshot.CollisionPolicy != EBodySetupCollisionQueryPolicy::ComplexOnly
 						&& Snapshot.CollisionPolicy != EBodySetupCollisionQueryPolicy::SimpleAndComplex))
-					return Reject({.Code = EStaticMeshSubmissionError::CollisionSettings, .CollisionMode = Snapshot.CollisionMode, .CollisionPolicy = Snapshot.CollisionPolicy});
+					return Reject("StaticMesh collision compilation settings are invalid.");
 				std::unordered_set<FName> SlotNames;
 				for (size_t Index = 0; Index < Snapshot.MaterialSlots.size(); ++Index)
 				{
 					const auto& Slot = Snapshot.MaterialSlots[Index];
 					if (Slot.Name.IsNone() || Slot.SourceName.size() > 4096 || !SlotNames.insert(Slot.Name).second)
-						return Reject({.Code = EStaticMeshSubmissionError::MaterialSlots, .SlotIndex = Index,
-							.SlotName = Slot.Name.ToString(), .SourceName = Slot.SourceName});
+						return Reject(std::format("StaticMesh compilation requires bounded unique material slots (slot {}, name {}).", Index, Slot.Name.ToString()));
 				}
 				if (Mesh.GetAssetImportData())
 				{
 					if (const auto Validation = Mesh.GetAssetImportData()->Validate(); !Validation)
-						return Reject({.Code = EStaticMeshSubmissionError::ImportValidation, .ImportCause = Validation.error()});
+						return Reject(FormatAssetImportDataError(Validation.error()));
 				}
 				const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
 				FStaticMeshBuildMemoryEstimate Memory{MaximumRequestBytes, 1024 * 1024};
 				if (!Memory.Add(WireBytes, 64) || !Memory.Add(Request.Source.GetMeshCount(), 1024)
 					|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), Snapshot.MaterialSlots.size()), 32768))
-					return Reject({.Code = EStaticMeshSubmissionError::RequestBudget, .MemoryCause = Memory});
+					return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
 				const uint64 Bytes = Memory.Bytes;
 				if (Records.size() >= MaximumRecords || Bytes > MaximumTotalBytes - ReservedBytes)
-					return Reject({.Code = EStaticMeshSubmissionError::AdmissionBudget, .RecordCount = Records.size(), .RecordLimit = MaximumRecords,
-						.ReservedBytes = ReservedBytes, .RequestedBytes = Bytes, .ByteLimit = MaximumTotalBytes});
+					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
 				const auto Provider = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
 					[](IStaticMeshBuildProvider& Value) { return Value.GetDescriptor(); });
 				if (!Provider.WasInvoked() || !Provider.Value || !Provider.Value->IsValid()
 					|| Provider.Value->ProducerIdentity.size() > 256)
-					return Reject({.Code = EStaticMeshSubmissionError::Provider, .InvocationStatus = Provider.Status, .Descriptor = Provider.Value});
+					return Reject("StaticMesh compilation requires one valid build provider.");
 				auto Record = std::make_shared<FRecord>();
 				Record->Snapshot = Snapshot;
 				Record->RequestedSource = Request.Source;
@@ -156,7 +151,7 @@ namespace Durin
 				Record->Completion = std::move(Completion);
 				Record->PreparePublication = std::move(Request.PreparePublication);
 				Record->Work = std::make_shared<FWork>();
-				Record->Work->Request = MakeStaticMeshAuthoredBuildRequest(std::move(Request.Source), Snapshot);
+				Record->Work->Request = FStaticMeshBuilder::MakeRequest(std::move(Request.Source), Snapshot);
 				Record->Work->Request.Source.ReleaseGeometry();
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Request.bPersistDerivedData = Request.bPersistDerivedData;
@@ -171,7 +166,6 @@ namespace Durin
 				for (const auto& Old : Records)
 					if (Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->bDelivered)
 						{ Old->bRequeue = false; Terminate(*Old, EStaticMeshCompilationStatus::Superseded); }
-				Record->Diagnostic.CaptureNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(FClock::now() - CaptureStart).count();
 				ReservedBytes += Bytes;
 				Records.push_back(std::move(Record));
 				Admit();
@@ -287,6 +281,21 @@ namespace Durin
 					if (Entry.Owner == Owner && Entry.RequestId > Result.RequestId) Result = Entry;
 				return Result;
 			}
+			auto Diagnostic(uint64 RequestId) const -> FStaticMeshCompilationDiagnostic
+			{
+				CheckOwnerThread();
+				for (const auto& Entry : History)
+					if (Entry.RequestId == RequestId) return Entry;
+				for (const auto& Record : Records)
+					if (Record->Diagnostic.RequestId == RequestId)
+					{
+						auto Result = Record->Diagnostic;
+						if (!Record->Terminal && Record->Work->Done.load(std::memory_order_acquire))
+							Result.Phase = EStaticMeshCompilationPhase::Mailbox;
+						return Result;
+					}
+				return {};
+			}
 			auto Diagnostics() const -> FStaticMeshCompilationManagerDiagnostics
 			{
 				CheckOwnerThread();
@@ -332,12 +341,10 @@ namespace Durin
 							try
 							{
 								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
-								const auto WorkerStart = FClock::now();
-								Work->Outcome = BuildStaticMeshAuthoredCandidate(std::move(Work->Request),
+								Work->Outcome = FStaticMeshBuilder::BuildCandidate(std::move(Work->Request),
 									{.ShouldCancel = [&] { return Work->Cancelled.load(std::memory_order_acquire) || Token.IsCancellationRequested(); },
 									.ExpectedProviderRegistration = Work->ProviderRegistration,
 									.MaximumWorkingSetBytes = Work->ReservedBytes});
-								Work->WorkerNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(FClock::now() - WorkerStart).count();
 								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 							}
 							catch (...) { Work->Outcome = std::unexpected(FStaticMeshAuthoredBuildError{.Code = EStaticMeshAuthoredBuildError::WorkerException}); }
@@ -351,7 +358,7 @@ namespace Durin
 			}
 			static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
 			{
-				const auto Current = CaptureStaticMeshReconciliation(Mesh);
+				const auto Current = FStaticMeshBuilder::Capture(Mesh);
 				const auto& Expected = Record.Snapshot;
 				if (Current.SourceIdentity != Expected.SourceIdentity || Current.NormalizedSize != Expected.NormalizedSize
 					|| Current.Body != Expected.Body || Current.BodyRevision != Expected.BodyRevision
@@ -405,14 +412,13 @@ namespace Durin
 					{
 						if (!Record->Work->Outcome) Record->Diagnostic.Error = {.Code = EStaticMeshCompletionError::Build,
 							.Owner = Record->Diagnostic.Owner, .BuildCause = Record->Work->Outcome.error()};
-						Record->Diagnostic.WorkerNanoseconds = Record->Work->WorkerNanoseconds;
 						if (Record->Work->Outcome)
 						{
 							const auto& Candidate = *Record->Work->Outcome;
 							Record->Diagnostic.Render = Candidate->GetRenderObservation();
-							if (Candidate->GetCollision().DerivedDataKey.IsValid())
+							if (Candidate->GetCollision().GetObservation().DerivedDataKey.IsValid())
 								Record->Diagnostic.Collision = Candidate->GetCollisionObservation();
-							Record->Diagnostic.PersistenceDiagnostic = Candidate->GetPersistenceDiagnostic();
+							Record->Diagnostic.CacheErrors = Candidate->GetCacheErrors();
 						}
 						if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
 							Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
@@ -439,23 +445,21 @@ namespace Durin
 							}
 							else
 							{
-								const auto PublicationStart = FClock::now();
 								DAssetImportData* PreparedImportData = nullptr;
 								std::expected<void, FStaticMeshApplicationError> Application = Record->PreparePublication
 									? Record->PreparePublication(*Mesh, PreparedImportData) : std::expected<void, FStaticMeshApplicationError>{};
 								PublishingOwner = Record->Diagnostic.Owner;
 								if (Application)
-									Application = ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(*Record->Work->Outcome),
+									Application = FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(*Record->Work->Outcome),
 										Record->Snapshot, Record->bMarkPackageDirty, {}, PreparedImportData);
 								const bool Applied = static_cast<bool>(Application);
 								if (!Application)
 								{
 									Record->Diagnostic.Error = {.Code = EStaticMeshCompletionError::Application,
 										.Owner = Record->Diagnostic.Owner, .ApplicationCause = Application.error()};
-									Record->Diagnostic.PersistenceDiagnostic = {};
+									Record->Diagnostic.CacheErrors.clear();
 								}
 								PublishingOwner = {};
-								Record->Diagnostic.PublicationNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(FClock::now() - PublicationStart).count();
 								Record->Terminal = Applied ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed;
 								if (Applied) Result.SuccessfullyCompiledAssets.emplace_back(Mesh);
 							}
@@ -477,7 +481,13 @@ namespace Durin
 					Record->Snapshot = {};
 					Record->ImportState.reset();
 					++Result.ProcessedCompletionCount;
-					if (Completion) Completion(Record->Diagnostic);
+					if (Completion)
+					{
+						FStaticMeshCompilationResult Completed{.RequestId = Record->Diagnostic.RequestId, .Status = *Record->Terminal};
+						if (Completed.Status == EStaticMeshCompilationStatus::Failed)
+							Completed.Error.emplace(FormatStaticMeshCompletionError(Record->Diagnostic.Error));
+						Completion(Completed);
+					}
 				}
 				std::erase_if(Records, [&](const auto& Record) {
 					if (!Record->bDelivered || !Record->Work->Done.load(std::memory_order_acquire)
@@ -550,7 +560,7 @@ namespace Durin
 		switch (Error.Code)
 		{
 		case EStaticMeshCompletionError::None: return {};
-		case EStaticMeshCompletionError::Build: return Error.BuildCause ? FormatStaticMeshAuthoredBuildError(*Error.BuildCause) : "StaticMesh build failed.";
+		case EStaticMeshCompletionError::Build: return Error.BuildCause ? Error.BuildCause->ToString() : "StaticMesh build failed.";
 		case EStaticMeshCompletionError::Application: return Error.ApplicationCause ? FormatStaticMeshApplicationError(*Error.ApplicationCause) : "StaticMesh application failed.";
 		case EStaticMeshCompletionError::PackageUnavailable: return "StaticMesh package is unavailable for save.";
 		case EStaticMeshCompletionError::Save: return Error.SaveCause ? Error.SaveCause->Message : "StaticMesh save failed.";
@@ -560,39 +570,38 @@ namespace Durin
 
 	auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string
 	{
-		auto Message = Diagnostic.Error.Code == EStaticMeshCompletionError::None
-			? FormatStaticMeshPersistenceDiagnostic(Diagnostic.PersistenceDiagnostic) : FormatStaticMeshCompletionError(Diagnostic.Error);
+		auto Message = FormatStaticMeshCompletionError(Diagnostic.Error);
+		if (Diagnostic.Error.Code == EStaticMeshCompletionError::None)
+			for (const auto& Error : Diagnostic.CacheErrors)
+			{
+				if (!Message.empty()) Message += "\n";
+				Message += Error.ToString();
+			}
 		const auto Limit = MaximumStaticMeshBuildDiagnosticBytes
 			- std::min(MaximumStaticMeshBuildDiagnosticBytes, Diagnostic.Descriptor.ProducerIdentity.size());
 		Message.resize(std::min(Message.size(), Limit));
 		return Message;
 	}
 
-	auto FormatStaticMeshSubmissionError(const FStaticMeshSubmissionError& Error) -> std::string
+	auto FStaticMeshCompilationResult::ToString() const -> std::string
 	{
-		switch (Error.Code)
+		if (Error) return Error->ToString();
+		switch (Status)
 		{
-		case EStaticMeshSubmissionError::None: return {};
-		case EStaticMeshSubmissionError::Unavailable: return "The StaticMesh compiling manager is unavailable.";
-		case EStaticMeshSubmissionError::Owner: return "StaticMesh compilation is not accepting this owner.";
-		case EStaticMeshSubmissionError::Source: return "StaticMesh compilation requires valid canonical source metadata.";
-		case EStaticMeshSubmissionError::Settings: return "StaticMesh compilation settings are invalid.";
-		case EStaticMeshSubmissionError::CollisionSettings: return "StaticMesh collision compilation settings are invalid.";
-		case EStaticMeshSubmissionError::MaterialSlots: return "StaticMesh compilation requires bounded unique material slots.";
-		case EStaticMeshSubmissionError::ImportValidation: return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "StaticMesh import data is invalid.";
-		case EStaticMeshSubmissionError::RequestBudget: return "StaticMesh compilation exceeds the 512 MiB request reservation limit.";
-		case EStaticMeshSubmissionError::AdmissionBudget: return "StaticMesh compilation count or byte admission budget is exhausted.";
-		case EStaticMeshSubmissionError::Provider: return "StaticMesh compilation requires one valid build provider.";
+		case EStaticMeshCompilationStatus::Succeeded: return {};
+		case EStaticMeshCompilationStatus::Failed: return "StaticMesh compilation failed.";
+		case EStaticMeshCompilationStatus::Cancelled: return "StaticMesh compilation was cancelled.";
+		case EStaticMeshCompilationStatus::Superseded: return "StaticMesh compilation was superseded.";
 		}
 		return {};
 	}
 
-	auto SubmitStaticMeshCompilation(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
+	auto DStaticMesh::AsyncBuild(FStaticMeshCompilationRequest Request,
 		FStaticMeshCompilationCompletion Completion) -> std::expected<void, FStaticMeshSubmissionError>
 	{
 		CheckOwnerThread();
-		if (auto Manager = GManager.lock()) return Manager->Submit(Mesh, std::move(Request), std::move(Completion));
-		return std::unexpected(FStaticMeshSubmissionError{.Code = EStaticMeshSubmissionError::Unavailable, .Owner = FObjectKey(&Mesh)});
+		if (auto Manager = GManager.lock()) return Manager->Submit(*this, std::move(Request), std::move(Completion));
+		return std::unexpected(FStaticMeshSubmissionError{"The StaticMesh compiling manager is unavailable."});
 	}
 	auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool
 	{
@@ -617,6 +626,12 @@ namespace Durin
 		CheckOwnerThread();
 		const auto Manager = GManager.lock();
 		return Manager ? Manager->Diagnostic(Mesh) : FStaticMeshCompilationDiagnostic{};
+	}
+	auto GetStaticMeshCompilationDiagnostic(uint64 RequestId) -> FStaticMeshCompilationDiagnostic
+	{
+		CheckOwnerThread();
+		const auto Manager = GManager.lock();
+		return Manager ? Manager->Diagnostic(RequestId) : FStaticMeshCompilationDiagnostic{};
 	}
 	auto GetStaticMeshCompilationManagerDiagnostics() -> FStaticMeshCompilationManagerDiagnostics
 	{

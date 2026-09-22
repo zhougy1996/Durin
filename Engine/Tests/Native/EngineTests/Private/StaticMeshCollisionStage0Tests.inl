@@ -8,7 +8,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "Runtime/Engine/Private/StaticMesh/StaticMeshDerivedDataKey.h"
@@ -1100,11 +1100,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	DStaticMesh* Mesh = DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
 	std::string Error;
-	FStaticMeshCollisionBuildResult Cold;
-	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Mesh->GetRenderData(),
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Cold;
+	ASSERT_TRUE((Cold = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Cold)) << Error;
-	EXPECT_EQ(Cold.Origin, EStaticMeshBuildOrigin::Rebuilt);
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+	EXPECT_EQ(Cold->GetObservation().Origin, EStaticMeshBuildOrigin::Rebuilt);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());
@@ -1112,19 +1112,19 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	ASSERT_NE(Setup, nullptr);
 	EXPECT_EQ(Setup->GetCollisionSourceMode(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	const FCacheKeyProxy FirstKey = Cold.DerivedDataKey;
+	const FCacheKeyProxy FirstKey = Cold->GetObservation().DerivedDataKey;
 	EXPECT_EQ(FirstKey.ToString().size(), 32u);
 	FCollisionGeometryRef FirstGeometry;
 	ASSERT_TRUE(Setup->BuildComplexGeometry(FirstGeometry));
 	const uint64 FirstIdentity = FirstGeometry.GetIdentity();
 	Mesh->RebuildCollision();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EStaticMeshCollisionBuildStatus::Ready);
-	FStaticMeshCollisionBuildResult Warm;
-	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Mesh->GetRenderData(),
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Warm;
+	ASSERT_TRUE((Warm = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Warm)) << Error;
-	EXPECT_EQ(Warm.Origin, EStaticMeshBuildOrigin::CacheHit);
-	EXPECT_EQ(Warm.DerivedDataKey, FirstKey);
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex))) << Error;
+	EXPECT_EQ(Warm->GetObservation().Origin, EStaticMeshBuildOrigin::CacheHit);
+	EXPECT_EQ(Warm->GetObservation().DerivedDataKey, FirstKey);
 	FCollisionGeometryRef CachedGeometry;
 	ASSERT_TRUE(Setup->BuildComplexGeometry(CachedGeometry));
 	EXPECT_NE(CachedGeometry.GetIdentity(), FirstIdentity);
@@ -1139,7 +1139,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	ASSERT_TRUE(Rejected.DerivedDataCause);
 	EXPECT_EQ(Rejected.DerivedDataCause->Code, EStaticMeshDerivedDataError::Recipe);
-	ASSERT_TRUE(Rejected.DerivedDataCause->RecipeCause);
+	EXPECT_FALSE(Rejected.DerivedDataCause->ToString().empty());
 	FCollisionGeometryRef Preserved;
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
 	EXPECT_FALSE(Setup->BuildSimpleGeometry(Preserved));
@@ -1152,12 +1152,12 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_TRUE(Setup->BuildComplexGeometry(Preserved));
 	EXPECT_EQ(Rejected.Mode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Rejected.DerivedDataCause->Code, EStaticMeshDerivedDataError::Recipe);
-	FStaticMeshCollisionBuildResult Changed;
-	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Mesh->GetRenderData(),
+	std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Changed;
+	ASSERT_TRUE((Changed = FStaticMeshBuilder::BuildCollision(*Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::ComplexOnly, Changed)) << Error;
-	EXPECT_NE(Changed.DerivedDataKey, FirstKey);
-	EXPECT_EQ(Changed.Origin, EStaticMeshBuildOrigin::Rebuilt);
+		EBodySetupCollisionQueryPolicy::ComplexOnly))) << Error;
+	EXPECT_NE(Changed->GetObservation().DerivedDataKey, FirstKey);
+	EXPECT_EQ(Changed->GetObservation().Origin, EStaticMeshBuildOrigin::Rebuilt);
 	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Failed)
 		<< Durin::FormatStaticMeshCollisionError(Mesh->GetCollisionBuildError());

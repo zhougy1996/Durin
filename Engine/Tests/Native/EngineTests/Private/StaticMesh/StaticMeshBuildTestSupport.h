@@ -123,8 +123,8 @@ namespace StaticMeshBuildTestSupport
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
-			FStaticMeshBuildResult Product;
-			ASSERT_TRUE(BuildStaticMeshDerivedData({.Source = Source, .bPersistDerivedData = false}, Product)) << Error;
+			std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError> Product;
+			ASSERT_TRUE((Product = FStaticMeshBuilder::Build({.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
 			if (bMeasure) std::cout << "residency_fixture triangles=" << Triangles << " retained_array_capacity_bytes=" << Retained
@@ -167,31 +167,29 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
-			FStaticMeshBuildResult Render;
-			ASSERT_TRUE(BuildStaticMeshDerivedData(
-				{.Source = Source, .bPersistDerivedData = false}, Render)) << Error;
-			ASSERT_EQ(Render.Origin, EStaticMeshBuildOrigin::Rebuilt);
+			std::expected<FStaticMeshBuildProduct, FStaticMeshDerivedDataError> Render;
+			ASSERT_TRUE((Render = FStaticMeshBuilder::Build(
+				{.Source = Source, .bPersistDerivedData = false}))) << Error;
+			ASSERT_EQ(Render->GetObservation().Origin, EStaticMeshBuildOrigin::Rebuilt);
 			const auto RenderEnd = std::chrono::steady_clock::now();
-			ASSERT_NE(Render.RenderData, nullptr);
-			const auto& LOD = Render.RenderData->LODResources.front();
+			ASSERT_NE(Render->RenderData, nullptr);
+			const auto& LOD = Render->RenderData->LODResources.front();
 			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 			ASSERT_NE(Acceleration, nullptr);
-			FStaticMeshCollisionBuildResult Collision;
+			std::expected<FStaticMeshCollisionBuildProduct, FStaticMeshDerivedDataError> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
-			ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Render.RenderData,
+			ASSERT_TRUE((Collision = FStaticMeshBuilder::BuildCollision(*Render->RenderData,
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-				EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-				Collision, false)) << Error;
-			ASSERT_TRUE(Collision.Complex);
+				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false))) << Error;
+			ASSERT_TRUE(Collision->Complex);
 			const auto CollisionEnd = std::chrono::steady_clock::now();
 			const auto Nanoseconds = [](auto Duration) {
 				return std::chrono::duration_cast<std::chrono::nanoseconds>(Duration).count();
 			};
 			if (bMeasure) std::cout << "authored_budget_fixture triangles=" << TriangleCount
 				<< " canonical_bytes=" << Source.GetGeometryBulk().GetPayloadSize()
-				<< " render_payload_bytes=" << Render.PayloadBytes
 				<< " ray_retained_bytes=" << Acceleration->RetainedBytes
-				<< " collision_retained_bytes=" << Collision.Complex.GetRetainedBytes()
+				<< " collision_retained_bytes=" << Collision->Complex.GetRetainedBytes()
 				<< " decode_render_ns=" << Nanoseconds(RenderEnd - Start)
 				<< " ray_ns=" << Acceleration->BuildNanoseconds
 				<< " collision_ns=" << Nanoseconds(CollisionEnd - CollisionStart) << std::endl;
@@ -226,14 +224,14 @@ namespace StaticMeshBuildTestSupport
 		auto* Body = NewObject<DBodySetup>(Mesh, FName("BodySetup"));
 		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		ASSERT_TRUE(Mesh->SetBodySetup(Body));
-		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
-		auto Request = MakeStaticMeshAuthoredBuildRequest(Source, Snapshot);
+		const auto Snapshot = FStaticMeshBuilder::Capture(*Mesh);
+		auto Request = FStaticMeshBuilder::MakeRequest(Source, Snapshot);
 		Request.bPersistDerivedData = false;
 		FStaticMeshBuildExecutionMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		auto Outcome = BuildStaticMeshAuthoredCandidate(std::move(Request),
+		auto Outcome = FStaticMeshBuilder::BuildCandidate(std::move(Request),
 			{.ShouldCancel = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
@@ -242,11 +240,11 @@ namespace StaticMeshBuildTestSupport
 				return false;
 			}, .Metrics = &Metrics});
 		const auto Built = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Outcome) << FormatStaticMeshAuthoredBuildError(Outcome.error());
+		ASSERT_TRUE(Outcome) << Outcome.error().ToString();
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
-		ASSERT_TRUE(ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
+		ASSERT_TRUE(FStaticMeshBuilder::ApplyCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
@@ -260,12 +258,12 @@ namespace StaticMeshBuildTestSupport
 		for (const uint64 StopAfter : {Metrics.CancellationCheckpoints / 4,
 			Metrics.CancellationCheckpoints / 2, Metrics.CancellationCheckpoints * 3 / 4})
 		{
-			auto CancelRequest = MakeStaticMeshAuthoredBuildRequest(Source, Snapshot);
+			auto CancelRequest = FStaticMeshBuilder::MakeRequest(Source, Snapshot);
 			CancelRequest.bPersistDerivedData = false;
 			uint64 Checks = 0;
 			bool bRequested = false;
 			std::chrono::steady_clock::time_point RequestedAt;
-			const auto Cancelled = BuildStaticMeshAuthoredCandidate(std::move(CancelRequest),
+			const auto Cancelled = FStaticMeshBuilder::BuildCandidate(std::move(CancelRequest),
 				{.ShouldCancel = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)
@@ -321,7 +319,7 @@ namespace StaticMeshBuildTestSupport
 		});
 #endif
 		std::array<DStaticMesh*, 2> Meshes;
-		std::array<std::optional<FStaticMeshCompilationDiagnostic>, 2> Results;
+		std::array<std::optional<FStaticMeshCompilationResult>, 2> Results;
 		FStaticMeshWorkerBarrier Barrier(EStaticMeshCompilationPhase::Mailbox);
 		for (size_t Index = 0; Index < Meshes.size(); ++Index)
 		{
@@ -329,7 +327,7 @@ namespace StaticMeshBuildTestSupport
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
-			ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index], {.Source = Source, .bPersistDerivedData = false},
+			ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .bPersistDerivedData = false},
 				[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));
@@ -363,22 +361,16 @@ namespace StaticMeshBuildTestSupport
 		if (bMeasure) std::cout << "concurrent_candidate_allocation sampled_default_zone_peak_bytes="
 			<< SampledAllocationPeak.load() << " sample_interval_ms=1" << std::endl;
 #endif
-		const auto& Completed = *Results[1];
+		const auto Completed = GetStaticMeshCompilationDiagnostic(*Meshes[1]);
+		EXPECT_EQ(Completed.RequestId, Results[1]->RequestId);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Completed.Status);
 		ASSERT_TRUE(Completed.Render.has_value());
 		ASSERT_TRUE(Completed.Collision.has_value());
 		EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, Completed.Render->Origin);
 		EXPECT_TRUE(Completed.Render->DerivedDataKey.IsValid());
-		EXPECT_GT(Completed.Render->PayloadBytes, 0u);
-		EXPECT_GT(Completed.CaptureNanoseconds, 0u);
-		EXPECT_GT(Completed.WorkerNanoseconds, 0u);
-		EXPECT_GT(Completed.PublicationNanoseconds, 0u);
 		FCollisionGeometryRef Collision;
 		EXPECT_TRUE(Meshes[1]->GetBodySetup()->BuildComplexGeometry(Collision));
 		EXPECT_FALSE(Meshes[1]->GetSource().IsGeometryResident());
 		EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
-		if (bMeasure) std::cout << "concurrent_candidate_cost capture_ns=" << Completed.CaptureNanoseconds
-			<< " worker_ns=" << Completed.WorkerNanoseconds
-			<< " publication_ns=" << Completed.PublicationNanoseconds << std::endl;
 	}
 }
