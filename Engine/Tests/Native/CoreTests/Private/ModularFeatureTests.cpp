@@ -65,10 +65,12 @@ namespace Durin::Tests
 	class FManagedTestModule final : public IModuleInterface, public IManagedModuleFeature
 	{
 	public:
-		explicit FManagedTestModule(FManagedModuleObservations& InObservations)
-			: Observations(InObservations) {}
+		explicit FManagedTestModule(FManagedModuleObservations& InObservations, bool bInDynamicReloading = true)
+			: Observations(InObservations), bDynamicReloading(bInDynamicReloading) {}
 		~FManagedTestModule() override { Observations.bDestroyed = true; }
 
+		auto SupportsDynamicReloading() const -> bool override { return bDynamicReloading; }
+		auto SetDynamicReloadingForTest(bool bEnabled) -> void { bDynamicReloading = bEnabled; }
 		auto StartupModule() -> void override
 		{
 			Registration = FModuleStartup::RegisterFeature<IManagedModuleFeature>(*this);
@@ -78,6 +80,7 @@ namespace Durin::Tests
 
 	private:
 		FManagedModuleObservations& Observations;
+		bool bDynamicReloading;
 		FModularFeatureRegistration Registration;
 	};
 
@@ -377,6 +380,28 @@ namespace Durin::Tests
 		EXPECT_EQ(EModuleState::Unloaded, Result.ObservedState);
 		EXPECT_EQ(0u, Result.RetirementSnapshot.PublishedCount);
 		EXPECT_EQ(0u, Result.RetirementSnapshot.InFlightInvocationCount);
+		EXPECT_TRUE(Observations.bShutdown);
+		EXPECT_TRUE(Observations.bDestroyed);
+	}
+
+	TEST(FModuleManagerRetirementTests, NonReloadableModuleRejectsRuntimeShutdownAndUnload)
+	{
+		FManagedModuleObservations Observations;
+		auto* Module = static_cast<FManagedTestModule*>(FModuleTestHarness::InstallStartedModule(
+			"ManagedModuleNonReloadable", std::make_unique<FManagedTestModule>(Observations, false)));
+		ASSERT_NE(nullptr, Module);
+		auto& Manager = FModuleManager::Get();
+		const auto Shutdown = Manager.ShutdownModule("ManagedModuleNonReloadable");
+		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Shutdown.Status);
+		EXPECT_EQ(EModuleState::Active, Shutdown.ObservedState);
+		const auto Unload = Manager.UnloadModule("ManagedModuleNonReloadable");
+		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Unload.Status);
+		EXPECT_EQ(EModuleState::Active, Unload.ObservedState);
+		EXPECT_FALSE(Observations.bShutdown);
+		EXPECT_FALSE(Observations.bDestroyed);
+		EXPECT_NE(nullptr, Manager.GetModule("ManagedModuleNonReloadable"));
+		Module->SetDynamicReloadingForTest(true);
+		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleNonReloadable").Succeeded());
 		EXPECT_TRUE(Observations.bShutdown);
 		EXPECT_TRUE(Observations.bDestroyed);
 	}

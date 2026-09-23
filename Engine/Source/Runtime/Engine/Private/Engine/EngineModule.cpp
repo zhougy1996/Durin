@@ -7,6 +7,7 @@ namespace Durin
 	class FEngineModule : public IModuleInterface
 	{
 	public:
+		auto SupportsDynamicReloading() const -> bool override { return false; }
 		auto StartupModule() -> void override
 		{
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{

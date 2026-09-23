@@ -44,6 +44,8 @@ namespace Durin
 	public:
 		virtual ~IModuleInterface() = default;
 		virtual auto StartupModule() -> void {}
+		// Return false when this module must remain active until process shutdown.
+		virtual auto SupportsDynamicReloading() const -> bool { return true; }
 		// Stop external entry points, drain work, and release every externally stored
 		// callback/object before returning. Throw on cleanup failure to keep the DLL mapped.
 		virtual auto ShutdownModule() -> void {}
@@ -80,6 +82,7 @@ namespace Durin
 		OutstandingAsyncOperationAudit,
 		OutstandingFeatureAudit,
 		OutstandingCodeLease,
+		DynamicReloadUnsupported,
 		UnloadBlocked,
 	};
 
@@ -174,6 +177,7 @@ namespace Durin
 	private:
 		FModuleManager();
 		auto IsControlThread() const -> bool;
+		auto ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> FModuleShutdownResult;
 		auto MakeShutdownFailure(
 			const FModuleInfoPtr& ModuleInfo,
 			EModuleOperationStatus Status,

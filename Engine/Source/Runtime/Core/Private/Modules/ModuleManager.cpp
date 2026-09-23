@@ -275,6 +275,11 @@ namespace Durin
 
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult
 	{
+		return ShutdownModuleImpl(InModuleName, false);
+	}
+
+	auto FModuleManager::ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> FModuleShutdownResult
+	{
 		const auto ModuleInfo = FindModule(InModuleName);
 		if (!ModuleInfo)
 		{
@@ -301,6 +306,9 @@ namespace Durin
 		{
 			return {EModuleOperationStatus::NotLoaded, InModuleName, State, "Module does not have an active instance.", {}};
 		}
+		if (!bProcessShutdown && !ModuleInfo->Module->SupportsDynamicReloading())
+			return {EModuleOperationStatus::DynamicReloadUnsupported, InModuleName, State,
+				"Module does not support runtime shutdown or unload.", {}};
 
 		if (ModuleInfo->CodeLeaseCount.load() != 0)
 			return {EModuleOperationStatus::OutstandingCodeLease, InModuleName, State,
@@ -457,7 +465,7 @@ namespace Durin
 		{
 			if (std::ranges::contains(DeferredModules, ModuleInfo->ModuleName)) continue;
 			if (ModuleInfo->State.load() != EModuleState::Active) continue;
-			const auto Result = ShutdownModule(ModuleInfo->ModuleName);
+			const auto Result = ShutdownModuleImpl(ModuleInfo->ModuleName, true);
 			if (!Result.Succeeded())
 			{
 				DURIN_ERROR(STR("Module {} failed process-shutdown retirement: {}"),

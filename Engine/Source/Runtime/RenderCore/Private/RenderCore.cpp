@@ -10,6 +10,7 @@ namespace Durin
 	class FRenderCoreModule : public IModuleInterface
 	{
 	public:
+		auto SupportsDynamicReloading() const -> bool override { return false; }
 		auto StartupModule() -> void override
 		{
 			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddStatic(
