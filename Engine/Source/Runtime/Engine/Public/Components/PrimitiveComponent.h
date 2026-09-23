@@ -88,7 +88,8 @@ namespace Durin
 		auto ApplyPhysicsStateCreationPolicy() -> void;
 
 		FPrimitiveComponentId PrimitiveComponentId = InvalidPrimitiveComponentId;
-		bool bSceneProxyPublished = false;
+		// Non-owning publication token; the scene keeps the proxy alive until its removal command runs.
+		FPrimitiveSceneProxy* SceneProxy = nullptr;
 		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Edit)

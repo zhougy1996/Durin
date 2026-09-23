@@ -1284,7 +1284,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	}
 	EXPECT_GT(FilteredOccludedPixels, 0u);
 	EXPECT_LT(FilteredOccludedPixels, CaptureWidth * CaptureHeight);
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7));
 	Durin::FlushRenderingCommands();
 
 	auto* UnlitMaterialObject = MakeMaterial(
@@ -2028,12 +2028,12 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	GBufferQueries.clear();
 	DeferredQueries.clear();
 
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(4));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveComponentId(200));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(4));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveComponentId(200));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 		[&](Durin::FRHICommandListImmediate&) {

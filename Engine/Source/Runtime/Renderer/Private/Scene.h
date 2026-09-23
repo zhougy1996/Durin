@@ -91,8 +91,8 @@ namespace Durin
 			Released
 		};
 
-		RENDERER_API auto TryAddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool;
-		RENDERER_API auto TryRemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> bool;
+		RENDERER_API auto AddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> void;
+		RENDERER_API auto RemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> void;
 		RENDERER_API auto TryAddLightProxy(std::unique_ptr<FLightSceneProxy> Proxy) -> bool;
 		RENDERER_API auto TryRemoveLightProxy(FLightSceneProxy* Proxy) -> bool;
 		RENDERER_API auto TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool;

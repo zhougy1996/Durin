@@ -1917,7 +1917,7 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Id);
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Id);
 	Scene.UpdatePrimitiveTransform(Id, Durin::FMatrix(2.0));
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());

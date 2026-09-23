@@ -298,7 +298,7 @@ namespace Durin
 			RecreateRenderState();
 			return;
 		}
-		if (!bSceneProxyPublished) return;
+		if (SceneProxy == nullptr) return;
 
 		const FPrimitiveComponentId SceneId = EnsurePrimitiveComponentId();
 		const AActor* Owner = GetOwner();

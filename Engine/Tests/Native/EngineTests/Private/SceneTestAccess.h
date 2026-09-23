@@ -23,9 +23,9 @@ namespace Durin
 			Scene.reset();
 		}
 
-		static auto TryAddPrimitiveProxy(FScene& Scene, FPrimitiveComponentId Id, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible = true) -> bool
+		static auto AddPrimitiveProxy(FScene& Scene, FPrimitiveComponentId Id, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible = true) -> void
 		{
-			return Scene.TryAddPrimitiveProxy(
+			Scene.AddPrimitiveProxy(
 				Id, std::move(Proxy), Transform, bVisible
 			);
 		}
@@ -36,16 +36,17 @@ namespace Durin
 		{
 			if (Id == InvalidPrimitiveComponentId || Proxy == nullptr
 				|| !Math::IsFinite(Transform)) return false;
-			if (!Scene.TryRemovePrimitiveProxy(Id)) return false;
-			return Scene.TryAddPrimitiveProxy(
+			Scene.RemovePrimitiveProxy(Id);
+			Scene.AddPrimitiveProxy(
 				Id, std::move(Proxy), Transform, bVisible);
+			return true;
 		}
 
-		static auto TryRemovePrimitiveProxy(
+		static auto RemovePrimitiveProxy(
 			FScene& Scene, FPrimitiveComponentId Id
-		) -> bool
+		) -> void
 		{
-			return Scene.TryRemovePrimitiveProxy(Id);
+			Scene.RemovePrimitiveProxy(Id);
 		}
 
 		static auto TryAddLightProxy(FScene& Scene, std::unique_ptr<FLightSceneProxy> Proxy) -> bool

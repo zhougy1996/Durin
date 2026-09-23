@@ -78,25 +78,24 @@ namespace Durin
 	{
 		RequireComponentBoundary(Primitive, "AddPrimitive");
 		requiref(Primitive->GetRenderScene() == this, "AddPrimitive requires the component to target this scene.");
-		requiref(!Primitive->bSceneProxyPublished, "AddPrimitive cannot publish a component twice.");
+		requiref(Primitive->SceneProxy == nullptr, "AddPrimitive cannot publish a component twice.");
 		std::unique_ptr<FPrimitiveSceneProxy> Proxy = Primitive->CreateSceneProxy();
 		if (Proxy == nullptr) return;
 		const FPrimitiveComponentId Id = Primitive->EnsurePrimitiveComponentId();
 		const AActor* Owner = Primitive->GetOwner();
 		const bool bVisible = Primitive->IsVisible() && (Owner == nullptr || !Owner->IsHidden());
-		const bool bAccepted = TryAddPrimitiveProxy(Id, std::move(Proxy), Primitive->GetRenderMatrix(), bVisible);
-		requiref(bAccepted, "AddPrimitive was rejected after its render state was constructed.");
-		Primitive->bSceneProxyPublished = true;
+		FPrimitiveSceneProxy* Token = Proxy.get();
+		AddPrimitiveProxy(Id, std::move(Proxy), Primitive->GetRenderMatrix(), bVisible);
+		Primitive->SceneProxy = Token;
 	}
 
 	auto FScene::RemovePrimitive(DPrimitiveComponent* Primitive) -> void
 	{
 		RequireComponentBoundary(Primitive, "RemovePrimitive");
 		requiref(Primitive->GetRenderScene() == this, "RemovePrimitive requires the component to target this scene.");
-		if (!Primitive->bSceneProxyPublished) return;
-		const bool bAccepted = TryRemovePrimitiveProxy(Primitive->GetPrimitiveComponentId());
-		requiref(bAccepted, "RemovePrimitive was rejected for a published render state.");
-		Primitive->bSceneProxyPublished = false;
+		if (Primitive->SceneProxy == nullptr) return;
+		RemovePrimitiveProxy(Primitive->GetPrimitiveComponentId());
+		Primitive->SceneProxy = nullptr;
 	}
 
 	auto FScene::AddLight(DLightComponent* Light) -> void
@@ -417,13 +416,14 @@ namespace Durin
 
 	}
 
-	auto FScene::TryAddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool
+	auto FScene::AddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> void
 	{
-		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| PrimitiveId == InvalidPrimitiveComponentId || Proxy == nullptr
-			|| !Math::IsFinite(Transform)) return false;
+		RequireActive("AddPrimitiveProxy");
+		requiref(PrimitiveId != InvalidPrimitiveComponentId, "AddPrimitiveProxy requires a valid primitive ID.");
+		requiref(Proxy != nullptr, "AddPrimitiveProxy requires a proxy.");
+		requiref(Math::IsFinite(Transform), "AddPrimitiveProxy requires a finite transform.");
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
-		return TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
+		const bool bAccepted = TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
 			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
@@ -433,6 +433,7 @@ namespace Durin
 
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
+		requiref(bAccepted, "AddPrimitiveProxy must be admitted before render-command shutdown.");
 	}
 
 	auto FScene::UpdatePrimitiveVisibility(
@@ -453,17 +454,18 @@ namespace Durin
 		requiref(bAccepted, "UpdatePrimitiveVisibility command admission failed.");
 	}
 
-	auto FScene::TryRemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> bool
+	auto FScene::RemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> void
 	{
-		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| PrimitiveId == InvalidPrimitiveComponentId) return false;
-		return TryEnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
+		RequireActive("RemovePrimitiveProxy");
+		requiref(PrimitiveId != InvalidPrimitiveComponentId, "RemovePrimitiveProxy requires a valid primitive ID.");
+		const bool bAccepted = TryEnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			const auto Found = PrimitiveInfosById.find(PrimitiveId);
 			if (Found == PrimitiveInfosById.end()) return;
 			DetachPrimitive(*Found->second);
 			PrimitiveInfosById.erase(Found);
 		});
+		requiref(bAccepted, "RemovePrimitiveProxy must be admitted before render-command shutdown.");
 	}
 
 	auto FScene::UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void

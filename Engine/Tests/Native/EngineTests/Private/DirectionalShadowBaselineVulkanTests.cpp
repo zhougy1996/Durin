@@ -2340,8 +2340,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// re-hits its own two triangles as large wedges; an oriented surface test
 	// must leave the receiver completely visible without suppressing the real
 	// floating-occluder coverage above.
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 		Durin::FPrimitiveComponentId(1),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
@@ -2375,7 +2375,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			ShallowContactPeak, ByteValue(ShallowContactDebug[Pixel]));
 	EXPECT_GT(ShallowContactPeak, 96u);
 
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
+	Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer CoplanarOff;
 	Durin::FByteBuffer CoplanarOn;

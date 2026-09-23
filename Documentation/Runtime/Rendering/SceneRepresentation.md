@@ -4,7 +4,7 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 Durin represents renderable world residents with Engine-created SceneProxy
 values and Renderer-owned scene entries. Components call only the public
@@ -28,7 +28,8 @@ Scene synchronously on the game thread, invokes the component's private proxy
 builder through friendship, and passes only detached copied state to its own
 private admission helpers. For Light, SkyBox, and VolumetricCloud the component
 retains only `Proxy.get()` as an opaque removal token after successful command
-admission. Primitive retains its stable Scene ID and a publication flag. The
+admission. Primitive retains its stable Scene ID and a non-owning proxy pointer
+as its publication token. The
 render-command pipe temporarily carries shared ownership because its callable
 is copyable; after attachment the registry entry is the only authoritative
 owner. A null proxy caused by hidden state or an unsupported render
@@ -134,14 +135,14 @@ picking mutation observer or spatial index is attached to `DLevel`. See the
 
 ## Failure and Thread Contracts
 
-- Invalid Desc values, null proxies, and non-finite primitive transforms are
-  rejected before enqueue. Private `FScene::TryAdd/Remove*Proxy` helpers consume
-  an Add `unique_ptr` in every case and report admission only inside concrete
-  Scene lifecycle methods; ordinary callers receive `void` and an admission
-  failure triggers `requiref`.
-- Components assign their token/publication flag only after successful Add
-  admission and clear it only after successful Remove admission. They never
-  dereference an accepted proxy token.
+- A Primitive whose `CreateSceneProxy` returns null has no scene publication;
+  its component token remains null. Invalid primitive IDs, null proxies passed
+  to private publication, non-finite transforms, and command-admission failure
+  violate the scene contract. Primitive Add/Remove helpers return `void` and
+  assert these preconditions. Other proxy families retain their private
+  `TryAdd/Remove*Proxy` helpers and assert admission in component operations.
+- Components assign their proxy token only after Add admission and clear it
+  only after Remove admission. They never dereference an accepted proxy token.
 - Render-thread queries and SceneInfo mutation assert rendering-thread ownership.
 - Typed SceneInfo access asserts that the explicit primitive kind matches the
   requested proxy family.
