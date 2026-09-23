@@ -324,13 +324,18 @@ namespace Durin
 		const char* Name,
 		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
+		bool bWasEmpty;
 		{
 			std::lock_guard Lock(Mutex);
 			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
 				"Render command '{}' was submitted after admission closed.", Name);
+			bWasEmpty = CommandQueue[ProduceIndex].empty();
 			CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
 		}
-		CommandAvailableCV.notify_one();
+		if (bWasEmpty)
+		{
+			CommandAvailableCV.notify_one();
+		}
 	}
 
 	auto FRenderThreadCommandPipe::LaunchImpl() -> bool
