@@ -1,5 +1,8 @@
 # Engineering Investigations
 
+- [Vulkan integration driver worker crash](VulkanIntegrationDriverWorkerCrash.md) —
+  normal-run captures locate an invalid indirect callback in an NVIDIA worker;
+  the callback record's corruption or lifetime owner remains unresolved.
 - [RHI creation qualification attribution](RHICreationQualificationAttribution.md) —
   validation DLL load/unload reproduces private-memory retention independently
   of the engine; allocator-retention stacks and following-frame host-wait
