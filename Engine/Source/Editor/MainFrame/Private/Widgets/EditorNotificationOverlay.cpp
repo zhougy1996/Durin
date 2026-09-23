@@ -194,7 +194,7 @@ namespace Durin::Editor::MainFrame
 							MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::SelectionSecondary)),
 						0.0f);
 				}
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
+				if (Tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
 			};
 
 			if (ImGui::BeginTable("##EditorStatusLayout", 5,
@@ -210,15 +210,14 @@ namespace Durin::Editor::MainFrame
 				ImGui::TableNextColumn();
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
 					ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
-				DrawToolButton(ContentLabel, "Content Browser (Ctrl+Space)",
+				DrawToolButton(ContentLabel, nullptr,
 					EEditorStatusBarAction::ContentBrowser, ContentWidth);
 
 				ImGui::SameLine(0.0f, 0.0f);
 				if (ConsoleUnreadCount > 0)
 					ImGui::PushStyleColor(ImGuiCol_Text,
 						MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
-				DrawToolButton(ConsoleLabel, ConsoleUnreadCount == 0
-					? "Console" : "Console has unread warnings or errors",
+				DrawToolButton(ConsoleLabel, nullptr,
 					EEditorStatusBarAction::Console, ConsoleWidth);
 				if (ConsoleUnreadCount > 0) ImGui::PopStyleColor();
 				ImGui::PopStyleVar();
