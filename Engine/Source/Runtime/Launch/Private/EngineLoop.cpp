@@ -57,7 +57,6 @@ namespace Durin
 	{
 		if (State != EEngineLoopState::Uninitialized) return false;
 		State = EEngineLoopState::PreInitializing;
-		SetProcessCrashPhase(EProcessCrashPhase::PreInitialization);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreInit");
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -181,7 +180,6 @@ namespace Durin
 	{
 		if (State != EEngineLoopState::PreInitialized) return false;
 		State = EEngineLoopState::Initializing;
-		SetProcessCrashPhase(EProcessCrashPhase::EngineInitialization);
 #if DURIN_WITH_EDITOR
 		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
 #else
@@ -277,7 +275,6 @@ namespace Durin
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));
-		SetProcessCrashPhase(EProcessCrashPhase::Running);
 		Diagnostics.AfterEngineInitialized();
 		State = EEngineLoopState::Running;
 		GModalLoopFrameOwner = this;
@@ -376,7 +373,6 @@ namespace Durin
 		State = EEngineLoopState::ShuttingDown;
 		if (bWasRunning)
 		{
-			SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
 			// Asset compilation depends on optional providers. Close and reconcile
 			// every provider task scope before consumer modules begin teardown.
 			ShutdownAssetCompilingManager();
@@ -401,7 +397,6 @@ namespace Durin
 		if (bWasRunning)
 		{
 			Diagnostics.BeforeAssetServiceShutdown();
-			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		}
 		ShutdownCookedMeshLoadManager();
 
@@ -417,7 +412,6 @@ namespace Durin
 			if (bWasRunning)
 			{
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
-				SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
 			}
 			ShutdownAssetManager();
 			ReleaseClassDefaultObjects();
@@ -427,7 +421,6 @@ namespace Durin
 			if (bWasRunning)
 			{
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
-				SetProcessCrashPhase(EProcessCrashPhase::ObjectCollection);
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
 				Diagnostics.AtObjectCollection();
 			}
@@ -446,7 +439,6 @@ namespace Durin
 			{
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
 				CheckNoDeferredDestroyObjects("shutdown object destruction");
-				SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
 			}
 			FModuleManager::Get().ShutdownModulesAtExit();
 		}
@@ -454,7 +446,6 @@ namespace Durin
 		// Module shutdown may still drain work on either executor.
 		if (bGameThreadDeferredExecutorStarted)
 		{
-			SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			bGameThreadDeferredExecutorStarted = false;
 			bTaskSchedulerStarted = false;
@@ -468,18 +459,15 @@ namespace Durin
 
 		if (GRenderingThread)
 		{
-			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);
 			ShutdownRenderingThread();
 		}
 		if (GDynamicRHI)
 		{
-			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::RHIShutdown);
 			RHIExit();
 		}
 
 		if (IsApplicationCoreInitialized())
 		{
-			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
 			ShutdownApplicationCore();
 		}
 #if DURIN_WITH_EDITOR

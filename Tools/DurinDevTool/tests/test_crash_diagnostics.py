@@ -38,7 +38,6 @@ def write_artifact(
 				"ExecutableImagePath=C:/Runtime/DurinEditor.exe",
                 f"UtcTimestamp={stamp}",
 				"ProcessUptimeMicroseconds=1000",
-                "ProcessPhase=ObjectCollection",
 				"BreadcrumbWriteSequence=1",
 				"BreadcrumbFirstSequence=1",
 				"BreadcrumbCount=1",
@@ -54,7 +53,7 @@ def write_artifact(
 				"AccessViolationOperation=Read",
 				"AccessViolationAddress=0x1",
                 "FutureOptionalKey=preserved-by-forward-parser",
-                "Breadcrumb=1,PhaseChanged,99,100,8,0",
+                "Breadcrumb=1,FirstObjectCollection,99,100,8,0",
             )
         ),
         encoding="utf-8",
@@ -72,13 +71,24 @@ def test_formats_unsigned_native_status_and_known_name() -> None:
 
 def test_parser_accepts_unknown_keys_and_reports_malformed_required_data(tmp_path: Path) -> None:
     artifact = write_artifact(tmp_path, timestamp=datetime.now(timezone.utc))
+    assert artifact.diagnostic == ""
+    assert "ProcessPhase" not in artifact.values
     assert artifact.values["FutureOptionalKey"] == "preserved-by-forward-parser"
-    assert artifact.breadcrumbs == ("1,PhaseChanged,99,100,8,0",)
+    assert artifact.breadcrumbs == ("1,FirstObjectCollection,99,100,8,0",)
     malformed = artifact.context_path.with_name("Malformed-CrashContext-v1.txt")
     malformed.write_text("FormatVersion=1\nnot-a-field\n", encoding="utf-8")
     _, _, diagnostic = crash.parse_crash_context(malformed)
     assert "missing required keys" in diagnostic
     assert "malformed" in diagnostic
+
+
+def test_parser_accepts_legacy_process_phase(tmp_path: Path) -> None:
+    artifact = write_artifact(tmp_path, timestamp=datetime.now(timezone.utc))
+    with artifact.context_path.open("a", encoding="utf-8") as context:
+        context.write("\nProcessPhase=ObjectCollection\n")
+    values, _, diagnostic = crash.parse_crash_context(artifact.context_path)
+    assert diagnostic == ""
+    assert values["ProcessPhase"] == "ObjectCollection"
 
 
 def test_discovery_matches_current_process_interval_and_rejects_stale_artifacts(tmp_path: Path) -> None:
@@ -143,10 +153,10 @@ def test_fake_debugger_output_is_logged_bounded_and_mismatch_is_distinguished(tm
     assert len(result.excerpt.splitlines()) <= 50
 
 
-def test_summary_reports_phase_thread_and_artifact_paths(tmp_path: Path) -> None:
+def test_summary_reports_thread_and_artifact_paths(tmp_path: Path) -> None:
     artifact = write_artifact(tmp_path, timestamp=datetime.now(timezone.utc))
     summary = crash.format_crash_summary(artifact)
     assert "EXCEPTION_ACCESS_VIOLATION" in summary
-    assert "ObjectCollection" in summary
+    assert "Phase:" not in summary
     assert "Faulting thread: 99" in summary
     assert str(artifact.context_path) in summary

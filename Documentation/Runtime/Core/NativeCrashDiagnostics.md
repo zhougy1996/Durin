@@ -4,7 +4,7 @@ Summary: Define the bounded local artifact and crash-readable lifecycle contract
 
 Modules: Core, Launch
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-09-23
 
 ## Ownership
 
@@ -28,7 +28,6 @@ dump.
 
 `Diagnostics/ProcessCrashContext.h` exposes:
 
-- a stable `EProcessCrashPhase` value at coarse startup, running, and shutdown boundaries;
 - a 64-entry typed breadcrumb ring whose sequence is committed after its atomic fields;
 - fixed runtime, build, executable-log-path, and start-time storage;
 - atomic last-accepted, last-processed, and last-durable logger sequences.
@@ -36,6 +35,10 @@ dump.
 Snapshots use fixed arrays and bounded retry. They do not allocate, wait, lock,
 traverse engine objects, or expose Windows exception types. A missing ring
 generation is omitted rather than interpreted as a committed record.
+
+Crash contexts do not track a process phase. Lifecycle breadcrumbs and native
+stacks provide the retained execution context; offline readers also accept older
+artifacts containing the optional `ProcessPhase` field.
 
 The logger publishes only at existing authority points. A larger accepted than
 processed sequence proves that queued tail records may be absent from the log;

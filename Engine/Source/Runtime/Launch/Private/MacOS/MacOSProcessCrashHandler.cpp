@@ -202,7 +202,6 @@ namespace Durin
 				<< "ProcessUptimeMicroseconds="
 				<< (NowMicros >= Snapshot.ProcessStartMonotonicMicroseconds
 					? NowMicros - Snapshot.ProcessStartMonotonicMicroseconds : 0) << '\n'
-				<< "ProcessPhase=" << ProcessCrashPhaseName(Snapshot.Phase) << '\n'
 				<< "BreadcrumbWriteSequence=" << Snapshot.BreadcrumbWriteSequence << '\n'
 				<< "BreadcrumbFirstSequence=" << Snapshot.FirstBreadcrumbSequence << '\n'
 				<< "BreadcrumbCount=" << Snapshot.BreadcrumbCount << '\n'

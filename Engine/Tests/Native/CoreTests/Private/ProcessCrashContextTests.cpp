@@ -4,17 +4,15 @@
 
 namespace Durin
 {
-	TEST(FProcessCrashContextTests, PublishesIdentityPhaseAndFixedText)
+	TEST(FProcessCrashContextTests, PublishesIdentityAndFixedText)
 	{
 		InitializeProcessCrashContext("DurinEditor", "Debug", "1.2.3-dev");
-		SetProcessCrashPhase(EProcessCrashPhase::Running);
 		PublishProcessCrashLogPath("C:/Runtime/Saved/Logs/Durin.log");
 		PublishProcessCrashLogAccepted(9);
 		PublishProcessCrashLogProcessed(7);
 		PublishProcessCrashLogDurable(5);
 
 		const FProcessCrashContextSnapshot Snapshot = ReadProcessCrashContext();
-		EXPECT_EQ(Snapshot.Phase, EProcessCrashPhase::Running);
 		EXPECT_STREQ(Snapshot.RuntimeVariant.data(), "DurinEditor");
 		EXPECT_STREQ(Snapshot.BuildConfiguration.data(), "Debug");
 		EXPECT_STREQ(Snapshot.BuildIdentity.data(), "1.2.3-dev");

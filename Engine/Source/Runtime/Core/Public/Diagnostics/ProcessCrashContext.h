@@ -8,29 +8,10 @@ namespace Durin
 	inline constexpr uint32 ProcessCrashPathCapacity = 1024;
 	inline constexpr uint32 ProcessCrashIdentityCapacity = 64;
 
-	// Identifies the coarse process lifecycle boundary visible to a crash writer.
-	enum class EProcessCrashPhase : uint32
-	{
-		ProcessEntry = 0,
-		PreInitialization = 1,
-		EngineInitialization = 2,
-		Running = 3,
-		ConsumerDetachment = 4,
-		AssetServiceShutdown = 5,
-		TaskSystemShutdown = 6,
-		AssetManagerShutdown = 7,
-		ObjectCollection = 8,
-		ModuleShutdown = 9,
-		RenderingShutdown = 10,
-		RHIShutdown = 11,
-		ApplicationShutdown = 12,
-		Exited = 13,
-	};
-
 	// Names the bounded lifecycle events retained independently of ordinary logs.
 	enum class EProcessCrashBreadcrumbEvent : uint32
 	{
-		PhaseChanged = 0,
+		Unknown = 0,
 		ClassDefaultsReleased = 1,
 		StructDefaultsReleased = 2,
 		EngineRootRetired = 3,
@@ -49,13 +30,12 @@ namespace Durin
 		uint64 Argument0 = 0;
 		uint64 Argument1 = 0;
 		uint32 ThreadId = 0;
-		EProcessCrashBreadcrumbEvent Event = EProcessCrashBreadcrumbEvent::PhaseChanged;
+		EProcessCrashBreadcrumbEvent Event = EProcessCrashBreadcrumbEvent::Unknown;
 	};
 
 	// Copies the fixed crash-readable state without locks, waits, or allocation.
 	struct FProcessCrashContextSnapshot
 	{
-		EProcessCrashPhase Phase = EProcessCrashPhase::ProcessEntry;
 		uint64 ProcessStartUtcMilliseconds = 0;
 		uint64 ProcessStartMonotonicMicroseconds = 0;
 		uint64 BreadcrumbWriteSequence = 0;
@@ -75,8 +55,6 @@ namespace Durin
 		std::string_view RuntimeVariant,
 		std::string_view BuildConfiguration,
 		std::string_view BuildIdentity) -> void;
-	CORE_API auto SetProcessCrashPhase(EProcessCrashPhase Phase) -> void;
-	CORE_API auto GetProcessCrashPhase() -> EProcessCrashPhase;
 	CORE_API auto AddProcessCrashBreadcrumb(
 		EProcessCrashBreadcrumbEvent Event,
 		uint64 Argument0 = 0,
@@ -86,6 +64,5 @@ namespace Durin
 	CORE_API auto PublishProcessCrashLogProcessed(uint64 Sequence) -> void;
 	CORE_API auto PublishProcessCrashLogDurable(uint64 Sequence) -> void;
 	CORE_API auto ReadProcessCrashContext() -> FProcessCrashContextSnapshot;
-	CORE_API auto ProcessCrashPhaseName(EProcessCrashPhase Phase) -> const char*;
 	CORE_API auto ProcessCrashBreadcrumbName(EProcessCrashBreadcrumbEvent Event) -> const char*;
 }

@@ -142,7 +142,6 @@ namespace Durin
 		if (!LaunchPendingEditorRelaunchResult.has_value())
 			DURIN_ERROR("Failed to relaunch editor: {}", RelaunchError);
 		if (EngineLoop.HasLoggerStarted()) LoggerShutdown();
-		SetProcessCrashPhase(EProcessCrashPhase::Exited);
 		return ProcessResult;
 	}
 }

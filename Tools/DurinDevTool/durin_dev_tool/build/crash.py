@@ -42,7 +42,6 @@ REQUIRED_CONTEXT_KEYS = {
 	"ExecutableImagePath",
     "UtcTimestamp",
 	"ProcessUptimeMicroseconds",
-    "ProcessPhase",
 	"BreadcrumbWriteSequence",
 	"BreadcrumbFirstSequence",
 	"BreadcrumbCount",
@@ -269,7 +268,6 @@ def format_crash_summary(artifact: CrashArtifact, analysis: CrashAnalysis | None
     lines = [
         "Native crash artifacts: " + ("complete" if artifact.complete else "incomplete"),
         f"  Exception: {format_windows_status(int(values.get('ReasonCode', '0'), 0))}",
-        f"  Phase: {values.get('ProcessPhase', 'Unavailable')}",
         f"  Faulting thread: {values.get('FaultingThreadId', 'Unavailable')}",
         f"  Context: {artifact.context_path}",
         f"  Dump: {artifact.dump_path or 'Unavailable'}",

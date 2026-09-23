@@ -21,12 +21,11 @@ namespace Durin
 			std::atomic<uint64> Argument0{0};
 			std::atomic<uint64> Argument1{0};
 			std::atomic<uint32> ThreadId{0};
-			std::atomic<EProcessCrashBreadcrumbEvent> Event{EProcessCrashBreadcrumbEvent::PhaseChanged};
+			std::atomic<EProcessCrashBreadcrumbEvent> Event{EProcessCrashBreadcrumbEvent::Unknown};
 		};
 
 		struct FProcessCrashState
 		{
-			std::atomic<EProcessCrashPhase> Phase{EProcessCrashPhase::ProcessEntry};
 			std::atomic<uint64> ProcessStartUtcMilliseconds{0};
 			std::atomic<uint64> ProcessStartMonotonicMicroseconds{0};
 			std::atomic<uint64> BreadcrumbWriteSequence{0};
@@ -91,18 +90,6 @@ namespace Durin
 		PublishText(GProcessCrashState.RuntimeVariant, RuntimeVariant);
 		PublishText(GProcessCrashState.BuildConfiguration, BuildConfiguration);
 		PublishText(GProcessCrashState.BuildIdentity, BuildIdentity);
-		SetProcessCrashPhase(EProcessCrashPhase::ProcessEntry);
-	}
-
-	auto SetProcessCrashPhase(EProcessCrashPhase Phase) -> void
-	{
-		GProcessCrashState.Phase.store(Phase, std::memory_order_release);
-		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::PhaseChanged, static_cast<uint64>(Phase));
-	}
-
-	auto GetProcessCrashPhase() -> EProcessCrashPhase
-	{
-		return GProcessCrashState.Phase.load(std::memory_order_acquire);
 	}
 
 	auto AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent Event, uint64 Argument0, uint64 Argument1) -> uint64
@@ -127,7 +114,6 @@ namespace Durin
 	auto ReadProcessCrashContext() -> FProcessCrashContextSnapshot
 	{
 		FProcessCrashContextSnapshot Result;
-		Result.Phase = GProcessCrashState.Phase.load(std::memory_order_acquire);
 		Result.ProcessStartUtcMilliseconds = GProcessCrashState.ProcessStartUtcMilliseconds.load(std::memory_order_relaxed);
 		Result.ProcessStartMonotonicMicroseconds = GProcessCrashState.ProcessStartMonotonicMicroseconds.load(std::memory_order_relaxed);
 		ReadText(GProcessCrashState.RuntimeVariant, Result.RuntimeVariant);
@@ -157,33 +143,10 @@ namespace Durin
 		return Result;
 	}
 
-	auto ProcessCrashPhaseName(EProcessCrashPhase Phase) -> const char*
-	{
-		switch (Phase)
-		{
-		case EProcessCrashPhase::ProcessEntry: return "ProcessEntry";
-		case EProcessCrashPhase::PreInitialization: return "PreInitialization";
-		case EProcessCrashPhase::EngineInitialization: return "EngineInitialization";
-		case EProcessCrashPhase::Running: return "Running";
-		case EProcessCrashPhase::ConsumerDetachment: return "ConsumerDetachment";
-		case EProcessCrashPhase::AssetServiceShutdown: return "AssetServiceShutdown";
-		case EProcessCrashPhase::TaskSystemShutdown: return "TaskSystemShutdown";
-		case EProcessCrashPhase::AssetManagerShutdown: return "AssetManagerShutdown";
-		case EProcessCrashPhase::ObjectCollection: return "ObjectCollection";
-		case EProcessCrashPhase::ModuleShutdown: return "ModuleShutdown";
-		case EProcessCrashPhase::RenderingShutdown: return "RenderingShutdown";
-		case EProcessCrashPhase::RHIShutdown: return "RHIShutdown";
-		case EProcessCrashPhase::ApplicationShutdown: return "ApplicationShutdown";
-		case EProcessCrashPhase::Exited: return "Exited";
-		default: return "Unknown";
-		}
-	}
-
 	auto ProcessCrashBreadcrumbName(EProcessCrashBreadcrumbEvent Event) -> const char*
 	{
 		switch (Event)
 		{
-		case EProcessCrashBreadcrumbEvent::PhaseChanged: return "PhaseChanged";
 		case EProcessCrashBreadcrumbEvent::ClassDefaultsReleased: return "ClassDefaultsReleased";
 		case EProcessCrashBreadcrumbEvent::StructDefaultsReleased: return "StructDefaultsReleased";
 		case EProcessCrashBreadcrumbEvent::EngineRootRetired: return "EngineRootRetired";

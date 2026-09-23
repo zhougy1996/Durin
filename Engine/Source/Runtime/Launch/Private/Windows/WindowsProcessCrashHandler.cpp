@@ -250,7 +250,6 @@ namespace Durin
 				std::chrono::steady_clock::now().time_since_epoch()).count());
 			Context.KeyUnsigned("ProcessUptimeMicroseconds", NowMicros >= Snapshot.ProcessStartMonotonicMicroseconds
 				? NowMicros - Snapshot.ProcessStartMonotonicMicroseconds : 0);
-			Context.Key("ProcessPhase", ProcessCrashPhaseName(Snapshot.Phase));
 			Context.KeyUnsigned("BreadcrumbWriteSequence", Snapshot.BreadcrumbWriteSequence);
 			Context.KeyUnsigned("BreadcrumbFirstSequence", Snapshot.FirstBreadcrumbSequence);
 			Context.KeyUnsigned("BreadcrumbCount", Snapshot.BreadcrumbCount);
