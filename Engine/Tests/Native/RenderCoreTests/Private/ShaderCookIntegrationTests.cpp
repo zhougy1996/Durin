@@ -1,4 +1,4 @@
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 
 #include "Modules/ModuleManager.h"
 #include "CoreGlobals.h"
@@ -16,7 +16,7 @@
 namespace Durin
 {
 	TEST(FShaderCookIntegrationTests,
-		ProducesDeterministicCompleteGameLibraryThroughProvider)
+		ProducesDeterministicCompleteGameLibraryThroughModule)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
@@ -56,9 +56,6 @@ namespace Durin
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
 			ASSERT_TRUE((ShaderResult = Compiled.InitializeFromShaderTypes(std::span(&FragmentTypes[Pass], 1), Options))) << FormatShaderError(ShaderResult.error());
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
-			// The fixture keeps bytes across provider unload; its control block must
-			// live in the test host, including when cold compilation allocated in the DLL.
-			MaterialStages[Pass].back().Code = std::make_shared<FByteBuffer>(*MaterialStages[Pass].back().Code);
 		}
 
 		Durin::FByteBuffer First;
@@ -87,8 +84,10 @@ namespace Durin
 			CookRoot / std::filesystem::path(ShaderCookedLibraryRelativePath).parent_path());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(
 			First, CookRoot / ShaderCookedLibraryRelativePath));
-		ShutdownShaderData();
-		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ShaderBuild"));
+		EXPECT_FALSE(FModuleManager::Get().UnloadModule("ShaderBuild"));
+		EXPECT_NE(IShaderBuildModule::Get(), nullptr);
+		FModuleManager::Get().ShutdownModule("ShaderBuild");
+		EXPECT_EQ(IShaderBuildModule::Get(), nullptr);
 		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(
 				std::filesystem::absolute(CookRoot).lexically_normal())))) << FormatShaderError(Error.error());
 		for (const auto& Request : Requests)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 
 namespace Durin
 {
@@ -9,12 +9,12 @@ namespace Durin
 		const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 	auto GetOrCompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput;
-	auto GetShaderCompilerEnvironmentIdentityFromProvider() -> std::string;
-	auto BuildShaderSourceDependencyManifestFromProvider(
+	auto GetShaderCompilerEnvironmentIdentityFromModule() -> std::string;
+	auto BuildShaderSourceDependencyManifestFromModule(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
 		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult;
-	auto BuildShaderSourceTreeFingerprintFromProvider(
+	auto BuildShaderSourceTreeFingerprintFromModule(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
 		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;

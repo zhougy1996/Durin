@@ -147,7 +147,7 @@ namespace Durin
 		Error = RegisterShaderRuntimeRequest(std::move(Request), EShaderRequestEligibility::GameAndEditor, Registration);
 		ASSERT_TRUE(Registration.IsValid()) << FormatShaderError(Error.error());
 		EXPECT_FALSE((Error = InitializeShaderData(FShaderDataConfiguration::Authored())));
-		EXPECT_EQ(Error.error().Code, EShaderError::ProviderRequired);
+		EXPECT_EQ(Error.error().Code, EShaderError::BuildModuleRequired);
 		const std::filesystem::path MissingRoot =
 			std::filesystem::absolute("MissingShaderCookRoot").lexically_normal();
 		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(MissingRoot)))) << FormatShaderError(Error.error());

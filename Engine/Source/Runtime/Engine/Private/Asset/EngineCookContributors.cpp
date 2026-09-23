@@ -1,6 +1,6 @@
 #include "CookBuildProviders.h"
 #include "Asset/Cook.h"
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Class.h"

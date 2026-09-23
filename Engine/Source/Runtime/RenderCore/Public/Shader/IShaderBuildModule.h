@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Modules/ModularFeature.h"
+#include "Modules/ModuleManager.h"
 #include "RenderCoreAPI.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderCookedLibrary.h"
@@ -23,12 +23,11 @@ namespace Durin
 	};
 
 	// Owns every authoring-only Shader source, compiler, manifest, and DDC call.
-	class IShaderBuildProvider : public IModularFeature
+	class IShaderBuildModule : public IModuleInterface
 	{
 	public:
-		static constexpr std::string_view FeatureName =
-			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 7;
+		// Borrow the active implementation; consumers drain work before shutdown.
+		RENDERCORE_API static auto Get() -> IShaderBuildModule*;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
@@ -60,15 +59,10 @@ namespace Durin
 			const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult = 0;
 	};
 
-	// Retains one provider invocation through Work; nested shader calls use that
-	// provider even if its registration retires. Nested capture visitors fail.
-	RENDERCORE_API auto WithShaderBuildProvider(const std::function<bool(IShaderBuildProvider&)>& Work) -> FShaderOperationResult;
-
 	RENDERCORE_API auto GetShaderCookInputIdentity(
 		std::string& OutIdentity,
 		const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult;
 
-	RENDERCORE_API auto IsShaderBuildProviderAvailable() -> bool;
 	RENDERCORE_API auto GetShaderBuildStats() -> FShaderBuildStats;
 	RENDERCORE_API auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,

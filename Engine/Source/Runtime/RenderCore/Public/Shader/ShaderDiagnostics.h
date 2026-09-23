@@ -7,8 +7,6 @@
 
 namespace Durin
 {
-	enum class EFeatureInvokeStatus : uint8;
-
 	enum class ESlangShaderError : uint8
 	{
 		Session, Layout, Code, Module, EntryPoint, Dependencies
@@ -29,10 +27,7 @@ namespace Durin
 	enum class EShaderError : uint8
 	{
 		None,
-		ProviderInvocationFailed,
-		ProviderWorkFailed,
 		CookInputIdentityUnsupported,
-		InvalidProviderCapture,
 		CaptureMountLimit,
 		FileSystemFailure,
 		CaptureDirectoryLimit,
@@ -66,7 +61,7 @@ namespace Durin
 
 		InventoryEmpty,
 		Cancelled,
-		ProviderUnavailable,
+		BuildModuleUnavailable,
 		RequestRetirementFrozen,
 		RequestNullBuildType,
 		RequestRegistrationFrozen,
@@ -97,8 +92,8 @@ namespace Durin
 		LibraryNotOpen,
 		LibraryRequestUnavailable,
 		LibraryPayloadDigestInvalid,
-		ProviderRequired,
-		ProviderForbidden,
+		BuildModuleRequired,
+		BuildModuleForbidden,
 		DataConfigurationInvalid,
 		DataAlreadyInitialized,
 		CookedDomainRequired,
@@ -175,11 +170,10 @@ namespace Durin
 		uint32 NewBegin = 0;
 		uint32 NewEnd = 0;
 		std::optional<FShaderCaptureLimitContext> CaptureLimit;
-		std::optional<EFeatureInvokeStatus> ProviderStatus;
 		ESlangShaderError CompilerPhase = ESlangShaderError::Session;
 		std::optional<int64> NativeStatus;
 		std::optional<FFileError> FileError;
-		// Reserved for the compiler/provider boundary; never classify this text.
+		// Reserved for the compiler boundary; never classify this text.
 		std::string ExternalDiagnostic;
 
 		// In-process diagnostic identity; excludes external wording, not a persistent cache key.

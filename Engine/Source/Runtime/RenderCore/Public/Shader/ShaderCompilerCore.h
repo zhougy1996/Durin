@@ -124,7 +124,7 @@ namespace Durin
 			-> bool = default;
 	};
 
-	// Owns an in-memory generated root. The ShaderBuild provider resolves imports,
+	// Owns an in-memory generated root. The ShaderBuild module resolves imports,
 	// compiles, reflects, and caches it without materializing authored source on disk.
 	struct FGeneratedShaderCompileRequest
 	{

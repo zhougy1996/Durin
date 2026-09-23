@@ -1,7 +1,7 @@
 #include "Misc/PackageWriter.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/References.h"
 #include "Asset/EditorBulkDataStorage.h"

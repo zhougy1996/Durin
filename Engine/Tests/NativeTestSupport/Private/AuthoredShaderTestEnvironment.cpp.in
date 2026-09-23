@@ -1,6 +1,6 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "ShaderBuild/ShaderBuildLifecycle.h"
+#include "Modules/ModuleManager.h"
 
 #include <gtest/gtest.h>
 
@@ -18,12 +18,12 @@ namespace Durin
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 					GIsGameThreadIdInitialized = true;
 				}
-				InitializeShaderBuildForTesting();
+				FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			}
 
 			auto TearDown() -> void override
 			{
-				ShutdownShaderBuild();
+				FModuleManager::Get().ShutdownModule("ShaderBuild");
 			}
 		};
 

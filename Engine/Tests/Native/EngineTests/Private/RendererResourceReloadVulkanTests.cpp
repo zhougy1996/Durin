@@ -20,7 +20,6 @@
 #include "Resources/RendererResourceCoordinator.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "ShaderBuild/ShaderBuildLifecycle.h"
 #include "ShaderBuild/ShaderPaths.h"
 
 #include <iostream>
@@ -262,7 +261,7 @@ float4 FragmentMain() : SV_Target
 			"/RendererReloadTests/",
 			SourceRoot.generic_string(),
 			CacheRoot.generic_string());
-		InitializeShaderBuildForTesting();
+		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
@@ -744,6 +743,6 @@ float4 FragmentMain() : SV_Target
 			ERHIPipeline::None);
 		RHIExit();
 		ShutdownTaskScheduler();
-		ShutdownShaderBuild();
+		FModuleManager::Get().ShutdownModule("ShaderBuild");
 	}
 } // namespace Durin

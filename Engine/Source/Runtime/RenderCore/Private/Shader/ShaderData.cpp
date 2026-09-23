@@ -1,4 +1,3 @@
-#include "Serialization/BinaryFormat.h"
 #include "ShaderDataInternal.h"
 
 #include "Shader/Shader.h"
@@ -8,8 +7,6 @@ namespace Durin
 {
 	namespace
 	{
-		thread_local IShaderBuildProvider* CapturedProvider = nullptr;
-
 		struct FShaderDataState
 		{
 			std::mutex Mutex;
@@ -23,23 +20,6 @@ namespace Durin
 			static FShaderDataState State;
 			return State;
 		}
-
-		template<typename TResult, typename TVisitor>
-		auto InvokeProvider(TVisitor&& Visitor) -> TFeatureInvokeResult<TResult>
-		{
-			if (CapturedProvider)
-				return {EFeatureInvokeStatus::Invoked, Visitor(*CapturedProvider), 1, 0};
-			return FModularFeatureRegistry::Get().InvokeSingle<IShaderBuildProvider>(
-				std::forward<TVisitor>(Visitor));
-		}
-
-		auto ProviderFailure(EFeatureInvokeStatus Status, uint32 MatchingCount) -> FShaderError
-		{
-			return {.Code = Status == EFeatureInvokeStatus::Unavailable
-				? EShaderError::ProviderUnavailable : EShaderError::ProviderInvocationFailed,
-				.Actual = MatchingCount, .ProviderStatus = Status};
-		}
-
 	}
 
 	auto FShaderDataConfiguration::Authored() -> FShaderDataConfiguration
@@ -60,17 +40,20 @@ namespace Durin
 	{
 		if (Configuration.Domain == EShaderDataDomain::Authored)
 		{
-			if (!IsShaderBuildProviderAvailable())
+			// Startup initializes the domain before the manager publishes the module as Active.
+			const auto Info = FModuleManager::Get().FindModule("ShaderBuild");
+			if (!Info || !Info->Module || (Info->State.load() != EModuleState::Loading
+				&& Info->State.load() != EModuleState::Active))
 			{
-				return std::unexpected(FShaderError{.Code = EShaderError::ProviderRequired});
+				return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleRequired});
 			}
 			Configuration.TargetPlatform = EShaderTargetPlatform::Win64;
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
 			Configuration.CookRoot.clear();
 		}
-		else if (IsShaderBuildProviderAvailable())
+		else if (IShaderBuildModule::Get())
 		{
-			return std::unexpected(FShaderError{.Code = EShaderError::ProviderForbidden});
+			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleForbidden});
 		}
 		else if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 			|| Configuration.TargetProfile != EShaderTargetProfile::Game
@@ -152,111 +135,71 @@ namespace Durin
 		return State.Library.Load(*Found, OutOutput);
 	}
 
+	auto IShaderBuildModule::Get() -> IShaderBuildModule*
+	{
+#if DURIN_WITH_EDITOR
+		const auto Info = FModuleManager::Get().FindModule("ShaderBuild");
+		if (Info && Info->State.load() == EModuleState::Active)
+			return static_cast<IShaderBuildModule*>(Info->Module.get());
+#endif
+		return nullptr;
+	}
+
 	auto GetOrCompileShader(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options) -> FShaderCompilerOutput
 	{
-		auto Result = InvokeProvider<FShaderCompilerOutput>(
-			[&](IShaderBuildProvider& Provider) {
-				auto EffectiveOptions = Options;
-				return Provider.CompileMounted(VirtualShaderPath, EffectiveOptions);
-			});
-		return Result.WasInvoked() && Result.Value
-			? std::move(*Result.Value) : FShaderCompilerOutput{.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		if (auto* Module = IShaderBuildModule::Get())
+			return Module->CompileMounted(VirtualShaderPath, Options);
+		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
 	}
 
 	auto GetOrCompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
-		auto Result = InvokeProvider<FShaderCompilerOutput>(
-			[&](IShaderBuildProvider& Provider) {
-				auto EffectiveRequest = Request;
-				return Provider.CompileGenerated(EffectiveRequest);
-			});
-		return Result.WasInvoked() && Result.Value
-			? std::move(*Result.Value) : FShaderCompilerOutput{.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
+		if (auto* Module = IShaderBuildModule::Get()) return Module->CompileGenerated(Request);
+		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
 	}
 
-	auto GetShaderCompilerEnvironmentIdentityFromProvider() -> std::string
+	auto GetShaderCompilerEnvironmentIdentityFromModule() -> std::string
 	{
-		auto Result = InvokeProvider<std::string>(
-			[](IShaderBuildProvider& Provider) {
-				return Provider.GetCompilerEnvironmentIdentity();
-			});
-		return Result.WasInvoked() && Result.Value
-			? std::move(*Result.Value) : std::string{};
+		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCompilerEnvironmentIdentity();
+		return {};
 	}
 
-	auto BuildShaderSourceDependencyManifestFromProvider(
+	auto BuildShaderSourceDependencyManifestFromModule(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
 		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
-			auto EffectiveOptions = Options;
-			return Provider.BuildSourceDependencyManifest(VirtualShaderPath, EffectiveOptions, OutDependencies);
-		});
-		if (Result.WasInvoked() && Result.Value) return *Result.Value;
+		if (auto* Module = IShaderBuildModule::Get())
+			return Module->BuildSourceDependencyManifest(VirtualShaderPath, Options, OutDependencies);
 		OutDependencies.clear();
-		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
+		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
 	}
 
-	auto BuildShaderSourceTreeFingerprintFromProvider(
+	auto BuildShaderSourceTreeFingerprintFromModule(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
 		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
-			auto EffectiveOptions = Options;
-			return Provider.BuildSourceTreeFingerprint(VirtualShaderPath, EffectiveOptions, OutFingerprint);
-		});
-		if (Result.WasInvoked() && Result.Value) return *Result.Value;
+		if (auto* Module = IShaderBuildModule::Get())
+			return Module->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
 		OutFingerprint = {};
-		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
-	}
-
-	auto IsShaderBuildProviderAvailable() -> bool
-	{
-		auto Result = InvokeProvider<bool>(
-			[](IShaderBuildProvider&) { return true; });
-		return Result.WasInvoked() && Result.Value && *Result.Value;
+		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
 	}
 
 	auto GetShaderBuildStats() -> FShaderBuildStats
 	{
-		auto Result = InvokeProvider<FShaderBuildStats>(
-			[](IShaderBuildProvider& Provider) { return Provider.GetStats(); });
-		return Result.WasInvoked() && Result.Value
-			? *Result.Value : FShaderBuildStats{};
-	}
-
-	auto WithShaderBuildProvider(const std::function<bool(IShaderBuildProvider&)>& Work) -> FShaderOperationResult
-	{
-		if (!Work || CapturedProvider)
-		{
-			return std::unexpected(FShaderError{.Code = EShaderError::InvalidProviderCapture});
-		}
-		auto Result = FModularFeatureRegistry::Get().InvokeSingle<IShaderBuildProvider>(
-			[&](IShaderBuildProvider& Provider) {
-				struct FResetProvider
-				{
-					~FResetProvider() { CapturedProvider = nullptr; }
-				} Reset;
-				CapturedProvider = &Provider;
-				return Work(Provider);
-			});
-		if (Result.WasInvoked() && Result.Value)
-			return *Result.Value ? FShaderOperationResult{} : std::unexpected(FShaderError{.Code = EShaderError::ProviderWorkFailed});
-		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
+		if (auto* Module = IShaderBuildModule::Get()) return Module->GetStats();
+		return {};
 	}
 
 	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
-			return Provider.GetCookInputIdentity(OutIdentity, IsCancelled);
-		});
-		if (Result.WasInvoked() && Result.Value) return *Result.Value;
-		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
+		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCookInputIdentity(OutIdentity, IsCancelled);
+		OutIdentity.clear();
+		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
 	}
 
 	auto BuildCookedShaderLibrary(
@@ -265,12 +208,9 @@ namespace Durin
 		FByteBuffer& OutBytes,
 		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
-			return Provider.BuildCookedLibrary(
-				TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);
-		});
-		if (Result.WasInvoked() && Result.Value) return *Result.Value;
+		if (auto* Module = IShaderBuildModule::Get())
+			return Module->BuildCookedLibrary(TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);
 		OutBytes.clear();
-		return std::unexpected(ProviderFailure(Result.Status, Result.MatchingRegistrationCount));
+		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
 	}
 }

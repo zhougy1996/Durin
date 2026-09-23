@@ -1,8 +1,6 @@
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestSupport.h"
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderData.h"
-#include "ShaderBuild/ShaderBuildLifecycle.h"
 #include "ShaderBuild/ShaderPaths.h"
 #include "ShaderCompileService.h"
 #include "ShaderLibraryProducer.h"
@@ -29,7 +27,7 @@ namespace Durin
 		}
 	}
 
-	class FShaderBuildProvider final : public IShaderBuildProvider
+	class FShaderBuildModule final : public IShaderBuildModule
 	{
 	public:
 		auto CompileMounted(
@@ -160,15 +158,9 @@ namespace Durin
 			return ProduceCookedShaderLibrary(
 				TargetPlatform, TargetProfile, OutBytes, std::move(Artifacts), IsCancelled);
 		}
-	};
 
-	namespace
-	{
-		FShaderBuildProvider Provider;
-		FModularFeatureRegistration ProviderRegistration;
-		std::unique_ptr<FModuleTestOwner> TestOwner;
-
-		auto InitializeShaderBuildServices() -> void
+		// Resident until normal editor/tool shutdown; dynamic reloading is unsupported.
+		auto StartupModule() -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompileService();
@@ -176,55 +168,11 @@ namespace Durin
 			requiref(Result,
 				"Authored Shader data initialization failed: {}", FormatShaderError(Result.error()));
 		}
-	}
-
-	auto InitializeShaderBuild() -> void
-	{
-		requiref(!ProviderRegistration.IsValid(),
-			"ShaderBuild is already initialized");
-		ProviderRegistration =
-			FModuleStartup::RegisterFeature<IShaderBuildProvider>(Provider);
-		require(ProviderRegistration.IsValid());
-		InitializeShaderBuildServices();
-	}
-
-	auto InitializeShaderBuildForTesting() -> void
-	{
-		requiref(!ProviderRegistration.IsValid(),
-			"ShaderBuild is already initialized");
-		TestOwner = std::make_unique<FModuleTestOwner>("ShaderBuildTestRoot");
-		ProviderRegistration = TestOwner->RegisterFeature(Provider);
-		require(ProviderRegistration.IsValid());
-		InitializeShaderBuildServices();
-	}
-
-	auto ShutdownShaderBuild() -> void
-	{
-		if (ProviderRegistration.IsValid())
-		{
-			const auto Retirement = ProviderRegistration.Reset();
-			requiref(Retirement == EModularFeatureRetirementStatus::Succeeded,
-				"ShaderBuild provider retirement failed: {}", static_cast<uint32>(Retirement));
-		}
-		ShutdownShaderCompileService();
-		ShutdownShaderData();
-		TestOwner.reset();
-	}
-
-	class FShaderBuildModule final : public IModuleInterface
-	{
-	public:
-		// Shutdown removes the provider and drains the compiler before code release.
-		auto SupportsDynamicReloading() const -> bool override { return true; }
-
-		auto StartupModule() -> void override
-		{
-			InitializeShaderBuild();
-		}
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownShaderBuild();
+			ShutdownShaderCompileService();
+			ShutdownShaderData();
 		}
 	};
 

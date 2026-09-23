@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 
 namespace Durin
 {

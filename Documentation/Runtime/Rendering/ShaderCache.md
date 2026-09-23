@@ -160,9 +160,11 @@ Global and Material Shader owners continue to publish complete
 last-known-good typed sets atomically; this storage migration does not change
 their generation or RHI-resource contract.
 
-DurinEditor and Cook-capable tools select ShaderBuild. Its module-owned
-`IShaderBuildProvider` is the only live-build path; provider absence or
-retirement is an explicit authored failure. RenderCore has no Slang or
+DurinEditor and Cook-capable tools select ShaderBuild. Its resident
+`IShaderBuildModule` is the only live-build path; module absence is an explicit
+authored failure. Like MeshBuilder and TextureBuild, it does not support runtime
+unloading. Consumers drain their work before normal module shutdown releases
+compiler and Shader-data state. RenderCore has no Slang or
 DerivedDataCache dependency, and DurinGame selects neither ShaderBuild nor DDC.
 
 ## Cooked delivery
@@ -180,10 +182,10 @@ and whole-file digest before serving a record. A lazy record load revalidates
 its digest and exact request membership.
 
 Launch selects one immutable Shader-data domain before demand. Authored mode
-uses the provider; Cooked Game mode opens only the qualified library below the
+uses the module; Cooked Game mode opens only the qualified library below the
 Cook root. Missing, corrupt, incomplete, wrong-target, or wrong-profile data is
 a bounded content failure and never falls back to source, manifests, DDC, Slang,
-or a compiler provider. Material `ProgramData` remains package-owned.
+or a compiler module. Material `ProgramData` remains package-owned.
 
 ## Compatibility
 

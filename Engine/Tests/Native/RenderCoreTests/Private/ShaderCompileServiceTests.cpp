@@ -1,7 +1,6 @@
 #include "ShaderBuild/ShaderPaths.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "Shader/ShaderBuildProvider.h"
-#include "Modules/ModuleTestSupport.h"
+#include "Shader/IShaderBuildModule.h"
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
@@ -996,44 +995,5 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		Request.AllowedImportVirtualPrefixes = {"/Different/"};
 		EXPECT_FALSE(GetOrCompileGeneratedShader(Request));
-	}
-
-	TEST_F(FShaderCompileServiceTests, CapturedProviderSurvivesRetirementAndRejectsNestedCapture)
-	{
-		class FProvider final : public IShaderBuildProvider
-		{
-		public:
-			auto CompileMounted(std::string_view, const FShaderCompileOptions&) -> FShaderCompilerOutput override { return {}; }
-			auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderCompilerOutput override { return {}; }
-			auto GetCompilerEnvironmentIdentity() -> std::string override { return "pinned-provider"; }
-			auto BuildSourceDependencyManifest(std::string_view, const FShaderCompileOptions&,
-				std::vector<FShaderSourceDependencyFingerprint>&) -> FShaderOperationResult override { return std::unexpected(FShaderError{.Code = EShaderError::ProviderUnavailable}); }
-			auto BuildSourceTreeFingerprint(std::string_view, const FShaderCompileOptions&,
-				FShaderSourceDependencyFingerprint&) -> FShaderOperationResult override { return std::unexpected(FShaderError{.Code = EShaderError::ProviderUnavailable}); }
-			auto GetStats() const -> FShaderBuildStats override { return {}; }
-			auto BuildCookedLibrary(EShaderTargetPlatform, EShaderTargetProfile, FByteBuffer&, std::shared_ptr<const FShaderSourceArtifacts>, const std::function<bool()>&) -> FShaderOperationResult override { return std::unexpected(FShaderError{.Code = EShaderError::ProviderUnavailable}); }
-		} Provider;
-		FModuleTestOwner Owner("CapturedShaderProviderTest");
-		auto Registration = Owner.RegisterFeature<IShaderBuildProvider>(Provider);
-		ASSERT_TRUE(Registration.IsValid());
-		const auto FailedWork = WithShaderBuildProvider([](IShaderBuildProvider&) { return false; });
-		EXPECT_EQ(FailedWork.error().Code, EShaderError::ProviderWorkFailed);
-		const auto ThrownWork = WithShaderBuildProvider([](IShaderBuildProvider&) -> bool {
-			throw std::runtime_error("provider visitor test");
-		});
-		EXPECT_EQ(ThrownWork.error().Code, EShaderError::ProviderInvocationFailed);
-		EXPECT_EQ(ThrownWork.error().ProviderStatus, EFeatureInvokeStatus::VisitorFailed);
-		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = WithShaderBuildProvider([&](IShaderBuildProvider&) {
-			Registration.Retire();
-			EXPECT_EQ(GetShaderCompilerEnvironmentIdentity(), "pinned-provider");
-			const auto Nested = WithShaderBuildProvider([](IShaderBuildProvider&) { return true; });
-			EXPECT_EQ(Nested.error().Code, EShaderError::InvalidProviderCapture);
-			EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 1u);
-			return true;
-		}))) << FormatShaderError(Error.error());
-		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-		EXPECT_TRUE(GetShaderCompilerEnvironmentIdentity().empty());
-		EXPECT_TRUE(Registration.Reset() == EModularFeatureRetirementStatus::Succeeded);
 	}
 } // namespace Durin

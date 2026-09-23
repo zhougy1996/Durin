@@ -17,7 +17,7 @@ namespace Durin
 		Add(Index); Add(ElementIndex); Add(Expected); Add(Actual);
 		Add(SetIndex); Add(BindingIndex);
 		Add(ExistingBegin); Add(ExistingEnd); Add(NewBegin); Add(NewEnd);
-		Add(ProviderStatus); Add(CompilerPhase); Add(NativeStatus);
+		Add(CompilerPhase); Add(NativeStatus);
 		Add(CaptureLimit.has_value());
 		if (CaptureLimit)
 		{
@@ -86,12 +86,7 @@ namespace Durin
 		switch (Error.Code)
 		{
 		case EShaderError::None: return {};
-		case EShaderError::ProviderInvocationFailed:
-			return std::format("ShaderBuild provider invocation failed (status {}, matching providers {}).",
-				Error.ProviderStatus ? static_cast<uint32>(*Error.ProviderStatus) : 0, Error.Actual);
-		case EShaderError::ProviderWorkFailed: return "ShaderBuild capture visitor failed.";
-		case EShaderError::CookInputIdentityUnsupported: return "Shader provider does not declare Cook input identity.";
-		case EShaderError::InvalidProviderCapture: return "Invalid or nested ShaderBuild capture visitor.";
+		case EShaderError::CookInputIdentityUnsupported: return "ShaderBuild module does not declare Cook input identity.";
 		case EShaderError::CaptureMountLimit: return "Shader mount limit exceeded.";
 		case EShaderError::FileSystemFailure:
 			return Error.FileError ? Error.FileError->ToString() : "Shader filesystem operation failed.";
@@ -133,7 +128,7 @@ namespace Durin
 
 		case EShaderError::InventoryEmpty: return "Cooked Shader inventory is empty.";
 		case EShaderError::Cancelled: return "Shader operation cancelled.";
-		case EShaderError::ProviderUnavailable: return "ShaderBuild provider is unavailable.";
+		case EShaderError::BuildModuleUnavailable: return "ShaderBuild module is unavailable.";
 		case EShaderError::RequestRetirementFrozen: return "Shader request retirement is forbidden after inventory freeze.";
 		case EShaderError::RequestNullBuildType: return "Shader request contains a null build type.";
 		case EShaderError::RequestRegistrationFrozen: return "Shader request registration is forbidden after inventory freeze.";
@@ -164,8 +159,8 @@ namespace Durin
 		case EShaderError::LibraryNotOpen: return "Shader library is not open.";
 		case EShaderError::LibraryRequestUnavailable: return "Shader library request is unavailable.";
 		case EShaderError::LibraryPayloadDigestInvalid: return "Shader library payload digest is invalid.";
-		case EShaderError::ProviderRequired: return "Authored Shader data requires a ShaderBuild provider.";
-		case EShaderError::ProviderForbidden: return "Cooked Shader data forbids a ShaderBuild provider.";
+		case EShaderError::BuildModuleRequired: return "Authored Shader data requires a ShaderBuild module.";
+		case EShaderError::BuildModuleForbidden: return "Cooked Shader data forbids a ShaderBuild module.";
 		case EShaderError::DataConfigurationInvalid: return "Cooked Shader data configuration is invalid.";
 		case EShaderError::DataAlreadyInitialized: return "Shader data domain is already initialized.";
 		case EShaderError::CookedDomainRequired: return "Cooked Shader data was requested outside the Cooked domain.";

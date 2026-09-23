@@ -6,7 +6,7 @@
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Asset/Cook.h"
-#include "Shader/ShaderBuildProvider.h"
+#include "Shader/IShaderBuildModule.h"
 
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"

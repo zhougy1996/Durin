@@ -2,8 +2,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2DBuild.h"
-#include "Shader/ShaderBuildProvider.h"
-#include "Modules/ModuleTestSupport.h"
+#include "Shader/IShaderBuildModule.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/AsyncLoad.h"
 #include <gtest/gtest.h>
@@ -9964,17 +9963,17 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 
 namespace
 {
-	class FCookShaderStub final : public Durin::IShaderBuildProvider
+	class FCookShaderStub final : public Durin::IShaderBuildModule
 	{
 	public:
-		uint32 Captures = 0, Libraries = 0;
+		uint32 Libraries = 0;
 		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto BuildSourceDependencyManifest(std::string_view, const Durin::FShaderCompileOptions&,
-			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::ProviderUnavailable}); }
+			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::BuildModuleUnavailable}); }
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
-			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::ProviderUnavailable}); }
+			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::BuildModuleUnavailable}); }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
 		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderOperationResult override
 		{
@@ -9984,16 +9983,39 @@ namespace
 			return {};
 		}
 	};
+
+	// Substitute only the implementation in these synchronous Cook fixtures.
+	class FScopedCookShaderModule
+	{
+	public:
+		FScopedCookShaderModule()
+		{
+			auto& Manager = Durin::FModuleManager::Get();
+			Manager.AddModule("ShaderBuild", "<cook-shader-fixture>");
+			Info = Manager.FindModule("ShaderBuild");
+			OriginalState = Info->State.load();
+			Original = std::move(Info->Module);
+			Info->Module = std::make_unique<FCookShaderStub>();
+			Info->State = Durin::EModuleState::Active;
+		}
+		~FScopedCookShaderModule()
+		{
+			Info->Module = std::move(Original);
+			Info->State = OriginalState;
+		}
+		auto Get() -> FCookShaderStub& { return static_cast<FCookShaderStub&>(*Info->Module); }
+	private:
+		Durin::FModuleManager::FModuleInfoPtr Info;
+		Durin::EModuleState OriginalState;
+		std::unique_ptr<Durin::IModuleInterface> Original;
+	};
 }
 
 TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookCaptureFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
-	ASSERT_TRUE(Provider.IsValid());
+	FScopedCookShaderModule ShaderModule;
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookCapture", Path));
 	DPackageAssetForTest* Asset = nullptr;
@@ -10066,10 +10088,10 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	EXPECT_EQ(Values.size(), 2u);
 	EXPECT_EQ(Declarations, 3u);
-	EXPECT_EQ(Shader.Libraries, 3u);
+	EXPECT_EQ(ShaderModule.Get().Libraries, 3u);
 	Request.bDryRun = true;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
-	EXPECT_EQ(Shader.Libraries, 4u);
+	EXPECT_EQ(ShaderModule.Get().Libraries, 4u);
 	FByteBuffer StateBytes;
 	auto StateBytesRead = FFileHelper::LoadFileToArray(Request.OutputRoot / "CookState.bin");
 	ASSERT_TRUE(StateBytesRead) << StateBytesRead.error().ToString();
@@ -10140,27 +10162,6 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	EXPECT_EQ(Result.InputFailure.Status, ECookInputStatus::Cancelled);
 	ExpectPriorManifest();
 	Request.IsCancelled = {}; Request.ReportProgress = {};
-	struct FInspectStore final : ICookOutputStore
-	{
-		std::unique_ptr<ICookOutputStore> Inner;
-		std::function<void()> Inspect;
-		auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> Auxiliary,
-			const FCookState& State, FCookRunResult& Result, const FCookCancellationCheck& Cancel,
-			const FCookFailureInjection& Failure) -> FCookPublishResult override
-		{
-			Inspect();
-			return Inner->Publish(Plans, Auxiliary, State, Result, Cancel, Failure);
-		}
-	} InspectStore;
-	InspectStore.Inner = CreateLocalLooseCookOutputStore(Request.OutputRoot, Request.TargetPlatform, Request.TargetProfile);
-	bool Inspected = false;
-	InspectStore.Inspect = [&] {
-		Inspected = true;
-		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-
-	};
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result, &InspectStore)) << Durin::FormatCookRunError(Result);
-	EXPECT_TRUE(Inspected);
 	// Reentrant Cook fails before invoking callbacks and does not poison its caller.
 	OnContribution = [&](DObject&, FCookContext&) {
 		FCookRunResult Nested;
@@ -10194,9 +10195,7 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookDependencyFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
+	FScopedCookShaderModule ShaderModule;
 	std::array<FPackagePath, 3> Paths;
 	std::array<std::filesystem::path, 3> Files;
 	for (size_t Index = 0; Index < Paths.size(); ++Index)
@@ -10303,9 +10302,7 @@ TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookBulkFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
+	FScopedCookShaderModule ShaderModule;
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookOwnedBulk", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
@@ -10345,9 +10342,7 @@ TEST(FPackageAssetTests, CookResolvesAliasesAndDiscoversExternalRoots)
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookRootsFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
+	FScopedCookShaderModule ShaderModule;
 	FPackagePath A, B, AliasPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookRootA", A));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookRootB", B));
@@ -10395,9 +10390,7 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 {
 	InitializeAssetTests();
 	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookMeshFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
+	FScopedCookShaderModule ShaderModule;
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookPrivateMesh", Path));
 	DStaticMesh* Mesh = nullptr;

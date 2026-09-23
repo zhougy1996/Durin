@@ -5,7 +5,7 @@
 #include "LightSceneTestSupport.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "ShaderBuild/ShaderPaths.h"
-#include "ShaderBuild/ShaderBuildLifecycle.h"
+#include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Renderers/SceneVisibility.h"
@@ -33,7 +33,6 @@
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
-#include "Modules/ModuleManager.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -1412,9 +1411,9 @@ namespace Durin::Tests
 			FShaderPaths::RegisterMountPoint("/GeometryQualification/", (Root / "Source").generic_string(), (Root / "Cache").generic_string());
 			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>()));
 			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>(true)));
-			InitializeShaderBuildForTesting();
+			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		}
-		auto TearDown() -> void override { ShutdownShaderBuild(); }
+		auto TearDown() -> void override { FModuleManager::Get().ShutdownModule("ShaderBuild"); }
 	};
 	[[maybe_unused]] const auto GeometryEnvironment = testing::AddGlobalTestEnvironment(new FGeometryQualificationEnvironment());
 }
