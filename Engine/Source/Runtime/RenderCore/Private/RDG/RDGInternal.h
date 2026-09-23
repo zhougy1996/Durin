@@ -304,16 +304,21 @@ namespace Durin::RDGPrivate
 	struct FPassTrackingUses final
 	{
 		std::vector<FGraphUse> Uses;
-		std::unordered_map<uint32, std::vector<const FGraphUse*>> BufferDeclarations;
+		// CSR ranges indexed by combined use, preserving declaration order.
+		std::vector<size_t> DeclarationOffsets;
+		std::vector<const FGraphUse*> BufferDeclarations;
 	};
 
-	auto BuildTrackingUses(std::span<const FGraphUse> Uses) -> FPassTrackingUses;
+	// Scratch is resource-indexed and restored to SIZE_MAX after each pass.
+	auto BuildTrackingUses(std::span<const FGraphUse> Uses,
+		std::span<size_t> BufferUseIndices) -> FPassTrackingUses;
 
 	// Both compilation and lazy diagnostics consume this event stream. The caller
 	// owns the layout; no diagnostic records are retained by normal compilation.
 	template <typename FTransitionVisitor, typename FUseVisitor>
 	auto TraverseExecutionStates(const FTrackingLayout& Cells,
 		std::span<const FGraphResource> Resources, const FGraphPassView& Passes,
+		std::span<const FPassTrackingUses> TrackingUses,
 		std::span<const FRDGCompiledPass> ScheduledPasses,
 		std::span<const FRDGResourceLifetime> Lifetimes, FRangeWork* Work, bool bAsyncEnabled,
 		FTransitionVisitor&& OnTransition, FUseVisitor&& OnUse) -> bool
@@ -327,7 +332,8 @@ namespace Durin::RDGPrivate
 			const uint32 DeclarationIndex = ScheduledPasses[PassIndex].DeclarationIndex;
 			const auto Queue = bAsyncEnabled && Passes[DeclarationIndex].bAsyncComputeEligible
 				? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics;
-			const auto Tracking = BuildTrackingUses(Passes[DeclarationIndex].Uses);
+			const auto& Tracking = TrackingUses[DeclarationIndex];
+			size_t UseIndex = 0;
 			for (const auto& Use : Tracking.Uses)
 			{
 				if (auto Error = Cells.VisitUse(Use, [&](size_t CellIndex, const FRangeCell& Range) -> bool
@@ -356,12 +362,14 @@ namespace Durin::RDGPrivate
 					Cell.bUsed = true;
 					if (Use.Kind == ERDGResourceKind::Buffer)
 					{
-						for (const auto* Declared : Tracking.BufferDeclarations.at(Use.ResourceIndex))
-							OnUse(DeclarationIndex, *Declared, CellIndex, Range, IsWriteUse(Use.Use));
+						for (size_t Index = Tracking.DeclarationOffsets[UseIndex];
+							Index < Tracking.DeclarationOffsets[UseIndex + 1]; ++Index)
+							OnUse(DeclarationIndex, *Tracking.BufferDeclarations[Index], CellIndex, Range, IsWriteUse(Use.Use));
 					}
 					else OnUse(DeclarationIndex, Use, CellIndex, Range, IsWriteUse(Use.Use));
 					return true;
 				}); !Error) return Error;
+				++UseIndex;
 			}
 		}
 		for (size_t CellIndex = 0; CellIndex < Cells.Ranges.size(); ++CellIndex)

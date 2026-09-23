@@ -77,6 +77,7 @@ namespace Durin::RDGPrivate
 		auto ValidateBufferContents(FGraphPassView Passes,
 			std::span<const FGraphResource> Resources, FRangeWork& Work) -> FRDGCompileResult;
 		auto BuildHazardDependencies(FGraphPassView Passes,
+			std::span<const FPassTrackingUses> TrackingUses,
 			std::span<const FGraphResource> Resources,
 			const FTrackingLayout& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> FRDGCompileResult;
@@ -428,6 +429,7 @@ namespace Durin::RDGPrivate
 		}
 
 		auto BuildHazardDependencies(FGraphPassView Passes,
+			std::span<const FPassTrackingUses> TrackingUses,
 			std::span<const FGraphResource> Resources,
 			const FTrackingLayout& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> FRDGCompileResult
@@ -438,7 +440,7 @@ namespace Durin::RDGPrivate
 			for (size_t Index = 0; Index < Cells.Ranges.size(); ++Index)
 				States[Index].bProduced = Resources[Cells.Ranges[Index].ResourceIndex].HasInitialContents();
 			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
-				for (const auto& Use : BuildTrackingUses(Passes[PassIndex].Uses).Uses)
+				for (const auto& Use : TrackingUses[PassIndex].Uses)
 					if (auto Error = Cells.VisitUse(Use, [&](size_t CellIndex, const FRangeCell&) -> FRDGCompileResult
 					{
 						auto& Cell = States[CellIndex];
@@ -640,28 +642,42 @@ namespace Durin::RDGPrivate
 		return {Dimension, Actual, Limit};
 	}
 
-	auto BuildTrackingUses(std::span<const FGraphUse> Uses) -> FPassTrackingUses
+	auto BuildTrackingUses(std::span<const FGraphUse> Uses,
+		std::span<size_t> BufferUseIndices) -> FPassTrackingUses
 	{
 		FPassTrackingUses Result;
 		Result.Uses.reserve(Uses.size());
-		std::unordered_map<uint32, size_t> Buffers;
+		Result.DeclarationOffsets.reserve(Uses.size() + 1);
+		Result.DeclarationOffsets.push_back(0);
 		for (const auto& Use : Uses)
 		{
 			if (Use.Kind == ERDGResourceKind::Buffer)
 			{
-				Result.BufferDeclarations[Use.ResourceIndex].push_back(&Use);
-				const auto [It, bInserted] = Buffers.try_emplace(Use.ResourceIndex, Result.Uses.size());
-				if (!bInserted)
+				auto& Index = BufferUseIndices[Use.ResourceIndex];
+				if (Index != SIZE_MAX)
 				{
-					auto& Combined = Result.Uses[It->second];
+					++Result.DeclarationOffsets[Index + 1];
+					auto& Combined = Result.Uses[Index];
 					Combined.Access |= Use.Access;
 					if (Combined.Use != Use.Use) Combined.Use = ERDGUse::ReadWrite;
 					Combined.bDiscard = false;
 					continue;
 				}
+				Index = Result.Uses.size();
 			}
 			Result.Uses.push_back(Use);
+			Result.DeclarationOffsets.push_back(Use.Kind == ERDGResourceKind::Buffer ? 1 : 0);
 		}
+		std::partial_sum(Result.DeclarationOffsets.begin(), Result.DeclarationOffsets.end(),
+			Result.DeclarationOffsets.begin());
+		Result.BufferDeclarations.resize(Result.DeclarationOffsets.back());
+		auto Cursors = Result.DeclarationOffsets;
+		for (const auto& Use : Uses)
+			if (Use.Kind == ERDGResourceKind::Buffer)
+				Result.BufferDeclarations[Cursors[BufferUseIndices[Use.ResourceIndex]]++] = &Use;
+		for (const auto& Use : Result.Uses)
+			if (Use.Kind == ERDGResourceKind::Buffer)
+				BufferUseIndices[Use.ResourceIndex] = SIZE_MAX;
 		return Result;
 	}
 
@@ -823,8 +839,17 @@ namespace Durin
 
 		RangeTimer.Stop();
 		FScopedMicrosecondTimer DependencyTimer(State->Phases.DependencyMicroseconds);
+		// Compile-local storage is shared by dependency and execution-state analysis.
+		std::vector<FPassTrackingUses> TrackingUses;
+		TrackingUses.reserve(PassCount);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildTrackingUses");
+			std::vector<size_t> BufferUseIndices(ResourceCount, SIZE_MAX);
+			for (uint32 Index = 0; Index < PassCount; ++Index)
+				TrackingUses.push_back(BuildTrackingUses(Passes[Index].Uses, BufferUseIndices));
+		}
 		if (auto Error = BuildHazardDependencies(Passes,
-			State->Resources, Cells, DependencyGraph, Work); !Error.has_value())
+			TrackingUses, State->Resources, Cells, DependencyGraph, Work); !Error.has_value())
 			return Error;
 
 		DependencyTimer.Stop();
@@ -924,7 +949,7 @@ namespace Durin
 			std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
 			std::optional<FRDGLimitError> TransitionError;
 			const bool bTraversed = TraverseExecutionStates(Cells, State->Resources,
-				Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
+				Passes, TrackingUses, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
 				[&](const FRDGTransitionCapture& Event, size_t CellIndex) -> bool
 				{
 					if (Event.Kind != ERDGTransitionKind::RHIBarrier) return true;

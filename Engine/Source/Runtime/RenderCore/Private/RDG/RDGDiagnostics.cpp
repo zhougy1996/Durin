@@ -154,8 +154,15 @@ namespace Durin
 		auto Cells = std::move(*Layout);
 		std::vector<uint32> Versions(Cells.Ranges.size(), 0);
 		std::vector<uint32> VersionPasses(Cells.Ranges.size(), std::numeric_limits<uint32>::max());
+		std::vector<FPassTrackingUses> TrackingUses(Passes.size());
+		{
+			std::vector<size_t> BufferUseIndices(Compiled->Resources.size(), SIZE_MAX);
+			for (const auto& Pass : Compiled->Passes)
+				TrackingUses[Pass.DeclarationIndex] = BuildTrackingUses(
+					Passes[Pass.DeclarationIndex].Uses, BufferUseIndices);
+		}
 		const bool bTraversed = TraverseExecutionStates(Cells, Compiled->Resources,
-			Passes, Compiled->Passes, Compiled->ResourceLifetimes, nullptr, State->bAsyncComputeEnabled,
+			Passes, TrackingUses, Compiled->Passes, Compiled->ResourceLifetimes, nullptr, State->bAsyncComputeEnabled,
 			[&](const FRDGTransitionCapture& Event, size_t) -> bool
 			{
 				Result->Transitions.push_back(Event);

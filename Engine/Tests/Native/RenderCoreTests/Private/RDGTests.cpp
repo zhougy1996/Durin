@@ -5279,6 +5279,51 @@ namespace Durin
 		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 
+	TEST_F(FRDGTests, InterleavedBufferDeclarationsKeepRangesAcrossPasses)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto A = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "A");
+		const auto Token = Builder.CreateToken("Token");
+		const auto B = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "B");
+		const auto Initialize = FRDGBuilderTestAccessor::AddPass(Builder, "Initialize", ERDGPassType::Compute);
+		for (const auto Buffer : {A, B})
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Initialize, Buffer, 0, 64,
+				ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		FRDGBuilderTestAccessor::AddPass(Builder, "Culled", ERDGPassType::Compute);
+		const auto Mixed = FRDGBuilderTestAccessor::AddPass(Builder, "Mixed", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, B, 0, 16,
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		FRDGBuilderTestAccessor::UseToken(Builder, Mixed, Token, ERDGUse::Write);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, A, 32, 16,
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, B, 16, 16,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, A, 48, 16,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.MarkPassRoot(Mixed);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		ASSERT_EQ(Builder.GetPasses().size(), 2u);
+		ASSERT_EQ(Builder.GetPasses()[1].Barriers.GetBufferTransitions().size(), 2u);
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Uses.size(), 7u);
+		// First occurrence orders combined uses; each buffer keeps its own binding order.
+		const std::array<uint32, 5> ResourceIds{2, 2, 1, 0, 0};
+		const std::array<uint64, 5> Offsets{0, 16, 0, 32, 48};
+		for (size_t Index = 0; Index < ResourceIds.size(); ++Index)
+		{
+			const auto& Use = Capture.Uses[Index + 2];
+			EXPECT_EQ(Use.ResourceId, ResourceIds[Index]);
+			EXPECT_EQ(Use.BufferOffset, Offsets[Index]);
+			EXPECT_EQ(Use.Version, ResourceIds[Index] == 1 ? 1u : 2u);
+			if (ResourceIds[Index] != 1) EXPECT_EQ(Use.BufferSize, 16u);
+		}
+		ExpectCapturedBarriersMatchPlan(Builder);
+	}
+
 	TEST_F(FRDGTests, FixedTextureLayoutFinalizesOnlyRetainedUsedSubresources)
 	{
 		FRDGBuilder Builder;
