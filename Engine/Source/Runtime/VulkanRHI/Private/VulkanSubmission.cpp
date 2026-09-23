@@ -54,6 +54,15 @@ namespace Durin::VulkanRHI
 		Payloads.reserve(Payloads.size() + PendingPayloads.size());
 		for (auto& Pending : PendingPayloads) Payloads.push_back(std::move(Pending));
 		PendingPayloads.clear();
+		std::vector<FVulkanPayload*> Views;
+		for (const auto& Payload : Payloads) Views.push_back(Payload.get());
+		const auto Order = BuildSubmissionOrder(Views);
+		for (size_t Index : Order) SubmitNative(std::move(Payloads[Index]));
+	}
+
+	auto FVulkanSubmissionCoordinator::BuildSubmissionOrder(const std::vector<FVulkanPayload*>& Payloads)
+		-> std::vector<size_t>
+	{
 		// Build the entire dependency order before accepting any native work.
 		// Queue-local reservations also impose edges, even without explicit waits.
 		std::vector<std::vector<size_t>> Dependencies(Payloads.size());
@@ -111,7 +120,55 @@ namespace Durin::VulkanRHI
 			if (!SyncPoints.empty() && !Device.FindQueue(QueueInfo.Id)->GetCompletionTracker().CanSubmitBatch(SyncPoints))
 				throw std::runtime_error("Vulkan batch is missing an earlier queue reservation.");
 		}
-		for (size_t Index : Order) SubmitNative(std::move(Payloads[Index]));
+		return Order;
+	}
+
+	auto FVulkanSubmissionCoordinator::TrySubmitPendingAllocation(
+		const std::weak_ptr<void>& Owner, const FRHIGPUSyncPointRef& LatestUse) -> bool
+	{
+		CheckVulkanRHIThread();
+		const auto Retained = Owner.lock();
+		if (!Retained || LatestUse.GetState() != ERHIGPUSubmissionState::Pending) return false;
+		std::vector<FVulkanPayload*> Selected;
+		for (const auto& Payload : PendingPayloads)
+			if (std::ranges::find(Payload->AllocationOwners, Retained) != Payload->AllocationOwners.end())
+				Selected.push_back(Payload.get());
+		// A lease reused by the current recording must not be submitted mid-draw.
+		if (std::ranges::none_of(Selected, [&](const auto* Payload) {
+			return FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint) == FRHIGPUSyncPointBackend::GetPoint(LatestUse);
+		})) return false;
+		for (size_t Index = 0; Index < Selected.size(); ++Index)
+		{
+			const auto* Payload = Selected[Index];
+			for (const auto& Candidate : PendingPayloads)
+			{
+				const auto Point = FRHIGPUSyncPointBackend::GetPoint(Candidate->SyncPoint);
+				const bool bEarlier = &Candidate->Queue == &Payload->Queue
+					&& Point.Value < FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Value;
+				const bool bProducer = std::ranges::any_of(Payload->CompletionWaits, [&](const auto& Wait) {
+					return FRHIGPUSyncPointBackend::GetPoint(Wait) == Point;
+				});
+				if ((bEarlier || bProducer) && std::ranges::find(Selected, Candidate.get()) == Selected.end())
+					Selected.push_back(Candidate.get());
+			}
+		}
+		std::vector<size_t> Order;
+		try { Order = BuildSubmissionOrder(Selected); }
+		catch (const std::runtime_error&) { return false; }
+		// Allocate every container before transferring ownership. Unrelated pending
+		// work stays queued; native failures retain the ordinary quarantine contract.
+		std::vector<std::unique_ptr<FVulkanPayload>> Batch;
+		Batch.reserve(Order.size());
+		for (size_t Index : Order)
+		{
+			const auto It = std::ranges::find_if(PendingPayloads, [&](const auto& Payload) {
+				return Payload.get() == Selected[Index];
+			});
+			Batch.push_back(std::move(*It));
+		}
+		std::erase_if(PendingPayloads, [](const auto& Payload) { return !Payload; });
+		for (auto& Payload : Batch) SubmitNative(std::move(Payload));
+		return true;
 	}
 
 	auto FVulkanSubmissionCoordinator::SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void

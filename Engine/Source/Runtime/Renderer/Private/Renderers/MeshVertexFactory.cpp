@@ -57,7 +57,7 @@ namespace Durin::RendererPrivate
 					const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(&Binding);
 					if (!Spline || Spline->GetLayoutKey() != FSplineMeshBatchBinding{}.GetLayoutKey()) return {};
 					const auto Uniform = MakeSplineMeshUniform(Spline->DynamicData.Params);
-					Parameters.SplineMesh = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+					Parameters.SplineMesh = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 				}
 				else if (Binding.GetLayoutKey() != FStaticMeshBatchBinding{}.GetLayoutKey()) return {};
 				return PrepareShaderParameters(Shader, Parameters);

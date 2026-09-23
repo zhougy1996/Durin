@@ -109,6 +109,48 @@ namespace Durin
 		EXPECT_EQ((std::vector<int>{1, 2}), Order);
 	}
 
+	TEST(FRHIThreadTests, ThreeFrameLimitAllowsOverlapAndBlocksOnlyAtCapacity)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		ASSERT_TRUE(Thread.Start());
+		FThreadEvent Started, Release;
+		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
+		FRHIThreadWork First;
+		First.FrameCount = 1;
+		First.Execute = [&] { Started.Trigger(); Release.Wait(); return FRHIThreadWorkResult::Success(); };
+		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		for (int Index = 0; Index < 2; ++Index)
+		{
+			FRHIThreadWork Next;
+			Next.FrameCount = 1;
+			Next.Execute = [] { return FRHIThreadWorkResult::Success(); };
+			EXPECT_TRUE(Thread.Enqueue(Next).IsAccepted());
+		}
+		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 3u);
+		EXPECT_EQ(Thread.GetStats().BackpressureWaitCount, 0u);
+		std::atomic<bool> Accepted = false;
+		std::thread Producer([&] {
+			FRHIThreadWork Fourth;
+			Fourth.FrameCount = 1;
+			Fourth.Execute = [] { return FRHIThreadWorkResult::Success(); };
+			Accepted = Thread.Enqueue(Fourth).IsAccepted();
+		});
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (!Thread.GetStats().FramePressureWaitCount && std::chrono::steady_clock::now() < Deadline)
+			std::this_thread::yield();
+		EXPECT_EQ(Thread.GetStats().FramePressureWaitCount, 1u);
+		EXPECT_FALSE(Accepted.load());
+		Release.Trigger();
+		Producer.join();
+		EXPECT_TRUE(Accepted.load());
+		EXPECT_EQ(Thread.Flush(), ERHIThreadWaitResult::Completed);
+		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 0u);
+		EXPECT_EQ(Thread.GetStats().PeakOutstandingFrameCount, 3u);
+		EXPECT_GT(Thread.GetStats().FramePressureWaitNanoseconds, 0u);
+	}
+
 	TEST(FRHIThreadTests, BoundedCapacityBlocksProducerAndWakesAfterCompletion)
 	{
 		FRHIThread Thread;
@@ -351,6 +393,7 @@ namespace Durin
 		};
 
 		FRHIThreadWork Failing;
+		Failing.FrameCount = 1;
 		Failing.Execute = [&]() {
 			FailureStarted.Trigger();
 			ReleaseFailure.Wait();
@@ -364,6 +407,7 @@ namespace Durin
 		Queued.Execute = [Tracked = std::make_shared<FTrackedCapture>(DestroyedCount)]() {
 			return FRHIThreadWorkResult::Success();
 		};
+		Queued.FrameCount = 1;
 		const FRHIThreadSubmission QueuedSubmission = Thread.Enqueue(Queued);
 		ASSERT_TRUE(QueuedSubmission.IsAccepted());
 		ReleaseFailure.Trigger();
@@ -376,6 +420,7 @@ namespace Durin
 		EXPECT_EQ("fake executor failure", Stats.Error.ExternalDiagnostic);
 		EXPECT_EQ(1u, Stats.RejectedWorkCount);
 		EXPECT_EQ(0u, Stats.OutstandingEntryCount);
+		EXPECT_EQ(0u, Stats.OutstandingFrameCount);
 		EXPECT_EQ(1u, DestroyedCount.load(std::memory_order::acquire));
 	}
 
@@ -418,6 +463,7 @@ namespace Durin
 		ASSERT_TRUE(Thread.Start());
 		FThreadEvent Started, Release;
 		FRHIThreadWork Running;
+		Running.FrameCount = 1;
 		Running.Execute = [&] { Started.Trigger(); Release.Wait(); return FRHIThreadWorkResult::Success(); };
 		const auto First = Thread.Enqueue(Running);
 		EXPECT_TRUE(Started.WaitFor(1.0));
@@ -425,17 +471,20 @@ namespace Durin
 		FRHIThreadWork Queued;
 		Queued.BatchCount = 1;
 		Queued.PayloadBytes = 512;
+		Queued.FrameCount = 1;
 		Queued.Execute = [&] { Replayed = true; return FRHIThreadWorkResult::Success(); };
 		const auto Second = Thread.Enqueue(Queued);
 		Thread.ReportExternalFailure("background device lost");
 		EXPECT_EQ(Thread.WaitForSerial(First.Serial), ERHIThreadWaitResult::Failed);
 		EXPECT_EQ(Thread.WaitForSerial(Second.Serial), ERHIThreadWaitResult::Failed);
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 1u);
+		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 1u);
 		EXPECT_EQ(Thread.GetStats().OutstandingPayloadBytes, 0u);
 		Release.Trigger();
 		Thread.Stop();
 		EXPECT_EQ(Thread.GetStats().CompletedSerial, 0u);
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
+		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 0u);
 		EXPECT_FALSE(Replayed.load());
 	}
 

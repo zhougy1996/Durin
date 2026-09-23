@@ -16,6 +16,7 @@
 
 namespace Durin
 {
+	class FRHIBufferUploadData;
 	// Owns declarations, storage and private compilation records for one graph execution.
 	// Thread-confined; all declaration methods require Building in every configuration.
 	class FRDGBuilder final
@@ -134,6 +135,9 @@ namespace Durin
 		RENDERCORE_API auto Dump() const -> std::string;
 
 	private:
+		auto QueueBufferUploadData(FRDGBufferHandle Buffer, uint32 Offset,
+			std::expected<std::shared_ptr<const FRHIBufferUploadData>, ERHIBufferUploadError> Data,
+			uint64 RequestedBytes) -> FRDGPassHandle;
 		// Raw declaration injection is restricted to native compiler fixtures.
 		RENDERCORE_API auto AddTestPass(std::string_view Name, ERDGPassType Type,
 			FRDGPassExecute Execute = {}) -> FRDGPassHandle;

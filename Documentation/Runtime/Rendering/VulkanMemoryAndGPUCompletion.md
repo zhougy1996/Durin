@@ -22,10 +22,10 @@ submission failure transfers ownership to quarantine instead of this path.
 
 The coordinator owns sealed, pending payloads between submission scopes.
 Enqueueing a context seals its current recording without submitting native work.
-Explicit submission, presentation, readback and allocator pressure drain these
+Explicit submission, presentation, and readback drain these
 payloads together with participating contexts. Cancellation and device shutdown
 discard queued recordings while their context command pools still exist.
-The coordinator seals all participating contexts before submitting a batch.
+These submission paths seal all participating contexts before submitting a batch.
 It validates dependency authority and success state, includes implicit queue-local
 reservation order, and constructs a deterministic topological order before native
 submission. Each physical timeline also preflights its ordered pending prefix;
@@ -99,22 +99,47 @@ whole-device idle wait is not an ordinary recycling mechanism.
 ## Logical Buffer Versions
 
 CPU-authored uniform/storage bindings through ordinary buffer views materialize
-an immutable mapped buffer on
-first draw/dispatch use. A CPU snapshot caches one backing per queue context,
-so exclusive queue ownership is not shared across independent contexts. Host
+an immutable mapped range on
+first draw/dispatch use. A CPU snapshot weakly caches one backing per physical
+queue, so independent queues do not share exclusive native ownership. Host
 writes are flushed before submission; later read-to-read pipeline changes need
 no write dependency. Each consuming payload retains the exact snapshot and
 physical view, including uniform sidecars, until completion or safe cancellation.
-Updates produce a new backing and invalidate descriptor selection; an older
+Updates produce a new range and invalidate descriptor selection; an older
 submission keeps its original contents. Physical buffers use ordinary counted
 deletion and queue-qualified retirement.
 Native buffer/view downcasts enforce native content mode; logical views must
 first resolve to the selected version's native backing and descriptor.
 
-This path currently uses individual dynamic-upload allocations. The CPU
-snapshot budget does not bound native allocations retained by descriptor caches
-or pending deletion; pooled allocation and complete pressure accounting remain
-in the [active upload plan](../../Plans/RhiAsyncBufferUploadRefactor.md).
+Uniform and storage binding pools use 4 MiB normal pages with respective
+64 MiB and 128 MiB total capacity limits, including retained oversize pages.
+Each snapshot reserves aligned intervals on every provisioned physical queue
+before create/update succeeds. Admission is CPU-only and thread-safe; it neither
+creates a native resource nor waits for RHI replay. Capacity, fragmentation, or
+incompatible retained page geometry returns `PayloadBudgetExceeded` before
+recording. Queue copies are reserved conservatively even if never consumed.
+
+Replay lazily materializes each reserved page and uses its predetermined offset.
+Both offset and padded size respect native binding and noncoherent atom alignment.
+No binding allocation can require submitting an active render pass. Native
+allocation failure is still terminal, and reservations from another device
+generation cannot be used. Native page capacity stays charged through teardown.
+
+Bindings and snapshots keep weak native-resolution caches partitioned by physical
+queue. Consuming payloads retain the snapshot, view, and reservation, including
+failure quarantine. A snapshot's virtual intervals remain reserved for its entire
+lifetime, including while only the logical resource retains its CPU contents.
+Completion of one queue cannot release intervals still held by another queue.
+Once every snapshot owner releases it, admission can reuse its intervals; frame
+age plays no role. Rematerializing a retained snapshot uses the same admitted
+interval. Logical view offsets never expose native page placement.
+
+`DynamicUpload` arena gauges include materialized binding pages and backing
+ranges. CPU snapshots, graph sources, native buffer writes/uploads, and packed
+texture command arrays share the CPU budget described in
+[resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
+The old mapped uniform/storage producer APIs and frame-slot allocators have
+been removed; ordinary consumers use admitted CPU-authored resources.
 
 ## Allocation Classes
 
@@ -178,18 +203,10 @@ bytes or allocating one Vulkan buffer per operation.
 
 Frame retirement first submits both provisioned command contexts, then captures
 the physical queue prefixes. Reusing a frame waits all of those prerequisites.
-The render-thread begin-frame flush completes that wait before resetting the
-frame's mapped storage producer, so graphics completion alone cannot authorize
-CPU overwrite while compute remains in flight.
-
-Dynamic uniforms keep two producer states with one 4 MiB base page each. Pages
-are frame-owned and conservatively inherit all queue prefixes from their frame,
-rather than a graphics-only token. The RHI thread selects a state only when
-those prerequisites retire; if both states remain busy, it waits the state
-retired earliest on the CPU. Each producer is bounded to eight chunks, including
-tracked oversize chunks. Public
-`FRHIUniformBufferRange` buffer/offset/size behavior and alignment remain
-unchanged.
+The two-slot pacing policy remains backend-owned. Upload versions do not use
+those slots: snapshot admission and exact payload ownership govern their reuse.
+Public uniform/storage ranges remain logical buffer/offset/size values, and
+native backing offsets stay private.
 
 Descriptor allocation rotates between at most two pool batches. Every graphics
 or compute descriptor bind, including cache hits, retains the active batch's

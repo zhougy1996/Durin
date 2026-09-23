@@ -81,9 +81,6 @@ namespace Durin
 		virtual auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
 			uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void { Request->Fail(); }
 		virtual auto RHIPollTextureReadbacks() -> void {}
-		virtual auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange = 0;
-		virtual auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
-			-> FRHIStorageBufferRange = 0;
 		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;

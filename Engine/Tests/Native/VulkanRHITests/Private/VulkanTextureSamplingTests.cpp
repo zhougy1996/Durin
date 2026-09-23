@@ -593,7 +593,7 @@ namespace Durin
 			GCommandListExecutor.GetStats().SynchronousOperationCount;
 		const std::array<uint8, 256> SmallUniformData{};
 		const FRHIUniformBufferRange SmallUniformRange =
-			RHICmdList.AllocateDynamicUniformBuffer(
+			RHICmdList.CreateUniformBufferRange(
 				SmallUniformData.data(),
 				static_cast<uint32>(SmallUniformData.size()));
 		EXPECT_NE(SmallUniformRange.Buffer, nullptr);
@@ -604,36 +604,26 @@ namespace Durin
 		Durin::FByteBuffer OversizedUniformData(
 			4 * 1024 * 1024 + 256, std::byte{0x5a});
 		const FRHIUniformBufferRange UniformRange =
-			RHICmdList.AllocateDynamicUniformBuffer(
+			RHICmdList.CreateUniformBufferRange(
 				OversizedUniformData.data(),
 				static_cast<uint32>(OversizedUniformData.size()));
 		EXPECT_NE(UniformRange.Buffer, nullptr);
 		EXPECT_EQ(UniformRange.Offset, 0u);
 		EXPECT_EQ(UniformRange.Size, OversizedUniformData.size());
 		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
-			SynchronousOperationsBeforeUniforms + 1);
+			SynchronousOperationsBeforeUniforms);
 
 		GDynamicRHI->RHIBlockUntilGPUIdle();
 		EndFrame();
 		EXPECT_EQ(
 			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 1);
-		VulkanRHI::FVulkanBackendPoolTestStats FirstFramePoolStats;
-		VulkanRHI::FVulkanCompletionTestStats FirstFrameCompletionStats;
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			FirstFramePoolStats = VulkanRHI::GetVulkanBackendPoolTestStats();
-			FirstFrameCompletionStats = VulkanRHI::GetVulkanCompletionTestStats();
-		});
-		EXPECT_NE(std::ranges::find(
-			FirstFramePoolStats.DynamicUniformTokens,
-			FirstFrameCompletionStats.LastSubmittedToken),
-			FirstFramePoolStats.DynamicUniformTokens.end());
 
 		BeginFrame();
 		const FRHIUniformBufferRange SecondSlotUniformRange =
-			RHICmdList.AllocateDynamicUniformBuffer(
+			RHICmdList.CreateUniformBufferRange(
 				SmallUniformData.data(),
 				static_cast<uint32>(SmallUniformData.size()));
-		EXPECT_NE(SecondSlotUniformRange.Buffer, SmallUniformRange.Buffer);
+		EXPECT_EQ(SecondSlotUniformRange.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
 		EXPECT_EQ(SecondSlotUniformRange.Offset, 0u);
 		EndFrame();
 		EXPECT_EQ(
@@ -641,10 +631,10 @@ namespace Durin
 
 		BeginFrame();
 		const FRHIUniformBufferRange ReusedFirstSlotUniformRange =
-			RHICmdList.AllocateDynamicUniformBuffer(
+			RHICmdList.CreateUniformBufferRange(
 				SmallUniformData.data(),
 				static_cast<uint32>(SmallUniformData.size()));
-		EXPECT_EQ(ReusedFirstSlotUniformRange.Buffer, SmallUniformRange.Buffer);
+		EXPECT_EQ(ReusedFirstSlotUniformRange.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
 		EXPECT_EQ(ReusedFirstSlotUniformRange.Offset, 0u);
 		EndFrame();
 		EXPECT_EQ(

@@ -152,7 +152,7 @@ namespace Durin
 			Resources->Target->GetBackendAllocationBytes());
 
 		const FForwardLightingUniform FullyUnlit{};
-		State->FallbackLighting = CommandList.AllocateDynamicUniformBuffer(
+		State->FallbackLighting = CommandList.CreateUniformBufferRange(
 			&FullyUnlit, sizeof(FullyUnlit));
 		bool bReady = State->FallbackLighting.Buffer != nullptr;
 		for (uint32 Cascade = 0;

@@ -128,6 +128,7 @@ namespace Durin::VulkanRHI
 				EXPECT_TRUE(Result.bUnselectedRangesPreserved);
 				return;
 			}
+			EXPECT_TRUE(TestVulkanSealedPressureDependency());
 			const auto Result = RunVulkanCrossQueueWaitForTesting();
 			EXPECT_TRUE(Result.bConsumerBlocked);
 			EXPECT_TRUE(Result.bRetirementBlocked);
@@ -169,6 +170,44 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Result.bAllocationRetained);
 		EXPECT_TRUE(Result.bAllocationReturned);
 		EXPECT_TRUE(Result.bTimingDiscarded);
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, BindingAdmissionRejectsBeforeRecordingAndReusesCanceledReservations)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		EXPECT_TRUE(TestVulkanBindingAdmission());
+		std::vector<std::shared_ptr<void>> Reservations;
+		const FRHIBufferDesc Desc{16u * 1024 * 1024, 0, EBufferUsageFlags::UniformBuffer};
+		while (auto Reservation = GDynamicRHI->RHIReserveBufferBacking(Desc))
+			Reservations.push_back(std::move(*Reservation));
+		ASSERT_FALSE(Reservations.empty());
+		FRHICommandList Commands;
+		const auto Before = Commands.GetNumRecordedCommands();
+		const std::array<std::byte, 16> Bytes{};
+		auto Rejected = Commands.TryCreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
+		ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), Before);
+		Reservations.clear();
+		auto Accepted = Commands.TryCreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
+		ASSERT_TRUE(Accepted);
+		*Accepted = nullptr;
+		std::vector<FRHIResource*> Pending;
+		FRHIResource::GatherResourcesToDelete(Pending);
+		FRHIResource::DeleteResources(Pending);
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, SealedPressureSubmitsOnlyEligibleAllocationDependencies)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		const auto Result = TestVulkanSealedPressure();
+		EXPECT_TRUE(Result.bMissingReservationPreserved);
+		EXPECT_TRUE(Result.bOnlyRequiredPrefixSubmitted);
+		EXPECT_TRUE(Result.bLeaseReleasedAfterWait);
+		EXPECT_TRUE(Result.bActiveUsePreserved);
+		EXPECT_TRUE(Result.bCyclePreserved);
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, RetainedLogicalObserversDoNotAccumulateNativeFences)
@@ -455,6 +494,54 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	TEST(FVulkanTransferArenaIntegrationTests, BindingPagesBoundCapacityAndRetainExactLeases)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		FVulkanTransferArena Arena(*Device, {
+			.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
+			.PageSize = 256, .MaxPageCount = 2, .DebugName = "BoundedBindingPages",
+			.MaxCapacity = 768, .MaxAllocation = 512, .BindingUsage = EBufferUsageFlags::UniformBuffer});
+		auto A = Arena.Acquire(256, 256, Signal);
+		auto B = Arena.Acquire(512, 256, Signal);
+		ASSERT_TRUE(A.Range && B.Range);
+		EXPECT_EQ(Arena.GetCapacity(), 768u);
+		auto LeaseA = A.Range.GetAllocationOwner();
+		auto LeaseB = B.Range.GetAllocationOwner();
+		auto* BufferA = A.Range.GetBuffer();
+		auto* BufferB = B.Range.GetBuffer();
+		A.Range.Retire();
+		B.Range.Retire();
+		const auto Pressure = Arena.Acquire(16, 16, Signal);
+		EXPECT_FALSE(Pressure.Range);
+		EXPECT_EQ(Pressure.WaitOwner.lock(), LeaseA);
+		EXPECT_EQ(Arena.GetCapacity(), 768u);
+		EXPECT_TRUE(Arena.Acquire(513, 16, Signal).bAllocationFailed);
+		const auto NextSignal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		Arena.MarkUsed(LeaseB, NextSignal);
+		EXPECT_EQ(Arena.Acquire(512, 256, NextSignal).WaitSyncPoint, NextSignal);
+		// Neither frame age nor completion releases a separately retained CPU lease.
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		EXPECT_FALSE(Arena.Acquire(16, 16, Signal).Range);
+		LeaseA.reset();
+		auto ReusedA = Arena.Acquire(256, 256, Signal);
+		ASSERT_TRUE(ReusedA.Range);
+		EXPECT_EQ(ReusedA.Range.GetBuffer(), BufferA);
+		LeaseB.reset();
+		auto ReusedB = Arena.Acquire(512, 256, Signal);
+		ASSERT_TRUE(ReusedB.Range);
+		EXPECT_EQ(ReusedB.Range.GetBuffer(), BufferB);
+		EXPECT_EQ(Arena.GetCapacity(), 768u);
+	}
+
 	TEST(FVulkanTransferArenaIntegrationTests,
 		ReusesBoundedPagesHandlesFragmentationOversizeAndExactWaits)
 	{
@@ -526,6 +613,7 @@ namespace Durin::VulkanRHI
 		constexpr uint32 PageSize = 8 * 1024 * 1024;
 		Durin::FByteBuffer Bytes(PageSize, std::byte{0x5a});
 		std::vector<FBufferRHIRef> Destinations;
+		const auto RejectionsBefore = GetBufferUploadStats().RejectedCount;
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
 			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
@@ -533,7 +621,13 @@ namespace Durin::VulkanRHI
 					EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
 			ASSERT_TRUE(Buffer);
 			Destinations.push_back(Buffer);
-			Commands.WriteBuffer(Buffer.GetReference(), Bytes.data(), PageSize, 0);
+			if (const auto Uploaded = Commands.TryWriteBuffer(Buffer, 0, Bytes); !Uploaded)
+			{
+				EXPECT_EQ(Uploaded.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				WaitForAllVulkanSubmissionsForTesting();
+				ASSERT_TRUE(Commands.TryWriteBuffer(Buffer, 0, Bytes));
+			}
 		}
 		FBufferRHIRef OversizeDestination = GDynamicRHI->RHICreateBuffer(Commands,
 			FRHIBufferCreateDesc::Create("ArenaOversizeDestination", PageSize + 256,
@@ -555,9 +649,9 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Upload.ArenaLiveBytes, 0u);
 		EXPECT_GE(Upload.ArenaHighWaterBytes, 32ull * 1024 * 1024);
 		EXPECT_GE(Upload.ArenaReuseCount, 1u);
-		EXPECT_GE(Upload.ArenaOverflowCount, 1u);
+		EXPECT_GT(GetBufferUploadStats().RejectedCount, RejectionsBefore);
 		EXPECT_GE(Upload.ArenaOversizeCount, 1u);
-		EXPECT_GE(Upload.ArenaWaitCount, 1u);
+		EXPECT_EQ(Upload.ArenaWaitCount, 0u);
 		GDynamicRHI->RHIResetMemoryStatistics();
 		const FRHIMemoryStatistics ResetStatistics =
 			GDynamicRHI->RHIGetMemoryStatistics();

@@ -240,7 +240,7 @@ namespace Durin
 			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
 
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		FGBufferDebugFragmentShader::FParameters Parameters;
 		Parameters.GBufferMaterial = Material;
 		Parameters.GBufferNormals = Normals;

@@ -23,12 +23,16 @@ namespace Durin
 		uint64 FailedSerial = 0;
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
+		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
 		uint32 PeakOutstandingEntryCount = 0;
 		uint32 PeakOutstandingBatchCount = 0;
+		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
+		uint64 FramePressureWaitCount = 0;
+		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
 		FRHIThreadError Failure;
 		bool bConsumerReady = false;
@@ -86,13 +90,14 @@ namespace Durin
 					Result = FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
 				}
 
+				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
 				const uint64 CompletedPayloadBytes = Entry.Work.PayloadBytes;
 				Entry.Work = {};
 				std::deque<FRHIThreadQueueEntry> RejectedEntries;
 				{
 					std::lock_guard Lock(State.Mutex);
-					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes);
+					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes, CompletedFrameCount);
 					if (State.FailedSerial != 0)
 					{
 						Result.Error.Code = ERHIThreadFailure::PriorFailure;
@@ -114,7 +119,7 @@ namespace Durin
 						{
 							ReleaseCapacity(
 								RejectedEntry.Work.BatchCount,
-								RejectedEntry.Work.PayloadBytes);
+								RejectedEntry.Work.PayloadBytes, RejectedEntry.Work.FrameCount);
 						}
 						State.RejectedWorkCount += RejectedEntries.size();
 					}
@@ -150,13 +155,15 @@ namespace Durin
 		}
 
 	private:
-		auto ReleaseCapacity(uint32 BatchCount, uint64 PayloadBytes) -> void
+		auto ReleaseCapacity(uint32 BatchCount, uint64 PayloadBytes, uint32 FrameCount) -> void
 		{
 			check(State.OutstandingEntryCount > 0);
 			check(State.OutstandingBatchCount >= BatchCount);
 			check(State.OutstandingPayloadBytes >= PayloadBytes);
 			--State.OutstandingEntryCount;
 			State.OutstandingBatchCount -= BatchCount;
+			check(State.OutstandingFrameCount >= FrameCount);
+			State.OutstandingFrameCount -= FrameCount;
 			State.OutstandingPayloadBytes -= PayloadBytes;
 		}
 
@@ -189,7 +196,7 @@ namespace Durin
 	{
 		check(InLimits.MaxEntries > 0);
 		check(InLimits.MaxBatches > 0);
-		check(InLimits.MaxPayloadBytes > 0);
+		check(InLimits.MaxPayloadBytes > 0 && InLimits.MaxFrames > 0);
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->AdmissionState != ERHIThreadAdmissionState::Stopped
@@ -210,6 +217,10 @@ namespace Durin
 			State->PeakOutstandingPayloadBytes = 0;
 			State->BackpressureWaitCount = 0;
 			State->BackpressureWaitNanoseconds = 0;
+			State->OutstandingFrameCount = 0;
+			State->PeakOutstandingFrameCount = 0;
+			State->FramePressureWaitCount = 0;
+			State->FramePressureWaitNanoseconds = 0;
 			State->RejectedWorkCount = 0;
 			State->Failure = {};
 			State->bConsumerReady = false;
@@ -278,6 +289,7 @@ namespace Durin
 			{
 				--State->OutstandingEntryCount;
 				State->OutstandingBatchCount -= Entry.Work.BatchCount;
+				State->OutstandingFrameCount -= Entry.Work.FrameCount;
 				State->OutstandingPayloadBytes -= Entry.Work.PayloadBytes;
 			}
 			State->RejectedWorkCount += Rejected.size();
@@ -314,7 +326,8 @@ namespace Durin
 		}
 
 		std::unique_lock Lock(State->Mutex);
-		if (Work.BatchCount > State->Limits.MaxBatches
+		if (Work.FrameCount > State->Limits.MaxFrames
+			|| Work.BatchCount > State->Limits.MaxBatches
 			|| Work.PayloadBytes > State->Limits.MaxPayloadBytes)
 		{
 			++State->RejectedWorkCount;
@@ -337,7 +350,8 @@ namespace Durin
 		}
 
 		auto HasCapacity = [this, &Work]() {
-			return State->OutstandingEntryCount < State->Limits.MaxEntries
+			return Work.FrameCount <= State->Limits.MaxFrames - State->OutstandingFrameCount
+				&& State->OutstandingEntryCount < State->Limits.MaxEntries
 				&& State->OutstandingBatchCount + Work.BatchCount
 					<= State->Limits.MaxBatches
 				&& State->OutstandingPayloadBytes + Work.PayloadBytes
@@ -346,14 +360,17 @@ namespace Durin
 		if (!HasCapacity())
 		{
 			const auto WaitStart = std::chrono::steady_clock::now();
+			const bool bFramePressure = Work.FrameCount > State->Limits.MaxFrames - State->OutstandingFrameCount;
+			if (bFramePressure) ++State->FramePressureWaitCount;
 			++State->BackpressureWaitCount;
 			State->CompletionCV.wait(Lock, [this, &HasCapacity]() {
 				return HasCapacity()
 					|| State->AdmissionState != ERHIThreadAdmissionState::Running;
 			});
-			State->BackpressureWaitNanoseconds += static_cast<uint64>(
-				std::chrono::duration_cast<std::chrono::nanoseconds>(
-					std::chrono::steady_clock::now() - WaitStart).count());
+			const auto WaitNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - WaitStart).count());
+			State->BackpressureWaitNanoseconds += WaitNanoseconds;
+			if (bFramePressure) State->FramePressureWaitNanoseconds += WaitNanoseconds;
 		}
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
@@ -369,6 +386,8 @@ namespace Durin
 		const uint64 Serial = ++State->LastSubmittedSerial;
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
+		State->OutstandingFrameCount += Work.FrameCount;
+		State->PeakOutstandingFrameCount = std::max(State->PeakOutstandingFrameCount, State->OutstandingFrameCount);
 		State->OutstandingPayloadBytes += Work.PayloadBytes;
 		State->PeakOutstandingEntryCount = std::max(
 			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
@@ -402,7 +421,7 @@ namespace Durin
 			++State->RejectedWorkCount;
 			return {.Result = ERHIThreadEnqueueResult::SelfEnqueue};
 		}
-		if (!Work.Execute || Work.BatchCount != 0 || Work.PayloadBytes != 0)
+		if (!Work.Execute || Work.BatchCount != 0 || Work.PayloadBytes != 0 || Work.FrameCount != 0)
 		{
 			std::lock_guard Lock(State->Mutex);
 			++State->RejectedWorkCount;
@@ -434,6 +453,8 @@ namespace Durin
 		const uint64 Serial = ++State->LastSubmittedSerial;
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
+		State->OutstandingFrameCount += Work.FrameCount;
+		State->PeakOutstandingFrameCount = std::max(State->PeakOutstandingFrameCount, State->OutstandingFrameCount);
 		State->OutstandingPayloadBytes += Work.PayloadBytes;
 		State->PeakOutstandingEntryCount = std::max(
 			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
@@ -523,12 +544,16 @@ namespace Durin
 			.FailedSerial = State->FailedSerial,
 			.OutstandingEntryCount = State->OutstandingEntryCount,
 			.OutstandingBatchCount = State->OutstandingBatchCount,
+			.OutstandingFrameCount = State->OutstandingFrameCount,
 			.OutstandingPayloadBytes = State->OutstandingPayloadBytes,
 			.PeakOutstandingEntryCount = State->PeakOutstandingEntryCount,
 			.PeakOutstandingBatchCount = State->PeakOutstandingBatchCount,
+			.PeakOutstandingFrameCount = State->PeakOutstandingFrameCount,
 			.PeakOutstandingPayloadBytes = State->PeakOutstandingPayloadBytes,
 			.BackpressureWaitCount = State->BackpressureWaitCount,
 			.BackpressureWaitNanoseconds = State->BackpressureWaitNanoseconds,
+			.FramePressureWaitCount = State->FramePressureWaitCount,
+			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 			.RejectedWorkCount = State->RejectedWorkCount,
 			.Error = State->Failure,
 		};

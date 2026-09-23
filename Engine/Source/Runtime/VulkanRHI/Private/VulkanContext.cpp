@@ -917,39 +917,6 @@ namespace Durin::VulkanRHI
 		Device.GetReadbackArena().ReclaimCompleted();
 	}
 
-	auto FVulkanCommandListContext::RHIAllocateDynamicUniformBuffer(
-		const void* Data,
-		uint32 Size) -> FRHIUniformBufferRange
-	{
-		CheckVulkanRHIThread();
-		FRHIUniformBufferRange Result;
-		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(Data, Size, Result),
-			"Direct context allocation requires a prepared dynamic-uniform page.");
-		auto* Buffer = FVulkanBuffer::Cast(Result.Buffer);
-		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
-		const std::array Transition{FRHIBufferTransition{
-			Buffer, Result.Offset, Result.Size, ERHIAccess::HostWrite, ERHIAccess::GraphicsUniformRead}};
-		RHITransitionBuffers(Transition);
-		return Result;
-	}
-
-	auto FVulkanCommandListContext::RHIAllocateDynamicStorageBuffer(
-		const void* Data, uint32 Size) -> FRHIStorageBufferRange
-	{
-		CheckVulkanRHIThread();
-		FRHIStorageBufferRange Result;
-		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
-		if (!Device.GetDynamicStorageBufferAllocator().TryAllocate(
-			FrameIndex, Data, Size, Result)) return {};
-		auto* Buffer = FVulkanBuffer::Cast(Result.Buffer);
-		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
-		const std::array Transition{FRHIBufferTransition{
-			Buffer, Result.Offset, Result.Size,
-			ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead}};
-		RHITransitionBuffers(Transition);
-		return Result;
-	}
-
 	auto FVulkanCommandListContext::RHIAcquireBackBuffer(
 		FRHITexture* BackBuffer) -> void
 	{

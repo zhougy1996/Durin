@@ -457,7 +457,7 @@ namespace Durin
 		ViewUniform.ExposureScale =
 			DisplayMapping::CalculateExposureScale(ExposureEV);
 		const FRHIUniformBufferRange ViewUniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(
+			CommandList.CreateUniformBufferRange(
 				&ViewUniform,
 				sizeof(ViewUniform));
 

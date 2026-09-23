@@ -54,7 +54,10 @@ rejected as sidecars to prevent ownership cycles. Canceled commands do not
 change visible contents. The backend-only `ResolveSnapshot` requires replay
 and returns a retained version, including its bytes and references.
 Ordinary uniform/storage ranges and shader macros represent both native and
-CPU-authored resources. CPU-authored bindings create ordinary `FRHIBufferView`
+CPU-authored resources. `CreateUniformBufferRange` returns a range whose optional
+counted resource owner retains the typed uniform beyond the creating command
+list's lifetime. Explicit native ranges may remain borrowed until recording
+canonicalizes them into counted views. CPU-authored bindings create ordinary `FRHIBufferView`
 objects without native creation. Prepared
 batches retain those views; every draw/dispatch resolves the current version,
 including an update after binding. View factories check the active device's
@@ -73,13 +76,26 @@ buffer imports reject CPU-authored parents as declaration errors because
 their backing changes independently of graph access tracking. Graph-owned
 upload helpers continue to allocate native graph resources.
 
-Deferred snapshots share a process-wide 32 MiB admission budget, with a 16 MiB
+CPU-authored snapshots, RDG sources, native buffer write/upload payloads,
+and packed texture command arrays
+share a process-wide 32 MiB admission budget, with a 16 MiB
 maximum buffer size. Each update reserves its full destination snapshot plus
 reference-array storage before recording, including partial storage updates.
-Budget is released when the last snapshot owner releases it; logical resource
+Budget is released when the last data owner releases it; logical resource
 destruction follows ordinary RHI deferred deletion. Diagnostics expose live
-bytes, peak bytes, and admission rejections. This budget currently covers
-CPU-authored snapshots only, not RDG sources or other command payloads.
+bytes, peak bytes, and admission rejections, plus live/peak aligned backing
+reservations and reserved virtual page capacity. `FRHIBufferUploadData` owns immutable
+CPU bytes, not resource identity: copying a span reserves and owns exact bytes;
+taking a vector charges its capacity. Graph callbacks and upload commands may
+share this allocation without double charging it. `TryUploadBuffer` rejects
+invalid input or exhausted admission before recording. Its void counterpart
+requires successful admission. `TryWriteBuffer` provides the same fallible
+admission for legacy native writes; `WriteBuffer` requires success. Texture
+commands reserve exact packed array sizes before recording or copying, and
+report exhaustion with an exception before allocating a command node. Texture
+arrays use the shared 32 MiB cap without the buffer-specific 16 MiB single limit.
+Explicit native creation and caller-owned source memory retain their existing
+contracts.
 
 ## Binding and Attachment Ownership
 

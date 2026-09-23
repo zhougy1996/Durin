@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIResources.h"
+#include "RHIBufferUploadData.h"
 
 namespace Durin
 {
@@ -14,12 +15,13 @@ namespace Durin
 		{ return {References.get(), ReferenceCount}; }
 		auto GetVersion() const -> uint64 { return Version; }
 		auto GetOwnedPayloadBytes() const -> uint64 { return OwnedBytes; }
+		auto GetBackingAdmission() const -> const std::shared_ptr<void>& { return BackingAdmission; }
 
 	private:
 		friend class FRHICommandListBase;
 		friend class FRHIBuffer;
 		friend class FRHIDeferredBufferBackend;
-		static auto TryAllocate(uint32 Size, std::span<FRHIResource* const> References)
+		static auto TryAllocate(const FRHIBufferDesc& Desc, std::span<FRHIResource* const> References)
 			-> std::expected<std::shared_ptr<FRHIDeferredBufferSnapshot>, ERHIBufferUploadError>;
 		FRHIDeferredBufferSnapshot(uint32 InSize, size_t InReferenceCount);
 		std::unique_ptr<std::byte[]> Data;
@@ -28,12 +30,15 @@ namespace Durin
 		size_t ReferenceCount;
 		uint64 Version = 0;
 		uint64 OwnedBytes = 0;
-		mutable std::unordered_map<const void*, std::shared_ptr<void>> Backings;
+		std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+		std::shared_ptr<void> BackingAdmission;
+		mutable std::unordered_map<const void*, std::weak_ptr<void>> Backings;
 	};
 
 	class FRHIDeferredBufferBackend final
 	{
 	public:
+		RHI_API static auto RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void;
 		// Only ordered RHI replay may observe the current content version.
 		RHI_API static auto ResolveSnapshot(const FRHIBuffer& Buffer)
 			-> std::shared_ptr<const FRHIDeferredBufferSnapshot>;

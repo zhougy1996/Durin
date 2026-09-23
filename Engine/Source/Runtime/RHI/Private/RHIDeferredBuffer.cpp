@@ -1,15 +1,17 @@
 #include "Backend/RHIDeferredBufferBackend.h"
 #include "RHICommandList.h"
+#include "DynamicRHI.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint64 MaxSingleUploadBytes = 16ull * 1024 * 1024;
-		constexpr uint64 MaxPayloadBytes = 32ull * 1024 * 1024;
+		constexpr uint64 MaxSingleUploadBytes = FRHIBufferUploadReservation::MaxSingleBytes;
+		constexpr uint64 MaxPayloadBytes = FRHIBufferUploadReservation::MaxLiveBytes;
 		std::atomic<uint64> LivePayloadBytes = 0;
 		std::atomic<uint64> PeakPayloadBytes = 0;
 		std::atomic<uint64> RejectedPayloadCount = 0;
+		std::atomic<uint64> BackingLiveBytes = 0, BackingPeakBytes = 0, BackingCapacity = 0;
 
 		struct FPayloadReservation
 		{
@@ -63,7 +65,84 @@ namespace Durin
 	{
 		return {LivePayloadBytes.load(std::memory_order_relaxed),
 			PeakPayloadBytes.load(std::memory_order_relaxed),
-			RejectedPayloadCount.load(std::memory_order_relaxed)};
+			RejectedPayloadCount.load(std::memory_order_relaxed),
+			BackingLiveBytes.load(), BackingPeakBytes.load(), BackingCapacity.load()};
+	}
+
+	auto FRHIDeferredBufferBackend::RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void
+	{
+		if (!bAcquire)
+		{
+			BackingLiveBytes.fetch_sub(Bytes);
+			BackingCapacity.fetch_sub(Capacity);
+			return;
+		}
+		BackingCapacity.fetch_add(Capacity);
+		const auto Live = BackingLiveBytes.fetch_add(Bytes) + Bytes;
+		auto Peak = BackingPeakBytes.load();
+		while (Peak < Live && !BackingPeakBytes.compare_exchange_weak(Peak, Live)) {}
+	}
+
+	FRHIBufferUploadReservation::~FRHIBufferUploadReservation()
+	{
+		LivePayloadBytes.fetch_sub(Bytes, std::memory_order_relaxed);
+	}
+
+	auto FRHIBufferUploadReservation::TryReserve(uint64 Bytes)
+		-> std::expected<std::shared_ptr<const FRHIBufferUploadReservation>, ERHIBufferUploadError>
+	{
+		uint64 Live = LivePayloadBytes.load(std::memory_order_relaxed);
+		do
+		{
+			if (Bytes > MaxLiveBytes - Live)
+			{
+				RejectedPayloadCount.fetch_add(1, std::memory_order_relaxed);
+				return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
+			}
+		} while (!LivePayloadBytes.compare_exchange_weak(Live, Live + Bytes, std::memory_order_relaxed));
+		FPayloadReservation Guard{Bytes};
+		uint64 Peak = PeakPayloadBytes.load(std::memory_order_relaxed);
+		while (Peak < Live + Bytes && !PeakPayloadBytes.compare_exchange_weak(
+			Peak, Live + Bytes, std::memory_order_relaxed)) {}
+		auto Result = std::unique_ptr<FRHIBufferUploadReservation>(new FRHIBufferUploadReservation(Bytes));
+		Guard.Bytes = 0;
+		return std::shared_ptr<const FRHIBufferUploadReservation>(std::move(Result));
+	}
+
+	auto FRHIBufferUploadData::TryCopy(FByteView Data)
+		-> std::expected<std::shared_ptr<const FRHIBufferUploadData>, ERHIBufferUploadError>
+	{
+		if (Data.empty()) return std::unexpected(ERHIBufferUploadError::InvalidRange);
+		if (Data.size() > FRHIBufferUploadReservation::MaxSingleBytes)
+		{
+			RejectedPayloadCount.fetch_add(1, std::memory_order_relaxed);
+			return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
+		}
+		auto Reservation = FRHIBufferUploadReservation::TryReserve(Data.size());
+		if (!Reservation) return std::unexpected(Reservation.error());
+		auto Result = std::shared_ptr<FRHIBufferUploadData>(new FRHIBufferUploadData);
+		Result->Reservation = std::move(*Reservation);
+		Result->Size = Data.size();
+		Result->Copy = std::make_unique<std::byte[]>(Data.size());
+		std::memcpy(Result->Copy.get(), Data.data(), Data.size());
+		return Result;
+	}
+
+	auto FRHIBufferUploadData::TryTake(FByteBuffer Data)
+		-> std::expected<std::shared_ptr<const FRHIBufferUploadData>, ERHIBufferUploadError>
+	{
+		if (Data.empty()) return std::unexpected(ERHIBufferUploadError::InvalidRange);
+		if (Data.capacity() > FRHIBufferUploadReservation::MaxSingleBytes)
+		{
+			RejectedPayloadCount.fetch_add(1, std::memory_order_relaxed);
+			return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
+		}
+		auto Reservation = FRHIBufferUploadReservation::TryReserve(Data.capacity());
+		if (!Reservation) return std::unexpected(Reservation.error());
+		auto Result = std::shared_ptr<FRHIBufferUploadData>(new FRHIBufferUploadData);
+		Result->Reservation = std::move(*Reservation);
+		Result->Owned = std::move(Data);
+		return Result;
 	}
 
 	FRHIDeferredBufferSnapshot::FRHIDeferredBufferSnapshot(uint32 InSize, size_t InReferenceCount)
@@ -76,13 +155,13 @@ namespace Durin
 		// Release owned allocations before making their budget available again.
 		References.reset();
 		Data.reset();
-		LivePayloadBytes.fetch_sub(OwnedBytes, std::memory_order_relaxed);
 	}
 
-	auto FRHIDeferredBufferSnapshot::TryAllocate(uint32 Size,
+	auto FRHIDeferredBufferSnapshot::TryAllocate(const FRHIBufferDesc& Desc,
 		std::span<FRHIResource* const> References)
 		-> std::expected<std::shared_ptr<FRHIDeferredBufferSnapshot>, ERHIBufferUploadError>
 	{
+		const auto Size = Desc.Size;
 		if (Size > MaxSingleUploadBytes
 			|| References.size() > (MaxPayloadBytes - Size) / sizeof(TRefCountPtr<FRHIResource>))
 		{
@@ -90,23 +169,16 @@ namespace Durin
 			return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
 		}
 		const uint64 Bytes = Size + References.size() * sizeof(TRefCountPtr<FRHIResource>);
-		uint64 Live = LivePayloadBytes.load(std::memory_order_relaxed);
-		do
-		{
-			if (Bytes > MaxPayloadBytes - Live)
-			{
-				RejectedPayloadCount.fetch_add(1, std::memory_order_relaxed);
-				return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
-			}
-		} while (!LivePayloadBytes.compare_exchange_weak(Live, Live + Bytes, std::memory_order_relaxed));
-		FPayloadReservation Reservation{Bytes};
-		uint64 Peak = PeakPayloadBytes.load(std::memory_order_relaxed);
-		while (Peak < Live + Bytes && !PeakPayloadBytes.compare_exchange_weak(
-			Peak, Live + Bytes, std::memory_order_relaxed)) {}
+		auto Reservation = FRHIBufferUploadReservation::TryReserve(Bytes);
+		if (!Reservation) return std::unexpected(Reservation.error());
+		auto Admission = GDynamicRHI ? GDynamicRHI->RHIReserveBufferBacking(Desc)
+			: std::expected<std::shared_ptr<void>, ERHIBufferUploadError>{std::shared_ptr<void>{}};
+		if (!Admission) return std::unexpected(Admission.error());
 		auto Result = std::shared_ptr<FRHIDeferredBufferSnapshot>(
 			new FRHIDeferredBufferSnapshot(Size, References.size()));
+		Result->BackingAdmission = std::move(*Admission);
 		Result->OwnedBytes = Bytes;
-		Reservation.Bytes = 0;
+		Result->Reservation = std::move(*Reservation);
 		for (size_t Index = 0; Index < References.size(); ++Index)
 			Result->References[Index] = References[Index];
 		return Result;
@@ -145,14 +217,15 @@ namespace Durin
 	{
 		require(IsExecutingRHICommands());
 		const auto It = Snapshot.Backings.find(Context);
-		return It == Snapshot.Backings.end() ? nullptr : It->second;
+		return It == Snapshot.Backings.end() ? nullptr : It->second.lock();
 	}
 
 	auto FRHIDeferredBufferBackend::SetBacking(const FRHIDeferredBufferSnapshot& Snapshot,
 		const void* Context, std::shared_ptr<void> Backing) -> void
 	{
 		require(IsExecutingRHICommands() && Context && Backing);
-		require(Snapshot.Backings.emplace(Context, std::move(Backing)).second);
+		require(Snapshot.Backings[Context].expired());
+		Snapshot.Backings[Context] = std::move(Backing);
 	}
 
 	auto FRHICommandListBase::TryCreateStorageBuffer(const FRHIBufferDesc& Desc,
@@ -166,10 +239,19 @@ namespace Durin
 			return std::unexpected(ERHIBufferUploadError::InvalidRange);
 		if (EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer))
 			return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc.Size, {});
+		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc, {});
 		if (!Snapshot) return std::unexpected(Snapshot.error());
 		std::memcpy((*Snapshot)->Data.get(), InitialData.data(), Desc.Size);
 		return TRefCountPtr<FRHIBuffer>(new FRHIBuffer(Desc, Usage, std::move(*Snapshot)));
+	}
+
+	auto FRHICommandListBase::CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange
+	{
+		if (!Data) throw std::runtime_error("Uniform upload has no source data.");
+		auto Buffer = TryCreateUniformBuffer({Size}, ERHIBufferLifetimeUsage::SingleFrame,
+			{static_cast<const std::byte*>(Data), Size});
+		if (!Buffer) throw std::runtime_error("Uniform upload admission rejected.");
+		return {Buffer->GetReference(), 0, Size, Buffer->GetReference()};
 	}
 
 	auto FRHICommandListBase::TryCreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
@@ -184,7 +266,7 @@ namespace Durin
 			return std::unexpected(ERHIBufferUploadError::InvalidRange);
 		if (!ValidateDeferredReferences(Desc, References))
 			return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc.Size, References);
+		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc, References);
 		if (!Snapshot) return std::unexpected(Snapshot.error());
 		std::memcpy((*Snapshot)->Data.get(), InitialData.data(), Desc.Size);
 		return TRefCountPtr<FRHIUniformBuffer>(new FRHIUniformBuffer(Layout, Usage, std::move(*Snapshot)));
@@ -221,7 +303,7 @@ namespace Durin
 			return std::unexpected(ERHIBufferUploadError::InvalidRange);
 		if (!ValidateDeferredReferences(Desc, References))
 			return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc.Size, References);
+		auto Snapshot = FRHIDeferredBufferSnapshot::TryAllocate(Desc, References);
 		if (!Snapshot) return std::unexpected(Snapshot.error());
 		std::memcpy((*Snapshot)->Data.get() + Offset, Data.data(), Data.size());
 		const auto OwnedBytes = (*Snapshot)->GetOwnedPayloadBytes();

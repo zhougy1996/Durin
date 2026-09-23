@@ -1,3 +1,4 @@
+#include "VulkanDeferredBuffer.h"
 #include "VulkanDevice.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanCompletion.h"
@@ -361,6 +362,8 @@ namespace Durin::VulkanRHI
 			.MaxPageCount = 2,
 			.DebugName = "VulkanReadbackArena"});
 
+		UniformBindingPool = new FVulkanBindingPool(*this, true);
+		StorageBindingPool = new FVulkanBindingPool(*this, false);
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 		SubmissionCoordinator = std::make_unique<FVulkanSubmissionCoordinator>(*this);
 		if (ComputeQueue != GraphicsQueue)
@@ -370,8 +373,6 @@ namespace Durin::VulkanRHI
 		PipelineManager = new FVulkanPipelineManager(*this);
 		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
-		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
-		DynamicStorageBufferAllocator = new FVulkanDynamicStorageBufferAllocator(*this);
 		PipelineCacheStatistics.DescriptorSnapshots.Capacity = 512;
 		PipelineCacheStatistics.DescriptorValueCapacity = 8192;
 		PipelineCacheStatistics.StructuralLayouts.Capacity = 256;
@@ -679,16 +680,16 @@ namespace Durin::VulkanRHI
 			Frame = nullptr;
 		}
 		delete ReadbackArena;
+		delete UniformBindingPool;
+		UniformBindingPool = nullptr;
+		delete StorageBindingPool;
+		StorageBindingPool = nullptr;
 		ReadbackArena = nullptr;
 		delete UploadArena;
 		UploadArena = nullptr;
 		delete GlobalDescriptorPool;
 		GlobalDescriptorPool = nullptr;
 
-		delete DynamicUniformBufferAllocator;
-		DynamicUniformBufferAllocator = nullptr;
-		delete DynamicStorageBufferAllocator;
-		DynamicStorageBufferAllocator = nullptr;
 
 		delete DescriptorSetCache;
 		DescriptorSetCache = nullptr;

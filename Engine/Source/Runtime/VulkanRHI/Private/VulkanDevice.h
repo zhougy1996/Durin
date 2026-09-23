@@ -80,10 +80,9 @@ namespace Durin::VulkanRHI
 	class FVulkanFrame;
 	class FVulkanGlobalDescriptorPool;
 	class FVulkanDescriptorSetLayoutCache;
-	class FVulkanDynamicUniformBufferAllocator;
-	class FVulkanDynamicStorageBufferAllocator;
 	class FVulkanCompletionTracker;
 	class FVulkanTransferArena;
+	class FVulkanBindingPool;
 	class FVulkanGPUTimingManager;
 
 	// Defers destruction of Vulkan handles until their queue completion token retires.
@@ -224,6 +223,8 @@ namespace Durin::VulkanRHI
 		// Graphics-only compatibility path for consumers not yet migrated to use sets.
 		auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
+		auto GetBindingPool(bool bUniform) -> FVulkanBindingPool&
+		{ return bUniform ? *UniformBindingPool : *StorageBindingPool; }
 		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
 		auto GetGPUTimingManager() -> FVulkanGPUTimingManager& { return *GPUTimingManager; }
 
@@ -235,8 +236,6 @@ namespace Durin::VulkanRHI
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
-		auto GetDynamicUniformBufferAllocator() -> FVulkanDynamicUniformBufferAllocator& { return *DynamicUniformBufferAllocator; }
-		auto GetDynamicStorageBufferAllocator() -> FVulkanDynamicStorageBufferAllocator& { return *DynamicStorageBufferAllocator; }
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
@@ -295,6 +294,8 @@ namespace Durin::VulkanRHI
 		// Owns each physical queue once; role pointers may alias these entries.
 		std::vector<FVulkanQueue*> PhysicalQueues;
 		FVulkanTransferArena* UploadArena = nullptr;
+		FVulkanBindingPool* UniformBindingPool = nullptr;
+		FVulkanBindingPool* StorageBindingPool = nullptr;
 		FVulkanTransferArena* ReadbackArena = nullptr;
 		FVulkanGPUTimingManager* GPUTimingManager = nullptr;
 
@@ -306,8 +307,6 @@ namespace Durin::VulkanRHI
 
 		FVulkanDescriptorSetLayoutCache* DescriptorSetCache = nullptr;
 
-		FVulkanDynamicUniformBufferAllocator* DynamicUniformBufferAllocator = nullptr;
-		FVulkanDynamicStorageBufferAllocator* DynamicStorageBufferAllocator = nullptr;
 
 		std::array<FVulkanFrame*, FrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;

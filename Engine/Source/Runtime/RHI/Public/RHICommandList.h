@@ -4,6 +4,7 @@
 #include "DynamicRHI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
+#include "RHIBufferUploadData.h"
 #include "RHIShaderParameters.h"
 #include "RHITextureReadback.h"
 
@@ -131,8 +132,17 @@ namespace Durin
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 		RHI_API auto SetDepthBias(float ConstantFactor, float Clamp,
 			float SlopeFactor) -> void;
+		RHI_API auto TryWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+			-> std::expected<void, ERHIBufferUploadError>;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
+		RHI_API auto TryUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+			-> std::expected<void, ERHIBufferUploadError>;
+		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+			std::shared_ptr<const FRHIBufferUploadData> Data) -> void;
+		// Owning logical range safe across preparation and recording lists.
+		// Throws on admission failure; use TryCreateUniformBuffer for recovery.
+		RHI_API auto CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 		RHI_API auto TryCreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References = {})
@@ -147,7 +157,6 @@ namespace Durin
 			-> std::expected<void, ERHIBufferUploadError>;
 		RHI_API auto TryCreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
 			-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
-		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
@@ -340,9 +349,6 @@ namespace Durin
 			ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
 		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
-		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
-		RHI_API auto AllocateDynamicStorageBuffer(const void* Data, uint32 Size)
-			-> FRHIStorageBufferRange;
 		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool;
 		RHI_API auto AcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 		RHI_API auto AcquireBackBufferSynchronously(FRHITexture* BackBuffer) -> void;
@@ -355,11 +361,6 @@ namespace Durin
 
 		explicit FRHICommandListImmediate(FRHICommandListExecutor& InExecutor);
 		auto HasOpenBufferLocks() const -> bool;
-		auto AllocateDynamicUniformBufferSynchronous(
-			const void* Data,
-			uint32 Size) -> FRHIUniformBufferRange;
-		auto AllocateDynamicStorageBufferSynchronous(
-			const void* Data, uint32 Size) -> FRHIStorageBufferRange;
 
 		FRHICommandListExecutor* Executor = nullptr;
 		std::unique_ptr<FLockState> LockState;

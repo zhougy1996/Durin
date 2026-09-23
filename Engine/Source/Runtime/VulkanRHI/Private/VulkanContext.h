@@ -101,9 +101,6 @@ namespace Durin::VulkanRHI
 		auto RetainReadback(FVulkanTransferRange Range,
 			std::shared_ptr<FRHITextureReadback> Request) -> void;
 
-		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
-		auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
-			-> FRHIStorageBufferRange override;
 
 		auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override;
 

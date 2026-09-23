@@ -234,9 +234,7 @@ namespace Durin
             Uniform.Filter={Roughness,float(SourceDimension),float(SourceMips),0};
             Graph.AddPass(std::format("Sky.{}.Face{}.Mip{}",Op,Face,Mip),ERDGPassType::Compute,std::move(P),
                 [this,Uniform,Dimension](FRHICommandListImmediate& Cmd,const FPassParameters& P,const FRDGParameterResolver& Resolver) {
-                    const auto Buffer=Cmd.AllocateDynamicUniformBuffer(&Uniform,sizeof(Uniform));
-                    const std::array Begin{FRHIBufferTransition{Buffer.Buffer,Buffer.Offset,Buffer.Size,ERHIAccess::Discard,ERHIAccess::ComputeUniformRead}};
-                    Cmd.TransitionBuffers(Begin);
+                    const auto Buffer=Cmd.CreateUniformBufferRange(&Uniform,sizeof(Uniform));
                     Cmd.SwitchPipeline(ERHIPipeline::Compute);
                     Cmd.SetComputePipelineState(*State->Pipeline);
                     FSkyLightingShader::FParameters Ordinary;
@@ -244,8 +242,6 @@ namespace Durin
                     const auto Bindings=Resolver.GetShaderParameters(P);
                     SetShaderParameters(Cmd,State->Shader,Bindings,Ordinary);
                     Cmd.Dispatch((Dimension+7)/8,(Dimension+7)/8,1);
-                    const std::array End{FRHIBufferTransition{Buffer.Buffer,Buffer.Offset,Buffer.Size,ERHIAccess::ComputeUniformRead,ERHIAccess::GraphicsUniformRead}};
-                    Cmd.TransitionBuffers(End);
                 });
         };
         FTextureRHIRef Lut;

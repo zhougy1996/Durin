@@ -288,31 +288,11 @@ namespace Durin::VulkanRHI
 		return Query ? Query->GetResult() : FRHIGPUTimingResult{};
 	}
 
-	auto FVulkanDynamicRHI::RHIBeginFrame_RenderThread(
-		FRHICommandListImmediate& RHICmdList) -> void
-	{
-		check(!GRHIThread || IsInRenderingThread());
-		FDynamicRHI::RHIBeginFrame_RenderThread(RHICmdList);
-		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.PrepareUniformBufferSync");
-			GCommandListExecutor.ExecuteSynchronousOperation(true,
-				[&Allocator]() { Allocator.PrepareForProducer(); });
-		}
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.BeginFrame.StorageProducerReset");
-			Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
-				static_cast<uint32>(
-					GCommandListExecutor.GetFrameNumber() % FrameInFlight));
-		}
-	}
-
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
 	{
 		CheckVulkanRHIThread();
 		Device->GetImmediateContext()->RHIEndFrame();
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
-		Device->GetDynamicUniformBufferAllocator().RetireProducer(Device->GetLastReservedUses());
 		Device->PollQueues();
 		Device->GetDeferredDeletionQueue().ReleaseResources();
 	}
@@ -449,54 +429,6 @@ namespace Durin::VulkanRHI
 				Operation(Device->GetImmediateContext()
 					->GetCommandBuffer()->GetHandle());
 			});
-	}
-
-	auto FVulkanDynamicRHI::RHIAllocateDynamicUniformBuffer(
-		FRHICommandListImmediate& RHICmdList,
-		const void* Data,
-		uint32 Size) -> FRHIUniformBufferRange
-	{
-		check(Data && Size != 0);
-		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
-		FRHIUniformBufferRange Result;
-		if (Allocator.TryAllocate(Data, Size, Result))
-		{
-			return Result;
-		}
-
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.UniformBuffer.OverflowReserveSync");
-			GCommandListExecutor.ExecuteSynchronousOperation(true,
-				[&Allocator, Size]() {
-					Allocator.ReservePage(Size);
-				});
-		}
-		requiref(Allocator.TryAllocate(Data, Size, Result),
-			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
-		return Result;
-	}
-
-	auto FVulkanDynamicRHI::RHIAllocateDynamicStorageBuffer(
-		FRHICommandListImmediate&,
-		const void* Data,
-		uint32 Size) -> FRHIStorageBufferRange
-	{
-		if (!Data || Size == 0
-			|| Size > Device->GetGpuProperties().limits.maxStorageBufferRange
-			|| Size > FVulkanDynamicStorageBufferAllocator::MaximumBytesPerFrame)
-			return {};
-		const uint32 FrameIndex = static_cast<uint32>(
-			GCommandListExecutor.GetFrameNumber() % FrameInFlight);
-		auto& Allocator = Device->GetDynamicStorageBufferAllocator();
-		FRHIStorageBufferRange Result;
-		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return Result;
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.StorageBuffer.OverflowReserveSync");
-			GCommandListExecutor.ExecuteSynchronousOperation(true,
-				[&Allocator, FrameIndex, Size]() { Allocator.ReservePage(FrameIndex, Size); });
-		}
-		if (!Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return {};
-		return Result;
 	}
 
 	auto FVulkanDynamicRHI::CreateInstance(

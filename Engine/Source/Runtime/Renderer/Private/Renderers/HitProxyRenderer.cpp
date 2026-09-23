@@ -141,7 +141,7 @@ namespace Durin
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(FVector3f(View.ViewLocation), 0.f)};
-				Item.Id = Commands.AllocateDynamicUniformBuffer(&Id, sizeof(Id));
+				Item.Id = Commands.CreateUniformBufferRange(&Id, sizeof(Id));
 				if (!PrepareCompiledSurfaceMaterial(Item.Fragment.GetRHIShader(false), Item.Fragment.GetShader()->GetSurfaceLayout(),
 					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform, Item.FragmentBindings)) { bReady = false; break; }
 				Item.VertexBindings = Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding);
@@ -193,7 +193,7 @@ namespace Durin
 					if (!Math::IsFinite(Vertex.ClipPosition) || !std::isfinite(Vertex.Distance) || Vertex.Distance < 0.f) { Fail(); return; }
 				Vertices.insert(Vertices.end(), Overlay.Vertices.begin(), Overlay.Vertices.end());
 				const std::array<uint32, 4> Id{Overlay.Id.Value, 0, 0, 0};
-				OverlayIds.push_back(Commands.AllocateDynamicUniformBuffer(Id.data(), sizeof(Id)));
+				OverlayIds.push_back(Commands.CreateUniformBufferRange(Id.data(), sizeof(Id)));
 			}
 			for (uint32 Index = 0; Index < Request.Overlays.size(); ++Index) OverlayOrder.push_back(Index);
 			std::stable_sort(OverlayOrder.begin(), OverlayOrder.end(), [&](uint32 A, uint32 B) {

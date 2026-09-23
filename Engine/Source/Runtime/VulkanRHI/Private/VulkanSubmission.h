@@ -72,7 +72,10 @@ namespace Durin::VulkanRHI
 		auto SubmitPendingContexts(FVulkanCommandListContext* CallingContext = nullptr) -> void;
 		auto GetAllocationUses(const std::shared_ptr<void>& Owner) const -> FRHIRetirementPrerequisites;
 		auto WaitForAllocation(const std::weak_ptr<void>& Owner) -> void;
+		// Only sealed work is eligible; failure leaves recordings and pending ownership intact.
+		auto TrySubmitPendingAllocation(const std::weak_ptr<void>& Owner, const FRHIGPUSyncPointRef& LatestUse) -> bool;
 	private:
+		auto BuildSubmissionOrder(const std::vector<FVulkanPayload*>& Payloads) -> std::vector<size_t>;
 		auto SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void;
 		FVulkanDevice& Device;
 		std::vector<std::unique_ptr<FVulkanPayload>> PendingPayloads;

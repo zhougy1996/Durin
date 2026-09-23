@@ -37,6 +37,8 @@ namespace Durin::VulkanRHI
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
+		auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
+			-> std::expected<std::shared_ptr<void>, ERHIBufferUploadError> override;
 		auto Init(const FRHIInitializationContext& Context) -> void override;
 		auto Shutdown() -> void override;
 		auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override;
@@ -47,8 +49,6 @@ namespace Durin::VulkanRHI
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult override;
 
 		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
-		auto RHIBeginFrame_RenderThread(
-			FRHICommandListImmediate& RHICmdList) -> void override;
 		auto RHIEndFrame() -> void override;
 		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
@@ -99,14 +99,6 @@ namespace Durin::VulkanRHI
 		auto RHIGetOrCreateTextureView(FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
-		auto RHIAllocateDynamicUniformBuffer(
-			FRHICommandListImmediate& RHICmdList,
-			const void* Data,
-			uint32 Size) -> FRHIUniformBufferRange override;
-		auto RHIAllocateDynamicStorageBuffer(
-			FRHICommandListImmediate& RHICmdList,
-			const void* Data,
-			uint32 Size) -> FRHIStorageBufferRange override;
 
 		// Internal Vulkan helpers use the device for diagnostics in every runtime variant;
 		// failure-injection tests share the same non-owning access.

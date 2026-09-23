@@ -1152,39 +1152,28 @@ namespace Durin
 
 		struct FWriteBufferCommand
 		{
-			FWriteBufferCommand(
-				FRHIBuffer* InBuffer,
-				uint32 InOffset,
-				const void* InData,
-				uint32 InSize,
-				bool bInGraphUpload = false)
-				: Buffer(InBuffer), Offset(InOffset), Data(InSize), bGraphUpload(bInGraphUpload)
-			{
-				check(Buffer && InData && InSize != 0);
-				check(Offset <= Buffer->GetSize() && InSize <= Buffer->GetSize() - Offset);
-				if (InSize != 0)
-				{
-					std::memcpy(Data.data(), InData, InSize);
-				}
-			}
-
-			auto Execute(void* ReplayContext) -> void
-			{
-				auto& Context = GetReplayContext(ReplayContext)
-					.GetOperationContext(bGraphUpload ? "UploadBuffer" : "WriteBuffer");
-				if (bGraphUpload) Context.RHIUploadBuffer(Buffer.GetReference(), Offset, Data);
-				else Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data);
-			}
-
-			auto GetOwnedPayloadBytes() const -> size_t
-			{
-				return Data.capacity() * sizeof(Data.front());
-			}
-
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
-			FByteBuffer Data;
-			bool bGraphUpload;
+			std::shared_ptr<const FRHIBufferUploadData> Data;
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("WriteBuffer")
+					.RHIWriteBuffer(Buffer.GetReference(), Offset, Data->GetData());
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetOwnedPayloadBytes(); }
+		};
+
+		struct FUploadBufferCommand
+		{
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset;
+			std::shared_ptr<const FRHIBufferUploadData> Data;
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("UploadBuffer")
+					.RHIUploadBuffer(Buffer.GetReference(), Offset, Data->GetData());
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetOwnedPayloadBytes(); }
 		};
 
 		struct FTextureReadbackCommand
@@ -1282,7 +1271,8 @@ namespace Durin
 				check(Layout.RowPitch <= std::numeric_limits<uint32>::max());
 				check(Layout.DataSize <= std::numeric_limits<uint32>::max());
 				SourcePitch = static_cast<uint32>(Layout.RowPitch);
-				Data.resize(static_cast<size_t>(Layout.DataSize));
+				DataSize = static_cast<size_t>(Layout.DataSize);
+				ReserveData();
 				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX)
 					/ FormatInfo.BlockSize;
 				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY)
@@ -1299,7 +1289,7 @@ namespace Durin
 				for (uint64 Row = 0; Row < Layout.BlocksHigh; ++Row)
 				{
 					std::memcpy(
-						Data.data() + Row * SourcePitch,
+						Data.get() + Row * SourcePitch,
 						SourceRegion + Row * InSourcePitch,
 						SourcePitch);
 				}
@@ -1313,12 +1303,12 @@ namespace Durin
 					.GetOperationContext("UpdateTexture2D")
 					.RHIUpdateTexture2D(
 						Texture.GetReference(), MipIndex, ArraySlice,
-						Region, SourcePitch, Data);
+						Region, SourcePitch, FByteView(Data.get(), DataSize));
 			}
 
 			auto GetOwnedPayloadBytes() const -> size_t
 			{
-				return Data.capacity() * sizeof(Data.front());
+				return DataSize;
 			}
 
 			TRefCountPtr<FRHITexture> Texture;
@@ -1326,7 +1316,16 @@ namespace Durin
 			uint32 ArraySlice;
 			FUpdateTextureRegion2D Region;
 			uint32 SourcePitch = 0;
-			FByteBuffer Data;
+			auto ReserveData() -> void
+			{
+				auto Reserved = FRHIBufferUploadReservation::TryReserve(DataSize);
+				if (!Reserved) throw std::runtime_error("Texture upload exceeds the shared CPU upload budget.");
+				Reservation = std::move(*Reserved);
+				Data = std::make_unique<std::byte[]>(DataSize);
+			}
+			size_t DataSize = 0;
+			std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+			std::unique_ptr<std::byte[]> Data;
 		};
 
 		struct FUpdateTexture3DCommand
@@ -1364,7 +1363,8 @@ namespace Durin
 				check(Region.Depth <= std::numeric_limits<size_t>::max() / SliceLayout.DataSize);
 				SourceRowPitch = static_cast<uint32>(SliceLayout.RowPitch);
 				SourceDepthPitch = static_cast<uint32>(SliceLayout.DataSize);
-				Data.resize(static_cast<size_t>(SliceLayout.DataSize) * Region.Depth);
+				DataSize = static_cast<size_t>(SliceLayout.DataSize) * Region.Depth;
+				ReserveData();
 				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX) / FormatInfo.BlockSize;
 				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY) / FormatInfo.BlockSize;
 				const uint64 SourceOffset = static_cast<uint64>(Region.SrcZ)
@@ -1383,7 +1383,7 @@ namespace Durin
 				{
 					for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
 					{
-						std::memcpy(Data.data() + Z * SourceDepthPitch + Row * SourceRowPitch,
+						std::memcpy(Data.get() + Z * SourceDepthPitch + Row * SourceRowPitch,
 							SourceRegion + Z * InSourceDepthPitch + Row * InSourceRowPitch,
 							SourceRowPitch);
 					}
@@ -1398,12 +1398,12 @@ namespace Durin
 				GetReplayContext(ReplayContext)
 					.GetOperationContext("UpdateTexture3D")
 					.RHIUpdateTexture3D(Texture.GetReference(), MipIndex, Region,
-						SourceRowPitch, SourceDepthPitch, Data);
+						SourceRowPitch, SourceDepthPitch, FByteView(Data.get(), DataSize));
 			}
 
 			auto GetOwnedPayloadBytes() const -> size_t
 			{
-				return Data.capacity() * sizeof(Data.front());
+				return DataSize;
 			}
 
 			TRefCountPtr<FRHITexture> Texture;
@@ -1411,7 +1411,16 @@ namespace Durin
 			FUpdateTextureRegion3D Region;
 			uint32 SourceRowPitch = 0;
 			uint32 SourceDepthPitch = 0;
-			FByteBuffer Data;
+			auto ReserveData() -> void
+			{
+				auto Reserved = FRHIBufferUploadReservation::TryReserve(DataSize);
+				if (!Reserved) throw std::runtime_error("Texture upload exceeds the shared CPU upload budget.");
+				Reservation = std::move(*Reserved);
+				Data = std::make_unique<std::byte[]>(DataSize);
+			}
+			size_t DataSize = 0;
+			std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+			std::unique_ptr<std::byte[]> Data;
 		};
 
 		struct FSetPreparedShaderParametersCommand
@@ -2220,27 +2229,47 @@ namespace Durin
 		uint32 Size,
 		uint32 OffsetBytes) -> void
 	{
-		require(!IsCPUAuthoredBuffer(Buffer));
-		RecordCommand<FWriteBufferCommand>(Buffer, OffsetBytes, Data, Size);
+		require(Data && TryWriteBuffer(Buffer, OffsetBytes, {static_cast<const std::byte*>(Data), Size}).has_value());
+	}
+
+	auto FRHICommandListBase::TryWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+		-> std::expected<void, ERHIBufferUploadError>
+	{
+		require(IsRecording());
+		if (!Buffer || IsCPUAuthoredBuffer(Buffer)) return std::unexpected(ERHIBufferUploadError::InvalidUsage);
+		if (Data.empty() || Offset > Buffer->GetSize() || Data.size() > Buffer->GetSize() - Offset)
+			return std::unexpected(ERHIBufferUploadError::InvalidRange);
+		auto Owned = FRHIBufferUploadData::TryCopy(Data);
+		if (!Owned) return std::unexpected(Owned.error());
+		RecordCommand<FWriteBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(*Owned));
+		return {};
 	}
 
 	auto FRHICommandListBase::UploadBuffer(
 		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
-		require(!IsCPUAuthoredBuffer(Buffer));
-		check(Data.size() <= UINT32_MAX);
-		RecordCommand<FWriteBufferCommand>(Buffer, Offset, Data.data(),
-			static_cast<uint32>(Data.size()), true);
+		require(TryUploadBuffer(Buffer, Offset, Data).has_value());
 	}
 
-	auto FRHICommandListBase::UpdateUniformBuffer(
-		FRHIBuffer* UniformBuffer,
-		const void* Data,
-		uint32 Size,
-		uint32 Offset) -> void
+	auto FRHICommandListBase::TryUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+		-> std::expected<void, ERHIBufferUploadError>
 	{
-		check(Size % 16 == 0 && Offset % 16 == 0);
-		WriteBuffer(UniformBuffer, Data, Size, Offset);
+		require(IsRecording());
+		if (!Buffer || IsCPUAuthoredBuffer(Buffer)) return std::unexpected(ERHIBufferUploadError::InvalidUsage);
+		if (Data.empty() || Offset > Buffer->GetSize() || Data.size() > Buffer->GetSize() - Offset)
+			return std::unexpected(ERHIBufferUploadError::InvalidRange);
+		auto Owned = FRHIBufferUploadData::TryCopy(Data);
+		if (!Owned) return std::unexpected(Owned.error());
+		UploadBuffer(Buffer, Offset, std::move(*Owned));
+		return {};
+	}
+
+	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+		std::shared_ptr<const FRHIBufferUploadData> Data) -> void
+	{
+		require(Buffer && !IsCPUAuthoredBuffer(Buffer) && Data);
+		require(Offset <= Buffer->GetSize() && Data->GetData().size() <= Buffer->GetSize() - Offset);
+		RecordCommand<FUploadBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Data));
 	}
 
 	auto FRHICommandListBase::InitializeTexture(FRHITexture* Texture) -> void
@@ -2256,8 +2285,8 @@ namespace Durin
 		uint32 SourcePitch,
 		FByteView SourceData) -> void
 	{
-		RecordCommand<FUpdateTexture2DCommand>(
-			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
+		RecordCommand<FUpdateTexture2DCommand>(FUpdateTexture2DCommand(
+			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData));
 	}
 
 	auto FRHICommandListBase::UpdateTexture3D(
@@ -2268,8 +2297,8 @@ namespace Durin
 		uint32 SourceDepthPitch,
 		FByteView SourceData) -> void
 	{
-		RecordCommand<FUpdateTexture3DCommand>(Texture, MipIndex, UpdateRegion,
-			SourceRowPitch, SourceDepthPitch, SourceData);
+		RecordCommand<FUpdateTexture3DCommand>(FUpdateTexture3DCommand(Texture, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch, SourceData));
 	}
 
 	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
@@ -2391,55 +2420,6 @@ namespace Durin
 		WriteBuffer(
 			Pending->Buffer.GetReference(), Pending->Data.data(),
 			static_cast<uint32>(Pending->Data.size()), Pending->Offset);
-	}
-
-	auto FRHICommandListImmediate::AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange
-	{
-		check(Data && Size != 0);
-		if (GDynamicRHI)
-		{
-			return GDynamicRHI->RHIAllocateDynamicUniformBuffer(
-				*this, Data, Size);
-		}
-		return AllocateDynamicUniformBufferSynchronous(Data, Size);
-	}
-
-	auto FRHICommandListImmediate::AllocateDynamicUniformBufferSynchronous(
-		const void* Data,
-		uint32 Size) -> FRHIUniformBufferRange
-	{
-		check(Data && Size != 0);
-		FRHIUniformBufferRange Result;
-		Executor->ExecuteSynchronousContextOperation(false,
-			[Data, Size, &Result](IRHICommandContext& Context) {
-				Result = Context.RHIAllocateDynamicUniformBuffer(Data, Size);
-			});
-		return Result;
-	}
-
-	auto FRHICommandListImmediate::AllocateDynamicStorageBuffer(
-		const void* Data, uint32 Size) -> FRHIStorageBufferRange
-	{
-		check(Data && Size != 0);
-		const FRHICapabilities* Capabilities = GDynamicRHI
-			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		if (Capabilities && (Size > Capabilities->MaxStorageBufferRange
-			|| Capabilities->MinStorageBufferOffsetAlignment == 0)) return {};
-		if (GDynamicRHI)
-			return GDynamicRHI->RHIAllocateDynamicStorageBuffer(*this, Data, Size);
-		return AllocateDynamicStorageBufferSynchronous(Data, Size);
-	}
-
-	auto FRHICommandListImmediate::AllocateDynamicStorageBufferSynchronous(
-		const void* Data, uint32 Size) -> FRHIStorageBufferRange
-	{
-		check(Data && Size != 0);
-		FRHIStorageBufferRange Result;
-		Executor->ExecuteSynchronousContextOperation(false,
-			[Data, Size, &Result](IRHICommandContext& Context) {
-				Result = Context.RHIAllocateDynamicStorageBuffer(Data, Size);
-			});
-		return Result;
 	}
 
 	auto FRHICommandListImmediate::ReadTexture2D(
@@ -2816,6 +2796,7 @@ namespace Durin
 				return {.Result = ERHICommandListSubmitResult::Oversized};
 			}
 			FRHIThreadWork Work;
+			Work.FrameCount = EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame) ? 1u : 0u;
 			Work.BatchCount = static_cast<uint32>(GroupBatchCount);
 			Work.PayloadBytes = static_cast<uint64>(GroupPayloadBytes);
 			Work.IsReady = [SubmissionGroup] { return SubmissionGroup->GetDependencyState() != ERHICommandBatchState::Pending; };
@@ -3152,6 +3133,10 @@ namespace Durin
 			.PeakQueueEntryCount = ThreadStats.PeakOutstandingEntryCount,
 			.PeakQueueBatchCount = ThreadStats.PeakOutstandingBatchCount,
 			.PeakQueuePayloadBytes = ThreadStats.PeakOutstandingPayloadBytes,
+			.PendingFrameCount = ThreadStats.OutstandingFrameCount,
+			.PeakQueueFrameCount = ThreadStats.PeakOutstandingFrameCount,
+			.FramePressureWaitCount = ThreadStats.FramePressureWaitCount,
+			.FramePressureWaitNanoseconds = ThreadStats.FramePressureWaitNanoseconds,
 		};
 	}
 

@@ -176,6 +176,17 @@ namespace Durin::VulkanRHI
 		bool bTimingDiscarded = false;
 	};
 	VULKANRHI_API auto TestVulkanSubmissionBoundary() -> FVulkanSubmissionBoundaryTestResult;
+	struct FVulkanSealedPressureTestResult
+	{
+		bool bMissingReservationPreserved = false;
+		bool bOnlyRequiredPrefixSubmitted = false;
+		bool bLeaseReleasedAfterWait = false;
+		bool bActiveUsePreserved = false;
+		bool bCyclePreserved = false;
+	};
+	VULKANRHI_API auto TestVulkanSealedPressure() -> FVulkanSealedPressureTestResult;
+	VULKANRHI_API auto TestVulkanSealedPressureDependency() -> bool;
+	VULKANRHI_API auto TestVulkanBindingAdmission() -> bool;
 	struct FVulkanCrossQueueWaitTestResult
 	{
 		bool bConsumerBlocked = false;
@@ -215,7 +226,6 @@ namespace Durin::VulkanRHI
 		-> FVulkanCompletionTestStats;
 	struct FVulkanBackendPoolTestStats
 	{
-		std::array<uint64, FrameInFlight> DynamicUniformTokens = {};
 		std::array<uint64, FrameInFlight> DescriptorPoolTokens = {};
 	};
 	VULKANRHI_API auto GetVulkanBackendPoolTestStats()

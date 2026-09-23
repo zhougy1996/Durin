@@ -360,7 +360,7 @@ namespace Durin
             }
 		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
 		ResolvedSceneResources.Lighting.UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
+			CommandList.CreateUniformBufferRange(&Lighting, sizeof(Lighting));
 		if (ResolvedSceneResources.Lighting.UniformBuffer.Buffer == nullptr
 			|| ResolvedSceneResources.Lighting.UniformBuffer.Size != sizeof(Lighting))
 			return ERenderViewResult::RendererResourcesUnavailable;

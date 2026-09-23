@@ -683,6 +683,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     FlushRenderingCommands();
     bool Ready=false;
     uint64 Revision=0;
+    uint64 PublishedRequest=0;
     FByteBuffer Before,After;
     const auto Pump=[&](bool Read) {
         EnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
@@ -695,6 +696,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
             {
                 const auto& G=*Scene.SkyLighting->Active;
                 Revision=G.Revision;
+                PublishedRequest=G.Request;
                 EXPECT_EQ(G.Radiance->GetNumMips(),8u);
                 EXPECT_EQ(G.Prefiltered->GetNumMips(),8u);
                 EXPECT_EQ(G.Irradiance->GetSizeX(),16u);
@@ -795,12 +797,20 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         bool Backpressured=false;
         for(int Attempt=0;Attempt<8 && !Backpressured;++Attempt)
         {
+            const uint64 BeforeRecapture=PublishedRequest;
             EnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Active); });
             FlushRenderingCommands();
             Light->Recapture();
             std::this_thread::sleep_for(std::chrono::milliseconds(270));
-            Pump(false);
-            Backpressured=Light->GetUpdateStatus()->State.load()==ESkyLightUpdateState::Backpressure;
+            // Frame dispatch is asynchronous. Wait for this generation's
+            // observable result before retaining the next distinct generation.
+            for(int Poll=0;Poll<100 && PublishedRequest==BeforeRecapture && !Backpressured;++Poll)
+            {
+                Pump(false);
+                Backpressured=Light->GetUpdateStatus()->State.load()==ESkyLightUpdateState::Backpressure;
+                if(PublishedRequest==BeforeRecapture && !Backpressured)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
         }
         EXPECT_TRUE(Backpressured);
         EnqueueRenderCommand("CheckLastGoodSky",[&](FRHICommandListImmediate&) {

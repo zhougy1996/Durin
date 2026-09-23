@@ -340,7 +340,7 @@ namespace Durin::Editor::Texture
 		ShaderParameters.PreviewTexture = InputTexture;
 		ShaderParameters.PreviewSampler = State.Sampler;
 		ShaderParameters.PreviewSettings =
-			CommandList.AllocateDynamicUniformBuffer(&Settings, sizeof(Settings));
+			CommandList.CreateUniformBufferRange(&Settings, sizeof(Settings));
 		SetShaderParameters(CommandList, State.FragmentShader, ShaderParameters);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();

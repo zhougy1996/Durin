@@ -307,20 +307,6 @@ namespace Durin
 				OutData = MakeByteVector({7, 8, 9});
 				return true;
 			}
-			auto RHIAllocateDynamicUniformBuffer(
-				const void*, uint32) -> FRHIUniformBufferRange override
-			{
-				Operations.emplace_back("AllocateDynamicUniformBuffer");
-				OperationThreadRoles.emplace_back(IsInRHIThread());
-				return {};
-			}
-			auto RHIAllocateDynamicStorageBuffer(
-				const void*, uint32) -> FRHIStorageBufferRange override
-			{
-				Operations.emplace_back("AllocateDynamicStorageBuffer");
-				OperationThreadRoles.emplace_back(IsInRHIThread());
-				return {};
-			}
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override
 			{
 				Operations.emplace_back("AcquireBackBuffer");
@@ -1001,25 +987,24 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context, RHIThread);
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
 		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>();
-		const std::array<uint8, 4> UniformData{1, 2, 3, 4};
+		const std::array<uint8, 16> UniformData{1, 2, 3, 4};
 		Durin::FByteBuffer Readback;
 
 		Immediate.AcquireBackBuffer(Texture.GetReference());
-		Immediate.AllocateDynamicUniformBuffer(
+		Immediate.CreateUniformBufferRange(
 			UniformData.data(), static_cast<uint32>(UniformData.size()));
-		Immediate.AllocateDynamicStorageBuffer(
-			UniformData.data(), static_cast<uint32>(UniformData.size()));
+		ASSERT_TRUE(Immediate.TryCreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::SingleFrame, std::as_bytes(std::span{UniformData})));
 		EXPECT_TRUE(Immediate.ReadTexture2D(
 			Texture.GetReference(), 0, 0, Readback));
 		Immediate.BlockUntilGPUIdle();
 
 		EXPECT_EQ(Readback, MakeByteVector({7, 8, 9}));
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicUniformBuffer", "AllocateDynamicStorageBuffer",
 			"AcquireBackBuffer",
 			"ReadTexture2D", "BlockUntilGPUIdle"}));
 		EXPECT_EQ(Context.OperationThreadRoles,
-			(std::vector<bool>{true, true, true, true, true}));
+			(std::vector<bool>{true, true, true}));
 	}
 
 	TEST(FRHICommandListTests, EmptySubmitFlushFlagWaitsForOutstandingSerial)
@@ -2217,6 +2202,8 @@ namespace Durin
 			ERHIBufferUploadError::InvalidUsage);
 		EXPECT_DEATH_IF_SUPPORTED(Commands.WriteBuffer(*Storage, "data", 4, 0), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UploadBuffer(*Storage, 0, FByteBuffer(16)), "");
+		EXPECT_EQ(Commands.TryUploadBuffer(*Storage, 0, FByteBuffer(16)).error(), ERHIBufferUploadError::InvalidUsage);
+		EXPECT_EQ(Commands.TryUploadBuffer(Native, 14, FByteBuffer(4)).error(), ERHIBufferUploadError::InvalidRange);
 		EXPECT_DEATH_IF_SUPPORTED(Commands.LockBuffer(*Storage, 0, 16, EResourceLockMode::WriteOnly), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.BindVertexBuffer(0, *Storage, 0), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.BindIndexBuffer(*Storage, 0), "");
@@ -2445,6 +2432,96 @@ namespace Durin
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
 	}
 
+	TEST(FRHICommandListTests, SharedUploadDataChargesCapacityUntilLastCommandIsCanceled)
+	{
+		const auto Before = GetBufferUploadStats().LiveBytes;
+		const auto Buffer = MakeRefCount<FTestBuffer>(16);
+		{
+			FByteBuffer Source;
+			Source.reserve(4096);
+			Source.resize(4, std::byte{7});
+			const auto Capacity = Source.capacity();
+			const auto* Address = Source.data();
+			auto Owned = FRHIBufferUploadData::TryTake(std::move(Source));
+			ASSERT_TRUE(Owned);
+			EXPECT_EQ((*Owned)->GetData().data(), Address);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Capacity);
+			FRHICommandList First;
+			First.UploadBuffer(Buffer, 0, *Owned);
+			{
+				FRHICommandList Second;
+				Second.UploadBuffer(Buffer, 4, *Owned);
+				Owned->reset();
+				EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Capacity);
+			}
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Capacity);
+		}
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
+	}
+
+	TEST(FRHICommandListTests, NativeUploadAdmissionSharesSnapshotBudgetAndRecordsNoPartialCommand)
+	{
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			std::vector<FRHIResource*> Pending;
+			FRHIResource::GatherResourcesToDelete(Pending);
+			FRHIResource::DeleteResources(Pending);
+		}
+		ASSERT_EQ(GetBufferUploadStats().LiveBytes, 0u);
+		constexpr uint32 Size = 16 * 1024 * 1024;
+		const FByteBuffer Bytes(Size);
+		const auto Native = MakeRefCount<FTestBuffer>(Size);
+		FRHICommandList Factory;
+		auto Logical = Factory.TryCreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::MultiFrame, Bytes);
+		ASSERT_TRUE(Logical);
+		FRHICommandList Rejected;
+		{
+			FRHICommandList Canceled;
+			ASSERT_TRUE(Canceled.TryUploadBuffer(Native, 0, Bytes));
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+			const auto Failure = Rejected.TryUploadBuffer(Native, 0, FByteView(Bytes).first(4));
+			ASSERT_FALSE(Failure);
+			EXPECT_EQ(Failure.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
+			EXPECT_EQ(Rejected.GetNumRecordedCommands(), 0u);
+		}
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size);
+		ASSERT_TRUE(Rejected.TryUploadBuffer(Native, 0, FByteView(Bytes).first(4)));
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size + 4u);
+		*Logical = nullptr;
+		std::vector<FRHIResource*> Pending;
+		FRHIResource::GatherResourcesToDelete(Pending);
+		FRHIResource::DeleteResources(Pending);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 4u);
+	}
+
+	TEST(FRHICommandListTests, ConcurrentUploadSourcesCannotExceedSharedBudget)
+	{
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			std::vector<FRHIResource*> Pending;
+			FRHIResource::GatherResourcesToDelete(Pending);
+			FRHIResource::DeleteResources(Pending);
+		}
+		ASSERT_EQ(GetBufferUploadStats().LiveBytes, 0u);
+		const FByteBuffer Source(4 * 1024 * 1024, std::byte{3});
+		using FResult = std::expected<std::shared_ptr<const FRHIBufferUploadData>, ERHIBufferUploadError>;
+		std::vector<std::future<FResult>> Futures;
+		for (int Index = 0; Index < 16; ++Index)
+			Futures.push_back(std::async(std::launch::async, [&] { return FRHIBufferUploadData::TryCopy(Source); }));
+		std::vector<std::shared_ptr<const FRHIBufferUploadData>> Owners;
+		for (auto& Future : Futures)
+		{
+			auto Result = Future.get();
+			if (Result) Owners.push_back(std::move(*Result));
+			else EXPECT_EQ(Result.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
+		}
+		EXPECT_EQ(Owners.size(), 8u);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 32ull * 1024 * 1024);
+		Owners.clear();
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 0u);
+	}
+
 	TEST(FRHICommandListTests, GraphBufferUploadsOwnSourceBytesUntilReplay)
 	{
 		FRecordingCommandContext Context;
@@ -2463,6 +2540,31 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBuffer, Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedBufferOffset, 5u);
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));
+	}
+
+	TEST(FRHICommandListTests, LegacyWritesAndTextureCopiesShareAdmissionBeforeRecording)
+	{
+		std::vector<FRHIResource*> Pending;
+		FRHIResource::GatherResourcesToDelete(Pending);
+		FRHIResource::DeleteResources(Pending);
+		ASSERT_EQ(GetBufferUploadStats().LiveBytes, 0u);
+		const FByteBuffer Large(16 * 1024 * 1024);
+		auto First = FRHIBufferUploadData::TryCopy(Large);
+		auto Second = FRHIBufferUploadData::TryCopy(Large);
+		ASSERT_TRUE(First && Second);
+		const auto Buffer = MakeRefCount<FTestBuffer>(16);
+		const auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+			"AdmissionTexture", 2, 2, EPixelFormat::RGBA8_UNORM));
+		FRHICommandList Commands;
+		const FByteView Bytes(Large.data(), 16);
+		EXPECT_FALSE(Commands.TryWriteBuffer(Buffer, 0, Bytes));
+		EXPECT_THROW(Commands.UpdateTexture2D(Texture, 0, 0, {0, 0, 0, 0, 2, 2}, 8, Bytes), std::runtime_error);
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
+		First->reset(); Second->reset();
+		ASSERT_TRUE(Commands.TryWriteBuffer(Buffer, 0, Bytes));
+		Commands.UpdateTexture2D(Texture, 0, 0, {0, 0, 0, 0, 2, 2}, 8, Bytes);
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), 2u);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 32u);
 	}
 
 	TEST(FRHICommandListTests, TextureUploadsOwnPackedSourceBytesUntilReplay)
@@ -2523,7 +2625,64 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({4, 5, 6}));
 	}
 
-	TEST(FRHICommandListTests, DynamicUniformAllocationDoesNotSplitRecordedWork)
+	TEST(FRHICommandListTests, OwningUniformRangeSurvivesItsCreatingList)
+	{
+		FRHIUniformBufferRange Range;
+		{
+			FRHICommandList Producer;
+			std::array<std::byte, 16> Bytes{};
+			Range = Producer.CreateUniformBufferRange(Bytes.data(), Bytes.size());
+		}
+		ASSERT_TRUE(Range.ResourceOwner);
+		ASSERT_EQ(Range.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		Executor.GetImmediateCommandList().EnqueueLambda([Buffer = Range.ResourceOwner] {
+			EXPECT_EQ(FRHIDeferredBufferBackend::ResolveSnapshot(*static_cast<FRHIBuffer*>(Buffer.GetReference()))->GetData().size(), 16u);
+		}, 0);
+		Range = {};
+		Executor.Submit({}, ERHISubmitFlags::DeleteResources);
+	}
+
+	TEST(FRHICommandListTests, LaterFramesPrepareWhileRHIReplayIsDelayed)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread Thread;
+		ASSERT_TRUE(Thread.Start());
+		FThreadEvent Started, Release;
+		FRHICommandListExecutor Executor(Context, Thread);
+		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.EnqueueLambda([&] { Started.Trigger(); Release.Wait(); });
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		const auto Buffer = MakeRefCount<FTestBuffer>(16);
+		std::vector<FRHIUniformBufferRange> Uniforms;
+		for (int Frame = 0; Frame < 2; ++Frame)
+		{
+			Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::BeginFrame);
+			std::array<std::byte, 16> Bytes;
+			Bytes.fill(static_cast<std::byte>(Frame + 10));
+			Uniforms.push_back(Commands.CreateUniformBufferRange(Bytes.data(), Bytes.size()));
+			ASSERT_TRUE(Commands.TryWriteBuffer(Buffer, 0, Bytes));
+			Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame);
+		}
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+		EXPECT_EQ(Executor.GetStats().WaitCount, 0u);
+		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 0u);
+		EXPECT_EQ(Executor.GetStats().PendingFrameCount, 2u);
+		EXPECT_EQ(Executor.GetStats().FramePressureWaitCount, 0u);
+		EXPECT_LE(GetBufferUploadStats().LiveBytes, FRHIBufferUploadReservation::MaxLiveBytes);
+		Release.Trigger();
+		EXPECT_EQ(Thread.Flush(), ERHIThreadWaitResult::Completed);
+		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
+		EXPECT_EQ(Context.ObservedBufferData, FByteBuffer(16, std::byte{11}));
+		EXPECT_EQ(Executor.GetStats().PendingFrameCount, 0u);
+		Uniforms.clear();
+		Executor.Submit({}, ERHISubmitFlags::DeleteResources | ERHISubmitFlags::FlushRHIThread);
+	}
+
+	TEST(FRHICommandListTests, LogicalUniformCreationDoesNotSplitRecordedWork)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2533,18 +2692,17 @@ namespace Durin
 		});
 		std::array<uint8, 16> UniformData{};
 
-		Immediate.AllocateDynamicUniformBuffer(
+		Immediate.CreateUniformBufferRange(
 			UniformData.data(), static_cast<uint32>(UniformData.size()));
 
-		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicUniformBuffer"}));
+		EXPECT_TRUE(Context.Operations.empty());
 		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicUniformBuffer", "RecordedBeforeSync"}));
+			"RecordedBeforeSync"}));
 	}
 
-	TEST(FRHICommandListTests, DynamicStorageAllocationDoesNotSplitRecordedWork)
+	TEST(FRHICommandListTests, LogicalStorageCreationDoesNotSplitRecordedWork)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2554,15 +2712,15 @@ namespace Durin
 		});
 		std::array<uint8, 64> StorageData{};
 
-		Immediate.AllocateDynamicStorageBuffer(
-			StorageData.data(), static_cast<uint32>(StorageData.size()));
+		auto Storage = Immediate.TryCreateStorageBuffer({64, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::SingleFrame, std::as_bytes(std::span{StorageData}));
+		ASSERT_TRUE(Storage);
 
-		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicStorageBuffer"}));
+		EXPECT_TRUE(Context.Operations.empty());
 		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicStorageBuffer", "RecordedBeforeSync"}));
+			"RecordedBeforeSync"}));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineValueStateIsCohesiveAndComparable)

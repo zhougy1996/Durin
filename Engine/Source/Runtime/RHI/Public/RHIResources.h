@@ -1246,12 +1246,13 @@ namespace Durin
 		auto operator==(const FPipelineLayoutDesc&) const -> bool = default;
 	};
 
-	// References a byte range within a uniform buffer, including dynamic allocations.
+	// Logical uniform range. Factories retain ownership across preparation/recording lists.
 	struct FRHIUniformBufferRange
 	{
 		FRHIBuffer* Buffer = nullptr;
 		uint32 Offset = 0;
 		uint32 Size = 0;
+		TRefCountPtr<FRHIResource> ResourceOwner;
 	};
 
 	// References a byte range exposed to shaders as storage.
@@ -1844,6 +1845,9 @@ namespace Durin
 		uint64 LiveBytes = 0;
 		uint64 PeakBytes = 0;
 		uint64 RejectedCount = 0;
+		uint64 BackingLiveBytes = 0;
+		uint64 BackingPeakBytes = 0;
+		uint64 BackingReservedCapacity = 0;
 	};
 	RHI_API auto GetBufferUploadStats() -> FRHIBufferUploadStats;
 

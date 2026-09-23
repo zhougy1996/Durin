@@ -266,7 +266,7 @@ namespace Durin
 		FSkyBoxFragmentShader::FParameters Parameters;
 		Parameters.SkyTexture = Texture;
 		Parameters.SkySampler = Payload->Sampler;
-		Parameters.Sky = CommandList.AllocateDynamicUniformBuffer(
+		Parameters.Sky = CommandList.CreateUniformBufferRange(
 			&Uniform,
 			sizeof(Uniform)
 		);

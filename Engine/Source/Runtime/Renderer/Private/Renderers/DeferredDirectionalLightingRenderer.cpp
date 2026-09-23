@@ -319,7 +319,7 @@ namespace Durin
 			Parameters.bVolumetricCloudVisibilityEnabled ? 1.0f : 0.0f
 		};
 		const FRHIUniformBufferRange ViewUniform =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
 			return false;
 

@@ -539,7 +539,7 @@ namespace Durin
 			if (DepthMode == EDepthMode::XRay)
 				Uniform.Color.a *= 0.32f;
 			FGizmoVertexShader::FParameters Parameters;
-			Parameters.Transform = CommandList.AllocateDynamicUniformBuffer(
+			Parameters.Transform = CommandList.CreateUniformBufferRange(
 				&Uniform, sizeof(Uniform));
 			const auto PreparedIt = std::ranges::find_if(
 				Prepared.Pipelines, [DepthMode, Topology](const FPreparedPipeline& Item) {

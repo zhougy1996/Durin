@@ -18,6 +18,10 @@ namespace Durin::VulkanRHI
 		uint64 PageSize = 0;
 		uint32 MaxPageCount = 0;
 		const char* DebugName = nullptr;
+		// Dynamic binding pools include normal and oversize pages in this hard cap.
+		uint64 MaxCapacity = 0;
+		uint64 MaxAllocation = 0;
+		EBufferUsageFlags BindingUsage = EBufferUsageFlags::None;
 	};
 
 	// A mapped buffer interval reserved for one queue submission.
@@ -81,11 +85,13 @@ namespace Durin::VulkanRHI
 		auto Acquire(uint64 Size, uint64 Alignment,
 			const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferAcquireResult;
 		auto ReclaimCompleted() -> void;
+		auto MarkUsed(const std::shared_ptr<void>& Owner, const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto GetConfig() const -> const FVulkanTransferArenaConfig&
 		{
 			return Config;
 		}
 		auto GetPageCount() const -> uint32;
+		auto GetCapacity() const -> uint64;
 
 	private:
 		friend class FVulkanTransferRange;
@@ -115,7 +121,7 @@ namespace Durin::VulkanRHI
 		auto CreatePage(uint64 Size, bool bOversize, FRHIQueueId Queue) -> FPage*;
 		auto TryAllocateFromPage(FPage& Page, uint64 Size, uint64 Alignment,
 			const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferRange;
-		auto GetOldestRetiredRange() const -> const FRetiredRange*;
+		auto GetOldestRetiredRange(uint64 RequiredSize = 0, FRHIQueueId Queue = {}) const -> const FRetiredRange*;
 		auto Cancel(FVulkanTransferRange& Range) -> void;
 		auto Retire(FVulkanTransferRange& Range) -> void;
 		auto InsertFreeRange(FPage& Page, FFreeRange Range) -> void;

@@ -700,7 +700,7 @@ namespace Durin
 		Uniform.Jitter[0] = Jitter.x;
 		Uniform.Jitter[1] = Jitter.y;
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (UniformBuffer.Buffer == nullptr || UniformBuffer.Size != sizeof(Uniform))
 		{
 			RouteInputs.bRequiredInputsValid = false;
@@ -719,8 +719,6 @@ namespace Durin
 		FRHITexture* Cloud = nullptr;
 		if (Decision.Route == ERoute::Compute)
 		{
-			const std::array BufferToCompute{FRHIBufferTransition{UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size, ERHIAccess::Discard, ERHIAccess::ComputeUniformRead}};
-			CommandList.TransitionBuffers(BufferToCompute);
 			const std::array InputsToCompute{
 				FRHITextureTransition::Whole(Input.Textures.BaseDensity, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(Input.Textures.DetailDensity, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
@@ -744,8 +742,6 @@ namespace Durin
 			Params.CloudOutput = ComputeTargets->Cloud;
 			SetShaderParameters(CommandList, ComputePayload->ComputeShader, Params);
 			CommandList.Dispatch(Counters.GroupCountX, Counters.GroupCountY, 1);
-			const std::array BufferRestore{FRHIBufferTransition{UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size, ERHIAccess::ComputeUniformRead, ERHIAccess::GraphicsUniformRead}};
-			CommandList.TransitionBuffers(BufferRestore);
 			const std::array TextureRestore{
 				FRHITextureTransition::Whole(ComputeTargets->Cloud, ERHIAccess::ComputeShaderReadWrite, ERHIAccess::GraphicsShaderRead),
 				FRHITextureTransition::Whole(Input.Textures.BaseDensity, ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead),
@@ -950,7 +946,7 @@ namespace Durin
 		Uniform.Target[2] = Quality.HistoryWeight;
 		Uniform.Target[3] = bHistoryAccepted ? 1.0f : 0.0f;
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (UniformBuffer.Buffer == nullptr
 			|| UniformBuffer.Size != sizeof(Uniform))
 		{
@@ -1024,7 +1020,7 @@ namespace Durin
 			: bHistoryAccepted ? 1.0f : 0.0f;
 		Uniform.Debug[2] = ShadowVisibility != nullptr ? 1.0f : 0.0f;
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (UniformBuffer.Buffer == nullptr || UniformBuffer.Size != sizeof(Uniform))
 			return nullptr;
 		FRHIRenderPassInfo PassInfo{};

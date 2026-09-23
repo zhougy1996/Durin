@@ -167,10 +167,6 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIUpdateTexture3D"; }
 			auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIReadTexture2D"; return {}; }
-			auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override
-			{ ADD_FAILURE() << "Unexpected backend operation: RHIAllocateDynamicUniformBuffer"; return {}; }
-			auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size) -> FRHIStorageBufferRange override
-			{ ADD_FAILURE() << "Unexpected backend operation: RHIAllocateDynamicStorageBuffer"; return {}; }
 			auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIAcquireBackBuffer"; }
 			auto RHIBlockUntilGPUIdle() -> void override
@@ -1082,6 +1078,51 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[0].BufferSize, 4u);
 		EXPECT_EQ(Capture.Uses[1].BufferOffset, 8u);
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
+	}
+
+	TEST_F(FRDGTests, QueuedUploadsShareSnapshotBudgetAndTransferSourceOwnership)
+	{
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			std::vector<FRHIResource*> Pending;
+			FRHIResource::GatherResourcesToDelete(Pending);
+			FRHIResource::DeleteResources(Pending);
+		}
+		ASSERT_EQ(GetBufferUploadStats().LiveBytes, 0u);
+		constexpr uint32 Size = 16 * 1024 * 1024;
+		FUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHICommandList Factory;
+		auto Logical = Factory.TryCreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(Size));
+		ASSERT_TRUE(Logical);
+		FTestRDGAllocator Allocator;
+		{
+			FRDGBuilder Graph;
+			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(Size, 4, EBufferUsageFlags::DestinationCopy)};
+			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "SharedBudget"), 0, FByteBuffer(Size));
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+			FRDGBuilder Rejected;
+			Rejected.QueueBufferUploadOwned(Rejected.CreateBuffer(Desc, "Rejected"), 0, FByteBuffer(4));
+			const auto Failure = Rejected.Execute(Executor.GetImmediateCommandList(), &Allocator);
+			ASSERT_FALSE(Failure);
+			const auto* Limit = FindRDGTestDetail<FRDGLimitError>(Failure.error());
+			ASSERT_NE(Limit, nullptr);
+			EXPECT_EQ(Limit->Dimension, ERDGLimit::UploadPayloadBytes);
+			EXPECT_EQ(Executor.GetStats().PendingBatchCount, 0u);
+			ASSERT_TRUE(Graph.Execute(Executor.GetImmediateCommandList(), &Allocator));
+			// Recording retains the existing source allocation, so a full budget can execute.
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+		}
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Executor.CreateFence().Wait();
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size);
+		*Logical = nullptr;
+		std::vector<FRHIResource*> Pending;
+		FRHIResource::GatherResourcesToDelete(Pending);
+		FRHIResource::DeleteResources(Pending);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 0u);
 	}
 
 	TEST_F(FRDGTests, QueuedUploadsBatchWithinBoundsAndOwnReplayData)

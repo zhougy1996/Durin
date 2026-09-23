@@ -95,8 +95,11 @@ capture that same queue-owned last-accepted serial. Inline mode preserves the
 same serial and completion behavior locally. Empty work without an ordered
 event does not manufacture a serial or backend submission.
 
-The queue admits at most 8 queued-or-active entries, 16 batches, and 32 MiB of
-owned payload. A producer that would cross a bound waits for capacity and wakes
+The queue admits at most 8 queued-or-active entries, 16 batches, 3 frame-end
+boundaries, and 32 MiB of owned payload. Each submission carrying `EndFrame`
+charges one frame until replay finishes or rejects the work. This is a CPU
+queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
+that would cross a bound waits for capacity and wakes
 on completion, failure, or admission close. Admission is explicit
 `Stopped -> Running -> Draining -> Stopped`; rejection never consumes the
 producer's work. The RHI thread is the sole runtime owner of command-context
@@ -161,8 +164,8 @@ the active backend. Observer destruction never cancels executable work.
 The executor `FrameNumber` starts at zero and advances only after a successful
 replayed `RHIEndFrame`; callers do not supply it. Ordered `BeginFrame` passes the
 current number to the backend. Present uses the ordered active-frame state and
-has no independent frame-counter argument. Vulkan frame pacing, dynamic-uniform
-producer selection, descriptor-pool reuse, and native retirement use exact GPU
+has no independent frame-counter argument. Vulkan frame pacing, binding-version
+reuse, descriptor-pool reuse, and native retirement use exact GPU
 completion tokens rather than deriving safety from that frame number.
 
 ## Flush And Synchronous Operations
@@ -250,31 +253,31 @@ already-recorded command failures do not become a fallible result. Startup
 instance, device, and allocator creation also stays outside this surface: it
 aborts `RHIInit()`, rolls back the unpublished backend, and publishes one owned
 initialization diagnostic. Frame-critical staging, upload, readback, submission,
-presentation, and dynamic-uniform overflow remain terminal unless their own
+presentation, and admitted native-backing allocation remain terminal unless their own
 public contract explicitly permits failure.
 
-At `BeginFrame`, Vulkan polls its contiguous completion watermark, waits only
-the exact token required by the selected pacing slot, and selects a descriptor-
-pool batch whose maximum use token is complete. The rendering-thread boundary
-then selects one of two completion-eligible dynamic-uniform producer states.
-Each has a preallocated 4 MiB mapped base page; ordinary aligned suballocation
-needs no additional RHI round trip, while bounded page overflow synchronously
-reserves an RHI-owned chunk.
+At `BeginFrame`, Vulkan polls completion, waits the exact prerequisites of its
+selected pacing slot, and prepares a completion-eligible descriptor pool batch.
+The render thread dispatches this boundary asynchronously through
+`DispatchToRHIThread`; it can prepare later frames while the RHI lane waits.
+The `RHI.BeginFrame.Dispatch` scope measures dispatch, including bounded queue
+pressure when applicable. Queue statistics expose current/peak queued frames
+and frame-pressure wait count/duration separately from generic backpressure.
+Uniform and CPU-authored storage use CPU-only creation/update admission and
+replay-visible snapshots, with native pages materialized on the RHI thread.
+There is no render-thread mapped producer, frame-slot reset, or synchronous
+upload overflow allocation. The old dynamic allocation APIs and untyped uniform
+update overload have been removed.
 
-Dynamic storage ranges use the same frame-slot lease principle but remain a
-separate allocation class. `AllocateDynamicStorageBuffer` copies an exact
-nonzero byte range into mapped frame-local storage and returns a retained
-`FRHIStorageBufferRange`; admission requires the published storage alignment
-and maximum range. Vulkan aligns offsets to
-`MinStorageBufferOffsetAlignment`, caps each frame at 64 MiB and 16 chunks, and
-reclaims a slot only after its frame fence completes. Exhaustion or an invalid
-range returns an empty value without changing earlier allocations.
-
-A returned range begins in `HostWrite`. Its owner must record an exact
-`HostWrite -> GraphicsShaderRead` transition before a draw consumes it and bind
-the same offset and size through reflected storage-buffer parameters. Command
-records retain the underlying buffer through replay, so inline and dedicated
-RHI-thread execution have identical lifetime and range semantics.
+`CreateUniformBufferRange` is a convenience for recording-only consumers. It
+creates a typed uniform resource and returns a logical range with counted
+ownership, so preparation state can outlive the creating list. Callers needing
+a separately typed resource use `TryCreateUniformBuffer`. The convenience reports admission failure by
+exception before recording; fallible factories remain available for recovery.
+Shader recording retains logical resources, and backend bindings retain exact
+versions through GPU completion. CPU-authored ranges must not enter explicit
+native-buffer state transitions. See
+[resource contracts](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
 
 Ordinary end-of-frame dispatch is not a GPU-idle boundary. `SubmitToGPU`,
 `EndFrame`, present-related context work, and `DeleteResources` remain ordered

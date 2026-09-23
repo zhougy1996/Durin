@@ -260,7 +260,9 @@ callback with a pass-scoped resource view, and then records final batches.
 buffer. Each creates a Copy recording pass with an exact `TransferWrite` byte
 use and an RHI `UploadBuffer` command. The destination must declare
 `DestinationCopy`. A single upload owns at most 16 MiB and a builder admits at
-most 32 MiB of queued CPU payload capacity. Invalid ranges, missing copy usage,
+most 32 MiB of queued CPU payload capacity. Sources also share the process-wide
+32 MiB buffer-upload budget with CPU-authored snapshots and native upload
+commands. Invalid ranges, missing copy usage,
 or excess payload fail compilation before any upload command is recorded.
 `CreateStructuredBuffer` and `CreateStructuredBufferOwned` create a buffer
 with structured, shader-resource, and copy-destination usage, then queue its
@@ -272,8 +274,10 @@ at most 64 uploads and 16 MiB of source bytes per list. Pass handles, exact
 uses, dependencies, and barriers between overlapping writes remain distinct.
 Batching stops at other callbacks, queue changes, and either limit. It reduces RHI
 command-list batches without merging destination ranges or GPU copy commands.
-The graph retains source bytes through recording while the RHI command takes
-its own copy. Graph destruction or cancellation releases callback-owned bytes.
+The graph and recorded RHI command share one immutable source allocation.
+Recording at a full admitted budget does not require another source copy.
+Graph destruction or cancellation releases its ownership; bytes remain charged
+until the final graph or command owner releases them.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
 same frozen typed parameters/resolver. Its callback must close every render pass,
 diagnostic region and timing query; the graph seals and queues the list only after

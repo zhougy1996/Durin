@@ -97,6 +97,7 @@ namespace Durin::VulkanRHI
 			&& Config.PageSize <= std::numeric_limits<uint32>::max());
 		check(Config.AllocationClass
 			== EVulkanAllocationClassCandidate::TransferUpload
+			|| Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload
 			|| Config.AllocationClass
 				== EVulkanAllocationClassCandidate::TransferReadback);
 	}
@@ -131,8 +132,25 @@ namespace Durin::VulkanRHI
 			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Submitted
 			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Complete);
 		ReclaimCompleted();
+		if (Config.MaxAllocation && Size > Config.MaxAllocation)
+			return {.bAllocationFailed = true};
+		if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
+		{
+			for (const auto& Page : OversizePages)
+				if (auto Range = TryAllocateFromPage(*Page, Size, Alignment, SyncPoint))
+					return {.Range = std::move(Range)};
+		}
+		const auto Pressure = [&]() -> FVulkanTransferAcquireResult {
+			GVulkanMemoryBaselineTracker.RecordArenaOverflow(Config.AllocationClass);
+			const auto* Oldest = Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload
+				? GetOldestRetiredRange(Size, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue)
+				: GetOldestRetiredRange();
+			if (!Oldest) return {};
+			return {.WaitSyncPoint = Oldest->SyncPoint, .WaitOwner = Oldest->AllocationOwner};
+		};
 		if (Size > Config.PageSize)
 		{
+			if (Config.MaxCapacity && Size > Config.MaxCapacity - GetCapacity()) return Pressure();
 			try
 			{
 				FPage* Page = CreatePage(Size, true, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
@@ -155,14 +173,15 @@ namespace Durin::VulkanRHI
 				return {.Range = std::move(Range)};
 			}
 		}
-		if (Pages.size() >= Config.MaxPageCount)
+		if (Pages.size() >= Config.MaxPageCount && Config.AllocationClass != EVulkanAllocationClassCandidate::DynamicUpload)
 			std::erase_if(Pages, [&](const auto& Page) {
 				if (Page->Queue == FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue || !Page->RetiredRanges.empty()
 					|| Page->FreeRanges.size() != 1 || Page->FreeRanges[0].Size != Page->Size) return false;
 				DestroyPage(*Page);
 				return true;
 			});
-		if (Pages.size() < Config.MaxPageCount)
+		if (Pages.size() < Config.MaxPageCount
+			&& (!Config.MaxCapacity || Config.PageSize <= Config.MaxCapacity - GetCapacity()))
 		{
 			try
 			{
@@ -180,10 +199,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		GVulkanMemoryBaselineTracker.RecordArenaOverflow(Config.AllocationClass);
-		const auto* Oldest = GetOldestRetiredRange();
-		if (!Oldest) return {};
-		return {.WaitSyncPoint = Oldest->SyncPoint, .WaitOwner = Oldest->AllocationOwner};
+		return Pressure();
 	}
 
 	auto FVulkanTransferArena::ReclaimCompleted() -> void
@@ -206,6 +222,16 @@ namespace Durin::VulkanRHI
 		}
 		std::erase_if(OversizePages,
 			[this](const std::unique_ptr<FPage>& Page) {
+				if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
+				{
+					std::erase_if(Page->RetiredRanges, [&](const FRetiredRange& Range) {
+						if (!Range.AllocationOwner.expired()) return false;
+						InsertFreeRange(*Page, {Range.Offset, Range.Size});
+						GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(Config.AllocationClass, Range.Size);
+						return true;
+					});
+					return false;
+				}
 				if (Page->RetiredRanges.empty()
 					|| !Page->RetiredRanges.front().AllocationOwner.expired())
 				{
@@ -223,11 +249,41 @@ namespace Durin::VulkanRHI
 		return static_cast<uint32>(Pages.size());
 	}
 
+	auto FVulkanTransferArena::MarkUsed(const std::shared_ptr<void>& Owner,
+		const FRHIGPUSyncPointRef& SyncPoint) -> void
+	{
+		CheckVulkanRHIThread();
+		const auto Update = [&](auto& Pool) {
+			for (auto& Page : Pool)
+				for (auto& Range : Page->RetiredRanges)
+					if (Range.AllocationOwner.lock() == Owner)
+					{
+						require(Page->Queue == FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+						Range.SyncPoint = SyncPoint;
+						return true;
+					}
+			return false;
+		};
+		require(Update(Pages) || Update(OversizePages));
+	}
+
+	auto FVulkanTransferArena::GetCapacity() const -> uint64
+	{
+		uint64 Bytes = 0;
+		for (const auto& Page : Pages) Bytes += Page->Size;
+		for (const auto& Page : OversizePages) Bytes += Page->Size;
+		return Bytes;
+	}
+
 	auto FVulkanTransferArena::CreatePage(uint64 Size, bool bOversize, FRHIQueueId Queue) -> FPage*
 	{
 		check(Size <= std::numeric_limits<uint32>::max());
 		EBufferUsageFlags Usage = EBufferUsageFlags::Dynamic;
-		if (Config.AllocationClass
+		if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
+		{
+			Usage |= Config.BindingUsage;
+		}
+		else if (Config.AllocationClass
 			== EVulkanAllocationClassCandidate::TransferUpload)
 		{
 			Usage |= EBufferUsageFlags::SourceCopy;
@@ -248,6 +304,8 @@ namespace Durin::VulkanRHI
 		if (bOversize)
 		{
 			OversizePages.push_back(std::move(Page));
+			if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
+				GVulkanMemoryBaselineTracker.RecordArenaPageAllocated(Config.AllocationClass, Size);
 		}
 		else
 		{
@@ -305,12 +363,13 @@ namespace Durin::VulkanRHI
 		return {};
 	}
 
-	auto FVulkanTransferArena::GetOldestRetiredRange() const
+	auto FVulkanTransferArena::GetOldestRetiredRange(uint64 RequiredSize, FRHIQueueId Queue) const
 		-> const FRetiredRange*
 	{
 		const FRetiredRange* Oldest = nullptr;
 		uint64 Order = UINT64_MAX;
-		auto Consider = [&Oldest, &Order](const FPage& Page) {
+		auto Consider = [&Oldest, &Order, RequiredSize, Queue](const FPage& Page) {
+			if (RequiredSize && (Page.Size < RequiredSize || Page.Queue != Queue)) return;
 			for (const FRetiredRange& Range : Page.RetiredRanges)
 			{
 				if (Range.RetirementOrder < Order)
@@ -321,6 +380,8 @@ namespace Durin::VulkanRHI
 			}
 		};
 		for (const auto& Page : Pages) Consider(*Page);
+		if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
+			for (const auto& Page : OversizePages) Consider(*Page);
 		return Oldest;
 	}
 
@@ -335,7 +396,7 @@ namespace Durin::VulkanRHI
 		auto& Page = *static_cast<FPage*>(Range.Page);
 		GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(
 			Config.AllocationClass, Range.Size);
-		if (Range.bOversize)
+		if (Range.bOversize && Config.AllocationClass != EVulkanAllocationClassCandidate::DynamicUpload)
 		{
 			const FPage* PageAddress = &Page;
 			std::erase_if(OversizePages,
@@ -391,7 +452,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanTransferArena::DestroyPage(FPage& Page) -> void
 	{
-		if (!Page.bOversize)
+		if (!Page.bOversize || Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
 		{
 			GVulkanMemoryBaselineTracker.RecordArenaPageFreed(
 				Config.AllocationClass, Page.Size);

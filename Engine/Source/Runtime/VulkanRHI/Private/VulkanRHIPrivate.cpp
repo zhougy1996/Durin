@@ -8,6 +8,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
+#include "VulkanDeferredBuffer.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
@@ -517,6 +518,11 @@ namespace Durin::VulkanRHI
 		FVulkanTransferArena TestTransfers(Device, {
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
+		constexpr uint64 AdmissionPage = 4ull * 1024 * 1024;
+		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256, AdmissionPage * 2,
+			std::vector<FRHIQueueId>{Graphics.GetId(), Compute.GetId()});
+		auto UniformOwner = TestUniforms->Reserve(AdmissionPage);
+		require(UniformOwner);
 		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSyncPointRef& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
 			auto& Tracker = Queue.GetCompletionTracker();
 			std::unique_ptr<FVulkanPayload> Payload;
@@ -537,6 +543,7 @@ namespace Durin::VulkanRHI
 				// Destruction before submission must preserve the payload's interval.
 			}
 			if (Owner) Payload->RetainAllocation(std::move(Owner));
+			if (UniformOwner) Payload->RetainAllocation(UniformOwner);
 			if (Wait.GetState() != ERHIGPUSubmissionState::Invalid)
 			{
 				Payload->AddCompletionWait(Wait);
@@ -580,17 +587,8 @@ namespace Durin::VulkanRHI
 			Device.PollQueues();
 			Result.bTimingBlocked = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Pending;
 			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
-			FVulkanDynamicUniformBufferAllocator TestUniforms(Device);
-			TestUniforms.PrepareForProducer();
-			const uint32 UniformData = 0x12345678;
-			FRHIUniformBufferRange FirstUniform, SecondUniform, ReusedUniform;
-			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), FirstUniform));
-			const auto FrameUses = Device.GetLastReservedUses();
-			TestUniforms.RetireProducer(FrameUses);
-			TestUniforms.PrepareForProducer();
-			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), SecondUniform));
-			Result.bUniformReuseBlocked = FirstUniform.Buffer != SecondUniform.Buffer;
-			TestUniforms.RetireProducer(FrameUses);
+			UniformOwner.reset();
+			Result.bUniformReuseBlocked = !TestUniforms->Reserve(AdmissionPage);
 			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
@@ -610,10 +608,9 @@ namespace Durin::VulkanRHI
 			Result.bCompleted = Graphics.GetCompletionTracker().WaitForSyncPoint(Consumer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Compute.GetCompletionTracker().WaitForSyncPoint(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Uses.IsRetirementEligible();
-			TestUniforms.PrepareForProducer();
-			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), ReusedUniform));
-			Result.bUniformReusedAfterCompletion = FirstUniform.Buffer == ReusedUniform.Buffer
-				&& FirstUniform.Offset == ReusedUniform.Offset;
+			auto ReusedUniform = TestUniforms->Reserve(AdmissionPage);
+			Result.bUniformReusedAfterCompletion = ReusedUniform && ReusedUniform->Slots.size() == 2
+				&& ReusedUniform->Slots[0].Offset == 0 && ReusedUniform->Slots[1].Offset == 0;
 			TestPools.PrepareForUse();
 			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
@@ -797,6 +794,124 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	// Expose recording dependencies only within backend test setup.
+	class FVulkanPressureTestContext : public FVulkanCommandListContext
+	{
+	public:
+		using FVulkanCommandListContext::FVulkanCommandListContext;
+		using FVulkanCommandListContext::GetPayload;
+	};
+
+	auto TestVulkanSealedPressure() -> FVulkanSealedPressureTestResult
+	{
+		CheckVulkanRHIThread();
+		auto& RHI = FVulkanDynamicRHI::Get();
+		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Coordinator = Device.GetSubmissionCoordinator();
+		auto* Queue = Device.GetGraphicsQueue();
+		auto& Tracker = Queue->GetCompletionTracker();
+		FVulkanPressureTestContext Context(&RHI, Device, Queue);
+		FVulkanSealedPressureTestResult Result;
+		{
+			auto Gap = Context.Finalize();
+			const auto Prefix = Coordinator.EnqueueContext(Context);
+			FVulkanTransferArena Arena(Device, {
+				.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
+				.PageSize = 256, .MaxPageCount = 1, .DebugName = "SealedPressurePage",
+				.MaxCapacity = 256, .MaxAllocation = 256, .BindingUsage = EBufferUsageFlags::UniformBuffer});
+			auto Allocation = Arena.Acquire(256, 256, Context.GetPayload().GetSyncPoint());
+			require(Allocation.Range);
+			auto Owner = Allocation.Range.GetAllocationOwner();
+			auto* Buffer = Allocation.Range.GetBuffer();
+			std::weak_ptr<void> Weak = Owner;
+			Context.RetainAllocation(Owner);
+			Allocation.Range.Retire();
+			const auto Target = Coordinator.EnqueueContext(Context);
+			const auto Unrelated = Coordinator.EnqueueContext(Context);
+			const auto Active = Context.GetPayload().GetSyncPoint();
+			Owner.reset();
+			const auto Pressure = Arena.Acquire(256, 256, Active);
+			require(!Pressure.Range && Pressure.WaitOwner.lock() == Weak.lock()
+				&& Pressure.WaitSyncPoint == Target);
+			const auto Before = Tracker.GetLastSubmittedToken();
+			Result.bMissingReservationPreserved = !Coordinator.TrySubmitPendingAllocation(Weak, Target)
+				&& Tracker.GetLastSubmittedToken() == Before && !Weak.expired()
+				&& Prefix.GetState() == ERHIGPUSubmissionState::Pending
+				&& Target.GetState() == ERHIGPUSubmissionState::Pending;
+			Gap.reset();
+			Result.bOnlyRequiredPrefixSubmitted = Coordinator.TrySubmitPendingAllocation(Weak, Target)
+				&& Prefix.GetState() == ERHIGPUSubmissionState::Submitted
+				&& Target.GetState() == ERHIGPUSubmissionState::Submitted
+				&& Unrelated.GetState() == ERHIGPUSubmissionState::Pending
+				&& Active.GetState() == ERHIGPUSubmissionState::Pending && Context.HasPendingCommands();
+			Result.bLeaseReleasedAfterWait = !Weak.expired();
+			Coordinator.WaitForAllocation(Weak);
+			auto Reused = Arena.Acquire(256, 256, Active);
+			Result.bLeaseReleasedAfterWait &= Weak.expired() && Target.GetState() == ERHIGPUSubmissionState::Complete
+				&& Reused.Range && Reused.Range.GetBuffer() == Buffer && Arena.GetCapacity() == 256;
+			Coordinator.DiscardPending();
+			Context.Finalize().reset();
+		}
+		{
+			auto Owner = std::make_shared<int>(42);
+			Context.RetainAllocation(Owner);
+			const auto Sealed = Coordinator.EnqueueContext(Context);
+			Context.RetainAllocation(Owner);
+			const auto Active = Context.GetPayload().GetSyncPoint();
+			Result.bActiveUsePreserved = !Coordinator.TrySubmitPendingAllocation(Owner, Active)
+				&& Sealed.GetState() == ERHIGPUSubmissionState::Pending
+				&& Active.GetState() == ERHIGPUSubmissionState::Pending && Context.HasPendingCommands();
+			Context.Finalize().reset();
+			Coordinator.DiscardPending();
+		}
+		{
+			auto Owner = std::make_shared<int>(42);
+			Context.RetainAllocation(Owner);
+			FVulkanPressureTestContext Later(&RHI, Device, Queue);
+			const auto Future = Coordinator.EnqueueContext(Later);
+			Context.GetPayload().AddCompletionWait(Future);
+			const auto Target = Coordinator.EnqueueContext(Context);
+			const auto Before = Tracker.GetLastSubmittedToken();
+			Result.bCyclePreserved = !Coordinator.TrySubmitPendingAllocation(Owner, Target)
+				&& Tracker.GetLastSubmittedToken() == Before
+				&& Target.GetState() == ERHIGPUSubmissionState::Pending
+				&& Future.GetState() == ERHIGPUSubmissionState::Pending;
+			Coordinator.DiscardPending();
+		}
+		return Result;
+	}
+
+	auto TestVulkanSealedPressureDependency() -> bool
+	{
+		CheckVulkanRHIThread();
+		auto& RHI = FVulkanDynamicRHI::Get();
+		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Coordinator = Device.GetSubmissionCoordinator();
+		require(Device.GetGraphicsQueue() != Device.GetComputeQueue());
+		FVulkanPressureTestContext Producer(&RHI, Device, Device.GetComputeQueue());
+		FVulkanPressureTestContext Consumer(&RHI, Device, Device.GetGraphicsQueue());
+		const auto Dependency = Producer.GetPayload().GetSyncPoint();
+		auto Owner = std::make_shared<int>(42);
+		std::weak_ptr<void> Weak = Owner;
+		Consumer.RetainAllocation(Owner);
+		Consumer.GetPayload().AddCompletionWait(Dependency);
+		const auto Target = Coordinator.EnqueueContext(Consumer);
+		Owner.reset();
+		bool bPassed = !Coordinator.TrySubmitPendingAllocation(Weak, Target)
+			&& Dependency.GetState() == ERHIGPUSubmissionState::Pending
+			&& Target.GetState() == ERHIGPUSubmissionState::Pending && Producer.HasPendingCommands();
+		Coordinator.EnqueueContext(Producer);
+		bPassed &= Coordinator.TrySubmitPendingAllocation(Weak, Target)
+			&& Dependency.GetState() == ERHIGPUSubmissionState::Submitted
+			&& Target.GetState() == ERHIGPUSubmissionState::Submitted;
+		Coordinator.WaitForAllocation(Weak);
+		// The producer does not own the allocation. Retire its command buffers
+		// separately before destroying this helper's local command pool.
+		bPassed &= Device.GetComputeQueue()->GetCompletionTracker().WaitForSyncPoint(Dependency,
+			1'000'000'000) == ERHIGPUWaitResult::Complete;
+		return bPassed && Weak.expired() && Target.GetState() == ERHIGPUSubmissionState::Complete;
+	}
+
 	auto GetLastVulkanSyncPointForTesting() -> FRHIGPUSyncPointRef
 	{
 		CheckVulkanRHIThread();
@@ -848,7 +963,8 @@ namespace Durin::VulkanRHI
 			auto Payload = MakePayload();
 			Result.Signals[Index] = FRHIGPUSyncPoint::Create();
 			require(Payload->AttachSignal(Result.Signals[Index]));
-			auto Owner = std::make_shared<int>(0);
+			auto Owner = Device.GetBindingPool(true).Reserve(256);
+			require(Owner);
 			Result.Owners[Index] = Owner;
 			Payload->RetainAllocation(std::move(Owner));
 			Batch.push_back(std::move(Payload));
@@ -931,8 +1047,6 @@ namespace Durin::VulkanRHI
 			return {};
 		}
 		return {
-			.DynamicUniformTokens = Device->GetDynamicUniformBufferAllocator()
-				.GetProducerTokensForTesting(),
 			.DescriptorPoolTokens = Device->GetGlobalDescriptorPool()
 				.GetBatchTokensForTesting()};
 	}

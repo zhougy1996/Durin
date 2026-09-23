@@ -454,7 +454,7 @@ namespace Durin
 			static_cast<float>(HalfViewport.Height)};
 		Uniform.Controls[2] = bHalf ? 48.0f : 96.0f;
 		const FRHIUniformBufferRange ViewUniform =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
 			return false;
 		const FRectangle RenderViewport = bHalf ? HalfViewport : FRectangle{
@@ -604,7 +604,7 @@ namespace Durin
 			Uniform.DirectionAndThresholds = {
 				DirectionX, DirectionY, 0.90f, 0.01f};
 			const FRHIUniformBufferRange FilterUniform =
-				CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+				CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 			if (FilterUniform.Buffer == nullptr
 				|| FilterUniform.Size != sizeof(Uniform))
 				return false;
@@ -716,7 +716,7 @@ namespace Durin
 			static_cast<float>(HalfViewport.Height)};
 		Uniform.DirectionAndThresholds = {0.0f, 0.0f, 0.90f, 0.01f};
 		const FRHIUniformBufferRange ResolveUniform =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (ResolveUniform.Buffer == nullptr
 			|| ResolveUniform.Size != sizeof(Uniform))
 			return false;

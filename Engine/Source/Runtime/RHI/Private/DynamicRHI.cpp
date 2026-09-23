@@ -298,31 +298,15 @@ namespace Durin
 	auto FDynamicRHI::RHIBeginFrame_RenderThread(
 		FRHICommandListImmediate& RHICmdList) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.BeginFrame.FlushRHIThread");
+		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.BeginFrame.Dispatch");
 		RHICmdList.ImmediateFlush(
-			EImmediateFlushType::FlushRHIThread,
+			EImmediateFlushType::DispatchToRHIThread,
 			ERHISubmitFlags::BeginFrame);
 	}
 
 	auto FDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
 	{
 		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame | ERHISubmitFlags::DeleteResources);
-	}
-
-	auto FDynamicRHI::RHIAllocateDynamicUniformBuffer(
-		FRHICommandListImmediate& RHICmdList,
-		const void* Data,
-		uint32 Size) -> FRHIUniformBufferRange
-	{
-		return RHICmdList.AllocateDynamicUniformBufferSynchronous(Data, Size);
-	}
-
-	auto FDynamicRHI::RHIAllocateDynamicStorageBuffer(
-		FRHICommandListImmediate& RHICmdList,
-		const void* Data,
-		uint32 Size) -> FRHIStorageBufferRange
-	{
-		return RHICmdList.AllocateDynamicStorageBufferSynchronous(Data, Size);
 	}
 
 	auto FDynamicRHI::RHILockBuffer(

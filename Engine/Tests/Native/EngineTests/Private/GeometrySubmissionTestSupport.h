@@ -196,7 +196,7 @@ namespace Durin::Tests
 			if (!Typed || !Typed->bCustom) return {};
 			FQualificationVertexShader::FParameters Parameters;
 			Parameters.Transform = Transform;
-			Parameters.Deformation = CommandList.AllocateDynamicUniformBuffer(&Typed->DisplacementScale, sizeof(Typed->DisplacementScale));
+			Parameters.Deformation = CommandList.CreateUniformBufferRange(&Typed->DisplacementScale, sizeof(Typed->DisplacementScale));
 			return PrepareShaderParameters(Shader, Parameters);
 		}
 	private:

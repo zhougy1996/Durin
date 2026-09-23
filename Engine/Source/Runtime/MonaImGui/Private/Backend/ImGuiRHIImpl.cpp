@@ -595,7 +595,7 @@ namespace Durin::MonaImGui
 		ProjectionData.Scale.y = 2.0f / DrawData->DisplaySize.y;
 		ProjectionData.Translation.x = -1.0f - DrawData->DisplayPos.x * ProjectionData.Scale.x;
 		ProjectionData.Translation.y = -1.0f - DrawData->DisplayPos.y * ProjectionData.Scale.y;
-		return CommandList.AllocateDynamicUniformBuffer(&ProjectionData, sizeof(ProjectionData));
+		return CommandList.CreateUniformBufferRange(&ProjectionData, sizeof(ProjectionData));
 	}
 
 	static auto ImGuiRHIImplRT_SetupRenderState(

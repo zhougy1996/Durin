@@ -530,7 +530,7 @@ namespace Durin
 				FSimpleSpriteFragmentShader::FParameters Parameters;
 				Parameters.Atlas = Draw.Texture;
 				Parameters.AtlasSampler = Draw.Sampler;
-				Parameters.IconStyle = CommandList.AllocateDynamicUniformBuffer(
+				Parameters.IconStyle = CommandList.CreateUniformBufferRange(
 					&Style, sizeof(Style));
 				SetShaderParameters(CommandList,
 					TShaderMapRef<FSimpleSpriteFragmentShader>(Draw.ShaderSet),
@@ -539,7 +539,7 @@ namespace Durin
 			else
 			{
 				FSimpleLineFragmentShader::FParameters Parameters;
-				Parameters.Style = CommandList.AllocateDynamicUniformBuffer(
+				Parameters.Style = CommandList.CreateUniformBufferRange(
 					&Style, sizeof(Style));
 				SetShaderParameters(CommandList,
 					TShaderMapRef<FSimpleLineFragmentShader>(Draw.ShaderSet),

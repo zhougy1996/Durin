@@ -365,7 +365,7 @@ namespace Durin
 		Uniform.Viewport[3] = static_cast<float>(View.ViewportY);
 
 		const FRHIUniformBufferRange UniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		if (UniformBuffer.Buffer == nullptr || UniformBuffer.Size != sizeof(Uniform))
 			return {.Route = ERoute::FactorOne, .Reason = ERouteReason::InvalidInputs};
 		const FTimingQuerySink TimingSink =
@@ -388,10 +388,6 @@ namespace Durin
 					ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite)};
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(InputTransitions);
-			const std::array UniformTransition{FRHIBufferTransition{
-				UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size,
-				ERHIAccess::Discard, ERHIAccess::ComputeUniformRead}};
-			CommandList.TransitionBuffers(UniformTransition);
 			FGPUTimingQueryRHIRef TimingQuery;
 			if (TimingSink != nullptr && GDynamicRHI != nullptr)
 			{
@@ -440,10 +436,6 @@ namespace Durin
 					ERHIAccess::GraphicsShaderRead)};
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(OutputTransitions);
-			const std::array FinalUniformTransition{FRHIBufferTransition{
-				UniformBuffer.Buffer, UniformBuffer.Offset, UniformBuffer.Size,
-				ERHIAccess::ComputeUniformRead, ERHIAccess::GraphicsUniformRead}};
-			CommandList.TransitionBuffers(FinalUniformTransition);
 			return {.Visibility = ComputeTargets->Visibility,
 				.Route = Decision.Route, .Reason = Decision.Reason};
 		}

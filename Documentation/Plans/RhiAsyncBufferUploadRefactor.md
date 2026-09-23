@@ -9,6 +9,11 @@ Completed:
 
 ## Current Status
 
+User direction (2026-09-23): retain the original RTX 3090 baseline and budgets;
+final performance qualification on that host is explicitly postponed. Current
+host correctness results cannot close that acceptance gate. Implementation and
+local correctness qualification continue.
+
 Stage 0 inventory, revised interface decisions, and pre-refactor runtime
 baseline are recorded below. Stage 1 now uses `FRHIUniformBuffer` and ordinary
 `FRHIBuffer`/`FRHIBufferView` for CPU-authored contents, with private snapshots,
@@ -26,15 +31,32 @@ Stage 1 is complete. Compatible queued uploads now share bounded submission
 batches and command lists while retaining per-pass barriers and exact handoff
 locations. The batching checkpoint passed a fresh Debug `all` build and all
 seven targets selected by `test affected --report`, including Vulkan integration.
-Its three new contract cases also passed independently. Pooled backend
-allocation, complete pressure accounting/control, production consumer
-migration, and removal of the frame-start wait remain pending. No asynchronous
-frame-start path or performance improvement is claimed yet. RHI replay and
-Vulkan frame-slot, queue-poll, descriptor-preparation, storage-reset,
-upload-overflow, and presentation scopes retain their distinct CPU profile zones.
+Its three new contract cases also passed independently. Stage 2 now pools
+immutable binding versions in bounded, queue-affine mapped pages. Snapshot
+creation/update now reserves aligned virtual intervals for every physical queue
+before recording; replay only materializes admitted pages. Native writes and
+packed texture arrays now share the 32 MiB CPU-source budget with snapshots and
+RDG sources. Delayed cross-queue completion retains reservations, and admission
+rejects capacity or fragmentation without waiting on an active recording.
+Legacy producers and their physical-placement APIs are now removed across the
+workspace. Owning uniform ranges preserve prepared renderer lifetimes. Frame
+start dispatches asynchronously; a separate three-frame CPU queue limit bounds
+run-ahead while Vulkan retains its existing two-slot GPU pacing. Controlled
+fixtures prove later-frame preparation during delayed replay and pressure only
+at capacity. No measured runtime performance improvement is claimed until the
+postponed RTX 3090 qualification. RHI replay, Vulkan frame-slot, queue-poll,
+descriptor-preparation, and presentation retain distinct CPU profile zones.
 The prior checkpoint passed a Release `all` build, Debug
 `VulkanRHIIntegrationTests` (103/103), `RHICommandListTests` (95/95), and
-changed-document validation. Current validation appears under Stage 1.
+changed-document validation. Current validation appears under Stages 1 and 2.
+
+The final migration checkpoint passed the workspace Debug `all` build. The last
+affected run passed 94 of 95 targets; `VulkanRHIIntegrationTests` then passed all
+108 cases both under the debugger and in a normal whole-target rerun. The
+implementation and local functional coverage are delivered, but the plan stays
+Active: RTX 3090 runtime/performance acceptance is postponed and intermittent
+Vulkan lifecycle access violations remain unexplained. Exact evidence and
+limits are recorded under Stage 4.
 
 Source inspection establishes the following baseline:
 
@@ -354,7 +376,8 @@ submitted owners; allocation counters and high-water marks must include them.
 The front-end budget is shared across producers of the active RHI, including
 logical initial data, graphs, and command lists. Charge every live CPU copy
 (including reference arrays and retained version snapshots) until released;
-graph-to-command copies overlap in accounting. Per-builder limits alone do
+any graph-to-command copies overlap in accounting; sharing one immutable
+allocation charges it once until the last owner releases it. Per-builder limits alone do
 not satisfy this gate.
 
 On pressure, reclaim completed leases, grow within the class limit, then wait
@@ -639,32 +662,175 @@ Dependency: revised Stage 0 contracts and Stage 1 public API convergence,
 including binding validation. Allocate/version backing internally without
 reintroducing a public deferred resource family.
 
-- [ ] Implement completion-aware allocation/versioning using existing payload
+Implementation sequence (2026-09-23): first pool immutable version backing in
+queue-affine mapped ranges with weak caches and exact payload leases. Normal
+and oversize binding pages share the class capacity limit; oversize pages remain
+available for reuse instead of creating unaccounted pending native deletions.
+Then integrate shared front-end admission and pressure progress. Allocation
+during an active render pass cannot submit that recording as-is; until a safe
+admission/progress path is validated, exhaustion owned by unsubmitted work must
+fail terminally rather than wait for an impossible completion. This intermediate
+failure policy does not satisfy the Stage 2 pressure gate and blocks Stage 3.
+
+Shared-source decision (2026-09-23): immutable native buffer upload payloads
+share the snapshot admission counter. RDG and its recorded upload command
+retain one immutable allocation instead of copying the graph source again.
+Span callers still receive a copy-before-return guarantee; owned callers move
+their vector and charge its capacity. Each actual allocation is charged once
+until its last owner releases it. Independently copied sources remain separate
+charges. `TryUploadBuffer` reports admission errors before recording, while the
+existing void entry point retains its enforced programmer-contract behavior.
+Legacy `WriteBuffer` and texture command payloads retain their existing queue
+limits; integrating all legacy source and producer accounting remains open.
+
+Sealed-pressure decision (2026-09-23): pressure may submit sealed payloads
+retaining the exact allocation, plus their queue prefixes and pending completion
+dependencies. Preflight the complete closure before moving ownership or making
+native calls. Never finalize an active context from binding resolution: it may
+be inside a render pass or partway through resolving a draw's bindings. Missing
+reservations, unavailable producers, and cycles leave pending work untouched.
+Active-recording pressure remains a separate admission/progress gate.
+
+Admission revision (2026-09-23): reserve aligned virtual page intervals for each
+snapshot on every provisioned physical queue before accepting create/update.
+This CPU-only reservation does not create native resources or wait for replay.
+Replay materializes the reserved page and offset; payload-held snapshots keep
+intervals unavailable until all consumers retire. Retain page geometry within
+the class cap, and reject capacity/fragmentation before recording. This replaces
+late binding allocation as the ordinary path: selective sealed submission alone
+cannot make a mid-render-pass allocation safe. Reserving unused queue copies is
+a deliberate conservative admission cost. Native allocation failure remains
+terminal. Snapshot lifetime, rather than frame age, governs interval reuse.
+
+Consumer lifetime correction (2026-09-23): prepared renderer state may outlive
+the command list that created its uniform. A raw range plus a no-op command
+capture is therefore insufficient. Keep the existing buffer/offset/size fields
+and add an optional counted resource owner to uniform ranges. The convenience
+factory returns an owning logical range; explicit borrowed native ranges remain
+valid. Reflection still reads the same logical fields and uses the actual struct
+stride. This supersedes the earlier assumption that all ranges could remain
+unowned scalar values through producer migration.
+
+- [x] Implement completion-aware allocation/versioning using existing payload
   leases and sync points, without a render-thread active producer or modulo-two
   upload slot selection.
-- [ ] Handle staging and destination lifetimes, multi-queue use, alignment,
+- [x] Handle staging and destination lifetimes, multi-queue use, alignment,
   non-coherent writes, descriptor invalidation, and exact range transitions.
-- [ ] Enforce bounded pressure and forward progress for submitted and
+- [x] Enforce bounded pressure and forward progress for submitted and
   unsubmitted work; preserve failure quarantine and safe shutdown.
-- [ ] Verify delayed GPU completion prevents reuse without blocking unrelated
+- [x] Verify delayed GPU completion prevents reuse without blocking unrelated
   front-end preparation; retain current command-buffer/fence retirement.
 
 Completion: ordinary new uploads need no synchronous RHI allocation response,
 and backend memory reuse is proven independently of frame age.
 
+Pooling checkpoint (2026-09-23): native binding versions now occupy private
+4 MiB pages; uniform/storage pools cap total normal plus oversize page capacity
+at 64/128 MiB, with 16 MiB maximum allocations. Padded reservations isolate
+noncoherent flush ranges. Logical offsets remain unchanged while native views
+include the selected page offset. Each payload retains the snapshot, view,
+backing, and exact allocation lease. Weak version/binding caches allow reuse
+after completion; repeated uses refresh the producer locator. Oversize pages
+are reused and stay charged to capacity. `DynamicUpload` arena gauges include
+these pools, but do not yet account for all legacy storage producers or shared
+front-end copies. Submitted pressure waits exact owners; unsubmitted pressure
+and incompatible retained page layouts still fail terminally, so the pressure
+item remains unchecked. Delayed-GPU/multi-queue qualification remains open.
+
+Validation: Debug `all` passed for Engine, Sandbox, and RoadWeaver. All 16
+targets selected by `test affected --report` passed, including Vulkan
+integration and the renderer/editor GPU targets. The new bounded-capacity,
+oversize reuse, retained-lease, and producer-locator case passed alone; the
+existing prepared draw/dispatch version case also passed alone in inline and
+threaded modes. Changed-document validation and diff checks passed. These
+results validate the pooling checkpoint, not the remaining Stage 2 gates.
+
+CPU-source checkpoint (2026-09-23): snapshot bytes and reference arrays,
+RDG owned sources, and native upload command data now use one atomic 32 MiB
+reservation counter. Copied spans reserve before allocating their owned copy;
+moved sources reserve actual capacity. RDG's structured-buffer helper uses the
+same admission path. Graph callbacks and recorded commands share immutable
+sources, so an already admitted graph can record at the full budget without a
+second allocation. Cancellation and the final owner release return admission;
+logical resources still release their snapshots through ordinary deferred
+resource deletion. `TryUploadBuffer` rejects input/admission errors with no
+partially recorded command. Tests cover cross-path rejection, full-budget graph
+recording, source ownership after graph destruction, shared command cancellation,
+capacity accounting, and concurrent producers. Legacy native writes, texture
+payloads, legacy producer memory, and backend unsubmitted-pressure progress are
+still outside this checkpoint; Stage 2 remains incomplete.
+
+Validation: final Debug `all` passed for the workspace, all 14 targets selected
+by `test affected --report` passed, and seven RHI upload cases plus four RDG
+upload cases passed in isolation. The report remains
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`. Whole-target
+coverage caught a test-owned logical snapshot awaiting deferred deletion; the
+test now drains its released resource and verifies the budget returns before
+the next case. Changed-document validation and diff checks passed.
+
+Sealed-pressure checkpoint (2026-09-23): binding-page exhaustion now attempts
+selective submission of sealed allocation owners, their queue prefixes, and
+transitive pending producers. Ordinary submission and pressure reuse the same
+dependency/authority/prefix preflight. An ineligible closure leaves all pending
+ownership untouched; an eligible closure preserves active contexts and unrelated
+sealed work, then waits for exact allocation owners before retrying allocation.
+Native failures still use the existing quarantine boundary. Tests cover missing
+reservations, cycles, an active latest use, selective prefix submission, bounded
+page reuse after lease retirement, and unavailable cross-queue producers becoming
+eligible once sealed. This closes only the sealed-owner pressure path; active
+render-pass admission, incompatible page geometry, legacy accounting, and the
+remaining delayed-GPU qualification still block Stage 2 completion.
+
+Validation: Debug `all` and all eight targets selected by `test affected
+--report` passed. Four isolated Vulkan cases passed, including both same-family
+and dedicated-family compute dependency paths and native failure quarantine.
+The cross-queue fixture explicitly retires its producer before destroying its
+local command pool; waiting for the consumer's allocation alone does not retire
+a producer that does not own that allocation. The affected report remains
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+
+Admission checkpoint (2026-09-23): frontend reservations now own virtual page
+intervals for every physical queue. They include alignment and preserve pooled
+normal/oversize geometry. Backend materialization cannot exhaust capacity inside
+a draw; capacity/fragmentation rejects before recording. Snapshots and payloads
+retain intervals through completion, cancellation, and quarantine. Diagnostics
+separate live/peak backing reservations and virtual page capacity from native
+materialization. Buffer writes and packed 2D/3D texture command copies now share
+CPU admission; failed texture admission happens before a command node exists.
+Native buffer creation reports initial-upload admission failure as recoverable
+`RequestNotAdmitted`. Explicit native allocations and caller-owned input memory
+remain outside the owned-copy budget.
+
+Validation: all 16 affected targets passed; isolated admission/fragmentation,
+concurrent producers, prepared draw/dispatch versions, delayed same-family and
+dedicated-family compute, native-write/texture admission, and transfer reuse
+cases passed. The old transfer pressure fixture now exercises frontend rejection
+and explicit retry instead of recording over 32 MiB of owned sources. Legacy
+mapped producers are the remaining aggregate-capacity gap. Consumer migration
+and their removal are pulled forward into Stage 2; asynchronous frame start
+still depends on completing that removal.
+
+Producer-removal checkpoint (2026-09-23): all workspace consumers use ordinary
+typed resources or owning logical uniform ranges. The old mapped producers,
+synchronous overflow path, allocation APIs, and untyped uniform update overload
+are removed. CPU-source and binding-page admission now cover the migrated paths;
+there is no remaining legacy upload pool outside those bounds. Stage 2's
+implementation gates are closed. Historical checkpoint limitations above describe
+their intermediate revisions, not the final admission path.
+
 ### Stage 3: Migrate Consumers and Remove Frame-Start Synchronization
 
 Dependency: Stage 2 lifetime and pressure gates.
 
-- [ ] Migrate all workspace consumers and fixtures to the final uniform and
+- [x] Migrate all workspace consumers and fixtures to the final uniform and
   ordinary-buffer interfaces; remove obsolete physical-placement APIs and
   compatibility overloads/adapters after the last consumer is converted.
   Confirm no caller-facing deferred resource family remains.
-- [ ] Remove `PrepareUniformBufferSync` and front-end storage producer reset.
+- [x] Remove `PrepareUniformBufferSync` and front-end storage producer reset.
   Submit `BeginFrame` asynchronously and remove its unconditional RHI wait.
-- [ ] Introduce or adapt explicit queue/latency limits; verify later ordinary
+- [x] Introduce or adapt explicit queue/latency limits; verify later ordinary
   upload helpers do not reintroduce the same serial wait.
-- [ ] Retain backend frame pacing initially; audit remaining frame-slot owners
+- [x] Retain backend frame pacing initially; audit remaining frame-slot owners
   and document any intentionally retained two-slot policy.
 - [ ] Demonstrate frame N+1 preparation while RHI frame N is delayed, with
   correct output and bounded memory, in a controlled fixture and runtime trace.
@@ -672,27 +838,87 @@ Dependency: Stage 2 lifetime and pressure gates.
 Completion: the ordinary frame-start/upload path has no unconditional
 render-thread RHI flush, and all consumer targets compile and pass their gates.
 
+Implementation (2026-09-23): BeginFrame uses asynchronous dispatch. Queue
+admission charges each EndFrame boundary until replay completes or rejects it,
+with a default limit of three alongside the existing entry/batch/payload limits.
+Current/peak frames and pressure count/duration are published separately.
+Vulkan still owns two pacing slots, at most two descriptor batches, and the
+corresponding swapchain minimum image-count policy; uploads no longer select
+memory from a frame slot. Search of Engine, Sandbox, and RoadWeaver source/test
+roots found no legacy allocation API callers.
+
+The isolated `LaterFramesPrepareWhileRHIReplayIsDelayed` fixture verifies two
+later frames and their uniform/native upload bytes while replay is gated, with
+zero synchronous operations or waits below capacity. The isolated
+`ThreeFrameLimitAllowsOverlapAndBlocksOnlyAtCapacity` fixture verifies the
+fourth frame waits and all credits return. `OwningUniformRangeSurvivesItsCreatingList`
+verifies preparation ownership independently of command-list lifetime. Runtime
+trace and performance comparison remain explicitly postponed with RTX 3090
+qualification; therefore the combined fixture-and-trace checkbox stays open.
+
 ### Stage 4: Qualify Performance, Lifetimes, and Handoff
 
 Dependency: Stage 3 migration complete.
 
-- [ ] Cover repeated update/draw ordering, multiple submissions per frame,
+- [x] Cover repeated update/draw ordering, multiple submissions per frame,
   frames with no draws, delayed RHI/GPU work, and multi-queue resource use.
-- [ ] Cover page exhaustion, oversize requests, pending unsubmitted work,
+- [x] Cover page exhaustion, oversize requests, pending unsubmitted work,
   canceled recording, rejected/failed submission, device loss, resize, and
   shutdown with live uploads. Assert no premature reset or overwrite.
 - [ ] Compare identical workloads and instrumentation against Stage 0: report
   render-thread wait time, throughput, CPU/GPU overlap, frame latency, queued
   payload bytes, upload memory high-water marks, and pressure waits. A renamed
   or relocated wait is not performance acceptance.
-- [ ] Run affected native suites and project targets plus the required `all`
+- [x] Run affected native suites and project targets plus the required `all`
   build for a shared Engine API migration. Record exact evidence.
+- [ ] Resolve or localize the intermittent Vulkan lifecycle access violations;
+  a later passing run does not establish that the cause is fixed.
 - [ ] Update owning runtime contracts, close evidence-backed checklists, and
   complete this plan only after all required acceptance gates pass.
 
 Completion: demonstrated overlap, preserved rendering correctness and resource
 lifetime, bounded memory/latency, and no unexplained regression against the
 recorded budgets.
+
+Local qualification (2026-09-23): repeated prepared draws/dispatches verify exact
+versioned bytes in inline and threaded modes. Empty-frame and multi-submission
+fixtures cover executor ordering; delayed same/dedicated-family queue fixtures
+retain allocation leases through every consumer. Admission/fragmentation,
+oversize, concurrent source ownership, cancellation, and sealed-pressure tests
+cover bounded storage. `PartialNativeFailureQuarantinesOwnersUntilTeardown` now
+retains actual uniform backing reservations through ordinary submission failure
+and injected device loss; the isolated case passed. RHI-thread failure and
+external-failure cases now assert frame-credit reclamation and passed separately.
+Viewport resize ordering and renderer resource invalidation tests passed in the
+affected run. Native buffer/texture churn and shutdown paths remain covered by
+the whole Vulkan suite. These are functional tests, not performance acceptance.
+
+Evidence:
+
+- Debug `all` passed for Engine, Sandbox, and RoadWeaver; build log
+  `Build/.agent-state/logs/20260923-140957-577743-41836-cmake.log`.
+- The final affected run passed 94/95 targets, including sky, static mesh,
+  clouds, viewport, RHI command lists, and RHI threads. Report:
+  `Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`; log:
+  `Build/.agent-state/logs/20260923-140407-099809-2000-ctest.log`.
+- Vulkan whole-target rerun passed 108/108; report:
+  `Build/NativeTestResults/Win64-Debug-DurinEditor/VulkanRHIIntegrationTests.xml`;
+  log `Build/.agent-state/logs/20260923-141037-632250-30104-VulkanRHIIntegrationTests.log`.
+  Debugger run also passed 108/108 (`Build/rhi-upload-debugger-output.log`).
+- Earlier runs reported lifecycle access violations in static-mesh and Vulkan
+  integration targets. The latter reproduced without parallel target execution;
+  debugger and subsequent normal runs passed without identifying a fault stack.
+  Do not attribute the failure to scheduling or a driver without evidence.
+  [Multi-queue execution](RdgRhiMultiQueueExecution.md) already tracks a similar
+  unresolved lifecycle stability issue; a shared cause is not established.
+- The sky retained-generation fixture now polls the published request identity
+  before retaining the next generation. It no longer assumes BeginFrame waits
+  for asynchronous generation progress and passed in the final affected run.
+
+Remaining handoff: preserve the Stage 0 RTX 3090 captures and budgets, resume
+the same-host workload/trace comparison when the user schedules it, and retain
+the lifecycle stability gate until supported by a diagnosis. No replacement
+GTX 1060 baseline or claimed performance improvement is introduced.
 
 ## Validation and References
 

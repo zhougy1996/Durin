@@ -41,6 +41,10 @@ namespace Durin
 		uint64 PeakQueueEntryCount = 0;
 		uint64 PeakQueueBatchCount = 0;
 		uint64 PeakQueuePayloadBytes = 0;
+		uint32 PendingFrameCount = 0;
+		uint32 PeakQueueFrameCount = 0;
+		uint64 FramePressureWaitCount = 0;
+		uint64 FramePressureWaitNanoseconds = 0;
 	};
 	// Reports one bounded cache's current occupancy and lifetime counters.
 	struct FRHICacheStatistics
@@ -226,6 +230,9 @@ namespace Durin
 		RHI_API virtual auto RHIWaitForCompletion(const FRHIGPUSyncPointRef& SyncPoint,
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
+		// CPU-only backend admission, before a version becomes visible to recording.
+		virtual auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
+			-> std::expected<std::shared_ptr<void>, ERHIBufferUploadError> { return std::shared_ptr<void>{}; }
 		// Counters accumulate for the device lifetime until explicitly reset.
 		RHI_API virtual auto RHIGetPipelineCacheStatistics() const
 			-> FRHIPipelineCacheStatistics;
@@ -302,10 +309,6 @@ namespace Durin
 		RHI_API virtual auto RHIGetOrCreateTextureView(
 			FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
-		RHI_API virtual auto RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange;
-		RHI_API virtual auto RHIAllocateDynamicStorageBuffer(
-			FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size)
-			-> FRHIStorageBufferRange;
 		RHI_API auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void;
 		RHI_API auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;

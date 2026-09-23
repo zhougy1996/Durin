@@ -87,8 +87,6 @@ namespace Durin
 			auto RHIUpdateTexture3D(FRHITexture*, uint32, const FUpdateTextureRegion3D&,
 				uint32, uint32, Durin::FByteView) -> void override {}
 			auto RHIReadTexture2D(FRHITexture*, uint32, uint32, FByteBuffer&) -> bool override { return false; }
-			auto RHIAllocateDynamicUniformBuffer(const void*, uint32) -> FRHIUniformBufferRange override { return {}; }
-			auto RHIAllocateDynamicStorageBuffer(const void*, uint32) -> FRHIStorageBufferRange override { return {}; }
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override {}
 			auto RHIBlockUntilGPUIdle() -> void override { ++GPUIdleCount; }
 			auto RHIPushConstants(EShaderStageFlags, uint32, uint32, const void*) -> void override {}

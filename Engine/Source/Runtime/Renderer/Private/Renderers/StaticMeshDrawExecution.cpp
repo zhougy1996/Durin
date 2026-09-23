@@ -9,7 +9,7 @@ namespace Durin::RendererPrivate
 	{
 		const FVector4f Parameters(static_cast<float>(View.MaterialTimeSeconds), 0.0f,
 			bLighting ? 1.0f : 0.0f, bLighting && View.Settings.Mode.bEnableSpecularAA ? 1.0f : 0.0f);
-		return CommandList.AllocateDynamicUniformBuffer(&Parameters, sizeof(Parameters));
+		return CommandList.CreateUniformBufferRange(&Parameters, sizeof(Parameters));
 	}
 	auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
 		const FSceneView& View, const FPreparedStaticMeshView& Prepared,
@@ -45,7 +45,7 @@ namespace Durin::RendererPrivate
 		}
 		if (OutMaterial.Surface.bCompiledLayout)
 		{
-			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : CommandList.AllocateDynamicUniformBuffer(
+			OutMaterial.Uniform = SharedUniform.Buffer ? SharedUniform : CommandList.CreateUniformBufferRange(
 				OutMaterial.Surface.CompiledUniformPayload.data(),
 				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
 			return OutMaterial.Uniform.Buffer != nullptr;
@@ -70,7 +70,7 @@ namespace Durin::RendererPrivate
 		) < 0.0f ? -1.0f : 1.0f;
 
 		return {
-			.Transform = CommandList.AllocateDynamicUniformBuffer(
+			.Transform = CommandList.CreateUniformBufferRange(
 				&TransformUniform, sizeof(TransformUniform)
 			)
 		};

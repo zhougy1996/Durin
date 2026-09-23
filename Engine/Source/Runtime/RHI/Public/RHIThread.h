@@ -39,6 +39,7 @@ namespace Durin
 		uint32 MaxBatches = 16;
 		uint64 MaxPayloadBytes = 32ull * 1024ull * 1024ull;
 		uint32 ThreadStackSize = 0;
+		uint32 MaxFrames = 3;
 	};
 
 	enum class ERHIThreadFailure : uint8 { None, ExternalException, UnknownException, PriorFailure };
@@ -74,6 +75,7 @@ namespace Durin
 		std::function<bool()> IsReady;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
+		uint32 FrameCount = 0;
 	};
 
 	struct FRHIThreadSubmission
@@ -109,12 +111,16 @@ namespace Durin
 		uint64 FailedSerial = 0;
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
+		uint32 OutstandingFrameCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
 		uint32 PeakOutstandingEntryCount = 0;
 		uint32 PeakOutstandingBatchCount = 0;
+		uint32 PeakOutstandingFrameCount = 0;
 		uint64 PeakOutstandingPayloadBytes = 0;
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
+		uint64 FramePressureWaitCount = 0;
+		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
 		FRHIThreadError Error;
 	};

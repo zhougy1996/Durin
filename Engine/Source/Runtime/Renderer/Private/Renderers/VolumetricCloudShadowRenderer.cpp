@@ -367,7 +367,7 @@ namespace Durin
 		Uniform.Viewport[1] = 1.0f / static_cast<float>(View->ViewportHeight);
 		Uniform.Viewport[2] = static_cast<float>(View->ViewportX);
 		Uniform.Viewport[3] = static_cast<float>(View->ViewportY);
-		const FRHIUniformBufferRange Buffer = CommandList.AllocateDynamicUniformBuffer(
+		const FRHIUniformBufferRange Buffer = CommandList.CreateUniformBufferRange(
 			&Uniform, sizeof(Uniform));
 		if (!Buffer.Buffer || Buffer.Size != sizeof(Uniform))
 		{
@@ -385,9 +385,6 @@ namespace Durin
 
 		if (bUseCompute)
 		{
-			const std::array BufferTransition{FRHIBufferTransition{Buffer.Buffer, Buffer.Offset,
-				Buffer.Size, ERHIAccess::Discard, ERHIAccess::ComputeUniformRead}};
-			CommandList.TransitionBuffers(BufferTransition);
 			const std::array Inputs{
 				FRHITextureTransition::Whole(Input.BaseDensity, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),
 				FRHITextureTransition::Whole(Input.DetailDensity, ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead),

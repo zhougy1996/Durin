@@ -220,7 +220,7 @@ namespace Durin
 		CommandList.BindIndexBuffer(
 			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
 		FEditorGridFragmentShader::FParameters Parameters;
-		Parameters.Grid = CommandList.AllocateDynamicUniformBuffer(
+		Parameters.Grid = CommandList.CreateUniformBufferRange(
 			&*Prepared.EditorGridUniform,
 			sizeof(*Prepared.EditorGridUniform));
 		SetShaderParameters(CommandList,

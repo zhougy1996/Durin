@@ -47,7 +47,7 @@ namespace Durin::VulkanRHI
 
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
 		auto Upload(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
-		auto InitializeDeferredReadOnly(FByteView Data) -> void;
+		auto InitializeDeferredReadOnly(FByteView Data, uint32 Offset = 0) -> void;
 		auto IsDeferredReadOnly() const -> bool { return bDeferredReadOnly; }
 
 		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
@@ -69,92 +69,4 @@ namespace Durin::VulkanRHI
 	};
 
 	// Suballocates per-frame uniform ranges from persistently mapped Vulkan buffers.
-	class FVulkanDynamicUniformBufferAllocator
-	{
-	public:
-		explicit FVulkanDynamicUniformBufferAllocator(FVulkanDevice& InDevice);
-
-		~FVulkanDynamicUniformBufferAllocator();
-
-		// Selects a producer only after its prior frame's queue prefixes retire.
-		auto PrepareForProducer() -> void;
-		auto RetireProducer(const FRHIRetirementPrerequisites& Uses) -> void;
-
-		auto TryAllocate(
-			const void* Data,
-			uint32 Size,
-			FRHIUniformBufferRange& OutRange) -> bool;
-
-		// Device allocation remains RHI-owned. The producer calls this only via
-		// an ordered synchronous operation when its prepared pages overflow.
-		auto ReservePage(uint32 MinSize) -> void;
-		auto GetProducerTokensForTesting() const
-			-> std::array<FVulkanCompletionToken, FrameInFlight>;
-
-	private:
-		// Owns one persistently mapped backing buffer used for uniform suballocation.
-		struct FChunk
-		{
-			TRefCountPtr<FVulkanBuffer> Buffer;
-			uint32 Offset = 0;
-			bool bUsed = false;
-			bool bHasServedAllocation = false;
-			uint64 LiveRequestedBytes = 0;
-		};
-
-		// Tracks the active chunk and write offset independently for each frame in flight.
-		struct FProducerState
-		{
-			std::vector<FChunk> Chunks;
-			uint32 CurrentChunkIndex = 0;
-			FRHIRetirementPrerequisites Uses;
-			uint64 RetirementOrder = 0;
-		};
-
-		auto CreateChunk(uint32 MinSize) -> FChunk;
-
-		auto GetAlignment() const -> uint32;
-
-		static auto AlignUp(uint32 Value, uint32 Alignment) -> uint32;
-
-		FVulkanDevice& Device;
-
-		std::array<FProducerState, FrameInFlight> ProducerStates;
-		uint32 ActiveProducerIndex = std::numeric_limits<uint32>::max();
-		uint32 NextProducerIndex = 0;
-		uint64 NextRetirementOrder = 1;
-
-	};
-
-	class FVulkanDynamicStorageBufferAllocator
-	{
-	public:
-		static constexpr uint32 MaximumChunksPerFrame = 16;
-		static constexpr uint64 MaximumBytesPerFrame = 64ull * 1024ull * 1024ull;
-		explicit FVulkanDynamicStorageBufferAllocator(FVulkanDevice& InDevice);
-		~FVulkanDynamicStorageBufferAllocator();
-		auto BeginFrameProducer(uint32 FrameIndex) -> void;
-		auto TryAllocate(uint32 FrameIndex, const void* Data, uint32 Size,
-			FRHIStorageBufferRange& OutRange) -> bool;
-		auto ReservePage(uint32 FrameIndex, uint32 MinSize) -> void;
-
-	private:
-		struct FChunk
-		{
-			TRefCountPtr<FVulkanBuffer> Buffer;
-			uint32 Offset = 0;
-		};
-		struct FFrameState
-		{
-			std::vector<FChunk> Chunks;
-			uint32 CurrentChunkIndex = 0;
-			uint64 RequestedBytes = 0;
-		};
-		auto CreateChunk(uint32 MinSize) -> FChunk;
-		auto GetAlignment() const -> uint32;
-		static auto AlignUp(uint32 Value, uint32 Alignment) -> uint32;
-		FVulkanDevice& Device;
-		std::array<FFrameState, FrameInFlight> Frames;
-	};
-
 } // namespace Durin::VulkanRHI
