@@ -275,10 +275,10 @@ namespace Durin
 
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult
 	{
-		return ShutdownModuleImpl(InModuleName, EShutdownReason::Explicit);
+		return ShutdownModuleImpl(InModuleName, false);
 	}
 
-	auto FModuleManager::ShutdownModuleImpl(const FName& InModuleName, EShutdownReason Reason) -> FModuleShutdownResult
+	auto FModuleManager::ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> FModuleShutdownResult
 	{
 		const auto ModuleInfo = FindModule(InModuleName);
 		if (!ModuleInfo)
@@ -292,6 +292,13 @@ namespace Durin
 		}
 
 		const EModuleState State = ModuleInfo->State.load();
+		if (!bProcessShutdown
+			&& (State == EModuleState::Active || State == EModuleState::StoppedMapped)
+			&& ModuleInfo->Module && !ModuleInfo->Module->SupportsDynamicReloading())
+		{
+			return {EModuleOperationStatus::DynamicReloadUnsupported, InModuleName, State,
+				"Module does not support runtime shutdown or unload.", {}};
+		}
 		if (State == EModuleState::StoppedMapped)
 		{
 			return {EModuleOperationStatus::AlreadyStopped, InModuleName, State, "Module is already stopped and mapped.",
@@ -306,10 +313,6 @@ namespace Durin
 		{
 			return {EModuleOperationStatus::NotLoaded, InModuleName, State, "Module does not have an active instance.", {}};
 		}
-		if (Reason == EShutdownReason::Explicit && !ModuleInfo->Module->SupportsDynamicReloading())
-			return {EModuleOperationStatus::DynamicReloadUnsupported, InModuleName, State,
-				"Module does not support runtime shutdown or unload.", {}};
-
 		if (ModuleInfo->CodeLeaseCount.load() != 0)
 			return {EModuleOperationStatus::OutstandingCodeLease, InModuleName, State,
 				"Module code is retained by live consumers; retire them and retry shutdown.", {}};
@@ -402,16 +405,7 @@ namespace Durin
 				"Module does not have a mapped instance to unload.", {}};
 		}
 
-		// Process shutdown may stop a non-reloadable module while keeping its DLL mapped.
-		// Active modules are checked by ShutdownModule; check this path before native release.
-		if (State == EModuleState::StoppedMapped && ModuleInfo->Module
-			&& !ModuleInfo->Module->SupportsDynamicReloading())
-		{
-			return {EModuleOperationStatus::DynamicReloadUnsupported, InModuleName, State,
-				"Module does not support runtime shutdown or unload.", {}};
-		}
-
-		if (State == EModuleState::Active)
+		if (State == EModuleState::Active || State == EModuleState::StoppedMapped)
 		{
 			const auto Shutdown = ShutdownModule(InModuleName);
 			if (!Shutdown.Succeeded())
@@ -474,7 +468,7 @@ namespace Durin
 		{
 			if (std::ranges::contains(DeferredModules, ModuleInfo->ModuleName)) continue;
 			if (ModuleInfo->State.load() != EModuleState::Active) continue;
-			const auto Result = ShutdownModuleImpl(ModuleInfo->ModuleName, EShutdownReason::ProcessExit);
+			const auto Result = ShutdownModuleImpl(ModuleInfo->ModuleName, true);
 			if (!Result.Succeeded())
 			{
 				DURIN_ERROR(STR("Module {} failed process-shutdown retirement: {}"),

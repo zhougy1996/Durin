@@ -416,6 +416,9 @@ namespace Durin::Tests
 		ASSERT_TRUE(Manager.ShutdownModule("ManagedModuleStoppedNonReloadable").Succeeded());
 		Module->SetDynamicReloadingForTest(false);
 
+		const auto Shutdown = Manager.ShutdownModule("ManagedModuleStoppedNonReloadable");
+		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Shutdown.Status);
+		EXPECT_EQ(EModuleState::StoppedMapped, Shutdown.ObservedState);
 		const auto Unload = Manager.UnloadModule("ManagedModuleStoppedNonReloadable");
 		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Unload.Status);
 		EXPECT_EQ(EModuleState::StoppedMapped, Unload.ObservedState);
