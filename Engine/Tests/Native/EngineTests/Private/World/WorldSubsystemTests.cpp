@@ -225,14 +225,14 @@ TEST_F(FWorldSubsystemTests, RejectsProviderRetirementUntilGarbageObjectsRelease
 	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
 	auto Gate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
 	auto& Manager = FModuleManager::Get();
-	EXPECT_EQ(Manager.ShutdownModule("WorldSubsystemFixtureProvider").Status, EModuleOperationStatus::OutstandingCodeLease);
+	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
 	EXPECT_TRUE(Manager.IsModuleLoaded("WorldSubsystemFixtureProvider"));
 	World->Shutdown();
-	EXPECT_EQ(Manager.ShutdownModule("WorldSubsystemFixtureProvider").Status, EModuleOperationStatus::OutstandingCodeLease);
+	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
 	CollectGarbage();
-	EXPECT_EQ(Manager.ShutdownModule("WorldSubsystemFixtureProvider").Status, EModuleOperationStatus::OutstandingCodeLease);
+	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
 	Gate.reset();
-	EXPECT_TRUE(Manager.ShutdownModule("WorldSubsystemFixtureProvider").Succeeded());
+	EXPECT_TRUE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
 	EXPECT_EQ(MakeWorld()->InitializeSubsystems().Error, EWorldSubsystemError::ProviderUnavailable);
 }
 

@@ -64,57 +64,6 @@ namespace Durin
 		Unloaded,
 	};
 
-	// Categorizes shutdown and unload completion or fail-closed rejection.
-	enum class EModuleOperationStatus : uint8
-	{
-		Succeeded,
-		NotFound,
-		NotLoaded,
-		AlreadyStopped,
-		WrongControlThread,
-		RecursiveOwnedExecution,
-		FeatureInvocationDrainTimeout,
-		ReflectedObjectDrainRejected,
-		ShutdownCallbackFailure,
-		AsyncOperationDrainTimeout,
-		AsyncOperationSelfWait,
-		AsyncOperationUnsupportedThread,
-		OutstandingAsyncOperationAudit,
-		OutstandingFeatureAudit,
-		OutstandingCodeLease,
-		DynamicReloadUnsupported,
-		UnloadBlocked,
-	};
-
-	// Reports shutdown state, diagnostic text, and synchronous retirement evidence.
-	struct FModuleShutdownResult
-	{
-		EModuleOperationStatus Status = EModuleOperationStatus::NotFound;
-		FName ModuleName;
-		EModuleState ObservedState = EModuleState::Registered;
-		std::string Message;
-		FModularFeatureRetirementSnapshot RetirementSnapshot;
-		FAsyncOperationOwnerSnapshot AsyncOperationSnapshot;
-
-		[[nodiscard]] auto Succeeded() const -> bool
-		{
-			return Status == EModuleOperationStatus::Succeeded || Status == EModuleOperationStatus::AlreadyStopped;
-		}
-	};
-
-	// Reports physical unload state and the evidence that authorized or rejected it.
-	struct FModuleUnloadResult
-	{
-		EModuleOperationStatus Status = EModuleOperationStatus::NotFound;
-		FName ModuleName;
-		EModuleState ObservedState = EModuleState::Registered;
-		std::string Message;
-		FModularFeatureRetirementSnapshot RetirementSnapshot;
-		FAsyncOperationOwnerSnapshot AsyncOperationSnapshot;
-
-		[[nodiscard]] auto Succeeded() const -> bool { return Status == EModuleOperationStatus::Succeeded; }
-	};
-
 	// Owns one logical module record and its current load generation resources.
 	class FModuleInfo
 	{
@@ -163,11 +112,13 @@ namespace Durin
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
 		// Caller must establish a control-thread safe point: no specialized callback
 		// is executing or can start, and dependent consumers are stopped. Never call
-		// from a callback implemented by the module being shut down.
-		CORE_API auto ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult;
+		// from a callback implemented by the module being shut down. Returns false
+		// and logs the reason if shutdown cannot complete.
+		CORE_API auto ShutdownModule(const FName& InModuleName) -> bool;
 		// Same safe-point contract as ShutdownModule; all escaped module objects and
 		// callback copies must be destroyed before this physically releases the DLL.
-		CORE_API auto UnloadModule(const FName& InModuleName) -> FModuleUnloadResult;
+		// Returns false and logs the reason if unload cannot complete.
+		CORE_API auto UnloadModule(const FName& InModuleName) -> bool;
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
 		CORE_API auto SetPreShutdownModuleCallback(std::function<bool(FName)> Callback) -> void;
@@ -177,14 +128,7 @@ namespace Durin
 	private:
 		FModuleManager();
 		auto IsControlThread() const -> bool;
-		auto ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> FModuleShutdownResult;
-		auto MakeShutdownFailure(
-			const FModuleInfoPtr& ModuleInfo,
-			EModuleOperationStatus Status,
-			std::string Message,
-			FModularFeatureRetirementSnapshot Snapshot = {},
-			FAsyncOperationOwnerSnapshot AsyncSnapshot = {}
-		) -> FModuleShutdownResult;
+		auto ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> bool;
 
 		mutable std::mutex ModuleMapMutex;
 		uint32 ControlThreadId = 0;

@@ -197,9 +197,7 @@ namespace Durin::Tests
 			std::chrono::milliseconds(5));
 		const auto SyncUnload = Manager.UnloadModule(SyncName);
 		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_EQ(SyncUnload.Status,
-			EModuleOperationStatus::FeatureInvocationDrainTimeout);
-		EXPECT_EQ(SyncUnload.RetirementSnapshot.InFlightInvocationCount, 1u);
+		EXPECT_FALSE(SyncUnload);
 		ExpectBlockedAndMapped(SyncInfo);
 		Host.ReleaseSync(*SyncSerial);
 		Caller.join();
@@ -221,9 +219,8 @@ namespace Durin::Tests
 			std::chrono::milliseconds(5));
 		const auto WorkerUnload = Manager.UnloadModule(WorkerName);
 		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_EQ(WorkerUnload.Status,
-			EModuleOperationStatus::AsyncOperationDrainTimeout);
-		EXPECT_EQ(WorkerUnload.AsyncOperationSnapshot.ActiveTaskCount, 1u);
+		EXPECT_FALSE(WorkerUnload);
+		EXPECT_EQ(Detail::SnapshotAsyncOperationOwner(WorkerInfo->ModuleOwner).ActiveTaskCount, 1u);
 		ExpectBlockedAndMapped(WorkerInfo);
 		Host.ReleaseAsync(*WorkerSerial);
 
@@ -244,9 +241,8 @@ namespace Durin::Tests
 			std::chrono::milliseconds(5));
 		const auto ResultUnload = Manager.UnloadModule(ResultName);
 		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_EQ(ResultUnload.Status,
-			EModuleOperationStatus::AsyncOperationDrainTimeout);
-		EXPECT_EQ(ResultUnload.AsyncOperationSnapshot.RetainedResultCount, 1u);
+		EXPECT_FALSE(ResultUnload);
+		EXPECT_EQ(Detail::SnapshotAsyncOperationOwner(ResultInfo->ModuleOwner).RetainedResultCount, 1u);
 		ExpectBlockedAndMapped(ResultInfo);
 
 		const FName DeferredName("DynamicUnloadFixtureDeferredUnsupported");
@@ -266,11 +262,8 @@ namespace Durin::Tests
 		const auto DeferredUnload = Manager.UnloadModule(DeferredName);
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
-		EXPECT_EQ(DeferredUnload.Status,
-			EModuleOperationStatus::AsyncOperationUnsupportedThread);
-		EXPECT_GT(
-			DeferredUnload.AsyncOperationSnapshot.RetainedDeferredCallableCount,
-			0u);
+		EXPECT_FALSE(DeferredUnload);
+		EXPECT_GT(Detail::SnapshotAsyncOperationOwner(DeferredInfo->ModuleOwner).RetainedDeferredCallableCount, 0u);
 		ExpectBlockedAndMapped(DeferredInfo);
 
 		const FName ReflectedName("DynamicUnloadFixtureReflectedBlock");
@@ -282,8 +275,7 @@ namespace Durin::Tests
 			[ReflectedName](FName Name) { return Name != ReflectedName; });
 		const auto ReflectedUnload = Manager.UnloadModule(ReflectedName);
 		Manager.SetPreShutdownModuleCallback({});
-		EXPECT_EQ(ReflectedUnload.Status,
-			EModuleOperationStatus::ReflectedObjectDrainRejected);
+		EXPECT_FALSE(ReflectedUnload);
 		ExpectBlockedAndMapped(ReflectedInfo);
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *ReflectedSerial));
@@ -298,8 +290,7 @@ namespace Durin::Tests
 				Fixture.SetThrowOnShutdownForFailure();
 			}).WasInvoked());
 		const auto ShutdownUnload = Manager.UnloadModule(ShutdownName);
-		EXPECT_EQ(ShutdownUnload.Status,
-			EModuleOperationStatus::ShutdownCallbackFailure);
+		EXPECT_FALSE(ShutdownUnload);
 		ExpectBlockedAndMapped(ShutdownInfo);
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *ShutdownSerial));
@@ -307,16 +298,15 @@ namespace Durin::Tests
 		const FName WrongThreadName("DynamicUnloadFixtureWrongThread");
 		const auto WrongThreadInfo = LoadFixture(WrongThreadName);
 		ASSERT_NE(WrongThreadInfo, nullptr);
-		FModuleUnloadResult WrongThreadUnload;
+		bool bWrongThreadUnload = true;
 		std::thread WrongThread([&] {
-			WrongThreadUnload = Manager.UnloadModule(WrongThreadName);
+			bWrongThreadUnload = Manager.UnloadModule(WrongThreadName);
 		});
 		WrongThread.join();
-		EXPECT_EQ(WrongThreadUnload.Status,
-			EModuleOperationStatus::WrongControlThread);
+		EXPECT_FALSE(bWrongThreadUnload);
 		EXPECT_EQ(WrongThreadInfo->State.load(), EModuleState::Active);
 		EXPECT_TRUE(IsMapped(WrongThreadInfo));
-		EXPECT_TRUE(Manager.UnloadModule(WrongThreadName).Succeeded());
+		EXPECT_TRUE(Manager.UnloadModule(WrongThreadName));
 
 		const FName RecursiveName("DynamicUnloadFixtureRecursive");
 		const auto RecursiveInfo = LoadFixture(RecursiveName);
@@ -328,8 +318,7 @@ namespace Durin::Tests
 				return Fixture.RequestRecursiveUnloadForFailure();
 			});
 		ASSERT_TRUE(Recursive.WasInvoked() && Recursive.Value);
-		EXPECT_EQ(*Recursive.Value,
-			EModuleOperationStatus::RecursiveOwnedExecution);
+		EXPECT_FALSE(*Recursive.Value);
 		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::UnloadBlocked);
 		ExpectBlockedAndMapped(RecursiveInfo);
 		EXPECT_FALSE(Host.HasEvent(

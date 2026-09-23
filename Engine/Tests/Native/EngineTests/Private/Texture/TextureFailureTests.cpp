@@ -95,7 +95,7 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildModuleIsUnavailable)
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	auto& Modules = Durin::FModuleManager::Get();
 	const auto Unload = Modules.UnloadModule("TextureBuild");
-	ASSERT_TRUE(Unload.Succeeded()) << Unload.Message;
+	ASSERT_TRUE(Unload);
 	struct FRestoreBuildModule
 	{
 		~FRestoreBuildModule() { Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild"); }

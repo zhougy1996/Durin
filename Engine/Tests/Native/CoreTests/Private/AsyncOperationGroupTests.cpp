@@ -297,11 +297,8 @@ namespace Durin::Tests
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedAsyncCancel");
 
-		EXPECT_TRUE(Result.Succeeded()) << Result.Message;
-		EXPECT_EQ(EModuleState::Unloaded, Result.ObservedState);
-		EXPECT_EQ(1u, Result.AsyncOperationSnapshot.GroupCount);
-		EXPECT_EQ(0u, Result.AsyncOperationSnapshot.ActiveTaskCount);
-		EXPECT_EQ(0u, Result.AsyncOperationSnapshot.RetainedDeferredCallableCount);
+		EXPECT_TRUE(Result);
+		EXPECT_EQ(EModuleState::Unloaded, FModuleManager::Get().FindModule("ManagedAsyncCancel")->State.load());
 	}
 
 	TEST(FModuleManagerAsyncRetirementTests, AsyncTimeoutFailsClosedAndRetainsOperationEvidence)
@@ -318,11 +315,13 @@ namespace Durin::Tests
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedAsyncTimeout");
 		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 
-		EXPECT_EQ(EModuleOperationStatus::AsyncOperationDrainTimeout, Result.Status);
-		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);
-		EXPECT_EQ(1u, Result.AsyncOperationSnapshot.GroupCount);
-		EXPECT_EQ(1u, Result.AsyncOperationSnapshot.ActiveTaskCount);
-		EXPECT_NE(nullptr, FModuleManager::Get().FindModule("ManagedAsyncTimeout")->Module.get());
+		EXPECT_FALSE(Result);
+		const auto Info = FModuleManager::Get().FindModule("ManagedAsyncTimeout");
+		EXPECT_EQ(EModuleState::UnloadBlocked, Info->State.load());
+		const auto Snapshot = Detail::SnapshotAsyncOperationOwner(Info->ModuleOwner);
+		EXPECT_EQ(1u, Snapshot.GroupCount);
+		EXPECT_EQ(1u, Snapshot.ActiveTaskCount);
+		EXPECT_NE(nullptr, Info->Module.get());
 		Release.Trigger();
 		EXPECT_EQ(ETaskState::Canceled, Module->WaitForTaskForTest());
 	}

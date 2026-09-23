@@ -49,7 +49,6 @@ namespace Durin::Tests
 		virtual auto StartRetainedResultForFailure() -> bool = 0;
 		virtual auto StartBlockingWorkerForFailure() -> bool = 0;
 		virtual auto SetThrowOnShutdownForFailure() -> void = 0;
-		virtual auto RequestRecursiveUnloadForFailure()
-			-> EModuleOperationStatus = 0;
+		virtual auto RequestRecursiveUnloadForFailure() -> bool = 0;
 	};
 }

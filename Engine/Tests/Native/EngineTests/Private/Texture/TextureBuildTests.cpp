@@ -543,10 +543,10 @@ TEST(FTextureBuildModuleTests, ModuleRetirementBoundsUnavailability)
 	{
 		const auto Session = Durin::FTextureBuildSession::Acquire();
 		ASSERT_TRUE(Session);
-		EXPECT_FALSE(Modules.UnloadModule("TextureBuild").Succeeded());
+		EXPECT_FALSE(Modules.UnloadModule("TextureBuild"));
 	}
 	const auto Unload = Modules.UnloadModule("TextureBuild");
-	ASSERT_TRUE(Unload.Succeeded()) << Unload.Message;
+	ASSERT_TRUE(Unload);
 
 	Durin::FTexture2DBuildRequest Request;
 	Durin::Image::FImage SourceDataImage;

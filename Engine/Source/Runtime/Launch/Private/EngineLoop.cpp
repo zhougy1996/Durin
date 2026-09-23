@@ -395,23 +395,15 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
 		{
-			const auto BackendShutdown =
-				FModuleManager::Get().UnloadModule("MonaImGui");
-			if (!BackendShutdown.Succeeded())
-			{
-				DURIN_ERROR(STR("MonaImGui module shutdown failed: {}"),
-					BackendShutdown.Message);
-			}
+			if (!FModuleManager::Get().UnloadModule("MonaImGui"))
+				DURIN_ERROR("MonaImGui module shutdown failed.");
 		}
 #endif
 
 		if (FModuleManager::Get().IsModuleLoaded("Mona"))
 		{
-			const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
-			if (!MonaShutdown.Succeeded())
-			{
-				DURIN_ERROR(STR("Mona module shutdown failed: {}"), MonaShutdown.Message);
-			}
+			if (!FModuleManager::Get().ShutdownModule("Mona"))
+				DURIN_ERROR("Mona module shutdown failed.");
 		}
 
 		if (bWasRunning)

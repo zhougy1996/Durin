@@ -214,10 +214,9 @@ namespace Durin
 			bThrowOnShutdown = true;
 		}
 
-		auto RequestRecursiveUnloadForFailure()
-			-> EModuleOperationStatus override
+		auto RequestRecursiveUnloadForFailure() -> bool override
 		{
-			return FModuleManager::Get().UnloadModule(ModuleName).Status;
+			return FModuleManager::Get().UnloadModule(ModuleName);
 		}
 
 	private:

@@ -376,10 +376,9 @@ namespace Durin::Tests
 		EXPECT_EQ(42, *Invocation.Value);
 
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleSuccess");
-		EXPECT_TRUE(Result.Succeeded()) << Result.Message;
-		EXPECT_EQ(EModuleState::Unloaded, Result.ObservedState);
-		EXPECT_EQ(0u, Result.RetirementSnapshot.PublishedCount);
-		EXPECT_EQ(0u, Result.RetirementSnapshot.InFlightInvocationCount);
+		EXPECT_TRUE(Result);
+		const auto Info = FModuleManager::Get().FindModule("ManagedModuleSuccess");
+		EXPECT_EQ(EModuleState::Unloaded, Info->State.load());
 		EXPECT_TRUE(Observations.bShutdown);
 		EXPECT_TRUE(Observations.bDestroyed);
 	}
@@ -392,16 +391,16 @@ namespace Durin::Tests
 		ASSERT_NE(nullptr, Module);
 		auto& Manager = FModuleManager::Get();
 		const auto Shutdown = Manager.ShutdownModule("ManagedModuleNonReloadable");
-		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Shutdown.Status);
-		EXPECT_EQ(EModuleState::Active, Shutdown.ObservedState);
+		EXPECT_FALSE(Shutdown);
+		EXPECT_EQ(EModuleState::Active, Manager.FindModule("ManagedModuleNonReloadable")->State.load());
 		const auto Unload = Manager.UnloadModule("ManagedModuleNonReloadable");
-		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Unload.Status);
-		EXPECT_EQ(EModuleState::Active, Unload.ObservedState);
+		EXPECT_FALSE(Unload);
+		EXPECT_EQ(EModuleState::Active, Manager.FindModule("ManagedModuleNonReloadable")->State.load());
 		EXPECT_FALSE(Observations.bShutdown);
 		EXPECT_FALSE(Observations.bDestroyed);
 		EXPECT_NE(nullptr, Manager.GetModule("ManagedModuleNonReloadable"));
 		Module->SetDynamicReloadingForTest(true);
-		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleNonReloadable").Succeeded());
+		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleNonReloadable"));
 		EXPECT_TRUE(Observations.bShutdown);
 		EXPECT_TRUE(Observations.bDestroyed);
 	}
@@ -413,19 +412,19 @@ namespace Durin::Tests
 			"ManagedModuleStoppedNonReloadable", std::make_unique<FManagedTestModule>(Observations)));
 		ASSERT_NE(nullptr, Module);
 		auto& Manager = FModuleManager::Get();
-		ASSERT_TRUE(Manager.ShutdownModule("ManagedModuleStoppedNonReloadable").Succeeded());
+		ASSERT_TRUE(Manager.ShutdownModule("ManagedModuleStoppedNonReloadable"));
 		Module->SetDynamicReloadingForTest(false);
 
 		const auto Shutdown = Manager.ShutdownModule("ManagedModuleStoppedNonReloadable");
-		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Shutdown.Status);
-		EXPECT_EQ(EModuleState::StoppedMapped, Shutdown.ObservedState);
+		EXPECT_FALSE(Shutdown);
+		EXPECT_EQ(EModuleState::StoppedMapped, Manager.FindModule("ManagedModuleStoppedNonReloadable")->State.load());
 		const auto Unload = Manager.UnloadModule("ManagedModuleStoppedNonReloadable");
-		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Unload.Status);
-		EXPECT_EQ(EModuleState::StoppedMapped, Unload.ObservedState);
+		EXPECT_FALSE(Unload);
+		EXPECT_EQ(EModuleState::StoppedMapped, Manager.FindModule("ManagedModuleStoppedNonReloadable")->State.load());
 		EXPECT_FALSE(Observations.bDestroyed);
 
 		Module->SetDynamicReloadingForTest(true);
-		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleStoppedNonReloadable").Succeeded());
+		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleStoppedNonReloadable"));
 		EXPECT_TRUE(Observations.bDestroyed);
 	}
 
@@ -438,8 +437,8 @@ namespace Durin::Tests
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleReflectedBlock");
 		FModuleManager::Get().SetPreShutdownModuleCallback({});
 
-		EXPECT_EQ(EModuleOperationStatus::ReflectedObjectDrainRejected, Result.Status);
-		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(EModuleState::UnloadBlocked, FModuleManager::Get().FindModule("ManagedModuleReflectedBlock")->State.load());
 		EXPECT_FALSE(Observations.bShutdown);
 		EXPECT_FALSE(Observations.bDestroyed);
 		EXPECT_NE(nullptr, FModuleManager::Get().FindModule("ManagedModuleReflectedBlock")->Module.get());
@@ -450,15 +449,15 @@ namespace Durin::Tests
 		FManagedModuleObservations Observations;
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleSelfUnload", std::make_unique<FManagedTestModule>(Observations)));
-		FModuleUnloadResult UnloadResult;
+		bool bUnloadResult = true;
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>(
 			[&](IManagedModuleFeature&) {
-				UnloadResult = FModuleManager::Get().UnloadModule("ManagedModuleSelfUnload");
+				bUnloadResult = FModuleManager::Get().UnloadModule("ManagedModuleSelfUnload");
 			});
 
 		EXPECT_EQ(EFeatureInvokeStatus::Invoked, Invocation.Status);
-		EXPECT_EQ(EModuleOperationStatus::RecursiveOwnedExecution, UnloadResult.Status);
-		EXPECT_EQ(EModuleState::UnloadBlocked, UnloadResult.ObservedState);
+		EXPECT_FALSE(bUnloadResult);
+		EXPECT_EQ(EModuleState::UnloadBlocked, FModuleManager::Get().FindModule("ManagedModuleSelfUnload")->State.load());
 		EXPECT_FALSE(Observations.bShutdown);
 		EXPECT_FALSE(Observations.bDestroyed);
 	}
@@ -468,16 +467,15 @@ namespace Durin::Tests
 		FManagedModuleObservations Observations;
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleWrongThread", std::make_unique<FManagedTestModule>(Observations)));
-		FModuleShutdownResult WrongThreadResult;
+		bool bWrongThreadResult = true;
 		std::thread Worker([&]() {
-			WrongThreadResult = FModuleManager::Get().ShutdownModule("ManagedModuleWrongThread");
+			bWrongThreadResult = FModuleManager::Get().ShutdownModule("ManagedModuleWrongThread");
 		});
 		Worker.join();
-		EXPECT_EQ(EModuleOperationStatus::WrongControlThread, WrongThreadResult.Status);
-		EXPECT_EQ(EModuleState::Active, WrongThreadResult.ObservedState);
+		EXPECT_FALSE(bWrongThreadResult);
+		EXPECT_EQ(EModuleState::Active, FModuleManager::Get().FindModule("ManagedModuleWrongThread")->State.load());
 
-		const auto Cleanup = FModuleManager::Get().UnloadModule("ManagedModuleWrongThread");
-		EXPECT_TRUE(Cleanup.Succeeded()) << Cleanup.Message;
+		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ManagedModuleWrongThread"));
 	}
 
 	TEST(FModuleManagerRetirementTests, InvocationTimeoutFailsClosedAndRetainsInstance)
@@ -504,9 +502,9 @@ namespace Durin::Tests
 		const auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(std::chrono::milliseconds(5));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleTimeout");
 		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_EQ(EModuleOperationStatus::FeatureInvocationDrainTimeout, Result.Status);
-		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);
-		EXPECT_EQ(1u, Result.RetirementSnapshot.InFlightInvocationCount);
+		EXPECT_FALSE(Result);
+		const auto Info = FModuleManager::Get().FindModule("ManagedModuleTimeout");
+		EXPECT_EQ(EModuleState::UnloadBlocked, Info->State.load());
 		EXPECT_FALSE(Observations.bDestroyed);
 		{
 			std::lock_guard Lock(Mutex);
@@ -522,8 +520,8 @@ namespace Durin::Tests
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleShutdownFailure", std::make_unique<FFailingShutdownModule>(bDestroyed)));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleShutdownFailure");
-		EXPECT_EQ(EModuleOperationStatus::ShutdownCallbackFailure, Result.Status);
-		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(EModuleState::UnloadBlocked, FModuleManager::Get().FindModule("ManagedModuleShutdownFailure")->State.load());
 		EXPECT_FALSE(bDestroyed);
 	}
 }

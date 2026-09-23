@@ -88,7 +88,7 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(
 			First, CookRoot / ShaderCookedLibraryRelativePath));
 		ShutdownShaderData();
-		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ShaderBuild").Succeeded());
+		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ShaderBuild"));
 		ASSERT_TRUE((Error = InitializeShaderData(FShaderDataConfiguration::Cooked(
 				std::filesystem::absolute(CookRoot).lexically_normal())))) << FormatShaderError(Error.error());
 		for (const auto& Request : Requests)

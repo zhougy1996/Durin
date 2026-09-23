@@ -218,11 +218,11 @@ namespace Durin::Tests
 					[](IDynamicUnloadFixtureFeature&) {}).Status;
 			Host.ReleaseSynchronous(*FirstSerial);
 		});
-		const FModuleUnloadResult FirstUnload =
+		const bool FirstUnload =
 			Manager.UnloadModule(FName(FixtureModuleName));
 		Releaser.join();
 		Caller.join();
-		ASSERT_TRUE(FirstUnload.Succeeded()) << FirstUnload.Message;
+		ASSERT_TRUE(FirstUnload);
 		EXPECT_EQ(CallerStatus.load(), EFeatureInvokeStatus::Invoked);
 		EXPECT_EQ(LateStatus.load(), EFeatureInvokeStatus::Unavailable);
 		EXPECT_TRUE(Host.WaitFor(
@@ -254,9 +254,9 @@ namespace Durin::Tests
 		ASSERT_TRUE(Started.WasInvoked());
 		ASSERT_TRUE(Started.Value && *Started.Value);
 
-		const FModuleUnloadResult SecondUnload =
+		const bool SecondUnload =
 			Manager.UnloadModule(FName(FixtureModuleName));
-		ASSERT_TRUE(SecondUnload.Succeeded()) << SecondUnload.Message;
+		ASSERT_TRUE(SecondUnload);
 		EXPECT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::AsyncPublished, *SecondSerial));
 		EXPECT_TRUE(Host.WaitFor(
@@ -279,9 +279,9 @@ namespace Durin::Tests
 		ASSERT_TRUE(ThirdSerial.has_value());
 		EXPECT_GT(ThirdInfo->OwnerGeneration, SecondGeneration);
 		EXPECT_GT(*ThirdSerial, *SecondSerial);
-		const FModuleUnloadResult ThirdUnload =
+		const bool ThirdUnload =
 			Manager.UnloadModule(FName(FixtureModuleName));
-		ASSERT_TRUE(ThirdUnload.Succeeded()) << ThirdUnload.Message;
+		ASSERT_TRUE(ThirdUnload);
 		ExpectFixtureReleased(ThirdInfo);
 
 		const size_t FirstEventCount = Host.EventCount(*FirstSerial);
@@ -303,8 +303,7 @@ namespace Durin::Tests
 			PreviousSerial = *CycleSerial;
 			const auto CycleUnload =
 				Manager.UnloadModule(FName(FixtureModuleName));
-			ASSERT_TRUE(CycleUnload.Succeeded())
-				<< "stress cycle " << Cycle << ": " << CycleUnload.Message;
+			ASSERT_TRUE(CycleUnload) << "stress cycle " << Cycle;
 			ExpectFixtureReleased(CycleInfo);
 		}
 		EXPECT_EQ(Host.EventCount(*FirstSerial), FirstEventCount);

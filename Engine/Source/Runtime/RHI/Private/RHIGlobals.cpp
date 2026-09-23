@@ -77,8 +77,8 @@ namespace Durin
 			GDynamicRHI = nullptr;
 			if (bUnloadBackendModule)
 			{
-				const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
-				if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload VulkanRHI after initialization failure: {}"), Result.Message);
+				if (!FModuleManager::Get().UnloadModule("VulkanRHI"))
+					DURIN_ERROR("Failed to unload VulkanRHI after initialization failure.");
 			}
 			GOwnsBackendModule = false;
 		}
@@ -95,8 +95,8 @@ namespace Durin
 				DURIN_ERROR("Failed to create dynamic RHI");
 				if (bOwnsBackendModule)
 				{
-					const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
-					if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload VulkanRHI after backend creation failure: {}"), Result.Message);
+					if (!FModuleManager::Get().UnloadModule("VulkanRHI"))
+						DURIN_ERROR("Failed to unload VulkanRHI after backend creation failure.");
 				}
 				return false;
 			}
@@ -261,10 +261,8 @@ namespace Durin
 		GDynamicRHI = nullptr;
 		if (std::exchange(GOwnsBackendModule, false))
 		{
-			const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
-			checkf(Result.Succeeded(),
-				"VulkanRHI must unload after its backend and RHI thread are destroyed: {}",
-				Result.Message);
+			checkf(FModuleManager::Get().UnloadModule("VulkanRHI"),
+				"VulkanRHI must unload after its backend and RHI thread are destroyed.");
 		}
 	}
 }

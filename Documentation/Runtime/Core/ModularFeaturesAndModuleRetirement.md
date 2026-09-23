@@ -93,8 +93,11 @@ Shutdown performs this fixed sequence:
 9. for explicit unload, destroy the module instance and release the library;
 10. publish `Unloaded` only after native release.
 
-Wrong-thread, self-owned execution, timeout, reflected-object rejection,
-shutdown-callback failure, and final-audit failure return categorized evidence.
+Explicit shutdown and unload return `bool`; failure reasons are logged by the
+module manager. Tests inspect the module state and owner audits when they need
+retirement evidence. Wrong-thread, self-owned execution, timeout,
+reflected-object rejection, shutdown-callback failure, and final-audit failure
+leave the library mapped.
 After retirement begins, a failure transitions to `UnloadBlocked`; it never
 restores `Active`, destroys the module instance, or calls `FreeLibrary`.
 Process-exit reverse ordering uses the same shutdown transition but deliberately
