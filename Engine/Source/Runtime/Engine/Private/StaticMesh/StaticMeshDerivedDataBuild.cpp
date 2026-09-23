@@ -1,4 +1,4 @@
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 
 #include "Asset/AssetDerivedDataCache.h"
 #include "Serialization/Archive.h"
@@ -8,26 +8,26 @@
 
 namespace Durin
 {
-	auto FormatStaticMeshRecipeError(const FStaticMeshRecipeError& Error) -> std::string
+	auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string
 	{
 		std::string_view Reason;
 		switch (Error.Code)
 		{
-		case EStaticMeshRecipeError::None: return {};
-		case EStaticMeshRecipeError::MissingGeometry: Reason = "requires decoded geometry."; break;
-		case EStaticMeshRecipeError::VertexLimit: Reason = "exceeds the uint32 vertex limit."; break;
-		case EStaticMeshRecipeError::TriangleList: Reason = "index count is not a triangle list."; break;
-		case EStaticMeshRecipeError::NonFinitePosition: Reason = "contains a non-finite position."; break;
-		case EStaticMeshRecipeError::IndexRange: Reason = "contains an out-of-range index."; break;
-		case EStaticMeshRecipeError::WorkingSet: Reason = "predicted working set exceeds its reservation."; break;
-		case EStaticMeshRecipeError::DuplicateMaterial: Reason = "has a duplicate imported source material index."; break;
-		case EStaticMeshRecipeError::RenderLimits: Reason = "exceeds uint32 render-data limits."; break;
-		case EStaticMeshRecipeError::MissingMaterial: Reason = "references a missing source material."; break;
-		case EStaticMeshRecipeError::EmptyGeometry: Reason = "source has no renderable geometry."; break;
-		case EStaticMeshRecipeError::Bounds: Reason = "source has invalid bounds."; break;
-		case EStaticMeshRecipeError::Cancelled: Reason = "recipe was cancelled."; break;
+		case EStaticMeshRenderBuildError::None: return {};
+		case EStaticMeshRenderBuildError::MissingGeometry: Reason = "requires decoded geometry."; break;
+		case EStaticMeshRenderBuildError::VertexLimit: Reason = "exceeds the uint32 vertex limit."; break;
+		case EStaticMeshRenderBuildError::TriangleList: Reason = "index count is not a triangle list."; break;
+		case EStaticMeshRenderBuildError::NonFinitePosition: Reason = "contains a non-finite position."; break;
+		case EStaticMeshRenderBuildError::IndexRange: Reason = "contains an out-of-range index."; break;
+		case EStaticMeshRenderBuildError::WorkingSet: Reason = "predicted working set exceeds its reservation."; break;
+		case EStaticMeshRenderBuildError::DuplicateMaterial: Reason = "has a duplicate imported source material index."; break;
+		case EStaticMeshRenderBuildError::RenderLimits: Reason = "exceeds uint32 render-data limits."; break;
+		case EStaticMeshRenderBuildError::MissingMaterial: Reason = "references a missing source material."; break;
+		case EStaticMeshRenderBuildError::EmptyGeometry: Reason = "source has no renderable geometry."; break;
+		case EStaticMeshRenderBuildError::Bounds: Reason = "source has invalid bounds."; break;
+		case EStaticMeshRenderBuildError::Cancelled: Reason = "build was cancelled."; break;
 		}
-		return std::format("StaticMesh render recipe: {} (mesh '{}', section '{}', index {}, actual {}, expected {}).",
+		return std::format("StaticMesh render build: {} (mesh '{}', section '{}', index {}, actual {}, expected {}).",
 			Reason,
 			Error.MeshName, Error.SectionName, Error.Index, Error.Actual, Error.Expected);
 	}
@@ -59,8 +59,8 @@ namespace Durin
 			return {};
 		}
 
-		// Transfers recipe storage without copying vertex streams or initializing RHI resources.
-		auto AssembleRenderData(FStaticMeshRecipeBuildProduct& Product,
+		// Transfers build storage without copying vertex streams or initializing RHI resources.
+		auto AssembleRenderData(FStaticMeshRenderBuildProduct& Product,
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			const std::function<bool()>& ShouldCancel) -> std::unique_ptr<FStaticMeshRenderData>
 		{
@@ -134,9 +134,17 @@ namespace Durin
 	}
 
 #endif
-	auto FStaticMeshBuilder::Build(
-		FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings, uint64 ExpectedProviderRegistration) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
+	auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
+		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings)
+		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
+	{
+		return BuildStaticMeshRenderDataInSession(FStaticMeshBuildSession::Acquire(),
+			std::move(Request), Control, OutCacheWarnings);
+	}
+
+	auto BuildStaticMeshRenderDataInSession(
+		FStaticMeshBuildSession Session, FStaticMeshBuildRequest Request,
+		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
 	{
 		if (OutCacheWarnings) OutCacheWarnings->clear();
 		if (Control.IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
@@ -167,12 +175,13 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Render});
 #else
-		auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			IStaticMeshBuildProvider>([&](IStaticMeshBuildProvider& Provider) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> {
-			const FStaticMeshBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
+		if (!Session) return std::unexpected(FStaticMeshBuildFailure{
+			"The StaticMesh build module is unavailable; workers require a retained build session.", EStaticMeshBuildStage::Render});
+		auto Build = [&]() -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> {
+			const FStaticMeshBuilderDescriptor Descriptor = Session.GetModule().GetDescriptor();
 			if (!Descriptor.IsValid())
 			{
-				return std::unexpected(FStaticMeshBuildFailure{std::format("Invalid StaticMesh provider '{}' (render version {}).",
+				return std::unexpected(FStaticMeshBuildFailure{std::format("Invalid StaticMesh builder '{}' (render version {}).",
 						Descriptor.ProducerIdentity, Descriptor.RenderBuilderVersion), EStaticMeshBuildStage::Render});
 			}
 			FStaticMeshBuildKeyInput KeyInput{
@@ -210,22 +219,22 @@ namespace Durin
 					? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Source, FormatStaticMeshSourceError(Decoded.error()))
 					: FStaticMeshBuildFailure{FormatStaticMeshSourceError(Decoded.error()), EStaticMeshBuildStage::Source});
 			if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
-			std::vector<FStaticMeshRecipeMaterialSlot> RecipeSlots;
+			std::vector<FStaticMeshBuildMaterialSlot> BuildSlots;
 			for (const auto& Slot : Request.Reconciliation.MaterialSlots)
-				RecipeSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
-			auto RecipeOutcome = Provider.BuildRender({
+				BuildSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
+			auto BuildOutcome = Session.GetModule().BuildRender({
 				.Geometry = std::move(*Decoded),
-				.MaterialSlots = RecipeSlots,
+				.MaterialSlots = BuildSlots,
 				.NormalizedSize = Request.Reconciliation.NormalizedSize}, Control);
-			if (!RecipeOutcome)
+			if (!BuildOutcome)
 			{
-				return std::unexpected(RecipeOutcome.error().Code == EStaticMeshRecipeError::Cancelled
-					? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render, FormatStaticMeshRecipeError(RecipeOutcome.error()))
-					: FStaticMeshBuildFailure{FormatStaticMeshRecipeError(RecipeOutcome.error()), EStaticMeshBuildStage::Render});
+				return std::unexpected(BuildOutcome.error().Code == EStaticMeshRenderBuildError::Cancelled
+					? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render, FormatStaticMeshRenderBuildError(BuildOutcome.error()))
+					: FStaticMeshBuildFailure{FormatStaticMeshRenderBuildError(BuildOutcome.error()), EStaticMeshBuildStage::Render});
 			}
 			if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
-			auto& RecipeProduct = *RecipeOutcome;
-			auto RenderData = AssembleRenderData(RecipeProduct, Request.Reconciliation.MaterialSlots, IsCancelled);
+			auto& BuildProduct = *BuildOutcome;
+			auto RenderData = AssembleRenderData(BuildProduct, Request.Reconciliation.MaterialSlots, IsCancelled);
 			if (!RenderData) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
 			if (const auto Encoded = EncodeRenderData(*RenderData, Bytes, IsCancelled); !Encoded)
 			{
@@ -239,22 +248,13 @@ namespace Durin
 					MaximumStaticMeshPayloadBytes, StoreDiagnostic);
 			if (OutCacheWarnings) *OutCacheWarnings = AssetDerivedDataCache::CollectBuildWarnings(LoadDiagnostic, StoreDiagnostic, CacheDecodeCause);
 			return RenderData;
-		}, ExpectedProviderRegistration);
+		};
+		auto Outcome = Build();
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Render));
-		if (!Invocation.WasInvoked() || !Invocation.Value)
-		{
-			const auto Message = Invocation.Status == EFeatureInvokeStatus::Unavailable
-				? "The StaticMesh build provider is unavailable."
-				: Invocation.Status == EFeatureInvokeStatus::Ambiguous
-					? "Multiple StaticMesh build providers are registered."
-					: "The StaticMesh build provider invocation failed.";
-			return std::unexpected(FStaticMeshBuildFailure{Message, EStaticMeshBuildStage::Render});
-		}
-		auto Outcome = std::move(*Invocation.Value);
 		if (Outcome)
 		{
-			if (!*Outcome) return std::unexpected(FStaticMeshBuildFailure{"StaticMesh provider returned no render data.", EStaticMeshBuildStage::Validation});
-			if (const auto Finalized = FinalizeRenderData(**Outcome, Control); !Finalized)
+			if (!*Outcome) return std::unexpected(FStaticMeshBuildFailure{"StaticMesh builder returned no render data.", EStaticMeshBuildStage::Validation});
+			if (const auto Finalized = FinalizeStaticMeshRenderData(**Outcome, Control); !Finalized)
 				return std::unexpected(Finalized.error());
 		}
 		return Outcome;

@@ -46,7 +46,7 @@
 #include "SceneTestAccess.h"
 #include "SceneInfo.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>

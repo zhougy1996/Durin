@@ -1,4 +1,4 @@
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuilder.h"
 
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -9,17 +9,17 @@ namespace Durin
 	{
 		constexpr float VectorTolerance = 1.0e-10f;
 
-		struct FRecipeCancelled {};
+		struct FBuildCancelled {};
 
-		// Unwinds only the synchronous recipe stack; no exception crosses the provider ABI.
-		struct FRecipeControl
+		// Unwinds only the synchronous build stack; cancellation does not cross the module ABI.
+		struct FBuildControl
 		{
 			const FAssetBuildTaskContext& Execution;
 			uint32 WorkSinceCheckpoint = 0;
 
 			auto Check() const -> void
 			{
-				if (Execution.IsCancelled()) throw FRecipeCancelled{};
+				if (Execution.IsCancelled()) throw FBuildCancelled{};
 			}
 
 			auto Tick() -> void
@@ -40,7 +40,7 @@ namespace Durin
 			return SafeNormalize(Math::Cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
 		}
 
-		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices, FRecipeControl& Control) -> std::vector<FVector3f>
+		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices, FBuildControl& Control) -> std::vector<FVector3f>
 		{
 			std::vector<FVector3f> Normals(Positions.size(), FVector3f(0.0f));
 			for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
@@ -67,7 +67,7 @@ namespace Durin
 			const std::vector<FVector3f>& Positions,
 			const std::vector<FVector3f>& Normals,
 			const std::vector<FVector2f>& UV0,
-			const std::vector<uint32>& Indices, FRecipeControl& Control) -> std::vector<FVector4f>
+			const std::vector<uint32>& Indices, FBuildControl& Control) -> std::vector<FVector4f>
 		{
 			std::vector<FVector3f> TangentAccum(Positions.size(), FVector3f(0.0f));
 			std::vector<FVector3f> BitangentAccum(Positions.size(), FVector3f(0.0f));
@@ -112,7 +112,7 @@ namespace Durin
 			return Tangents;
 		}
 
-		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices, FRecipeControl& Control) -> bool
+		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices, FBuildControl& Control) -> bool
 		{
 			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [&Control](const FVector3f& Normal) {
 				Control.Tick();
@@ -120,7 +120,7 @@ namespace Durin
 			});
 		}
 
-		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices, FRecipeControl& Control) -> bool
+		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices, FBuildControl& Control) -> bool
 		{
 			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [&Control](const FVector4f& Tangent) {
 				Control.Tick();
@@ -129,24 +129,24 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
+		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 		{
 			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
 			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
 			{
-				OutError = {.Code = EStaticMeshRecipeError::VertexLimit, .MeshName = Mesh.Name, .Actual = Mesh.Positions.size(), .Expected = std::numeric_limits<uint32>::max()};
+				OutError = {.Code = EStaticMeshRenderBuildError::VertexLimit, .MeshName = Mesh.Name, .Actual = Mesh.Positions.size(), .Expected = std::numeric_limits<uint32>::max()};
 				return false;
 			}
 			if (Mesh.Indices.size() % 3 != 0)
 			{
-				OutError = {.Code = EStaticMeshRecipeError::TriangleList, .MeshName = Mesh.Name, .IndexCount = Mesh.Indices.size()};
+				OutError = {.Code = EStaticMeshRenderBuildError::TriangleList, .MeshName = Mesh.Name, .IndexCount = Mesh.Indices.size()};
 				return false;
 			}
 			for (size_t Vertex = 0; Vertex < Mesh.Positions.size(); ++Vertex)
 			{
 				Control.Tick();
 				if (Math::IsFinite(Mesh.Positions[Vertex])) continue;
-				OutError = {.Code = EStaticMeshRecipeError::NonFinitePosition, .MeshName = Mesh.Name,
+				OutError = {.Code = EStaticMeshRenderBuildError::NonFinitePosition, .MeshName = Mesh.Name,
 					.Index = Vertex, .Position = Mesh.Positions[Vertex]};
 				return false;
 			}
@@ -154,7 +154,7 @@ namespace Durin
 			{
 				Control.Tick();
 				if (Mesh.Indices[Offset] < Mesh.Positions.size()) continue;
-				OutError = {.Code = EStaticMeshRecipeError::IndexRange, .MeshName = Mesh.Name,
+				OutError = {.Code = EStaticMeshRenderBuildError::IndexRange, .MeshName = Mesh.Name,
 					.Index = Offset, .Actual = Mesh.Indices[Offset], .Expected = Mesh.Positions.size()};
 				return false;
 			}
@@ -171,12 +171,12 @@ namespace Durin
 		}
 
 		auto BuildRenderDataCandidate(
-		std::span<const FStaticMeshRecipeMaterialSlot> MaterialSlots,
+		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots,
 		float NormalizedSize,
 		const FStaticMeshDecodedGeometry& ImportedData,
 		std::vector<FStaticMeshBuildLOD>& OutLODs,
 		FBox& OutBounds,
-		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
+		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
 		FAssetBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		bool bFits = Memory.Add(1, 1024 * 1024)
@@ -189,7 +189,7 @@ namespace Durin
 		}
 		if (!bFits)
 		{
-			OutError = {.Code = EStaticMeshRecipeError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit};
+			OutError = {.Code = EStaticMeshRenderBuildError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit};
 			return false;
 		}
 		std::vector<uint32> ImportedToStableSlot;
@@ -197,10 +197,10 @@ namespace Durin
 		{
 			Control.Tick();
 			const auto Slot = std::ranges::find(MaterialSlots, Imported.SourceMaterialIndex,
-				&FStaticMeshRecipeMaterialSlot::SourceMaterialIndex);
+				&FStaticMeshBuildMaterialSlot::SourceMaterialIndex);
 			if (Slot == MaterialSlots.end())
 			{
-				OutError = {.Code = EStaticMeshRecipeError::MissingMaterial, .Actual = Imported.SourceMaterialIndex};
+				OutError = {.Code = EStaticMeshRenderBuildError::MissingMaterial, .Actual = Imported.SourceMaterialIndex};
 				return false;
 			}
 			ImportedToStableSlot.push_back(static_cast<uint32>(Slot - MaterialSlots.begin()));
@@ -214,7 +214,7 @@ namespace Durin
 			const uint32 SourceIndex = ImportedData.MaterialSlots[ImportedIndex].SourceMaterialIndex;
 			if (!ImportedSourceToIndex.emplace(SourceIndex, ImportedIndex).second)
 			{
-				OutError = {.Code = EStaticMeshRecipeError::DuplicateMaterial, .Index = ImportedIndex, .Actual = SourceIndex};
+				OutError = {.Code = EStaticMeshRenderBuildError::DuplicateMaterial, .Index = ImportedIndex, .Actual = SourceIndex};
 				return false;
 			}
 		}
@@ -233,13 +233,13 @@ namespace Durin
 			Control.Tick();
 			if (!ValidateImportedMesh(ImportedMesh, OutError, Control))
 			{
-				if (OutError.Code != EStaticMeshRecipeError::None) return false;
+				if (OutError.Code != EStaticMeshRenderBuildError::None) return false;
 				continue;
 			}
 			if (Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
 				|| Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
 			{
-				OutError = {.Code = EStaticMeshRecipeError::RenderLimits, .MeshName = ImportedMesh.Name,
+				OutError = {.Code = EStaticMeshRenderBuildError::RenderLimits, .MeshName = ImportedMesh.Name,
 					.Expected = std::numeric_limits<uint32>::max(), .VertexCount = Positions.size() + ImportedMesh.Positions.size(), .IndexCount = Indices.size() + ImportedMesh.Indices.size()};
 				return false;
 			}
@@ -345,7 +345,7 @@ namespace Durin
 			const auto ImportedSlot = ImportedSourceToIndex.find(ImportedMesh.SourceMaterialIndex);
 			if (ImportedSlot == ImportedSourceToIndex.end())
 			{
-				OutError = {.Code = EStaticMeshRecipeError::MissingMaterial, .MeshName = ImportedMesh.Name, .SectionName = Section.Name, .Actual = ImportedMesh.SourceMaterialIndex};
+				OutError = {.Code = EStaticMeshRenderBuildError::MissingMaterial, .MeshName = ImportedMesh.Name, .SectionName = Section.Name, .Actual = ImportedMesh.SourceMaterialIndex};
 				return false;
 			}
 			Section.MaterialSlotIndex = ImportedToStableSlot[ImportedSlot->second];
@@ -354,7 +354,7 @@ namespace Durin
 
 		if (Positions.empty() || Indices.empty() || LOD.Sections.empty())
 		{
-			OutError = {.Code = EStaticMeshRecipeError::EmptyGeometry, .VertexCount = Positions.size(), .IndexCount = Indices.size()};
+			OutError = {.Code = EStaticMeshRenderBuildError::EmptyGeometry, .VertexCount = Positions.size(), .IndexCount = Indices.size()};
 			return false;
 		}
 
@@ -367,7 +367,7 @@ namespace Durin
 		const auto Normalization = GetStaticMeshPositionNormalization(SourceBounds, NormalizedSize);
 		if (!Normalization)
 		{
-			OutError = {.Code = EStaticMeshRecipeError::Bounds, .Bounds = SourceBounds};
+			OutError = {.Code = EStaticMeshRenderBuildError::Bounds, .Bounds = SourceBounds};
 			return false;
 		}
 		for (FVector3f& Position : Positions)
@@ -399,16 +399,16 @@ namespace Durin
 
 	}
 
-	static auto BuildRenderRecipeInternal(
-		const FStaticMeshRecipeBuildRequest& Request,
-		FStaticMeshRecipeBuildProduct& OutProduct,
-		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
+	static auto BuildRenderInternal(
+		const FStaticMeshRenderBuildRequest& Request,
+		FStaticMeshRenderBuildProduct& OutProduct,
+		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
 		OutProduct = {};
 		Control.Check();
 		if (!Request.Geometry)
 		{
-			OutError = {.Code = EStaticMeshRecipeError::MissingGeometry};
+			OutError = {.Code = EStaticMeshRenderBuildError::MissingGeometry};
 			return false;
 		}
 		return BuildRenderDataCandidate(
@@ -420,22 +420,22 @@ namespace Durin
 			OutError, Control);
 	}
 
-	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
-		const FAssetBuildTaskContext& Execution) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError>
+	auto FStaticMeshBuilder::Build(const FStaticMeshRenderBuildRequest& Request,
+		const FAssetBuildTaskContext& Execution) -> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>
 	{
-		FStaticMeshRecipeBuildProduct Product;
-		FStaticMeshRecipeError Error;
-		FRecipeControl Control{Execution};
+		FStaticMeshRenderBuildProduct Product;
+		FStaticMeshRenderBuildError Error;
+		FBuildControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildRenderRecipeInternal(Request, Product, Error, Control);
+			const bool bSucceeded = BuildRenderInternal(Request, Product, Error, Control);
 			Control.Check();
 			if (bSucceeded) return Product;
 			return std::unexpected(std::move(Error));
 		}
-		catch (const FRecipeCancelled&)
+		catch (const FBuildCancelled&)
 		{
-			return std::unexpected(FStaticMeshRecipeError{.Code = EStaticMeshRecipeError::Cancelled});
+			return std::unexpected(FStaticMeshRenderBuildError{.Code = EStaticMeshRenderBuildError::Cancelled});
 		}
 	}
 

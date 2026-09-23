@@ -28,7 +28,7 @@
 #include "RenderingThread.h"
 #include "SceneImportInternal.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
@@ -462,7 +462,7 @@ struct FSceneImportSession::FImpl
 	auto Tick() -> void;
 	auto Run() -> FSceneRoutine;
 	auto PrepareSource(FSceneImportResult &Result) -> void;
-	auto BuildProducts(FSceneImportResult &Result) -> void;
+	auto BuildProducts(FSceneImportResult &Result, const FStaticMeshBuildSession& BuildSession) -> void;
 };
 
 auto FSceneImportSession::FImpl::PrepareSource(FSceneImportResult &Result) -> void
@@ -504,7 +504,7 @@ auto FSceneImportSession::FImpl::PrepareSource(FSceneImportResult &Result) -> vo
 	}
 }
 
-auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> void
+auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result, const FStaticMeshBuildSession& BuildSession) -> void
 {
 	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
 	// Validate the captured closure without parsing the source a second time.
@@ -583,9 +583,8 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			}
 			FStaticMeshBuildRequest Request{.Reconciliation = {.MaterialSlots = Output.StaticMeshMaterialSlots},
 				.Source = Output.StaticMeshSource};
-			auto Outcome =
-			    FStaticMeshBuilder::Build(std::move(Request),
-			                                     {.ShouldCancel = IsCancellationRequested});
+			auto Outcome = BuildStaticMeshRenderDataInSession(BuildSession, std::move(Request),
+			    {.ShouldCancel = IsCancellationRequested});
 			if (!Outcome)
 			{
 				Result = AddError(Result,
@@ -631,7 +630,8 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 		}
 		Result.Outputs = BaseOutputs;
 		Progress = {ESceneImportPhase::Building, "Building textures and mesh", 0, Data.Outputs.size()};
-		co_await Work([&] { BuildProducts(Result); });
+		// Acquire at dispatch, after preview; the work closure releases the session before publication.
+		co_await Work([&, BuildSession = FStaticMeshBuildSession::Acquire()] { BuildProducts(Result, BuildSession); });
 		if (IsCanceled(IsCancellationRequested))
 			co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-build",
 			                   "Scene import canceled.");
@@ -847,7 +847,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				ImportData->SourceIdentity = RootFilename;
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
 				if (const auto Applied = CommitStaticMeshBuild(
-				        *Mesh, std::move(Output.StaticMesh), Output.StaticMeshSource, FStaticMeshBuilder::Capture(*Mesh), true, {},
+				        *Mesh, std::move(Output.StaticMesh), Output.StaticMeshSource, CaptureStaticMeshReconciliation(*Mesh), true, {},
 				        ImportData, &Output.StaticMeshMaterialSlots);
 				    !Applied)
 				{

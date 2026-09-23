@@ -31,13 +31,13 @@ namespace Durin
 
 		struct FRenderWork
 		{
-			uint64 ProviderRegistration = 0;
+			FStaticMeshBuildSession BuildSession;
 			FStaticMeshBuildRequest Request;
 			std::vector<FAssetBuildCacheWarning> CacheWarnings;
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
 			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ Outcome = FStaticMeshBuilder::Build(std::move(Request), Control, &CacheWarnings, ProviderRegistration); }
+			{ Outcome = BuildStaticMeshRenderDataInSession(BuildSession, std::move(Request), Control, &CacheWarnings); }
 		};
 		struct FCollisionWork
 		{
@@ -118,7 +118,6 @@ namespace Durin
 			FStaticMeshSource RequestedSource;
 			bool bRequeue = false;
 			std::optional<FXxHash128> ImportState;
-			FStaticMeshBuildProviderDescriptor Descriptor;
 			FStaticMeshCompilationCompletion Completion;
 			FOnAsyncPhysicsCookFinished PhysicsCompletion;
 			FStaticMeshPublicationPreparation PreparePublication;
@@ -168,7 +167,7 @@ namespace Durin
 				};
 				if (!bAccepting || !IsValid(&Mesh)) return Reject("StaticMesh compilation is not accepting this owner.");
 				if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
-				const auto Snapshot = FStaticMeshBuilder::Capture(Mesh);
+				const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
 				const auto& InputSlots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
 				if (!std::isfinite(Snapshot.NormalizedSize) || Snapshot.NormalizedSize <= 0
 					|| InputSlots.size() > MaximumMeshMaterialSlots)
@@ -193,11 +192,11 @@ namespace Durin
 				const uint64 Bytes = Memory.Bytes;
 				if (Records.size() >= MaximumRecords || Bytes > MaximumTotalBytes - ReservedBytes)
 					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
-				const auto Provider = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
-					[](IStaticMeshBuildProvider& Value) { return Value.GetDescriptor(); });
-				if (!Provider.WasInvoked() || !Provider.Value || !Provider.Value->IsValid()
-					|| Provider.Value->ProducerIdentity.size() > 256)
-					return Reject("StaticMesh compilation requires one valid build provider.");
+				auto Session = FStaticMeshBuildSession::Acquire();
+				if (!Session) return Reject("StaticMesh compilation requires the build module.");
+				const auto Descriptor = Session.GetModule().GetDescriptor();
+				if (!Descriptor.IsValid() || Descriptor.ProducerIdentity.size() > 256)
+					return Reject("StaticMesh compilation requires a valid builder descriptor.");
 				auto Record = std::make_shared<FRecord>();
 				Record->Snapshot = Snapshot;
 				Record->RequestedSource = Request.Source;
@@ -205,7 +204,6 @@ namespace Durin
 				Record->Package = FObjectKey(Mesh.GetPackage());
 				Record->ImportData = FObjectKey(Mesh.GetAssetImportData());
 				if (Mesh.GetAssetImportData()) Record->ImportState = Mesh.GetAssetImportData()->GetCompilationIdentity();
-				Record->Descriptor = *Provider.Value;
 				Record->Completion = std::move(Completion);
 				Record->PreparePublication = std::move(Request.PreparePublication);
 				Record->Work = std::make_shared<FWork>();
@@ -218,14 +216,14 @@ namespace Durin
 				Record->Work->Render().Request.Source.ReleaseGeometry();
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;
-				Record->Work->Render().ProviderRegistration = Provider.RegistrationIdentity;
+				Record->Work->Render().BuildSession = Session;
 				Record->Priority = Request.Priority;
 				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
 				Record->bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
 				Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
-				Record->Diagnostic.Descriptor = Record->Descriptor;
-				Record->Diagnostic.ProviderRegistration = Provider.RegistrationIdentity;
+				Record->Diagnostic.Descriptor = Descriptor;
+				Record->Diagnostic.ModuleGeneration = Session.GetGeneration();
 				// No invalid/rejected submission reaches this boundary or invalidates an older request.
 				for (const auto& Old : Records)
 					if (!Old->Work->IsCollision() && Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->bDelivered)
@@ -312,7 +310,7 @@ namespace Durin
 				bAccepting = false;
 				bShutdown = true;
 				for (const auto& Record : Records) Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-				// Cooperative flags cancel recipes. Drain the scope so every launched body publishes its mailbox.
+				// Cooperative flags cancel builds. Drain the scope so every launched body publishes its mailbox.
 				if (Scope.IsValid()) { Scope.Close(ETaskScopeCloseMode::Drain); Scope.Wait(); }
 				FinishAllCompilation();
 			}
@@ -342,13 +340,7 @@ namespace Durin
 						&& (!Record->ImportState || (Mesh.GetAssetImportData()
 							&& Mesh.GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState)))
 					{
-						const auto Provider = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
-							[&](IStaticMeshBuildProvider& Value) {
-								const auto Current = Value.GetDescriptor();
-								return Current.ProducerIdentity == Record->Descriptor.ProducerIdentity
-									&& Current.RenderBuilderVersion == Record->Descriptor.RenderBuilderVersion;
-							}, Record->Work->Render().ProviderRegistration);
-						return Provider.WasInvoked() && Provider.Value.value_or(false);
+						return true;
 					}
 				return false;
 			}
@@ -466,7 +458,7 @@ namespace Durin
 			}
 			static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
 			{
-				const auto Current = FStaticMeshBuilder::Capture(Mesh);
+				const auto Current = CaptureStaticMeshReconciliation(Mesh);
 				const auto& Expected = Record.RenderSnapshot();
 				if (Current.SourceIdentity != Expected.SourceIdentity || Current.NormalizedSize != Expected.NormalizedSize
 					|| Current.MaterialSlots.size() != Expected.MaterialSlots.size()) return false;
@@ -535,15 +527,9 @@ namespace Durin
 						? EStaticMeshCompilationStatus::Cancelled : EStaticMeshCompilationStatus::Failed;
 				else
 				{
-					const auto Provider = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
-						[&](IStaticMeshBuildProvider& Value) {
-							const auto Current = Value.GetDescriptor();
-							return Current.ProducerIdentity == Record->Descriptor.ProducerIdentity
-								&& Current.RenderBuilderVersion == Record->Descriptor.RenderBuilderVersion;
-						}, Record->Work->Render().ProviderRegistration);
 					const bool bImportCurrent = FObjectKey(Mesh->GetAssetImportData()) == Record->ImportData
 						&& (!Record->ImportState || (Mesh->GetAssetImportData() && Mesh->GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState));
-					if (!Provider.WasInvoked() || !Provider.Value.value_or(false) || !bImportCurrent)
+					if (!bImportCurrent)
 						Record->Terminal = EStaticMeshCompilationStatus::Superseded;
 					else if (!IsCurrent(*Record, *Mesh))
 					{

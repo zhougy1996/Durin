@@ -13,7 +13,7 @@
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "StaticMeshImportAdapter.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
 namespace Durin::AssetForge::Builtins

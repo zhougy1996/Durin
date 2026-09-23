@@ -8,7 +8,7 @@ Last reviewed: 2026-09-22
 
 ## Source ownership and publication
 
-Source, recipe, application, payload, key, and derived-build APIs return
+Source, construction, application, payload, key, and derived-build APIs return
 `std::expected<T, E>` directly, with operation-owned failure context and no
 redundant success flag. Commands and conversions retaining caller-owned outputs
 return `std::expected<void, E>` and preserve their documented output behavior.
@@ -54,13 +54,14 @@ Fresh standalone/Scene import initializes source once before Engine DDC lookup.
 Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining owned validation,
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
-Recipes receive only an owning decoded handle and recipe settings. Provider feature
-version 9 returns render products as `std::expected<Product, FStaticMeshRecipeError>`.
+The module-private Developer `FStaticMeshBuilder::Build` receives an owning decoded handle and build settings.
+`IStaticMeshBuildModule::BuildRender` returns CPU products as
+`std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and
-cancellation. Physics cooking has no registered recipe provider. Failed or canceled recipes return no product. Derived-data orchestration translates recipe failures once into a bounded pipeline failure, preserving cancellation.
+cancellation. Physics cooking is independent of the render build module. Failed or canceled builds return no product. Derived-data orchestration translates construction failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
-`FStaticMeshBuilder::Build` constructs owned, validated render data, including
+`BuildStaticMeshRenderData` constructs owned, validated render data, including
 bounds and optional ray acceleration. `CommitStaticMeshBuild` consumes that prepared
 render data on the owner thread after checking the captured source, normalization,
 material bindings and cancellation state. It does no bounds, ray or collision
@@ -86,7 +87,7 @@ rolls back accepted source, slots, provenance or render data and never changes a
 successful render completion into a failure. Cook independently builds detached
 render and required collision projections; missing required collision fails cook.
 Cooked decoding validates both existing payloads and prepares bounds/ray data
-before installing them within one consumer refresh boundary, without editor recipes.
+before installing them within one consumer refresh boundary, without editor construction.
 Bounds/getters/scene preparation never finish authored work.
 
 Preview/components retain the previous accepted mesh until publication. An
@@ -101,7 +102,7 @@ Assets release decoded residency at
 publication; operation-owned copies expire at operation completion. Explicit
 source readers may cache until `ReleaseGeometry`. Neither release nor successful
 publication removes unsaved authoritative bulk bytes. Cooked projection strips
-source, and cooked loading uses neither source acquisition nor a build provider.
+source, and cooked loading uses neither source acquisition nor a build module.
 
 ## Payload results and cancellation
 
@@ -116,7 +117,7 @@ decoding and validation also accept borrowed predicates and check at most every
 return `std::expected<void, FPhysicsCollisionPayloadError>`, owning geometry/mode, counts, rejected
 indices/ordinals and vertex context. Construction latches cancellation across
 the physics builder so it cannot become a topology rejection. Both APIs
-preserve output on failure. Archive/provider adapters format explicitly; CookedMesh product errors retain
+preserve output on failure. Archive/build adapters format explicitly; CookedMesh product errors retain
 `CollisionCause`. Render conversion returns `std::expected<void, FStaticMeshPayloadError>` with owned
 LOD/stream/section indices, rejected attribute values, bounds and actual/expected
 counts or ranges. It preserves outputs on rejection/cancellation; CookedMesh product errors retain `RenderCause`.
@@ -127,7 +128,7 @@ Ordinary payload Archive loading instead fills an unpublished
 destination in place: cancellation reports an error and the caller discards the
 incomplete value. Successful loading clears obsolete optional UV/color streams
 and collision leaf data. The authored wrapper latches cancellation, so an interrupted cache decode
-cannot fall through to a recipe or become a successful cache hit. The cancellable
+cannot fall through to construction or become a successful cache hit. The cancellable
 bounds overload is for detached construction only: false can leave partial bounds,
 and the caller must discard that candidate. No callback survives its synchronous
 call. Contiguous allocation/copy, container hashing/packing, archive I/O and
@@ -142,7 +143,7 @@ inventing another wrapper. Diagnostic detail alone does not require a new type.
 
 | Boundary | Caller responsibility |
 | --- | --- |
-| Source acquisition, collision input preparation, recipe/build/cook | Stop on invalid or unavailable input; preserve the original reason and cancellation. |
+| Source acquisition, collision input preparation, build/cook | Stop on invalid or unavailable input; preserve the original reason and cancellation. |
 | Payload validation and cooked loading | Reject malformed data; keep structured validation details available to non-cache callers. |
 | Cache read/decode/write | Rebuild rejected cache entries; report recoverable warnings without failing a valid product on cache write failure. |
 | Async admission | Report whether work was accepted; accepted work has a separate completion. |
@@ -163,9 +164,11 @@ import axes. Source organization is independent of the StaticMesh package
 path. Reimport reads the persisted file without copying, replacing, relocating,
 or deleting it. Legacy package-relative source fields are rejected. The
 canonical DDC key also includes builder version 4, render-payload schema 5, and target
-platform. Render/collision key factories return typed key or byte results,
+platform. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
+used by the built-in module descriptor, DDC key defaults, and payload compatibility.
+The algorithm builder header is private to StaticMeshBuild; consumers use the module contract. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
-or partial bytes; provider
+or partial bytes; build
 adapters format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
@@ -174,7 +177,7 @@ retain typed failures for cooked loading and other non-cache callers. Public der
 Render data is returned with unique ownership; failure and cancellation return no product.
 Render construction, application and resource publication use
 `FStaticMeshBuildFailure`: a diagnostic stage, owned text capped at 4096 bytes,
-and `IsCancelled()` for internal control flow. Lower-level source, recipe,
+and `IsCancelled()` for internal control flow. Lower-level source, construction,
 codec and validation errors are formatted at the pipeline boundary; the failure
 then propagates unchanged through candidate construction and completion diagnostics.
 There is no per-layer error enumeration or nested completion cause tree.
@@ -182,26 +185,39 @@ Physics preparation, cooking and installation use `FPhysicsCookFailure` independ
 Both pipelines report recoverable cache problems through `FAssetBuildCacheWarning`,
 with operation and bounded text. Clean hits and misses produce no warning records.
 Cache read/decode failures rebuild from source; write failures do not invalidate an
-in-memory product. Invalid source, recipe or payload data still fails validation.
+in-memory product. Invalid source, construction or payload data still fails validation.
 Queries, cancellation, invalidation and snapshot capture do not introduce another
 error domain. Async admission and eventual completion are separate contracts;
 cancellation and supersession are completion states, not ordinary build failures.
-`StaticMeshBuilder.h` is the advanced detached building API. `FStaticMeshBuilder::Build`
+`StaticMeshBuild.h` is the advanced detached Engine API. `BuildStaticMeshRenderData`
 returns validated render data with bounds and ray-query acceleration;
 `FPhysicsCookHelper::Cook` returns collision geometry from owned LOD0
 positions/indices copied into a detached value snapshot, with per-request
 settings captured independently of render ownership. Workers read the snapshot
 without mutating it; moving a request transfers its arrays without copying.
-`Capture` records owner facts for render publication. Collision capture copies
+`CaptureStaticMeshReconciliation` records owner facts for render publication. Collision capture copies
 LOD0 streams only for source-less procedural/debug meshes. Authored collision uses
 `IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask`: its typed task acquires canonical source
 and creates normalized positions/indices on the worker without RenderData or RHI.
 Both projections use `GetStaticMeshPositionNormalization` to preserve identical
 coordinates. No public combined render/collision build product exists.
 Render output owns CPU geometry and the section-to-slot mapping. Asset slot
-definitions are inputs, not build outputs. Provider registration remains an
-internal guard for render operations only. Physics Cook calls the linked PhysicsCore
-geometry builders directly, without a registered StaticMesh provider. Cache warnings are collected
+definitions are inputs, not build outputs. `IStaticMeshBuildModule` is an Engine-declared
+module interface, implemented by Developer/StaticMeshBuild without feature registration.
+`FStaticMeshBuildSession::Acquire` retains the already-loaded module on the module-control
+thread. `BuildStaticMeshRenderData` is a synchronous control-thread convenience entry point.
+Workers use `BuildStaticMeshRenderDataInSession`, which requires an explicit retained
+session and never acquires one implicitly. Compilation retains its session through
+publication and worker completion. Scene import acquires a session only when dispatching
+product construction after preview and releases it with the work closure before publication.
+Reading, preview, and saving do not retain the render build module.
+A missing module rejects construction explicitly; cooked loading does not acquire a session.
+The module manager rejects shutdown/unload while any session holds a code lease.
+Consumers must stop admission, cancel or finish work, and release sessions before shutdown;
+code leases do not themselves cancel or drain tasks. Descriptors remain immutable for one
+module generation. Generation values are diagnostics, not DDC inputs. Engine does not link
+back to the Developer implementation. Physics Cook calls the linked PhysicsCore
+geometry builders directly, independently of the render build module. Cache warnings are collected
 separately; render results carry no cache-origin, key or timing observation.
 `DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
 after synchronous construction and application. Its render work does not submit, join, wait for or create a render diagnostic

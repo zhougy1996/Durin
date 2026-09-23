@@ -25,7 +25,7 @@
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsScene.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -1074,7 +1074,7 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	ASSERT_TRUE(Component->GetPhysicsActorHandle().IsValid());
 	const auto Generation = Component->GetPhysicsRegistrationGeneration();
 	const auto BodyRevision = Mesh->GetBodySetup()->GetRevision();
-	auto Render = FStaticMeshBuilder::Build({.Reconciliation = FStaticMeshBuilder::Capture(*Mesh), .Source = Mesh->GetSource()});
+	auto Render = BuildStaticMeshRenderData({.Reconciliation = CaptureStaticMeshReconciliation(*Mesh), .Source = Mesh->GetSource()});
 	ASSERT_TRUE(Render);
 	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(*Render)));
 	EXPECT_EQ(Component->GetPhysicsRegistrationGeneration(), Generation);

@@ -6,13 +6,13 @@
 #include "Asset/PayloadTargetPlatform.h"
 #include "Hash/XxHash.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuildVersion.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
 	class FArchive;
 	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 5;
-	inline constexpr uint32 StaticMeshBuilderVersion = 4;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;

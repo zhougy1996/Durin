@@ -257,8 +257,12 @@ admission, cancels both kinds and drains workers before releasing storage.
 
 Render workers own detached source and slot metadata, without material object
 bindings. The owner snapshot retains bindings and provenance until publication.
-Application rechecks source identity, normalization, slot bindings, provenance and
-provider registration. Source-changing operations are discarded after owner edits,
+Application rechecks source identity, normalization, slot bindings and provenance.
+The immutable builder descriptor is captured at admission for diagnostics; joining
+and publication do not reread it while the session pins the same module generation. Render admission acquires an `FStaticMeshBuildSession` on the
+module-control thread and retains it through publication and worker retirement.
+The session pins the module generation; shutdown/unload is rejected until all
+consumers have stopped admission, drained work and released their sessions. Source-changing operations are discarded after owner edits,
 without automatic requeue. Current-source rebuilds may requeue stale render facts.
 Synchronous Build cancels older work, builds CPU render data directly and publishes
 it, returning owned error strings. AsyncBuild success means admission only; its
@@ -272,8 +276,8 @@ and supersedes the earlier request. Publication checks the BodySetup object key,
 settings revision and request generation,
 then asks BodySetup to apply or reject the result. `FAssetBuildTaskContext` carries
 only borrowed cancellation, checkpoint metrics and the working-set reservation.
-Provider registration guards only render work. Collision admission, cooking and
-installation do not query the render provider registry; provider removal or ambiguity
+Module sessions guard only render work. Collision admission, cooking and
+installation do not acquire the render build module; its absence or unloading
 cannot invalidate a physics request. Manager code never writes mesh
 collision state or refreshes components directly.
 Direct BodySetup settings changes and mesh setters share the same invalidation
@@ -310,8 +314,8 @@ history entry returns request ID zero.
 `GetStaticMeshCompilationManagerDiagnostics` are owner-thread, value-only reads.
 They neither pump work nor perform source/cache I/O or initialize resources.
 Request ID zero means no available observation, including evicted history.
-A nonzero observation describes its captured source identity and provider
-registration, not proof that the live asset still matches it. Match these facts
+A nonzero observation describes its captured source identity, builder descriptor and module
+generation, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.
 Nonfatal cache failures survive successful publication in a flat `CacheWarnings`

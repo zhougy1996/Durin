@@ -6,7 +6,7 @@
 #include "Threading/RunnableThread.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsMeshInputTask.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "DObject/DObjectArray.h"
 #include "Components/StaticMeshComponent.h"

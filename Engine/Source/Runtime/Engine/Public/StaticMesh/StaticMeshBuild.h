@@ -5,14 +5,14 @@
 #include "EngineAPI.h"
 #include "Asset/AssetBuildCacheWarning.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
-#include "StaticMesh/StaticMeshBuildProvider.h"
+#include "StaticMesh/IStaticMeshBuildModule.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
 {
-	// Immutable object facts captured before StaticMesh recipe work begins.
+	// Immutable object facts captured before StaticMesh build work begins.
 	struct FStaticMeshReconciliationSnapshot
 	{
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
@@ -20,7 +20,7 @@ namespace Durin
 		FXxHash128 SourceIdentity;
 	};
 
-	// Detached Engine request; cache policy is not forwarded to recipe code.
+	// Detached Engine request; cache policy is not forwarded to build code.
 	struct FStaticMeshBuildRequest
 	{
 		FStaticMeshReconciliationSnapshot Reconciliation;
@@ -28,20 +28,22 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	// Advanced detached building API. Ordinary asset callers use DStaticMesh::Build/AsyncBuild.
-	class FStaticMeshBuilder
-	{
-	public:
-		ENGINE_API static auto Build(
-			FStaticMeshBuildRequest Request,
-			const FAssetBuildTaskContext& Control = {},
-			std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr, uint64 ExpectedProviderRegistration = 0) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
-		// Validate and finish detached CPU data before publication, including non-recipe inputs.
-		ENGINE_API static auto FinalizeRenderData(FStaticMeshRenderData& Render,
-			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
-		ENGINE_API static auto Capture(const DStaticMesh& Mesh)
-			-> FStaticMeshReconciliationSnapshot;
-	};
+	// Synchronous convenience entry point; acquires the module on the module-control thread.
+	ENGINE_API auto BuildStaticMeshRenderData(
+		FStaticMeshBuildRequest Request,
+		const FAssetBuildTaskContext& Control = {},
+		std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr)
+		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+	// Worker-safe execution. Requires a session acquired before dispatch; never acquires implicitly.
+	ENGINE_API auto BuildStaticMeshRenderDataInSession(
+		FStaticMeshBuildSession Session, FStaticMeshBuildRequest Request,
+		const FAssetBuildTaskContext& Control = {},
+		std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr)
+		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+	ENGINE_API auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
+		const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
+	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
+		-> FStaticMeshReconciliationSnapshot;
 
 	// Accept source, slots, provenance and finalized render data as one asset transaction.
 	// Collision invalidation/admission belongs to this boundary, not render publication.

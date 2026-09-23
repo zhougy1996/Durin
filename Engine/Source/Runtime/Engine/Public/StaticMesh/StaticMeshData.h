@@ -26,7 +26,7 @@ namespace Durin
 		FBox LocalBounds;
 	};
 
-	// Owns CPU vertex streams shared by recipe products and serialized LODs.
+	// Owns CPU vertex streams shared by build products and serialized LODs.
 	struct FStaticMeshVertexData
 	{
 		std::vector<FVector3f> Positions;

@@ -11,7 +11,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "Runtime/Engine/Private/StaticMesh/StaticMeshDerivedDataKey.h"

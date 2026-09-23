@@ -5,24 +5,20 @@
 #include "EngineAPI.h"
 #include "Asset/AssetBuildCacheWarning.h"
 #include "Asset/AssetBuildTaskContext.h"
-#include "Collision/CollisionGeometry.h"
-#include "Modules/ModularFeature.h"
-#include "Physics/BodySetupTypes.h"
-#include "Physics/PhysicsTypes.h"
 #include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMesh/StaticMeshData.h"
 
 namespace Durin
 {
-	enum class EStaticMeshRecipeError : uint8
+	enum class EStaticMeshRenderBuildError : uint8
 	{
 		None, MissingGeometry, VertexLimit, TriangleList, NonFinitePosition, IndexRange,
 		WorkingSet, DuplicateMaterial, RenderLimits, MissingMaterial, EmptyGeometry,
 		Bounds, Cancelled
 	};
-	struct FStaticMeshRecipeError
+	struct FStaticMeshRenderBuildError
 	{
-		EStaticMeshRecipeError Code = EStaticMeshRecipeError::None;
+		EStaticMeshRenderBuildError Code = EStaticMeshRenderBuildError::None;
 		std::string MeshName;
 		std::string SectionName;
 		uint64 Index = 0;
@@ -34,11 +30,11 @@ namespace Durin
 		FBox Bounds;
 	};
 
-	ENGINE_API auto FormatStaticMeshRecipeError(const FStaticMeshRecipeError& Error) -> std::string;
+	ENGINE_API auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string;
 
 	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
 
-	struct FStaticMeshBuildProviderDescriptor
+	struct FStaticMeshBuilderDescriptor
 	{
 		std::string ProducerIdentity;
 		uint32 RenderBuilderVersion = 0;
@@ -51,40 +47,25 @@ namespace Durin
 	};
 
 	// Fixed slot metadata only; material object bindings remain with the operation owner.
-	struct FStaticMeshRecipeMaterialSlot
+	struct FStaticMeshBuildMaterialSlot
 	{
 		FName Name;
 		std::string SourceName;
 		uint32 SourceMaterialIndex = 0;
 	};
 
-	struct FStaticMeshRecipeBuildRequest
+	struct FStaticMeshRenderBuildRequest
 	{
 		FStaticMeshGeometryReadHandle Geometry;
-		std::span<const FStaticMeshRecipeMaterialSlot> MaterialSlots;
+		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
 	};
 
 	// Owns complete CPU streams and metadata; Engine assembles runtime resources.
-	struct FStaticMeshRecipeBuildProduct
+	struct FStaticMeshRenderBuildProduct
 	{
 		std::vector<FStaticMeshBuildLOD> LODs;
 		FBox LocalBounds;
-	};
-
-	// Pure StaticMesh render recipe seam.
-	class IStaticMeshBuildProvider : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName =
-			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 9;
-
-		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
-		virtual auto BuildRender(
-			const FStaticMeshRecipeBuildRequest& Request,
-			const FAssetBuildTaskContext& Control = {}) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> = 0;
-
 	};
 
 }

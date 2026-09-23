@@ -1,37 +1,21 @@
-#include "Modules/ModuleManager.h"
-#include "StaticMesh/StaticMeshBuildProvider.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/IStaticMeshBuildModule.h"
+#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuildVersion.h"
 
 namespace Durin
 {
-	// Retires admitted recipe calls before unloading the implementation.
-	class FStaticMeshBuildModule final
-		: public IModuleInterface
-		, public IStaticMeshBuildProvider
+	class FStaticMeshBuildModule final : public IStaticMeshBuildModule
 	{
-		FModularFeatureRegistration Registration;
-
-		auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor override
+		auto GetDescriptor() const -> FStaticMeshBuilderDescriptor override
 		{
-			return {.ProducerIdentity = "Durin.StaticMeshBuild",
-				.RenderBuilderVersion = 4};
+			return {.ProducerIdentity = "Durin.StaticMeshBuild", .RenderBuilderVersion = StaticMeshBuilderVersion};
 		}
 
-		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
-			const FAssetBuildTaskContext& Control) -> std::expected<FStaticMeshRecipeBuildProduct, FStaticMeshRecipeError> override
+		auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
+			const FAssetBuildTaskContext& Control)
+			-> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> override
 		{
-			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, Control);
-		}
-
-		auto StartupModule() -> void override
-		{
-			Registration = FModuleStartup::RegisterFeature<IStaticMeshBuildProvider>(*this);
-			checkf(Registration.IsValid(), "StaticMeshBuild could not register its recipe provider.");
-		}
-
-		auto ShutdownModule() -> void override
-		{
-			Registration.Reset();
+			return FStaticMeshBuilder::Build(Request, Control);
 		}
 	};
 

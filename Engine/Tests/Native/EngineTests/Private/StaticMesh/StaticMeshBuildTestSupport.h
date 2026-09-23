@@ -39,7 +39,7 @@ namespace StaticMeshBuildTestSupport
 	{
 		if (Request.Reconciliation.MaterialSlots.empty() && Request.Source.IsValid())
 			Request.Reconciliation.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
-		return Durin::FStaticMeshBuilder::Build(std::move(Request), Control, Errors);
+		return Durin::BuildStaticMeshRenderData(std::move(Request), Control, Errors);
 	}
 
 	class FScopedDerivedDataCacheRestore
@@ -249,7 +249,7 @@ namespace StaticMeshBuildTestSupport
 		auto* Body = NewObject<DBodySetup>(Mesh, FName("BodySetup"));
 		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		ASSERT_TRUE(Mesh->SetBodySetup(Body));
-		const auto Snapshot = FStaticMeshBuilder::Capture(*Mesh);
+		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 		auto Input = Snapshot;
 		Input.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
 		auto Request = FStaticMeshBuildRequest{.Reconciliation = Input, .Source = Source};
@@ -258,7 +258,7 @@ namespace StaticMeshBuildTestSupport
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		auto Outcome = FStaticMeshBuilder::Build(std::move(Request),
+		auto Outcome = BuildStaticMeshRenderData(std::move(Request),
 			{.ShouldCancel = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
@@ -291,7 +291,7 @@ namespace StaticMeshBuildTestSupport
 			uint64 Checks = 0;
 			bool bRequested = false;
 			std::chrono::steady_clock::time_point RequestedAt;
-			const auto Cancelled = FStaticMeshBuilder::Build(std::move(CancelRequest),
+			const auto Cancelled = BuildStaticMeshRenderData(std::move(CancelRequest),
 				{.ShouldCancel = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)

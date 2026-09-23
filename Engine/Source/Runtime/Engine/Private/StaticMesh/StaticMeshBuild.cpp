@@ -1,4 +1,4 @@
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
 #include "Asset/Asset.h"
@@ -10,7 +10,7 @@
 
 namespace Durin
 {
-	auto FStaticMeshBuilder::Capture(const DStaticMesh& Mesh)
+	auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
 		return {.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
@@ -19,7 +19,7 @@ namespace Durin
 			.SourceIdentity = Mesh.GetSource().GetIdentity()};
 	}
 
-	auto FStaticMeshBuilder::FinalizeRenderData(FStaticMeshRenderData& Render,
+	auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
 		const FAssetBuildTaskContext& Control) -> std::expected<void, FStaticMeshBuildFailure>
 	{
 		const auto Fail = [](FStaticMeshBuildFailure Error) { return std::unexpected(std::move(Error)); };
@@ -119,11 +119,11 @@ namespace Durin
 			return std::unexpected(std::vector<std::string>{"StaticMesh build requires valid canonical source metadata."});
 		// Retire older work without pumping callbacks or waiting for unrelated compilation.
 		CancelStaticMeshCompilation(*this);
-		const auto Snapshot = FStaticMeshBuilder::Capture(*this);
+		const auto Snapshot = CaptureStaticMeshReconciliation(*this);
 		auto Input = Snapshot;
 		if (PreparedMaterialSlots) Input.MaterialSlots = *PreparedMaterialSlots;
 		std::vector<FAssetBuildCacheWarning> Warnings;
-		auto Render = FStaticMeshBuilder::Build({.Reconciliation = Input, .Source = InSource}, {}, &Warnings);
+		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = InSource}, {}, &Warnings);
 		if (!Render) return std::unexpected(std::vector<std::string>{Render.error().ToString()});
 		for (const auto& Warning : Warnings) DURIN_WARN("StaticMesh {}", Warning.ToString());
 		if (const auto Applied = CommitStaticMeshBuild(*this, std::move(*Render), InSource, Snapshot, true, {}, nullptr,

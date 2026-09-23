@@ -2,7 +2,7 @@
 #include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/VolumeTextureBuildProvider.h"
-#include "StaticMesh/StaticMeshBuildProvider.h"
+#include "StaticMesh/IStaticMeshBuildModule.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -41,7 +41,10 @@ namespace Durin::AssetPrivate
 		if (Family == "volume-texture") return ReadDescriptor<IVolumeTextureBuildProvider>(Out);
 		if (Family == "static-mesh")
 		{
-			if (!ReadDescriptor<IStaticMeshBuildProvider>(Out)) return false;
+			const auto Session = FStaticMeshBuildSession::Acquire();
+			if (!Session) return false;
+			Out = EncodeDescriptor(Session.GetModule().GetDescriptor());
+			if (Out.empty()) return false;
 			FBinaryWriter PhysicsVersion;
 			PhysicsVersion.WriteU32(PhysicsCookBuilderVersion);
 			const auto& Bytes = PhysicsVersion.GetBytes();

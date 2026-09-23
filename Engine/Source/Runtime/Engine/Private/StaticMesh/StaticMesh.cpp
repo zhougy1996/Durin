@@ -17,7 +17,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -571,7 +571,7 @@ namespace Durin
 			if (const auto Validation = PreparedImportData->Validate(); !Validation)
 				return Fail(FStaticMeshBuildFailure{FormatAssetImportDataError(Validation.error()), EStaticMeshBuildStage::Application});
 		}
-		const auto Current = FStaticMeshBuilder::Capture(Mesh);
+		const auto Current = CaptureStaticMeshReconciliation(Mesh);
 		if (Current.SourceIdentity != Snapshot.SourceIdentity || Current.NormalizedSize != Snapshot.NormalizedSize
 			|| Current.MaterialSlots.size() != Snapshot.MaterialSlots.size())
 			return Fail(FStaticMeshBuildFailure{std::format(
@@ -668,7 +668,7 @@ namespace Durin
 		LOD.VertexBuffers.Finalize(
 			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
-		if (!FStaticMeshBuilder::FinalizeRenderData(*RenderData)) { MarkAsGarbage(Mesh); return nullptr; }
+		if (!FinalizeStaticMeshRenderData(*RenderData)) { MarkAsGarbage(Mesh); return nullptr; }
 		if (const auto Published = Mesh->CommitPreparedMeshData(
 			std::move(RenderData), nullptr); !Published)
 		{
@@ -794,7 +794,7 @@ namespace Durin
 		{
 			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Payload, .PayloadCause = std::make_shared<FStaticMeshPayloadError>(Result.error())});
 		}
-		if (const auto Finalized = FStaticMeshBuilder::FinalizeRenderData(*InRenderData); !Finalized)
+		if (const auto Finalized = FinalizeStaticMeshRenderData(*InRenderData); !Finalized)
 			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Finalized.error())});
 		if (const auto Published = CommitPreparedMeshData(std::move(InRenderData), &InMaterialSlots); !Published)
 		{

@@ -17,7 +17,7 @@
 #include "NativeTestSupport.h"
 #include "Preview/PreviewMeshResources.h"
 #include "RHICommandList.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"

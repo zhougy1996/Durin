@@ -2,7 +2,7 @@
 
 #include <expected>
 
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace Durin
@@ -23,8 +23,8 @@ namespace Durin
 		EStaticMeshCompilationPhase Phase = EStaticMeshCompilationPhase::Queued;
 		uint64 ReservedBytes = 0;
 		FXxHash128 SourceIdentity;
-		FStaticMeshBuildProviderDescriptor Descriptor;
-		uint64 ProviderRegistration = 0;
+		FStaticMeshBuilderDescriptor Descriptor;
+		uint64 ModuleGeneration = 0;
 		std::optional<FStaticMeshBuildFailure> Error;
 		std::vector<FAssetBuildCacheWarning> CacheWarnings;
 	};

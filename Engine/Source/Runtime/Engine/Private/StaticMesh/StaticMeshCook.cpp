@@ -15,7 +15,7 @@
 #include "Hash/XxHash.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
-#include "StaticMesh/StaticMeshBuilder.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
@@ -104,9 +104,9 @@ namespace Durin
 			std::string Error;
 			if (Source.IsValid())
 			{
-				FStaticMeshBuildRequest Request{.Reconciliation = FStaticMeshBuilder::Capture(*this), .Source = Source};
+				FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*this), .Source = Source};
 				Request.bPersistDerivedData = false;
-				auto Built = FStaticMeshBuilder::Build(std::move(Request));
+				auto Built = BuildStaticMeshRenderData(std::move(Request));
 				if (!Built)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
