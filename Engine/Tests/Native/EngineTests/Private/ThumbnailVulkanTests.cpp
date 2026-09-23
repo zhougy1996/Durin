@@ -73,7 +73,7 @@ namespace
 	protected:
 		auto SetUp() -> void override
 		{
-			Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 			InitializeDObjectSystem();
 			Durin::FMountPaths::InitDefaultMountPoints();

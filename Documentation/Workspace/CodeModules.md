@@ -71,7 +71,7 @@ physical root communicates ownership but does not select them for a target.
 | `DerivedDataCache` | Backend-neutral synchronous bucket/key Get/Put cache, concurrent bucket-scoped access, immutable returned bytes, and private local persistence; depends only on `Core` and owns no build orchestration | [source](../../Engine/Source/Developer/DerivedDataCache) |
 | `ShaderBuild` | Module-owned live Shader provider: Slang compiler/resolver, dependency manifests, source fingerprints, single-flight workers/LRU, Shader DDC orchestration, generated-source handling, and deterministic cooked-library production; excluded from DurinGame | [source](../../Engine/Source/Developer/ShaderBuild) |
 | `TextureBuild` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions, and three typed synchronous providers; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureBuild) |
-| `StaticMeshBuild` | CPU render construction via FStaticMeshBuilder and IStaticMeshBuildModule, with retained module sessions and producer versions; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/StaticMeshBuild) |
+| `MeshBuilder` | CPU StaticMesh render construction via FStaticMeshBuilder and IMeshBuilderModule, with retained module sessions and producer versions; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/MeshBuilder) |
 | `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-v9-resave orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
 
 ## Project Modules
@@ -104,7 +104,7 @@ declared native-test roots, even when the implementation belongs to Engine.
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
-| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine provider contracts for Texture recipes; `StaticMeshBuild` for its typed recipes; plus `Engine` and the destination runtime asset type |
+| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine provider contracts for Texture recipes; `MeshBuilder` for StaticMesh recipes; plus `Engine` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh or Texture2D/TextureCube/VolumeTexture assets | `Engine` | Engine owns keys, Get/Put, validation, fallback, and application; Developer build modules supply pure typed recipes |
 | project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
 

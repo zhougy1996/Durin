@@ -5,7 +5,7 @@ TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	InitializeDObjectSystem();
 	FScopedPreviewMeshCompiler MeshCompiler;
 	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	InitializeDObjectSystem();
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
@@ -46,7 +46,7 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 {
 	InitializeDObjectSystem();
 	FScopedPreviewMeshCompiler MeshCompiler;
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
@@ -93,7 +93,7 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	InitializeDObjectSystem();
 	FScopedPreviewMeshCompiler MeshCompiler;
 	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;

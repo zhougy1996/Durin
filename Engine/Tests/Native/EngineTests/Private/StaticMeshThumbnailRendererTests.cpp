@@ -174,7 +174,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	std::string Error;
 
 	Durin::FPackagePath SplineBoxPath;

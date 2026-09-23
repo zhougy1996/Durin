@@ -14,7 +14,7 @@
         "MonaCore",
         "Mona",
         "MonaImGui",
-		"StaticMeshBuild",
+		"MeshBuilder",
 		"TextureBuild",
         "AssetForgeBuiltins",
         "ContentBrowser",

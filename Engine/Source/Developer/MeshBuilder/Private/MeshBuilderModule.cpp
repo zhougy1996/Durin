@@ -1,10 +1,10 @@
-#include "StaticMesh/IStaticMeshBuildModule.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshBuildVersion.h"
 
 namespace Durin
 {
-	class FStaticMeshBuildModule final : public IStaticMeshBuildModule
+	class FMeshBuilderModule final : public IMeshBuilderModule
 	{
 		auto GetDescriptor() const -> FStaticMeshBuilderDescriptor override
 		{
@@ -19,5 +19,5 @@ namespace Durin
 		}
 	};
 
-	IMPLEMENT_MODULE(FStaticMeshBuildModule, StaticMeshBuild)
+	IMPLEMENT_MODULE(FMeshBuilderModule, MeshBuilder)
 }

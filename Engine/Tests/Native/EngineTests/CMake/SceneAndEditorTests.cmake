@@ -30,7 +30,7 @@ durin_add_native_test(SplineTests
 		MonaImGui
 		AssetTools
 		DurinEd
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 	INCLUDE_DIRECTORIES
@@ -66,7 +66,7 @@ durin_add_native_test(SkyBoxTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES Core CoreDObject Engine AssetTools StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
+	LIBRARIES Core CoreDObject Engine AssetTools MeshBuilder AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
@@ -96,7 +96,7 @@ durin_add_native_test(SkyBoxVulkanIntegrationTests
 		Engine
 		ApplicationCore
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		RenderCore
@@ -304,7 +304,7 @@ durin_add_native_test(EditorRenderingTests
 		Renderer
 		DurinEd
 		MaterialEditor
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
@@ -495,7 +495,7 @@ durin_add_native_test(TextureCookIntegrationTests
 		CoreDObject
 		Engine
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		RenderCore

@@ -38,12 +38,12 @@ durin_add_native_test(PhysicsSceneTests
 	MODULES physics engine static-mesh-build
 	STACKS editor
 	SOURCES Private/Physics/PhysicsSceneTests.cpp Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES Core CoreDObject Engine PhysicsCore Physics StaticMeshBuild
+	LIBRARIES Core CoreDObject Engine PhysicsCore Physics MeshBuilder
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE
-		"Exercises editor-only StaticMesh collision-build registration through StaticMeshBuild."
+		"Exercises editor-only StaticMesh collision-build registration through MeshBuilder."
 )
 
 durin_add_native_test(PhysicsQualificationTests
@@ -135,7 +135,7 @@ if(DURIN_WITH_EDITOR)
 			Mona
 			MonaImGui
 			AssetForgeBuiltins
-			StaticMeshBuild
+			MeshBuilder
 			DurinEd
 		HEAVY_RUNTIME_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."
 	)

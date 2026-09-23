@@ -73,7 +73,7 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
 		const std::filesystem::path Root =
@@ -262,7 +262,7 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";

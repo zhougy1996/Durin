@@ -18,6 +18,6 @@ durin_add_native_test(RoadSceneIntegrationTests
 	DOMAINS road-scene
 	MODULES roadweaver
 	SOURCES Private/RoadSceneIntegrationTests.cpp
-	LIBRARIES RoadWeaver Engine StaticMeshBuild ${_road_scene_editor_libraries}
+	LIBRARIES RoadWeaver Engine MeshBuilder ${_road_scene_editor_libraries}
 	${_road_scene_rationale}
 )

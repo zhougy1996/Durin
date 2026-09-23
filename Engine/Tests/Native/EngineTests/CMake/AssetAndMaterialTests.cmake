@@ -112,7 +112,7 @@ durin_add_native_test(EditorAssetWorkflowTests
 		ContentBrowser
 		DurinEd
 		MainFrame
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -185,7 +185,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		MonaImGui
 		DurinEd
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		bc7enc_rdo::bc7enc_rdo
@@ -292,7 +292,7 @@ durin_add_native_test(MaterialCompilerTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -332,7 +332,7 @@ durin_add_native_test(MaterialFunctionTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -375,7 +375,7 @@ durin_add_native_test(MaterialGraphEditingTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -431,7 +431,7 @@ durin_add_native_test(MaterialEditorInteractionTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS
 	REQUIRES editor
@@ -480,7 +480,7 @@ durin_add_native_test(MaterialEditingPersistenceTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS
 	REQUIRES editor
@@ -528,7 +528,7 @@ durin_add_native_test(MaterialRuntimeTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -573,7 +573,7 @@ durin_add_native_test(MaterialCompileLifecycleTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS
 	REQUIRES editor
@@ -614,7 +614,7 @@ durin_add_native_test(MaterialCookTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -654,7 +654,7 @@ durin_add_native_test(MaterialPackageTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
@@ -695,7 +695,7 @@ durin_add_native_test(MaterialQualificationTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	ENVIRONMENTS authored-shaders
@@ -723,7 +723,7 @@ durin_add_native_test(StaticMeshTests
 		CoreDObject
 		Engine
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		RenderCore
@@ -766,7 +766,7 @@ durin_add_native_test(StaticMeshMaterialTests
 		CoreDObject
 		Engine
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		RenderCore
@@ -797,7 +797,7 @@ durin_add_native_test(StaticMeshBuildQualificationTests
 	STACKS renderer
 	TIMEOUT 600
 	SOURCES Private/StaticMeshBuildQualificationTests.cpp
-	LIBRARIES Core CoreDObject Engine StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine MeshBuilder TextureBuild AssetForgeBuiltins RenderCore Renderer
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -817,7 +817,7 @@ set(_durin_texture_test_libraries
 	CoreDObject
 	AssetTools
 	Engine
-	StaticMeshBuild
+	MeshBuilder
 	TextureBuild
 	AssetForgeBuiltins
 	TextureEditor

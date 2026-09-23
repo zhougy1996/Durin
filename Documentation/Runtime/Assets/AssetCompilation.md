@@ -2,7 +2,7 @@
 
 Summary: Define the Engine-owned object-aware compilation aggregate, class routing, and compiler lifetime contract.
 
-Modules: Engine, Launch, TextureBuild, StaticMeshBuild
+Modules: Engine, Launch, TextureBuild, MeshBuilder
 
 Last reviewed: 2026-09-22
 

@@ -333,7 +333,7 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 TEST(FMaterialThumbnailRendererTests,
 	LoadedSessionRequiresPreparedInput)
 {
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
@@ -381,7 +381,7 @@ TEST(FMaterialThumbnailRendererTests,
 TEST(FMaterialThumbnailRendererTests,
 	RendererWaitsForMaterialAndSphereCompilationBeforeRendering)
 {
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());

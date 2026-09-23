@@ -25,7 +25,7 @@ durin_add_native_test(SceneImportVulkanTests
 		Engine
 		ApplicationCore
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		RenderCore
 		Renderer
@@ -75,7 +75,7 @@ durin_add_native_test(ThumbnailTests
 		Renderer
 		DurinEd
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		StaticMeshEditor
 		TextureEditor
@@ -117,7 +117,7 @@ durin_add_native_test(MaterialThumbnailTests
 		Renderer
 		DurinEd
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		MaterialEditor
 		TextureEditor
@@ -145,7 +145,7 @@ durin_add_native_test(TextureThumbnailTests
 		Renderer
 		DurinEd
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		TextureEditor
@@ -183,7 +183,7 @@ durin_add_native_test(StaticMeshThumbnailTests
 		Renderer
 		DurinEd
 		AssetTools
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		MaterialEditor
 		StaticMeshEditor
@@ -247,7 +247,7 @@ durin_add_native_test(ThumbnailVulkanTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor

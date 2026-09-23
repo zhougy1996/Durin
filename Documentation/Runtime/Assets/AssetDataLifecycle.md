@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
+Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
 
 Last reviewed: 2026-09-22
 
@@ -92,7 +92,7 @@ private loading; the caller owns candidate cleanup and PostLoad policy.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild` and `StaticMeshBuild` own normalized
+Developer `TextureBuild` and `MeshBuilder` own normalized
 source-independent recipes. Engine owns all
 asset key encoding, editor-only cache lookup/validation/fallback, diagnostics,
 and typed application. AssetForgeBuiltins adapts explicit physical imports to
@@ -110,7 +110,7 @@ API client: RenderCore owns its orchestration and stores complete versioned
 SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
 dependency manifests do not enter portable values.
 
-StaticMeshBuild exposes an explicit render build module interface. TextureBuild
+MeshBuilder exposes an explicit render build module interface. TextureBuild
 registers three providers using bounded typed modular-feature invocation.
 Build implementations own algorithm metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
@@ -253,7 +253,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 ### Optional Asset Operation Boundaries
 
 Runtime Engine owns asset state and typed optional operation contracts:
-`IStaticMeshBuildModule`,
+`IMeshBuilderModule`,
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
 and `ITextureCubeBuildProvider`.
 Texture consumers invoke exactly one provider through a bounded modular-feature
@@ -294,7 +294,7 @@ payload LODs share `FStaticMeshVertexData` without making the recipe product a
 disk-schema object. This boundary separates algorithm and runtime resource
 responsibilities; it does not promise an Engine-free link target.
 
-`StaticMeshBuild` owns only detached CPU render construction through `FStaticMeshBuilder`. Engine owns its
+`MeshBuilder` owns only detached CPU render construction through `FStaticMeshBuilder`. Engine owns its
 PostLoad scheduling, import/Scene build, cache lookup/validation/fallback, and result
 application. Authored PostLoad returns after metadata admission; source decoding,
 render/ray and collision construction run in the typed worker domain. Cook

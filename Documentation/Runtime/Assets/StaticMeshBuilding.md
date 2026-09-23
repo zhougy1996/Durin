@@ -55,7 +55,7 @@ Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining 
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 The module-private Developer `FStaticMeshBuilder::Build` receives an owning decoded handle and build settings.
-`IStaticMeshBuildModule::BuildRender` returns CPU products as
+`IMeshBuilderModule::BuildRender` returns CPU products as
 `std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>`.
 Errors own mesh/section identity, rejected indices/values, budget facts and
 cancellation. Physics cooking is independent of the render build module. Failed or canceled builds return no product. Derived-data orchestration translates construction failures once into a bounded pipeline failure, preserving cancellation.
@@ -166,7 +166,7 @@ or deleting it. Legacy package-relative source fields are rejected. The
 canonical DDC key also includes builder version 4, render-payload schema 5, and target
 platform. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
 used by the built-in module descriptor, DDC key defaults, and payload compatibility.
-The algorithm builder header is private to StaticMeshBuild; consumers use the module contract. Render/collision key factories return typed key or byte results,
+The algorithm builder header is private to MeshBuilder; consumers use the module contract. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; build
 adapters format explicitly. Private cache codecs return a rejection message to the
@@ -202,8 +202,8 @@ and creates normalized positions/indices on the worker without RenderData or RHI
 Both projections use `GetStaticMeshPositionNormalization` to preserve identical
 coordinates. No public combined render/collision build product exists.
 Render output owns CPU geometry and the section-to-slot mapping. Asset slot
-definitions are inputs, not build outputs. `IStaticMeshBuildModule` is an Engine-declared
-module interface, implemented by Developer/StaticMeshBuild without feature registration.
+definitions are inputs, not build outputs. `IMeshBuilderModule` is an Engine-declared
+module interface, implemented by Developer/MeshBuilder without feature registration.
 `FStaticMeshBuildSession::Acquire` retains the already-loaded module on the module-control
 thread. `BuildStaticMeshRenderData` is a synchronous control-thread convenience entry point.
 Workers use `BuildStaticMeshRenderDataInSession`, which requires an explicit retained

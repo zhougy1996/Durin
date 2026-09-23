@@ -53,7 +53,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	Testing::InitializeDObjectSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(InitializeAssetCompilingManager());
-	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, "PendingPreviewMesh");
 	FStaticMeshDecodedGeometry Geometry;
 	Geometry.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
@@ -216,7 +216,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 	InitializeTaskScheduler(2);
 	Testing::InitializeDObjectSystemForTests();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	const auto Project = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
 	const auto Root = Testing::CreateTestFixtureDirectory("CheckedInRoadContent");
 	std::filesystem::copy(Project / "Content", Root, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);

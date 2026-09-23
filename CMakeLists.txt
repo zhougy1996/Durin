@@ -38,7 +38,7 @@ add_durin_workspace()
 # source translators and offline build tools may not flow in the opposite direction.
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -52,18 +52,18 @@ if(TARGET TextureBuild)
 		bc7enc_rdo::bc7enc_rdo
 	)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
-		StaticMeshBuild
+		MeshBuilder
 		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()
 
-if(TARGET StaticMeshBuild)
-	durin_assert_target_dependency_closure_includes(StaticMeshBuild
+if(TARGET MeshBuilder)
+	durin_assert_target_dependency_closure_includes(MeshBuilder
 		DerivedDataCache
 		Engine
 	)
-	durin_assert_target_dependency_closure_excludes(StaticMeshBuild
+	durin_assert_target_dependency_closure_excludes(MeshBuilder
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -78,7 +78,7 @@ if(TARGET DerivedDataCache)
 	)
 	durin_assert_target_dependency_closure_excludes(DerivedDataCache
 		Engine
-		StaticMeshBuild
+		MeshBuilder
 		TextureBuild
 		DurinEd
 		RHI
@@ -90,7 +90,7 @@ endif()
 
 if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
-		StaticMeshBuild
+		MeshBuilder
 		assimp::assimp
 	)
 	durin_assert_target_dependency_closure_excludes(AssetForgeBuiltins
@@ -109,7 +109,7 @@ if(DURIN_RUNTIME_VARIANT STREQUAL "DurinGame")
 		# Authoring frameworks and hosts.
 		AssetImport
 		# Derived builders and offline compressors.
-		StaticMeshBuild
+		MeshBuilder
 		DerivedDataCache
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo

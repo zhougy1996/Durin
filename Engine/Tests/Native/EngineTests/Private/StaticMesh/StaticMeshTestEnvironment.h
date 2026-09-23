@@ -17,7 +17,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-			Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
+			Durin::FModuleManager::Get().LoadModule("MeshBuilder");
 			Durin::FModuleManager::Get().LoadModule("TextureBuild");
 			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 			ASSERT_EQ(

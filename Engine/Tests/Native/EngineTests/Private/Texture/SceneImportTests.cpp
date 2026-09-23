@@ -85,7 +85,7 @@ namespace
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();
 		std::string Error;
@@ -181,24 +181,24 @@ TEST(FSceneImportTests, BuildModuleIsRetainedOnlyDuringProductConstruction)
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	struct FRestoreBuildModule
 	{
-		~FRestoreBuildModule() { FModuleManager::Get().LoadModuleChecked("StaticMeshBuild"); }
+		~FRestoreBuildModule() { FModuleManager::Get().LoadModuleChecked("MeshBuilder"); }
 	} Restore;
 	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
-	ASSERT_TRUE(FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
+	ASSERT_TRUE(FModuleManager::Get().UnloadModule("MeshBuilder").Succeeded());
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready)) << Session.GetResult().Message;
 	ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
-	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
-	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("MeshBuilder"));
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
 	Session.Tick();
 	ASSERT_EQ(Session.GetProgress().Phase, ESceneImportPhase::Building);
-	EXPECT_EQ(FModuleManager::Get().UnloadModule("StaticMeshBuild").Status, EModuleOperationStatus::OutstandingCodeLease);
+	EXPECT_EQ(FModuleManager::Get().UnloadModule("MeshBuilder").Status, EModuleOperationStatus::OutstandingCodeLease);
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Saving)) << Session.GetResult().Message;
-	ASSERT_TRUE(FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
+	ASSERT_TRUE(FModuleManager::Get().UnloadModule("MeshBuilder").Succeeded());
 	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
 	ASSERT_TRUE(Session.GetResult()) << Session.GetResult().Message;
 	EXPECT_TRUE(Session.GetResult().bPersisted);
-	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
+	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("MeshBuilder"));
 }
 
 TEST(FSceneImportTests, AsyncSessionRejectsChangedSourceAfterReusablePreview)

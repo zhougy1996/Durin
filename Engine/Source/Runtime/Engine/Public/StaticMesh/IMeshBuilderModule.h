@@ -6,7 +6,7 @@
 namespace Durin
 {
 	// Fixed Developer module contract; implementations return detached CPU data only.
-	class IStaticMeshBuildModule : public IModuleInterface
+	class IMeshBuilderModule : public IModuleInterface
 	{
 	public:
 		// Descriptor identity and version are immutable for this module generation.
@@ -24,12 +24,12 @@ namespace Durin
 	public:
 		ENGINE_API static auto Acquire() -> FStaticMeshBuildSession;
 		explicit operator bool() const { return Module != nullptr && CodeLease != nullptr; }
-		auto GetModule() const -> IStaticMeshBuildModule& { return *Module; }
+		auto GetModule() const -> IMeshBuilderModule& { return *Module; }
 		auto GetGeneration() const -> uint64 { return Generation; }
 
 	private:
 		std::shared_ptr<void> CodeLease;
-		IStaticMeshBuildModule* Module = nullptr;
+		IMeshBuilderModule* Module = nullptr;
 		uint64 Generation = 0;
 	};
 }

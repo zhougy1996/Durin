@@ -5,7 +5,7 @@
 #include "EngineAPI.h"
 #include "Asset/AssetBuildCacheWarning.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
-#include "StaticMesh/IStaticMeshBuildModule.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"

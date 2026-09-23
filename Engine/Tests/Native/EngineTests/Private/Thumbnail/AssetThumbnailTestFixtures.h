@@ -316,7 +316,7 @@ namespace Durin::Tests
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		Testing::RegisterMountPointForTests(
 			FAssetThumbnailFixtureSet::MountPoint,

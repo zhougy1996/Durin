@@ -116,9 +116,9 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreviewMeshes");
 			// Bootstrap previously activated this provider only after shell creation.
 			// Mesh PostLoad needs it before the eager acquisition below.
-			if (!FModuleManager::Get().LoadModule("StaticMeshBuild"))
+			if (!FModuleManager::Get().LoadModule("MeshBuilder"))
 			{
-				DURIN_ERROR("Editor initialization requires StaticMeshBuild for preview mesh warmup.");
+				DURIN_ERROR("Editor initialization requires MeshBuilder for preview mesh warmup.");
 				return false;
 			}
 			PreviewMeshResources = std::make_unique<Editor::FPreviewMeshResources>();

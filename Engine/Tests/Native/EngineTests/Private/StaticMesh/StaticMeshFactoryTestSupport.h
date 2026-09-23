@@ -17,7 +17,7 @@ namespace Durin::AssetForge::Builtins
 		const FStaticMeshImportSettings& Settings = {})
 		-> Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>
 	{
-		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		FPackagePath ParsedPath;
 		std::string Error;
 		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(AssetPath, ParsedPath); !PathValidation)

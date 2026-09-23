@@ -469,7 +469,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 
 TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry)
 {
-	Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModule("MeshBuilder");
 	Durin::DWorld* FirstWorld = CreatePhysicsWorld();
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	if (!Durin::IsTaskSchedulerRunning()) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
@@ -1049,7 +1049,7 @@ TEST(FPhysicsCollisionGeometryStage2Tests, ProductionSweepAndOverlapMatchReferen
 TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicationPreservesBody)
 {
 	using namespace Durin;
-	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto* World = CreatePhysicsWorld();
 	FPackagePath Path;
 	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,

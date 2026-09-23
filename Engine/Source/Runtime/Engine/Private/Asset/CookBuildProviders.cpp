@@ -2,7 +2,7 @@
 #include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/VolumeTextureBuildProvider.h"
-#include "StaticMesh/IStaticMeshBuildModule.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 

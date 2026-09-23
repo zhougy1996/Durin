@@ -106,7 +106,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	Testing::FScopedMountRegistryFixture MountRegistry;
 	FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(RefreshAssetRegistry());
-	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));

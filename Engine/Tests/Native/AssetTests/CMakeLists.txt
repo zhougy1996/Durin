@@ -41,7 +41,7 @@ if(DURIN_WITH_EDITOR)
 		KIND feature
 		DOMAINS asset-cook
 		MODULES engine texture-build static-mesh-build shader-build
-		LIBRARIES Core CoreDObject Engine TextureBuild StaticMeshBuild ShaderBuild
+		LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder ShaderBuild
 		TIMEOUT 600
 		SOURCES Private/CookFunctionalTests.cpp
 	)
