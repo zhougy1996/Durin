@@ -250,9 +250,6 @@ namespace Durin
 				std::chrono::steady_clock::now().time_since_epoch()).count());
 			Context.KeyUnsigned("ProcessUptimeMicroseconds", NowMicros >= Snapshot.ProcessStartMonotonicMicroseconds
 				? NowMicros - Snapshot.ProcessStartMonotonicMicroseconds : 0);
-			Context.KeyUnsigned("BreadcrumbWriteSequence", Snapshot.BreadcrumbWriteSequence);
-			Context.KeyUnsigned("BreadcrumbFirstSequence", Snapshot.FirstBreadcrumbSequence);
-			Context.KeyUnsigned("BreadcrumbCount", Snapshot.BreadcrumbCount);
 			Context.Key("ActiveLogPath", Snapshot.ActiveLogPath.data());
 			Context.KeyUnsigned("LastAcceptedLogSequence", Snapshot.LastAcceptedLogSequence);
 			Context.KeyUnsigned("LastProcessedLogSequence", Snapshot.LastProcessedLogSequence);
@@ -269,17 +266,6 @@ namespace Durin
 			{
 				Context.Key("AccessViolationOperation", "Unavailable");
 				Context.Key("AccessViolationAddress", "Unavailable");
-			}
-			for (uint32 Index = 0; Index < Snapshot.BreadcrumbCount; ++Index)
-			{
-				const FProcessCrashBreadcrumb& Record = Snapshot.Breadcrumbs[Index];
-				Context.Append("Breadcrumb=");
-				Context.AppendUnsigned(Record.Sequence); Context.Append(",");
-				Context.Append(ProcessCrashBreadcrumbName(Record.Event)); Context.Append(",");
-				Context.AppendUnsigned(Record.ThreadId); Context.Append(",");
-				Context.AppendUnsigned(Record.MonotonicMicroseconds); Context.Append(",");
-				Context.AppendUnsigned(Record.Argument0); Context.Append(",");
-				Context.AppendUnsigned(Record.Argument1); Context.Append("\r\n");
 			}
 			if (ContextFile != INVALID_HANDLE_VALUE) WriteBytes(ContextFile, Context.Buffer.data(), Context.Size, ContextError);
 

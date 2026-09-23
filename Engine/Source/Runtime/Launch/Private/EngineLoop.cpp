@@ -409,19 +409,11 @@ namespace Durin
 		StartupWindow.reset();
 		if (IsDObjectInitialized())
 		{
-			if (bWasRunning)
-			{
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
-			}
 			ShutdownAssetManager();
 			ReleaseClassDefaultObjects();
-			if (bWasRunning)
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ClassDefaultsReleased);
 			ReleaseDStructDefaults();
 			if (bWasRunning)
 			{
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
 				Diagnostics.AtObjectCollection();
 			}
 			CollectGarbage();
@@ -429,20 +421,14 @@ namespace Durin
 			if (GRenderingThread)
 			{
 				FlushRenderingCommands();
-				if (bWasRunning)
-					AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::RenderingCommandsFlushed);
 			}
-			if (bWasRunning)
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::SecondObjectCollection);
 			CollectGarbage();
 			if (bWasRunning)
 			{
-				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
 				CheckNoDeferredDestroyObjects("shutdown object destruction");
 			}
 			FModuleManager::Get().ShutdownModulesAtExit();
 		}
-		if (bWasRunning) AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
 		// Module shutdown may still drain work on either executor.
 		if (bGameThreadDeferredExecutorStarted)
 		{

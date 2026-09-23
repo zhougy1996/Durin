@@ -202,9 +202,6 @@ namespace Durin
 				<< "ProcessUptimeMicroseconds="
 				<< (NowMicros >= Snapshot.ProcessStartMonotonicMicroseconds
 					? NowMicros - Snapshot.ProcessStartMonotonicMicroseconds : 0) << '\n'
-				<< "BreadcrumbWriteSequence=" << Snapshot.BreadcrumbWriteSequence << '\n'
-				<< "BreadcrumbFirstSequence=" << Snapshot.FirstBreadcrumbSequence << '\n'
-				<< "BreadcrumbCount=" << Snapshot.BreadcrumbCount << '\n'
 				<< "ActiveLogPath=" << Snapshot.ActiveLogPath.data() << '\n'
 				<< "LastAcceptedLogSequence=" << Snapshot.LastAcceptedLogSequence << '\n'
 				<< "LastProcessedLogSequence=" << Snapshot.LastProcessedLogSequence << '\n'
@@ -215,14 +212,6 @@ namespace Durin
 				<< "DirectoryError=" << DirectoryError << '\n'
 				<< "ContextError=0\n"
 				<< "DumpError=0\n";
-			for (uint32 Index = 0; Index < Snapshot.BreadcrumbCount; ++Index)
-			{
-				const FProcessCrashBreadcrumb& Record = Snapshot.Breadcrumbs[Index];
-				Context << "Breadcrumb=" << Record.Sequence << ','
-					<< ProcessCrashBreadcrumbName(Record.Event) << ','
-					<< Record.ThreadId << ',' << Record.MonotonicMicroseconds << ','
-					<< Record.Argument0 << ',' << Record.Argument1 << '\n';
-			}
 			Context.flush();
 			Context.close();
 			std::ofstream Marker(CrashDirectory / "Complete.marker", std::ios::binary);

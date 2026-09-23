@@ -14,22 +14,10 @@ namespace Durin
 			std::array<char, Capacity> Buffers[2]{};
 		};
 
-		struct FBreadcrumbSlot
-		{
-			std::atomic<uint64> CommittedSequence{0};
-			std::atomic<uint64> MonotonicMicroseconds{0};
-			std::atomic<uint64> Argument0{0};
-			std::atomic<uint64> Argument1{0};
-			std::atomic<uint32> ThreadId{0};
-			std::atomic<EProcessCrashBreadcrumbEvent> Event{EProcessCrashBreadcrumbEvent::Unknown};
-		};
-
 		struct FProcessCrashState
 		{
 			std::atomic<uint64> ProcessStartUtcMilliseconds{0};
 			std::atomic<uint64> ProcessStartMonotonicMicroseconds{0};
-			std::atomic<uint64> BreadcrumbWriteSequence{0};
-			std::array<FBreadcrumbSlot, ProcessCrashBreadcrumbCapacity> Breadcrumbs{};
 			FPublishedText<ProcessCrashIdentityCapacity> RuntimeVariant;
 			FPublishedText<ProcessCrashIdentityCapacity> BuildConfiguration;
 			FPublishedText<ProcessCrashIdentityCapacity> BuildIdentity;
@@ -92,20 +80,6 @@ namespace Durin
 		PublishText(GProcessCrashState.BuildIdentity, BuildIdentity);
 	}
 
-	auto AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent Event, uint64 Argument0, uint64 Argument1) -> uint64
-	{
-		const uint64 Sequence = GProcessCrashState.BreadcrumbWriteSequence.fetch_add(1, std::memory_order_relaxed) + 1;
-		FBreadcrumbSlot& Slot = GProcessCrashState.Breadcrumbs[(Sequence - 1) & (ProcessCrashBreadcrumbCapacity - 1)];
-		Slot.CommittedSequence.store(0, std::memory_order_relaxed);
-		Slot.MonotonicMicroseconds.store(MonotonicMicroseconds(), std::memory_order_relaxed);
-		Slot.Argument0.store(Argument0, std::memory_order_relaxed);
-		Slot.Argument1.store(Argument1, std::memory_order_relaxed);
-		Slot.ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order_relaxed);
-		Slot.Event.store(Event, std::memory_order_relaxed);
-		Slot.CommittedSequence.store(Sequence, std::memory_order_release);
-		return Sequence;
-	}
-
 	auto PublishProcessCrashLogPath(std::string_view Path) -> void { PublishText(GProcessCrashState.ActiveLogPath, Path); }
 	auto PublishProcessCrashLogAccepted(uint64 Sequence) -> void { GProcessCrashState.LastAcceptedLogSequence.store(Sequence, std::memory_order_release); }
 	auto PublishProcessCrashLogProcessed(uint64 Sequence) -> void { GProcessCrashState.LastProcessedLogSequence.store(Sequence, std::memory_order_release); }
@@ -123,39 +97,7 @@ namespace Durin
 		Result.LastAcceptedLogSequence = GProcessCrashState.LastAcceptedLogSequence.load(std::memory_order_acquire);
 		Result.LastProcessedLogSequence = GProcessCrashState.LastProcessedLogSequence.load(std::memory_order_acquire);
 		Result.LastDurableLogSequence = GProcessCrashState.LastDurableLogSequence.load(std::memory_order_acquire);
-		Result.BreadcrumbWriteSequence = GProcessCrashState.BreadcrumbWriteSequence.load(std::memory_order_acquire);
-		Result.FirstBreadcrumbSequence = Result.BreadcrumbWriteSequence > ProcessCrashBreadcrumbCapacity
-			? Result.BreadcrumbWriteSequence - ProcessCrashBreadcrumbCapacity + 1 : 1;
-		for (uint64 Sequence = Result.FirstBreadcrumbSequence; Sequence <= Result.BreadcrumbWriteSequence; ++Sequence)
-		{
-			const FBreadcrumbSlot& Slot = GProcessCrashState.Breadcrumbs[(Sequence - 1) & (ProcessCrashBreadcrumbCapacity - 1)];
-			if (Slot.CommittedSequence.load(std::memory_order_acquire) != Sequence) continue;
-			const FProcessCrashBreadcrumb Value{
-				.Sequence = Sequence,
-				.MonotonicMicroseconds = Slot.MonotonicMicroseconds.load(std::memory_order_relaxed),
-				.Argument0 = Slot.Argument0.load(std::memory_order_relaxed),
-				.Argument1 = Slot.Argument1.load(std::memory_order_relaxed),
-				.ThreadId = Slot.ThreadId.load(std::memory_order_relaxed),
-				.Event = Slot.Event.load(std::memory_order_relaxed)};
-			if (Slot.CommittedSequence.load(std::memory_order_acquire) != Sequence) continue;
-			Result.Breadcrumbs[Result.BreadcrumbCount++] = Value;
-		}
 		return Result;
 	}
 
-	auto ProcessCrashBreadcrumbName(EProcessCrashBreadcrumbEvent Event) -> const char*
-	{
-		switch (Event)
-		{
-		case EProcessCrashBreadcrumbEvent::ClassDefaultsReleased: return "ClassDefaultsReleased";
-		case EProcessCrashBreadcrumbEvent::StructDefaultsReleased: return "StructDefaultsReleased";
-		case EProcessCrashBreadcrumbEvent::EngineRootRetired: return "EngineRootRetired";
-		case EProcessCrashBreadcrumbEvent::FirstObjectCollection: return "FirstObjectCollection";
-		case EProcessCrashBreadcrumbEvent::RenderingCommandsFlushed: return "RenderingCommandsFlushed";
-		case EProcessCrashBreadcrumbEvent::SecondObjectCollection: return "SecondObjectCollection";
-		case EProcessCrashBreadcrumbEvent::DeferredDestroyAudit: return "DeferredDestroyAudit";
-		case EProcessCrashBreadcrumbEvent::ModulesUnloaded: return "ModulesUnloaded";
-		default: return "Unknown";
-		}
-	}
 }

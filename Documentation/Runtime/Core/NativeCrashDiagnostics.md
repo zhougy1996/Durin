@@ -28,17 +28,15 @@ dump.
 
 `Diagnostics/ProcessCrashContext.h` exposes:
 
-- a 64-entry typed breadcrumb ring whose sequence is committed after its atomic fields;
 - fixed runtime, build, executable-log-path, and start-time storage;
 - atomic last-accepted, last-processed, and last-durable logger sequences.
 
 Snapshots use fixed arrays and bounded retry. They do not allocate, wait, lock,
-traverse engine objects, or expose Windows exception types. A missing ring
-generation is omitted rather than interpreted as a committed record.
+traverse engine objects, or expose Windows exception types.
 
-Crash contexts do not track a process phase. Lifecycle breadcrumbs and native
-stacks provide the retained execution context; offline readers also accept older
-artifacts containing the optional `ProcessPhase` field.
+Crash contexts do not track process phases or lifecycle breadcrumbs. Native dumps
+or system crash reports provide execution context. Offline readers also accept
+older artifacts containing optional lifecycle fields.
 
 The logger publishes only at existing authority points. A larger accepted than
 processed sequence proves that queued tail records may be absent from the log;
@@ -65,7 +63,7 @@ bound naming work. Existing directories are never replaced.
 The line-oriented UTF-8 context is append-compatible within version 1. It owns
 the crash id, reason and exception address, access-violation operation/address,
 process and faulting-thread ids, runtime/build identity, executable, UTC time,
-uptime, phase, breadcrumbs, log snapshot, dump path, and artifact error values.
+uptime, log snapshot, dump path, and artifact error values.
 `Complete.marker` is authoritative for completion and is created last, after
 the context and dump handles have closed. A directory without it is partial.
 

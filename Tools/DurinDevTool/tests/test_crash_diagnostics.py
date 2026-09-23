@@ -38,9 +38,6 @@ def write_artifact(
 				"ExecutableImagePath=C:/Runtime/DurinEditor.exe",
                 f"UtcTimestamp={stamp}",
 				"ProcessUptimeMicroseconds=1000",
-				"BreadcrumbWriteSequence=1",
-				"BreadcrumbFirstSequence=1",
-				"BreadcrumbCount=1",
 				"ActiveLogPath=C:/Runtime/Saved/Logs/Durin.log",
 				"LastAcceptedLogSequence=7",
 				"LastProcessedLogSequence=6",
@@ -53,15 +50,14 @@ def write_artifact(
 				"AccessViolationOperation=Read",
 				"AccessViolationAddress=0x1",
                 "FutureOptionalKey=preserved-by-forward-parser",
-                "Breadcrumb=1,FirstObjectCollection,99,100,8,0",
             )
         ),
         encoding="utf-8",
     )
     if complete:
         (directory / "Complete.marker").write_text("CrashContextVersion=1\n", encoding="utf-8")
-    values, breadcrumbs, diagnostic = crash.parse_crash_context(context)
-    return crash.CrashArtifact(directory, context, dump, complete, values, breadcrumbs, diagnostic)
+    values, diagnostic = crash.parse_crash_context(context)
+    return crash.CrashArtifact(directory, context, dump, complete, values, diagnostic)
 
 
 def test_formats_unsigned_native_status_and_known_name() -> None:
@@ -74,19 +70,21 @@ def test_parser_accepts_unknown_keys_and_reports_malformed_required_data(tmp_pat
     assert artifact.diagnostic == ""
     assert "ProcessPhase" not in artifact.values
     assert artifact.values["FutureOptionalKey"] == "preserved-by-forward-parser"
-    assert artifact.breadcrumbs == ("1,FirstObjectCollection,99,100,8,0",)
+    assert "BreadcrumbCount" not in artifact.values
     malformed = artifact.context_path.with_name("Malformed-CrashContext-v1.txt")
     malformed.write_text("FormatVersion=1\nnot-a-field\n", encoding="utf-8")
-    _, _, diagnostic = crash.parse_crash_context(malformed)
+    _, diagnostic = crash.parse_crash_context(malformed)
     assert "missing required keys" in diagnostic
     assert "malformed" in diagnostic
 
 
-def test_parser_accepts_legacy_process_phase(tmp_path: Path) -> None:
+def test_parser_accepts_legacy_lifecycle_fields(tmp_path: Path) -> None:
     artifact = write_artifact(tmp_path, timestamp=datetime.now(timezone.utc))
     with artifact.context_path.open("a", encoding="utf-8") as context:
         context.write("\nProcessPhase=ObjectCollection\n")
-    values, _, diagnostic = crash.parse_crash_context(artifact.context_path)
+        context.write("BreadcrumbCount=2\nBreadcrumb=1,FirstObjectCollection,99,100,8,0\n")
+        context.write("Breadcrumb=2,SecondObjectCollection,99,101,8,0\n")
+    values, diagnostic = crash.parse_crash_context(artifact.context_path)
     assert diagnostic == ""
     assert values["ProcessPhase"] == "ObjectCollection"
 

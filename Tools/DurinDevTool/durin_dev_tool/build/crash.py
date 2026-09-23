@@ -42,9 +42,6 @@ REQUIRED_CONTEXT_KEYS = {
 	"ExecutableImagePath",
     "UtcTimestamp",
 	"ProcessUptimeMicroseconds",
-	"BreadcrumbWriteSequence",
-	"BreadcrumbFirstSequence",
-	"BreadcrumbCount",
 	"ActiveLogPath",
 	"LastAcceptedLogSequence",
 	"LastProcessedLogSequence",
@@ -76,7 +73,6 @@ class CrashArtifact:
     dump_path: Path | None
     complete: bool
     values: Mapping[str, str]
-    breadcrumbs: tuple[str, ...]
     diagnostic: str = ""
 
 
@@ -88,18 +84,17 @@ class CrashAnalysis:
     command: tuple[str, ...] = ()
 
 
-def parse_crash_context(path: Path) -> tuple[dict[str, str], tuple[str, ...], str]:
+def parse_crash_context(path: Path) -> tuple[dict[str, str], str]:
     match = CONTEXT_NAME_PATTERN.search(path.name)
     if match is None:
-        return {}, (), "Crash context filename has no recognized version."
+        return {}, "Crash context filename has no recognized version."
     if int(match.group("version")) != 1:
-        return {}, (), f"Crash context version {match.group('version')} is not supported."
+        return {}, f"Crash context version {match.group('version')} is not supported."
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
-        return {}, (), f"Crash context could not be read: {error}"
+        return {}, f"Crash context could not be read: {error}"
     values: dict[str, str] = {}
-    breadcrumbs: list[str] = []
     malformed = 0
     for line in text.splitlines():
         if not line:
@@ -108,9 +103,7 @@ def parse_crash_context(path: Path) -> tuple[dict[str, str], tuple[str, ...], st
             malformed += 1
             continue
         key, value = line.split("=", 1)
-        if key == "Breadcrumb":
-            breadcrumbs.append(value)
-        elif key and key not in values:
+        if key and key not in values:
             values[key] = value
     missing = sorted(REQUIRED_CONTEXT_KEYS - values.keys())
     diagnostics: list[str] = []
@@ -118,7 +111,7 @@ def parse_crash_context(path: Path) -> tuple[dict[str, str], tuple[str, ...], st
         diagnostics.append("missing required keys: " + ", ".join(missing))
     if malformed:
         diagnostics.append(f"ignored {malformed} malformed line(s)")
-    return values, tuple(breadcrumbs), "; ".join(diagnostics)
+    return values, "; ".join(diagnostics)
 
 
 def _context_timestamp(values: Mapping[str, str]) -> datetime | None:
@@ -150,7 +143,7 @@ def discover_current_crash(
             contexts = tuple(directory.glob("*-CrashContext-v*.txt"))
             if len(contexts) != 1:
                 continue
-            values, breadcrumbs, diagnostic = parse_crash_context(contexts[0])
+            values, diagnostic = parse_crash_context(contexts[0])
             timestamp = _context_timestamp(values)
             if timestamp is None or not (lower <= timestamp <= upper):
                 continue
@@ -173,7 +166,6 @@ def discover_current_crash(
                 dump_path=dump_path,
                 complete=(directory / "Complete.marker").is_file(),
                 values=values,
-                breadcrumbs=breadcrumbs,
                 diagnostic=diagnostic,
             )
             candidates.append((timestamp, artifact))
