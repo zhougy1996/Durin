@@ -91,7 +91,6 @@ namespace Durin
 	struct FTexture2DRecipeExecutionControl
 	{
 		std::function<bool()> ShouldCancel;
-		FTexture2DRecipeMetrics* Metrics = nullptr;
 	};
 
 	ENGINE_API auto ValidateTexture2DSourceMips(

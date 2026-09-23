@@ -27,7 +27,6 @@ namespace Durin
 	enum class EShaderError : uint8
 	{
 		None,
-		CookInputIdentityUnsupported,
 		CaptureMountLimit,
 		FileSystemFailure,
 		CaptureDirectoryLimit,

@@ -173,11 +173,9 @@ namespace Durin
 			if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		}
-		FTexture2DBuildMetrics RecipeMetrics;
 		const FTexture2DRecipeExecutionControl RecipeControl{
 			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
-				: std::function<bool()>{},
-			.Metrics = &RecipeMetrics};
+				: std::function<bool()>{}};
 		auto RecipeResult = Module->BuildTexture2D({
 			.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 			.Settings = Request.Settings,
@@ -186,6 +184,7 @@ namespace Durin
 			&RecipeControl);
 		if (!RecipeResult) return std::unexpected(std::move(RecipeResult.error()));
 		auto RecipeProduct = std::move(*RecipeResult);
+		FTexture2DBuildMetrics RecipeMetrics{RecipeProduct.Metrics};
 		if (!RecipeProduct.PlatformData.IsValid())
 		{
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});

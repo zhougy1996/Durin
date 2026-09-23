@@ -45,11 +45,7 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult = 0;
 		// Hashes stable mounted sources and compiler settings without retaining file bytes.
-		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult
-		{
-			OutIdentity.clear();
-			return std::unexpected(FShaderError{.Code = EShaderError::CookInputIdentityUnsupported});
-		}
+		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult = 0;
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
 		virtual auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,

@@ -86,7 +86,6 @@ namespace Durin
 		switch (Error.Code)
 		{
 		case EShaderError::None: return {};
-		case EShaderError::CookInputIdentityUnsupported: return "ShaderBuild module does not declare Cook input identity.";
 		case EShaderError::CaptureMountLimit: return "Shader mount limit exceeded.";
 		case EShaderError::FileSystemFailure:
 			return Error.FileError ? Error.FileError->ToString() : "Shader filesystem operation failed.";

@@ -33,8 +33,6 @@ namespace Durin
 			.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds,
 			.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds,
 			.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes};
-		if (ExecutionControl && ExecutionControl->Metrics)
-			*ExecutionControl->Metrics = Product.Metrics;
 		return Product;
 	}
 }
