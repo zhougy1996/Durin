@@ -31,6 +31,7 @@ namespace Durin
 		auto operator=(FRDGBuilder&&)
 			-> FRDGBuilder& = delete;
 
+		// 1. Declare graph resources, uploads, and outputs. No GPU work runs here.
 		RENDERCORE_API auto RegisterExternalTexture(const FTextureRHIRef& Texture,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGTextureHandle;
@@ -70,83 +71,31 @@ namespace Durin
 		template<typename T, typename... Args>
 		requires std::constructible_from<T, Args...> && std::destructible<T>
 		auto CreateValue(std::string_view Name, std::string_view StableTypeName,
-			Args&&... ConstructorArgs) -> TRDGValueHandle<T>
-		{
-			RequireBuilding();
-			static_assert(std::is_object_v<T> && !std::is_const_v<T>
-				&& !std::is_volatile_v<T>,
-				"Render graph values require an unqualified object type");
-			uint32 Index = 0;
-			void* Storage = AllocateValueStorage(Name, StableTypeName,
-				&RDGPrivate::GValueTypeIdentity<T>, sizeof(T), alignof(T),
-				[](void* Value) { std::destroy_at(static_cast<T*>(Value)); }, Index);
-			if (Storage == nullptr) return {};
-			FStorageConstructionScope Construction(*this);
-			std::construct_at(static_cast<T*>(Storage),
-				std::forward<Args>(ConstructorArgs)...);
-			MarkValueStorageConstructed(Index);
-			return {StateOwner(), Index};
-		}
+			Args&&... ConstructorArgs) -> TRDGValueHandle<T>;
 
-		template<typename ParameterStruct, typename Execute>
+		// 2. Allocate and fill typed parameters, then transfer them to one pass.
+		template<typename ParameterStruct>
 		requires CRDGParameters<ParameterStruct>
-			&& std::invocable<Execute&, FRHICommandListImmediate&,
+		auto AllocParameters() -> TRDGParametersRef<ParameterStruct>;
+
+		template<typename ParameterStruct, typename ExecuteFunction>
+		requires CRDGParameters<ParameterStruct>
+			&& std::invocable<ExecuteFunction&, FRHICommandListImmediate&,
 				const ParameterStruct&, const FRDGParameterResolver&>
 		auto AddPass(std::string_view Name, ERDGPassType Type,
 			TRDGParametersRef<ParameterStruct>&& Parameters,
-			Execute&& ExecuteCallback) -> FRDGPassHandle
-		{
-			RequireBuilding();
-			ParameterStruct* TypedData = Parameters.Data;
-			FRDGParameterizedPassExecute ErasedExecute =
-				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
-					FRHICommandListImmediate& CommandList,
-					const FRDGParameterResolver& Resolver) mutable {
-					std::invoke(Callback, CommandList,
-						static_cast<const ParameterStruct&>(*TypedData), Resolver);
-				};
-			RequireBuilding();
-			auto Lifetime = Parameters.Lifetime.lock();
-			void* Data = std::exchange(Parameters.Data, nullptr);
-			const FRDGParameterLayout* Layout =
-				std::exchange(Parameters.Layout, nullptr);
-			if (Layout == nullptr)
-				Layout = GetRDGParameterLayout<ParameterStruct>();
-			Parameters.Lifetime.reset();
-			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
-				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
-			return AddParameterizedPass(Name, Type,
-				Layout, Data, AllocationIndex,
-				std::move(Lifetime), std::move(ErasedExecute));
-		}
+			ExecuteFunction&& ExecuteCallback) -> FRDGPassHandle;
 		// Records a complete pass into an owned list. No immediate-only operations
 		// are available; render passes and diagnostic scopes must close in the callback.
 		// Parallel additionally promises independent CPU work using immutable inputs
 		// and declared values, without shared cache writes or owner-thread progress.
-		template<typename ParameterStruct, typename Execute>
+		template<typename ParameterStruct, typename ExecuteFunction>
 		requires CRDGParameters<ParameterStruct>
-			&& std::invocable<Execute&, FRHICommandList&, const ParameterStruct&, const FRDGParameterResolver&>
+			&& std::invocable<ExecuteFunction&, FRHICommandList&, const ParameterStruct&, const FRDGParameterResolver&>
 		auto AddRecordingPass(std::string_view Name, ERDGPassType Type,
-			TRDGParametersRef<ParameterStruct>&& Parameters, Execute&& ExecuteCallback,
-			ERDGRecordingPolicy Policy = ERDGRecordingPolicy::Serial) -> FRDGPassHandle
-		{
-			RequireBuilding();
-			ParameterStruct* TypedData = Parameters.Data;
-			FRDGRecordingPassExecute ErasedExecute =
-				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
-					FRHICommandList& CommandList, const FRDGParameterResolver& Resolver) mutable {
-					std::invoke(Callback, CommandList, static_cast<const ParameterStruct&>(*TypedData), Resolver);
-				};
-			auto Lifetime = Parameters.Lifetime.lock();
-			void* Data = std::exchange(Parameters.Data, nullptr);
-			const auto* Layout = std::exchange(Parameters.Layout, nullptr);
-			if (!Layout) Layout = GetRDGParameterLayout<ParameterStruct>();
-			Parameters.Lifetime.reset();
-			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
-				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
-			return AddParameterizedPass(Name, Type, Layout, Data, AllocationIndex,
-				std::move(Lifetime), {}, std::move(ErasedExecute), Policy);
-		}
+			TRDGParametersRef<ParameterStruct>&& Parameters, ExecuteFunction&& ExecuteCallback,
+			ERDGRecordingPolicy Policy = ERDGRecordingPolicy::Serial) -> FRDGPassHandle;
+		// Optional scheduling policy and explicit dependencies.
 		// Building only: Producer must precede Consumer in this builder. Retaining
 		// Consumer retains Producer; invalid declarations fail compilation.
 		RENDERCORE_API auto AddPassDependency(FRDGPassHandle Producer,
@@ -160,38 +109,11 @@ namespace Durin
 		RENDERCORE_API auto SetAsyncComputeEnabled(bool bEnabled) -> void;
 		RENDERCORE_API auto SetBudget(const FRDGBudget& Budget) -> void;
 
-		template<typename ParameterStruct>
-		requires CRDGParameters<ParameterStruct>
-		auto AllocParameters() -> TRDGParametersRef<ParameterStruct>
-		{
-			RequireBuilding();
-			static_assert(std::is_standard_layout_v<ParameterStruct>,
-				"Render graph parameter structs must use standard layout");
-			static_assert(std::default_initializable<ParameterStruct>,
-				"Render graph parameter structs must be default constructible");
-			static_assert(std::destructible<ParameterStruct>,
-				"Render graph parameter structs must be destructible");
-			std::weak_ptr<void> Lifetime;
-			size_t AllocationIndex = TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex;
-			const auto& LayoutResult =
-				GetRDGParameterLayoutBuildResult<ParameterStruct>();
-			void* Storage = AllocateParameterStorage(sizeof(ParameterStruct),
-				alignof(ParameterStruct),
-				ParameterStruct::GetRDGParametersMetadata(),
-				LayoutResult,
-				[](void* Value) { std::destroy_at(
-					static_cast<ParameterStruct*>(Value)); }, Lifetime, AllocationIndex);
-			if (Storage == nullptr) return {};
-			FStorageConstructionScope Construction(*this);
-			auto* Parameters = std::construct_at(
-				static_cast<ParameterStruct*>(Storage));
-			MarkParameterStorageConstructed(AllocationIndex);
-			return {Parameters, std::move(Lifetime), LayoutResult->get(), AllocationIndex};
-		}
-
+		// 3. Compile, prepare, record, and publish outputs in one execution.
 		// Consumes this builder even on failure. Retrying requires a newly authored graph.
 		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
 			FRDGAllocator* Allocator = nullptr) -> FRDGExecutionResult;
+		// 4. Inspect lifecycle and diagnostics, including after execution failure.
 		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
 		// Absent before Execute. Duplicate execution leaves the original report unchanged.
 		RENDERCORE_API auto GetExecutionResult() const -> const std::optional<FRDGExecutionResult>&;
@@ -219,14 +141,7 @@ namespace Durin
 		requires CRDGParameters<ParameterStruct>
 		auto AddTestPass(std::string_view Name, ERDGPassType Type,
 			TRDGParametersRef<ParameterStruct>&& Parameters,
-			FRDGPassExecute Execute = {}) -> FRDGPassHandle
-		{
-			return AddPass(Name, Type, std::move(Parameters),
-				[Callback = std::move(Execute)](FRHICommandListImmediate& CommandList,
-					const ParameterStruct&, const FRDGParameterResolver& Resolver) {
-					if (Callback) Callback(CommandList, Resolver.Resources);
-				});
-		}
+			FRDGPassExecute Execute = {}) -> FRDGPassHandle;
 
 		RENDERCORE_API auto UseTexture(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
@@ -269,11 +184,7 @@ namespace Durin
 			ERDGUse Use) -> void;
 		template<typename T>
 		auto UseValue(FRDGPassHandle Pass,
-			TRDGValueHandle<T> Value, ERDGUse Use) -> void
-		{
-			UseValueErased(Pass, Value.Owner, Value.Index,
-				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
-		}
+			TRDGValueHandle<T> Value, ERDGUse Use) -> void;
 
 		friend class FRDGBuilderTestAccessor;
 		friend class FRDGPassResources;
@@ -285,6 +196,15 @@ namespace Durin
 		RENDERCORE_API auto CompileForTesting() -> FRDGCompileResult;
 		auto Record(FRHICommandListImmediate& CommandList,
 			FRDGAllocator* Allocator) -> FRDGPreparationResult;
+		// Execution phases: validate all allocations and queue transfers before callbacks;
+		// publish destinations only after every pass and the epilogue record successfully.
+		struct FExecutionContext;
+		auto AllocateResources(FRDGAllocator* Allocator) -> FRDGPreparationResult;
+		auto PrepareExecution(FExecutionContext& Context,
+			FRDGAllocator* Allocator) -> FRDGPreparationResult;
+		auto RecordPasses(FRHICommandListImmediate& CommandList,
+			const FExecutionContext& Context) -> FRDGPreparationResult;
+		auto PublishExtractions() -> void;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
 		struct FDiagnostics;
@@ -332,3 +252,5 @@ namespace Durin
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin
+
+#include "RDG/RDGBuilder.inl"

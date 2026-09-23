@@ -6,6 +6,47 @@ Modules: RenderCore, RHI
 
 Last reviewed: 2026-09-23
 
+## Reading and Calling the Graph
+
+The authoring sequence follows the same setup/execute separation as
+[UE Render Dependency Graph](https://dev.epicgames.com/documentation/en-us/unreal-engine/render-dependency-graph-in-unreal-engine):
+
+1. Create a frame-local `FRDGBuilder`; register external resources or declare
+   graph-owned textures, buffers, and values.
+2. Call `AllocParameters<T>()`, fill the declared inputs and outputs, then move
+   the parameter reference into `AddPass` or `AddRecordingPass`. Repeat in
+   producer-before-consumer order. Callbacks run later during execution.
+3. Queue extractions for resources needed outside the graph, or mark passes with
+   external effects as roots. Call `Execute(CommandList, Allocator)` once and
+   check its result before using extracted outputs.
+4. Inspect `Capture()`, `GetStatistics()`, or the execution result on the same
+   builder when diagnostics are needed.
+
+`AddPass` receives an immediate command list. `AddRecordingPass` receives an
+owned recording list; its optional `Parallel` policy permits independent CPU
+recording. Both consume typed parameters and derive resource dependencies from
+those parameters. CPU parallel recording and async-compute queue eligibility
+are separate declarations.
+
+Start in `Public/RDG/RDG.h` for this interface in call order. Its included
+`RDGBuilder.inl` owns template construction and callback adaptation. Internally,
+`RDGCompile.cpp` validates declarations, derives dependencies, culls passes, and
+builds the logical plan. `RDGExecution.cpp` makes the physical stages explicit:
+
+- `Execute`: single-use lifecycle and original execution result.
+- `Record`: ordered orchestration of the following stages and phase timing.
+- `AllocateResources`: acquire and validate the complete retained resource batch.
+- `PrepareExecution`: resolve barriers and prepare queue transfers and waits in
+  an execution-local `FExecutionContext`, before recording any callbacks.
+- `RecordPasses`: record callbacks and the epilogue in scheduled batches, including
+  dependency-safe parallel recording waves.
+- `PublishExtractions`: attach allocation retirement and publish output references
+  only after successful recording of all batches.
+
+These are private implementation stages, not additional caller obligations.
+Physical preparation does not modify the logical execution plan; preparation
+failure cannot publish extractions or invoke pass callbacks.
+
 ## Ownership Boundary
 
 Public headers follow the contracts they expose. Include `RDG/RDG.h` when authoring

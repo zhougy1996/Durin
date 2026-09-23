@@ -102,6 +102,28 @@ namespace Durin
 {
 	using namespace RDGPrivate;
 
+	// Physical preparation lives only for this execution. The compiled plan stays logical.
+	struct FRDGBuilder::FExecutionContext final
+	{
+		FPreparedTransitions PreparedTransitions;
+		std::vector<FPreparedBarrierBatch> PreparedPassBarriers;
+		FPreparedBarrierBatch PreparedEpilogue;
+		const FRHIQueueCapabilities* Queues = nullptr;
+		bool bExplicitSubmissions = false;
+		bool bAsync = false;
+		using FTransfers = std::vector<std::shared_ptr<FRHIQueueTransfer>>;
+		std::vector<FTransfers> Acquires, Releases;
+		FTransfers InitialReleases;
+		std::vector<bool> WaitForInitial;
+		std::vector<std::vector<uint32>> Predecessors;
+
+		auto PhysicalQueue(ERDGQueueAssignment Queue) const -> FRHIQueueId
+		{
+			return bAsync && Queue == ERDGQueueAssignment::AsyncCompute
+				? Queues->Compute : Queues->Graphics;
+		}
+	};
+
 	auto FRDGBuilder::Execute(FRHICommandListImmediate& CommandList,
 		FRDGAllocator* Allocator) -> FRDGExecutionResult
 	{
@@ -142,7 +164,23 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RDG.Record");
 		FScopedMicrosecondTimer ExecuteTimer(State->ExecuteMicroseconds);
-		FScopedMicrosecondTimer PreparationTimer(State->Phases.PreparationMicroseconds);
+		FExecutionContext Context;
+		{
+			FScopedMicrosecondTimer PreparationTimer(State->Phases.PreparationMicroseconds);
+			if (auto Result = AllocateResources(Allocator); !Result) return Result;
+			if (auto Result = PrepareExecution(Context, Allocator); !Result) return Result;
+		}
+
+		FScopedMicrosecondTimer RecordingTimer(State->Phases.RecordingMicroseconds);
+		State->Lifecycle = ERDGBuilderState::Recording;
+		State->ExecutionResult = std::unexpected(FRDGExecutionError{ERDGStateError::RecordingIncomplete});
+		if (auto Result = RecordPasses(CommandList, Context); !Result) return Result;
+		PublishExtractions();
+		return {};
+	}
+
+	auto FRDGBuilder::AllocateResources(FRDGAllocator* Allocator) -> FRDGPreparationResult
+	{
 		if (Allocator != nullptr && !Compiled->AllocationRequests.empty())
 		{
 			FRDGAllocatedResources Candidate(
@@ -229,77 +267,79 @@ namespace Durin
 		{
 			return std::unexpected(ERDGPreparationError::AllocatorMissing);
 		}
-		FPreparedTransitions PreparedTransitions;
-		std::vector<FPreparedBarrierBatch> PreparedPassBarriers;
-		PreparedPassBarriers.reserve(Compiled->Passes.size());
+		return {};
+	}
+
+	auto FRDGBuilder::PrepareExecution(FExecutionContext& Context,
+		FRDGAllocator* Allocator) -> FRDGPreparationResult
+	{
+		Context.PreparedPassBarriers.reserve(Compiled->Passes.size());
 		for (const auto& Pass : Compiled->Passes)
-			PreparedPassBarriers.push_back(PrepareBarrierBatch(Pass.Barriers, Compiled->Backings, PreparedTransitions));
-		const auto PreparedEpilogue = PrepareBarrierBatch(Compiled->FinalBarriers, Compiled->Backings, PreparedTransitions);
-		const auto* Queues = GDynamicRHI ? &GDynamicRHI->RHIGetQueueCapabilities() : nullptr;
-		const bool bExplicitSubmissions = Queues && !Queues->Queues.empty();
-		const bool bAsync = State->bAsyncComputeEnabled && bExplicitSubmissions
-			&& Queues->bIndependentCompute && Queues->Compute != Queues->Graphics
+			Context.PreparedPassBarriers.push_back(PrepareBarrierBatch(Pass.Barriers, Compiled->Backings, Context.PreparedTransitions));
+		Context.PreparedEpilogue = PrepareBarrierBatch(Compiled->FinalBarriers, Compiled->Backings, Context.PreparedTransitions);
+		Context.Queues = GDynamicRHI ? &GDynamicRHI->RHIGetQueueCapabilities() : nullptr;
+		Context.bExplicitSubmissions = Context.Queues && !Context.Queues->Queues.empty();
+		Context.bAsync = State->bAsyncComputeEnabled && Context.bExplicitSubmissions
+			&& Context.Queues->bIndependentCompute && Context.Queues->Compute != Context.Queues->Graphics
 			&& (Compiled->AllocationRequests.empty() || (Allocator && Allocator->SupportsAsyncCompute()));
-		auto PhysicalQueue = [&](ERDGQueueAssignment Queue) {
-			return bAsync && Queue == ERDGQueueAssignment::AsyncCompute ? Queues->Compute : Queues->Graphics;
-		};
-		using FTransfers = std::vector<std::shared_ptr<FRHIQueueTransfer>>;
-		std::vector<FTransfers> Acquires(Compiled->ExecutionPlan.Batches.size()), Releases(Acquires.size());
-		FTransfers InitialReleases;
-		std::vector<bool> WaitForInitial(Acquires.size(), false);
-		if (bAsync)
+		Context.Acquires.resize(Compiled->ExecutionPlan.Batches.size());
+		Context.Releases.resize(Context.Acquires.size());
+		Context.WaitForInitial.resize(Context.Acquires.size(), false);
+		if (Context.bAsync)
 		{
-			PreparedTransitions.TransferredBuffers.resize(PreparedTransitions.Buffers.size(), false);
-			PreparedTransitions.TransferredTextures.resize(PreparedTransitions.Textures.size(), false);
+			Context.PreparedTransitions.TransferredBuffers.resize(Context.PreparedTransitions.Buffers.size(), false);
+			Context.PreparedTransitions.TransferredTextures.resize(Context.PreparedTransitions.Textures.size(), false);
 			for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
 			{
 				const auto& Consumer = Compiled->ExecutionPlan.Batches[Handoff.Consumer.Index];
 				if (Handoff.SourceQueue == Consumer.Queue) continue;
-				FRHIQueueTransferDesc Desc{.Source = PhysicalQueue(Handoff.SourceQueue), .Destination = PhysicalQueue(Consumer.Queue)};
-				const auto& Barrier = Consumer.bEpilogue ? PreparedEpilogue : PreparedPassBarriers[Consumer.FirstPass];
+				FRHIQueueTransferDesc Desc{.Source = Context.PhysicalQueue(Handoff.SourceQueue), .Destination = Context.PhysicalQueue(Consumer.Queue)};
+				const auto& Barrier = Consumer.bEpilogue ? Context.PreparedEpilogue : Context.PreparedPassBarriers[Consumer.FirstPass];
 				if (Handoff.bTexture)
 				{
 					const size_t Index = Barrier.FirstTexture + Handoff.TransitionIndex;
-					Desc.Textures.push_back(PreparedTransitions.Textures[Index]);
-					PreparedTransitions.TransferredTextures[Index] = true;
+					Desc.Textures.push_back(Context.PreparedTransitions.Textures[Index]);
+					Context.PreparedTransitions.TransferredTextures[Index] = true;
 				}
 				else
 				{
 					const size_t Index = Barrier.FirstBuffer + Handoff.TransitionIndex;
-					Desc.Buffers.push_back(PreparedTransitions.Buffers[Index]);
-					PreparedTransitions.TransferredBuffers[Index] = true;
+					Desc.Buffers.push_back(Context.PreparedTransitions.Buffers[Index]);
+					Context.PreparedTransitions.TransferredBuffers[Index] = true;
 				}
 				auto Transfer = GDynamicRHI->RHICreateQueueTransfer(Desc);
 				if (!Transfer) return std::unexpected(ERDGPreparationError::QueueTransferFailed);
-				Acquires[Consumer.Id.Index].push_back(Transfer);
+				Context.Acquires[Consumer.Id.Index].push_back(Transfer);
 				const auto Producer = std::ranges::find_if(Handoff.Producers, [&](const auto Id) {
 					return Compiled->ExecutionPlan.Batches[Id.Index].Queue == Handoff.SourceQueue;
 				});
-				if (Producer != Handoff.Producers.end()) Releases[Producer->Index].push_back(std::move(Transfer));
+				if (Producer != Handoff.Producers.end()) Context.Releases[Producer->Index].push_back(std::move(Transfer));
 				else
 				{
 					require(Handoff.SourceQueue == ERDGQueueAssignment::Graphics);
-					InitialReleases.push_back(std::move(Transfer));
-					WaitForInitial[Consumer.Id.Index] = true;
+					Context.InitialReleases.push_back(std::move(Transfer));
+					Context.WaitForInitial[Consumer.Id.Index] = true;
 				}
 			}
 		}
-		std::vector<std::vector<uint32>> Predecessors(Compiled->ExecutionPlan.Batches.size());
-		if (bExplicitSubmissions)
+		Context.Predecessors.resize(Compiled->ExecutionPlan.Batches.size());
+		if (Context.bExplicitSubmissions)
 		{
 			State->SubmissionSyncPoints.resize(Compiled->ExecutionPlan.Batches.size());
 			for (const auto& Edge : Compiled->ExecutionPlan.Dependencies)
-				Predecessors[Edge.After.Index].push_back(Edge.Before.Index);
-			for (auto& Inputs : Predecessors)
+				Context.Predecessors[Edge.After.Index].push_back(Edge.Before.Index);
+			for (auto& Inputs : Context.Predecessors)
 			{
 				std::ranges::sort(Inputs);
 				Inputs.erase(std::unique(Inputs.begin(), Inputs.end()), Inputs.end());
 			}
 		}
-		PreparationTimer.Stop();
-		FScopedMicrosecondTimer RecordingTimer(State->Phases.RecordingMicroseconds);
-		State->Lifecycle = ERDGBuilderState::Recording;
-		State->ExecutionResult = std::unexpected(FRDGExecutionError{ERDGStateError::RecordingIncomplete});
+		return {};
+	}
+
+	auto FRDGBuilder::RecordPasses(FRHICommandListImmediate& CommandList,
+		const FExecutionContext& Context) -> FRDGPreparationResult
+	{
 		uint32 DeclarationCount = 0;
 		for (const auto& Pass : Compiled->Passes) DeclarationCount = std::max(DeclarationCount, Pass.DeclarationIndex + 1);
 		std::vector<uint32> DeclarationToCompiled(DeclarationCount, UINT32_MAX);
@@ -367,20 +407,20 @@ namespace Durin
 			return true;
 		};
 		FRHIGPUSyncPointRef InitialSignal;
-		if (!InitialReleases.empty())
+		if (!Context.InitialReleases.empty())
 		{
-			InitialSignal = CommandList.BeginGPUSubmission({.Queue = Queues->Graphics});
-			for (const auto& Transfer : InitialReleases) CommandList.ReleaseQueueOwnership(Transfer);
+			InitialSignal = CommandList.BeginGPUSubmission({.Queue = Context.Queues->Graphics});
+			for (const auto& Transfer : Context.InitialReleases) CommandList.ReleaseQueueOwnership(Transfer);
 			CommandList.EndGPUSubmission();
 		}
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordBatch");
-			if (bExplicitSubmissions)
+			if (Context.bExplicitSubmissions)
 			{
-				FRHIGPUSubmissionDesc Desc{.Queue = PhysicalQueue(Batch.Queue)};
-				if (WaitForInitial[Batch.Id.Index]) Desc.Waits.push_back(InitialSignal);
-				for (uint32 Input : Predecessors[Batch.Id.Index])
+				FRHIGPUSubmissionDesc Desc{.Queue = Context.PhysicalQueue(Batch.Queue)};
+				if (Context.WaitForInitial[Batch.Id.Index]) Desc.Waits.push_back(InitialSignal);
+				for (uint32 Input : Context.Predecessors[Batch.Id.Index])
 					Desc.Waits.push_back(State->SubmissionSyncPoints[Input]);
 				State->SubmissionSyncPoints[Batch.Id.Index] = CommandList.BeginGPUSubmission(Desc);
 			}
@@ -389,12 +429,12 @@ namespace Durin
 				FRHICommandListImmediate& Commands;
 				bool bEnabled;
 				~FCloseSubmission() { if (bEnabled) Commands.EndGPUSubmission(); }
-			} CloseSubmission{CommandList, bExplicitSubmissions};
-			for (const auto& Transfer : Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
+			} CloseSubmission{CommandList, Context.bExplicitSubmissions};
+			for (const auto& Transfer : Context.Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
 			if (Batch.bEpilogue)
 			{
-				RecordBarrierBatch(CommandList, PreparedEpilogue, PreparedTransitions);
-				for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
+				RecordBarrierBatch(CommandList, Context.PreparedEpilogue, Context.PreparedTransitions);
+				for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 				continue;
 			}
 			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
@@ -403,7 +443,7 @@ namespace Durin
 				const auto& Pass = Compiled->Passes[Index];
 				DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 				const auto& Runtime = Compiled->RuntimePasses[Index];
-				RecordBarrierBatch(CommandList, PreparedPassBarriers[Index], PreparedTransitions);
+				RecordBarrierBatch(CommandList, Context.PreparedPassBarriers[Index], Context.PreparedTransitions);
 				if ((Runtime.ParameterizedExecute && *Runtime.ParameterizedExecute)
 					|| (Runtime.RecordingExecute && *Runtime.RecordingExecute))
 				{
@@ -425,8 +465,13 @@ namespace Durin
 					else (*Runtime.ParameterizedExecute)(CommandList, Resolver);
 				}
 			}
-			for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
+			for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 		}
+		return {};
+	}
+
+	auto FRDGBuilder::PublishExtractions() -> void
+	{
 		if (State->AllocationRetirement)
 		{
 			require(!State->SubmissionSyncPoints.empty());
@@ -441,7 +486,6 @@ namespace Durin
 			if (Resource.BufferDestination != nullptr)
 				*Resource.BufferDestination = Backing.Buffer;
 		}
-		return {};
 	}
 
 	auto FRDGPassResources::GetTexture(
