@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Diagnostics/ApplicationDiagnostics.h"
 #include "LaunchArguments.h"
 #include "EngineFramePhases.h"
 
@@ -25,7 +24,6 @@ namespace Durin
 	class FEngineLoop
 	{
 	public:
-		explicit FEngineLoop(FLaunchDiagnosticsRequest DiagnosticsRequest);
 
 		// Returns false when mandatory process services cannot be initialized safely.
 		auto PreInit(const FEngineStartupParams& Params) -> bool;
@@ -48,10 +46,8 @@ namespace Durin
 		double LastTickTime = 0.0;
 		EEngineLoopState State = EEngineLoopState::Uninitialized;
 		EInteractiveFrameState FrameState = EInteractiveFrameState::Idle;
-		FApplicationDiagnostics Diagnostics;
 		std::shared_ptr<MWindow> StartupWindow;
 		bool bLoggerStarted = false;
-		bool bTaskSchedulerStarted = false;
 		bool bGameThreadDeferredExecutorStarted = false;
 		bool bInitializationCancelled = false;
 	};

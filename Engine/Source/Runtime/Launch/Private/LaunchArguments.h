@@ -4,16 +4,6 @@
 
 namespace Durin
 {
-	// Identifies the explicit lifecycle boundary used by a native-crash fixture.
-	enum class ENativeCrashPhase : uint8
-	{
-		ProcessEntry,
-		PreInitialization,
-		LoggerRunning,
-		Running,
-		ObjectCollection
-	};
-
 	// Owns normal host choices that are safe to pass into engine startup.
 	struct FEngineStartupParams
 	{
@@ -42,20 +32,13 @@ namespace Durin
 		FLaunchStartupCommandRequest StartupCommand;
 	};
 
-	// Owns opt-in qualification and native-crash configuration.
-	struct FLaunchDiagnosticsRequest
+	// Owns isolated process-entry crash qualification configuration.
+	struct FLaunchCrashTestRequest
 	{
-		bool bRunTaskSchedulerLifecycleSmoke = false;
-		bool bRunEditorPIELifecycleSmoke = false;
-		bool bRunNativeGameplayLifecycleSmoke = false;
-		bool bRunRendererContactRuntimeSmoke = false;
-		bool bRunSkyLightingRuntimeSmoke = false;
 		std::optional<std::string> NativeCrashFixture;
 		std::optional<std::string> NativeCrashSavedRoot;
-		std::optional<ENativeCrashPhase> NativeCrashPhase;
 		bool bDisableNativeCrashDump = false;
 		bool bForceNativeCrashCollision = false;
-		bool bFillNativeCrashLogGap = false;
 		bool bFaultNativeCrashWriter = false;
 	};
 
@@ -65,7 +48,7 @@ namespace Durin
 		FLaunchProcessCoordinationRequest ProcessCoordination;
 		FEngineStartupParams Host;
 		FLaunchAutomationRequest Automation;
-		FLaunchDiagnosticsRequest Diagnostics;
+		FLaunchCrashTestRequest CrashTest;
 	};
 
 	// Classifies a rejected command line with actionable user-facing text.

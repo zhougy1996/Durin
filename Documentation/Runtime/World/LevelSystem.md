@@ -151,11 +151,6 @@ The abstract base movement component exposes velocity and semantic movement
 dispatch only; gravity, collision, grounding, and jump policy belong to a
 concrete game module.
 
-The opt-in `--native-gameplay-lifecycle-smoke` process diagnostic exercises the
-native start, tick, pause-step, restart, and stop sequence in an isolated
-temporary World after full host initialization, then restores the original
-World. Ordinary startup never enables it.
-
 ## Lifecycle Mutation
 
 World and Actor lifecycle passes never retain an iterator or element reference

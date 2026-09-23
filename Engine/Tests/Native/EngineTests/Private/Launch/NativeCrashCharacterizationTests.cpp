@@ -17,23 +17,6 @@ namespace
 		return {std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	}
 
-	auto ReadContextValues(const std::filesystem::path& CrashDirectory) -> std::unordered_map<std::string, std::string>
-	{
-		std::unordered_map<std::string, std::string> Values;
-		for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(CrashDirectory))
-		{
-			if (Entry.path().filename().string().find("CrashContext-v1.txt") == std::string::npos) continue;
-			std::istringstream Lines(ReadText(Entry.path()));
-			for (std::string Line; std::getline(Lines, Line);)
-			{
-				if (!Line.empty() && Line.back() == '\r') Line.pop_back();
-				const size_t Equals = Line.find('=');
-				if (Equals != std::string::npos) Values.emplace(Line.substr(0, Equals), Line.substr(Equals + 1));
-			}
-		}
-		return Values;
-	}
-
 	auto RunCrashChild(
 		std::string_view Fixture,
 		std::string_view ExtraArgument = {},
@@ -158,22 +141,6 @@ TEST(FNativeCrashCharacterizationTests, RecursiveCrashWriterFaultTerminatesWitho
 	const FChildResult Result = RunCrashChild("access-read", "--native-crash-fault-writer");
 	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
 	EXPECT_TRUE(Result.CrashDirectory.empty());
-}
-
-TEST(FNativeCrashCharacterizationTests, LoggerTailGapIsCapturedWithoutDrainOrFlush)
-{
-	const FChildResult Result = RunCrashChild(
-		"access-read",
-		"--native-crash-at=logger-running --native-crash-log-gap");
-	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
-	ASSERT_FALSE(Result.CrashDirectory.empty());
-	const std::unordered_map<std::string, std::string> Values = ReadContextValues(Result.CrashDirectory);
-	const uint64_t Accepted = std::stoull(Values.at("LastAcceptedLogSequence"));
-	const uint64_t Processed = std::stoull(Values.at("LastProcessedLogSequence"));
-	EXPECT_GT(Accepted, Processed);
-	const std::filesystem::path ActiveLog = Values.at("ActiveLogPath");
-	EXPECT_TRUE(std::filesystem::is_regular_file(ActiveLog));
-	EXPECT_GT(std::filesystem::file_size(ActiveLog), 0u);
 }
 
 TEST(FNativeCrashCharacterizationTests, SimultaneousFaultsTerminateWithoutASecondArtifactSet)

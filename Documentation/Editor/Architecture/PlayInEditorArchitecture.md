@@ -81,9 +81,6 @@ The World owns pause, single-step, native restart, possession teardown, and
 runtime Actor cleanup. PIE owns only host isolation and restoration. Repeated
 sessions therefore load the same settings and bootstrap path but receive fresh
 runtime roles and no retained controller, pawn, view target, or semantic input.
-The opt-in `--editor-pie-lifecycle-smoke` process diagnostic repeats this
-contract for embedded/new-window and Level Start/Play From Camera combinations
-after full editor initialization; it is never enabled by ordinary startup.
 
 ## Editor Integration
 

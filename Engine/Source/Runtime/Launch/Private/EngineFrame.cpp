@@ -1,5 +1,4 @@
 #include "EngineFrame.h"
-#include "Diagnostics/SkyLightingRuntimeSmoke.h"
 #include "IRendererModule.h"
 
 #include "Engine/Engine.h"
@@ -58,9 +57,7 @@ namespace Durin
 			ENQUEUE_RENDER_COMMAND(BeginFrame)(
 				[LogicFrameCounter, RenderFrameCounter, Renderer](FRHICommandListImmediate& CommandList) {
 					BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
-					BeginSkyLightingSmokeFrame(CommandList);
 					if (Renderer) Renderer->UpdateScenes_RenderThread(CommandList);
-					AfterSkyLightingSmokeUpdate(CommandList);
 				});
 
 			const double UIFrameBuildStarted = FTime::Seconds();
@@ -86,7 +83,6 @@ namespace Durin
 
 			ENQUEUE_RENDER_COMMAND(EndFrame)(
 				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
-					EndSkyLightingSmokeFrame(RHICmdList);
 					EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
 				});
 			const double SyncStarted = FTime::Seconds();

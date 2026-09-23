@@ -345,38 +345,8 @@ completes initialization, executes the requested number of engine ticks, and
 uses the normal `FEngineLoop::Exit` path; this option does not impose a
 wall-clock timeout or force-terminate the process.
 
-Append `--task-scheduler-lifecycle-smoke` to that argument list when qualifying
-the process task scheduler. This diagnostic-only workload starts controlled
-short, long, dependent, failed, canceled, waiting, and parallel CPU tasks at
-exit, then audits admission close, drain outcomes, and final scheduler
-diagnostics before rendering shutdown continues.
-
-Run `--editor-pie-lifecycle-smoke` with a visible DurinEditor window when
-qualifying PIE host restoration and mouse capture. After editor initialization
-and default-level activation, the diagnostic exercises embedded and new-window
-destinations with both Level Start and Play From Camera. Each combination
-starts, pauses, single-steps, stops, and verifies restoration. The diagnostic
-requires a real active native window and must not be combined with
-`--hidden-window`; use a separate hidden `--exit-after-ticks` run for headless
-startup readiness. It is ignored by DurinGame.
-
-Run `--renderer-contact-runtime-smoke` with a visible Debug DurinEditor window
-when qualifying the directional-contact compute integration. The diagnostic
-drives the main and an independent auxiliary offscreen view through Auto,
-Compute, Fragment, disabled, and contribution-diagnostic routes, queues shader
-reload and renderer-resource retry, resizes and restores the application
-window, observes stable frames, and releases retained viewport/window
-references before normal shutdown. Pair it with a bounded
-`--exit-after-ticks=<positive-count>` and enable the backend validation layer
-for qualification runs. Camera Preview client behavior remains covered by its
-native viewport tests; this process diagnostic does not synthesize an editor
-selection to activate that UI-only preview.
-
-Append `--native-gameplay-lifecycle-smoke` to either runtime variant to qualify
-the generic native session inside a fully initialized process. The diagnostic
-temporarily activates an isolated World with one `APlayerStart`, starts the
-base `AGameMode`, ticks, pauses and single-steps, restarts the pawn, stops, and
-restores the host's original World before normal process exit.
+Launch no longer accepts lifecycle-smoke or runtime-smoke options. Use the
+native test registry for supported qualification targets.
 
 Do not repeat `--project` or `--project=...` after `--args` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as

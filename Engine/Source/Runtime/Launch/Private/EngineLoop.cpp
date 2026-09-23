@@ -18,7 +18,6 @@
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
-#include "Diagnostics/ProcessCrashContext.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
@@ -49,10 +48,6 @@ namespace Durin
 	{
 		FEngineLoop* GModalLoopFrameOwner = nullptr;
 	}
-	FEngineLoop::FEngineLoop(FLaunchDiagnosticsRequest DiagnosticsRequest)
-		: Diagnostics(std::move(DiagnosticsRequest))
-	{
-	}
 
 	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> bool
 	{
@@ -68,13 +63,11 @@ namespace Durin
 
 		FRuntimeStoragePreparationResult RuntimeStorage = PrepareRuntimeStorage();
 		PublishProcessCrashRoot(FPaths::LaunchSavedDir());
-		Diagnostics.AtPreInitialization();
 		LoadAppConfig(RuntimeStorage.AppConfigPath.string());
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
 		bLoggerStarted = true;
-		Diagnostics.AfterLoggerStarted();
 		for (const std::string& Warning : RuntimeStorage.Warnings) DURIN_WARN("{}", Warning);
 		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
 #if DURIN_WITH_TRACY
@@ -120,7 +113,6 @@ namespace Durin
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
 			return false;
 		}
-		bTaskSchedulerStarted = true;
 		if (!InitializeGameThreadDeferredExecutor())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the GameThread deferred executor could not start.");
@@ -290,7 +282,6 @@ namespace Durin
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));
-		Diagnostics.AfterEngineInitialized();
 		State = EEngineLoopState::Running;
 		GModalLoopFrameOwner = this;
 		SetModalLoopTickCallback([]() {
@@ -330,7 +321,6 @@ namespace Durin
 		}
 		const float EngineTickMilliseconds = static_cast<float>(
 			(FTime::Seconds() - EngineTickStarted) * 1000.0);
-		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
 		PackageSavePrivate::PollAsyncSaves();
 		ProcessAsyncLoading();
@@ -381,22 +371,12 @@ namespace Durin
 	{
 		if (State == EEngineLoopState::Exited || State == EEngineLoopState::Uninitialized
 			|| State == EEngineLoopState::ShuttingDown) return;
-		const bool bWasRunning = State == EEngineLoopState::Running;
 		SetModalLoopTickCallback(nullptr);
 		GModalLoopFrameOwner = nullptr;
 		FrameState = EInteractiveFrameState::ShuttingDown;
 		State = EEngineLoopState::ShuttingDown;
-		if (bWasRunning)
-		{
-			// Asset compilation depends on optional providers. Close and reconcile
-			// every provider task scope before consumer modules begin teardown.
-			ShutdownAssetCompilingManager();
-			Diagnostics.BeginConsumerDetachment();
-		}
-		else
-		{
-			ShutdownAssetCompilingManager();
-		}
+		// Stop provider tasks before consumer modules begin teardown.
+		ShutdownAssetCompilingManager();
 
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
 		(void)DPackage::DrainAsyncSaves();
@@ -409,10 +389,6 @@ namespace Durin
 
 		Mona::Shutdown();
 
-		if (bWasRunning)
-		{
-			Diagnostics.BeforeAssetServiceShutdown();
-		}
 		ShutdownCookedMeshLoadManager();
 
 		if (GEngine)
@@ -427,10 +403,6 @@ namespace Durin
 			ShutdownAssetManager();
 			ReleaseClassDefaultObjects();
 			ReleaseDStructDefaults();
-			if (bWasRunning)
-			{
-				Diagnostics.AtObjectCollection();
-			}
 			CollectGarbage();
 
 			if (GRenderingThread)
@@ -438,25 +410,13 @@ namespace Durin
 				FlushRenderingCommands();
 			}
 			CollectGarbage();
-			if (bWasRunning)
-			{
-				CheckNoDeferredDestroyObjects("shutdown object destruction");
-			}
+			CheckNoDeferredDestroyObjects("shutdown object destruction");
 			FModuleManager::Get().ShutdownModulesAtExit();
 		}
 		// Module shutdown may still drain work on either executor.
-		if (bGameThreadDeferredExecutorStarted)
-		{
-			ShutdownTaskSystem(ETaskShutdownMode::Drain);
-			bGameThreadDeferredExecutorStarted = false;
-			bTaskSchedulerStarted = false;
-			if (bWasRunning) Diagnostics.AfterTaskSystemShutdown();
-		}
-		else if (bTaskSchedulerStarted)
-		{
-			ShutdownTaskScheduler(false);
-			bTaskSchedulerStarted = false;
-		}
+		ShutdownTaskSystem(bGameThreadDeferredExecutorStarted
+			? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
+		bGameThreadDeferredExecutorStarted = false;
 
 		if (GRenderingThread)
 		{
@@ -467,14 +427,11 @@ namespace Durin
 			RHIExit();
 		}
 
-		if (IsApplicationCoreInitialized())
-		{
-			ShutdownApplicationCore();
-		}
+		ShutdownApplicationCore();
 #if DURIN_WITH_EDITOR
 		ReleaseProjectEditOwnership();
 #endif
-		if (bWasRunning) DURIN_INFO(STR("Durin Engine exited."));
+		if (bLoggerStarted) DURIN_INFO(STR("Durin Engine exited."));
 		State = EEngineLoopState::Exited;
 	}
 } // namespace Durin

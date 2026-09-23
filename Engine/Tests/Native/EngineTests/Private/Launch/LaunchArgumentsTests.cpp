@@ -46,31 +46,6 @@ TEST(FLaunchArgumentsTests, PreservesRepeatedStartupCommandArgumentOrder)
 		(std::vector<std::string>{"first", "", "third"}));
 }
 
-TEST(FLaunchArgumentsTests, ParsesRendererContactRuntimeSmoke)
-{
-	auto Result = Parse({"--renderer-contact-runtime-smoke",
-		"--exit-after-ticks=240"});
-	ASSERT_TRUE(Result);
-	EXPECT_TRUE(Result.Request->Diagnostics.bRunRendererContactRuntimeSmoke);
-	EXPECT_EQ(Result.Request->Automation.ExitAfterTicks, 240u);
-}
-
-TEST(FLaunchArgumentsTests, SkyLightingQualificationRequiresExplicitOptIn)
-{
-	auto Default = Parse({});
-	ASSERT_TRUE(Default);
-	EXPECT_FALSE(Default.Request->Diagnostics.bRunSkyLightingRuntimeSmoke);
-
-	auto Result = Parse({"--sky-lighting-runtime-smoke", "--hidden-window", "--exit-after-ticks=8000"});
-	ASSERT_TRUE(Result);
-	EXPECT_TRUE(Result.Request->Diagnostics.bRunSkyLightingRuntimeSmoke);
-	EXPECT_TRUE(Result.Request->Host.bSuppressWindowDisplay);
-	EXPECT_EQ(Result.Request->Automation.ExitAfterTicks, 8000u);
-	ExpectRejected({"--sky-lighting-runtime-smoke", "--sky-lighting-runtime-smoke"},
-		"--sky-lighting-runtime-smoke");
-	ExpectRejected({"--startup-command=Cook", "--sky-lighting-runtime-smoke"}, "--startup-command");
-}
-
 TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 {
 	ExpectRejected({"--unknown"}, "--unknown");
@@ -98,21 +73,6 @@ TEST(FLaunchArgumentsTests, RejectsStartupCommandCompanionAndConflictErrors)
 	ExpectRejected({"--startup-command-arg=value"}, "--startup-command-arg");
 	ExpectRejected({"--startup-command=Cook", "--exit-after-ticks=1"}, "--startup-command");
 	ExpectRejected({"--startup-command=Cook", "--project-browser"}, "--startup-command");
-	ExpectRejected({"--startup-command=Cook", "--task-scheduler-lifecycle-smoke"}, "--startup-command");
-	ExpectRejected({"--startup-command=Cook", "--renderer-contact-runtime-smoke"}, "--startup-command");
-}
-
-TEST(FLaunchArgumentsTests, ParsesTypedCrashPhasesAndRejectsInvalidCompanions)
-{
-	auto Result = Parse({"--native-crash-fixture=access-read",
-		"--native-crash-at=object-collection", "--native-crash-saved=D:/Saved"});
-	ASSERT_TRUE(Result);
-	EXPECT_EQ(Result.Request->Diagnostics.NativeCrashPhase,
-		Durin::ENativeCrashPhase::ObjectCollection);
-	ExpectRejected({"--native-crash-at=nowhere"}, "--native-crash-at");
-	ExpectRejected({"--native-crash-at=running"}, "--native-crash-at");
-	ExpectRejected({"--native-crash-log-gap"}, "--native-crash-log-gap");
-	ExpectRejected({"--native-crash-fixture=unknown"}, "--native-crash-fixture");
 }
 
 TEST(FLaunchArgumentsTests, RepeatedCallsRetainNoParserState)
@@ -120,4 +80,25 @@ TEST(FLaunchArgumentsTests, RepeatedCallsRetainNoParserState)
 	EXPECT_TRUE(Parse({"--project=One"}));
 	EXPECT_TRUE(Parse({"--project=Two"}));
 	EXPECT_TRUE(Parse({}));
+}
+
+TEST(FLaunchArgumentsTests, RejectsRemovedLifecycleDiagnostics)
+{
+	for (const std::string_view Option : {
+		"--task-scheduler-lifecycle-smoke", "--editor-pie-lifecycle-smoke",
+		"--native-gameplay-lifecycle-smoke", "--renderer-contact-runtime-smoke",
+		"--sky-lighting-runtime-smoke", "--native-crash-at=running",
+		"--native-crash-log-gap"})
+	{
+		ExpectRejected({Option}, Option);
+	}
+}
+
+TEST(FLaunchArgumentsTests, PreservesProcessEntryCrashQualification)
+{
+	auto Result = Parse({"--native-crash-fixture=access-read", "--native-crash-saved=D:/Saved"});
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Result.Request->CrashTest.NativeCrashFixture, "access-read");
+	EXPECT_EQ(Result.Request->CrashTest.NativeCrashSavedRoot, "D:/Saved");
+	ExpectRejected({"--native-crash-fixture=unknown"}, "--native-crash-fixture");
 }

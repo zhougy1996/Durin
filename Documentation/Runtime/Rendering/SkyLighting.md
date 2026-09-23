@@ -124,25 +124,7 @@ report GPU timing diagnostics when timestamp sampling is available.
 
 `DevTool test SkyBoxVulkanIntegrationTests --timeout 600` exercises real GPU
 capture/filter readback alongside HDR cube face/mip and display sampling.
-`--sky-lighting-runtime-smoke` is an opt-in non-Shipping Launch diagnostic:
-it first waits for the level's authored specified cube to finish filtering,
-then animates a temporary procedural source continuously for 30 warm-up updates followed by three batches of 120 measured
-updates at the minimum refresh interval. It logs median/p95/maximum GPU time
-and rejects updates outside the declared 4/6/8 ms envelope. The diagnostic
-also records update-frame scene GPU busy peak, CPU admission/publication cost,
-automatic capture intervals, and live image allocations. It then disables
-automatic updates in the same scene, waits 30 frames, and measures at least
-120 steady frames with GPU timestamps around the scene update service.
-Scene GPU busy time is the sum of the update-service and scene-view graph
-timestamps in the same frame; window UI, presentation and CPU queue gaps are
-excluded. The scopes remain within command-list submission boundaries.
-Launch-module-to-first-light startup wall time is logged separately; delete
-the isolated Cook DDC and runtime pipeline cache for a cold qualification.
-The normal runtime creates none of these per-frame diagnostic queries.
-The diagnostic
-requires a level containing a Sky Light and enough runtime ticks to finish
-(about two minutes at the minimum interval);
-it does not save temporary actors.
+The former Launch runtime smoke and its per-frame timing hooks have been removed.
 
 Cooked Game establishes the cooked asset domain before asset loading and maps
 normal virtual content roots to read-only directories beneath the executable's

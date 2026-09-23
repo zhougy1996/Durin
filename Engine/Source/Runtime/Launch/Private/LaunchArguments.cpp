@@ -47,19 +47,6 @@ namespace Durin
 			return {.Request = FLaunchRequest{}};
 		}
 
-		auto ParseNativeCrashPhase(
-			std::string_view Text,
-			ENativeCrashPhase& OutPhase) -> bool
-		{
-			if (Text == "process-entry") OutPhase = ENativeCrashPhase::ProcessEntry;
-			else if (Text == "pre-initialization") OutPhase = ENativeCrashPhase::PreInitialization;
-			else if (Text == "logger-running") OutPhase = ENativeCrashPhase::LoggerRunning;
-			else if (Text == "running") OutPhase = ENativeCrashPhase::Running;
-			else if (Text == "object-collection") OutPhase = ENativeCrashPhase::ObjectCollection;
-			else return false;
-			return true;
-		}
-
 		auto IsSupportedNativeCrashFixture(std::string_view Fixture) -> bool
 		{
 			return Fixture == "access-read"
@@ -107,11 +94,6 @@ namespace Durin
 				}
 				else if (Argument == "--hidden-window") Parsed.Request.Host.bSuppressWindowDisplay = true;
 				else if (Argument == "--project-browser") Parsed.Request.Host.bOpenProjectBrowser = true;
-				else if (Argument == "--task-scheduler-lifecycle-smoke") Parsed.Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke = true;
-				else if (Argument == "--editor-pie-lifecycle-smoke") Parsed.Request.Diagnostics.bRunEditorPIELifecycleSmoke = true;
-				else if (Argument == "--native-gameplay-lifecycle-smoke") Parsed.Request.Diagnostics.bRunNativeGameplayLifecycleSmoke = true;
-				else if (Argument == "--sky-lighting-runtime-smoke") Parsed.Request.Diagnostics.bRunSkyLightingRuntimeSmoke = true;
-				else if (Argument == "--renderer-contact-runtime-smoke") Parsed.Request.Diagnostics.bRunRendererContactRuntimeSmoke = true;
 				else if (Option == "--project" && Equals != std::string_view::npos)
 					Parsed.Request.Host.ProjectFile = std::string(Value);
 				else if (Argument == "--project")
@@ -125,20 +107,12 @@ namespace Durin
 				else if (Option == "--startup-command" && Equals != std::string_view::npos)
 					Parsed.Request.Automation.StartupCommand.Name = std::string(Value);
 				else if (Option == "--native-crash-fixture" && Equals != std::string_view::npos)
-					Parsed.Request.Diagnostics.NativeCrashFixture = std::string(Value);
+					Parsed.Request.CrashTest.NativeCrashFixture = std::string(Value);
 				else if (Option == "--native-crash-saved" && Equals != std::string_view::npos)
-					Parsed.Request.Diagnostics.NativeCrashSavedRoot = std::string(Value);
-				else if (Option == "--native-crash-at" && Equals != std::string_view::npos)
-				{
-					ENativeCrashPhase Phase;
-					if (!ParseNativeCrashPhase(Value, Phase))
-						return FLaunchArgumentError{2, "--native-crash-at", "has an unsupported lifecycle phase"};
-					Parsed.Request.Diagnostics.NativeCrashPhase = Phase;
-				}
-				else if (Argument == "--native-crash-disable-dump") Parsed.Request.Diagnostics.bDisableNativeCrashDump = true;
-				else if (Argument == "--native-crash-force-collision") Parsed.Request.Diagnostics.bForceNativeCrashCollision = true;
-				else if (Argument == "--native-crash-log-gap") Parsed.Request.Diagnostics.bFillNativeCrashLogGap = true;
-				else if (Argument == "--native-crash-fault-writer") Parsed.Request.Diagnostics.bFaultNativeCrashWriter = true;
+					Parsed.Request.CrashTest.NativeCrashSavedRoot = std::string(Value);
+				else if (Argument == "--native-crash-disable-dump") Parsed.Request.CrashTest.bDisableNativeCrashDump = true;
+				else if (Argument == "--native-crash-force-collision") Parsed.Request.CrashTest.bForceNativeCrashCollision = true;
+				else if (Argument == "--native-crash-fault-writer") Parsed.Request.CrashTest.bFaultNativeCrashWriter = true;
 				else return FLaunchArgumentError{2, std::string(Argument), "is not a recognized Launch option"};
 			}
 			return Parsed;
@@ -156,38 +130,25 @@ namespace Durin
 				&& !Request.Automation.StartupCommand.Arguments.empty())
 				return Failure("--startup-command-arg", "requires exactly one --startup-command");
 
-			const bool bLifecycleSmoke =
-				Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke
-					|| Request.Diagnostics.bRunEditorPIELifecycleSmoke
-				|| Request.Diagnostics.bRunNativeGameplayLifecycleSmoke
-				|| Request.Diagnostics.bRunRendererContactRuntimeSmoke
-				|| Request.Diagnostics.bRunSkyLightingRuntimeSmoke;
-			if (Request.Automation.StartupCommand.Name
-				&& (Request.Automation.ExitAfterTicks || Request.Host.bOpenProjectBrowser || bLifecycleSmoke))
-				return Failure("--startup-command", "conflicts with tick-exit, project-browser, and lifecycle-smoke modes");
 
-			FLaunchDiagnosticsRequest& Diagnostics = Request.Diagnostics;
-			if (Diagnostics.NativeCrashFixture && Diagnostics.NativeCrashFixture->empty())
+			if (Request.Automation.StartupCommand.Name
+				&& (Request.Automation.ExitAfterTicks || Request.Host.bOpenProjectBrowser))
+				return Failure("--startup-command", "conflicts with tick-exit and project-browser modes");
+
+			FLaunchCrashTestRequest& CrashTest = Request.CrashTest;
+			if (CrashTest.NativeCrashFixture && CrashTest.NativeCrashFixture->empty())
 				return Failure("--native-crash-fixture", "requires a non-empty fixture name");
-			if (Diagnostics.NativeCrashFixture
-				&& !IsSupportedNativeCrashFixture(*Diagnostics.NativeCrashFixture))
+			if (CrashTest.NativeCrashFixture
+				&& !IsSupportedNativeCrashFixture(*CrashTest.NativeCrashFixture))
 				return Failure("--native-crash-fixture", "has an unsupported fixture name");
-			if (Diagnostics.NativeCrashSavedRoot && Diagnostics.NativeCrashSavedRoot->empty())
+			if (CrashTest.NativeCrashSavedRoot && CrashTest.NativeCrashSavedRoot->empty())
 				return Failure("--native-crash-saved", "requires a non-empty path");
-			if (Diagnostics.NativeCrashPhase && !Diagnostics.NativeCrashFixture)
-				return Failure("--native-crash-at", "requires --native-crash-fixture");
-			if (Diagnostics.bFillNativeCrashLogGap
-				&& (!Diagnostics.NativeCrashFixture || !Diagnostics.NativeCrashPhase
-					|| (*Diagnostics.NativeCrashPhase != ENativeCrashPhase::LoggerRunning
-						&& *Diagnostics.NativeCrashPhase != ENativeCrashPhase::Running)))
-				return Failure("--native-crash-log-gap", "requires a fixture at logger-running or running");
 #if DURIN_BUILD_SHIPPING
-			if (bLifecycleSmoke || Diagnostics.NativeCrashFixture
-				|| Diagnostics.NativeCrashSavedRoot || Diagnostics.NativeCrashPhase
-				|| Diagnostics.bDisableNativeCrashDump
-				|| Diagnostics.bForceNativeCrashCollision
-				|| Diagnostics.bFillNativeCrashLogGap
-				|| Diagnostics.bFaultNativeCrashWriter)
+			if (CrashTest.NativeCrashFixture
+				|| CrashTest.NativeCrashSavedRoot
+				|| CrashTest.bDisableNativeCrashDump
+				|| CrashTest.bForceNativeCrashCollision
+				|| CrashTest.bFaultNativeCrashWriter)
 				return Failure("diagnostic option", "is unavailable in Shipping builds");
 #endif
 			return {.Request = std::move(Request)};

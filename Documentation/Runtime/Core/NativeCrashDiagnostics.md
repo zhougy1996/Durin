@@ -45,8 +45,10 @@ capture never tries to close that gap.
 ## Artifact contract
 
 Windows x64 and macOS arm64 runtime variants install local capture. Intentional
-`--native-crash-*` fixtures are unavailable in Shipping. The first qualified
-layout is:
+`--native-crash-*` fixtures are unavailable in Shipping and run only at process
+entry. Lifecycle injection (`--native-crash-at`) and logger-gap injection
+(`--native-crash-log-gap`) have been removed with the engine-loop diagnostics.
+The first qualified layout is:
 
 ```text
 Saved/Crashes/DurinEditor-20260811T135903.427Z-36740/

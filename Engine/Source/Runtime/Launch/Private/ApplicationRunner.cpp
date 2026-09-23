@@ -28,12 +28,6 @@ namespace Durin
 				Error.Option.c_str(), Error.Message.c_str());
 		}
 
-		auto IsProcessEntryCrash(const FLaunchDiagnosticsRequest& Diagnostics) -> bool
-		{
-			return Diagnostics.NativeCrashFixture
-				&& (!Diagnostics.NativeCrashPhase
-					|| Diagnostics.NativeCrashPhase == ENativeCrashPhase::ProcessEntry);
-		}
 	}
 
 	auto RunApplicationProcess(int ArgumentCount, char** Arguments) -> int
@@ -57,20 +51,20 @@ namespace Durin
 		}
 		FLaunchRequest Request = std::move(*Parsed.Request);
 
-		FLaunchDiagnosticsRequest& Diagnostics = Request.Diagnostics;
+		FLaunchCrashTestRequest& CrashTest = Request.CrashTest;
 		ConfigureProcessCrashTestOptions(
-			Diagnostics.bDisableNativeCrashDump,
-			Diagnostics.bForceNativeCrashCollision,
-			Diagnostics.bFaultNativeCrashWriter);
-		if (Diagnostics.NativeCrashSavedRoot
-			&& !PublishProcessCrashRoot(*Diagnostics.NativeCrashSavedRoot, true))
+			CrashTest.bDisableNativeCrashDump,
+			CrashTest.bForceNativeCrashCollision,
+			CrashTest.bFaultNativeCrashWriter);
+		if (CrashTest.NativeCrashSavedRoot
+			&& !PublishProcessCrashRoot(*CrashTest.NativeCrashSavedRoot, true))
 		{
 			std::fprintf(stderr, "Durin: --native-crash-saved could not publish the requested crash root.\n");
 			return 1;
 		}
-		if (IsProcessEntryCrash(Diagnostics))
+		if (CrashTest.NativeCrashFixture)
 		{
-			if (RunProcessCrashFixture(*Diagnostics.NativeCrashFixture)) return 1;
+			if (RunProcessCrashFixture(*CrashTest.NativeCrashFixture)) return 1;
 			std::fprintf(stderr, "Durin: native crash fixture was not supported by this platform.\n");
 			return 2;
 		}
@@ -97,7 +91,7 @@ namespace Durin
 			Request.Host.bSuppressWindowDisplay = true;
 		}
 
-		FEngineLoop EngineLoop(std::move(Request.Diagnostics));
+		FEngineLoop EngineLoop;
 		if (!EngineLoop.PreInit(Request.Host) || !EngineLoop.Init())
 		{
 			const int InitResult = EngineLoop.WasInitializationCancelled() ? 0 : 1;
