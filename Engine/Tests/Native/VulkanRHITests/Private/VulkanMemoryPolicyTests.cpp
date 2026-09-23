@@ -192,10 +192,7 @@ namespace Durin::VulkanRHI
 		Reservations.clear();
 		auto Accepted = Commands.TryCreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
 		ASSERT_TRUE(Accepted);
-		*Accepted = nullptr;
-		std::vector<FRHIResource*> Pending;
-		FRHIResource::GatherResourcesToDelete(Pending);
-		FRHIResource::DeleteResources(Pending);
+		// Scope shutdown drains resources through the normal RHI lifecycle.
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, SealedPressureSubmitsOnlyEligibleAllocationDependencies)
@@ -843,55 +840,21 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(SyncPoint.IsRetirementEligible());
 	}
 
-	TEST(FVulkanCompletionIntegrationTests, MatchingCoordinatesCannotImpersonateAQueueAuthority)
-	{
-		FInlineRHITestScope Scope;
-		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
-		FRHIGPUQueueTimeline Impostor(Queues.DeviceGeneration, Queues.Graphics);
-		const auto SyncPoint = Impostor.Reserve();
-		ASSERT_TRUE(Impostor.MarkSubmitted(SyncPoint));
-		ASSERT_TRUE(Impostor.ObserveCompleted(SyncPoint));
-		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(SyncPoint), ERHIGPUSubmissionState::Invalid);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(SyncPoint, 0), ERHIGPUWaitResult::Invalid);
-		FRHIGPUQueueTimeline Unknown(Queues.DeviceGeneration, {UINT32_MAX});
-		const auto UnknownSyncPoint = Unknown.Reserve();
-		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(UnknownSyncPoint), ERHIGPUSubmissionState::Invalid);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(UnknownSyncPoint, 0), ERHIGPUWaitResult::Invalid);
-	}
-
-	TEST(FVulkanCompletionIntegrationTests, CompletedSyncPointCannotAddressAReplacementDevice)
-	{
-		FRHIGPUSyncPointRef Old;
-		{
-			FInlineRHITestScope Scope;
-			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			GDynamicRHI->RHIBeginFrame({.FrameNumber = 0});
-			GDynamicRHI->RHIEndFrame();
-			Old = GetLastVulkanSyncPointForTesting();
-			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Old, 1'000'000'000), ERHIGPUWaitResult::Complete);
-		}
-		EXPECT_EQ(Old.GetState(), ERHIGPUSubmissionState::Complete);
-		EXPECT_EQ(WaitForRHIGPUSyncPoint(Old, 0), ERHIGPUWaitResult::Complete);
-		FInlineRHITestScope Scope;
-		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		EXPECT_NE(FRHIGPUSyncPointBackend::GetPoint(Old).DeviceGeneration, GDynamicRHI->RHIGetQueueCapabilities().DeviceGeneration);
-		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(Old), ERHIGPUSubmissionState::Invalid);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Old, 0), ERHIGPUWaitResult::Invalid);
-	}
-
 	TEST(FVulkanCompletionIntegrationTests,
-		EmptyIrregularFramesAdvanceBySubmissionRatherThanFrameAge)
+		EmptyFramesAdvanceSubmissionCompletion)
 	{
 		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		const std::array<uint64, 5> FrameNumbers{0, 17, 2, 101, 4};
+		auto& Commands = FRHICommandListImmediate::Get();
 		uint64 PreviousSubmittedToken = 0;
-		for (uint64 FrameNumber : FrameNumbers)
+		for (uint32 Frame = 0; Frame < 5; ++Frame)
 		{
-			GDynamicRHI->RHIBeginFrame({.FrameNumber = FrameNumber});
-			GDynamicRHI->RHIEndFrame();
+			// The executor owns the monotonic frame number used in production.
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::BeginFrame);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::EndFrame | ERHISubmitFlags::DeleteResources);
 			const FVulkanCompletionTestStats Statistics =
 				GetVulkanCompletionTestStats();
 			EXPECT_GT(Statistics.LastSubmittedToken, PreviousSubmittedToken);

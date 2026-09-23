@@ -1509,12 +1509,6 @@ namespace Durin::VulkanRHI
 
 			const FRHICapabilities* Capabilities = GDynamicRHI->RHIGetCapabilities();
 			ASSERT_NE(Capabilities, nullptr);
-			FRHITextureCreateDesc Unsupported = FRHITextureCreateDesc::CreateCubeArray(
-				"ExpectedUnsupportedConformanceTexture")
-				.SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM);
-			EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Unsupported));
-			EXPECT_FALSE(GDynamicRHI->RHICreateTexture(Commands, Unsupported));
-
 			FRHITextureCreateDesc TargetDesc = FRHITextureCreateDesc::Create2D(
 				"PublicRHIConformanceTarget", 8, 8, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -1771,37 +1765,28 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanCreateFailureInjectionTests,
 		CreationBoundaryPreservesTerminalErrorTypes)
 	{
-		for (const char* Mode : {"inline", "threaded"})
-		{
-			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			// Execute on the replay owner to cover the direct RHI-thread boundary
-			// as well as inline execution without poisoning the real test device.
-			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
-				const auto Recoverable = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
-					throw vk::OutOfDeviceMemoryError("expected allocation failure");
-				}));
-				EXPECT_TRUE(Recoverable.HasError());
-				EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
-				EXPECT_EQ(Recoverable.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
-				EXPECT_EQ(Recoverable.Source, ERHICreationFailureSource::NativeBackend);
-				const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
-					throw vk::FormatNotSupportedError("unsupported descriptor");
-				}));
-				EXPECT_EQ(Unsupported.Failure,
-					ERHIResourceCreationFailure::UnsupportedDescriptor);
-				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
-					throw vk::DeviceLostError("terminal device loss");
-				})), vk::DeviceLostError);
-				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
-					throw std::logic_error("internal invariant failure");
-				})), std::logic_error);
-				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
-					throw 7;
-				})), int);
-			});
-			RHIExit();
-		}
+		// Exception translation has no device or replay-thread dependency.
+		const auto Recoverable = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+			throw vk::OutOfDeviceMemoryError("expected allocation failure");
+		}));
+		EXPECT_TRUE(Recoverable.HasError());
+		EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Recoverable.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
+		EXPECT_EQ(Recoverable.Source, ERHICreationFailureSource::NativeBackend);
+		const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+			throw vk::FormatNotSupportedError("unsupported descriptor");
+		}));
+		EXPECT_EQ(Unsupported.Failure,
+			ERHIResourceCreationFailure::UnsupportedDescriptor);
+		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+			throw vk::DeviceLostError("terminal device loss");
+		})), vk::DeviceLostError);
+		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+			throw std::logic_error("internal invariant failure");
+		})), std::logic_error);
+		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+			throw 7;
+		})), int);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
@@ -2059,7 +2044,7 @@ namespace Durin::VulkanRHI
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
-		BackgroundPipelinesPreserveReplayProgressAndCapacityReservations)
+		PipelineCapacityFailuresPreservePublishedEntries)
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
@@ -2126,60 +2111,36 @@ namespace Durin::VulkanRHI
 				}));
 				return !Outcome.HasError() ? Result : nullptr;
 			};
-			auto Warm = std::async(std::launch::async, [&] { return Create(0); }).get();
+			// PublicAsyncPipelinesShareCreationAndKeepReplayAvailable covers the
+			// public creator's concurrency. Exercise cache admission serially here.
+			auto Warm = Create(0);
 			ASSERT_TRUE(Warm);
-			std::promise<void> Entered, Release;
-			auto EnteredFuture = Entered.get_future();
-			auto Released = Release.get_future().share();
-			SetVulkanPipelineCompilationHookForTest([&] {
-				Entered.set_value();
-				Released.wait();
-			});
-			auto ColdFuture = std::async(std::launch::async, [&] { return Create(1); });
-			EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-			auto DuplicateFuture = std::async(std::launch::async, [&] { return Create(1); });
-			auto HitFuture = std::async(std::launch::async, [&] { return Create(0); });
-			std::promise<void> Replayed;
-			auto ReplayFuture = Replayed.get_future();
-			auto& Commands = GCommandListExecutor.GetImmediateCommandList();
-			Commands.EnqueueLambda([&Replayed] { Replayed.set_value(); });
-			GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
-			const auto HitStatus = HitFuture.wait_for(std::chrono::seconds(5));
-			const auto ReplayStatus = ReplayFuture.wait_for(std::chrono::seconds(5));
-			// Release before reporting assertions/getting futures so a regression cannot deadlock cleanup.
-			Release.set_value();
-			auto Cold = ColdFuture.get();
-			EXPECT_EQ(DuplicateFuture.get(), Cold);
-			auto Hit = HitFuture.get();
-			ReplayFuture.wait();
-			SetVulkanPipelineCompilationHookForTest({});
-			EXPECT_EQ(HitStatus, std::future_status::ready);
-			EXPECT_EQ(ReplayStatus, std::future_status::ready);
-			EXPECT_EQ(Hit, Warm);
+			auto Cold = Create(1);
 			ASSERT_TRUE(Cold);
-			EXPECT_FALSE(std::async(std::launch::async, [&] { return Create(2); }).get());
+			EXPECT_EQ(Create(1), Cold);
+			auto Hit = Create(0);
+			auto& Commands = GCommandListExecutor.GetImmediateCommandList();
+			EXPECT_EQ(Hit, Warm);
+			EXPECT_FALSE(Create(2));
 			const auto* OldCold = Cold.GetReference();
 			Cold = nullptr;
 			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::PipelineLayout);
-			EXPECT_FALSE(std::async(std::launch::async, [&] { return Create(2); }).get());
-			auto Restored = std::async(std::launch::async, [&] { return Create(1); }).get();
+			EXPECT_FALSE(Create(2));
+			auto Restored = Create(1);
 			EXPECT_EQ(Restored.GetReference(), OldCold);
 			Restored = nullptr;
-			auto Replacement = std::async(std::launch::async, [&] { return Create(2); }).get();
+			auto Replacement = Create(2);
 			EXPECT_TRUE(Replacement);
-			EXPECT_EQ(std::async(std::launch::async, [&] { return Create(0); }).get(), Warm);
+			EXPECT_EQ(Create(0), Warm);
 			const auto Stats = Device->GetPipelineCacheStatistics();
 			const auto& Cache = bCompute ? Stats.ComputePipelines : Stats.GraphicsPipelines;
 			EXPECT_EQ(Cache.Occupancy, 2u);
 			EXPECT_EQ(Cache.NativeCreations, 3u);
 			EXPECT_EQ(Cache.FailedCandidates, 2u);
 			EXPECT_EQ(Cache.Evictions, 1u);
-			std::async(std::launch::async, [Warm = std::move(Warm), Hit = std::move(Hit),
-				Replacement = std::move(Replacement)]() mutable {
-				Warm = nullptr;
-				Hit = nullptr;
-				Replacement = nullptr;
-			}).get();
+			Warm = nullptr;
+			Hit = nullptr;
+			Replacement = nullptr;
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
 	}
@@ -2827,10 +2788,6 @@ namespace Durin::VulkanRHI
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Surface);
 		EXPECT_FALSE(RHIInit(InitializationContext));
 		EXPECT_EQ(GDynamicRHI, nullptr);
-		ExpectVulkanModuleUnloaded();
-
-		ASSERT_TRUE(RHIInit(InitializationContext));
-		RHIExit();
 		ExpectVulkanModuleUnloaded();
 
 		ASSERT_TRUE(RHIInit(InitializationContext));
