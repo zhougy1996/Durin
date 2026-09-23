@@ -196,7 +196,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				AssetData.AssetClassName,
 				".dasset"};
 			Item.RedirectDestination = AssetData.RedirectDestination;
-			Item.FileSize = Data.FileSize;
+			Item.PackageFileSize = Data.FileSize;
+			Item.BulkFileSize = Data.BulkSegmentExtent;
+			Item.FileSize = Item.PackageFileSize + Item.BulkFileSize;
 			Item.LastWriteTime = Data.LastWriteTime;
 			Item.ThumbnailFileSize = Data.FileSize;
 			Item.ThumbnailPackageFormatVersion = Data.FormatVersion;

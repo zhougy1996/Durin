@@ -126,6 +126,9 @@ visible by default. `.dbulk` files are internal package payloads and never appea
 as ordinary file rows, including orphan payloads and case variants of the
 extension. This presentation filter applies to browsing, recursive search, and
 the Files filter; enabling hidden files does not expose package internals.
+Asset size includes the registered package's `.dasset` and `.dbulk` bytes.
+The hover tooltip shows the total and, when bulk data exists, both file sizes;
+the list Size column and size sort use the same total.
 Physical snapshots and recursive mutation scope remain complete. No ownership
 is inferred from a shared filename stem, so ordinary source files remain visible.
 Redirectors remain opt-in through `Show redirectors` or the Redirectors filter.

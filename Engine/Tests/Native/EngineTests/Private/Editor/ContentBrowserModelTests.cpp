@@ -2110,6 +2110,16 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	const auto Data = FindAssetExact(Path);
 	ASSERT_NE(Data, nullptr);
 	ASSERT_GT(Data->BulkSegmentExtent, 0u);
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	const auto Item = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Entry) {
+		return Entry.PackagePath == Path;
+	});
+	ASSERT_NE(Item, Model.GetItems().end());
+	EXPECT_EQ(Item->PackageFileSize, Data->FileSize);
+	EXPECT_EQ(Item->BulkFileSize, Data->BulkSegmentExtent);
+	EXPECT_EQ(Item->FileSize, Data->FileSize + Data->BulkSegmentExtent);
+	EXPECT_EQ(Item->ThumbnailFileSize, Data->FileSize);
 	std::filesystem::path BulkPath = Data->PhysicalPath;
 	BulkPath.replace_extension(".dbulk");
 	{

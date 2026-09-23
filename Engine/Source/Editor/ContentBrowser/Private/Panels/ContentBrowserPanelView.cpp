@@ -740,9 +740,18 @@ namespace Durin::Editor::ContentBrowser::Private
 						ImGui::TextUnformatted(ContentBrowserItemView::TypeLabel(Item).c_str());
 						if (Item.Kind != EContentBrowserItemKind::Folder)
 						{
-							ImGui::TextDisabled("Size");
+							ImGui::TextDisabled(Item.Kind == EContentBrowserItemKind::File ? "Size" : "Total Size");
 							ImGui::SameLine();
 							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.FileSize).c_str());
+							if (Item.BulkFileSize > 0)
+							{
+								ImGui::TextDisabled("Package (.dasset)");
+								ImGui::SameLine();
+								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.PackageFileSize).c_str());
+								ImGui::TextDisabled("Bulk Data (.dbulk)");
+								ImGui::SameLine();
+								ImGui::TextUnformatted(ContentBrowserItemView::FormatFileSize(Item.BulkFileSize).c_str());
+							}
 							ImGui::TextDisabled("Modified");
 							ImGui::SameLine();
 							ImGui::TextUnformatted(ContentBrowserItemView::FormatFileTime(Item.LastWriteTime).c_str());

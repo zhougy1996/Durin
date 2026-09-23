@@ -56,6 +56,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint32 ThumbnailPackageFormatVersion = 0;
 		int64 ThumbnailLastWriteTimeTicks = 0;
 		uintmax_t FileSize = 0;
+		uintmax_t PackageFileSize = 0;
+		uintmax_t BulkFileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 
 		auto StableId() const -> const std::string&
