@@ -2,7 +2,7 @@
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderData.h"
 #include "ShaderBuild/ShaderPaths.h"
-#include "ShaderCompileService.h"
+#include "ShaderBuilder.h"
 #include "ShaderLibraryProducer.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
@@ -34,18 +34,18 @@ namespace Durin
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options) -> FShaderCompilerOutput override
 		{
-			return GetOrCompileShader(VirtualShaderPath, Options);
+			return Builder->GetOrCompile(VirtualShaderPath, Options);
 		}
 
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Request)
 			-> FShaderCompilerOutput override
 		{
-			return GetOrCompileGeneratedShader(Request);
+			return Builder->GetOrCompileGenerated(Request);
 		}
 
 		auto GetCompilerEnvironmentIdentity() -> std::string override
 		{
-			return GetShaderCompilerEnvironmentIdentityFromService();
+			return Builder->GetCompilerEnvironmentIdentity();
 		}
 
 		auto BuildSourceDependencyManifest(
@@ -53,7 +53,7 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult override
 		{
-			return BuildShaderSourceDependencyManifestFromService(VirtualShaderPath, Options, OutDependencies);
+			return Builder->BuildSourceDependencyManifest(VirtualShaderPath, Options, OutDependencies);
 		}
 
 		auto BuildSourceTreeFingerprint(
@@ -61,7 +61,7 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult override
 		{
-			return BuildShaderSourceTreeFingerprintFromService(VirtualShaderPath, Options, OutFingerprint);
+			return Builder->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
 		}
 
 		auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
@@ -145,7 +145,7 @@ namespace Durin
 
 		auto GetStats() const -> FShaderBuildStats override
 		{
-			return GetShaderCompileServiceStats();
+			return Builder->GetStats();
 		}
 
 		auto BuildCookedLibrary(
@@ -156,14 +156,14 @@ namespace Durin
 			const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
 		{
 			return ProduceCookedShaderLibrary(
-				TargetPlatform, TargetProfile, OutBytes, std::move(Artifacts), IsCancelled);
+				*Builder, TargetPlatform, TargetProfile, OutBytes, std::move(Artifacts), IsCancelled);
 		}
 
 		// Resident until normal editor/tool shutdown; dynamic reloading is unsupported.
 		auto StartupModule() -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
-			InitShaderCompileService();
+			Builder = std::make_unique<FShaderBuilder>();
 			const auto Result = InitializeShaderData(FShaderDataConfiguration::Authored());
 			requiref(Result,
 				"Authored Shader data initialization failed: {}", FormatShaderError(Result.error()));
@@ -171,9 +171,11 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownShaderCompileService();
+			Builder.reset();
 			ShutdownShaderData();
 		}
+	private:
+		std::unique_ptr<FShaderBuilder> Builder;
 	};
 
 	IMPLEMENT_MODULE(FShaderBuildModule, ShaderBuild)

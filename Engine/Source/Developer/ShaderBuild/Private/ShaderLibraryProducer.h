@@ -4,7 +4,10 @@
 
 namespace Durin
 {
+	class FShaderBuilder;
+
 	auto ProduceCookedShaderLibrary(
+		FShaderBuilder& Builder,
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,

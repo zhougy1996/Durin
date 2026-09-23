@@ -1,6 +1,6 @@
 #include "Shader/Shader.h"
 #include "DynamicRHI.h"
-#include "ShaderDataInternal.h"
+#include "Shader/IShaderBuildModule.h"
 #include "ShaderBindingInternal.h"
 
 namespace Durin
@@ -484,7 +484,13 @@ namespace Durin
 			return Result;
 		}
 
-		const FShaderCompilerOutput Output = GetOrCompileShader(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		auto* Module = IShaderBuildModule::Get();
+		if (!Module)
+		{
+			Reset();
+			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
+		}
+		const FShaderCompilerOutput Output = Module->CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
 		if (!Output)
 		{
 			Reset();

@@ -138,13 +138,13 @@ safe last-writer-wins publication and readers a prior or new complete object.
 
 ShaderBuild owns single-flight records, compiler contexts, memory caching, and
 shutdown. Callers own task scheduling and admission. Generated requests do not
-hold a service-wide lock across dependency validation, cache access, or compilation.
+hold a builder-wide lock across dependency validation, cache access, or compilation.
 Each Slang compiler/resolver call exclusively leases a global session; all derived
 objects are destroyed before returning that lease. Pool locks cover only the idle
 inventory, with at most four idle sessions retained per pool. Active contexts follow
 the caller's worker/admission budget; acquisition creates a context when none is
 idle instead of blocking a worker behind another compilation. Shutdown requires
-all calls and their leases to drain before destroying the service.
+all calls and their leases to drain before destroying the builder.
 
 Filesystem-backed generated requests validate dependencies and imports before
 single-flight admission using the complete output identity. Captured-source requests
@@ -164,7 +164,11 @@ DurinEditor and Cook-capable tools select ShaderBuild. Its resident
 `IShaderBuildModule` is the only live-build path; module absence is an explicit
 authored failure. Like MeshBuilder and TextureBuild, it does not support runtime
 unloading. Consumers drain their work before normal module shutdown releases
-compiler and Shader-data state. RenderCore has no Slang or
+compiler and Shader-data state. The module owns a private `FShaderBuilder`;
+its instance contains compiler/cache state and is also passed to cooked-library
+production. Tests construct independent builders without replacing module state.
+RenderCore build functions adapt directly to the module interface.
+RenderCore has no Slang or
 DerivedDataCache dependency, and DurinGame selects neither ShaderBuild nor DDC.
 
 ## Cooked delivery

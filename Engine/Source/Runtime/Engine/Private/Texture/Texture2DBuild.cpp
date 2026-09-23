@@ -131,94 +131,92 @@ namespace Durin
 #else
 		auto* Module = ITextureBuildModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
-		return [&]() -> std::expected<void, FTexture2DBuildError> {
-				OutIdentity.Builder = Module->GetTexture2DDescriptor();
-				if (!OutIdentity.Builder.IsValid())
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderDescriptor});
-				}
-				const FTexture2DBuildKeyInput KeyInput{
-					.SourceIdentity = OutIdentity.SourceIdentity,
-					.Usage = Request.Settings.Usage,
-					.bSRGB = ResolveTexture2DSRGB(Request.Settings),
-					.CompressionQuality = Request.Settings.CompressionQuality,
-					.AlphaMipMode = Request.Settings.AlphaMipMode,
-					.MaximumResolution = Request.Settings.MaxResolution,
-					.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
-					.BuilderVersion = OutIdentity.Builder.BuilderVersion,
-					.TargetPlatform = Request.TargetPlatform,
-					.TargetProfile = Request.TargetProfile};
-				const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
-				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
-				FTexturePlatformData PlatformData;
-				if (TextureDerivedDataCache::Load(
-					Key,
-					Request.TargetPlatform, Request.TargetProfile,
-					PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
-				{
-					OutProduct = {.PlatformData = std::move(PlatformData),
-						.DerivedDataKey = Key,
-						.Builder = OutIdentity.Builder,
-						.Origin = ETexture2DBuildProductOrigin::CacheHit};
-					return std::expected<void, FTexture2DBuildError>{};
-				}
-				if (ExecutionControl && ExecutionControl->ShouldCancel
-					&& ExecutionControl->ShouldCancel())
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-				}
-				FTexture2DBuildRequest Decoded;
-				if (Request.DeferredSource)
-				{
-					Decoded = MakeTexture2DBuildRequest(*Request.DeferredSource, Request.Settings);
-					if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
-						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-				}
-				FTexture2DBuildMetrics RecipeMetrics;
-				const FTexture2DRecipeExecutionControl RecipeControl{
-					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
-						: std::function<bool()>{},
-					.Metrics = &RecipeMetrics};
-			auto RecipeResult = Module->BuildTexture2D({
-					.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
-					.Settings = Request.Settings,
-					.TargetPlatform = Request.TargetPlatform,
-					.TargetProfile = Request.TargetProfile},
-					&RecipeControl);
-				if (!RecipeResult) return std::unexpected(std::move(RecipeResult.error()));
-				auto RecipeProduct = std::move(*RecipeResult);
-				if (!RecipeProduct.PlatformData.IsValid())
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
-				}
-				if (ExecutionControl && ExecutionControl->ShouldCancel
-					&& ExecutionControl->ShouldCancel())
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-				}
+		OutIdentity.Builder = Module->GetTexture2DDescriptor();
+		if (!OutIdentity.Builder.IsValid())
+		{
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderDescriptor});
+		}
+		const FTexture2DBuildKeyInput KeyInput{
+			.SourceIdentity = OutIdentity.SourceIdentity,
+			.Usage = Request.Settings.Usage,
+			.bSRGB = ResolveTexture2DSRGB(Request.Settings),
+			.CompressionQuality = Request.Settings.CompressionQuality,
+			.AlphaMipMode = Request.Settings.AlphaMipMode,
+			.MaximumResolution = Request.Settings.MaxResolution,
+			.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
+			.BuilderVersion = OutIdentity.Builder.BuilderVersion,
+			.TargetPlatform = Request.TargetPlatform,
+			.TargetProfile = Request.TargetProfile};
+		const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
+		TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
+		FTexturePlatformData PlatformData;
+		if (TextureDerivedDataCache::Load(
+			Key,
+			Request.TargetPlatform, Request.TargetProfile,
+			PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
+		{
+			OutProduct = {.PlatformData = std::move(PlatformData),
+				.DerivedDataKey = Key,
+				.Builder = OutIdentity.Builder,
+				.Origin = ETexture2DBuildProductOrigin::CacheHit};
+			return std::expected<void, FTexture2DBuildError>{};
+		}
+		if (ExecutionControl && ExecutionControl->ShouldCancel
+			&& ExecutionControl->ShouldCancel())
+		{
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+		}
+		FTexture2DBuildRequest Decoded;
+		if (Request.DeferredSource)
+		{
+			Decoded = MakeTexture2DBuildRequest(*Request.DeferredSource, Request.Settings);
+			if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
+		}
+		FTexture2DBuildMetrics RecipeMetrics;
+		const FTexture2DRecipeExecutionControl RecipeControl{
+			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
+				: std::function<bool()>{},
+			.Metrics = &RecipeMetrics};
+		auto RecipeResult = Module->BuildTexture2D({
+			.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
+			.Settings = Request.Settings,
+			.TargetPlatform = Request.TargetPlatform,
+			.TargetProfile = Request.TargetProfile},
+			&RecipeControl);
+		if (!RecipeResult) return std::unexpected(std::move(RecipeResult.error()));
+		auto RecipeProduct = std::move(*RecipeResult);
+		if (!RecipeProduct.PlatformData.IsValid())
+		{
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
+		}
+		if (ExecutionControl && ExecutionControl->ShouldCancel
+			&& ExecutionControl->ShouldCancel())
+		{
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+		}
 
-				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
-				if (Request.bPersistDerivedData)
-				{
-					if (ExecutionControl && ExecutionControl->OnPersisting)
-						ExecutionControl->OnPersisting();
-					TextureDerivedDataCache::Store(
-						Key,
-						Request.TargetPlatform, Request.TargetProfile,
-						RecipeProduct.PlatformData, StoreDiagnostic);
-					RecipeMetrics.PersistenceNanoseconds =
-						StoreDiagnostic.DurationNanoseconds;
-				}
-				if (ExecutionControl && ExecutionControl->Metrics)
-					*ExecutionControl->Metrics = RecipeMetrics;
-				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
-					.DerivedDataKey = Key,
-					.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-					.Builder = OutIdentity.Builder,
-					.Metrics = RecipeMetrics,
-					.Origin = ETexture2DBuildProductOrigin::Rebuilt};
-				return std::expected<void, FTexture2DBuildError>{};
-			}();
+		TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
+		if (Request.bPersistDerivedData)
+		{
+			if (ExecutionControl && ExecutionControl->OnPersisting)
+				ExecutionControl->OnPersisting();
+			TextureDerivedDataCache::Store(
+				Key,
+				Request.TargetPlatform, Request.TargetProfile,
+				RecipeProduct.PlatformData, StoreDiagnostic);
+			RecipeMetrics.PersistenceNanoseconds =
+				StoreDiagnostic.DurationNanoseconds;
+		}
+		if (ExecutionControl && ExecutionControl->Metrics)
+			*ExecutionControl->Metrics = RecipeMetrics;
+		OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
+			.DerivedDataKey = Key,
+			.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
+			.Builder = OutIdentity.Builder,
+			.Metrics = RecipeMetrics,
+			.Origin = ETexture2DBuildProductOrigin::Rebuilt};
+		return std::expected<void, FTexture2DBuildError>{};
 #endif
 	}
 

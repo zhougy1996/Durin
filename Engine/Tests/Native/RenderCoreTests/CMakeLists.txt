@@ -59,7 +59,7 @@ durin_add_native_test(RenderShaderServiceTests
 	DOMAINS shader
 	MODULES rendercore shaderbuild derived-data-cache
 	PRIVATE_SOURCE_RATIONALE
-		"RenderCore-owned shader service white-box coverage avoids exporting private service implementation symbols."
+		"RenderCore-owned shader builder white-box coverage avoids exporting private builder implementation symbols."
 	SOURCES Private/ShaderCompileServiceTests.cpp
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
@@ -67,7 +67,7 @@ durin_add_native_test(RenderShaderServiceTests
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/ShaderDerivedData.cpp
-		${_durin_shader_build_private_dir}/ShaderCompileService.cpp
+		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"

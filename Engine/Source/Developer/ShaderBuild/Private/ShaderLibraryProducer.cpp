@@ -1,7 +1,7 @@
 #include "ShaderLibraryProducer.h"
 
 #include "Shader/Shader.h"
-#include "ShaderCompileService.h"
+#include "ShaderBuilder.h"
 
 namespace Durin
 {
@@ -27,6 +27,7 @@ namespace Durin
 	}
 
 	auto ProduceCookedShaderLibrary(
+		FShaderBuilder& Builder,
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
@@ -50,7 +51,7 @@ namespace Durin
 			if (!MakeCompileOptions(Types, Options))
 				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
 			Options.SourceArtifacts = Artifacts;
-			FShaderCompilerOutput Output = GetOrCompileShader(
+			FShaderCompilerOutput Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);
 			if (!Output)
 			{
@@ -63,7 +64,7 @@ namespace Durin
 			FXxHash128Builder Production;
 			Production.Update("DurinCookedShaderProduction_v1");
 			Production.UpdateValue(RuntimeIdentity);
-			Production.Update(GetShaderCompilerEnvironmentIdentityFromService());
+			Production.Update(Builder.GetCompilerEnvironmentIdentity());
 			for (const FCompiledShader& Shader : Output.CompiledShaders)
 				Production.UpdateValue(Shader.Hash);
 			Records.push_back({Request, Production.Finalize(), std::move(Output)});

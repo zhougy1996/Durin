@@ -1,4 +1,4 @@
-#include "ShaderDataInternal.h"
+#include "Shader/IShaderBuildModule.h"
 
 #include "Shader/Shader.h"
 #include "Shader/ShaderData.h"
@@ -135,82 +135,4 @@ namespace Durin
 		return State.Library.Load(*Found, OutOutput);
 	}
 
-	auto IShaderBuildModule::Get() -> IShaderBuildModule*
-	{
-#if DURIN_WITH_EDITOR
-		const auto Info = FModuleManager::Get().FindModule("ShaderBuild");
-		if (Info && Info->State.load() == EModuleState::Active)
-			return static_cast<IShaderBuildModule*>(Info->Module.get());
-#endif
-		return nullptr;
-	}
-
-	auto GetOrCompileShader(
-		std::string_view VirtualShaderPath,
-		const FShaderCompileOptions& Options) -> FShaderCompilerOutput
-	{
-		if (auto* Module = IShaderBuildModule::Get())
-			return Module->CompileMounted(VirtualShaderPath, Options);
-		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
-	}
-
-	auto GetOrCompileGeneratedShader(
-		const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->CompileGenerated(Request);
-		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
-	}
-
-	auto GetShaderCompilerEnvironmentIdentityFromModule() -> std::string
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCompilerEnvironmentIdentity();
-		return {};
-	}
-
-	auto BuildShaderSourceDependencyManifestFromModule(
-		std::string_view VirtualShaderPath,
-		const FShaderCompileOptions& Options,
-		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult
-	{
-		if (auto* Module = IShaderBuildModule::Get())
-			return Module->BuildSourceDependencyManifest(VirtualShaderPath, Options, OutDependencies);
-		OutDependencies.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
-	}
-
-	auto BuildShaderSourceTreeFingerprintFromModule(
-		std::string_view VirtualShaderPath,
-		const FShaderCompileOptions& Options,
-		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult
-	{
-		if (auto* Module = IShaderBuildModule::Get())
-			return Module->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
-		OutFingerprint = {};
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
-	}
-
-	auto GetShaderBuildStats() -> FShaderBuildStats
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->GetStats();
-		return {};
-	}
-
-	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCookInputIdentity(OutIdentity, IsCancelled);
-		OutIdentity.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
-	}
-
-	auto BuildCookedShaderLibrary(
-		EShaderTargetPlatform TargetPlatform,
-		EShaderTargetProfile TargetProfile,
-		FByteBuffer& OutBytes,
-		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
-	{
-		if (auto* Module = IShaderBuildModule::Get())
-			return Module->BuildCookedLibrary(TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);
-		OutBytes.clear();
-		return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
-	}
 }

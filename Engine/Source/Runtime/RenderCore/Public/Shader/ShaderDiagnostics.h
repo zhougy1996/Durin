@@ -43,7 +43,6 @@ namespace Durin
 		ShaderMountRequired,
 		ImportNotAllowed,
 		DependencyResolutionFailed,
-		CompileServiceUnavailable,
 		DependencyContentConflict,
 		CaptureFileLimit,
 		CaptureInputInvalid,

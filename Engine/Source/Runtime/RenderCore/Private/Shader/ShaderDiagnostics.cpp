@@ -105,7 +105,6 @@ namespace Durin
 		case EShaderError::ShaderMountRequired: return "Generated shader compilation requires a registered shader mount";
 		case EShaderError::ImportNotAllowed: return std::format("Generated shader import '{}' is not allowlisted.", Error.ActualIdentity);
 		case EShaderError::DependencyResolutionFailed: return "Failed to parse shader dependency graph";
-		case EShaderError::CompileServiceUnavailable: return "Shader compile service is not initialized";
 		case EShaderError::DependencyContentConflict: return std::format("Shader virtual dependency '{}' resolves to conflicting content.", Error.ActualIdentity);
 		case EShaderError::CaptureFileLimit: return "Captured shader file count exceeds the limit.";
 		case EShaderError::CaptureInputInvalid: return "Captured shader paths or bytes exceed canonical input limits.";
