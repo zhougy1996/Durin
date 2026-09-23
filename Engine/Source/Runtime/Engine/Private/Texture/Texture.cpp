@@ -283,9 +283,10 @@ namespace Durin
 		check(!PendingUpdate);
 		PendingUpdate = std::make_shared<FTextureResourceUpdate>(std::move(Candidate));
 		if (!GDynamicRHI || !IsTaskSchedulerRunning()
+			|| GetRenderCommandAdmissionState() != ERenderCommandAdmissionState::Running
 			|| !GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
 		{
-			DURIN_WARN("Texture update rejected: RHI or GameThread task executor is unavailable. (texture: {})", GetObjectPath());
+			DURIN_WARN("Texture update rejected: RHI, render admission, or GameThread task executor is unavailable. (texture: {})", GetObjectPath());
 			PendingUpdate->Reject();
 			ConsumeResourceUpdate();
 			return;
