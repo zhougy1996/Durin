@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	// Value-owned settings frozen before a Texture2D recipe runs.
+	// Value-owned settings frozen before a Texture2D build runs.
 	struct FTexture2DBuildSettings
 	{
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -36,27 +36,14 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
 
-	struct FTexture2DBuildDescriptor
-	{
-		std::string ProducerIdentity;
-		uint32 BuilderVersion = 0;
-
-		[[nodiscard]] auto IsValid() const -> bool
-		{
-			return !ProducerIdentity.empty() && BuilderVersion != 0;
-		}
-
-		auto operator==(const FTexture2DBuildDescriptor&) const -> bool = default;
-	};
-
-	struct FTexture2DRecipeMetrics
+	struct FTexture2DBuildTimings
 	{
 		uint64 MipGenerationNanoseconds = 0;
 		uint64 CompressionNanoseconds = 0;
 		uint64 PeakIntermediateBytes = 0;
 	};
 
-	struct FTexture2DRecipeBuildRequest
+	struct FTexture2DBuildInput
 	{
 		std::span<const Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
@@ -64,17 +51,17 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 	};
 
-	struct FTexture2DRecipeBuildProduct
+	struct FTexture2DBuildOutput
 	{
 		FTexturePlatformData PlatformData;
-		FTexture2DRecipeMetrics Metrics;
+		FTexture2DBuildTimings Metrics;
 	};
 
 	enum class ETaskState : uint8;
 	enum class ETexture2DBuildError : uint8
 	{
 		None, InvalidInput, CompressionTaskFailed,
-		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidBuilderDescriptor, Cancelled,
+		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidBuilderVersion, Cancelled,
 		InvalidBuilderProduct, ModuleUnavailable, UnsupportedTarget,
 		CompressedLayoutOverflow, UnsupportedPixelFormat,
 		InvalidMipLayout, InvalidPlatformData,
@@ -87,8 +74,7 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
 
-
-	struct FTexture2DRecipeExecutionControl
+	struct FTexture2DBuildControl
 	{
 		std::function<bool()> ShouldCancel;
 	};

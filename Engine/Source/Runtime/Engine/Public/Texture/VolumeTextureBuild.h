@@ -33,7 +33,6 @@ namespace Durin
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		FAssetCacheDiagnostics PersistenceDiagnostic;
-		FVolumeTextureBuildDescriptor Builder;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};
 
@@ -46,13 +45,8 @@ namespace Durin
 		bool bPreserveSource = false;
 	};
 
-	struct FVolumeTextureBuildValue
-	{
-		FVolumeTextureBuildProduct Product;
-	};
-
 	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<FVolumeTextureBuildValue, FTextureBuildOperationError>;
+		-> std::expected<FVolumeTextureBuildProduct, FTextureBuildOperationError>;
 	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
 		-> std::expected<void, FTextureBuildOperationError>;
 }

@@ -126,7 +126,7 @@ namespace Durin::TextureCubeBuilder
 			|| Panorama.GetInfo().GammaSpace != Image::EImageGammaSpace::Linear
 			|| Panorama.GetInfo().Depth != 1 || Panorama.GetInfo().SliceCount != 1)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"HDR cube requires a single linear RGBA32F panorama."});
 		}
 		FTexturePanoramaFloatImage Input;
@@ -141,7 +141,7 @@ namespace Durin::TextureCubeBuilder
 		{
 			auto Error = std::move(Result.error());
 			Error.Code = ETextureBuildFailure::BuildFailed;
-			Error.Stage = ETextureBuildStage::Recipe;
+			Error.Stage = ETextureBuildStage::Build;
 			return std::unexpected(std::move(Error));
 		}
 		const uint32 BaseDimension = Settings.FaceDimension == 0
@@ -172,7 +172,7 @@ namespace Durin::TextureCubeBuilder
 							{
 								FVector3 Direction;
 								if (!ResolveTextureCubeFacePixelDirection(static_cast<ETextureCubeFace>(Face),
-									X * Grid + SX, Y * Grid + SY, Dimension * Grid, Direction)) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, "HDR cube projection failed."});
+									X * Grid + SX, Y * Grid + SY, Dimension * Grid, Direction)) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build, "HDR cube projection failed."});
 								const double A = 2.0 * (X + (SX + 0.5) / Grid) / Dimension - 1.0;
 								const double B = 2.0 * (Y + (SY + 0.5) / Grid) / Dimension - 1.0;
 								const double W = std::pow(1.0 + A * A + B * B, -1.5);
@@ -193,7 +193,7 @@ namespace Durin::TextureCubeBuilder
 				if (Dimension == 1) break;
 			}
 		}
-		if (!Candidate.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, "HDR cube platform data is invalid."});
+		if (!Candidate.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build, "HDR cube platform data is invalid."});
 		OutData = std::move(Candidate);
 		return {};
 	}

@@ -107,7 +107,7 @@ namespace Durin
 			}
 			else
 			{
-				OutError = "TextureCube panorama source format is unsupported by the projection recipe.";
+				OutError = "TextureCube panorama source format is unsupported by the projection build.";
 				return false;
 			}
 			OutRequest.Input = std::move(Panorama);
@@ -125,9 +125,9 @@ namespace Durin
 				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
 			{
-				if (auto* BuildModule = ITextureBuildModule::Get(); BuildModule && BuildModule->GetTextureCubeDescriptor().IsValid())
+				if (auto* BuildModule = ITextureBuildModule::Get(); BuildModule && BuildModule->GetTextureCubeBuilderVersion() != 0 && BuildModule->GetTextureCubeProjectionVersion() != 0)
 				{
-					const auto Descriptor = BuildModule->GetTextureCubeDescriptor();
+					const uint32 BuilderVersion = BuildModule->GetTextureCubeBuilderVersion();
 					const auto Hash = Source.GetIdentity();
 					std::string Error;
 					const auto Key = BuildTextureCubeDerivedDataKey({
@@ -136,8 +136,8 @@ namespace Durin
 						.PanoramaContentHash = bHDR ? Hash : FXxHash128{},
 						.FaceDimension = bHDR ? FaceDimension : 0,
 						.ExposureEV = bHDR && Exposure != 0.0f ? Exposure : 0.0f,
-						.bSRGB = bSRGB, .BuilderVersion = Descriptor.BuilderVersion,
-						.ProjectionVersion = Descriptor.ProjectionVersion,
+						.bSRGB = bSRGB, .BuilderVersion = BuilderVersion,
+						.ProjectionVersion = BuildModule->GetTextureCubeProjectionVersion(),
 						.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, Error);
 					if (Key.IsValid())
 					{

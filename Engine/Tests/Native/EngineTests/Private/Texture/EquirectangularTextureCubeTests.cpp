@@ -143,7 +143,7 @@ namespace Durin::TextureCubeBuilder
 		Error = Oversized ? std::string{} : Oversized.error().Diagnostic;
 		ASSERT_FALSE(Oversized) << Error;
 		EXPECT_EQ(Oversized.error().Code, ETextureBuildFailure::BuildFailed);
-		EXPECT_EQ(Oversized.error().Stage, ETextureBuildStage::Recipe);
+		EXPECT_EQ(Oversized.error().Stage, ETextureBuildStage::Build);
 		EXPECT_FALSE(Cube.IsValid());
 		const auto Overexposed = BuildHDRTextureCube(Panorama,
 			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR}, Cube);

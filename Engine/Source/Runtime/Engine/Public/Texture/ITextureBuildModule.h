@@ -7,23 +7,24 @@
 
 namespace Durin
 {
-	// Fixed Developer module contract. Recipes return detached CPU values only.
+	// Fixed Developer module contract. Builds return detached CPU values only.
 	class ITextureBuildModule : public IModuleInterface
 	{
 	public:
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> ITextureBuildModule*;
-		virtual auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor = 0;
-		virtual auto GetTextureCubeDescriptor() const -> FTextureCubeBuildDescriptor = 0;
-		virtual auto GetVolumeTextureDescriptor() const -> FVolumeTextureBuildDescriptor = 0;
-		virtual auto BuildTexture2D(const FTexture2DRecipeBuildRequest& Request,
-			const FTexture2DRecipeExecutionControl* Control = nullptr)
-			-> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> = 0;
+		virtual auto GetTexture2DBuilderVersion() const -> uint32 = 0;
+		virtual auto GetTextureCubeBuilderVersion() const -> uint32 = 0;
+		virtual auto GetTextureCubeProjectionVersion() const -> uint32 = 0;
+		virtual auto GetVolumeTextureBuilderVersion() const -> uint32 = 0;
+		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request,
+			const FTexture2DBuildControl* Control = nullptr)
+			-> std::expected<FTexture2DBuildOutput, FTexture2DBuildError> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
-		virtual auto BuildTextureCube(const FTextureCubeRecipeBuildRequest& Request)
-			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> = 0;
-		virtual auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request)
-			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> = 0;
+		virtual auto BuildTextureCube(const FTextureCubeBuildInput& Request)
+			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> = 0;
+		virtual auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
+			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> = 0;
 	};
 }

@@ -123,7 +123,7 @@ struct FAssetState
 			const FTexture2DBuildInputIdentity& Expected,
 			const FTexture2DBuildInputIdentity& Completed) -> bool
 		{
-			return Completed.Builder.IsValid()
+			return Completed.BuilderVersion != 0
 				&& Expected.SourceIdentity == Completed.SourceIdentity
 				&& Expected.Settings == Completed.Settings
 				&& Expected.TargetPlatform == Completed.TargetPlatform

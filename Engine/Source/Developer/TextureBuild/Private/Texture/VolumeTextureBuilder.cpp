@@ -111,7 +111,7 @@ namespace Durin::VolumeTextureBuilder
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat
 			|| Settings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"Volume texture build requires valid source with matching output format and box filtering."});
 		}
 		const FFormatLayout Layout = GetLayout(Settings.OutputFormat);
@@ -128,7 +128,7 @@ namespace Durin::VolumeTextureBuilder
 		if (SourceVoxels.GetSize()
 			!= static_cast<uint64>(Base.DepthPitch) * Base.Depth)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"Volume texture authored voxel payload could not be read."});
 		}
 		Base.Voxels.assign(
@@ -139,7 +139,7 @@ namespace Durin::VolumeTextureBuilder
 				float Value = 0.0f;
 				if (!ReadChannel(Base.Voxels.data() + Offset, Channel, Layout, Value))
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 						"Volume texture float source contains a nonfinite channel."});
 				}
 			}
@@ -192,7 +192,7 @@ namespace Durin::VolumeTextureBuilder
 		}
 		if (!Candidate.IsValid())
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe,
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"Volume texture builder produced invalid platform data."});
 		}
 		OutPlatformData = std::move(Candidate);

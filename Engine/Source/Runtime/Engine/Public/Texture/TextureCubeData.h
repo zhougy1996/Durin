@@ -25,7 +25,7 @@ namespace Durin
 		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
 	};
 
-	// Immutable shared RGBA8 images used by decoding, projection, and build recipes.
+	// Immutable shared RGBA8 images used by decoding, projection, and build builds.
 	// Faces use Unknown gamma; the cube build settings supply color interpretation.
 	struct FTextureCubeDecodedFaces
 	{

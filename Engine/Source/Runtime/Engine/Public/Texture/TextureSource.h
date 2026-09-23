@@ -88,7 +88,7 @@ namespace Durin
 		}
 	};
 
-	// Owns authoritative editor source art independently from family recipes.
+	// Owns authoritative editor source art independently from family builds.
 	DSTRUCT()
 	struct FTextureSource
 	{

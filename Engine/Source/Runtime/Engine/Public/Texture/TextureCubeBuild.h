@@ -32,7 +32,6 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		FAssetCacheDiagnostics PersistenceDiagnostic;
-		FTextureCubeBuildDescriptor Builder;
 		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;
 	};
 

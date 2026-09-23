@@ -17,7 +17,7 @@ namespace Durin
 		case ETexture2DBuildError::CompressionTaskFailed: return "Texture compression task failed.";
 		case ETexture2DBuildError::MissingSourceIdentity: return "Texture2D source identity is missing.";
 		case ETexture2DBuildError::AuthoredBuildUnavailable: return "Texture2D authored build orchestration is unavailable outside editor builds.";
-		case ETexture2DBuildError::InvalidBuilderDescriptor: return "The Texture2D builder descriptor is invalid.";
+		case ETexture2DBuildError::InvalidBuilderVersion: return "The Texture2D builder descriptor is invalid.";
 		case ETexture2DBuildError::Cancelled: return "Texture2D build was cancelled.";
 		case ETexture2DBuildError::InvalidBuilderProduct: return "Texture2D builder returned invalid platform data.";
 		case ETexture2DBuildError::ModuleUnavailable: return "The TextureBuild module is unavailable.";
@@ -131,10 +131,10 @@ namespace Durin
 #else
 		auto* Module = ITextureBuildModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
-		OutIdentity.Builder = Module->GetTexture2DDescriptor();
-		if (!OutIdentity.Builder.IsValid())
+		OutIdentity.BuilderVersion = Module->GetTexture2DBuilderVersion();
+		if (OutIdentity.BuilderVersion == 0)
 		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderDescriptor});
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderVersion});
 		}
 		const FTexture2DBuildKeyInput KeyInput{
 			.SourceIdentity = OutIdentity.SourceIdentity,
@@ -144,7 +144,7 @@ namespace Durin
 			.AlphaMipMode = Request.Settings.AlphaMipMode,
 			.MaximumResolution = Request.Settings.MaxResolution,
 			.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
-			.BuilderVersion = OutIdentity.Builder.BuilderVersion,
+			.BuilderVersion = OutIdentity.BuilderVersion,
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile};
 		const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
@@ -157,7 +157,7 @@ namespace Durin
 		{
 			OutProduct = {.PlatformData = std::move(PlatformData),
 				.DerivedDataKey = Key,
-				.Builder = OutIdentity.Builder,
+				.BuilderVersion = OutIdentity.BuilderVersion,
 				.Origin = ETexture2DBuildProductOrigin::CacheHit};
 			return std::expected<void, FTexture2DBuildError>{};
 		}
@@ -173,19 +173,19 @@ namespace Durin
 			if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		}
-		const FTexture2DRecipeExecutionControl RecipeControl{
+		const FTexture2DBuildControl BuildControl{
 			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 				: std::function<bool()>{}};
-		auto RecipeResult = Module->BuildTexture2D({
+		auto BuildResult = Module->BuildTexture2D({
 			.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 			.Settings = Request.Settings,
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile},
-			&RecipeControl);
-		if (!RecipeResult) return std::unexpected(std::move(RecipeResult.error()));
-		auto RecipeProduct = std::move(*RecipeResult);
-		FTexture2DBuildMetrics RecipeMetrics{RecipeProduct.Metrics};
-		if (!RecipeProduct.PlatformData.IsValid())
+			&BuildControl);
+		if (!BuildResult) return std::unexpected(std::move(BuildResult.error()));
+		auto BuildProduct = std::move(*BuildResult);
+		FTexture2DBuildMetrics BuildMetrics{BuildProduct.Metrics};
+		if (!BuildProduct.PlatformData.IsValid())
 		{
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
 		}
@@ -203,17 +203,17 @@ namespace Durin
 			TextureDerivedDataCache::Store(
 				Key,
 				Request.TargetPlatform, Request.TargetProfile,
-				RecipeProduct.PlatformData, StoreDiagnostic);
-			RecipeMetrics.PersistenceNanoseconds =
+				BuildProduct.PlatformData, StoreDiagnostic);
+			BuildMetrics.PersistenceNanoseconds =
 				StoreDiagnostic.DurationNanoseconds;
 		}
 		if (ExecutionControl && ExecutionControl->Metrics)
-			*ExecutionControl->Metrics = RecipeMetrics;
-		OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
+			*ExecutionControl->Metrics = BuildMetrics;
+		OutProduct = {.PlatformData = std::move(BuildProduct.PlatformData),
 			.DerivedDataKey = Key,
 			.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-			.Builder = OutIdentity.Builder,
-			.Metrics = RecipeMetrics,
+			.BuilderVersion = OutIdentity.BuilderVersion,
+			.Metrics = BuildMetrics,
 			.Origin = ETexture2DBuildProductOrigin::Rebuilt};
 		return std::expected<void, FTexture2DBuildError>{};
 #endif

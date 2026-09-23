@@ -87,7 +87,7 @@ transactions belong to the publishing caller.
 
 ## Deterministic build and cache
 
-TextureBuild owns the pure volume recipe through `ITextureBuildModule`. It consumes normalized voxels,
+TextureBuild owns the pure volume build operation through `ITextureBuildModule`. It consumes normalized voxels,
 uses a three-axis box filter in linear numeric space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
@@ -101,7 +101,7 @@ Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine computes the key, queries
-and validates DDC, invokes the module's volume recipe only on a
+and validates DDC, invokes the module's volume build operation only on a
 miss, performs best-effort Put, and applies the derived-only completion result
 on the GameThread. TextureBuild never receives cache policy or mutates a
 `DVolumeTexture`.
@@ -120,7 +120,7 @@ texture's import-data object rather than participating in source identity.
 The source identity accessor performs no I/O and excludes raw versus lossless
 storage encoding. The first `FMipData` request reads and decodes the source into
 the non-persistent, locally locked `LockedMipData` cache; build capture shares
-that immutable allocation in a detached snapshot and recipe code never consults
+that immutable allocation in a detached snapshot and build operation code never consults
 the live asset. Import and
 reimport replace the complete payload atomically. The VolumeTexture fields
 define voxel meaning and require a tightly

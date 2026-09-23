@@ -19,7 +19,7 @@ namespace Durin
 	{
 		Module,
 		Normalize,
-		Recipe,
+		Build,
 		Apply
 	};
 

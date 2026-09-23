@@ -308,7 +308,7 @@ namespace Durin
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			Result.Metrics.DecodedBytes = 0;
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
-			FTexture2DBuildMetrics RecipeMetrics;
+			FTexture2DBuildMetrics BuildMetrics;
 			bool bEnteredPersisting = false;
 			const FTexture2DBuildExecutionControl Control{
 				.ShouldCancel = Cancel,
@@ -316,17 +316,17 @@ namespace Durin
 					bEnteredPersisting = true;
 					SetPhase(RequestState, ETexture2DCompilationPhase::Persisting);
 				},
-				.Metrics = &RecipeMetrics};
+				.Metrics = &BuildMetrics};
 			FTexture2DBuildProduct Product;
 			const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
 				Result.BuildCause = BuildResult.error();
 				Result.Error = TexturePrivate::MakeCompilationBuildFailure(BuildResult.error());
-				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
-				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
-				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
-				Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
+				Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
+				Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
+				Result.Metrics.PersistenceNanoseconds = BuildMetrics.PersistenceNanoseconds;
+				Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
 				Result.Phase = BuildResult.error().Code == ETexture2DBuildError::Cancelled
 					? ETexture2DCompilationPhase::Cancelled
 					: ETexture2DCompilationPhase::Failed;
@@ -335,10 +335,10 @@ namespace Durin
 						? ETexture2DCompilationPhase::Persisting : ETexture2DCompilationPhase::Building;
 				return Result;
 			}
-			Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
-			Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
-			Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
-			Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
+			Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
+			Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
+			Result.Metrics.PersistenceNanoseconds = BuildMetrics.PersistenceNanoseconds;
+			Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
 			Result.PersistenceDiagnostic = std::move(Product.PersistenceDiagnostic);

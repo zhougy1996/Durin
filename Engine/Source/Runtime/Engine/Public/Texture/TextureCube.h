@@ -87,7 +87,7 @@ namespace Durin
 		DPROPERTY(EditorOnly, DisplayName = "Panorama Exposure EV")
 		float PanoramaExposureEV = 0.0f;
 
-		// Missing fields in old packages retain the original LDR recipe.
+		// Missing fields in old packages retain the original LDR build.
 		DPROPERTY(EditorOnly, DisplayName = "Output Range")
 		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
 

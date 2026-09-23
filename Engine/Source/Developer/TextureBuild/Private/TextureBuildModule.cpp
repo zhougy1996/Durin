@@ -11,22 +11,25 @@ namespace Durin
 	public:
 		// Resident until normal editor shutdown; dynamic reloading is unsupported.
 
-		auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor override
+		auto GetTexture2DBuilderVersion() const -> uint32 override
 		{
-			return {.ProducerIdentity = "Durin.TextureBuild.Texture2D", .BuilderVersion = Texture2DBuilderVersion};
+			return Texture2DBuilderVersion;
 		}
-		auto GetTextureCubeDescriptor() const -> FTextureCubeBuildDescriptor override
+		auto GetTextureCubeBuilderVersion() const -> uint32 override
 		{
-			return {.ProducerIdentity = "Durin.TextureBuild.TextureCube", .BuilderVersion = TextureCubeBuilderVersion,
-				.ProjectionVersion = TextureCubeProjectionVersion};
+			return TextureCubeBuilderVersion;
 		}
-		auto GetVolumeTextureDescriptor() const -> FVolumeTextureBuildDescriptor override
+		auto GetTextureCubeProjectionVersion() const -> uint32 override
 		{
-			return {.ProducerIdentity = "Durin.TextureBuild.VolumeTexture", .BuilderVersion = VolumeTextureBuilderVersion};
+			return TextureCubeProjectionVersion;
 		}
-		auto BuildTexture2D(const FTexture2DRecipeBuildRequest& Request,
-			const FTexture2DRecipeExecutionControl* Control)
-			-> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
+		auto GetVolumeTextureBuilderVersion() const -> uint32 override
+		{
+			return VolumeTextureBuilderVersion;
+		}
+		auto BuildTexture2D(const FTexture2DBuildInput& Request,
+			const FTexture2DBuildControl* Control)
+			-> std::expected<FTexture2DBuildOutput, FTexture2DBuildError> override
 		{
 			return Durin::BuildTexture2D(Request, Control);
 		}
@@ -35,13 +38,13 @@ namespace Durin
 		{
 			return Durin::NormalizeTextureCube(Request);
 		}
-		auto BuildTextureCube(const FTextureCubeRecipeBuildRequest& Request)
-			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> override
+		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
+			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> override
 		{
 			return Durin::BuildTextureCube(Request);
 		}
-		auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request)
-			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> override
+		auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
+			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> override
 		{
 			return Durin::BuildVolumeTexture(Request);
 		}

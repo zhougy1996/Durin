@@ -69,19 +69,6 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 	};
 
-	struct FTextureCubeBuildDescriptor
-	{
-		std::string ProducerIdentity;
-		uint32 BuilderVersion = 0;
-		uint32 ProjectionVersion = 0;
-
-		[[nodiscard]] auto IsValid() const -> bool
-		{
-			return !ProducerIdentity.empty() && BuilderVersion != 0
-				&& ProjectionVersion != 0;
-		}
-	};
-
 	// Engine-owned canonical authoring state produced while normalizing panorama input.
 	struct FTextureCubeCanonicalBuildInput
 	{
@@ -98,7 +85,7 @@ namespace Durin
 		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
 	};
 
-	struct FTextureCubeRecipeBuildRequest
+	struct FTextureCubeBuildInput
 	{
 		std::reference_wrapper<const FTextureCubeDecodedFaces> DecodedFaces;
 		bool bSRGB = true;
@@ -107,11 +94,6 @@ namespace Durin
 		// Borrowed only for this synchronous invocation; HDR bypasses RGBA8 scratch faces.
 		const Image::FImage* HDRPanorama = nullptr;
 		FTextureCubePanoramaBuildSettings PanoramaSettings;
-	};
-
-	struct FTextureCubeRecipeBuildProduct
-	{
-		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 	};
 
 }

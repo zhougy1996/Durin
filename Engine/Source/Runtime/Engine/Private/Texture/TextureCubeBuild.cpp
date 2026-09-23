@@ -23,10 +23,10 @@ namespace Durin
 		auto* Module = ITextureBuildModule::Get();
 		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
-		const FTextureCubeBuildDescriptor Descriptor = Module->GetTextureCubeDescriptor();
-		if (!Descriptor.IsValid())
+		const uint32 BuilderVersion = Module->GetTextureCubeBuilderVersion();
+		if (BuilderVersion == 0 || Module->GetTextureCubeProjectionVersion() == 0)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The TextureCube builder descriptor is invalid."});
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The TextureCube builder version is invalid."});
 		}
 		auto Normalized = Module->NormalizeTextureCube({.Input = std::cref(Request.Input),
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
@@ -71,8 +71,8 @@ namespace Durin
 			.FaceDimension = bHDR ? CanonicalInput.PanoramaFaceDimension : 0,
 			.ExposureEV = bHDR && CanonicalInput.PanoramaExposureEV != 0.0f ? CanonicalInput.PanoramaExposureEV : 0.0f,
 			.bSRGB = CanonicalInput.bSRGB,
-			.BuilderVersion = Descriptor.BuilderVersion,
-			.ProjectionVersion = Descriptor.ProjectionVersion,
+			.BuilderVersion = BuilderVersion,
+			.ProjectionVersion = Module->GetTextureCubeProjectionVersion(),
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile
 		};
@@ -89,34 +89,34 @@ namespace Durin
 		{
 			return FTextureCubeBuildValue{std::move(CanonicalInput), FTextureCubeBuildProduct{
 				.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
-				.Builder = Descriptor, .Origin = ETextureCubeBuildProductOrigin::CacheHit}};
+				.Origin = ETextureCubeBuildProductOrigin::CacheHit}};
 		}
 
-		auto Recipe = Module->BuildTextureCube({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
+		auto Build = Module->BuildTextureCube({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
 			.bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile,
 			.HDRPanorama = bHDR ? &CanonicalInput.AuthoredPanorama : nullptr,
 			.PanoramaSettings = {.FaceDimension = CanonicalInput.PanoramaFaceDimension,
 				.ExposureEV = CanonicalInput.PanoramaExposureEV, .Output = CanonicalInput.Output}});
-		if (!Recipe)
+		if (!Build)
 		{
-			return std::unexpected(std::move(Recipe.error()));
+			return std::unexpected(std::move(Build.error()));
 		}
-		auto RecipeProduct = std::move(*Recipe);
-		if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
+		auto BuiltPlatformData = std::move(*Build);
+		if (!BuiltPlatformData || !BuiltPlatformData->IsValid())
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Recipe, "TextureCube recipe returned invalid platform data."});
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, "TextureCube build returned invalid platform data."});
 		}
 		TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 		if (Request.bPersistDerivedData)
 			TextureDerivedDataCache::Store(
 				Key,
 				Request.TargetPlatform, Request.TargetProfile,
-				*RecipeProduct.PlatformData, StoreDiagnostic);
+				*BuiltPlatformData, StoreDiagnostic);
 		return FTextureCubeBuildValue{std::move(CanonicalInput), FTextureCubeBuildProduct{
-				.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key,
+				.PlatformData = std::move(BuiltPlatformData), .DerivedDataKey = Key,
 				.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-				.Builder = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt}};
+				.Origin = ETextureCubeBuildProductOrigin::Rebuilt}};
 #endif
 	}
 

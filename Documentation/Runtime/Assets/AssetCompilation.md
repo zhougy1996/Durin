@@ -110,14 +110,21 @@ aggregate does not add a compilation thread pool. Process shutdown completes
 the aggregate before Core closes task admission.
 
 TextureBuild does not own those scopes or return asynchronous tasks.
-Engine calls its fixed module interface for synchronous value-only recipes.
+Engine calls its fixed module interface for synchronous value-only build operations.
 The interface includes `Texture2DBuildTypes.h`, `TextureCubeBuildTypes.h`, and
 `VolumeTextureBuildTypes.h`; Cube and Volume CPU data live in their respective
 `Data.h` headers, independently of the texture object classes. Cube normalization
 borrows a `FTextureCubeNormalizeRequest` containing input values and target settings.
 Cache policy, cache diagnostics, and object application remain in the Engine
 orchestration headers and do not enter the module request.
-Texture2D and TextureCube PostLoad place recipe work on an Engine-owned worker;
+Module inputs use `FTexture2DBuildInput`, `FTextureCubeBuildInput`, and
+`FVolumeTextureBuildInput`. Cube and Volume return platform-data ownership directly;
+Texture2D returns `FTexture2DBuildOutput` with platform data and build timings.
+The module exposes algorithm versions directly, including the separate Cube
+projection version. DDC keys and Cook inputs retain these versions without a
+producer descriptor or identity string. Volume detached construction returns its
+Engine build product directly, without a separate value wrapper.
+Texture2D and TextureCube PostLoad place build operation work on an Engine-owned worker;
 VolumeTexture remains synchronous. TextureBuild stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
@@ -172,12 +179,12 @@ pumps all terminal results and joins the scope. Even a task canceled before its
 body starts is finalized by the manager. Completed request records release their
 module sessions while retaining bounded diagnostics.
 
-Recipes, DDC ownership, and typed build application are defined by
+Build operations, DDC ownership, and typed build application are defined by
 [Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).
 The texture manager routes `DTexture`, sharing its queue and limits between
 Texture2D and TextureCube. VolumeTexture currently builds synchronously and has
 no outstanding compilation to finish. Authored PostLoad submits detached source
-metadata; DDC reads, source payload reads/decompression and recipe work happen
+metadata; DDC reads, source payload reads/decompression and build operation work happen
 on workers. Warm supported cache hits do not recover the source pixels.
 
 `DTexture::BeginCachePlatformData()` starts caching and is idempotent for an
@@ -309,7 +316,7 @@ as another successful render compilation.
 
 Cook waits for a pending source mutation when needed, then independently builds
 required detached projections without publishing authored CPU data. Cooked
-residency remains a separate manager and invokes no editor recipe.
+residency remains a separate manager and invokes no editor build operation.
 
 The request-ID overload of `GetStaticMeshCompilationDiagnostic` retrieves the exact
 completion even when the owner has newer work or has been destroyed. An expired
@@ -327,7 +334,7 @@ list. Each `FAssetBuildCacheWarning` identifies a cache read/decode/write operat
 with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
 Physics results use an independent `FPhysicsCookFailure` and the same Asset cache
 warning type; the shared scheduler preserves each product's fatal error type.
-There are at most two cache warnings per recipe (read or decode, followed by write);
+There are at most two cache warnings per build operation (read or decode, followed by write);
 clean cache outcomes create no records. Backend and codec causes are translated
 at the cache boundary instead of retained as a nested diagnostic tree.
 The optional `Error` retains the original pipeline failure without a completion

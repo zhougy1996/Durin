@@ -60,7 +60,7 @@ namespace Durin
 	struct FTexture2DCompilationError
 	{
 		ETexture2DCompilationError Code = ETexture2DCompilationError::None;
-		// Concise actionable input reason; internal recipe causes stay in diagnostics.
+		// Concise actionable input reason; internal build causes stay in diagnostics.
 		std::string InputReason;
 		std::optional<ETaskState> TaskState;
 		std::optional<FTexture2DInputError> InputCause;
