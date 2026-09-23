@@ -2,7 +2,8 @@
 
 #include "GBufferContract.h"
 #include "Renderers/DisplayMapping.h"
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneViewPreparation.h"
+#include "Renderers/SceneRenderResults.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
@@ -288,9 +289,9 @@ namespace Durin
 		View.ViewportHeight = 19;
 
 		const FSceneView MainView =
-			FSceneRenderer::FitViewToOutput(View, 800, 600);
+			FitSceneViewToOutput(View, 800, 600);
 		const FSceneView AuxiliaryView =
-			FSceneRenderer::FitViewToOutput(View, 320, 180);
+			FitSceneViewToOutput(View, 320, 180);
 
 		EXPECT_EQ(MainView.ViewportX, 0u);
 		EXPECT_EQ(MainView.ViewportY, 0u);
@@ -394,7 +395,7 @@ namespace Durin
 		FSceneView WideView;
 		WideView.AspectRatioConstraint = 16.0f / 9.0f;
 		const FSceneView WideResult =
-			FSceneRenderer::FitViewToOutput(WideView, 800, 600);
+			FitSceneViewToOutput(WideView, 800, 600);
 
 		EXPECT_EQ(WideResult.ViewportX, 0u);
 		EXPECT_EQ(WideResult.ViewportY, 75u);
@@ -404,7 +405,7 @@ namespace Durin
 		FSceneView TallView;
 		TallView.AspectRatioConstraint = 0.5f;
 		const FSceneView TallResult =
-			FSceneRenderer::FitViewToOutput(TallView, 800, 600);
+			FitSceneViewToOutput(TallView, 800, 600);
 
 		EXPECT_EQ(TallResult.ViewportX, 250u);
 		EXPECT_EQ(TallResult.ViewportY, 0u);

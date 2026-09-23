@@ -58,7 +58,6 @@ namespace Durin
 
 	struct FBaseSceneFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		FSceneGeometryRecordInputs Record;
 		const FDeferredLightingGraphOutput& Deferred;
 		FRDGTextureHandle SceneColor;
@@ -73,23 +72,14 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		std::optional<FRDGTextureHandle> DefaultWhite;
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
-		std::optional<FRDGTextureHandle> EnvironmentIrradiance;
-		std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
-		std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
-		FRHITexture* SelectedEnvironmentIrradiance;
-		FRHITexture* SelectedEnvironmentPrefiltered;
-		FRHITexture* SelectedEnvironmentBrdfLut;
+		FSceneEnvironmentInputs Environment;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
 			ProductionDeferredParameters;
 		const FSceneFeatureDecision& DeferredFeature;
 		const FSceneFeatureDecision& GBufferFeature;
 	};
 
-	struct FBaseSceneRendering final
-	{
-		using Result = FSceneColorPassResult;
-		static constexpr std::string_view Name = "Scene.Base";
-		static auto AddPasses(const FBaseSceneFeatureInputs& Inputs)
-			-> FBaseSceneGraphOutput;
-	};
+	inline constexpr std::string_view BaseScenePassName = "Scene.Base";
+	auto AddBaseScenePasses(FRDGBuilder& Graph, const FBaseSceneFeatureInputs& Inputs)
+		-> FBaseSceneGraphOutput;
 } // namespace Durin

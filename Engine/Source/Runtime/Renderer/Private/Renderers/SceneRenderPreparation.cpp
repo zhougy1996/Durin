@@ -1,4 +1,6 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/SceneRenderingService.h"
+#include "Renderers/SceneViewPreparation.h"
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -28,13 +30,13 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
 		FStaticMeshPreparationCache MeshPreparationCache;
-		Renderer.MeshCommandCache.BeginSubmission();
+		Service.MeshCommandCache.BeginSubmission();
 		struct FEndCommandSubmission
 		{
 			FStaticMeshDrawCommandCache& Cache;
 			~FEndCommandSubmission() { Cache.EndSubmission(); }
-		} EndCommandSubmission{Renderer.MeshCommandCache};
-		MeshPreparationCache.Commands = &Renderer.MeshCommandCache;
+		} EndCommandSubmission{Service.MeshCommandCache};
+		MeshPreparationCache.Commands = &Service.MeshCommandCache;
 		std::optional<FStaticMeshPreparationWork> ReceiverWork;
 		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
@@ -57,7 +59,7 @@ namespace Durin
 		}
 		if (Scene != nullptr)
 		{
-			FSceneVisibilityResult& Visibility = Renderer.VisibilityScratch;
+			FSceneVisibilityResult& Visibility = Service.VisibilityScratch;
 			PrepareSceneVisibility(
 				*Scene, RenderView, Telemetry.View, Visibility
 			);
@@ -316,7 +318,7 @@ namespace Durin
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
 		const FGeometryResolutionResult GeometryResolution =
-			Renderer.StaticMeshRenderer.PrepareResources_RenderThread(
+			Service.StaticMeshRenderer.PrepareResources_RenderThread(
 				CommandList, PreparedView.Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
 		// A partial receiver cannot satisfy the graph's declared attachment results.
@@ -324,8 +326,8 @@ namespace Durin
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
-			Renderer.DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, Renderer.StaticMeshRenderer,
+			Service.DirectionalShadowRenderer.PrepareResources_RenderThread(
+				CommandList, Service.StaticMeshRenderer,
 				*PreparedView.DirectionalShadow,
 				*ResolvedSceneResources.DirectionalShadow, Telemetry.View);
 		}
@@ -333,9 +335,9 @@ namespace Durin
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
 			&& ResolvedSceneResources.DirectionalShadow->bEnabled;
 		FRHITexture* DirectionalShadowTexture =
-			Renderer.DirectionalShadowRenderer.GetTexture_RenderThread();
+			Service.DirectionalShadowRenderer.GetTexture_RenderThread();
 		FRHISampler* DirectionalShadowSampler =
-			Renderer.DirectionalShadowRenderer.GetSampler_RenderThread();
+			Service.DirectionalShadowRenderer.GetSampler_RenderThread();
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
@@ -369,7 +371,7 @@ namespace Durin
 			ResolvedSceneResources.VolumetricCloud->Textures =
 				PreparedView.VolumetricCloud->Textures;
 			ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler =
-				Renderer.VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
+				Service.VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
 		}
 		return ERenderViewResult::Success;
 	}

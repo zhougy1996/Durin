@@ -1,5 +1,7 @@
 #include "Renderers/SceneRenderPipeline.h"
-#include "Renderers/SceneRenderGraphComposer.h"
+#include "Renderers/SceneRenderingService.h"
+#include "Renderers/SceneViewPreparation.h"
+#include "Renderers/SceneRenderer.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
@@ -66,8 +68,8 @@ namespace Durin
 		}
 	} // namespace
 
-	FSceneRenderPipeline::FSceneRenderPipeline(FSceneRenderer& Renderer)
-		: Renderer(Renderer)
+	FSceneRenderPipeline::FSceneRenderPipeline(FSceneRenderingService& Service)
+		: Service(Service)
 	{
 	}
 
@@ -77,8 +79,8 @@ namespace Durin
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderViewSubmission");
-		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
-			++Renderer.RenderSubmissionSerial;
+		if (Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+			++Service.RenderSubmissionSerial;
 		// First consumption joins all admitted PSOs from a preparation attempt on
 		// the render owner. Replay stays available and no graph exists during waits.
 		for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
@@ -107,23 +109,13 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
-		FSceneFrameContext Context;
+		FSceneRenderer Submission(Service);
+		FSceneFrameContext& Context = Submission.Context;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
-		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
-		FSceneViewTemporalContext& TemporalContext = Context.Transaction.Temporal;
 		FSceneViewState*& ViewState = Context.Transaction.ViewState;
 		Context.Logical.Qualification = GetRendererQualificationPolicy();
 		const FRendererQualificationPolicy& Qualification =
 			Context.Logical.Qualification;
-		auto& DefaultTextures = Renderer.DefaultTextures;
-		auto& EnvironmentLighting = Renderer.EnvironmentLighting;
-		auto& SkyBoxRenderer = Renderer.SkyBoxRenderer;
-		auto& PostProcessRenderer = Renderer.PostProcessRenderer;
-		auto& StaticMeshRenderer = Renderer.StaticMeshRenderer;
-		auto& ContactShadowRenderer = Renderer.ContactShadowRenderer;
-		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
-		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
-		auto& EditorAssistanceRenderer = Renderer.EditorAssistanceRenderer;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
 			CanonicalizeVolumetricCloudQuality(View.Settings.VolumetricCloud.Quality);
 		Telemetry.View.VolumetricCloud.VolumetricCloudDebugMode =
@@ -146,6 +138,52 @@ namespace Durin
 		Context.Logical.Width = Width;
 		Context.Logical.Height = Height;
 		Context.Logical.bPresentOutput = bPresentOutput;
+		const auto ResourceResult = PrepareViewResources_RenderThread(CommandList, Context);
+		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
+		Context.Logical.RenderView = FitSceneViewToOutput(
+			View, Width, Height);
+		SelectViewState_RenderThread(Context);
+		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
+		BeginTemporalState_RenderThread(Context);
+		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
+			CommandList, Context);
+		if (!Preparation.IsSuccess()) return Preparation.Result;
+		Context.Logical.PreparedView = std::move(*Preparation.Plan);
+		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
+		const ERenderViewResult ResolutionResult =
+			ResolveSceneRenderResources_RenderThread(
+				CommandList, PreparedView, Context);
+		if (ResolutionResult != ERenderViewResult::Success)
+			return ResolutionResult;
+		Context.Features = BuildSceneFrameFeaturePlan(
+			PreparedView, Options, Width, Height, Qualification);
+		const auto FeatureResult = PrepareFeatureResources_RenderThread(CommandList, Context);
+		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
+		FRDGBuilder Graph;
+		FSceneRenderGraphComposition& Composition =
+			Context.Transaction.Composition;
+		Submission.Render(Graph);
+		if (!ExecuteGraph_RenderThread(
+			Graph, CommandList, OutRenderGraphCapture))
+			return ERenderViewResult::RendererResourcesUnavailable;
+		if (!Composition.SceneColorPublication.IsSuccess())
+			return Composition.SceneColorPublication.Result;
+		if (Composition.PostProcessPublication.Result
+			== ERenderViewResult::Success)
+		{
+			ViewStateSubmission.Commit();
+			TelemetryPublication.Commit();
+		}
+		return Composition.PostProcessPublication.Result;
+	}
+
+	auto FSceneRenderPipeline::PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult
+	{
+		auto* Scene = Context.Logical.Scene;
+		const auto& Options = Context.Logical.Options;
+		auto& EnvironmentLighting = Service.EnvironmentLighting;
+		auto& SkyBoxRenderer = Service.SkyBoxRenderer;
+		auto& PostProcessRenderer = Service.PostProcessRenderer;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureViewResources");
 			if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
@@ -157,7 +195,7 @@ namespace Durin
 			// Failure is non-fatal: StaticMeshRenderer binds the complete black
 			// environment fallback set instead.
 			if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
-				Renderer.UpdateSkyLighting_RenderThread(CommandList, *Scene);
+				Service.UpdateSkyLighting_RenderThread(CommandList, *Scene);
 			EnvironmentLighting.SelectScene_RenderThread(Scene);
 			// Sky resources include a static index upload, so initialize them before
 			// entering the Scene Color render pass.
@@ -168,10 +206,18 @@ namespace Durin
 				return ERenderViewResult::RendererResourcesUnavailable;
 			}
 		}
-		Context.Logical.RenderView = FSceneRenderer::FitViewToOutput(
-			View, Width, Height);
-		FSceneView& RenderView = Context.Logical.RenderView;
-		ViewState = Renderer.ViewStates.Find(RenderView.ViewStateId);
+		return ERenderViewResult::Success;
+	}
+
+	auto FSceneRenderPipeline::SelectViewState_RenderThread(FSceneFrameContext& Context) -> void
+	{
+		auto* Scene = Context.Logical.Scene;
+		const auto Width = Context.Logical.Width;
+		const auto Height = Context.Logical.Height;
+		auto& RenderView = Context.Logical.RenderView;
+		auto*& ViewState = Context.Transaction.ViewState;
+		auto& TemporalContext = Context.Transaction.Temporal;
+		ViewState = Service.ViewStates.Find(RenderView.ViewStateId);
 		if (ViewState != nullptr && ViewState->IsSubmissionActive())
 		{
 			TemporalContext.Current =
@@ -179,7 +225,7 @@ namespace Durin
 					RenderView, Scene, Width, Height
 				);
 			TemporalContext.SubmissionSerial =
-				Renderer.RenderSubmissionSerial;
+				Service.RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::DuplicateSubmission;
 			ReportSceneRenderGraphRejectedViewState(
@@ -188,14 +234,23 @@ namespace Durin
 			);
 			ViewState = nullptr;
 		}
-		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
+	}
+
+	auto FSceneRenderPipeline::BeginTemporalState_RenderThread(FSceneFrameContext& Context) -> void
+	{
+		auto* Scene = Context.Logical.Scene;
+		const auto Width = Context.Logical.Width;
+		const auto Height = Context.Logical.Height;
+		auto& RenderView = Context.Logical.RenderView;
+		auto*& ViewState = Context.Transaction.ViewState;
+		auto& TemporalContext = Context.Transaction.Temporal;
 		if (ViewState != nullptr)
 		{
 			TemporalContext = ViewState->Begin(
 				BuildSceneViewTemporalMetadata(
 					RenderView, Scene, Width, Height
 				),
-				Renderer.RenderSubmissionSerial, RenderView.bDiscardHistory
+				Service.RenderSubmissionSerial, RenderView.bDiscardHistory
 			);
 		}
 		else if (TemporalContext.Discontinuities
@@ -206,7 +261,7 @@ namespace Durin
 					RenderView, Scene, Width, Height
 				);
 			TemporalContext.SubmissionSerial =
-				Renderer.RenderSubmissionSerial;
+				Service.RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::MissingState;
 			if (RenderView.ViewStateId.IsValid())
@@ -217,19 +272,26 @@ namespace Durin
 				);
 			}
 		}
-		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
-			CommandList, Context);
-		if (!Preparation.IsSuccess()) return Preparation.Result;
-		Context.Logical.PreparedView = std::move(*Preparation.Plan);
-		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
-		const ERenderViewResult ResolutionResult =
-			ResolveSceneRenderResources_RenderThread(
-				CommandList, PreparedView, Context);
-		if (ResolutionResult != ERenderViewResult::Success)
-			return ResolutionResult;
-		Context.Features.Plan = BuildSceneFrameFeaturePlan(
-			PreparedView, Options, Width, Height, Qualification);
-		FSceneFrameFeaturePlan& FeaturePlan = Context.Features.Plan;
+	}
+
+	auto FSceneRenderPipeline::PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult
+	{
+		auto* OutputTarget = Context.Logical.OutputTarget;
+		const auto Width = Context.Logical.Width;
+		const auto Height = Context.Logical.Height;
+		const auto& Qualification = Context.Logical.Qualification;
+		auto& RenderView = Context.Logical.RenderView;
+		auto& TemporalContext = Context.Transaction.Temporal;
+		const auto& PreparedView = *Context.Logical.PreparedView;
+		auto& FeaturePlan = Context.Features;
+		auto& ResolvedSceneResources = Context.Resolved.Scene;
+		const bool bPresentOutput = Context.Logical.bPresentOutput;
+		auto& DefaultTextures = Service.DefaultTextures;
+		auto& StaticMeshRenderer = Service.StaticMeshRenderer;
+		auto& ContactShadowRenderer = Service.ContactShadowRenderer;
+		auto& VolumetricCloudRenderer = Service.VolumetricCloudRenderer;
+		auto& VolumetricCloudShadowRenderer = Service.VolumetricCloudShadowRenderer;
+		auto& EditorAssistanceRenderer = Service.EditorAssistanceRenderer;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareFeatureResources");
 			const RenderTargetLayouts::EViewportOutput ViewportOutput =
@@ -244,9 +306,9 @@ namespace Durin
 				PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
 					CommandList, RenderView, EditorAssistanceRequest,
 					PreparedView.Context.RendererSimpleElements);
-			Context.Logical.bHasEditorAssistance =
+			const bool bHasEditorAssistance =
 				PreparedEditorAssistance.HasDrawableOperation();
-			if (Context.Logical.bHasEditorAssistance)
+			if (bHasEditorAssistance)
 				FeaturePlan.EditorAssistance.Purposes =
 					ESceneFeaturePurpose::Production;
 			const bool bWantsProductionDeferred =
@@ -337,18 +399,18 @@ namespace Durin
 			bool FixedPipelinesReady = true;
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
-					Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
+					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes) && FixedPipelinesReady;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
-					CommandList, &Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
+					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer);
 			if (FeaturePlan.Deferred.IsEnabled())
-				FixedPipelinesReady = Renderer.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled())
-				FixedPipelinesReady = Renderer.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+				FixedPipelinesReady = Service.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.GBufferDebug.IsEnabled())
-				FixedPipelinesReady = Renderer.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+				FixedPipelinesReady = Service.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
 			if (FeaturePlan.CloudSpatial.IsEnabled() && PreparedView.VolumetricCloud)
 			{
 				FixedPipelinesReady = VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList) && FixedPipelinesReady;
@@ -358,43 +420,27 @@ namespace Durin
 			if (!FixedPipelinesReady || FRenderPipelinePreparationBatch::HasPending())
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		FRDGBuilder Graph;
-		FSceneRenderGraphComposition& Composition =
-			Context.Transaction.Composition;
-		FSceneRenderGraphComposer::Compose(Graph, Renderer, Context);
-		if (!ExecuteGraph_RenderThread(
-			Graph, CommandList, OutRenderGraphCapture, Context.Observation))
-			return ERenderViewResult::RendererResourcesUnavailable;
-		if (!Composition.SceneColorPublication.IsSuccess())
-			return Composition.SceneColorPublication.Result;
-		if (Composition.PostProcessPublication.Result
-			== ERenderViewResult::Success)
-		{
-			ViewStateSubmission.Commit();
-			TelemetryPublication.Commit();
-		}
-		return Composition.PostProcessPublication.Result;
+		return ERenderViewResult::Success;
 	}
 
 	auto FSceneRenderPipeline::ExecuteGraph_RenderThread(
 		FRDGBuilder& Graph,
 		FRHICommandListImmediate& CommandList,
-		FRDGCapture* OutRenderGraphCapture,
-		FSceneFrameContext::FObservation& Observation
+		FRDGCapture* OutRenderGraphCapture
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ExecuteGraph");
 		FGPUTimingQueryRHIRef Timing;
-		if (Renderer.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
+		if (Service.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
 		if (Timing) CommandList.BeginGPUTimingQuery(Timing);
-		const auto Result = Graph.Execute(CommandList, &Renderer.RDGAllocator);
+		const auto Result = Graph.Execute(CommandList, &Service.RDGAllocator);
 		if (Timing)
 		{
 			CommandList.EndGPUTimingQuery(Timing);
-			Renderer.ViewGPUTimingSink(std::move(Timing));
+			Service.ViewGPUTimingSink(std::move(Timing));
 		}
 		const FRDGStatistics Statistics = Graph.GetStatistics();
-		if (Renderer.RenderGraphWarnings.ShouldReport(Statistics, Graph.GetBudget()))
+		if (Service.RenderGraphWarnings.ShouldReport(Statistics, Graph.GetBudget()))
 		{
 			const FRDGBudget& Budget = Graph.GetBudget();
 			DURIN_WARN(
@@ -407,14 +453,13 @@ namespace Durin
 				Budget.RegressionMaxBufferTransitions,
 				Statistics.TextureTransitions,
 				Budget.RegressionMaxTextureTransitions, Statistics.TextureTransitionSubresources);
-			if (Renderer.RenderGraphWarnings.IsFull())
+			if (Service.RenderGraphWarnings.IsFull())
 				DURIN_WARN("Scene render graph regression warning limit reached; "
 					"further warnings are suppressed for this renderer. "
 					"Render graph captures still contain complete statistics.");
 		}
 		const bool Executed = Result.has_value();
-		if (!Executed
-			&& !std::exchange(Observation.bReportedExecutionFailure, true))
+		if (!Executed)
 		{
 			DURIN_WARN("Scene render graph {} failed: {}",
 				Durin::GetRDGExecutionStatus(Result) == ERDGExecutionStatus::CompileFailed ? "compilation" : "execution",

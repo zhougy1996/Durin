@@ -96,11 +96,10 @@ namespace Durin
 		};
 	} // namespace
 
-	auto FDeferredDirectionalLightingRendering::AddPasses(
-		const FDeferredLightingFeatureInputs& Inputs)
+	auto AddDeferredDirectionalLightingPasses(
+		FRDGBuilder& Graph, const FDeferredLightingFeatureInputs& Inputs)
 		-> FDeferredLightingGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		FDeferredDirectionalLightingRecorder Recorder{
 			Inputs.DefaultTextures, Inputs.DirectionalShadowRenderer,
 			Inputs.Renderer, Inputs.Telemetry, Inputs.Resolved};
@@ -108,7 +107,7 @@ namespace Durin
 		const auto& Options = Inputs.Options;
 		auto* DirectionalShadowTexture =
 			Inputs.DirectionalShadowRenderer.GetTexture_RenderThread();
-		auto* EnvironmentSampler = Inputs.EnvironmentSampler;
+		auto* EnvironmentSampler = Inputs.Environment.Sampler;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		const bool bWantsIsolatedDeferred =
@@ -201,27 +200,27 @@ namespace Durin
 			Inputs.DefaultShadowArray,
 			Inputs.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
-			Inputs.EnvironmentIrradiance,
-			Inputs.SelectedEnvironmentIrradiance);
+			Inputs.Environment.Irradiance,
+			Inputs.Environment.SelectedIrradiance);
 		AssignRead(Parameters->Resources.EnvironmentPrefiltered,
-			Inputs.EnvironmentPrefiltered,
-			Inputs.SelectedEnvironmentPrefiltered);
+			Inputs.Environment.Prefiltered,
+			Inputs.Environment.SelectedPrefiltered);
 		AssignRead(Parameters->Resources.EnvironmentBrdfLut,
-			Inputs.EnvironmentBrdfLut,
-			Inputs.SelectedEnvironmentBrdfLut);
+			Inputs.Environment.BrdfLut,
+			Inputs.Environment.SelectedBrdfLut);
 		if (IsolatedDeferred)
 			Parameters->Resources.IsolatedDeferredOutput = {
 				*IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+		(void)Graph.AddPass(DeferredDirectionalLightingPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder, RecordView = &RecordView, AmbientOcclusionQuality,
 				&Options, &DeferredParameters, &ProductionDeferredParameters,
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
 				bWantsProductionDeferred, bHybridRetainedResourcesReady,
 				EnvironmentSampler,
-				EnvironmentIrradiance = Inputs.SelectedEnvironmentIrradiance,
-				EnvironmentPrefiltered = Inputs.SelectedEnvironmentPrefiltered,
-				EnvironmentBrdfLut = Inputs.SelectedEnvironmentBrdfLut](
+				EnvironmentIrradiance = Inputs.Environment.SelectedIrradiance,
+				EnvironmentPrefiltered = Inputs.Environment.SelectedPrefiltered,
+				EnvironmentBrdfLut = Inputs.Environment.SelectedBrdfLut](
 				FRHICommandListImmediate& Commands,
 				const FDeferredDirectionalLightingPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) mutable {

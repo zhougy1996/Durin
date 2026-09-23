@@ -10,14 +10,14 @@ Last reviewed: 2026-09-23
 
 ## Ownership Boundary
 
-One render command prepares one `FSceneRenderPlan`. Only the private scene-render
-execution pipeline may inspect this outer value. It owns command-local logical
+One render command prepares one `FSceneRenderPlan`. Only the private scene renderer and its preparation
+pipeline may inspect this outer value. It owns command-local logical
 partitions for the fitted view, optional environment, selected lighting,
 receiver geometry, optional directional
 shadow, and optional volumetric cloud. The temporal transaction, resolved
 execution resources, final feature decisions, pass results, and telemetry
 occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
-of the same stack-owned `FSceneFrameContext`, not fields of the logical plan.
+of the same submission-owned `FSceneFrameContext`, not fields of the logical plan.
 
 Logical geometry is immutable after publication. StaticMesh and SplineMesh
 providers submit `FMeshBatch` values through `CollectMeshBatches`. Engine owns
@@ -378,11 +378,29 @@ introduce synchronization.
 
 ## Render Graph Frame Schedule
 
-`FSceneRenderer::RenderView_RenderThread` creates one temporary
-`FSceneRenderPipeline`. The pipeline owns preparation, the stack-local
-five-part `FSceneFrameContext`, execution/capture, and final transaction
-publication. `FSceneRenderGraphComposer` constructs the sole production graph
-in stable order through renderer-private, feature-owned `AddPasses` entries:
+`FSceneRenderingService::RenderView_RenderThread` creates one temporary
+`FSceneRenderPipeline`. The service owns persistent feature renderers, caches,
+view states, allocator and startup/invalidation duties. Each preparation attempt
+constructs a noncopyable, nonmovable `FSceneRenderer` with its own in-place
+`FSceneFrameContext`. Pipeline prepares that context, then calls
+`FSceneRenderer::Render(FRDGBuilder&)` exactly once. Render registers scene
+resources and wires typed outputs through named `Add<Feature>Passes(Graph, Inputs)`
+functions. It does not execute the graph or commit history.
+`GetOutputTexture()` exposes the registered output handle after authoring so
+callers can append consumers to the same builder; the declared imported final
+access still applies.
+
+The pipeline owns the builder, execution/capture and final transaction publication.
+The submission and service outlive Execute and publication/abort; graph callbacks
+borrow their stable records. Telemetry and view-state guards are destroyed before
+the submission context. Resource preparation retains its bounded 64-attempt loop,
+with fresh submission state and a fresh graph for each ready attempt. Batch waits
+occur after the previous attempt has been destroyed; a consumed graph is never
+replayed. Preparation has separate view-resource, view-state selection, temporal
+initialization and feature-resource functions. The view-state guard remains in
+the outer attempt, between state selection and initialization. Feature policy
+is stored directly in `Context.Features`; preparation-only flags stay local.
+Pure viewport fitting lives in `FitSceneViewToOutput`. The frame proceeds as follows:
 
 1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
@@ -419,7 +437,7 @@ execute an alternate production scheduler.
 
 Each producer creates its own graph-owned typed completion value and returns
 its `TRDGValueHandle<TResult>` in a feature-specific output. The
-composer passes that output directly to the exact downstream input; there is
+scene renderer passes that output directly to the exact downstream input; there is
 no frame-wide execution-channel lookup or mutable channel bag. Payload
 storage, one writer, declared readers, dependency lifetime, and callback
 access are owned by RenderCore. Distinct non-RHI results cannot be
@@ -481,7 +499,7 @@ missing optional cloud inputs disable that feature; unavailable optional debug
 targets do not publish a partially valid output. Directional-shadow and
 environment bindings use their documented complete fallback resources. The
 environment irradiance, prefiltered, and BRDF selection is completed by the
-composer before registration: either the complete candidate set and sampler or
+scene renderer before registration: either the complete candidate set and sampler or
 the complete cube/cube/black fallback set is selected. Only those selected
 physical textures receive the stable `Scene.Environment.*` graph identities;
 the deferred callback resolves those handles and cannot query or switch to the
@@ -493,6 +511,12 @@ the established render-pass load/store and imported initial/final access
 contracts. RHI and the active backend remain authoritative for validating and
 committing physical execution state; migrated edges contain no competing
 feature-local manual transition.
+
+Cloud stages share density/detail/weather handles and weather range metadata
+through `FCloudDensityInputs`. Environment authoring inputs group the selected handles, physical range metadata
+and sampler in `FSceneEnvironmentInputs`. These pointers are setup metadata;
+callbacks continue to resolve physical resources only from their declared pass
+parameters. GBuffer keeps its four attachments as one typed texture set.
 
 ## Telemetry and Observation
 
@@ -508,7 +532,7 @@ plan.
 
 Each stable pass identity, parameter metadata definition, graph setup,
 callback, and private command-recording function is owned by its rendering
-unit. The composer wires returned typed outputs into narrow downstream inputs
+unit. The scene renderer wires returned typed outputs into narrow downstream inputs
 and passes only the exact renderer services, immutable decisions, and upstream
 capabilities required by that feature. Features add parameterized passes only
 to the caller-owned builder and never compile or execute a graph; neither they
@@ -533,7 +557,7 @@ pass merging, and PSO centralization remain separate measured decisions.
 
 ## Scene Budgets and Capture
 
-`FSceneRenderGraphComposer` sets observational regression ceilings of 15 declared
+`FSceneRenderer::PrepareGraphResources` sets observational regression ceilings of 15 declared
 passes, 36 dependencies, and 34 physical texture transitions. These include
 independent shadow-layer passes and their typed observation consumer. Structural limits
 are 256 passes and 4096 dependencies, buffer transitions, and texture

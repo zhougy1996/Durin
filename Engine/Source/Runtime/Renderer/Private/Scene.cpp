@@ -1,5 +1,5 @@
 #include "Scene.h"
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "SceneRegistry.h"
 
 #include "Components/LightComponent.h"
@@ -48,7 +48,7 @@ namespace Durin
 		}
 	} // namespace
 
-	FScene::FScene(FSceneRenderer* InRenderer)
+	FScene::FScene(FSceneRenderingService* InRenderer)
 		: Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
 		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
 		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())

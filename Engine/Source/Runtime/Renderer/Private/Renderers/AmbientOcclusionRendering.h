@@ -57,7 +57,6 @@ namespace Durin
 
 	struct FAmbientOcclusionFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
 		const FGBufferGraphOutput& GBuffer;
@@ -69,11 +68,7 @@ namespace Durin
 		const FSceneFrameFeaturePlan::FAmbientOcclusion& Feature;
 	};
 
-	struct FAmbientOcclusionRendering final
-	{
-		using Result = FGroundTruthAmbientOcclusionPassResult;
-		static constexpr std::string_view Name = "Scene.AmbientOcclusion";
-		static auto AddPasses(const FAmbientOcclusionFeatureInputs& Inputs)
-			-> FAmbientOcclusionGraphOutput;
-	};
+	inline constexpr std::string_view AmbientOcclusionPassName = "Scene.AmbientOcclusion";
+	auto AddAmbientOcclusionPasses(FRDGBuilder& Graph, const FAmbientOcclusionFeatureInputs& Inputs)
+		-> FAmbientOcclusionGraphOutput;
 } // namespace Durin

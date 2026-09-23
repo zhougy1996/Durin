@@ -1,131 +1,38 @@
 #pragma once
 
-#include "Renderers/StaticMeshRenderPreparation.h"
-
-#include "Renderers/ContactShadowRenderer.h"
-#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
-#include "Renderers/DirectionalShadowRenderer.h"
-#include "Renderers/DeferredDirectionalLightingRenderer.h"
-#include "Renderers/GBufferRenderer.h"
-#include "Renderers/GBufferDebugRenderer.h"
-#include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
-#include "Renderers/PostProcessRenderer.h"
-#include "Renderers/SkyBoxRenderer.h"
-#include "Renderers/StaticMeshRenderer.h"
-#include "Renderers/VolumetricCloudRenderer.h"
-#include "Renderers/VolumetricCloudShadowRenderer.h"
-#include "Renderers/SceneViewState.h"
-#include "Renderers/SceneVisibility.h"
-#include "Renderers/SceneRenderResults.h"
-#include "Renderers/SceneRenderGraphWarnings.h"
-#include "Resources/DefaultTextureResources.h"
-#include "Resources/EnvironmentLightingResources.h"
-#include "Resources/FullscreenGeometryResources.h"
-#include "Renderers/SurfaceMaterial.h"
-#include "Resources/RendererResourceCoordinator.h"
-#include "Renderers/RendererRDGAllocator.h"
-#include "IRendererModule.h"
-#include "RendererAPI.h"
+#include "Renderers/SceneFrameContext.h"
 
 namespace Durin
 {
-	class FConsoleCommandRegistry;
+	class FSceneRenderingService;
 	class FSceneRenderPipeline;
-	class FSceneRenderGraphComposer;
-	class FRHICommandListImmediate;
-	class FRHITexture;
-	class FScene;
-	struct FSceneView;
-
-	// Owns renderer resources and concrete feature renderers while preserving
-	// the complete render-thread order for one view.
+	// One stable submission; retain through graph execution and finalization.
 	class FSceneRenderer final
 	{
 	public:
-		FSceneRenderer();
-		~FSceneRenderer();
-
+		explicit FSceneRenderer(FSceneRenderingService& Service) : Service(Service) {}
 		FSceneRenderer(const FSceneRenderer&) = delete;
 		auto operator=(const FSceneRenderer&) -> FSceneRenderer& = delete;
+		FSceneRenderer(FSceneRenderer&&) = delete;
+		auto operator=(FSceneRenderer&&) -> FSceneRenderer& = delete;
+		// Authors once after preparation. Caller executes and finalizes the graph.
+		RENDERER_API auto Render(FRDGBuilder& GraphBuilder) -> void;
 
-		auto UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
-		std::unordered_set<FScene*> PendingSkyScenes;
-		std::function<void(FGPUTimingQueryRHIRef)> ViewGPUTimingSink;
-        auto UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void;
-        auto Start(FConsoleCommandRegistry& Registry) -> bool;
-		auto Stop() -> void;
-		auto InitializeStartupResources_RenderThread(
-			FRHICommandListImmediate& CommandList
-		) -> void;
-		auto ReleaseResources_RenderThread() -> void;
-		auto AddViewState_RenderThread(FSceneViewStateId Id) -> bool;
-		auto RemoveViewState_RenderThread(FSceneViewStateId Id) -> bool;
-		auto InvalidateViewState_RenderThread(FSceneViewStateId Id) -> bool;
-		auto InvalidateAllViewStates_RenderThread() -> void;
-		auto ReleaseViewStates_RenderThread() -> size_t;
-		auto GetViewStateCount_RenderThread() const -> size_t;
-		RENDERER_API static auto FitViewToOutput(
-			const FSceneView& View,
-			uint32 Width,
-			uint32 Height
-		) -> FSceneView;
-		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> void;
-		auto RenderView_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			FScene* Scene,
-			const FSceneView& View,
-			FRHITexture* OutputTarget,
-			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics,
-			FRDGCapture* OutRenderGraphCapture
-		) -> ERenderViewResult;
-
-		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
+		// Same-builder handle for appended consumers; honor the imported final access.
+		auto GetOutputTexture() const -> FRDGTextureHandle
 		{
-			return Coordinator;
-		}
-
-		auto GetDefaultTextures() -> FDefaultTextureResources&
-		{
-			return DefaultTextures;
+			check(OutputTexture.has_value());
+			return *OutputTexture;
 		}
 
 	private:
 		friend class FSceneRenderPipeline;
-		friend class FSceneRenderGraphComposer;
-		auto ReleaseDeviceResources_RenderThread() -> void;
-		auto EnqueueResourceInvalidation(
-			ERendererResourceInvalidationCause Cause
-		) -> void;
-		auto ApplyResourceInvalidation_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			ERendererResourceInvalidationCause Cause
-		) -> void;
-
-		FRendererResourceCoordinator Coordinator;
-		FRendererRDGAllocator RDGAllocator;
-		FDefaultTextureResources DefaultTextures;
-		FEnvironmentLightingResources EnvironmentLighting;
-		RendererPrivate::FSurfaceMaterialResources SurfaceMaterials;
-		FFullscreenGeometryResources FullscreenGeometry;
-		FDirectionalShadowRenderer DirectionalShadowRenderer;
-		FGBufferRenderer GBufferRenderer;
-		FGBufferDebugRenderer GBufferDebugRenderer;
-		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
-		FGroundTruthAmbientOcclusionRenderer GroundTruthAmbientOcclusionRenderer;
-		FStaticMeshRenderer StaticMeshRenderer;
-		FSkyBoxRenderer SkyBoxRenderer;
-		FPostProcessRenderer PostProcessRenderer;
-		FContactShadowVisibilityRenderer ContactShadowRenderer;
-		FVolumetricCloudRenderer VolumetricCloudRenderer;
-		FVolumetricCloudShadowRenderer VolumetricCloudShadowRenderer;
-		FEditorAssistanceRenderer EditorAssistanceRenderer;
-		FSceneViewStateRegistry ViewStates;
-		// Used only during serial render-thread preparation; retains candidate capacity.
-		FSceneVisibilityResult VisibilityScratch;
-		FStaticMeshDrawCommandCache MeshCommandCache;
-		uint64 RenderSubmissionSerial = 0;
-		FSceneRenderGraphWarnings RenderGraphWarnings;
+		friend struct FSceneRendererTestAccess;
+		struct FGraphResources;
+		auto PrepareGraphResources(FRDGBuilder& Graph) -> FGraphResources;
+		FSceneRenderingService& Service;
+		FSceneFrameContext Context;
+		bool bAuthored = false;
+		std::optional<FRDGTextureHandle> OutputTexture;
 	};
 } // namespace Durin

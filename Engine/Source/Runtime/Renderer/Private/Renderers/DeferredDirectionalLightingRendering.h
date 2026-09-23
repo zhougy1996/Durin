@@ -55,9 +55,20 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Isolated;
 	};
 
+	// Selected physical textures are setup metadata; callbacks use declared graph fields.
+	struct FSceneEnvironmentInputs final
+	{
+		std::optional<FRDGTextureHandle> Irradiance;
+		std::optional<FRDGTextureHandle> Prefiltered;
+		std::optional<FRDGTextureHandle> BrdfLut;
+		FRHITexture* SelectedIrradiance = nullptr;
+		FRHITexture* SelectedPrefiltered = nullptr;
+		FRHITexture* SelectedBrdfLut = nullptr;
+		FRHISampler* Sampler = nullptr;
+	};
+
 	struct FDeferredLightingFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
 		const FDirectionalShadowGraphOutput& DirectionalShadow;
@@ -72,13 +83,7 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		std::optional<FRDGTextureHandle> DefaultWhite;
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
-		std::optional<FRDGTextureHandle> EnvironmentIrradiance;
-		std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
-		std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
-		FRHITexture* SelectedEnvironmentIrradiance;
-		FRHITexture* SelectedEnvironmentPrefiltered;
-		FRHITexture* SelectedEnvironmentBrdfLut;
-		FRHISampler* EnvironmentSampler;
+		FSceneEnvironmentInputs Environment;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
 			DeferredParameters;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
@@ -90,12 +95,7 @@ namespace Durin
 		bool bHybridRetainedResourcesReady;
 	};
 
-	struct FDeferredDirectionalLightingRendering final
-	{
-		using Result = FIsolatedDeferredPassResult;
-		static constexpr std::string_view Name =
-			"Scene.DeferredDirectionalLighting";
-		static auto AddPasses(const FDeferredLightingFeatureInputs& Inputs)
-			-> FDeferredLightingGraphOutput;
-	};
+	inline constexpr std::string_view DeferredDirectionalLightingPassName = "Scene.DeferredDirectionalLighting";
+	auto AddDeferredDirectionalLightingPasses(FRDGBuilder& Graph, const FDeferredLightingFeatureInputs& Inputs)
+		-> FDeferredLightingGraphOutput;
 } // namespace Durin

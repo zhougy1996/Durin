@@ -35,7 +35,6 @@ namespace Durin
 
 	struct FDirectionalShadowFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FPreparedDirectionalShadow* ShadowRecord;
 		std::optional<FRDGTextureHandle> Shadow;
 		FDirectionalShadowRenderer& Renderer;
@@ -43,11 +42,7 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 	};
 
-	struct FDirectionalShadowRendering final
-	{
-		using Result = FDirectionalShadowPassResult;
-		static constexpr std::string_view Name = "Scene.DirectionalShadow";
-		static auto AddPasses(const FDirectionalShadowFeatureInputs& Inputs)
-			-> FDirectionalShadowGraphOutput;
-	};
+	inline constexpr std::string_view DirectionalShadowPassName = "Scene.DirectionalShadow";
+	auto AddDirectionalShadowPasses(FRDGBuilder& Graph, const FDirectionalShadowFeatureInputs& Inputs)
+		-> FDirectionalShadowGraphOutput;
 } // namespace Durin

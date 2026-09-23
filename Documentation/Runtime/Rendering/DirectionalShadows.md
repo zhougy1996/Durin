@@ -8,7 +8,7 @@ Last reviewed: 2026-09-22
 
 ## Ownership and selection
 
-`FDirectionalShadowRenderer` is a private `FSceneRenderer` feature owner. The
+`FDirectionalShadowRenderer` is a private `FSceneRenderingService` feature owner. The
 first directional light selected by `FPreparedLightView` may own one shadow for
 the current view when its detached `bCastShadows` value is enabled. The light
 component, proxy, SceneInfo, and prepared-light path copy this value; render

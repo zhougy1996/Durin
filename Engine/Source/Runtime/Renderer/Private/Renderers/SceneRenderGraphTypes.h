@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "RDG/RDGParameters.h"
 

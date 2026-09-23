@@ -2,7 +2,7 @@
 
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "RDG/RDGDiagnostics.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -19,7 +19,7 @@ namespace Durin
 		struct FViewStateRoute
 		{
 			FRendererModule* Module = nullptr;
-			FSceneRenderer* Renderer = nullptr;
+			FSceneRenderingService* Renderer = nullptr;
 		};
 
 		std::atomic<uint64> GNextViewStateId = 1;
@@ -62,19 +62,19 @@ namespace Durin
 
 	FRendererModule::~FRendererModule() = default;
     auto FRendererModule::UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
-    { if (SceneRenderer) SceneRenderer->UpdatePendingScenes_RenderThread(Commands); }
+    { if (RenderingService) RenderingService->UpdatePendingScenes_RenderThread(Commands); }
     auto FRendererModule::SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void
-    { CheckRenderingThread(); if (SceneRenderer) SceneRenderer->ViewGPUTimingSink=std::move(Sink); }
+    { CheckRenderingThread(); if (RenderingService) RenderingService->ViewGPUTimingSink=std::move(Sink); }
 
 	auto FRendererModule::StartupModule() -> void
 	{
-		check(SceneRenderer == nullptr);
-		SceneRenderer = std::make_unique<FSceneRenderer>();
+		check(RenderingService == nullptr);
+		RenderingService = std::make_unique<FSceneRenderingService>();
 		SetActiveDefaultTextureResources(
-			&SceneRenderer->GetDefaultTextures()
+			&RenderingService->GetDefaultTextures()
 		);
 		const bool bCommandsRegistered =
-			SceneRenderer->Start(
+			RenderingService->Start(
 				FConsoleCommandRegistry::Get()
 			);
 		checkf(
@@ -89,7 +89,7 @@ namespace Durin
 		}
 		if (GDynamicRHI != nullptr)
 		{
-			FSceneRenderer* Renderer = SceneRenderer.get();
+			FSceneRenderingService* Renderer = RenderingService.get();
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
 				[Renderer](FRHICommandListImmediate& CommandList) {
 					Renderer->InitializeStartupResources_RenderThread(
@@ -103,13 +103,13 @@ namespace Durin
 	auto FRendererModule::ShutdownModule() -> void
 	{
 		requiref(FScene::GetActiveSceneCount() == 0, "Renderer shutdown requires every scene owner to call Release first.");
-		if (SceneRenderer == nullptr)
+		if (RenderingService == nullptr)
 		{
 			requiref(FScene::GetAllocatedSceneCount() == 0, "Renderer shutdown found scenes that were not deleted after Release.");
 			return;
 		}
-		SceneRenderer->Stop();
-		FSceneRenderer* Renderer = SceneRenderer.get();
+		RenderingService->Stop();
+		FSceneRenderingService* Renderer = RenderingService.get();
 		size_t LeakedViewStateCount = 0;
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)(
 			[Renderer, &LeakedViewStateCount](FRHICommandListImmediate&) {
@@ -131,37 +131,37 @@ namespace Durin
 				LeakedViewStateCount
 			);
 		SetActiveDefaultTextureResources(nullptr);
-		SceneRenderer.reset();
+		RenderingService.reset();
 	}
 
 	auto FRendererModule::RequestResourceInvalidation(
 		ERendererResourceInvalidationCause Cause
 	) -> FConsoleCommandResult
 	{
-		if (SceneRenderer == nullptr)
+		if (RenderingService == nullptr)
 			return FConsoleCommandResult::Failure(
 				"Renderer resource invalidation is not available."
 			);
-		return SceneRenderer->GetResourceCoordinator().Request(Cause);
+		return RenderingService->GetResourceCoordinator().Request(Cause);
 	}
 
 	auto FRendererModule::GetResourceInvalidationSnapshot_RenderThread() const
 		-> FRendererResourceInvalidationSnapshot
 	{
-		check(SceneRenderer != nullptr);
-		return SceneRenderer->GetResourceCoordinator().GetSnapshot_RenderThread();
+		check(RenderingService != nullptr);
+		return RenderingService->GetResourceCoordinator().GetSnapshot_RenderThread();
 	}
 
 	auto FRendererModule::CreateScene() -> FScenePtr
 	{
 		check(IsInGameThread());
-		return FScenePtr(new FScene(SceneRenderer.get()), FSceneDeleter(&FScene::DestroyScene));
+		return FScenePtr(new FScene(RenderingService.get()), FSceneDeleter(&FScene::DestroyScene));
 	}
 
 	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner
 	{
 		check(IsInGameThread());
-		if (SceneRenderer == nullptr)
+		if (RenderingService == nullptr)
 			return {};
 		const uint64 Value = AllocateViewStateId();
 		if (Value == 0)
@@ -170,7 +170,7 @@ namespace Durin
 			return {};
 		}
 		const FSceneViewStateId Id(Value);
-		FSceneRenderer* Renderer = SceneRenderer.get();
+		FSceneRenderingService* Renderer = RenderingService.get();
 		{
 			std::scoped_lock Lock(GViewStateRouteMutex);
 			const bool bInserted = GViewStateRoutes.emplace(
@@ -192,7 +192,7 @@ namespace Durin
 
 	auto FRendererModule::ReleaseViewState(FSceneViewStateId Id) -> void
 	{
-		FSceneRenderer* Renderer = nullptr;
+		FSceneRenderingService* Renderer = nullptr;
 		{
 			std::scoped_lock Lock(GViewStateRouteMutex);
 			const auto Iterator = GViewStateRoutes.find(
@@ -213,9 +213,9 @@ namespace Durin
 
 	auto FRendererModule::InvalidateViewState(FSceneViewStateId Id) -> void
 	{
-		if (SceneRenderer == nullptr || !Id.IsValid())
+		if (RenderingService == nullptr || !Id.IsValid())
 			return;
-		FSceneRenderer* Renderer = SceneRenderer.get();
+		FSceneRenderingService* Renderer = RenderingService.get();
 		ENQUEUE_RENDER_COMMAND(InvalidateSceneViewState)(
 			[Renderer, Id](FRHICommandListImmediate&) {
 				if (!Renderer->InvalidateViewState_RenderThread(Id))
@@ -226,9 +226,9 @@ namespace Durin
 
 	auto FRendererModule::InvalidateAllViewStates() -> void
 	{
-		if (SceneRenderer == nullptr)
+		if (RenderingService == nullptr)
 			return;
-		FSceneRenderer* Renderer = SceneRenderer.get();
+		FSceneRenderingService* Renderer = RenderingService.get();
 		ENQUEUE_RENDER_COMMAND(InvalidateAllSceneViewStates)(
 			[Renderer](FRHICommandListImmediate&) {
 				Renderer->InvalidateAllViewStates_RenderThread();
@@ -239,8 +239,8 @@ namespace Durin
 	auto FRendererModule::RenderHitProxies(FRHICommandListImmediate& Commands,
 		FSceneInterface* Scene, const FHitProxyRenderRequest& Request) -> void
 	{
-		if (!SceneRenderer || (Request.bSceneGeometry && !Scene)) { if (Request.Readback) Request.Readback->Fail(); return; }
-		SceneRenderer->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
+		if (!RenderingService || (Request.bSceneGeometry && !Scene)) { if (Request.Readback) Request.Readback->Fail(); return; }
+		RenderingService->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
 	}
 
 	auto FRendererModule::RenderView(
@@ -259,7 +259,7 @@ namespace Durin
 			*OutRenderGraphCapture = FRDGCapture{};
 		auto* RendererScene = dynamic_cast<FScene*>(Scene);
 		const uint64 DrawsBefore = CommandList.GetNumRecordedDrawCommands();
-		const ERenderViewResult Result = SceneRenderer->RenderView_RenderThread(
+		const ERenderViewResult Result = RenderingService->RenderView_RenderThread(
 			CommandList,
 			RendererScene,
 			View,

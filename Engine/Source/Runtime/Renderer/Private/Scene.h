@@ -14,7 +14,7 @@
 namespace Durin
 {
 	class FScene;
-	class FSceneRenderer;
+	class FSceneRenderingService;
 	class FPrimitiveSceneInfo;
 	class FLightSceneInfo;
 	class FVolumetricCloudSceneInfo;
@@ -80,8 +80,8 @@ namespace Durin
 			-> const FVolumetricCloudSceneInfo*;
 
 	private:
-		RENDERER_API explicit FScene(FSceneRenderer* InRenderer = nullptr);
-		FSceneRenderer* Renderer = nullptr;
+		RENDERER_API explicit FScene(FSceneRenderingService* InRenderer = nullptr);
+		FSceneRenderingService* Renderer = nullptr;
 		RENDERER_API ~FScene() override;
 
 		enum class ELifecycleState : uint8

@@ -287,7 +287,7 @@ culling and automatic projected-size LOD selection. The explicit
 diagnostic policies carried by the immutable submitted view; disabling frustum
 culling never overrides an authored-hidden primitive.
 
-`FSceneRenderer` fits the view to the output before one centralized visibility
+`FitSceneViewToOutput` fits the view to the output before one centralized visibility
 walk. Every live primitive receives exactly one hidden, outside, inside,
 intersecting, invalid-bounds fallback, invalid-view fallback, or
 culling-disabled classification. Only typed visible family lists feed feature

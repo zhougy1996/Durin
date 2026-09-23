@@ -334,14 +334,14 @@ is identified explicitly, and successful retry reports one recovery transition.
 
 `FRendererResourceCoordinator` owns command admission and the shader, device,
 and manual generation counters. It explicitly supplies accepted generations
-to the RenderCore global map while `FSceneRenderer` fans requests out to its
+to the RenderCore global map while `FSceneRenderingService` fans requests out to its
 remaining concrete owners. Shader and manual invalidation leave
 reconstruction lazy. Device invalidation releases every dependent payload
 before advancing the device generation, recreates only startup defaults, and
 leaves feature resources to rebuild on demand.
 
 `FRendererModule` is the explicit cross-module request and focused-test entry
-point. It forwards only while its composed `FSceneRenderer` exists; shutdown
+point. It forwards only while its composed `FSceneRenderingService` exists; shutdown
 stops the scene renderer before destroying it. Consumers composed below the
 scene renderer receive the coordinator by reference. No active coordinator
 pointer or process service-locator path exists.

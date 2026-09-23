@@ -4,7 +4,7 @@
 
 #include "Renderers/DirectionalShadowRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -107,11 +107,10 @@ namespace Durin
 		return &Metadata;
 	}
 
-	auto FContactShadowVisibilityRendering::AddPasses(
-		const FContactShadowFeatureInputs& Inputs) -> FContactShadowGraphOutput
+	auto AddContactShadowVisibilityPasses(
+		FRDGBuilder& Graph, const FContactShadowFeatureInputs& Inputs) -> FContactShadowGraphOutput
 	{
 		if (!Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Production)) return {};
-		auto& Graph = Inputs.Graph;
 		const auto PreparedContactRoute = Inputs.Feature.Decision;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
@@ -215,7 +214,7 @@ namespace Durin
 				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
 					*ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)Graph.AddPass(Name, ERDGPassType::Compute,
+			(void)Graph.AddPass(ContactShadowVisibilityPassName, ERDGPassType::Compute,
 				std::move(Parameters), Execute);
 		}
 		else
@@ -227,7 +226,7 @@ namespace Durin
 				Parameters->Output = FRDGColorAttachmentParameter{
 					*ContactShadowVisibilityFragment,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)Graph.AddPass(Name, ERDGPassType::Graphics,
+			(void)Graph.AddPass(ContactShadowVisibilityPassName, ERDGPassType::Graphics,
 				std::move(Parameters), Execute);
 		}
 		return {.Completion = ContactShadowVisibilityCompletion,

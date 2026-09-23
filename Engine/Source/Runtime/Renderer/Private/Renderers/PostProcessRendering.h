@@ -45,7 +45,6 @@ namespace Durin
 
 	struct FPostProcessFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& RecordView;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
@@ -65,11 +64,7 @@ namespace Durin
 		bool bPresentOutput;
 	};
 
-	struct FPostProcessRendering final
-	{
-		using Result = FPostProcessPassResult;
-		static constexpr std::string_view Name = "Scene.PostProcess";
-		static auto AddPasses(const FPostProcessFeatureInputs& Inputs)
-			-> FPostProcessGraphOutput;
-	};
+	inline constexpr std::string_view PostProcessPassName = "Scene.PostProcess";
+	auto AddPostProcessPasses(FRDGBuilder& Graph, const FPostProcessFeatureInputs& Inputs)
+		-> FPostProcessGraphOutput;
 } // namespace Durin

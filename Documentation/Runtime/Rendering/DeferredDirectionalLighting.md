@@ -31,7 +31,7 @@ reason. This keeps Vulkan render-pass dependencies compatible while
 preserving Scene Color and GBuffer depth. Retained draws finish depth in the
 ordinary writable state expected by contact and the next view.
 
-The frame pipeline/composer owns production ordering. Solid Lit views require
+`FSceneRenderer::Render` owns production graph ordering. Solid Lit views require
 deferred opaque ownership; Unlit, wireframe, and explicitly named special modes
 select special-forward work in the same graph. Resource failure never changes
 the view mode or lighting owner.

@@ -67,10 +67,9 @@ namespace Durin
 		};
 	} // namespace
 
-	auto FSceneColorRendering::AddPasses(
-		const FSceneColorFeatureInputs& Inputs) -> FSceneColorGraphOutput
+	auto AddSceneColorPasses(
+		FRDGBuilder& Graph, const FSceneColorFeatureInputs& Inputs) -> FSceneColorGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		FSceneColorRecorder Recorder{Inputs.StaticMeshes,
 			Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
@@ -100,7 +99,7 @@ namespace Durin
 				.Texture = Inputs.BaseScene.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+		(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder, &Publication = Inputs.Publication,
 				RecordInputs, bVolumetricCloudComposite,
 				bRequiresDeferredOpaque](

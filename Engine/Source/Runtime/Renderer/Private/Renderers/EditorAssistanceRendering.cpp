@@ -61,11 +61,10 @@ namespace Durin
 		}
 	} // namespace
 
-	auto FEditorAssistanceRendering::AddPasses(
-		const FEditorAssistanceFeatureInputs& Inputs) -> void
+	auto AddEditorAssistancePasses(
+		FRDGBuilder& Graph, const FEditorAssistanceFeatureInputs& Inputs) -> void
 	{
 		if (!Inputs.Feature.IsEnabled()) return;
-		auto& Graph = Inputs.Graph;
 		auto* Renderer = &Inputs.Renderer;
 		const auto& RecordView = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
@@ -85,7 +84,7 @@ namespace Durin
 			.Texture = Inputs.SceneDepth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
-			Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			Graph.AddPass(EditorAssistancePassName, ERDGPassType::Graphics, std::move(Parameters),
 				[Renderer, &Publication = Inputs.Publication,
 					RecordView = &RecordView, &PreparedEditorAssistance,
 					bPresentOutput](FRHICommandListImmediate& Commands,

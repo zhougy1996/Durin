@@ -71,12 +71,11 @@ namespace Durin
 		) -> FGroundTruthAmbientOcclusionPassResult;
 	} // namespace
 
-	auto FAmbientOcclusionRendering::AddPasses(
-		const FAmbientOcclusionFeatureInputs& Inputs)
+	auto AddAmbientOcclusionPasses(
+		FRDGBuilder& Graph, const FAmbientOcclusionFeatureInputs& Inputs)
 		-> FAmbientOcclusionGraphOutput
 	{
 		if (!Inputs.Feature.IsEnabled()) return {};
-		auto& Graph = Inputs.Graph;
 		auto* Allocator = &Inputs.Allocator;
 		auto* Renderer = &Inputs.Renderer;
 		auto* Telemetry = &Inputs.Telemetry;
@@ -90,15 +89,15 @@ namespace Durin
 			? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Width) : Width;
 		const uint32 NativeHeight = bHalfResolution
 			? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Height) : Height;
-		const auto CreateTarget = [&](const char* Name, uint32 TargetWidth,
+		const auto CreateTarget = [&](const char* AmbientOcclusionPassName, uint32 TargetWidth,
 			uint32 TargetHeight, float ClearValue) {
 			return Graph.CreateTexture(FRDGTextureDesc{.Texture =
-				FRHITextureCreateDesc::Create2D(Name, TargetWidth, TargetHeight, EPixelFormat::R8_UNORM)
+				FRHITextureCreateDesc::Create2D(AmbientOcclusionPassName, TargetWidth, TargetHeight, EPixelFormat::R8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy)
 					.SetClearValue(FClearValueBinding(ClearValue, ClearValue, ClearValue, ClearValue)),
 				.ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GroundTruthAmbientOcclusion)},
-				Name);
+				AmbientOcclusionPassName);
 		};
 		const auto AmbientOcclusionCompletion = Graph.CreateValue<FGroundTruthAmbientOcclusionPassResult>(
 			"Scene.AmbientOcclusionValue", "ambient-occlusion-result");
@@ -121,7 +120,7 @@ namespace Durin
 		}
 		SceneTextureGroups::FillAmbientOcclusion(Textures,
 			Parameters->Resources.AmbientOcclusionManaged);
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+		(void)Graph.AddPass(AmbientOcclusionPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Allocator, Renderer, Telemetry, RecordView = &RecordView, Quality,
 				&Options, Width, Height](
 				FRHICommandListImmediate& Commands,

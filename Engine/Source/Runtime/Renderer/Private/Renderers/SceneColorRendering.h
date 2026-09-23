@@ -39,7 +39,6 @@ namespace Durin
 
 	struct FSceneColorFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		FSceneGeometryRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudCompositeGraphOutput& VolumetricCloud;
@@ -51,11 +50,7 @@ namespace Durin
 		const FSceneFrameFeaturePlan::FCloudSpatial& CloudFeature;
 	};
 
-	struct FSceneColorRendering final
-	{
-		using Result = FSceneColorPassResult;
-		static constexpr std::string_view Name = "Scene.Color";
-		static auto AddPasses(const FSceneColorFeatureInputs& Inputs)
-			-> FSceneColorGraphOutput;
-	};
+	inline constexpr std::string_view SceneColorPassName = "Scene.Color";
+	auto AddSceneColorPasses(FRDGBuilder& Graph, const FSceneColorFeatureInputs& Inputs)
+		-> FSceneColorGraphOutput;
 } // namespace Durin

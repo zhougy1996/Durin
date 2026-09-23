@@ -28,7 +28,6 @@ namespace Durin
 
 	struct FEditorAssistanceFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& View;
 		const RendererEditorAssistance::FPrepared& Prepared;
 		const FPostProcessGraphOutput& PostProcess;
@@ -40,11 +39,7 @@ namespace Durin
 		bool bPresentOutput;
 	};
 
-	struct FEditorAssistanceRendering final
-	{
-		using Result = bool;
-		static constexpr std::string_view Name = "Scene.EditorAssistance";
-		static auto AddPasses(const FEditorAssistanceFeatureInputs& Inputs)
-			-> void;
-	};
+	inline constexpr std::string_view EditorAssistancePassName = "Scene.EditorAssistance";
+	auto AddEditorAssistancePasses(FRDGBuilder& Graph, const FEditorAssistanceFeatureInputs& Inputs)
+		-> void;
 } // namespace Durin

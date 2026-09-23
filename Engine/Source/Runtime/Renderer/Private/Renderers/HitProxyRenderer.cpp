@@ -1,4 +1,4 @@
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
@@ -73,7 +73,7 @@ namespace Durin
 		};
 	}
 
-	auto FSceneRenderer::RenderHitProxies_RenderThread(FRHICommandListImmediate& Commands,
+	auto FSceneRenderingService::RenderHitProxies_RenderThread(FRHICommandListImmediate& Commands,
 		FScene* Scene, const FHitProxyRenderRequest& Request) -> void
 	{
 		check(IsInRenderingThread());

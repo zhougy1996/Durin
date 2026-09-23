@@ -53,7 +53,8 @@ scene abstraction. See
 [Renderer Scene Representation](SceneRepresentation.md) for its identity,
 ownership, and mutation contracts.
 
-`FSceneRenderer` executes views over that scene. Its preparation, feature
+`FSceneRenderingService` submits views over that scene through per-attempt
+`FSceneRenderer` instances. Its preparation, feature
 composition, and transient resources are owned by
 [Renderer Frame Preparation](RendererFramePreparation.md); fixed non-Material
 shader maps are owned by [Global Shaders](GlobalShaders.md).

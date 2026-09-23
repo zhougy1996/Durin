@@ -96,11 +96,10 @@ namespace Durin
 		return &Metadata;
 	}
 
-	auto FDirectionalShadowRendering::AddPasses(
-		const FDirectionalShadowFeatureInputs& Inputs)
+	auto AddDirectionalShadowPasses(
+		FRDGBuilder& Graph, const FDirectionalShadowFeatureInputs& Inputs)
 		-> FDirectionalShadowGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		const auto* ShadowRecord = Inputs.ShadowRecord;
 		auto* Renderer = &Inputs.Renderer;
 		auto* Resolved = &Inputs.Resolved;
@@ -152,7 +151,7 @@ namespace Durin
 								Commands, Recording, *Prepared, *Bindings);
 						}, RecordingPolicy);
 				}
-				(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Complete),
+				(void)Graph.AddPass(DirectionalShadowPassName, ERDGPassType::Graphics, std::move(Complete),
 					[Target = Recordings[0]->Target, Count, Resolved, Telemetry](FRHICommandListImmediate& Commands,
 						const FCompleteParameters& Parameters, const FRDGParameterResolver& Resolver) {
 						std::array<FStaticMeshRenderObservations, DirectionalShadowCascadeCount> Counts;
@@ -178,7 +177,7 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					ShadowRecord->View.CascadeCount}};
 		}
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+		(void)Graph.AddPass(DirectionalShadowPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Renderer, Resolved,
 				Telemetry, ShadowRecord](FRHICommandListImmediate& Commands,
 				const FDirectionalShadowPassParameters& PassParameters,

@@ -36,7 +36,6 @@ namespace Durin
 
 	struct FGBufferFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& View;
 		const FPreparedReceiverGeometry& Receiver;
 		FResolvedSceneResources& Resolved;
@@ -51,11 +50,7 @@ namespace Durin
 		const FSceneFeatureDecision& DeferredFeature;
 	};
 
-	struct FGBufferRendering final
-	{
-		using Result = FGBufferPassResult;
-		static constexpr std::string_view Name = "Scene.GBuffer";
-		static auto AddPasses(const FGBufferFeatureInputs& Inputs)
-			-> FGBufferGraphOutput;
-	};
+	inline constexpr std::string_view GBufferPassName = "Scene.GBuffer";
+	auto AddGBufferPasses(FRDGBuilder& Graph, const FGBufferFeatureInputs& Inputs)
+		-> FGBufferGraphOutput;
 } // namespace Durin

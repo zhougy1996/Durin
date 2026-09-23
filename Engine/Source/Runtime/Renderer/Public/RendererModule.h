@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	class FSceneRenderer;
+	class FSceneRenderingService;
 	enum class ERendererResourceInvalidationCause : uint8;
 	struct FConsoleCommandResult;
 	struct FRendererResourceInvalidationSnapshot;
@@ -43,6 +43,6 @@ namespace Durin
 	private:
 		static auto ReleaseViewState(FSceneViewStateId Id) -> void;
 
-		std::unique_ptr<FSceneRenderer> SceneRenderer;
+		std::unique_ptr<FSceneRenderingService> RenderingService;
 	};
 }

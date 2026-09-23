@@ -88,10 +88,9 @@ namespace Durin
 		}
 	} // namespace
 
-	auto FPostProcessRendering::AddPasses(
-		const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
+	auto AddPostProcessPasses(
+		FRDGBuilder& Graph, const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		FPostProcessRecorder Recorder{
 			Inputs.GBufferDebug, Inputs.Renderer, Inputs.Telemetry};
 		const auto& RecordView = Inputs.RecordView;
@@ -154,7 +153,7 @@ namespace Durin
 				*Inputs.Deferred.Isolated,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		const auto PostProcessPass =
-			Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			Graph.AddPass(PostProcessPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder, &Publication = Inputs.Publication,
 				RecordView = &RecordView, &View, bGBufferDebug, &Options,
 				bPresentOutput, bHasEditorAssistance](

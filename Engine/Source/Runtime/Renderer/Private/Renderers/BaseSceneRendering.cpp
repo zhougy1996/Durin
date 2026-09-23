@@ -74,10 +74,9 @@ namespace Durin
 		};
 	} // namespace
 
-	auto FBaseSceneRendering::AddPasses(
-		const FBaseSceneFeatureInputs& Inputs) -> FBaseSceneGraphOutput
+	auto AddBaseScenePasses(
+		FRDGBuilder& Graph, const FBaseSceneFeatureInputs& Inputs) -> FBaseSceneGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		FBaseSceneRecorder Recorder{Inputs.DeferredRenderer,
 			Inputs.StaticMeshes,
 			Inputs.SkyBox, Inputs.Telemetry, Inputs.Resolved};
@@ -111,14 +110,14 @@ namespace Durin
 			Inputs.DefaultShadowArray,
 			Inputs.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
-			Inputs.EnvironmentIrradiance,
-			Inputs.SelectedEnvironmentIrradiance);
+			Inputs.Environment.Irradiance,
+			Inputs.Environment.SelectedIrradiance);
 		AssignRead(Parameters->Resources.EnvironmentPrefiltered,
-			Inputs.EnvironmentPrefiltered,
-			Inputs.SelectedEnvironmentPrefiltered);
+			Inputs.Environment.Prefiltered,
+			Inputs.Environment.SelectedPrefiltered);
 		AssignRead(Parameters->Resources.EnvironmentBrdfLut,
-			Inputs.EnvironmentBrdfLut,
-			Inputs.SelectedEnvironmentBrdfLut);
+			Inputs.Environment.BrdfLut,
+			Inputs.Environment.SelectedBrdfLut);
 		Parameters->Resources.SceneColorOutput = {
 			.Texture = Inputs.SceneColor,
 			.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
@@ -133,7 +132,7 @@ namespace Durin
 			Parameters->Resources.SceneDepthDepthToGraphics = Depth;
 		else
 			Parameters->Resources.SceneDepthDepthToDepth = Depth;
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+		(void)Graph.AddPass(BaseScenePassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder, RecordInputs, &ProductionDeferredParameters](
 				FRHICommandListImmediate& Commands,
 				const FBaseScenePassParameters& PassParameters,

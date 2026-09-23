@@ -132,9 +132,17 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Composite;
 	};
 
+	// Authoring handles and physical range metadata shared by cloud stages.
+	struct FCloudDensityInputs final
+	{
+		std::optional<FRDGTextureHandle> BaseDensity;
+		std::optional<FRDGTextureHandle> DetailDensity;
+		std::optional<FRDGTextureHandle> Weather;
+		FRHITexture* WeatherTexture;
+	};
+
 	struct FCloudShadowFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		FVolumetricCloudShadowRecordInputs Record;
 		const FGBufferGraphOutput& GBuffer;
 		FRendererRDGAllocator& Allocator;
@@ -143,10 +151,7 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		const FRendererQualificationPolicy& Qualification;
 		FRDGTextureHandle SceneDepth;
-		std::optional<FRDGTextureHandle> BaseDensity;
-		std::optional<FRDGTextureHandle> DetailDensity;
-		std::optional<FRDGTextureHandle> Weather;
-		FRHITexture* WeatherTexture;
+		FCloudDensityInputs Density;
 		const FSceneFrameFeaturePlan::FCloudShadow& Feature;
 		uint32 Width;
 		uint32 Height;
@@ -154,7 +159,6 @@ namespace Durin
 
 	struct FCloudSpatialFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		FRendererRDGAllocator& Allocator;
@@ -164,10 +168,7 @@ namespace Durin
 		FSceneViewTemporalContext& Temporal;
 		FSceneViewState*& ViewState;
 		const FRendererQualificationPolicy& Qualification;
-		std::optional<FRDGTextureHandle> BaseDensity;
-		std::optional<FRDGTextureHandle> DetailDensity;
-		std::optional<FRDGTextureHandle> Weather;
-		FRHITexture* WeatherTexture;
+		FCloudDensityInputs Density;
 		const FSceneFrameFeaturePlan::FCloudSpatial& Feature;
 		uint32 Width;
 		uint32 Height;
@@ -175,7 +176,6 @@ namespace Durin
 
 	struct FCloudCompositeFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudSpatialGraphOutput& Spatial;
@@ -186,34 +186,19 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		FSceneViewTemporalContext& Temporal;
 		FSceneViewState*& ViewState;
-		std::optional<FRDGTextureHandle> BaseDensity;
-		std::optional<FRDGTextureHandle> DetailDensity;
-		std::optional<FRDGTextureHandle> Weather;
-		FRHITexture* WeatherTexture;
+		FCloudDensityInputs Density;
 		const FSceneFrameFeaturePlan::FCloudSpatial& Feature;
 	};
 
-	struct FVolumetricCloudShadowRendering final
-	{
-		using Result = FVolumetricCloudShadowPassResult;
-		static constexpr std::string_view Name = "Scene.VolumetricCloudShadow";
-		static auto AddPasses(const FCloudShadowFeatureInputs& Inputs)
-			-> FCloudShadowGraphOutput;
-	};
+	inline constexpr std::string_view VolumetricCloudShadowPassName = "Scene.VolumetricCloudShadow";
+	auto AddVolumetricCloudShadowPasses(FRDGBuilder& Graph, const FCloudShadowFeatureInputs& Inputs)
+		-> FCloudShadowGraphOutput;
 
-	struct FVolumetricCloudSpatialRendering final
-	{
-		using Result = FVolumetricCloudSpatialPassResult;
-		static constexpr std::string_view Name = "Scene.VolumetricCloudSpatial";
-		static auto AddPasses(const FCloudSpatialFeatureInputs& Inputs)
-			-> FCloudSpatialGraphOutput;
-	};
+	inline constexpr std::string_view VolumetricCloudSpatialPassName = "Scene.VolumetricCloudSpatial";
+	auto AddVolumetricCloudSpatialPasses(FRDGBuilder& Graph, const FCloudSpatialFeatureInputs& Inputs)
+		-> FCloudSpatialGraphOutput;
 
-	struct FVolumetricCloudCompositeRendering final
-	{
-		using Result = FVolumetricCloudPassResult;
-		static constexpr std::string_view Name = "Scene.VolumetricCloud";
-		static auto AddPasses(const FCloudCompositeFeatureInputs& Inputs)
-			-> FCloudCompositeGraphOutput;
-	};
+	inline constexpr std::string_view VolumetricCloudCompositePassName = "Scene.VolumetricCloud";
+	auto AddVolumetricCloudCompositePasses(FRDGBuilder& Graph, const FCloudCompositeFeatureInputs& Inputs)
+		-> FCloudCompositeGraphOutput;
 } // namespace Durin

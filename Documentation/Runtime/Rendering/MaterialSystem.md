@@ -722,7 +722,7 @@ coalescing, stale-update, startup-replay, and counted-resource contracts.
 
 ## Renderer Surface Execution
 
-`FSceneRenderer` owns one Renderer-private surface-material resource service.
+`FSceneRenderingService` owns one Renderer-private surface-material resource service.
 StaticMesh, SplineMesh and registered geometry factories consume compiled
 material layouts through common mesh-pass execution. The service copies the
 accepted uniform payload and resolves compact texture/sampler indices with

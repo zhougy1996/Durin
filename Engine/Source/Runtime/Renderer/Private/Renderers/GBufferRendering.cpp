@@ -2,7 +2,7 @@
 #include "RDG/RDG.h"
 #include "Renderers/SceneTextureGroupParameters.h"
 
-#include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Profiling/Profiling.h"
@@ -58,10 +58,9 @@ namespace Durin
 		return &Metadata;
 	}
 
-	auto FGBufferRendering::AddPasses(
-		const FGBufferFeatureInputs& Inputs) -> FGBufferGraphOutput
+	auto AddGBufferPasses(
+		FRDGBuilder& Graph, const FGBufferFeatureInputs& Inputs) -> FGBufferGraphOutput
 	{
-		auto& Graph = Inputs.Graph;
 		const auto& Options = Inputs.Options;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
@@ -94,7 +93,7 @@ namespace Durin
 		Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 			.Texture = Inputs.Depth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
-		(void)Graph.AddPass(Name, ERDGPassType::Graphics,
+		(void)Graph.AddPass(GBufferPassName, ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&Renderer = Inputs.Renderer,
 				&StaticMeshes = Inputs.StaticMeshes,

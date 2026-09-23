@@ -54,7 +54,6 @@ namespace Durin
 
 	struct FContactShadowFeatureInputs final
 	{
-		FRDGBuilder& Graph;
 		const FSceneView& View;
 		const FPreparedDirectionalShadow* Shadow;
 		FResolvedSceneResources& Resolved;
@@ -68,12 +67,7 @@ namespace Durin
 		uint32 Height;
 	};
 
-	struct FContactShadowVisibilityRendering final
-	{
-		using Result = FContactShadowVisibilityPassResult;
-		static constexpr std::string_view Name =
-			"Scene.ContactShadowVisibility";
-		static auto AddPasses(const FContactShadowFeatureInputs& Inputs)
-			-> FContactShadowGraphOutput;
-	};
+	inline constexpr std::string_view ContactShadowVisibilityPassName = "Scene.ContactShadowVisibility";
+	auto AddContactShadowVisibilityPasses(FRDGBuilder& Graph, const FContactShadowFeatureInputs& Inputs)
+		-> FContactShadowGraphOutput;
 } // namespace Durin
