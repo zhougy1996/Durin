@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, MeshBuilder
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -38,10 +38,9 @@ The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMater
 `DStaticMesh`. Optional modules may register additional
 compilers and class routes while the aggregate is accepting requests. Runtime Engine does not require
 TextureBuild or DerivedDataCache in Game: editor-enabled Engine optionally links
-DDC, and authoring targets register a synchronous
-family-specific `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
-`ITextureCubeBuildProvider` features, while game deployments retain Engine
-runtime assets and simply have no provider-backed authoring work to submit.
+DDC, and authoring targets load `TextureBuild` through the Engine-declared
+`ITextureBuildModule` contract. Game deployments retain Engine runtime assets
+without admitting authored texture builds.
 
 ## Compiler Registration Contract
 
@@ -77,7 +76,7 @@ candidate construction. Candidate objects have new handles and therefore cannot
 consume late results addressed to the old generation. Texture2D uses the typed
 asynchronous route for ordinary edits and PostLoad. Reload explicitly finishes
 the candidate's platform cache before checking its render resource;
-VolumeTexture remains on its synchronous provider path.
+VolumeTexture remains on its synchronous module build path.
 Material candidates use their independent request generations and selected finish.
 Reload never drains unrelated compiler work through `FinishAllCompilation`.
 
@@ -110,13 +109,13 @@ concurrency and memory bounds, mailboxes, diagnostics, and timeout policy. The
 aggregate does not add a compilation thread pool. Process shutdown completes
 the aggregate before Core closes task admission.
 
-Provider modules do not own those scopes or return concrete asynchronous tasks.
-Engine enters the single family-specific Texture provider modular feature for
-one synchronous value-only call. Texture2D and TextureCube PostLoad place that
-call on an Engine-owned worker; VolumeTexture remains synchronous.
-Provider owner retirement closes
-new admission and waits for calls already inside the feature gate; no provider
-callback, task, deleter, or result lifetime escapes the call.
+TextureBuild does not own those scopes or return asynchronous tasks.
+Engine calls its fixed module interface for synchronous value-only recipes.
+Texture2D and TextureCube PostLoad place recipe work on an Engine-owned worker;
+VolumeTexture remains synchronous. Texture2D queue entries and TextureCube
+platform-cache inputs retain an `FTextureBuildSession` acquired before dispatch.
+Scene import captures a session before its worker. Unload is rejected until
+consumers drain work and release their sessions.
 
 ## Initial Compiling Managers
 
@@ -140,7 +139,7 @@ completion application, and exactly-once completion callbacks. Active records ar
 `FObjectKey`; the manager owns request serials, active/last request ids,
 failure state, and bounded terminal diagnostics. Active work ends at terminal
 delivery, while completed asset diagnostics remain under a separate bound.
-The deterministic input/provider identity remains separate from request serials
+The deterministic input/builder identity remains separate from request serials
 and GPU resource readiness.
 
 Texture2D compute returns a unique `Tasks::TTask` result on the CPU executor,
@@ -164,10 +163,10 @@ and admit the next requests with the existing interactive/background fairness.
 Timed waits poll compute readiness and advance scheduling without applying
 unrelated results. Shutdown stops admission, cancels queued and running work,
 pumps all terminal results and joins the scope. Even a task canceled before its
-body starts is finalized by the manager. Provider retirement remains governed by
-the modular-feature call lifetime described above.
+body starts is finalized by the manager. Completed request records release their
+module sessions while retaining bounded diagnostics.
 
-Recipe providers, DDC ownership, and typed build application are defined by
+Recipes, DDC ownership, and typed build application are defined by
 [Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).
 The texture manager routes `DTexture`, sharing its queue and limits between
 Texture2D and TextureCube. VolumeTexture currently builds synchronously and has
@@ -211,7 +210,7 @@ state object. Reuse stays at these Engine-owned boundaries:
 | --- | --- |
 | Aggregate/compiler contract | Stop admission, process bounded completions, route object operations, finish accepted work, then shut down. |
 | Object identity | Use `FObjectKey` for identity and weak references for deferred owner access; never use an asset path as live-object identity. |
-| Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/provider identity. |
+| Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/builder identity. |
 | Detached completion | Workers produce family-owned value envelopes; only the GameThread resolves the owner and attempts result application. |
 | Cancellation and terminal delivery | Cancellation is advisory, late results are consumed, and every accepted consumer reaches one typed terminal outcome. |
 | Lifetime accounting | Active records end with terminal delivery; only explicitly bounded diagnostics or family caches may remain. |
@@ -220,7 +219,7 @@ These are contract conventions and existing Core/Engine primitives, not a new
 typeless job framework. Material retains program-identity single-flight,
 multiple consumers, retained programs, last-known-good behavior, Renderer
 publication, and its authored/dependency checks. Texture2D retains its priority
-queue, byte budget, synchronous provider/DDC boundary, mutation-aware CPU
+queue, byte budget, synchronous module/DDC boundary, mutation-aware CPU
 payload result application, and separate GPU resource enqueue. Their managers remain
 typed because a shared state bag would hide rather than enforce those
 invariants.

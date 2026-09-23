@@ -1,8 +1,9 @@
 #include "CookBuildProviders.h"
 #include "Texture/Texture2DBuild.h"
-#include "Texture/TextureCubeBuildProvider.h"
-#include "Texture/VolumeTextureBuildProvider.h"
+#include "Texture/TextureCubeBuild.h"
+#include "Texture/VolumeTextureBuild.h"
 #include "StaticMesh/IMeshBuilderModule.h"
+#include "Texture/ITextureBuildModule.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -21,23 +22,20 @@ namespace Durin::AssetPrivate
 			return Writer.TakeBytes();
 		}
 
-		template<typename TProvider>
-		auto ReadDescriptor(FByteBuffer& Out) -> bool
-		{
-			const auto Result = FModularFeatureRegistry::Get().InvokeSingle<TProvider>(
-				[](TProvider& Provider) { return EncodeDescriptor(Provider.GetDescriptor()); });
-			if (Result.Status != EFeatureInvokeStatus::Invoked || !Result.Value) return false;
-			Out = *Result.Value;
-			return !Out.empty();
-		}
 	}
 
 	auto GetCookBuildProviderInput(std::string_view Family, FByteBuffer& Out) -> bool
 	{
 		Out.clear();
-		if (Family == "texture2d") return ReadDescriptor<ITexture2DBuildProvider>(Out);
-		if (Family == "texture-cube") return ReadDescriptor<ITextureCubeBuildProvider>(Out);
-		if (Family == "volume-texture") return ReadDescriptor<IVolumeTextureBuildProvider>(Out);
+		if (Family == "texture2d" || Family == "texture-cube" || Family == "volume-texture")
+		{
+			const auto Session = FTextureBuildSession::Acquire();
+			if (!Session) return false;
+			if (Family == "texture2d") Out = EncodeDescriptor(Session.GetModule().GetTexture2DDescriptor());
+			else if (Family == "texture-cube") Out = EncodeDescriptor(Session.GetModule().GetTextureCubeDescriptor());
+			else Out = EncodeDescriptor(Session.GetModule().GetVolumeTextureDescriptor());
+			return !Out.empty();
+		}
 		if (Family == "static-mesh")
 		{
 			const auto Session = FStaticMeshBuildSession::Acquire();

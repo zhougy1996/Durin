@@ -2,12 +2,11 @@
 
 #include "EngineAPI.h"
 #include <expected>
-#include "Modules/ModularFeature.h"
 #include "Texture/Texture2DData.h"
 
 namespace Durin
 {
-	// Value-owned settings frozen before a Texture2D build enters provider code.
+	// Value-owned settings frozen before a Texture2D recipe runs.
 	struct FTexture2DBuildSettings
 	{
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -37,7 +36,7 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
 
-	struct FTexture2DBuildProviderDescriptor
+	struct FTexture2DBuildDescriptor
 	{
 		std::string ProducerIdentity;
 		uint32 BuilderVersion = 0;
@@ -47,7 +46,7 @@ namespace Durin
 			return !ProducerIdentity.empty() && BuilderVersion != 0;
 		}
 
-		auto operator==(const FTexture2DBuildProviderDescriptor&) const -> bool = default;
+		auto operator==(const FTexture2DBuildDescriptor&) const -> bool = default;
 	};
 
 	struct FTexture2DRecipeMetrics
@@ -75,9 +74,9 @@ namespace Durin
 	enum class ETexture2DBuildError : uint8
 	{
 		None, InvalidInput, CompressionTaskFailed,
-		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidProviderDescriptor, Cancelled,
-		InvalidProviderProduct, ProviderUnavailable, AmbiguousProvider, ProviderInvocationFailed,
-		ProviderFailed, UnsupportedTarget, CompressedLayoutOverflow, UnsupportedPixelFormat,
+		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidBuilderDescriptor, Cancelled,
+		InvalidBuilderProduct, ModuleUnavailable, UnsupportedTarget,
+		CompressedLayoutOverflow, UnsupportedPixelFormat,
 		InvalidMipLayout, InvalidPlatformData,
 	};
 	struct FTexture2DBuildError
@@ -102,18 +101,5 @@ namespace Durin
 		const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>;
 	ENGINE_API auto ResolveTexture2DSRGB(
 		const FTexture2DBuildSettings& Settings) -> bool;
-
-	// Synchronous pure-recipe seam invoked by an Engine-owned worker.
-	class ITexture2DBuildProvider : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 7;
-
-		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
-		virtual auto Build(
-			const FTexture2DRecipeBuildRequest& Request,
-			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> = 0;
-	};
 
 }

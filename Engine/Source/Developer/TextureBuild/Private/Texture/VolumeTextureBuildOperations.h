@@ -1,7 +1,7 @@
 #pragma once
 
 #include "TextureBuildAPI.h"
-#include "Texture/VolumeTextureBuildProvider.h"
+#include "Texture/VolumeTextureBuild.h"
 
 namespace Durin
 {

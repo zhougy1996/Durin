@@ -5,7 +5,7 @@ and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-23
 
 ## Asset boundary
 
@@ -87,7 +87,7 @@ transactions belong to the publishing caller.
 
 ## Deterministic build and cache
 
-TextureBuild owns the pure registered volume recipe. It consumes normalized voxels,
+TextureBuild owns the pure volume recipe through `ITextureBuildModule`. It consumes normalized voxels,
 uses a three-axis box filter in linear numeric space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
@@ -101,7 +101,7 @@ Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine computes the key, queries
-and validates DDC, invokes the typed `IVolumeTextureBuildProvider` only on a
+and validates DDC, invokes the module's volume recipe only on a
 miss, performs best-effort Put, and applies the derived-only completion result
 on the GameThread. TextureBuild never receives cache policy or mutates a
 `DVolumeTexture`.

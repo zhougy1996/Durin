@@ -7,13 +7,12 @@
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureBuildOutcome.h"
-#include "Modules/ModularFeature.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin
 {
 	// Borrows immutable normalized source for the duration of one synchronous
-	// provider invocation. Providers must not retain the reference.
+	// module invocation. Recipes must not retain the reference.
 	struct FVolumeTextureBuildRequest
 	{
 		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
@@ -24,7 +23,7 @@ namespace Durin
 	};
 
 	// Stable producer identity included in Engine-side diagnostics and contracts.
-	struct FVolumeTextureBuildProviderDescriptor
+	struct FVolumeTextureBuildDescriptor
 	{
 		std::string ProducerIdentity;
 		uint32 BuilderVersion = 0;
@@ -47,7 +46,7 @@ namespace Durin
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		FAssetCacheDiagnostics PersistenceDiagnostic;
-		FVolumeTextureBuildProviderDescriptor Provider;
+		FVolumeTextureBuildDescriptor Builder;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};
 
@@ -73,28 +72,12 @@ namespace Durin
 		bool bPreserveSource = false;
 	};
 
-	// Typed synchronous recipe seam implemented by the editor TextureBuild module.
-	class IVolumeTextureBuildProvider : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName =
-			"Engine.VolumeTextureBuildProvider";
-		static constexpr uint32 FeatureVersion = 4;
-
-		virtual auto GetDescriptor() const
-			-> FVolumeTextureBuildProviderDescriptor = 0;
-		virtual auto Build(
-			const FVolumeTextureRecipeBuildRequest& Request
-		)
-			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> = 0;
-	};
-
 	struct FVolumeTextureBuildValue
 	{
 		FVolumeTextureBuildProduct Product;
 	};
 
-	ENGINE_API auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
+	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<FVolumeTextureBuildValue, FTextureBuildOperationError>;
 	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
 		-> std::expected<void, FTextureBuildOperationError>;

@@ -7,7 +7,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/VolumeTextureBuildProvider.h"
+#include "Texture/VolumeTextureBuild.h"
 #include "Texture/VolumeTextureRenderResource.h"
 #include "Threading/RunnableThread.h"
 

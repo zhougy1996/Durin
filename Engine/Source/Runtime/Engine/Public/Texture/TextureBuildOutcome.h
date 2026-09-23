@@ -12,14 +12,12 @@ namespace Durin
 		InvalidInput,
 		BuildFailed,
 		Unavailable,
-		Ambiguous,
-		InvocationFailed,
-		InvalidProviderOutput,
+		InvalidBuilderOutput,
 		ApplicationFailed
 	};
 	enum class ETextureBuildStage
 	{
-		Provider,
+		Module,
 		Normalize,
 		Recipe,
 		Apply
@@ -36,7 +34,7 @@ namespace Durin
 	struct [[nodiscard]] FTextureBuildError
 	{
 		ETextureBuildFailure Code = ETextureBuildFailure::BuildFailed;
-		ETextureBuildStage Stage = ETextureBuildStage::Provider;
+		ETextureBuildStage Stage = ETextureBuildStage::Module;
 		std::string Diagnostic;
 		std::optional<ETextureCubeInputError> CubeInputCause;
 	};

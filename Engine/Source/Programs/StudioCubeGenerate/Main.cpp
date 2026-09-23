@@ -9,7 +9,7 @@
 #include "Math/Operations.h"
 #include "Misc/MountPaths.h"
 #include "Modules/ModuleManager.h"
-#include "Texture/TextureCubeBuildProvider.h"
+#include "Texture/TextureCubeBuild.h"
 #include "Threading/Task.h"
 
 namespace

@@ -9991,19 +9991,6 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	InitializeAssetTests();
 	using namespace Durin;
 	FCookShaderStub Shader;
-	class FRecipe final : public ITexture2DBuildProvider
-	{
-	public:
-		uint32 Version = 1;
-		auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor override { return {"capture-recipe", Version}; }
-		auto Build(const FTexture2DRecipeBuildRequest&,
-			const FTexture2DRecipeExecutionControl*) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderFailed});
-		}
-	} Recipe;
-	FModuleTestOwner RecipeOwner("CookRecipeFixture");
-	auto RecipeProvider = RecipeOwner.RegisterFeature<ITexture2DBuildProvider>(Recipe);
 	FModuleTestOwner Owner("CookCaptureFixture");
 	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
 	ASSERT_TRUE(Provider.IsValid());

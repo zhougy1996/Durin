@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-23
 
 ## Coordinator and input ownership
 
@@ -123,7 +123,7 @@ without declarations. Declarations use stable logical names and these semantics:
   producer version bump; callback output is not automatically a complete recipe.
 
 Built-in Texture2D, TextureCube, VolumeTexture, and StaticMesh declarations include
-native recipe-provider descriptors. Material declares shader source/compiler
+native builder versions. Material declares shader source/compiler
 identity evaluated once per run without retaining source bytes; compiler calls
 use ordinary stable files. Sky Light references are normal TextureCube package
 dependencies; filtered lighting is transient GPU state, with no external IBL

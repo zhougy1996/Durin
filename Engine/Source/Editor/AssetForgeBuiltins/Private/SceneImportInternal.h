@@ -89,6 +89,7 @@ namespace Durin::AssetForge::Builtins
 		const FSceneImportPlan& Data,
 		const FSceneOutputData& Descriptor,
 		const std::function<bool()>& IsCancellationRequested,
+		const FTextureBuildSession& BuildSession,
 		FSceneTextureBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 }

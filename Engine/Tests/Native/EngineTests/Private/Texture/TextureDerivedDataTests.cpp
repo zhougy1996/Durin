@@ -1,5 +1,5 @@
 #include <expected>
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuildTypes.h"
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"

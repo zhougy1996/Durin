@@ -7,7 +7,6 @@
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureBuildOutcome.h"
-#include "Modules/ModularFeature.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -66,7 +65,7 @@ namespace Durin
 		FTextureCubePanoramaBuildSettings Settings;
 	};
 
-	// Immutable object-free input borrowed by a synchronous provider invocation.
+	// Immutable object-free input borrowed by a synchronous module invocation.
 	struct FTextureCubeBuildRequest
 	{
 		std::variant<FTextureCubeFacesBuildInput, FTextureCubePanoramaBuildInput> Input;
@@ -75,7 +74,7 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	struct FTextureCubeBuildProviderDescriptor
+	struct FTextureCubeBuildDescriptor
 	{
 		std::string ProducerIdentity;
 		uint32 BuilderVersion = 0;
@@ -116,7 +115,7 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		FAssetCacheDiagnostics PersistenceDiagnostic;
-		FTextureCubeBuildProviderDescriptor Provider;
+		FTextureCubeBuildDescriptor Builder;
 		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;
 	};
 
@@ -144,30 +143,13 @@ namespace Durin
 		bool bPreserveSource = false;
 	};
 
-	class ITextureCubeBuildProvider : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName = "Engine.TextureCubeBuildProvider";
-		static constexpr uint32 FeatureVersion = 5;
-
-		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
-		virtual auto Normalize(
-			const FTextureCubeBuildRequest& Request
-		)
-			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
-		virtual auto Build(
-			const FTextureCubeRecipeBuildRequest& Request
-		)
-			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> = 0;
-	};
-
 	struct FTextureCubeBuildValue
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
 	};
 
-	ENGINE_API auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
+	ENGINE_API auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildOperationError>;
 	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
 		-> std::expected<void, FTextureBuildOperationError>;

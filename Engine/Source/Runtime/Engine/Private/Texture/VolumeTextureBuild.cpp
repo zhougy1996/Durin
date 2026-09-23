@@ -1,4 +1,5 @@
-#include "Texture/VolumeTextureBuildProvider.h"
+#include "Texture/VolumeTextureBuild.h"
+#include "Texture/ITextureBuildModule.h"
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataCache.h"
@@ -17,15 +18,16 @@ namespace Durin
 		-> std::expected<FVolumeTextureBuildValue, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
-		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, "VolumeTexture authored build orchestration is unavailable outside editor builds."});
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "VolumeTexture authored build orchestration is unavailable outside editor builds."});
 #else
-		auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			IVolumeTextureBuildProvider>([&](IVolumeTextureBuildProvider& Provider)
-				-> std::expected<FVolumeTextureBuildValue, FTextureBuildError> {
-				const FVolumeTextureBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
+		const auto Session = FTextureBuildSession::Acquire();
+		if (!Session) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
+		return [&]() -> std::expected<FVolumeTextureBuildValue, FTextureBuildError> {
+				const FVolumeTextureBuildDescriptor Descriptor = Session.GetModule().GetVolumeTextureDescriptor();
 				if (!Descriptor.IsValid())
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Provider, "The VolumeTexture build provider descriptor is invalid."});
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The VolumeTexture builder descriptor is invalid."});
 				}
 				const FVolumeTextureSourceData& Source = Request.SourceData.get();
 				if (!Source.IsValid() || Source.Format != Request.Settings.OutputFormat
@@ -45,7 +47,7 @@ namespace Durin
 					.TargetProfile = Request.TargetProfile};
 				std::string KeyDiagnostic;
 				const FCacheKeyProxy Key = BuildVolumeTextureDerivedDataKey(KeyInput, KeyDiagnostic);
-				if (!Key.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Provider, std::move(KeyDiagnostic)});
+				if (!Key.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Module, std::move(KeyDiagnostic)});
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
@@ -56,10 +58,10 @@ namespace Durin
 				{
 					return FVolumeTextureBuildValue{FVolumeTextureBuildProduct{
 						.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
-						.Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::CacheHit}};
+						.Builder = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::CacheHit}};
 				}
 
-				auto Recipe = Provider.Build({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+			auto Recipe = Session.GetModule().BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 				if (!Recipe)
 				{
 					return std::unexpected(std::move(Recipe.error()));
@@ -67,7 +69,7 @@ namespace Durin
 				auto RecipeProduct = std::move(*Recipe);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Recipe, "VolumeTexture provider returned invalid platform data."});
+					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Recipe, "VolumeTexture recipe returned invalid platform data."});
 				}
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 				if (Request.bPersistDerivedData)
@@ -78,22 +80,12 @@ namespace Durin
 				return FVolumeTextureBuildValue{FVolumeTextureBuildProduct{
 						.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key,
 						.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-						.Provider = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::Rebuilt}};
-			});
-		if (Invocation.Status == EFeatureInvokeStatus::Invoked && Invocation.Value)
-			return std::move(*Invocation.Value);
-		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider,
-				"The VolumeTexture build provider is unavailable."});
-		if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Ambiguous, ETextureBuildStage::Provider,
-				"Multiple VolumeTexture build providers are registered."});
-		return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvocationFailed, ETextureBuildStage::Provider,
-			"The VolumeTexture build provider invocation failed."});
+						.Builder = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::Rebuilt}};
+			}();
 #endif
 	}
 
-	auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
+	auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<FVolumeTextureBuildValue, FTextureBuildOperationError>
 	{
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
@@ -123,7 +115,7 @@ namespace Durin
 		{
 			CheckGameThread();
 			require(Product.PlatformData != nullptr);
-			// The provider boundary has already validated these value contracts.
+			// The build boundary has already validated these value contracts.
 			check(SourceData.IsValid() && SourceData.Format == Settings.OutputFormat && Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
 			if (!Context.bPreserveSource)

@@ -72,13 +72,13 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	ASSERT_TRUE(Durin::UnloadPackage(Texture->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable)
+TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildModuleIsUnavailable)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	ASSERT_TRUE(EnsureTextureCompilingManager());
 	Durin::FPackagePath AssetPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/UnavailableProvider", AssetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/UnavailableBuildModule", AssetPath));
 	Durin::DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
 	Durin::Image::FImage SourceImage;
@@ -92,12 +92,14 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	const auto Saved = Durin::SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	auto& Modules = Durin::FModuleManager::Get();
-	ASSERT_TRUE(Modules.UnloadModule("TextureBuild").Succeeded());
-	struct FRestoreProvider
+	const auto Unload = Modules.UnloadModule("TextureBuild");
+	ASSERT_TRUE(Unload.Succeeded()) << Unload.Message;
+	struct FRestoreBuildModule
 	{
-		~FRestoreProvider() { Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild"); }
-	} RestoreProvider;
+		~FRestoreBuildModule() { Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild"); }
+	} RestoreBuildModule;
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const auto Result = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));

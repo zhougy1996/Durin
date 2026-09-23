@@ -13,7 +13,7 @@
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/VolumeTextureBuildProvider.h"
+#include "Texture/VolumeTextureBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {

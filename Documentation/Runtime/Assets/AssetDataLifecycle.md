@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -110,13 +110,12 @@ API client: RenderCore owns its orchestration and stores complete versioned
 SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
 dependency manifests do not enter portable values.
 
-MeshBuilder exposes an explicit render build module interface. TextureBuild
-registers three providers using bounded typed modular-feature invocation.
+MeshBuilder and TextureBuild expose explicit build module interfaces.
 Build implementations own algorithm metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
-providers retain no cache keys, origin, persistence diagnostics, or live assets.
+recipes retain no cache keys, origin, persistence diagnostics, or live assets.
 
-Texture cache decoding reuses the provider's unpublished platform destination;
+Texture cache decoding reuses an unpublished platform destination;
 on a miss that incomplete destination is discarded before recipe application.
 Cooked texture loading retains its input
 buffer or BulkData lease until synchronous decoding finishes and publish only
@@ -253,22 +252,19 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 ### Optional Asset Operation Boundaries
 
 Runtime Engine owns asset state and typed optional operation contracts:
-`IMeshBuilderModule`,
-`ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
-and `ITextureCubeBuildProvider`.
-Texture consumers invoke exactly one provider through a bounded modular-feature
-visitor. No provider reference or provider-authored callable escapes that
-visitor; zero providers is an explicit unavailable result and multiple
-providers is an explicit ambiguity rather than registration-order selection.
+`IMeshBuilderModule` and `ITextureBuildModule`.
+Texture consumers call one fixed module implementation. A missing module is an
+explicit unavailable result.
 
 StaticMesh consumers acquire a retained module session before worker dispatch, as specified
-in [Static mesh building](StaticMeshBuilding.md). They do not use feature discovery.
+in [Static mesh building](StaticMeshBuilding.md). Texture2D compilation, TextureCube
+PostLoad, and scene import likewise retain `FTextureBuildSession` across worker work.
 
 Build contracts remain owned by Engine, and both build modules publicly depend
 on Engine. `Texture2DData.h` carries source/settings values and CPU platform
-mips; `Texture2DBuildProvider.h` exposes only the recipe seam, while
+mips; `Texture2DBuildTypes.h` exposes recipe values, while
 `Texture2DBuild.h` owns requests, cache identity, persistence controls and
-observations. Texture providers return `std::expected<Product, Error>` with owned
+observations. Texture recipes return `std::expected<Product, Error>` with owned
 recipe products; Cube normalization likewise returns its canonical input by value.
 Texture2D input validation uses `FTexture2DInputError`, recipe failures use
 `FTexture2DBuildError`, and Cube/Volume failures use `FTextureBuildError` with
@@ -321,9 +317,8 @@ Cook reports existing payload capture rather than inferring an old build origin
 from the asset.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an
-importer dependency. Each build module instance owns its provider objects and
-generation-bound registration tokens, so owner retirement rejects new calls
-and waits for admitted visitors before provider state is destroyed.
+importer dependency. Module code leases reject unload while build sessions remain;
+consumers stop admission and drain work before releasing them.
 
 ## Derived Data Cache Objects
 
@@ -391,7 +386,7 @@ formatters render diagnostics only at presentation.
 TextureCube uses Engine-owned bucket `TextureCube/Objects`. Explicit import or
 reimport decodes and projects a panorama into six canonical authored RGBA8
 faces before the cache lookup. Engine derives the key from those faces and the
-provider descriptor; only a miss invokes TextureBuild platform construction.
+builder descriptor; only a miss invokes TextureBuild platform construction.
 Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical source.
 Texture producers validate complete platform data before calling the void
 `SetPlatformData` ownership-transfer setter; the setter neither validates nor
@@ -542,7 +537,7 @@ backend paths supplied to domain callers.
 StaticMeshEditor owns StaticMesh payload inspection and package-field
 interpretation. Engine retains only const source, residency, resource and
 BodySetup facts plus bounded manager observations. StaticMesh inspection never
-opens bulk storage, acquires source handles, probes cache/providers or creates
+opens bulk storage, acquires source handles, probes cache/build modules or creates
 primitive geometry. Metadata presence is not physical validation. Operation
 history is request-qualified and never presented as proof of current settings
 or source/collision coherence. See the [StaticMesh Inspector](../../Editor/Guides/StaticMeshInspector.md)

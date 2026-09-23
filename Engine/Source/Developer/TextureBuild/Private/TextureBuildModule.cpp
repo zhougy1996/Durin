@@ -1,5 +1,4 @@
-#include "Modules/ModuleManager.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/ITextureBuildModule.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureDerivedData.h"
@@ -7,91 +6,42 @@
 
 namespace Durin
 {
-	class FTexture2DBuildProvider final : public ITexture2DBuildProvider
+	class FTextureBuildModule final : public ITextureBuildModule
 	{
 	public:
-		auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor override
+		auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor override
 		{
-			return {
-				.ProducerIdentity = "Durin.TextureBuild.Texture2D",
-				.BuilderVersion = Texture2DBuilderVersion};
+			return {.ProducerIdentity = "Durin.TextureBuild.Texture2D", .BuilderVersion = Texture2DBuilderVersion};
 		}
-
-		auto Build(
-			const FTexture2DRecipeBuildRequest& Request,
-			const FTexture2DRecipeExecutionControl* ExecutionControl) -> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
+		auto GetTextureCubeDescriptor() const -> FTextureCubeBuildDescriptor override
 		{
-			return BuildTexture2D(Request, ExecutionControl);
-		}
-	};
-
-	class FVolumeTextureBuildProvider final : public IVolumeTextureBuildProvider
-	{
-	public:
-		auto GetDescriptor() const
-			-> FVolumeTextureBuildProviderDescriptor override
-		{
-			return {
-				.ProducerIdentity = "Durin.TextureBuild.VolumeTexture",
-				.BuilderVersion = VolumeTextureBuilderVersion};
-		}
-
-		auto Build(const FVolumeTextureRecipeBuildRequest& Request) -> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> override
-		{
-			return BuildVolumeTexture(Request);
-		}
-	};
-
-	class FTextureCubeBuildProvider final : public ITextureCubeBuildProvider
-	{
-	public:
-		auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor override
-		{
-			return {.ProducerIdentity = "Durin.TextureBuild.TextureCube",
-				.BuilderVersion = TextureCubeBuilderVersion,
+			return {.ProducerIdentity = "Durin.TextureBuild.TextureCube", .BuilderVersion = TextureCubeBuilderVersion,
 				.ProjectionVersion = TextureCubeProjectionVersion};
 		}
-
-		auto Normalize(const FTextureCubeBuildRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
+		auto GetVolumeTextureDescriptor() const -> FVolumeTextureBuildDescriptor override
 		{
-			return NormalizeTextureCube(Request);
+			return {.ProducerIdentity = "Durin.TextureBuild.VolumeTexture", .BuilderVersion = VolumeTextureBuilderVersion};
 		}
-
-		auto Build(const FTextureCubeRecipeBuildRequest& Request) -> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> override
+		auto BuildTexture2D(const FTexture2DRecipeBuildRequest& Request,
+			const FTexture2DRecipeExecutionControl* Control)
+			-> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> override
 		{
-			return BuildTextureCube(Request);
+			return Durin::BuildTexture2D(Request, Control);
 		}
-	};
-
-	class FTextureBuildModule final : public IModuleInterface
-	{
-	public:
-		auto StartupModule() -> void override
+		auto NormalizeTextureCube(const FTextureCubeBuildRequest& Request)
+			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
 		{
-			Texture2DBuildProviderRegistration = FModuleStartup::RegisterFeature<
-				ITexture2DBuildProvider>(Texture2DBuildProvider);
-			TextureCubeBuildProviderRegistration = FModuleStartup::RegisterFeature<
-				ITextureCubeBuildProvider>(TextureCubeBuildProvider);
-			VolumeTextureBuildProviderRegistration = FModuleStartup::RegisterFeature<
-				IVolumeTextureBuildProvider>(VolumeTextureBuildProvider);
-			require(Texture2DBuildProviderRegistration.IsValid());
-			require(TextureCubeBuildProviderRegistration.IsValid());
-			require(VolumeTextureBuildProviderRegistration.IsValid());
+			return Durin::NormalizeTextureCube(Request);
 		}
-
-	private:
-		FTexture2DBuildProvider Texture2DBuildProvider;
-		FModularFeatureRegistration Texture2DBuildProviderRegistration;
-		FVolumeTextureBuildProvider VolumeTextureBuildProvider;
-		FModularFeatureRegistration VolumeTextureBuildProviderRegistration;
-		FTextureCubeBuildProvider TextureCubeBuildProvider;
-		FModularFeatureRegistration TextureCubeBuildProviderRegistration;
-
-		auto ShutdownModule() -> void override
+		auto BuildTextureCube(const FTextureCubeRecipeBuildRequest& Request)
+			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> override
 		{
-			VolumeTextureBuildProviderRegistration.Reset();
-			TextureCubeBuildProviderRegistration.Reset();
-			Texture2DBuildProviderRegistration.Reset();
+			return Durin::BuildTextureCube(Request);
+		}
+		auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request)
+			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> override
+		{
+			return Durin::BuildVolumeTexture(Request);
 		}
 	};
 

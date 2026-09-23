@@ -1,6 +1,7 @@
 #include "Texture/Texture2DCompilation.h"
 
 #include "Texture/Texture2DBuild.h"
+#include "Texture/ITextureBuildModule.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
@@ -123,7 +124,7 @@ struct FAssetState
 			const FTexture2DBuildInputIdentity& Expected,
 			const FTexture2DBuildInputIdentity& Completed) -> bool
 		{
-			return Completed.Provider.IsValid()
+			return Completed.Builder.IsValid()
 				&& Expected.SourceIdentity == Completed.SourceIdentity
 				&& Expected.Settings == Completed.Settings
 				&& Expected.TargetPlatform == Completed.TargetPlatform
@@ -611,13 +612,14 @@ struct FAssetState
 		}
 	}
 
-	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
+	auto BuildTexture2DDetachedInSession(const FTextureBuildSession& Session,
+		const FTexture2DBuildRequest& Request,
 		const FTexture2DBuildExecutionControl* ExecutionControl)
 		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
 	{
 		FTexture2DBuildProduct Product;
 		FTexture2DBuildInputIdentity Identity;
-		const auto Built = InvokeTexture2DBuildProvider(Request, Product, Identity, ExecutionControl);
+		const auto Built = BuildTexture2DPlatformDataInSession(Session, Request, Product, Identity, ExecutionControl);
 		if (Built) return Product;
 		const auto Failure = TexturePrivate::MakeCompilationBuildFailure(Built.error());
 		if (Failure.Code == ETexture2DCompilationError::Cancelled)
@@ -628,6 +630,13 @@ struct FAssetState
 			Failure.InputReason});
 	}
 
+	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
+		const FTexture2DBuildExecutionControl* ExecutionControl)
+		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
+	{
+		return BuildTexture2DDetachedInSession(FTextureBuildSession::Acquire(), Request, ExecutionControl);
+	}
+
 	auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
@@ -636,7 +645,7 @@ struct FAssetState
 		CheckGameThread();
 		FTexture2DBuildProduct Product;
 		FTexture2DBuildInputIdentity Identity;
-		const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
+		const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(
 			Request, Product, Identity);
 		if (!BuildResult)
 		{

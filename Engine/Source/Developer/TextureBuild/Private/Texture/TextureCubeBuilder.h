@@ -2,7 +2,7 @@
 
 #include "TextureBuildAPI.h"
 #include "Texture/TextureBuildOutcome.h"
-#include "Texture/TextureCubeBuildProvider.h"
+#include "Texture/TextureCubeBuild.h"
 
 namespace Durin::TextureCubeBuilder
 {

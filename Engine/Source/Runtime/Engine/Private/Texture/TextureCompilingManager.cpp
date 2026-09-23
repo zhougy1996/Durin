@@ -2,6 +2,7 @@
 #include "Texture2DBuildDiagnostics.h"
 
 #include "Texture/Texture2DBuild.h"
+#include "Texture/ITextureBuildModule.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -69,6 +70,7 @@ namespace Durin
 		struct FRequestState
 		{
 			FTexture2DCompilationWork Request;
+			FTextureBuildSession BuildSession;
 			FTexture2DCompilationWorkCompletion Completion;
 			FTexture2DCompilationDiagnostic Diagnostic;
 			Tasks::TTask<FTexture2DCompilationWorkResult> Task;
@@ -99,6 +101,11 @@ namespace Durin
 				|| Request.Build.SourceIdentity.IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
+			if (!RequestState->Request.PlatformCache)
+			{
+				RequestState->BuildSession = FTextureBuildSession::Acquire();
+				if (!RequestState->BuildSession) return 0;
+			}
 			RequestState->Completion = std::move(Completion);
 			RequestState->EstimatedBytes = EstimateBuildBytes(RequestState->Request);
 			RequestState->EnqueueNanoseconds = NowNanoseconds();
@@ -313,8 +320,8 @@ namespace Durin
 				},
 				.Metrics = &RecipeMetrics};
 			FTexture2DBuildProduct Product;
-			const std::expected<void, FTexture2DBuildError> BuildResult = InvokeTexture2DBuildProvider(
-				BuildRequest, Product, Result.InputIdentity, &Control);
+			const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformDataInSession(
+				RequestState->BuildSession, BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
 				Result.BuildCause = BuildResult.error();
@@ -440,6 +447,7 @@ namespace Durin
 				{
 					std::lock_guard Lock(Mutex);
 					Ready->Task = {};
+					Ready->BuildSession = {};
 					Ready->RejectedResult.reset();
 					Ready->Request.Build = {};
 					Ready->Request.PlatformCache.reset();

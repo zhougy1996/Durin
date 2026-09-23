@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-23
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -12,12 +12,12 @@ integration boundaries, and explicit process-exit ordering.
 Engine starts its object-aware asset-compilation aggregate after the task
 system. Material and Texture2D use built-in typed compiling managers routed from
 their reflected asset classes;
-editor and headless authoring roots may add TextureBuild's typed synchronous
-Texture2D, VolumeTexture, and TextureCube providers without transferring task,
+editor and headless authoring roots may load TextureBuild's typed synchronous
+Texture2D, VolumeTexture, and TextureCube recipes without transferring task,
 PostLoad, object, or publication ownership. Launch
 pumps the aggregate while dependent objects are alive and shuts it down before
-providers, objects, modules, and tasks are torn down. Detailed aggregation and
-provider lifetime are defined by [Asset Compilation](../Assets/AssetCompilation.md),
+build sessions, objects, modules, and tasks are torn down. Detailed aggregation and
+module lifetime are defined by [Asset Compilation](../Assets/AssetCompilation.md),
 while payload ownership remains in
 [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
 `DEngine::PrepareForShutdown()` remains the generic consumer-detachment hook;

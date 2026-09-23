@@ -193,7 +193,7 @@ namespace
 				.MaxResolution = Texture.GetMaxResolution(),
 				.bSRGB = Texture.IsSRGB()});
 		Request.bPersistDerivedData = false;
-		const auto BuildResult = Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
+		const auto BuildResult = Durin::BuildTexture2DPlatformData(Request, Product, Identity);
 		EXPECT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
 		return Product.DerivedDataKey.ToString();
 	}

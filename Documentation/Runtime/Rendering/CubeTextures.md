@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-23
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -16,7 +16,7 @@ format admission, typed source translation, direct import/reimport, package
 save, and failure handling. One immutable source capture supplies the
 bytes, hash, size, path, and fingerprint used by each operation. TextureBuild
 owns source-independent face/panorama recipes and recipe versions behind
-`ITextureCubeBuildProvider`. Engine owns typed request variants, canonical
+`ITextureBuildModule`. Engine owns typed request variants, canonical
 decoded values, DDC keys and Get/Put policy, derived-only result validation,
 uncooked PostLoad, object result application, diagnostics, and resource invalidation. AssetForgeBuiltins captures
 and translates physical sources through Engine contracts and has no compile-time

@@ -1,4 +1,5 @@
 #include "Texture/Texture2DBuild.h"
+#include "Texture/ITextureBuildModule.h"
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataCache.h"
@@ -16,13 +17,10 @@ namespace Durin
 		case ETexture2DBuildError::CompressionTaskFailed: return "Texture compression task failed.";
 		case ETexture2DBuildError::MissingSourceIdentity: return "Texture2D source identity is missing.";
 		case ETexture2DBuildError::AuthoredBuildUnavailable: return "Texture2D authored build orchestration is unavailable outside editor builds.";
-		case ETexture2DBuildError::InvalidProviderDescriptor: return "The Texture2D build provider descriptor is invalid.";
+		case ETexture2DBuildError::InvalidBuilderDescriptor: return "The Texture2D builder descriptor is invalid.";
 		case ETexture2DBuildError::Cancelled: return "Texture2D build was cancelled.";
-		case ETexture2DBuildError::InvalidProviderProduct: return "Texture2D provider returned invalid platform data.";
-		case ETexture2DBuildError::ProviderUnavailable: return "The Texture2D build provider is unavailable.";
-		case ETexture2DBuildError::AmbiguousProvider: return "Multiple Texture2D build providers are registered.";
-		case ETexture2DBuildError::ProviderInvocationFailed: return "The Texture2D build provider invocation failed.";
-		case ETexture2DBuildError::ProviderFailed: return "The Texture2D build provider failed without a diagnostic.";
+		case ETexture2DBuildError::InvalidBuilderProduct: return "Texture2D builder returned invalid platform data.";
+		case ETexture2DBuildError::ModuleUnavailable: return "The TextureBuild module is unavailable.";
 		case ETexture2DBuildError::UnsupportedTarget: return "Texture2D build target is unsupported.";
 		case ETexture2DBuildError::CompressedLayoutOverflow: return "Compressed texture mip layout exceeds supported limits.";
 		case ETexture2DBuildError::UnsupportedPixelFormat: return "Selected pixel format is not supported by the current RHI backend.";
@@ -104,7 +102,8 @@ namespace Durin
 		return Settings.bSRGB.value_or(GetDefaultTextureSRGB(Settings.Usage));
 	}
 
-	auto InvokeTexture2DBuildProvider(
+	auto BuildTexture2DPlatformDataInSession(
+		const FTextureBuildSession& Session,
 		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
@@ -132,12 +131,12 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #else
-		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
-			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) -> std::expected<void, FTexture2DBuildError> {
-				OutIdentity.Provider = Provider.GetDescriptor();
-				if (!OutIdentity.Provider.IsValid())
+		if (!Session) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
+		return [&]() -> std::expected<void, FTexture2DBuildError> {
+				OutIdentity.Builder = Session.GetModule().GetTexture2DDescriptor();
+				if (!OutIdentity.Builder.IsValid())
 				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidProviderDescriptor});
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderDescriptor});
 				}
 				const FTexture2DBuildKeyInput KeyInput{
 					.SourceIdentity = OutIdentity.SourceIdentity,
@@ -147,7 +146,7 @@ namespace Durin
 					.AlphaMipMode = Request.Settings.AlphaMipMode,
 					.MaximumResolution = Request.Settings.MaxResolution,
 					.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
-					.BuilderVersion = OutIdentity.Provider.BuilderVersion,
+					.BuilderVersion = OutIdentity.Builder.BuilderVersion,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile};
 				const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
@@ -160,7 +159,7 @@ namespace Durin
 				{
 					OutProduct = {.PlatformData = std::move(PlatformData),
 						.DerivedDataKey = Key,
-						.Provider = OutIdentity.Provider,
+						.Builder = OutIdentity.Builder,
 						.Origin = ETexture2DBuildProductOrigin::CacheHit};
 					return std::expected<void, FTexture2DBuildError>{};
 				}
@@ -181,7 +180,7 @@ namespace Durin
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
-				auto RecipeResult = Provider.Build({
+			auto RecipeResult = Session.GetModule().BuildTexture2D({
 					.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
@@ -191,7 +190,7 @@ namespace Durin
 				auto RecipeProduct = std::move(*RecipeResult);
 				if (!RecipeProduct.PlatformData.IsValid())
 				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidProviderProduct});
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
@@ -216,25 +215,20 @@ namespace Durin
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
 					.DerivedDataKey = Key,
 					.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-					.Provider = OutIdentity.Provider,
+					.Builder = OutIdentity.Builder,
 					.Metrics = RecipeMetrics,
 					.Origin = ETexture2DBuildProductOrigin::Rebuilt};
 				return std::expected<void, FTexture2DBuildError>{};
-			});
-		if (Invocation.Status == EFeatureInvokeStatus::Invoked
-			&& Invocation.Value.has_value())
-		{
-			if (!*Invocation.Value) OutProduct = {};
-			return std::move(*Invocation.Value);
-		}
-		OutProduct = {};
-		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderUnavailable});
-		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AmbiguousProvider});
-		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderInvocationFailed});
-		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ProviderFailed});
+			}();
 #endif
+	}
+
+	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
+		FTexture2DBuildProduct& OutProduct, FTexture2DBuildInputIdentity& OutIdentity,
+		const FTexture2DBuildExecutionControl* ExecutionControl)
+		-> std::expected<void, FTexture2DBuildError>
+	{
+		return BuildTexture2DPlatformDataInSession(FTextureBuildSession::Acquire(),
+			Request, OutProduct, OutIdentity, ExecutionControl);
 	}
 }

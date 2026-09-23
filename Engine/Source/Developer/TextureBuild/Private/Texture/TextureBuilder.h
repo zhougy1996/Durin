@@ -1,7 +1,7 @@
 #pragma once
 
 #include "TextureBuildAPI.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuildTypes.h"
 
 namespace Durin::TextureBuilder
 {

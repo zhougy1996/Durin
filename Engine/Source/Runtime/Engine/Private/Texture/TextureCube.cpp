@@ -10,7 +10,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
-#include "Texture/TextureCubeBuildProvider.h"
+#include "Texture/TextureCubeBuild.h"
 #include "TextureBuildDiagnostics.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
@@ -38,7 +38,8 @@ namespace Durin
 		struct FCubeCacheInput final : FTexturePlatformCacheInput
 		{
 			explicit FCubeCacheInput(const DTextureCube& Texture)
-				: Width(Texture.GetOriginalSourceWidth()), Height(Texture.GetOriginalSourceHeight()),
+				: BuildSession(FTextureBuildSession::Acquire()),
+				Width(Texture.GetOriginalSourceWidth()), Height(Texture.GetOriginalSourceHeight()),
 				FaceDimension(Texture.GetPanoramaFaceDimension()), Exposure(Texture.GetPanoramaExposureEV()),
 				bSRGB(Texture.IsSRGB()), Output(Texture.GetOutput())
 			{
@@ -46,6 +47,7 @@ namespace Durin
 				EstimatedBytes = Source.GetDecodedPayloadSize() * 4
 					+ static_cast<uint64>(FaceDimension) * FaceDimension * 6 * 32;
 			}
+			FTextureBuildSession BuildSession;
 			uint32 Width, Height, FaceDimension;
 			float Exposure;
 			bool bSRGB;
@@ -125,9 +127,9 @@ namespace Durin
 				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
 			{
-				FModularFeatureRegistry::Get().InvokeSingle<ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider) {
-					const auto Descriptor = Provider.GetDescriptor();
-					if (!Descriptor.IsValid()) return false;
+				if (BuildSession && BuildSession.GetModule().GetTextureCubeDescriptor().IsValid())
+				{
+					const auto Descriptor = BuildSession.GetModule().GetTextureCubeDescriptor();
 					const auto Hash = Source.GetIdentity();
 					std::string Error;
 					const auto Key = BuildTextureCubeDerivedDataKey({
@@ -139,14 +141,15 @@ namespace Durin
 						.bSRGB = bSRGB, .BuilderVersion = Descriptor.BuilderVersion,
 						.ProjectionVersion = Descriptor.ProjectionVersion,
 						.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, Error);
-					if (!Key.IsValid()) return false;
-					auto Data = std::make_unique<FTextureCubePlatformData>();
-					TextureDerivedDataCache::FOperationDiagnostic Diagnostic;
-					if (TextureDerivedDataCache::Load(Key, ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-						*Data, Diagnostic) != TextureDerivedDataCache::ELoadResult::Hit) return false;
-					Result->Data = std::move(Data);
-					return true;
-				});
+					if (Key.IsValid())
+					{
+						auto Data = std::make_unique<FTextureCubePlatformData>();
+						TextureDerivedDataCache::FOperationDiagnostic Diagnostic;
+						if (TextureDerivedDataCache::Load(Key, ECookTargetPlatform::Win64, ECookTargetProfile::Game,
+							*Data, Diagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
+							Result->Data = std::move(Data);
+					}
+				}
 				if (Result->Data) return Result;
 			}
 #endif
@@ -156,7 +159,7 @@ namespace Durin
 				if (Result->Error.empty()) Result->Error = "Invalid cube source payload.";
 				return Result;
 			}
-			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
+			auto Built = TexturePrivate::BuildTextureCubeWithDiagnosticInSession(BuildSession, Request);
 			if (Built) Result->Data = std::move(Built->Product.PlatformData);
 			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;
