@@ -380,7 +380,7 @@ introduce synchronization.
 
 `FSceneRenderingService::RenderView_RenderThread` creates one temporary
 `FSceneRenderPipeline`. The service owns persistent feature renderers, caches,
-view states, allocator and startup/invalidation duties. Each preparation attempt
+view states, allocator and startup/invalidation duties. Each submission
 constructs a noncopyable, nonmovable `FSceneRenderer` with its own in-place
 `FSceneFrameContext`. Pipeline prepares that context, then calls
 `FSceneRenderer::Render(FRDGBuilder&)` exactly once. Render registers scene
@@ -393,23 +393,28 @@ access still applies.
 The pipeline owns the builder, execution/capture and final transaction publication.
 The submission and service outlive Execute and publication/abort; graph callbacks
 borrow their stable records. Telemetry and view-state guards are destroyed before
-the submission context. Resource preparation retains its bounded 64-attempt loop,
-with fresh submission state and a fresh graph for each ready attempt. Batch waits
-occur after the previous attempt has been destroyed; a consumed graph is never
-replayed. Preparation has separate view-resource, view-state selection, temporal
-initialization and feature-resource functions. The view-state guard remains in
-the outer attempt, between state selection and initialization. Feature policy
-is stored directly in `Context.Features`; preparation-only flags stay local.
-Pure viewport fitting lives in `FitSceneViewToOutput`. The frame proceeds as follows:
+the submission context. Logical preparation runs once. View resources, scene
+resources and feature resources each collect required PSO requests, join them at
+one common waiting boundary, and resolve their results before advancing. Dependent
+requests may require another wave within the same resource phase; previous phases
+and scene collection are not repeated. Each phase is bounded by 4,096 joined
+observations and returns failure if waiting is unavailable or capacity is exceeded.
+Per-phase resolved state and observations are restored before resolving a completed
+wave so partial draws and counters are not accumulated across attempts.
 
-1. Validate output extent and persistent startup resources.
-2. Fit the view, reject an interleaved view-state submission, and begin the
-   temporal transaction.
-3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
-   shared poses, combined translucency, and optional cloud inputs; publish the
-   immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
-   resources into `FResolvedSceneResources`. Derive dependency closure and the
-   final feature plan once.
+Feature resource preparation reads the successful history sequence without opening
+a temporal transaction. Only after all required resources are ready does the
+outer submission establish its view-state guard and begin history mutation.
+Feature policy is stored directly in `Context.Features`; preparation-only flags
+stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
+
+1. Validate output extent and fit the view.
+2. Prepare environment, visibility, lighting, receiver/shadow logical draws,
+   shared poses, translucency and cloud inputs once; derive feature policy.
+3. Collect, join and resolve resource phases; reject an interleaved view-state
+   submission and read its sampling sequence for cloud preparation. Begin the
+   temporal transaction only after feature resources are ready.
+
 4. Compile explicit top-level dependencies and output roots, cull unreachable
    versions, then allocate retained logical descriptions as one complete-or-null
    strong-reference table before any command records.

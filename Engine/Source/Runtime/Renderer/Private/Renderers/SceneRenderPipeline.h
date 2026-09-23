@@ -32,10 +32,10 @@ namespace Durin
 		) -> ERenderViewResult;
 
 	private:
-		auto ExecutePreparedAttempt_RenderThread(FRHICommandListImmediate& CommandList,
-			FScene* Scene, const FSceneView& View, FRHITexture* OutputTarget,
-			bool bPresentOutput, const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult;
+		using FResourcePreparationStage = auto (FSceneRenderPipeline::*)(
+			FRHICommandListImmediate&, FSceneFrameContext&) -> ERenderViewResult;
+		auto ResolvePipelineStage_RenderThread(FRHICommandListImmediate& CommandList,
+			FSceneFrameContext& Context, FResourcePreparationStage Stage) -> ERenderViewResult;
 		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult;
 		auto SelectViewState_RenderThread(FSceneFrameContext& Context) -> void;
 		auto BeginTemporalState_RenderThread(FSceneFrameContext& Context) -> void;
@@ -46,7 +46,6 @@ namespace Durin
 		) -> FSceneRenderPreparationResult;
 		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneRenderPlan& PreparedView,
 			FSceneFrameContext& Context
 		) -> ERenderViewResult;
 		auto BuildSceneFrameFeaturePlan(

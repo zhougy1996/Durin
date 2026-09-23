@@ -143,6 +143,7 @@ namespace Durin
 		{
 			return VolumetricCloudHistory;
 		}
+		auto GetSuccessfulSequence() const -> uint64 { return SuccessfulSequence; }
 		auto IsSubmissionActive() const -> bool { return bSubmissionActive; }
 
 	private:

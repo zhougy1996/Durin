@@ -158,6 +158,52 @@ namespace Durin
 				GlobalShaderUnavailable.GetFingerprint());
 		}
 
+		TEST(FRenderResourceCreationTests, PreparationBatchReportsTerminalResultsAndJoinsAllRequests)
+		{
+			ASSERT_EQ(GDynamicRHI, nullptr);
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+			FPipelineSlotTestRHI RHI;
+			GDynamicRHI = &RHI;
+			RHI.BeforeCreate = [](uint32 Slot) {
+				if (Slot == 0) throw FRHIRecoverableCreationError({
+					.Failure = ERHIResourceCreationFailure::OutOfMemory,
+					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
+			};
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+			auto Failed = RHI.RHIRequestComputePipelineState(Initializer, "failed");
+			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
+			auto Ready = RHI.RHIRequestComputePipelineState(Initializer, "ready");
+			ASSERT_TRUE(Failed.IsAccepted());
+			ASSERT_TRUE(Ready.IsAccepted());
+			{
+				FRenderPipelinePreparationBatch Batch;
+				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Empty);
+				FRenderPipelinePreparationBatch::Add(Failed);
+				FRenderPipelinePreparationBatch::Add(Ready);
+				FRenderPipelinePreparationBatch::Add(Ready);
+				EXPECT_EQ(Batch.GetRequestCount(), 2u);
+				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Failed);
+				EXPECT_EQ(Failed.GetResult().State, ERHIPipelineRequestState::Failed);
+				EXPECT_EQ(Ready.GetResult().State, ERHIPipelineRequestState::Ready);
+				{
+					FRenderPipelinePreparationBatch Nested;
+					EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
+					FRenderPipelinePreparationBatch::Add(Ready);
+					EXPECT_EQ(Nested.Wait(), ERenderPipelinePreparationWait::Ready);
+				}
+				EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
+			}
+			EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
+			EXPECT_EQ(RHI.Creations, 2u);
+		}
+
 		TEST(FRenderResourceCreationTests, AsyncPipelineFailurePreservesNativeCause)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);

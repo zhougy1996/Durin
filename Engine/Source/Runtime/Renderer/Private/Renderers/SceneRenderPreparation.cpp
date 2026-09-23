@@ -305,11 +305,11 @@ namespace Durin
 
 	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FSceneRenderPlan& PreparedView,
 		FSceneFrameContext& Context
 	) -> ERenderViewResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveSceneResources");
+		const auto& PreparedView = *Context.Logical.PreparedView;
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.Context.View;

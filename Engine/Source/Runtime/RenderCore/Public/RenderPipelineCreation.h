@@ -7,6 +7,11 @@
 namespace Durin
 {
 	struct FRenderResourceGeneration;
+	enum class ERenderPipelinePreparationWait : uint8
+	{
+		Empty, Ready, Failed, WaitUnavailable, CapacityExceeded
+	};
+
 	// A consuming preparation boundary can join required first-use candidates in
 	// batches before authoring a graph. Compatible refreshes do not join this batch.
 	class RENDERCORE_API FRenderPipelinePreparationBatch
@@ -15,11 +20,14 @@ namespace Durin
 		FRenderPipelinePreparationBatch();
 		~FRenderPipelinePreparationBatch();
 		FRenderPipelinePreparationBatch(const FRenderPipelinePreparationBatch&) = delete;
-		auto Wait() -> bool;
+		auto Wait() -> ERenderPipelinePreparationWait;
+		auto GetRequestCount() const -> size_t { return Requests.size(); }
+		static constexpr size_t MaximumRequests = 4096;
 		static auto HasPending() -> bool;
 		static auto Add(const FRHIPipelineCreationRequest& Request) -> void;
 	private:
 		FRenderPipelinePreparationBatch* Previous;
+		bool bCapacityExceeded = false;
 		std::vector<FRHIPipelineCreationRequest> Requests;
 	};
 

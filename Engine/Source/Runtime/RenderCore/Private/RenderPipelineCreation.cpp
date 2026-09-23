@@ -10,16 +10,29 @@ namespace Durin
 	auto FRenderPipelinePreparationBatch::HasPending() -> bool { return Preparation && !Preparation->Requests.empty(); }
 	auto FRenderPipelinePreparationBatch::Add(const FRHIPipelineCreationRequest& Request) -> void
 	{
-		if (Preparation && Preparation->Requests.size() < 4096
-			&& !std::ranges::contains(Preparation->Requests, Request))
-			Preparation->Requests.push_back(Request);
+		if (!Preparation || std::ranges::contains(Preparation->Requests, Request)) return;
+		if (Preparation->Requests.size() == MaximumRequests)
+		{
+			Preparation->bCapacityExceeded = true;
+			return;
+		}
+		Preparation->Requests.push_back(Request);
 	}
-	auto FRenderPipelinePreparationBatch::Wait() -> bool
+	auto FRenderPipelinePreparationBatch::Wait() -> ERenderPipelinePreparationWait
 	{
-		if (Requests.empty()) return false;
-		for (const auto& Request : Requests) if (!Request.CanWait()) return false;
-		for (const auto& Request : Requests) Request.Wait();
-		return true;
+		if (bCapacityExceeded) return ERenderPipelinePreparationWait::CapacityExceeded;
+		if (Requests.empty()) return ERenderPipelinePreparationWait::Empty;
+		for (const auto& Request : Requests)
+			if (!Request.CanWait()) return ERenderPipelinePreparationWait::WaitUnavailable;
+		bool bReady = true;
+		for (const auto& Request : Requests)
+		{
+			(void)Request.Wait();
+			if (Request.GetState() == ERHIPipelineRequestState::Pending)
+				return ERenderPipelinePreparationWait::WaitUnavailable;
+			bReady = Request.GetResult().State == ERHIPipelineRequestState::Ready && bReady;
+		}
+		return bReady ? ERenderPipelinePreparationWait::Ready : ERenderPipelinePreparationWait::Failed;
 	}
 	struct FRenderPipelineRequests::FState
 	{

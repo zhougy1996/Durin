@@ -172,14 +172,16 @@ and global admission pressure retry on later preparation without a failure
 diagnostic or a synchronous wait in the factory. Bare preparation callers see
 unavailable on a first-use miss; a same-device refresh retains the prior complete
 payload. Scene submission provides an explicit first-consumer boundary: it
-collects required Pending observations from a preparation attempt, joins that
-batch on the render owner, then prepares again before authoring any Render
-Graph. There are at most 4,096 collected observations and 64 preparation rounds;
-admission pressure without progress returns RendererResourcesUnavailable.
-Compatible refreshes are excluded from that join. This preserves single-shot
-capture and first-frame correctness while native creation stays off replay;
-it does not promise zero first-consumer latency. GBuffer, deferred lighting,
-GTAO, debug, and cloud temporal/composite PSOs prepare before graph execution.
+collects required Pending observations within each resource phase and joins them
+at `ResolvePipelineStage_RenderThread`. Only that phase is revisited to publish
+completed slot candidates; scene collection and logical preparation are retained.
+The batch returns Empty, Ready, Failed, WaitUnavailable or CapacityExceeded, rather
+than a boolean that conflates an empty batch with a failed wait. All admitted
+requests are joined even if one fails. Terminal failures are resolved through the
+owning slots so their diagnostics and optional fallback policy remain authoritative.
+Each phase admits at most 4,096 joined observations, including dependent request
+waves; overflow is explicit. A consumed graph is never replayed. Compatible
+refreshes keep the previous complete payload and do not join the first-use batch.
 Multi-PSO groups publish only when all members are
 Ready. Generation changes cancel obsolete observations, and device changes
 discard the old payload. Late results may populate the backend cache but cannot

@@ -78,35 +78,8 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderViewSubmission");
 		if (Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Service.RenderSubmissionSerial;
-		// First consumption joins all admitted PSOs from a preparation attempt on
-		// the render owner. Replay stays available and no graph exists during waits.
-		for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
-		{
-			FRenderPipelinePreparationBatch Batch;
-			const auto Result = ExecutePreparedAttempt_RenderThread(CommandList, Scene, View,
-				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture);
-			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");
-				if (!Batch.Wait()) return Result;
-			}
-		}
-		return ERenderViewResult::RendererResourcesUnavailable;
-	}
-
-	auto FSceneRenderPipeline::ExecutePreparedAttempt_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FScene* Scene,
-		const FSceneView& View,
-		FRHITexture* OutputTarget,
-		bool bPresentOutput,
-		const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics,
-		FRDGCapture* OutRenderGraphCapture
-	) -> ERenderViewResult
-	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
 		FSceneRenderer Submission(Service);
@@ -138,27 +111,30 @@ namespace Durin
 		Context.Logical.Width = Width;
 		Context.Logical.Height = Height;
 		Context.Logical.bPresentOutput = bPresentOutput;
-		const auto ResourceResult = PrepareViewResources_RenderThread(CommandList, Context);
-		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
 		Context.Logical.RenderView = FitSceneViewToOutput(
 			View, Width, Height);
-		SelectViewState_RenderThread(Context);
-		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
-		BeginTemporalState_RenderThread(Context);
 		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
 			CommandList, Context);
 		if (!Preparation.IsSuccess()) return Preparation.Result;
 		Context.Logical.PreparedView = std::move(*Preparation.Plan);
 		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
-		const ERenderViewResult ResolutionResult =
-			ResolveSceneRenderResources_RenderThread(
-				CommandList, PreparedView, Context);
-		if (ResolutionResult != ERenderViewResult::Success)
-			return ResolutionResult;
 		Context.Features = BuildSceneFrameFeaturePlan(
 			PreparedView, Options, Width, Height, Qualification);
-		const auto FeatureResult = PrepareFeatureResources_RenderThread(CommandList, Context);
+		const auto ResourceResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareViewResources_RenderThread);
+		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
+		const auto ResolutionResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread);
+		if (ResolutionResult != ERenderViewResult::Success) return ResolutionResult;
+		SelectViewState_RenderThread(Context);
+		// Route preparation only needs the sampling sequence. Do not begin history
+		// mutation while required PSOs are still being collected or joined.
+		if (ViewState) Context.Transaction.Temporal.SuccessfulSequence = ViewState->GetSuccessfulSequence();
+		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
+			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
+		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
+		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;
@@ -177,6 +153,42 @@ namespace Durin
 		return Composition.PostProcessPublication.Result;
 	}
 
+	auto FSceneRenderPipeline::ResolvePipelineStage_RenderThread(
+		FRHICommandListImmediate& CommandList, FSceneFrameContext& Context,
+		FResourcePreparationStage Stage) -> ERenderViewResult
+	{
+		// Keep logical preparation and earlier stages. Only the unresolved resource
+		// phase is revisited to publish completed slot candidates and bindings.
+		const auto InitialResolved = Context.Resolved;
+		const auto InitialFeatures = Context.Features;
+		const auto InitialTelemetry = Context.Observation.Telemetry;
+		const auto InitialEditorAssistance = Context.Logical.EditorAssistance;
+		size_t JoinedRequests = 0;
+		for (;;)
+		{
+			FRenderPipelinePreparationBatch Batch;
+			const auto Result = (this->*Stage)(CommandList, Context);
+			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
+				return ERenderViewResult::RendererResourcesUnavailable;
+			ERenderPipelinePreparationWait WaitResult;
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");
+				WaitResult = Batch.Wait();
+			}
+			if (WaitResult == ERenderPipelinePreparationWait::Empty) return Result;
+			if (WaitResult == ERenderPipelinePreparationWait::WaitUnavailable
+				|| WaitResult == ERenderPipelinePreparationWait::CapacityExceeded)
+				return ERenderViewResult::RendererResourcesUnavailable;
+			JoinedRequests += Batch.GetRequestCount();
+			// Resolve failed requests too: resource slots own diagnostics and optional
+			// fallbacks. A terminal failure alone never authorizes another PSO request.
+			Context.Resolved = InitialResolved;
+			Context.Features = InitialFeatures;
+			Context.Observation.Telemetry = InitialTelemetry;
+			Context.Logical.EditorAssistance = InitialEditorAssistance;
+		}
+	}
+
 	auto FSceneRenderPipeline::PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context) -> ERenderViewResult
 	{
 		auto* Scene = Context.Logical.Scene;
@@ -186,10 +198,7 @@ namespace Durin
 		auto& PostProcessRenderer = Service.PostProcessRenderer;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureViewResources");
-			if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
-			{
-				return ERenderViewResult::RendererResourcesUnavailable;
-			}
+			const bool bPostProcessReady = PostProcessRenderer.EnsureResources_RenderThread(CommandList);
 			// Generate before Scene Color. World-driven scenes already admitted work
 			// at frame start; extra views must not move their refresh deadline.
 			// Failure is non-fatal: StaticMeshRenderer binds the complete black
@@ -201,7 +210,7 @@ namespace Durin
 			// entering the Scene Color render pass.
 			const bool bSkyBoxResourcesReady =
 				SkyBoxRenderer.EnsureResources_RenderThread();
-			if (Options.Environment && !bSkyBoxResourcesReady)
+			if (!bPostProcessReady || (Options.Environment && !bSkyBoxResourcesReady))
 			{
 				return ERenderViewResult::RendererResourcesUnavailable;
 			}

@@ -3214,6 +3214,29 @@ namespace Durin
 			.Reason = ERDGAllocationError::PhysicalAllocationFailed}}); }
 	};
 
+	TEST(FRendererSceneContractTests, ResourcePreparationReadsSamplingSequenceWithoutBeginningHistory)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<Tests::FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FSceneViewState State;
+			EXPECT_EQ(State.GetSuccessfulSequence(), 0u);
+			EXPECT_FALSE(State.IsSubmissionActive());
+			FSceneViewTemporalMetadata Metadata;
+			auto First = State.Begin(Metadata, 1, false);
+			EXPECT_EQ(First.SuccessfulSequence, State.GetSuccessfulSequence());
+			State.Commit();
+			const auto PreparedSequence = State.GetSuccessfulSequence();
+			EXPECT_EQ(PreparedSequence, 1u);
+			EXPECT_FALSE(State.IsSubmissionActive());
+			auto Next = State.Begin(Metadata, 2, false);
+			EXPECT_EQ(Next.SuccessfulSequence, PreparedSequence);
+			State.Abort();
+			EXPECT_EQ(State.GetSuccessfulSequence(), PreparedSequence);
+			EXPECT_FALSE(State.IsSubmissionActive());
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST(FRendererSceneContractTests, SceneRenderAuthorsIntoCallerGraphAndAllocationFailureDoesNotPublish)
 	{
 		FRenderingThreadScope RenderingThread;
