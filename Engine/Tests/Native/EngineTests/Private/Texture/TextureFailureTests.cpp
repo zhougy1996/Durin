@@ -72,53 +72,6 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	ASSERT_TRUE(Durin::UnloadPackage(Texture->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildModuleIsUnavailable)
-{
-	InitializeDObjectSystem();
-	InitializeTextureImportMount();
-	ASSERT_TRUE(EnsureTextureCompilingManager());
-	Durin::FPackagePath AssetPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/UnavailableBuildModule", AssetPath));
-	Durin::DTexture2D* Texture = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
-	Durin::Image::FImage SourceImage;
-	auto ImageResult1 = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
-		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4));
-	EXPECT_TRUE(ImageResult1);
-	if (ImageResult1) SourceImage = std::move(*ImageResult1);
-	Durin::FTextureSource Source;
-	EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
-	Texture->SetSource(std::move(Source));
-	const auto Saved = Durin::SavePackage(Texture->GetPackage());
-	ASSERT_TRUE(Saved) << Saved.Message;
-	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
-	auto& Modules = Durin::FModuleManager::Get();
-	const auto Unload = Modules.UnloadModule("TextureBuild");
-	ASSERT_TRUE(Unload);
-	struct FRestoreBuildModule
-	{
-		~FRestoreBuildModule() { Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild"); }
-	} RestoreBuildModule;
-
-	Durin::DTexture2D* Loaded = nullptr;
-	const auto Result = Durin::LoadObject<Durin::DTexture2D>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath));
-	Loaded = Result.value_or(nullptr);
-	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().Message);
-	ASSERT_NE(Loaded, nullptr);
-	EXPECT_FALSE(Loaded->HasPlatformData());
-	EXPECT_FALSE(Loaded->FinishCachePlatformData());
-	EXPECT_FALSE(Loaded->EnsurePlatformDataLoadedBlocking());
-	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Loaded->GetPackage());
-
-	Modules.LoadModuleChecked("TextureBuild");
-	Loaded->PostLoad();
-	ASSERT_TRUE(Loaded->FinishCachePlatformData());
-	EXPECT_TRUE(Loaded->HasPlatformData());
-	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
-}
-
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 {
 	InitializeDObjectSystem();

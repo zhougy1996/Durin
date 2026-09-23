@@ -102,9 +102,7 @@ namespace Durin
 		return Settings.bSRGB.value_or(GetDefaultTextureSRGB(Settings.Usage));
 	}
 
-	auto BuildTexture2DPlatformDataInSession(
-		const FTextureBuildSession& Session,
-		const FTexture2DBuildRequest& Request,
+	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
@@ -131,9 +129,10 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #else
-		if (!Session) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
+		auto* Module = ITextureBuildModule::Get();
+		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
 		return [&]() -> std::expected<void, FTexture2DBuildError> {
-				OutIdentity.Builder = Session.GetModule().GetTexture2DDescriptor();
+				OutIdentity.Builder = Module->GetTexture2DDescriptor();
 				if (!OutIdentity.Builder.IsValid())
 				{
 					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderDescriptor});
@@ -180,7 +179,7 @@ namespace Durin
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
-			auto RecipeResult = Session.GetModule().BuildTexture2D({
+			auto RecipeResult = Module->BuildTexture2D({
 					.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
@@ -223,12 +222,4 @@ namespace Durin
 #endif
 	}
 
-	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		FTexture2DBuildProduct& OutProduct, FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl)
-		-> std::expected<void, FTexture2DBuildError>
-	{
-		return BuildTexture2DPlatformDataInSession(FTextureBuildSession::Acquire(),
-			Request, OutProduct, OutIdentity, ExecutionControl);
-	}
 }

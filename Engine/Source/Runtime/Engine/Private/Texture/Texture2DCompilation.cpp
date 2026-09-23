@@ -1,7 +1,6 @@
 #include "Texture/Texture2DCompilation.h"
 
 #include "Texture/Texture2DBuild.h"
-#include "Texture/ITextureBuildModule.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
@@ -612,14 +611,13 @@ struct FAssetState
 		}
 	}
 
-	auto BuildTexture2DDetachedInSession(const FTextureBuildSession& Session,
-		const FTexture2DBuildRequest& Request,
+	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
 		const FTexture2DBuildExecutionControl* ExecutionControl)
 		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
 	{
 		FTexture2DBuildProduct Product;
 		FTexture2DBuildInputIdentity Identity;
-		const auto Built = BuildTexture2DPlatformDataInSession(Session, Request, Product, Identity, ExecutionControl);
+		const auto Built = BuildTexture2DPlatformData(Request, Product, Identity, ExecutionControl);
 		if (Built) return Product;
 		const auto Failure = TexturePrivate::MakeCompilationBuildFailure(Built.error());
 		if (Failure.Code == ETexture2DCompilationError::Cancelled)
@@ -628,13 +626,6 @@ struct FAssetState
 		return std::unexpected(FTextureBuildOperationError{Failure.InputReason.empty()
 			? ETextureBuildOperationFailure::Failed : ETextureBuildOperationFailure::InvalidInput,
 			Failure.InputReason});
-	}
-
-	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl)
-		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
-	{
-		return BuildTexture2DDetachedInSession(FTextureBuildSession::Acquire(), Request, ExecutionControl);
 	}
 
 	auto BuildTexture2DSynchronously(

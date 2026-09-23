@@ -11,6 +11,8 @@ namespace Durin
 	class ITextureBuildModule : public IModuleInterface
 	{
 	public:
+		// Borrow the active implementation. Consumers drain work before editor shutdown.
+		ENGINE_API static auto Get() -> ITextureBuildModule*;
 		virtual auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor = 0;
 		virtual auto GetTextureCubeDescriptor() const -> FTextureCubeBuildDescriptor = 0;
 		virtual auto GetVolumeTextureDescriptor() const -> FVolumeTextureBuildDescriptor = 0;
@@ -23,21 +25,5 @@ namespace Durin
 			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> = 0;
 		virtual auto BuildVolumeTexture(const FVolumeTextureRecipeBuildRequest& Request)
 			-> std::expected<FVolumeTextureRecipeBuildProduct, FTextureBuildError> = 0;
-	};
-
-	class FTextureBuildSession
-	{
-	public:
-		// Acquire on the module-control thread before dispatching worker work.
-		// Unload is rejected until consumers drain work and release their sessions.
-		ENGINE_API static auto Acquire() -> FTextureBuildSession;
-		explicit operator bool() const { return Module != nullptr && CodeLease != nullptr; }
-		auto GetModule() const -> ITextureBuildModule& { return *Module; }
-		auto GetGeneration() const -> uint64 { return Generation; }
-
-	private:
-		std::shared_ptr<void> CodeLease;
-		ITextureBuildModule* Module = nullptr;
-		uint64 Generation = 0;
 	};
 }

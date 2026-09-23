@@ -112,10 +112,10 @@ the aggregate before Core closes task admission.
 TextureBuild does not own those scopes or return asynchronous tasks.
 Engine calls its fixed module interface for synchronous value-only recipes.
 Texture2D and TextureCube PostLoad place recipe work on an Engine-owned worker;
-VolumeTexture remains synchronous. Texture2D queue entries and TextureCube
-platform-cache inputs retain an `FTextureBuildSession` acquired before dispatch.
-Scene import captures a session before its worker. Unload is rejected until
-consumers drain work and release their sessions.
+VolumeTexture remains synchronous. TextureBuild stays resident throughout the editor
+lifetime, so queue entries, platform-cache inputs and scene import workers need no
+module sessions. Consumers stop admission and drain workers before normal module
+shutdown.
 
 ## Initial Compiling Managers
 
@@ -258,10 +258,9 @@ Render workers own detached source and slot metadata, without material object
 bindings. The owner snapshot retains bindings and provenance until publication.
 Application rechecks source identity, normalization, slot bindings and provenance.
 The immutable render builder version is captured at admission for diagnostics; joining
-and publication do not reread it while the session pins the same module generation. Render admission acquires an `FStaticMeshBuildSession` on the
-module-control thread and retains it through publication and worker retirement.
-The session pins the module generation; shutdown/unload is rejected until all
-consumers have stopped admission, drained work and released their sessions. Source-changing operations are discarded after owner edits,
+and publication do not reread it. MeshBuilder remains resident throughout the editor
+lifetime. Render workers borrow its interface directly; consumers stop admission
+and drain work before normal module shutdown. Source-changing operations are discarded after owner edits,
 without automatic requeue. Current-source rebuilds may requeue stale render facts.
 Synchronous Build cancels older work, builds CPU render data directly and publishes
 it, returning owned error strings. AsyncBuild success means admission only; its

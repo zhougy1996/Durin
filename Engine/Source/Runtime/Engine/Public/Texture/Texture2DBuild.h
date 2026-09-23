@@ -10,7 +10,6 @@
 
 namespace Durin
 {
-	class FTextureBuildSession;
 	// Owned image mip chain and settings form the worker payload. Source identity
 	// and cache policy belong to Engine orchestration, not the recipe module.
 	struct FTexture2DBuildRequest
@@ -82,23 +81,12 @@ namespace Durin
 	ENGINE_API auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
 		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>;
-	ENGINE_API auto BuildTexture2DDetachedInSession(const FTextureBuildSession& Session,
-		const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
-		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>;
 
 	// Diagnostic seam for the Engine compiling manager. Invokes the build module
 	// gate. The returned product and identity contain only Engine-owned values.
 	// Failure clears OutProduct; OutIdentity retains observed input/builder
 	// identity for compilation diagnostics even when the recipe fails.
-	ENGINE_API auto BuildTexture2DPlatformData(
-		const FTexture2DBuildRequest& Request,
-		FTexture2DBuildProduct& OutProduct,
-		FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;
-	ENGINE_API auto BuildTexture2DPlatformDataInSession(
-		const FTextureBuildSession& Session,
-		const FTexture2DBuildRequest& Request,
+	ENGINE_API auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;

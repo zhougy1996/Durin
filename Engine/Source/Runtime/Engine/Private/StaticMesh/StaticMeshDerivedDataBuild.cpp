@@ -134,16 +134,8 @@ namespace Durin
 	}
 
 #endif
-	auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings)
-		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
-	{
-		return BuildStaticMeshRenderDataInSession(FStaticMeshBuildSession::Acquire(),
-			std::move(Request), Control, OutCacheWarnings);
-	}
 
-	auto BuildStaticMeshRenderDataInSession(
-		FStaticMeshBuildSession Session, FStaticMeshBuildRequest Request,
+	auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
 		const FAssetBuildTaskContext& Control, std::vector<FAssetBuildCacheWarning>* OutCacheWarnings) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
 	{
 		if (OutCacheWarnings) OutCacheWarnings->clear();
@@ -175,10 +167,11 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Render});
 #else
-		if (!Session) return std::unexpected(FStaticMeshBuildFailure{
-			"The StaticMesh build module is unavailable; workers require a retained build session.", EStaticMeshBuildStage::Render});
+		auto* Module = IMeshBuilderModule::Get();
+		if (!Module) return std::unexpected(FStaticMeshBuildFailure{
+			"The StaticMesh build module is unavailable.", EStaticMeshBuildStage::Render});
 		auto Build = [&]() -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> {
-			const uint32 BuilderVersion = Session.GetModule().GetRenderBuilderVersion();
+			const uint32 BuilderVersion = Module->GetRenderBuilderVersion();
 			if (BuilderVersion == 0)
 			{
 				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh render builder version must be nonzero.", EStaticMeshBuildStage::Render});
@@ -221,7 +214,7 @@ namespace Durin
 			std::vector<FStaticMeshBuildMaterialSlot> BuildSlots;
 			for (const auto& Slot : Request.Reconciliation.MaterialSlots)
 				BuildSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
-			auto BuildOutcome = Session.GetModule().BuildRender({
+			auto BuildOutcome = Module->BuildRender({
 				.Geometry = std::move(*Decoded),
 				.MaterialSlots = BuildSlots,
 				.NormalizedSize = Request.Reconciliation.NormalizedSize}, Control);

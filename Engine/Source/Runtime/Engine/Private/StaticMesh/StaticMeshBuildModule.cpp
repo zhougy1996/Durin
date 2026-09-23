@@ -2,19 +2,13 @@
 
 namespace Durin
 {
-	auto FStaticMeshBuildSession::Acquire() -> FStaticMeshBuildSession
+	auto IMeshBuilderModule::Get() -> IMeshBuilderModule*
 	{
-		FStaticMeshBuildSession Session;
 #if DURIN_WITH_EDITOR
-		auto& Manager = FModuleManager::Get();
-		Session.CodeLease = Manager.AcquireCodeLease("MeshBuilder");
-		if (Session.CodeLease)
-		{
-			const auto Info = Manager.FindModule("MeshBuilder");
-			Session.Module = static_cast<IMeshBuilderModule*>(Info->Module.get());
-			Session.Generation = Info->OwnerGeneration;
-		}
+		const auto Info = FModuleManager::Get().FindModule("MeshBuilder");
+		if (Info && Info->State.load() == EModuleState::Active)
+			return static_cast<IMeshBuilderModule*>(Info->Module.get());
 #endif
-		return Session;
+		return nullptr;
 	}
 }

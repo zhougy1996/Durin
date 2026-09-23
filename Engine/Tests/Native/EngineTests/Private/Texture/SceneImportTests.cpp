@@ -173,34 +173,6 @@ TEST(FSceneImportTests, AsyncSessionPublishesAndReimports)
 	}
 }
 
-TEST(FSceneImportTests, BuildModuleIsRetainedOnlyDuringProductConstruction)
-{
-	using namespace Durin;
-	using namespace Durin::AssetForge::Builtins;
-	const auto Fixture = InitializeFixture("BuildModuleLifetime");
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	struct FRestoreBuildModule
-	{
-		~FRestoreBuildModule() { FModuleManager::Get().LoadModuleChecked("MeshBuilder"); }
-	} Restore;
-	FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
-	ASSERT_TRUE(FModuleManager::Get().UnloadModule("MeshBuilder"));
-	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready)) << Session.GetResult().Message;
-	ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
-	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("MeshBuilder"));
-	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
-	Session.Tick();
-	ASSERT_EQ(Session.GetProgress().Phase, ESceneImportPhase::Building);
-	EXPECT_FALSE(FModuleManager::Get().UnloadModule("MeshBuilder"));
-	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Saving)) << Session.GetResult().Message;
-	ASSERT_TRUE(FModuleManager::Get().UnloadModule("MeshBuilder"));
-	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
-	ASSERT_TRUE(Session.GetResult()) << Session.GetResult().Message;
-	EXPECT_TRUE(Session.GetResult().bPersisted);
-	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("MeshBuilder"));
-}
-
 TEST(FSceneImportTests, AsyncSessionRejectsChangedSourceAfterReusablePreview)
 {
 	using namespace Durin;

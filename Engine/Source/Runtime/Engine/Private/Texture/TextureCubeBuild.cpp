@@ -14,22 +14,22 @@ namespace Durin
 		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
-	auto TexturePrivate::BuildTextureCubeWithDiagnosticInSession(const FTextureBuildSession& Session,
-		const FTextureCubeBuildRequest& Request)
+	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "TextureCube authored build orchestration is unavailable outside editor builds."});
 #else
-		if (!Session) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+		auto* Module = ITextureBuildModule::Get();
+		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
 		return [&]() -> std::expected<FTextureCubeBuildValue, FTextureBuildError> {
-				const FTextureCubeBuildDescriptor Descriptor = Session.GetModule().GetTextureCubeDescriptor();
+				const FTextureCubeBuildDescriptor Descriptor = Module->GetTextureCubeDescriptor();
 				if (!Descriptor.IsValid())
 				{
 					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The TextureCube builder descriptor is invalid."});
 				}
-			auto Normalized = Session.GetModule().NormalizeTextureCube(Request);
+			auto Normalized = Module->NormalizeTextureCube(Request);
 				if (!Normalized)
 				{
 					return std::unexpected(std::move(Normalized.error()));
@@ -92,7 +92,7 @@ namespace Durin
 						.Builder = Descriptor, .Origin = ETextureCubeBuildProductOrigin::CacheHit}};
 				}
 
-			auto Recipe = Session.GetModule().BuildTextureCube({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
+			auto Recipe = Module->BuildTextureCube({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
 					.bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile,
 					.HDRPanorama = bHDR ? &CanonicalInput.AuthoredPanorama : nullptr,
@@ -119,12 +119,6 @@ namespace Durin
 						.Builder = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt}};
 			}();
 #endif
-	}
-
-	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
-		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
-	{
-		return BuildTextureCubeWithDiagnosticInSession(FTextureBuildSession::Acquire(), Request);
 	}
 
 	auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)

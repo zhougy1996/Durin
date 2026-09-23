@@ -38,8 +38,7 @@ namespace Durin
 		struct FCubeCacheInput final : FTexturePlatformCacheInput
 		{
 			explicit FCubeCacheInput(const DTextureCube& Texture)
-				: BuildSession(FTextureBuildSession::Acquire()),
-				Width(Texture.GetOriginalSourceWidth()), Height(Texture.GetOriginalSourceHeight()),
+				: Width(Texture.GetOriginalSourceWidth()), Height(Texture.GetOriginalSourceHeight()),
 				FaceDimension(Texture.GetPanoramaFaceDimension()), Exposure(Texture.GetPanoramaExposureEV()),
 				bSRGB(Texture.IsSRGB()), Output(Texture.GetOutput())
 			{
@@ -47,7 +46,6 @@ namespace Durin
 				EstimatedBytes = Source.GetDecodedPayloadSize() * 4
 					+ static_cast<uint64>(FaceDimension) * FaceDimension * 6 * 32;
 			}
-			FTextureBuildSession BuildSession;
 			uint32 Width, Height, FaceDimension;
 			float Exposure;
 			bool bSRGB;
@@ -127,9 +125,9 @@ namespace Durin
 				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
 			{
-				if (BuildSession && BuildSession.GetModule().GetTextureCubeDescriptor().IsValid())
+				if (auto* BuildModule = ITextureBuildModule::Get(); BuildModule && BuildModule->GetTextureCubeDescriptor().IsValid())
 				{
-					const auto Descriptor = BuildSession.GetModule().GetTextureCubeDescriptor();
+					const auto Descriptor = BuildModule->GetTextureCubeDescriptor();
 					const auto Hash = Source.GetIdentity();
 					std::string Error;
 					const auto Key = BuildTextureCubeDerivedDataKey({
@@ -159,7 +157,7 @@ namespace Durin
 				if (Result->Error.empty()) Result->Error = "Invalid cube source payload.";
 				return Result;
 			}
-			auto Built = TexturePrivate::BuildTextureCubeWithDiagnosticInSession(BuildSession, Request);
+			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 			if (Built) Result->Data = std::move(Built->Product.PlatformData);
 			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;

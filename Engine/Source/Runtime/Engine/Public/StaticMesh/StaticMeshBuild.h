@@ -28,15 +28,8 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	// Synchronous convenience entry point; acquires the module on the module-control thread.
-	ENGINE_API auto BuildStaticMeshRenderData(
-		FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control = {},
-		std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr)
-		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
-	// Worker-safe execution. Requires a session acquired before dispatch; never acquires implicitly.
-	ENGINE_API auto BuildStaticMeshRenderDataInSession(
-		FStaticMeshBuildSession Session, FStaticMeshBuildRequest Request,
+	// Worker-safe execution using the resident MeshBuilder module.
+	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
 		const FAssetBuildTaskContext& Control = {},
 		std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr)
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;

@@ -256,9 +256,11 @@ Runtime Engine owns asset state and typed optional operation contracts:
 Texture consumers call one fixed module implementation. A missing module is an
 explicit unavailable result.
 
-StaticMesh consumers acquire a retained module session before worker dispatch, as specified
-in [Static mesh building](StaticMeshBuilding.md). Texture2D compilation, TextureCube
-PostLoad, and scene import likewise retain `FTextureBuildSession` across worker work.
+MeshBuilder and TextureBuild remain resident throughout the editor lifetime.
+Consumers borrow the active interfaces directly, including on worker threads;
+normal shutdown stops admission and drains work before shutting down the modules.
+See [Static mesh building](StaticMeshBuilding.md) and
+[Asset compilation](AssetCompilation.md).
 
 Build contracts remain owned by Engine, and both build modules publicly depend
 on Engine. `Texture2DData.h` carries source/settings values and CPU platform

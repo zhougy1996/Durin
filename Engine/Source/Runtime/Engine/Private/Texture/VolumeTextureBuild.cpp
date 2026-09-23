@@ -20,11 +20,11 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "VolumeTexture authored build orchestration is unavailable outside editor builds."});
 #else
-		const auto Session = FTextureBuildSession::Acquire();
-		if (!Session) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+		const auto Module = ITextureBuildModule::Get();
+		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
 		return [&]() -> std::expected<FVolumeTextureBuildValue, FTextureBuildError> {
-				const FVolumeTextureBuildDescriptor Descriptor = Session.GetModule().GetVolumeTextureDescriptor();
+				const FVolumeTextureBuildDescriptor Descriptor = Module->GetVolumeTextureDescriptor();
 				if (!Descriptor.IsValid())
 				{
 					return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The VolumeTexture builder descriptor is invalid."});
@@ -61,7 +61,7 @@ namespace Durin
 						.Builder = Descriptor, .Origin = EVolumeTextureBuildProductOrigin::CacheHit}};
 				}
 
-			auto Recipe = Session.GetModule().BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+			auto Recipe = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Request.Settings, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 				if (!Recipe)
 				{
 					return std::unexpected(std::move(Recipe.error()));

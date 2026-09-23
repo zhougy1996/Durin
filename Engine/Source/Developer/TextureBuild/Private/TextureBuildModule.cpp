@@ -9,8 +9,7 @@ namespace Durin
 	class FTextureBuildModule final : public ITextureBuildModule
 	{
 	public:
-		// Build sessions retain code leases until their work and results are released.
-		auto SupportsDynamicReloading() const -> bool override { return true; }
+		// Resident until normal editor shutdown; dynamic reloading is unsupported.
 
 		auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor override
 		{

@@ -206,18 +206,13 @@ coordinates. No public combined render/collision build product exists.
 Render output owns CPU geometry and the section-to-slot mapping. Asset slot
 definitions are inputs, not build outputs. `IMeshBuilderModule` is an Engine-declared
 module interface, implemented by Developer/MeshBuilder without feature registration.
-`FStaticMeshBuildSession::Acquire` retains the already-loaded module on the module-control
-thread. `BuildStaticMeshRenderData` is a synchronous control-thread convenience entry point.
-Workers use `BuildStaticMeshRenderDataInSession`, which requires an explicit retained
-session and never acquires one implicitly. Compilation retains its session through
-publication and worker completion. Scene import acquires a session only when dispatching
-product construction after preview and releases it with the work closure before publication.
-Reading, preview, and saving do not retain the render build module.
-A missing module rejects construction explicitly; cooked loading does not acquire a session.
-The module manager rejects shutdown/unload while any session holds a code lease.
-Consumers must stop admission, cancel or finish work, and release sessions before shutdown;
-code leases do not themselves cancel or drain tasks. Descriptors remain immutable for one
-module generation. Generation values are diagnostics, not DDC inputs. Engine does not link
+`MeshBuilder` remains loaded throughout the editor lifetime and does not support
+runtime unloading or reloading. `IMeshBuilderModule::Get` borrows the active module;
+`BuildStaticMeshRenderData` supports both synchronous and worker callers without a
+session or code lease. A missing module rejects construction explicitly; cooked
+loading does not require the builder. Consumers stop admission and drain work
+before normal editor shutdown. Builder versions remain immutable for the editor
+lifetime and contribute to DDC identity. Engine does not link
 back to the Developer implementation. Physics Cook calls the linked PhysicsCore
 geometry builders directly, independently of the render build module. Cache warnings are collected
 separately; render results carry no cache-origin, key or timing observation.

@@ -24,7 +24,6 @@ namespace Durin
 		uint64 ReservedBytes = 0;
 		FXxHash128 SourceIdentity;
 		uint32 RenderBuilderVersion = 0;
-		uint64 ModuleGeneration = 0;
 		std::optional<FStaticMeshBuildFailure> Error;
 		std::vector<FAssetBuildCacheWarning> CacheWarnings;
 	};

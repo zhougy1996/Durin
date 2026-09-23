@@ -722,7 +722,6 @@ namespace Durin::AssetForge::Builtins
 		const FSceneImportPlan& Data,
 		const FSceneOutputData& Descriptor,
 		const std::function<bool()>& IsCancellationRequested,
-		const FTextureBuildSession& BuildSession,
 		FSceneTextureBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
@@ -774,7 +773,7 @@ namespace Durin::AssetForge::Builtins
 		{ OutError = FormatTexture2DTranslationError(Translated.error()); return false; }
 		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
-		auto BuildResult = BuildTexture2DDetachedInSession(BuildSession, Request, &Control);
+		auto BuildResult = BuildTexture2DDetached(Request, &Control);
 		if (!BuildResult)
 		{
 			OutError = FormatTextureBuildOperationError(BuildResult.error());

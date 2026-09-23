@@ -9,9 +9,6 @@ namespace Durin::TexturePrivate
 	// Internal worker seam: the platform-cache coordinator owns reporting.
 	auto BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;
-	auto BuildTextureCubeWithDiagnosticInSession(const FTextureBuildSession& Session,
-		const FTextureCubeBuildRequest& Request)
-		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;
 
 	inline auto ReportBuildFailure(const FTextureBuildError& Error) -> FTextureBuildOperationError
 	{

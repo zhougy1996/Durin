@@ -6,8 +6,7 @@ namespace Durin
 {
 	class FMeshBuilderModule final : public IMeshBuilderModule
 	{
-		// Build sessions retain code leases until their work and results are released.
-		auto SupportsDynamicReloading() const -> bool override { return true; }
+		// Resident until normal editor shutdown; dynamic reloading is unsupported.
 
 		auto GetRenderBuilderVersion() const -> uint32 override
 		{

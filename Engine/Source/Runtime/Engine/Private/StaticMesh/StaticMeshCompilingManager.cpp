@@ -31,13 +31,12 @@ namespace Durin
 
 		struct FRenderWork
 		{
-			FStaticMeshBuildSession BuildSession;
 			FStaticMeshBuildRequest Request;
 			std::vector<FAssetBuildCacheWarning> CacheWarnings;
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
 			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ Outcome = BuildStaticMeshRenderDataInSession(BuildSession, std::move(Request), Control, &CacheWarnings); }
+			{ Outcome = BuildStaticMeshRenderData(std::move(Request), Control, &CacheWarnings); }
 		};
 		struct FCollisionWork
 		{
@@ -192,9 +191,9 @@ namespace Durin
 				const uint64 Bytes = Memory.Bytes;
 				if (Records.size() >= MaximumRecords || Bytes > MaximumTotalBytes - ReservedBytes)
 					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
-				auto Session = FStaticMeshBuildSession::Acquire();
-				if (!Session) return Reject("StaticMesh compilation requires the build module.");
-				const uint32 BuilderVersion = Session.GetModule().GetRenderBuilderVersion();
+				auto Module = IMeshBuilderModule::Get();
+				if (!Module) return Reject("StaticMesh compilation requires the build module.");
+				const uint32 BuilderVersion = Module->GetRenderBuilderVersion();
 				if (BuilderVersion == 0)
 					return Reject("StaticMesh compilation requires a nonzero render builder version.");
 				auto Record = std::make_shared<FRecord>();
@@ -216,14 +215,12 @@ namespace Durin
 				Record->Work->Render().Request.Source.ReleaseGeometry();
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;
-				Record->Work->Render().BuildSession = Session;
 				Record->Priority = Request.Priority;
 				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
 				Record->bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
 				Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
 				Record->Diagnostic.RenderBuilderVersion = BuilderVersion;
-				Record->Diagnostic.ModuleGeneration = Session.GetGeneration();
 				// No invalid/rejected submission reaches this boundary or invalidates an older request.
 				for (const auto& Old : Records)
 					if (!Old->Work->IsCollision() && Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->bDelivered)

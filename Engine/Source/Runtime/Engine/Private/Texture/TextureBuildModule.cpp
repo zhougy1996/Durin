@@ -2,19 +2,13 @@
 
 namespace Durin
 {
-	auto FTextureBuildSession::Acquire() -> FTextureBuildSession
+	auto ITextureBuildModule::Get() -> ITextureBuildModule*
 	{
-		FTextureBuildSession Session;
 #if DURIN_WITH_EDITOR
-		auto& Manager = FModuleManager::Get();
-		Session.CodeLease = Manager.AcquireCodeLease("TextureBuild");
-		if (Session.CodeLease)
-		{
-			const auto Info = Manager.FindModule("TextureBuild");
-			Session.Module = static_cast<ITextureBuildModule*>(Info->Module.get());
-			Session.Generation = Info->OwnerGeneration;
-		}
+		const auto Info = FModuleManager::Get().FindModule("TextureBuild");
+		if (Info && Info->State.load() == EModuleState::Active)
+			return static_cast<ITextureBuildModule*>(Info->Module.get());
 #endif
-		return Session;
+		return nullptr;
 	}
 }
