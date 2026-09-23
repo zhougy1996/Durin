@@ -378,7 +378,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			Durin::FlushRenderingCommands();
-			Durin::TryEnqueueRenderCommand("DrainOwnedTextureTestResources", [](Durin::FRHICommandListImmediate&) {
+			Durin::EnqueueRenderCommand("DrainOwnedTextureTestResources", [](Durin::FRHICommandListImmediate&) {
 				for (;;)
 				{
 					std::vector<Durin::FRHIResource*> Resources;
@@ -394,7 +394,7 @@ namespace
 		auto Start(const std::shared_ptr<Durin::FTextureResourceUpdate>& Update,
 			Durin::FTextureReference& Reference, bool bInitialize = false) -> void
 		{
-			Durin::TryEnqueueRenderCommand("OwnedTextureTestUpdate", [Update, &Reference, bInitialize](Durin::FRHICommandListImmediate& Commands) {
+			Durin::EnqueueRenderCommand("OwnedTextureTestUpdate", [Update, &Reference, bInitialize](Durin::FRHICommandListImmediate& Commands) {
 				Update->Execute_RenderThread(Commands, Reference, bInitialize);
 			});
 		}
@@ -412,7 +412,7 @@ namespace
 		auto Resolve(Durin::FTextureReference& Reference) -> Durin::FRHITexture*
 		{
 			Durin::FRHITexture* Result = nullptr;
-			Durin::TryEnqueueRenderCommand("ResolveOwnedTextureTest", [&Reference, &Result](Durin::FRHICommandListImmediate&) {
+			Durin::EnqueueRenderCommand("ResolveOwnedTextureTest", [&Reference, &Result](Durin::FRHICommandListImmediate&) {
 				Result = Reference.GetReferencedTexture_RenderThread();
 			});
 			Durin::FlushRenderingCommands();

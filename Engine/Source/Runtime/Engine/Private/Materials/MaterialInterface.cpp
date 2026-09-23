@@ -16,6 +16,7 @@
 #include "Logging/LogMacros.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
+#include "RenderingThread.h"
 #include <unordered_set>
 #include <unordered_map>
 
@@ -634,6 +635,11 @@ namespace Durin
 		{
 			return;
 		}
+		// A pre-start edit is rebuilt on the next proxy request after render admission opens.
+		const auto Admission = GetRenderCommandAdmissionState();
+		if (Admission == ERenderCommandAdmissionState::Stopped) return;
+		checkf(Admission == ERenderCommandAdmissionState::Running,
+			"Material publication must finish before render-command shutdown.");
 
 		FMaterialRenderProxyPublication Publication{
 			.LocalLayer = std::move(LocalLayer),

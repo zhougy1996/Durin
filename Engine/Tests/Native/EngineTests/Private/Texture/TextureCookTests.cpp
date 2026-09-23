@@ -650,14 +650,14 @@ namespace
 		EXPECT_FALSE(Texture->GetResourceUpdateError().empty());
 		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 		Durin::FRHITexture* Observed = nullptr;
-		Durin::TryEnqueueRenderCommand("CheckFailedTextureFallback", [StableReference, &Observed](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("CheckFailedTextureFallback", [StableReference, &Observed](Durin::FRHICommandListImmediate&) {
 			Observed = StableReference->GetReferencedTexture_RenderThread();
 		});
 		Durin::FlushRenderingCommands();
 		EXPECT_EQ(Observed, nullptr);
 
 		std::latch Blocked(1), Resume(1);
-		Durin::TryEnqueueRenderCommand("HoldTextureAdmission", [&](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("HoldTextureAdmission", [&](Durin::FRHICommandListImmediate&) {
 			Blocked.count_down(); Resume.wait();
 		});
 		Blocked.wait();
@@ -683,7 +683,7 @@ namespace
 		{
 			Durin::FByteBuffer Earlier, Latest;
 			const auto Current = Texture->GetPublishedTexture();
-			Durin::TryEnqueueRenderCommand("ReadOwnedTextureSnapshots", [OldSnapshot, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
+			Durin::EnqueueRenderCommand("ReadOwnedTextureSnapshots", [OldSnapshot, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
 				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, OldSnapshot, 0, 0, Earlier));
 				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Current, 0, 0, Latest));
 			});
@@ -699,7 +699,7 @@ namespace
 		Texture->UpdateResource();
 		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 		ConsumeTextureUpdate();
-		Durin::TryEnqueueRenderCommand("CheckInvalidSourceFallback", [StableReference](Durin::FRHICommandListImmediate&) {
+		Durin::EnqueueRenderCommand("CheckInvalidSourceFallback", [StableReference](Durin::FRHICommandListImmediate&) {
 			EXPECT_EQ(StableReference->GetReferencedTexture_RenderThread(), nullptr);
 		});
 		Durin::FlushRenderingCommands();
@@ -724,7 +724,7 @@ TEST(FTextureCookTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcros
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
-	Durin::TryEnqueueRenderCommand("BeginOwnedTextureFrame", [](Durin::FRHICommandListImmediate& Commands) {
+	Durin::EnqueueRenderCommand("BeginOwnedTextureFrame", [](Durin::FRHICommandListImmediate& Commands) {
 		Commands.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 		Durin::GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 	});
@@ -762,7 +762,7 @@ TEST(FTextureCookTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcros
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-	Durin::TryEnqueueRenderCommand("EndOwnedTextureFrame", [](Durin::FRHICommandListImmediate& Commands) {
+	Durin::EnqueueRenderCommand("EndOwnedTextureFrame", [](Durin::FRHICommandListImmediate& Commands) {
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 	});
 	Durin::FlushRenderingCommands();

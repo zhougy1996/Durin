@@ -59,21 +59,20 @@ namespace Durin
 		auto EnqueueRequiredResourceCommand(
 			FRenderResource* Resource, LambdaType&& Lambda) -> void
 		{
-			const bool bAccepted =
-				FRenderThreadCommandPipe::TryEnqueue<CommandTag>(
-					std::forward<LambdaType>(Lambda));
 #if DURIN_BUILD_DEBUG
-			checkf(bAccepted,
-				"Required render-resource command '{}' was rejected: "
+			checkf(FRenderThreadCommandPipe::GetAdmissionState() == ERenderCommandAdmissionState::Running,
+				"Required render-resource command '{}' was submitted after admission closed: "
 				"type='{}', owner='{}', queue='command_pipe'.",
 				CommandTag::GetName(), Resource->GetFriendlyName(),
 				GetDebugOwnerString(*Resource));
 #else
-			checkf(bAccepted,
-				"Required render-resource command '{}' was rejected: "
+			checkf(FRenderThreadCommandPipe::GetAdmissionState() == ERenderCommandAdmissionState::Running,
+				"Required render-resource command '{}' was submitted after admission closed: "
 				"type='{}', queue='command_pipe'.",
 				CommandTag::GetName(), Resource->GetFriendlyName());
 #endif
+			FRenderThreadCommandPipe::Enqueue<CommandTag>(
+				std::forward<LambdaType>(Lambda));
 		}
 	}
 

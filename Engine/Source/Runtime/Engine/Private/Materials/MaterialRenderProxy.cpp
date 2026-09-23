@@ -103,9 +103,6 @@ namespace Durin
 			if (PendingPublication.has_value()
 				&& Publication.LocalVersion <= PendingPublication->LocalVersion)
 			{
-				// A publication can remain pending when render-command admission was
-				// stopped. Retry that retained wave once the rendering thread starts
-				// again instead of treating it as an already-queued stale update.
 				if (bPublicationCommandQueued) return false;
 				bPublicationCommandQueued = true;
 				bNeedsRenderCommand = true;
@@ -135,18 +132,13 @@ namespace Durin
 			}
 		};
 		FMaterialRenderProxyRef Proxy(this);
-		const bool bAccepted =
-			FRenderThreadCommandPipe::TryEnqueue<
+		FRenderThreadCommandPipe::Enqueue<
 				FApplyPendingMaterialRenderProxyCommand>(
 				[Proxy = std::move(Proxy)](
 					FRHICommandListImmediate&) mutable {
 					Proxy->ApplyPendingPublication_RenderThread();
 				});
-		if (bAccepted) return true;
-
-		std::lock_guard Lock(PublicationMutex);
-		bPublicationCommandQueued = false;
-		return false;
+		return true;
 	}
 
 	auto FMaterialRenderProxy::ApplyPendingPublication_RenderThread() -> bool
@@ -335,6 +327,10 @@ namespace Durin
 	{
 		if (!Proxy) return;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
+		const auto Admission = GetRenderCommandAdmissionState();
+		if (Admission == ERenderCommandAdmissionState::Stopped) return;
+		checkf(Admission == ERenderCommandAdmissionState::Running,
+			"Material proxy retirement must finish before render-command shutdown.");
 
 		struct FReleaseMaterialRenderProxyCommand
 		{
@@ -343,7 +339,7 @@ namespace Durin
 				return "ReleaseMaterialRenderProxy";
 			}
 		};
-		FRenderThreadCommandPipe::TryEnqueue<FReleaseMaterialRenderProxyCommand>(
+		FRenderThreadCommandPipe::Enqueue<FReleaseMaterialRenderProxyCommand>(
 			[Proxy = std::move(Proxy)](
 				FRHICommandListImmediate&) mutable {
 				Proxy = {};

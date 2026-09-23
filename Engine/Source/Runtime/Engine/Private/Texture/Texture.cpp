@@ -227,7 +227,7 @@ namespace Durin
 		if (bTextureReferenceInitializationQueued)
 		{
 			// FIFO ordering clears an already-published candidate before any successor upload.
-			TryEnqueueRenderCommand("InvalidateTextureReference",
+			EnqueueRenderCommand("InvalidateTextureReference",
 				[Reference = TextureReference.get()](FRHICommandListImmediate&) {
 					Reference->ResetToFallback_RenderThread();
 				});
@@ -300,20 +300,14 @@ namespace Durin
 			});
 		PendingUpdate->SetCompletionTask(Handoff.GetCompletion().GetTaskHandle());
 		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
-		// One admission owns both initialization steps, so rejection leaves no half-admitted reference.
-		const bool bAccepted = TryEnqueueRenderCommand("TextureResourceUpdate",
+		// One command owns both initialization steps.
+		EnqueueRenderCommand("TextureResourceUpdate",
 			[Update = PendingUpdate, Reference = TextureReference.get(), bInitializeReference, Completion]
 			(FRHICommandListImmediate& Commands) {
 				Update->Execute_RenderThread(Commands, *Reference, bInitializeReference);
 				Completion.TrySetValue();
 			});
-		if (bAccepted) bTextureReferenceInitializationQueued = true;
-		else
-		{
-			DURIN_WARN("Texture update rejected: render command admission is closed. (texture: {})", GetObjectPath());
-			PendingUpdate->Reject();
-			Completion.TrySetValue();
-		}
+		bTextureReferenceInitializationQueued = true;
 	}
 
 	auto DTexture::ConsumeResourceUpdate() -> void

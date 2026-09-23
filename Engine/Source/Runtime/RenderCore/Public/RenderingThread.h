@@ -79,18 +79,11 @@ namespace Durin
 				RenderCommandTag::GetName(), std::move(Lambda));
 		}
 
-		template<typename RenderCommandTag, typename LambdaType>
-		static auto TryEnqueue(LambdaType&& Lambda) -> bool
-		{
-			return Instance.TryEnqueueImpl(
-				RenderCommandTag::GetName(), std::move(Lambda));
-		}
-
 		template<typename LambdaType>
-		static auto TryEnqueueNamed(
-			const char* Name, LambdaType&& Lambda) -> bool
+		static auto EnqueueNamed(
+			const char* Name, LambdaType&& Lambda) -> void
 		{
-			return Instance.TryEnqueueImpl(Name, std::move(Lambda));
+			Instance.EnqueueImpl(Name, std::move(Lambda));
 		}
 
 		static auto Launch() -> bool
@@ -122,10 +115,6 @@ namespace Durin
 		RENDERCORE_API auto EnqueueImpl(
 			const char* Name,
 			std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
-		RENDERCORE_API auto TryEnqueueImpl(
-			const char* Name,
-			std::function<void(FRHICommandListImmediate&)>&& Function) -> bool;
-
 		RENDERCORE_API auto LaunchImpl() -> bool;
 
 		RENDERCORE_API auto StartImpl() -> void;
@@ -171,15 +160,15 @@ namespace Durin
 	}
 
 	template<typename LambdaType>
-	auto TryEnqueueRenderCommand(
-		const char* Name, LambdaType&& Lambda) -> bool
+	auto EnqueueRenderCommand(
+		const char* Name, LambdaType&& Lambda) -> void
 	{
 		if (IsInRenderingThread())
 		{
 			Lambda(GetImmediateCommandList_ForRenderCommand());
-			return true;
+			return;
 		}
-		return FRenderThreadCommandPipe::TryEnqueueNamed(
+		FRenderThreadCommandPipe::EnqueueNamed(
 			Name, std::move(Lambda));
 	}
 

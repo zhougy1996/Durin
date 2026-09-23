@@ -160,8 +160,7 @@ namespace Durin
 	{
 		auto FenceState = std::make_shared<FState>(Mode);
 		State = FenceState;
-		const bool bAccepted =
-			FRenderThreadCommandPipe::TryEnqueue<FFenceRenderCommand>(
+		FRenderThreadCommandPipe::Enqueue<FFenceRenderCommand>(
 				[FenceState = std::move(FenceState), Mode](
 					FRHICommandListImmediate&) {
 					if (Mode == ERenderCommandFenceMode::RenderThread)
@@ -190,10 +189,6 @@ namespace Durin
 						FenceState->CompleteRenderCommand(false, 0);
 					}
 				});
-		if (!bAccepted)
-		{
-			State->CompleteRenderCommand(false, 0);
-		}
 	}
 
 	auto FRenderCommandFence::Wait() -> void
@@ -329,39 +324,13 @@ namespace Durin
 		const char* Name,
 		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
-		const bool bAccepted = TryEnqueueImpl(Name, std::move(Function));
-		checkf(bAccepted,
-			"Render command '{}' was rejected because command admission "
-			"is closed.", Name);
-	}
-
-	auto FRenderThreadCommandPipe::TryEnqueueImpl(
-		const char* Name,
-		std::function<void(FRHICommandListImmediate&)>&& Function) -> bool
-	{
-		ERenderCommandAdmissionState RejectionState;
-		size_t PendingCount = 0;
 		{
 			std::lock_guard Lock(Mutex);
-			if (AdmissionState != ERenderCommandAdmissionState::Running)
-			{
-				RejectionState = AdmissionState;
-				PendingCount = CommandQueue[0].size()
-					+ CommandQueue[1].size() + ActiveCommandCount;
-				const char* StateName =
-					RejectionState == ERenderCommandAdmissionState::Draining
-						? "draining"
-						: "stopped";
-				DURIN_ERROR(
-					"Rejected render command '{}' synchronously: command "
-					"admission is {} ({} accepted commands pending).",
-					Name, StateName, PendingCount);
-				return false;
-			}
+			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
+				"Render command '{}' was submitted after admission closed.", Name);
 			CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
 		}
 		CommandAvailableCV.notify_one();
-		return true;
 	}
 
 	auto FRenderThreadCommandPipe::LaunchImpl() -> bool

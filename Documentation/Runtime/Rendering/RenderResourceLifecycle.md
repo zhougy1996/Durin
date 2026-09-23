@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, MonaImGui
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-23
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -14,10 +14,9 @@ with their owning systems.
 ## Command Admission Boundary
 
 RenderCore command admission is observable as `Stopped`, `Running`, or
-`Draining`. Normal initialization moves it to `Running`. `TryEnqueue` reports
-whether work was accepted; the compatibility enqueue entry point turns
-post-close submission into an immediate actionable check. Producers stop
-submitting before final shutdown begins.
+`Draining`. Normal initialization moves it to `Running`. Render commands
+require running admission; submission after closure is a contract failure.
+Producers stop submitting before final shutdown begins.
 
 ## Resource State
 

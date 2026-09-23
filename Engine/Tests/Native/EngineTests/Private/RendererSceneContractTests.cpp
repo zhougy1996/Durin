@@ -828,27 +828,6 @@ namespace
 		Durin::FDirectionalLightSceneData Data;
 	};
 
-	class FRejectedLightSceneProxy final : public Durin::FLightSceneProxy
-	{
-	public:
-		FRejectedLightSceneProxy(
-			Durin::FLightSceneProxyDesc Desc, bool& InDestroyed
-		)
-			: FLightSceneProxy(std::move(Desc))
-			, Destroyed(&InDestroyed)
-		{
-		}
-		~FRejectedLightSceneProxy() override { *Destroyed = true; }
-
-		auto GetKind() const -> Durin::ELightSceneProxyKind override
-		{
-			return Durin::ELightSceneProxyKind::Directional;
-		}
-
-	private:
-		bool* Destroyed = nullptr;
-	};
-
 	auto ObserveLight(Durin::FScene& Scene) -> FObservedLight
 	{
 		auto Result = std::make_shared<FObservedLight>();
@@ -2116,20 +2095,6 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 	Observed = ObserveLight(Scene);
 	ASSERT_TRUE(Observed.bPresent);
 	EXPECT_EQ(Observed.Data.Intensity, 5.0f);
-}
-
-TEST(FRendererSceneContractTests, RejectedLightAdmissionConsumesAndDestroysProxy)
-{
-	ASSERT_EQ(Durin::GetRenderCommandAdmissionState(), Durin::ERenderCommandAdmissionState::Stopped);
-	Durin::FSceneTestOwner SceneOwner;
-	Durin::FScene& Scene = *SceneOwner;
-	bool bDestroyed = false;
-	EXPECT_FALSE(Durin::FSceneInterfaceTestAccess::TryAddLightProxy(Scene, std::make_unique<FRejectedLightSceneProxy>(Durin::FLightSceneProxyDesc{Durin::FLightComponentId(91)}, bDestroyed)));
-	EXPECT_TRUE(bDestroyed);
-	{
-		FRenderingThreadScope RenderingThread;
-		SceneOwner.Reset();
-	}
 }
 
 TEST(FRendererSceneContractTests, ComponentPublicationRequiresCommandAdmission)

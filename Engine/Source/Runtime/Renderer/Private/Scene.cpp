@@ -69,7 +69,7 @@ namespace Durin
     {
         require(IsInGameThread());
         if (Renderer && LifecycleState.load() == ELifecycleState::Active)
-            TryEnqueueRenderCommand("UpdateSkyLighting", [this](FRHICommandListImmediate& Commands) {
+            EnqueueRenderCommand("UpdateSkyLighting", [this](FRHICommandListImmediate& Commands) {
                 Renderer->PendingSkyScenes.insert(this);
             });
     }
@@ -129,10 +129,9 @@ namespace Durin
 		require(ProceduralSky->GetRenderScene() == this && ProceduralSky->SceneProxy == nullptr);
 		auto Proxy = ProceduralSky->CreateSceneProxy();
 		const auto* Token = Proxy.get();
-		const bool bAccepted = TryEnqueueRenderCommand("AddProceduralSky", [this, Proxy](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddProceduralSky", [this, Proxy](FRHICommandListImmediate&) {
 			ProceduralSkies.emplace(Proxy.get(), Proxy);
 		});
-		require(bAccepted);
 		ProceduralSky->SceneProxy = Token;
 	}
 
@@ -143,10 +142,9 @@ namespace Durin
 		require(ProceduralSky->GetRenderScene() == this);
 		const auto* Token = ProceduralSky->SceneProxy;
 		if (!Token) return;
-		const bool bAccepted = TryEnqueueRenderCommand("RemoveProceduralSky", [this, Token](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemoveProceduralSky", [this, Token](FRHICommandListImmediate&) {
 			ProceduralSkies.erase(Token);
 		});
-		require(bAccepted);
 		ProceduralSky->SceneProxy = nullptr;
 	}
 
@@ -157,10 +155,9 @@ namespace Durin
 		require(SkyLight->GetRenderScene() == this && SkyLight->SceneProxy == nullptr);
 		auto Proxy = SkyLight->CreateSceneProxy();
 		const auto* Token = Proxy.get();
-		const bool bAccepted = TryEnqueueRenderCommand("AddSkyLight", [this, Proxy](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddSkyLight", [this, Proxy](FRHICommandListImmediate&) {
 			SkyLights.emplace(Proxy.get(), Proxy);
 		});
-		require(bAccepted);
 		SkyLight->SceneProxy = Token;
 	}
 
@@ -171,10 +168,9 @@ namespace Durin
 		require(SkyLight->GetRenderScene() == this);
 		const auto* Token = SkyLight->SceneProxy;
 		if (!Token) return;
-		const bool bAccepted = TryEnqueueRenderCommand("RemoveSkyLight", [this, Token](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemoveSkyLight", [this, Token](FRHICommandListImmediate&) {
 			SkyLights.erase(Token);
 		});
-		require(bAccepted);
 		SkyLight->SceneProxy = nullptr;
 	}
 
@@ -276,12 +272,11 @@ namespace Durin
 		ELifecycleState Expected = ELifecycleState::Active;
 		requiref(LifecycleState.compare_exchange_strong(Expected, ELifecycleState::Releasing, std::memory_order_acq_rel), "FScene::Release is a single-use operation.");
 		PublishedSkyBoxProxy = nullptr;
-		const bool bAccepted = TryEnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			Clear_RenderThread();
 			LifecycleState.store(ELifecycleState::Released, std::memory_order_release);
 		});
-		requiref(bAccepted, "FScene::Release must be admitted before render-command shutdown.");
 		GActiveSceneCount.fetch_sub(1, std::memory_order_relaxed);
 	}
 
@@ -290,12 +285,11 @@ namespace Durin
 		auto* RendererScene = dynamic_cast<FScene*>(Scene);
 		requiref(RendererScene != nullptr, "The renderer scene deleter received an incompatible scene.");
 		requiref(RendererScene->LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active, "FScenePtr owners must call Release before reset or destruction.");
-		const bool bAccepted = TryEnqueueRenderCommand("DestroyScene", [RendererScene](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("DestroyScene", [RendererScene](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			requiref(RendererScene->LifecycleState.load(std::memory_order_acquire) == ELifecycleState::Released, "Scene deletion must execute after its Release command.");
 			delete RendererScene;
 		});
-		requiref(bAccepted, "Renderer scene deletion must be admitted before render-command shutdown.");
 	}
 
 	auto FScene::GetActiveSceneCount() -> size_t
@@ -423,7 +417,7 @@ namespace Durin
 		requiref(Proxy != nullptr, "AddPrimitiveProxy requires a proxy.");
 		requiref(Math::IsFinite(Transform), "AddPrimitiveProxy requires a finite transform.");
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
-		const bool bAccepted = TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
 			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
@@ -433,7 +427,6 @@ namespace Durin
 
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
-		requiref(bAccepted, "AddPrimitiveProxy must be admitted before render-command shutdown.");
 	}
 
 	auto FScene::UpdatePrimitiveVisibility(
@@ -443,7 +436,7 @@ namespace Durin
 	{
 		RequireActive("UpdatePrimitiveVisibility");
 		if (PrimitiveId == InvalidPrimitiveComponentId) return;
-		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveVisibility", [this, PrimitiveId, bVisible](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("UpdatePrimitiveVisibility", [this, PrimitiveId, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
 				Found != PrimitiveInfosById.end())
@@ -451,32 +444,29 @@ namespace Durin
 				Found->second->SetVisible(bVisible);
 			}
 		});
-		requiref(bAccepted, "UpdatePrimitiveVisibility command admission failed.");
 	}
 
 	auto FScene::RemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> void
 	{
 		RequireActive("RemovePrimitiveProxy");
 		requiref(PrimitiveId != InvalidPrimitiveComponentId, "RemovePrimitiveProxy requires a valid primitive ID.");
-		const bool bAccepted = TryEnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			const auto Found = PrimitiveInfosById.find(PrimitiveId);
 			if (Found == PrimitiveInfosById.end()) return;
 			DetachPrimitive(*Found->second);
 			PrimitiveInfosById.erase(Found);
 		});
-		requiref(bAccepted, "RemovePrimitiveProxy must be admitted before render-command shutdown.");
 	}
 
 	auto FScene::UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void
 	{
 		RequireActive("UpdatePrimitiveTransform");
 		if (PrimitiveId == InvalidPrimitiveComponentId || !Math::IsFinite(Transform)) return;
-		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveTransform", [this, PrimitiveId, Transform](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("UpdatePrimitiveTransform", [this, PrimitiveId, Transform](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->SetTransform(Transform);
 		});
-		requiref(bAccepted, "UpdatePrimitiveTransform command admission failed.");
 	}
 
 	auto FScene::UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void
@@ -486,11 +476,10 @@ namespace Durin
 		// Add/remove and binding commands execute in submission order. A binding
 		// targets the publication alive at this point in that ordered lifecycle.
 		if (PrimitiveId == InvalidPrimitiveComponentId) return;
-		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveMaterialBinding", [this, PrimitiveId, Update](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("UpdatePrimitiveMaterialBinding", [this, PrimitiveId, Update](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->UpdateMaterialBinding(Update);
 		});
-		requiref(bAccepted, "UpdatePrimitiveMaterialBinding command admission failed.");
 	}
 
 	auto FScene::UpdateSplineMeshDynamicData(
@@ -501,13 +490,12 @@ namespace Durin
 		RequireActive("UpdateSplineMeshDynamicData");
 		if (PrimitiveId == InvalidPrimitiveComponentId || DynamicData.Revision == 0
 			|| !DynamicData.LocalBounds.bIsValid) return;
-		const bool bAccepted = TryEnqueueRenderCommand("UpdateSplineMeshDynamicData", [this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
+		EnqueueRenderCommand("UpdateSplineMeshDynamicData", [this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
 				Found != PrimitiveInfosById.end())
 				Found->second->UpdateSplineMeshDynamicData(std::move(DynamicData));
 		});
-		requiref(bAccepted, "UpdateSplineMeshDynamicData command admission failed.");
 	}
 
 	auto FScene::IsEmpty_RenderThread() const -> bool
@@ -593,20 +581,22 @@ namespace Durin
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
 			|| Proxy == nullptr || !Proxy->GetDesc().IsValid()) return false;
 		std::shared_ptr<FLightSceneProxy> SharedProxy(std::move(Proxy));
-		return TryEnqueueRenderCommand("AddLight", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddLight", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			Lights->Add(SharedProxy);
 		});
+		return true;
 	}
 
 	auto FScene::TryRemoveLightProxy(FLightSceneProxy* Proxy) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
 			|| Proxy == nullptr) return false;
-		return TryEnqueueRenderCommand("RemoveLight", [this, Proxy](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemoveLight", [this, Proxy](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			Lights->Remove(Proxy);
 		});
+		return true;
 	}
 
 	auto FScene::GetDirectionalLightSceneInfos() const
@@ -654,24 +644,24 @@ namespace Durin
 			|| Proxy == nullptr || PublishedSkyBoxProxy != nullptr) return false;
 		FSkyBoxSceneProxy* Token = Proxy.get();
 		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
-		const bool bAccepted = TryEnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			SkyBoxes->Add(SharedProxy);
 		});
-		if (bAccepted) PublishedSkyBoxProxy = Token;
-		return bAccepted;
+		PublishedSkyBoxProxy = Token;
+		return true;
 	}
 
 	auto FScene::TryRemoveSkyBoxProxy(FSkyBoxSceneProxy* Proxy) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
 			|| Proxy == nullptr || Proxy != PublishedSkyBoxProxy) return false;
-		const bool bAccepted = TryEnqueueRenderCommand("RemoveSkyBox", [this, Proxy](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemoveSkyBox", [this, Proxy](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			SkyBoxes->Remove(Proxy);
 		});
-		if (bAccepted) PublishedSkyBoxProxy = nullptr;
-		return bAccepted;
+		PublishedSkyBoxProxy = nullptr;
+		return true;
 	}
 
 	auto FScene::GetSkyBoxProxy_RenderThread() const
@@ -765,10 +755,11 @@ namespace Durin
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
 			|| Proxy == nullptr || !Proxy->GetDesc().IsValid()) return false;
 		std::shared_ptr<FVolumetricCloudSceneProxy> SharedProxy(std::move(Proxy));
-		return TryEnqueueRenderCommand("AddVolumetricCloud", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("AddVolumetricCloud", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			VolumetricClouds->Add(SharedProxy);
 		});
+		return true;
 	}
 
 	auto FScene::TryRemoveVolumetricCloudProxy(
@@ -777,10 +768,11 @@ namespace Durin
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
 			|| Proxy == nullptr) return false;
-		return TryEnqueueRenderCommand("RemoveVolumetricCloud", [this, Proxy](FRHICommandListImmediate&) {
+		EnqueueRenderCommand("RemoveVolumetricCloud", [this, Proxy](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			VolumetricClouds->Remove(Proxy);
 		});
+		return true;
 	}
 
 	auto FScene::GetActiveVolumetricCloudSceneInfo_RenderThread() const

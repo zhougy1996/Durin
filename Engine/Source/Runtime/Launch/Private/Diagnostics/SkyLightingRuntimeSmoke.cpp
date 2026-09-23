@@ -156,7 +156,7 @@ namespace Durin
             S.Light->GetSkyLightComponent()->SetRefreshPolicy(true,0.25f);
             const auto Status=S.Light->GetSkyLightComponent()->GetUpdateStatus();
             auto* Renderer=GEngine->GetRendererModule();
-            TryEnqueueRenderCommand("BeginSkyFrameQualification",[Status,Renderer](FRHICommandListImmediate&) {
+            EnqueueRenderCommand("BeginSkyFrameQualification",[Status,Renderer](FRHICommandListImmediate&) {
                 TimingRenderer=Renderer;
                 Measurements=std::make_unique<FFrameMeasurements>(); Measurements->Status=Status;
             });
@@ -169,7 +169,7 @@ namespace Durin
             if (++S.BaselineTicks==1)
             {
                 S.Light->GetSkyLightComponent()->SetRefreshPolicy(false,0.25f);
-                TryEnqueueRenderCommand("BeginSkySteadyBaseline",[](FRHICommandListImmediate&) { Measurements->Baseline=true; });
+                EnqueueRenderCommand("BeginSkySteadyBaseline",[](FRHICommandListImmediate&) { Measurements->Baseline=true; });
             }
             if (S.BaselineTicks<180) return false;
             if (S.BaselineTicks==180)
@@ -182,7 +182,7 @@ namespace Durin
             checkf(S.BaselineTicks<=182,"Manual recapture did not publish within two scene ticks.");
             if (!Published) return false;
             DURIN_INFO("Sky lighting manual recapture published after {} scene tick(s).",S.BaselineTicks-180);
-            TryEnqueueRenderCommand("ReportSkyFrameQualification",[](FRHICommandListImmediate&) {
+            EnqueueRenderCommand("ReportSkyFrameQualification",[](FRHICommandListImmediate&) {
                 auto& M=*Measurements;
                 check(M.SteadyGPU.size()>=120 && !M.UpdateCPU.empty());
                 std::sort(M.SteadyGPU.begin(),M.SteadyGPU.end());
@@ -226,7 +226,7 @@ namespace Durin
     auto EndSkyLightingRuntimeSmoke(std::shared_ptr<FSkyLightingRuntimeSmokeState>& State) -> void
     {
         if (!State) return;
-        TryEnqueueRenderCommand("EndSkyFrameQualification",[](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("EndSkyFrameQualification",[](FRHICommandListImmediate&) {
             if (TimingRenderer) TimingRenderer->SetViewGPUTimingSink_RenderThread({});
             Measurements.reset(); TimingRenderer=nullptr;
         });

@@ -656,7 +656,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
 {
     using namespace Durin;
-    TryEnqueueRenderCommand("BeginSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
+    EnqueueRenderCommand("BeginSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
     auto SceneOwner=Renderer.CreateScene();
     auto& Scene=static_cast<FScene&>(*SceneOwner);
     auto* World=NewObject<DWorld>(nullptr,"DynamicSkyWorld");
@@ -679,16 +679,16 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
     Sky->SetExposure(4);
     Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
     Light->SetRefreshPolicy(true,0.25f);
-    TryEnqueueRenderCommand("EndSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIEndFrame_RenderThread(Cmd); });
+    EnqueueRenderCommand("EndSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIEndFrame_RenderThread(Cmd); });
     FlushRenderingCommands();
     bool Ready=false;
     uint64 Revision=0;
     FByteBuffer Before,After;
     const auto Pump=[&](bool Read) {
-        TryEnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
+        EnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
         World->Tick({.DeltaSeconds=0.02f});
         OtherWorld->Tick({.DeltaSeconds=0.02f});
-        TryEnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
+        EnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
             Renderer.UpdateScenes_RenderThread(Cmd);
             Ready=bool(Scene.SkyLighting->Active);
             if (Ready)
@@ -727,7 +727,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         const uint64 HotspotRevision=Revision;
         for(int i=0;i<100 && Revision==HotspotRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,HotspotRevision);
-        TryEnqueueRenderCommand("ValidateSkyHotspot",[&](FRHICommandListImmediate& Cmd) {
+        EnqueueRenderCommand("ValidateSkyHotspot",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
             const auto& G=*Scene.SkyLighting->Active;
             FByteBuffer Pixels;
@@ -761,7 +761,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         const uint64 PreviousRevision=Revision;
         for(int i=0;i<100 && Revision==PreviousRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,PreviousRevision);
-        TryEnqueueRenderCommand("ValidateSkyEnergy",[&](FRHICommandListImmediate& Cmd) {
+        EnqueueRenderCommand("ValidateSkyEnergy",[&](FRHICommandListImmediate& Cmd) {
             GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
             EXPECT_TRUE(OtherScene.SkyLighting->Active);
             if (OtherScene.SkyLighting->Active)
@@ -795,7 +795,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         bool Backpressured=false;
         for(int Attempt=0;Attempt<8 && !Backpressured;++Attempt)
         {
-            TryEnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Active); });
+            EnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Active); });
             FlushRenderingCommands();
             Light->Recapture();
             std::this_thread::sleep_for(std::chrono::milliseconds(270));
@@ -803,7 +803,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
             Backpressured=Light->GetUpdateStatus()->State.load()==ESkyLightUpdateState::Backpressure;
         }
         EXPECT_TRUE(Backpressured);
-        TryEnqueueRenderCommand("CheckLastGoodSky",[&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("CheckLastGoodSky",[&](FRHICommandListImmediate&) {
             EXPECT_EQ(Scene.SkyLighting->Active,Retained.back());
             Retained.clear();
         });
@@ -822,7 +822,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         for(int i=0;i<100 && Revision==StableRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
         EXPECT_GT(Revision,StableRevision);
         Pump(false);
-        TryEnqueueRenderCommand("ReportSkyTiming",[&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("ReportSkyTiming",[&](FRHICommandListImmediate&) {
             const auto Selected=Scene.GetSkyLight_RenderThread();
             std::cout << "Dynamic sky GPU update: " << Selected->UpdateStatus->UpdateMilliseconds.load() << " ms\n";
         });
@@ -830,7 +830,7 @@ static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
         // Invalidate while the scene is inactive: old ownership must disappear
         // without waiting for another world tick or view submission.
         EXPECT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::Device).bSuccess);
-        TryEnqueueRenderCommand("CheckSkyInvalidation",[&](FRHICommandListImmediate&) {
+        EnqueueRenderCommand("CheckSkyInvalidation",[&](FRHICommandListImmediate&) {
             EXPECT_FALSE(Scene.SkyLighting->Active);
             EXPECT_FALSE(Scene.SkyLighting->InFlight);
             EXPECT_FALSE(OtherScene.SkyLighting->Active);

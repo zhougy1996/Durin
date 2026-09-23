@@ -140,7 +140,8 @@ picking mutation observer or spatial index is attached to `DLevel`. See the
   to private publication, non-finite transforms, and command-admission failure
   violate the scene contract. Primitive Add/Remove helpers return `void` and
   assert these preconditions. Other proxy families retain their private
-  `TryAdd/Remove*Proxy` helpers and assert admission in component operations.
+  `TryAdd/Remove*Proxy` helpers for input validation; all render commands
+  require running admission.
 - Components assign their proxy token only after Add admission and clear it
   only after Remove admission. They never dereference an accepted proxy token.
 - Render-thread queries and SceneInfo mutation assert rendering-thread ownership.

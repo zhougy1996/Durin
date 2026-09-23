@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -359,9 +359,8 @@ under the same mutex used for publication. It joins accepted CPU initialization,
 then queues release and deferred cleanup of candidates/current before the stable
 reference. No publication can occur after that close boundary. Accepted commands
 retain operation storage without capturing a UObject. Reference and candidate
-initialization share one checked command admission; a rejected command leaves
-both uninitialized. Producers must close initialized owners before RenderCore
-stops accepting required cleanup commands.
+initialization share one command submission. Producers must close initialized
+owners before RenderCore stops accepting required cleanup commands.
 
 `GetPublishedTexture()` is a GameThread-only capture of the last consumed
 successful `FTextureRHIRef`. It retains a concrete allocation, not a UObject or

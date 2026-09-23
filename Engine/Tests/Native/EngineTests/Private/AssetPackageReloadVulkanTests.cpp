@@ -175,7 +175,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	auto Render = [&]() {
 		FByteBuffer Pixels;
 		ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
-		TryEnqueueRenderCommand("RenderPackageReloadScene", [&](FRHICommandListImmediate& Commands) {
+		EnqueueRenderCommand("RenderPackageReloadScene", [&](FRHICommandListImmediate& Commands) {
 			auto Output = GDynamicRHI->RHICreateTexture(Commands,
 				FRHITextureCreateDesc::Create2D("ReloadSceneOutput", 96, 64, EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource

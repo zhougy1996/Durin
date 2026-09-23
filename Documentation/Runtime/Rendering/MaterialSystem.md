@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-23
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -627,9 +627,9 @@ result; neither operation reinterprets the authored program.
   the render command is consumed replace that pending wave, so only the newest
   immutable state is applied. The command stream preserves publication order
   before later rendering commands consume the proxy. If a material is edited
-  while render-command admission is stopped, the retained wave is replayed when
-  the rendering thread starts; the first preview or scene-proxy consumer does
-  not observe an uninitialized snapshot.
+  before render-command admission starts, no publication command is submitted.
+  The next proxy request after the rendering thread starts builds and submits
+  the current state before a preview or scene-proxy consumer uses it.
 - Component material assignment is a binding update, not material-content
   invalidation. A component-wide revision orders rapid changes across
   independent slots and rejects stale render commands.

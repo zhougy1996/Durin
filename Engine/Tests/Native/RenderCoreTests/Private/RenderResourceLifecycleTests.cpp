@@ -102,14 +102,6 @@ namespace Durin
 			}
 		};
 
-		struct FRejectedAfterAdmissionCloseCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "RejectedAfterAdmissionClose";
-			}
-		};
-
 		struct FAcceptedBeforeAdmissionCloseCommand
 		{
 			static constexpr auto GetName() -> const char*
@@ -126,13 +118,6 @@ namespace Durin
 			}
 		};
 
-		struct FRejectedAfterIntegratedShutdownCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "RejectedAfterIntegratedShutdown";
-			}
-		};
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
@@ -201,17 +186,15 @@ namespace Durin
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
-		AdmissionCloseDrainsAcceptedWorkRejectsNewWorkAndRestarts)
+		AdmissionCloseDrainsAcceptedWorkAndRestarts)
 	{
 		std::atomic<bool> bAcceptedCommandExecuted = false;
-		const bool bAccepted =
-			FRenderThreadCommandPipe::TryEnqueue<
+		FRenderThreadCommandPipe::Enqueue<
 				FAcceptedBeforeAdmissionCloseCommand>(
 				[&bAcceptedCommandExecuted](FRHICommandListImmediate&) {
 					bAcceptedCommandExecuted.store(
 						true, std::memory_order_release);
 				});
-		EXPECT_TRUE(bAccepted);
 
 		ShutdownRenderingThread();
 
@@ -220,10 +203,6 @@ namespace Durin
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Stopped);
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
-		EXPECT_FALSE(
-			FRenderThreadCommandPipe::TryEnqueue<
-				FRejectedAfterAdmissionCloseCommand>(
-				[](FRHICommandListImmediate&) {}));
 
 		// Restore the fixture contract and prove the stopped pipe is reusable.
 		InitRenderingThread();
@@ -247,14 +226,13 @@ namespace Durin
 			{
 				std::this_thread::yield();
 			}
-			bRenderCommandAccepted.store(
-				FRenderThreadCommandPipe::TryEnqueue<
-					FAcceptedDuringSchedulerDrainCommand>(
-					[&bRenderCommandExecuted](FRHICommandListImmediate&) {
-						bRenderCommandExecuted.store(
-							true, std::memory_order_release);
-					}),
-				std::memory_order_release);
+			FRenderThreadCommandPipe::Enqueue<
+				FAcceptedDuringSchedulerDrainCommand>(
+				[&bRenderCommandExecuted](FRHICommandListImmediate&) {
+					bRenderCommandExecuted.store(
+						true, std::memory_order_release);
+				});
+			bRenderCommandAccepted.store(true, std::memory_order_release);
 			bTaskAdmissionRejected.store(
 				!Private::TryLaunchCancelableTaskWithCompletion("RenderLifecycle.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue(),
 				std::memory_order_release);
@@ -279,10 +257,6 @@ namespace Durin
 		EXPECT_EQ(ERenderCommandAdmissionState::Stopped,
 			GetRenderCommandAdmissionState());
 		EXPECT_EQ(0u, GetNumPendingRenderCommands());
-		EXPECT_FALSE(FRenderThreadCommandPipe::TryEnqueue<
-			FRejectedAfterIntegratedShutdownCommand>(
-			[](FRHICommandListImmediate&) {}));
-
 		InitRenderingThread();
 	}
 
@@ -443,18 +417,6 @@ namespace Durin
 
 		ReleaseCommand.Trigger();
 		FlushRenderingCommands();
-	}
-
-	TEST_F(FRenderResourceLifecycleTests,
-		RejectedFenceCompletesWithoutStrandingWaiter)
-	{
-		ShutdownRenderingThread();
-		FRenderCommandFence Fence;
-		Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
-
-		EXPECT_TRUE(Fence.IsFenceComplete());
-		Fence.Wait();
-		InitRenderingThread();
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
