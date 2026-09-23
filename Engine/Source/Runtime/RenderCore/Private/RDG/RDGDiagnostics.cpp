@@ -303,7 +303,7 @@ namespace Durin
 			Output << "handoff resource=" << Handoff.ResourceId << " submission=" << Handoff.Consumer.Index
 				<< " pass=" << Handoff.ConsumerPass << " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex
 				<< " source-queue=" << static_cast<uint32>(Handoff.SourceQueue) << " producers=";
-			for (const auto Producer : Handoff.Producers) Output << Producer.Index << ',';
+			for (const auto Producer : Handoff.GetProducers()) Output << Producer.Index << ',';
 			Output << '\n';
 		}
 		Output << "allocation active-resources="

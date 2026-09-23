@@ -88,79 +88,69 @@ namespace Durin::RDGPrivate
 		auto CompactTextureBarriers(std::span<FRDGCompiledPass> Passes,
 			FRDGBarrierBatch& FinalBarriers, FRDGExecutionPlan& Execution) -> void
 		{
-			struct FEntry
-			{
-				FRDGResourceHandoff Handoff;
-				FRDGTextureTransition Texture;
-			};
 			auto Batch = [&](uint32 Index) -> FRDGBarrierBatch& {
 				return Index == Passes.size() ? FinalBarriers : Passes[Index].Barriers;
 			};
-			std::vector<FEntry> Entries;
-			Entries.reserve(Execution.Handoffs.size());
-			for (auto& Handoff : Execution.Handoffs)
-			{
-				const auto Texture = Handoff.bTexture
-					? Batch(Handoff.Consumer.Index).GetTextureTransitions()[Handoff.TransitionIndex]
-					: FRDGTextureTransition{};
-				Entries.push_back({std::move(Handoff), Texture});
-			}
+			// Compact in place in the original layer-then-mip order. Buffer records
+			// remain untouched and continue to separate nonconsecutive textures.
 			for (const bool bLayers : {true, false})
 			{
 				size_t Count = 0;
-				for (size_t Index = 0; Index < Entries.size(); ++Index)
+				for (size_t Index = 0; Index < Execution.Handoffs.size(); ++Index)
 				{
-					auto& Entry = Entries[Index];
-					if (Count != 0 && Entry.Handoff.bTexture)
+					auto& Entry = Execution.Handoffs[Index];
+					if (Count != 0 && Entry.bTexture)
 					{
-						auto& Previous = Entries[Count - 1];
-						auto& A = Previous.Texture;
-						const auto& B = Entry.Texture;
-						const bool bCompatible = Previous.Handoff.bTexture
-							&& Previous.Handoff.Consumer == Entry.Handoff.Consumer
-							&& Previous.Handoff.SourceQueue == Entry.Handoff.SourceQueue
-							&& Previous.Handoff.Producers == Entry.Handoff.Producers
-							&& A.ResourceId == B.ResourceId && A.ExpectedBefore == B.ExpectedBefore
-							&& A.RequiredAfter == B.RequiredAfter && A.bDiscardContents == B.bDiscardContents
-							&& A.Range.Aspects == B.Range.Aspects;
-						if (bCompatible && (bLayers
-							? A.Range.FirstMip == B.Range.FirstMip && A.Range.NumMips == B.Range.NumMips
-								&& A.Range.FirstArrayLayer + A.Range.NumArrayLayers == B.Range.FirstArrayLayer
-							: A.Range.FirstArrayLayer == B.Range.FirstArrayLayer
-								&& A.Range.NumArrayLayers == B.Range.NumArrayLayers
-								&& A.Range.FirstMip + A.Range.NumMips == B.Range.FirstMip))
+						auto& Previous = Execution.Handoffs[Count - 1];
+						if (Previous.bTexture && Previous.Consumer == Entry.Consumer
+							&& Previous.SourceQueue == Entry.SourceQueue
+							&& std::ranges::equal(Previous.GetProducers(), Entry.GetProducers()))
 						{
-							if (bLayers) A.Range.NumArrayLayers += B.Range.NumArrayLayers;
-							else A.Range.NumMips += B.Range.NumMips;
-							continue;
+							auto& Textures = FBarrierBatchAccess::Textures(Batch(Entry.Consumer.Index));
+							auto& A = Textures[Previous.TransitionIndex];
+							const auto& B = Textures[Entry.TransitionIndex];
+							const bool bCompatible = A.ResourceId == B.ResourceId
+								&& A.ExpectedBefore == B.ExpectedBefore && A.RequiredAfter == B.RequiredAfter
+								&& A.bDiscardContents == B.bDiscardContents && A.Range.Aspects == B.Range.Aspects;
+							if (bCompatible && (bLayers
+								? A.Range.FirstMip == B.Range.FirstMip && A.Range.NumMips == B.Range.NumMips
+									&& A.Range.FirstArrayLayer + A.Range.NumArrayLayers == B.Range.FirstArrayLayer
+								: A.Range.FirstArrayLayer == B.Range.FirstArrayLayer
+									&& A.Range.NumArrayLayers == B.Range.NumArrayLayers
+									&& A.Range.FirstMip + A.Range.NumMips == B.Range.FirstMip))
+							{
+								if (bLayers) A.Range.NumArrayLayers += B.Range.NumArrayLayers;
+								else A.Range.NumMips += B.Range.NumMips;
+								continue;
+							}
 						}
 					}
-					if (Count != Index) Entries[Count] = std::move(Entry);
+					if (Count != Index) Execution.Handoffs[Count] = Entry;
 					++Count;
 				}
-				Entries.resize(Count);
-			}
-			std::vector<FRDGBarrierBatch> Batches(Passes.size() + 1);
-			Execution.Handoffs.clear();
-			for (auto& Entry : Entries)
-			{
-				auto& Handoff = Entry.Handoff;
-				auto& Destination = Batches[Handoff.Consumer.Index];
-				if (Handoff.bTexture)
+				// No merge: retain all original transition storage and indices.
+				if (Count == Execution.Handoffs.size()) continue;
+				Execution.Handoffs.resize(Count);
+				uint32 Consumer = UINT32_MAX;
+				size_t TextureCount = 0;
+				for (auto& Handoff : Execution.Handoffs)
 				{
-					Handoff.TransitionIndex = static_cast<uint32>(Destination.GetTextureTransitions().size());
-					Destination.AddTransition(Entry.Texture);
+					if (!Handoff.bTexture) continue;
+					if (Consumer != Handoff.Consumer.Index)
+					{
+						if (Consumer != UINT32_MAX)
+							FBarrierBatchAccess::Textures(Batch(Consumer)).resize(TextureCount);
+						Consumer = Handoff.Consumer.Index;
+						TextureCount = 0;
+					}
+					auto& Textures = FBarrierBatchAccess::Textures(Batch(Consumer));
+					if (TextureCount != Handoff.TransitionIndex)
+						Textures[TextureCount] = Textures[Handoff.TransitionIndex];
+					Handoff.TransitionIndex = static_cast<uint32>(TextureCount++);
 				}
-				else
-				{
-					const auto Transition = Batch(Handoff.Consumer.Index).GetBufferTransitions()[Handoff.TransitionIndex];
-					Handoff.TransitionIndex = static_cast<uint32>(Destination.GetBufferTransitions().size());
-					Destination.AddTransition(Transition);
-				}
-				Execution.Handoffs.push_back(std::move(Handoff));
+				if (Consumer != UINT32_MAX)
+					FBarrierBatchAccess::Textures(Batch(Consumer)).resize(TextureCount);
 			}
-			for (uint32 Index = 0; Index < Batches.size(); ++Index)
-				Batch(Index) = std::move(Batches[Index]);
 		}
 
 		auto AccessHasWrite(ERHIAccess Access) -> bool
@@ -964,7 +954,7 @@ namespace Durin
 					Handoff.SourceQueue = Event.SourceQueue;
 					for (uint32 Producer : RangeUsers[CellIndex])
 						if (Producer != UINT32_MAX && Producer != Handoff.Consumer.Index)
-							Handoff.Producers.push_back({Producer});
+							Handoff.ProducerStorage[Handoff.ProducerCount++] = {Producer};
 					Execution.Handoffs.push_back(std::move(Handoff));
 					if (Resource.Kind == ERDGResourceKind::Texture)
 					{
@@ -1033,9 +1023,17 @@ namespace Durin
 			{
 				Handoff.ConsumerPass = Handoff.Consumer.Index;
 				Handoff.Consumer.Index = PassToSubmission[Handoff.Consumer.Index];
-				for (auto& Producer : Handoff.Producers) Producer.Index = PassToSubmission[Producer.Index];
-				std::erase(Handoff.Producers, Handoff.Consumer);
-				Handoff.Producers.erase(std::unique(Handoff.Producers.begin(), Handoff.Producers.end()), Handoff.Producers.end());
+				uint32 Count = 0;
+				for (const auto Producer : Handoff.GetProducers())
+				{
+					const FRDGSubmissionId Mapped{PassToSubmission[Producer.Index]};
+					if (Mapped != Handoff.Consumer
+						&& (Count == 0 || Handoff.ProducerStorage[Count - 1] != Mapped))
+						Handoff.ProducerStorage[Count++] = Mapped;
+				}
+				Handoff.ProducerCount = Count;
+				for (; Count < Handoff.ProducerStorage.size(); ++Count)
+					Handoff.ProducerStorage[Count] = {};
 			}
 			Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
 			for (const auto& Edge : CompiledState->Dependencies)
@@ -1059,7 +1057,7 @@ namespace Durin
 				Tail = Batch.Id.Index;
 			}
 			for (const auto& Handoff : Execution.Handoffs)
-				for (const auto Producer : Handoff.Producers)
+				for (const auto Producer : Handoff.GetProducers())
 					if (Execution.Batches[Producer.Index].Queue != Execution.Batches[Handoff.Consumer.Index].Queue)
 						Execution.Dependencies.push_back({Producer, Handoff.Consumer,
 							ERDGDependencyKind::Execution, "resource-handoff"});

@@ -40,7 +40,7 @@ namespace Durin
 			for (const auto& Handoff : Capture.ExecutionPlan.Handoffs)
 			{
 				ASSERT_LT(Handoff.Consumer.Index, Capture.ExecutionPlan.Batches.size());
-				for (const auto Producer : Handoff.Producers)
+				for (const auto Producer : Handoff.GetProducers())
 					EXPECT_LT(Producer.Index, Handoff.Consumer.Index);
 				const auto& Batch = Capture.ExecutionPlan.Batches[Handoff.Consumer.Index];
 				if (!Batch.bEpilogue)
@@ -1228,7 +1228,7 @@ namespace Durin
 			if (Handoff.SourceQueue != ERDGQueueAssignment::AsyncCompute) continue;
 			EXPECT_EQ(Handoff.Consumer.Index, 1u);
 			EXPECT_EQ(Handoff.ConsumerPass, Builder.Capture().Resources[Handoff.ResourceId].Name == "A" ? 1u : 2u);
-			EXPECT_EQ(Handoff.Producers, (std::vector<FRDGSubmissionId>{{0}}));
+			EXPECT_TRUE(std::ranges::equal(Handoff.GetProducers(), (std::vector<FRDGSubmissionId>{{0}})));
 			++Acquires;
 		}
 		EXPECT_EQ(Acquires, 2u);
@@ -3330,6 +3330,40 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FRDGTests, TextureCompactionKeepsMixedBarrierIndicesAcrossConsumers)
+	{
+		for (const uint32 Mips : {1u, 3u})
+		{
+			FRDGBuilder Builder;
+			const auto A = CreateTestTexture(Builder, "A", MakeGraphTexture("A", Mips));
+			const auto B = CreateTestTexture(Builder, "B", MakeGraphTexture("B", Mips));
+			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
+				EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::ShaderResource)}, "Buffer");
+			for (uint32 Index = 0; Index < 3; ++Index)
+			{
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder,
+					std::to_string(Index), ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseTexture(Builder, Pass, A, WholeColor(Mips),
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64,
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				FRDGBuilderTestAccessor::UseTexture(Builder, Pass, B, WholeColor(Mips),
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			for (const auto& Pass : Builder.GetPasses())
+			{
+				ASSERT_EQ(Pass.Barriers.GetTextureTransitions().size(), 2u);
+				ASSERT_EQ(Pass.Barriers.GetBufferTransitions().size(), 1u);
+				EXPECT_EQ(Pass.Barriers.GetTextureTransitions()[0].Range, WholeColor(Mips));
+				EXPECT_EQ(Pass.Barriers.GetTextureTransitions()[1].Range, WholeColor(Mips));
+			}
+			ASSERT_EQ(Builder.GetExecutionPlan().Handoffs.size(), 9u);
+			ExpectCapturedBarriersMatchPlan(Builder);
+		}
+	}
+
 	TEST_F(FRDGTests, TextureCompactionPreservesProducerAndQueueBoundaries)
 	{
 		for (const bool bAsync : {false, true})
@@ -3359,7 +3393,7 @@ namespace Durin
 				if (Handoff.Consumer.Index != 2) continue;
 				const auto& Range = Builder.GetPasses()[2].Barriers.GetTextureTransitions()[Handoff.TransitionIndex].Range;
 				EXPECT_EQ(Range.NumArrayLayers, 1u);
-				EXPECT_EQ(Handoff.Producers, (std::vector<FRDGSubmissionId>{{Range.FirstArrayLayer}}));
+				EXPECT_TRUE(std::ranges::equal(Handoff.GetProducers(), (std::vector<FRDGSubmissionId>{{Range.FirstArrayLayer}})));
 				EXPECT_EQ(Handoff.SourceQueue, bAsync && Range.FirstArrayLayer == 1
 					? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics);
 			}
@@ -3543,7 +3577,7 @@ namespace Durin
 		const auto& Plan = Builder.GetExecutionPlan();
 		const auto Handoff = std::ranges::find_if(Plan.Handoffs, [](const auto& Item) { return Item.Consumer.Index == 4; });
 		ASSERT_NE(Handoff, Plan.Handoffs.end());
-		EXPECT_EQ(Handoff->Producers, (std::vector<FRDGSubmissionId>{{3}, {2}}));
+		EXPECT_TRUE(std::ranges::equal(Handoff->GetProducers(), (std::vector<FRDGSubmissionId>{{3}, {2}})));
 		EXPECT_TRUE(std::ranges::any_of(Plan.Dependencies, [](const auto& Edge) {
 			return Edge.Before.Index == 2 && Edge.After.Index == 4 && Edge.Cause == "resource-handoff";
 		}));
@@ -3571,9 +3605,9 @@ namespace Durin
 			if (bEnabled)
 			{
 				EXPECT_EQ(Plan.Handoffs[0].SourceQueue, ERDGQueueAssignment::Graphics);
-				EXPECT_TRUE(Plan.Handoffs[0].Producers.empty());
+				EXPECT_TRUE(Plan.Handoffs[0].GetProducers().empty());
 				EXPECT_EQ(Plan.Handoffs[1].SourceQueue, ERDGQueueAssignment::AsyncCompute);
-				EXPECT_EQ(Plan.Handoffs[1].Producers, (std::vector<FRDGSubmissionId>{{0}}));
+				EXPECT_TRUE(std::ranges::equal(Plan.Handoffs[1].GetProducers(), (std::vector<FRDGSubmissionId>{{0}})));
 				EXPECT_TRUE(Plan.Batches[Plan.Handoffs[1].Consumer.Index].bEpilogue);
 				const auto Capture = Builder.Capture();
 				ASSERT_EQ(Capture.Transitions.size(), 2u);
@@ -5342,9 +5376,8 @@ namespace Durin
 		ASSERT_EQ(Builder.GetFinalBarriers().GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Builder.GetFinalBarriers().GetTextureTransitions()[0].Range.FirstMip, 1u);
 		ASSERT_EQ(Builder.GetExecutionPlan().Handoffs.size(), 2u);
-		EXPECT_TRUE(Builder.GetExecutionPlan().Handoffs[0].Producers.empty());
-		EXPECT_EQ(Builder.GetExecutionPlan().Handoffs[1].Producers,
-			(std::vector<FRDGSubmissionId>{{0}}));
+		EXPECT_TRUE(Builder.GetExecutionPlan().Handoffs[0].GetProducers().empty());
+		EXPECT_TRUE(std::ranges::equal(Builder.GetExecutionPlan().Handoffs[1].GetProducers(), (std::vector<FRDGSubmissionId>{{0}})));
 		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 

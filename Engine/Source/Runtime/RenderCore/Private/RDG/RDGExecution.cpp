@@ -310,10 +310,10 @@ namespace Durin
 				auto Transfer = GDynamicRHI->RHICreateQueueTransfer(Desc);
 				if (!Transfer) return std::unexpected(ERDGPreparationError::QueueTransferFailed);
 				Context.Acquires[Consumer.Id.Index].push_back(Transfer);
-				const auto Producer = std::ranges::find_if(Handoff.Producers, [&](const auto Id) {
+				const auto Producer = std::ranges::find_if(Handoff.GetProducers(), [&](const auto Id) {
 					return Compiled->ExecutionPlan.Batches[Id.Index].Queue == Handoff.SourceQueue;
 				});
-				if (Producer != Handoff.Producers.end()) Context.Releases[Producer->Index].push_back(std::move(Transfer));
+				if (Producer != Handoff.GetProducers().end()) Context.Releases[Producer->Index].push_back(std::move(Transfer));
 				else
 				{
 					require(Handoff.SourceQueue == ERDGQueueAssignment::Graphics);

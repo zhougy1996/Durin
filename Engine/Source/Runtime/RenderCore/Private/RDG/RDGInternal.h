@@ -11,6 +11,12 @@
 // Private vocabulary shared by graph authoring, compilation, and execution.
 namespace Durin::RDGPrivate
 {
+	struct FBarrierBatchAccess
+	{
+		static auto Textures(FRDGBarrierBatch& Batch) -> std::vector<FRDGTextureTransition>&
+		{ return Batch.TextureTransitions; }
+	};
+
 	inline constexpr uint32 MaxUploadBatchCount = 64;
 	inline constexpr uint64 MaxUploadBatchBytes = 16ull * 1024 * 1024;
 

@@ -2,6 +2,7 @@
 
 #include "RDG/RDGAllocator.h"
 #include "RDG/RDGParameters.h"
+#include <array>
 #include <concepts>
 #include <expected>
 #include <limits>
@@ -11,6 +12,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+namespace Durin::RDGPrivate { struct FBarrierBatchAccess; }
 
 namespace Durin
 {
@@ -271,7 +274,10 @@ namespace Durin
 		uint32 TransitionIndex = 0;
 		bool bTexture = false;
 		// Latest prior use per logical queue for this exact tracked range.
-		std::vector<FRDGSubmissionId> Producers;
+		std::array<FRDGSubmissionId, 2> ProducerStorage{};
+		uint32 ProducerCount = 0;
+		auto GetProducers() const -> std::span<const FRDGSubmissionId>
+		{ return std::span(ProducerStorage).first(ProducerCount); }
 		ERDGQueueAssignment SourceQueue = ERDGQueueAssignment::Graphics;
 		// Compiled pass whose barrier owns TransitionIndex; unused for the epilogue.
 		uint32 ConsumerPass = UINT32_MAX;
@@ -363,6 +369,7 @@ namespace Durin
 		{ return TextureTransitions; }
 
 	private:
+		friend struct RDGPrivate::FBarrierBatchAccess;
 		std::vector<FRDGBufferTransition> BufferTransitions;
 		std::vector<FRDGTextureTransition> TextureTransitions;
 	};
