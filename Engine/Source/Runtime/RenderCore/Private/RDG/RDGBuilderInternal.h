@@ -46,6 +46,7 @@ namespace Durin
 			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
 			const FRDGRecordingPassExecute* RecordingExecute = nullptr;
 			ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial;
+			uint64 BufferUploadBytes = 0;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
 			// Borrows immutable declaration storage for the builder execution lifetime.

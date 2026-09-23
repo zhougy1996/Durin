@@ -381,8 +381,8 @@ namespace Durin::VulkanRHI
 		checkf(ValidationResult,
 			"Invalid Vulkan buffer copy replay: {}", ToString(ValidationResult.error()));
 #endif
-		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
-		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
+		auto* Source = FVulkanBuffer::Cast(SourceRHI);
+		auto* Destination = FVulkanBuffer::Cast(DestinationRHI);
 		std::vector<vk::BufferCopy> NativeRegions;
 		NativeRegions.reserve(Regions.size());
 		for (const auto& Region : Regions)
@@ -410,7 +410,7 @@ namespace Durin::VulkanRHI
 		checkf(ValidationResult,
 			"Invalid Vulkan buffer-to-texture replay: {}", ToString(ValidationResult.error()));
 #endif
-		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
+		auto* Source = FVulkanBuffer::Cast(SourceRHI);
 		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);
 		std::vector<vk::BufferImageCopy> NativeRegions;
 		NativeRegions.reserve(Regions.size());
@@ -451,7 +451,7 @@ namespace Durin::VulkanRHI
 			"Invalid Vulkan texture-to-buffer replay: {}", ToString(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
-		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
+		auto* Destination = FVulkanBuffer::Cast(DestinationRHI);
 		std::vector<vk::BufferImageCopy> NativeRegions;
 		NativeRegions.reserve(Regions.size());
 		for (const auto& Region : Regions)
@@ -576,7 +576,7 @@ namespace Durin::VulkanRHI
 		checkf(Offset <= InVertexBuffer->GetSize(),
 			"Bound vertex buffer offset exceeds the resource.");
 		BoundVertexBuffers[StreamIndex] = {InVertexBuffer, Offset};
-		vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(InVertexBuffer)->GetHandle();
+		vk::Buffer BufferHandle = FVulkanBuffer::Cast(InVertexBuffer)->GetHandle();
 		GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
 	}
 
@@ -605,7 +605,7 @@ namespace Durin::VulkanRHI
 			"Bound index buffer requires an aligned uint16 or uint32 format.");
 		BoundIndexBuffer = InIndexBuffer;
 		BoundIndexBufferOffset = Offset;
-		const FVulkanBuffer* IndexBuffer = static_cast<FVulkanBuffer*>(InIndexBuffer);
+		const FVulkanBuffer* IndexBuffer = FVulkanBuffer::Cast(InIndexBuffer);
 		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset,
 			DeduceIndexType(IndexBuffer->GetStride()));
 	}
@@ -615,7 +615,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		for (const auto& Transition : Transitions)
-			requiref(static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().GetOwnership().CanUse(
+			requiref(FVulkanBuffer::Cast(Transition.Buffer)->GetStateTracker().GetOwnership().CanUse(
 				Transition.Offset, Transition.Size, Queue->GetFamilyIndex()), "Buffer range is owned by another queue family or awaiting acquire.");
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
@@ -633,7 +633,7 @@ namespace Durin::VulkanRHI
 			Barriers.reserve(Transitions.size());
 			for (const FRHIBufferTransition& Transition : Transitions)
 			{
-				auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+				auto* Buffer = FVulkanBuffer::Cast(Transition.Buffer);
 				ERHIAccess Tracked = ERHIAccess::None;
 				checkf(Buffer->GetStateTracker().Validate(
 					Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
@@ -663,7 +663,7 @@ namespace Durin::VulkanRHI
 			Barriers.reserve(Transitions.size());
 			for (const FRHIBufferTransition& Transition : Transitions)
 			{
-				auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+				auto* Buffer = FVulkanBuffer::Cast(Transition.Buffer);
 				ERHIAccess Tracked = ERHIAccess::None;
 				checkf(Buffer->GetStateTracker().Validate(
 					Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
@@ -689,9 +689,9 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHIBufferTransition& Transition : Transitions)
 		{
-			require(static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().GetOwnership().Claim(
+			require(FVulkanBuffer::Cast(Transition.Buffer)->GetStateTracker().GetOwnership().Claim(
 				Transition.Offset, Transition.Size, Queue->GetFamilyIndex()));
-			static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().Apply(
+			FVulkanBuffer::Cast(Transition.Buffer)->GetStateTracker().Apply(
 				Transition.Offset, Transition.Size, Transition.RequiredAfter);
 		}
 	}
@@ -801,7 +801,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(Buffer);
-		static_cast<FVulkanBuffer*>(Buffer)->Write(*this, Offset, Data);
+		FVulkanBuffer::Cast(Buffer)->Write(*this, Offset, Data);
 	}
 
 	auto FVulkanCommandListContext::RHIUploadBuffer(
@@ -809,7 +809,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(Buffer);
-		static_cast<FVulkanBuffer*>(Buffer)->Upload(*this, Offset, Data);
+		FVulkanBuffer::Cast(Buffer)->Upload(*this, Offset, Data);
 	}
 
 	auto FVulkanCommandListContext::RHIInitializeTexture(
@@ -925,7 +925,7 @@ namespace Durin::VulkanRHI
 		FRHIUniformBufferRange Result;
 		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(Data, Size, Result),
 			"Direct context allocation requires a prepared dynamic-uniform page.");
-		auto* Buffer = static_cast<FVulkanBuffer*>(Result.Buffer);
+		auto* Buffer = FVulkanBuffer::Cast(Result.Buffer);
 		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
 		const std::array Transition{FRHIBufferTransition{
 			Buffer, Result.Offset, Result.Size, ERHIAccess::HostWrite, ERHIAccess::GraphicsUniformRead}};
@@ -941,7 +941,7 @@ namespace Durin::VulkanRHI
 		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
 		if (!Device.GetDynamicStorageBufferAllocator().TryAllocate(
 			FrameIndex, Data, Size, Result)) return {};
-		auto* Buffer = static_cast<FVulkanBuffer*>(Result.Buffer);
+		auto* Buffer = FVulkanBuffer::Cast(Result.Buffer);
 		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
 		const std::array Transition{FRHIBufferTransition{
 			Buffer, Result.Offset, Result.Size,
@@ -1052,7 +1052,7 @@ namespace Durin::VulkanRHI
 				/ Element.Stride,
 				"Draw vertex stream {} range exceeds the bound buffer.",
 				Element.StreamIndex);
-			const auto* VulkanBuffer = static_cast<const FVulkanBuffer*>(Buffer);
+			const auto* VulkanBuffer = FVulkanBuffer::Cast(Buffer);
 			const uint64 ValidationOffset = It->second.Offset
 				+ FirstElement * Element.Stride;
 			const uint64 ValidationSize = ElementCount * Element.Stride;
@@ -1089,7 +1089,7 @@ namespace Durin::VulkanRHI
 		checkf(static_cast<uint64>(Arguments.FirstIndex) + Arguments.IndexCount
 			<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
 		const auto* VulkanIndexBuffer =
-			static_cast<const FVulkanBuffer*>(BoundIndexBuffer.GetReference());
+			FVulkanBuffer::Cast(BoundIndexBuffer.GetReference());
 		const uint64 IndexValidationOffset = BoundIndexBufferOffset
 			+ static_cast<uint64>(Arguments.FirstIndex)
 				* BoundIndexBuffer->GetStride();
@@ -1254,9 +1254,9 @@ namespace Durin::VulkanRHI
 		RestorePipeline(PendingGfxState->GetPipelineState(), GraphicsPushConstants);
 		RestorePipeline(PendingComputeState->GetPipelineState(), ComputePushConstants);
 		for (const auto& [Stream, Binding] : BoundVertexBuffers)
-			Commands.bindVertexBuffers(Stream, static_cast<FVulkanBuffer*>(Binding.Buffer.GetReference())->GetHandle(), {Binding.Offset});
+			Commands.bindVertexBuffers(Stream, FVulkanBuffer::Cast(Binding.Buffer.GetReference())->GetHandle(), {Binding.Offset});
 		if (BoundIndexBuffer)
-			Commands.bindIndexBuffer(static_cast<FVulkanBuffer*>(BoundIndexBuffer.GetReference())->GetHandle(),
+			Commands.bindIndexBuffer(FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetHandle(),
 				BoundIndexBufferOffset, DeduceIndexType(BoundIndexBuffer->GetStride()));
 	}
 

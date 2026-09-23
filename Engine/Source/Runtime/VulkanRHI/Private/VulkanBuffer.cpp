@@ -88,6 +88,17 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanBuffer::InitializeDeferredReadOnly(FByteView Data) -> void
+	{
+		CheckVulkanRHIThread();
+		require(!bDeferredReadOnly && Data.size() == GetSize() && GetMappedPointer());
+		std::memcpy(GetMappedPointer(), Data.data(), Data.size());
+		FlushMappedMemory();
+		// A new immutable allocation is first read after submission; flushed host writes
+		// are made available by queue submission, including when recorded in a render pass.
+		bDeferredReadOnly = true;
+	}
+
 	FVulkanBuffer::~FVulkanBuffer()
 	{
 		CheckVulkanRHIThread();
@@ -122,6 +133,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
+		require(!bDeferredReadOnly);
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
 			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());
@@ -523,7 +535,7 @@ namespace Durin::VulkanRHI
 			return new FVulkanBuffer(*Device, NormalizedDesc);
 		});
 		if (!Result) return std::unexpected(Result.error());
-		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result->GetReference());
+		auto* CreatedBuffer = FVulkanBuffer::Cast(Result->GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{

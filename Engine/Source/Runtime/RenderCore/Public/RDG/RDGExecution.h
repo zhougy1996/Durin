@@ -37,6 +37,7 @@ namespace Durin
 		ResourceNameEmpty,
 		PhysicalResourceMissing,
 		ExternalFinalAccessMissing,
+		ExternalBufferContentModeInvalid,
 		ResourceNameDuplicate,
 		PassNameEmpty,
 		PassNameDuplicate,
@@ -272,6 +273,8 @@ namespace Durin
 		// Latest prior use per logical queue for this exact tracked range.
 		std::vector<FRDGSubmissionId> Producers;
 		ERDGQueueAssignment SourceQueue = ERDGQueueAssignment::Graphics;
+		// Compiled pass whose barrier owns TransitionIndex; unused for the epilogue.
+		uint32 ConsumerPass = UINT32_MAX;
 		auto operator==(const FRDGResourceHandoff&) const -> bool = default;
 	};
 

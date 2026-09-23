@@ -10,6 +10,7 @@
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
+#include "RHIThread.h"
 
 #include <chrono>
 #include <bit>
@@ -42,8 +43,13 @@ namespace Durin
 				for (const auto Producer : Handoff.Producers)
 					EXPECT_LT(Producer.Index, Handoff.Consumer.Index);
 				const auto& Batch = Capture.ExecutionPlan.Batches[Handoff.Consumer.Index];
+				if (!Batch.bEpilogue)
+				{
+					ASSERT_GE(Handoff.ConsumerPass, Batch.FirstPass);
+					ASSERT_LT(Handoff.ConsumerPass, Batch.FirstPass + Batch.NumPasses);
+				}
 				const auto& Barriers = Batch.bEpilogue ? Builder.GetFinalBarriers()
-					: Builder.GetPasses()[Batch.FirstPass].Barriers;
+					: Builder.GetPasses()[Handoff.ConsumerPass].Barriers;
 				if (Handoff.bTexture)
 				{
 					ASSERT_LT(Handoff.TransitionIndex, Barriers.GetTextureTransitions().size());
@@ -1076,6 +1082,117 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[0].BufferSize, 4u);
 		EXPECT_EQ(Capture.Uses[1].BufferOffset, 8u);
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
+	}
+
+	TEST_F(FRDGTests, QueuedUploadsBatchWithinBoundsAndOwnReplayData)
+	{
+		const std::array<std::vector<uint32>, 3> Cases{
+			std::vector<uint32>{16, 16, 16}, std::vector<uint32>(65, 16),
+			std::vector<uint32>{9 * 1024 * 1024, 8 * 1024 * 1024}};
+		for (const bool bThreaded : {false, true})
+		for (size_t Case = 0; Case < Cases.size(); ++Case)
+		{
+			SCOPED_TRACE(std::format("threaded={} case={}", bThreaded, Case));
+			FUploadRecordingContext Context;
+			FRHIThread Thread;
+			if (bThreaded) ASSERT_TRUE(Thread.Start());
+			auto Executor = bThreaded
+				? std::make_unique<FRHICommandListExecutor>(Context, Thread)
+				: std::make_unique<FRHICommandListExecutor>(Context);
+			{
+				FTestRDGAllocator Allocator;
+				FRDGBuilder Builder;
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+					*std::ranges::max_element(Cases[Case]), 4, EBufferUsageFlags::DestinationCopy)}, "BatchTarget");
+				for (size_t Index = 0; Index < Cases[Case].size(); ++Index)
+					Builder.QueueBufferUploadOwned(Buffer, 0,
+						FByteBuffer(Cases[Case][Index], static_cast<std::byte>(Index + 1)));
+				const auto Result = Builder.Execute(Executor->GetImmediateCommandList(), &Allocator);
+				ASSERT_TRUE(Result) << ToString(Result.error());
+				EXPECT_EQ(Builder.Capture().Passes.size(), Cases[Case].size());
+				EXPECT_EQ(Executor->GetStats().PendingBatchCount, Case == 0 ? 1u : 2u);
+				EXPECT_TRUE(Context.Uploads.empty());
+			}
+			// Graph source owners are gone before replay, including overlapping updates.
+			Executor->Submit({}, ERHISubmitFlags::None);
+			Executor->CreateFence().Wait();
+			ASSERT_EQ(Context.Uploads.size(), Cases[Case].size());
+			for (size_t Index = 0; Index < Context.Uploads.size(); ++Index)
+			{
+				EXPECT_EQ(Context.Uploads[Index].Data.size(), Cases[Case][Index]);
+				EXPECT_TRUE(std::ranges::all_of(Context.Uploads[Index].Data,
+					[Index](std::byte Value) { return Value == static_cast<std::byte>(Index + 1); }));
+			}
+		}
+	}
+
+	TEST_F(FRDGTests, QueuedUploadBatchingPreservesCullingAndInterveningCallbacks)
+	{
+		FUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(16, 4, EBufferUsageFlags::DestinationCopy)};
+		const auto Live = Builder.CreateBuffer(Desc, "Live");
+		const auto Dead = Builder.CreateBuffer(Desc, "Dead");
+		const auto First = Builder.QueueBufferUploadOwned(Live, 0, FByteBuffer(16, std::byte{1}));
+		Builder.QueueBufferUploadOwned(Dead, 0, FByteBuffer(16, std::byte{99}));
+		size_t ObservedUploads = 0;
+		const auto Observe = FRDGBuilderTestAccessor::AddPass(Builder, "Observe", ERDGPassType::Copy,
+			[&](FRHICommandListImmediate& Commands, const FRDGPassResources&) {
+				Commands.EnqueueLambda([&] { ObservedUploads = Context.Uploads.size(); });
+			});
+		const auto Second = Builder.QueueBufferUploadOwned(Live, 0, FByteBuffer(16, std::byte{2}));
+		const auto Third = Builder.QueueBufferUploadOwned(Live, 0, FByteBuffer(16, std::byte{3}));
+		EXPECT_NE(First, Second);
+		EXPECT_NE(Second, Third);
+		Builder.AddPassDependency(First, Observe);
+		Builder.AddPassDependency(Observe, Second);
+		Builder.MarkPassRoot(First);
+		Builder.MarkPassRoot(Second);
+		Builder.MarkPassRoot(Third);
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result) << ToString(Result.error());
+		EXPECT_EQ(Executor.GetStats().PendingBatchCount, 3u);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(ObservedUploads, 1u);
+		ASSERT_EQ(Context.Uploads.size(), 3u);
+		for (size_t Index = 0; Index < 3; ++Index)
+			EXPECT_EQ(Context.Uploads[Index].Data.front(), static_cast<std::byte>(Index + 1));
+	}
+
+	TEST_F(FRDGTests, QueuedUploadBatchesKeepExactCrossQueueHandoffs)
+	{
+		FRDGBuilder Builder;
+		Builder.SetAsyncComputeEnabled(true);
+		const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(16, 4,
+			EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::DestinationCopy)};
+		const auto A = Builder.CreateBuffer(Desc, "A");
+		const auto B = Builder.CreateBuffer(Desc, "B");
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder, "ComputeProducer", ERDGPassType::Compute);
+		Builder.SetPassAsyncComputeEligible(Producer);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Producer, A, 0, 16, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Producer, B, 0, 16, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite);
+		Builder.QueueBufferUploadOwned(A, 0, FByteBuffer(16));
+		Builder.QueueBufferUploadOwned(B, 0, FByteBuffer(16));
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result) << ToString(Result.error());
+		const auto& Plan = Builder.GetExecutionPlan();
+		ASSERT_EQ(Plan.Batches.size(), 3u);
+		EXPECT_EQ(Plan.Batches[1].NumPasses, 2u);
+		size_t Acquires = 0;
+		for (const auto& Handoff : Plan.Handoffs)
+		{
+			if (Handoff.SourceQueue != ERDGQueueAssignment::AsyncCompute) continue;
+			EXPECT_EQ(Handoff.Consumer.Index, 1u);
+			EXPECT_EQ(Handoff.ConsumerPass, Builder.Capture().Resources[Handoff.ResourceId].Name == "A" ? 1u : 2u);
+			EXPECT_EQ(Handoff.Producers, (std::vector<FRDGSubmissionId>{{0}}));
+			++Acquires;
+		}
+		EXPECT_EQ(Acquires, 2u);
+		for (const auto& Edge : Plan.Dependencies) EXPECT_LT(Edge.Before.Index, Edge.After.Index);
+		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 
 	TEST_F(FRDGTests, QueuedBufferUploadRejectsOutOfRangeData)
@@ -3488,6 +3605,21 @@ namespace Durin
 		EXPECT_EQ(Builder.GetCullingDecisions()[0].Reason, "value dependency");
 		EXPECT_EQ(Builder.GetCullingDecisions()[1].Reason, "present");
 		EXPECT_TRUE(Builder.GetCullingDecisions()[2].bCulled);
+	}
+
+	TEST_F(FRDGTests, RejectsCPUAuthoredExternalBuffersBeforeRecording)
+	{
+		FRHICommandList Commands;
+		auto Buffer = Commands.TryCreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16));
+		ASSERT_TRUE(Buffer);
+		FRDGBuilder Builder;
+		Builder.RegisterExternalBuffer(*Buffer, "CPUAuthored", ERHIAccess::ComputeShaderRead,
+			ERHIAccess::ComputeShaderRead);
+		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_FALSE(Result);
+		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGIdentityError::ExternalBufferContentModeInvalid));
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 
 	TEST_F(FRDGTests, CanonicalizesEquivalentExternalIdentity)

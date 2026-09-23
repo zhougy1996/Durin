@@ -73,8 +73,8 @@ namespace Durin
 		uint32 Size = 0;
 	};
 
-	// Canonical resource views resolved before recording and retained for every
-	// command that references this immutable batch. Creation is fallible.
+	// Counted physical or logical views retained by an immutable batch. Logical
+	// views choose their content version at draw/dispatch replay. Creation is fallible.
 	class FRHIShaderParameterBatch final
 	{
 	public:

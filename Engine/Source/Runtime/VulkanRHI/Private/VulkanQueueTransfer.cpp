@@ -91,6 +91,7 @@ namespace Durin::VulkanRHI
 	{
 		require(Source != Destination && Device.FindQueue(Source) && Device.FindQueue(Destination));
 		require(!Buffers.empty() || !Textures.empty());
+		for (const auto& Transition : Buffers) require(!IsCPUAuthoredBuffer(Transition.Buffer));
 		const auto BufferResult = ValidateBufferTransitions(Buffers);
 		requiref(BufferResult, "{}", ToString(BufferResult.error()));
 		const auto TextureResult = ValidateTextureTransitions(Textures);
@@ -133,7 +134,7 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < State->Buffers.size(); ++Index)
 		{
 			const auto& Transition = State->Buffers[Index];
-			auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+			auto* Buffer = FVulkanBuffer::Cast(Transition.Buffer);
 			auto& Candidate = BufferStates.try_emplace(Buffer, Buffer->GetStateTracker()).first->second;
 			ERHIAccess Tracked;
 			require(Candidate.Validate(Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked));
@@ -193,7 +194,7 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < State->Buffers.size(); ++Index)
 		{
 			const auto& Transition = State->Buffers[Index];
-			auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+			auto* Buffer = FVulkanBuffer::Cast(Transition.Buffer);
 			auto& Candidate = BufferStates.try_emplace(Buffer, Buffer->GetStateTracker()).first->second;
 			require(Candidate.GetOwnership().Acquire(Transition.Offset, Transition.Size, SourceFamily, DestinationFamily, State->BufferIds[Index]));
 			Candidate.Apply(Transition.Offset, Transition.Size, Transition.RequiredAfter);

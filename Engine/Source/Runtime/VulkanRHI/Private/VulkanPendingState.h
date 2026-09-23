@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIShaderParameters.h"
+#include "VulkanDeferredBuffer.h"
 
 namespace Durin::VulkanRHI
 {
@@ -21,7 +22,7 @@ namespace Durin::VulkanRHI
 		auto SetComputePipelineState(FVulkanComputePipelineState& InPipelineState,
 			vk::CommandBuffer InCmdBuffer) -> void;
 		auto SetShaderParameters(FRHIShader* InShader,
-			std::span<const FRHIShaderParameterResource> InResourceParameters) -> void;
+			std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingDeferred = false) -> void;
 		auto PushConstants(FVulkanCommandListContext& InContext,
 			EShaderStageFlags StageFlags, uint32 Offset, uint32 Size,
 			const void* Data) -> void;
@@ -40,6 +41,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 		FVulkanComputePipelineState* CurrentPipelineState = nullptr;
 		std::vector<FRHIShaderParameterResource> PendingResources;
+		FVulkanDeferredBufferBindings DeferredBindings;
 		std::vector<TRefCountPtr<FRHIResource>> PendingOwners;
 		std::vector<FRHIShaderParameterResource> CachedResources;
 		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
@@ -61,7 +63,8 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGraphicsPipelineDescriptorState() { Reset(); }
 
-		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void;
+		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingDeferred = false) -> void;
+		auto ResolveDeferredBuffers(FVulkanDevice& Device, FVulkanCommandListContext& Context) -> void;
 
 		auto GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw;
 
@@ -89,6 +92,7 @@ namespace Durin::VulkanRHI
 		};
 
 		std::vector<FRHIShaderParameterResource> PendingShaderResources;
+		FVulkanDeferredBufferBindings DeferredBindings;
 		bool bPendingResourcesSorted = true;
 		bool bStructureValidated = false;
 		std::vector<size_t> DrawValidationResourceIndices;

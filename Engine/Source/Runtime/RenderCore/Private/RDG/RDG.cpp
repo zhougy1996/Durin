@@ -397,6 +397,14 @@ namespace Durin
 		ERHIAccess FinalAccess) -> FRDGBufferHandle
 	{
 		RequireBuilding();
+		if (IsCPUAuthoredBuffer(Buffer))
+		{
+			State->DeclarationErrors.push_back(FRDGIdentityError{
+				ERDGIdentityError::ExternalBufferContentModeInvalid,
+				FRDGIdentityErrorContext{.Name = std::string(Name)}});
+			return {};
+		}
+
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERDGResourceKind::Buffer;
@@ -504,7 +512,8 @@ namespace Durin
 		auto Parameters = AllocParameters<FBufferUploadParameters>();
 		Parameters->Buffer = {Buffer, Offset, Data.size()};
 		const std::string Name = "BufferUpload_" + std::to_string(State->Passes.size());
-		return AddRecordingPass(Name, ERDGPassType::Copy,
+		const uint64 UploadBytes = Data.size();
+		const auto Pass = AddRecordingPass(Name, ERDGPassType::Copy,
 			std::move(Parameters),
 			[Data = std::move(Data)](FRHICommandList& Commands,
 				const FBufferUploadParameters& Params,
@@ -512,6 +521,9 @@ namespace Durin
 				Commands.UploadBuffer(Resolver.GetBuffer(Params.Buffer),
 					static_cast<uint32>(Params.Buffer.Offset), Data);
 			});
+		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
+			State->Passes[Pass.Index].BufferUploadBytes = UploadBytes;
+		return Pass;
 	}
 
 	auto FRDGBuilder::CreateStructuredBuffer(std::string_view Name,

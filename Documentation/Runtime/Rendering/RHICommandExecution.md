@@ -179,8 +179,11 @@ Immediate flush behavior is explicit:
 Buffer and texture uploads are recorded and own their source bytes.
 `UploadBuffer` records an owned byte snapshot like `WriteBuffer`, but leaves
 the written range in `TransferWrite` for a graph-managed next barrier.
-`WriteBuffer` keeps its canonical-access restoration contract. Operations
-that must return a completed result—buffer lock scopes, texture readback,
+`WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
+locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
+provide native mappings. CPU-authored buffers use `TryUpdateUniformBuffer` or
+`TryUpdateBuffer` instead of the native write/upload/lock surfaces. Operations
+that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
 They first complete required earlier recorded work and execute backend mutation
@@ -220,6 +223,14 @@ vertex-declaration factories must otherwise publish a complete resource; a
 non-null wrapper with an invalid native handle or allocation is forbidden.
 Partially built native candidates clean up immediately on the RHI thread, and a
 later caller-defined or Renderer-generation retry may create a fresh candidate.
+
+These readiness postconditions apply to native factories. The ordinary
+`TryCreateUniformBuffer` and `TryCreateStorageBuffer` command-list APIs instead
+return admitted CPU-authored resource identities with owned initial contents;
+their native backing is resolved during consuming replay. They report input
+or payload-admission errors before recording. Native allocation failure after
+admission follows terminal replay failure, not a recoverable native-factory
+result. See [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
 
 Graphics-pipeline initialization owns complete portable rasterizer,
 multisample, depth/stencil, per-active-attachment blend/write-mask, structural

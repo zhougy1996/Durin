@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -17,6 +18,10 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
+	class FRHIUniformBuffer;
+	class FRHICommandListBase;
+	class FRHIDeferredBufferSnapshot;
+	class FRHIDeferredBufferBackend;
 	class FRHITextureView;
 	class FDynamicRHI;
 	struct FRHICapabilities;
@@ -1826,7 +1831,23 @@ namespace Durin
 		const char* DebugName = nullptr;
 	};
 
-	// Represents a backend buffer while retaining its immutable creation descriptor.
+	// CPU-authored resources expose immutable content versions, never native handles.
+	enum class ERHIBufferContentMode : uint8 { Native, CPUAuthored };
+	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
+	enum class ERHIBufferUploadError : uint8
+	{
+		InvalidDescriptor, InvalidRange, InvalidUsage, PayloadBudgetExceeded
+	};
+	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
+	struct FRHIBufferUploadStats
+	{
+		uint64 LiveBytes = 0;
+		uint64 PeakBytes = 0;
+		uint64 RejectedCount = 0;
+	};
+	RHI_API auto GetBufferUploadStats() -> FRHIBufferUploadStats;
+
+	// Stable buffer identity; CPU-authored backing is resolved only during replay.
 	class FRHIBuffer : public FRHIResource
 	{
 	public:
@@ -1837,6 +1858,8 @@ namespace Durin
 		}
 
 		auto GetDesc() const -> FRHIBufferDesc const& { return Desc; }
+		auto GetContentMode() const -> ERHIBufferContentMode { return ContentMode; }
+		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
 
 		/** @return The number of bytes in the buffer. */
 		auto GetSize() const -> uint32 { return Desc.Size; }
@@ -1848,8 +1871,37 @@ namespace Durin
 		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
 
 	protected:
+		RHI_API FRHIBuffer(const FRHIBufferDesc& InDesc, ERHIBufferLifetimeUsage InUsage,
+			std::shared_ptr<const FRHIDeferredBufferSnapshot> Initial);
 		FRHIBufferDesc Desc;
+	private:
+		friend class FRHICommandListBase;
+		friend class FRHIDeferredBufferBackend;
+		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIDeferredBufferSnapshot> Next,
+			uint32 Offset, uint32 Size) -> void;
+		const ERHIBufferContentMode ContentMode = ERHIBufferContentMode::Native;
+		const ERHIBufferLifetimeUsage LifetimeUsage = ERHIBufferLifetimeUsage::MultiFrame;
+		// Initial publication is immutable; subsequent access is replay-only.
+		std::shared_ptr<const FRHIDeferredBufferSnapshot> Current;
 	};
+
+	class FRHIUniformBuffer final : public FRHIBuffer
+	{
+	public:
+		auto GetLayout() const -> const FRHIUniformBufferLayout& { return Layout; }
+	private:
+		friend class FRHICommandListBase;
+		FRHIUniformBuffer(const FRHIUniformBufferLayout& InLayout, ERHIBufferLifetimeUsage Usage,
+			std::shared_ptr<const FRHIDeferredBufferSnapshot> Initial)
+			: FRHIBuffer({InLayout.ConstantBufferSize, 0, EBufferUsageFlags::UniformBuffer},
+				Usage, std::move(Initial)), Layout(InLayout) {}
+		const FRHIUniformBufferLayout Layout;
+	};
+
+	inline auto IsCPUAuthoredBuffer(const FRHIBuffer* Buffer) -> bool
+	{
+		return Buffer && Buffer->GetContentMode() == ERHIBufferContentMode::CPUAuthored;
+	}
 
 	// Selects the shader-visible interpretation of one immutable buffer range.
 	enum class ERHIBufferViewType : uint8
@@ -1906,6 +1958,8 @@ namespace Durin
 	class FRHIBufferView : public FRHIResource
 	{
 	public:
+		RHI_API static auto TryCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
+			-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
 		FRHIBufferView(FRHIBuffer* InBuffer, const FRHIBufferViewDesc& InDesc)
 			: FRHIResource(ERHIResourceType::BufferView), Buffer(InBuffer), Desc(InDesc)
 		{
@@ -1918,6 +1972,16 @@ namespace Durin
 		TRefCountPtr<FRHIBuffer> Buffer;
 		FRHIBufferViewDesc Desc;
 	};
+
+	inline auto IsCPUAuthoredBufferResource(const FRHIResource* Resource) -> bool
+	{
+		if (!Resource) return false;
+		if (Resource->GetResourceType() == ERHIResourceType::Buffer)
+			return IsCPUAuthoredBuffer(static_cast<const FRHIBuffer*>(Resource));
+		if (Resource->GetResourceType() == ERHIResourceType::BufferView)
+			return IsCPUAuthoredBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
+		return false;
+	}
 
 	// Retains a texture allocation together with one validated immutable subresource identity.
 	class FRHITextureView : public FRHIResource
@@ -1997,6 +2061,9 @@ namespace Durin
 
 	RHI_API auto ValidateBufferViewDesc(
 		const FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>;
+	RHI_API auto ValidateBufferViewDesc(
+		const FRHIBufferDesc& Buffer,
 		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>;
 	RHI_API auto ValidateTextureViewDesc(
 		const FRHITexture* Texture,

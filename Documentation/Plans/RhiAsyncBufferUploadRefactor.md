@@ -1,6 +1,6 @@
 # RHI Asynchronous Buffer Upload Refactor Plan
 
-Summary: Decouple uniform and storage uploads from render-thread frame-slot waits, introduce deferred logical buffer operations, and remove unconditional frame-start RHI synchronization while preserving completion-based reclamation.
+Summary: Decouple uniform and storage uploads from render-thread frame-slot waits through purpose-based RHI resources with internal deferred backing, and remove unconditional frame-start RHI synchronization while preserving completion-based reclamation.
 
 Last reviewed: 2026-09-23
 
@@ -9,14 +9,29 @@ Completed:
 
 ## Current Status
 
-Stage 0 inventory, interface decisions, and pre-refactor runtime baseline are
-recorded below. RHI replay and Vulkan frame-slot, queue-poll,
-descriptor-preparation, storage-reset, upload-overflow, and presentation scopes
-have distinct CPU profile zones. Stage 1 implementation has begun with an
-owned, graph-specific RHI buffer upload and RDG queued upload passes. Logical
-deferred buffers, backend version allocation, consumer migration, and removal
-of the frame-start wait remain pending. No asynchronous frame-start path or
-performance improvement is claimed yet.
+Stage 0 inventory, revised interface decisions, and pre-refactor runtime
+baseline are recorded below. Stage 1 now uses `FRHIUniformBuffer` and ordinary
+`FRHIBuffer`/`FRHIBufferView` for CPU-authored contents, with private snapshots,
+replay-ordered versions, and immutable Vulkan backing. The intermediate public
+`FRHIDeferredBuffer` family, dedicated shader macros, and reflection flag have
+been removed. Existing ordinary ranges/macros serve both native and
+CPU-authored resources; native-only operations enforce content-mode boundaries.
+Owned graph uploads retain the native graph-resource path.
+
+The 2026-09-23 convergence checkpoint passed a Debug `all` build for the
+workspace and all 21 targets selected by `test affected --report`, including
+Vulkan integration and migrated lifetime/order/binding tests. The two new
+native-operation and graph-import rejection cases also passed independently.
+Stage 1 is complete. Compatible queued uploads now share bounded submission
+batches and command lists while retaining per-pass barriers and exact handoff
+locations. The batching checkpoint passed a fresh Debug `all` build and all
+seven targets selected by `test affected --report`, including Vulkan integration.
+Its three new contract cases also passed independently. Pooled backend
+allocation, complete pressure accounting/control, production consumer
+migration, and removal of the frame-start wait remain pending. No asynchronous
+frame-start path or performance improvement is claimed yet. RHI replay and
+Vulkan frame-slot, queue-poll, descriptor-preparation, storage-reset,
+upload-overflow, and presentation scopes retain their distinct CPU profile zones.
 The prior checkpoint passed a Release `all` build, Debug
 `VulkanRHIIntegrationTests` (103/103), `RHICommandListTests` (95/95), and
 changed-document validation. Current validation appears under Stage 1.
@@ -116,45 +131,74 @@ unconditional RHI serial waits, and the fixture must demonstrate recording
 frame N+1 while RHI frame N remains delayed. FIFO median frame interval must
 stay at or below 17.5 ms and p95 at or below 20 ms on this host; queue limits
 must bound frame count and payload bytes, with pressure waits and memory
-high-water reported separately. A later upload or end-frame wait that simply
-replaces the old 14–16 ms frame-slot wait does not pass. The controlled fixture
-must show useful CPU/RHI overlap; correctness and memory limits remain hard
+high-water reported separately. An unconditional serial dependency moved to
+upload or EndFrame does not pass; backpressure at a reached queue limit is
+allowed when useful overlap and the timing budgets are demonstrated. The
+controlled fixture must show useful CPU/RHI overlap; correctness and memory limits remain hard
 gates even if these timing budgets pass.
 
 ### Stage 0 Interface and Ownership Contract
 
-The new front-end resource is `FRHIDeferredBuffer`, a counted `FRHIResource`
-distinct from native `FRHIBuffer`. It stores an immutable `FRHIBufferDesc` and
-`ERHIDeferredBufferUsage` (`SingleDraw`, `SingleFrame`, `MultiFrame`). Its public
-`FRHIDeferredBufferRange` has a logical buffer pointer, byte offset, and byte
-size; no backend page index or mapped pointer escapes. The shader parameter
-resolver accepts that range for uniform and storage bindings alongside the
-legacy physical range types during migration, then removes the legacy path.
-Explicit deferred views own a deferred buffer and an existing
-`FRHIBufferViewDesc`; creating a logical view performs descriptor validation
-without native creation. A Vulkan descriptor is materialized during ordered
-replay and keyed by the resolved backing version and allocation generation.
+Decision revision (2026-09-23): expose resource purpose, not execution timing.
+The previous separate deferred buffer/range/view family reduced initial
+migration risk but would make callers choose two resource hierarchies for the
+same shader uses. Converge now, before pooled allocation and consumer rollout,
+while preserving the implemented snapshot, replay ordering, and lease machinery.
+This is a resource-contract change, not a rename or a claim of UE API parity.
 
-The following signatures are fixed for implementation; `FByteView` is copied
-by default and `References` is a span of resource pointers copied into counted
-ownership, separate from the raw constant bytes:
+The selected public model is:
+
+| Resource or operation | Target contract |
+| --- | --- |
+| `FRHIUniformBuffer` | New counted uniform resource with immutable size/layout metadata, owned constant bytes and retained resource sidecars; ordinary create/update/bind requires no synchronous native allocation response. |
+| `FRHIBuffer` | Stable ordinary buffer identity, including CPU-authored storage and existing persistent/GPU-written/readback uses. Creation descriptors and operation capabilities distinguish supported access, not a separate public deferred type. |
+| Buffer ranges and `FRHIBufferView` | Logical byte ranges and interpretations of a resource. Native views resolve against the replay-visible backing version; allocator page offsets and mapped pointers stay internal. Uniform binding uses the uniform resource interface. |
+| Backend backing and snapshots | Internal allocation/version/lease state; a resource object need not imply native readiness on the ordinary queued upload path. |
+| Synchronous native operations | Explicit contracts remain for fallible native creation, mapping, readback, and requested waits. They must not silently become deferred or enter the ordinary upload path. |
+
+The revised Stage 0 signatures below are frozen for Stage 1. `FByteView` is
+copied before return and `References` is copied into counted ownership, separate
+from the raw constant bytes. `FRHIUniformBuffer` is a final subclass of
+`FRHIBuffer`; both share private snapshot/version state rather than wrapping a
+second public resource object. Its constructor is factory-only. Uniform layout
+is an immutable value containing `ConstantBufferSize`, a nonzero multiple of
+16. It does not embed the shader's resource table: existing shader reflection
+owns binding compatibility, and sidecars remain lifetime-only references.
+
+`FRHIBuffer` has immutable `ERHIBufferContentMode` (`Native`, `CPUAuthored`)
+and a `GetContentMode()` query. Existing backend constructors select `Native`;
+the new CPU-authored factories select `CPUAuthored`. This is an access contract,
+not a mutable readiness flag: materializing a version never changes it.
+`FRHIUniformBuffer::GetLayout()` returns the immutable layout and both new
+resource forms expose `GetLifetimeUsage()`. `SingleDraw`, `SingleFrame`, and
+`MultiFrame` are allocation hints, never readiness or lifetime guarantees.
+Native resources do not participate in CPU snapshot versioning.
 
 ```cpp
-enum class ERHIDeferredBufferUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
-enum class ERHIDeferredBufferError : uint8 {
+enum class ERHIBufferContentMode : uint8 { Native, CPUAuthored };
+enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
+enum class ERHIBufferUploadError : uint8 {
     InvalidDescriptor, InvalidRange, InvalidUsage, PayloadBudgetExceeded
 };
-auto FRHICommandListBase::TryCreateDeferredBuffer(
-    const FRHIBufferDesc& Desc, ERHIDeferredBufferUsage Usage,
+struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
+
+auto FRHICommandListBase::TryCreateUniformBuffer(
+    const FRHIUniformBufferLayout& Layout, ERHIBufferLifetimeUsage Usage,
     FByteView InitialData, std::span<FRHIResource* const> References = {})
-    -> std::expected<TRefCountPtr<FRHIDeferredBuffer>, ERHIDeferredBufferError>;
-auto FRHICommandListBase::TryUpdateDeferredBuffer(
-    FRHIDeferredBuffer* Buffer, uint32 Offset, FByteView Data,
+    -> std::expected<TRefCountPtr<FRHIUniformBuffer>, ERHIBufferUploadError>;
+auto FRHICommandListBase::TryCreateStorageBuffer(
+    const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage, FByteView InitialData)
+    -> std::expected<TRefCountPtr<FRHIBuffer>, ERHIBufferUploadError>;
+auto FRHICommandListBase::TryUpdateUniformBuffer(
+    FRHIUniformBuffer* Buffer, FByteView Data,
     std::span<FRHIResource* const> References = {})
-    -> std::expected<void, ERHIDeferredBufferError>;
-auto FRHICommandListBase::TryCreateDeferredBufferView(
-    FRHIDeferredBuffer* Buffer, const FRHIBufferViewDesc& Desc)
-    -> std::expected<TRefCountPtr<FRHIDeferredBufferView>, ERHIDeferredBufferError>;
+    -> std::expected<void, ERHIBufferUploadError>;
+auto FRHICommandListBase::TryUpdateBuffer(
+    FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+    -> std::expected<void, ERHIBufferUploadError>;
+auto FRHICommandListBase::TryCreateBufferView(
+    FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
+    -> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
 auto FRDGBuilder::QueueBufferUpload(
     FRDGBufferHandle Buffer, uint32 Offset, FByteView Data) -> FRDGPassHandle;
 auto FRDGBuilder::QueueBufferUploadOwned(
@@ -171,13 +215,41 @@ auto FRHICommandListBase::UploadBuffer(
     FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
 ```
 
-`TryCreateDeferredBuffer` returns a usable logical reference after validation
+The new command-list view helper accepts CPU-authored parents only; native
+parents return `InvalidUsage`. Existing fallible `RHICreateBufferView` and
+`RHIGetOrCreateBufferView` retain their native-readiness contract and reject
+CPU-authored parents before backend work. The shader recorder chooses the
+appropriate path by content mode; callers bind the same `FRHIBufferView` type.
+Logical view validation uses published device limits without an RHI round trip.
+This keeps native allocation failure out of `ERHIBufferUploadError` and prevents
+the ordinary queued path from acquiring a hidden synchronous view-cache miss.
+
+Ordinary queued uniform and CPU-authored storage creation returns a usable
+resource reference after validation
 and CPU-payload admission, never a claim of native readiness. Initial bytes and
 references live in the logical object until first backend use. Any command
 list may be the first consumer: that replay operation materializes initialization
 before use, independent of which list created the object. Updates are copied
 and ordered by accepted RHI command replay, including across command lists.
 Inline replay runs the identical operations in the same order.
+
+Initialization covers the entire nonempty buffer. The uniform factory derives
+`FRHIBufferDesc` from the layout with stride zero and `UniformBuffer` usage.
+The storage factory accepts exactly one of structured (nonzero stride dividing
+size) or byte-address storage (stride four, size multiple of four), optionally
+with `ShaderResource`; other flags are rejected. `TryUpdateBuffer` accepts only
+CPU-authored storage; uniform and native parents return `InvalidUsage`.
+Uniform updates
+require offset zero and the full size. Versioned CPU-authored storage is
+read-only on the GPU; GPU-written buffers retain their existing update/state
+semantics within `FRHIBuffer`. These restrictions apply to the CPU-versioned
+creation mode, not every ordinary buffer. Usage values are allocation hints,
+not lifetime limits. Uniform references are lifetime-only resource sidecars
+replaced with each complete update. Preserve the existing restriction to
+native-backed sidecars and reject versioned-resource sidecars to prevent
+reference cycles; type unification must not accidentally broaden admission.
+Storage accepts no sidecar references. These restrictions make partial storage versioning
+well-defined without reconstructing GPU-written contents.
 
 Every accepted update creates a content version. Uniform updates replace the
 whole contents; storage uploads may name an exact subrange and must preserve
@@ -191,9 +263,11 @@ invalidate that binding at the next draw/dispatch. Cross-queue consumers retain
 the exact queue-qualified prerequisites. No-copy APIs are deferred until their
 ownership through RHI replay can be proved.
 
-Existing `WriteBuffer`, `UpdateUniformBuffer`, synchronous `RHITryCreateBuffer`,
-and explicit physical-view factories remain for persistent, GPU-written, and
-readback resources. `WriteBuffer` already owns bytes and remains the general
+Existing `WriteBuffer`, synchronous `RHITryCreateBuffer`, mapping/readback,
+and explicit native-view readiness contracts remain for resources requiring
+them. Migrate uniform updates from the current `FRHIBuffer*` overload to the
+uniform resource API; compatibility overloads are temporary. `WriteBuffer`
+already owns bytes and remains the general
 upload command for such resources. The new RDG helpers declare an exact
 `TransferWrite` graph use, copy or move their CPU source into graph-owned
 storage, and record `UploadBuffer` into an RHI command. Unlike `WriteBuffer`,
@@ -202,10 +276,63 @@ declared barrier sees the actual backend state. After the command copies the
 bytes, graph destruction may release its source. Graph cancellation drops
 unconsumed source owners.
 
+### Stage 0 Revised Binding and Native-Access Audit (2026-09-23)
+
+Keep `FRHIUniformBufferRange` and `FRHIStorageBufferRange` as the existing
+`FRHIBuffer*`, byte-offset, byte-size values. A new uniform resource upcasts
+through the ordinary range; the pointer identifies a resource, not an arena
+allocation. Creation/update remains typed through `FRHIUniformBuffer`.
+Ranges never expose backend page placement. Exact subranges and dynamic
+uniform offsets keep their current alignment and bounds rules; complete
+uniform updates still replace the whole parent. Native uniform ranges remain
+usable for explicitly native workflows during and after producer migration.
+
+Use the existing uniform/storage shader macros, including arrays, optional
+members, and dynamic uniform bindings. Remove `bDeferredBuffer` from reflection
+metadata and the `DURIN_SHADER_PARAMETER_DEFERRED_*` macros after migrating
+their current tests. Representation no longer depends on execution timing.
+Prepared batches retain ordinary logical views; Vulkan resolves CPU-authored
+parents before any descriptor write/native cast and rechecks versions at each
+draw/dispatch. Resolving a view never mutates its immutable parent/description.
+Native descriptor cache keys retain backing version and allocation generation.
+
+The pre-convergence audit covered the source and test roots of Engine, Sandbox,
+and RoadWeaver. Only Engine named the intermediate deferred family or the
+legacy dynamic allocation/range APIs. The concrete migration and rejection boundaries
+are:
+
+| Audited surface | Required implementation action |
+| --- | --- |
+| `RHIResources.h`, `RHIDeferredBuffer.h`, `RHIDeferredBuffer.cpp`, `RHIDeferredBufferBackend.h` | Move public resource identity to ordinary buffers/views; retain snapshots, ordered partial merges, budgets, and backend leases privately. Replace deferred resource-kind checks in sidecar validation with content-mode checks on buffers and view parents, rejecting all CPU-authored sidecars. |
+| `RHICommandList.cpp` parameter canonicalization; `Shader.h`, `ShaderParameters.cpp`, `RHIShaderParameters.h` | Route ordinary ranges/views by parent mode, retain source resources through replay, and migrate typed metadata and prepared-batch tests together. No native factory or snapshot selection during CPU-authored binding recording. |
+| `VulkanDeferredBuffer.cpp`, `VulkanPendingState.cpp` | Resolve ordinary CPU-authored views to immutable native versions before native descriptor lowering. Preserve update-after-bind invalidation, queue-context backing separation, and exact submission leases. |
+| `VulkanContext.cpp`, `VulkanQueueTransfer.cpp` | Validate native mode before buffer downcasts in copy, transition/ownership, vertex/index binding, upload, and resumed binding paths. CPU-authored resources have no public GPU write/transfer/state-transition capability in this plan. |
+| `VulkanView.cpp`, `VulkanTexture.cpp` native view factories/cache | Reject CPU-authored parents before native view construction or cache lookup. Generic logical views must never be cast directly to `FVulkanBufferView`. Backend-created snapshot backing remains native and can use these factories. |
+| `RHICommandList.cpp`, `DynamicRHI.cpp` write/upload/lock | Preserve native `WriteBuffer`, graph `UploadBuffer`, and existing write-only CPU lock staging. Reject CPU-authored parents at the closest recording/API boundary, before allocating lock storage or recording native work; use the fallible update APIs for versioned contents. Lock/unlock is not to be converted into a new RHI-thread wait. |
+| `RDG.cpp` external import and graph upload helpers | Reject CPU-authored external buffers as declaration errors before compile/record; a changing backing cannot satisfy the existing physical-identity initial/final-access contract. Graph-created storage continues through owned RDG uploads to native resources. This does not add versioned external graph resources. |
+| Renderer, TextureEditor, MonaImGui, and their Engine fixtures | Stage 3 replaces dynamic producer allocation with the typed factories and handles admission errors. Existing range values and ordinary shader macros need no deferred counterpart. Native persistent/GPU-written uses retain their current contracts. |
+
+Rejections at fallible surfaces return the existing typed validation error or
+null/error result; add an `InvalidUsage`-equivalent validation result where the
+existing enum has no suitable value. Void programmer-contract surfaces use an
+always-enforced precondition before recording and backend downcasting, including
+Release builds. Backend checks also protect direct context use. No rejection
+may flush, enqueue partial work, or reinterpret a CPU-authored object as native.
+
+Stage 1 must preserve and migrate the existing command-list source lifetime,
+cross-list ordering, cancellation, sidecar, and budget cases, the typed prepared
+binding case in `ShaderFoundationTests.cpp`, and
+`DeferredVersionsSurvivePreparedDrawsAndDispatches` in Vulkan integration tests.
+Add coverage for mode-confused native operations, native/CPU-authored view
+factories, RDG import rejection, and unified range metadata. Exercise both
+inline and threaded binding; validate all affected targets and an `all` build
+before handing off a shared API migration. The audit closes interface selection,
+not these implementation or validation gates.
+
 ### Stage 0 Failure and Pressure Contract
 
 Invalid descriptors, incompatible usage, ranges, or front-end payload admission
-return `ERHIDeferredBufferError` before any command is recorded. They leave no
+return `ERHIBufferUploadError` before any command is recorded. They leave no
 partially ready logical reference. Existing recoverable native creation remains
 on `RHITryCreateBuffer`; existing synchronous readback, locks, swapchain
 acquisition, and explicitly requested GPU waits remain synchronous. A deferred
@@ -224,6 +351,11 @@ Dynamic storage is bounded to 128 MiB under the same normal and oversize rules.
 The existing transfer-upload arena remains four 8 MiB pages plus tracked
 oversize ranges. These are total live capacities, including recorded but not
 submitted owners; allocation counters and high-water marks must include them.
+The front-end budget is shared across producers of the active RHI, including
+logical initial data, graphs, and command lists. Charge every live CPU copy
+(including reference arrays and retained version snapshots) until released;
+graph-to-command copies overlap in accounting. Per-builder limits alone do
+not satisfy this gate.
 
 On pressure, reclaim completed leases, grow within the class limit, then wait
 only for the oldest actual submitted owner that can release capacity. If only
@@ -231,9 +363,9 @@ unsubmitted work owns the needed capacity, submit an eligible recording first;
 otherwise reject before recording, with the declared admission error. Never
 wait on an unsubmitted reservation whose submission needs the blocked
 allocator. Queue-frame admission may wait only after the three-frame limit and
-must report count and duration. A steady-state wait relocated from BeginFrame
-to that limit fails the performance gate even if correctness passes. Legacy
-two-slot Vulkan frame pacing stays on the RHI thread until its remaining owners
+must report count and duration. Reaching that bound may cause steady-state
+FIFO pacing; it must not restore a per-frame serial dependency below the bound.
+Legacy two-slot Vulkan frame pacing stays on the RHI thread until its remaining owners
 are audited.
 
 ## Goal
@@ -261,7 +393,7 @@ claiming its remaining qualification gates are complete.
 
 ### Logical Resources and Deferred Data
 
-The selected front-end model records owned CPU data and logical resources;
+The selected front-end model records owned CPU data and purpose-based resources;
 the backend chooses physical storage during ordered execution. Returning a
 logical object does not certify native allocation, upload, or GPU completion.
 
@@ -294,11 +426,17 @@ deferral and RHI replay where applicable. Graph execution ending alone is not a
 universal source-release signal. Cancellation must release unconsumed owners.
 
 Replace front-end dependencies on physical `FRHIUniformBufferRange` and
-`FRHIStorageBufferRange` placement. Logical buffer offsets remain meaningful;
+`FRHIStorageBufferRange` placement with the uniform resource API and logical
+ordinary-buffer ranges/views. Existing range names may survive where their
+revised semantics are unambiguous; removing placement dependencies does not
+require deleting every range struct. Logical buffer offsets remain meaningful;
 backend arena offsets remain private. Preserve alignment, bounds checks,
 reflected binding compatibility, and exact transition ranges. A temporary
 adapter is allowed during migration, but cannot remain a hidden synchronous
 allocation path in the accepted ordinary upload flow.
+`FRHIDeferredBuffer`, its public range/view types, and deferred-specific shader
+parameter entry points must be removed from the final caller-facing API.
+Internal snapshot/backing helpers may retain implementation-specific names.
 
 ### Backend Allocation and Retirement
 
@@ -362,9 +500,11 @@ Dependencies: current runtime contracts and the implemented multi-queue model.
 - [x] Inventory dynamic allocation, uniform creation/update/binding, storage
   ranges, frame counters, synchronous resource creation, descriptor caching,
   and frame-slot consumers across all workspace projects and tests.
-- [x] Freeze exact API signatures, uniform resource-reference layouts, content
-  version rules, cross-command-list initialization dependencies, and inline
-  behavior. Reuse existing upload commands where their contracts already fit.
+- [x] Re-freeze exact purpose-based API signatures and the migration map from
+  both legacy physical ranges and the intermediate deferred family. Specify
+  uniform layout/reference ownership, resource capabilities, native readiness,
+  error boundaries, and backend cast/view resolution. Preserve established
+  content-version, cross-list initialization, and inline ordering guarantees.
 - [x] Decide how deferred allocation failure is reported; do not silently
   change existing recoverable/terminal failure boundaries or return false
   readiness from logical resource creation.
@@ -377,21 +517,42 @@ Dependencies: current runtime contracts and the implemented multi-queue model.
 Completion: reviewed migration inventory, executable ownership contracts, and
 baseline evidence; no claim that deleting one Flush alone solves the stall.
 
-### Stage 1: Introduce Deferred Logical Buffer Operations
+### Stage 1: Converge Public Buffer APIs and Internal Deferred Operations
 
 Dependency: Stage 0 interface and failure decisions.
 
-- [ ] Implement logical uniform creation/update/binding with owned snapshots,
-  retained resource references, and ordered version visibility.
-- [ ] Implement or adapt general buffer upload and view operations; separate
-  logical ranges from backend allocation placement.
-- [ ] Add RDG queued upload/structured-buffer helpers with explicit copied and
-  retained source ownership, compatible batching, and transition declarations.
-- [ ] Verify source lifetime, repeated updates, initialization dependencies,
+- [x] Implement intermediate logical creation/update/views with owned CPU
+  snapshots, retained resource references, and replay-ordered versions.
+- [x] Bind intermediate logical uniform/storage resources with replay-visible
+  versions and prepared-binding invalidation.
+- [x] Introduce the selected `FRHIUniformBuffer` interface and evolve ordinary
+  `FRHIBuffer`/view contracts. Reuse existing snapshots and leases internally;
+  migrate the intermediate deferred binding implementation and its tests to
+  the purpose-based interfaces without discarding version-ordering coverage.
+- [x] Update shader reflection, parameter retention, prepared-binding
+  invalidation, and native backing resolution together. Audit synchronous
+  native-only operations and enforce capability checks before backend casts.
+- [x] Remove public deferred resource/range/view entry points after their
+  current callers and fixtures migrate. Legacy producer adapters may remain
+  until Stage 3 but must target the final interfaces; add no new callers of
+  the intermediate deferred family.
+- [x] Add owned graph buffer uploads and RDG queued upload/structured-buffer
+  helpers with copied/moved sources and exact transition declarations.
+- [x] Batch compatible queued uploads. Group consecutive retained helper passes
+  on the same logical queue into one execution-plan submission and owned RHI
+  command list, capped at 64 uploads and 16 MiB of source bytes. Preserve pass handles, culling,
+  dependencies, exact uses, and per-pass barriers; stop at other callbacks or
+  queue changes. Remap submission dependencies and preserve the exact consumer
+  pass for each resource handoff. This reduces command-list batches without
+  claiming fewer GPU copy commands or merging disjoint destination ranges.
+- [x] Verify source lifetime, repeated updates, initialization dependencies,
   cancellation, and inline/threaded equivalence using deterministic tests.
 
-Completion: new operations work alongside legacy callers without removing
-the existing safety boundary prematurely.
+Completion: purpose-based APIs support the owned upload and binding path, with
+no caller-facing deferred resource family; legacy callers remain safe until
+Stage 3 migration. Revalidate ordering, lifetimes, and inline/threaded binding
+through the revised interfaces. Earlier intermediate-API results alone do not
+satisfy this gate. Complete this convergence before Stage 2.
 
 Stage 1 progress (2026-09-23): `FRHICommandListBase::UploadBuffer` owns replay
 bytes and retains its physical destination. Vulkan leaves its written range in
@@ -401,9 +562,9 @@ with exact byte uses and 16 MiB single / 32 MiB per-builder source-capacity
 limits. `CreateStructuredBuffer` and its owned-source variant queue complete
 initial contents through that same path. The helpers require or supply
 `DestinationCopy` and report invalid inputs as graph compilation errors. This
-is a partial implementation of the second and third checklist items; logical
-ranges/views and compatible upload batching remain pending. Debug `all` build,
-`RHICommandListTests` (96/96), and `RenderContractTests` (192/192) passed for
+completes the owned-upload helper item; compatible upload batching remains
+pending. Debug `all` build, `RHICommandListTests` (96/96), and
+`RenderContractTests` (192/192) passed for
 this slice. The Vulkan graph-upload and copy-matrix integration cases passed
 in both inline and threaded modes. A full `VulkanRHIIntegrationTests` run
 initially timed out after 300 seconds, and a later repetition exited with an
@@ -414,9 +575,69 @@ before recreation and before releasing the detached viewport. Five consecutive
 full-suite runs passed (104/104 each, approximately 15 seconds per run) with
 a 90-second process limit after this ordering fix.
 
+The logical-resource slice adds validated creation/views and immutable CPU snapshots.
+Updates merge against the replay-visible predecessor, including reversed
+cross-list submission order; cancellation releases the unpublished version.
+A shared 32 MiB deferred-snapshot budget counts bytes and reference arrays,
+conservatively reserving a full snapshot even for a partial storage update.
+This checkpoint covered CPU operations; its validation was:
+Debug `all` passed; five new deterministic cases passed, followed by all nine
+targets selected by `test affected --report`, including RHI command lists,
+resource-view validation, RenderContract, and Vulkan integration. Changed-document
+validation passed. The report is `Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+
+The binding slice adds typed deferred ranges and prepared logical views.
+Draw/dispatch resolves the current version, invalidating descriptors after an
+update without requiring a rebind. Vulkan uses one immutable mapped backing
+per snapshot and queue context, with exact snapshot/view leases in submission
+payloads. Front-end view checks use published device limits. This establishes
+binding correctness; pooled allocation, complete native/CPU memory accounting,
+pressure progress, and multi-queue qualification remain Stage 2 work.
+
+Public API convergence (2026-09-23): the typed uniform and ordinary storage
+factories now use private CPU snapshots through ordinary buffer/view identity.
+Uniform layout, lifetime hints, and immutable content modes follow the revised
+Stage 0 contract. Updates preserve replay-visible predecessor contents and
+sidecar ownership. Existing ranges and shader metadata resolve logical views;
+Vulkan keeps the prior immutable backing and prepared-binding invalidation
+behavior. All intermediate public types/entry points were removed from every
+workspace source/test root. Native view factories reject CPU-authored parents;
+recorded native operations and Vulkan downcasts enforce the same boundary.
+RDG reports `ExternalBufferContentModeInvalid` before recording an invalid import.
+
+Validation: `Win64-Debug-DurinEditor` `all` passed, including Engine, Sandbox,
+and RoadWeaver. `test affected --report` passed all 21 selected targets. The
+report is `Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+`FRHICommandListTests.CPUAuthoredBuffersRejectNativeOperations` and
+`FRDGTests.RejectsCPUAuthoredExternalBuffersBeforeRecording` each passed alone.
+Migrated Vulkan draw/dispatch tests exercise both inline and threaded modes,
+including native-view factory rejection without synchronous-operation growth.
+Changed-document validation and diff checks passed. This convergence checkpoint
+preceded the batching completion below.
+
+Batching completion (2026-09-23): the compiler groups consecutive retained
+upload helpers on one logical queue into bounded submissions. Recording puts
+their barriers and uploads into one owned RHI command list. Each helper keeps
+its handle, dependency declarations, and exact range; ordinary callbacks and
+the 64-upload / 16 MiB limits split batches. Submission dependencies and handoff
+endpoints are remapped, with a separate consumer-pass index locating each
+barrier. Merely combining recording inside the old one-pass submissions could
+not reduce batches, so grouping must happen in the compiler as well.
+
+Validation: a fresh Debug `all` build and all seven targets selected by
+`test affected --report` passed. The three new isolated contract cases cover
+count/byte splitting, destruction before inline/threaded replay, overlapping
+writes, culling, callback boundaries, and exact cross-queue handoff locations.
+The Vulkan upload case now verifies disjoint uploads plus an overlapping patch
+through RDG and GPU readback in both executor modes. Stage 1 is complete;
+Stage 2 backend pooling, complete pressure accounting, and later pacing,
+multi-queue qualification, and performance gates remain open.
+
 ### Stage 2: Move Upload Storage Ownership to the Backend
 
-Dependency: Stage 1 logical resource and upload contracts.
+Dependency: revised Stage 0 contracts and Stage 1 public API convergence,
+including binding validation. Allocate/version backing internally without
+reintroducing a public deferred resource family.
 
 - [ ] Implement completion-aware allocation/versioning using existing payload
   leases and sync points, without a render-thread active producer or modulo-two
@@ -435,8 +656,10 @@ and backend memory reuse is proven independently of frame age.
 
 Dependency: Stage 2 lifetime and pressure gates.
 
-- [ ] Migrate all workspace consumers and fixtures; remove obsolete physical
-  range APIs/adapters after the last consumer is converted.
+- [ ] Migrate all workspace consumers and fixtures to the final uniform and
+  ordinary-buffer interfaces; remove obsolete physical-placement APIs and
+  compatibility overloads/adapters after the last consumer is converted.
+  Confirm no caller-facing deferred resource family remains.
 - [ ] Remove `PrepareUniformBufferSync` and front-end storage producer reset.
   Submit `BeginFrame` asynchronously and remove its unconditional RHI wait.
 - [ ] Introduce or adapt explicit queue/latency limits; verify later ordinary

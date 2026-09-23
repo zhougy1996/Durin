@@ -31,6 +31,56 @@ fallible and publish a complete counted view or null. Vulkan creates a native
 buffer view only for formatted buffers and an exact native image view for each
 texture description. Native view destruction uses the deferred deletion path.
 
+## Logical CPU-Authored Buffers
+
+`TryCreateUniformBuffer` returns `FRHIUniformBuffer`, a final `FRHIBuffer`
+subclass with an immutable constant-size layout. `TryCreateStorageBuffer`
+returns an ordinary `FRHIBuffer`. Both own complete initial bytes without
+recording a creation command or allocating native storage. Their immutable
+content mode is `CPUAuthored`; backend buffers retain `Native` mode. Resolving
+a backing version does not change a resource's content mode. The creator list
+may be discarded before another list consumes the object. Uniform layout size
+is a nonzero multiple of 16; storage selects structured (nonzero stride
+dividing size) or byte-address (stride four, size multiple of four), optionally
+with `ShaderResource`. Other storage flags are rejected. Lifetime usage hints
+never authorize frame-age reuse or limit lifetime.
+
+`TryUpdateUniformBuffer` and `TryUpdateBuffer` copy input before returning and
+publish a new immutable snapshot during ordered RHI replay. The former
+replaces all uniform bytes and native-resource sidecars; the latter accepts
+only CPU-authored storage and preserves the preceding version's untouched
+bytes. Storage accepts no sidecars. CPU-authored buffers and their views are
+rejected as sidecars to prevent ownership cycles. Canceled commands do not
+change visible contents. The backend-only `ResolveSnapshot` requires replay
+and returns a retained version, including its bytes and references.
+Ordinary uniform/storage ranges and shader macros represent both native and
+CPU-authored resources. CPU-authored bindings create ordinary `FRHIBufferView`
+objects without native creation. Prepared
+batches retain those views; every draw/dispatch resolves the current version,
+including an update after binding. View factories check the active device's
+range/offset limits; dynamic uniform offsets are checked during canonicalization.
+Vulkan backing and submission ownership follow
+[the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).
+
+`TryCreateBufferView` (and `FRHIBufferView::TryCreate`) validates CPU-authored
+parents and returns a logical view or `ERHIBufferUploadError`. Native parents
+return `InvalidUsage`. Native view factories and their cache paths reject
+CPU-authored parents before backend work. Binding canonicalization selects the
+correct path from the parent's mode. Native write/upload, lock, vertex/index,
+copy, and transition operations reject CPU-authored buffers with enforced
+preconditions; versioned updates use the fallible APIs above. RDG external
+buffer imports reject CPU-authored parents as declaration errors because
+their backing changes independently of graph access tracking. Graph-owned
+upload helpers continue to allocate native graph resources.
+
+Deferred snapshots share a process-wide 32 MiB admission budget, with a 16 MiB
+maximum buffer size. Each update reserves its full destination snapshot plus
+reference-array storage before recording, including partial storage updates.
+Budget is released when the last snapshot owner releases it; logical resource
+destruction follows ordinary RHI deferred deletion. Diagnostics expose live
+bytes, peak bytes, and admission rejections. This budget currently covers
+CPU-authored snapshots only, not RDG sources or other command payloads.
+
 ## Binding and Attachment Ownership
 
 Shader-parameter recording accepts the compatibility scalar resource form but

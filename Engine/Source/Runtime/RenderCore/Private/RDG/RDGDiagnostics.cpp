@@ -294,7 +294,7 @@ namespace Durin
 		for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
 		{
 			Output << "handoff resource=" << Handoff.ResourceId << " submission=" << Handoff.Consumer.Index
-				<< " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex
+				<< " pass=" << Handoff.ConsumerPass << " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex
 				<< " source-queue=" << static_cast<uint32>(Handoff.SourceQueue) << " producers=";
 			for (const auto Producer : Handoff.Producers) Output << Producer.Index << ',';
 			Output << '\n';

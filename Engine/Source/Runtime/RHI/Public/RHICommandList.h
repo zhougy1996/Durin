@@ -133,6 +133,20 @@ namespace Durin
 			float SlopeFactor) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
+		RHI_API auto TryCreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
+			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
+			std::span<FRHIResource* const> References = {})
+			-> std::expected<TRefCountPtr<FRHIUniformBuffer>, ERHIBufferUploadError>;
+		RHI_API auto TryCreateStorageBuffer(const FRHIBufferDesc& Desc,
+			ERHIBufferLifetimeUsage Usage, FByteView InitialData)
+			-> std::expected<TRefCountPtr<FRHIBuffer>, ERHIBufferUploadError>;
+		RHI_API auto TryUpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
+			std::span<FRHIResource* const> References = {})
+			-> std::expected<void, ERHIBufferUploadError>;
+		RHI_API auto TryUpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+			-> std::expected<void, ERHIBufferUploadError>;
+		RHI_API auto TryCreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
+			-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
@@ -150,6 +164,10 @@ namespace Durin
 		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
+		auto TryUpdateCPUAuthoredBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data,
+			std::span<FRHIResource* const> References)
+			-> std::expected<void, ERHIBufferUploadError>;
+
 		enum class ERecordingState : uint8
 		{
 			Recording,

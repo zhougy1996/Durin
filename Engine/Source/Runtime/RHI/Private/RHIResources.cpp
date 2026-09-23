@@ -902,11 +902,18 @@ namespace Durin
 	{
 		if (Buffer == nullptr) return std::unexpected(ERHIBufferViewError::NullParent);
 		if (Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(ERHIBufferViewError::InvalidParentType);
+		return ValidateBufferViewDesc(Buffer->GetDesc(), Desc);
+	}
+
+	auto ValidateBufferViewDesc(
+		const FRHIBufferDesc& Buffer,
+		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>
+	{
 		if (Desc.Size == 0) return std::unexpected(ERHIBufferViewError::EmptyRange);
-		if (Desc.Offset > Buffer->GetSize() || Desc.Size > Buffer->GetSize() - Desc.Offset)
+		if (Desc.Offset > Buffer.Size || Desc.Size > Buffer.Size - Desc.Offset)
 			return std::unexpected(ERHIBufferViewError::RangeOutOfBounds);
 
-		const EBufferUsageFlags Usage = Buffer->GetUsage();
+		const EBufferUsageFlags Usage = Buffer.Usage;
 		switch (Desc.Type)
 		{
 		case ERHIBufferViewType::Uniform:
@@ -920,8 +927,8 @@ namespace Durin
 			if (Desc.Format != EPixelFormat::Unknown) return std::unexpected(ERHIBufferViewError::StructuredFormat);
 			if (!EnumHasAnyFlags(Usage, EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess))
 				return std::unexpected(ERHIBufferViewError::StructuredUsage);
-			if (Buffer->GetStride() == 0 || (Desc.Offset % Buffer->GetStride()) != 0
-				|| (Desc.Size % Buffer->GetStride()) != 0)
+			if (Buffer.Stride == 0 || (Desc.Offset % Buffer.Stride) != 0
+				|| (Desc.Size % Buffer.Stride) != 0)
 				return std::unexpected(ERHIBufferViewError::StructuredAlignment);
 			break;
 		case ERHIBufferViewType::ByteAddressStorage:

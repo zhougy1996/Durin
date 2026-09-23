@@ -87,6 +87,46 @@ namespace Durin
 					|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
 					|| Parameter.Type == ERHIBindingType::StorageBuffer)
 				{
+					if (IsCPUAuthoredBufferResource(Parameter.Resource))
+					{
+						const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
+						const bool bUniform = Parameter.Type != ERHIBindingType::StorageBuffer;
+						TRefCountPtr<FRHIBufferView> View;
+						if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView)
+							View = static_cast<FRHIBufferView*>(Parameter.Resource);
+						else
+						{
+							auto* Buffer = static_cast<FRHIBuffer*>(Parameter.Resource);
+							const auto& BufferDesc = Buffer->GetDesc();
+							if (Parameter.Offset > BufferDesc.Size) return Fail("Deferred buffer offset exceeds its size.");
+							const uint64 Size = Parameter.Size ? Parameter.Size : BufferDesc.Size - Parameter.Offset;
+							const auto Type = bUniform ? ERHIBufferViewType::Uniform
+								: EnumHasAnyFlags(BufferDesc.Usage, EBufferUsageFlags::ByteAddressBuffer)
+									? ERHIBufferViewType::ByteAddressStorage : ERHIBufferViewType::StructuredStorage;
+							const auto Result = FRHIBufferView::TryCreate(Buffer,
+								{bDynamic ? 0 : Parameter.Offset, Size, Type});
+							if (!Result) return Fail("Invalid deferred shader buffer view.");
+							View = *Result;
+							if (!bDynamic) Parameter.Offset = 0;
+							Parameter.Size = 0;
+						}
+						const auto& Desc = View->GetDesc();
+						if (bDynamic)
+						{
+							const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+							const uint32 Alignment = std::max(16u, Caps ? Caps->MinUniformBufferOffsetAlignment : 0u);
+							if (Alignment && Parameter.Offset % Alignment != 0)
+								return Fail("Deferred dynamic uniform offset is not aligned.");
+						}
+						if (bUniform != (Desc.Type == ERHIBufferViewType::Uniform)
+							|| Parameter.Size != 0 || (!bDynamic && Parameter.Offset != 0)
+							|| Parameter.Offset > View->GetBuffer()->GetDesc().Size - Desc.Offset
+							|| Desc.Size > View->GetBuffer()->GetDesc().Size - Desc.Offset - Parameter.Offset)
+							return Fail("Deferred view is incompatible with its shader binding.");
+						Parameter.Resource = View.GetReference();
+						CreatedViews.emplace_back(View.GetReference());
+						continue;
+					}
 					if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView) continue;
 					if (Parameter.Resource->GetResourceType() != ERHIResourceType::Buffer)
 						return Fail("Shader buffer binding requires a buffer or buffer view.");
@@ -1996,6 +2036,7 @@ namespace Durin
 
 	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
 	{
+		require(!IsCPUAuthoredBuffer(VertexBuffer));
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"BindVertexBuffer requires an active graphics pipeline while recording.");
 		RecordCommand<FBindVertexBufferCommand>(StreamIndex, VertexBuffer, Offset);
@@ -2003,6 +2044,7 @@ namespace Durin
 
 	auto FRHICommandListBase::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Buffer));
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"BindIndexBuffer requires an active graphics pipeline while recording.");
 		RecordCommand<FBindIndexBufferCommand>(Buffer, Offset);
@@ -2011,6 +2053,7 @@ namespace Durin
 	auto FRHICommandListBase::TransitionBuffers(
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
+		for (const auto& Transition : Transitions) require(!IsCPUAuthoredBuffer(Transition.Buffer));
 		if (Transitions.empty()) return;
 		checkf(!bInsideRenderPass,
 			"Buffer transitions cannot be recorded inside a render pass.");
@@ -2039,6 +2082,8 @@ namespace Durin
 	auto FRHICommandListBase::CopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 		std::span<const FRHIBufferCopyRegion> Regions) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Source));
+		require(!IsCPUAuthoredBuffer(Destination));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2052,6 +2097,7 @@ namespace Durin
 	auto FRHICommandListBase::CopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Source));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer-to-texture copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2065,6 +2111,7 @@ namespace Durin
 	auto FRHICommandListBase::CopyTextureToBuffer(FRHITexture* Source, FRHIBuffer* Destination,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Destination));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Texture-to-buffer copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2173,12 +2220,14 @@ namespace Durin
 		uint32 Size,
 		uint32 OffsetBytes) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Buffer));
 		RecordCommand<FWriteBufferCommand>(Buffer, OffsetBytes, Data, Size);
 	}
 
 	auto FRHICommandListBase::UploadBuffer(
 		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
+		require(!IsCPUAuthoredBuffer(Buffer));
 		check(Data.size() <= UINT32_MAX);
 		RecordCommand<FWriteBufferCommand>(Buffer, Offset, Data.data(),
 			static_cast<uint32>(Data.size()), true);
@@ -2314,6 +2363,7 @@ namespace Durin
 
 	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
+		require(!IsCPUAuthoredBuffer(Buffer));
 		check(Buffer);
 		checkf(LockMode == EResourceLockMode::WriteOnly,
 			"Recorded buffer locks currently support WriteOnly mode.");

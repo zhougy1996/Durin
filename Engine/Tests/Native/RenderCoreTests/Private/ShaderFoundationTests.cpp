@@ -887,6 +887,54 @@ namespace Durin
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, SceneUniform));
 	}
 
+	TEST(FShaderFoundationTests, PreparedTypedDeferredRangesKeepLogicalViews)
+	{
+		struct FParameters
+		{
+			FRHIUniformBufferRange Uniform;
+			std::array<FRHIStorageBufferRange, 2> Storage;
+		};
+		const std::array Metadata{
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::Uniform)>(
+				"Uniform", static_cast<uint32>(offsetof(FParameters, Uniform))),
+			MakeShaderParameterMemberMetadata<ERHIBindingType::StorageBuffer, decltype(FParameters::Storage)>(
+				"Storage", static_cast<uint32>(offsetof(FParameters, Storage)))};
+		const auto ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings = {
+			{.Name = "Uniform", .StageFlags = EShaderStageFlags::Vertex, .BindingIndex = 0,
+				.Type = ERHIBindingType::UniformBuffer, .ArraySize = 1},
+			{.Name = "Storage", .StageFlags = EShaderStageFlags::Vertex, .BindingIndex = 1,
+				.Type = ERHIBindingType::StorageBuffer, .ArraySize = 2}};
+		std::vector<FShaderParameterBinding> Bindings;
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings));
+		ASSERT_EQ(Bindings.size(), 2u);
+		FRHICommandList Commands;
+		auto Uniform = Commands.TryCreateUniformBuffer({64},
+			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(64));
+		auto Storage = Commands.TryCreateStorageBuffer({32, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::SingleFrame, FByteBuffer(32));
+		ASSERT_TRUE(Uniform && Storage);
+		FParameters Parameters{{Uniform->GetReference(), 16, 16},
+			{{{Storage->GetReference(), 0, 16}, {Storage->GetReference(), 16, 16}}}};
+		const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		const auto Batch = PrepareShaderParametersImpl(Shader, ParametersMetadata, Bindings, &Parameters);
+		ASSERT_TRUE(Batch);
+		Parameters = {};
+		ASSERT_EQ(Batch->GetParameters().size(), 3u);
+		for (uint32 Index = 0; Index < 3; ++Index)
+		{
+			const auto& Parameter = Batch->GetParameters()[Index];
+			ASSERT_EQ(Parameter.Resource->GetResourceType(), ERHIResourceType::BufferView);
+			const auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
+			EXPECT_EQ(View->GetBuffer(), Index == 0 ? Uniform->GetReference() : Storage->GetReference());
+			EXPECT_EQ(View->GetDesc().Offset, Index == 2 ? 16u : 0u);
+			EXPECT_EQ(Parameter.Offset, Index == 0 ? 16u : 0u);
+		}
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
+		EXPECT_FALSE(PrepareShaderParametersImpl(Shader, ParametersMetadata, Bindings, &Parameters));
+	}
+
 	TEST(FShaderFoundationTests, PreparedTypedParametersSnapshotDynamicUniformArrays)
 	{
 		struct FParameters { std::array<FRHIUniformBufferRange, 2> Transforms; };

@@ -881,6 +881,7 @@ namespace Durin
 					.RecordingExecute = ScheduledIndex < State->Passes.size()
 						? &State->Passes[ScheduledIndex].RecordingExecute : nullptr,
 					.RecordingPolicy = Pass.RecordingPolicy,
+					.BufferUploadBytes = Pass.BufferUploadBytes,
 					.ParameterLayout = Pass.ParameterLayout,
 					.Parameters = Pass.Parameters,
 					.OptionalAliases = Pass.OptionalAliases.View()};
@@ -969,25 +970,56 @@ namespace Durin
 			CompactTextureBarriers(CompiledState->Passes, CompiledState->FinalBarriers, Execution);
 
 			Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
+			std::vector<uint32> PassToSubmission(ScheduledCount + 1, UINT32_MAX);
+			uint64 UploadBatchBytes = 0;
 			for (uint32 Index = 0; Index < ScheduledCount; ++Index)
 			{
 				const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
 				const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
-				Execution.Batches.push_back({.Id = {Index},
-					.Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics,
-					.FirstPass = Index, .NumPasses = 1});
+				const auto Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics;
+				const uint64 UploadBytes = CompiledState->RuntimePasses[Index].BufferUploadBytes;
+				const bool bJoin = UploadBytes != 0 && UploadBatchBytes != 0
+					&& Execution.Batches.back().Queue == Queue
+					&& Execution.Batches.back().NumPasses < MaxUploadBatchCount
+					&& UploadBytes <= MaxUploadBatchBytes - UploadBatchBytes;
+				if (bJoin)
+				{
+					++Execution.Batches.back().NumPasses;
+					UploadBatchBytes += UploadBytes;
+				}
+				else
+				{
+					Execution.Batches.push_back({.Id = {static_cast<uint32>(Execution.Batches.size())},
+						.Queue = Queue, .FirstPass = Index, .NumPasses = 1});
+					UploadBatchBytes = UploadBytes;
+				}
+				PassToSubmission[Index] = Execution.Batches.back().Id.Index;
 			}
 			if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()
 				|| !CompiledState->FinalBarriers.GetTextureTransitions().empty())
-				Execution.Batches.push_back({.Id = {ScheduledCount},
+			{
+				PassToSubmission[ScheduledCount] = static_cast<uint32>(Execution.Batches.size());
+				Execution.Batches.push_back({.Id = {PassToSubmission[ScheduledCount]},
 					.FirstPass = ScheduledCount, .bEpilogue = true});
+			}
+			for (auto& Submission : DeclarationToSubmission)
+				if (Submission != UINT32_MAX) Submission = PassToSubmission[Submission];
+			for (auto& Handoff : Execution.Handoffs)
+			{
+				Handoff.ConsumerPass = Handoff.Consumer.Index;
+				Handoff.Consumer.Index = PassToSubmission[Handoff.Consumer.Index];
+				for (auto& Producer : Handoff.Producers) Producer.Index = PassToSubmission[Producer.Index];
+				std::erase(Handoff.Producers, Handoff.Consumer);
+				Handoff.Producers.erase(std::unique(Handoff.Producers.begin(), Handoff.Producers.end()), Handoff.Producers.end());
+			}
 			Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
 			for (const auto& Edge : CompiledState->Dependencies)
 			{
 				const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
 				const uint32 After = DeclarationToSubmission[Edge.AfterPass];
-				require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
-				Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
+				require(Before != UINT32_MAX && After != UINT32_MAX && Before <= After);
+				if (Before != After)
+					Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
 			}
 			// Preserve FIFO within each logical queue without serializing independent
 			// branches. Publication joins both terminal queue prefixes.

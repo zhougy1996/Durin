@@ -146,7 +146,10 @@ execution state. Compilation never mutates a command list.
   agree. The first name and declaration order remain canonical. A conflicting
   repeat records one deterministic declaration error naming both stable
   contracts; null imports retain the ordinary missing-resource failure and do
-  not become identity keys.
+  not become identity keys. CPU-authored buffers are rejected with
+  `ExternalBufferContentModeInvalid` at declaration, because changing content
+  versions do not satisfy this physical-identity access contract. Use
+  graph-created buffers and owned graph uploads for graph-managed contents.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
   producer before any read or load, and default to no final state (`ERHIAccess::None`). Renderer frame-local
   targets use that default; consumers declare their next access on the pass.
@@ -263,6 +266,12 @@ or excess payload fail compilation before any upload command is recorded.
 with structured, shader-resource, and copy-destination usage, then queue its
 complete initial contents through the same path. Their byte size must be a
 nonzero multiple of the element stride.
+After culling and scheduling, consecutive upload helpers on the same logical
+queue form one execution-plan submission and owned RHI command list, with
+at most 64 uploads and 16 MiB of source bytes per list. Pass handles, exact
+uses, dependencies, and barriers between overlapping writes remain distinct.
+Batching stops at other callbacks, queue changes, and either limit. It reduces RHI
+command-list batches without merging destination ranges or GPU copy commands.
 The graph retains source bytes through recording while the RHI command takes
 its own copy. Graph destruction or cancellation releases callback-owned bytes.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
@@ -533,7 +542,8 @@ error codes or error transport. Console-command messages and Core modular-featur
 retirement messages likewise remain owned by their separate contracts.
 
 `GetExecutionPlan()` exposes immutable logical submission records. Each
-retained pass occupies one batch, followed by an
+retained pass occupies one batch, except bounded groups of consecutive upload
+helpers on the same logical queue. These share one batch, followed by an
 epilogue batch when the graph has work. Empty graphs create no synthetic batch.
 Batch pass intervals index the compact scheduled pass array, not declaration
 indices; culling therefore cannot leave a dangling submission reference.
@@ -548,8 +558,13 @@ queue and join both terminal prefixes at the epilogue. Independent branches on
 different logical queues receive no artificial consecutive-pass edge.
 Resource handoffs identify exact transition indices in their
 consumer prologue or epilogue without retaining a physical resource pointer.
-Each handoff also records the latest prior use of that tracked range on each
-logical queue. Queue FIFO makes each recorded use cover earlier uses on the
+`ConsumerPass` identifies the compiled pass owning a prologue transition even
+when several passes share the consumer submission; epilogue transitions do not
+use this field. Submission endpoints are remapped after grouping. Dependencies
+within a batch remain ordered by pass barriers and do not create self edges.
+Each handoff also records the submission containing the latest prior use of
+that tracked range on each logical queue, omitting the consumer submission
+itself after grouping. Queue FIFO makes each recorded use cover earlier uses on the
 same queue; it never replaces a use on another queue. Cross-queue producers add
 execution dependencies to the handoff consumer. Initial transitions have no
 graph producer. Texture ranges use exact aspect/mip/layer cells; buffers retain

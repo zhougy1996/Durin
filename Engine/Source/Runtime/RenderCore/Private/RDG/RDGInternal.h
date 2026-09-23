@@ -11,6 +11,9 @@
 // Private vocabulary shared by graph authoring, compilation, and execution.
 namespace Durin::RDGPrivate
 {
+	inline constexpr uint32 MaxUploadBatchCount = 64;
+	inline constexpr uint64 MaxUploadBatchBytes = 16ull * 1024 * 1024;
+
 	struct FGraphResource
 	{
 		std::string Name;
@@ -110,6 +113,8 @@ namespace Durin::RDGPrivate
 		FRDGParameterizedPassExecute ParameterizedExecute;
 		FRDGRecordingPassExecute RecordingExecute;
 		ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial;
+		// Nonzero only for owned upload helpers; declarations stay independently addressable.
+		uint64 BufferUploadBytes = 0;
 		bool bRoot = false;
 		// Terminal exports consume contents but may hand off a writable access state.
 		bool bExport = false;

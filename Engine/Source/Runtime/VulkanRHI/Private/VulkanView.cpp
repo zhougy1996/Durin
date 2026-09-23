@@ -16,8 +16,9 @@ namespace Durin::VulkanRHI
 		const FRHIBufferViewDesc& InDesc)
 		: FRHIBufferView(InBuffer, InDesc), Device(InDevice)
 	{
+		require(InBuffer && !IsCPUAuthoredBuffer(InBuffer));
 		if (InDesc.Type != ERHIBufferViewType::Formatted) return;
-		const auto* Buffer = static_cast<const FVulkanBuffer*>(InBuffer);
+		const auto* Buffer = FVulkanBuffer::Cast(InBuffer);
 		vk::BufferViewCreateInfo CreateInfo;
 		CreateInfo.setBuffer(Buffer->GetHandle())
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))

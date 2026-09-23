@@ -27,7 +27,7 @@ namespace Durin::RDGPrivate
 		auto PrepareBarrierBatch(
 			const FRDGBarrierBatch& Batch, std::span<const FGraphResourceBacking> Backings,
 			FPreparedTransitions& Scratch) -> FPreparedBarrierBatch;
-		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
+		auto RecordBarrierBatch(FRHICommandListBase& CommandList,
 			const FPreparedBarrierBatch& Batch, const FPreparedTransitions& Prepared) -> void;
 		auto TextureBackingIsCompatible(const FRHITextureDesc& Actual,
 			const FRHITextureDesc& Required) -> bool;
@@ -57,7 +57,7 @@ namespace Durin::RDGPrivate
 			return Result;
 		}
 
-		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
+		auto RecordBarrierBatch(FRHICommandListBase& CommandList,
 			const FPreparedBarrierBatch& Batch, const FPreparedTransitions& Prepared) -> void
 		{
 			auto Record = [](size_t First, size_t Count, const auto& Transferred, auto&& Emit) {
@@ -294,7 +294,7 @@ namespace Durin
 				const auto& Consumer = Compiled->ExecutionPlan.Batches[Handoff.Consumer.Index];
 				if (Handoff.SourceQueue == Consumer.Queue) continue;
 				FRHIQueueTransferDesc Desc{.Source = Context.PhysicalQueue(Handoff.SourceQueue), .Destination = Context.PhysicalQueue(Consumer.Queue)};
-				const auto& Barrier = Consumer.bEpilogue ? Context.PreparedEpilogue : Context.PreparedPassBarriers[Consumer.FirstPass];
+				const auto& Barrier = Consumer.bEpilogue ? Context.PreparedEpilogue : Context.PreparedPassBarriers[Handoff.ConsumerPass];
 				if (Handoff.bTexture)
 				{
 					const size_t Index = Barrier.FirstTexture + Handoff.TransitionIndex;
@@ -439,6 +439,36 @@ namespace Durin
 			}
 			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
 			{
+				if (Compiled->RuntimePasses[Index].BufferUploadBytes != 0)
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordUploadBatch");
+					uint64 Bytes = 0;
+					uint32 End = Index;
+					FRHICommandList Uploads;
+					while (End < Batch.FirstPass + Batch.NumPasses && End - Index < MaxUploadBatchCount)
+					{
+						const auto& Runtime = Compiled->RuntimePasses[End];
+						if (Runtime.BufferUploadBytes == 0 || Runtime.BufferUploadBytes > MaxUploadBatchBytes - Bytes) break;
+						require(Runtime.RecordingPolicy == ERDGRecordingPolicy::Serial
+							&& Runtime.RecordingExecute && *Runtime.RecordingExecute);
+						const auto& Pass = Compiled->Passes[End];
+						DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
+						DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
+						// Keep barriers between uploads, including overlapping writes.
+						RecordBarrierBatch(Uploads, Context.PreparedPassBarriers[End], Context.PreparedTransitions);
+						const FRDGPassResources Resources(*this, End);
+						const FRDGParameterResolver Resolver(Resources, Runtime.ParameterLayout,
+							Runtime.OptionalAliases, Runtime.Parameters, Pass.Name, Pass.Type);
+						(*Runtime.RecordingExecute)(Uploads, Resolver);
+						Bytes += Runtime.BufferUploadBytes;
+						++End;
+					}
+					require(End > Index);
+					Uploads.FinishRecording();
+					CommandList.QueueCommandList(std::move(Uploads));
+					Index = End - 1;
+					continue;
+				}
 				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
 				const auto& Pass = Compiled->Passes[Index];
 				DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));

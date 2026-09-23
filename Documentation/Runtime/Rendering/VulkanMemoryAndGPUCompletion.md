@@ -96,6 +96,26 @@ synchronous result, reuse after a declared bound is exhausted, frame pacing
 that targets an exact token, or orderly shutdown. These waits are counted; a
 whole-device idle wait is not an ordinary recycling mechanism.
 
+## Logical Buffer Versions
+
+CPU-authored uniform/storage bindings through ordinary buffer views materialize
+an immutable mapped buffer on
+first draw/dispatch use. A CPU snapshot caches one backing per queue context,
+so exclusive queue ownership is not shared across independent contexts. Host
+writes are flushed before submission; later read-to-read pipeline changes need
+no write dependency. Each consuming payload retains the exact snapshot and
+physical view, including uniform sidecars, until completion or safe cancellation.
+Updates produce a new backing and invalidate descriptor selection; an older
+submission keeps its original contents. Physical buffers use ordinary counted
+deletion and queue-qualified retirement.
+Native buffer/view downcasts enforce native content mode; logical views must
+first resolve to the selected version's native backing and descriptor.
+
+This path currently uses individual dynamic-upload allocations. The CPU
+snapshot budget does not bound native allocations retained by descriptor caches
+or pending deletion; pooled allocation and complete pressure accounting remain
+in the [active upload plan](../../Plans/RhiAsyncBufferUploadRefactor.md).
+
 ## Allocation Classes
 
 The public RHI describes resource intent while Vulkan keeps VMA policy private.

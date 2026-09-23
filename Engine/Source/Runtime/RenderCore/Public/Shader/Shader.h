@@ -310,7 +310,7 @@ namespace Durin
 	) -> void;
 
 	#define DURIN_PRIVATE_SHADER_PARAMETER(MemberType, MemberName, BindingTypeValue, OptionalValue) \
-		MemberType MemberName = nullptr; \
+		MemberType MemberName{}; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
 		{ \
 			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName), OptionalValue>( \

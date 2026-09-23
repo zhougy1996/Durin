@@ -123,6 +123,7 @@ namespace Durin::VulkanRHI
 			Limits.maxPerStageDescriptorUniformBuffers, Limits.maxDescriptorSetUniformBuffers);
 		CapabilityCandidate.MaxFragmentResources = Limits.maxPerStageResources;
 		CapabilityCandidate.MaxUniformBufferRange = Limits.maxUniformBufferRange;
+		CapabilityCandidate.MinUniformBufferOffsetAlignment = static_cast<uint32>(Limits.minUniformBufferOffsetAlignment);
 		CapabilityCandidate.MaxComputeWorkGroupCount = {
 			Limits.maxComputeWorkGroupCount[0],
 			Limits.maxComputeWorkGroupCount[1],
