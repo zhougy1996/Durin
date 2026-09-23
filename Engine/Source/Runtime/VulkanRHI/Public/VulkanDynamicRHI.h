@@ -157,11 +157,12 @@ namespace Durin::VulkanRHI
 
 	extern FVulkanDynamicRHI* GVulkanRHI;
 
-	// Creates and publishes the Vulkan RHI implementation during module startup.
+	// Factory only; RHI owns the backend lifetime independently of module shutdown.
 	class FVulkanDynamicRHIModule : public IDynamicRHIModule
 	{
 	public:
-		// RHIExit releases the backend and joins its threads before unloading this module.
+		// The ordinary module shutdown retains the DLL. RHIExit releases the backend
+		// and joins its threads before physically unloading this module.
 		auto SupportsDynamicReloading() const -> bool override { return true; }
 		auto CreateRHI() -> FDynamicRHI* override
 		{

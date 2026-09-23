@@ -454,8 +454,7 @@ namespace Durin
 				CheckNoDeferredDestroyObjects("shutdown object destruction");
 				SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
 			}
-			const std::array DeferredModules{FName("VulkanRHI")};
-			FModuleManager::Get().ShutdownModulesAtExit(DeferredModules);
+			FModuleManager::Get().ShutdownModulesAtExit();
 		}
 		if (bWasRunning) AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
 		// Module shutdown may still drain work on either executor.
