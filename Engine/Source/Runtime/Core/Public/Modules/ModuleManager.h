@@ -175,9 +175,10 @@ namespace Durin
 			std::span<const FName> DeferredModules = {}) -> void;
 
 	private:
+		enum class EShutdownReason : uint8 { Explicit, ProcessExit };
 		FModuleManager();
 		auto IsControlThread() const -> bool;
-		auto ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> FModuleShutdownResult;
+		auto ShutdownModuleImpl(const FName& InModuleName, EShutdownReason Reason) -> FModuleShutdownResult;
 		auto MakeShutdownFailure(
 			const FModuleInfoPtr& ModuleInfo,
 			EModuleOperationStatus Status,

@@ -406,6 +406,26 @@ namespace Durin::Tests
 		EXPECT_TRUE(Observations.bDestroyed);
 	}
 
+	TEST(FModuleManagerRetirementTests, StoppedModuleStillRequiresDynamicReloadSupportForUnload)
+	{
+		FManagedModuleObservations Observations;
+		auto* Module = static_cast<FManagedTestModule*>(FModuleTestHarness::InstallStartedModule(
+			"ManagedModuleStoppedNonReloadable", std::make_unique<FManagedTestModule>(Observations)));
+		ASSERT_NE(nullptr, Module);
+		auto& Manager = FModuleManager::Get();
+		ASSERT_TRUE(Manager.ShutdownModule("ManagedModuleStoppedNonReloadable").Succeeded());
+		Module->SetDynamicReloadingForTest(false);
+
+		const auto Unload = Manager.UnloadModule("ManagedModuleStoppedNonReloadable");
+		EXPECT_EQ(EModuleOperationStatus::DynamicReloadUnsupported, Unload.Status);
+		EXPECT_EQ(EModuleState::StoppedMapped, Unload.ObservedState);
+		EXPECT_FALSE(Observations.bDestroyed);
+
+		Module->SetDynamicReloadingForTest(true);
+		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleStoppedNonReloadable").Succeeded());
+		EXPECT_TRUE(Observations.bDestroyed);
+	}
+
 	TEST(FModuleManagerRetirementTests, ReflectedObjectRejectionFailsClosedAndRetainsInstance)
 	{
 		FManagedModuleObservations Observations;
