@@ -18,7 +18,6 @@ namespace Durin::AssetPrivate
 			Writer.WriteString(Descriptor.ProducerIdentity);
 			if constexpr (requires { Descriptor.BuilderVersion; }) Writer.WriteU32(Descriptor.BuilderVersion);
 			if constexpr (requires { Descriptor.ProjectionVersion; }) Writer.WriteU32(Descriptor.ProjectionVersion);
-			if constexpr (requires { Descriptor.RenderBuilderVersion; }) Writer.WriteU32(Descriptor.RenderBuilderVersion);
 			return Writer.TakeBytes();
 		}
 
@@ -43,12 +42,12 @@ namespace Durin::AssetPrivate
 		{
 			const auto Session = FStaticMeshBuildSession::Acquire();
 			if (!Session) return false;
-			Out = EncodeDescriptor(Session.GetModule().GetDescriptor());
-			if (Out.empty()) return false;
-			FBinaryWriter PhysicsVersion;
-			PhysicsVersion.WriteU32(PhysicsCookBuilderVersion);
-			const auto& Bytes = PhysicsVersion.GetBytes();
-			Out.insert(Out.end(), Bytes.begin(), Bytes.end());
+			const uint32 BuilderVersion = Session.GetModule().GetRenderBuilderVersion();
+			if (BuilderVersion == 0) return false;
+			FBinaryWriter Writer;
+			Writer.WriteU32(BuilderVersion);
+			Writer.WriteU32(PhysicsCookBuilderVersion);
+			Out = Writer.TakeBytes();
 			return true;
 		}
 		return false;

@@ -165,7 +165,9 @@ path. Reimport reads the persisted file without copying, replacing, relocating,
 or deleting it. Legacy package-relative source fields are rejected. The
 canonical DDC key also includes builder version 4, render-payload schema 5, and target
 platform. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
-used by the built-in module descriptor, DDC key defaults, and payload compatibility.
+returned by the built-in module and used by DDC keys and payload compatibility.
+The StaticMesh cook recipe dependency encodes only this render builder version
+and `PhysicsCookBuilderVersion`; it has no module-name or producer-identity field.
 The algorithm builder header is private to MeshBuilder; consumers use the module contract. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; build

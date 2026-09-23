@@ -178,18 +178,17 @@ namespace Durin
 		if (!Session) return std::unexpected(FStaticMeshBuildFailure{
 			"The StaticMesh build module is unavailable; workers require a retained build session.", EStaticMeshBuildStage::Render});
 		auto Build = [&]() -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> {
-			const FStaticMeshBuilderDescriptor Descriptor = Session.GetModule().GetDescriptor();
-			if (!Descriptor.IsValid())
+			const uint32 BuilderVersion = Session.GetModule().GetRenderBuilderVersion();
+			if (BuilderVersion == 0)
 			{
-				return std::unexpected(FStaticMeshBuildFailure{std::format("Invalid StaticMesh builder '{}' (render version {}).",
-						Descriptor.ProducerIdentity, Descriptor.RenderBuilderVersion), EStaticMeshBuildStage::Render});
+				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh render builder version must be nonzero.", EStaticMeshBuildStage::Render});
 			}
 			FStaticMeshBuildKeyInput KeyInput{
 				.SourceHash = Request.Source.GetIdentity(),
 				.ReconciliationHash = BuildStaticMeshReconciliationHash(
 					Request.Reconciliation.MaterialSlots,
 					Request.Reconciliation.NormalizedSize),
-				.BuilderVersion = Descriptor.RenderBuilderVersion,
+				.BuilderVersion = BuilderVersion,
 				.TargetPlatform = EAssetPayloadTargetPlatform::Win64};
 			auto KeyResult = BuildStaticMeshDerivedDataKey(KeyInput);
 			if (!KeyResult)

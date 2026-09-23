@@ -9,8 +9,8 @@ namespace Durin
 	class IMeshBuilderModule : public IModuleInterface
 	{
 	public:
-		// Descriptor identity and version are immutable for this module generation.
-		virtual auto GetDescriptor() const -> FStaticMeshBuilderDescriptor = 0;
+		// The builder version is immutable for this module generation.
+		virtual auto GetRenderBuilderVersion() const -> uint32 = 0;
 		virtual auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
 			const FAssetBuildTaskContext& Control = {})
 			-> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> = 0;

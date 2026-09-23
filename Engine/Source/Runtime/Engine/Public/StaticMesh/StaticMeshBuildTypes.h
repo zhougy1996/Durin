@@ -34,18 +34,6 @@ namespace Durin
 
 	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
 
-	struct FStaticMeshBuilderDescriptor
-	{
-		std::string ProducerIdentity;
-		uint32 RenderBuilderVersion = 0;
-
-		[[nodiscard]] auto IsValid() const -> bool
-		{
-			return !ProducerIdentity.empty()
-				&& RenderBuilderVersion != 0;
-		}
-	};
-
 	// Fixed slot metadata only; material object bindings remain with the operation owner.
 	struct FStaticMeshBuildMaterialSlot
 	{

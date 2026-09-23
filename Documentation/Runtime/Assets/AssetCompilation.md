@@ -258,7 +258,7 @@ admission, cancels both kinds and drains workers before releasing storage.
 Render workers own detached source and slot metadata, without material object
 bindings. The owner snapshot retains bindings and provenance until publication.
 Application rechecks source identity, normalization, slot bindings and provenance.
-The immutable builder descriptor is captured at admission for diagnostics; joining
+The immutable render builder version is captured at admission for diagnostics; joining
 and publication do not reread it while the session pins the same module generation. Render admission acquires an `FStaticMeshBuildSession` on the
 module-control thread and retains it through publication and worker retirement.
 The session pins the module generation; shutdown/unload is rejected until all
@@ -314,7 +314,7 @@ history entry returns request ID zero.
 `GetStaticMeshCompilationManagerDiagnostics` are owner-thread, value-only reads.
 They neither pump work nor perform source/cache I/O or initialize resources.
 Request ID zero means no available observation, including evicted history.
-A nonzero observation describes its captured source identity, builder descriptor and module
+A nonzero observation describes its captured source identity, render builder version and module
 generation, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.

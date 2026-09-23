@@ -821,7 +821,7 @@ TEST(FStaticMeshBuildModuleTests, SessionPinsGenerationAcrossWorkerDispatchAndRe
 	auto Session = FStaticMeshBuildSession::Acquire();
 	ASSERT_TRUE(Session);
 	const auto Generation = Session.GetGeneration();
-	EXPECT_EQ(Session.GetModule().GetDescriptor().RenderBuilderVersion, StaticMeshBuilderVersion);
+	EXPECT_EQ(Session.GetModule().GetRenderBuilderVersion(), StaticMeshBuilderVersion);
 	EXPECT_EQ(FModuleManager::Get().ShutdownModule("MeshBuilder").Status, EModuleOperationStatus::OutstandingCodeLease);
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
@@ -2110,7 +2110,8 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, FailedCache.Status);
 	EXPECT_TRUE(HasCacheError(FailedCache.CacheWarnings, EAssetBuildCacheOperation::Write));
 	EXPECT_FALSE(FailedCache.Error);
-	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size() + FailedCache.Descriptor.ProducerIdentity.size(), 4096u);
+	EXPECT_EQ(FailedCache.RenderBuilderVersion, StaticMeshBuilderVersion);
+	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size(), 4096u);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 	const auto Synchronous = Fixture.Mesh->Build(Fixture.Mesh->GetSource());
 	EXPECT_TRUE(Synchronous);
@@ -2601,9 +2602,9 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	{
 	public:
 		bool bCancel = false;
-		auto GetDescriptor() const -> FStaticMeshBuilderDescriptor override
+		auto GetRenderBuilderVersion() const -> uint32 override
 		{
-			return {.ProducerIdentity = "InvalidProductFixture", .RenderBuilderVersion = 777};
+			return 777;
 		}
 		auto BuildRender(const FStaticMeshRenderBuildRequest&,
 			const FAssetBuildTaskContext&) -> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> override

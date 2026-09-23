@@ -6,9 +6,9 @@ namespace Durin
 {
 	class FMeshBuilderModule final : public IMeshBuilderModule
 	{
-		auto GetDescriptor() const -> FStaticMeshBuilderDescriptor override
+		auto GetRenderBuilderVersion() const -> uint32 override
 		{
-			return {.ProducerIdentity = "Durin.StaticMeshBuild", .RenderBuilderVersion = StaticMeshBuilderVersion};
+			return StaticMeshBuilderVersion;
 		}
 
 		auto BuildRender(const FStaticMeshRenderBuildRequest& Request,

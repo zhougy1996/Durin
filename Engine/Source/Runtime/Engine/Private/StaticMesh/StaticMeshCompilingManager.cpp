@@ -194,9 +194,9 @@ namespace Durin
 					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
 				auto Session = FStaticMeshBuildSession::Acquire();
 				if (!Session) return Reject("StaticMesh compilation requires the build module.");
-				const auto Descriptor = Session.GetModule().GetDescriptor();
-				if (!Descriptor.IsValid() || Descriptor.ProducerIdentity.size() > 256)
-					return Reject("StaticMesh compilation requires a valid builder descriptor.");
+				const uint32 BuilderVersion = Session.GetModule().GetRenderBuilderVersion();
+				if (BuilderVersion == 0)
+					return Reject("StaticMesh compilation requires a nonzero render builder version.");
 				auto Record = std::make_shared<FRecord>();
 				Record->Snapshot = Snapshot;
 				Record->RequestedSource = Request.Source;
@@ -222,7 +222,7 @@ namespace Durin
 				Record->bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
 				Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
-				Record->Diagnostic.Descriptor = Descriptor;
+				Record->Diagnostic.RenderBuilderVersion = BuilderVersion;
 				Record->Diagnostic.ModuleGeneration = Session.GetGeneration();
 				// No invalid/rejected submission reaches this boundary or invalidates an older request.
 				for (const auto& Old : Records)
@@ -714,9 +714,7 @@ namespace Durin
 			if (!Message.empty()) Message += "\n";
 			Message += Error.ToString();
 		}
-		const auto Limit = MaximumStaticMeshBuildDiagnosticBytes
-			- std::min(MaximumStaticMeshBuildDiagnosticBytes, Diagnostic.Descriptor.ProducerIdentity.size());
-		Message.resize(std::min(Message.size(), Limit));
+		Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
 		return Message;
 	}
 
