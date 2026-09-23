@@ -2,7 +2,7 @@
 
 #include "TextureBuildAPI.h"
 #include "Texture/TextureBuildOutcome.h"
-#include "Texture/VolumeTexture.h"
+#include "Texture/VolumeTextureData.h"
 
 namespace Durin::VolumeTextureBuilder
 {

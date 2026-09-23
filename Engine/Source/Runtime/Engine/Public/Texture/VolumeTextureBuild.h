@@ -6,13 +6,12 @@
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
-#include "Texture/TextureBuildOutcome.h"
+#include "Texture/VolumeTextureBuildTypes.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin
 {
-	// Borrows immutable normalized source for the duration of one synchronous
-	// module invocation. Recipes must not retain the reference.
+	// Engine cache policy and borrowed source for one synchronous build.
 	struct FVolumeTextureBuildRequest
 	{
 		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
@@ -20,18 +19,6 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
-	};
-
-	// Stable producer identity included in Engine-side diagnostics and contracts.
-	struct FVolumeTextureBuildDescriptor
-	{
-		std::string ProducerIdentity;
-		uint32 BuilderVersion = 0;
-
-		[[nodiscard]] auto IsValid() const -> bool
-		{
-			return !ProducerIdentity.empty() && BuilderVersion != 0;
-		}
 	};
 
 	enum class EVolumeTextureBuildProductOrigin : uint8
@@ -48,19 +35,6 @@ namespace Durin
 		FAssetCacheDiagnostics PersistenceDiagnostic;
 		FVolumeTextureBuildDescriptor Builder;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
-	};
-
-	struct FVolumeTextureRecipeBuildRequest
-	{
-		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
-		FVolumeTextureBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
-	};
-
-	struct FVolumeTextureRecipeBuildProduct
-	{
-		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 	};
 
 	// Caller-owned result-application policy used only by Engine on the GameThread.

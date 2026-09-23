@@ -111,6 +111,12 @@ the aggregate before Core closes task admission.
 
 TextureBuild does not own those scopes or return asynchronous tasks.
 Engine calls its fixed module interface for synchronous value-only recipes.
+The interface includes `Texture2DBuildTypes.h`, `TextureCubeBuildTypes.h`, and
+`VolumeTextureBuildTypes.h`; Cube and Volume CPU data live in their respective
+`Data.h` headers, independently of the texture object classes. Cube normalization
+borrows a `FTextureCubeNormalizeRequest` containing input values and target settings.
+Cache policy, cache diagnostics, and object application remain in the Engine
+orchestration headers and do not enter the module request.
 Texture2D and TextureCube PostLoad place recipe work on an Engine-owned worker;
 VolumeTexture remains synchronous. TextureBuild stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no

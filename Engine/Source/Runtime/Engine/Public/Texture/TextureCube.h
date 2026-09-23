@@ -6,49 +6,13 @@
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
-#include "Texture/Texture2D.h"
+#include "Texture/TextureSource.h"
+#include "Texture/TextureCubeData.h"
 
 #include "TextureCube.gen.h"
 
 namespace Durin
 {
-	// Selects display-ready LDR or preserved linear panorama radiance.
-	DENUM(DisplayName = "Texture Cube Output")
-	enum class ETextureCubeOutput : uint8
-	{
-		LDR = 0,
-		HDR = 1,
-	};
-
-	DENUM(DisplayName = "Texture Cube Source Layout")
-	enum class ETextureCubeSourceLayout : uint8
-	{
-		SixFaces,
-		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
-	};
-
-	// Immutable shared RGBA8 images used by decoding, projection, and build recipes.
-	// Faces use Unknown gamma; the cube build settings supply color interpretation.
-	struct FTextureCubeDecodedFaces
-	{
-		std::array<Image::FImage, TextureCubeFaceCount> Faces;
-		std::array<uint8, TextureCubeFaceCount> SourceChannelCounts{};
-		uint8 TransparencyMask = 0;
-
-		ENGINE_API auto IsValid() const -> bool;
-	};
-
-	struct FTextureCubePlatformData
-	{
-		std::array<FTexturePlatformData, TextureCubeFaceCount> Faces;
-		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-
-		ENGINE_API auto IsValid() const -> bool;
-		// Loads canonical six-slice TXPL in place; discard failures and check the owning byte boundary.
-		ENGINE_API auto Serialize(
-			FArchive& Ar) -> void;
-	};
-
 	// May synchronously load source pixels; returned images retain shared storage independently.
 	ENGINE_API auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeDecodedFaces;
 

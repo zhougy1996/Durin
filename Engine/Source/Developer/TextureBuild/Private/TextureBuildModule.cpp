@@ -30,7 +30,7 @@ namespace Durin
 		{
 			return Durin::BuildTexture2D(Request, Control);
 		}
-		auto NormalizeTextureCube(const FTextureCubeBuildRequest& Request)
+		auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override
 		{
 			return Durin::NormalizeTextureCube(Request);

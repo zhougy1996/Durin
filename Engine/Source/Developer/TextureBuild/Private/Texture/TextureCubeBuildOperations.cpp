@@ -11,7 +11,7 @@ namespace Durin
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 	}
 
-	auto NormalizeTextureCube(const FTextureCubeBuildRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError>
+	auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError>
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
@@ -20,7 +20,7 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
 				"TextureCube build target is unsupported."});
 		}
-		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(&Request.Input))
+		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(&Request.Input.get()))
 		{
 			if (!Faces->DecodedFaces.IsValid())
 			{
@@ -46,7 +46,7 @@ namespace Durin
 			return CanonicalInput;
 		}
 
-		const auto& Panorama = std::get<FTextureCubePanoramaBuildInput>(Request.Input);
+		const auto& Panorama = std::get<FTextureCubePanoramaBuildInput>(Request.Input.get());
 		if (Panorama.Settings.Output != ETextureCubeOutput::LDR
 			&& Panorama.Settings.Output != ETextureCubeOutput::HDR)
 		{

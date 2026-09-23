@@ -28,7 +28,8 @@ namespace Durin
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The TextureCube builder descriptor is invalid."});
 		}
-		auto Normalized = Module->NormalizeTextureCube(Request);
+		auto Normalized = Module->NormalizeTextureCube({.Input = std::cref(Request.Input),
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 		if (!Normalized)
 		{
 			return std::unexpected(std::move(Normalized.error()));

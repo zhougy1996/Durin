@@ -1,5 +1,6 @@
 #include "Image/ImageDecoder.h"
 #include "Texture/TextureCubeBuilder.h"
+#include "Texture/TextureCube.h"
 
 #include <gtest/gtest.h>
 

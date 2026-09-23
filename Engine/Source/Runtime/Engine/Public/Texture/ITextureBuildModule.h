@@ -2,8 +2,8 @@
 
 #include "Modules/ModuleManager.h"
 #include "Texture/Texture2DBuildTypes.h"
-#include "Texture/TextureCubeBuild.h"
-#include "Texture/VolumeTextureBuild.h"
+#include "Texture/TextureCubeBuildTypes.h"
+#include "Texture/VolumeTextureBuildTypes.h"
 
 namespace Durin
 {
@@ -19,7 +19,7 @@ namespace Durin
 		virtual auto BuildTexture2D(const FTexture2DRecipeBuildRequest& Request,
 			const FTexture2DRecipeExecutionControl* Control = nullptr)
 			-> std::expected<FTexture2DRecipeBuildProduct, FTexture2DBuildError> = 0;
-		virtual auto NormalizeTextureCube(const FTextureCubeBuildRequest& Request)
+		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
 		virtual auto BuildTextureCube(const FTextureCubeRecipeBuildRequest& Request)
 			-> std::expected<FTextureCubeRecipeBuildProduct, FTextureBuildError> = 0;
