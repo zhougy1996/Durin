@@ -60,12 +60,6 @@ namespace Durin
 		Invalid,
 	};
 
-	// Defines the policy applied automatically when the owning module begins retirement.
-	struct FAsyncOperationGroupOptions
-	{
-		EAsyncOperationCloseMode ShutdownMode = EAsyncOperationCloseMode::Cancel;
-	};
-
 	// Reports execution, result-handle, and deferred callable evidence for one group.
 	struct FAsyncOperationGroupSnapshot
 	{
@@ -81,29 +75,6 @@ namespace Durin
 		uint64 RetainedResultCount = 0;
 		uint32 RetainedDeferredCallableCount = 0;
 		bool bWorkerCallablesRetained = false;
-	};
-
-	// Aggregates every operation group owned by one module load generation.
-	struct FAsyncOperationOwnerSnapshot
-	{
-		FName OwnerName;
-		uint64 OwnerGeneration = 0;
-		uint32 GroupCount = 0;
-		uint64 ActiveTaskCount = 0;
-		uint64 RetainedResultCount = 0;
-		uint32 RetainedDeferredCallableCount = 0;
-		uint32 GroupsWithWorkerCallables = 0;
-		std::vector<FAsyncOperationGroupSnapshot> Groups;
-	};
-
-	// Carries a bounded drain outcome and the evidence that authorized or rejected it.
-	struct FAsyncOperationDrainResult
-	{
-		EAsyncOperationDrainStatus Status = EAsyncOperationDrainStatus::Invalid;
-		FAsyncOperationOwnerSnapshot Snapshot;
-		std::string Message;
-
-		[[nodiscard]] auto Succeeded() const -> bool { return Status == EAsyncOperationDrainStatus::Succeeded; }
 	};
 
 	// Binds task roots and descendants to one module-owned close and drain boundary.
@@ -124,7 +95,7 @@ namespace Durin
 			EAsyncOperationCloseMode Mode,
 			EAsyncOperationAbortReason Reason = EAsyncOperationAbortReason::OwnerRequested
 		) -> EAsyncOperationCloseStatus;
-		CORE_API auto Drain(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> FAsyncOperationDrainResult;
+		CORE_API auto Drain(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> EAsyncOperationDrainStatus;
 		CORE_API auto GetSnapshot() const -> FAsyncOperationGroupSnapshot;
 
 	private:
@@ -140,18 +111,7 @@ namespace Durin
 	{
 		CORE_API auto CreateAsyncOperationGroup(
 			const std::shared_ptr<FModuleOwnerState>& Owner,
-			FName GroupName,
-			FAsyncOperationGroupOptions Options
+			FName GroupName
 		) -> FAsyncOperationGroup;
-		CORE_API auto BeginRetireAsyncOperationOwner(
-			const std::shared_ptr<FModuleOwnerState>& Owner
-		) -> FAsyncOperationOwnerSnapshot;
-		CORE_API auto DrainAsyncOperationOwner(
-			const std::shared_ptr<FModuleOwnerState>& Owner,
-			std::chrono::milliseconds Timeout
-		) -> FAsyncOperationDrainResult;
-		CORE_API auto SnapshotAsyncOperationOwner(
-			const std::shared_ptr<FModuleOwnerState>& Owner
-		) -> FAsyncOperationOwnerSnapshot;
 	}
 }

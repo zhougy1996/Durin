@@ -822,7 +822,7 @@ TEST(FStaticMeshBuildModuleTests, SessionPinsGenerationAcrossWorkerDispatchAndRe
 	ASSERT_TRUE(Session);
 	const auto Generation = Session.GetGeneration();
 	EXPECT_EQ(Session.GetModule().GetRenderBuilderVersion(), StaticMeshBuilderVersion);
-	EXPECT_FALSE(FModuleManager::Get().ShutdownModule("MeshBuilder"));
+	EXPECT_FALSE(FModuleManager::Get().UnloadModule("MeshBuilder"));
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Result;
@@ -2601,6 +2601,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	class FInvalidProductModule final : public IMeshBuilderModule
 	{
 	public:
+		auto SupportsDynamicReloading() const -> bool override { return true; }
 		bool bCancel = false;
 		auto GetRenderBuilderVersion() const -> uint32 override
 		{

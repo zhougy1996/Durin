@@ -723,11 +723,6 @@ namespace Durin
 		AttachCoreIntrinsicTypesToCppPackage();
 
 		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
-		FModuleManager::Get().SetPreShutdownModuleCallback([](FName ModuleName) {
-			if (!DPackage::DrainAsyncSaves()) return false;
-			ReleaseDStructDefaultsForModule(ModuleName);
-			return ReleaseClassDefaultObjectsForModule(ModuleName);
-		});
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 
 		auto& array = GDObjectArray;

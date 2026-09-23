@@ -1034,6 +1034,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 		}))) << FormatShaderError(Error.error());
 		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
 		EXPECT_TRUE(GetShaderCompilerEnvironmentIdentity().empty());
-		EXPECT_TRUE(Registration.Reset().Succeeded());
+		EXPECT_TRUE(Registration.Reset() == EModularFeatureRetirementStatus::Succeeded);
 	}
 } // namespace Durin

@@ -200,10 +200,12 @@ namespace Durin
 
 	auto ShutdownShaderBuild() -> void
 	{
-		const FModularFeatureRetirementResult Retirement =
-			ProviderRegistration.Reset();
-		requiref(Retirement.Succeeded(),
-			"ShaderBuild provider retirement failed: {}", Retirement.Message);
+		if (ProviderRegistration.IsValid())
+		{
+			const auto Retirement = ProviderRegistration.Reset();
+			requiref(Retirement == EModularFeatureRetirementStatus::Succeeded,
+				"ShaderBuild provider retirement failed: {}", static_cast<uint32>(Retirement));
+		}
 		ShutdownShaderCompileService();
 		ShutdownShaderData();
 		TestOwner.reset();
@@ -212,6 +214,9 @@ namespace Durin
 	class FShaderBuildModule final : public IModuleInterface
 	{
 	public:
+		// Shutdown removes the provider and drains the compiler before code release.
+		auto SupportsDynamicReloading() const -> bool override { return true; }
+
 		auto StartupModule() -> void override
 		{
 			InitializeShaderBuild();

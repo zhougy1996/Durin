@@ -165,6 +165,19 @@ namespace Durin::Tests
 		}
 	}
 
+	TEST(FDynamicDllUnloadQualificationTests, FailedStartupCleansPartialInstanceBeforeReleasingImage)
+	{
+		// No host feature is installed: fixture startup throws before creating its groups.
+		auto& Manager = FModuleManager::Get();
+		EXPECT_EQ(nullptr, Manager.LoadModule(FName(FixtureModuleName)));
+		const auto Info = Manager.FindModule(FName(FixtureModuleName));
+		ASSERT_NE(nullptr, Info);
+		EXPECT_EQ(EModuleState::LoadFailed, Info->State.load());
+		EXPECT_EQ(nullptr, Info->Module);
+		EXPECT_EQ(nullptr, Info->ModuleOwner);
+		ExpectFixtureReleased(Info);
+	}
+
 	TEST(FDynamicDllUnloadQualificationTests,
 		SuccessfulUnloadDrainsCallsAsyncStorageAndReloadsNewGenerations)
 	{
@@ -208,14 +221,13 @@ namespace Durin::Tests
 		std::thread Releaser([&] {
 			const auto Deadline = std::chrono::steady_clock::now()
 				+ std::chrono::seconds(5);
-			while (FirstInfo->State.load() != EModuleState::Retiring
-				&& std::chrono::steady_clock::now() < Deadline)
+			do
 			{
+				LateStatus = FModularFeatureRegistry::Get()
+					.InvokeSingle<IDynamicUnloadFixtureFeature>([](auto&) {}).Status;
+				if (LateStatus.load() == EFeatureInvokeStatus::Unavailable) break;
 				std::this_thread::yield();
-			}
-			LateStatus = FModularFeatureRegistry::Get()
-				.InvokeSingle<IDynamicUnloadFixtureFeature>(
-					[](IDynamicUnloadFixtureFeature&) {}).Status;
+			} while (std::chrono::steady_clock::now() < Deadline);
 			Host.ReleaseSynchronous(*FirstSerial);
 		});
 		const bool FirstUnload =

@@ -12,30 +12,10 @@ namespace Durin
 		ModuleOwner = FModularFeatureRegistry::Get().CreateOwner(ModuleName, Generation);
 	}
 
-	auto FModuleTestOwner::BeginRetirement(std::chrono::milliseconds Timeout)
-		-> FModularFeatureRetirementResult
-	{
-		auto Retirement = FModularFeatureRegistry::Get().RetireOwner(ModuleOwner, Timeout);
-		Detail::BeginRetireAsyncOperationOwner(ModuleOwner);
-		return Retirement;
-	}
-
-	auto FModuleTestOwner::DrainAsyncOperations(std::chrono::milliseconds Timeout)
-		-> FAsyncOperationDrainResult
-	{
-		return Detail::DrainAsyncOperationOwner(ModuleOwner, Timeout);
-	}
-
 	auto FModuleTestOwner::GetFeatureSnapshot() const
 		-> FModularFeatureRetirementSnapshot
 	{
 		return FModularFeatureRegistry::Get().SnapshotOwner(ModuleOwner);
-	}
-
-	auto FModuleTestOwner::GetAsyncOperationSnapshot() const
-		-> FAsyncOperationOwnerSnapshot
-	{
-		return Detail::SnapshotAsyncOperationOwner(ModuleOwner);
 	}
 
 	FModuleTestHarness::FModuleTestHarness(FName ModuleName)
@@ -59,11 +39,7 @@ namespace Durin
 	auto FModuleTestHarness::Shutdown() -> void
 	{
 		require(StartedModule != nullptr);
-		const auto Retirement = Owner.BeginRetirement();
-		require(Retirement.Succeeded());
 		StartedModule->ShutdownModule();
-		const auto AsyncDrain = Owner.DrainAsyncOperations();
-		require(AsyncDrain.Succeeded());
 		const auto Audit = Owner.GetFeatureSnapshot();
 		require(Audit.PublishedCount == 0);
 		require(Audit.InFlightInvocationCount == 0);
@@ -92,14 +68,8 @@ namespace Durin
 		ModuleInfo->Module = std::move(Module);
 		Detail::FScopedModuleStartup StartupScope(ModuleName, ModuleInfo->ModuleOwner);
 		ModuleInfo->Module->StartupModule();
+		ModuleInfo->LoadOrder = Manager.NextLoadOrder++;
 		ModuleInfo->State = EModuleState::Active;
 		return ModuleInfo->Module.get();
-	}
-
-	auto FModuleTestHarness::SetRetirementTimeout(std::chrono::milliseconds Timeout)
-		-> std::chrono::milliseconds
-	{
-		auto& Manager = FModuleManager::Get();
-		return std::exchange(Manager.FeatureRetirementTimeout, Timeout);
 	}
 }

@@ -117,6 +117,8 @@ namespace Durin::Tests
 			auto& Manager = FModuleManager::Get();
 			Manager.AddModule(LogicalName, std::string(FixtureFileName));
 			if (!Manager.LoadModule(LogicalName)) return nullptr;
+			(void)FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>(
+				[](auto& Fixture) { Fixture.SetShutdownTimeout(std::chrono::milliseconds(5)); });
 			return Manager.FindModule(LogicalName);
 		}
 
@@ -157,19 +159,44 @@ namespace Durin::Tests
 #endif
 		}
 
-		auto ExpectBlockedAndMapped(
+		auto ExpectIncompleteAndMapped(
 			const FModuleManager::FModuleInfoPtr& Info) -> void
 		{
 			ASSERT_NE(Info, nullptr);
-			EXPECT_EQ(Info->State.load(), EModuleState::UnloadBlocked);
+			EXPECT_EQ(Info->State.load(), EModuleState::ShuttingDown);
 			EXPECT_NE(Info->Handle, nullptr);
 			EXPECT_NE(Info->Module, nullptr);
 			EXPECT_TRUE(IsMapped(Info));
 		}
 	}
 
+	TEST(FDynamicDllUnloadFailureQualificationTests, ResidentStartupFailureCleansUpWithoutUnmappingCode)
+	{
+		FFailureHost Host;
+		FModuleTestOwner HostContext("ResidentStartupFailureHost");
+		auto HostRegistration = HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
+		auto& Manager = FModuleManager::Get();
+		const FName Name("DynamicUnloadFixtureResidentStartupFailure");
+		Manager.AddModule(Name, std::string(FixtureFileName));
+		EXPECT_EQ(nullptr, Manager.LoadModule(Name));
+		const auto Info = Manager.FindModule(Name);
+		ASSERT_NE(nullptr, Info);
+		EXPECT_EQ(EModuleState::StoppedMapped, Info->State.load());
+		ASSERT_NE(nullptr, Info->Module);
+		EXPECT_FALSE(Info->Module->SupportsDynamicReloading());
+		EXPECT_NE(nullptr, Info->Handle);
+		EXPECT_TRUE(IsMapped(Info));
+		EXPECT_TRUE(Host.HasEvent(EDynamicUnloadFixtureEvent::Shutdown, 0));
+		EXPECT_FALSE(Host.HasEvent(EDynamicUnloadFixtureEvent::ModuleDestroyed, 0));
+		EXPECT_FALSE(Manager.IsModuleLoaded(Name));
+		EXPECT_EQ(nullptr, Manager.LoadModule(Name));
+		EXPECT_FALSE(Manager.UnloadModule(Name));
+		Manager.ShutdownModule(Name);
+		EXPECT_EQ(EModuleState::StoppedMapped, Info->State.load());
+	}
+
 	TEST(FDynamicDllUnloadFailureQualificationTests,
-		EveryInjectedRetirementFailureLeavesTheRealImageMapped)
+		ModuleCleanupExceptionsPropagateAndLeaveTheRealImageMapped)
 	{
 		FTaskSystemGuard TaskGuard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -193,12 +220,8 @@ namespace Durin::Tests
 		});
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::SynchronousEntered, *SyncSerial));
-		auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
-			std::chrono::milliseconds(5));
-		const auto SyncUnload = Manager.UnloadModule(SyncName);
-		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_FALSE(SyncUnload);
-		ExpectBlockedAndMapped(SyncInfo);
+		EXPECT_THROW(Manager.UnloadModule(SyncName), std::runtime_error);
+		ExpectIncompleteAndMapped(SyncInfo);
 		Host.ReleaseSync(*SyncSerial);
 		Caller.join();
 
@@ -215,13 +238,8 @@ namespace Durin::Tests
 			&& WorkerStarted.Value && *WorkerStarted.Value);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::BlockingWorkerEntered, *WorkerSerial));
-		PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
-			std::chrono::milliseconds(5));
-		const auto WorkerUnload = Manager.UnloadModule(WorkerName);
-		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_FALSE(WorkerUnload);
-		EXPECT_EQ(Detail::SnapshotAsyncOperationOwner(WorkerInfo->ModuleOwner).ActiveTaskCount, 1u);
-		ExpectBlockedAndMapped(WorkerInfo);
+		EXPECT_THROW(Manager.UnloadModule(WorkerName), std::runtime_error);
+		ExpectIncompleteAndMapped(WorkerInfo);
 		Host.ReleaseAsync(*WorkerSerial);
 
 		const FName ResultName("DynamicUnloadFixtureRetainedResult");
@@ -237,13 +255,8 @@ namespace Durin::Tests
 			&& ResultStarted.Value && *ResultStarted.Value);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::RetainedResultReady, *ResultSerial));
-		PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
-			std::chrono::milliseconds(5));
-		const auto ResultUnload = Manager.UnloadModule(ResultName);
-		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-		EXPECT_FALSE(ResultUnload);
-		EXPECT_EQ(Detail::SnapshotAsyncOperationOwner(ResultInfo->ModuleOwner).RetainedResultCount, 1u);
-		ExpectBlockedAndMapped(ResultInfo);
+		EXPECT_THROW(Manager.UnloadModule(ResultName), std::runtime_error);
+		ExpectIncompleteAndMapped(ResultInfo);
 
 		const FName DeferredName("DynamicUnloadFixtureDeferredUnsupported");
 		const auto DeferredInfo = LoadFixture(DeferredName);
@@ -259,26 +272,10 @@ namespace Durin::Tests
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::AsyncWorkerCompleted, *DeferredSerial));
 		GIsGameThreadIdInitialized = false;
-		const auto DeferredUnload = Manager.UnloadModule(DeferredName);
+		EXPECT_THROW(Manager.UnloadModule(DeferredName), std::runtime_error);
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
-		EXPECT_FALSE(DeferredUnload);
-		EXPECT_GT(Detail::SnapshotAsyncOperationOwner(DeferredInfo->ModuleOwner).RetainedDeferredCallableCount, 0u);
-		ExpectBlockedAndMapped(DeferredInfo);
-
-		const FName ReflectedName("DynamicUnloadFixtureReflectedBlock");
-		const auto ReflectedInfo = LoadFixture(ReflectedName);
-		ASSERT_NE(ReflectedInfo, nullptr);
-		const auto ReflectedSerial = InvokeSerial();
-		ASSERT_TRUE(ReflectedSerial.has_value());
-		Manager.SetPreShutdownModuleCallback(
-			[ReflectedName](FName Name) { return Name != ReflectedName; });
-		const auto ReflectedUnload = Manager.UnloadModule(ReflectedName);
-		Manager.SetPreShutdownModuleCallback({});
-		EXPECT_FALSE(ReflectedUnload);
-		ExpectBlockedAndMapped(ReflectedInfo);
-		EXPECT_FALSE(Host.HasEvent(
-			EDynamicUnloadFixtureEvent::ModuleDestroyed, *ReflectedSerial));
+		ExpectIncompleteAndMapped(DeferredInfo);
 
 		const FName ShutdownName("DynamicUnloadFixtureShutdownFailure");
 		const auto ShutdownInfo = LoadFixture(ShutdownName);
@@ -289,9 +286,8 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				Fixture.SetThrowOnShutdownForFailure();
 			}).WasInvoked());
-		const auto ShutdownUnload = Manager.UnloadModule(ShutdownName);
-		EXPECT_FALSE(ShutdownUnload);
-		ExpectBlockedAndMapped(ShutdownInfo);
+		EXPECT_THROW(Manager.UnloadModule(ShutdownName), std::runtime_error);
+		ExpectIncompleteAndMapped(ShutdownInfo);
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *ShutdownSerial));
 
@@ -317,10 +313,9 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				return Fixture.RequestRecursiveUnloadForFailure();
 			});
-		ASSERT_TRUE(Recursive.WasInvoked() && Recursive.Value);
-		EXPECT_FALSE(*Recursive.Value);
-		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::UnloadBlocked);
-		ExpectBlockedAndMapped(RecursiveInfo);
+		EXPECT_EQ(Recursive.Status, EFeatureInvokeStatus::VisitorFailed);
+		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::ShuttingDown);
+		ExpectIncompleteAndMapped(RecursiveInfo);
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *RecursiveSerial));
 	}

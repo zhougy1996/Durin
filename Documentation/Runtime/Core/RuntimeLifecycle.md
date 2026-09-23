@@ -286,22 +286,22 @@ recording, replay, flush, and completion are defined by
 
 `FEngineLoop::Exit()` is the single process-level ordering owner. Launch first retires asset compilation and calls host PrepareForShutdown,
 which closes subsystem work, retires World/editor consumers and deinitializes
-services while base endpoints remain available. It then unloads the selected UI backend, which unregisters its exact backend instance
+services while base endpoints remain available. It then shuts down the selected UI backend, which unregisters its exact backend instance
 and releases backend state. Mona's module shutdown callback then closes its
 windows and renderer, while the stopped Mona module instance remains loaded
-until the ordinary post-object-drain module pass. The function expresses the
+through process exit. The ordinary post-object-drain module pass skips it. The function expresses the
 shutdown order directly:
 
 | Step | Boundary |
 | --- | --- |
 | Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
 | Retire host services | After asset compilation retires, prepare the engine host before UI/backend, cooked-mesh and task teardown; see [Subsystems](Subsystems.md). |
-| Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
+| Detach render consumers | Shut down the selected UI backend, then Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
-| Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
-| Stop CPU work | After CPU producers close work admission and publication, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. |
+| Release class defaults | Clear `DClass` ownership derived-first before the first GC; reflection cleanup is owned by this explicit exit stage. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
-| Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
+| Shut down modules | Call module Shutdown in reverse Startup-completion order after object cleanup; keep task executors and render/RHI threads available for module-owned waits. |
+| Stop CPU work | After CPU producers close work admission and publication, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
 | Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
 | Stop RHI | Atomically install backend shutdown with RHI admission `Draining`, wait its exact serial, then stop and join the RHI thread. |
@@ -319,8 +319,11 @@ references:
   while their component, viewport, scene, or preview owner remains attached.
 
 CPU-work owners close their work admission and publication before the process
-task-system boundary. A task scope is a safety mechanism, not a replacement for
-manager mailbox, provider, cache, object, render, or RHI ownership. The
+task-system boundary. Work that accesses objects must finish during host/service
+or object teardown before those objects are collected; retaining the executors
+for later module cleanup does not extend object lifetimes. A task scope is a
+safety mechanism, not a replacement for manager mailbox, provider, cache,
+object, render, or RHI ownership. The
 [CPU Task System](TaskSystem.md) defines scope closure, `Drain`/`Cancel`
 behavior, continuation dispatch, pumping, waits, and diagnostics; this document
 defines only where that process-level boundary occurs.
@@ -334,20 +337,19 @@ deferred object is reported with its path, class, and lifecycle flags before
 module unload is rejected in Debug.
 
 Module shutdown is a separate ownership channel from `DObject` destruction.
-Modules unload in reverse load order only after the object channel is empty.
+Modules shut down in reverse Startup-completion order after the object channel is empty.
+The general pass retains DLL mappings; physical runtime unload is opt-in.
 Their callbacks may still submit resource release commands because render
 admission remains open until every module callback returns. The final RenderCore
 command then validates the registry and deferred cleanup queue; it never sweeps
 unknown resources to make shutdown pass.
 
-CoreDObject installs both module-manager lifecycle callbacks during `DObjectInit`:
-newly loaded reflected objects finalize their registration and CDO batch before
-`StartupModule()`, while pre-shutdown releases that module's batch before
-`ShutdownModule()`. Normal process exit releases all CDOs before the first
-shutdown GC, so reverse module shutdown observes empty batches. A direct late
-module unload performs the same derived-first release and synchronous drain; if
-any template remains registered (including deferred destruction), the module
-stays ready and the unload is rejected.
+CoreDObject installs the newly-loaded-object callback during `DObjectInit` so
+reflected registration and CDO creation precede `StartupModule()`. It does not
+install a module pre-shutdown drain. Process exit explicitly releases all class
+and struct defaults before shutdown GC. Runtime DLL unload is disabled by default;
+a reflected module must implement a complete object/type teardown protocol before
+opting in. `FModuleManager` does not supply that protocol.
 
 ## Render And RHI Shutdown Integration
 

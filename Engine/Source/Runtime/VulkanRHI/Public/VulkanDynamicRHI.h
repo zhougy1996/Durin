@@ -169,6 +169,8 @@ namespace Durin::VulkanRHI
 	class FVulkanDynamicRHIModule : public IDynamicRHIModule
 	{
 	public:
+		// RHIExit releases the backend and joins its threads before unloading this module.
+		auto SupportsDynamicReloading() const -> bool override { return true; }
 		auto CreateRHI() -> FDynamicRHI* override
 		{
 			GVulkanRHI = new FVulkanDynamicRHI();

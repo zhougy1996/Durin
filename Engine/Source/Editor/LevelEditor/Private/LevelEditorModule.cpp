@@ -108,7 +108,11 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
+		ThumbnailOperations.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
 		UnregisterLevelEditorWorkspace();
+		if (ThumbnailOperations.IsValid())
+			require(ThumbnailOperations.Drain() == EAsyncOperationDrainStatus::Succeeded);
+		ThumbnailOperations = {};
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("LevelEditor"),

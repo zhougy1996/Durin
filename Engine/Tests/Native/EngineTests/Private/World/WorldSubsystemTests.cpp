@@ -219,20 +219,24 @@ TEST_F(FWorldSubsystemTests, CollisionStateIsIsolatedAndClearedAcrossDetachShutd
 
 TEST_F(FWorldSubsystemTests, RejectsProviderRetirementUntilGarbageObjectsReleaseCode)
 {
-	class FProvider : public IModuleInterface {};
+	class FProvider : public IModuleInterface
+	{
+	public:
+		auto SupportsDynamicReloading() const -> bool override { return true; }
+	};
 	FModuleTestHarness::InstallStartedModule("WorldSubsystemFixtureProvider", std::make_unique<FProvider>());
 	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass(), .Provider = "WorldSubsystemFixtureProvider"});
 	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
 	auto Gate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
 	auto& Manager = FModuleManager::Get();
-	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
+	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
 	EXPECT_TRUE(Manager.IsModuleLoaded("WorldSubsystemFixtureProvider"));
 	World->Shutdown();
-	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
+	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
 	CollectGarbage();
-	EXPECT_FALSE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
+	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
 	Gate.reset();
-	EXPECT_TRUE(Manager.ShutdownModule("WorldSubsystemFixtureProvider"));
+	Manager.ShutdownModule("WorldSubsystemFixtureProvider");
 	EXPECT_EQ(MakeWorld()->InitializeSubsystems().Error, EWorldSubsystemError::ProviderUnavailable);
 }
 

@@ -68,6 +68,12 @@ namespace Durin
 
 		auto StartupModule() -> void override
 		{
+			ModuleName = FModuleStartup::GetModuleName();
+			if (ModuleName == FName("DynamicUnloadFixtureResidentStartupFailure"))
+			{
+				bDynamicReloading = false;
+				throw std::runtime_error("Injected process-resident startup failure.");
+			}
 			const auto Serial = FModularFeatureRegistry::Get()
 				.InvokeSingle<Tests::IDynamicUnloadHostFeature>(
 					[](Tests::IDynamicUnloadHostFeature& Host) {
@@ -76,16 +82,13 @@ namespace Durin
 			if (!Serial.WasInvoked() || !Serial.Value) throw std::runtime_error(
 				"Dynamic unload fixture requires its process-resident host feature.");
 			InstanceSerial = *Serial.Value;
-			ModuleName = FModuleStartup::GetModuleName();
 			FeatureRegistration =
 				FModuleStartup::RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
 
 			AsyncOperations = FModuleStartup::CreateAsyncOperationGroup(
-				"DynamicUnloadFixture.Drained",
-				{.ShutdownMode = EAsyncOperationCloseMode::Drain});
+				"DynamicUnloadFixture.Drained");
 			FailureOperations = FModuleStartup::CreateAsyncOperationGroup(
-				"DynamicUnloadFixture.Failures",
-				{.ShutdownMode = EAsyncOperationCloseMode::Cancel});
+				"DynamicUnloadFixture.Failures");
 			if (!FeatureRegistration.IsValid()
 				|| !AsyncOperations.IsValid() || !FailureOperations.IsValid())
 				throw std::runtime_error(
@@ -101,8 +104,16 @@ namespace Durin
 				InstanceSerial);
 		}
 
+		auto SupportsDynamicReloading() const -> bool override { return bDynamicReloading; }
+		auto SetShutdownTimeout(std::chrono::milliseconds Timeout) -> void override { ShutdownTimeout = Timeout; }
+
 		auto ShutdownModule() -> void override
 		{
+			if (FeatureRegistration.IsValid()
+				&& FeatureRegistration.Reset(ShutdownTimeout) != EModularFeatureRetirementStatus::Succeeded)
+				throw std::runtime_error("Fixture feature cleanup failed");
+			AsyncOperations.Close(EAsyncOperationCloseMode::Drain);
+			FailureOperations.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Shutdown,
 				InstanceSerial);
@@ -114,6 +125,9 @@ namespace Durin
 			Worker = {};
 			BlockingWorker = {};
 			if (!bRetainResult) RetainedResult = {};
+			if ((AsyncOperations.IsValid() && AsyncOperations.Drain(ShutdownTimeout) != EAsyncOperationDrainStatus::Succeeded)
+				|| (FailureOperations.IsValid() && FailureOperations.Drain(ShutdownTimeout) != EAsyncOperationDrainStatus::Succeeded))
+				throw std::runtime_error("Fixture asynchronous cleanup failed");
 		}
 
 		auto GetInstanceSerial() const -> uint64 override
@@ -220,6 +234,8 @@ namespace Durin
 		}
 
 	private:
+		bool bDynamicReloading = true;
+		std::chrono::milliseconds ShutdownTimeout = std::chrono::seconds(5);
 		uint64 InstanceSerial = 0;
 		FConsoleCommandHandle ConsoleCommand = 0;
 		FName ModuleName;

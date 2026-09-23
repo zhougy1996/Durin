@@ -109,16 +109,6 @@ namespace Durin
 		InvalidRegistration,
 	};
 
-	// Carries the categorized retirement outcome and diagnostic evidence.
-	struct FModularFeatureRetirementResult
-	{
-		EModularFeatureRetirementStatus Status = EModularFeatureRetirementStatus::Succeeded;
-		FModularFeatureRetirementSnapshot Snapshot;
-		std::string Message;
-
-		[[nodiscard]] auto Succeeded() const -> bool { return Status == EModularFeatureRetirementStatus::Succeeded; }
-	};
-
 	namespace Detail
 	{
 		struct FModuleOwnerState;
@@ -162,7 +152,7 @@ namespace Durin
 
 		[[nodiscard]] CORE_API auto IsValid() const -> bool;
 		CORE_API auto Retire() -> FModularFeatureRetirementSnapshot;
-		CORE_API auto Reset(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> FModularFeatureRetirementResult;
+		CORE_API auto Reset(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> EModularFeatureRetirementStatus;
 
 	private:
 		explicit FModularFeatureRegistration(std::shared_ptr<Detail::FModularFeatureEntryState> InEntry);
@@ -268,16 +258,12 @@ namespace Durin
 		) -> FModularFeatureRegistration;
 		CORE_API auto BeginInvoke(const FModularFeatureIdentity& Identity) -> std::vector<Detail::FModularFeatureInvocation>;
 		CORE_API auto CreateOwner(FName OwnerName, uint64 Generation) -> std::shared_ptr<Detail::FModuleOwnerState>;
-		CORE_API auto RetireOwner(
-			const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
-			std::chrono::milliseconds Timeout
-		) -> FModularFeatureRetirementResult;
 		CORE_API auto SnapshotOwner(const std::shared_ptr<Detail::FModuleOwnerState>& Owner) -> FModularFeatureRetirementSnapshot;
 		CORE_API auto RetireEntry(const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry) -> FModularFeatureRetirementSnapshot;
 		CORE_API auto WaitEntry(
 			const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry,
 			std::chrono::milliseconds Timeout
-		) -> FModularFeatureRetirementResult;
+		) -> EModularFeatureRetirementStatus;
 
 		friend class FModuleStartup;
 		friend class FModuleManager;

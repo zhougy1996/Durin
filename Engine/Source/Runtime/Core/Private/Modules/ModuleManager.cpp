@@ -77,11 +77,10 @@ namespace Durin
 	}
 
 	auto FModuleStartup::CreateAsyncOperationGroup(
-		FName GroupName,
-		FAsyncOperationGroupOptions Options) -> FAsyncOperationGroup
+		FName GroupName) -> FAsyncOperationGroup
 	{
 		return Detail::CreateAsyncOperationGroup(
-			GetCurrentOwner(), std::move(GroupName), Options);
+			GetCurrentOwner(), std::move(GroupName));
 	}
 
 	auto FModuleStartup::GetModuleName() -> FName
@@ -151,8 +150,8 @@ namespace Durin
 
 		const EModuleState ExistingState = ModuleInfo->State.load();
 		if (ExistingState == EModuleState::Active) return ModuleInfo->Module.get();
-		if (ExistingState == EModuleState::StoppedMapped || ExistingState == EModuleState::UnloadBlocked
-			|| ExistingState == EModuleState::Retiring || ExistingState == EModuleState::Loading)
+		if (ExistingState == EModuleState::StoppedMapped
+			|| ExistingState == EModuleState::ShuttingDown || ExistingState == EModuleState::Loading)
 		{
 			DURIN_ERROR(STR("Module {} cannot load from lifecycle state {}."),
 				InModuleName.ToString(), static_cast<uint32>(ExistingState));
@@ -213,6 +212,7 @@ namespace Durin
 		ModuleInfo->OwnerGeneration = NextOwnerGeneration++;
 		ModuleInfo->ModuleOwner = FModularFeatureRegistry::Get().CreateOwner(InModuleName, ModuleInfo->OwnerGeneration);
 		if (bCanProcessNewlyLoadedObjects && ProcessLoadedObjectsCallback) ProcessLoadedObjectsCallback();
+		bool bStartupFailed = false;
 		try
 		{
 			Detail::FScopedModuleStartup StartupScope(InModuleName, ModuleInfo->ModuleOwner);
@@ -220,22 +220,27 @@ namespace Durin
 		}
 		catch (...)
 		{
-			const auto Retirement = FModularFeatureRegistry::Get().RetireOwner(
-				ModuleInfo->ModuleOwner, FeatureRetirementTimeout);
-			Detail::BeginRetireAsyncOperationOwner(ModuleInfo->ModuleOwner);
-			const auto AsyncRetirement = Detail::DrainAsyncOperationOwner(
-				ModuleInfo->ModuleOwner, FeatureRetirementTimeout);
-			if (!Retirement.Succeeded() || !AsyncRetirement.Succeeded())
+			bStartupFailed = true;
+		}
+		if (bStartupFailed)
+		{
+			// Destroy the startup exception before any code library can be released.
+			// A partially started module owns its rollback as well. If cleanup throws,
+			// leave the instance and code mapped and propagate the contract failure.
+			ModuleInfo->State = EModuleState::ShuttingDown;
+			ModuleInfo->Module->ShutdownModule();
+			ModuleInfo->State = EModuleState::StoppedMapped;
+			// Failed startup is not permission to unload process-resident code (for
+			// example, reflected types registered before StartupModule was entered).
+			if (ModuleInfo->Module->SupportsDynamicReloading())
 			{
-				ModuleInfo->State = EModuleState::UnloadBlocked;
-				DURIN_ERROR(STR("Module {} startup failed and its features could not retire."), InModuleName.ToString());
-				return nullptr;
+				ModuleInfo->State = EModuleState::ShuttingDown;
+				ModuleInfo->Module.reset();
+				FPlatformMisc::FreeLibrary(ModuleHandle);
+				ModuleInfo->Handle = nullptr;
+				ModuleInfo->ModuleOwner.reset();
+				ModuleInfo->State = EModuleState::LoadFailed;
 			}
-			ModuleInfo->Module.reset();
-			FPlatformMisc::FreeLibrary(ModuleHandle);
-			ModuleInfo->Handle = nullptr;
-			ModuleInfo->ModuleOwner.reset();
-			ModuleInfo->State = EModuleState::LoadFailed;
 			DURIN_ERROR(STR("Module {} startup callback failed."), InModuleName.ToString());
 			return nullptr;
 		}
@@ -254,139 +259,56 @@ namespace Durin
 		return std::shared_ptr<void>(Info.get(), [Info](void*) { --Info->CodeLeaseCount; });
 	}
 
-	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> bool
+	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
 	{
-		return ShutdownModuleImpl(InModuleName, false);
-	}
-
-	auto FModuleManager::ShutdownModuleImpl(const FName& InModuleName, bool bProcessShutdown) -> bool
-	{
-		const auto ModuleInfo = FindModule(InModuleName);
-		if (!ModuleInfo)
-		{
-			DURIN_ERROR(STR("Module {} shutdown failed: metadata was not found."), InModuleName.ToString());
-			return false;
-		}
-		if (!IsControlThread())
-		{
-			DURIN_ERROR(STR("Module {} shutdown must run on the module-control thread."), InModuleName.ToString());
-			return false;
-		}
-
-		const EModuleState State = ModuleInfo->State.load();
-		if (!bProcessShutdown
-			&& (State == EModuleState::Active || State == EModuleState::StoppedMapped)
-			&& ModuleInfo->Module && !ModuleInfo->Module->SupportsDynamicReloading())
-		{
-			DURIN_ERROR(STR("Module {} does not support runtime shutdown or unload."), InModuleName.ToString());
-			return false;
-		}
-		if (State == EModuleState::StoppedMapped) return true;
-		if (State == EModuleState::UnloadBlocked)
-		{
-			DURIN_ERROR(STR("Module {} retirement previously failed and is irreversible."), InModuleName.ToString());
-			return false;
-		}
-		if (State != EModuleState::Active || !ModuleInfo->Module)
-		{
-			DURIN_ERROR(STR("Module {} does not have an active instance."), InModuleName.ToString());
-			return false;
-		}
-		if (ModuleInfo->CodeLeaseCount.load() != 0)
-		{
-			DURIN_ERROR(STR("Module {} code is retained by live consumers; retire them and retry shutdown."), InModuleName.ToString());
-			return false;
-		}
-		ModuleInfo->State = EModuleState::Retiring;
-		const auto FailShutdown = [&](std::string_view Reason) -> bool
-		{
-			ModuleInfo->State = EModuleState::UnloadBlocked;
-			DURIN_ERROR(STR("Module {} shutdown blocked: {}"), InModuleName.ToString(), Reason);
-			return false;
-		};
-		auto Retirement = FModularFeatureRegistry::Get().RetireOwner(ModuleInfo->ModuleOwner, FeatureRetirementTimeout);
-		if (Retirement.Status == EModularFeatureRetirementStatus::SelfWait)
-			return FailShutdown("Module shutdown was requested recursively from its own feature invocation.");
-		if (Retirement.Status == EModularFeatureRetirementStatus::TimedOut)
-			return FailShutdown("Timed out draining admitted synchronous feature invocations.");
-		Detail::BeginRetireAsyncOperationOwner(ModuleInfo->ModuleOwner);
-
-		bool bReflectedObjectsDrained = true;
+		requiref(IsControlThread(), "Module shutdown must run on the module-control thread.");
+		const auto Info = FindModule(InModuleName);
+		if (!Info || !Info->Module || Info->State.load() == EModuleState::StoppedMapped) return;
+		requiref(Info->State.load() == EModuleState::Active,
+			"Module {} cannot shut down recursively or after failed cleanup.", InModuleName.ToString());
+		requiref(Info->CodeLeaseCount.load() == 0,
+			"Module {} still has live consumers at shutdown.", InModuleName.ToString());
+		Info->State = EModuleState::ShuttingDown;
 		try
 		{
-			bReflectedObjectsDrained = !PreShutdownModuleCallback || PreShutdownModuleCallback(InModuleName);
+			Info->Module->ShutdownModule();
 		}
 		catch (...)
 		{
-			bReflectedObjectsDrained = false;
+			DURIN_ERROR(STR("Module {} shutdown failed; cleanup cannot continue."), InModuleName.ToString());
+			throw;
 		}
-		if (!bReflectedObjectsDrained)
-			return FailShutdown("Reflected objects owned by the module did not drain.");
-
-		try
-		{
-			ModuleInfo->Module->ShutdownModule();
-		}
-		catch (...)
-		{
-			return FailShutdown("The module shutdown callback failed; the native library remains mapped.");
-		}
-
-		const auto AsyncDrain = Detail::DrainAsyncOperationOwner(ModuleInfo->ModuleOwner, FeatureRetirementTimeout);
-		if (!AsyncDrain.Succeeded())
-			return FailShutdown(AsyncDrain.Message);
-		const auto AsyncAudit = Detail::SnapshotAsyncOperationOwner(ModuleInfo->ModuleOwner);
-		if (AsyncAudit.ActiveTaskCount != 0 || AsyncAudit.RetainedResultCount != 0
-			|| AsyncAudit.RetainedDeferredCallableCount != 0 || AsyncAudit.GroupsWithWorkerCallables != 0)
-			return FailShutdown("Owned asynchronous operations failed the final callable and result audit.");
-		const auto Audit = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->ModuleOwner);
-		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0)
-			return FailShutdown("Owned feature registrations failed the final synchronous retirement audit.");
-
-		ModuleInfo->State = EModuleState::StoppedMapped;
+		Info->State = EModuleState::StoppedMapped;
 		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
-		return true;
 	}
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> bool
 	{
-		const auto ModuleInfo = FindModule(InModuleName);
-		if (!ModuleInfo)
-		{
-			DURIN_ERROR(STR("Module {} unload failed: metadata was not found."), InModuleName.ToString());
-			return false;
-		}
 		if (!IsControlThread())
 		{
-			DURIN_ERROR(STR("Module {} unload must run on the module-control thread."), InModuleName.ToString());
+			DURIN_ERROR("Module unload must run on the module-control thread.");
 			return false;
 		}
-		const EModuleState State = ModuleInfo->State.load();
-		if ((State == EModuleState::Unloaded || State == EModuleState::Registered
-			|| State == EModuleState::LoadFailed) && !ModuleInfo->Module)
+		const auto Info = FindModule(InModuleName);
+		if (!Info || !Info->Module) return false;
+		const auto State = Info->State.load();
+		if ((State != EModuleState::Active && State != EModuleState::StoppedMapped)
+			|| !Info->Module->SupportsDynamicReloading() || Info->CodeLeaseCount.load() != 0)
 		{
-			DURIN_ERROR(STR("Module {} does not have a mapped instance to unload."), InModuleName.ToString());
+			DURIN_ERROR(STR("Module {} does not permit runtime unload in its current state."), InModuleName.ToString());
 			return false;
 		}
-
-		if (State == EModuleState::Active || State == EModuleState::StoppedMapped)
+		ShutdownModule(InModuleName);
+		// Keep reentrant loads/unloads out while the module destructor runs.
+		Info->State = EModuleState::ShuttingDown;
+		Info->Module.reset();
+		if (Info->Handle)
 		{
-			if (!ShutdownModule(InModuleName)) return false;
+			FPlatformMisc::FreeLibrary(Info->Handle);
+			Info->Handle = nullptr;
 		}
-		if (ModuleInfo->State.load() != EModuleState::StoppedMapped)
-		{
-			DURIN_ERROR(STR("Module {} cannot unload before successful retirement and shutdown."), InModuleName.ToString());
-			return false;
-		}
-
-		ModuleInfo->Module.reset();
-		if (ModuleInfo->Handle)
-		{
-			FPlatformMisc::FreeLibrary(ModuleInfo->Handle);
-			ModuleInfo->Handle = nullptr;
-		}
-		ModuleInfo->ModuleOwner.reset();
-		ModuleInfo->State = EModuleState::Unloaded;
+		Info->ModuleOwner.reset();
+		Info->State = EModuleState::Unloaded;
 		DURIN_DEBUG(STR("Module unloaded: {}"), InModuleName.ToString());
 		return true;
 	}
@@ -402,14 +324,10 @@ namespace Durin
 		ProcessLoadedObjectsCallback = std::move(Callback);
 	}
 
-	auto FModuleManager::SetPreShutdownModuleCallback(std::function<bool(FName)> Callback) -> void
-	{
-		PreShutdownModuleCallback = std::move(Callback);
-	}
-
-	auto FModuleManager::UnloadModulesAtShutdown(
+	auto FModuleManager::ShutdownModulesAtExit(
 		std::span<const FName> DeferredModules) -> void
 	{
+		require(IsControlThread());
 		std::vector<FModuleInfoPtr> ModulesToStop;
 		{
 			std::lock_guard Lock(ModuleMapMutex);
@@ -423,11 +341,7 @@ namespace Durin
 		{
 			if (std::ranges::contains(DeferredModules, ModuleInfo->ModuleName)) continue;
 			if (ModuleInfo->State.load() != EModuleState::Active) continue;
-			const auto Result = ShutdownModuleImpl(ModuleInfo->ModuleName, true);
-			if (!Result)
-			{
-				DURIN_ERROR(STR("Module {} failed process-shutdown retirement."), ModuleInfo->ModuleName.ToString());
-			}
+			ShutdownModule(ModuleInfo->ModuleName);
 		}
 	}
 }

@@ -199,22 +199,21 @@ namespace Durin
 		return FModularFeatureRegistry::Get().RetireEntry(Entry);
 	}
 
-	auto FModularFeatureRegistration::Reset(std::chrono::milliseconds Timeout) -> FModularFeatureRetirementResult
+	auto FModularFeatureRegistration::Reset(std::chrono::milliseconds Timeout) -> EModularFeatureRetirementStatus
 	{
 		if (!Entry)
 		{
-			return {EModularFeatureRetirementStatus::InvalidRegistration, {}, "The registration token is empty or moved-from."};
+			return EModularFeatureRetirementStatus::InvalidRegistration;
 		}
 		Retire();
 		auto Result = FModularFeatureRegistry::Get().WaitEntry(Entry, Timeout);
-		if (Result.Succeeded()) Entry.reset();
+		if (Result == EModularFeatureRetirementStatus::Succeeded) Entry.reset();
 		return Result;
 	}
 
 	auto FModularFeatureRegistry::Get() -> FModularFeatureRegistry&
 	{
-		// The state must outlive module-manager teardown because fail-closed module
-		// instances can release their registration handles during static destruction.
+		// The state outlives mapped module instances and their registration handles.
 		(void)GetRegistryState();
 		static FModularFeatureRegistry Registry;
 		return Registry;
@@ -243,7 +242,6 @@ namespace Durin
 		auto& State = GetRegistryState();
 		{
 			std::lock_guard Lock(State.Mutex);
-			if (Owner->bFeatureAdmissionRetired.load(std::memory_order_acquire)) return {};
 			Entry->Identity = State.NextEntryIdentity++;
 			State.Entries.push_back(Entry);
 		}
@@ -278,58 +276,20 @@ namespace Durin
 	auto FModularFeatureRegistry::WaitEntry(
 		const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry,
 		std::chrono::milliseconds Timeout
-	) -> FModularFeatureRetirementResult
+	) -> EModularFeatureRetirementStatus
 	{
-		if (!Entry) return {EModularFeatureRetirementStatus::InvalidRegistration, {}, "The registration token is empty."};
+		if (!Entry) return EModularFeatureRetirementStatus::InvalidRegistration;
 		auto& State = GetRegistryState();
 		std::unique_lock Lock(State.Mutex);
 		if (IsOwnerActiveOnThisThread(Entry->Owner.get()))
 		{
-			return {EModularFeatureRetirementStatus::SelfWait, MakeEntrySnapshotLocked(State, Entry),
-				"Retirement cannot wait from inside the matching feature invocation."};
+			return EModularFeatureRetirementStatus::SelfWait;
 		}
 		const bool bDrained = State.Quiescence.wait_for(Lock, Timeout, [&]() {
 			return Entry->InFlightCount == 0;
 		});
 		RetireCompletedEntriesLocked(State);
-		return {
-			bDrained ? EModularFeatureRetirementStatus::Succeeded : EModularFeatureRetirementStatus::TimedOut,
-			MakeEntrySnapshotLocked(State, Entry),
-			bDrained ? "Feature registration retired." : "Timed out waiting for feature invocation retirement."
-		};
-	}
-
-	auto FModularFeatureRegistry::RetireOwner(
-		const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
-		std::chrono::milliseconds Timeout
-	) -> FModularFeatureRetirementResult
-	{
-		if (!Owner) return {EModularFeatureRetirementStatus::InvalidRegistration, {}, "The module owner is invalid."};
-		auto& State = GetRegistryState();
-		std::unique_lock Lock(State.Mutex);
-		Owner->bFeatureAdmissionRetired.store(true, std::memory_order_release);
-		for (const auto& Entry : State.Entries)
-		{
-			if (Entry->Owner == Owner && Entry->State == Detail::EEntryState::Published)
-			{
-				Entry->State = Detail::EEntryState::Retiring;
-			}
-		}
-		RetireCompletedEntriesLocked(State);
-		if (IsOwnerActiveOnThisThread(Owner.get()))
-		{
-			return {EModularFeatureRetirementStatus::SelfWait, MakeSnapshotLocked(State, Owner),
-				"Module retirement was requested from one of its own feature invocations."};
-		}
-		const bool bDrained = State.Quiescence.wait_for(Lock, Timeout, [&]() {
-			return MakeSnapshotLocked(State, Owner).InFlightInvocationCount == 0;
-		});
-		RetireCompletedEntriesLocked(State);
-		return {
-			bDrained ? EModularFeatureRetirementStatus::Succeeded : EModularFeatureRetirementStatus::TimedOut,
-			MakeSnapshotLocked(State, Owner),
-			bDrained ? "Module feature owner retired." : "Timed out waiting for owned feature invocations."
-		};
+		return bDrained ? EModularFeatureRetirementStatus::Succeeded : EModularFeatureRetirementStatus::TimedOut;
 	}
 
 	auto FModularFeatureRegistry::SnapshotOwner(const std::shared_ptr<Detail::FModuleOwnerState>& Owner)

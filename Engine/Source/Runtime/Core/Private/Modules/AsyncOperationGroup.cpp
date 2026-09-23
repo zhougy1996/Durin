@@ -22,20 +22,6 @@ namespace Durin
 			default: return EAsyncOperationGroupState::Invalid;
 			}
 		}
-
-		auto MakeOwnerSnapshot(FAsyncOperationGroupSnapshot Group) -> FAsyncOperationOwnerSnapshot
-		{
-			FAsyncOperationOwnerSnapshot Result;
-			Result.OwnerName = Group.OwnerName;
-			Result.OwnerGeneration = Group.OwnerGeneration;
-			Result.GroupCount = 1;
-			Result.ActiveTaskCount = Group.ActiveTaskCount;
-			Result.RetainedResultCount = Group.RetainedResultCount;
-			Result.RetainedDeferredCallableCount = Group.RetainedDeferredCallableCount;
-			Result.GroupsWithWorkerCallables = Group.bWorkerCallablesRetained ? 1u : 0u;
-			Result.Groups.emplace_back(std::move(Group));
-			return Result;
-		}
 	}
 
 	namespace Detail
@@ -46,13 +32,10 @@ namespace Durin
 			FAsyncOperationGroupState(
 				std::shared_ptr<FModuleOwnerState> InOwner,
 				FName InName,
-				FAsyncOperationGroupOptions InOptions,
 				FTaskScope InScope)
-				: Owner(InOwner)
-				, OwnerName(InOwner->Name)
+				: OwnerName(InOwner->Name)
 				, OwnerGeneration(InOwner->Generation)
 				, Name(InName)
-				, Options(InOptions)
 				, Scope(std::move(InScope))
 				, GroupId(GNextAsyncOperationGroupId.fetch_add(1, std::memory_order_acq_rel))
 			{
@@ -63,11 +46,9 @@ namespace Durin
 				return FAsyncOperationGroup(shared_from_this());
 			}
 
-			std::weak_ptr<FModuleOwnerState> Owner;
 			FName OwnerName;
 			uint64 OwnerGeneration = 0;
 			FName Name;
-			FAsyncOperationGroupOptions Options;
 			FTaskScope Scope;
 			FTaskCancellationSource Cancellation;
 			uint64 GroupId = 0;
@@ -131,11 +112,11 @@ namespace Durin
 		auto DrainGroup(
 			const std::shared_ptr<FAsyncOperationGroupState>& Group,
 			std::chrono::milliseconds Timeout
-		) -> FAsyncOperationDrainResult
+		) -> EAsyncOperationDrainStatus
 		{
 			if (!Group)
 			{
-				return {EAsyncOperationDrainStatus::Invalid, {}, "The operation group is invalid."};
+				return EAsyncOperationDrainStatus::Invalid;
 			}
 			FTaskScopeToken ScopeToken;
 			bool bCancel = false;
@@ -149,13 +130,11 @@ namespace Durin
 			}
 			if (bOpen)
 			{
-				return {EAsyncOperationDrainStatus::Open, MakeOwnerSnapshot(SnapshotGroup(Group)),
-					"Operation-group admission is still open."};
+				return EAsyncOperationDrainStatus::Open;
 			}
 			if (Private::IsExecutingTaskScope(ScopeToken))
 			{
-				return {EAsyncOperationDrainStatus::SelfWait, MakeOwnerSnapshot(SnapshotGroup(Group)),
-					"Operation-group drain cannot wait from one of its own tasks."};
+				return EAsyncOperationDrainStatus::SelfWait;
 			}
 
 			const auto Start = std::chrono::steady_clock::now();
@@ -169,17 +148,15 @@ namespace Durin
 						ScopeToken, bCancel, {.bUnlimited = true});
 					if (Pump.bReentrant)
 					{
-						return {EAsyncOperationDrainStatus::UnsupportedThread, MakeOwnerSnapshot(SnapshotGroup(Group)),
-							"Selected Game Thread drain cannot reenter an active deferred-work pump."};
+						return EAsyncOperationDrainStatus::UnsupportedThread;
 					}
 				}
 				else if (Private::GetGameThreadDeferredScopeSnapshot(ScopeToken).RetainedCallableCount != 0)
 				{
-					return {EAsyncOperationDrainStatus::UnsupportedThread, MakeOwnerSnapshot(SnapshotGroup(Group)),
-						"GameThreadDeferred work requires drain on the Game Thread."};
+					return EAsyncOperationDrainStatus::UnsupportedThread;
 				}
 
-				FAsyncOperationGroupSnapshot Snapshot = SnapshotGroup(Group);
+				const FAsyncOperationGroupSnapshot Snapshot = SnapshotGroup(Group);
 				if (Snapshot.ActiveTaskCount == 0
 					&& Snapshot.RetainedResultCount == 0
 					&& Snapshot.RetainedDeferredCallableCount == 0
@@ -191,16 +168,13 @@ namespace Durin
 							? EAsyncOperationGroupState::QuiescentCancel
 							: EAsyncOperationGroupState::QuiescentDrain;
 					}
-					Snapshot.State = bCancel ? EAsyncOperationGroupState::QuiescentCancel : EAsyncOperationGroupState::QuiescentDrain;
-					return {EAsyncOperationDrainStatus::Succeeded, MakeOwnerSnapshot(std::move(Snapshot)),
-						"Operation group is quiescent and retains no callable or result storage."};
+					return EAsyncOperationDrainStatus::Succeeded;
 				}
 
 				const auto Now = std::chrono::steady_clock::now();
 				if (Now >= Deadline)
 				{
-					return {EAsyncOperationDrainStatus::TimedOut, MakeOwnerSnapshot(std::move(Snapshot)),
-						"Timed out waiting for operation execution and retained storage."};
+					return EAsyncOperationDrainStatus::TimedOut;
 				}
 				const double RemainingSeconds = std::chrono::duration<double>(Deadline - Now).count();
 				if (bOnGameThread)
@@ -212,8 +186,7 @@ namespace Durin
 					const ETaskScopeWaitResult Wait = Group->Scope.WaitFor(std::min(0.001, RemainingSeconds));
 					if (Wait == ETaskScopeWaitResult::UnsupportedThread)
 					{
-						return {EAsyncOperationDrainStatus::UnsupportedThread, MakeOwnerSnapshot(SnapshotGroup(Group)),
-							"The current thread cannot wait for this operation group's task scope."};
+						return EAsyncOperationDrainStatus::UnsupportedThread;
 					}
 				}
 				(void)Private::WaitForTaskScopeWorkerCallables(ScopeToken, 0.0);
@@ -241,7 +214,7 @@ namespace Durin
 	{
 		return Detail::CloseGroup(State, Mode, Reason);
 	}
-	auto FAsyncOperationGroup::Drain(std::chrono::milliseconds Timeout) -> FAsyncOperationDrainResult
+	auto FAsyncOperationGroup::Drain(std::chrono::milliseconds Timeout) -> EAsyncOperationDrainStatus
 	{
 		return Detail::DrainGroup(State, Timeout);
 	}
@@ -252,92 +225,13 @@ namespace Durin
 
 	auto Detail::CreateAsyncOperationGroup(
 		const std::shared_ptr<FModuleOwnerState>& Owner,
-		FName GroupName,
-		FAsyncOperationGroupOptions Options
+		FName GroupName
 	) -> FAsyncOperationGroup
 	{
-		if (!Owner || GroupName.IsNone() || Owner->bOperationAdmissionRetired.load(std::memory_order_acquire)) return {};
+		if (!Owner || GroupName.IsNone()) return {};
 		FTaskScope Scope = CreateTaskScope();
 		if (!Scope.IsValid()) return {};
-		auto Group = std::make_shared<FAsyncOperationGroupState>(Owner, GroupName, Options, std::move(Scope));
-		{
-			std::lock_guard Lock(Owner->OperationMutex);
-			if (Owner->bOperationAdmissionRetired.load(std::memory_order_acquire)) return {};
-			Owner->OperationGroups.emplace_back(Group);
-		}
+		auto Group = std::make_shared<FAsyncOperationGroupState>(Owner, GroupName, std::move(Scope));
 		return Group->MakeHandle();
-	}
-
-	auto Detail::BeginRetireAsyncOperationOwner(
-		const std::shared_ptr<FModuleOwnerState>& Owner
-	) -> FAsyncOperationOwnerSnapshot
-	{
-		if (!Owner) return {};
-		Owner->bOperationAdmissionRetired.store(true, std::memory_order_release);
-		std::vector<std::shared_ptr<FAsyncOperationGroupState>> Groups;
-		{
-			std::lock_guard Lock(Owner->OperationMutex);
-			Groups = Owner->OperationGroups;
-		}
-		for (const auto& Group : Groups)
-		{
-			CloseGroup(Group, Group->Options.ShutdownMode, EAsyncOperationAbortReason::ModuleShutdown);
-		}
-		return SnapshotAsyncOperationOwner(Owner);
-	}
-
-	auto Detail::DrainAsyncOperationOwner(
-		const std::shared_ptr<FModuleOwnerState>& Owner,
-		std::chrono::milliseconds Timeout
-	) -> FAsyncOperationDrainResult
-	{
-		if (!Owner) return {EAsyncOperationDrainStatus::Invalid, {}, "The module operation owner is invalid."};
-		std::vector<std::shared_ptr<FAsyncOperationGroupState>> Groups;
-		{
-			std::lock_guard Lock(Owner->OperationMutex);
-			Groups = Owner->OperationGroups;
-		}
-		const auto Deadline = std::chrono::steady_clock::now() + std::max(std::chrono::milliseconds(0), Timeout);
-		for (const auto& Group : Groups)
-		{
-			const auto Now = std::chrono::steady_clock::now();
-			const auto Remaining = Now >= Deadline
-				? std::chrono::milliseconds(0)
-				: std::chrono::duration_cast<std::chrono::milliseconds>(Deadline - Now);
-			const FAsyncOperationDrainResult Result = DrainGroup(Group, Remaining);
-			if (!Result.Succeeded())
-			{
-				return {Result.Status, SnapshotAsyncOperationOwner(Owner), Result.Message};
-			}
-		}
-		return {EAsyncOperationDrainStatus::Succeeded, SnapshotAsyncOperationOwner(Owner),
-			"All module-owned operation groups are quiescent."};
-	}
-
-	auto Detail::SnapshotAsyncOperationOwner(
-		const std::shared_ptr<FModuleOwnerState>& Owner
-	) -> FAsyncOperationOwnerSnapshot
-	{
-		FAsyncOperationOwnerSnapshot Result;
-		if (!Owner) return Result;
-		Result.OwnerName = Owner->Name;
-		Result.OwnerGeneration = Owner->Generation;
-		std::vector<std::shared_ptr<FAsyncOperationGroupState>> Groups;
-		{
-			std::lock_guard Lock(Owner->OperationMutex);
-			Groups = Owner->OperationGroups;
-		}
-		Result.GroupCount = static_cast<uint32>(Groups.size());
-		Result.Groups.reserve(Groups.size());
-		for (const auto& Group : Groups)
-		{
-			auto Snapshot = SnapshotGroup(Group);
-			Result.ActiveTaskCount += Snapshot.ActiveTaskCount;
-			Result.RetainedResultCount += Snapshot.RetainedResultCount;
-			Result.RetainedDeferredCallableCount += Snapshot.RetainedDeferredCallableCount;
-			Result.GroupsWithWorkerCallables += Snapshot.bWorkerCallablesRetained ? 1u : 0u;
-			Result.Groups.emplace_back(std::move(Snapshot));
-		}
-		return Result;
 	}
 }

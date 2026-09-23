@@ -65,6 +65,15 @@ namespace Durin::Tests
 				}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 			}
 
+			auto SupportsDynamicReloading() const -> bool override { return true; }
+			auto ShutdownModule() -> void override
+			{
+				EXPECT_EQ(EAsyncOperationGroupState::Open, Group.GetSnapshot().State);
+				Group.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
+				Task = {};
+				require(Group.Drain() == EAsyncOperationDrainStatus::Succeeded);
+			}
+
 		private:
 			FThreadEvent& Started;
 			FAsyncOperationGroup Group;
@@ -89,6 +98,15 @@ namespace Durin::Tests
 			}
 
 			auto WaitForTaskForTest() -> ETaskState { return WaitTask(Task).TaskState; }
+
+			auto SupportsDynamicReloading() const -> bool override { return true; }
+			auto ShutdownModule() -> void override
+			{
+				Group.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
+				if (Group.Drain(std::chrono::milliseconds(2)) != EAsyncOperationDrainStatus::Succeeded)
+					throw std::runtime_error("Module-owned async drain failed");
+			}
+			auto GetSnapshot() const -> FAsyncOperationGroupSnapshot { return Group.GetSnapshot(); }
 
 		private:
 			FThreadEvent& Started;
@@ -124,11 +142,10 @@ namespace Durin::Tests
 		EXPECT_EQ(ETaskState::Canceled, WaitTask(Root).TaskState);
 		EXPECT_FALSE(Child.IsValid());
 		const auto Drained = Group.Drain(std::chrono::seconds(1));
-		ASSERT_TRUE(Drained.Succeeded()) << Drained.Message;
-		ASSERT_EQ(1u, Drained.Snapshot.GroupCount);
-		EXPECT_EQ(EAsyncOperationAbortReason::Superseded, Drained.Snapshot.Groups[0].AbortReason);
-		EXPECT_EQ(0u, Drained.Snapshot.ActiveTaskCount);
-		EXPECT_EQ(0u, Drained.Snapshot.RetainedDeferredCallableCount);
+		ASSERT_EQ(Drained, EAsyncOperationDrainStatus::Succeeded);
+		EXPECT_EQ(EAsyncOperationAbortReason::Superseded, Group.GetSnapshot().AbortReason);
+		EXPECT_EQ(0u, Group.GetSnapshot().ActiveTaskCount);
+		EXPECT_EQ(0u, Group.GetSnapshot().RetainedDeferredCallableCount);
 	}
 
 	TEST(FAsyncOperationGroupTests, DrainFromOwnedTaskReturnsSelfWait)
@@ -143,14 +160,14 @@ namespace Durin::Tests
 		FTaskHandle Task = Tasks::LaunchTask("AsyncSelfWaitRoot", [&]() {
 			Started.Trigger();
 			BeginDrain.Wait();
-			Observed.store(Group.Drain(std::chrono::seconds(1)).Status, std::memory_order_release);
+			Observed.store(Group.Drain(std::chrono::seconds(1)), std::memory_order_release);
 		}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		EXPECT_EQ(EAsyncOperationCloseStatus::Closed, Group.Close(EAsyncOperationCloseMode::Drain));
 		BeginDrain.Trigger();
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
 		EXPECT_EQ(EAsyncOperationDrainStatus::SelfWait, Observed.load(std::memory_order_acquire));
-		EXPECT_TRUE(Group.Drain(std::chrono::seconds(1)).Succeeded());
+		EXPECT_TRUE(Group.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 	}
 
 	TEST(FAsyncOperationGroupTests, SelectedGameThreadDrainDoesNotRunUnrelatedWork)
@@ -173,7 +190,7 @@ namespace Durin::Tests
 		EXPECT_EQ(1u, First.GetSnapshot().RetainedDeferredCallableCount);
 		EXPECT_EQ(1u, Second.GetSnapshot().RetainedDeferredCallableCount);
 		First.Close(EAsyncOperationCloseMode::Drain);
-		ASSERT_TRUE(First.Drain(std::chrono::seconds(1)).Succeeded());
+		ASSERT_TRUE(First.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 		EXPECT_EQ(1u, FirstRuns.load());
 		EXPECT_EQ(0u, SecondRuns.load());
 		EXPECT_EQ(ETaskState::Queued, SecondTask.GetState());
@@ -181,7 +198,7 @@ namespace Durin::Tests
 		EXPECT_EQ(1u, Second.GetSnapshot().RetainedDeferredCallableCount);
 
 		Second.Close(EAsyncOperationCloseMode::Drain);
-		ASSERT_TRUE(Second.Drain(std::chrono::seconds(1)).Succeeded());
+		ASSERT_TRUE(Second.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 		EXPECT_EQ(1u, SecondRuns.load());
 		EXPECT_EQ(ETaskState::Succeeded, FirstTask.GetState());
 		EXPECT_EQ(ETaskState::Succeeded, SecondTask.GetState());
@@ -199,7 +216,7 @@ namespace Durin::Tests
 		Capture.reset();
 		ASSERT_FALSE(WeakCapture.expired());
 		Canceled.Close(EAsyncOperationCloseMode::Cancel);
-		ASSERT_TRUE(Canceled.Drain(std::chrono::seconds(1)).Succeeded());
+		ASSERT_TRUE(Canceled.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 		EXPECT_EQ(ETaskState::Canceled, CanceledTask.GetState());
 		EXPECT_FALSE(bCanceledCallbackRan.load(std::memory_order_acquire));
 		EXPECT_TRUE(WeakCapture.expired());
@@ -216,10 +233,10 @@ namespace Durin::Tests
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Typed.GetCompletion().GetTaskHandle()).TaskState);
 		Results.Close(EAsyncOperationCloseMode::Drain);
 		auto Retained = Results.Drain(std::chrono::milliseconds(1));
-		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, Retained.Status);
-		EXPECT_EQ(1u, Retained.Snapshot.RetainedResultCount);
+		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, Retained);
+		EXPECT_EQ(1u, Results.GetSnapshot().RetainedResultCount);
 		Typed = {};
-		EXPECT_TRUE(Results.Drain(std::chrono::seconds(1)).Succeeded());
+		EXPECT_TRUE(Results.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
@@ -236,7 +253,7 @@ namespace Durin::Tests
 		ASSERT_FALSE(WeakCapture.expired());
 		Callables.Close(EAsyncOperationCloseMode::Cancel);
 		ReleaseBlocker.Trigger();
-		ASSERT_TRUE(Callables.Drain(std::chrono::seconds(1)).Succeeded());
+		ASSERT_TRUE(Callables.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 		EXPECT_TRUE(WeakCapture.expired());
 		EXPECT_EQ(ETaskState::Canceled, Queued.GetState());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
@@ -268,10 +285,10 @@ namespace Durin::Tests
 			std::this_thread::yield();
 		}
 		ASSERT_TRUE(Join.IsReady()) << "Worker task scope did not become quiescent within one second.";
-		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
+		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)));
 		EXPECT_EQ(43, *Alias);
 		Alias.reset();
-		EXPECT_TRUE(ModuleGroup.Drain(std::chrono::seconds(1)).Succeeded());
+		EXPECT_TRUE(ModuleGroup.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 
 		auto ExternalGroup = Context.CreateAsyncOperationGroup("External");
 		Tasks::FTaskGroup ExternalTasks(ExternalGroup.GetTaskScope());
@@ -279,15 +296,15 @@ namespace Durin::Tests
 			auto Admission = Tasks::TCompletionSource<int>::Create(ExternalTasks, {});
 			auto Source = std::move(Admission);
 			ExternalGroup.Close(EAsyncOperationCloseMode::Cancel);
-			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)));
 			Source.TrySetCanceled();
 			EXPECT_TRUE(ExternalTasks.JoinAsync().IsReady());
-			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)));
 		}
-		EXPECT_TRUE(ExternalGroup.Drain(std::chrono::seconds(1)).Succeeded());
+		EXPECT_TRUE(ExternalGroup.Drain(std::chrono::seconds(1)) == EAsyncOperationDrainStatus::Succeeded);
 	}
 
-	TEST(FModuleManagerAsyncRetirementTests, UnloadCancelsAndDrainsOwnedOperationsBeforeRelease)
+	TEST(FModuleOwnedAsyncShutdownTests, UnloadCancelsAndDrainsOwnedOperationsBeforeRelease)
 	{
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -301,7 +318,7 @@ namespace Durin::Tests
 		EXPECT_EQ(EModuleState::Unloaded, FModuleManager::Get().FindModule("ManagedAsyncCancel")->State.load());
 	}
 
-	TEST(FModuleManagerAsyncRetirementTests, AsyncTimeoutFailsClosedAndRetainsOperationEvidence)
+	TEST(FModuleOwnedAsyncShutdownTests, ModuleDrainFailurePropagatesWithoutReleasingInstance)
 	{
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -311,18 +328,16 @@ namespace Durin::Tests
 			"ManagedAsyncTimeout", std::make_unique<FBlockingAsyncModule>(Started, Release)));
 		ASSERT_NE(nullptr, Module);
 		ASSERT_TRUE(Started.WaitFor(1.0));
-		const auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(std::chrono::milliseconds(2));
-		const auto Result = FModuleManager::Get().UnloadModule("ManagedAsyncTimeout");
-		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
-
-		EXPECT_FALSE(Result);
+		EXPECT_THROW(FModuleManager::Get().UnloadModule("ManagedAsyncTimeout"), std::runtime_error);
 		const auto Info = FModuleManager::Get().FindModule("ManagedAsyncTimeout");
-		EXPECT_EQ(EModuleState::UnloadBlocked, Info->State.load());
-		const auto Snapshot = Detail::SnapshotAsyncOperationOwner(Info->ModuleOwner);
-		EXPECT_EQ(1u, Snapshot.GroupCount);
+		EXPECT_EQ(EModuleState::ShuttingDown, Info->State.load());
+		const auto Snapshot = Module->GetSnapshot();
 		EXPECT_EQ(1u, Snapshot.ActiveTaskCount);
 		EXPECT_NE(nullptr, Info->Module.get());
 		Release.Trigger();
 		EXPECT_EQ(ETaskState::Canceled, Module->WaitForTaskForTest());
+		Info->Module.reset();
+		Info->ModuleOwner.reset();
+		Info->State = EModuleState::Unloaded;
 	}
 }

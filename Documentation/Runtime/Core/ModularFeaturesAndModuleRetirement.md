@@ -1,10 +1,10 @@
-# Modular Features and Module Retirement
+# Modular Features and Module Shutdown
 
-Summary: Define typed feature invocation, owner-bound asynchronous drain, and fail-closed native module shutdown.
+Summary: Define typed feature invocation, module-owned cleanup, and explicit native library release.
 
 Modules: Core
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-23
 
 ## Feature Contract
 
@@ -21,8 +21,8 @@ select or retain an owner. Registration outside the current startup scope is a
 programming error and cannot publish an unattributed entry. Registration
 returns a move-only `FModularFeatureRegistration`. Moving, retiring, or
 resetting a token affects only its exact entry. Low-level tests use an isolated
-`FModuleTestOwner`; concrete module tests use `FModuleTestHarness`. Neither can
-retire a production module generation.
+`FModuleTestOwner`; concrete module tests use `FModuleTestHarness`. The harness calls the module cleanup hook and checks feature registration counts;
+it does not close registrations or drain tasks on behalf of the module.
 
 Consumers call `FModularFeatureRegistry::InvokeSingle<T>` or `InvokeAll<T>`.
 The feature reference exists only during the visitor call and must not be
@@ -58,50 +58,58 @@ not own or drain tasks, continuations, timers, or external work.
 
 ## Module Lifecycle
 
-Every module record exposes one of these states:
+The manager schedules lifecycle callbacks and owns native-library handles.
+Modules own their services, feature registrations, tasks, and external callbacks.
+There is no manager-wide retirement timeout, cancellation policy, resource drain,
+or final owner audit.
 
 ```text
-Registered -> Loading -> Active -> Retiring -> StoppedMapped -> Unloaded
-                  |                    |
-                  -> LoadFailed        -> UnloadBlocked
+Registered -> Loading -> Active -> ShuttingDown -> StoppedMapped -> Unloaded
+                  |
+                  -> LoadFailed
 ```
 
-Before Game Thread identity is installed, load and retirement run on the
-thread that created `FModuleManager`. Afterward they run on the Game Thread.
-Calls from another thread return `WrongControlThread` without changing state.
-Stopped or blocked modules are never returned as active by `LoadModule` or
-`GetModule`.
+Load and shutdown execute on the module-control thread (the Game Thread once its
+identity is installed). The startup identity is nested and exception-safe: a
+nested module load temporarily installs its own identity and then restores the
+outer scope. Identity supplies attribution, not resource ownership.
 
-The startup identity is nested and exception-safe. If module A loads module B
-from A's startup callback, B temporarily becomes current and Core restores A
-after B returns or unwinds. The stack lives in Core so every native module sees
-the same identity rather than a DLL-local copy.
+- `IModuleInterface::ShutdownModule() -> void` closes entry points, waits for work,
+  and releases module-owned registrations and resources before returning.
+- `FModuleManager::ShutdownModule(Name) -> void` invokes that hook once, then marks
+  the module `StoppedMapped`. It retains the module instance and DLL for staged
+  process exit. An absent or already stopped module is a no-op. Shutdown requires
+  no live code leases and does not consult `SupportsDynamicReloading()`.
+- `UnloadModule(Name) -> bool` is explicit runtime DLL release. It rejects wrong
+  threads, missing instances, invalid states, live code leases, and modules that
+  have not opted into dynamic reloading. Otherwise it shuts down the module,
+  destroys the instance while code is mapped, and releases the library. An
+  already stopped instance is not shut down twice.
+- `ShutdownModulesAtExit(DeferredModules) -> void` calls active modules in reverse
+  order of **Startup completion**, skipping explicitly deferred and already stopped
+  modules. It leaves libraries mapped for operating-system reclamation.
 
-Shutdown performs this fixed sequence:
+`SupportsDynamicReloading()` defaults to `false`. Shutdown during process exit is
+independent of this capability. MeshBuilder and TextureBuild explicitly opt in
+because their external build sessions retain code leases. ShaderBuild opts in
+to support switching from the drained compiler provider to cooked shader data.
+VulkanRHI opts in because RHI teardown
+destroys its backend and joins its threads before releasing the DLL. A reflected
+module without a complete native-type/object teardown protocol must not opt in.
 
-1. transition `Active` to `Retiring`;
-2. retire feature admission and wait for synchronous visitors;
-3. close every owner-bound asynchronous operation group using its declared
-   drain or cancel shutdown policy;
-4. run the reflected-object drain callback while the library is mapped;
-5. call parameterless `ShutdownModule()` without Core locks so the module can
-   release result handles and clean up its owned services and registrations;
-6. drain all owned asynchronous operations and audit active tasks, result
-   handles, Worker callables, and Game Thread callables;
-7. audit that no owned feature entry is published or in flight;
-8. transition to `StoppedMapped`;
-9. for explicit unload, destroy the module instance and release the library;
-10. publish `Unloaded` only after native release.
+Shutdown failure is a lifecycle contract error, not a recoverable retirement
+result. Module assertions remain fatal, and thrown cleanup errors propagate out
+of the manager with the instance and library still mapped in `ShuttingDown`.
+The manager does not retry or resume the failed cleanup, nor release the DLL.
+Callers must not catch an error and continue process teardown as if it succeeded.
+Failed Startup invokes the module's Shutdown to clean partially initialized state;
+Only successful cleanup of a module that supports dynamic reloading permits
+destroying the instance and releasing the library. Other failed startups remain
+`StoppedMapped`, since process-resident code may already have registered types.
+Shutdown implementations must therefore tolerate partial startup.
 
-Explicit shutdown and unload return `bool`; failure reasons are logged by the
-module manager. Tests inspect the module state and owner audits when they need
-retirement evidence. Wrong-thread, self-owned execution, timeout,
-reflected-object rejection, shutdown-callback failure, and final-audit failure
-leave the library mapped.
-After retirement begins, a failure transitions to `UnloadBlocked`; it never
-restores `Active`, destroys the module instance, or calls `FreeLibrary`.
-Process-exit reverse ordering uses the same shutdown transition but deliberately
-leaves libraries mapped for operating-system teardown.
+Stopped and shutting-down instances are never returned by `GetModule` or
+`LoadModule`. Only a physically unloaded instance can start a new load generation.
 
 ## Locking
 
@@ -110,15 +118,16 @@ registry mutex protects feature publication, admission counts, and retirement.
 If both are ever needed, module-map order precedes registry order. Current
 callback paths release the module-map lock before entering the registry, and
 all registry and module-map locks are released before logging or calling
-feature, reflected-object, startup, or shutdown code.
+feature, startup, or shutdown code.
 
 ## Asynchronous Operation Boundary
 
 Returning from a feature visitor does not prove that work submitted by the
 implementation has finished. A module creates `FAsyncOperationGroup` instances
 through `FModuleStartup` during its startup callback. Each group owns one task
-scope, explicit cancellation source, stable abort reason, close policy, and
-diagnostic identity under the module load generation. A root task explicitly
+scope, explicit cancellation source, stable abort reason, and diagnostic identity.
+The module chooses when to call `Close(Drain)` or `Close(Cancel)` and then `Drain`.
+Its Shutdown must release retained result handles before waiting for quiescence. A root task explicitly
 selects the group's scope and cancellation token; accepted descendants and
 continuations inherit the scope under the Task System rules.
 
@@ -136,29 +145,27 @@ callable storage before success. Worker queue ownership tags similarly remain
 outstanding until the erased wrapper and discard callback are destroyed.
 
 Successful group drain requires zero active tasks, zero retained typed-result
-states, zero selected deferred callables, and zero Worker wrappers. The module
-manager repeats this owner-wide proof after `ShutdownModule` and before the
-final feature audit. `AsyncOperationDrainTimeout`, `AsyncOperationSelfWait`,
-`AsyncOperationUnsupportedThread`, and `OutstandingAsyncOperationAudit` all
-leave the module `UnloadBlocked` and its native library mapped.
+states, zero selected deferred callables, and zero Worker wrappers. `Drain`
+returns the small `EAsyncOperationDrainStatus` enum; `GetSnapshot()` separately
+exposes diagnostics. Registration `Reset` likewise returns
+`EModularFeatureRetirementStatus`. There are no aggregate owner drain Result
+objects. A module must check cleanup outcomes before returning from Shutdown.
 
 ## Specialized Registries and Explicit Unload
 
 Domain registries retain their own class, identity, ranking, route, and generation
 rules. Registration takes the provider or callback and returns an exact removal
 handle; no module callback gate or module resource lease is propagated through
-business interfaces. The module manager audits typed modular features and
-owner-bound asynchronous operations only. It does not discover arbitrary stored
-callbacks, virtual objects, custom deleters, or copied function wrappers.
+business interfaces. The module manager does not discover or drain stored callbacks, virtual objects,
+custom deleters, copied function wrappers, feature entries, or tasks.
 
 Explicit module shutdown and physical unload require a caller-established safe
 point on the module-control thread (Game Thread after its identity is installed).
 The caller stops dependent consumers and external dispatch before shutdown;
 specialized callbacks must have returned and cannot race the unload. A callback
 must not unload its own module, including through a reentrant UI or event path.
-Request the unload and perform it at a later safe point instead. Typed feature
-visitors and owner-bound tasks retain their existing mechanical retirement and
-drain checks.
+Request the unload and perform it at a later safe point instead. Registration tokens and operation groups provide local wait operations that
+the module explicitly invokes as part of its cleanup.
 
 Each owner is responsible for these boundaries, in dependency order:
 
@@ -195,7 +202,7 @@ shutdown directly, including after typed-feature retirement has started.
 A callback invocation that launches work must attach the root task to an
 owner-created `FAsyncOperationGroup` before returning. The module may keep task
 result handles during normal operation, but `ShutdownModule` must cancel or
-wait them and destroy those handles before the manager's final async drain.
+wait them and destroy those handles before completing its own group drain.
 Local task scopes remain valid for native tests and objects whose code is not
 unloadable; they are not a production substitute for module attribution.
 
@@ -207,8 +214,8 @@ shutdown first cancels and waits the worker handles, then flushes accepted
 render commands, then destroys publication state.
 
 Process shutdown preserves this ordering mechanically. The general reverse-load
-pass shuts down and unloads render-command producers while the rendering and RHI
-threads are alive. `VulkanRHI` is explicitly deferred from that pass. After all
+pass shuts down render-command producers while the task executors, rendering
+thread, and RHI thread are alive. Launch stops the task system after this pass. `VulkanRHI` is explicitly deferred from that pass. After all
 producer shutdown callbacks have flushed, Launch stops the rendering thread and
 calls `RHIExit`; RHI exit flushes the RHI queue, completes the terminal backend
 shutdown marker, stops the RHI thread, deletes `GDynamicRHI`, and only then asks
@@ -236,11 +243,10 @@ that earlier instances publish no later events and every successfully retired
 image is physically unmapped.
 
 Failure qualification runs irreversible cases in a separate process with one
-logical module record per scenario. Invocation timeout, active worker, retained typed result, retained deferred callable,
-reflected-object rejection, shutdown exception, wrong-thread request, and
-recursive owned execution all produce their categorized unload result without
-destroying or releasing the affected module image. Successful stress also runs
-under Windows Application Verifier with Heaps, Handles, Locks, and TLS checks.
+logical module record per scenario. The fixture owns feature and asynchronous cleanup. Invocation timeout, active
+worker, retained typed result, retained deferred callable, and recursive feature
+cleanup throw from its Shutdown. These exceptions propagate without releasing
+the affected image. Wrong-thread unload is rejected before entering Shutdown.
 
 The dedicated native targets are `DynamicDllUnloadQualificationTests` and
 `DynamicDllUnloadFailureQualificationTests`; both require explicit
@@ -253,4 +259,4 @@ machinery. Process-resident code also needs no DLL ownership token, but must
 still obey object and service lifetimes. Neither an `IsModuleLoaded` query nor
 a generation number proves that escaped executable storage has been destroyed.
 Explicit unload correctness is the responsibility of the caller and owners;
-the remaining Core audits cover only their declared feature and task boundaries.
+Core registration/group waits prove only their declared local boundaries.

@@ -395,15 +395,13 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
 		{
-			if (!FModuleManager::Get().UnloadModule("MonaImGui"))
-				DURIN_ERROR("MonaImGui module shutdown failed.");
+			FModuleManager::Get().ShutdownModule("MonaImGui");
 		}
 #endif
 
 		if (FModuleManager::Get().IsModuleLoaded("Mona"))
 		{
-			if (!FModuleManager::Get().ShutdownModule("Mona"))
-				DURIN_ERROR("Mona module shutdown failed.");
+			FModuleManager::Get().ShutdownModule("Mona");
 		}
 
 		if (bWasRunning)
@@ -412,19 +410,6 @@ namespace Durin
 			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		}
 		ShutdownCookedMeshLoadManager();
-		if (bGameThreadDeferredExecutorStarted)
-		{
-			SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
-			ShutdownTaskSystem(ETaskShutdownMode::Drain);
-			bGameThreadDeferredExecutorStarted = false;
-			bTaskSchedulerStarted = false;
-			if (bWasRunning) Diagnostics.AfterTaskSystemShutdown();
-		}
-		else if (bTaskSchedulerStarted)
-		{
-			ShutdownTaskScheduler(false);
-			bTaskSchedulerStarted = false;
-		}
 
 		if (GEngine)
 		{
@@ -470,9 +455,24 @@ namespace Durin
 				SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
 			}
 			const std::array DeferredModules{FName("VulkanRHI")};
-			FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
+			FModuleManager::Get().ShutdownModulesAtExit(DeferredModules);
 		}
 		if (bWasRunning) AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
+		// Module shutdown may still drain work on either executor.
+		if (bGameThreadDeferredExecutorStarted)
+		{
+			SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
+			bGameThreadDeferredExecutorStarted = false;
+			bTaskSchedulerStarted = false;
+			if (bWasRunning) Diagnostics.AfterTaskSystemShutdown();
+		}
+		else if (bTaskSchedulerStarted)
+		{
+			ShutdownTaskScheduler(false);
+			bTaskSchedulerStarted = false;
+		}
+
 		if (GRenderingThread)
 		{
 			if (bWasRunning) SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);

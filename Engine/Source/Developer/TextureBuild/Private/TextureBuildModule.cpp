@@ -9,6 +9,9 @@ namespace Durin
 	class FTextureBuildModule final : public ITextureBuildModule
 	{
 	public:
+		// Build sessions retain code leases until their work and results are released.
+		auto SupportsDynamicReloading() const -> bool override { return true; }
+
 		auto GetTexture2DDescriptor() const -> FTexture2DBuildDescriptor override
 		{
 			return {.ProducerIdentity = "Durin.TextureBuild.Texture2D", .BuilderVersion = Texture2DBuilderVersion};

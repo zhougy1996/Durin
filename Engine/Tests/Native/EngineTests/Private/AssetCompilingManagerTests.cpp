@@ -5,7 +5,6 @@
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
-#include "Modules/ModuleTestSupport.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -101,7 +100,6 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto& Aggregate = FAssetCompilingManager::Get();
 	Aggregate.Start();
 	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
-	FModuleTestOwner Owner("AssetCompilingManagerTests.Provider");
 
 	std::vector<std::string> Calls;
 	DMaterial* FirstMaterial = NewObject<DMaterial>(nullptr, "FirstRoutedMaterial");
@@ -213,7 +211,6 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)});
 	ASSERT_TRUE(Retired);
-	EXPECT_TRUE(Owner.BeginRetirement().Succeeded());
 	EXPECT_EQ(Aggregate.ProcessAsyncTasks().ProcessedCompletionCount, 0u);
 	EXPECT_GT(RetiredState->ProcessCount, 0u);
 	Retired.Handle.Reset();

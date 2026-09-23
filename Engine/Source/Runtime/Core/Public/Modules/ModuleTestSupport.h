@@ -25,23 +25,14 @@ namespace Durin
 		}
 
 		auto CreateAsyncOperationGroup(
-			FName GroupName,
-			FAsyncOperationGroupOptions Options = {}) -> FAsyncOperationGroup
+			FName GroupName) -> FAsyncOperationGroup
 		{
 			return Detail::CreateAsyncOperationGroup(
-				ModuleOwner, std::move(GroupName), Options);
+				ModuleOwner, std::move(GroupName));
 		}
 
-		CORE_API auto BeginRetirement(
-			std::chrono::milliseconds Timeout = std::chrono::seconds(5))
-			-> FModularFeatureRetirementResult;
-		CORE_API auto DrainAsyncOperations(
-			std::chrono::milliseconds Timeout = std::chrono::seconds(5))
-			-> FAsyncOperationDrainResult;
 		[[nodiscard]] CORE_API auto GetFeatureSnapshot() const
 			-> FModularFeatureRetirementSnapshot;
-		[[nodiscard]] CORE_API auto GetAsyncOperationSnapshot() const
-			-> FAsyncOperationOwnerSnapshot;
 
 	private:
 		FName ModuleName;
@@ -68,8 +59,6 @@ namespace Durin
 			FName ModuleName,
 			std::unique_ptr<IModuleInterface> Module
 		) -> IModuleInterface*;
-		CORE_API static auto SetRetirementTimeout(
-			std::chrono::milliseconds Timeout) -> std::chrono::milliseconds;
 
 	private:
 		FModuleTestOwner Owner;

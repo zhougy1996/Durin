@@ -15,6 +15,8 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
+			if (SaveReadinessRegistration.IsValid())
+				require(SaveReadinessRegistration.Reset() == EModularFeatureRetirementStatus::Succeeded);
 		}
 
 	private:

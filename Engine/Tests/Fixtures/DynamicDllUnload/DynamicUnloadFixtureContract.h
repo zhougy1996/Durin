@@ -43,6 +43,7 @@ namespace Durin::Tests
 		static constexpr std::string_view FeatureName = "Tests.DynamicUnloadFixture";
 		static constexpr uint32 FeatureVersion = 1;
 
+		virtual auto SetShutdownTimeout(std::chrono::milliseconds Timeout) -> void = 0;
 		virtual auto GetInstanceSerial() const -> uint64 = 0;
 		virtual auto RunSynchronousBarrier() -> void = 0;
 		virtual auto StartDrainedAsyncChain() -> bool = 0;
