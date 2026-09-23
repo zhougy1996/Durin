@@ -19,9 +19,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto GetServiceTestRoot() -> std::filesystem::path
+		auto GetBuilderTestRoot() -> std::filesystem::path
 		{
-			return Durin::Testing::GetTestWorkDirectory() / "ShaderCompileService";
+			return Durin::Testing::GetTestWorkDirectory() / "ShaderBuilder";
 		}
 
 		auto WriteTestShader(const std::filesystem::path& FilePath) -> void
@@ -46,7 +46,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			ASSERT_TRUE(Stream.good());
 		}
 
-		auto MakeServiceOptions() -> FShaderCompileOptions
+		auto MakeCompileOptions() -> FShaderCompileOptions
 		{
 			FShaderCompileOptions Options;
 			Options.EntryPoints = {"VertexMain"};
@@ -54,7 +54,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			return Options;
 		}
 
-		class FShaderCompileServiceTests : public testing::Test
+		class FShaderBuilderTests : public testing::Test
 		{
 		protected:
 			void SetUp() override
@@ -65,7 +65,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 					GIsGameThreadIdInitialized = true;
 				}
-				const std::filesystem::path Root = GetServiceTestRoot();
+				const std::filesystem::path Root = GetBuilderTestRoot();
 				PreviousDdcRoot = FPaths::DerivedDataCacheDir();
 				std::error_code ErrorCode;
 				Durin::Testing::RemoveTestWorkDirectory(Root, ErrorCode);
@@ -75,7 +75,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				FPaths::SetDerivedDataCacheDirForTests(
 					(Root / "DDC").generic_string());
 				FShaderPaths::RegisterMountPoint(
-					"/ShaderCompileServiceTests/",
+					"/ShaderBuilderTests/",
 					(Root / "Source").generic_string(),
 					(Root / "Cache").generic_string()
 				);
@@ -93,11 +93,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		};
 	}
 
-	TEST_F(FShaderCompileServiceTests, WarmRestartUsesManifestWithoutResolvingOrHashingSources)
+	TEST_F(FShaderBuilderTests, WarmRestartUsesManifestWithoutResolvingOrHashingSources)
 	{
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		Builder = std::make_unique<FShaderBuilder>();
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options));
 		const FShaderBuildStats ColdStats = Builder->GetStats();
 		EXPECT_EQ(ColdStats.DependencyResolutions, 1u);
 		EXPECT_EQ(ColdStats.Compilations, 1u);
@@ -105,7 +105,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options));
 		const FShaderBuildStats WarmStats = Builder->GetStats();
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(WarmStats.Compilations, 0u);
@@ -114,15 +114,15 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.DdcHits, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, CorruptDdcValueIsRecompiledAndRepaired)
+	TEST_F(FShaderBuilderTests, CorruptDdcValueIsRecompiledAndRepaired)
 	{
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		Builder = std::make_unique<FShaderBuilder>();
 		ASSERT_TRUE(Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/Simple", Options));
+			"/ShaderBuilderTests/Simple", Options));
 		Builder.reset();
 
-		const std::filesystem::path Bucket = GetServiceTestRoot()
+		const std::filesystem::path Bucket = GetBuilderTestRoot()
 			/ "DDC" / "Shaders" / "CompiledOutput";
 		std::vector<std::filesystem::path> Entries;
 		std::error_code Error;
@@ -143,7 +143,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 
 		Builder = std::make_unique<FShaderBuilder>();
 		const FShaderCompilerOutput Repaired = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/Simple", Options);
+			"/ShaderBuilderTests/Simple", Options);
 		ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
@@ -153,10 +153,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.ManifestHits, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, DdcStoreFailureDoesNotDiscardCompiledOutput)
+	TEST_F(FShaderBuilderTests, DdcStoreFailureDoesNotDiscardCompiledOutput)
 	{
 		const std::filesystem::path BlockedRoot =
-			GetServiceTestRoot() / "BlockedDdc";
+			GetBuilderTestRoot() / "BlockedDdc";
 		{
 			std::ofstream Stream(BlockedRoot, std::ios::binary);
 			Stream << "not a directory";
@@ -165,7 +165,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
 		Builder = std::make_unique<FShaderBuilder>();
 		const FShaderCompilerOutput Output = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/Simple", MakeServiceOptions());
+			"/ShaderBuilderTests/Simple", MakeCompileOptions());
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
@@ -174,20 +174,20 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.OutputEntries, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		SourceTreeFingerprintReusesManifestAndInvalidatesOnChange)
 	{
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		Builder = std::make_unique<FShaderBuilder>();
 		FShaderSourceDependencyFingerprint ColdFingerprint;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderCompileServiceTests/Simple", Options, ColdFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ColdFingerprint))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ColdFingerprint.VirtualPath,
-			"/ShaderCompileServiceTests/Simple");
+			"/ShaderBuilderTests/Simple");
 		EXPECT_FALSE(ColdFingerprint.ContentHash.IsZero());
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
 		FShaderSourceDependencyFingerprint SameGenerationFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderCompileServiceTests/Simple", Options, SameGenerationFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, SameGenerationFingerprint))) << FormatShaderError(Error.error());
 		EXPECT_EQ(SameGenerationFingerprint, ColdFingerprint);
 		const auto SameGenerationStats = Builder->GetStats();
 		EXPECT_EQ(SameGenerationStats.DependencyResolutions, 1u);
@@ -197,7 +197,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
 		FShaderSourceDependencyFingerprint WarmFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderCompileServiceTests/Simple", Options, WarmFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, WarmFingerprint))) << FormatShaderError(Error.error());
 		EXPECT_EQ(WarmFingerprint, ColdFingerprint);
 		const auto WarmStats = Builder->GetStats();
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
@@ -205,7 +205,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.ContentReads, 0u);
 		EXPECT_EQ(WarmStats.SourceTreeFingerprintHits, 0u);
 
-		WriteTextFile(GetServiceTestRoot() / "Source/Simple.slang",
+		WriteTextFile(GetBuilderTestRoot() / "Source/Simple.slang",
 			R"([shader("vertex")]
 float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 {
@@ -213,7 +213,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 }
 )");
 		FShaderSourceDependencyFingerprint BeforeReloadFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderCompileServiceTests/Simple", Options, BeforeReloadFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, BeforeReloadFingerprint))) << FormatShaderError(Error.error());
 		EXPECT_EQ(BeforeReloadFingerprint, WarmFingerprint);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 0u);
 		EXPECT_EQ(
@@ -221,16 +221,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const uint64 PreviousReloadGeneration = GetShaderReloadGeneration();
 		EXPECT_GT(AdvanceShaderReloadGeneration(), PreviousReloadGeneration);
 		FShaderSourceDependencyFingerprint ChangedFingerprint;
-		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderCompileServiceTests/Simple", Options, ChangedFingerprint))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", Options, ChangedFingerprint))) << FormatShaderError(Error.error());
 		EXPECT_NE(ChangedFingerprint.ContentHash,
 			ColdFingerprint.ContentHash);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		GeneratedSourceCompilesFromMemoryUsesCacheAndEnforcesImports)
 	{
-		WriteTextFile(GetServiceTestRoot() / "Source/Imported.slang",
+		WriteTextFile(GetBuilderTestRoot() / "Source/Imported.slang",
 			"module Imported; public float GeneratedValue() { return 0.25; }\n");
 		Builder = std::make_unique<FShaderBuilder>();
 		FGeneratedShaderCompileRequest Request;
@@ -247,7 +247,7 @@ float4 FragmentMain() : SV_Target0
 		Request.EntryPoints = {"FragmentMain"};
 		Request.Frequencies = {EShaderFrequency::Fragment};
 		Request.AllowedImportVirtualPrefixes = {
-			"/ShaderCompileServiceTests/"};
+			"/ShaderBuilderTests/"};
 		const FShaderCompilerOutput First =
 			Builder->GetOrCompileGenerated(Request);
 		ASSERT_TRUE(First) << FormatShaderError(First.Error);
@@ -280,11 +280,11 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Rejected.Error.Code, EShaderError::ImportNotAllowed);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		GeneratedManifestInvalidatesWhenImportedModuleChanges)
 	{
 		const std::filesystem::path ImportedPath =
-			GetServiceTestRoot() / "Source/Imported.slang";
+			GetBuilderTestRoot() / "Source/Imported.slang";
 		WriteTextFile(ImportedPath,
 			"module Imported; public float GeneratedValue() { return 0.25; }\n");
 		FGeneratedShaderCompileRequest Request;
@@ -301,7 +301,7 @@ float4 FragmentMain() : SV_Target0
 		Request.EntryPoints = {"FragmentMain"};
 		Request.Frequencies = {EShaderFrequency::Fragment};
 		Request.AllowedImportVirtualPrefixes = {
-			"/ShaderCompileServiceTests/"};
+			"/ShaderBuilderTests/"};
 
 		Builder = std::make_unique<FShaderBuilder>();
 		const FShaderCompilerOutput First =
@@ -330,7 +330,7 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Stats.Compilations, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		GeneratedShaderWithoutImportsReusesEmptyManifestAfterRestart)
 	{
 		FGeneratedShaderCompileRequest Request;
@@ -366,7 +366,7 @@ float4 FragmentMain() : SV_Target0
 	// The gate is inside CompileSource, after acquiring its global session.
 	// Deadlines only prevent a regression from hanging the test process; no
 	// throughput/timing threshold is used as a performance acceptance gate.
-	TEST_F(FShaderCompileServiceTests, WarmGeneratedCachesBypassBlockedCompiler)
+	TEST_F(FShaderBuilderTests, WarmGeneratedCachesBypassBlockedCompiler)
 	{
 		for (const bool Restart : {false, true})
 		{
@@ -411,7 +411,7 @@ float4 FragmentMain() : SV_Target0
 		}
 	}
 
-	TEST_F(FShaderCompileServiceTests, DifferentGeneratedRequestsUseIndependentSlangSessions)
+	TEST_F(FShaderBuilderTests, DifferentGeneratedRequestsUseIndependentSlangSessions)
 	{
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/BlockedCold";
@@ -442,7 +442,7 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Builder->GetStats().Compilations, 2u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, ConcurrentGeneratedRequestsCompileOnceAndExceptionsAllowRetry)
+	TEST_F(FShaderBuilderTests, ConcurrentGeneratedRequestsCompileOnceAndExceptionsAllowRetry)
 	{
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/SingleFlight";
@@ -471,7 +471,7 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Builder->GetStats().Compilations - Before.Compilations, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, ConcurrentCapturedRequestsKeepContentAndImportPolicySeparate)
+	TEST_F(FShaderBuilderTests, ConcurrentCapturedRequestsKeepContentAndImportPolicySeparate)
 	{
 		auto Artifacts = [](std::string_view Text) {
 			const auto View = std::as_bytes(std::span(Text.data(), Text.size()));
@@ -521,15 +521,15 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Calls.load(), 2u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, ConcurrentIdenticalRequestsCompileOnce)
+	TEST_F(FShaderBuilderTests, ConcurrentIdenticalRequestsCompileOnce)
 	{
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		Builder = std::make_unique<FShaderBuilder>();
 		std::vector<std::future<FShaderCompilerOutput>> Requests;
 		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			Requests.push_back(std::async(std::launch::async, [this, Options] {
-				return Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options);
+				return Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 			}));
 		}
 
@@ -542,12 +542,12 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Stats.Compilations, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		ConcurrentColdFileAndGeneratedRequestsCompleteSafely)
 	{
 		constexpr uint32 FileRequestCount = 6;
 		const std::filesystem::path SourceRoot =
-			GetServiceTestRoot() / "Source";
+			GetBuilderTestRoot() / "Source";
 		for (uint32 Index = 0; Index < FileRequestCount; ++Index)
 		{
 			WriteTestShader(SourceRoot /
@@ -571,7 +571,7 @@ float4 FragmentMain() : SV_Target0
 		GeneratedRequest.EntryPoints = {"FragmentMain"};
 		GeneratedRequest.Frequencies = {EShaderFrequency::Fragment};
 		GeneratedRequest.AllowedImportVirtualPrefixes = {
-			"/ShaderCompileServiceTests/"};
+			"/ShaderBuilderTests/"};
 
 		Builder = std::make_unique<FShaderBuilder>();
 		std::latch StartGate(1);
@@ -583,8 +583,8 @@ float4 FragmentMain() : SV_Target0
 				[this, &StartGate, Index] {
 					StartGate.wait();
 					return Builder->GetOrCompile(std::format(
-						"/ShaderCompileServiceTests/Concurrent{}", Index),
-						MakeServiceOptions());
+						"/ShaderBuilderTests/Concurrent{}", Index),
+						MakeCompileOptions());
 				}));
 		}
 		Requests.push_back(std::async(std::launch::async,
@@ -605,19 +605,19 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Stats.Compilations, FileRequestCount + 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		CorrectedShaderRecompilesAfterAnUncachedFailure)
 	{
 		const std::filesystem::path ShaderPath =
-			GetServiceTestRoot() / "Source" / "Simple.slang";
+			GetBuilderTestRoot() / "Source" / "Simple.slang";
 		WriteTextFile(
 			ShaderPath,
 			"[shader(\"vertex\")] broken shader source\n");
 		Builder = std::make_unique<FShaderBuilder>();
 
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		const FShaderCompilerOutput Broken =
-			Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options);
+			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		EXPECT_FALSE(Broken);
 		EXPECT_EQ(Broken.Error.Code, EShaderError::SlangFailure);
 
@@ -627,7 +627,7 @@ float4 FragmentMain() : SV_Target0
 			std::filesystem::last_write_time(ShaderPath)
 				+ std::chrono::seconds(2));
 		const FShaderCompilerOutput Corrected =
-			Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options);
+			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		EXPECT_TRUE(Corrected);
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
@@ -635,15 +635,15 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Stats.Compilations, 1u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		ForceRecompileBypassesSuccessfulMemoryAndDiskOutputReuse)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		ASSERT_TRUE(
-			Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options));
+			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options));
 		ASSERT_TRUE(
-			Builder->GetOrCompile("/ShaderCompileServiceTests/Simple", Options));
+			Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options));
 		const FShaderBuildStats WarmStats =
 			Builder->GetStats();
 		ASSERT_EQ(WarmStats.Compilations, 1u);
@@ -652,7 +652,7 @@ float4 FragmentMain() : SV_Target0
 		FShaderCompileOptions ForcedOptions = Options;
 		ForcedOptions.bForceRecompile = true;
 		ASSERT_TRUE(Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/Simple", ForcedOptions));
+			"/ShaderBuilderTests/Simple", ForcedOptions));
 		const FShaderBuildStats ForcedStats =
 			Builder->GetStats();
 		EXPECT_EQ(ForcedStats.Compilations, 2u);
@@ -660,9 +660,9 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(ForcedStats.DdcHits, 0u);
 	}
 
-	TEST_F(FShaderCompileServiceTests, AlternatingMacroDependencyGraphsRemainWarmHits)
+	TEST_F(FShaderBuilderTests, AlternatingMacroDependencyGraphsRemainWarmHits)
 	{
-		const std::filesystem::path SourceRoot = GetServiceTestRoot() / "Source";
+		const std::filesystem::path SourceRoot = GetBuilderTestRoot() / "Source";
 		WriteTextFile(SourceRoot / "VariantA.slang", "static const float SelectedValue = 1.0;\n");
 		WriteTextFile(SourceRoot / "VariantB.slang", "static const float SelectedValue = 2.0;\n");
 		WriteTextFile(SourceRoot / "Conditional.slang", R"(#ifdef USE_A
@@ -678,19 +678,19 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 )"
 		);
 
-		FShaderCompileOptions FirstOptions = MakeServiceOptions();
+		FShaderCompileOptions FirstOptions = MakeCompileOptions();
 		FirstOptions.Macros.emplace_back("USE_A");
-		FShaderCompileOptions SecondOptions = MakeServiceOptions();
+		FShaderCompileOptions SecondOptions = MakeCompileOptions();
 		SecondOptions.Macros.emplace_back("USE_B");
 
 		Builder = std::make_unique<FShaderBuilder>();
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Conditional", FirstOptions));
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Conditional", SecondOptions));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Conditional", FirstOptions));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Conditional", SecondOptions));
 		Builder.reset();
 
 		Builder = std::make_unique<FShaderBuilder>();
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Conditional", FirstOptions));
-		ASSERT_TRUE(Builder->GetOrCompile("/ShaderCompileServiceTests/Conditional", SecondOptions));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Conditional", FirstOptions));
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Conditional", SecondOptions));
 		const FShaderBuildStats WarmStats = Builder->GetStats();
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(WarmStats.Compilations, 0u);
@@ -699,11 +699,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.DdcHits, 2u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		ImportedModuleChangeRecompilesEveryDependentShader)
 	{
 		const std::filesystem::path SourceRoot =
-			GetServiceTestRoot() / "Source";
+			GetBuilderTestRoot() / "Source";
 		const std::filesystem::path ModulePath =
 			SourceRoot / "VertexFactory" / "Shared.slang";
 		constexpr std::string_view FirstModule = R"(module Shared;
@@ -741,11 +741,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		}
 
 		Builder = std::make_unique<FShaderBuilder>();
-		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompileOptions Options = MakeCompileOptions();
 		const FShaderCompilerOutput FirstA = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/DependentA", Options);
+			"/ShaderBuilderTests/DependentA", Options);
 		const FShaderCompilerOutput FirstB = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/DependentB", Options);
+			"/ShaderBuilderTests/DependentB", Options);
 		ASSERT_TRUE(FirstA) << FormatShaderError(FirstA.Error);
 		ASSERT_TRUE(FirstB) << FormatShaderError(FirstB.Error);
 		ASSERT_EQ(FirstA.CompiledShaders.size(), 1u);
@@ -761,9 +761,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			std::filesystem::last_write_time(ModulePath)
 				+ std::chrono::seconds(2));
 		const FShaderCompilerOutput SecondA = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/DependentA", Options);
+			"/ShaderBuilderTests/DependentA", Options);
 		const FShaderCompilerOutput SecondB = Builder->GetOrCompile(
-			"/ShaderCompileServiceTests/DependentB", Options);
+			"/ShaderBuilderTests/DependentB", Options);
 		ASSERT_TRUE(SecondA) << FormatShaderError(SecondA.Error);
 		ASSERT_TRUE(SecondB) << FormatShaderError(SecondB.Error);
 		ASSERT_EQ(SecondA.CompiledShaders.size(), 1u);
@@ -779,10 +779,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.DdcHits, 0u);
 	}
 
-	TEST_F(FShaderCompileServiceTests,
+	TEST_F(FShaderBuilderTests,
 		ErrorTerminalRecordsCompleteColdAndWarmBaseline)
 	{
-		const std::filesystem::path Root = GetServiceTestRoot();
+		const std::filesystem::path Root = GetBuilderTestRoot();
 		const std::filesystem::path SourceRoot =
 			std::filesystem::path(FPaths::EngineDir()) / "Shaders/Slang";
 		const std::filesystem::path CacheRoot = Root / "MaterialCache";
@@ -933,10 +933,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			<< " spirv_bytes=" << SpirvBytes
 			<< " ddc_bytes=" << DdcBytes << '\n';
 	}
-	TEST_F(FShaderCompileServiceTests, CapturedIncludesNeverReopenLiveSources)
+	TEST_F(FShaderBuilderTests, CapturedIncludesNeverReopenLiveSources)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
-		const auto Root = GetServiceTestRoot() / "Source";
+		const auto Root = GetBuilderTestRoot() / "Source";
 		const auto Main = (Root / "Owned.slang").generic_string();
 		const auto Include = (Root / "OwnedInclude.slang").generic_string();
 		const std::string Source = R"(#include "OwnedInclude.slang"
@@ -954,7 +954,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		};
 		Files.emplace(Main, Bytes(Source));
 		Files.emplace(Include, Bytes(Included));
-		FShaderCompileOptions Options = MakeServiceOptions();
+		FShaderCompileOptions Options = MakeCompileOptions();
 		const auto Artifacts = std::make_shared<FShaderSourceArtifacts>(Files);
 		Options.SourceArtifacts = Artifacts;
 		Files.clear();
@@ -975,7 +975,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_FALSE(Builder->GetOrCompile(Main, Options));
 		EXPECT_FALSE((Error = Builder->BuildSourceDependencyManifest(Main, Options, After)));
 	}
-	TEST_F(FShaderCompileServiceTests, GeneratedRootUsesCapturedIncludeAndDeclarationLimits)
+	TEST_F(FShaderBuilderTests, GeneratedRootUsesCapturedIncludeAndDeclarationLimits)
 	{
 		Builder = std::make_unique<FShaderBuilder>();
 		const std::string Include = "float4 CapturedPosition() { return float4(0, 0, 0, 1); }";

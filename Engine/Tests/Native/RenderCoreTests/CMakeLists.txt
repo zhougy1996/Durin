@@ -54,13 +54,13 @@ durin_add_native_test(RenderShaderCacheTests
 	PRIVATE_SOURCE_OWNER ShaderBuild
 )
 
-durin_add_native_test(RenderShaderServiceTests
+durin_add_native_test(RenderShaderBuilderTests
 	KIND feature
 	DOMAINS shader
 	MODULES rendercore shaderbuild derived-data-cache
 	PRIVATE_SOURCE_RATIONALE
 		"RenderCore-owned shader builder white-box coverage avoids exporting private builder implementation symbols."
-	SOURCES Private/ShaderCompileServiceTests.cpp
+	SOURCES Private/ShaderBuilderTests.cpp
 	PRIVATE_SOURCES
 		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
@@ -92,11 +92,11 @@ durin_add_native_test(RenderShaderCookIntegrationTests
 )
 else()
 	durin_exclude_native_test_sources(
-		RATIONALE "Authoring-only Shader compiler, cache, and service coverage is excluded from the runtime-only Game closure."
+		RATIONALE "Authoring-only Shader compiler, cache, and builder coverage is excluded from the runtime-only Game closure."
 		SOURCES Private/ShaderFoundationTests.cpp
 			Private/ShaderReflectionTests.cpp
 			Private/ShaderDerivedDataTests.cpp
-			Private/ShaderCompileServiceTests.cpp
+			Private/ShaderBuilderTests.cpp
 			Private/ShaderCookIntegrationTests.cpp
 	)
 endif()
