@@ -4,36 +4,26 @@
 #include "MonaUIBackend.h"
 #include "MonaCoreGlobals.h"
 #include "RHI.h"
-
-namespace Durin
-{
-	// Owns the process-wide Mona application while allowing its code to outlive UI shutdown.
-	class FMonaModule final : public IModuleInterface
-	{
-	public:
-		auto StartupModule() -> void override
-		{
-			Mona::FMonaApplication::Create();
-			if (GDynamicRHI && !Mona::InitializeRendering(false))
-			{
-				DURIN_ERROR("Mona rendering services failed to initialize.");
-			}
-
-			DURIN_DEBUG(STR("Mona platform services initialized successfully."));
-		}
-
-		auto ShutdownModule() -> void override
-		{
-			Mona::FMonaApplication::Shutdown();
-			DURIN_DEBUG(STR("Mona shutdown."));
-		}
-	};
-
-	IMPLEMENT_MODULE(FMonaModule, Mona)
-}
+#include "ApplicationCore.h"
 
 namespace Durin::Mona
 {
+	auto InitializeApplication() -> bool
+	{
+		if (FMonaApplication::IsInitialized()) return true;
+		if (!IsApplicationCoreInitialized()) return false;
+		FMonaApplication::Create();
+		DURIN_DEBUG(STR("Mona platform services initialized successfully."));
+		return true;
+	}
+
+	auto Shutdown() -> void
+	{
+		if (!FMonaApplication::IsInitialized()) return;
+		FMonaApplication::Shutdown();
+		DURIN_DEBUG(STR("Mona shutdown."));
+	}
+
 	auto InitializeRendering(
 		bool bAdoptInitializationPresentationCandidate) -> bool
 	{

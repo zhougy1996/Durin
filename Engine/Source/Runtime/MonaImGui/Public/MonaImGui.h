@@ -16,6 +16,11 @@ namespace Durin
 
 	namespace MonaImGui
 	{
+		// Called on the game thread after Mona rendering startup.
+		MONAIMGUI_API auto Initialize() -> bool;
+		// Safe before initialization. Call before Mona and rendering services stop.
+		MONAIMGUI_API auto Shutdown() -> void;
+
 		MONAIMGUI_API auto DrawTexture(const FRHITexture* Texture, const FVector2f& Size) -> void;
 		MONAIMGUI_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
 		// Returns the medium-weight Latin UI font, or the default font when the

@@ -36,6 +36,7 @@
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
+	#include "MonaImGui.h"
 #else
 	#include "Engine/GameEngine.h"
 #endif
@@ -194,7 +195,7 @@ namespace Durin
 			return false;
 		}
 
-		if (!FModuleManager::Get().LoadModule("Mona"))
+		if (!Mona::InitializeApplication())
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona platform services could not start.");
 			return false;
@@ -242,8 +243,7 @@ namespace Durin
 			return false;
 		}
 #if DURIN_WITH_EDITOR
-		if (!FModuleManager::Get().LoadModule("MonaImGui")
-			|| Mona::GetActiveUIBackend() == nullptr)
+		if (!MonaImGui::Initialize())
 		{
 			DURIN_ERROR("Engine initialization stopped because the MonaImGui editor backend could not start.");
 			return false;
@@ -393,16 +393,10 @@ namespace Durin
 		CancelAsyncLoading();
 
 #if DURIN_WITH_EDITOR
-		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
-		{
-			FModuleManager::Get().ShutdownModule("MonaImGui");
-		}
+		MonaImGui::Shutdown();
 #endif
 
-		if (FModuleManager::Get().IsModuleLoaded("Mona"))
-		{
-			FModuleManager::Get().ShutdownModule("Mona");
-		}
+		Mona::Shutdown();
 
 		if (bWasRunning)
 		{

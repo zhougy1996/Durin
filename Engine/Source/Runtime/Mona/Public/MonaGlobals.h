@@ -5,6 +5,11 @@
 
 namespace Durin::Mona
 {
+	// Called on the game thread after ApplicationCore startup; rendering starts separately.
+	MONA_API auto InitializeApplication() -> bool;
+	// Safe before initialization. Stop the UI backend before shutting down Mona.
+	MONA_API auto Shutdown() -> void;
+
 	// Completes the RHI-dependent half of Mona startup after the platform
 	// application and its primary native window are available.
 	MONA_API auto InitializeRendering(
