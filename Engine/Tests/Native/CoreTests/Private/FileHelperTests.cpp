@@ -433,6 +433,8 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 	std::atomic_bool bStart = false;
 	std::atomic_bool bStopReader = false;
 	std::atomic_bool bObservedPartial = false;
+	std::optional<Durin::FFileError> ReadError;
+	size_t SuccessfulReads = 0; // Reader-owned until join.
 	std::atomic_bool bPublicationFailed = false;
 	std::atomic_int PublicationErrorCode = 0;
 	std::atomic_int PublicationOperation = 0;
@@ -459,15 +461,38 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 
 	std::thread Reader([&] {
 		while (!bStart.load(std::memory_order_acquire)) std::this_thread::yield();
-		while (!bStopReader.load(std::memory_order_acquire))
+		do
 		{
 			auto Bytes = Durin::FFileHelper::LoadFileToArray(Destination);
-			if (!Bytes || !IsCompleteWriterPayload(*Bytes, PayloadSizes))
+#if defined(_WIN32)
+			// Publication can transiently deny opening or hide the destination. Keep this
+			// policy local: ordinary file reads intentionally do not retry.
+			constexpr size_t MaxReadAttempts = 64;
+			for (size_t Attempt = 1; !Bytes && Attempt < MaxReadAttempts; ++Attempt)
+			{
+				const auto& Error = Bytes.error();
+				if (Error.Operation != Durin::EFileOperation::OpenRead
+					|| Error.NativeError.category() != std::system_category()
+					|| (Error.NativeError.value() != ERROR_ACCESS_DENIED
+						&& Error.NativeError.value() != ERROR_SHARING_VIOLATION
+						&& Error.NativeError.value() != ERROR_FILE_NOT_FOUND))
+					break;
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				Bytes = Durin::FFileHelper::LoadFileToArray(Destination);
+			}
+#endif
+			if (!Bytes)
+			{
+				ReadError = std::move(Bytes.error());
+				return;
+			}
+			++SuccessfulReads;
+			if (!IsCompleteWriterPayload(*Bytes, PayloadSizes))
 			{
 				bObservedPartial.store(true, std::memory_order_release);
 				return;
 			}
-		}
+		} while (!bStopReader.load(std::memory_order_acquire));
 	});
 
 	bStart.store(true, std::memory_order_release);
@@ -477,6 +502,8 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 
 	EXPECT_FALSE(bPublicationFailed.load())
 		<< "operation " << PublicationOperation.load() << ", native error " << PublicationErrorCode.load();
+	EXPECT_FALSE(ReadError.has_value()) << (ReadError ? ReadError->ToString() : "");
+	EXPECT_GT(SuccessfulReads, 0u);
 	EXPECT_FALSE(bObservedPartial.load());
 	EXPECT_TRUE(IsCompleteWriterPayload(ReadBytes(Destination), PayloadSizes));
 }
