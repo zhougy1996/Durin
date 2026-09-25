@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Templates/MoveOnlyFunction.h"
+
 #include "Asset/BulkData.h"
 #include "Asset/CookedMeshLoading.h"
 #include "Asset/CookedMeshProducts.h"
@@ -95,14 +97,14 @@ namespace Durin
 		explicit operator bool() const { return Error.Code == ECookedMeshLoadError::None; }
 	};
 
-	using FCookedMeshWorker = std::move_only_function<FCookedMeshWorkerResult(
+	using FCookedMeshWorker = TMoveOnlyFunction<FCookedMeshWorkerResult(
 		std::span<const FSharedByteBuffer>, const FTaskCancellationToken&)>;
 	using FCookedMeshCurrentPredicate = std::function<bool(
 		const DObject&, const FCookedMeshLoadIdentity&)>;
-	using FCookedMeshPublisher = std::move_only_function<FCookedMeshLoadResult(
+	using FCookedMeshPublisher = TMoveOnlyFunction<FCookedMeshLoadResult(
 		DObject&, const FCookedMeshLoadIdentity&,
 		std::unique_ptr<ICookedMeshDetachedProduct>)>;
-	using FCookedMeshTerminalCallback = std::move_only_function<void(
+	using FCookedMeshTerminalCallback = TMoveOnlyFunction<void(
 		DObject&, const FCookedMeshLoadIdentity&, ECookedMeshTerminalState,
 		const FCookedMeshLoadError&)>;
 

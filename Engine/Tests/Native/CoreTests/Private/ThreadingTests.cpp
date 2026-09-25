@@ -2364,6 +2364,41 @@ namespace Durin
 		EXPECT_EQ(1, Destroyed.load());
 	}
 
+	TEST(FTaskMoveOnlyCallableTests, PortableCallbackPreservesEmptyAndMoveOnlySemantics)
+	{
+		using FCallback = TMoveOnlyFunction<int()>;
+		static_assert(!std::is_copy_constructible_v<FCallback>);
+		static_assert(!std::is_copy_assignable_v<FCallback>);
+		static_assert(std::is_nothrow_move_constructible_v<FCallback>);
+		static_assert(std::is_nothrow_move_assignable_v<FCallback>);
+
+		int (*NullFunction)() = nullptr;
+		FCallback Empty(NullFunction);
+		EXPECT_FALSE(Empty);
+		FCallback Null(nullptr);
+		EXPECT_FALSE(Null);
+
+		struct FReceiver { int Value = 9; };
+		int FReceiver::* NullMember = nullptr;
+		TMoveOnlyFunction<int&(FReceiver&)> EmptyMember(NullMember);
+		EXPECT_FALSE(EmptyMember);
+		TMoveOnlyFunction<int&(FReceiver&)> Member(&FReceiver::Value);
+		FReceiver Receiver;
+		Member(Receiver) = 12;
+		EXPECT_EQ(12, Receiver.Value);
+
+		auto Owner = std::make_shared<int>(7);
+		std::weak_ptr<int> WeakOwner = Owner;
+		FCallback Callback([Value = std::move(Owner)] { return *Value; });
+		Empty = std::move(Callback);
+		EXPECT_EQ(7, Empty());
+		Empty = nullptr;
+		EXPECT_TRUE(WeakOwner.expired());
+
+		Empty = [Value = std::make_unique<int>(11)] { return *Value; };
+		EXPECT_EQ(11, Empty());
+	}
+
 	TEST(FTaskMoveOnlyCallableTests, ErasureTransfersOwnershipAndDestroysExactlyOnce)
 	{
 		struct FTrackedCallable
@@ -2384,7 +2419,7 @@ namespace Durin
 			auto operator()() -> void {}
 		};
 
-		using FMoveOnlyVoidFunction = std::move_only_function<void()>;
+		using FMoveOnlyVoidFunction = TMoveOnlyFunction<void()>;
 		FMoveOnlyVoidFunction Empty;
 		EXPECT_FALSE(static_cast<bool>(Empty));
 

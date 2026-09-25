@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Templates/MoveOnlyFunction.h"
+
 #include "CoreAPI.h"
 
 #include "HAL/Platform.h"
@@ -8,8 +10,8 @@ namespace Durin
 {
 	enum class EQueuedWorkPriority : uint8 { High, Normal, Low };
 
-	using FQueuedWorkFunction = std::move_only_function<void()>;
-	using FQueuedWorkDiscardFunction = std::move_only_function<void()>;
+	using FQueuedWorkFunction = TMoveOnlyFunction<void()>;
+	using FQueuedWorkDiscardFunction = TMoveOnlyFunction<void()>;
 
 	// Owns a fixed worker set and drains named work items from a shared queue.
 	class FQueuedThreadPool

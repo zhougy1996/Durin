@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Templates/MoveOnlyFunction.h"
+
 #include "EngineAPI.h"
 #include "DObject/ObjectKey.h"
 
@@ -27,12 +29,12 @@ namespace Durin
 		// Returns an invalid handle for invalid input or outside BeginningPlay/Playing.
 		// Delay is finite and nonnegative; Interval == 0 is one-shot, otherwise positive.
 		// New timers never execute in the gameplay frame that registered them.
-		ENGINE_API auto SetTimer(double Delay, std::move_only_function<void()> Callback, double Interval = 0.0) -> FTimerHandle;
-		ENGINE_API auto SetTimerForNextTick(std::move_only_function<void()> Callback) -> FTimerHandle;
+		ENGINE_API auto SetTimer(double Delay, TMoveOnlyFunction<void()> Callback, double Interval = 0.0) -> FTimerHandle;
+		ENGINE_API auto SetTimerForNextTick(TMoveOnlyFunction<void()> Callback) -> FTimerHandle;
 		// Owner is resolved and lifecycle-checked immediately before invocation, without GC retention.
 		ENGINE_API auto SetTimerForObject(DObject* Owner, double Delay,
-			std::move_only_function<void(DObject&)> Callback, double Interval = 0.0) -> FTimerHandle;
-		ENGINE_API auto SetTimerForObjectNextTick(DObject* Owner, std::move_only_function<void(DObject&)> Callback) -> FTimerHandle;
+			TMoveOnlyFunction<void(DObject&)> Callback, double Interval = 0.0) -> FTimerHandle;
+		ENGINE_API auto SetTimerForObjectNextTick(DObject* Owner, TMoveOnlyFunction<void(DObject&)> Callback) -> FTimerHandle;
 		ENGINE_API auto ClearTimer(FTimerHandle Handle) -> bool;
 		ENGINE_API auto ClearAllTimersForObject(const DObject* Owner) -> void;
 		ENGINE_API auto PauseTimer(FTimerHandle Handle) -> bool;
@@ -50,7 +52,7 @@ namespace Durin
 		struct FState;
 		std::unique_ptr<FState> State;
 		auto Add(double Delay, double Interval, bool bNextFrame, DObject* Owner,
-			std::move_only_function<void(DObject*)> Callback) -> FTimerHandle;
+			TMoveOnlyFunction<void(DObject*)> Callback) -> FTimerHandle;
 		auto StartFrame(double DeltaSeconds) -> void;
 		auto Dispatch() -> void;
 		auto Reset() -> void;

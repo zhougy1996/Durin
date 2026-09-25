@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Templates/MoveOnlyFunction.h"
+
 #include "CoreAPI.h"
 
 #include "HAL/Platform.h"
@@ -36,9 +38,9 @@ namespace Durin
 	CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
 
 	class FTaskCancellationToken;
-	using FParallelForFunction = std::move_only_function<void(uint64)>;
+	using FParallelForFunction = TMoveOnlyFunction<void(uint64)>;
 	class FParallelForCancellationToken;
-	using FCancelableParallelForFunction = std::move_only_function<void(uint64, const FParallelForCancellationToken&)>;
+	using FCancelableParallelForFunction = TMoveOnlyFunction<void(uint64, const FParallelForCancellationToken&)>;
 
 	class FTaskCancellationState;
 	class FTaskGenerationState;
@@ -167,9 +169,9 @@ namespace Durin
 			explicit operator bool() const { return !State.expired(); }
 		};
 		CORE_API auto MakeTaskResultAccounting(const FTaskHandle& Task) -> FTaskResultAccounting;
-		using FMoveOnlyTaskFunction = std::move_only_function<void(const FTaskCancellationToken&)>;
+		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
 
-		using FTaskCompletionFunction = std::move_only_function<void(ETaskState)>;
+		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
 
 		struct FTaskHandleFactory;
 		struct FUniqueTaskAccess;
