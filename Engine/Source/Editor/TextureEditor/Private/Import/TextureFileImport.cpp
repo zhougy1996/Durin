@@ -201,7 +201,7 @@ namespace Durin::Editor::Texture
 			}
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
-			if ((Completion->value().Status == ETexture2DCompilationStatus::Succeeded))
+			if (Completion->value().Status == ETexture2DCompilationStatus::Succeeded)
 			{
 				const auto SaveStart = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 				const auto Result = Saved ? std::move(*Saved) : Save(Path);
