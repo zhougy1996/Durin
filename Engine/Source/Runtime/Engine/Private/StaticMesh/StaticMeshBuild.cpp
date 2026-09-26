@@ -122,10 +122,9 @@ namespace Durin
 		const auto Snapshot = CaptureStaticMeshReconciliation(*this);
 		auto Input = Snapshot;
 		if (PreparedMaterialSlots) Input.MaterialSlots = *PreparedMaterialSlots;
-		std::vector<FAssetBuildCacheWarning> Warnings;
-		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = InSource}, {}, &Warnings);
+
+		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = InSource});
 		if (!Render) return std::unexpected(std::vector<std::string>{Render.error().ToString()});
-		for (const auto& Warning : Warnings) DURIN_WARN("StaticMesh {}", Warning.ToString());
 		if (const auto Applied = CommitStaticMeshBuild(*this, std::move(*Render), InSource, Snapshot, true, {}, nullptr,
 			PreparedMaterialSlots ? &*PreparedMaterialSlots : nullptr); !Applied)
 			return std::unexpected(std::vector<std::string>{Applied.error().ToString()});

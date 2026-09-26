@@ -2,33 +2,28 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/AssetCacheDiagnostic.h"
-
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DBuildTypes.h"
 
 namespace Durin
 {
-	// Owned image mip chain and settings form the worker payload. Source identity
-	// and cache policy belong to Engine orchestration, not the build module.
+	// Detached source snapshot and settings; mip acquisition belongs to execution.
 	struct FTexture2DBuildRequest
 	{
-		// One source mip generates a chain; multiple source mips are preserved.
-		std::vector<Image::FImage> SourceMips;
+		FTextureSource Source;
 		FTexture2DBuildSettings Settings;
-		FXxHash128 SourceIdentity;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
-		// Metadata-only input for loaded assets. Read only on a cache miss; never
-		// supply this together with SourceMips. Must be detached from a live owner.
-		std::optional<FTextureSource> DeferredSource;
 	};
 
-	// Captures owned image values synchronously; no texture or package handles enter workers.
+	// Captures metadata and retained storage without reading or decoding source bytes.
 	ENGINE_API auto MakeTexture2DBuildRequest(const FTextureSource& Source,
-		const FTexture2DBuildSettings& Settings = {}) -> FTexture2DBuildRequest;
+		const FTexture2DBuildSettings& Settings = {})
+		-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>;
+	ENGINE_API auto ValidateTexture2DBuildSource(const FTextureSource& Source)
+		-> std::expected<void, FTexture2DInputError>;
 
 	// Separates deterministic build/DDC identity from the Engine request serial
 	// used to enforce latest-wins result application for one live object.
@@ -70,7 +65,6 @@ namespace Durin
 	{
 		FTexturePlatformData PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		FAssetCacheDiagnostics PersistenceDiagnostic;
 		uint32 BuilderVersion = 0;
 		FTexture2DBuildMetrics Metrics;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;

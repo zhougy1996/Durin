@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	namespace DerivedData { class FBuildDefinition; struct FBuildDefinitionError; }
 	struct FArchiveFailure;
 
 	inline constexpr std::string_view Texture2DCacheBucket = "Textures/Objects";
@@ -28,7 +29,6 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
 		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	enum class ETextureCubeBuildSourceLayout : uint32
@@ -40,8 +40,8 @@ namespace Durin
 	struct FTextureCubeBuildKeyInput
 	{
 		ETextureCubeBuildSourceLayout SourceLayout = ETextureCubeBuildSourceLayout::SixFaces;
-		std::array<FXxHash128, TextureCubeFaceCount> FaceContentHashes{};
-		FXxHash128 PanoramaContentHash;
+		// Identity of the complete ordered canonical source, including every face.
+		FXxHash128 CanonicalSourceIdentity;
 		uint32 FaceDimension = 0;
 		float ExposureEV = 0.0f;
 		bool bSRGB = true;
@@ -52,7 +52,6 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
 		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	struct FVolumeTextureBuildKeyInput
@@ -68,9 +67,17 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
 		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
+#if DURIN_WITH_EDITOR
+	ENGINE_API auto MakeTexture2DBuildDefinition(const FTexture2DBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
+	ENGINE_API auto MakeTextureCubeBuildDefinition(const FTextureCubeBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
+	ENGINE_API auto MakeVolumeTextureBuildDefinition(const FVolumeTextureBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
+
+#endif
 	ENGINE_API auto BuildTexture2DDerivedDataKeyBytes(
 		const FTexture2DBuildKeyInput& Input) -> FByteBuffer;
 	ENGINE_API auto BuildTexture2DDerivedDataKey(

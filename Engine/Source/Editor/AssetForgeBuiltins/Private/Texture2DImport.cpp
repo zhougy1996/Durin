@@ -178,8 +178,13 @@ namespace Durin::AssetForge::Builtins
 			const uint64 ByteCount = Snapshot.FileSize;
 			const std::string DisplayLabel = PhysicalPath.filename().generic_string();
 			FTextureSource Candidate = std::move(*Translated);
+			auto BuildRequest = MakeTexture2DBuildRequest(Candidate, Settings);
+			if (!BuildRequest)
+				return std::unexpected(FTexture2DSubmissionError{.Code = ETexture2DSubmissionError::Compilation,
+					.ObjectPath = Texture.GetObjectPath(), .CompilationCause = FTexture2DCompilationError{
+						.Code = ETexture2DCompilationError::InvalidSource, .InputCause = BuildRequest.error()}});
 			const auto Submitted = SubmitTexture2DCompilation(Texture, {
-				.Build = MakeTexture2DBuildRequest(Candidate, Settings),
+				.Build = std::move(*BuildRequest),
 				.ResultApplication = {
 					.SourceReplacement = std::move(Candidate),
 					.bMarkPackageDirty = bPublishImportData,
@@ -363,10 +368,12 @@ namespace Durin::AssetForge::Builtins
 			.AlphaCoverageThreshold = EffectiveSettings.AlphaCoverageThreshold,
 			.MaxResolution = EffectiveSettings.MaxResolution,
 			.bSRGB = EffectiveSettings.bSRGB});
+		if (!Build) return CompilationFailed({.Code = ETexture2DCompilationError::InvalidSource,
+			.InputCause = Build.error(), .ObjectPath = Texture->GetObjectPath()});
 		if (Prepared)
 		{
 			if (const auto Submitted = SubmitTexture2DCompilation(*Texture, {
-				.Build = std::move(Build),
+				.Build = std::move(*Build),
 				.ResultApplication = {.SourceReplacement = InputData.Source}},
 				[Texture, SourceHint, HintBase, Label = Input.filename().generic_string(),
 					Hash = InputData.ContentHash, Count = InputData.ByteCount,
@@ -385,7 +392,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		else
 		{
-			if (const auto Built = BuildTexture2DSynchronously(*Texture, std::move(Build),
+			if (const auto Built = BuildTexture2DSynchronously(*Texture, std::move(*Build),
 				{.SourceReplacement = InputData.Source}); !Built)
 				return CompilationFailed(Built.error());
 			if (const auto Published = PublishTexture2DImportData(*Texture, std::move(SourceHint), HintBase,
@@ -555,8 +562,11 @@ namespace Durin::AssetForge::Builtins
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage, .ObjectPath = Texture.GetObjectPath()});
 		if (!Texture.GetSource().IsValid())
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource, .ObjectPath = Texture.GetObjectPath()});
+		auto Build = Texture.CreateBuildRequest(Settings);
+		if (!Build) return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource,
+			.InputCause = Build.error(), .ObjectPath = Texture.GetObjectPath()});
 		return SubmitTexture2DCompilation(Texture, {
-			.Build = Texture.CreateBuildRequest(Settings),
+			.Build = std::move(*Build),
 			.ResultApplication = {
 				.bMarkPackageDirty = true,
 				.bReportLoadMutation = false,

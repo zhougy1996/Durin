@@ -6,8 +6,8 @@
 
 namespace Durin
 {
-	inline constexpr uint32 PhysicsCollisionKeySchemaVersion = 3;
-	// Historical bucket identity is retained for byte-compatible existing caches.
+	namespace DerivedData { class FBuildDefinition; }
+	// Bucket identity is stable; definition keys intentionally invalidate old entries.
 	inline constexpr std::string_view PhysicsCollisionCacheBucket =
 		"StaticMeshCollision/Objects";
 	enum class EArchiveFailureCode : uint8;
@@ -32,9 +32,10 @@ namespace Durin
 		uint32 PayloadSchemaVersion = PhysicsCollisionPayloadSchemaVersion;
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
 
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
+	ENGINE_API auto MakePhysicsCookBuildDefinition(const FPhysicsCookKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, FPhysicsCookKeyError>;
 	ENGINE_API auto FormatPhysicsCookKeyError(const FPhysicsCookKeyError& Error) -> std::string;
 	ENGINE_API auto BuildPhysicsCookDerivedDataKeyBytes(const FPhysicsCookKeyInput& Input) -> std::expected<FByteBuffer, FPhysicsCookKeyError>;
 	ENGINE_API auto BuildPhysicsCookDerivedDataKey(const FPhysicsCookKeyInput& Input) -> std::expected<FCacheKeyProxy, FPhysicsCookKeyError>;

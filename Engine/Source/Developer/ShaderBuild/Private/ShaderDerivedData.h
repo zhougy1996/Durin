@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataBuildDefinition.h"
 #include "Shader/ShaderCompiledOutput.h"
 #include "ShaderCompileUtilities.h"
 
@@ -15,6 +15,8 @@ namespace Durin::ShaderDerivedData
 	inline constexpr uint64 MaximumValueBytes =
 		ShaderCompiledOutput::MaximumValueBytes;
 
+	auto MakeBuildDefinition(const FShaderVariantKey& VariantKey, const FShaderCompileOptions& Options)
+		-> std::expected<DerivedData::FBuildDefinition, FShaderError>;
 	auto BuildKey(
 		const FShaderVariantKey& VariantKey,
 		const FShaderCompileOptions& Options) -> DerivedData::FCacheKey;

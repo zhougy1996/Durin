@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-27
 
 ## Archive And Object Serialization
 
@@ -28,6 +28,15 @@ VarInt readers reject overflow, truncation, and non-shortest encodings without
 publishing a partial value. Configurable cursor limits bound the complete input
 or output and each variable-width field; rejected writer operations append no
 partial bytes.
+
+`Serialization/BinaryEncoding.h` supplies allocation-free fixed-width integer
+encoding shared by binary writers and `Hash/CanonicalHash.h`. Canonical hash
+updates encode integers little-endian, booleans as one byte, enums at their
+underlying width, and XXH3-128 low word before high word. String fields use a
+uint64 byte length followed by exact bytes; this is distinct from Archive string
+encoding. Callers choose fixed-width field types, ordering, domain/version tags
+and any float normalization. These helpers do not introduce a build schema or
+hash arbitrary object representations.
 
 One `FBinaryWriter` retains one canonical Archive bound to its owned byte vector
 for its complete lifetime; scalar calls do not reconstruct Archive state. The

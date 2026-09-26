@@ -25,7 +25,6 @@ namespace Durin
 		FXxHash128 SourceIdentity;
 		uint32 RenderBuilderVersion = 0;
 		std::optional<FStaticMeshBuildFailure> Error;
-		std::vector<FAssetBuildCacheWarning> CacheWarnings;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
 	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshBuildFailure>(DStaticMesh&, DAssetImportData*&)>;

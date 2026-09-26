@@ -43,13 +43,9 @@ namespace Durin
 		static constexpr size_t GMaximumOutputEntries = 128;
 		static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
 
-		auto TryLoadDerivedData(const FShaderCompileOptions& Options,
-			const FShaderVariantKey& VariantKey,
-			FShaderCompilerOutput& OutOutput) -> bool;
-
-		auto StoreDerivedData(const FShaderCompileOptions& Options,
-			const FShaderVariantKey& VariantKey,
-			const FShaderCompilerOutput& Output) -> void;
+		auto ExecuteDerivedBuild(const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey,
+			const std::function<std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>()>& Resolve,
+			const std::function<FShaderCompilerOutput(const FShaderCompileOptions&)>& Compile) -> FShaderCompilerOutput;
 
 		static auto ValidateGeneratedImports(
 			std::span<const std::string> DependencyPaths,

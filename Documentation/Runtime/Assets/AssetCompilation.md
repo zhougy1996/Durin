@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, MeshBuilder
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-27
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -329,17 +329,15 @@ A nonzero observation describes its captured source identity, render builder ver
 generation, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.
-Nonfatal cache failures survive successful publication in a flat `CacheWarnings`
-list. Each `FAssetBuildCacheWarning` identifies a cache read/decode/write operation,
-with an owned message bounded to 960 bytes and `ToString()` below 1024 bytes.
-Physics results use an independent `FPhysicsCookFailure` and the same Asset cache
-warning type; the shared scheduler preserves each product's fatal error type.
-There are at most two cache warnings per build operation (read or decode, followed by write);
-clean cache outcomes create no records. Backend and codec causes are translated
-at the cache boundary instead of retained as a nested diagnostic tree.
+Nonfatal cache failures are logged once at the Engine execution boundary with
+function, key, stage and bounded original cause. They do not enter worker results,
+completion callbacks or retained history. Reporting is independent of successful
+publication, so a later construction or application failure cannot hide a cache
+issue. Clean hits and misses produce no warnings.
+Physics results use an independent `FPhysicsCookFailure`; the shared scheduler
+preserves each product's fatal error type.
 The optional `Error` retains the original pipeline failure without a completion
-wrapper. `FormatStaticMeshCompilationDiagnostic` displays both fatal errors and
-retained cache warnings, including when application fails after a successful build.
+wrapper. `FormatStaticMeshCompilationDiagnostic` displays that failure only.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
 Completion diagnostics retain no cache-origin or per-product observation records. Queue counts and reserved bytes remain for admission and lifecycle

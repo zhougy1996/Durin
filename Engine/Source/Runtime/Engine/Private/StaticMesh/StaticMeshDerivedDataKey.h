@@ -9,7 +9,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 4;
+	namespace DerivedData { class FBuildDefinition; }
 	inline constexpr std::string_view StaticMeshCacheBucket = "StaticMesh/Objects";
 
 
@@ -25,9 +25,10 @@ namespace Durin
 		uint32 PayloadSchemaVersion = StaticMeshPayloadSchemaVersion;
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
 
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
+	ENGINE_API auto MakeStaticMeshBuildDefinition(const FStaticMeshBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, FStaticMeshBuildKeyError>;
 	ENGINE_API auto FormatStaticMeshBuildKeyError(const FStaticMeshBuildKeyError& Error) -> std::string;
 	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>;
 	ENGINE_API auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>;

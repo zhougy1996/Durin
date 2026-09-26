@@ -41,6 +41,9 @@ namespace Durin
 		explicit FShaderSourceArtifacts(const std::map<std::string, FByteBuffer>& InFiles,
 			std::vector<std::string> InSearchRoots = {})
 			: Files(InFiles), SearchRoots(std::move(InSearchRoots)) {}
+		explicit FShaderSourceArtifacts(std::map<std::string, FByteBuffer>&& InFiles,
+			std::vector<std::string> InSearchRoots = {})
+			: Files(std::move(InFiles)), SearchRoots(std::move(InSearchRoots)) {}
 		auto GetFiles() const -> const std::map<std::string, FByteBuffer>& { return Files; }
 		auto GetSearchRoots() const -> const std::vector<std::string>& { return SearchRoots; }
 

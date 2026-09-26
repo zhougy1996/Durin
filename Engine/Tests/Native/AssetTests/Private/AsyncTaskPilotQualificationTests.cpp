@@ -301,7 +301,7 @@ namespace
 				if (ImageResult1) SourceImage = std::move(*ImageResult1);
 				FTextureSource Source;
 				EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
-				Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+				Request.Build = Durin::MakeTexture2DBuildRequest(Source).value();
 				Request.ResultApplication.SourceReplacement = Source;
 				Request.Build.bPersistDerivedData = false;
 			}

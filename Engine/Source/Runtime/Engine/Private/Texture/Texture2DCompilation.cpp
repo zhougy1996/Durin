@@ -185,7 +185,7 @@ struct FAssetState
 		{
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = {.Code = ETexture2DCompilationError::InvalidOwner, .ObjectPath = Result.AssetIdentity}, .PersistenceDiagnostic = Result.PersistenceDiagnostic});
+				.Error = {.Code = ETexture2DCompilationError::InvalidOwner, .ObjectPath = Result.AssetIdentity}});
 			return;
 		}
 		if (bInputMismatch)
@@ -194,8 +194,7 @@ struct FAssetState
 				.Status = ETexture2DCompilationStatus::Failed,
 				.Error = {.Code = ETexture2DCompilationError::InputMismatch, .ObjectPath = Result.AssetIdentity,
 					.ExpectedInput = std::make_shared<FTexture2DBuildInputIdentity>(ExpectedInput),
-					.ActualInput = std::make_shared<FTexture2DBuildInputIdentity>(Result.InputIdentity)},
-				.PersistenceDiagnostic = Result.PersistenceDiagnostic});
+					.ActualInput = std::make_shared<FTexture2DBuildInputIdentity>(Result.InputIdentity)}});
 			return;
 		}
 		if (Result.PlatformCache)
@@ -220,16 +219,14 @@ struct FAssetState
 				.Error = Result.Error.HasError() ? Result.Error
 					: FTexture2DCompilationError{.Code = Result.Phase == ETexture2DCompilationPhase::Cancelled
 						? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::InvalidProduct,
-						.ObjectPath = Result.AssetIdentity}, .PersistenceDiagnostic = Result.PersistenceDiagnostic});
+						.ObjectPath = Result.AssetIdentity}});
 			return;
 		}
 
-		const auto PersistenceDiagnostic = Result.PersistenceDiagnostic;
 		const FTexture2DBuildSettings& Settings = Result.InputIdentity.Settings;
 		FTexture2DBuildProduct Product{
 			.PlatformData = std::move(*Result.PlatformData),
 			.DerivedDataKey = std::move(Result.DerivedDataKey),
-			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
 			.Origin = Result.Origin};
 		if (const auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture), Result.InputIdentity.SourceIdentity, Settings,
 			std::move(Product), ResultApplicationContext); !Applied)
@@ -244,7 +241,7 @@ struct FAssetState
 				Result.AssetIdentity, FormatTexture2DCompilationError(Applied.error()));
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = Applied.error(), .PersistenceDiagnostic = PersistenceDiagnostic});
+				.Error = Applied.error()});
 			return;
 		}
 		{
@@ -257,8 +254,7 @@ struct FAssetState
 			std::lock_guard Lock(CompilationState->Mutex);
 			CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
 		}
-		if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded,
-			.PersistenceDiagnostic = PersistenceDiagnostic});
+		if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded});
 	}
 
 	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount,
@@ -341,16 +337,11 @@ struct FAssetState
 		FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
-		if (Request.Build.DeferredSource && (!Request.Build.SourceMips.empty()
-			|| !Request.Build.DeferredSource->IsValid() || Request.Build.DeferredSource->GetOwner()
-			|| Request.Build.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
-			|| Request.Build.DeferredSource->GetIdentity() != Request.Build.SourceIdentity))
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource});
-		if (const auto Validation = ValidateTexture2DSourceMips(Request.Build.SourceMips); !Request.Build.DeferredSource && !Validation)
+		if (const auto Validation = ValidateTexture2DBuildSource(Request.Build.Source); !Validation)
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource,
 				.InputCause = Validation.error(), .ObjectPath = Texture.GetObjectPath()});
-		if (Request.Build.SourceIdentity.IsZero())
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingSourceIdentity,
+		if (Request.Build.Source.GetOwner())
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSource,
 				.ObjectPath = Texture.GetObjectPath()});
 		if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
@@ -375,7 +366,7 @@ struct FAssetState
 			Request.ResultApplication.bSourceDecoderInvoked;
 		const bool bSRGB = ResolveTexture2DSRGB(Settings);
 		const FXxHash128 SourceIdentity =
-			Request.Build.SourceIdentity;
+			Request.Build.Source.GetIdentity();
 		uint64 RequestSerial = 0;
 		uint64 PreviousRequestId = 0;
 		FTexture2DCompilationCompletion SupersededCompletion;
@@ -405,8 +396,8 @@ struct FAssetState
 		}
 		if (PreviousRequestId != 0) CancelWork(PreviousRequestId);
 
-		const uint32 Width = Request.Build.DeferredSource ? Request.Build.DeferredSource->GetWidth() : Request.Build.SourceMips.front().GetInfo().Width;
-		const uint32 Height = Request.Build.DeferredSource ? Request.Build.DeferredSource->GetHeight() : Request.Build.SourceMips.front().GetInfo().Height;
+		const uint32 Width = Request.Build.Source.GetWidth();
+		const uint32 Height = Request.Build.Source.GetHeight();
 		const uint64 RequestId = SubmitWork({
 			.AssetIdentity = Identity,
 			.Build = std::move(Request.Build),
@@ -506,7 +497,7 @@ struct FAssetState
 		}
 		if (PreviousId) CancelWork(PreviousId);
 		const uint64 Id = SubmitWork({.AssetIdentity = Texture.GetObjectPath(),
-			.Build = {.SourceIdentity = Input->Source.GetIdentity()}, .Owner = Owner,
+			.Build = {.Source = Input->Source.CopyTornOff()}, .Owner = Owner,
 			.RequestSerial = Serial, .PlatformCache = std::move(Input)},
 			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
 		{
@@ -645,7 +636,7 @@ struct FAssetState
 					Texture.GetObjectPath(), FormatTexture2DBuildError(BuildResult.error()));
 			return std::unexpected(TexturePrivate::MakeCompilationBuildFailure(BuildResult.error()));
 		}
-		return ApplyTexture2DBuildResult(Texture, Request.SourceIdentity, Request.Settings,
+		return ApplyTexture2DBuildResult(Texture, Request.Source.GetIdentity(), Request.Settings,
 			std::move(Product), Context);
 	}
 

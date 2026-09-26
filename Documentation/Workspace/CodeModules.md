@@ -68,8 +68,8 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DerivedDataCache` | Backend-neutral synchronous bucket/key Get/Put cache, concurrent bucket-scoped access, immutable returned bytes, and private local persistence; depends only on `Core` and owns no build orchestration | [source](../../Engine/Source/Developer/DerivedDataCache) |
-| `ShaderBuild` | Editor/tool-lifetime Shader module interface: Slang compiler/resolver, dependency manifests, source fingerprints, single-flight workers/LRU, Shader DDC orchestration, generated-source handling, and deterministic cooked-library production; excluded from DurinGame | [source](../../Engine/Source/Developer/ShaderBuild) |
+| `DerivedDataCache` | Immutable canonical build definitions and typed synchronous cache execution; separate backend-neutral bucket/key Get/Put storage, concurrent bucket-scoped access, immutable bytes and private local persistence; depends only on `Core`, with no asset policy or scheduler | [source](../../Engine/Source/Developer/DerivedDataCache) |
+| `ShaderBuild` | Editor/tool-lifetime Shader module interface: Slang compiler/resolver, dependency manifests, source fingerprints, single-flight workers/LRU, typed definition adapter/source-closure resolution, generated-source handling, and deterministic cooked-library production; excluded from DurinGame | [source](../../Engine/Source/Developer/ShaderBuild) |
 | `TextureBuild` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions through one editor-lifetime module interface; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureBuild) |
 | `MeshBuilder` | CPU StaticMesh render construction via FStaticMeshBuilder and IMeshBuilderModule, with editor-lifetime residency and a render builder version; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/MeshBuilder) |
 | `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-v9-resave orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
@@ -93,6 +93,7 @@ declared native-test roots, even when the implementation belongs to Engine.
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
 | generic DDC bucket/key get or put | `DerivedDataCache` | Engine owns asset policy and orchestration; pure recipe modules own transformations |
+| canonical build definition, input binding validation, or shared resolve/build/cache protocol | `DerivedDataCache` | [Build protocol](../Runtime/Assets/DerivedDataBuild.md): family adapters own typed inputs, products, codecs and error translation; compiling managers retain scheduling and application |
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
 | package linker tables, serialized type identity, canonical Map-key tokens, DAST v9 codec | `CoreDObject` | `AssetRegistry` for bounded metadata projection; `Engine` only for asset preparation/publication and graph application |
 | asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for package/object link identity; editor modules for UI |
@@ -105,7 +106,7 @@ declared native-test roots, even when the implementation belongs to Engine.
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
 | importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine module contract for Texture recipes; `MeshBuilder` for StaticMesh recipes; plus `Engine` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh or Texture2D/TextureCube/VolumeTexture assets | `Engine` | Engine owns keys, Get/Put, validation, fallback, and application; Developer build modules supply pure typed recipes |
+| local asset DDC request flow for StaticMesh or Texture2D/TextureCube/VolumeTexture assets | `Engine` | Engine owns family identity, codecs, cache policy and application; texture, StaticMesh render and physics adapters use the DerivedDataCache build protocol; Developer build modules supply pure typed recipes |
 | project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
 
 Engine public headers are a repository-owned module contract rather than an

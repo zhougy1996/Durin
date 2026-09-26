@@ -33,6 +33,16 @@ durin_add_native_test(DerivedDataCacheTests
 	HEAVY_RUNTIME_RATIONALE "Exercises the Developer-only derived-data cache contract."
 )
 
+durin_add_native_test(DerivedDataBuildTests
+	KIND contract
+	DOMAINS derived-data
+	MODULES derived-data-cache
+	SOURCES Private/DerivedDataBuildTests.cpp
+	LIBRARIES Core DerivedDataCache
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Exercises authoring-only build definitions and cache execution without Engine."
+)
+
 durin_add_native_test(EditorPropertyTests
 	KIND feature
 	DOMAINS property-editor

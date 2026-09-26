@@ -2,6 +2,8 @@
 
 #include "Misc/FileHandle.h"
 #include "Hash/XxHash.h"
+#include <limits>
+#include <optional>
 
 namespace Durin::FFileHelper
 {
@@ -13,6 +15,15 @@ namespace Durin::FFileHelper
 	[[nodiscard]] CORE_API auto FileExists(const FFilePath& Path)
 		-> std::expected<bool, FFileError>;
 	[[nodiscard]] CORE_API auto LoadFileToArray(const FFilePath& Path)
+		-> std::expected<FByteBuffer, FFileError>;
+	struct FFileReadOptions
+	{
+		uint64 MaximumBytes = std::numeric_limits<uint64>::max();
+		std::optional<uint64> ExpectedBytes;
+	};
+	// Checks the opened handle size before allocation. QuerySize errors use file_too_large
+	// for limits and message_size for an expected-size mismatch. No retry or content validation.
+	[[nodiscard]] CORE_API auto LoadFileToArray(const FFilePath& Path, FFileReadOptions Options)
 		-> std::expected<FByteBuffer, FFileError>;
 	// Exact bytes, including embedded NULs; no encoding conversion.
 	[[nodiscard]] CORE_API auto LoadFileToString(const FFilePath& Path)

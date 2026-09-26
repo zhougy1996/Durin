@@ -323,6 +323,22 @@ namespace Durin::FFileHelper
 		return Load<FByteBuffer>(Path);
 	}
 
+	auto LoadFileToArray(const FFilePath& Path, FFileReadOptions Options) -> std::expected<FByteBuffer, FFileError>
+	{
+		auto File = OpenRead(Path);
+		if (!File) return std::unexpected(std::move(File.error()));
+		const uint64 Size = (*File)->GetSize();
+		if (Options.ExpectedBytes && Size != *Options.ExpectedBytes)
+			return std::unexpected(FFileError{EFileOperation::QuerySize,
+				std::make_error_code(std::errc::message_size), Path, {}, FFileError::FRange{0, Size}});
+		if (Size > Options.MaximumBytes || Size > FByteBuffer{}.max_size())
+			return std::unexpected(FFileError{EFileOperation::QuerySize,
+				std::make_error_code(std::errc::file_too_large), Path, {}, FFileError::FRange{0, Size}});
+		FByteBuffer Bytes(static_cast<size_t>(Size));
+		if (auto Read = (*File)->ReadAt(0, Bytes); !Read) return std::unexpected(std::move(Read.error()));
+		return Bytes;
+	}
+
 	auto LoadFileToString(const FFilePath& Path) -> std::expected<std::string, FFileError>
 	{
 		return Load<std::string>(Path);

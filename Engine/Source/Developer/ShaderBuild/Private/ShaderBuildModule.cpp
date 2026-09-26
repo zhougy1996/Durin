@@ -1,3 +1,4 @@
+#include "ShaderCaptureLimits.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderData.h"
@@ -11,12 +12,7 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint64 MaximumMounts = 256;
-		constexpr uint64 MaximumDirectoryEntries = 131072;
-		constexpr uint64 MaximumFiles = 65536;
-		constexpr uint64 MaximumPathBytes = 4096;
-		constexpr uint64 MaximumFileBytes = 64ull * 1024 * 1024;
-		constexpr uint64 MaximumTotalBytes = 512ull * 1024 * 1024;
+		using namespace ShaderCaptureLimits;
 		constexpr size_t ReadChunkBytes = 4 * 1024 * 1024;
 
 		auto CaptureLimitFailure(EShaderError Code, EShaderCaptureLimit Kind,

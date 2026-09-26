@@ -16,8 +16,6 @@
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TexturePlatformCache.h"
-#include "Texture/TextureDerivedDataCache.h"
-#include "Texture/TextureDerivedDataKey.h"
 
 namespace Durin
 {
@@ -63,7 +61,6 @@ namespace Durin
 				if (!Faces.IsValid()) return false;
 				OutRequest.Input = FTextureCubeFacesBuildInput{
 					.DecodedFaces = std::move(Faces),
-					.SourceIdentity = Source.GetIdentity(),
 					.SourceLayout = ETextureCubeSourceLayout::SixFaces,
 					.OriginalSourceWidth = Input.Width,
 					.OriginalSourceHeight = Input.Height,
@@ -125,30 +122,11 @@ namespace Durin
 				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
 			{
-				if (auto* BuildModule = ITextureBuildModule::Get(); BuildModule && BuildModule->GetTextureCubeBuilderVersion() != 0 && BuildModule->GetTextureCubeProjectionVersion() != 0)
-				{
-					const uint32 BuilderVersion = BuildModule->GetTextureCubeBuilderVersion();
-					const auto Hash = Source.GetIdentity();
-					std::string Error;
-					const auto Key = BuildTextureCubeDerivedDataKey({
-						.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama : ETextureCubeBuildSourceLayout::SixFaces,
-						.FaceContentHashes = {Hash, Hash, Hash, Hash, Hash, Hash},
-						.PanoramaContentHash = bHDR ? Hash : FXxHash128{},
-						.FaceDimension = bHDR ? FaceDimension : 0,
-						.ExposureEV = bHDR && Exposure != 0.0f ? Exposure : 0.0f,
-						.bSRGB = bSRGB, .BuilderVersion = BuilderVersion,
-						.ProjectionVersion = BuildModule->GetTextureCubeProjectionVersion(),
-						.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, Error);
-					if (Key.IsValid())
-					{
-						auto Data = std::make_unique<FTextureCubePlatformData>();
-						TextureDerivedDataCache::FOperationDiagnostic Diagnostic;
-						if (TextureDerivedDataCache::Load(Key, ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-							*Data, Diagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
-							Result->Data = std::move(Data);
-					}
-				}
-				if (Result->Data) return Result;
+				auto Built = TexturePrivate::BuildTextureCubeSource(Source, bSRGB, FaceDimension, Exposure,
+					ECookTargetPlatform::Win64, ECookTargetProfile::Game, true);
+				if (Built) Result->Data = std::move(Built->PlatformData);
+				else Result->Error = Built.error().Diagnostic;
+				return Result;
 			}
 #endif
 			FTextureCubeBuildRequest Request;

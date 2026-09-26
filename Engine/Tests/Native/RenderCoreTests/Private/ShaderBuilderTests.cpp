@@ -6,6 +6,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
 #include "ShaderBuilder.h"
+#include "ShaderCompileUtilities.h"
 #include "SlangShaderDependencyResolver.h"
 #include "NativeTestSupport.h"
 
@@ -995,6 +996,51 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 		const auto Output = Builder->GetOrCompileGenerated(Request);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		Request.AllowedImportVirtualPrefixes = {"/Different/"};
+		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
+	}
+	TEST_F(FShaderBuilderTests, ResolverRejectsChangedBytesUnderCapturedIdentity)
+	{
+		const auto File = GetBuilderTestRoot() / "Source/Simple.slang";
+		FFileFingerprintCache Fingerprints;
+		FShaderMetaData MetaData;
+		ASSERT_TRUE(ShaderCompileUtilities::BuildShaderMetaData({File.generic_string()}, Fingerprints, MetaData));
+		auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(MetaData);
+		ASSERT_TRUE(Captured);
+		EXPECT_TRUE((*Captured)->GetFiles().contains("/ShaderBuilderTests/Simple.slang"));
+		WriteTextFile(File, "changed after definition capture");
+		auto Rejected = ShaderCompileUtilities::CaptureSourceArtifacts(MetaData);
+		ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error().Code, EShaderError::DependencyContentConflict);
+		EXPECT_EQ(Rejected.error().ActualIdentity, "/ShaderBuilderTests/Simple");
+		// The already captured generation remains independently compilable.
+		auto Options = MakeCompileOptions();
+		Options.SourceArtifacts = *Captured;
+		Builder = std::make_unique<FShaderBuilder>();
+		ASSERT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options));
+	}
+
+	TEST_F(FShaderBuilderTests, GeneratedCompilerUsesResolvedGenerationAfterLiveIncludeChanges)
+	{
+		const auto Include = GetBuilderTestRoot() / "Source/Frozen.slang";
+		WriteTextFile(Include, "public float4 Position() { return float4(0, 0, 0, 1); }");
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/FrozenGeneration";
+		Request.Source = R"(import Frozen;
+[shader("vertex")]
+float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position(); }
+)";
+		Request.EntryPoints = {"VertexMain"};
+		Request.Frequencies = {EShaderFrequency::Vertex};
+		Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"};
+		bool bHookRan = false;
+		Builder = std::make_unique<FShaderBuilder>([&](std::string_view) {
+			bHookRan = true;
+			WriteTextFile(Include, "invalid live include after source resolution");
+		});
+		const auto Output = Builder->GetOrCompileGenerated(Request);
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		EXPECT_TRUE(bHookRan);
+		Builder = std::make_unique<FShaderBuilder>();
 		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
 	}
 } // namespace Durin

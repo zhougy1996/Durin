@@ -22,6 +22,9 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 	for (auto Usage : {ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask})
 	{
 		std::array<std::vector<double>, 2> Samples;
+		uint64 PeakIntermediateBytes = 0;
+		uint64 RetainedMipBytes = 0;
+		std::optional<FXxHash128> OutputHash;
 		// One warm-up and three measured samples per mode, alternating order.
 		for (int Round = 0; Round < 4; ++Round)
 		for (int Order = 0; Order < 2; ++Order)
@@ -34,12 +37,26 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 			ASSERT_TRUE(TextureBuilder::BuildMipChain(std::span(&Source, 1), Usage, false,
 				Platform, 0, ETextureCompressionQuality::Normal,
 				ETextureAlphaMipMode::Average, 0.5f, &Control, false));
+			PeakIntermediateBytes = std::max(PeakIntermediateBytes, Metrics.PeakIntermediateBytes);
+			uint64 Bytes = 0;
+			FXxHash128Builder Hash;
+			for (const auto& Mip : Platform.Mips)
+			{
+				Bytes += Mip.Pixels.size();
+				Hash.Update(Mip.Pixels);
+			}
+			if (OutputHash) EXPECT_EQ(Hash.Finalize(), *OutputHash);
+			else OutputHash = Hash.Finalize();
+			RetainedMipBytes = Bytes;
 			if (Round) Samples[Mode].push_back(Metrics.CompressionNanoseconds / 1e6);
 		}
 		for (auto& Values : Samples) std::ranges::sort(Values);
 		std::cout << "Texture compression 1024x1024 usage=" << static_cast<int>(Usage)
 			<< " serial_median_ms=" << Samples[0][1]
 			<< " parallel_median_ms=" << Samples[1][1]
-			<< " speedup=" << Samples[0][1] / Samples[1][1] << std::endl;
+			<< " speedup=" << Samples[0][1] / Samples[1][1]
+			<< " peak_intermediate_bytes=" << PeakIntermediateBytes
+			<< " retained_mip_bytes=" << RetainedMipBytes
+			<< " output_hash=" << OutputHash->ToString() << std::endl;
 	}
 }

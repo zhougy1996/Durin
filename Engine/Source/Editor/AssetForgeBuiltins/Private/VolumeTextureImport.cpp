@@ -448,7 +448,13 @@ namespace Durin::AssetForge::Builtins
 			if (!Translated)
 				return std::unexpected(FVolumeTextureRebuildError{.Code = EVolumeTextureRebuildError::Translation, .ObjectPath = Texture.GetObjectPath(),
 					.Filename = Filename, .TranslationCause = Translated.error()});
-			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.SourceData = *Translated, .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
+			auto Source = PrepareVolumeTextureSource(*Translated);
+			if (!Source) return std::unexpected(FVolumeTextureRebuildError{.Code = EVolumeTextureRebuildError::Build,
+				.ObjectPath = Texture.GetObjectPath(), .Filename = Filename,
+				.BuildCause = FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput, Source.error()}});
+			// Canonical storage now owns this generation; release translation pixels before cold resolution.
+			*Translated = {};
+			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.Source = std::move(*Source), .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
 			if (!BuildResult) return std::unexpected(FVolumeTextureRebuildError{.Code = EVolumeTextureRebuildError::Build,
 				.ObjectPath = Texture.GetObjectPath(), .Filename = Filename, .BuildCause = std::move(BuildResult.error())});
 			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;

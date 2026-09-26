@@ -14,7 +14,6 @@ namespace Durin
 	inline constexpr uint32 TextureCubeBuilderVersion = 4;
 	inline constexpr uint32 TextureCubeProjectionVersion = 3;
 	inline constexpr uint32 VolumeTextureBuilderVersion = 3;
-	inline constexpr uint32 TextureDerivedDataKeySchemaVersion = 3;
 	inline constexpr uint32 TexturePayloadHeaderSize = 80;
 	inline constexpr uint32 TexturePayloadRecordSize = 40;
 	inline constexpr uint32 TexturePayloadAlignment = 16;

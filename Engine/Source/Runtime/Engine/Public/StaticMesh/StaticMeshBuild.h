@@ -3,7 +3,6 @@
 #include <expected>
 
 #include "EngineAPI.h"
-#include "Asset/AssetBuildCacheWarning.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMesh.h"
@@ -30,8 +29,7 @@ namespace Durin
 
 	// Worker-safe execution using the resident MeshBuilder module.
 	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control = {},
-		std::vector<FAssetBuildCacheWarning>* OutCacheWarnings = nullptr)
+		const FAssetBuildTaskContext& Control = {})
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 	ENGINE_API auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
 		const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;

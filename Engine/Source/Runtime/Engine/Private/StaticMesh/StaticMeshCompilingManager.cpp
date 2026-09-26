@@ -32,11 +32,10 @@ namespace Durin
 		struct FRenderWork
 		{
 			FStaticMeshBuildRequest Request;
-			std::vector<FAssetBuildCacheWarning> CacheWarnings;
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
 			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ Outcome = BuildStaticMeshRenderData(std::move(Request), Control, &CacheWarnings); }
+			{ Outcome = BuildStaticMeshRenderData(std::move(Request), Control); }
 		};
 		struct FCollisionWork
 		{
@@ -496,7 +495,6 @@ namespace Durin
 				else
 				{
 					const auto& Collision = *Record->Work->Collision().Outcome;
-					for (const auto& Warning : Collision.GetCacheWarnings()) DURIN_WARN("Physics {}", Warning.ToString());
 					switch (Body->ApplyPhysicsMeshes(Expected.RequestGeneration, Collision.Simple, Collision.Complex))
 					{
 					case EPhysicsMeshApplyResult::Applied: Record->Terminal = EStaticMeshCompilationStatus::Succeeded; break;
@@ -513,10 +511,6 @@ namespace Durin
 				FAssetCompileProcessResult& Result) -> void
 			{
 				if (!Record->Work->Render().Outcome) Record->Diagnostic.Error = Record->Work->Render().Outcome.error();
-				if (Record->Work->Render().Outcome)
-				{
-					Record->Diagnostic.CacheWarnings = Record->Work->Render().CacheWarnings;
-				}
 				if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
 					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
 				else if (!Record->Work->Render().Outcome)
@@ -706,11 +700,6 @@ namespace Durin
 	auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string
 	{
 		auto Message = Diagnostic.Error ? Diagnostic.Error->ToString() : std::string{};
-		for (const auto& Error : Diagnostic.CacheWarnings)
-		{
-			if (!Message.empty()) Message += "\n";
-			Message += Error.ToString();
-		}
 		Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
 		return Message;
 	}

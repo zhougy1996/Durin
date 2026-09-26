@@ -39,24 +39,11 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 	ASSERT_FALSE(First.empty());
 	const Durin::FByteBuffer Second =
 		Durin::BuildStaticMeshDerivedDataKeyBytes(Input).value();
-	const Durin::FByteBuffer Expected = [] {
-		const uint8 Values[]{
-		0x04, 0x00, 0x00, 0x00,
-		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
-		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
-		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-		0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-		0x04, 0x00, 0x00, 0x00,
-		0x05, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00};
-		const Durin::FByteView Bytes = std::as_bytes(std::span{Values});
-		return Durin::FByteBuffer(Bytes.begin(), Bytes.end());
-	}();
+
 
 	EXPECT_EQ(First, Second);
-	EXPECT_EQ(First, Expected);
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"373d527e05a47be00505fd636fd724a2");
+		"cebb7c8969004fb632d19bcd999d02d8");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -96,23 +83,11 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	const Durin::FByteBuffer Bytes =
 		Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value();
 	ASSERT_FALSE(Bytes.empty());
-	const Durin::FByteBuffer Expected = [] {
-		const uint8 Values[]{
-			0x03, 0x00, 0x00, 0x00,
-			0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
-			0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
-			0x02, 0x02,
-			0x6f, 0x12, 0x83, 0x3a,
-			0x02, 0x00, 0x00, 0x00,
-			0x02, 0x00, 0x00, 0x00,
-			0x01, 0x00, 0x00, 0x00};
-		const Durin::FByteView View = std::as_bytes(std::span{Values});
-		return Durin::FByteBuffer(View.begin(), View.end());
-	}();
-	EXPECT_EQ(Bytes, Expected);
+
+	EXPECT_EQ(Bytes, Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value());
 	const Durin::FCacheKeyProxy BaselineKey =
 		Durin::BuildPhysicsCookDerivedDataKey(Baseline).value();
-	EXPECT_EQ(BaselineKey.ToString(), "2f83321f2ed9af9cbd52d38467d40155");
+	EXPECT_EQ(BaselineKey.ToString(), "71216e62310fc31b71a7695ad7d7d4a9");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{

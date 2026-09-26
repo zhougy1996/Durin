@@ -1,4 +1,5 @@
 #pragma once
+#include "../AssetCacheLogTestSupport.h"
 #include "Physics/PhysicsCookHelper.h"
 
 #include "EngineTestSupport.h"
@@ -35,11 +36,12 @@ namespace StaticMeshBuildTestSupport
 
 	inline auto BuildRenderForTest(Durin::FStaticMeshBuildRequest Request,
 		const Durin::FAssetBuildTaskContext& Control = {},
-		std::vector<Durin::FAssetBuildCacheWarning>* Errors = nullptr)
+		FCacheLogCapture* Capture = nullptr)
 	{
 		if (Request.Reconciliation.MaterialSlots.empty() && Request.Source.IsValid())
 			Request.Reconciliation.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
-		return Durin::BuildStaticMeshRenderData(std::move(Request), Control, Errors);
+		if (Capture) Capture->Reset();
+		return Durin::BuildStaticMeshRenderData(std::move(Request), Control);
 	}
 
 	class FScopedDerivedDataCacheRestore
@@ -148,7 +150,6 @@ namespace StaticMeshBuildTestSupport
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
-	std::vector<FAssetBuildCacheWarning> RenderCacheWarnings;
 			ASSERT_TRUE((Product = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
@@ -193,7 +194,6 @@ namespace StaticMeshBuildTestSupport
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
-	std::vector<FAssetBuildCacheWarning> RenderCacheWarnings;
 			ASSERT_TRUE((Render = BuildRenderForTest(
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const auto RenderEnd = std::chrono::steady_clock::now();

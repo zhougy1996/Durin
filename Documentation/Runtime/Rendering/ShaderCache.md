@@ -4,15 +4,16 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-26
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
 RenderCore owns source-independent request/value types, `DSHD` encoding, the
 `DSLB` cooked-library schema/reader, Shader maps, and RHI publication.
-DerivedDataCache owns only synchronous
-opaque `bucket + key -> immutable bytes` persistence and bounded bucket
-maintenance. It does not schedule or execute Shader builds.
+DerivedDataCache owns immutable build definitions and the shared synchronous
+lookup/resolve/build/validate/cache protocol, plus an independent opaque
+`bucket + key -> immutable bytes` storage API. ShaderBuild supplies the typed
+adapter under the [shared protocol](../Assets/DerivedDataBuild.md); the shared module owns neither Shader policy nor scheduling.
 
 ## Results and diagnostics
 
@@ -54,7 +55,7 @@ Compiled output uses the generic DDC bucket `Shaders/CompiledOutput`. Its key is
 a canonical lowercase XXH3-128 identity and its filesystem backend currently
 maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
 RenderCore never constructs or observes that physical path; ShaderBuild uses
-only the bucket/key API.
+the build protocol for compiled outputs.
 
 ## Portable identity
 
@@ -66,9 +67,9 @@ the same portable identity.
 
 The variant identity additionally includes explicit key version, Slang backend,
 SPIR-V target/profile, compiler-environment identity, root virtual path, portable
-source-tree signature, and normalized macros. The compiled-output key adds the
-payload schema, builder version, and the exact ordered entry-point/frequency
-request. `bForceRecompile` is execution policy and never enters production
+source-tree signature, and normalized macros. An `FBuildDefinition` binds that variant identity with its explicit version and
+adds the payload schema, builder version, bucket and exact ordered entry-point/
+frequency constants. `bForceRecompile` is execution policy and never enters production
 identity.
 
 Generated Shader roots add the generated source-content hash to the portable
@@ -107,34 +108,39 @@ reflection are never independently published or accepted.
 
 The ShaderBuild compile service performs:
 
-1. macro validation and identical-request single-flight admission;
-2. local dependency-manifest validation or dependency resolution;
-3. in-process output-LRU query;
-4. DDC Get and complete Shader-owned decode;
-5. local Slang compilation on a miss;
-6. one encode and best-effort DDC Put;
-7. one bounded bucket Trim attempt;
-8. complete typed output publication and LRU admission.
+1. macro validation and existing identical-request single-flight admission;
+2. local dependency-manifest validation or captured-artifact dependency resolution;
+3. immutable definition construction and in-process output-LRU query;
+4. shared executor lookup and complete RenderCore-owned payload decode;
+5. on a miss, bounded capture of the identified closure and local Slang compilation;
+6. typed output validation, one encode and best-effort cache persistence;
+7. complete output publication and LRU admission.
 
-Force recompile bypasses steps 3 and 4, retains ordinary dependency validation,
-and best-effort replaces the same DDC key after success. Compiler or validation
-failure is never stored or admitted to the LRU. Put or Trim failure is diagnosed
-and counted independently but does not invalidate a successful compiler result.
-Statistics distinguish memory hits, validated DDC hits, compilations, corrupt
-DDC misses, store failures, and maintenance failures without exposing a path.
+Mounted-source resolution checks expected size and content hash before binding
+immutable files to the compiler. A changed file fails with
+`DependencyContentConflict`; newer bytes never compile under the earlier key.
+The compiler uses the captured filesystem without a live-file fallback. Already
+captured source requests and generated roots use the same definition/executor;
+physical source paths are mapped to registered virtual identities when available.
+Module identities omit `.slang`; captured file names retain it. Capture moves
+its buffers into immutable ownership rather than copying the entire closure.
+Warm hits skip capture/compilation; manifest validation still inspects file facts.
 
-The DDC bucket budget is 2 GiB. Each post-compile maintenance pass deletes at
-most 16 oldest canonical entries. Trim ignores symlinks and unrecognized shapes,
-never leaves its selected bucket, and may report a bounded partial result.
+Force recompile bypasses memory and persistent output reuse, retains dependency
+validation, and best-effort replaces the same key. Compiler or validation failure
+never enters cache or LRU. Encode/Put failure is diagnosed and counted without
+invalidating a usable compiler result. Statistics distinguish memory hits,
+validated cache hits, compilations, corrupt misses, and store failures. The
+`ContentReads` statistic counts fingerprint-cache hashing reads, not all compiler
+or capture filesystem reads. Requests perform no cache scan, eviction or Trim.
 
 ## Concurrency and lifecycle
 
-DDC Get and Put operations hold a shared lock for their logical bucket; Trim
-holds that bucket's exclusive lock. The lock registry holds only weak entries,
-so metadata cannot grow with every historical bucket, and its short mutex never
-covers filesystem I/O. Different buckets and ordinary same-bucket operations
-may progress concurrently. Atomic file replacement gives identical writers
-safe last-writer-wins publication and readers a prior or new complete object.
+DDC Get and Put hold a shared lock for their logical bucket. The weak-entry lock
+registry does not grow with every historical bucket, and its short mutex never
+covers filesystem I/O. Different buckets and same-bucket operations may progress
+concurrently. Atomic replacement gives identical writers last-writer-wins
+publication and readers a prior or new complete object.
 
 ShaderBuild owns single-flight records, compiler contexts, memory caching, and
 shutdown. Callers own task scheduling and admission. Generated requests do not

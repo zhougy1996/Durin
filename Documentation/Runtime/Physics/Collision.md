@@ -102,14 +102,14 @@ and module lifetime do not affect physics cooking. Editor
 cooks retain collision DDC reads/writes; non-editor explicit cooking uses the
 linked geometry implementation without DDC. Async admission snapshots the settings first, and the worker fills
 `TriangleMeshDesc` after preparation, before cooking. Neither data structure
-contains executable preparation logic. `FPhysicsCookResult` owns the cooked geometry
-and nonfatal cache diagnostics. `PhysicsCookBuilderVersion` owns cooker compatibility
+contains executable preparation logic. `FPhysicsCookResult` owns only the cooked geometry. `PhysicsCookBuilderVersion` owns cooker compatibility
 and contributes to collision DDC/payload versions and the package cook fingerprint.
 The version remains 2 because the geometry algorithm and serialized format are unchanged.
 Physics input preparation, cooking and admission return `FPhysicsCookFailure`,
-with typed cancellation and bounded text. Recoverable cache warnings use the shared
-Asset type `FAssetBuildCacheWarning`. Private cache codecs format their rejection
-once; they do not expose a separate codec error domain.
+with typed cancellation and bounded text. Recoverable cache issues are logged once
+at execution with function, key, operation and bounded original cause; cook results
+carry no warning list. Private cache codecs use the existing failure type rather
+than expose a separate codec error domain.
 `PhysicsDerivedData.h/.cpp` owns the DCOL payload and typed validation failures;
 `PhysicsCookDerivedDataKey.h/.cpp` owns the collision cache key and key failures.
 The shared archive platform identifier belongs to Asset. Existing payload identifiers,
@@ -160,7 +160,7 @@ BodySetup identity, request/settings revisions and provider registration. Render
 not collision readiness. Authored primitives survive render replacement.
 `DBodySetup::SetCollisionGeometry` validates compatible immutable values and advances
 revisions without accepting build metadata or recursively scheduling compilation.
-Engine operations retain bounded cache warnings; cache-origin history is not exposed.
+Engine logs bounded cache warnings internally; cache-origin history is not exposed.
 A cache miss or corruption is rebuildable only
 while detached source inputs exist.
 

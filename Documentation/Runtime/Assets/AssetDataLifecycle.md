@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-27
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -93,22 +93,49 @@ Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
 Developer `TextureBuild` and `MeshBuilder` own normalized
-source-independent recipes. Engine owns all
-asset key encoding, editor-only cache lookup/validation/fallback, diagnostics,
-and typed application. AssetForgeBuiltins adapts explicit physical imports to
+source-independent recipes. Engine owns family identity fields, payload codecs,
+editor-only cache policy, diagnostics, and typed application. All three texture families use DerivedDataCache build definitions and shared
+lookup/resolve/build execution. StaticMesh render and physics collision also use separate definitions and typed
+adapters; their readiness and publication remain independent. AssetForgeBuiltins adapts explicit physical imports to
 canonical inputs and owns editor transactions.
 
-DerivedDataCache owns only the backend-neutral
-`bucket + key -> opaque immutable bytes` storage contract and private local
-backend. It has no build-function registry, request framework, or recipe policy.
+The [Derived Data Build Protocol](DerivedDataBuild.md) defines the shared
+identity and execution contract. DerivedDataCache contains a build subsystem and a separate backend-neutral
+`bucket + key -> opaque immutable bytes` cache subsystem with a private local
+backend. `FBuildDefinition` owns validated canonical inputs and constants;
+`ExecuteBuild` supplies a synchronous typed resolve/build/validate/cache protocol.
+The cache backend does not depend on build APIs. There is no build-function
+registry, new scheduler, or asset recipe policy in the module. Existing family
+orchestrators retain their paths until explicitly migrated to the protocol.
+Texture2D request capture validates metadata and retains a torn-off source with
+no payload I/O. A warm hit does not resolve mips; a miss prepares owned mip views
+from that snapshot. Invalid capture returns a typed input error. Managers inspect
+source dimensions and decoded size without materializing it, and retain
+scheduling, cancellation, latest-wins checks and publication authority.
+Volume requests also own torn-off source snapshots; synchronous PostLoad queries
+cache from metadata before acquiring voxel bytes. Cube import normalization
+produces canonical faces or an HDR panorama before derived construction. Its
+loaded-source and import paths use the same definition/executor; canonical
+loaded faces and HDR panorama hits read no source payload. Noncanonical panorama
+recovery may normalize first. Import retains its prepared immutable image views
+for cold recipe execution without an extra decoded pixel copy.
+StaticMesh definitions bind source geometry identity and canonical reconciliation
+identity (normalization, material slot names, source names and source indices).
+Cached slot metadata is restored from the request; none of these output-affecting
+fields is omitted from identity. Render validation/finalization precedes cache
+publication. Physics definitions independently bind canonical positions/indices,
+source mode, query policy, weld settings and payload/producer versions. Both
+retain family cancellation, source residency and working-set admission, consume
+immutable cache buffers directly, and report failed persistence as warnings.
 Builder/translator versions invalidate production identity;
 payload schema and stable value identifiers determine runtime readability.
 
 Low-level Get and Put permit concurrency under a logical bucket's shared lock.
-Requests never scan or evict entries. Shader compilation remains a direct Cache
-API client: RenderCore owns its orchestration and stores complete versioned
-SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
-dependency manifests do not enter portable values.
+Requests never scan or evict entries. ShaderBuild supplies its own definition adapter and source-closure resolution,
+using the same executor to store complete SPIR-V-plus-reflection values in
+`Shaders/CompiledOutput`. RenderCore owns the payload codec and runtime values.
+Machine-local dependency manifests do not enter portable values; see
+[Shader Cache](../Rendering/ShaderCache.md).
 
 MeshBuilder and TextureBuild expose explicit build module interfaces.
 Build implementations own algorithm metrics and producer versions.
@@ -282,8 +309,8 @@ passes its diagnostic to the Engine completion owner for reporting.
 Synchronous application and submission return expected void; accepted asynchronous
 completions retain succeeded, failed, canceled, and superseded states. Cache
 read/decode failures fall back to a rebuild, and cache write failures do not turn
-usable products into import failures. Persistence diagnostics remain independently
-observable. Expected does not imply rollback; publication effects retain their
+usable products into import failures. Cache issues are logged internally, independently of
+publication; callers do not transport them through products or completions. Expected does not imply rollback; publication effects retain their
 existing owner and contract.
 `StaticMeshData.h` supplies resource-free CPU streams and LOD
 metadata. StaticMesh recipes return those owned values; Engine moves the arrays
@@ -340,9 +367,9 @@ remain authoritative.
 returns immutable `FSharedByteBuffer` bytes; successful put returns `void`.
 Lookup failures distinguish a normal `Miss` from invalid input, size rejection,
 corruption and storage failure. Put reports rejection or storage failure.
-Asset cache diagnostics retain only the error object. A `Miss` remains a normal
-rebuild trigger, and cache failures can accompany a successful asset build, so
-these failures do not become asset operation failures.
+Internal build observations retain the original error object. A `Miss` remains a
+normal rebuild trigger and creates no error observation or warning. Cache failures
+can accompany a successful asset build and do not become asset operation failures.
 
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:
@@ -372,18 +399,18 @@ serializer; other families use their registered functions. Invalid cache bytes a
 rebuildable misses. A successful build remains usable when best-effort storage
 fails; cache failure is independent of compilation disposition.
 
-Engine's cache adapter retains failed read/write outcomes, logical key, requested
-value bound, and separate cache-call timing. Each operation resets its previous
-cause and stores no additional message. `FAssetCacheDiagnostic` adds Engine
-classification and opaque identity without flattening the underlying result.
-Texture codecs retain encode/decode classification and the complete Archive
-failure; StaticMesh codecs retain family-owned causes.
+Engine reports cache issues once immediately after execution, before checking the
+build outcome or applying a product. The existing logger receives the function,
+logical key, operation and original cause with detail bounded to 1600 bytes.
+Texture codec errors retain their Archive cause until this reporting boundary;
+StaticMesh and collision codecs retain their family-owned errors. Encode failures
+are reported separately from storage failures. Read/decode failures still report
+when a later source build fails.
 
-StaticMesh synchronous and compilation results carry render/collision cache and
-codec causes. All texture families retain read/write causes in
-`FAssetCacheDiagnostics`; Texture2D transports these through worker results and
-terminal callbacks, including success and application rejection. Bounded
-formatters render diagnostics only at presentation.
+Public build products, physics cook results, worker records and terminal callbacks
+carry no cache warning lists or diagnostic wrappers. Callers handle the actual
+build/application error or completion state. Internal timings, byte counts and
+cache-origin observations remain available to their existing metrics owners.
 
 TextureCube uses Engine-owned bucket `TextureCube/Objects`. Explicit import or
 reimport decodes and projects a panorama into six canonical authored RGBA8
@@ -394,8 +421,8 @@ Texture producers validate complete platform data before calling the void
 `SetPlatformData` ownership-transfer setter; the setter neither validates nor
 updates render resources. `PostLoad()` logs initialization failures without
 returning a result. Explicit `RebuildPlatformData()` reports success as a Bool
-and logs its own errors; lower-level build and Cook APIs retain diagnostics
-for operation callers. Failed builds preserve previously accepted data, while
+and logs its own errors; lower-level build and Cook APIs return actual build failures
+to operation callers and report recoverable cache issues internally. Failed builds preserve previously accepted data, while
 an asset without accepted data remains safely unavailable to resource consumers.
 
 ## Cooked Packages and Bulk Fields

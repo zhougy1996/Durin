@@ -191,7 +191,7 @@ namespace
 				.AlphaMipMode = Texture.GetAlphaMipMode(),
 				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
 				.MaxResolution = Texture.GetMaxResolution(),
-				.bSRGB = Texture.IsSRGB()});
+				.bSRGB = Texture.IsSRGB()}).value();
 		Request.bPersistDerivedData = false;
 		const auto BuildResult = Durin::BuildTexture2DPlatformData(Request, Product, Identity);
 		EXPECT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());

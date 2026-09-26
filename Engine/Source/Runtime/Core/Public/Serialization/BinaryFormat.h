@@ -2,6 +2,7 @@
 
 #include "CoreAPI.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BinaryEncoding.h"
 
 namespace Durin
 {
@@ -14,12 +15,6 @@ namespace Durin
 		uint64 MaximumTotalBytes = std::numeric_limits<uint64>::max();
 		uint64 MaximumFieldBytes = std::numeric_limits<uint64>::max();
 	};
-
-	// Selects the byte order of an explicitly encoded fixed-width integer.
-	enum class EBinaryByteOrder : uint8 { LittleEndian, BigEndian };
-
-	template<typename T>
-	concept CBinaryInteger = std::is_integral_v<T> && !std::is_same_v<std::remove_cv_t<T>, bool>;
 
 	// Identifies a versioned binary family, schema, payload format, and byte order.
 	struct FBinaryFormatHeader
@@ -46,16 +41,7 @@ namespace Durin
 		template<CBinaryInteger T>
 		auto WriteInteger(T Value, EBinaryByteOrder ByteOrder = EBinaryByteOrder::LittleEndian) -> void
 		{
-			using Unsigned = std::make_unsigned_t<T>;
-			const Unsigned Encoded = static_cast<Unsigned>(Value);
-			std::array<std::byte, sizeof(T)> Raw{};
-			for (size_t Index = 0; Index < sizeof(T); ++Index)
-			{
-				const size_t ShiftIndex = ByteOrder == EBinaryByteOrder::LittleEndian
-					? Index : sizeof(T) - Index - 1;
-				Raw[Index] = static_cast<std::byte>(Encoded >> (ShiftIndex * 8));
-			}
-			WriteBytes(Raw);
+			WriteBytes(EncodeBinaryInteger(Value, ByteOrder));
 		}
 
 		CORE_API auto WriteI8(int8 Value) -> void;

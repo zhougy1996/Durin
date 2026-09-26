@@ -22,6 +22,9 @@ namespace Durin
 			FShaderError Error;
 		};
 
+		auto CaptureSourceArtifacts(const FShaderMetaData& MetaData)
+			-> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>;
+
 		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult;
 
 		auto BuildShaderMetaData(

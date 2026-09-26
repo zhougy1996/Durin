@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Serialization/Archive.h"
+
 #include <expected>
 #include <optional>
 #include <string>
@@ -37,6 +39,7 @@ namespace Durin
 		ETextureBuildStage Stage = ETextureBuildStage::Module;
 		std::string Diagnostic;
 		std::optional<ETextureCubeInputError> CubeInputCause;
+		std::optional<FArchiveFailure> ArchiveCause;
 	};
 
 } // namespace Durin

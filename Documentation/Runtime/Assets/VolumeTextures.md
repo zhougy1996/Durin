@@ -5,7 +5,7 @@ and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-26
 
 ## Asset boundary
 
@@ -100,10 +100,11 @@ source/output format, mip filter, builder and payload schema versions, and
 Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
-the asset's last-known-good CPU or GPU result. Engine computes the key, queries
-and validates DDC, invokes the module's volume build operation only on a
-miss, performs best-effort Put, and applies the derived-only completion result
-on the GameThread. TextureBuild never receives cache policy or mutates a
+the asset's last-known-good CPU or GPU result. Engine supplies a definition and typed adapter to the
+[shared build protocol](DerivedDataBuild.md). Requests retain a torn-off source;
+PostLoad queries from metadata before acquiring voxels. A valid hit reads no
+source payload. Only misses invoke the volume recipe, with best-effort persistence
+and GameThread result application. TextureBuild never receives cache policy or mutates a
 `DVolumeTexture`.
 
 ## Authored source bulk data

@@ -4,13 +4,6 @@ namespace Durin::ShaderDerivedData
 {
 	namespace
 	{
-		template<typename TBuilder>
-		auto UpdateString(TBuilder& Builder, std::string_view Value) -> void
-		{
-			Builder.UpdateValue(static_cast<uint64>(Value.size()));
-			Builder.Update(Value);
-		}
-
 		auto IsValidRequest(const FShaderCompileOptions& Options) -> bool
 		{
 			if (Options.EntryPoints.empty()
@@ -31,25 +24,28 @@ namespace Durin::ShaderDerivedData
 		}
 	}
 
-	auto BuildKey(
-		const FShaderVariantKey& VariantKey,
-		const FShaderCompileOptions& Options) -> DerivedData::FCacheKey
+	auto MakeBuildDefinition(const FShaderVariantKey& VariantKey, const FShaderCompileOptions& Options)
+		-> std::expected<DerivedData::FBuildDefinition, FShaderError>
 	{
-		if (VariantKey.Value.IsZero() || !IsValidRequest(Options)) return {};
-		FXxHash128Builder Builder;
-		UpdateString(Builder, "DurinShaderCompiledOutputKey");
-		Builder.UpdateValue(PayloadSchemaVersion);
-		Builder.UpdateValue(BuilderVersion);
-		Builder.UpdateValue(VariantKey.Value);
-		Builder.UpdateValue(static_cast<uint32>(Options.EntryPoints.size()));
+		using namespace DerivedData;
+		if (VariantKey.Value.IsZero() || !IsValidRequest(Options))
+			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		std::vector<FBuildConstant> Constants{{"EntryCount", uint64(Options.EntryPoints.size())}};
 		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 		{
-			UpdateString(Builder, Options.EntryPoints[Index]
-				? std::string_view(Options.EntryPoints[Index]) : std::string_view{});
-			Builder.UpdateValue(static_cast<uint32>(Options.Frequencies[Index]));
+			Constants.push_back({std::format("Entry{}.Name", Index), std::string(Options.EntryPoints[Index])});
+			Constants.push_back({std::format("Entry{}.Frequency", Index), uint64(Options.Frequencies[Index])});
 		}
-		return DerivedData::FCacheKey::FromHash(
-			DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput"),
-			Builder.Finalize());
+		auto Definition = FBuildDefinition::TryCreate({"Durin.Shader.Compile", BuilderVersion, 1,
+			"Shader.CompiledOutput", PayloadSchemaVersion, FCacheBucket::FromString("Shaders/CompiledOutput")},
+			std::move(Constants), {{"Variant", VariantKey.Value, "ShaderVariant", 6, "Shader.SourceClosure", 1}});
+		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		return std::move(*Definition);
+	}
+
+	auto BuildKey(const FShaderVariantKey& VariantKey, const FShaderCompileOptions& Options) -> DerivedData::FCacheKey
+	{
+		auto Definition = MakeBuildDefinition(VariantKey, Options);
+		return Definition ? Definition->GetKey() : DerivedData::FCacheKey{};
 	}
 }

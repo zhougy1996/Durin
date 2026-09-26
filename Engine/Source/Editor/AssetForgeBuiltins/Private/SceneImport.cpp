@@ -771,9 +771,10 @@ namespace Durin::AssetForge::Builtins
 		auto Translated = TranslateTexture2DSource(Bytes);
 		if (!Translated)
 		{ OutError = FormatTexture2DTranslationError(Translated.error()); return false; }
-		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
+		auto Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
-		auto BuildResult = BuildTexture2DDetached(Request, &Control);
+		if (!Request) { OutError = FormatTexture2DInputError(Request.error()); return false; }
+		auto BuildResult = BuildTexture2DDetached(*Request, &Control);
 		if (!BuildResult)
 		{
 			OutError = FormatTextureBuildOperationError(BuildResult.error());

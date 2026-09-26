@@ -43,8 +43,6 @@ namespace Durin
 	struct FTextureCubeFacesBuildInput
 	{
 		FTextureCubeDecodedFaces DecodedFaces;
-		// Installed source identity for rebuilds; imports let Engine prepare the canonical identity.
-		FXxHash128 SourceIdentity;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
 		uint32 OriginalSourceHeight = 0;
@@ -73,8 +71,6 @@ namespace Durin
 	struct FTextureCubeCanonicalBuildInput
 	{
 		FTextureCubeDecodedFaces DecodedFaces;
-		// Installed source identity for rebuilds; imports let Engine prepare the canonical identity.
-		FXxHash128 SourceIdentity;
 		Image::FImage AuthoredPanorama;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;

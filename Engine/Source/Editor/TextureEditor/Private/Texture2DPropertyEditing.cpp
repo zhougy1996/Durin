@@ -127,7 +127,15 @@ namespace Durin::Editor::Texture
 					Cause.HasSource = Texture->GetSource().IsValid();
 					return Reject(std::move(Cause));
 				}
-				const auto Built = BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest(Settings), {
+				auto Request = Texture->CreateBuildRequest(Settings);
+				if (!Request)
+				{
+					FTexture2DPropertyEditCause Cause;
+					Cause.Code = ETexture2DPropertyEditError::Source;
+					Cause.InputCause = Request.error();
+					return Reject(std::move(Cause));
+				}
+				const auto Built = BuildTexture2DSynchronously(*Texture, std::move(*Request), {
 					.bMarkPackageDirty = true,
 					.bReportLoadMutation = false,
 					.bSourceDecoderInvoked = false,

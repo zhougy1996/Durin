@@ -2,8 +2,6 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/AssetCacheDiagnostic.h"
-
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/VolumeTextureBuildTypes.h"
@@ -11,10 +9,10 @@
 
 namespace Durin
 {
-	// Engine cache policy and borrowed source for one synchronous build.
+	// Captured source and cache policy; payload resolution is deferred until a miss.
 	struct FVolumeTextureBuildRequest
 	{
-		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
+		FTextureSource Source;
 		FVolumeTextureBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
@@ -32,7 +30,6 @@ namespace Durin
 	{
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		FAssetCacheDiagnostics PersistenceDiagnostic;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};
 

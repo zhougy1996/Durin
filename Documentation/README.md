@@ -31,6 +31,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
 | Offline Cook dependency discovery, reuse, or transactional output publication | [Asset cooking](Runtime/Assets/Cooking.md) |
 | Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
+| Build definitions, captured input identity, typed recipe adapters, or shared DDC execution | [Derived data build protocol](Runtime/Assets/DerivedDataBuild.md) |
 | Field-level BulkData, package-resource ranges, DAST Bulk Directory, or raw `.dbulk` | [Package bulk data](Runtime/Assets/BulkData.md) |
 | Async asset compilation domains, aggregate progress, selected finish/cancel, or provider registration | [Asset compilation](Runtime/Assets/AssetCompilation.md) |
 | Sky Light sources, procedural capture, Studio migration, or GPU environment filtering | [Sky lighting](Runtime/Rendering/SkyLighting.md) |

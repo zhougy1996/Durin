@@ -202,15 +202,8 @@ namespace Durin
 
 	auto DVolumeTexture::BuildPlatformDataForLoad() -> void
 	{
-		FVolumeTextureSourceData BuildInput =
-			MakeVolumeTextureBuildInput(GetSource());
-		if (!BuildInput.IsValid())
-		{
-			DURIN_ERROR("PostLoad '{}': VolumeTexture source data is missing or invalid.", GetObjectPath());
-			return;
-		}
 		const auto Result = BuildVolumeTextureSynchronously(*this,
-			{.SourceData = BuildInput, .Settings = BuildSettings},
+			{.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
 			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
 	}
 

@@ -7,25 +7,13 @@
 
 #if DURIN_WITH_EDITOR
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataBuildDefinition.h"
 #endif
 
 namespace Durin
 {
 	namespace
 	{
-		auto MakeDerivedDataKey(
-			std::string_view BucketName, FByteView Bytes)
-			-> FCacheKeyProxy
-		{
-#if DURIN_WITH_EDITOR
-			return FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
-				DerivedData::FCacheBucket::FromString(BucketName),
-				FXxHash128::HashBuffer(Bytes)));
-#else
-			return {};
-#endif
-		}
-
 		auto InvalidBuildKey(FArchiveFailure* OutFailure,
 			EArchiveFailureCode Code, std::string_view Message) -> bool
 		{
@@ -125,33 +113,6 @@ namespace Durin
 		return true;
 	}
 
-	auto FTexture2DBuildKeyInput::Serialize(FArchive& Ar) -> void
-	{
-		check(Ar.IsSaving());
-		FArchiveFailure Failure;
-		if (!IsValid(&Failure))
-		{
-			Ar.Fail(Failure.Code, Failure.Message);
-			return;
-		}
-
-		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
-		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture2D);
-		uint8 EncodedUsage = static_cast<uint8>(Usage);
-		uint8 EncodedSRGB = bSRGB ? 1 : 0;
-		uint8 EncodedCompressionQuality = static_cast<uint8>(CompressionQuality);
-		uint8 EncodedAlphaMipMode = static_cast<uint8>(AlphaMipMode);
-		uint32 EncodedAlphaCoverageThreshold = std::bit_cast<uint32>(AlphaCoverageThreshold);
-		uint32 EncodedTargetPlatform = static_cast<uint32>(TargetPlatform);
-		uint32 EncodedTargetProfile = static_cast<uint32>(TargetProfile);
-		Ar << KeySchemaVersion << Dimension
-			<< SourceIdentity.HashLow << SourceIdentity.HashHigh
-			<< EncodedUsage << EncodedSRGB << EncodedCompressionQuality << EncodedAlphaMipMode
-			<< MaximumResolution << EncodedAlphaCoverageThreshold
-			<< BuilderVersion << PayloadSchemaVersion
-			<< EncodedTargetPlatform << EncodedTargetProfile;
-	}
-
 	auto FTextureCubeBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
 		if (OutFailure) *OutFailure = {};
@@ -182,41 +143,6 @@ namespace Durin
 		return true;
 	}
 
-	auto FTextureCubeBuildKeyInput::Serialize(FArchive& Ar) -> void
-	{
-		check(Ar.IsSaving());
-		FArchiveFailure Failure;
-		if (!IsValid(&Failure))
-		{
-			Ar.Fail(Failure.Code, Failure.Message);
-			return;
-		}
-
-		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
-		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::TextureCube);
-		uint32 EncodedLayout = static_cast<uint32>(SourceLayout);
-		Ar << KeySchemaVersion << Dimension << EncodedLayout;
-		switch (SourceLayout)
-		{
-		case ETextureCubeBuildSourceLayout::SixFaces:
-			for (FXxHash128& Hash : FaceContentHashes)
-				Ar << Hash.HashLow << Hash.HashHigh;
-			break;
-		case ETextureCubeBuildSourceLayout::EquirectangularPanorama:
-			Ar << PanoramaContentHash.HashLow << PanoramaContentHash.HashHigh;
-			{
-				uint32 EncodedExposure = std::bit_cast<uint32>(ExposureEV);
-				Ar << FaceDimension << EncodedExposure;
-			}
-			break;
-		}
-		uint8 EncodedSRGB = bSRGB ? 1 : 0;
-		uint32 EncodedPlatform = static_cast<uint32>(TargetPlatform);
-		uint32 EncodedProfile = static_cast<uint32>(TargetProfile);
-		Ar << EncodedSRGB << BuilderVersion << PayloadSchemaVersion << ProjectionVersion
-			<< EncodedPlatform << EncodedProfile;
-	}
-
 	auto FVolumeTextureBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
 		if (OutFailure) *OutFailure = {};
@@ -233,82 +159,117 @@ namespace Durin
 		return true;
 	}
 
-	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
+#if DURIN_WITH_EDITOR
+	auto MakeTexture2DBuildDefinition(const FTexture2DBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
-		check(Ar.IsSaving());
-		FArchiveFailure Failure;
-		if (!IsValid(&Failure))
-		{
-			Ar.Fail(Failure.Code, Failure.Message);
-			return;
-		}
-
-		uint32 KeySchema = TextureDerivedDataKeySchemaVersion;
-		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture3D);
-		uint32 Format = static_cast<uint32>(Settings.OutputFormat);
-		uint32 Filter = static_cast<uint32>(Settings.MipFilter);
-		uint32 Platform = static_cast<uint32>(TargetPlatform);
-		uint32 Profile = static_cast<uint32>(TargetProfile);
-		Ar << KeySchema << Dimension << CanonicalSourceIdentity.HashLow
-			<< CanonicalSourceIdentity.HashHigh << Width << Height << Depth
-			<< Format << Filter << BuilderVersion << SourcePayloadSchemaVersion
-			<< Platform << Profile;
+		using namespace DerivedData;
+		if (!Input.IsValid())
+			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "Texture2D"});
+		return FBuildDefinition::TryCreate({"Durin.Texture2D", Input.BuilderVersion, 1,
+			"Texture.PlatformData", Input.PayloadSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)},
+			{{"Usage", uint64(Input.Usage)}, {"SRGB", Input.bSRGB},
+			 {"Quality", uint64(Input.CompressionQuality)}, {"AlphaMode", uint64(Input.AlphaMipMode)},
+			 {"MaximumResolution", uint64(Input.MaximumResolution)}, {"AlphaThreshold", Input.AlphaCoverageThreshold},
+			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+			{{"Source", Input.SourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1}});
+	}
+	auto MakeTextureCubeBuildDefinition(const FTextureCubeBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+	{
+		using namespace DerivedData;
+		if (!Input.IsValid())
+			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "TextureCube"});
+		const bool bPanorama = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
+		return FBuildDefinition::TryCreate({"Durin.TextureCube", Input.BuilderVersion, 2,
+			"TextureCube.PlatformData", Input.PayloadSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)},
+			{{"Layout", uint64(Input.SourceLayout)}, {"SRGB", Input.bSRGB},
+			 {"FaceDimension", uint64(bPanorama ? Input.FaceDimension : 0)},
+			 {"ExposureEV", bPanorama ? Input.ExposureEV : 0.0f},
+			 {"ProjectionVersion", uint64(Input.ProjectionVersion)},
+			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion,
+				bPanorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1}});
 	}
 
-	auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DBuildKeyInput& Input) -> FByteBuffer
+	auto MakeVolumeTextureBuildDefinition(const FVolumeTextureBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
-		FByteBuffer Bytes;
-		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
-		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
-		if (Ar.IsError()) Bytes.clear();
-		return Bytes;
+		using namespace DerivedData;
+		if (!Input.IsValid())
+			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "VolumeTexture"});
+		return FBuildDefinition::TryCreate({"Durin.VolumeTexture", Input.BuilderVersion, 1,
+			"VolumeTexture.PlatformData", TexturePayloadSchemaVersion, FCacheBucket::FromString(VolumeTextureCacheBucket)},
+			{{"Width", uint64(Input.Width)}, {"Height", uint64(Input.Height)}, {"Depth", uint64(Input.Depth)},
+			 {"Format", uint64(Input.Settings.OutputFormat)}, {"MipFilter", uint64(Input.Settings.MipFilter)},
+			 {"SourceSchema", uint64(Input.SourcePayloadSchemaVersion)},
+			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1}});
 	}
 
-	auto BuildTexture2DDerivedDataKey(
-		const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy
+#endif
+
+	auto BuildTexture2DDerivedDataKeyBytes(const FTexture2DBuildKeyInput& Input) -> FByteBuffer
 	{
-		const FByteBuffer Bytes = BuildTexture2DDerivedDataKeyBytes(Input);
-		return Bytes.empty() ? FCacheKeyProxy{}
-			: MakeDerivedDataKey(Texture2DCacheBucket, Bytes);
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeTexture2DBuildDefinition(Input);
+		if (Definition)
+			return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
+#endif
+		return {};
 	}
 
-	auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
+	auto BuildTexture2DDerivedDataKey(const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy
 	{
-		FByteBuffer Bytes;
-		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
-		const_cast<FTextureCubeBuildKeyInput&>(Input).Serialize(Ar);
-		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.IsError()) Bytes.clear();
-		return Bytes;
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeTexture2DBuildDefinition(Input);
+		if (Definition) return FCacheKeyProxy(Definition->GetKey());
+#endif
+		return {};
 	}
 
-	auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
+	auto BuildTextureCubeDerivedDataKeyBytes(const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
 	{
-		const FByteBuffer Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
-		return Bytes.empty() ? FCacheKeyProxy{}
-			: MakeDerivedDataKey(TextureCubeCacheBucket, Bytes);
+		OutError.clear();
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeTextureCubeBuildDefinition(Input);
+		if (Definition) return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
+#endif
+		OutError = "Invalid TextureCube build definition.";
+		return {};
 	}
 
-	auto BuildVolumeTextureDerivedDataKeyBytes(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
+	auto BuildTextureCubeDerivedDataKey(const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
 	{
-		FByteBuffer Bytes;
-		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
-		const_cast<FVolumeTextureBuildKeyInput&>(Input).Serialize(Ar);
-		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
-		if (Ar.IsError()) Bytes.clear();
-		return Bytes;
+		OutError.clear();
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeTextureCubeBuildDefinition(Input);
+		if (Definition) return FCacheKeyProxy(Definition->GetKey());
+#endif
+		OutError = "Invalid TextureCube build definition.";
+		return {};
 	}
 
-	auto BuildVolumeTextureDerivedDataKey(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
+	auto BuildVolumeTextureDerivedDataKeyBytes(const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
 	{
-		const FByteBuffer Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
-		return Bytes.empty() ? FCacheKeyProxy{}
-			: MakeDerivedDataKey(VolumeTextureCacheBucket, Bytes);
+		OutError.clear();
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeVolumeTextureBuildDefinition(Input);
+		if (Definition) return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
+#endif
+		OutError = "Invalid VolumeTexture build definition.";
+		return {};
+	}
+
+	auto BuildVolumeTextureDerivedDataKey(const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
+	{
+		OutError.clear();
+#if DURIN_WITH_EDITOR
+		auto Definition = MakeVolumeTextureBuildDefinition(Input);
+		if (Definition) return FCacheKeyProxy(Definition->GetKey());
+#endif
+		OutError = "Invalid VolumeTexture build definition.";
+		return {};
 	}
 
 	auto FTexturePlatformData::Serialize(FArchive& Ar) -> void

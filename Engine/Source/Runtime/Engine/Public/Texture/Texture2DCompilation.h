@@ -18,7 +18,6 @@ namespace Durin
 	{
 		ETexture2DCompilationStatus Status = ETexture2DCompilationStatus::Failed;
 		FTexture2DCompilationError Error;
-		FAssetCacheDiagnostics PersistenceDiagnostic;
 
 		auto Succeeded() const -> bool
 		{

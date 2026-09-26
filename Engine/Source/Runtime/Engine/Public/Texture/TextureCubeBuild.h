@@ -2,8 +2,6 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/AssetCacheDiagnostic.h"
-
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureCubeBuildTypes.h"
@@ -31,7 +29,6 @@ namespace Durin
 	{
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		FAssetCacheDiagnostics PersistenceDiagnostic;
 		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;
 	};
 

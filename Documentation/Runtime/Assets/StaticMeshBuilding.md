@@ -4,7 +4,7 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-27
 
 ## Source ownership and publication
 
@@ -27,7 +27,9 @@ The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
 `FStaticMeshSourceVersion`; see [source versioning](Versioning.md#static-mesh-source-versions).
 The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
 Version 1 canonical bytes,
-XXH3-128 content hashing, source identity and DDC keys are unchanged.
+XXH3-128 content hashing and source identity are unchanged. Derived keys use the
+[shared build-definition schema](DerivedDataBuild.md); render and collision have
+independent definitions and typed execution adapters.
 Reflection legacy names accept the former source type and owner field when
 loading authored packages; new saves use FStaticMeshSource and Source.
 
@@ -184,8 +186,9 @@ codec and validation errors are formatted at the pipeline boundary; the failure
 then propagates unchanged through candidate construction and completion diagnostics.
 There is no per-layer error enumeration or nested completion cause tree.
 Physics preparation, cooking and installation use `FPhysicsCookFailure` independently.
-Both pipelines report recoverable cache problems through `FAssetBuildCacheWarning`,
-with operation and bounded text. Clean hits and misses produce no warning records.
+Both pipelines log recoverable cache problems once at execution, with function,
+key, operation and bounded original cause. Results and completion records carry no
+cache warning lists. Clean hits and misses produce no warning records.
 Cache read/decode failures rebuild from source; write failures do not invalidate an
 in-memory product. Invalid source, construction or payload data still fails validation.
 Queries, cancellation, invalidation and snapshot capture do not introduce another
@@ -214,8 +217,8 @@ loading does not require the builder. Consumers stop admission and drain work
 before normal editor shutdown. Builder versions remain immutable for the editor
 lifetime and contribute to DDC identity. Engine does not link
 back to the Developer implementation. Physics Cook calls the linked PhysicsCore
-geometry builders directly, independently of the render build module. Cache warnings are collected
-separately; render results carry no cache-origin, key or timing observation.
+geometry builders directly, independently of the render build module. Cache issues
+are logged internally; render results carry no cache-origin, key or timing observation.
 `DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
 after synchronous construction and application. Its render work does not submit, join, wait for or create a render diagnostic
 record in the compiling manager; the asset commit schedules missing collision. Valid source input

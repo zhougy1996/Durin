@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Asset/AssetCacheDiagnostic.h"
-
 #include "Asset/AssetCompilingManager.h"
 #include "Hash/XxHash.h"
 #include "Modules/ModularFeature.h"
@@ -32,7 +30,6 @@ namespace Durin
 		std::string AssetIdentity;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		FAssetCacheDiagnostics PersistenceDiagnostic;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 		FTexture2DCompilationError Error;
 		std::optional<FTexture2DBuildError> BuildCause;

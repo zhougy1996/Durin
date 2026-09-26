@@ -4,7 +4,7 @@ Summary: Define physical-path validation, byte I/O, and atomic file-publication 
 
 Modules: Core
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-09-27
 
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
@@ -30,6 +30,14 @@ success; `ReadAt` can modify part of the caller's buffer before failure. Text
 loads preserve exact bytes, including embedded NULs. Hashing uses bounded memory.
 `FileExists` returns a successful `false` for a missing path; its result's bool
 conversion means the query succeeded, not that the path exists.
+
+`LoadFileToArray(Path, FFileReadOptions)` checks the opened handle's size before
+allocating. `MaximumBytes` bounds the allocation; optional `ExpectedBytes`
+rejects a changed size. Both return `QuerySize` errors: `file_too_large` for a
+limit and `message_size` for a size mismatch (checked first). Exact reads preserve
+ordinary I/O causes. Content hash verification, aggregate closure budgets and
+cancellation remain caller-owned; a successful size check is not proof of an
+immutable file generation.
 
 Ordinary writes create parent directories and truncate existing files; failures
 may leave partial bytes. Exclusive and atomic operations directly return the

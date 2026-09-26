@@ -10,6 +10,11 @@ namespace Durin::TexturePrivate
 	auto BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;
 
+	auto BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
+		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
+		const FTextureCubeCanonicalBuildInput* PreparedInput = nullptr)
+		-> std::expected<FTextureCubeBuildProduct, FTextureBuildError>;
+
 	inline auto ReportBuildFailure(const FTextureBuildError& Error) -> FTextureBuildOperationError
 	{
 		DURIN_ERROR_CATEGORY("Texture", "Texture build failed (stage {}, code {}): {}",

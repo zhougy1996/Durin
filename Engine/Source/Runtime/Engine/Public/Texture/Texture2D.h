@@ -4,6 +4,7 @@
 #include "Texture/Texture2DData.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
+#include <expected>
 
 #include "Texture2D.gen.h"
 
@@ -13,6 +14,7 @@ namespace Durin
 	struct FTextureBuildOperations;
 	struct FTexture2DBuildRequest;
 	struct FTexture2DBuildSettings;
+	struct FTexture2DInputError;
 
 	class DTexture2D;
 	class FTextureCompilingManager;
@@ -56,9 +58,9 @@ namespace Durin
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
 
-		// Reads/decompresses source on the caller thread. Failure returns an empty mip chain.
+		// Captures a detached source snapshot without reading or decompressing its payload.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
-			-> FTexture2DBuildRequest;
+			-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>;
 
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTexturePlatformData*

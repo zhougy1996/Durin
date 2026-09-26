@@ -36,7 +36,6 @@ namespace Durin
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 					ETextureBuildStage::Normalize, "TextureCube source layout, dimensions, or exposure are invalid."});
 			CanonicalInput = {.DecodedFaces = Faces->DecodedFaces,
-				.SourceIdentity = Faces->SourceIdentity,
 				.SourceLayout = Faces->SourceLayout,
 				.OriginalSourceWidth = Faces->OriginalSourceWidth,
 				.OriginalSourceHeight = Faces->OriginalSourceHeight,

@@ -1,10 +1,15 @@
 #include "Hash/XxHash.h"
+#include "Hash/CanonicalHash.h"
 #include "Misc/StringConvert.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
+	template<typename T>
+	concept CCanonicalHashField = requires(Durin::FXxHash128Builder& Builder, T Value) { Durin::UpdateCanonicalHash(Builder, Value); };
+	static_assert(!CCanonicalHashField<float> && !CCanonicalHashField<const char*>);
+
 	TEST(FXxHashTests, StringBuildersMatchBuffersAndPreserveChosenFieldBoundaries)
 	{
 		Durin::FXxHash64Builder Builder;
@@ -67,4 +72,25 @@ namespace
 		Durin::StringUtils::HexToBytes("0012ABff", ParsedBytes);
 		EXPECT_EQ(ParsedBytes, Bytes);
 	}
+}
+
+TEST(FXxHashTests, CanonicalFieldsUseExplicitWidthsAndPreserveStringBoundaries)
+{
+	using namespace Durin;
+	FXxHash128Builder Builder;
+	UpdateCanonicalHash(Builder, uint16(0x1234));
+	UpdateCanonicalHash(Builder, int16(-2));
+	UpdateCanonicalHash(Builder, true);
+	UpdateCanonicalHashString(Builder, std::string_view("a\0b", 3));
+	UpdateCanonicalHash(Builder, FXxHash128{1, 2});
+	const uint8 Expected[] = {0x34, 0x12, 0xfe, 0xff, 1,
+		3, 0, 0, 0, 0, 0, 0, 0, 'a', 0, 'b',
+		1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0};
+	EXPECT_EQ(Builder.Finalize(), FXxHash128::HashBuffer(Expected, sizeof(Expected)));
+	const auto Big = EncodeBinaryInteger(uint32(0x12345678), EBinaryByteOrder::BigEndian);
+	EXPECT_EQ(Big, (std::array{std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}}));
+	FXxHash64Builder Left, Right;
+	UpdateCanonicalHashString(Left, "ab"); UpdateCanonicalHashString(Left, "c");
+	UpdateCanonicalHashString(Right, "a"); UpdateCanonicalHashString(Right, "bc");
+	EXPECT_NE(Left.Finalize(), Right.Finalize());
 }

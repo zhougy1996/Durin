@@ -1,4 +1,5 @@
 #include "Shader/Shader.h"
+#include "Hash/CanonicalHash.h"
 #include "DynamicRHI.h"
 #include "Shader/IShaderBuildModule.h"
 #include "ShaderBindingInternal.h"
@@ -112,13 +113,6 @@ namespace Durin
 					ResourceBinding.Type = FoundIt->Type;
 				}
 			}
-		}
-
-		template <typename TBuilder>
-		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
-		{
-			Builder.UpdateValue(static_cast<uint64>(Value.size()));
-			Builder.Update(Value);
 		}
 
 		auto BuildShaderMapCompileOptions(
@@ -240,40 +234,40 @@ namespace Durin
 			}
 
 			FXxHash128Builder Builder;
-			UpdateHashStringField(Builder, "DurinShaderMapCacheKey_v1");
-			UpdateHashStringField(Builder, CompileOptions.VirtualShaderPath);
+			UpdateCanonicalHashString(Builder, "DurinShaderMapCacheKey_v1");
+			UpdateCanonicalHashString(Builder, CompileOptions.VirtualShaderPath);
 
 			const uint64 EntryPointCount = static_cast<uint64>(CompileOptions.EntryPoints.size());
-			Builder.UpdateValue(EntryPointCount);
+			UpdateCanonicalHash(Builder, EntryPointCount);
 			for (const char8* EntryPoint : CompileOptions.EntryPoints)
 			{
-				UpdateHashStringField(Builder, EntryPoint ? std::string_view(EntryPoint) : std::string_view{});
+				UpdateCanonicalHashString(Builder, EntryPoint ? std::string_view(EntryPoint) : std::string_view{});
 			}
 
 			const uint64 FrequencyCount = static_cast<uint64>(CompileOptions.Frequencies.size());
-			Builder.UpdateValue(FrequencyCount);
+			UpdateCanonicalHash(Builder, FrequencyCount);
 			for (EShaderFrequency Frequency : CompileOptions.Frequencies)
 			{
-				Builder.UpdateValue(Frequency);
+				UpdateCanonicalHash(Builder, Frequency);
 			}
 
 			const uint64 MacroCount = static_cast<uint64>(NormalizedMacros.size());
-			Builder.UpdateValue(MacroCount);
+			UpdateCanonicalHash(Builder, MacroCount);
 			for (const FShaderMacroDefinition& Macro : NormalizedMacros)
 			{
-				UpdateHashStringField(Builder, Macro.Name);
-				Builder.UpdateValue(Macro.HasValue());
+				UpdateCanonicalHashString(Builder, Macro.Name);
+				UpdateCanonicalHash(Builder, Macro.HasValue());
 				if (Macro.Value)
 				{
-					UpdateHashStringField(Builder, *Macro.Value);
+					UpdateCanonicalHashString(Builder, *Macro.Value);
 				}
 			}
 
 			const uint64 ShaderCount = static_cast<uint64>(Output.CompiledShaders.size());
-			Builder.UpdateValue(ShaderCount);
+			UpdateCanonicalHash(Builder, ShaderCount);
 			for (const FCompiledShader& CompiledShader : Output.CompiledShaders)
 			{
-				Builder.UpdateValue(CompiledShader.Hash);
+				UpdateCanonicalHash(Builder, CompiledShader.Hash);
 			}
 
 			OutCacheKey = Builder.Finalize();

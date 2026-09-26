@@ -45,7 +45,7 @@ namespace
 		FTextureSource Source;
 		ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		FTexture2DCompilationRequest Request;
-		Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+		Request.Build = Durin::MakeTexture2DBuildRequest(Source).value();
 		Request.ResultApplication.SourceReplacement = Source;
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
@@ -96,7 +96,7 @@ namespace
 		FTextureSource SaturatedSource;
 		ASSERT_TRUE(SaturatedSource.Init2D(SaturatedSourceImage.GetView(), 4));
 		FTexture2DCompilationRequest SaturatedRequest;
-		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource);
+		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource).value();
 		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource;
 		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest),
 			[&](FTexture2DCompilationResult Result) {
@@ -124,7 +124,7 @@ namespace
 			FTextureSource Source;
 			ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 			FTexture2DCompilationRequest Request;
-			Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+			Request.Build = Durin::MakeTexture2DBuildRequest(Source).value();
 			Request.ResultApplication.SourceReplacement = Source;
 			Request.Build.bPersistDerivedData = false;
 			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; }));

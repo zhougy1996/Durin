@@ -82,7 +82,7 @@ namespace Durin
 	}
 
 	auto DTexture2D::CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
-		-> FTexture2DBuildRequest
+		-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>
 	{
 		return MakeTexture2DBuildRequest(GetSource(), Settings);
 	}
@@ -112,14 +112,13 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		if (const auto Built = SubmitTexture2DCompilation(*this, {.Build = {.Settings = {
+		if (const auto Built = SubmitTexture2DCompilation(*this, {.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
 				.AlphaCoverageThreshold = AlphaCoverageThreshold,
 				.MaxResolution = MaxResolution,
-				.bSRGB = bSRGB}, .SourceIdentity = GetSource().GetIdentity(),
-				.DeferredSource = GetSource().CopyTornOff()}, .ResultApplication = {
+				.bSRGB = bSRGB}}, .ResultApplication = {
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
 			.bSourceDecoderInvoked = false}}); !Built)

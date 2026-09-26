@@ -12,15 +12,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto SourceBytes(std::span<const Image::FImage> Mips) -> uint64
-		{
-			uint64 Bytes = 0;
-			for (const auto& Mip : Mips) Bytes += Mip.GetPixels().size();
-			return Bytes;
-		}
-
 		using FClock = std::chrono::steady_clock;
-
 		auto NowNanoseconds() -> uint64
 		{
 			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -46,11 +38,9 @@ namespace Durin
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
 			if (WorkingBytes == 0)
 				WorkingBytes = std::max<uint64>(
-					SaturatingMultiply(SourceBytes(Request.Build.SourceMips), 3),
+					SaturatingMultiply(Request.Build.Source.GetDecodedPayloadSize(), 3),
 					64ull * 1024ull * 1024ull);
-			return SaturatingAdd(Request.Build.DeferredSource
-				? Request.Build.DeferredSource->GetDecodedPayloadSize()
-				: SourceBytes(Request.Build.SourceMips), WorkingBytes);
+			return SaturatingAdd(Request.Build.Source.GetDecodedPayloadSize(), WorkingBytes);
 		}
 
 		auto PlatformDataBytes(const FTexturePlatformData& PlatformData) -> uint64
@@ -95,9 +85,8 @@ namespace Durin
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
 			if (!Completion || IsObjectKeyNull(Request.Owner)
-				|| Request.AssetIdentity.empty() || (Request.Build.SourceMips.empty()
-					&& !Request.Build.DeferredSource && !Request.PlatformCache)
-				|| Request.Build.SourceIdentity.IsZero()) return 0;
+				|| Request.AssetIdentity.empty() || (!Request.Build.Source.IsValid() && !Request.PlatformCache)
+				|| Request.Build.Source.GetIdentity().IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
 			if (!RequestState->Request.PlatformCache)
@@ -287,7 +276,7 @@ namespace Durin
 			SetPhase(RequestState, ETexture2DCompilationPhase::Preparing);
 			if (RequestState->Request.PlatformCache)
 			{
-				Result.InputIdentity.SourceIdentity = RequestState->Request.Build.SourceIdentity;
+				Result.InputIdentity.SourceIdentity = RequestState->Request.Build.Source.GetIdentity();
 				Result.PlatformCache = RequestState->Request.PlatformCache->Build();
 				Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled
 					: Result.PlatformCache && Result.PlatformCache->Error.empty()
@@ -341,11 +330,10 @@ namespace Durin
 			Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
-			Result.PersistenceDiagnostic = std::move(Product.PersistenceDiagnostic);
 			Result.Origin = Product.Origin;
 			Result.bSourceDecoderInvoked = RequestState->Request.bSourceDecoderInvoked;
 			if (Product.Origin == ETexture2DBuildProductOrigin::Rebuilt)
-				Result.Metrics.DecodedBytes = SourceBytes(BuildRequest.SourceMips);
+				Result.Metrics.DecodedBytes = BuildRequest.Source.GetDecodedPayloadSize();
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error = {};
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Serialization/Archive.h"
+
 #include "EngineAPI.h"
 #include <expected>
 #include "Texture/Texture2DData.h"
@@ -71,6 +73,7 @@ namespace Durin
 		ETexture2DBuildError Code = ETexture2DBuildError::None;
 		std::optional<FTexture2DInputError> InputCause;
 		std::optional<ETaskState> TaskState;
+		std::optional<FArchiveFailure> ArchiveCause;
 	};
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
 

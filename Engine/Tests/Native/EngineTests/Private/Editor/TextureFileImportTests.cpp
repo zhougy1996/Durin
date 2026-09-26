@@ -713,7 +713,7 @@ TEST_F(FTextureImportQueueTests, SupersededImportDoesNotUnloadNewCompilation)
 	ASSERT_TRUE(Prepared);
 	std::optional<FTexture2DCompilationResult> Replacement;
 	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
-		{.Build = MakeTexture2DBuildRequest(Prepared->Source),
+		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
 		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
 		[&](FTexture2DCompilationResult Value) { Replacement = std::move(Value); }));
 	Importer.Tick();

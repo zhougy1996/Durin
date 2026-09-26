@@ -596,3 +596,24 @@ TEST(FFileHelperTests, OverlongComponentFailsWithPathMetricsAndNoOrphan)
 		EXPECT_FALSE(Entry.path().filename().generic_string().starts_with(".durin-tmp-"));
 	}
 }
+
+TEST(FFileHelperTests, BoundedReadRejectsSizeChangesAndLimitsBeforeReading)
+{
+	using namespace Durin;
+	const auto Path = TestRoot("BoundedRead") / "Source.bin";
+	const FByteBuffer Payload{std::byte{1}, std::byte{0}, std::byte{3}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Payload, Path));
+	auto Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 3, .ExpectedBytes = 3});
+	ASSERT_TRUE(Read); EXPECT_EQ(*Read, Payload);
+	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 2});
+	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().Operation, EFileOperation::QuerySize);
+	EXPECT_EQ(Read.error().NativeError, std::errc::file_too_large);
+	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 100, .ExpectedBytes = 2});
+	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().NativeError, std::errc::message_size);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Path));
+	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 0, .ExpectedBytes = 0});
+	ASSERT_TRUE(Read); EXPECT_TRUE(Read->empty());
+	Read = FFileHelper::LoadFileToArray(Path.parent_path() / "Missing", {.MaximumBytes = 1});
+	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().Operation, EFileOperation::OpenRead);
+	Durin::Testing::RemoveTestWorkDirectory(Path.parent_path());
+}

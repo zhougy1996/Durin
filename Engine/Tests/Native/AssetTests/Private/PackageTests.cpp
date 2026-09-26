@@ -9970,6 +9970,15 @@ namespace
 		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
+		auto GetCookInputIdentity(std::string& OutIdentity,
+			const std::function<bool()>& IsCancelled) -> Durin::FShaderOperationResult override
+		{
+			OutIdentity.clear();
+			if (IsCancelled && IsCancelled())
+				return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::Cancelled});
+			OutIdentity = "cook-fixture-input-v1";
+			return {};
+		}
 		auto BuildSourceDependencyManifest(std::string_view, const Durin::FShaderCompileOptions&,
 			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::BuildModuleUnavailable}); }
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,

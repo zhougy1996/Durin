@@ -2,13 +2,15 @@
 #include "Texture/ITextureBuildModule.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "TextureDerivedDataCache.h"
+#include "Asset/AssetDerivedDataBuild.h"
+#include "TexturePlatformCodec.h"
 #include "TextureDerivedDataKey.h"
 
 namespace Durin
 {
 	auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string
 	{
+		if (Error.ArchiveCause) return std::format("Archive code {} at {}: {}", static_cast<int>(Error.ArchiveCause->Code), Error.ArchiveCause->Path, Error.ArchiveCause->Message);
 		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
 		switch (Error.Code)
 		{
@@ -64,25 +66,30 @@ namespace Durin
 		return {};
 	}
 
-	auto MakeTexture2DBuildRequest(const FTextureSource& Source,
-		const FTexture2DBuildSettings& Settings) -> FTexture2DBuildRequest
+	auto ValidateTexture2DBuildSource(const FTextureSource& Source)
+		-> std::expected<void, FTexture2DInputError>
 	{
-		FTexture2DBuildRequest Result{.Settings = Settings};
-		if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D
-			|| Source.GetBlocks().size() != 1 || Source.GetLayers().size() != 1) return Result;
-		const auto Mips = Source.GetMipData();
-		if (!Mips.IsValid()) return Result;
-		for (uint32 Index = 0; Index < Source.GetLayers()[0].NumMips; ++Index)
-		{
-			const auto View = Mips.GetMipImage(0, 0, Index);
-			if (!View.IsValid()) return {.Settings = Settings};
-			auto ImageResult = Image::FImage::TryCreate(View.GetInfo(), Mips.GetMipData(0, 0, Index));
-			if (!ImageResult) return {.Settings = Settings};
-			Result.SourceMips.push_back(std::move(*ImageResult));
-		}
-		if (!ValidateTexture2DSourceMips(Result.SourceMips)) return {.Settings = Settings};
-		Result.SourceIdentity = Source.GetIdentity();
-		return Result;
+		if (!Source.IsValid())
+			return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::EmptyMips});
+		if (Source.GetKind() != ETextureSourceKind::Texture2D
+			|| Source.GetBlocks().size() != 1 || Source.GetLayers().size() != 1)
+			return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::UnsupportedShape});
+		if (Source.GetFormat() != ETextureSourceFormat::RGBA8)
+			return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::UnsupportedFormat});
+		if (Source.GetWidth() > 16384 || Source.GetHeight() > 16384)
+			return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::ExcessiveResolution});
+		if (Source.GetDecodedPayloadSize() > MaximumTextureSourceBytes)
+			return std::unexpected(FTexture2DInputError{.Code = ETexture2DInputError::SourceBudgetExceeded});
+		return {};
+	}
+
+	auto MakeTexture2DBuildRequest(const FTextureSource& Source,
+		const FTexture2DBuildSettings& Settings)
+		-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>
+	{
+		if (const auto Valid = ValidateTexture2DBuildSource(Source); !Valid)
+			return std::unexpected(Valid.error());
+		return FTexture2DBuildRequest{.Source = Source.CopyTornOff(), .Settings = Settings};
 	}
 
 	auto ValidateTexture2DBuildSettings(const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>
@@ -102,6 +109,92 @@ namespace Durin
 		return Settings.bSRGB.value_or(GetDefaultTextureSRGB(Settings.Usage));
 	}
 
+#if DURIN_WITH_EDITOR
+	namespace
+	{
+		struct FTexture2DBuildAdapter
+		{
+			using FProduct = FTexture2DBuildOutput;
+			using FError = FTexture2DBuildError;
+			const FTexture2DBuildRequest& Request;
+			ITextureBuildModule& Module;
+			const DerivedData::FBuildDefinition& Definition;
+			FTexture2DBuildSettings Settings;
+			FTexture2DBuildControl Control;
+			std::array<DerivedData::FBuildInputReference, 1> Inputs;
+
+			auto GetFunction() const -> DerivedData::FBuildFunctionDescriptor
+			{
+				auto Descriptor = Definition.GetFunction();
+				Descriptor.Version = Module.GetTexture2DBuilderVersion();
+				return Descriptor;
+			}
+			auto GetInputs() const -> std::span<const DerivedData::FBuildInputReference> { return Inputs; }
+			auto MakeError(DerivedData::EBuildFailure Code) const -> FError
+			{
+				return {.Code = Code == DerivedData::EBuildFailure::Cancelled ? ETexture2DBuildError::Cancelled
+					: Code == DerivedData::EBuildFailure::FunctionMismatch ? ETexture2DBuildError::InvalidBuilderVersion
+					: ETexture2DBuildError::MissingSourceIdentity};
+			}
+			auto IsCancelled(const FError& Error) const -> bool { return Error.Code == ETexture2DBuildError::Cancelled; }
+			auto ValidateBindings(const DerivedData::FBuildDefinition&) const -> std::expected<void, FError>
+			{
+				if (Request.Source.GetOwner() || Request.Source.GetIdentity() != Inputs[0].Identity)
+					return std::unexpected(MakeError(DerivedData::EBuildFailure::InputMismatch));
+				return {};
+			}
+			auto Resolve() const -> std::expected<std::vector<Image::FImage>, FError>
+			{
+				const auto Mips = Request.Source.GetMipData();
+				if (!Mips.IsValid()) return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidInput,
+					.InputCause = FTexture2DInputError{.Code = ETexture2DInputError::InvalidImage}});
+				std::vector<Image::FImage> Result;
+				for (uint32 Index = 0; Index < Request.Source.GetLayers()[0].NumMips; ++Index)
+				{
+					if (Control.ShouldCancel && Control.ShouldCancel())
+						return std::unexpected(MakeError(DerivedData::EBuildFailure::Cancelled));
+					const auto View = Mips.GetMipImage(0, 0, Index);
+					auto Image = Image::FImage::TryCreate(View.GetInfo(), Mips.GetMipData(0, 0, Index));
+					if (!Image) return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidInput,
+						.InputCause = FTexture2DInputError{.Code = ETexture2DInputError::InvalidImage, .Index = Index}});
+					Result.push_back(std::move(*Image));
+				}
+				if (auto Valid = ValidateTexture2DSourceMips(Result); !Valid)
+					return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Valid.error()});
+				return Result;
+			}
+			auto Build(std::vector<Image::FImage>& Mips) const -> std::expected<FProduct, FError>
+			{
+				return Module.BuildTexture2D({.SourceMips = Mips, .Settings = Settings,
+					.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile}, &Control);
+			}
+			auto Validate(const FProduct& Product) const -> std::expected<void, FError>
+			{
+				if (!Product.PlatformData.IsValid()) return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
+				return {};
+			}
+			auto Decode(const FSharedByteBuffer& Bytes) -> std::expected<FProduct, FError>
+			{
+				FProduct Product;
+				if (auto Decoded = TexturePrivate::DecodePlatformData(Bytes.GetBytes(), Request.TargetProfile, Product.PlatformData); !Decoded)
+				{
+					return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidPlatformData, .ArchiveCause = std::move(Decoded.error())});
+				}
+				return Product;
+			}
+			auto Encode(FProduct& Product) -> std::expected<FByteBuffer, FError>
+			{
+				auto Encoded = TexturePrivate::EncodePlatformData(Product.PlatformData, Request.TargetProfile);
+				if (!Encoded)
+				{
+					return std::unexpected(FError{.Code = ETexture2DBuildError::InvalidPlatformData, .ArchiveCause = std::move(Encoded.error())});
+				}
+				return std::move(*Encoded);
+			}
+		};
+	}
+#endif
+
 	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
@@ -109,22 +202,14 @@ namespace Durin
 	{
 		OutProduct = {};
 		OutIdentity = {};
-		if (Request.DeferredSource && (!Request.SourceMips.empty()
-			|| !Request.DeferredSource->IsValid() || Request.DeferredSource->GetOwner()
-			|| Request.DeferredSource->GetKind() != ETextureSourceKind::Texture2D
-			|| Request.DeferredSource->GetIdentity() != Request.SourceIdentity))
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::MissingSourceIdentity});
-		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Request.DeferredSource && !Validation)
+		if (const auto Validation = ValidateTexture2DBuildSource(Request.Source); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-		if (Request.SourceIdentity.IsZero())
+		if (Request.Source.GetOwner() || Request.Source.GetIdentity().IsZero())
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::MissingSourceIdentity});
-		OutIdentity = {
-			.SourceIdentity = Request.SourceIdentity,
-			.Settings = Request.Settings,
-			.TargetPlatform = Request.TargetPlatform,
-			.TargetProfile = Request.TargetProfile};
+		OutIdentity = {.SourceIdentity = Request.Source.GetIdentity(), .Settings = Request.Settings,
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile};
 		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
@@ -132,91 +217,41 @@ namespace Durin
 		auto* Module = ITextureBuildModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
 		OutIdentity.BuilderVersion = Module->GetTexture2DBuilderVersion();
-		if (OutIdentity.BuilderVersion == 0)
-		{
+		if (!OutIdentity.BuilderVersion)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderVersion});
-		}
-		const FTexture2DBuildKeyInput KeyInput{
-			.SourceIdentity = OutIdentity.SourceIdentity,
-			.Usage = Request.Settings.Usage,
-			.bSRGB = ResolveTexture2DSRGB(Request.Settings),
-			.CompressionQuality = Request.Settings.CompressionQuality,
-			.AlphaMipMode = Request.Settings.AlphaMipMode,
-			.MaximumResolution = Request.Settings.MaxResolution,
+		auto Definition = MakeTexture2DBuildDefinition({
+			.SourceIdentity = OutIdentity.SourceIdentity, .Usage = Request.Settings.Usage,
+			.bSRGB = *OutIdentity.Settings.bSRGB, .CompressionQuality = Request.Settings.CompressionQuality,
+			.AlphaMipMode = Request.Settings.AlphaMipMode, .MaximumResolution = Request.Settings.MaxResolution,
 			.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
 			.BuilderVersion = OutIdentity.BuilderVersion,
-			.TargetPlatform = Request.TargetPlatform,
-			.TargetProfile = Request.TargetProfile};
-		const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
-		TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
-		FTexturePlatformData PlatformData;
-		if (TextureDerivedDataCache::Load(
-			Key,
-			Request.TargetPlatform, Request.TargetProfile,
-			PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
-		{
-			OutProduct = {.PlatformData = std::move(PlatformData),
-				.DerivedDataKey = Key,
-				.BuilderVersion = OutIdentity.BuilderVersion,
-				.Origin = ETexture2DBuildProductOrigin::CacheHit};
-			return std::expected<void, FTexture2DBuildError>{};
-		}
-		if (ExecutionControl && ExecutionControl->ShouldCancel
-			&& ExecutionControl->ShouldCancel())
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-		}
-		FTexture2DBuildRequest Decoded;
-		if (Request.DeferredSource)
-		{
-			Decoded = MakeTexture2DBuildRequest(*Request.DeferredSource, Request.Settings);
-			if (const auto Validation = ValidateTexture2DSourceMips(Decoded.SourceMips); !Validation)
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-		}
-		const FTexture2DBuildControl BuildControl{
-			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
-				: std::function<bool()>{}};
-		auto BuildResult = Module->BuildTexture2D({
-			.SourceMips = Request.DeferredSource ? Decoded.SourceMips : Request.SourceMips,
-			.Settings = Request.Settings,
-			.TargetPlatform = Request.TargetPlatform,
-			.TargetProfile = Request.TargetProfile},
-			&BuildControl);
-		if (!BuildResult) return std::unexpected(std::move(BuildResult.error()));
-		auto BuildProduct = std::move(*BuildResult);
-		FTexture2DBuildMetrics BuildMetrics{BuildProduct.Metrics};
-		if (!BuildProduct.PlatformData.IsValid())
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct});
-		}
-		if (ExecutionControl && ExecutionControl->ShouldCancel
-			&& ExecutionControl->ShouldCancel())
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-		}
-
-		TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
-		if (Request.bPersistDerivedData)
-		{
-			if (ExecutionControl && ExecutionControl->OnPersisting)
-				ExecutionControl->OnPersisting();
-			TextureDerivedDataCache::Store(
-				Key,
-				Request.TargetPlatform, Request.TargetProfile,
-				BuildProduct.PlatformData, StoreDiagnostic);
-			BuildMetrics.PersistenceNanoseconds =
-				StoreDiagnostic.DurationNanoseconds;
-		}
-		if (ExecutionControl && ExecutionControl->Metrics)
-			*ExecutionControl->Metrics = BuildMetrics;
-		OutProduct = {.PlatformData = std::move(BuildProduct.PlatformData),
-			.DerivedDataKey = Key,
-			.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
-			.BuilderVersion = OutIdentity.BuilderVersion,
-			.Metrics = BuildMetrics,
-			.Origin = ETexture2DBuildProductOrigin::Rebuilt};
-		return std::expected<void, FTexture2DBuildError>{};
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+		if (!Definition) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedTarget});
+		FTexture2DBuildAdapter Adapter{.Request = Request, .Module = *Module, .Definition = *Definition,
+			.Settings = OutIdentity.Settings,
+			.Control = {.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{}},
+			.Inputs = {DerivedData::FBuildInputReference{"Source", Request.Source.GetIdentity(),
+				"TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1}}};
+		DerivedData::TBuildObservations<FTexture2DBuildError> Observations;
+		const DerivedData::FBuildExecutionContext Context{
+			.ShouldCancel = Adapter.Control.ShouldCancel,
+			.OnPhase = [ExecutionControl](DerivedData::EBuildPhase Phase) {
+				if (Phase == DerivedData::EBuildPhase::Store && ExecutionControl && ExecutionControl->OnPersisting)
+					ExecutionControl->OnPersisting();
+			}};
+		auto Built = DerivedData::ExecuteBuild(*Definition, Adapter,
+			{.bWriteCache = Request.bPersistDerivedData, .MaximumValueBytes = MaximumTexturePayloadBytes}, Context, Observations);
+		AssetDerivedDataBuild::ReportCacheIssues(*Definition, Observations, FormatTexture2DBuildError);
+		if (!Built) return std::unexpected(std::move(Built.error()));
+		FTexture2DBuildMetrics Metrics{Built->Metrics};
+		Metrics.PersistenceNanoseconds = Observations.Nanoseconds[static_cast<size_t>(DerivedData::EBuildPhase::Store)];
+		if (ExecutionControl && ExecutionControl->Metrics) *ExecutionControl->Metrics = Metrics;
+		OutProduct = {.PlatformData = std::move(Built->PlatformData),
+			.DerivedDataKey = FCacheKeyProxy(Definition->GetKey()),
+			.BuilderVersion = OutIdentity.BuilderVersion, .Metrics = Metrics,
+			.Origin = Observations.Origin == DerivedData::EBuildOrigin::CacheHit
+				? ETexture2DBuildProductOrigin::CacheHit : ETexture2DBuildProductOrigin::Rebuilt};
+		return {};
 #endif
 	}
-
 }
