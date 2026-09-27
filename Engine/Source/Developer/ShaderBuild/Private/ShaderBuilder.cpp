@@ -641,9 +641,7 @@ namespace Durin
 		};
 		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
 		if (!Completion) return {.Error = ShaderSessionError(Completion.error())};
-		if (Completion->Status != EBuildStatus::Succeeded || !Completion->Output)
-			return {.Error = Completion->Error ? ShaderSessionError(*Completion->Error) : FShaderError{.Code = EShaderError::InvalidCompileRequest}};
-		auto Built = ShaderSharedOutput::Assemble(Options, *Completion->Output);
+		auto Built = ShaderSharedOutput::Assemble(Options, *Completion);
 		if (!Built) return {.Error = std::move(Built.error())};
 		AddOutput(OutputKey, *Built);
 		return std::move(*Built);

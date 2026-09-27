@@ -299,7 +299,7 @@ namespace Durin
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
-	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options) -> std::expected<FBuildCompletion, FBuildError>
+	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options) -> FBuildResult
 	{
 		std::shared_ptr<FBuildSession> Session;
 		{

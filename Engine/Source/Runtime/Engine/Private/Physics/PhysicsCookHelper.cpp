@@ -68,18 +68,17 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
 		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (!Completion) return std::unexpected(FPhysicsCookFailure{Completion.error().Description});
-		if (Completion->Status == DerivedData::EBuildStatus::Cancelled || Cancel())
+		if (Cancel() || DerivedData::IsBuildCancelled(Completion))
 			return std::unexpected(FPhysicsCookFailure::Cancelled());
-		if (Completion->Status != DerivedData::EBuildStatus::Succeeded || !Completion->Output)
+		if (!Completion)
 		{
-			const auto& Error = Completion->Error;
-			const auto Stage = Error && (Error->Category == DerivedData::EBuildErrorCategory::InvalidInput
-				|| Error->Phase == DerivedData::EBuildSessionPhase::Resolve || Error->Phase == DerivedData::EBuildSessionPhase::Describe)
+			const auto& Error = Completion.error();
+			const auto Stage = (Error.Category == DerivedData::EBuildErrorCategory::InvalidInput
+				|| Error.Phase == DerivedData::EBuildSessionPhase::Resolve || Error.Phase == DerivedData::EBuildSessionPhase::Describe)
 				? EPhysicsCookStage::Input : EPhysicsCookStage::Cook;
-			return std::unexpected(FPhysicsCookFailure{Error ? Error->Description : "Physics session produced no output.", Stage});
+			return std::unexpected(FPhysicsCookFailure{Error.Description, Stage});
 		}
-		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion->Output, Input.GetMode(), Input.GetPolicy(), Cancel);
+		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion, Input.GetMode(), Input.GetPolicy(), Cancel);
 		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
 		if (!Result) return std::unexpected(FPhysicsCookFailure{std::move(Result.error())});
 		return std::move(*Result);

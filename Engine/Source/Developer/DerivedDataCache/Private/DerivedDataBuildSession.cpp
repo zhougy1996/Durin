@@ -69,7 +69,7 @@ namespace Durin::DerivedData
 			std::shared_ptr<FRequestData> Data;
 			FBuildCompletionCallback Callback;
 
-			auto Finish(FBuildCompletion Result) -> void
+			auto Finish(FBuildResult Result) -> void
 			{
 				auto Session = Owner.lock();
 				FBuildCompletionCallback Completion;
@@ -78,7 +78,8 @@ namespace Durin::DerivedData
 					std::lock_guard Lock(Mutex);
 					if (Phase == ERequestState::Completing || Phase == ERequestState::Done) return;
 					Phase = ERequestState::Completing;
-					if (Cancelled.load()) Result = {.Status = EBuildStatus::Cancelled};
+					if (Cancelled.load()) Result = std::unexpected(FBuildError{
+						.Category = EBuildErrorCategory::Cancelled});
 					Completion = std::move(Callback); Retired = std::move(Data);
 				}
 				Retired.reset();
@@ -110,7 +111,8 @@ namespace Durin::DerivedData
 					Phase = ERequestState::Running; Work = std::move(Data);
 				}
 				FExecutionScope Scope(Session.get());
-				FBuildCompletion Result;
+				FBuildResult Result = std::unexpected(FBuildError{
+					.Category = EBuildErrorCategory::Unavailable});
 				try
 				{
 					FBuildCancellation Token([&] { return Cancelled.load() || Work->Options.Cancellation.IsCancelled(); });
@@ -119,8 +121,8 @@ namespace Durin::DerivedData
 				}
 				catch (...)
 				{
-					Result = {.Status = EBuildStatus::Failed, .Error = FBuildError{.Phase = EBuildSessionPhase::Build,
-						.Category = EBuildErrorCategory::ProducerFailure, .Description = "Build callable threw an exception."}};
+					Result = std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Build,
+						.Category = EBuildErrorCategory::ProducerFailure, .Description = "Build callable threw an exception."});
 				}
 				Work.reset(); // Release resolver, services and observers before terminal accounting.
 				Finish(std::move(Result));
@@ -239,10 +241,10 @@ namespace Durin::DerivedData
 		}
 	}
 
-	auto FBuildSession::ExecuteInline(FBuildDefinition Definition, FBuildRequestOptions Options) -> std::expected<FBuildCompletion, FBuildError>
+	auto FBuildSession::ExecuteInline(FBuildDefinition Definition, FBuildRequestOptions Options) -> FBuildResult
 	{
-		std::optional<FBuildCompletion> Result;
-		auto Admitted = SubmitImpl(std::move(Definition), [&](FBuildCompletion Value) { Result = std::move(Value); }, std::move(Options), true);
+		std::optional<FBuildResult> Result;
+		auto Admitted = SubmitImpl(std::move(Definition), [&](FBuildResult Value) { Result = std::move(Value); }, std::move(Options), true);
 		if (!Admitted) return std::unexpected(std::move(Admitted.error()));
 		return std::move(*Result);
 	}

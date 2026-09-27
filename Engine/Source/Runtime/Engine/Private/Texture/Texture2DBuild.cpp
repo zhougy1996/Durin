@@ -173,23 +173,22 @@ namespace Durin
 		if (StoreStart) Metrics.PersistenceNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - *StoreStart).count();
 		if (ExecutionControl && ExecutionControl->Metrics) *ExecutionControl->Metrics = Metrics;
-		if (!Result) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable,
-			.Description = Result.error().Description});
-		if (Result->Status == DerivedData::EBuildStatus::Cancelled)
+		if (DerivedData::IsBuildCancelled(Result))
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-		if (Result->Status != DerivedData::EBuildStatus::Succeeded || !Result->Output)
+		if (!Result)
 		{
+			const auto& BuildError = Result.error();
+			if (BuildError.Phase == DerivedData::EBuildSessionPhase::Admission || BuildError.Phase == DerivedData::EBuildSessionPhase::Dispatch)
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable,
+					.Description = BuildError.Description});
 			FTexture2DBuildError Error{.Code = ETexture2DBuildError::InvalidBuilderProduct};
-			if (Result->Error)
-			{
-				if (Result->Error->ProducerCode && *Result->Error->ProducerCode <= static_cast<uint32>(ETexture2DBuildError::InvalidPlatformData))
-					Error.Code = static_cast<ETexture2DBuildError>(*Result->Error->ProducerCode);
-				else if (Result->Error->Category == DerivedData::EBuildErrorCategory::InvalidInput) Error.Code = ETexture2DBuildError::InvalidInput;
-				Error.Description = Result->Error->Description;
-			}
+			if (BuildError.ProducerCode && *BuildError.ProducerCode <= static_cast<uint32>(ETexture2DBuildError::InvalidPlatformData))
+				Error.Code = static_cast<ETexture2DBuildError>(*BuildError.ProducerCode);
+			else if (BuildError.Category == DerivedData::EBuildErrorCategory::InvalidInput) Error.Code = ETexture2DBuildError::InvalidInput;
+			Error.Description = BuildError.Description;
 			return std::unexpected(std::move(Error));
 		}
-		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result->Output, Request.TargetPlatform, Request.TargetProfile);
+		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result, Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct, .Description = std::move(Product.error())});
 		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = std::move(Key),
 			.BuilderVersion = OutIdentity.BuilderVersion, .Metrics = Metrics,

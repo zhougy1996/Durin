@@ -27,7 +27,7 @@ namespace Durin
 		~FShaderBuildService();
 		auto GetCompilerEnvironmentIdentity() const -> const std::string&;
 		auto Execute(FShaderSessionRequest Request, DerivedData::FBuildRequestOptions Options)
-			-> std::expected<DerivedData::FBuildCompletion, DerivedData::FBuildError>;
+			-> DerivedData::FBuildResult;
 		auto Close() -> void;
 	private:
 		struct FState;

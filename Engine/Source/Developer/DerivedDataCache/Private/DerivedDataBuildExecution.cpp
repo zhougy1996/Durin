@@ -20,18 +20,17 @@ namespace Durin::DerivedData
 			default: return "execution";
 			}
 		}
-		auto Failure(FBuildError Error, EBuildSessionPhase Phase) -> FBuildCompletion
+		auto Failure(FBuildError Error, EBuildSessionPhase Phase) -> FBuildResult
 		{
-			if (Error.Category == EBuildErrorCategory::Cancelled) return {.Status = EBuildStatus::Cancelled};
 			Error.Phase = Phase;
 			Error.BoundDescription();
-			return {.Status = EBuildStatus::Failed, .Error = std::move(Error)};
+			return std::unexpected(std::move(Error));
 		}
 	}
 
 	auto ExecuteBuildRequest(const FBuildDefinition& Definition, const FBuildRegistrySnapshot& Registry,
 		const IBuildInputResolver& Resolver, const FBuildRequestPolicy& Policy, const FBuildCancellation& Cancel,
-		const FBuildCacheOperations& Cache, const FBuildRunObserver& Observer) -> FBuildCompletion
+		const FBuildCacheOperations& Cache, const FBuildRunObserver& Observer) -> FBuildResult
 	{
 		EBuildSessionPhase Phase = EBuildSessionPhase::Admission;
 		auto Enter = [&](EBuildSessionPhase Next) {
@@ -39,7 +38,9 @@ namespace Durin::DerivedData
 			if (Observer.OnPhase) Observer.OnPhase(Phase);
 			return !Cancel.IsCancelled();
 		};
-		auto Cancelled = [] { return FBuildCompletion{.Status = EBuildStatus::Cancelled}; };
+		auto Cancelled = [&] -> FBuildResult {
+			return std::unexpected(FBuildError{.Phase = Phase, .Category = EBuildErrorCategory::Cancelled});
+		};
 		try
 		{
 			if (!Enter(Phase)) return Cancelled();
@@ -100,7 +101,7 @@ namespace Durin::DerivedData
 							{
 								if (Observer.OnCacheHit) Observer.OnCacheHit();
 								if (Cancel.IsCancelled()) return Cancelled();
-								return {.Status = EBuildStatus::Succeeded, .Output = std::move(*Output)};
+								return std::move(*Output);
 							}
 							Issue({ECacheError::Corrupt, std::move(Valid.error().Description)});
 						}
@@ -178,7 +179,7 @@ namespace Durin::DerivedData
 				catch (const std::bad_alloc&) { if (!Cancel.IsCancelled()) Issue({ECacheError::StorageFailure, "Allocation"}); }
 			}
 			if (Cancel.IsCancelled()) return Cancelled();
-			return {.Status = EBuildStatus::Succeeded, .Output = std::move(*Output)};
+			return std::move(*Output);
 		}
 		catch (const std::bad_alloc&) { return Failure({.Category = EBuildErrorCategory::Unavailable, .Description = "Allocation"}, Phase); }
 	}

@@ -113,19 +113,18 @@ namespace Durin
 		Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
 		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (!Completion) return std::unexpected(FStaticMeshBuildFailure{Completion.error().Description, EStaticMeshBuildStage::Render});
-		if (Completion->Status == DerivedData::EBuildStatus::Cancelled || IsCancelled())
+		if (IsCancelled() || DerivedData::IsBuildCancelled(Completion))
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled());
-		if (Completion->Status != DerivedData::EBuildStatus::Succeeded || !Completion->Output)
+		if (!Completion)
 		{
-			const auto& Error = Completion->Error;
-			const auto Stage = Error && (Error->Phase == DerivedData::EBuildSessionPhase::Resolve
-				|| Error->Phase == DerivedData::EBuildSessionPhase::Describe || Error->Category == DerivedData::EBuildErrorCategory::InvalidInput)
-				? EStaticMeshBuildStage::Source : Error && Error->Category == DerivedData::EBuildErrorCategory::InvalidOutput
+			const auto& Error = Completion.error();
+			const auto Stage = (Error.Phase == DerivedData::EBuildSessionPhase::Resolve
+				|| Error.Phase == DerivedData::EBuildSessionPhase::Describe || Error.Category == DerivedData::EBuildErrorCategory::InvalidInput)
+				? EStaticMeshBuildStage::Source : Error.Category == DerivedData::EBuildErrorCategory::InvalidOutput
 				? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render;
-			return std::unexpected(FStaticMeshBuildFailure{Error ? Error->Description : "StaticMesh build returned no output.", Stage});
+			return std::unexpected(FStaticMeshBuildFailure{Error.Description, Stage});
 		}
-		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion->Output, IsCancelled);
+		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion, IsCancelled);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Reconciliation.MaterialSlots, **Product); !Metadata)

@@ -166,8 +166,9 @@ Persistence constructs a record, encodes it, optionally compresses it and writes
 it atomically through the existing backend. Each operation can fail without
 replacing the original valid output. Disabled writes skip all four operations.
 Cancellation is checked between phases and after persistence; cancellation in
-cached validation does not trigger rebuilding. Results distinguish success,
-failure and cancellation; execution-local observers receive cache diagnostics,
+cached validation does not trigger rebuilding. `FBuildResult` is an
+`std::expected` of shared output or `FBuildError`; cancellation uses the
+`Cancelled` error category. Execution-local observers receive cache diagnostics,
 not products. This synchronous entry owns no queued work, asynchronous callback
 or shutdown lifecycle.
 
@@ -183,9 +184,10 @@ terminal accounting or shutdown.
 
 A dispatcher must reject without invoking or retaining its work, or accept and
 execute it at most once. Dropping accepted work cancels it. An empty dispatcher
-executes inline. `ExecuteInline` always bypasses dispatch and drives the same
-execution core; already admitted owner workers use it to avoid queueing and
-waiting on a saturated pool. Sessions create no worker pool or publication loop.
+executes inline. `ExecuteInline` returns one `FBuildResult`, including admission
+errors, and always bypasses dispatch to drive the same execution core. Already
+admitted owner workers use it to avoid queueing and waiting on a saturated pool.
+Sessions create no worker pool or publication loop.
 
 `Close` stops admission and cancels pending/running work. `Drain` also closes,
 then waits for terminal callbacks, dispatch return and release of callable owners.

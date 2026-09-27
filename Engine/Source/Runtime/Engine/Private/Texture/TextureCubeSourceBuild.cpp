@@ -50,18 +50,19 @@ namespace Durin
 		Options.Observer.OnAction = [&](const auto& Action) { Key = FCacheKeyProxy(Action.GetKey()); };
 		Options.Observer.OnCacheHit = [&] { Hit = true; };
 		auto Built = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Built.error().Description});
-		if (Built->Status == DerivedData::EBuildStatus::Cancelled)
+		if (DerivedData::IsBuildCancelled(Built))
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
-		if (Built->Status != DerivedData::EBuildStatus::Succeeded || !Built->Output)
+		if (!Built)
 		{
-			const auto* Error = Built->Error ? &*Built->Error : nullptr;
+			const auto& Error = Built.error();
+			if (Error.Phase == DerivedData::EBuildSessionPhase::Admission || Error.Phase == DerivedData::EBuildSessionPhase::Dispatch)
+				return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Error.Description});
 			return std::unexpected(FTextureBuildError{
-				Error && Error->Category == DerivedData::EBuildErrorCategory::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
-				Error && Error->Phase <= DerivedData::EBuildSessionPhase::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
-				Error ? Error->Description : "TextureCube build was cancelled."});
+				Error.Category == DerivedData::EBuildErrorCategory::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
+				Error.Phase <= DerivedData::EBuildSessionPhase::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
+				Error.Description});
 		}
-		auto Product = AssembleTextureCubeSharedOutput(*Built->Output, Platform, Profile);
+		auto Product = AssembleTextureCubeSharedOutput(*Built, Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
 		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = std::move(Key),
 			.Origin = Hit ? ETextureCubeBuildProductOrigin::CacheHit : ETextureCubeBuildProductOrigin::Rebuilt};

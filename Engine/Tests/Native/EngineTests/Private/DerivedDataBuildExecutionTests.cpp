@@ -90,7 +90,7 @@ namespace
 			Observer.OnCacheHit = [&] { ++Hits; };
 			Observer.OnPhase = [&](auto Phase) { ++Phases[static_cast<size_t>(Phase)]; };
 		}
-		auto Run() -> FBuildCompletion { return ExecuteBuildRequest(Definition, Registry, Resolver, Policy, FBuildCancellation([&] { return Cancel; }), Cache, Observer); }
+		auto Run() -> FBuildResult { return ExecuteBuildRequest(Definition, Registry, Resolver, Policy, FBuildCancellation([&] { return Cancel; }), Cache, Observer); }
 	};
 }
 
@@ -99,7 +99,7 @@ TEST(FBuildExecutionTests, DefaultDiagnosticsKeepStageKeyAndBoundedCauseWithoutL
 	FHarness H;
 	H.Observer.OnCacheIssue = {};
 	FCacheLogCapture Capture;
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	EXPECT_TRUE(Capture.empty());
 	const auto Key = H.StoredKey.ToString();
 	H.Policy.ForceRebuild = true;
@@ -107,7 +107,7 @@ TEST(FBuildExecutionTests, DefaultDiagnosticsKeepStageKeyAndBoundedCauseWithoutL
 		return std::unexpected(FCacheError{ECacheError::StorageFailure,
 			"specific encoder failure " + std::string(5000, 'x')});
 	};
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	ASSERT_EQ(Capture.size(), 1u);
 	const auto Record = Capture.front();
 	EXPECT_NE(Record.Message.find("cache encode"), std::string::npos);
@@ -119,18 +119,18 @@ TEST(FBuildExecutionTests, DefaultDiagnosticsKeepStageKeyAndBoundedCauseWithoutL
 TEST(FBuildExecutionTests, ColdWarmAndDisabledWritesRetainBlocksAndSkipWork)
 {
 	FHarness H; H.Policy.Compress = true;
-	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded);
-	EXPECT_EQ(Cold.Output->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
+	auto Cold = H.Run(); ASSERT_TRUE(Cold);
+	EXPECT_EQ(Cold->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
 	ASSERT_EQ(H.Puts, 1u); EXPECT_EQ(H.Issues, 0u);
-	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded);
+	auto Warm = H.Run(); ASSERT_TRUE(Warm);
 	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Resolver.Describes, 2u); EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Function->Builds, 1u);
 	H.Policy.ForceRebuild = true; H.Policy.WriteCache = false;
 	H.Phases.fill(0);
-	auto NoWrite = H.Run(); ASSERT_EQ(NoWrite.Status, EBuildStatus::Succeeded);
+	auto NoWrite = H.Run(); ASSERT_TRUE(NoWrite);
 	EXPECT_EQ(H.Gets, 2u); EXPECT_EQ(H.Puts, 1u);
 	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
 		EXPECT_EQ(H.Phases[static_cast<size_t>(Phase)], 0u);
-	EXPECT_EQ(NoWrite.Output->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
+	EXPECT_EQ(NoWrite->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
 }
 
 TEST(FBuildExecutionTests, EachOptionalPersistenceFailurePreservesOutputAndStopsLaterOperations)
@@ -143,8 +143,8 @@ TEST(FBuildExecutionTests, EachOptionalPersistenceFailurePreservesOutputAndStops
 		if (FailurePhase == EBuildSessionPhase::Encode) H.Cache.Encode = [&](const auto&, auto) -> FCacheGetResult { return Error(); };
 		if (FailurePhase == EBuildSessionPhase::Compress) H.Cache.Compress = [&](const auto&, auto) -> FCacheGetResult { return Error(); };
 		if (FailurePhase == EBuildSessionPhase::Store) H.Cache.Put = [&](const auto&) -> FCachePutResult { return Error(); };
-		auto Result = H.Run(); ASSERT_EQ(Result.Status, EBuildStatus::Succeeded);
-		EXPECT_EQ(Result.Output->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
+		auto Result = H.Run(); ASSERT_TRUE(Result);
+		EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
 		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 1u);
 		for (size_t Index = static_cast<size_t>(FailurePhase) + 1; Index <= static_cast<size_t>(EBuildSessionPhase::Store); ++Index)
 			EXPECT_EQ(H.Phases[Index], 0u);
@@ -155,27 +155,26 @@ TEST(FBuildExecutionTests, CorruptAndSemanticallyInvalidCacheRebuildOnlyOnce)
 {
 	for (bool Semantic : {false, true})
 	{
-		FHarness H; ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+		FHarness H; ASSERT_TRUE(H.Run());
 		if (Semantic)
 		{
 			auto Wrong = FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1, .Values = {{"Other", H.Resolver.Bytes}}});
 			H.Stored = FCacheRecord::FromOutput(H.StoredKey, *Wrong)->Encode().value();
 		}
 		else H.Stored = FSharedByteBuffer::Take(FByteBuffer(32));
-		auto Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Succeeded);
+		auto Result = H.Run(); EXPECT_TRUE(Result);
 		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 2u); EXPECT_EQ(H.Resolver.Resolves, 2u);
 		H.Function->Reject = true;
-		Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Failed);
-		EXPECT_FALSE(Result.Output); EXPECT_EQ(H.Function->Builds, 3u); EXPECT_EQ(H.Puts, 2u);
+		Result = H.Run(); EXPECT_FALSE(Result);
+		EXPECT_EQ(H.Function->Builds, 3u); EXPECT_EQ(H.Puts, 2u);
 	}
 }
 
 TEST(FBuildExecutionTests, CancellationDuringCachedValidationNeverResolvesOrRebuilds)
 {
-	FHarness H; ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	FHarness H; ASSERT_TRUE(H.Run());
 	H.Function->CancelDuringValidation = &H.Cancel;
-	auto Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Cancelled);
-	EXPECT_FALSE(Result.Output); EXPECT_FALSE(Result.Error);
+	auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result));
 	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Issues, 0u);
 }
 
@@ -184,9 +183,9 @@ TEST(FBuildExecutionTests, CancellationAfterWriteDoesNotPublishOutput)
 	FHarness H;
 	auto Put = H.Cache.Put;
 	H.Cache.Put = [&](const auto& Request) { auto Result = Put(Request); H.Cancel = true; return Result; };
-	auto Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); EXPECT_FALSE(Result.Output);
+	auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result));
 	EXPECT_EQ(H.Puts, 1u);
-	H.Cancel = false; Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Succeeded); EXPECT_EQ(H.Hits, 1u);
+	H.Cancel = false; Result = H.Run(); EXPECT_TRUE(Result); EXPECT_EQ(H.Hits, 1u);
 }
 
 TEST(FBuildExecutionTests, ResolutionFreshValidationAndProducerFailuresNeverPersist)
@@ -196,14 +195,14 @@ TEST(FBuildExecutionTests, ResolutionFreshValidationAndProducerFailuresNeverPers
 		FHarness H;
 		H.Resolver.WrongIdentity = Kind == 0; H.Resolver.Fail = Kind == 1;
 		H.Function->Reject = Kind == 2; H.Function->FailBuild = Kind == 3;
-		auto Result = H.Run(); ASSERT_EQ(Result.Status, EBuildStatus::Failed); ASSERT_TRUE(Result.Error);
-		EXPECT_FALSE(Result.Output); EXPECT_EQ(H.Puts, 0u);
+		auto Result = H.Run(); ASSERT_FALSE(Result);
+		EXPECT_EQ(H.Puts, 0u);
 		EXPECT_EQ(H.Phases[static_cast<size_t>(EBuildSessionPhase::Record)], 0u);
 		if (Kind < 2) EXPECT_EQ(H.Function->Builds, 0u);
 		if (Kind == 3)
 		{
-			EXPECT_EQ(Result.Error->ProducerCode, 17u); EXPECT_EQ(Result.Error->Description.size(), 4096u);
-			EXPECT_EQ(Result.Error->DiagnosticIdentity, FXxHash128::HashBuffer("cause"));
+			EXPECT_EQ(Result.error().ProducerCode, 17u); EXPECT_EQ(Result.error().Description.size(), 4096u);
+			EXPECT_EQ(Result.error().DiagnosticIdentity, FXxHash128::HashBuffer("cause"));
 		}
 	}
 }
@@ -215,25 +214,25 @@ TEST(FBuildExecutionTests, EveryColdPhaseHonorsCancellationBeforeInvokingItsOper
 		if (Index == static_cast<size_t>(EBuildSessionPhase::Decode)) continue; // Exercised on the warm path below.
 		FHarness H; H.Policy.Compress = true;
 		H.Observer.OnPhase = [&](auto Phase) { if (static_cast<size_t>(Phase) == Index) H.Cancel = true; };
-		auto Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Cancelled) << Index;
-		EXPECT_FALSE(Result.Output); EXPECT_EQ(H.Puts, 0u); EXPECT_EQ(H.Issues, 0u);
+		auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result)) << Index;
+		EXPECT_EQ(H.Puts, 0u); EXPECT_EQ(H.Issues, 0u);
 	}
-	FHarness H; ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	FHarness H; ASSERT_TRUE(H.Run());
 	H.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Decode) H.Cancel = true; };
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Cancelled);
+	EXPECT_TRUE(IsBuildCancelled(H.Run()));
 	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u);
 }
 
 TEST(FBuildExecutionTests, InputOutputAndPersistenceBudgetsHaveDifferentFailureBoundaries)
 {
 	FHarness Input; Input.Policy.InputLimits.MaximumTotalBytes = 1;
-	EXPECT_EQ(Input.Run().Status, EBuildStatus::Failed); EXPECT_EQ(Input.Function->Builds, 0u);
+	EXPECT_FALSE(Input.Run()); EXPECT_EQ(Input.Function->Builds, 0u);
 	FHarness Output; Output.Policy.OutputLimits.MaximumTotalBytes = 1;
-	EXPECT_EQ(Output.Run().Status, EBuildStatus::Failed); EXPECT_EQ(Output.Function->Builds, 1u); EXPECT_EQ(Output.Puts, 0u);
+	EXPECT_FALSE(Output.Run()); EXPECT_EQ(Output.Function->Builds, 1u); EXPECT_EQ(Output.Puts, 0u);
 	FHarness Persistence; Persistence.Policy.PersistenceLimits.MaximumTotalBytes = 1;
-	auto Result = Persistence.Run(); ASSERT_EQ(Result.Status, EBuildStatus::Succeeded);
+	auto Result = Persistence.Run(); ASSERT_TRUE(Result);
 	EXPECT_EQ(Persistence.Issues, 1u); EXPECT_EQ(Persistence.Puts, 0u);
-	EXPECT_EQ(Result.Output->FindValue("Data")->Data.data(), Persistence.Resolver.Bytes.data());
+	EXPECT_EQ(Result->FindValue("Data")->Data.data(), Persistence.Resolver.Bytes.data());
 }
 
 TEST(FBuildExecutionTests, ReadFailuresRebuildAndPersistenceAllocationFailurePreservesOutput)
@@ -242,9 +241,9 @@ TEST(FBuildExecutionTests, ReadFailuresRebuildAndPersistenceAllocationFailurePre
 	H.Cache.Get = [](const auto&) -> FCacheGetResult { return std::unexpected(FCacheError{ECacheError::StorageFailure, "read failure"}); };
 	H.Cache.Encode = [](const auto&, auto) -> FCacheGetResult { throw std::bad_alloc(); };
 	H.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++H.Issues; throw std::bad_alloc(); };
-	auto Result = H.Run(); ASSERT_EQ(Result.Status, EBuildStatus::Succeeded);
+	auto Result = H.Run(); ASSERT_TRUE(Result);
 	EXPECT_EQ(H.Issues, 2u); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Puts, 0u);
-	EXPECT_EQ(Result.Output->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
+	EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
 }
 
 TEST(FBuildExecutionTests, RealFileSystemFailureStillReturnsTheRecipeAllocation)
@@ -257,27 +256,27 @@ TEST(FBuildExecutionTests, RealFileSystemFailureStillReturnsTheRecipeAllocation)
 	} Scope;
 	FPaths::SetDerivedDataCacheDirForTests(Scope.Root.generic_string());
 	FHarness H; H.Cache = {};
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
+	ASSERT_TRUE(H.Run());
 	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u);
 	const auto Blocker = Scope.Root / "blocked";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(H.Resolver.Bytes.GetBytes(), Blocker));
 	FPaths::SetDerivedDataCacheDirForTests((Blocker / "cache").generic_string());
 	H.Policy.ForceRebuild = true;
-	auto Result = H.Run(); ASSERT_EQ(Result.Status, EBuildStatus::Succeeded);
+	auto Result = H.Run(); ASSERT_TRUE(Result);
 	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 2u);
-	EXPECT_EQ(Result.Output->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
+	EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
 }
 
 TEST(FBuildExecutionTests, WarmMetadataDoesNotRequireReadableSourceButMissRejectsChangedContent)
 {
-	FHarness H; ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	FHarness H; ASSERT_TRUE(H.Run());
 	H.Resolver.Bytes = {};
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	EXPECT_TRUE(H.Run());
 	EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Hits, 1u);
 	H.Policy.ForceRebuild = true;
-	auto Result = H.Run(); EXPECT_EQ(Result.Status, EBuildStatus::Failed);
-	EXPECT_EQ(Result.Error->Phase, EBuildSessionPhase::Resolve);
+	auto Result = H.Run(); EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.error().Phase, EBuildSessionPhase::Resolve);
 	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Puts, 1u);
 }
 
@@ -287,11 +286,11 @@ TEST(FDerivedDataBuildExecutionTests, ExecutionReservationReachesFunctionWithout
 	FHarness H;
 	H.Policy.ForceRebuild = true;
 	H.Policy.MaximumWorkingSetBytes = 1024;
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	EXPECT_EQ(H.Function->Budget, 1024u);
 	const auto Key = H.StoredKey;
 	H.Policy.MaximumWorkingSetBytes = 8192;
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	EXPECT_EQ(H.Function->Budget, 8192u);
 	EXPECT_EQ(H.StoredKey, Key);
 }
@@ -301,22 +300,22 @@ TEST(FBuildExecutionTests, LargeInputTablesRequireExplicitAdmissionAndKeepOutput
 	FHarness H; H.Policy.ReadCache = false; H.Policy.WriteCache = false; H.Function->CollapseInput = true;
 	for (uint32 Index = 0; Index < 65536; ++Index)
 		H.Resolver.ExtraValues.push_back({"File/" + std::to_string(Index), FSharedByteBuffer{}});
-	auto Rejected = H.Run(); EXPECT_EQ(Rejected.Status, EBuildStatus::Failed); EXPECT_EQ(H.Function->Builds, 0u);
+	auto Rejected = H.Run(); EXPECT_FALSE(Rejected); EXPECT_EQ(H.Function->Builds, 0u);
 	H.Policy.InputLimits.MaximumValues = 65537;
-	auto Accepted = H.Run(); ASSERT_EQ(Accepted.Status, EBuildStatus::Succeeded);
-	EXPECT_EQ(H.Function->InputValues, 65537u); EXPECT_EQ(Accepted.Output->GetValues().size(), 1u);
+	auto Accepted = H.Run(); ASSERT_TRUE(Accepted);
+	EXPECT_EQ(H.Function->InputValues, 65537u); EXPECT_EQ(Accepted->GetValues().size(), 1u);
 	EXPECT_FALSE(FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1, .Values = H.Resolver.ExtraValues},
 		{.MaximumValues = FBuildInput::MaximumValues}));
 	H.Resolver.ExtraValues[0].Id = "Data";
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Failed); EXPECT_EQ(H.Function->Builds, 1u);
+	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
 	H.Resolver.ExtraValues[0].Id = "invalid id";
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Failed); EXPECT_EQ(H.Function->Builds, 1u);
+	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
 	H.Resolver.ExtraValues[0].Id = "File/0";
 	H.Policy.InputLimits.MaximumTotalBytes = H.Resolver.Bytes.size() - 1;
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Failed); EXPECT_EQ(H.Function->Builds, 1u);
+	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
 	H.Policy.InputLimits.MaximumTotalBytes = 8192;
 	H.Policy.InputLimits.MaximumValues = FBuildInput::MaximumValues + 1;
 	while (H.Resolver.ExtraValues.size() < FBuildInput::MaximumValues)
 		H.Resolver.ExtraValues.push_back({"More/" + std::to_string(H.Resolver.ExtraValues.size()), {}});
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Failed); EXPECT_EQ(H.Function->Builds, 1u);
+	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
 }

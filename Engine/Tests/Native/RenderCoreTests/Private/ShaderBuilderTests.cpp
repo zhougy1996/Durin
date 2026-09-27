@@ -1105,7 +1105,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 					++Captures; return std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>(CompileOptions.SourceArtifacts);
 				}).value();
 			}
-			auto Run() -> DerivedData::FBuildCompletion { return Service->Execute(Request(), Execution).value(); }
+			auto Run() -> DerivedData::FBuildResult { return Service->Execute(Request(), Execution); }
 		};
 	}
 
@@ -1113,16 +1113,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 	{
 		using namespace DerivedData;
 		FShaderSessionHarness H;
-		auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
-		auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+		auto Cold = H.Run(); ASSERT_TRUE(Cold);
+		auto Warm = H.Run(); ASSERT_TRUE(Warm);
 		EXPECT_EQ(H.Captures, 1u); EXPECT_EQ(H.Compiles, 1u); EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Puts, 1u);
-		auto Product = ShaderSharedOutput::Assemble(H.CompileOptions, *Warm.Output); ASSERT_TRUE(Product);
-		EXPECT_EQ(Product->CompiledShaders[0].Code->data(), Warm.Output->FindValue("Entry/0/Code")->Data.data());
-		FBuildOutputData Bad{.Schema = "Shader.Output", .SchemaVersion = 1, .Metadata = Warm.Output->GetMetadata(),
-			.Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+		auto Product = ShaderSharedOutput::Assemble(H.CompileOptions, *Warm); ASSERT_TRUE(Product);
+		EXPECT_EQ(Product->CompiledShaders[0].Code->data(), Warm->FindValue("Entry/0/Code")->Data.data());
+		FBuildOutputData Bad{.Schema = "Shader.Output", .SchemaVersion = 1, .Metadata = Warm->GetMetadata(),
+			.Values = {Warm->GetValues().begin(), Warm->GetValues().end()}};
 		for (auto& Value : Bad.Values) if (Value.Id == "Entry/0/Reflection") Value.Data = FSharedByteBuffer{};
 		H.Stored = FCacheRecord::FromOutput(H.Key, FBuildOutput::TryCreate(std::move(Bad)).value())->Encode().value();
-		auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded);
+		auto Rebuilt = H.Run(); ASSERT_TRUE(Rebuilt);
 		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Captures, 2u); EXPECT_EQ(H.Compiles, 2u); EXPECT_EQ(H.Puts, 2u);
 		Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Service.reset();
 		EXPECT_EQ(FXxHash128::HashBuffer(*Product->CompiledShaders[0].Code), Product->CompiledShaders[0].Hash);
@@ -1135,16 +1135,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 		H.Execution.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
 			return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
 		};
-		EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded); EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
+		EXPECT_TRUE(H.Run()); EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
 		H.Execution.Policy.WriteCache = false; H.Phases.clear();
-		EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+		EXPECT_TRUE(H.Run());
 		for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
 			EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
 		H.Execution.Cache.MakeRecord = {}; H.Execution.Policy.WriteCache = true;
-		ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+		ASSERT_TRUE(H.Run());
 		const auto Captures = H.Captures; const auto Compiles = H.Compiles;
 		H.Execution.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
-		auto Cancelled = H.Run(); EXPECT_EQ(Cancelled.Status, EBuildStatus::Cancelled); EXPECT_FALSE(Cancelled.Output);
+		auto Cancelled = H.Run(); EXPECT_TRUE(IsBuildCancelled(Cancelled));
 		EXPECT_EQ(H.Captures, Captures); EXPECT_EQ(H.Compiles, Compiles); EXPECT_EQ(H.Issues, 1u);
 	}
 
@@ -1153,16 +1153,16 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 		using namespace DerivedData;
 		FShaderSessionHarness H;
 		auto Forged = H.Service->Execute(H.Request(H.Source + "\n// changed bytes"), H.Execution);
-		ASSERT_TRUE(Forged); ASSERT_TRUE(Forged->Error); EXPECT_EQ(Forged->Status, EBuildStatus::Failed);
-		EXPECT_EQ(ShaderSessionError(*Forged->Error).Code, EShaderError::DependencyContentConflict);
+		ASSERT_FALSE(Forged);
+		EXPECT_EQ(ShaderSessionError(Forged.error()).Code, EShaderError::DependencyContentConflict);
 		EXPECT_EQ(H.Compiles, 0u); EXPECT_EQ(H.Puts, 0u);
 		H.Source = "invalid shader source";
-		auto Failed = H.Run(); ASSERT_TRUE(Failed.Error); EXPECT_EQ(Failed.Status, EBuildStatus::Failed);
-		const auto Converted = ShaderSessionError(*Failed.Error);
+		auto Failed = H.Run(); ASSERT_FALSE(Failed);
+		const auto Converted = ShaderSessionError(Failed.error());
 		EXPECT_EQ(Converted.Code, EShaderError::SlangFailure);
-		EXPECT_EQ(FormatShaderError(Converted), Failed.Error->Description);
-		ASSERT_TRUE(Failed.Error->DiagnosticIdentity);
-		EXPECT_EQ(Converted.GetSemanticFingerprint(), Failed.Error->DiagnosticIdentity->HashLow);
+		EXPECT_EQ(FormatShaderError(Converted), Failed.error().Description);
+		ASSERT_TRUE(Failed.error().DiagnosticIdentity);
+		EXPECT_EQ(Converted.GetSemanticFingerprint(), Failed.error().DiagnosticIdentity->HashLow);
 	}
 
 	TEST_F(FShaderBuilderTests, SharedSessionShutdownCancelsAndDrainsCompilerBeforeRelease)
@@ -1178,7 +1178,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 		auto Shutdown = std::async(std::launch::async, [&] { H.Service->Close(); });
 		EXPECT_EQ(Shutdown.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
 		Release.set_value(); Shutdown.get();
-		auto Result = Work.get(); ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EBuildStatus::Cancelled); EXPECT_FALSE(Result->Output);
+		auto Result = Work.get(); EXPECT_TRUE(IsBuildCancelled(Result));
 		EXPECT_EQ(H.Puts, 0u);
 		auto Rejected = H.Service->Execute(H.Request(), H.Execution); ASSERT_FALSE(Rejected);
 		EXPECT_EQ(ShaderSessionError(Rejected.error()).Code, EShaderError::Cancelled);
@@ -1220,8 +1220,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 		auto Definition = FBuildDefinition::TryCreate(std::string(Same.Definition.GetFunctionName()), std::move(Malformed),
 			{Same.Definition.GetSources().begin(), Same.Definition.GetSources().end()}); ASSERT_TRUE(Definition);
 		Same.Definition = std::move(*Definition);
-		auto Failed = H.Service->Execute(std::move(Same), H.Execution); ASSERT_TRUE(Failed);
-		EXPECT_EQ(Failed->Status, EBuildStatus::Failed); EXPECT_EQ(H.Compiles, 0u); EXPECT_FALSE(Failed->Output);
+		auto Failed = H.Service->Execute(std::move(Same), H.Execution);
+		EXPECT_FALSE(Failed); EXPECT_EQ(H.Compiles, 0u);
 	}
 	TEST_F(FShaderBuilderTests, SharedSessionAcceptsFullFileCountAndLargeDescriptorTable)
 	{
@@ -1260,14 +1260,13 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 			EXPECT_EQ((*Inputs)[0].Values[0].Data.data(), Contents.data());
 		}
 		H.Execution.Policy.WriteCache = false;
-		auto Rejected = H.Service->Execute(Request(), H.Execution); ASSERT_TRUE(Rejected);
-		ASSERT_TRUE(Rejected->Error); EXPECT_EQ(Rejected->Error->Phase, EBuildSessionPhase::Resolve); EXPECT_EQ(H.Compiles, 0u);
+		auto Rejected = H.Service->Execute(Request(), H.Execution); ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error().Phase, EBuildSessionPhase::Resolve); EXPECT_EQ(H.Compiles, 0u);
 		H.Execution.Policy.InputLimits.MaximumValues = Count + 2;
 		H.Execution.Policy.InputLimits.MaximumTotalBytes = 800ull * 1024 * 1024;
 		auto Accepted = H.Service->Execute(Request(), H.Execution); ASSERT_TRUE(Accepted);
-		ASSERT_EQ(Accepted->Status, EBuildStatus::Succeeded) << (Accepted->Error ? Accepted->Error->Description : "");
-		EXPECT_EQ(H.Compiles, 1u); ASSERT_TRUE(Accepted->Output);
-		EXPECT_TRUE(ShaderSharedOutput::Assemble(H.CompileOptions, *Accepted->Output));
+		EXPECT_EQ(H.Compiles, 1u);
+		EXPECT_TRUE(ShaderSharedOutput::Assemble(H.CompileOptions, *Accepted));
 	}
 
 } // namespace Durin

@@ -47,10 +47,10 @@ TEST(FBuildSessionTests, InlineCompletionReentersWithoutLocksAndSelfDrainIsExpli
 	FFixture Fixture;
 	FBuildSession Session(Fixture.Registry(), Fixture.Resolver);
 	uint32 Calls = 0;
-	auto Request = Session.Submit(Definition(), [&](FBuildCompletion Result) {
-		++Calls; EXPECT_EQ(Result.Status, EBuildStatus::Succeeded);
+	auto Request = Session.Submit(Definition(), [&](FBuildResult Result) {
+		++Calls; EXPECT_TRUE(Result);
 		auto Nested = Session.ExecuteInline(Definition(), Options());
-		ASSERT_TRUE(Nested); EXPECT_EQ(Nested->Status, EBuildStatus::Succeeded);
+		ASSERT_TRUE(Nested);
 		EXPECT_EQ(Session.Drain(), EBuildDrainResult::WouldBlock);
 	}, Options());
 	ASSERT_TRUE(Request); EXPECT_TRUE(Request->IsComplete()); EXPECT_EQ(Calls, 1u);
@@ -71,7 +71,7 @@ TEST(FBuildSessionTests, RejectedDispatchNeverCallsCompletionAndDroppedAcceptedW
 			return {};
 		});
 		uint32 Calls = 0;
-		auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); }, Options());
+		auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_TRUE(IsBuildCancelled(Result)); }, Options());
 		EXPECT_EQ(Request.has_value(), Mode == 2); EXPECT_EQ(Calls, Mode == 2 ? 1u : 0u);
 		EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);
 		EXPECT_EQ(Fixture.Function->Builds.load(), 0u);
@@ -87,7 +87,7 @@ TEST(FBuildSessionTests, CancelledQueuedHandlesAndStaleThunksDoNotRetainProvider
 	FBuildSession Session(Fixture.Registry(), Fixture.Resolver, [&](auto Work) -> std::expected<void, FBuildError> { Queued = std::move(Work); return {}; });
 	Fixture.Function.reset(); Fixture.Resolver.reset();
 	uint32 Calls = 0;
-	auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); }, Options());
+	auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_TRUE(IsBuildCancelled(Result)); }, Options());
 	ASSERT_TRUE(Request); EXPECT_FALSE(Request->IsComplete()); EXPECT_TRUE(Request->Cancel());
 	EXPECT_TRUE(Request->IsComplete()); EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);
@@ -104,14 +104,14 @@ TEST(FBuildSessionTests, CancellationAndRunnerRaceHasExactlyOneTerminalCallback)
 	for (uint32 Round = 0; Round < 100; ++Round)
 	{
 		std::atomic<uint32> Calls = 0;
-		std::atomic<EBuildStatus> Status = EBuildStatus::Failed;
-		auto Request = Session.Submit(Definition(), [&](auto Result) { Status = Result.Status; ++Calls; }, Options());
+		std::atomic<bool> WasCancelled = false;
+		auto Request = Session.Submit(Definition(), [&](auto Result) { WasCancelled = IsBuildCancelled(Result); ++Calls; }, Options());
 		ASSERT_TRUE(Request);
 		std::barrier Start(2);
 		std::jthread Worker([&] { Start.arrive_and_wait(); Queued(); });
 		Start.arrive_and_wait(); const bool AcceptedCancel = Request->Cancel(); Worker.join();
 		EXPECT_TRUE(Request->IsComplete()); EXPECT_EQ(Calls.load(), 1u);
-		EXPECT_EQ(Status.load(), AcceptedCancel ? EBuildStatus::Cancelled : EBuildStatus::Succeeded);
+		EXPECT_EQ(WasCancelled.load(), AcceptedCancel);
 		Queued = {};
 	}
 	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);
@@ -125,7 +125,7 @@ TEST(FBuildSessionTests, RunningCloseDrainsCallbacksBeforeReleasingServices)
 	std::function<void()> Queued;
 	FBuildSession Session(Fixture.Registry(), Fixture.Resolver, [&](auto Work) -> std::expected<void, FBuildError> { Queued = std::move(Work); return {}; });
 	auto Request = Session.Submit(Definition(), [&](auto Result) {
-		EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); CallbackFinished.Trigger();
+		EXPECT_TRUE(IsBuildCancelled(Result)); CallbackFinished.Trigger();
 	}, Options());
 	ASSERT_TRUE(Request);
 	std::jthread Worker([&] { Queued(); });
@@ -149,9 +149,9 @@ TEST(FBuildSessionTests, OneCoreWorkerExecutesNestedInlineBuildWithoutQueueing)
 		++Dispatches; Tasks.push_back(Durin::Tasks::LaunchTask("BuildSessionFixture", std::move(Work))); return {};
 	});
 	auto Request = Session.Submit(Definition(), [&](auto Result) {
-		EXPECT_EQ(Result.Status, EBuildStatus::Succeeded);
+		EXPECT_TRUE(Result);
 		auto Nested = Session.ExecuteInline(Definition(), Options());
-		EXPECT_TRUE(Nested); if (Nested) EXPECT_EQ(Nested->Status, EBuildStatus::Succeeded);
+		EXPECT_TRUE(Nested);
 		Finished.Trigger();
 	}, Options());
 	ASSERT_TRUE(Request); ASSERT_TRUE(Finished.WaitFor(2.0));
@@ -180,7 +180,7 @@ TEST(FBuildSessionTests, CloseWaitsForDispatchReturnBeforeReleasingTheRegistry)
 	Fixture.Function.reset(); Fixture.Resolver.reset();
 	std::atomic<uint32> Calls = 0;
 	std::jthread Submitter([&] {
-		auto Request = Session.Submit(Definition(), [&](auto Result) { EXPECT_EQ(Result.Status, EBuildStatus::Succeeded); ++Calls; }, Options());
+		auto Request = Session.Submit(Definition(), [&](auto Result) { EXPECT_TRUE(Result); ++Calls; }, Options());
 		EXPECT_TRUE(Request); if (Request) EXPECT_TRUE(Request->IsComplete());
 	});
 	ASSERT_TRUE(Invoked.WaitFor(2.0)); Session.Close();
@@ -201,7 +201,7 @@ TEST(FBuildSessionTests, CloseRacingAdmissionEitherRejectsOrCancelsExactlyOnce)
 		bool Accepted = false;
 		std::jthread Submitter([&] {
 			Start.arrive_and_wait();
-			auto Request = Session.Submit(Definition(), [&](auto Result) { EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); ++Calls; }, Options());
+			auto Request = Session.Submit(Definition(), [&](auto Result) { EXPECT_TRUE(IsBuildCancelled(Result)); ++Calls; }, Options());
 			Accepted = Request.has_value();
 		});
 		Start.arrive_and_wait(); Session.Close(); Submitter.join();
@@ -218,19 +218,19 @@ TEST(FBuildSessionTests, CloseCancelsAllQueuedRequestsAndOutputOutlivesDrainedSe
 	std::vector<std::function<void()>> Queue;
 	FBuildSession Session(Fixture.Registry(), Fixture.Resolver, [&](auto Work) -> std::expected<void, FBuildError> { Queue.push_back(std::move(Work)); return {}; });
 	auto Output = Session.ExecuteInline(Definition(), Options());
-	ASSERT_TRUE(Output); ASSERT_TRUE(Output->Output);
+	ASSERT_TRUE(Output);
 	uint32 Calls = 0;
 	std::vector<FBuildRequest> Requests;
 	for (uint32 Index = 0; Index < 16; ++Index)
 	{
-		auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_EQ(Result.Status, EBuildStatus::Cancelled); }, Options());
+		auto Request = Session.Submit(Definition(), [&](auto Result) { ++Calls; EXPECT_TRUE(IsBuildCancelled(Result)); }, Options());
 		ASSERT_TRUE(Request); Requests.push_back(*Request);
 	}
 	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained); EXPECT_EQ(Calls, 16u);
 	for (const auto& Request : Requests) EXPECT_TRUE(Request.IsComplete());
 	for (auto& Work : Queue) Work();
 	EXPECT_EQ(Calls, 16u); EXPECT_EQ(Fixture.Function->Builds.load(), 1u);
-	EXPECT_EQ(Output->Output->FindValue("Data")->Data[0], std::byte{7});
+	EXPECT_EQ(Output->FindValue("Data")->Data[0], std::byte{7});
 }
 
 TEST(FBuildSessionTests, AdmissionRejectionHasNoCallbackAndCallableExceptionsStillComplete)
@@ -246,7 +246,7 @@ TEST(FBuildSessionTests, AdmissionRejectionHasNoCallbackAndCallableExceptionsSti
 	EXPECT_EQ(Calls, 0u);
 	Fixture.Function->OnBuild = [] { throw std::runtime_error("recipe failure"); };
 	auto Request = Session.Submit(Definition(), [&](auto Result) {
-		++Calls; EXPECT_EQ(Result.Status, EBuildStatus::Failed); EXPECT_FALSE(Result.Output); EXPECT_TRUE(Result.Error);
+		++Calls; EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Category, EBuildErrorCategory::ProducerFailure);
 	}, Options());
 	ASSERT_TRUE(Request); EXPECT_TRUE(Request->IsComplete()); EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);

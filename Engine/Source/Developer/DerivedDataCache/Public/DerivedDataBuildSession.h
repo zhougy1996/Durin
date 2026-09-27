@@ -4,7 +4,7 @@
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildRequestState; struct FBuildSessionState; }
-	using FBuildCompletionCallback = std::function<void(FBuildCompletion)>;
+	using FBuildCompletionCallback = std::function<void(FBuildResult)>;
 	// Reject without invoking/retaining Work, or accept and run it at most once.
 	// Accepted work may run inline. Dropped accepted work completes as cancelled.
 	using FBuildDispatcher = std::function<std::expected<void, FBuildError>(std::function<void()> Work)>;
@@ -43,7 +43,7 @@ namespace Durin::DerivedData
 			FBuildRequestOptions Options = {}) -> std::expected<FBuildRequest, FBuildError>;
 		// Already-admitted workers call this without queueing another task.
 		DERIVEDDATACACHE_API auto ExecuteInline(FBuildDefinition Definition, FBuildRequestOptions Options = {})
-			-> std::expected<FBuildCompletion, FBuildError>;
+			-> FBuildResult;
 		DERIVEDDATACACHE_API auto Close() -> void;
 		DERIVEDDATACACHE_API auto Drain() -> EBuildDrainResult;
 	private:

@@ -745,13 +745,13 @@ TEST(FTexture2DSessionTests, RetainsResolvedBlocksAndReturnsOutputAcrossPersiste
 	Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Issues; };
 	Options.Observer.OnMetric = [&](auto, uint64) { ++Metrics; throw 7; };
 	auto Completion = Session.ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Completion); ASSERT_EQ(Completion->Status, EBuildStatus::Succeeded);
-	ASSERT_TRUE(Completion->Output);
+	ASSERT_TRUE(Completion);
+
 	EXPECT_EQ(Encodes, 1u); EXPECT_EQ(Issues, 1u); EXPECT_EQ(Metrics, 3u);
 	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);
-	auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Completion->Output, Request.TargetPlatform, Request.TargetProfile);
+	auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Completion, Request.TargetPlatform, Request.TargetProfile);
 	ASSERT_TRUE(Product);
-	EXPECT_EQ(Product->Mips[0].Pixels.GetBytes().data(), Completion->Output->FindValue("Mip/0")->Data.GetBytes().data());
+	EXPECT_EQ(Product->Mips[0].Pixels.GetBytes().data(), Completion->FindValue("Mip/0")->Data.GetBytes().data());
 	Completion = {};
 	EXPECT_TRUE(Product->IsValid());
 }
@@ -792,34 +792,34 @@ TEST(FTexture2DSessionTests, NoWriteSkipsPersistenceAndWarmRecordSkipsSourceReso
 	uint32 Persistence = 0;
 	Options.Observer.OnPhase = [&](auto Phase) { if (Phase >= EBuildSessionPhase::Record && Phase <= EBuildSessionPhase::Store) ++Persistence; };
 	auto Cold = Session.ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Cold); ASSERT_TRUE(Cold->Output);
+	ASSERT_TRUE(Cold);
 	EXPECT_EQ(Persistence, 0u); EXPECT_EQ(Resolver->Resolves, 1u);
 	auto Action = FBuildAction::TryCreate(Definition, Function->GetDescriptor(), Resolver->Describe(Definition.GetSources(), {}).value()).value();
-	auto Record = FCacheRecord::FromOutput(Action.GetKey(), *Cold->Output).value();
+	auto Record = FCacheRecord::FromOutput(Action.GetKey(), *Cold).value();
 	auto Bytes = Record.Encode().value();
 	Options.Policy.ReadCache = true;
 	Options.Cache.Get = [Bytes](const auto&) -> FCacheGetResult { return Bytes; };
 	Resolver->Unavailable = true;
 	auto Warm = Session.ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Warm); ASSERT_TRUE(Warm->Output);
+	ASSERT_TRUE(Warm);
 	EXPECT_EQ(Resolver->Resolves, 1u);
-	EXPECT_EQ(Warm->Output->FindValue("Mip/0")->Data.GetSize(), Cold->Output->FindValue("Mip/0")->Data.GetSize());
-	EXPECT_TRUE(Warm->Output->FindValue("Mip/0")->Data.SharesStorageWith(Bytes));
+	EXPECT_EQ(Warm->FindValue("Mip/0")->Data.GetSize(), Cold->FindValue("Mip/0")->Data.GetSize());
+	EXPECT_TRUE(Warm->FindValue("Mip/0")->Data.SharesStorageWith(Bytes));
 	// An intact record with an incomplete family value table must rebuild once.
 	auto InvalidOutput = FBuildOutput::TryCreate({.Schema = "Texture2D.Output", .SchemaVersion = 1,
-		.Metadata = Cold->Output->GetMetadata()}).value();
+		.Metadata = Cold->GetMetadata()}).value();
 	auto InvalidBytes = FCacheRecord::FromOutput(Action.GetKey(), InvalidOutput).value().Encode().value();
 	Options.Cache.Get = [InvalidBytes](const auto&) -> FCacheGetResult { return InvalidBytes; };
 	uint32 Rejections = 0;
 	Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Rejections; };
 	Resolver->Unavailable = false;
 	auto Rebuilt = Session.ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Rebuilt); EXPECT_EQ(Rebuilt->Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(Rebuilt);
 	EXPECT_EQ(Rejections, 1u); EXPECT_EQ(Resolver->Resolves, 2u);
 	Resolver->Unavailable = true;
 	Options.Policy.ForceRebuild = true;
 	auto Miss = Session.ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Miss); EXPECT_EQ(Miss->Status, EBuildStatus::Failed); EXPECT_EQ(Resolver->Resolves, 3u);
+	EXPECT_FALSE(Miss); EXPECT_EQ(Resolver->Resolves, 3u);
 }
 
 TEST(FTexture2DSessionTests, ServiceShutdownClosesRetainedSessionsBeforeExplicitRestart)
@@ -853,7 +853,7 @@ TEST(FTexture2DSessionTests, ServiceShutdownClosesRetainedSessionsBeforeExplicit
 	FBuildRequestOptions Options;
 	Options.Policy.ReadCache = false; Options.Policy.WriteCache = false;
 	auto Result = (*After)->ExecuteInline(Definition, Options);
-	ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(Result);
 	EXPECT_FALSE((*Before)->ExecuteInline(Definition));
 	AssetBuildPrivate::ReleaseSession(*After);
 }
@@ -978,31 +978,31 @@ TEST(FTexturePlatformSessionTests, CubeAndVolumeRecoverMalformedRecordsWithoutWa
 		Options.Observer.OnPhase = [&](auto Phase) { if (Phase >= EBuildSessionPhase::Record && Phase <= EBuildSessionPhase::Store) ++Persistence; };
 		Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Issues; };
 		auto Cold = Session.ExecuteInline(Definition, Options);
-		ASSERT_TRUE(Cold); ASSERT_TRUE(Cold->Output);
+		ASSERT_TRUE(Cold);
 		EXPECT_EQ(Persistence, 0u); EXPECT_EQ(Resolver->Reads, 1u);
 		auto Action = FBuildAction::TryCreate(Definition, Function->GetDescriptor(), Resolver->Describe(Definition.GetSources(), {}).value()).value();
-		auto Bytes = FCacheRecord::FromOutput(Action.GetKey(), *Cold->Output).value().Encode().value();
+		auto Bytes = FCacheRecord::FromOutput(Action.GetKey(), *Cold).value().Encode().value();
 		Options.Policy.ReadCache = true;
 		Options.Cache.Get = [Bytes](const auto&) -> FCacheGetResult { return Bytes; };
 		Resolver->Unavailable = true;
 		auto Warm = Session.ExecuteInline(Definition, Options);
-		ASSERT_TRUE(Warm); ASSERT_TRUE(Warm->Output);
+		ASSERT_TRUE(Warm);
 		EXPECT_EQ(Resolver->Reads, 1u);
 		const auto Id = Cube ? "Face/0/Mip/0" : "VoxelMip/0";
-		ASSERT_NE(Warm->Output->FindValue(Id), nullptr);
-		EXPECT_TRUE(Warm->Output->FindValue(Id)->Data.SharesStorageWith(Bytes));
+		ASSERT_NE(Warm->FindValue(Id), nullptr);
+		EXPECT_TRUE(Warm->FindValue(Id)->Data.SharesStorageWith(Bytes));
 		auto Invalid = FBuildOutput::TryCreate({.Schema = Cube ? "TextureCube.Output" : "VolumeTexture.Output", .SchemaVersion = 1,
-			.Metadata = Cold->Output->GetMetadata()}).value();
+			.Metadata = Cold->GetMetadata()}).value();
 		auto InvalidBytes = FCacheRecord::FromOutput(Action.GetKey(), Invalid).value().Encode().value();
 		Options.Cache.Get = [InvalidBytes](const auto&) -> FCacheGetResult { return InvalidBytes; };
 		Resolver->Unavailable = false;
 		auto Rebuilt = Session.ExecuteInline(Definition, Options);
-		ASSERT_TRUE(Rebuilt); EXPECT_EQ(Rebuilt->Status, EBuildStatus::Succeeded);
+		ASSERT_TRUE(Rebuilt);
 		EXPECT_EQ(Issues, 1u); EXPECT_EQ(Resolver->Reads, 2u);
 		Resolver->Unavailable = true;
 		Options.Policy.ForceRebuild = true;
 		auto Missing = Session.ExecuteInline(Definition, Options);
-		ASSERT_TRUE(Missing); EXPECT_EQ(Missing->Status, EBuildStatus::Failed);
+		EXPECT_FALSE(Missing);
 		EXPECT_EQ(Resolver->Reads, 3u);
 	}
 }

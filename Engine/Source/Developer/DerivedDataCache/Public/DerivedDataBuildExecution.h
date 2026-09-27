@@ -3,13 +3,10 @@
 
 namespace Durin::DerivedData
 {
-	enum class EBuildStatus : uint8 { Succeeded, Failed, Cancelled };
-	struct FBuildCompletion
+	inline auto IsBuildCancelled(const FBuildResult& Result) -> bool
 	{
-		EBuildStatus Status = EBuildStatus::Failed;
-		std::optional<FBuildOutput> Output;
-		std::optional<FBuildError> Error;
-	};
+		return !Result && Result.error().Category == EBuildErrorCategory::Cancelled;
+	}
 	struct FBuildRequestPolicy
 	{
 		bool ReadCache = true, WriteCache = true, ForceRebuild = false, Compress = false;
@@ -43,5 +40,5 @@ namespace Durin::DerivedData
 	DERIVEDDATACACHE_API auto ExecuteBuildRequest(const FBuildDefinition& Definition,
 		const FBuildRegistrySnapshot& Registry, const IBuildInputResolver& Resolver,
 		const FBuildRequestPolicy& Policy = {}, const FBuildCancellation& Cancel = {},
-		const FBuildCacheOperations& Cache = {}, const FBuildRunObserver& Observer = {}) -> FBuildCompletion;
+		const FBuildCacheOperations& Cache = {}, const FBuildRunObserver& Observer = {}) -> FBuildResult;
 }

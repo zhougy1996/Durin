@@ -28,6 +28,7 @@ namespace Durin::DerivedData
 			if (Description.size() > MaximumDescriptionBytes) Description.resize(MaximumDescriptionBytes);
 		}
 	};
+	using FBuildResult = std::expected<FBuildOutput, FBuildError>;
 
 	// The owning request supplies a thread-safe predicate. Functions only observe it.
 	class FBuildCancellation
@@ -97,7 +98,7 @@ namespace Durin::DerivedData
 		virtual ~IBuildFunction() = default;
 		// Queried once at explicit registration. Implementations retain their execution services.
 		virtual auto GetDescriptor() const -> FBuildFunctionDescriptor = 0;
-		virtual auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> = 0;
+		virtual auto Build(FBuildContext& Context) const -> FBuildResult = 0;
 		// Descriptor-only semantic validation; never resolve source or construct a product.
 		virtual auto Validate(const FBuildAction& Action, const FBuildOutput& Output,
 			const FBuildCancellation& Cancel) const -> std::expected<void, FBuildError> = 0;

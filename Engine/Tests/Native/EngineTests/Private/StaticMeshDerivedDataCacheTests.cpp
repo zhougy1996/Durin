@@ -3351,10 +3351,10 @@ namespace
 			Options.Observer.OnCacheIssue = [this](const auto&, auto, const auto&) { ++Issues; };
 			Options.Observer.OnPhase = [this](auto Phase) { Phases.push_back(Phase); };
 		}
-		auto Run() -> FBuildCompletion
+		auto Run() -> FBuildResult
 		{
 			FBuildSession Session(Registry, Resolver);
-			return Session.ExecuteInline(Definition, Options).value();
+			return Session.ExecuteInline(Definition, Options);
 		}
 	};
 }
@@ -3363,23 +3363,23 @@ TEST(FStaticMeshDerivedDataCacheTests, RenderSessionRetainsCapturedInputsAndRebu
 {
 	FRenderSessionHarness H;
 	EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 0u);
-	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+	auto Cold = H.Run(); ASSERT_TRUE(Cold);
 	EXPECT_EQ(H.Module.Builds, 1u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 1u);
 	EXPECT_EQ(H.Module.Budget, H.Options.Policy.MaximumWorkingSetBytes);
-	EXPECT_TRUE(Cold.Output->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
-	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+	EXPECT_TRUE(Cold->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
+	auto Warm = H.Run(); ASSERT_TRUE(Warm);
 	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Module.Builds, 1u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 1u);
-	EXPECT_FALSE(Warm.Output->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
-	FBuildOutputData Invalid{.Schema = std::string(Warm.Output->GetSchema()), .SchemaVersion = Warm.Output->GetSchemaVersion(),
-		.Metadata = Warm.Output->GetMetadata(), .Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+	EXPECT_FALSE(Warm->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
+	FBuildOutputData Invalid{.Schema = std::string(Warm->GetSchema()), .SchemaVersion = Warm->GetSchemaVersion(),
+		.Metadata = Warm->GetMetadata(), .Values = {Warm->GetValues().begin(), Warm->GetValues().end()}};
 	for (auto& Value : Invalid.Values) if (Value.Id == "LOD/0/Indices")
 		Value.Data = FSharedByteBuffer::TakeNative(std::vector<uint32>{0, 1, 999});
 	auto BadOutput = FBuildOutput::TryCreate(std::move(Invalid)); ASSERT_TRUE(BadOutput);
 	auto Record = FCacheRecord::FromOutput(H.Key, *BadOutput); ASSERT_TRUE(Record);
 	H.Stored = Record->Encode().value();
-	auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded);
+	auto Rebuilt = H.Run(); ASSERT_TRUE(Rebuilt);
 	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Module.Builds, 2u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 2u);
-	auto Product = StaticMeshPrivate::AssembleSharedOutput(*Rebuilt.Output); ASSERT_TRUE(Product);
+	auto Product = StaticMeshPrivate::AssembleSharedOutput(*Rebuilt); ASSERT_TRUE(Product);
 	Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Resolver.reset(); H.Registry = {};
 	EXPECT_TRUE(ValidateStaticMeshRenderData(**Product));
 }
@@ -3391,21 +3391,21 @@ TEST(FStaticMeshDerivedDataCacheTests, RenderSessionSeparatesOptionalPersistence
 	H.Options.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
 		return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
 	};
-	auto Valid = H.Run(); ASSERT_EQ(Valid.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Valid.Output);
+	auto Valid = H.Run(); ASSERT_TRUE(Valid);
 	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
 	H.Phases.clear(); H.Options.Policy.WriteCache = false;
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	EXPECT_TRUE(H.Run());
 	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
 		EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
 	H.Module.InvalidProduct = true;
-	auto Invalid = H.Run(); EXPECT_EQ(Invalid.Status, EBuildStatus::Failed); EXPECT_FALSE(Invalid.Output);
+	auto Invalid = H.Run(); EXPECT_FALSE(Invalid);
 	H.Module.InvalidProduct = false;
 	H.Options.Cache.MakeRecord = {}; H.Options.Policy.WriteCache = true;
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	H.Options.Policy.ForceRebuild = false;
 	const auto Builds = H.Module.Builds; const auto Reads = H.SourceProbe->GetReadStats().RequestCount;
 	H.Options.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Cancelled);
+	EXPECT_TRUE(IsBuildCancelled(H.Run()));
 	EXPECT_EQ(H.Module.Builds, Builds); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, Reads);
 	EXPECT_EQ(H.Issues, 1u);
 }
@@ -3470,33 +3470,33 @@ namespace
 			Options.Observer.OnCacheIssue = [this](const auto&, auto, const auto&) { ++Issues; };
 			Options.Observer.OnPhase = [this](auto Phase) { Phases.push_back(Phase); };
 		}
-		auto Run() -> FBuildCompletion
-		{ FBuildSession Session(Registry, Resolver); return Session.ExecuteInline(Definition, Options).value(); }
+		auto Run() -> FBuildResult
+		{ FBuildSession Session(Registry, Resolver); return Session.ExecuteInline(Definition, Options); }
 	};
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CollisionSessionOwnsCaptureAndRebuildsCorruptOutputOnce)
 {
 	FCollisionSessionHarness H;
-	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
-	const auto Block = Cold.Output->FindValue("Complex/Vertices")->Data;
+	auto Cold = H.Run(); ASSERT_TRUE(Cold);
+	const auto Block = Cold->FindValue("Complex/Vertices")->Data;
 	ASSERT_TRUE(Block.GetNativeView<FVector3>());
 	H.Phases.clear();
-	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+	auto Warm = H.Run(); ASSERT_TRUE(Warm);
 	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Puts, 1u);
 	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Resolve), 0);
 	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 0);
-	EXPECT_FALSE(Warm.Output->FindValue("Complex/Vertices")->Data.GetNativeView<FVector3>());
-	FBuildOutputData Bad{.Schema = "Physics.CollisionOutput", .SchemaVersion = 1, .Metadata = Warm.Output->GetMetadata(),
-		.Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+	EXPECT_FALSE(Warm->FindValue("Complex/Vertices")->Data.GetNativeView<FVector3>());
+	FBuildOutputData Bad{.Schema = "Physics.CollisionOutput", .SchemaVersion = 1, .Metadata = Warm->GetMetadata(),
+		.Values = {Warm->GetValues().begin(), Warm->GetValues().end()}};
 	for (auto& Value : Bad.Values) if (Value.Id == "Complex/Triangles")
 		Value.Data = FSharedByteBuffer::TakeNative(std::vector<FCollisionGeometryTriangle>{{0, 1, 99, 0}});
 	H.Stored = FCacheRecord::FromOutput(H.Key, FBuildOutput::TryCreate(std::move(Bad)).value())->Encode().value();
 	H.Phases.clear();
-	auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Rebuilt.Output);
+	auto Rebuilt = H.Run(); ASSERT_TRUE(Rebuilt);
 	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 2u);
 	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 1);
-	auto Product = PhysicsPrivate::AssembleSharedOutput(*Cold.Output, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+	auto Product = PhysicsPrivate::AssembleSharedOutput(*Cold, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex); ASSERT_TRUE(Product);
 	EXPECT_EQ(Product->Complex.GetVertex(0), Block.GetNativeView<FVector3>()->data());
 	Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Resolver.reset(); H.Registry = {};
@@ -3511,18 +3511,18 @@ TEST(FStaticMeshDerivedDataCacheTests, CollisionSessionSeparatesPersistenceAndWa
 	H.Options.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
 		return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
 	};
-	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+	auto Cold = H.Run(); ASSERT_TRUE(Cold);
 	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
 	H.Phases.clear(); H.Options.Policy.WriteCache = false;
-	EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	EXPECT_TRUE(H.Run());
 	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
 		EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
 	H.Options.Cache.MakeRecord = {}; H.Options.Policy.WriteCache = true;
-	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(H.Run());
 	H.Options.Policy.ForceRebuild = false;
 	H.Phases.clear();
 	H.Options.Observer.OnPhase = [&](auto Phase) { H.Phases.push_back(Phase); if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
-	auto Cancelled = H.Run(); EXPECT_EQ(Cancelled.Status, EBuildStatus::Cancelled); EXPECT_FALSE(Cancelled.Output);
+	auto Cancelled = H.Run(); EXPECT_TRUE(IsBuildCancelled(Cancelled));
 	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Resolve), 0);
 	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 0);
 	EXPECT_EQ(H.Issues, 1u);
