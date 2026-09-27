@@ -4,14 +4,6 @@
 
 namespace Durin::DerivedData
 {
-	enum class EBuildMessageSeverity : uint8 { Note, Warning };
-
-	struct FBuildMessage
-	{
-		EBuildMessageSeverity Severity = EBuildMessageSeverity::Note;
-		std::string Text;
-	};
-
 	struct FBuildValue
 	{
 		std::string Id;
@@ -26,7 +18,6 @@ namespace Durin::DerivedData
 		uint32 SchemaVersion = 0;
 		FSharedByteBuffer Metadata;
 		std::vector<FBuildValue> Values;
-		std::vector<FBuildMessage> Messages;
 	};
 
 	struct FBuildOutputLimits
@@ -34,7 +25,6 @@ namespace Durin::DerivedData
 		uint64 MaximumTotalBytes = 2ull * 1024 * 1024 * 1024;
 		uint64 MaximumMetadataBytes = 4ull * 1024 * 1024;
 		uint32 MaximumValues = 4096;
-		uint32 MaximumMessages = 128;
 	};
 
 	// Family-neutral immutable representation. Family validators interpret schema
@@ -51,7 +41,6 @@ namespace Durin::DerivedData
 		auto GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }
 		auto GetMetadata() const -> FSharedByteBuffer { return State ? State->Metadata : FSharedByteBuffer{}; }
 		auto GetValues() const -> std::span<const FBuildValue> { return State ? std::span(State->Values) : std::span<const FBuildValue>{}; }
-		auto GetMessages() const -> std::span<const FBuildMessage> { return State ? std::span(State->Messages) : std::span<const FBuildMessage>{}; }
 		DERIVEDDATACACHE_API auto FindValue(std::string_view Id) const -> const FBuildValue*;
 	private:
 		friend class FCacheRecord;
@@ -63,7 +52,7 @@ namespace Durin::DerivedData
 	class FCacheRecord
 	{
 	public:
-		// Payload budget plus a bounded descriptor/message table and framing.
+		// Payload budget plus a bounded descriptor table and framing.
 		static constexpr uint64 DefaultMaximumEncodedBytes = 2ull * 1024 * 1024 * 1024 + 2ull * 1024 * 1024;
 		FCacheRecord() = default;
 		DERIVEDDATACACHE_API static auto FromOutput(const FCacheKey& Key,
@@ -88,7 +77,6 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto GetSchemaVersion() const -> uint32;
 		DERIVEDDATACACHE_API auto GetMetadata() const -> FSharedByteBuffer;
 		DERIVEDDATACACHE_API auto GetMetadataHash() const -> FXxHash128;
-		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildMessage>;
 		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FBuildValue>;
 		DERIVEDDATACACHE_API auto GetValueHashes() const -> std::span<const FXxHash128>;
 	private:

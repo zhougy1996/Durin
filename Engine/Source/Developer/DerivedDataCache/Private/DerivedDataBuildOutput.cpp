@@ -17,8 +17,7 @@ namespace Durin::DerivedData
 			if (!IsIdentifier(Data.Schema) || Data.SchemaVersion == 0)
 				return std::unexpected("Build output schema is invalid.");
 			if (Data.Metadata.GetSize() > std::min<uint64>(Limits.MaximumMetadataBytes, 4ull * 1024 * 1024)
-				|| Data.Values.size() > std::min<uint32>(Limits.MaximumValues, 4096)
-				|| Data.Messages.size() > std::min<uint32>(Limits.MaximumMessages, 128))
+				|| Data.Values.size() > std::min<uint32>(Limits.MaximumValues, 4096))
 				return std::unexpected("Build output table or metadata limit exceeded.");
 			uint64 Total = 0;
 			auto Add = [&](uint64 Bytes) {
@@ -34,13 +33,6 @@ namespace Durin::DerivedData
 					return std::unexpected("Build output values have invalid or duplicate IDs.");
 				Previous = Value.Id;
 				if (!Add(Value.Data.GetSize())) return std::unexpected("Build output byte limit exceeded.");
-			}
-			for (const auto& Message : Data.Messages)
-			{
-				if ((Message.Severity != EBuildMessageSeverity::Note && Message.Severity != EBuildMessageSeverity::Warning)
-					|| Message.Text.size() > 4096 || Message.Text.find('\0') != std::string::npos)
-					return std::unexpected("Build output message is invalid.");
-				if (!Add(Message.Text.size())) return std::unexpected("Build output byte limit exceeded.");
 			}
 			return {};
 		}
@@ -135,7 +127,7 @@ namespace Durin::DerivedData
 		Writer.WriteString(State->Data.Schema);
 		Writer.WriteU32(State->Data.SchemaVersion);
 		Writer.WriteU32(static_cast<uint32>(State->Data.Values.size()));
-		Writer.WriteU32(static_cast<uint32>(State->Data.Messages.size()));
+		Writer.WriteU32(0); // Reserved v1 message count; existing message-free records remain readable.
 		Writer.WriteU64(State->Data.Metadata.GetSize());
 		Writer.WriteHash128(State->MetadataHash);
 		uint64 Offset = State->Data.Metadata.GetSize();
@@ -147,11 +139,6 @@ namespace Durin::DerivedData
 			Writer.WriteU64(Value.Data.GetSize());
 			Writer.WriteHash128(State->ValueHashes[Index]);
 			Offset += Value.Data.GetSize(); // ToOutput checked the aggregate bound.
-		}
-		for (const auto& Message : State->Data.Messages)
-		{
-			Writer.WriteU8(static_cast<uint8>(Message.Severity));
-			Writer.WriteString(Message.Text);
 		}
 		// The table is complete; reserve the exact payload/trailer footprint so
 		// mip-sized appends never reallocate and copy an already encoded payload.
@@ -249,7 +236,7 @@ namespace Durin::DerivedData
 			|| !Reader.ReadString(State->Data.Schema, 96) || !Reader.ReadU32(State->Data.SchemaVersion)
 			|| !Reader.ReadU32(ValueCount) || !Reader.ReadU32(MessageCount)
 			|| ValueCount > std::min<uint32>(Limits.MaximumValues, 4096)
-			|| MessageCount > std::min<uint32>(Limits.MaximumMessages, 128)
+			|| MessageCount != 0
 			|| !Reader.ReadU64(MetadataSize) || !Reader.ReadHash128(State->MetadataHash)) return Corrupt();
 		if (MetadataSize > std::min<uint64>(Limits.MaximumMetadataBytes, 4ull * 1024 * 1024)
 			|| MetadataSize > Limits.MaximumTotalBytes)
@@ -269,16 +256,6 @@ namespace Durin::DerivedData
 				|| Region.Size > Limits.MaximumTotalBytes - Total) return Corrupt();
 			Total += Region.Size;
 		}
-		State->Data.Messages.resize(MessageCount);
-		uint64 LogicalTotal = Total;
-		for (auto& Message : State->Data.Messages)
-		{
-			uint8 Severity = 0;
-			if (!Reader.ReadU8(Severity) || !Reader.ReadString(Message.Text, 4096)
-				|| Message.Text.size() > Limits.MaximumTotalBytes - LogicalTotal) return Corrupt();
-			Message.Severity = static_cast<EBuildMessageSeverity>(Severity);
-			LogicalTotal += Message.Text.size();
-		}
 		const uint64 DataOffset = Reader.Tell();
 		if (Total != Reader.GetRemainingBytes()) return Corrupt();
 		State->Data.Metadata = Bytes.MakeView(DataOffset, MetadataSize);
@@ -286,7 +263,7 @@ namespace Durin::DerivedData
 			State->Data.Values[Index].Data = Bytes.MakeView(DataOffset + Regions[Index].Offset, Regions[Index].Size);
 		FCacheRecord Record;
 		Record.State = std::move(State);
-		// Validates canonical IDs/messages and every block before returning any view.
+		// Validates canonical IDs and every block before returning any view.
 		if (auto Output = Record.ToOutput(ExpectedKey, Limits); !Output)
 			return std::unexpected(std::move(Output.error()));
 		return Record;
@@ -298,10 +275,6 @@ namespace Durin::DerivedData
 	auto FCacheRecord::GetSchemaVersion() const -> uint32 { return State ? State->Data.SchemaVersion : 0; }
 	auto FCacheRecord::GetMetadata() const -> FSharedByteBuffer { return State ? State->Data.Metadata : FSharedByteBuffer{}; }
 	auto FCacheRecord::GetMetadataHash() const -> FXxHash128 { return State ? State->MetadataHash : FXxHash128{}; }
-	auto FCacheRecord::GetMessages() const -> std::span<const FBuildMessage>
-	{
-		return State ? std::span(State->Data.Messages) : std::span<const FBuildMessage>{};
-	}
 	auto FCacheRecord::GetValues() const -> std::span<const FBuildValue>
 	{
 		return State ? std::span(State->Data.Values) : std::span<const FBuildValue>{};
