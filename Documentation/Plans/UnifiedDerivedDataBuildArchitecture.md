@@ -4,28 +4,31 @@ Summary: Introduce immutable build definitions, snapshot-backed input resolution
 
 Last reviewed: 2026-09-27
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-27
 
 ## Current Status
 
 A subsequent design is recorded in
 [Derived Data Build Sessions](DerivedDataBuildSessions.md). It selects UE-inspired
-registered functions, non-template sessions and shared metadata/data-block output to replace
-the typed executor in a later implementation. This plan retains ownership of its
-outstanding Windows Game gate; the successor does not mark that gate complete.
+registered functions, non-template sessions and shared metadata/data-block output
+that replaced the typed executor. Both plans record the unperformed Windows Game
+validation as deferred, without claiming a passing result.
 
-Stages 0-5 are complete. Immutable definitions and synchronous typed execution
-now live inside the existing `DerivedDataCache` module. Texture2D, TextureCube,
-VolumeTexture, StaticMesh render, physics collision and ShaderBuild use that
-protocol; source bindings retain the captured generation and valid asset cache
-hits skip input resolution. No standalone DerivedDataBuild module was added.
+Stages 0-5 established immutable definitions and synchronous typed execution
+inside the existing `DerivedDataCache` module; the successor plan later replaced
+the typed executor with sessions. Texture2D, TextureCube, VolumeTexture,
+StaticMesh render, physics collision and ShaderBuild retain captured source
+generations, and valid asset cache hits skip input resolution. No standalone
+DerivedDataBuild module was added.
 
 Stage 6 implementation and documentation cleanup are complete. Local acceptance
-results are recorded below. The plan remains Active until the registered Windows
-Game configuration is built and its cooked-only startup gate is verified; this
-macOS host has no registered Game preset. Editor-native cooked loading tests and
-static dependency inspection do not substitute for that runtime gate.
+results are recorded below. On 2026-09-27, the owner deferred Windows Game
+build/startup and cooked-only loading validation because no Windows acceptance
+environment is available in the near term. That validation was not performed
+and is no longer a completion gate; it remains future platform coverage.
+Editor-native cooked loading tests and static dependency inspection do not
+substitute for that runtime validation.
 
 Decision revised on 2026-09-26: follow UE's module organization rather than add
 a standalone `DerivedDataBuild` module. Build execution and cache storage need
@@ -612,14 +615,16 @@ required producers, with no permanent compatibility branch or partial migration.
   measurements and perform an `all` build covering Engine/Sandbox/RoadWeaver.
 - [x] Verify native cooked-loading paths and authoring shutdown with queued/
   running/canceled work.
-- [ ] Build the registered Windows Game configuration and verify Game startup/
-  cooked loading without authoring modules, source data or DDC.
+- [x] Record the owner's 2026-09-27 decision to defer the unperformed Windows
+  Game build/startup and cooked-loading validation until an environment is
+  available, without treating it as a passed check.
 - [x] Record exact local validation evidence and close only passed checks.
-- [ ] Complete this plan according to its lifecycle rules once the Windows Game
-  gate passes.
+- [x] Complete this plan according to its lifecycle rules after the
+  host-supported acceptance gates pass and the Windows gap is recorded.
 
-Gate: every required family is migrated, all acceptance gates pass, lasting
-contracts are published, and migration-only APIs have been removed.
+Gate: every required family is migrated, the host-supported acceptance gates
+pass, lasting contracts are published, and migration-only APIs have been removed.
+Windows Game validation is deferred outside this plan's completion gate.
 
 Stage 6 evidence (2026-09-26): workspace source/test searches cover Engine,
 Sandbox and RoadWeaver. Removed `AssetDerivedDataCache` lookup/store wrappers,
@@ -652,12 +657,13 @@ and qualification bounds, and shader dependency/source/SPIR-V/DDC byte counts
 are preserved. Definition keys intentionally change. Diagnostic wall times on
 this shared host are not a performance qualification claim.
 
-Remaining acceptance: `CMakePresets.json` registers Game only for Win64;
+Deferred platform validation: `CMakePresets.json` registers Game only for Win64;
 `Engine.dproject` includes authoring/DDC modules only in Editor extras and
 RenderCore's module manifest has no DDC dependency. These inspections plus the
 Editor-native cooked tests establish local coverage, not a successful Windows
-Game build or startup. Run that existing host-specific gate before changing
-this plan to Completed.
+Game build or startup. Run the Windows Game build, startup and cooked-loading
+checks when an acceptance environment becomes available; their outcome is
+currently unknown.
 
 #### Stage 6 follow-up consolidation (2026-09-27)
 
@@ -688,7 +694,7 @@ exercises bounded reads, validates 4,096 unordered/duplicate bindings, and prove
 Cube source identity retains face order. Cube key goldens are now
 `3a8c771aab669bbdac6874ba34c3c5ab` (faces) and
 `8fb682cb2f8e7294c71edd27f49bd59b` (panorama). Changed-document and all-plan
-validation pass. The Windows Game gate above remains independent and open.
+validation pass. Windows Game validation remains unperformed and deferred.
 
 #### Stage 6 diagnostic simplification (2026-09-27)
 
@@ -714,8 +720,8 @@ coverage of the selected targets without changing project or system settings.
 After final formatting and test-capture cleanup, StaticMesh passes 141/141,
 build protocol passes 14/14, and the texture cache-failure async completion case
 passes in isolation. The earlier complete Texture run passes 125/125.
-Changed-document and all-plan validation pass. The Windows Game gate above
-remains open.
+Changed-document and all-plan validation pass. Windows Game validation remains
+unperformed and deferred.
 
 ## Validation and Handoff
 
@@ -724,15 +730,16 @@ Follow [agent build guidance](../Agents/BuildAndRun.md) and
 native tests. Use [documentation validation](../Agents/Documentation.md) for
 plan/contract changes. Each implementation handoff records exact fixtures,
 target/configuration, checks run, measured deltas and any unsupported host path.
-Platform-specific gaps remain open gates rather than implied cross-platform success.
+Deferred platform gaps remain recorded rather than implied cross-platform success.
 
 The minimum behavioral matrix includes identity determinism/invalidation;
 metadata-only texture/mesh warm lookup; cold and corrupt-cache recovery; bounded
 source decode; source-generation stability; typed error preservation; persistence
 failure with usable output; cancellation before/during/after work; supersession;
-selected completion; shutdown/module retirement; import/reimport rollback; Cook
-reuse; and cooked-only Game loading. Shader warm-hit measurements distinguish
-dependency-discovery I/O from recipe execution and artifact lookup.
+selected completion; shutdown/module retirement; import/reimport rollback; and
+Cook reuse. Cooked-only Game loading is deferred Windows coverage. Shader
+warm-hit measurements distinguish dependency-discovery I/O from recipe
+execution and artifact lookup.
 
 Every shared Engine API migration searches all project roots declared in
 `Durin.dworkspace`, migrates consumers together, and completes an `all` build.
