@@ -67,14 +67,10 @@ namespace Durin
 		const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, Control.MaximumWorkingSetBytes / 16);
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
-		DerivedData::EBuildSessionPhase Phase = DerivedData::EBuildSessionPhase::Admission;
-		Options.Observer.OnPhase = [&](auto Current) { Phase = Current; };
 		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
 		if (!Completion) return std::unexpected(FPhysicsCookFailure{Completion.error().Description});
 		if (Completion->Status == DerivedData::EBuildStatus::Cancelled || Cancel())
-			return std::unexpected(FPhysicsCookFailure::Cancelled(
-				Phase == DerivedData::EBuildSessionPhase::Resolve || Phase == DerivedData::EBuildSessionPhase::Describe
-					? EPhysicsCookStage::Input : EPhysicsCookStage::Cook));
+			return std::unexpected(FPhysicsCookFailure::Cancelled());
 		if (Completion->Status != DerivedData::EBuildStatus::Succeeded || !Completion->Output)
 		{
 			const auto& Error = Completion->Error;

@@ -112,15 +112,10 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
-		DerivedData::EBuildSessionPhase Phase = DerivedData::EBuildSessionPhase::Admission;
-		Options.Observer.OnPhase = [&](auto Current) { Phase = Current; };
 		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
 		if (!Completion) return std::unexpected(FStaticMeshBuildFailure{Completion.error().Description, EStaticMeshBuildStage::Render});
 		if (Completion->Status == DerivedData::EBuildStatus::Cancelled || IsCancelled())
-			return std::unexpected(FStaticMeshBuildFailure::Cancelled(
-				Phase == DerivedData::EBuildSessionPhase::Resolve || Phase == DerivedData::EBuildSessionPhase::Describe
-					? EStaticMeshBuildStage::Source : Phase == DerivedData::EBuildSessionPhase::Validate
-					? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render));
+			return std::unexpected(FStaticMeshBuildFailure::Cancelled());
 		if (Completion->Status != DerivedData::EBuildStatus::Succeeded || !Completion->Output)
 		{
 			const auto& Error = Completion->Error;
