@@ -15,7 +15,8 @@ namespace Durin
 		BuildFailed,
 		Unavailable,
 		InvalidBuilderOutput,
-		ApplicationFailed
+		ApplicationFailed,
+		Canceled
 	};
 	enum class ETextureBuildStage
 	{

@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "Asset/Cook.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Scan.h"

@@ -3,38 +3,10 @@
 #include "Serialization/Archive.h"
 #include "Texture/TexturePayloadContainer.h"
 #include "Texture/VolumeTexture.h"
+#include "TexturePlatformFormat.h"
 
 namespace Durin
 {
-	namespace
-	{
-		auto ToVolumeStableFormat(EPixelFormat Format,
-			ETextureStablePixelFormat& OutFormat) -> bool
-		{
-			switch (Format)
-			{
-			case EPixelFormat::R8_UNORM: OutFormat = ETextureStablePixelFormat::R8_UNORM; return true;
-			case EPixelFormat::RG8_UNORM: OutFormat = ETextureStablePixelFormat::RG8_UNORM; return true;
-			case EPixelFormat::RGBA8_UNORM: OutFormat = ETextureStablePixelFormat::RGBA8_UNORM; return true;
-			case EPixelFormat::R16_FLOAT: OutFormat = ETextureStablePixelFormat::R16_FLOAT; return true;
-			case EPixelFormat::RGBA16_FLOAT: OutFormat = ETextureStablePixelFormat::RGBA16_FLOAT; return true;
-			default: return false;
-			}
-		}
-
-		auto FromVolumeStableFormat(uint32 StableFormat, EPixelFormat& OutFormat) -> bool
-		{
-			switch (static_cast<ETextureStablePixelFormat>(StableFormat))
-			{
-			case ETextureStablePixelFormat::R8_UNORM: OutFormat = EPixelFormat::R8_UNORM; return true;
-			case ETextureStablePixelFormat::RG8_UNORM: OutFormat = EPixelFormat::RG8_UNORM; return true;
-			case ETextureStablePixelFormat::RGBA8_UNORM: OutFormat = EPixelFormat::RGBA8_UNORM; return true;
-			case ETextureStablePixelFormat::R16_FLOAT: OutFormat = EPixelFormat::R16_FLOAT; return true;
-			case ETextureStablePixelFormat::RGBA16_FLOAT: OutFormat = EPixelFormat::RGBA16_FLOAT; return true;
-			default: return false;
-			}
-		}
-	}
 
 	auto FVolumeTexturePlatformData::Serialize(FArchive& Ar) -> void
 	{
@@ -56,7 +28,7 @@ namespace Durin
 			if (!IsValid() || Mips.size() > MaximumTextureMipCount)
 				return Reject(EArchiveFailureCode::InvalidData,
 					"Volume texture payload requires a valid complete mip chain.");
-			if (!ToVolumeStableFormat(PixelFormat, Descriptor.StableFormat))
+			if (!TexturePrivate::ToVolumeStableFormat(PixelFormat, Descriptor.StableFormat))
 				return Reject(EArchiveFailureCode::UnsupportedType,
 					"Volume texture format has no stable identifier.");
 			Descriptor.MipCount = static_cast<uint32>(Mips.size());
@@ -74,7 +46,7 @@ namespace Durin
 			|| Descriptor.SliceCount != 1)
 			return Reject(EArchiveFailureCode::InvalidData, "Volume texture payload dimension is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromVolumeStableFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
+		if (!TexturePrivate::FromVolumeStableFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 			return Reject(EArchiveFailureCode::UnsupportedType,
 				"Volume texture stable format is unsupported.");
 
@@ -113,7 +85,7 @@ namespace Durin
 			Mip.RowPitch = Record.RowPitch;
 			Mip.DepthPitch = Record.LayerPitch;
 			const FByteView Data = Records[MipIndex].Data;
-			Mip.Voxels.assign(Data.begin(), Data.end());
+			Mip.Voxels = FSharedByteBuffer::Copy(Data);
 		}
 		if (!IsValid())
 			return Reject(EArchiveFailureCode::InvalidData,

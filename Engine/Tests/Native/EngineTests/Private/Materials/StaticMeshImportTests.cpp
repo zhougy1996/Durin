@@ -93,9 +93,10 @@ TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 	EXPECT_EQ(ImportData->GetImportSettings(), Settings);
 	ASSERT_NE(ImportResult.Asset->GetRenderData(), nullptr);
 	ASSERT_EQ(ImportResult.Asset->GetRenderData()->LODResources.size(), 1u);
-	const std::vector<Durin::FVector3f> ImportedPositions =
+	const auto ImportedPositionsView =
 		ImportResult.Asset->GetRenderData()->LODResources[0]
 			.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const std::vector<Durin::FVector3f> ImportedPositions(ImportedPositionsView.begin(), ImportedPositionsView.end());
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MeshAxisImportTests/AsymmetricAxes", AssetPath));

@@ -2,8 +2,9 @@
 #include "Hash/CanonicalHash.h"
 
 #include "ShaderCompileUtilities.h"
-#include "ShaderDerivedData.h"
-#include "DerivedDataBuild.h"
+#include "Shader/ShaderCompiledOutput.h"
+#include "ShaderSharedOutput.h"
+#include "ShaderCaptureLimits.h"
 #include "ShaderDependencyManifestStore.h"
 #include "SlangShaderCompiler.h"
 #include "SlangShaderDependencyResolver.h"
@@ -44,8 +45,30 @@ namespace Durin
 
 		auto BuildOutputKey(const FShaderVariantKey& VariantKey, const FShaderCompileOptions& Options) -> std::string
 		{
-			return std::string(
-				ShaderDerivedData::BuildKey(VariantKey, Options).ToString());
+			// In-process LRU/flight identity only. The session constructs its portable
+			// action once on an LRU miss; force policy never changes this identity.
+			FXxHash128Builder Hash;
+			UpdateCanonicalHashString(Hash, "ShaderOutputMemory_v1");
+			UpdateCanonicalHash(Hash, VariantKey.Value);
+			UpdateCanonicalHash(Hash, uint64(Options.EntryPoints.size()));
+			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
+			{
+				UpdateCanonicalHashString(Hash, Options.EntryPoints[Index]);
+				UpdateCanonicalHash(Hash, Options.Frequencies[Index]);
+			}
+			if (Options.SourceArtifacts)
+			{
+				const auto& Roots = Options.SourceArtifacts->GetSearchRoots();
+				UpdateCanonicalHash(Hash, uint64(Roots.size()));
+				for (const auto& Root : Roots) UpdateCanonicalHashString(Hash, Root);
+			}
+			else
+			{
+				const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
+				UpdateCanonicalHash(Hash, uint64(Mounts.size()));
+				for (const auto& Mount : Mounts) UpdateCanonicalHashString(Hash, Mount.VirtualRoot);
+			}
+			return Hash.Finalize().ToString();
 		}
 
 		auto HasValidUniqueEntryPoints(const FShaderCompileOptions& Options) -> bool
@@ -53,7 +76,7 @@ namespace Durin
 			if (Options.EntryPoints.empty()
 				|| Options.EntryPoints.size() != Options.Frequencies.size()
 				|| Options.EntryPoints.size()
-					> ShaderDerivedData::MaximumEntryPoints) return false;
+					> ShaderCompiledOutput::MaximumEntryPoints) return false;
 			std::set<std::pair<std::string_view, uint32>> Entries;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
@@ -107,79 +130,14 @@ namespace Durin
 			return Result;
 		}
 
-		struct FShaderBuildAdapter
-		{
-			using FProduct = FShaderCompilerOutput;
-			using FError = FShaderError;
-			const FShaderCompileOptions& Options;
-			const DerivedData::FBuildDefinition& Definition;
-			std::array<DerivedData::FBuildInputReference, 1> Inputs;
-			std::function<FArtifactResult()> ResolveArtifacts;
-			std::function<FProduct(const FShaderCompileOptions&)> Compile;
-			auto GetFunction() const -> DerivedData::FBuildFunctionDescriptor
-			{
-				auto Function = Definition.GetFunction();
-				Function.Version = ShaderDerivedData::BuilderVersion;
-				return Function;
-			}
-			auto GetInputs() const -> std::span<const DerivedData::FBuildInputReference> { return Inputs; }
-			auto MakeError(DerivedData::EBuildFailure Code) const -> FError
-			{
-				return {.Code = Code == DerivedData::EBuildFailure::Cancelled ? EShaderError::Cancelled : EShaderError::InvalidCompileRequest};
-			}
-			auto IsCancelled(const FError& Error) const -> bool { return Error.Code == EShaderError::Cancelled; }
-			auto ValidateBindings(const DerivedData::FBuildDefinition&) const -> FShaderOperationResult { return {}; }
-			auto Resolve() const -> std::expected<FShaderCompileOptions, FError>
-			{
-				auto Artifacts = ResolveArtifacts();
-				if (!Artifacts) return std::unexpected(std::move(Artifacts.error()));
-				if (!*Artifacts) return std::unexpected(FError{.Code = EShaderError::DependencyNotCaptured});
-				auto Prepared = Options;
-				Prepared.SourceArtifacts = std::move(*Artifacts);
-				return Prepared;
-			}
-			auto Build(FShaderCompileOptions& Prepared) const -> std::expected<FProduct, FError>
-			{
-				auto Product = Compile(Prepared);
-				if (!Product) return std::unexpected(std::move(Product.Error));
-				return Product;
-			}
-			auto Validate(const FProduct& Product) const -> FShaderOperationResult
-			{
-				if (!Product || Product.CompiledShaders.size() != Options.EntryPoints.size())
-					return std::unexpected(FError{.Code = EShaderError::PayloadOutputInvalid});
-				for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
-				{
-					const auto& Shader = Product.CompiledShaders[Index];
-					if (!Shader.Code || Shader.Code->empty() || Shader.SourceEntryPoint != Options.EntryPoints[Index]
-						|| Shader.Frequency != Options.Frequencies[Index] || FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
-						return std::unexpected(FError{.Code = EShaderError::PayloadOutputInvalid, .Index = Index});
-				}
-				return {};
-			}
-			auto Decode(const FSharedByteBuffer& Bytes) const -> std::expected<FProduct, FError>
-			{
-				FProduct Product;
-				auto Result = ShaderDerivedData::Decode(Bytes.GetBytes(), Options, Product);
-				if (!Result) return std::unexpected(std::move(Result.error()));
-				return Product;
-			}
-			auto Encode(FProduct& Product) const -> std::expected<FByteBuffer, FError>
-			{
-				FByteBuffer Bytes;
-				auto Result = ShaderDerivedData::Encode(Options, Product, Bytes);
-				if (!Result) return std::unexpected(std::move(Result.error()));
-				return Bytes;
-			}
-		};
 
 	}
 
-	FShaderBuilder::FShaderBuilder(std::function<void(std::string_view)> InBeforeGeneratedCompile)
-		: CompilerEnvironmentIdentity(Compiler.GetEnvironmentIdentity())
-		, BeforeGeneratedCompile(std::move(InBeforeGeneratedCompile))
-	{
-	}
+	FShaderBuilder::FShaderBuilder(std::function<void(std::string_view)> Hook)
+		: FShaderBuilder(std::make_shared<FShaderBuildService>(std::move(Hook))) {}
+
+	FShaderBuilder::FShaderBuilder(std::shared_ptr<FShaderBuildService> InService)
+		: BuildService(std::move(InService)), CompilerEnvironmentIdentity(BuildService->GetCompilerEnvironmentIdentity()) {}
 
 	FShaderBuilder::~FShaderBuilder()
 	{
@@ -373,9 +331,8 @@ namespace Durin
 			ShaderCompileUtilities::BuildVariantKey(EffectiveOptions.VirtualShaderPath, *MetaData, NormalizedMacros, CompilerEnvironmentIdentity, Variant);
 			return RunSingleFlight("Captured/" + BuildOutputKey(Variant, EffectiveOptions)
 				+ (EffectiveOptions.bForceRecompile ? "/Forced" : "/Cached"), [&] {
-				return ExecuteDerivedBuild(EffectiveOptions, Variant,
-					[&]() -> FArtifactResult { return EffectiveOptions.SourceArtifacts; },
-					[&](const FShaderCompileOptions& Prepared) { return Compiler.Compile(VirtualShaderPath, Prepared); });
+				return ExecuteDerivedBuild(EffectiveOptions, Variant, MetaData->PortableDependencies, std::nullopt,
+					[&]() -> FArtifactResult { return EffectiveOptions.SourceArtifacts; });
 			});
 		}
 
@@ -523,12 +480,8 @@ namespace Durin
 			MetaData->SourceTreeSignature = Tree.Finalize();
 			FShaderVariantKey Variant;
 			ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, *MetaData, Macros, CompilerEnvironmentIdentity, Variant);
-			return ExecuteDerivedBuild(Options, Variant,
-				[&]() -> FArtifactResult { return Options.SourceArtifacts; },
-				[&](const FShaderCompileOptions& Prepared) {
-					return Compiler.CompileSource(Request.VirtualPath.substr(1), Request.VirtualPath,
-						Request.Source, Prepared, BeforeGeneratedCompile);
-				});
+			return ExecuteDerivedBuild(Options, Variant, MetaData->PortableDependencies, Request.Source,
+				[&]() -> FArtifactResult { return Options.SourceArtifacts; });
 		}
 		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
 		const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
@@ -641,23 +594,17 @@ namespace Durin
 		// another flight cannot join an obsolete compilation.
 		return RunSingleFlight("GeneratedOutput/" + OutputKey
 			+ (Options.bForceRecompile ? "/Forced" : "/Cached"), [&] {
-			return ExecuteDerivedBuild(Options, VariantKey,
-				[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(DependencyMetaData); },
-				[&](const FShaderCompileOptions& Prepared) {
-					return Compiler.CompileSource(Request.VirtualPath.substr(1), Request.VirtualPath,
-						Request.Source, Prepared, BeforeGeneratedCompile);
-				});
+			return ExecuteDerivedBuild(Options, VariantKey, DependencyMetaData.PortableDependencies, Request.Source,
+				[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(DependencyMetaData); });
 		});
 	}
 
 	auto FShaderBuilder::ExecuteDerivedBuild(const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey,
-		const std::function<FArtifactResult()>& Resolve,
-		const std::function<FShaderCompilerOutput(const FShaderCompileOptions&)>& Compile) -> FShaderCompilerOutput
+		std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource,
+		FShaderArtifactResolver Resolve) -> FShaderCompilerOutput
 	{
 		using namespace DerivedData;
-		auto Definition = ShaderDerivedData::MakeBuildDefinition(VariantKey, Options);
-		if (!Definition) return {.Error = std::move(Definition.error())};
-		const auto OutputKey = Definition->GetKey().ToString();
+		const auto OutputKey = BuildOutputKey(VariantKey, Options);
 		if (!Options.bForceRecompile)
 		{
 			std::lock_guard Lock(OutputCacheMutex);
@@ -668,27 +615,36 @@ namespace Durin
 				return Found->second.Output;
 			}
 		}
-		FShaderBuildAdapter Adapter{.Options = Options, .Definition = *Definition,
-			.Inputs = {FBuildInputReference{"Variant", VariantKey.Value, "ShaderVariant", 6, "Shader.SourceClosure", 1}},
-			.ResolveArtifacts = Resolve, .Compile = [&](const FShaderCompileOptions& Prepared) {
-				Compilations.fetch_add(1, std::memory_order_relaxed);
-				return Compile(Prepared);
-			}};
-		TBuildObservations<FShaderError> Observations;
-		auto Built = ExecuteBuild(*Definition, Adapter,
-			{.bForceRebuild = Options.bForceRecompile, .MaximumValueBytes = ShaderDerivedData::MaximumValueBytes}, {}, Observations);
-		if (Observations.DecodeError || (Observations.ReadError
-			&& (Observations.ReadError->Code == ECacheError::ValueTooLarge || Observations.ReadError->Code == ECacheError::Corrupt)))
-			DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
-		if (Observations.DecodeError) DURIN_WARN("Shader DDC value was rejected: {}", FormatShaderError(*Observations.DecodeError));
-		if (Observations.EncodeError || Observations.WriteError)
-		{
-			DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
-			DURIN_WARN("Shader DDC persistence failed: {}", Observations.EncodeError
-				? FormatShaderError(*Observations.EncodeError) : Observations.WriteError->Diagnostic);
-		}
+		auto Request = MakeShaderSessionRequest(Options, VariantKey, std::move(Dependencies), std::move(GeneratedSource), std::move(Resolve));
+		if (!Request) return {.Error = std::move(Request.error())};
+		FBuildRequestOptions Execution;
+		Execution.Policy.ForceRebuild = Options.bForceRecompile;
+		Execution.Policy.InputLimits.MaximumTotalBytes = ShaderCaptureLimits::MaximumSessionInputBytes;
+		Execution.Policy.InputLimits.MaximumValues = uint32(ShaderCaptureLimits::MaximumFiles + 2);
+		Execution.Policy.OutputLimits.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes;
+		Execution.Policy.PersistenceLimits = Execution.Policy.OutputLimits;
+		Execution.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
+		Execution.Observer.OnMetric = [&](std::string_view Name, uint64 Count) { if (Name == "Shader.Compilations") Compilations.fetch_add(Count, std::memory_order_relaxed); };
+		Execution.Observer.OnCacheHit = [&] { DdcHits.fetch_add(1, std::memory_order_relaxed); };
+		bool Corrupt = false, StoreFailed = false;
+		Execution.Observer.OnCacheIssue = [&](const FBuildAction&, EBuildSessionPhase Phase, const FCacheError& Error) {
+			if (Phase == EBuildSessionPhase::Record || Phase == EBuildSessionPhase::Encode || Phase == EBuildSessionPhase::Compress || Phase == EBuildSessionPhase::Store)
+			{
+				if (!StoreFailed) DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
+				StoreFailed = true; DURIN_WARN("Shader DDC persistence failed: {}", Error.Diagnostic);
+			}
+			else if (Error.Code == ECacheError::Corrupt || Error.Code == ECacheError::ValueTooLarge)
+			{
+				if (!Corrupt) DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
+				Corrupt = true; DURIN_WARN("Shader DDC value was rejected: {}", Error.Diagnostic);
+			}
+		};
+		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
+		if (!Completion) return {.Error = ShaderSessionError(Completion.error())};
+		if (Completion->Status != EBuildStatus::Succeeded || !Completion->Output)
+			return {.Error = Completion->Error ? ShaderSessionError(*Completion->Error) : FShaderError{.Code = EShaderError::InvalidCompileRequest}};
+		auto Built = ShaderSharedOutput::Assemble(Options, *Completion->Output);
 		if (!Built) return {.Error = std::move(Built.error())};
-		if (Observations.Origin == EBuildOrigin::CacheHit) DdcHits.fetch_add(1, std::memory_order_relaxed);
 		AddOutput(OutputKey, *Built);
 		return std::move(*Built);
 	}
@@ -801,8 +757,7 @@ namespace Durin
 
 		FShaderVariantKey VariantKey;
 		ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, VariantKey);
-		return ExecuteDerivedBuild(EffectiveOptions, VariantKey,
-			[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(CurrentMetaData); },
-			[&](const FShaderCompileOptions& Prepared) { return Compiler.Compile(VirtualShaderPath, Prepared); });
+		return ExecuteDerivedBuild(EffectiveOptions, VariantKey, CurrentMetaData.PortableDependencies, std::nullopt,
+			[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(CurrentMetaData); });
 	}
 }

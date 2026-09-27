@@ -70,7 +70,7 @@ namespace Durin
 			SerializeBoundedString(
 				Ar, Shader.DebugName, MaterialCookedProgramMaxStringBytes);
 			FByteBuffer Code = Ar.IsSaving() && Shader.Code
-				? *Shader.Code : FByteBuffer{};
+				? FByteBuffer(Shader.Code->begin(), Shader.Code->end()) : FByteBuffer{};
 			SerializeByteBuffer(Ar, Code, MaterialCookedProgramMaxPayloadBytes);
 			SerializeHash(Ar, Shader.Hash);
 			SerializeBoundedSequence(
@@ -86,8 +86,7 @@ namespace Durin
 					SerializePushRange(Inner, Range);
 				});
 			if (Ar.IsLoading() && !Ar.IsError())
-				Shader.Code = std::make_shared<FByteBuffer>(
-					std::move(Code));
+				Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
 		}
 
 		auto SerializeLayout(FArchive& Ar, FMaterialRenderLayout& Layout) -> void
@@ -191,7 +190,7 @@ namespace Durin
 			}
 			for (const FCompiledShader& Shader : Program.CompiledShaders)
 			{
-				if (!Shader.Code || Shader.Code->empty() || Shader.BinaryEntryPoint.empty()
+				if (!Shader.Code || Shader.Code->IsEmpty() || Shader.BinaryEntryPoint.empty()
 					|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
 					return {EMaterialCookError::CookedShaderCodeHashInvalid};
 			}

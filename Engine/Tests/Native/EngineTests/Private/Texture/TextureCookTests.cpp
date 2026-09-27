@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
@@ -567,7 +568,7 @@ namespace
 		auto& Mip = Data.Mips.emplace_back();
 		Mip.Width = Mip.Height = 1;
 		Mip.RowPitch = 4;
-		Mip.Pixels.assign(4, Value);
+		Mip.Pixels = FSharedByteBuffer::Take(FByteBuffer(4, Value));
 		return Data;
 	}
 
@@ -590,7 +591,7 @@ namespace
 			auto& Mip = Data->Mips.emplace_back();
 			Mip.Width = Mip.Height = Mip.Depth = 1;
 			Mip.RowPitch = Mip.DepthPitch = 4;
-			Mip.Voxels.assign(4, Value);
+			Mip.Voxels = FSharedByteBuffer::Take(FByteBuffer(4, Value));
 			Texture.SetPlatformData(std::move(Data));
 		}
 	}

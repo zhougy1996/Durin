@@ -194,6 +194,9 @@ namespace Durin
 		auto GetGammaSpace() const -> ETextureSourceGammaSpace { return GammaSpace; }
 		auto GetCompression() const -> ETextureSourceCompression { return Compression; }
 		auto GetDecodedPayloadSize() const -> uint64 { return DecodedPayloadSize; }
+		// Captured checksum for verifying retained canonical blocks without acquiring bulk.
+		auto GetDecodedPayloadHash() const -> FXxHash128
+		{ return {.HashLow = CanonicalPayloadHashLow, .HashHigh = CanonicalPayloadHashHigh}; }
 		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
 		auto GetBulkData() const -> const FEditorBulkData& { return Payload; }
 

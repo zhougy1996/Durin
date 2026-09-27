@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"

@@ -19,7 +19,7 @@ durin_add_native_test(TextureTests
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
-	LIBRARIES ${_durin_texture_test_libraries} bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ${_durin_texture_test_libraries} DerivedDataCache bc7enc_rdo::bc7enc_rdo
 	HEAVY_RUNTIME_RATIONALE "Exercises editor texture import, build, cache, and render-resource contracts."
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport" "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 )
@@ -34,6 +34,23 @@ durin_add_native_test(TextureCompressionQualificationTests
 	LIBRARIES Core CoreDObject Engine TextureBuild
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Measures the editor-only CPU texture compression provider."
+	TIMEOUT 600
+)
+
+durin_add_native_test(DerivedDataTextureQualificationTests
+	KIND qualification
+	DOMAINS texture derived-data
+	MODULES engine texture-build
+	SOURCES
+		Private/Texture/DerivedDataTextureQualificationTests.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private/Texture/TextureCubeSourceBuild.cpp
+	PRIVATE_SOURCE_OWNER Engine
+	PRIVATE_SOURCE_RATIONALE "Measures the Engine-owned captured Cube source boundary without exporting a test-only DLL symbol."
+	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private
+	LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder DerivedDataCache
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Measures cold and warm authored texture build boundaries using isolated caches."
 	TIMEOUT 600
 )
 

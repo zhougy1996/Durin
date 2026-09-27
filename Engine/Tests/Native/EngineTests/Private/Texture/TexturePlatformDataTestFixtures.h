@@ -21,7 +21,7 @@ namespace
 			EXPECT_EQ(Actual.Mips[MipIndex].Width, Expected.Mips[MipIndex].Width);
 			EXPECT_EQ(Actual.Mips[MipIndex].Height, Expected.Mips[MipIndex].Height);
 			EXPECT_EQ(Actual.Mips[MipIndex].RowPitch, Expected.Mips[MipIndex].RowPitch);
-			EXPECT_EQ(Actual.Mips[MipIndex].Pixels, Expected.Mips[MipIndex].Pixels);
+			EXPECT_TRUE(std::ranges::equal(Actual.Mips[MipIndex].Pixels, Expected.Mips[MipIndex].Pixels));
 		}
 	}
 

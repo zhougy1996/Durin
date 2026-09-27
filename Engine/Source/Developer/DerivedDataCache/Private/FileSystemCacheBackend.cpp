@@ -33,14 +33,17 @@ namespace Durin::DerivedData
 		const FCacheBucket& Bucket = Key.GetBucket();
 		const FFilePath Directory = GetBucketDirectory(Bucket);
 		const std::string KeyText = Key.ToString();
-		const FFilePath Candidate =
-			(Directory / KeyText.substr(0, 2) / (KeyText + ".bin")).lexically_normal();
-		if (!FPaths::IsLexicalDescendantPath(Candidate, Directory, true))
+		// The bucket directory is already normalized. A sealed binary key produces
+		// only hex path components; checking that alphabet proves containment without
+		// repeatedly normalizing the same absolute directory on every cache hit.
+		if (KeyText.empty() || !std::ranges::all_of(KeyText, [](char C) {
+			return (C >= '0' && C <= '9') || (C >= 'a' && C <= 'f');
+		}))
 		{
-			OutError = "Cache entry path escapes its configured bucket.";
+			OutError = "Cache key has an invalid path representation.";
 			return false;
 		}
-		OutPath = Candidate;
+		OutPath = Directory / KeyText.substr(0, 2) / (KeyText + ".bin");
 		OutError.clear();
 		return true;
 	}

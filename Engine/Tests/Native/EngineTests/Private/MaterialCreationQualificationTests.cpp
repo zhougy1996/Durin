@@ -172,14 +172,14 @@ namespace Durin
 			{
 				for (size_t Index = 0; Index < Program->CompiledShaders.size(); ++Index)
 				{
-					FrozenShaders.push_back(*Program->CompiledShaders[Index].Code);
+					FrozenShaders.emplace_back(Program->CompiledShaders[Index].Code->begin(), Program->CompiledShaders[Index].Code->end());
 					ASSERT_TRUE(FFileHelper::SaveArrayToFile(FrozenShaders.back(),
 						Output / std::format("material-shader{}.spv", Index)));
 				}
 			}
 			ASSERT_EQ(FrozenShaders.size(), Program->CompiledShaders.size());
 			for (size_t Index = 0; Index < FrozenShaders.size(); ++Index)
-				ASSERT_EQ(FrozenShaders[Index], *Program->CompiledShaders[Index].Code);
+				ASSERT_TRUE(std::ranges::equal(FrozenShaders[Index], Program->CompiledShaders[Index].Code->GetBytes()));
 			Life.Proxy = Life.Material->GetMaterialRenderProxy();
 			Life.Scene = std::make_unique<FSceneTestOwner>();
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(**Life.Scene, FPrimitiveComponentId(1),

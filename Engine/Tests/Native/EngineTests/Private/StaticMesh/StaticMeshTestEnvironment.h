@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeAssetBuildTestSupport.h"
 #include "EngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Modules/ModuleManager.h"

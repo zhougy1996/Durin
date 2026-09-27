@@ -7,6 +7,7 @@
 #include "PixelFormat.h"
 #include "Texture/TextureSourceFormat.h"
 #include "Image/Image.h"
+#include "Serialization/SharedByteBuffer.h"
 
 #include "Texture2DData.gen.h"
 
@@ -47,10 +48,11 @@ namespace Durin
 	ENGINE_API auto IsValidTextureAlphaMipMode(ETextureAlphaMipMode Mode) -> bool;
 	ENGINE_API auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool;
 
-	// Owns one tightly described platform mip and its byte row pitch.
+	// Retains immutable platform bytes; producers freeze owned writable storage
+	// only after all compression/projection work has completed.
 	struct FTexture2DMipData
 	{
-		FByteBuffer Pixels;
+		FSharedByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 RowPitch = 0;

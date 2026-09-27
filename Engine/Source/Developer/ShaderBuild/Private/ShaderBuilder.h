@@ -2,7 +2,7 @@
 
 #include "Shader/IShaderBuildModule.h"
 #include "ShaderDependencyManifestStore.h"
-#include "SlangShaderCompiler.h"
+#include "ShaderBuildSession.h"
 #include "SlangShaderDependencyResolver.h"
 
 namespace Durin
@@ -13,6 +13,8 @@ namespace Durin
 	public:
 		// Optional compile hook for isolated concurrency tests.
 		explicit FShaderBuilder(std::function<void(std::string_view)> InBeforeGeneratedCompile = {});
+
+		explicit FShaderBuilder(std::shared_ptr<FShaderBuildService> InBuildService);
 
 		~FShaderBuilder();
 
@@ -44,8 +46,8 @@ namespace Durin
 		static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
 
 		auto ExecuteDerivedBuild(const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey,
-			const std::function<std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>()>& Resolve,
-			const std::function<FShaderCompilerOutput(const FShaderCompileOptions&)>& Compile) -> FShaderCompilerOutput;
+			std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource,
+			FShaderArtifactResolver Resolve) -> FShaderCompilerOutput;
 
 		static auto ValidateGeneratedImports(
 			std::span<const std::string> DependencyPaths,
@@ -110,14 +112,13 @@ namespace Durin
 			const std::vector<FShaderMacroDefinition>& NormalizedMacros
 		) -> FShaderCompilerOutput;
 
-		FSlangShaderCompiler Compiler;
+		std::shared_ptr<FShaderBuildService> BuildService;
 		FSlangShaderDependencyResolver DependencyResolver;
 		const std::string CompilerEnvironmentIdentity;
 		FShaderDependencyManifestStore ManifestStore;
 		FFileFingerprintCache FileFingerprintCache;
 		std::mutex InFlightMutex;
 		std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
-		const std::function<void(std::string_view)> BeforeGeneratedCompile;
 		mutable std::mutex OutputCacheMutex;
 		std::list<std::string> OutputRecency;
 		std::unordered_map<std::string, FOutputCacheEntry> OutputCache;

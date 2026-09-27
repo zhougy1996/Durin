@@ -14,12 +14,14 @@ namespace Durin
 	{
 		check(!IsInitialized());
 		bNeedsCPUAccess = bInNeedsCPUAccess;
+		SharedPositions = {};
 		Positions = InPositions;
 	}
 
 	auto FPositionVertexBuffer::InitRHI(
 		FRHICommandListBase& RHICmdList) -> void
 	{
+		const auto Positions = GetPositions();
 		if (Positions.empty() || GetRHI() != nullptr) return;
 		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshPositionVertexBuffer",

@@ -37,7 +37,7 @@ durin_add_native_test(DerivedDataBuildTests
 	KIND contract
 	DOMAINS derived-data
 	MODULES derived-data-cache
-	SOURCES Private/DerivedDataBuildTests.cpp
+	SOURCES Private/DerivedDataBuildTests.cpp Private/DerivedDataBuildOutputTests.cpp Private/DerivedDataBuildFunctionTests.cpp Private/DerivedDataBuildExecutionTests.cpp Private/DerivedDataBuildSessionTests.cpp
 	LIBRARIES Core DerivedDataCache
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Exercises authoring-only build definitions and cache execution without Engine."
@@ -147,7 +147,7 @@ durin_add_native_test(TextureImportWorkflowTests
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
-	LIBRARIES Core CoreDObject Engine AssetTools AssetForgeBuiltins DurinEd TextureBuild
+	LIBRARIES Core CoreDObject Engine AssetTools AssetForgeBuiltins DurinEd TextureBuild MeshBuilder
 		bc7enc_rdo::bc7enc_rdo
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Exercises editor-only texture factories and import policy."

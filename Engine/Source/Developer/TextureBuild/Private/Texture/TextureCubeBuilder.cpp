@@ -158,7 +158,7 @@ namespace Durin::TextureCubeBuilder
 				FTexture2DMipData Mip;
 				Mip.Width = Mip.Height = Dimension;
 				Mip.RowPitch = Dimension * 16;
-				Mip.Pixels.resize(static_cast<size_t>(Mip.RowPitch) * Dimension);
+				FByteBuffer Pixels(static_cast<size_t>(Mip.RowPitch) * Dimension);
 				// Integrate each angular footprint against the original panorama. The
 				// cube Jacobian avoids overweighting face corners in ordinary mips.
 				const uint32 Grid = Dimension == BaseDimension ? 1u : 8u;
@@ -186,9 +186,10 @@ namespace Durin::TextureCubeBuilder
 						const std::array<float, 4> Pixel{static_cast<float>(Sum[0] / Weight * Exposure),
 							static_cast<float>(Sum[1] / Weight * Exposure),
 							static_cast<float>(Sum[2] / Weight * Exposure), 1.0f};
-						std::memcpy(Mip.Pixels.data() + static_cast<size_t>(Y) * Mip.RowPitch + X * 16,
+						std::memcpy(Pixels.data() + static_cast<size_t>(Y) * Mip.RowPitch + X * 16,
 							Pixel.data(), 16);
 					}
+				Mip.Pixels = FSharedByteBuffer::Take(std::move(Pixels));
 				Output.Mips.push_back(std::move(Mip));
 				if (Dimension == 1) break;
 			}

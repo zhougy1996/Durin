@@ -149,7 +149,7 @@ namespace Durin
 
 	};
 
-	// Engine-owned failures retain identities and numeric context, never prose.
+	// Direct failures retain structured context; generic completion retains formatted diagnostics and identity.
 	struct FShaderError
 	{
 		EShaderError Code = EShaderError::None;
@@ -173,6 +173,11 @@ namespace Durin
 		std::optional<FFileError> FileError;
 		// Reserved for the compiler boundary; never classify this text.
 		std::string ExternalDiagnostic;
+
+		// Only the generic build boundary uses these; direct compiler errors retain their structured fields.
+		std::optional<std::string> BoundaryDiagnostic;
+		std::optional<size_t> BoundaryFingerprint;
+		RENDERCORE_API static auto FromBuildDiagnostic(EShaderError Code, std::string Description, size_t Fingerprint) -> FShaderError;
 
 		// In-process diagnostic identity; excludes external wording, not a persistent cache key.
 		RENDERCORE_API auto GetSemanticFingerprint() const -> size_t;

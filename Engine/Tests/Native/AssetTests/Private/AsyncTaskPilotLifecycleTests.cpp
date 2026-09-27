@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
 #include "Asset/AssetCompilingManager.h"

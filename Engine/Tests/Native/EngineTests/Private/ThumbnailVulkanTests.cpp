@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
@@ -659,8 +660,9 @@ TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplace
 	FTexture2DMipData Mip;
 	Mip.Width = Mip.Height = 4;
 	Mip.RowPitch = 16;
-	Mip.Pixels.resize(16, std::byte{0});
-	Mip.Pixels[0] = Mip.Pixels[1] = Mip.Pixels[8] = Mip.Pixels[9] = std::byte{128};
+	FByteBuffer MipPixels(16, std::byte{0});
+	MipPixels[0] = MipPixels[1] = MipPixels[8] = MipPixels[9] = std::byte{128};
+	Mip.Pixels = FSharedByteBuffer::Take(std::move(MipPixels));
 	Platform->Mips.push_back(std::move(Mip));
 	Asset->SetPlatformData(std::move(Platform));
 	Asset->UpdateResource();

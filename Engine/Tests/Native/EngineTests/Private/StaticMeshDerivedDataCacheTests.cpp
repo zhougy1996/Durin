@@ -13,9 +13,14 @@
 #include "NativeDObjectTestSupport.h"
 
 #include "Asset/PackageSerialization.h"
-#include "Runtime/Engine/Private/Asset/AssetDerivedDataBuild.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
+#include "Asset/AssetBuildService.h"
+#include "StaticMesh/StaticMeshBuildFunction.h"
+#include "StaticMesh/StaticMeshSharedOutput.h"
+#include "Physics/PhysicsBuildFunction.h"
+#include "Physics/PhysicsSharedOutput.h"
+#include "DerivedDataBuildSession.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -95,6 +100,7 @@ namespace
 			.SourceHash = Mesh.GetSource().GetIdentity(),
 			.ReconciliationHash = Durin::BuildStaticMeshReconciliationHash(
 				Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()),
+			.MaterialSlotCount = uint32(Mesh.GetMaterialSlots().size()),
 			.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Win64}).value();
 		EXPECT_TRUE(Key.IsValid());
 		return Key.ToString();
@@ -537,7 +543,31 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_EQ(Geometry.GetVertexCount(), AuthoredVertices);
 		EXPECT_EQ(Geometry.GetTriangleCount(), AuthoredTriangles);
 		EXPECT_EQ(Geometry.GetNodeCount(), AuthoredNodes);
-		EXPECT_EQ(Geometry.GetRetainedBytes(), AuthoredBytes);
+		// Cold cooking retains recipe capacity; package loading allocates exact array sizes.
+		EXPECT_LE(Geometry.GetRetainedBytes(), AuthoredBytes);
+		for (uint32 Index = 0; Index < AuthoredVertices; ++Index)
+			EXPECT_EQ(*Geometry.GetVertex(Index), *AuthoredGeometry.GetVertex(Index));
+		for (uint32 Index = 0; Index < AuthoredTriangles; ++Index)
+		{
+			const auto& Actual = *Geometry.GetTriangle(Index);
+			const auto& Expected = *AuthoredGeometry.GetTriangle(Index);
+			EXPECT_EQ(Actual.First, Expected.First);
+			EXPECT_EQ(Actual.Second, Expected.Second);
+			EXPECT_EQ(Actual.Third, Expected.Third);
+			EXPECT_EQ(Actual.SourceOrdinal, Expected.SourceOrdinal);
+		}
+		for (uint32 Index = 0; Index < AuthoredNodes; ++Index)
+		{
+			const auto& Actual = *Geometry.GetNode(Index);
+			const auto& Expected = *AuthoredGeometry.GetNode(Index);
+			EXPECT_EQ(Actual.Minimum, Expected.Minimum);
+			EXPECT_EQ(Actual.Maximum, Expected.Maximum);
+			EXPECT_EQ(Actual.First, Expected.First);
+			EXPECT_EQ(Actual.CountOrSecond, Expected.CountOrSecond);
+		}
+		ASSERT_EQ(Geometry.GetLeafTriangleCount(), AuthoredGeometry.GetLeafTriangleCount());
+		for (uint32 Index = 0; Index < Geometry.GetLeafTriangleCount(); ++Index)
+			EXPECT_EQ(Geometry.GetLeafTriangle(Index), AuthoredGeometry.GetLeafTriangle(Index));
 		ASSERT_TRUE(Durin::UnloadPackage(Path));
 		ASSERT_TRUE(AssetRuntime.Restore());
 		return;
@@ -1389,10 +1419,17 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	EXPECT_FALSE(Render);
 	ASSERT_TRUE((Render = BuildRenderForTest(CachedRequest)));
 	Checks = 0;
+	ASSERT_TRUE(FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, true),
+		{.ShouldCancel = [&] { ++Checks; return false; }}));
+	ASSERT_GT(Checks, 10u);
+	const auto StopCollisionAt = Checks / 2;
+	Checks = 0;
 	const auto& CancelledCollision = (Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, true),
-		{.ShouldCancel = [&] { return ++Checks == 110; }}));
+		{.ShouldCancel = [&] { return ++Checks == StopCollisionAt; }}));
 	ASSERT_FALSE(CancelledCollision);
 	EXPECT_TRUE(CancelledCollision.error().IsCancelled());
 	EXPECT_FALSE(Collision);
@@ -1704,28 +1741,6 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	EXPECT_TRUE(Fixture.Mesh->GetPackage()->IsDirty());
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, InspectCompilationOperation(*Fixture.Mesh).Status);
-}
-
-TEST(FStaticMeshAuthoredCompilationTests, CacheIssuesAreReportedOnceWithStageKeyAndOriginalCause)
-{
-	using namespace Durin;
-	auto Definition = MakeStaticMeshBuildDefinition({.SourceHash = FXxHash128::HashBuffer("source"),
-		.ReconciliationHash = FXxHash128::HashBuffer("slots"), .TargetPlatform = EAssetPayloadTargetPlatform::Win64});
-	ASSERT_TRUE(Definition);
-	FCacheLogCapture Capture;
-	DerivedData::TBuildObservations<FStaticMeshBuildFailure> Observations;
-	Observations.ReadError = DerivedData::FCacheError{DerivedData::ECacheError::Miss, "ordinary miss"};
-	AssetDerivedDataBuild::ReportCacheIssues(*Definition, Observations, [](const auto& Error) { return Error.ToString(); });
-	EXPECT_TRUE(Capture.empty());
-	Observations.ReadError.reset();
-	Observations.EncodeError = FStaticMeshBuildFailure{"specific encoder failure", EStaticMeshBuildStage::Render};
-	AssetDerivedDataBuild::ReportCacheIssues(*Definition, Observations, [](const auto& Error) { return Error.ToString(); });
-	ASSERT_EQ(Capture.size(), 1u);
-	const auto Record = Capture.front();
-	EXPECT_NE(Record.Message.find("cache encode"), std::string::npos);
-	EXPECT_NE(Record.Message.find(Definition->GetKey().ToString()), std::string::npos);
-	EXPECT_NE(Record.Message.find("specific encoder failure"), std::string::npos);
-	EXPECT_LE(Record.Message.size(), 2048u);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, FactoryAdmissionRetainsSourceCountAndMissingImportData)
@@ -2449,17 +2464,19 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
 		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().ToString())));
 	const std::array<std::byte, 4> Invalid{};
 	const auto SeedKey = BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
 		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
 	ASSERT_TRUE(DerivedData::GetCache().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog))) << Error;
 	ASSERT_EQ(RenderCacheLog.size(), 1u);
 	const auto RenderRejection = RenderCacheLog.front();
 	EXPECT_NE(RenderRejection.Message.find("cache decode"), std::string::npos);
-	EXPECT_NE(RenderRejection.Message.find("Archive code"), std::string::npos);
+	EXPECT_NE(RenderRejection.Message.find("record"), std::string::npos);
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	EXPECT_TRUE(RenderCacheLog.empty());
 
@@ -2481,7 +2498,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	const auto CollisionRejection = CollisionLog.front();
 	Collision = {};
 	EXPECT_NE(CollisionRejection.Message.find("cache decode"), std::string::npos);
-	EXPECT_NE(CollisionRejection.Message.find("Archive code"), std::string::npos);
+	EXPECT_NE(CollisionRejection.Message.find("record"), std::string::npos);
 	EXPECT_NE(RenderRejection.Message.find("cache decode"), std::string::npos);
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
@@ -2509,6 +2526,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto Info = FModuleManager::Get().FindModule("MeshBuilder");
+	ShutdownAssetBuildService();
 	struct FRestoreImplementation
 	{
 		FModuleManager::FModuleInfoPtr Info;
@@ -2516,12 +2534,15 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 		~FRestoreImplementation()
 		{
 			FAssetCompilingManager::Get().FinishAllCompilation();
+			ShutdownAssetBuildService();
 			Info->Module = std::move(Original);
+			EXPECT_TRUE(InitializeAssetBuildService());
 		}
 	} Restore{Info, std::move(Info->Module)};
 	auto Implementation = std::make_unique<FInvalidProductModule>();
 	auto& Module = *Implementation;
 	Info->Module = std::move(Implementation);
+	ASSERT_TRUE(InitializeAssetBuildService());
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
@@ -2533,11 +2554,13 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	EXPECT_EQ(Outcome.error().GetStage(), EStaticMeshBuildStage::Render);
 	EXPECT_FALSE(Outcome.error().ToString().empty());
 	EXPECT_FALSE(Product);
-	const auto Authored = BuildStaticMeshRenderData({.Source = Source, .bPersistDerivedData = false});
+	const auto Authored = BuildStaticMeshRenderData({.Reconciliation = {.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Authored);
 	EXPECT_EQ(Authored.error().GetStage(), EStaticMeshBuildStage::Render);
 	EXPECT_EQ(Authored.error().ToString(), Outcome.error().ToString());
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedWorkerFailure"));
+	FStaticMeshTestAccess::SetMaterialSlots(Mesh, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
 	std::optional<FStaticMeshCompilationResult> Completion;
 	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
 		[&](const FStaticMeshCompilationResult& Value) { Completion = Value; })) << Error;
@@ -3082,8 +3105,10 @@ TEST(FPhysicsMeshLifecycleTests, CollisionProjectionMatchesRenderNormalizationAn
 	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, std::move(Geometry)));
 	auto Captured = Mesh->CreatePhysicsMeshInputTask();
 	ASSERT_TRUE(Captured);
-	const auto ExpectedPositions = Mesh->GetRenderData()->LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
-	const auto ExpectedIndices = Mesh->GetRenderData()->LODResources.front().IndexBuffer.GetIndices();
+	const auto PositionsView = Mesh->GetRenderData()->LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
+	const std::vector<FVector3f> ExpectedPositions(PositionsView.begin(), PositionsView.end());
+	const auto IndicesView = Mesh->GetRenderData()->LODResources.front().IndexBuffer.GetIndices();
+	const std::vector<uint32> ExpectedIndices(IndicesView.begin(), IndicesView.end());
 	const auto Direct = Mesh->GetPhysicsTriMeshData();
 	ASSERT_TRUE(Direct);
 	EXPECT_EQ(Direct->Positions, ExpectedPositions);
@@ -3269,4 +3294,260 @@ TEST(FPhysicsMeshLifecycleTests, SupersededCompletionPreservesInstalledGeometryW
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_EQ(Body->GetResidentComplexGeometry().GetIdentity(), Geometry.GetIdentity());
 	MarkObjectHierarchyAsGarbage(Body);
+}
+
+
+namespace
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	struct FCountingRenderModule final : IMeshBuilderModule
+	{
+		uint32 Builds = 0;
+		uint64 Budget = 0;
+		bool InvalidProduct = false;
+		auto GetRenderBuilderVersion() const -> uint32 override { return StaticMeshBuilderVersion; }
+		auto BuildRender(const FStaticMeshRenderBuildRequest& Request, const FAssetBuildTaskContext& Control)
+			-> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> override
+		{
+			++Builds; Budget = Control.MaximumWorkingSetBytes;
+			if (InvalidProduct) return FStaticMeshRenderBuildProduct{};
+			return IMeshBuilderModule::Get()->BuildRender(Request, Control);
+		}
+	};
+	struct FRenderSessionHarness
+	{
+		FCountingRenderModule Module;
+		FBuildRegistrySnapshot Registry;
+		std::shared_ptr<const IBuildInputResolver> Resolver;
+		std::shared_ptr<FResidencyReadProbe> SourceProbe;
+		FBuildDefinition Definition = MakeStaticMeshSessionDefinition(1).value();
+		FBuildRequestOptions Options;
+		FSharedByteBuffer Stored;
+		FCacheKey Key;
+		uint32 Hits = 0, Issues = 0, Puts = 0;
+		bool Cancel = false;
+		std::vector<EBuildSessionPhase> Phases;
+		FRenderSessionHarness()
+		{
+			FStaticMeshBuildRequest Request;
+			Request.Source.Initialize(MakeResidencyGeometry()).value();
+			SourceProbe = AttachResidencyProbe(Request.Source);
+			Request.Reconciliation.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
+			Resolver = StaticMeshPrivate::MakeRenderInputResolver(Request);
+			FBuildRegistry Mutable; Mutable.Register(StaticMeshPrivate::MakeRenderBuildFunction(Module)).value();
+			Registry = Mutable.Freeze().value();
+			Options.Policy.Compress = true;
+			Options.Policy.MaximumWorkingSetBytes = 64ull * 1024 * 1024;
+			Options.Cancellation = FBuildCancellation([this] { return Cancel; });
+			Options.Cache.Get = [this](const FCacheGetRequest& Request) -> FCacheGetResult {
+				if (Stored.IsEmpty() || Request.Key != Key) return std::unexpected(FCacheError{ECacheError::Miss, "miss"});
+				return Stored;
+			};
+			Options.Cache.Put = [this](const FCachePutRequest& Request) -> FCachePutResult {
+				++Puts; Key = Request.Key; Stored = FSharedByteBuffer::Copy(Request.Value); return {};
+			};
+			Options.Observer.OnCacheHit = [this] { ++Hits; };
+			Options.Observer.OnCacheIssue = [this](const auto&, auto, const auto&) { ++Issues; };
+			Options.Observer.OnPhase = [this](auto Phase) { Phases.push_back(Phase); };
+		}
+		auto Run() -> FBuildCompletion
+		{
+			FBuildSession Session(Registry, Resolver);
+			return Session.ExecuteInline(Definition, Options).value();
+		}
+	};
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, RenderSessionRetainsCapturedInputsAndRebuildsInvalidCacheOnce)
+{
+	FRenderSessionHarness H;
+	EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 0u);
+	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+	EXPECT_EQ(H.Module.Builds, 1u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 1u);
+	EXPECT_EQ(H.Module.Budget, H.Options.Policy.MaximumWorkingSetBytes);
+	EXPECT_TRUE(Cold.Output->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
+	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Module.Builds, 1u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 1u);
+	EXPECT_FALSE(Warm.Output->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
+	FBuildOutputData Invalid{.Schema = std::string(Warm.Output->GetSchema()), .SchemaVersion = Warm.Output->GetSchemaVersion(),
+		.Metadata = Warm.Output->GetMetadata(), .Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+	for (auto& Value : Invalid.Values) if (Value.Id == "LOD/0/Indices")
+		Value.Data = FSharedByteBuffer::TakeNative(std::vector<uint32>{0, 1, 999});
+	auto BadOutput = FBuildOutput::TryCreate(std::move(Invalid)); ASSERT_TRUE(BadOutput);
+	auto Record = FCacheRecord::FromOutput(H.Key, *BadOutput); ASSERT_TRUE(Record);
+	H.Stored = Record->Encode().value();
+	auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded);
+	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Module.Builds, 2u); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, 2u);
+	auto Product = StaticMeshPrivate::AssembleSharedOutput(*Rebuilt.Output); ASSERT_TRUE(Product);
+	Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Resolver.reset(); H.Registry = {};
+	EXPECT_TRUE(ValidateStaticMeshRenderData(**Product));
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, RenderSessionSeparatesOptionalPersistenceFreshFailureAndCancellation)
+{
+	FRenderSessionHarness H;
+	H.Options.Policy.ForceRebuild = true;
+	H.Options.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
+		return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
+	};
+	auto Valid = H.Run(); ASSERT_EQ(Valid.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Valid.Output);
+	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
+	H.Phases.clear(); H.Options.Policy.WriteCache = false;
+	EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
+		EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
+	H.Module.InvalidProduct = true;
+	auto Invalid = H.Run(); EXPECT_EQ(Invalid.Status, EBuildStatus::Failed); EXPECT_FALSE(Invalid.Output);
+	H.Module.InvalidProduct = false;
+	H.Options.Cache.MakeRecord = {}; H.Options.Policy.WriteCache = true;
+	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	H.Options.Policy.ForceRebuild = false;
+	const auto Builds = H.Module.Builds; const auto Reads = H.SourceProbe->GetReadStats().RequestCount;
+	H.Options.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
+	EXPECT_EQ(H.Run().Status, EBuildStatus::Cancelled);
+	EXPECT_EQ(H.Module.Builds, Builds); EXPECT_EQ(H.SourceProbe->GetReadStats().RequestCount, Reads);
+	EXPECT_EQ(H.Issues, 1u);
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, RenderFunctionRejectsMisrepresentedBytesAndEnforcesReservation)
+{
+	FRenderSessionHarness H;
+	auto Identities = H.Resolver->Describe(H.Definition.GetSources(), {}); ASSERT_TRUE(Identities);
+	auto Action = FBuildAction::TryCreate(H.Definition, GetStaticMeshBuildDescriptor(StaticMeshBuilderVersion), *Identities); ASSERT_TRUE(Action);
+	auto Inputs = H.Resolver->Resolve(*Identities, {}); ASSERT_TRUE(Inputs);
+	auto Function = StaticMeshPrivate::MakeRenderBuildFunction(H.Module);
+	for (size_t Index = 0; Index < Inputs->size(); ++Index)
+	{
+		auto Corrupt = *Inputs;
+		Corrupt[Index].Values[0].Data = FSharedByteBuffer::Take(FByteBuffer(1, std::byte{}));
+		FBuildContext Context(*Action, Corrupt, {});
+		EXPECT_FALSE(Function->Build(Context));
+	}
+	FBuildContext Limited(*Action, *Inputs, {}, {}, 1);
+	EXPECT_FALSE(Function->Build(Limited));
+	EXPECT_EQ(H.Module.Builds, 0u);
+	FBuildContext Admitted(*Action, *Inputs, {});
+	auto Output = Function->Build(Admitted); ASSERT_TRUE(Output);
+	uint32 Checks = 0;
+	auto Cancelled = Function->Validate(*Action, *Output, FBuildCancellation([&] { return ++Checks == 1; }));
+	ASSERT_FALSE(Cancelled);
+	EXPECT_EQ(Cancelled.error().Category, EBuildErrorCategory::Cancelled);
+}
+
+namespace
+{
+	struct FCollisionSessionHarness
+	{
+		FBuildRegistrySnapshot Registry;
+		std::shared_ptr<const IBuildInputResolver> Resolver;
+		FBuildDefinition Definition = MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+			EBodySetupCollisionQueryPolicy::SimpleAndComplex).value();
+		FBuildRequestOptions Options;
+		FSharedByteBuffer Stored;
+		FCacheKey Key;
+		uint32 Hits = 0, Issues = 0, Puts = 0;
+		bool Cancel = false;
+		std::vector<EBuildSessionPhase> Phases;
+		FCollisionSessionHarness()
+		{
+			FCookBodySetupInfo Info{.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
+			Info.TriangleMeshDesc.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+			Info.TriangleMeshDesc.Indices = {0, 1, 2};
+			Resolver = PhysicsPrivate::MakeCollisionInputResolver(FPhysicsCookHelper::Capture(std::move(Info)).value());
+			FBuildRegistry Mutable; Mutable.Register(PhysicsPrivate::MakeCollisionBuildFunction()).value();
+			Registry = Mutable.Freeze().value();
+			Options.Policy.Compress = true; Options.Policy.MaximumWorkingSetBytes = 64ull * 1024 * 1024;
+			Options.Cancellation = FBuildCancellation([this] { return Cancel; });
+			Options.Cache.Get = [this](const FCacheGetRequest& Request) -> FCacheGetResult {
+				if (Stored.IsEmpty() || Request.Key != Key) return std::unexpected(FCacheError{ECacheError::Miss, "miss"});
+				return Stored;
+			};
+			Options.Cache.Put = [this](const FCachePutRequest& Request) -> FCachePutResult {
+				++Puts; Key = Request.Key; Stored = FSharedByteBuffer::Copy(Request.Value); return {};
+			};
+			Options.Observer.OnCacheHit = [this] { ++Hits; };
+			Options.Observer.OnCacheIssue = [this](const auto&, auto, const auto&) { ++Issues; };
+			Options.Observer.OnPhase = [this](auto Phase) { Phases.push_back(Phase); };
+		}
+		auto Run() -> FBuildCompletion
+		{ FBuildSession Session(Registry, Resolver); return Session.ExecuteInline(Definition, Options).value(); }
+	};
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, CollisionSessionOwnsCaptureAndRebuildsCorruptOutputOnce)
+{
+	FCollisionSessionHarness H;
+	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+	const auto Block = Cold.Output->FindValue("Complex/Vertices")->Data;
+	ASSERT_TRUE(Block.GetNativeView<FVector3>());
+	H.Phases.clear();
+	auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Puts, 1u);
+	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Resolve), 0);
+	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 0);
+	EXPECT_FALSE(Warm.Output->FindValue("Complex/Vertices")->Data.GetNativeView<FVector3>());
+	FBuildOutputData Bad{.Schema = "Physics.CollisionOutput", .SchemaVersion = 1, .Metadata = Warm.Output->GetMetadata(),
+		.Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+	for (auto& Value : Bad.Values) if (Value.Id == "Complex/Triangles")
+		Value.Data = FSharedByteBuffer::TakeNative(std::vector<FCollisionGeometryTriangle>{{0, 1, 99, 0}});
+	H.Stored = FCacheRecord::FromOutput(H.Key, FBuildOutput::TryCreate(std::move(Bad)).value())->Encode().value();
+	H.Phases.clear();
+	auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Rebuilt.Output);
+	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 2u);
+	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 1);
+	auto Product = PhysicsPrivate::AssembleSharedOutput(*Cold.Output, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex); ASSERT_TRUE(Product);
+	EXPECT_EQ(Product->Complex.GetVertex(0), Block.GetNativeView<FVector3>()->data());
+	Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Resolver.reset(); H.Registry = {};
+	EXPECT_EQ(Product->Complex.GetTriangleCount(), 1u);
+	EXPECT_EQ(Product->Complex.GetNodeCount(), 1u);
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, CollisionSessionSeparatesPersistenceAndWarmCancellation)
+{
+	FCollisionSessionHarness H;
+	H.Options.Policy.ForceRebuild = true;
+	H.Options.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
+		return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
+	};
+	auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
+	H.Phases.clear(); H.Options.Policy.WriteCache = false;
+	EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
+		EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
+	H.Options.Cache.MakeRecord = {}; H.Options.Policy.WriteCache = true;
+	ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+	H.Options.Policy.ForceRebuild = false;
+	H.Phases.clear();
+	H.Options.Observer.OnPhase = [&](auto Phase) { H.Phases.push_back(Phase); if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
+	auto Cancelled = H.Run(); EXPECT_EQ(Cancelled.Status, EBuildStatus::Cancelled); EXPECT_FALSE(Cancelled.Output);
+	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Resolve), 0);
+	EXPECT_EQ(std::ranges::count(H.Phases, EBuildSessionPhase::Build), 0);
+	EXPECT_EQ(H.Issues, 1u);
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, CollisionFunctionRejectsForgedInputAndEnforcesBudget)
+{
+	FCollisionSessionHarness H;
+	auto Identities = H.Resolver->Describe(H.Definition.GetSources(), {}); ASSERT_TRUE(Identities);
+	auto Action = FBuildAction::TryCreate(H.Definition, GetPhysicsCookBuildDescriptor(), *Identities); ASSERT_TRUE(Action);
+	auto Inputs = H.Resolver->Resolve(*Identities, {}); ASSERT_TRUE(Inputs);
+	auto Function = PhysicsPrivate::MakeCollisionBuildFunction();
+	FBuildContext Limited(*Action, *Inputs, {}, {}, 1); EXPECT_FALSE(Function->Build(Limited));
+	auto Bad = *Inputs; Bad[0].Values[0].Data = FSharedByteBuffer::TakeNative(std::vector<FVector3f>{{0, 0, 0}, {2, 0, 0}, {0, 1, 0}});
+	FBuildContext Forged(*Action, Bad, {}); EXPECT_FALSE(Function->Build(Forged));
+	FBuildContext Admitted(*Action, *Inputs, {});
+	auto Output = Function->Build(Admitted); ASSERT_TRUE(Output);
+	uint32 Checks = 0;
+	auto Cancelled = Function->Validate(*Action, *Output, FBuildCancellation([&] { return ++Checks == 1; }));
+	ASSERT_FALSE(Cancelled); EXPECT_EQ(Cancelled.error().Category, EBuildErrorCategory::Cancelled);
+	FCookBodySetupInfo Info{.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
+	Info.TriangleMeshDesc.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+	Info.TriangleMeshDesc.Indices.reserve(4); Info.TriangleMeshDesc.Indices = {0, 1, 2};
+	const auto* PositionAllocation = Info.TriangleMeshDesc.Positions.data();
+	auto Capture = FPhysicsCookHelper::Capture(std::move(Info)); ASSERT_TRUE(Capture);
+	EXPECT_EQ(Capture->GetPositions().GetNativeView<FVector3f>()->data(), PositionAllocation);
+	EXPECT_TRUE(FPhysicsCookHelper::CookCaptured(*Capture));
 }

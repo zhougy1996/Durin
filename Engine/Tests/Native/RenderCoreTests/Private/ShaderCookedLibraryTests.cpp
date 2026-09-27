@@ -38,8 +38,7 @@ namespace Durin
 			Shader.SourceEntryPoint = std::move(EntryPoint);
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = Shader.SourceEntryPoint;
-			Shader.Code = std::make_shared<Durin::FByteBuffer>(sizeof(Words));
-			std::memcpy(Shader.Code->data(), Words.data(), sizeof(Words));
+			Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Copy(std::as_bytes(std::span(Words))));
 			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
 			return Shader;
 		}
@@ -109,8 +108,8 @@ namespace Durin
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		EXPECT_EQ(Loaded.CompiledShaders[0].SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(Loaded.CompiledShaders[1].SourceEntryPoint, "VertexMain");
-		EXPECT_EQ(*Loaded.CompiledShaders[0].Code,
-			*Record.Output.CompiledShaders[0].Code);
+		EXPECT_TRUE(std::ranges::equal(Loaded.CompiledShaders[0].Code->GetBytes(),
+			Record.Output.CompiledShaders[0].Code->GetBytes()));
 	}
 
 	TEST(FShaderCookedLibraryTests,

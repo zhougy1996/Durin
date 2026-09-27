@@ -54,7 +54,7 @@ namespace Durin
 			}
 			auto GetNumVertices() const -> uint32
 			{
-				return static_cast<uint32>(Normals.size());
+				return static_cast<uint32>(GetNormals().size());
 			}
 			auto GetStride() const -> uint32
 			{
@@ -67,31 +67,43 @@ namespace Durin
 			auto IsReady() const -> bool
 			{
 				return GetNumVertices() > 0
-					&& Tangents.size() == Normals.size()
+					&& GetTangents().size() == GetNormals().size()
 					&& GetRHI() != nullptr;
 			}
-			auto GetNormals() const -> const std::vector<FVector3f>&
+			auto GetNormals() const -> std::span<const FVector3f>
 			{
-				return Normals;
+				return MeshStreamPrivate::Read(Normals, SharedNormals);
 			}
-			auto GetTangents() const -> const std::vector<FVector4f>&
+			auto GetTangents() const -> std::span<const FVector4f>
 			{
-				return Tangents;
+				return MeshStreamPrivate::Read(Tangents, SharedTangents);
+			}
+			auto SetSharedNormals(FSharedByteBuffer Value) -> bool
+			{
+				check(!IsInitialized());
+				return MeshStreamPrivate::Retain(Normals, SharedNormals, std::move(Value));
 			}
 			auto GetMutableNormals() -> std::vector<FVector3f>&
 			{
 				check(!IsInitialized());
-				return Normals;
+				return MeshStreamPrivate::Detach(Normals, SharedNormals);
+			}
+			auto SetSharedTangents(FSharedByteBuffer Value) -> bool
+			{
+				check(!IsInitialized());
+				return MeshStreamPrivate::Retain(Tangents, SharedTangents, std::move(Value));
 			}
 			auto GetMutableTangents() -> std::vector<FVector4f>&
 			{
 				check(!IsInitialized());
-				return Tangents;
+				return MeshStreamPrivate::Detach(Tangents, SharedTangents);
 			}
 
 		private:
 			std::vector<FVector3f> Normals;
+			FSharedByteBuffer SharedNormals;
 			std::vector<FVector4f> Tangents;
+			FSharedByteBuffer SharedTangents;
 			bool bNeedsCPUAccess = true;
 		};
 
@@ -112,9 +124,9 @@ namespace Durin
 			}
 			auto GetNumVertices() const -> uint32
 			{
-				return TexCoords[0].empty()
+				return GetTexCoords()[0].empty()
 					? 0
-					: static_cast<uint32>(TexCoords[0].size());
+					: static_cast<uint32>(GetTexCoords()[0].size());
 			}
 			auto GetNumTexCoords() const -> uint8 { return NumTexCoords; }
 			auto NeedsCPUAccess() const -> bool
@@ -127,10 +139,10 @@ namespace Durin
 			}
 			auto IsReady() const -> bool
 			{
-				const size_t NumVertices = TexCoords[0].size();
+				const size_t NumVertices = GetTexCoords()[0].size();
 				return NumVertices > 0
 					&& std::ranges::all_of(
-						TexCoords,
+						GetTexCoords(),
 						[NumVertices](const auto& Channel) {
 							return Channel.size() == NumVertices;
 						})
@@ -141,22 +153,30 @@ namespace Durin
 				uint32 Channel) const -> const FVector2f&
 			{
 				check(Channel < MaxStaticMeshUVChannels);
-				check(VertexIndex < TexCoords[Channel].size());
-				return TexCoords[Channel][VertexIndex];
+				check(VertexIndex < GetTexCoords()[Channel].size());
+				return GetTexCoords()[Channel][VertexIndex];
 			}
-			auto GetTexCoords() const
-				-> const std::array<
-					std::vector<FVector2f>,
-					MaxStaticMeshUVChannels>&
+			auto GetTexCoords() const -> std::array<std::span<const FVector2f>, MaxStaticMeshUVChannels>
 			{
-				return TexCoords;
+				std::array<std::span<const FVector2f>, MaxStaticMeshUVChannels> Result;
+				for (size_t Index = 0; Index < Result.size(); ++Index)
+					Result[Index] = MeshStreamPrivate::Read(TexCoords[Index], SharedTexCoords[Index]);
+				return Result;
 			}
-			auto GetMutableTexCoords()
-				-> std::array<
-					std::vector<FVector2f>,
-					MaxStaticMeshUVChannels>&
+			auto SetSharedTexCoord(uint32 Channel, FSharedByteBuffer Value) -> bool
 			{
 				check(!IsInitialized());
+				return Channel < MaxStaticMeshUVChannels
+					&& MeshStreamPrivate::Retain(TexCoords[Channel], SharedTexCoords[Channel], std::move(Value));
+			}
+			auto GetMutableTexCoord(uint32 Channel) -> std::vector<FVector2f>&
+			{
+				check(!IsInitialized() && Channel < MaxStaticMeshUVChannels);
+				return MeshStreamPrivate::Detach(TexCoords[Channel], SharedTexCoords[Channel]);
+			}
+			auto GetMutableTexCoords() -> std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels>&
+			{
+				for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel) GetMutableTexCoord(Channel);
 				return TexCoords;
 			}
 			auto SetNumTexCoords(uint8 InNumTexCoords) -> void
@@ -169,6 +189,7 @@ namespace Durin
 			std::array<
 				std::vector<FVector2f>,
 				MaxStaticMeshUVChannels> TexCoords;
+			std::array<FSharedByteBuffer, MaxStaticMeshUVChannels> SharedTexCoords;
 			uint8 NumTexCoords = 0;
 			bool bNeedsCPUAccess = true;
 		};
@@ -209,7 +230,7 @@ namespace Durin
 		}
 		auto GetNumVertices() const -> uint32
 		{
-			return static_cast<uint32>(Colors.size());
+			return static_cast<uint32>(GetColors().size());
 		}
 		auto GetStride() const -> uint32
 		{
@@ -225,21 +246,27 @@ namespace Durin
 		}
 		auto GetVertexColor(uint32 VertexIndex) const -> const FVector4f&
 		{
-			check(VertexIndex < Colors.size());
-			return Colors[VertexIndex];
+			check(VertexIndex < GetColors().size());
+			return GetColors()[VertexIndex];
 		}
-		auto GetColors() const -> const std::vector<FVector4f>&
+		auto GetColors() const -> std::span<const FVector4f>
 		{
-			return Colors;
+			return MeshStreamPrivate::Read(Colors, SharedColors);
+		}
+		auto SetSharedColors(FSharedByteBuffer Value) -> bool
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Retain(Colors, SharedColors, std::move(Value));
 		}
 		auto GetMutableColors() -> std::vector<FVector4f>&
 		{
 			check(!IsInitialized());
-			return Colors;
+			return MeshStreamPrivate::Detach(Colors, SharedColors);
 		}
 
 	private:
 		std::vector<FVector4f> Colors;
+		FSharedByteBuffer SharedColors;
 		bool bNeedsCPUAccess = true;
 	};
 
@@ -279,7 +306,7 @@ namespace Durin
 		}
 		auto GetNumIndices() const -> uint32
 		{
-			return static_cast<uint32>(Indices.size());
+			return static_cast<uint32>(GetIndices().size());
 		}
 		auto GetStride() const -> uint32 { return sizeof(uint32); }
 		auto NeedsCPUAccess() const -> bool
@@ -292,21 +319,28 @@ namespace Durin
 		}
 		auto GetIndex(uint32 Index) const -> uint32
 		{
-			check(Index < Indices.size());
-			return Indices[Index];
+			check(Index < GetIndices().size());
+			return GetIndices()[Index];
 		}
-		auto GetIndices() const -> const std::vector<uint32>&
+		auto GetIndices() const -> std::span<const uint32>
 		{
-			return Indices;
+			return MeshStreamPrivate::Read(Indices, SharedIndices);
 		}
+		auto SetSharedIndices(FSharedByteBuffer Value) -> bool
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Retain(Indices, SharedIndices, std::move(Value));
+		}
+		auto GetIndicesCapacity() const -> size_t { return MeshStreamPrivate::Capacity(Indices, SharedIndices); }
 		auto GetMutableIndices() -> std::vector<uint32>&
 		{
 			check(!IsInitialized());
-			return Indices;
+			return MeshStreamPrivate::Detach(Indices, SharedIndices);
 		}
 
 	private:
 		std::vector<uint32> Indices;
+		FSharedByteBuffer SharedIndices;
 		bool bNeedsCPUAccess = true;
 	};
 

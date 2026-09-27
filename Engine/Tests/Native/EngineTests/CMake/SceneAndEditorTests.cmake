@@ -1,7 +1,7 @@
 durin_add_native_test(SplineTests
 	KIND feature
 	DOMAINS spline
-	MODULES asset-tools engine level-editor static-mesh-build asset-forge-builtins
+	MODULES asset-tools engine level-editor static-mesh-build texture-build asset-forge-builtins
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -31,6 +31,7 @@ durin_add_native_test(SplineTests
 		AssetTools
 		DurinEd
 		MeshBuilder
+		TextureBuild
 		AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 	INCLUDE_DIRECTORIES
@@ -395,7 +396,7 @@ durin_add_native_test(AssetPackageReloadVulkanTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this offscreen test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/AssetPackageReloadVulkanTests.cpp
-	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild RenderCore Renderer MeshBuilder
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -410,7 +411,7 @@ durin_add_native_test(AssetPackageReloadTests
 	MODULES durin-ed engine texture-build shader-build
 	STACKS editor
 	SOURCES Private/AssetPackageReloadTests.cpp
-	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild ShaderBuild
+	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild ShaderBuild MeshBuilder
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE

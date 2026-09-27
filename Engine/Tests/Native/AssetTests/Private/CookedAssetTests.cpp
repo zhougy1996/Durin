@@ -306,7 +306,7 @@ TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndPreservesInstalledFamil
 	Texture2D.PixelFormat = EPixelFormat::BC1_UNORM;
 	const FPixelFormatLayout Texture2DLayout =
 		GetPixelFormatLayout(Texture2D.PixelFormat, 1, 1);
-	Texture2D.Mips.push_back({FByteBuffer(Texture2DLayout.DataSize, std::byte{0x7f}),
+	Texture2D.Mips.push_back({FSharedByteBuffer::Take(FByteBuffer(Texture2DLayout.DataSize, std::byte{0x7f})),
 		1, 1, static_cast<uint32>(Texture2DLayout.RowPitch)});
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTexture2D>(Texture2D, "Texture2D"));
 	FTextureCubePlatformData Cube;
@@ -315,7 +315,7 @@ TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndPreservesInstalledFamil
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTextureCube>(Cube, "TextureCube"));
 	FVolumeTexturePlatformData Volume;
 	Volume.PixelFormat = EPixelFormat::R8_UNORM;
-	Volume.Mips.push_back({FByteBuffer(1, std::byte{0x7f}), 1, 1, 1, 1, 1});
+	Volume.Mips.push_back({FSharedByteBuffer::Take(FByteBuffer(1, std::byte{0x7f})), 1, 1, 1, 1, 1});
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DVolumeTexture>(Volume, "volume texture"));
 	CollectGarbage();
 }

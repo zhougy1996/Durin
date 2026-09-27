@@ -43,7 +43,9 @@ namespace Durin
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
+		SharedNormals = {};
 		Normals = std::move(InNormals);
+		SharedTangents = {};
 		Tangents = std::move(InTangents);
 		bNeedsCPUAccess = bInNeedsCPUAccess;
 	}
@@ -51,6 +53,8 @@ namespace Durin
 	auto FStaticMeshVertexBuffer::FTangentsVertexBuffer::InitRHI(
 		FRHICommandListBase& RHICmdList) -> void
 	{
+		const auto Normals = GetNormals();
+		const auto Tangents = GetTangents();
 		if (Normals.empty()
 			|| Tangents.size() != Normals.size()
 			|| GetRHI() != nullptr)
@@ -92,6 +96,7 @@ namespace Durin
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
+		SharedTexCoords = {};
 		TexCoords = std::move(InTexCoords);
 		NumTexCoords = InNumTexCoords;
 		bNeedsCPUAccess = bInNeedsCPUAccess;
@@ -107,6 +112,7 @@ namespace Durin
 	auto FStaticMeshVertexBuffer::FTexcoordVertexBuffer::InitRHI(
 		FRHICommandListBase& RHICmdList) -> void
 	{
+		const auto TexCoords = GetTexCoords();
 		const size_t NumVertices = TexCoords[0].size();
 		if (NumVertices == 0
 			|| !std::ranges::all_of(
@@ -155,6 +161,7 @@ namespace Durin
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
+		SharedColors = {};
 		Colors = std::move(InColors);
 		if (Colors.empty())
 		{
@@ -166,6 +173,7 @@ namespace Durin
 	auto FColorVertexBuffer::InitRHI(
 		FRHICommandListBase& RHICmdList) -> void
 	{
+		const auto Colors = GetColors();
 		if (Colors.empty() || GetRHI() != nullptr) return;
 		std::vector<FStaticMeshColorVertex> PackedColors(Colors.size());
 		for (size_t VertexIndex = 0;
@@ -194,23 +202,14 @@ namespace Durin
 	{
 		const uint32 NumVertices =
 			PositionVertexBuffer.GetNumVertices();
-		auto& TexCoords =
-			StaticMeshVertexBuffer.TexCoordVertexBuffer
-				.GetMutableTexCoords();
-		for (auto& Channel : TexCoords)
-		{
-			if (Channel.empty())
-			{
-				Channel.assign(NumVertices, FVector2f(0.0f));
-			}
-		}
-		StaticMeshVertexBuffer.TexCoordVertexBuffer.SetNumTexCoords(
-			NumTexCoords);
-		auto& Colors = ColorVertexBuffer.GetMutableColors();
-		if (Colors.empty() && !bHasColorVertexData)
-		{
-			Colors.assign(NumVertices, FVector4f(1.0f));
-		}
+		auto& UVBuffer = StaticMeshVertexBuffer.TexCoordVertexBuffer;
+		const auto TexCoords = UVBuffer.GetTexCoords();
+		for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
+			if (TexCoords[Channel].empty())
+				UVBuffer.GetMutableTexCoord(Channel).assign(NumVertices, FVector2f(0.0f));
+		UVBuffer.SetNumTexCoords(NumTexCoords);
+		if (ColorVertexBuffer.GetColors().empty() && !bHasColorVertexData)
+			ColorVertexBuffer.GetMutableColors().assign(NumVertices, FVector4f(1.0f));
 	}
 
 	namespace
@@ -279,6 +278,7 @@ namespace Durin
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
+		SharedIndices = {};
 		Indices = std::move(InIndices);
 		bNeedsCPUAccess = bInNeedsCPUAccess;
 	}
@@ -286,6 +286,7 @@ namespace Durin
 	auto FRawStaticIndexBuffer::InitRHI(
 		FRHICommandListBase& RHICmdList) -> void
 	{
+		const auto Indices = GetIndices();
 		if (Indices.empty() || GetRHI() != nullptr) return;
 		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateIndex(
 			"StaticMeshIndexBuffer",

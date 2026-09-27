@@ -245,7 +245,7 @@ namespace Durin
 			}
 			Candidate.DeformedLOD0Positions.emplace_back(Deformed);
 		}
-		Candidate.LOD0Indices = Indices;
+		Candidate.LOD0Indices.assign(Indices.begin(), Indices.end());
 		for (uint32 Index : Indices)
 		{
 			if (Index >= Candidate.DeformedLOD0Positions.size())

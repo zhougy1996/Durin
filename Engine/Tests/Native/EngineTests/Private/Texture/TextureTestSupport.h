@@ -1,7 +1,9 @@
 #pragma once
 
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetBuildService.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
@@ -44,7 +46,8 @@ inline auto EnsureTextureCompilingManager() -> bool
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
 		&& !Durin::InitializeAssetCompilingManager()) return false;
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	return true;
+	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	return Durin::InitializeAssetBuildService();
 }
 
 namespace
@@ -109,7 +112,7 @@ namespace
 		}
 	}
 
-	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const Durin::FByteBuffer& Block)
+	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, Durin::FByteView Block)
 		-> std::array<uint8, 4>
 	{
 		std::array<uint8, 64> Pixels{};

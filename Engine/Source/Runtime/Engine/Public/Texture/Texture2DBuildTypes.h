@@ -74,6 +74,7 @@ namespace Durin
 		std::optional<FTexture2DInputError> InputCause;
 		std::optional<ETaskState> TaskState;
 		std::optional<FArchiveFailure> ArchiveCause;
+		std::string Description; // Already formatted at the generic build boundary.
 	};
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
 

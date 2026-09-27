@@ -21,16 +21,29 @@ namespace Durin
 		return {};
 	}
 
-	auto MakePhysicsCookBuildDefinition(const FPhysicsCookKeyInput& Input)
-		-> std::expected<DerivedData::FBuildDefinition, FPhysicsCookKeyError>
+	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+		uint32 WeldToleranceBits) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+	{
+		return DerivedData::FBuildDefinition::TryCreate("Durin.Physics.Collision",
+			{{"TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64)}, {"SourceMode", uint64(Mode)},
+			 {"QueryPolicy", uint64(Policy)}, {"WeldToleranceBits", uint64(WeldToleranceBits)}}, {{"Geometry", "CapturedGeometry"}});
+	}
+	auto GetPhysicsCookBuildDescriptor(uint32 BuilderVersion, uint32 OutputVersion) -> DerivedData::FBuildFunctionDescriptor
+	{
+		return {"Durin.Physics.Collision", BuilderVersion, 1, "Physics.CollisionOutput", OutputVersion,
+			DerivedData::FCacheBucket::FromString(PhysicsCollisionCacheBucket)};
+	}
+
+	auto MakePhysicsCookBuildAction(const FPhysicsCookKeyInput& Input)
+		-> std::expected<DerivedData::FBuildAction, FPhysicsCookKeyError>
 	{
 		using namespace DerivedData;
 		if (Input.TargetPlatform != EAssetPayloadTargetPlatform::Win64)
 			return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
-		auto Definition = FBuildDefinition::TryCreate({"Durin.Physics.Collision", Input.BuilderVersion, 1,
-			"Physics.Collision", Input.PayloadSchemaVersion, FCacheBucket::FromString(PhysicsCollisionCacheBucket)},
-			{{"TargetPlatform", uint64(Input.TargetPlatform)}, {"SourceMode", uint64(Input.SourceMode)},
-			 {"QueryPolicy", uint64(Input.QueryPolicy)}, {"WeldToleranceBits", uint64(Input.WeldToleranceBits)}},
+		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.QueryPolicy, Input.WeldToleranceBits);
+		if (!Request) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
+			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
+		auto Definition = FBuildAction::TryCreate(*Request, GetPhysicsCookBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion),
 			{{"Geometry", Input.GeometryHash, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}});
 		if (!Definition) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
@@ -39,13 +52,13 @@ namespace Durin
 
 	auto BuildPhysicsCookDerivedDataKeyBytes(const FPhysicsCookKeyInput& Input) -> std::expected<FByteBuffer, FPhysicsCookKeyError>
 	{
-		auto Definition = MakePhysicsCookBuildDefinition(Input);
+		auto Definition = MakePhysicsCookBuildAction(Input);
 		if (!Definition) return std::unexpected(Definition.error());
 		return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
 	}
 	auto BuildPhysicsCookDerivedDataKey(const FPhysicsCookKeyInput& Input) -> std::expected<FCacheKeyProxy, FPhysicsCookKeyError>
 	{
-		auto Definition = MakePhysicsCookBuildDefinition(Input);
+		auto Definition = MakePhysicsCookBuildAction(Input);
 		if (!Definition) return std::unexpected(Definition.error());
 		return FCacheKeyProxy(Definition->GetKey());
 	}

@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "ContentBrowser/TextureCubeDetails.h"
 
 #include "Asset/PackageSerialization.h"

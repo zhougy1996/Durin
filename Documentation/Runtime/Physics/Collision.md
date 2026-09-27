@@ -96,8 +96,11 @@ procedural/debug meshes copy resident LOD0.
 
 `DBodySetup::GetCookInfo` combines prepared geometry with mode, policy and cache
 settings into the owning value `FCookBodySetupInfo`. `FPhysicsCookHelper::Cook`
-reads that descriptor and directly calls PhysicsCore convex/triangle geometry
-builders. `IMeshBuilderModule` only supplies render construction; its presence
+reads that descriptor. Editor requests execute Engine's registered collision
+function, which finishes immutable PhysicsCore cooked arrays before owner-side
+geometry assembly. Shared outputs retain cold arrays; cached bytes undergo one
+validated native-array conversion. Non-editor explicit cooking calls the linked
+PhysicsCore implementation directly. `IMeshBuilderModule` only supplies render construction; its presence
 and module lifetime do not affect physics cooking. Editor
 cooks retain collision DDC reads/writes; non-editor explicit cooking uses the
 linked geometry implementation without DDC. Async admission snapshots the settings first, and the worker fills

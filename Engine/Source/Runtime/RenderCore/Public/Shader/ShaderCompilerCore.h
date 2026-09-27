@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Shader/ShaderDiagnostics.h"
+#include "Serialization/SharedByteBuffer.h"
 
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
@@ -40,15 +41,24 @@ namespace Durin
 	public:
 		explicit FShaderSourceArtifacts(const std::map<std::string, FByteBuffer>& InFiles,
 			std::vector<std::string> InSearchRoots = {})
-			: Files(InFiles), SearchRoots(std::move(InSearchRoots)) {}
+			: Files(Adopt(InFiles)), SearchRoots(std::move(InSearchRoots)) {}
 		explicit FShaderSourceArtifacts(std::map<std::string, FByteBuffer>&& InFiles,
 			std::vector<std::string> InSearchRoots = {})
+			: Files(Adopt(std::move(InFiles))), SearchRoots(std::move(InSearchRoots)) {}
+		explicit FShaderSourceArtifacts(std::map<std::string, FSharedByteBuffer> InFiles,
+			std::vector<std::string> InSearchRoots = {})
 			: Files(std::move(InFiles)), SearchRoots(std::move(InSearchRoots)) {}
-		auto GetFiles() const -> const std::map<std::string, FByteBuffer>& { return Files; }
+		auto GetFiles() const -> const std::map<std::string, FSharedByteBuffer>& { return Files; }
 		auto GetSearchRoots() const -> const std::vector<std::string>& { return SearchRoots; }
 
 	private:
-		const std::map<std::string, FByteBuffer> Files;
+		static auto Adopt(std::map<std::string, FByteBuffer> InFiles) -> std::map<std::string, FSharedByteBuffer>
+		{
+			std::map<std::string, FSharedByteBuffer> Result;
+			for (auto& [Path, Bytes] : InFiles) Result.emplace(Path, FSharedByteBuffer::Take(std::move(Bytes)));
+			return Result;
+		}
+		const std::map<std::string, FSharedByteBuffer> Files;
 		const std::vector<std::string> SearchRoots;
 	};
 
@@ -104,7 +114,8 @@ namespace Durin
 		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
 		std::string BinaryEntryPoint = "main";
 		std::string DebugName;
-		std::shared_ptr<FByteBuffer> Code;
+		// Immutable shared bytes survive compiler, session, LRU and waiter lifetimes.
+		std::shared_ptr<const FSharedByteBuffer> Code;
 		FXxHash128 Hash{};
 		FShaderReflectionData Reflection;
 	};

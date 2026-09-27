@@ -12,6 +12,12 @@ namespace Durin::TextureBuilder
 	{
 		constexpr uint32 BlockWidth = 4;
 
+		struct FMutableMip
+		{
+			FByteBuffer Pixels;
+			uint32 Width = 0, Height = 0, RowPitch = 0;
+		};
+
 		// Borrowed only within synchronous build helpers. The mip-chain FImages
 		// retain shared immutable storage until all compression tasks have drained.
 		struct FReadOnlyMip
@@ -21,7 +27,7 @@ namespace Durin::TextureBuilder
 			FReadOnlyMip(const Image::FImage& Image)
 				: Pixels(Image.GetPixels()), Width(Image.GetInfo().Width),
 				Height(Image.GetInfo().Height), RowPitch(Width * ChannelCount) {}
-			FReadOnlyMip(const FTexture2DMipData& Mip)
+			FReadOnlyMip(const FMutableMip& Mip)
 				: Pixels(Mip.Pixels), Width(Mip.Width), Height(Mip.Height), RowPitch(Mip.RowPitch) {}
 		};
 
@@ -84,7 +90,7 @@ namespace Durin::TextureBuilder
 			OutMip.Width = Source.Width;
 			OutMip.Height = Source.Height;
 			OutMip.RowPitch = static_cast<uint32>(Layout.RowPitch);
-			OutMip.Pixels.resize(static_cast<size_t>(Layout.DataSize));
+			FByteBuffer Pixels(static_cast<size_t>(Layout.DataSize));
 
 			bc7enc_compress_block_params BC7Params;
 			bc7enc_compress_block_params_init(&BC7Params);
@@ -137,7 +143,7 @@ namespace Durin::TextureBuilder
 						return;
 					}
 					GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
-					uint8* DestBlock = reinterpret_cast<uint8*>(OutMip.Pixels.data())
+					uint8* DestBlock = reinterpret_cast<uint8*>(Pixels.data())
 						+ static_cast<size_t>(BlockY) * OutMip.RowPitch
 						+ static_cast<size_t>(BlockX) * GetPixelFormatInfo(Format).BytesPerBlock;
 					switch (Format)
@@ -167,6 +173,7 @@ namespace Durin::TextureBuilder
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			if (Compression.State != ETaskState::Succeeded)
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressionTaskFailed, .TaskState = Compression.State});
+			OutMip.Pixels = FSharedByteBuffer::Take(std::move(Pixels));
 			return {};
 		}
 
@@ -174,10 +181,10 @@ namespace Durin::TextureBuilder
 			const FReadOnlyMip& Source,
 			ETextureUsage Usage,
 			bool bSRGB,
-			FTexture2DMipData& OutResult,
+			FMutableMip& OutResult,
 			const FBuildExecutionControl* ExecutionControl) -> bool
 		{
-			FTexture2DMipData Result;
+			FMutableMip Result;
 			Result.Width = std::max(Source.Width / 2, 1u);
 			Result.Height = std::max(Source.Height / 2, 1u);
 			Result.RowPitch = Result.Width * ChannelCount;
@@ -277,7 +284,7 @@ namespace Durin::TextureBuilder
 		}
 
 		auto PreserveAlphaCoverage(
-			FTexture2DMipData& Mip,
+			FMutableMip& Mip,
 			float Threshold,
 			double TargetCoverage,
 			const FBuildExecutionControl* ExecutionControl) -> bool
@@ -421,7 +428,7 @@ namespace Durin::TextureBuilder
 				OutPlatformData = {};
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			}
-			FTexture2DMipData NextMip;
+			FMutableMip NextMip;
 			if (!BuildNextMip(
 				UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
 			{

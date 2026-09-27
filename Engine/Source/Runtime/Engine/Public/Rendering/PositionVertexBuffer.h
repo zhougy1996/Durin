@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Rendering/SharedMeshStream.h"
 
 #include "RenderResource.h"
 
@@ -29,7 +30,7 @@ namespace Durin
 
 		auto GetNumVertices() const -> uint32
 		{
-			return static_cast<uint32>(Positions.size());
+			return static_cast<uint32>(GetPositions().size());
 		}
 		auto GetStride() const -> uint32 { return sizeof(FVector3f); }
 		auto NeedsCPUAccess() const -> bool { return bNeedsCPUAccess; }
@@ -39,21 +40,29 @@ namespace Durin
 		}
 		auto GetVertexPosition(uint32 VertexIndex) const -> const FVector3f&
 		{
-			check(VertexIndex < Positions.size());
-			return Positions[VertexIndex];
+			check(VertexIndex < GetPositions().size());
+			return GetPositions()[VertexIndex];
 		}
-		auto GetPositions() const -> const std::vector<FVector3f>&
+		auto GetPositions() const -> std::span<const FVector3f>
 		{
-			return Positions;
+			return MeshStreamPrivate::Read(Positions, SharedPositions);
 		}
 		auto GetMutablePositions() -> std::vector<FVector3f>&
 		{
 			check(!IsInitialized());
-			return Positions;
+			return MeshStreamPrivate::Detach(Positions, SharedPositions);
 		}
+
+		auto SetSharedPositions(FSharedByteBuffer Value) -> bool
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Retain(Positions, SharedPositions, std::move(Value));
+		}
+		auto GetPositionCapacity() const -> size_t { return MeshStreamPrivate::Capacity(Positions, SharedPositions); }
 
 	private:
 		std::vector<FVector3f> Positions;
+		FSharedByteBuffer SharedPositions;
 		bool bNeedsCPUAccess = true;
 	};
 }

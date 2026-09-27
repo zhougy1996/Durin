@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Actors/ProceduralSkyActor.h"
@@ -327,7 +328,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
 							CommandList, CubeTexture, MipIndex, FaceIndex, MipPixels
 						)
-						|| MipPixels != PlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
+						|| !std::ranges::equal(MipPixels, PlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels))
 					{
 						Result->bSucceeded = false;
 						Result->Error = std::format(
@@ -353,7 +354,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
 							CommandList, HdrCubeTexture, MipIndex, FaceIndex, MipPixels
 						)
-						|| MipPixels != HdrPlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
+						|| !std::ranges::equal(MipPixels, HdrPlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels))
 					{
 						Result->bSucceeded = false;
 						Result->Error = std::format(

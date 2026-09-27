@@ -28,8 +28,10 @@ namespace StaticMeshBuildTestSupport
 		Durin::FCookBodySetupInfo Info{.Mode = Mode, .Policy = Policy, .bPersistDerivedData = bPersistDerivedData};
 		if (Mode != Durin::EBodySetupCollisionSourceMode::None && !Render.LODResources.empty())
 		{
-			Info.TriangleMeshDesc.Positions = Render.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
-			Info.TriangleMeshDesc.Indices = Render.LODResources.front().IndexBuffer.GetIndices();
+			const auto Positions = Render.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
+			Info.TriangleMeshDesc.Positions.assign(Positions.begin(), Positions.end());
+			const auto Indices = Render.LODResources.front().IndexBuffer.GetIndices();
+			Info.TriangleMeshDesc.Indices.assign(Indices.begin(), Indices.end());
 		}
 		return Info;
 	}

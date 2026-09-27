@@ -94,19 +94,19 @@ direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
 Developer `TextureBuild` and `MeshBuilder` own normalized
 source-independent recipes. Engine owns family identity fields, payload codecs,
-editor-only cache policy, diagnostics, and typed application. All three texture families use DerivedDataCache build definitions and shared
-lookup/resolve/build execution. StaticMesh render and physics collision also use separate definitions and typed
-adapters; their readiness and publication remain independent. AssetForgeBuiltins adapts explicit physical imports to
+editor-only cache policy, diagnostics, and typed application. Texture2D, Cube and Volume use registered shared-output sessions with captured
+byte resolvers and immutable mip/face/voxel blocks. StaticMesh render and physics collision also use separate shared-output sessions;
+their readiness and publication remain independent. AssetForgeBuiltins adapts explicit physical imports to
 canonical inputs and owns editor transactions.
 
 The [Derived Data Build Protocol](DerivedDataBuild.md) defines the shared
 identity and execution contract. DerivedDataCache contains a build subsystem and a separate backend-neutral
 `bucket + key -> opaque immutable bytes` cache subsystem with a private local
-backend. `FBuildDefinition` owns validated canonical inputs and constants;
-`ExecuteBuild` supplies a synchronous typed resolve/build/validate/cache protocol.
-The cache backend does not depend on build APIs. There is no build-function
-registry, new scheduler, or asset recipe policy in the module. Existing family
-orchestrators retain their paths until explicitly migrated to the protocol.
+backend. `FBuildDefinition` owns normalized constants and opaque captured-source
+references; `FBuildAction` freezes registered versions and resolved identities.
+Shared-output sessions execute all six producer families through the same
+resolve/build/validate/cache protocol. The cache backend does not depend on build
+APIs, and the module owns no new scheduler or asset recipe policy.
 Texture2D request capture validates metadata and retains a torn-off source with
 no payload I/O. A warm hit does not resolve mips; a miss prepares owned mip views
 from that snapshot. Invalid capture returns a typed input error. Managers inspect
@@ -122,17 +122,18 @@ for cold recipe execution without an extra decoded pixel copy.
 StaticMesh definitions bind source geometry identity and canonical reconciliation
 identity (normalization, material slot names, source names and source indices).
 Cached slot metadata is restored from the request; none of these output-affecting
-fields is omitted from identity. Render validation/finalization precedes cache
-publication. Physics definitions independently bind canonical positions/indices,
-source mode, query policy, weld settings and payload/producer versions. Both
+fields is omitted from identity. Render output validation precedes cache persistence; resource finalization follows
+owner-side assembly. Physics actions independently bind captured canonical
+positions/indices, source mode, query policy, weld settings and output/producer
+versions. Capture computes collision identity before metadata-only action lookup. Both
 retain family cancellation, source residency and working-set admission, consume
 immutable cache buffers directly, and report failed persistence as warnings.
 Builder/translator versions invalidate production identity;
 payload schema and stable value identifiers determine runtime readability.
 
 Low-level Get and Put permit concurrency under a logical bucket's shared lock.
-Requests never scan or evict entries. ShaderBuild supplies its own definition adapter and source-closure resolution,
-using the same executor to store complete SPIR-V-plus-reflection values in
+Requests never scan or evict entries. ShaderBuild registers its compiler function and source-closure resolver,
+using the same sessions to store shared SPIR-V and reflection blocks in
 `Shaders/CompiledOutput`. RenderCore owns the payload codec and runtime values.
 Machine-local dependency manifests do not enter portable values; see
 [Shader Cache](../Rendering/ShaderCache.md).

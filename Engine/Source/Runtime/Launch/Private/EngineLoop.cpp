@@ -12,6 +12,7 @@
 #include "Mona.h"
 #include "Engine/Engine.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetBuildService.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "Shader/ShaderData.h"
 
@@ -133,6 +134,12 @@ namespace Durin
 			return false;
 		}
 #if DURIN_WITH_EDITOR
+		if (!FModuleManager::Get().LoadModule("TextureBuild")
+			|| !FModuleManager::Get().LoadModule("MeshBuilder") || !InitializeAssetBuildService())
+		{
+			DURIN_ERROR("Engine pre-initialization failed because asset build services could not start.");
+			return false;
+		}
 		if (!FModuleManager::Get().LoadModule("ShaderBuild"))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because ShaderBuild could not start.");
@@ -382,6 +389,8 @@ namespace Durin
 		{
 			ShutdownAssetCompilingManager();
 		}
+
+		ShutdownAssetBuildService();
 
 		PackageSavePrivate::SetAsyncSaveAdmission(false);
 		(void)DPackage::DrainAsyncSaves();

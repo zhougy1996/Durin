@@ -17,6 +17,7 @@ namespace Durin::TexturePrivate
 
 	inline auto ReportBuildFailure(const FTextureBuildError& Error) -> FTextureBuildOperationError
 	{
+		if (Error.Code == ETextureBuildFailure::Canceled) return {ETextureBuildOperationFailure::Canceled, {}};
 		DURIN_ERROR_CATEGORY("Texture", "Texture build failed (stage {}, code {}): {}",
 			static_cast<int>(Error.Stage), static_cast<int>(Error.Code), Error.Diagnostic);
 		if (Error.Code == ETextureBuildFailure::InvalidInput)

@@ -127,6 +127,10 @@ namespace Durin
 		FStaticMeshPayloadData& OutPayload,
 		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
 
+	// Checks runtime stream views without constructing or copying a payload product.
+	ENGINE_API auto ValidateStaticMeshRenderData(const FStaticMeshRenderData& RenderData,
+		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FStaticMeshPayloadError>;
+
 	// Reconstructs CPU render data; runtime-only names and source material indices remain empty.
 	ENGINE_API auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,

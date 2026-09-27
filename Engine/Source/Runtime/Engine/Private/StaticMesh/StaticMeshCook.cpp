@@ -152,7 +152,9 @@ namespace Durin
 				FCollisionGeometryRef Simple, Complex;
 				auto Data = GetPhysicsTriMeshData();
 				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error().ToString()); return; }
-				auto Collision = FPhysicsCookHelper::Cook(BodySetup->GetCookInfo(std::move(*Data), false));
+				auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false));
+				if (!Input) { Ar.Fail(EArchiveFailureCode::InvalidData, Input.error().ToString()); return; }
+				auto Collision = FPhysicsCookHelper::CookCaptured(*Input);
 				if (!Collision)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error().ToString());

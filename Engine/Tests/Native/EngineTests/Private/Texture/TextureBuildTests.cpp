@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "../AssetCacheLogTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -850,9 +851,9 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
 	EXPECT_EQ(First.Mips[1].Depth, 1u);
-	EXPECT_EQ(First.Mips[1].Voxels, (Durin::FByteBuffer{std::byte{7}}));
-	EXPECT_EQ(First.Mips[0].Voxels, Second.Mips[0].Voxels);
-	EXPECT_EQ(First.Mips[1].Voxels, Second.Mips[1].Voxels);
+	EXPECT_TRUE(std::ranges::equal(First.Mips[1].Voxels, (Durin::FByteBuffer{std::byte{7}})));
+	EXPECT_TRUE(std::ranges::equal(First.Mips[0].Voxels, Second.Mips[0].Voxels));
+	EXPECT_TRUE(std::ranges::equal(First.Mips[1].Voxels, Second.Mips[1].Voxels));
 }
 
 TEST(FVolumeTextureTests, AuthoredVoxelsHaveDistinctAtomicReflectionIdentity)
@@ -892,7 +893,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		{.Target = {"Win64", "Game"}});
 	Decoded.Serialize(Reader);
 	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
-	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
+	EXPECT_TRUE(std::ranges::equal(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels));
 	auto DifferentProducer = Bytes;
 	for (uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<std::byte>(
@@ -901,7 +902,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Decoded.Serialize(CompatibleReader);
 	ASSERT_TRUE(Durin::RequireArchiveEnd(CompatibleReader)) << CompatibleReader.GetError();
-	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
+	EXPECT_TRUE(std::ranges::equal(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels));
 	Bytes.back() ^= std::byte{1};
 	Durin::FVolumeTexturePlatformData Discarded;
 	Durin::FCanonicalMemoryReader CorruptReader(Bytes,
@@ -945,7 +946,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	std::string GoldenKeyError;
 	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
 		GoldenKeyInput, GoldenKeyError).ToString(),
-		"ccb233b1772bcb6c91f88f55c4e82873") << GoldenKeyError;
+		"868aedbc1b663d4ffd621d5d954afbaa") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
@@ -1003,7 +1004,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	ASSERT_TRUE(OldGeneration);
 	EXPECT_EQ(OldGeneration->DerivedDataKey, First.DerivedDataKey);
 	EXPECT_EQ(OldGeneration->Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
-	EXPECT_EQ(OldGeneration->PlatformData->Mips.front().Voxels.front(), std::byte{1});
+	EXPECT_EQ(OldGeneration->PlatformData->Mips.front().Voxels[0], std::byte{1});
 }
 
 TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
@@ -1048,8 +1049,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_FALSE(Durin::PrepareVolumeTextureSource({}));
 	EXPECT_EQ(Texture->GetPlatformDataShared(), ValidPlatformDataIdentity);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
-		Expected.Mips.front().Voxels);
+	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels));
 	const Durin::FAssetWriteResult Saved = Durin::SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -1060,8 +1061,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(ExpectedKey.IsValid());
-	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
-		Expected.Mips.front().Voxels);
+	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels));
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureCook");
@@ -1118,8 +1119,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
 	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	EXPECT_FALSE(CookedTexture->CreateBuildInput().IsValid());
-	EXPECT_EQ(CookedTexture->GetPlatformData()->Mips.front().Voxels,
-		Expected.Mips.front().Voxels);
+	EXPECT_TRUE(std::ranges::equal(CookedTexture->GetPlatformData()->Mips.front().Voxels,
+		Expected.Mips.front().Voxels));
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	ASSERT_TRUE(AssetRuntime.Restore());
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
@@ -1912,7 +1913,7 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 	Mip.Width = 5;
 	Mip.Height = 3;
 	Mip.RowPitch = static_cast<uint32>(BC1Npot.RowPitch);
-	Mip.Pixels.resize(static_cast<size_t>(BC1Npot.DataSize));
+	Mip.Pixels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(static_cast<size_t>(BC1Npot.DataSize)));
 	EXPECT_TRUE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
 	Mip.RowPitch = 8;
 	EXPECT_FALSE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
@@ -1979,7 +1980,7 @@ TEST(FTexture2DTests, SharedSourceSlicesStayImmutableDuringWorkerBuild)
 	EXPECT_EQ(Generated.Mips.size(), 4u);
 	EXPECT_EQ(Supplied.Mips.size(), 2u);
 	EXPECT_TRUE(std::ranges::equal(Storage.GetBytes(), Expected));
-	EXPECT_EQ(Generated.Mips.front().Pixels, Supplied.Mips.front().Pixels);
+	EXPECT_TRUE(std::ranges::equal(Generated.Mips.front().Pixels, Supplied.Mips.front().Pixels));
 }
 
 TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
@@ -2016,7 +2017,7 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 			EXPECT_EQ(Serial.Mips[Index].Width, Parallel.Mips[Index].Width);
 			EXPECT_EQ(Serial.Mips[Index].Height, Parallel.Mips[Index].Height);
 			EXPECT_EQ(Serial.Mips[Index].RowPitch, Parallel.Mips[Index].RowPitch);
-			EXPECT_EQ(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels);
+			EXPECT_TRUE(std::ranges::equal(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels));
 		}
 	}
 }
@@ -2098,14 +2099,14 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 0, 0, 128});
 
-	const Durin::FByteBuffer LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
+	const Durin::FSharedByteBuffer LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DSRGB(*Loaded, true));
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded, 10.0))
 		<< Durin::FormatTexture2DCompilationError(Durin::GetTexture2DCompilationDiagnostic(*Loaded).Error);
 	EXPECT_TRUE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
-	EXPECT_NE(Loaded->GetPlatformData()->Mips.back().Pixels, LinearTail);
+	EXPECT_FALSE(std::ranges::equal(Loaded->GetPlatformData()->Mips.back().Pixels, LinearTail));
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {188, 0, 0, 128});
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
@@ -2428,7 +2429,7 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	Source.PixelFormat = EPixelFormat::R8_UNORM;
 	auto& Mip = Source.Mips.emplace_back();
 	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
-	Mip.Voxels = {std::byte{42}};
+	Mip.Voxels = FSharedByteBuffer::Take(FByteBuffer{std::byte{42}});
 	ASSERT_TRUE(Source.IsValid());
 	const FArchiveState Context{.Target = {"Win64", "Game"}};
 	FByteBuffer Bytes;
@@ -2444,7 +2445,7 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	EXPECT_FALSE(Hasher.IsError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
 	EXPECT_EQ(Source.Mips.size(), 1u);
-	EXPECT_EQ(Source.Mips.front().Voxels, FByteBuffer{std::byte{42}});
+	EXPECT_TRUE(std::ranges::equal(Source.Mips.front().Voxels, FByteBuffer{std::byte{42}}));
 
 	FByteBuffer Adjacent = Bytes;
 	Adjacent.insert(Adjacent.end(), Bytes.begin(), Bytes.end());
@@ -2517,7 +2518,7 @@ TEST(FVolumeTextureTests, RawArchiveWithoutBorrowingFailsExplicitly)
 	Source.PixelFormat = EPixelFormat::R8_UNORM;
 	auto& Mip = Source.Mips.emplace_back();
 	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
-	Mip.Voxels = {std::byte{42}};
+	Mip.Voxels = FSharedByteBuffer::Take(FByteBuffer{std::byte{42}});
 	FByteBuffer Bytes;
 	const FArchiveState Context{.Target = {"Win64", "Game"}};
 	FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, Context);

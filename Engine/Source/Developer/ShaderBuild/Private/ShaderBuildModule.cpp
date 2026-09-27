@@ -159,7 +159,8 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
-			Builder = std::make_unique<FShaderBuilder>();
+			BuildService = std::make_shared<FShaderBuildService>();
+			Builder = std::make_unique<FShaderBuilder>(BuildService);
 			const auto Result = InitializeShaderData(FShaderDataConfiguration::Authored());
 			requiref(Result,
 				"Authored Shader data initialization failed: {}", FormatShaderError(Result.error()));
@@ -167,10 +168,13 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
+			if (BuildService) BuildService->Close();
 			Builder.reset();
+			BuildService.reset();
 			ShutdownShaderData();
 		}
 	private:
+		std::shared_ptr<FShaderBuildService> BuildService;
 		std::unique_ptr<FShaderBuilder> Builder;
 	};
 

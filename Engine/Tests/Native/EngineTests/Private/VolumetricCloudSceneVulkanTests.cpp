@@ -119,7 +119,7 @@ namespace Durin
 			EXPECT_TRUE(Source.SetVoxelBytes(Voxels));
 			auto Platform = std::make_unique<FVolumeTexturePlatformData>();
 			Platform->PixelFormat = EPixelFormat::R8_UNORM;
-			Platform->Mips.push_back({.Voxels = {static_cast<std::byte>(Density)},
+			Platform->Mips.push_back({.Voxels = FSharedByteBuffer::Take(FByteBuffer{static_cast<std::byte>(Density)}),
 				.Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
 			auto PreparedTextureSource = Durin::PrepareVolumeTextureSource(Source);
 			EXPECT_TRUE(PreparedTextureSource);

@@ -1,8 +1,17 @@
+#include "Runtime/Engine/Private/Texture/TextureBuildDiagnostics.h"
+#include "Runtime/Engine/Private/Texture/TextureCubeBuildFunction.h"
+#include "Runtime/Engine/Private/Texture/VolumeTextureBuildFunction.h"
+#include "Runtime/Engine/Private/Texture/Texture2DBuildFunction.h"
+#include "DerivedDataBuildSession.h"
+#include "Runtime/Engine/Private/Asset/AssetBuildServicePrivate.h"
+#include "Texture/ITextureBuildModule.h"
 #include <expected>
 #include "Texture/Texture2DBuildTypes.h"
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"
+#include "Runtime/Engine/Private/Texture/Texture2DSharedOutput.h"
+#include "Runtime/Engine/Private/Texture/TexturePlatformSharedOutput.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
 #include "Texture/TextureCube.h"
 #include "Serialization/Archive.h"
@@ -23,8 +32,8 @@ namespace
 			Mip.Width = Dimension;
 			Mip.Height = Dimension;
 			Mip.RowPitch = static_cast<uint32>(Layout.RowPitch);
-			Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize),
-				static_cast<std::byte>(Dimension));
+			Mip.Pixels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(static_cast<size_t>(Layout.DataSize),
+				static_cast<std::byte>(Dimension)));
 		}
 		return Result;
 	}
@@ -43,7 +52,7 @@ namespace
 		{
 			Result.Faces[FaceIndex] = MakePlatformData(Result.PixelFormat);
 			for (Durin::FTexture2DMipData& Mip : Result.Faces[FaceIndex].Mips)
-				std::ranges::fill(Mip.Pixels, static_cast<std::byte>(FaceIndex + 1));
+				Mip.Pixels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(Mip.Pixels.size(), static_cast<std::byte>(FaceIndex + 1)));
 		}
 		return Result;
 	}
@@ -94,8 +103,8 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
-	// BuildDefinition schema 1 replaces the legacy family-specific key encoding.
-	EXPECT_EQ(Baseline.ToString(), "ea4147f928e24dd218363febc4385e12");
+	// Schema-2 action and shared output schema invalidate the legacy cache key.
+	EXPECT_EQ(Baseline.ToString(), "e61ee4bf1de319d653ce7b3cb8b492f0");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -127,7 +136,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	++Changed.BuilderVersion;
 	ExpectChange(Changed);
 	Changed = Input;
-	++Changed.PayloadSchemaVersion;
+	++Changed.OutputSchemaVersion;
 	ExpectChange(Changed);
 	Changed = Input;
 	Changed.TargetProfile = Durin::ECookTargetProfile::EditorValidation;
@@ -251,7 +260,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "3a8c771aab669bbdac6874ba34c3c5ab");
+	EXPECT_EQ(Baseline.ToString(), "71a417531fded5faaab02e3c0265d30d");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -280,7 +289,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "8fb682cb2f8e7294c71edd27f49bd59b");
+	EXPECT_EQ(Baseline.ToString(), "0fe45f5840fd7969b8cc6753f0f3183e");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -566,4 +575,475 @@ TEST(FTextureDerivedDataTests, CubeCanonicalSourceIdentityIncludesFaceOrder)
 	const auto ReorderedKey = BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(ReorderedKey.IsValid()) << Error;
 	EXPECT_NE(OriginalKey, ReorderedKey);
+}
+
+TEST(FTextureDerivedDataTests, SharedOutputRetainsGroupedMipsAndPreservesCookBytes)
+{
+	using namespace Durin;
+	auto Source = MakePlatformData();
+	uint64 Total = 0;
+	for (const auto& Mip : Source.Mips) Total += Mip.Pixels.size();
+	auto Owner = std::make_shared<FByteBuffer>(Total, std::byte{7});
+	std::weak_ptr<const FByteBuffer> Lifetime = Owner;
+	auto Backing = FSharedByteBuffer::Share(Owner);
+	uint64 Offset = 0;
+	for (auto& Mip : Source.Mips)
+	{
+		const auto Size = Mip.Pixels.size();
+		Mip.Pixels = Backing.MakeView(Offset, Size);
+		Offset += Size;
+	}
+	const auto* Original = Source.Mips[0].Pixels.data();
+	FByteBuffer Before, After;
+	std::string Error;
+	ASSERT_TRUE(StorePlatformDataValue(Source, Before, Error)) << Error;
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Source, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output) << Output.error();
+	Source = {}; Backing = {}; Owner.reset();
+	EXPECT_FALSE(Lifetime.expired());
+	auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("key"));
+	auto Record = DerivedData::FCacheRecord::FromOutput(Key, *Output);
+	ASSERT_TRUE(Record);
+	Output = DerivedData::FBuildOutput{};
+	auto Loaded = Record->ToOutput(Key);
+	ASSERT_TRUE(Loaded);
+	auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Loaded, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Product) << Product.error();
+	Record = DerivedData::FCacheRecord{}; Loaded = DerivedData::FBuildOutput{};
+	EXPECT_EQ(Product->Mips[0].Pixels.data(), Original);
+	EXPECT_TRUE(Product->Mips[0].Pixels.SharesStorageWith(Product->Mips[1].Pixels));
+	ASSERT_TRUE(StorePlatformDataValue(*Product, After, Error)) << Error;
+	EXPECT_EQ(Before, After);
+	// Mutation is an explicit owned copy, leaving the published shared view intact.
+	FByteBuffer Editable(Product->Mips[0].Pixels.begin(), Product->Mips[0].Pixels.end());
+	Editable[0] = std::byte{9};
+	EXPECT_EQ(Product->Mips[0].Pixels[0], std::byte{7});
+	Product = FTexturePlatformData{};
+	EXPECT_TRUE(Lifetime.expired());
+}
+
+TEST(FTextureDerivedDataTests, SharedOutputRejectsMalformedLayoutWithoutAssembly)
+{
+	using namespace Durin;
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(MakePlatformData(), ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output);
+	auto Copy = [&] {
+		return DerivedData::FBuildOutputData{.Schema = std::string(Output->GetSchema()), .SchemaVersion = Output->GetSchemaVersion(),
+			.Metadata = Output->GetMetadata(), .Values = {Output->GetValues().begin(), Output->GetValues().end()}};
+	};
+	for (uint32 Case = 0; Case < 8; ++Case)
+	{
+		auto Data = Copy();
+		switch (Case)
+		{
+		case 0: Data.SchemaVersion = 2; break;
+		case 1: Data.Values.pop_back(); break;
+		case 2: Data.Values[0].Id = "Mip/00"; break;
+		case 3: Data.Values[0].Data = FSharedByteBuffer::Take(FByteBuffer(1)); break;
+		default:
+		{
+			FByteBuffer Metadata(Data.Metadata.begin(), Data.Metadata.end());
+			if (Case == 4) WriteU32(Metadata, 16, MaximumTexture2DDimension + 1);
+			if (Case == 5) WriteU32(Metadata, 24, 1);
+			if (Case == 6) Metadata.push_back(std::byte{0});
+			if (Case == 7) WriteU32(Metadata, 12, MaximumTextureMipCount + 1);
+			Data.Metadata = FSharedByteBuffer::Take(std::move(Metadata));
+		}
+		}
+		auto Invalid = DerivedData::FBuildOutput::TryCreate(std::move(Data));
+		ASSERT_TRUE(Invalid);
+		EXPECT_FALSE(TexturePrivate::ReadTexture2DOutputLayout(*Invalid, ECookTargetPlatform::Win64, ECookTargetProfile::Game)) << Case;
+	}
+	EXPECT_FALSE(TexturePrivate::ReadTexture2DOutputLayout(*Output, ECookTargetPlatform::Win64, ECookTargetProfile::EditorValidation));
+}
+
+TEST(FTextureDerivedDataTests, AbandonedOutputAndFailedPersistenceDoNotChangeBlocks)
+{
+	using namespace Durin;
+	auto Source = MakePlatformData();
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Source, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output);
+	const auto* Address = Source.Mips[0].Pixels.data();
+	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("key"));
+	EXPECT_FALSE(DerivedData::FCacheRecord::FromOutput(Key, *Output, {.MaximumTotalBytes = 1}));
+	FByteBuffer RejectedBytes;
+	FCanonicalMemoryWriter RejectedWriter(RejectedBytes, EArchivePurpose::DerivedDataPayload,
+		{.Target = {"Unsupported", "Game"}});
+	Source.Serialize(RejectedWriter);
+	EXPECT_TRUE(RejectedWriter.IsError());
+	Output = DerivedData::FBuildOutput{};
+	EXPECT_EQ(Source.Mips[0].Pixels.data(), Address);
+	EXPECT_TRUE(Source.IsValid());
+}
+
+TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdenticalCookBytes)
+{
+	using namespace Durin;
+	const auto Source = MakePlatformData();
+	FByteBuffer Expected;
+	std::string Error;
+	ASSERT_TRUE(StorePlatformDataValue(Source, Expected, Error)) << Error;
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Source, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output);
+	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("encoded"));
+	auto Record = DerivedData::FCacheRecord::FromOutput(Key, *Output);
+	ASSERT_TRUE(Record);
+	auto Raw = Record->Encode();
+	ASSERT_TRUE(Raw);
+	for (bool bCompress : {false, true})
+	{
+		auto Stored = bCompress ? DerivedData::FCacheRecord::CompressEncoded(*Raw) : Raw;
+		ASSERT_TRUE(Stored);
+		auto LoadedRecord = DerivedData::FCacheRecord::Decode(Key, *Stored);
+		ASSERT_TRUE(LoadedRecord);
+		auto Loaded = LoadedRecord->ToOutput(Key);
+		ASSERT_TRUE(Loaded);
+		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Loaded, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		ASSERT_TRUE(Product);
+		for (size_t Index = 0; Index < Product->Mips.size(); ++Index)
+		{
+			const auto* Value = Loaded->FindValue(std::format("Mip/{}", Index));
+			ASSERT_NE(Value, nullptr);
+			EXPECT_EQ(Product->Mips[Index].Pixels.data(), Value->Data.data());
+			EXPECT_EQ(Product->Mips[Index].Pixels.SharesStorageWith(*Stored), !bCompress);
+		}
+		Stored = FSharedByteBuffer{}; LoadedRecord = DerivedData::FCacheRecord{}; Loaded = DerivedData::FBuildOutput{};
+		FByteBuffer Actual;
+		ASSERT_TRUE(StorePlatformDataValue(*Product, Actual, Error)) << Error;
+		EXPECT_EQ(Actual, Expected);
+	}
+}
+
+
+TEST(FTexture2DSessionTests, RetainsResolvedBlocksAndReturnsOutputAcrossPersistenceFailure)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	auto Image = Image::FImage::TryCreate({.Width = 16, .Height = 16,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB}, FByteBuffer(1024, std::byte{71}));
+	ASSERT_TRUE(Image);
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4, 0, ETextureSourceCompression::Raw));
+	auto Request = MakeTexture2DBuildRequest(Source).value();
+	auto Resolver = TexturePrivate::MakeTexture2DInputResolver(Request.Source);
+	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request).value();
+	auto Identities = Resolver->Describe(Definition.GetSources(), {});
+	ASSERT_TRUE(Identities);
+	auto Inputs = Resolver->Resolve(*Identities, {});
+	ASSERT_TRUE(Inputs);
+	EXPECT_TRUE(Inputs->front().Values.front().Data.SharesStorageWith(Source.GetMipData().GetMipData(0, 0, 0)));
+	FBuildRegistry Registry;
+	ASSERT_TRUE(Registry.Register(TexturePrivate::MakeTexture2DBuildFunction(*ITextureBuildModule::Get())));
+	FBuildSession Session(Registry.Freeze().value(), Resolver);
+	FBuildRequestOptions Options;
+	Options.Policy.ReadCache = false;
+	uint32 Encodes = 0, Metrics = 0, Issues = 0;
+	Options.Cache.Encode = [&](const auto&, uint64) -> std::expected<FSharedByteBuffer, FCacheError> {
+		++Encodes; return std::unexpected(FCacheError{ECacheError::StorageFailure, "injected encode failure"});
+	};
+	Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Issues; };
+	Options.Observer.OnMetric = [&](auto, uint64) { ++Metrics; throw 7; };
+	auto Completion = Session.ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Completion); ASSERT_EQ(Completion->Status, EBuildStatus::Succeeded);
+	ASSERT_TRUE(Completion->Output);
+	EXPECT_EQ(Encodes, 1u); EXPECT_EQ(Issues, 1u); EXPECT_EQ(Metrics, 3u);
+	EXPECT_EQ(Session.Drain(), EBuildDrainResult::Drained);
+	auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Completion->Output, Request.TargetPlatform, Request.TargetProfile);
+	ASSERT_TRUE(Product);
+	EXPECT_EQ(Product->Mips[0].Pixels.GetBytes().data(), Completion->Output->FindValue("Mip/0")->Data.GetBytes().data());
+	Completion = {};
+	EXPECT_TRUE(Product->IsValid());
+}
+
+TEST(FTexture2DSessionTests, NoWriteSkipsPersistenceAndWarmRecordSkipsSourceResolution)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	auto Image = Image::FImage::TryCreate({.Width = 8, .Height = 8,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::Linear}, FByteBuffer(256, std::byte{42})).value();
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4));
+	auto Request = MakeTexture2DBuildRequest(Source).value();
+	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request).value();
+	struct FCountingResolver final : IBuildInputResolver
+	{
+		std::shared_ptr<const IBuildInputResolver> Inner;
+		mutable uint32 Resolves = 0;
+		bool Unavailable = false;
+		auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
+			-> std::expected<std::vector<FBuildInputReference>, FBuildError> override { return Inner->Describe(Sources, Cancel); }
+		auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
+			-> std::expected<std::vector<FBuildInput>, FBuildError> override {
+			++Resolves;
+			if (Unavailable) return std::unexpected(FBuildError{.Description = "source unavailable"});
+			return Inner->Resolve(Inputs, Cancel);
+		}
+	};
+	auto Resolver = std::make_shared<FCountingResolver>();
+	Resolver->Inner = TexturePrivate::MakeTexture2DInputResolver(Request.Source);
+	FBuildRegistry Registry;
+	auto Function = TexturePrivate::MakeTexture2DBuildFunction(*ITextureBuildModule::Get());
+	ASSERT_TRUE(Registry.Register(Function));
+	FBuildSession Session(Registry.Freeze().value(), Resolver);
+	FBuildRequestOptions Options;
+	Options.Policy.ReadCache = false; Options.Policy.WriteCache = false;
+	uint32 Persistence = 0;
+	Options.Observer.OnPhase = [&](auto Phase) { if (Phase >= EBuildSessionPhase::Record && Phase <= EBuildSessionPhase::Store) ++Persistence; };
+	auto Cold = Session.ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Cold); ASSERT_TRUE(Cold->Output);
+	EXPECT_EQ(Persistence, 0u); EXPECT_EQ(Resolver->Resolves, 1u);
+	auto Action = FBuildAction::TryCreate(Definition, Function->GetDescriptor(), Resolver->Describe(Definition.GetSources(), {}).value()).value();
+	auto Record = FCacheRecord::FromOutput(Action.GetKey(), *Cold->Output).value();
+	auto Bytes = Record.Encode().value();
+	Options.Policy.ReadCache = true;
+	Options.Cache.Get = [Bytes](const auto&) -> FCacheGetResult { return Bytes; };
+	Resolver->Unavailable = true;
+	auto Warm = Session.ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Warm); ASSERT_TRUE(Warm->Output);
+	EXPECT_EQ(Resolver->Resolves, 1u);
+	EXPECT_EQ(Warm->Output->FindValue("Mip/0")->Data.GetSize(), Cold->Output->FindValue("Mip/0")->Data.GetSize());
+	EXPECT_TRUE(Warm->Output->FindValue("Mip/0")->Data.SharesStorageWith(Bytes));
+	// An intact record with an incomplete family value table must rebuild once.
+	auto InvalidOutput = FBuildOutput::TryCreate({.Schema = "Texture2D.Output", .SchemaVersion = 1,
+		.Metadata = Cold->Output->GetMetadata()}).value();
+	auto InvalidBytes = FCacheRecord::FromOutput(Action.GetKey(), InvalidOutput).value().Encode().value();
+	Options.Cache.Get = [InvalidBytes](const auto&) -> FCacheGetResult { return InvalidBytes; };
+	uint32 Rejections = 0;
+	Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Rejections; };
+	Resolver->Unavailable = false;
+	auto Rebuilt = Session.ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Rebuilt); EXPECT_EQ(Rebuilt->Status, EBuildStatus::Succeeded);
+	EXPECT_EQ(Rejections, 1u); EXPECT_EQ(Resolver->Resolves, 2u);
+	Resolver->Unavailable = true;
+	Options.Policy.ForceRebuild = true;
+	auto Miss = Session.ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Miss); EXPECT_EQ(Miss->Status, EBuildStatus::Failed); EXPECT_EQ(Resolver->Resolves, 3u);
+}
+
+TEST(FTexture2DSessionTests, ServiceShutdownClosesRetainedSessionsBeforeExplicitRestart)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	auto Image = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::Linear}, FByteBuffer(64, std::byte{42})).value();
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4));
+	auto Request = MakeTexture2DBuildRequest(Source).value();
+	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request).value();
+	auto Resolver = TexturePrivate::MakeTexture2DInputResolver(Request.Source);
+	auto Before = AssetBuildPrivate::CreateSession(Resolver);
+	ASSERT_TRUE(Before);
+	std::weak_ptr<const IBuildInputResolver> AbandonedResolver;
+	{
+		auto Owned = TexturePrivate::MakeTexture2DInputResolver(Request.Source);
+		AbandonedResolver = Owned;
+		ASSERT_TRUE(AssetBuildPrivate::CreateSession(Owned));
+	}
+	EXPECT_FALSE(AbandonedResolver.expired());
+	ShutdownAssetBuildService();
+	EXPECT_TRUE(AbandonedResolver.expired());
+	EXPECT_FALSE(AssetBuildPrivate::CreateSession(Resolver));
+	EXPECT_FALSE((*Before)->ExecuteInline(Definition));
+	ASSERT_TRUE(InitializeAssetBuildService());
+	auto After = AssetBuildPrivate::CreateSession(Resolver);
+	ASSERT_TRUE(After);
+	FBuildRequestOptions Options;
+	Options.Policy.ReadCache = false; Options.Policy.WriteCache = false;
+	auto Result = (*After)->ExecuteInline(Definition, Options);
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EBuildStatus::Succeeded);
+	EXPECT_FALSE((*Before)->ExecuteInline(Definition));
+	AssetBuildPrivate::ReleaseSession(*After);
+}
+
+TEST(FTexturePlatformSharedOutputTests, CubeAndVolumeRetainBlocksAndPreserveCookBytes)
+{
+	using namespace Durin;
+	using namespace Durin::TexturePrivate;
+	auto Encode = [](auto& Product) {
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+		Product.Serialize(Writer); EXPECT_FALSE(Writer.IsError()); return Bytes;
+	};
+	auto Cube = MakeCubePlatformData();
+	const auto CubeBytes = Encode(Cube);
+	auto CubeOutput = MakeTextureCubeSharedOutput(Cube, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(CubeOutput);
+	const auto CubeAddress = Cube.Faces[4].Mips[1].Pixels.data();
+	Cube = {};
+	auto CubeProduct = AssembleTextureCubeSharedOutput(*CubeOutput, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(CubeProduct);
+	EXPECT_EQ((*CubeProduct)->Faces[4].Mips[1].Pixels.data(), CubeAddress);
+	CubeOutput = std::unexpected("released");
+	EXPECT_EQ(Encode(**CubeProduct), CubeBytes);
+
+	FVolumeTexturePlatformData Volume;
+	Volume.PixelFormat = EPixelFormat::R8_UNORM;
+	auto Group = FSharedByteBuffer::Take(FByteBuffer(19, std::byte{42}));
+	Volume.Mips = {{.Voxels = Group.MakeView(0, 16), .Width = 4, .Height = 2, .Depth = 2, .RowPitch = 4, .DepthPitch = 8},
+		{.Voxels = Group.MakeView(16, 2), .Width = 2, .Height = 1, .Depth = 1, .RowPitch = 2, .DepthPitch = 2},
+		{.Voxels = Group.MakeView(18, 1), .Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1}};
+	const auto VolumeBytes = Encode(Volume);
+	auto VolumeOutput = MakeVolumeTextureSharedOutput(Volume, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(VolumeOutput);
+	const auto VolumeAddress = Group.data();
+	Volume = {}; Group = {};
+	auto VolumeProduct = AssembleVolumeTextureSharedOutput(*VolumeOutput, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(VolumeProduct);
+	VolumeOutput = std::unexpected("released");
+	EXPECT_EQ((*VolumeProduct)->Mips[0].Voxels.data(), VolumeAddress);
+	EXPECT_EQ((*VolumeProduct)->Mips[1].Voxels.data(), VolumeAddress + 16);
+	EXPECT_EQ(Encode(**VolumeProduct), VolumeBytes);
+}
+
+TEST(FTexturePlatformSharedOutputTests, RejectsInconsistentBlocksAndBoundedLayouts)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	using namespace Durin::TexturePrivate;
+	auto Cube = MakeCubePlatformData();
+	auto CubeOutput = MakeTextureCubeSharedOutput(Cube, ECookTargetPlatform::Win64, ECookTargetProfile::Game).value();
+	FVolumeTexturePlatformData Volume{.Mips = {{.Voxels = FSharedByteBuffer::Take(FByteBuffer(1, std::byte{7})),
+		.Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1}}, .PixelFormat = EPixelFormat::R8_UNORM};
+	auto VolumeOutput = MakeVolumeTextureSharedOutput(Volume, ECookTargetPlatform::Win64, ECookTargetProfile::Game).value();
+	for (const bool IsCube : {true, false})
+	{
+		const auto& Original = IsCube ? CubeOutput : VolumeOutput;
+		auto Data = [&] { return FBuildOutputData{.Schema = std::string(Original.GetSchema()), .SchemaVersion = 1,
+			.Metadata = Original.GetMetadata(), .Values = {Original.GetValues().begin(), Original.GetValues().end()}}; };
+		auto Reject = [&](FBuildOutputData Invalid) {
+			auto Output = FBuildOutput::TryCreate(std::move(Invalid)); ASSERT_TRUE(Output);
+			EXPECT_FALSE(ReadTexturePlatformOutputLayout(*Output, IsCube, ECookTargetPlatform::Win64, ECookTargetProfile::Game));
+		};
+		auto Invalid = Data(); Invalid.Values.pop_back(); Reject(std::move(Invalid));
+		Invalid = Data(); Invalid.Values[0].Id += "0"; Reject(std::move(Invalid));
+		Invalid = Data(); Invalid.SchemaVersion = 2; Reject(std::move(Invalid));
+		Invalid = Data(); Invalid.Metadata = Invalid.Metadata.MakeView(0, 15); Reject(std::move(Invalid));
+		for (const auto Offset : {12u, 16u, 20u, 24u, 28u})
+		{
+			Invalid = Data(); FByteBuffer Bytes(Invalid.Metadata.begin(), Invalid.Metadata.end());
+			WriteU32(Bytes, Offset, UINT32_MAX); Invalid.Metadata = FSharedByteBuffer::Take(std::move(Bytes)); Reject(std::move(Invalid));
+		}
+		EXPECT_FALSE(ReadTexturePlatformOutputLayout(Original, IsCube, ECookTargetPlatform::Win64, ECookTargetProfile::EditorValidation));
+	}
+}
+
+
+TEST(FTexturePlatformSessionTests, CubeAndVolumeRecoverMalformedRecordsWithoutWarmSourceReads)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	for (bool Cube : {true, false})
+	{
+		SCOPED_TRACE(Cube ? "Cube" : "Volume");
+		auto Image = Image::FImage::TryCreate({.Width = 4, .Height = 4, .Depth = Cube ? 1u : 4u,
+			.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::Linear},
+			FByteBuffer(Cube ? 64 : 256, std::byte{42})).value();
+		FTextureSource Source;
+		std::array<Image::FImageView, 6> Faces;
+		Faces.fill(Image.GetView());
+		ASSERT_TRUE(Cube ? Source.InitCube(Faces, 4) : Source.InitVolume(Image.GetView()));
+		auto Definition = Cube
+			? TexturePrivate::MakeTextureCubeSessionDefinition({.CanonicalSourceIdentity = Source.GetIdentity(),
+			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value()
+			: TexturePrivate::MakeVolumeTextureSessionDefinition({.Source = Source.CopyTornOff(),
+				.Settings = {.OutputFormat = EVolumeTextureFormat::RGBA8_UNORM}}).value();
+		struct FResolver final : IBuildInputResolver
+		{
+			std::shared_ptr<const IBuildInputResolver> Inner;
+			mutable uint32 Reads = 0;
+			bool Unavailable = false;
+			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
+				-> std::expected<std::vector<FBuildInputReference>, FBuildError> override { return Inner->Describe(Sources, Cancel); }
+			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
+				-> std::expected<std::vector<FBuildInput>, FBuildError> override
+			{
+				++Reads;
+				if (Unavailable) return std::unexpected(FBuildError{.Category = EBuildErrorCategory::InvalidInput, .Description = "captured bytes unavailable"});
+				return Inner->Resolve(Inputs, Cancel);
+			}
+		};
+		auto Resolver = std::make_shared<FResolver>();
+		Resolver->Inner = Cube ? TexturePrivate::MakeTextureCubeInputResolver(Source, nullptr) : TexturePrivate::MakeVolumeTextureInputResolver(Source);
+		auto Function = Cube ? TexturePrivate::MakeTextureCubeBuildFunction(*ITextureBuildModule::Get()) : TexturePrivate::MakeVolumeTextureBuildFunction(*ITextureBuildModule::Get());
+		FBuildRegistry Registry;
+		ASSERT_TRUE(Registry.Register(Function));
+		FBuildSession Session(Registry.Freeze().value(), Resolver);
+		FBuildRequestOptions Options;
+		Options.Policy.ReadCache = false; Options.Policy.WriteCache = false;
+		uint32 Persistence = 0, Issues = 0;
+		Options.Observer.OnPhase = [&](auto Phase) { if (Phase >= EBuildSessionPhase::Record && Phase <= EBuildSessionPhase::Store) ++Persistence; };
+		Options.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Issues; };
+		auto Cold = Session.ExecuteInline(Definition, Options);
+		ASSERT_TRUE(Cold); ASSERT_TRUE(Cold->Output);
+		EXPECT_EQ(Persistence, 0u); EXPECT_EQ(Resolver->Reads, 1u);
+		auto Action = FBuildAction::TryCreate(Definition, Function->GetDescriptor(), Resolver->Describe(Definition.GetSources(), {}).value()).value();
+		auto Bytes = FCacheRecord::FromOutput(Action.GetKey(), *Cold->Output).value().Encode().value();
+		Options.Policy.ReadCache = true;
+		Options.Cache.Get = [Bytes](const auto&) -> FCacheGetResult { return Bytes; };
+		Resolver->Unavailable = true;
+		auto Warm = Session.ExecuteInline(Definition, Options);
+		ASSERT_TRUE(Warm); ASSERT_TRUE(Warm->Output);
+		EXPECT_EQ(Resolver->Reads, 1u);
+		const auto Id = Cube ? "Face/0/Mip/0" : "VoxelMip/0";
+		ASSERT_NE(Warm->Output->FindValue(Id), nullptr);
+		EXPECT_TRUE(Warm->Output->FindValue(Id)->Data.SharesStorageWith(Bytes));
+		auto Invalid = FBuildOutput::TryCreate({.Schema = Cube ? "TextureCube.Output" : "VolumeTexture.Output", .SchemaVersion = 1,
+			.Metadata = Cold->Output->GetMetadata()}).value();
+		auto InvalidBytes = FCacheRecord::FromOutput(Action.GetKey(), Invalid).value().Encode().value();
+		Options.Cache.Get = [InvalidBytes](const auto&) -> FCacheGetResult { return InvalidBytes; };
+		Resolver->Unavailable = false;
+		auto Rebuilt = Session.ExecuteInline(Definition, Options);
+		ASSERT_TRUE(Rebuilt); EXPECT_EQ(Rebuilt->Status, EBuildStatus::Succeeded);
+		EXPECT_EQ(Issues, 1u); EXPECT_EQ(Resolver->Reads, 2u);
+		Resolver->Unavailable = true;
+		Options.Policy.ForceRebuild = true;
+		auto Missing = Session.ExecuteInline(Definition, Options);
+		ASSERT_TRUE(Missing); EXPECT_EQ(Missing->Status, EBuildStatus::Failed);
+		EXPECT_EQ(Resolver->Reads, 3u);
+	}
+}
+
+TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalIdentity)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	FTextureCubeCanonicalBuildInput Prepared;
+	Prepared.DecodedFaces.SourceChannelCounts.fill(4);
+	std::array<Image::FImageView, 6> Views;
+	for (size_t Face = 0; Face < Views.size(); ++Face)
+	{
+		Prepared.DecodedFaces.Faces[Face] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{42})).value();
+		Views[Face] = Prepared.DecodedFaces.Faces[Face].GetView();
+	}
+	FTextureSource Source;
+	ASSERT_TRUE(Source.InitCube(Views, 4));
+	auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({.CanonicalSourceIdentity = Source.GetIdentity(),
+			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
+	auto Valid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
+	auto Identities = Valid->Describe(Definition.GetSources(), {}).value();
+	auto Resolved = Valid->Resolve(Identities, {});
+	ASSERT_TRUE(Resolved);
+	EXPECT_TRUE(Resolved->front().Values[0].Data.SharesStorageWith(Views[0].GetBuffer()));
+	Prepared.DecodedFaces.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{43})).value();
+	auto Invalid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
+	ASSERT_TRUE(Invalid->Describe(Definition.GetSources(), {}));
+	auto Rejected = Invalid->Resolve(Identities, {});
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Category, EBuildErrorCategory::InvalidInput);
+	// The first resolver retained the original blocks independently of the caller.
+	EXPECT_TRUE(Valid->Resolve(Identities, {}));
+}
+
+TEST(FTexturePlatformSessionTests, CancellationPreservesOperationStatus)
+{
+	using namespace Durin;
+	const auto Error = TexturePrivate::ReportBuildFailure({ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "cancelled"});
+	EXPECT_EQ(Error.Code, ETextureBuildOperationFailure::Canceled);
+	EXPECT_TRUE(Error.InputReason.empty());
 }

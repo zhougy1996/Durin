@@ -52,8 +52,8 @@ namespace Durin
 			return BudgetFailure("StaticMesh render metadata exceeds its reservation.", Memory);
 		for (const auto& LOD : Render.LODResources)
 		{
-			if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositions().capacity(), 512)
-				|| !Memory.Add(LOD.IndexBuffer.GetIndices().capacity(), 192)
+			if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositionCapacity(), 512)
+				|| !Memory.Add(LOD.IndexBuffer.GetIndicesCapacity(), 192)
 				|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
 				return BudgetFailure("StaticMesh predicted finalization working set exceeds its reservation.", Memory);
 		}
@@ -64,8 +64,7 @@ namespace Durin
 		};
 		if (!Render.RecalculateBounds(ShouldCancel))
 			return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh bounds build was cancelled."));
-		FStaticMeshPayloadData Payload;
-		if (const auto Result = MakeStaticMeshPayloadData(Render, Payload, ShouldCancel); !Result)
+		if (const auto Result = ValidateStaticMeshRenderData(Render, ShouldCancel); !Result)
 			return Fail(Result.error().Code == EStaticMeshPayloadError::Cancelled
 				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshPayloadError(Result.error()))
 				: FStaticMeshBuildFailure{FormatStaticMeshPayloadError(Result.error()), EStaticMeshBuildStage::Validation});

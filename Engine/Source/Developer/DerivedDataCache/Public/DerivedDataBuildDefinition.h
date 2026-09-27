@@ -52,25 +52,45 @@ namespace Durin::DerivedData
 		std::string Name;
 	};
 
-	// Validated owned values. Capture by value before submitting asynchronous work.
+	// Opaque name of captured source state owned by the resolver, never a live object.
+	struct FBuildSourceReference
+	{
+		std::string Name;
+		std::string Source;
+		auto operator==(const FBuildSourceReference&) const -> bool = default;
+	};
+
+	// Request description. Function versions and cache keys belong to admitted actions.
 	class FBuildDefinition
 	{
 	public:
-		DERIVEDDATACACHE_API static auto TryCreate(FBuildFunctionDescriptor Function,
-			std::vector<FBuildConstant> Constants, std::vector<FBuildInputReference> Inputs)
+		DERIVEDDATACACHE_API static auto TryCreate(std::string FunctionName,
+			std::vector<FBuildConstant> Constants, std::vector<FBuildSourceReference> Sources)
 			-> std::expected<FBuildDefinition, FBuildDefinitionError>;
+		auto GetFunctionName() const -> std::string_view { return FunctionName; }
+		auto GetConstants() const -> std::span<const FBuildConstant> { return Constants; }
+		auto GetSources() const -> std::span<const FBuildSourceReference> { return Sources; }
+	private:
+		FBuildDefinition() = default;
+		std::string FunctionName;
+		std::vector<FBuildConstant> Constants;
+		std::vector<FBuildSourceReference> Sources;
+	};
 
+	// Frozen registered descriptor and resolved semantic identities, canonical schema 2.
+	class FBuildAction
+	{
+	public:
+		DERIVEDDATACACHE_API static auto TryCreate(const FBuildDefinition& Definition,
+			FBuildFunctionDescriptor Function, std::vector<FBuildInputReference> Inputs)
+			-> std::expected<FBuildAction, FBuildDefinitionError>;
 		auto GetFunction() const -> const FBuildFunctionDescriptor& { return Function; }
 		auto GetConstants() const -> std::span<const FBuildConstant> { return Constants; }
 		auto GetInputs() const -> std::span<const FBuildInputReference> { return Inputs; }
 		auto GetKey() const -> const FCacheKey& { return Key; }
 		auto GetCanonicalBytes() const -> FByteView { return CanonicalBytes; }
-
-		// Order-independent exact match; sorted bindings take the allocation-free linear path.
-		DERIVEDDATACACHE_API auto MatchesInputs(std::span<const FBuildInputReference> Bindings) const -> bool;
-
 	private:
-		FBuildDefinition() = default;
+		FBuildAction() = default;
 		FBuildFunctionDescriptor Function;
 		std::vector<FBuildConstant> Constants;
 		std::vector<FBuildInputReference> Inputs;

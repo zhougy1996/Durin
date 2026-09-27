@@ -479,8 +479,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
-		EXPECT_EQ(Loaded->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
-			ExpectedPlatform.Faces[FaceIndex].Mips[0].Pixels);
+		EXPECT_TRUE(std::ranges::equal(Loaded->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels, ExpectedPlatform.Faces[FaceIndex].Mips[0].Pixels));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::FPackagePath RenamedPath;
@@ -543,7 +542,7 @@ TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
 	{
 		ASSERT_EQ(Loaded->GetPlatformData()->Faces[Face].Mips.size(), Expected.Faces[Face].Mips.size());
 		for (size_t Mip = 0; Mip < Expected.Faces[Face].Mips.size(); ++Mip)
-			EXPECT_EQ(Loaded->GetPlatformData()->Faces[Face].Mips[Mip].Pixels, Expected.Faces[Face].Mips[Mip].Pixels);
+			EXPECT_TRUE(std::ranges::equal(Loaded->GetPlatformData()->Faces[Face].Mips[Mip].Pixels, Expected.Faces[Face].Mips[Mip].Pixels));
 	}
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
@@ -715,7 +714,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 
 	const auto ValidPlatformDataIdentity = Texture->GetPlatformDataShared();
-	const Durin::FByteBuffer ValidPixels =
+	const Durin::FSharedByteBuffer ValidPixels =
 		Texture->GetPlatformData()->Faces[0].Mips[0].Pixels;
 	const std::filesystem::path Corrupt = Root / "CorruptReplacement.hdr";
 	{
@@ -731,7 +730,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Texture->GetPanoramaFaceDimension(), 4u);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
-	EXPECT_EQ(Texture->GetPlatformData()->Faces[0].Mips[0].Pixels, ValidPixels);
+	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Faces[0].Mips[0].Pixels, ValidPixels));
 	EXPECT_TRUE(Texture->HasPlatformData());
 
 	Durin::FPackagePath AssetPath;
@@ -893,8 +892,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
 	EXPECT_NE(Cooked->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
-		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
-			Expected.Faces[FaceIndex].Mips[0].Pixels);
+		EXPECT_TRUE(std::ranges::equal(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels, Expected.Faces[FaceIndex].Mips[0].Pixels));
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	ASSERT_TRUE(AssetRuntime.Restore());
 	}

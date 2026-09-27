@@ -43,7 +43,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"cebb7c8969004fb632d19bcd999d02d8");
+		"198d50a43bafbc097641a3d2428962be");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -72,7 +72,8 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 	ExpectChanged([](auto& Value) { ++Value.SourceHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.ReconciliationHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
-	ExpectChanged([](auto& Value) { ++Value.PayloadSchemaVersion; });
+	ExpectChanged([](auto& Value) { ++Value.OutputSchemaVersion; });
+	ExpectChanged([](auto& Value) { ++Value.MaterialSlotCount; });
 	ExpectChanged([](auto& Value) { Value.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Unknown; });
 }
 
@@ -87,7 +88,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	EXPECT_EQ(Bytes, Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value());
 	const Durin::FCacheKeyProxy BaselineKey =
 		Durin::BuildPhysicsCookDerivedDataKey(Baseline).value();
-	EXPECT_EQ(BaselineKey.ToString(), "71216e62310fc31b71a7695ad7d7d4a9");
+	EXPECT_EQ(BaselineKey.ToString(), "333a859a554afe2b71352d202fafc066");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
@@ -114,7 +115,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	});
 	ExpectChanged([](auto& Value) { ++Value.WeldToleranceBits; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
-	ExpectChanged([](auto& Value) { ++Value.PayloadSchemaVersion; });
+	ExpectChanged([](auto& Value) { ++Value.OutputSchemaVersion; });
 	ExpectChanged([](auto& Value) {
 		Value.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Unknown;
 	});

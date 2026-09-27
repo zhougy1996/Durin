@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "Components/PropertyEditValidation.h"
 #include "Asset/AssetCompilingManager.h"

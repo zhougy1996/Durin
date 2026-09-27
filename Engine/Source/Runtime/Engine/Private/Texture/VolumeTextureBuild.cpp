@@ -2,7 +2,9 @@
 #include "Texture/ITextureBuildModule.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "TexturePlatformBuild.h"
+#include "VolumeTextureBuildFunction.h"
+#include "TexturePlatformSharedOutput.h"
+#include "Asset/AssetBuildServicePrivate.h"
 #include "TextureDerivedDataKey.h"
 #include "TextureBuildDiagnostics.h"
 #include "Threading/RunnableThread.h"
@@ -44,42 +46,39 @@ namespace Durin
 			|| Source.GetFormat() != ExpectedFormat || Request.Settings.MipFilter != EVolumeTextureMipFilter::Box)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 				ETextureBuildStage::Normalize, "VolumeTexture source or settings are invalid."});
-		auto Definition = MakeVolumeTextureBuildDefinition({.CanonicalSourceIdentity = Source.GetIdentity(),
-			.Width = Source.GetWidth(), .Height = Source.GetHeight(), .Depth = Source.GetDepth(),
-			.Settings = Request.Settings, .BuilderVersion = BuilderVersion,
-			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+		auto Definition = TexturePrivate::MakeVolumeTextureSessionDefinition(Request);
 		if (!Definition) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 			ETextureBuildStage::Normalize, "Invalid VolumeTexture build definition."});
-		auto Resolve = [&](const FTextureSource& Snapshot) -> std::expected<FVolumeTextureSourceData, FTextureBuildError> {
-			FVolumeTextureSourceData Prepared{.Width = Snapshot.GetWidth(), .Height = Snapshot.GetHeight(),
-				.Depth = Snapshot.GetDepth(), .Format = Request.Settings.OutputFormat};
-			const auto Mips = Snapshot.GetMipData();
-			if (!Mips.IsValid() || !Prepared.Voxels.UpdatePayload(Mips.GetData()))
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
-					ETextureBuildStage::Normalize, "VolumeTexture captured source could not be resolved."});
-			Prepared.CanonicalSourceIdentity = Snapshot.GetIdentity();
-			return Prepared;
-		};
-		auto Build = [&](FVolumeTextureSourceData& Prepared) {
-			return Module->BuildVolumeTexture({.SourceData = std::cref(Prepared), .Settings = Request.Settings,
-				.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
-		};
-		TexturePrivate::TTexturePlatformBuildAdapter<FVolumeTexturePlatformData, decltype(Resolve), decltype(Build)> Adapter{
-			.Source = Source, .Function = Definition->GetFunction(),
-			.Inputs = {Definition->GetInputs().begin(), Definition->GetInputs().end()},
-			.TargetProfile = Request.TargetProfile, .ResolveSource = Resolve, .BuildProduct = Build};
-		DerivedData::TBuildObservations<FTextureBuildError> Observations;
-		auto Built = DerivedData::ExecuteBuild(*Definition, Adapter,
-			{.bWriteCache = Request.bPersistDerivedData, .MaximumValueBytes = MaximumTexturePayloadBytes}, {}, Observations);
-		AssetDerivedDataBuild::ReportCacheIssues(*Definition, Observations, [](const FTextureBuildError& Error) {
-			if (Error.ArchiveCause) return std::format("Archive code {} at {}: {}", static_cast<int>(Error.ArchiveCause->Code), Error.ArchiveCause->Path, Error.ArchiveCause->Message);
-			return Error.Diagnostic;
-		});
-		if (!Built) return std::unexpected(std::move(Built.error()));
-		return FVolumeTextureBuildProduct{.PlatformData = std::move(*Built),
-			.DerivedDataKey = FCacheKeyProxy(Definition->GetKey()),
-			.Origin = Observations.Origin == DerivedData::EBuildOrigin::CacheHit
-				? EVolumeTextureBuildProductOrigin::CacheHit : EVolumeTextureBuildProductOrigin::Rebuilt};
+		auto Session = AssetBuildPrivate::CreateSession(TexturePrivate::MakeVolumeTextureInputResolver(Source));
+		if (!Session) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+			ETextureBuildStage::Module, Session.error().Description});
+		AssetBuildPrivate::FSessionScope Scope{*Session};
+		DerivedData::FBuildRequestOptions Options;
+		Options.Policy.WriteCache = Request.bPersistDerivedData;
+		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
+		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
+		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
+		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
+		FCacheKeyProxy Key;
+		bool Hit = false;
+		Options.Observer.OnAction = [&](const auto& Action) { Key = FCacheKeyProxy(Action.GetKey()); };
+		Options.Observer.OnCacheHit = [&] { Hit = true; };
+		auto Built = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
+		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Built.error().Description});
+		if (Built->Status == DerivedData::EBuildStatus::Cancelled)
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
+		if (Built->Status != DerivedData::EBuildStatus::Succeeded || !Built->Output)
+		{
+			const auto* Error = Built->Error ? &*Built->Error : nullptr;
+			return std::unexpected(FTextureBuildError{
+				Error && Error->Category == DerivedData::EBuildErrorCategory::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
+				Error && Error->Phase <= DerivedData::EBuildSessionPhase::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
+				Error ? Error->Description : "VolumeTexture build was cancelled."});
+		}
+		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(*Built->Output, Request.TargetPlatform, Request.TargetProfile);
+		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
+		return FVolumeTextureBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = std::move(Key),
+			.Origin = Hit ? EVolumeTextureBuildProductOrigin::CacheHit : EVolumeTextureBuildProductOrigin::Rebuilt};
 #endif
 	}
 

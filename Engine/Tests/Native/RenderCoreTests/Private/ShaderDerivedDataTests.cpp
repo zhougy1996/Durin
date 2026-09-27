@@ -8,7 +8,9 @@
 #include "Serialization/BinaryFormat.h"
 #include "ShaderCompileUtilities.h"
 #include "ShaderDependencyManifestStore.h"
-#include "ShaderDerivedData.h"
+#include "Shader/ShaderCompiledOutput.h"
+#include "ShaderBuildSession.h"
+#include "ShaderSharedOutput.h"
 
 #include "gtest/gtest.h"
 
@@ -60,9 +62,7 @@ namespace Durin
 			Shader.SourceEntryPoint = EntryPoint;
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = std::string(EntryPoint) + "Debug";
-			Shader.Code = std::make_shared<Durin::FByteBuffer>(
-				sizeof(Words));
-			std::memcpy(Shader.Code->data(), Words.data(), sizeof(Words));
+			Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Copy(std::as_bytes(std::span(Words))));
 			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
 			Shader.Reflection.ResourceBindings.push_back({
 				.Name = "Scene",
@@ -129,8 +129,8 @@ namespace Durin
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, First))) << FormatShaderError(Error.error());
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, First))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
 			"4453484401000000010000000403020100000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e65010000000000000001000000000000000100000001000000010000000000000010000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e6502000000000000000200000000000000010000000100000002000000000000001000000000000000");
@@ -141,12 +141,12 @@ namespace Durin
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 0, Magic));
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 4, Schema));
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 8, Builder));
-		EXPECT_EQ(Magic, ShaderDerivedData::PayloadMagic);
-		EXPECT_EQ(Schema, ShaderDerivedData::PayloadSchemaVersion);
-		EXPECT_EQ(Builder, ShaderDerivedData::BuilderVersion);
+		EXPECT_EQ(Magic, ShaderCompiledOutput::PayloadMagic);
+		EXPECT_EQ(Schema, ShaderCompiledOutput::PayloadSchemaVersion);
+		EXPECT_EQ(Builder, ShaderCompiledOutput::BuilderVersion);
 
 		FShaderCompilerOutput Loaded;
-		ASSERT_TRUE((Error = ShaderDerivedData::Decode(First, Options, Loaded))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderCompiledOutput::Decode(First, Options, Loaded))) << FormatShaderError(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		for (size_t Index = 0; Index < Loaded.CompiledShaders.size(); ++Index)
 		{
@@ -155,7 +155,7 @@ namespace Durin
 			EXPECT_EQ(Actual.SourceEntryPoint, Wanted.SourceEntryPoint);
 			EXPECT_EQ(Actual.Frequency, Wanted.Frequency);
 			EXPECT_EQ(Actual.Hash, Wanted.Hash);
-			EXPECT_EQ(*Actual.Code, *Wanted.Code);
+			EXPECT_TRUE(std::ranges::equal(Actual.Code->GetBytes(), Wanted.Code->GetBytes()));
 			EXPECT_EQ(Actual.Reflection.ResourceBindings,
 				Wanted.Reflection.ResourceBindings);
 			EXPECT_EQ(Actual.Reflection.PushConstantRanges,
@@ -172,7 +172,7 @@ namespace Durin
 		Output.CompiledShaders.resize(1);
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
 			"4453484401000000010000000403020100000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e6501000000000000000100000000000000010000000100000001000000000000001000000000000000");
 	}
@@ -182,13 +182,13 @@ namespace Durin
 		const FShaderCompileOptions Options = MakeOptions();
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
-		ASSERT_TRUE((Error = ShaderDerivedData::Encode(Options, MakeOutput(), Bytes))) << FormatShaderError(Error.error());
+		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, MakeOutput(), Bytes))) << FormatShaderError(Error.error());
 		auto ExpectRejected = [&](Durin::FByteBuffer Candidate, EShaderError Code) {
 			FShaderCompilerOutput Loaded;
 			Loaded.Error = {};
 			Loaded.CompiledShaders.push_back(MakeShader(
 				"Old", EShaderFrequency::Vertex, 1));
-			EXPECT_FALSE((Error = ShaderDerivedData::Decode(Candidate, Options, Loaded)));
+			EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(Candidate, Options, Loaded)));
 			EXPECT_EQ(Error.error().Code, Code);
 			EXPECT_FALSE(static_cast<bool>(Loaded));
 			EXPECT_TRUE(Loaded.CompiledShaders.empty());
@@ -199,7 +199,7 @@ namespace Durin
 		ExpectRejected(std::move(BadMagic), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer BadVersion = Bytes;
 		WriteU32At(BadVersion, 4,
-			ShaderDerivedData::PayloadSchemaVersion + 1);
+			ShaderCompiledOutput::PayloadSchemaVersion + 1);
 		ExpectRejected(std::move(BadVersion), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer Reserved = Bytes;
 		Reserved[16] = std::byte{1};
@@ -231,7 +231,7 @@ namespace Durin
 		FShaderCompileOptions WrongRequest = Options;
 		WrongRequest.EntryPoints[0] = "WrongMain";
 		FShaderCompilerOutput Loaded;
-		EXPECT_FALSE((Error = ShaderDerivedData::Decode(Bytes, WrongRequest, Loaded)));
+		EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(Bytes, WrongRequest, Loaded)));
 		EXPECT_EQ(Error.error().Code, EShaderError::PayloadEntryInvalid);
 		EXPECT_EQ(Error.error().Index, 0u);
 		EXPECT_TRUE(Loaded.CompiledShaders.empty());
@@ -244,14 +244,27 @@ namespace Durin
 				"00112233445566778899aabbccddeeff"),
 			.Hex = "00112233445566778899aabbccddeeff"};
 		FShaderCompileOptions Options = MakeOptions();
-		const auto First = ShaderDerivedData::BuildKey(Variant, Options);
+		auto Key = [&](const FShaderCompileOptions& RequestOptions) -> DerivedData::FCacheKey {
+			auto Request = MakeShaderSessionRequest(RequestOptions, Variant, {}, std::nullopt,
+				[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError> { return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{}); });
+			if (!Request) return {};
+			auto Inputs = Request->Resolver->Describe(Request->Definition.GetSources(), {});
+			if (!Inputs) return {};
+			auto Action = DerivedData::FBuildAction::TryCreate(Request->Definition,
+				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")}, std::move(*Inputs));
+			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
+		};
+		const auto First = Key(Options);
+		ASSERT_TRUE(First.IsValid());
+		// New action identity cannot alias the frozen pre-session key.
+		EXPECT_NE(First.ToString(), "34e7cc7d296f3588e078eec6cd12b469");
 		Options.bForceRecompile = true;
-		EXPECT_EQ(ShaderDerivedData::BuildKey(Variant, Options), First);
+		EXPECT_EQ(Key(Options), First);
 		Options.EntryPoints[1] = "OtherMain";
-		EXPECT_NE(ShaderDerivedData::BuildKey(Variant, Options), First);
+		EXPECT_NE(Key(Options), First);
 		Options.EntryPoints[1] = Options.EntryPoints[0];
 		Options.Frequencies[1] = Options.Frequencies[0];
-		EXPECT_FALSE(ShaderDerivedData::BuildKey(Variant, Options).IsValid());
+		EXPECT_FALSE(Key(Options).IsValid());
 	}
 
 	TEST_F(FShaderDerivedDataTests, PortableIdentityIgnoresPhysicalFingerprintFacts)
@@ -324,4 +337,96 @@ namespace Durin
 			ShaderCompileUtilities::EMetaDataReuseStatus::Stale);
 		EXPECT_TRUE(StaleResult.Error.IsSuccess());
 	}
+	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsColdCodeAcrossProducerAndConsumerCopies)
+	{
+		static_assert(std::is_same_v<decltype(FCompiledShader::Code), std::shared_ptr<const FSharedByteBuffer>>);
+		const auto Options = MakeOptions();
+		auto Product = MakeOutput();
+		const auto* Bytes = Product.CompiledShaders[0].Code->data();
+		auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
+		EXPECT_EQ(Output->FindValue("Entry/0/Code")->Data.data(), Bytes);
+		Product = {};
+		ASSERT_TRUE(ShaderSharedOutput::Validate(Options, *Output));
+		auto Assembled = ShaderSharedOutput::Assemble(Options, *Output); ASSERT_TRUE(Assembled);
+		auto Waiter = *Assembled;
+		Output = DerivedData::FBuildOutput{}; Assembled = FShaderCompilerOutput{};
+		EXPECT_EQ(Waiter.CompiledShaders[0].Code->data(), Bytes);
+		EXPECT_EQ(FXxHash128::HashBuffer(*Waiter.CompiledShaders[0].Code), Waiter.CompiledShaders[0].Hash);
+		EXPECT_EQ(Waiter.CompiledShaders[0].DebugName, Options.VirtualShaderPath + "::VertexMain");
+		EXPECT_EQ(Waiter.CompiledShaders[0].Reflection.ResourceBindings, MakeOutput().CompiledShaders[0].Reflection.ResourceBindings);
+	}
+
+	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsRawAndCompressedRecordCodeWithoutPackageChanges)
+	{
+		using namespace DerivedData;
+		const auto Options = MakeOptions();
+		for (bool Compressed : {false, true})
+		{
+			auto Product = MakeOutput();
+			for (auto& Shader : Product.CompiledShaders) Shader.DebugName = Options.VirtualShaderPath + "::" + Shader.SourceEntryPoint;
+			FByteBuffer Before; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, Product, Before));
+			auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
+			const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderOutputFixture"), FXxHash128::HashBuffer("shader"));
+			auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+			auto Encoded = Record->Encode(); ASSERT_TRUE(Encoded);
+			if (Compressed) Encoded = FCacheRecord::CompressEncoded(*Encoded);
+			ASSERT_TRUE(Encoded);
+			auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
+			auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
+			const auto* Code = Warm->FindValue("Entry/0/Code")->Data.data();
+			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
+			EXPECT_EQ(Assembled->CompiledShaders[0].Code->data(), Code);
+			Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
+			FByteBuffer After; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, *Assembled, After));
+			EXPECT_EQ(Before, After);
+		}
+	}
+
+	TEST_F(FShaderDerivedDataTests, SharedOutputRejectsMalformedMetadataCodeAndReflection)
+	{
+		using namespace DerivedData;
+		const auto Options = MakeOptions();
+		auto Output = ShaderSharedOutput::Make(Options, MakeOutput()); ASSERT_TRUE(Output);
+		for (uint32 Fault = 0; Fault < 9; ++Fault)
+		{
+			SCOPED_TRACE(Fault);
+			FBuildOutputData Data{.Schema = std::string(Output->GetSchema()), .SchemaVersion = Output->GetSchemaVersion(),
+				.Metadata = Output->GetMetadata(), .Values = {Output->GetValues().begin(), Output->GetValues().end()}};
+			if (Fault == 0) ++Data.SchemaVersion;
+			if (Fault == 1) Data.Metadata = FSharedByteBuffer::Copy(Data.Metadata.GetBytes().first(4));
+			if (Fault == 2) Data.Values.pop_back();
+			if (Fault == 3) Data.Values.push_back({"Unexpected", FSharedByteBuffer::Take(FByteBuffer(1))});
+			if (Fault >= 4) for (auto& Value : Data.Values)
+			{
+				if ((Fault < 6 && Value.Id == "Entry/0/Code") || (Fault >= 6 && Value.Id == "Entry/0/Reflection"))
+				{
+					FByteBuffer Bytes(Value.Data.begin(), Value.Data.end());
+					if (Fault == 4) Bytes[0] ^= std::byte{1};
+					if (Fault == 5) Bytes[12] ^= std::byte{1};
+					if (Fault == 6) WriteU32At(Bytes, 0, 65537);
+					if (Fault == 7) Bytes.pop_back();
+					if (Fault == 8) Bytes.push_back(std::byte{});
+					Value.Data = FSharedByteBuffer::Take(std::move(Bytes));
+				}
+			}
+			auto Bad = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Bad);
+			EXPECT_FALSE(ShaderSharedOutput::Validate(Options, *Bad));
+			EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Bad));
+		}
+		uint32 Checks = 0;
+		auto Cancelled = ShaderSharedOutput::Validate(Options, *Output, [&] { return ++Checks == 3; });
+		ASSERT_FALSE(Cancelled); EXPECT_EQ(Cancelled.error().Code, EShaderError::Cancelled);
+		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Output, [] { return true; }));
+		EXPECT_FALSE(ShaderSharedOutput::Make(Options, MakeOutput(), [] { return true; }));
+		for (uint32 Fault = 0; Fault < 4; ++Fault)
+		{
+			auto Product = MakeOutput();
+			if (Fault == 0) Product.CompiledShaders[0].Reflection.ResourceBindings[0].SetIndex = 65536;
+			if (Fault == 1) Product.CompiledShaders[0].Reflection.ResourceBindings[0].ArraySize = 0;
+			if (Fault == 2) Product.CompiledShaders[0].Reflection.PushConstantRanges[0].Size = 65537;
+			if (Fault == 3) Product.CompiledShaders[0].Reflection.PushConstantRanges[0].Offset = 65535;
+			EXPECT_FALSE(ShaderSharedOutput::Make(Options, Product));
+		}
+	}
+
 }

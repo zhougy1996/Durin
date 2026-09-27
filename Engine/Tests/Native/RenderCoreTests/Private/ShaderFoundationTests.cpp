@@ -190,15 +190,12 @@ namespace Durin
 			return MakeInlineShaderParametersMetadata<ParameterStruct>("FParameters", Members);
 		}
 
-		auto MakeCode(uint8 Seed) -> std::shared_ptr<Durin::FByteBuffer>
+		auto MakeCode(uint8 Seed) -> std::shared_ptr<const FSharedByteBuffer>
 		{
-			auto Code = std::make_shared<Durin::FByteBuffer>();
-			Code->resize(16);
-			for (size_t Index = 0; Index < Code->size(); ++Index)
-			{
-				(*Code)[Index] = static_cast<std::byte>(Seed + static_cast<uint8>(Index));
-			}
-			return Code;
+			FByteBuffer Code(16);
+			for (size_t Index = 0; Index < Code.size(); ++Index)
+				Code[Index] = static_cast<std::byte>(Seed + static_cast<uint8>(Index));
+			return std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
 		}
 
 		auto MakeCompiledShader(
@@ -1487,6 +1484,24 @@ namespace Durin
 		EXPECT_EQ(External.CompilerPhase, ESlangShaderError::Module);
 		EXPECT_EQ(External.NativeStatus, -7);
 		EXPECT_EQ(External.ExternalDiagnostic.size(), 4096u);
+	}
+
+	TEST(FShaderFoundationTests, GenericBuildDiagnosticRetainsSemanticIdentityWithoutParsingText)
+	{
+		const auto Original = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -7);
+		const auto Reworded = FShaderError::FromSlang(ESlangShaderError::Code, "changed diagnostic", -7);
+		const auto ChangedStatus = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -8);
+		const auto ChangedPhase = FShaderError::FromSlang(ESlangShaderError::Module, "first diagnostic", -7);
+		const auto Boundary = FShaderError::FromBuildDiagnostic(Original.Code, FormatShaderError(Original), Original.GetSemanticFingerprint());
+		EXPECT_EQ(Boundary.Code, EShaderError::SlangFailure);
+		EXPECT_EQ(FormatShaderError(Boundary), FormatShaderError(Original));
+		EXPECT_EQ(Boundary.GetSemanticFingerprint(), Original.GetSemanticFingerprint());
+		EXPECT_EQ(Boundary.GetSemanticFingerprint(), Reworded.GetSemanticFingerprint());
+		EXPECT_NE(Boundary.GetSemanticFingerprint(), ChangedStatus.GetSemanticFingerprint());
+		EXPECT_NE(Boundary.GetSemanticFingerprint(), ChangedPhase.GetSemanticFingerprint());
+		const auto Long = FShaderError::FromBuildDiagnostic(Original.Code, std::string(8192, 'x'), 0);
+		EXPECT_EQ(FormatShaderError(Long).size(), 4096u);
+		EXPECT_EQ(Long.GetSemanticFingerprint(), 0u);
 	}
 
 } // namespace Durin

@@ -124,7 +124,7 @@ namespace Durin
 			FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 			if (!Memory.Add(Positions.size(), 512) || !Memory.Add(Indices.size(), 192))
 				return std::unexpected(FPhysicsCookFailure{"Collision input exceeds its working-set budget.", EPhysicsCookStage::Input});
-			return FTriMeshCollisionData{Positions, Indices};
+			return FTriMeshCollisionData{{Positions.begin(), Positions.end()}, {Indices.begin(), Indices.end()}};
 		}
 		return std::unexpected(FPhysicsCookFailure{"No collision source is available.", EPhysicsCookStage::Input});
 	}

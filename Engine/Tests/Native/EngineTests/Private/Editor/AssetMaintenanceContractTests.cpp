@@ -201,7 +201,7 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	Texture->SetSource(Source);
 	auto Platform = std::make_unique<FTexturePlatformData>();
 	Platform->PixelFormat = EPixelFormat::RGBA8_UNORM;
-	Platform->Mips.push_back({.Pixels = FByteBuffer(4, std::byte{17}),
+	Platform->Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(4, std::byte{17})),
 		.Width = 1, .Height = 1, .RowPitch = 4});
 	Texture->SetPlatformData(std::move(Platform));
 	const auto Saved = SavePackage(Texture->GetPackage());

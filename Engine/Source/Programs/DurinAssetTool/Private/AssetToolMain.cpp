@@ -16,6 +16,7 @@
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetBuildService.h"
 #include "Asset/PackageInspection.h"
 #include "Asset/References.h"
 #include "Asset/Cook.h"
@@ -1003,6 +1004,7 @@ int main(int ArgC, char** ArgV)
 		{
 			if (!bStarted) return;
 			Durin::ShutdownAssetCompilingManager();
+			Durin::ShutdownAssetBuildService();
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 			Durin::ShutdownAssetManager();
 			Durin::CollectGarbage();
@@ -1020,6 +1022,11 @@ int main(int ArgC, char** ArgV)
 	{
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		if (!Durin::InitializeAssetBuildService())
+		{
+			std::cerr << "Error: asset build service initialization failed.\n";
+			return 1;
+		}
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		if (Options.Operation == EOperation::Cook)
 		{

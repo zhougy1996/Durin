@@ -3,10 +3,11 @@
 #if DURIN_WITH_EDITOR
 #include "Physics/PhysicsDerivedData.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
+#include "DerivedDataBuildDefinition.h"
 
 namespace Durin
 {
-	namespace DerivedData { class FBuildDefinition; }
+	inline constexpr uint32 PhysicsCollisionOutputSchemaVersion = 1;
 	// Bucket identity is stable; definition keys intentionally invalidate old entries.
 	inline constexpr std::string_view PhysicsCollisionCacheBucket =
 		"StaticMeshCollision/Objects";
@@ -29,13 +30,19 @@ namespace Durin
 			EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		uint32 WeldToleranceBits = 0;
 		uint32 BuilderVersion = PhysicsCookBuilderVersion;
-		uint32 PayloadSchemaVersion = PhysicsCollisionPayloadSchemaVersion;
+		uint32 OutputSchemaVersion = PhysicsCollisionOutputSchemaVersion;
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
 
 	};
 
-	ENGINE_API auto MakePhysicsCookBuildDefinition(const FPhysicsCookKeyInput& Input)
-		-> std::expected<DerivedData::FBuildDefinition, FPhysicsCookKeyError>;
+	ENGINE_API auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode,
+		EBodySetupCollisionQueryPolicy Policy, uint32 WeldToleranceBits = 0)
+		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
+	ENGINE_API auto GetPhysicsCookBuildDescriptor(uint32 BuilderVersion = PhysicsCookBuilderVersion,
+		uint32 OutputVersion = PhysicsCollisionOutputSchemaVersion) -> DerivedData::FBuildFunctionDescriptor;
+
+	ENGINE_API auto MakePhysicsCookBuildAction(const FPhysicsCookKeyInput& Input)
+		-> std::expected<DerivedData::FBuildAction, FPhysicsCookKeyError>;
 	ENGINE_API auto FormatPhysicsCookKeyError(const FPhysicsCookKeyError& Error) -> std::string;
 	ENGINE_API auto BuildPhysicsCookDerivedDataKeyBytes(const FPhysicsCookKeyInput& Input) -> std::expected<FByteBuffer, FPhysicsCookKeyError>;
 	ENGINE_API auto BuildPhysicsCookDerivedDataKey(const FPhysicsCookKeyInput& Input) -> std::expected<FCacheKeyProxy, FPhysicsCookKeyError>;

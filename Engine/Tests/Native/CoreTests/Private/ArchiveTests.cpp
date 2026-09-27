@@ -415,3 +415,47 @@ TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
 	ASSERT_TRUE(Writer.IsError());
 	EXPECT_EQ(Writer.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);
 }
+
+
+TEST(FArchiveTests, NativeSharedBuffersPreserveTypeAlignmentAndSubviewLifetime)
+{
+	struct alignas(64) FElement { uint64 Words[8]; };
+	struct alignas(64) FOtherElement { uint64 Words[8]; };
+	std::vector<FElement> Values(3);
+	Values.reserve(9);
+	const auto CapacityBytes = Values.capacity() * sizeof(FElement);
+	Values[1].Words[0] = 42;
+	const auto* Original = Values.data();
+	auto Buffer = Durin::FSharedByteBuffer::TakeNative(std::move(Values));
+	auto Native = Buffer.GetNativeView<FElement>();
+	ASSERT_TRUE(Native);
+	EXPECT_EQ(Native->data(), Original);
+	EXPECT_EQ(Native->size(), 3u);
+	EXPECT_EQ(Buffer.GetRetainedCapacityBytes(), CapacityBytes);
+	EXPECT_EQ(reinterpret_cast<uintptr_t>(Native->data()) % 64, 0u);
+	EXPECT_FALSE(Buffer.GetNativeView<FOtherElement>());
+	EXPECT_FALSE(Buffer.GetNativeView<uint64>());
+	EXPECT_FALSE(Buffer.MakeView(1, sizeof(FElement)).GetNativeView<FElement>());
+	EXPECT_FALSE(Buffer.MakeView(0, sizeof(FElement) - 1).GetNativeView<FElement>());
+	auto Subview = Buffer.MakeView(sizeof(FElement), sizeof(FElement));
+	EXPECT_TRUE(Subview.SharesStorageWith(Buffer));
+	EXPECT_EQ(Subview.GetRetainedCapacityBytes(), CapacityBytes);
+	EXPECT_TRUE(Subview.MakeView(0, sizeof(FElement)).GetNativeView<FElement>());
+	auto Serialized = Durin::FSharedByteBuffer::Copy(Buffer.GetBytes());
+	EXPECT_FALSE(Serialized.GetNativeView<FElement>());
+	EXPECT_FALSE(Serialized.SharesStorageWith(Buffer));
+	Buffer = {};
+	Native.reset();
+	ASSERT_TRUE(Subview.GetNativeView<FElement>());
+	EXPECT_EQ(Subview.GetNativeView<FElement>()->front().Words[0], 42u);
+	auto Empty = Durin::FSharedByteBuffer::TakeNative(std::vector<FElement>{});
+	EXPECT_TRUE(Empty.GetNativeView<FElement>());
+	EXPECT_TRUE(Empty.MakeView(0, 0).GetNativeView<FElement>());
+	EXPECT_FALSE(Empty.MakeView(0, 1).GetNativeView<FElement>());
+	auto Moved = std::move(Subview);
+	EXPECT_TRUE(Subview.GetBytes().empty());
+	EXPECT_EQ(Subview.GetRetainedCapacityBytes(), 0u);
+	EXPECT_FALSE(Subview.GetNativeView<FElement>());
+	ASSERT_TRUE(Moved.GetNativeView<FElement>());
+	EXPECT_EQ(Moved.GetNativeView<FElement>()->front().Words[0], 42u);
+}

@@ -9,6 +9,7 @@
 #include "Engine/Level.h"
 #include "Actors/CameraActor.h"
 #if DURIN_WITH_EDITOR
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #endif
 #include "DObject/Package.h"

@@ -266,3 +266,26 @@ TEST(FBinaryFormatTests, ConfiguredTotalAndFieldLimitsFailWithoutPartialWrites)
 	EXPECT_FALSE(FieldBounded.ReadRegion(Region, 4, 4));
 	EXPECT_EQ(FieldBounded.Tell(), 0);
 }
+
+TEST(FBinaryFormatTests, ReservedCapacityKeepsEncodingAndEnforcesTotalBound)
+{
+	Durin::FBinaryWriter Reserved({32, 16}), Ordinary({32, 16});
+	Reserved.Reserve(32);
+	EXPECT_EQ(Reserved.Tell(), 0u);
+	for (auto* Writer : {&Reserved, &Ordinary})
+	{
+		Writer->WriteU32(0x01020304);
+		Writer->WriteString("payload");
+	}
+	EXPECT_EQ(Reserved.GetBytes(), Ordinary.GetBytes());
+	const auto Size = Reserved.Tell();
+	Reserved.Reserve(33);
+	EXPECT_TRUE(Reserved.HasError());
+	Reserved.WriteU32(7);
+	EXPECT_EQ(Reserved.Tell(), Size);
+	EXPECT_EQ(Reserved.TakeBytes(), Ordinary.TakeBytes());
+	EXPECT_FALSE(Reserved.HasError());
+	Reserved.Reserve(32);
+	Reserved.WriteU32(7);
+	EXPECT_EQ(Reserved.Tell(), 4u);
+}

@@ -217,7 +217,7 @@ namespace Durin::ShaderCompiledOutput
 			Shader.Hash = {HashLow, HashHigh};
 			if (FXxHash128::HashBuffer(Code) != Shader.Hash)
 				return std::unexpected(FShaderError{.Code = EShaderError::PayloadSpirvHashMismatch, .Index = Index});
-			Shader.Code = std::make_shared<FByteBuffer>(std::move(Code));
+			Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
 
 			uint32 BindingCount = 0;
 			if (!Reader.ReadU32(BindingCount)

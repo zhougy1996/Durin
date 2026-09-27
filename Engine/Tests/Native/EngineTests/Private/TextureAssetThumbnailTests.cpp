@@ -146,12 +146,14 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
 	Mip.Depth = 2;
 	Mip.RowPitch = 3;
 	Mip.DepthPitch = 6;
-	Mip.Voxels.resize(12);
+	Durin::FByteBuffer Voxels(12);
 	for (uint32 Z = 0; Z < Mip.Depth; ++Z)
 		for (uint32 Y = 0; Y < Mip.Height; ++Y)
 			for (uint32 X = 0; X < Mip.Width; ++X)
-				Mip.Voxels[Z * Mip.DepthPitch + Y * Mip.RowPitch + X] =
+				Voxels[Z * Mip.DepthPitch + Y * Mip.RowPitch + X] =
 					static_cast<std::byte>(X + Y * 10 + Z * 100);
+
+	Mip.Voxels = Durin::FSharedByteBuffer::Take(std::move(Voxels));
 
 	using namespace Durin::Editor::Texture;
 	const auto XY = ExtractVolumeTexturePreviewSlice(
@@ -183,13 +185,13 @@ TEST(FTextureAssetThumbnailTests, VolumePreviewPreservesRGBAAndClampsSlice)
 	Mip.Depth = 1;
 	Mip.RowPitch = 8;
 	Mip.DepthPitch = 8;
-	Mip.Voxels = {std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
-		std::byte{10}, std::byte{20}, std::byte{30}, std::byte{40}};
+	Mip.Voxels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+		std::byte{10}, std::byte{20}, std::byte{30}, std::byte{40}});
 	const auto Slice = Durin::Editor::Texture::ExtractVolumeTexturePreviewSlice(
 		Mip, Durin::EPixelFormat::RGBA8_UNORM,
 		Durin::Editor::Texture::EVolumeTexturePreviewAxis::XY, 99);
 	ASSERT_TRUE(Slice.IsValid());
-	EXPECT_EQ(Slice.Pixels, Mip.Voxels);
+	EXPECT_TRUE(std::ranges::equal(Slice.Pixels, Mip.Voxels));
 }
 
 TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)

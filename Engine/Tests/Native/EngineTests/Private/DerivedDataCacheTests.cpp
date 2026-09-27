@@ -72,6 +72,29 @@ TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 		Directory.Root / "Test" / "Objects" / "aa" / (std::string(32, 'a') + ".bin")));
 }
 
+TEST(FDerivedDataCacheTests, NormalizesRootAndContainsBinaryKeyPaths)
+{
+	FScopedCacheDirectory Directory("CacheNormalizedRoot");
+	FPaths::SetDerivedDataCacheDirForTests(
+		(Directory.Root / "unused" / "..").generic_string());
+	FDerivedDataCache& Cache = DerivedData::GetCache();
+	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Nested/Objects");
+	const FByteBuffer Value = Bytes({7, 8});
+	for (const FXxHash128 Hash : {FXxHash128{1, 0}, FXxHash128{0, 1},
+		FXxHash128{0xffffffffffffffffull, 0xffffffffffffffffull}})
+	{
+		const FCacheKey Key = FCacheKey::FromHash(Bucket, Hash);
+		ASSERT_TRUE(Cache.Put({Key, Value, 1024}));
+		const auto Result = Cache.Get({Key, 1024});
+		ASSERT_TRUE(Result);
+		EXPECT_TRUE(std::ranges::equal(Result->GetBytes(), Value));
+		const std::string Text = Key.ToString();
+		EXPECT_TRUE(std::filesystem::is_regular_file(Directory.Root / "Test"
+			/ "Nested" / "Objects" / Text.substr(0, 2) / (Text + ".bin")));
+	}
+	EXPECT_FALSE(std::filesystem::exists(Directory.Root / "unused"));
+}
+
 TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 {
 	FScopedCacheDirectory Directory("CacheValidation");

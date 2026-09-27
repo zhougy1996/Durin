@@ -45,7 +45,6 @@ durin_add_native_test(RenderShaderCacheTests
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
-		${_durin_shader_build_private_dir}/ShaderDerivedData.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
@@ -66,12 +65,31 @@ durin_add_native_test(RenderShaderBuilderTests
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
-		${_durin_shader_build_private_dir}/ShaderDerivedData.cpp
 		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	TIMEOUT 600
+	PRIVATE_SOURCE_OWNER ShaderBuild
+)
+
+durin_add_native_test(ShaderBuildQualificationTests
+	KIND qualification
+	DOMAINS shader derived-data
+	MODULES rendercore shaderbuild derived-data-cache
+	PRIVATE_SOURCE_RATIONALE
+		"Measures ShaderBuild-owned compiler, DDC and LRU lifetimes independently without exporting the private builder."
+	SOURCES Private/ShaderBuildQualificationTests.cpp
+	PRIVATE_SOURCES
+		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
+		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
+		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
+		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
+		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
+		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
+	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
+	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	TIMEOUT 600
 	PRIVATE_SOURCE_OWNER ShaderBuild
 )
@@ -97,6 +115,7 @@ else()
 			Private/ShaderReflectionTests.cpp
 			Private/ShaderDerivedDataTests.cpp
 			Private/ShaderBuilderTests.cpp
+			Private/ShaderBuildQualificationTests.cpp
 			Private/ShaderCookIntegrationTests.cpp
 	)
 endif()

@@ -103,7 +103,7 @@ namespace Durin
 	// Owns one exact volume mip with explicit row and depth pitches.
 	struct FVolumeTextureMipData
 	{
-		FByteBuffer Voxels;
+		FSharedByteBuffer Voxels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 Depth = 0;

@@ -28,8 +28,10 @@ The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
 The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
 Version 1 canonical bytes,
 XXH3-128 content hashing and source identity are unchanged. Derived keys use the
-[shared build-definition schema](DerivedDataBuild.md); render and collision have
-independent definitions and typed execution adapters.
+[shared build-action schema](DerivedDataBuild.md); render and collision have
+independent identities and separate registered shared-output sessions. Collision
+capture owns prepared arrays and computes identity before metadata-only lookup;
+PhysicsCore cooking completes immutable arrays before geometry publication.
 Reflection legacy names accept the former source type and owner field when
 loading authored packages; new saves use FStaticMeshSource and Source.
 
@@ -62,7 +64,8 @@ The module-private Developer `FStaticMeshBuilder::Build` receives an owning deco
 Errors own mesh/section identity, rejected indices/values, budget facts and
 cancellation. Physics cooking is independent of the render build module. Failed or canceled builds return no product. Derived-data orchestration translates construction failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
-uses source identity even with unreadable canonical bulk; a miss acquires geometry.
+uses source identity even with unreadable canonical bulk; a miss resolves the
+captured canonical bytes and decodes them inside the registered function.
 `BuildStaticMeshRenderData` constructs owned, validated render data, including
 bounds and optional ray acceleration. `CommitStaticMeshBuild` consumes that prepared
 render data on the owner thread after checking the captured source, normalization,
@@ -165,15 +168,15 @@ absolute filename plus the exact source hash, Assimp importer version, and
 import axes. Source organization is independent of the StaticMesh package
 path. Reimport reads the persisted file without copying, replacing, relocating,
 or deleting it. Legacy package-relative source fields are rejected. The
-canonical DDC key also includes builder version 4, render-payload schema 5, and target
-platform. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
+render DDC action uses canonical schema 2, builder version 4, shared-output schema
+1, material-slot count and target, with separate source/reconciliation identities.
+Package/Cook render payloads retain schema 5. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
 returned by the built-in module and used by DDC keys and payload compatibility.
 The StaticMesh cook recipe dependency encodes only this render builder version
 and `PhysicsCookBuilderVersion`; it has no module-name or producer-identity field.
 The algorithm builder header is private to MeshBuilder; consumers use the module contract. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
-or partial bytes; build
-adapters format explicitly. Private cache codecs return a rejection message to the
+or partial bytes; execution boundaries format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
@@ -244,8 +247,9 @@ vertex streams, and indices. Readers validate counts, ranges, numeric data, and
 indices, and skip only optional unknown chunks. Cook strips source/import
 metadata and uses the independent lazy bulk fields described above.
 
-Each render/collision value owns one bidirectional Archive schema. Input regions
-are borrowed from the owning DDC buffer or BulkData lease for synchronous decode;
+Cooked render/collision payloads each own one bidirectional Archive schema.
+Their input regions are borrowed from BulkData leases; the legacy collision DDC
+path also borrows its cache buffer for synchronous decode;
 the caller checks complete consumption before publication. Render chunk sizes
 and cumulative native vector storage are bounded before stream allocation.
 DCOL validates disjoint ranges, checked element counts and native storage before
@@ -258,8 +262,9 @@ the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
 position. Schema 4 and older payloads are incompatible, and builder version 4
-invalidates prior derived data. Current render key schema 4 and collision key
-schema 3 encode the applicable builder and payload version values. Source-backed assets and stale
+invalidates prior derived data. The render session action encodes shared-output schema 1 independently of cooked
+payload schema 5. The legacy collision key encodes its applicable builder and
+payload versions. Source-backed assets and stale
 DDC entries rebuild; cooked/runtime-only schema-4-or-older content must be recooked and
 is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,
@@ -267,6 +272,21 @@ color, index, and LOD-policy data. Decode and render-data reconstruction publish
 only after the complete policy and geometry validate.
 
 CPU storage is retained while editor and test consumers inspect LOD data.
+Position, normal, tangent, UV, color and index getters return borrowed read-only
+spans. Render resources can retain validated native `FSharedByteBuffer` arrays;
+these arrays preserve the recipe allocation rather than copying its contents.
+Shared setters reject serialized bytes or a different native element type before
+replacing storage. Mutable access explicitly detaches into an owned vector,
+leaving other owners of the original block unchanged. Callers that need a
+snapshot across rebuild or unload must copy the span or retain an owning block.
+
+Finalization only materializes missing UV/color defaults and does not detach
+already populated streams. RHI upload reads the active immutable or mutable
+view. Working-set admission accounts for the full retained backing capacity,
+including capacity outside a subview, rather than just its visible element count.
+Finalization validates borrowed stream views through the same semantic checks as
+the archive model, without copying a complete payload. Package payload conversion
+remains an explicit copy into the archive model.
 `NeedsCPUAccess` is the explicit policy for a future discard path; upload
 currently retains these arrays.
 

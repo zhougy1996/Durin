@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"

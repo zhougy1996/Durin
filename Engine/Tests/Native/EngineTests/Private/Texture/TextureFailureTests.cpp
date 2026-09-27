@@ -33,7 +33,7 @@ namespace
 		Mip.Width = 1;
 		Mip.Height = 1;
 		Mip.RowPitch = static_cast<uint32>(Layout.RowPitch);
-		Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize));
+		Mip.Pixels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(static_cast<size_t>(Layout.DataSize)));
 		return Result;
 	}
 }
@@ -191,8 +191,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_NE(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
-	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
-		LastGood.Mips.front().Pixels);
+	EXPECT_FALSE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Pixels, LastGood.Mips.front().Pixels));
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
@@ -239,8 +238,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	ImportedSource = Texture->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_EQ(ImportedSource->Hint, PriorSource);
-	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
-		PriorPlatform.Mips.front().Pixels);
+	EXPECT_FALSE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Pixels, PriorPlatform.Mips.front().Pixels));
 	EXPECT_NE(GetTextureDerivedDataKey(*Texture), PriorKey);
 	EXPECT_NE(Texture->GetPlatformDataShared(), PriorPlatformDataIdentity);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());

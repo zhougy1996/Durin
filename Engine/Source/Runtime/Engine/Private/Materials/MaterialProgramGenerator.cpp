@@ -646,7 +646,7 @@ float4 FragmentMain(
 		for (uint32 Index = 0; Index < Stages.size(); ++Index)
 		{
 			const auto& Stage = Stages[Index];
-			if (!Stage.Code || Stage.Code->empty() || Stage.SourceEntryPoint != Entries[Index]
+			if (!Stage.Code || Stage.Code->IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size() > 2 * Layout.ResourceFieldCount + 9)
 				return Rejected;

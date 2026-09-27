@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-09-26
+Last reviewed: 2026-09-27
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -12,8 +12,8 @@ RenderCore owns source-independent request/value types, `DSHD` encoding, the
 `DSLB` cooked-library schema/reader, Shader maps, and RHI publication.
 DerivedDataCache owns immutable build definitions and the shared synchronous
 lookup/resolve/build/validate/cache protocol, plus an independent opaque
-`bucket + key -> immutable bytes` storage API. ShaderBuild supplies the typed
-adapter under the [shared protocol](../Assets/DerivedDataBuild.md); the shared module owns neither Shader policy nor scheduling.
+`bucket + key -> immutable bytes` storage API. ShaderBuild registers its compiler function under the
+[shared protocol](../Assets/DerivedDataBuild.md); the shared module owns neither Shader policy nor scheduling.
 
 ## Results and diagnostics
 
@@ -23,6 +23,9 @@ its error code, defaults to `CompilationNotStarted`, and never accepts partial
 stages on failure. `FormatShaderError` formats only at presentation or required
 string-adapter boundaries; bounded compiler text never determines classification.
 Filesystem failures retain their owned path and native cause.
+`FShaderError::FromBuildDiagnostic` retains a bounded preformatted description
+and the original in-process semantic fingerprint at a generic build boundary.
+It does not reconstruct discarded structured causes or classify diagnostic text.
 
 Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
 publish only complete candidates, and failed ShaderMap initialization resets
@@ -57,6 +60,21 @@ maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
 RenderCore never constructs or observes that physical path; ShaderBuild uses
 the build protocol for compiled outputs.
 
+`FCompiledShader::Code` retains a `shared_ptr<const FSharedByteBuffer>`. Compiler
+output, LRU entries, single-flight results, cooked inputs and RHI readers share
+immutable bytecode. Slang adopts its copied blob buffer; its reflection word
+conversion remains a separate recipe cost. Package decoding adopts decoded
+bytes without changing the package format.
+
+ShaderBuild also provides the private `Shader.Output` schema-1 representation.
+Bounded metadata describes ordered source/binary entries, frequencies and hashes;
+`Entry/<n>/Code` retains code storage and `Entry/<n>/Reflection` holds canonical
+binding and push-constant descriptors. Validation checks the representation
+without creating a compiler product or copying bytecode. Assembly reconstructs
+debug names and reflection while retaining code blocks, including raw/compressed
+cache-record subviews. Production sessions return this representation directly. The compiled-output
+archive remains a separate package/Cook codec.
+
 ## Portable identity
 
 The source-tree signature is built from the sorted registered virtual dependency
@@ -67,9 +85,13 @@ the same portable identity.
 
 The variant identity additionally includes explicit key version, Slang backend,
 SPIR-V target/profile, compiler-environment identity, root virtual path, portable
-source-tree signature, and normalized macros. An `FBuildDefinition` binds that variant identity with its explicit version and
-adds the payload schema, builder version, bucket and exact ordered entry-point/
-frequency constants. `bForceRecompile` is execution policy and never enters production
+source-tree signature, and normalized macros. A schema-2 action binds that variant as `Shader.SourceClosure` version 2,
+registered function version 2 and `Shader.Output` version 1. The explicit `Options` byte constant has a 1 MiB bound and schema 1: version,
+root virtual path, compiler environment, generated-source flag, ordered
+entry-point/frequency pairs, normalized macro name/value-presence/value triples,
+and ordered virtual search roots. Counts and integers are fixed-width little
+endian; strings are length-prefixed. This is a canonical field codec, never a
+native struct image. Force policy remains outside its identity. `bForceRecompile` is execution policy and never enters production
 identity.
 
 Generated Shader roots add the generated source-content hash to the portable
@@ -78,9 +100,9 @@ and content hashes. The local import manifest may use physical facts and a sourc
 path hint, but those values do not enter the compiled-output DDC identity.
 Recovered imports are rechecked against the caller's virtual-prefix allowlist.
 
-## Compiled-output payload
+## Package compiled-output payload
 
-One `DSHD` schema-1, builder-1 little-endian binary value contains the complete
+The separate `DSHD` schema-1, builder-1 little-endian package codec contains the complete
 ordered `FShaderCompilerOutput`. The header contains magic, schema, builder,
 endianness marker, a zero reserved field, and entry count. Each entry contains:
 
@@ -95,14 +117,14 @@ endianness marker, a zero reserved field, and entry count. Each entry contains:
 The request supports 1–32 stages. A stage permits at most 64 MiB SPIR-V, 65,536
 resource bindings, 65,536 push-constant ranges, 32 KiB per string, descriptor
 indices through 65,535, and push-constant extents within 65,536 bytes. The whole
-DDC value permits at most 256 MiB. Decode validates header versions, request
+compiled output permits at most 256 MiB. Decode validates header versions, request
 identity and ordering, enum masks, all counts and length arithmetic, reserved
 fields, SPIR-V minimum size/alignment/magic, recomputed code hashes, reflection
 bounds, and complete byte consumption before publishing a candidate.
 
-Missing, excessive, incompatible, malformed, or corrupt values are ordinary
-compile misses. Decode failure leaves the caller output empty; SPIR-V and
-reflection are never independently published or accepted.
+Archive decode failure leaves the caller output empty; SPIR-V and reflection
+are never independently published or accepted. Session cache records instead
+use the shared-output validator; rejection triggers one uncached compile.
 
 ## Request flow and failure policy
 
@@ -110,11 +132,12 @@ The ShaderBuild compile service performs:
 
 1. macro validation and existing identical-request single-flight admission;
 2. local dependency-manifest validation or captured-artifact dependency resolution;
-3. immutable definition construction and in-process output-LRU query;
-4. shared executor lookup and complete RenderCore-owned payload decode;
-5. on a miss, bounded capture of the identified closure and local Slang compilation;
-6. typed output validation, one encode and best-effort cache persistence;
-7. complete output publication and LRU admission.
+3. explicit definition/action construction and in-process output-LRU query;
+4. session lookup, cache-record integrity and shader metadata/block validation;
+5. on a miss, bounded capture and verification of the identified closure;
+6. registered compilation using only explicit constants and captured byte inputs;
+7. immutable shared output and optional cache-record persistence;
+8. compiler-output assembly retaining bytecode, then LRU admission.
 
 Mounted-source resolution checks expected size and content hash before binding
 immutable files to the compiler. A changed file fails with
@@ -122,8 +145,16 @@ immutable files to the compiler. A changed file fails with
 The compiler uses the captured filesystem without a live-file fallback. Already
 captured source requests and generated roots use the same definition/executor;
 physical source paths are mapped to registered virtual identities when available.
-Module identities omit `.slang`; captured file names retain it. Capture moves
-its buffers into immutable ownership rather than copying the entire closure.
+Module identities omit `.slang`; captured file names retain it. The resolver
+stores ordered virtual paths in the bounded `FileTable` input value, with empty
+generic metadata, and aliases immutable capture buffers into `File/<ordinal>`
+values. Optional generated source occupies its own value. Explicit admission
+supports the existing 65,536-file limit and 4,096-byte path bound; descriptor
+bytes count against the aggregate input byte budget. The
+function restores the compiler filesystem map by retaining the same immutable
+blocks, without copying file contents. It recomputes the
+portable closure/variant identity before compiling, including generated root
+bytes, and rejects mismatches. No typed options or product sidecar crosses DDC.
 Warm hits skip capture/compilation; manifest validation still inspects file facts.
 
 Force recompile bypasses memory and persistent output reuse, retains dependency
@@ -150,7 +181,10 @@ objects are destroyed before returning that lease. Pool locks cover only the idl
 inventory, with at most four idle sessions retained per pool. Active contexts follow
 the caller's worker/admission budget; acquisition creates a context when none is
 idle instead of blocking a worker behind another compilation. Shutdown requires
-all calls and their leases to drain before destroying the builder.
+all calls and their leases to drain before destroying the builder. Module startup
+constructs the compiler service and freezes registration before constructing the
+builder. Shutdown closes service admission, cancels and drains sessions, and
+waits for inline execution to retire before releasing the builder/service.
 
 Filesystem-backed generated requests validate dependencies and imports before
 single-flight admission using the complete output identity. Captured-source requests
@@ -158,8 +192,9 @@ include source contents, artifact contents, ordered search roots, normalized mac
 entry points/stages, compiler identity, and import policy in their flight identity.
 Forced and ordinary requests have separate flights. Identical synchronous callers
 wait only for their matching flight; unrelated cache hits and compiles can proceed.
-Material scheduling coalesces consumers before launching work. Both successful and
-exceptional flight completion wake waiters and remove the record, allowing retries.
+Material scheduling coalesces consumers before launching work. Success and failure completion wake waiters and remove the record, allowing
+retries. Unexpected recipe exceptions become generic failure completions; direct
+pre-session exceptions still use the existing flight exception path.
 Reload generation invalidates memoized source fingerprints.
 
 Global and Material Shader owners continue to publish complete

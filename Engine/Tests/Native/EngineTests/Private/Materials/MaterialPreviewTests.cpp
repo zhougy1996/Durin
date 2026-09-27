@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "MaterialRenderingTestFixture.h"
 
 TEST(FMaterialPreviewTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)

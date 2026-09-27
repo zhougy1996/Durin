@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "Materials/FunctionPortTestFixture.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"

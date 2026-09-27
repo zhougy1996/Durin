@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/FunctionPortTestFixture.h"
 #include "Misc/MountPathTestSupport.h"

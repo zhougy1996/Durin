@@ -1,4 +1,5 @@
 #include "Texture/TextureDerivedData.h"
+#include "TexturePlatformFormat.h"
 #include "TextureDerivedDataKey.h"
 
 #include "Serialization/Archive.h"
@@ -8,6 +9,7 @@
 #if DURIN_WITH_EDITOR
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "DerivedDataBuildDefinition.h"
+#include "TextureCubeBuildFunction.h"
 #endif
 
 namespace Durin
@@ -26,38 +28,6 @@ namespace Durin
 			return Platform == ECookTargetPlatform::Win64
 				&& (Profile == ECookTargetProfile::Game
 					|| Profile == ECookTargetProfile::EditorValidation);
-		}
-
-		auto ToStablePixelFormat(EPixelFormat Format, ETextureStablePixelFormat& OutFormat) -> bool
-		{
-			switch (Format)
-			{
-			case EPixelFormat::RGBA32_FLOAT: OutFormat = ETextureStablePixelFormat::RGBA32_FLOAT; return true;
-			case EPixelFormat::BC1_UNORM: OutFormat = ETextureStablePixelFormat::BC1_UNORM; return true;
-			case EPixelFormat::BC1_UNORM_SRGB: OutFormat = ETextureStablePixelFormat::BC1_UNORM_SRGB; return true;
-			case EPixelFormat::BC3_UNORM: OutFormat = ETextureStablePixelFormat::BC3_UNORM; return true;
-			case EPixelFormat::BC3_UNORM_SRGB: OutFormat = ETextureStablePixelFormat::BC3_UNORM_SRGB; return true;
-			case EPixelFormat::BC5_UNORM: OutFormat = ETextureStablePixelFormat::BC5_UNORM; return true;
-			case EPixelFormat::BC7_UNORM: OutFormat = ETextureStablePixelFormat::BC7_UNORM; return true;
-			case EPixelFormat::BC7_UNORM_SRGB: OutFormat = ETextureStablePixelFormat::BC7_UNORM_SRGB; return true;
-			default: return false;
-			}
-		}
-
-		auto FromStablePixelFormat(uint32 StableFormat, EPixelFormat& OutFormat) -> bool
-		{
-			switch (static_cast<ETextureStablePixelFormat>(StableFormat))
-			{
-			case ETextureStablePixelFormat::RGBA32_FLOAT: OutFormat = EPixelFormat::RGBA32_FLOAT; return true;
-			case ETextureStablePixelFormat::BC1_UNORM: OutFormat = EPixelFormat::BC1_UNORM; return true;
-			case ETextureStablePixelFormat::BC1_UNORM_SRGB: OutFormat = EPixelFormat::BC1_UNORM_SRGB; return true;
-			case ETextureStablePixelFormat::BC3_UNORM: OutFormat = EPixelFormat::BC3_UNORM; return true;
-			case ETextureStablePixelFormat::BC3_UNORM_SRGB: OutFormat = EPixelFormat::BC3_UNORM_SRGB; return true;
-			case ETextureStablePixelFormat::BC5_UNORM: OutFormat = EPixelFormat::BC5_UNORM; return true;
-			case ETextureStablePixelFormat::BC7_UNORM: OutFormat = EPixelFormat::BC7_UNORM; return true;
-			case ETextureStablePixelFormat::BC7_UNORM_SRGB: OutFormat = EPixelFormat::BC7_UNORM_SRGB; return true;
-			default: return false;
-			}
 		}
 
 		auto IsCompleteMipChain(const FTexturePlatformData& PlatformData) -> bool
@@ -160,50 +130,51 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITOR
-	auto MakeTexture2DBuildDefinition(const FTexture2DBuildKeyInput& Input)
-		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+	auto MakeTexture2DBuildAction(const FTexture2DBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>
 	{
 		using namespace DerivedData;
 		if (!Input.IsValid())
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "Texture2D"});
-		return FBuildDefinition::TryCreate({"Durin.Texture2D", Input.BuilderVersion, 1,
-			"Texture.PlatformData", Input.PayloadSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)},
+		auto Definition = FBuildDefinition::TryCreate("Durin.Texture2D",
 			{{"Usage", uint64(Input.Usage)}, {"SRGB", Input.bSRGB},
 			 {"Quality", uint64(Input.CompressionQuality)}, {"AlphaMode", uint64(Input.AlphaMipMode)},
 			 {"MaximumResolution", uint64(Input.MaximumResolution)}, {"AlphaThreshold", Input.AlphaCoverageThreshold},
 			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+			{{"Source", "CapturedSource"}});
+		if (!Definition) return std::unexpected(std::move(Definition.error()));
+		return FBuildAction::TryCreate(*Definition, {"Durin.Texture2D", Input.BuilderVersion, 1,
+			"Texture2D.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)},
 			{{"Source", Input.SourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1}});
 	}
-	auto MakeTextureCubeBuildDefinition(const FTextureCubeBuildKeyInput& Input)
-		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+	auto MakeTextureCubeBuildAction(const FTextureCubeBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>
 	{
 		using namespace DerivedData;
-		if (!Input.IsValid())
-			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "TextureCube"});
-		const bool bPanorama = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
-		return FBuildDefinition::TryCreate({"Durin.TextureCube", Input.BuilderVersion, 2,
-			"TextureCube.PlatformData", Input.PayloadSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)},
-			{{"Layout", uint64(Input.SourceLayout)}, {"SRGB", Input.bSRGB},
-			 {"FaceDimension", uint64(bPanorama ? Input.FaceDimension : 0)},
-			 {"ExposureEV", bPanorama ? Input.ExposureEV : 0.0f},
-			 {"ProjectionVersion", uint64(Input.ProjectionVersion)},
-			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+		auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition(Input);
+		if (!Definition) return std::unexpected(std::move(Definition.error()));
+		const bool Panorama = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
+		return FBuildAction::TryCreate(*Definition, {"Durin.TextureCube", Input.BuilderVersion, 2,
+			"TextureCube.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)},
 			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion,
-				bPanorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1}});
+				Panorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1}});
 	}
 
-	auto MakeVolumeTextureBuildDefinition(const FVolumeTextureBuildKeyInput& Input)
-		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+	auto MakeVolumeTextureBuildAction(const FVolumeTextureBuildKeyInput& Input)
+		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>
 	{
 		using namespace DerivedData;
 		if (!Input.IsValid())
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "VolumeTexture"});
-		return FBuildDefinition::TryCreate({"Durin.VolumeTexture", Input.BuilderVersion, 1,
-			"VolumeTexture.PlatformData", TexturePayloadSchemaVersion, FCacheBucket::FromString(VolumeTextureCacheBucket)},
+		auto Definition = FBuildDefinition::TryCreate("Durin.VolumeTexture",
 			{{"Width", uint64(Input.Width)}, {"Height", uint64(Input.Height)}, {"Depth", uint64(Input.Depth)},
 			 {"Format", uint64(Input.Settings.OutputFormat)}, {"MipFilter", uint64(Input.Settings.MipFilter)},
 			 {"SourceSchema", uint64(Input.SourcePayloadSchemaVersion)},
 			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
+			{{"Source", "CapturedSource"}});
+		if (!Definition) return std::unexpected(std::move(Definition.error()));
+		return FBuildAction::TryCreate(*Definition, {"Durin.VolumeTexture", Input.BuilderVersion, 1,
+			"VolumeTexture.Output", 1, FCacheBucket::FromString(VolumeTextureCacheBucket)},
 			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1}});
 	}
 
@@ -212,7 +183,7 @@ namespace Durin
 	auto BuildTexture2DDerivedDataKeyBytes(const FTexture2DBuildKeyInput& Input) -> FByteBuffer
 	{
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeTexture2DBuildDefinition(Input);
+		auto Definition = MakeTexture2DBuildAction(Input);
 		if (Definition)
 			return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
 #endif
@@ -222,7 +193,7 @@ namespace Durin
 	auto BuildTexture2DDerivedDataKey(const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy
 	{
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeTexture2DBuildDefinition(Input);
+		auto Definition = MakeTexture2DBuildAction(Input);
 		if (Definition) return FCacheKeyProxy(Definition->GetKey());
 #endif
 		return {};
@@ -232,7 +203,7 @@ namespace Durin
 	{
 		OutError.clear();
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeTextureCubeBuildDefinition(Input);
+		auto Definition = MakeTextureCubeBuildAction(Input);
 		if (Definition) return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
 #endif
 		OutError = "Invalid TextureCube build definition.";
@@ -243,7 +214,7 @@ namespace Durin
 	{
 		OutError.clear();
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeTextureCubeBuildDefinition(Input);
+		auto Definition = MakeTextureCubeBuildAction(Input);
 		if (Definition) return FCacheKeyProxy(Definition->GetKey());
 #endif
 		OutError = "Invalid TextureCube build definition.";
@@ -254,7 +225,7 @@ namespace Durin
 	{
 		OutError.clear();
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeVolumeTextureBuildDefinition(Input);
+		auto Definition = MakeVolumeTextureBuildAction(Input);
 		if (Definition) return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
 #endif
 		OutError = "Invalid VolumeTexture build definition.";
@@ -265,7 +236,7 @@ namespace Durin
 	{
 		OutError.clear();
 #if DURIN_WITH_EDITOR
-		auto Definition = MakeVolumeTextureBuildDefinition(Input);
+		auto Definition = MakeVolumeTextureBuildAction(Input);
 		if (Definition) return FCacheKeyProxy(Definition->GetKey());
 #endif
 		OutError = "Invalid VolumeTexture build definition.";
@@ -287,7 +258,7 @@ namespace Durin
 		{
 			if (!IsCompleteMipChain(*this))
 				return Reject(EArchiveFailureCode::InvalidData, "Texture2D payload requires complete bounded mip chains.");
-			if (!ToStablePixelFormat(PixelFormat, Descriptor.StableFormat))
+			if (!TexturePrivate::ToStablePixelFormat(PixelFormat, Descriptor.StableFormat))
 				return Reject(EArchiveFailureCode::UnsupportedType, "Texture pixel format has no stable identifier.");
 			Descriptor.MipCount = static_cast<uint32>(Mips.size());
 			Records.reserve(Mips.size());
@@ -309,7 +280,7 @@ namespace Durin
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture2D)
 			return Reject(EArchiveFailureCode::InvalidData, "Texture2D payload dimension is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
+		if (!TexturePrivate::FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 			return Reject(EArchiveFailureCode::UnsupportedType,
 				"Texture payload pixel format identifier is unsupported.");
 
@@ -344,7 +315,7 @@ namespace Durin
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
 			const FByteView Data = Records[MipIndex].Data;
-			Mip.Pixels.assign(Data.begin(), Data.end());
+			Mip.Pixels = FSharedByteBuffer::Copy(Data);
 		}
 		if (!IsCompleteMipChain(*this))
 			return Reject(EArchiveFailureCode::InvalidData,
@@ -367,7 +338,7 @@ namespace Durin
 		{
 			if (!IsCompleteCubeMipChain(*this))
 				return Reject(EArchiveFailureCode::InvalidData, "TextureCube payload requires complete bounded mip chains.");
-			if (!ToStablePixelFormat(PixelFormat, Descriptor.StableFormat))
+			if (!TexturePrivate::ToStablePixelFormat(PixelFormat, Descriptor.StableFormat))
 				return Reject(EArchiveFailureCode::UnsupportedType, "Texture pixel format has no stable identifier.");
 			Descriptor.MipCount = static_cast<uint32>(Faces[0].Mips.size());
 			const uint32 MipCount = static_cast<uint32>(Faces[0].Mips.size());
@@ -394,7 +365,7 @@ namespace Durin
 		if (Descriptor.Dimension != ETexturePayloadDimension::TextureCube)
 			return Reject(EArchiveFailureCode::InvalidData, "TextureCube payload dimension is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
+		if (!TexturePrivate::FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
 			return Reject(EArchiveFailureCode::UnsupportedType,
 				"Texture payload pixel format identifier is unsupported.");
 
@@ -448,7 +419,7 @@ namespace Durin
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
 			const FByteView Data = Records[RecordIndex].Data;
-			Mip.Pixels.assign(Data.begin(), Data.end());
+			Mip.Pixels = FSharedByteBuffer::Copy(Data);
 		}
 		if (!IsCompleteCubeMipChain(*this))
 			return Reject(EArchiveFailureCode::InvalidData,

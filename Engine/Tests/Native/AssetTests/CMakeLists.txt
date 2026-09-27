@@ -57,7 +57,7 @@ if(DURIN_WITH_EDITOR)
 		KIND integration
 		DOMAINS async-task-pilot
 		MODULES engine texture-build
-		LIBRARIES Core CoreDObject Engine TextureBuild
+		LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder
 		SOURCES Private/AsyncTaskPilotLifecycleTests.cpp
 	)
 
@@ -67,7 +67,7 @@ if(DURIN_WITH_EDITOR)
 			KIND qualification
 			DOMAINS async-task-pilot
 			MODULES engine texture-build
-			LIBRARIES Core CoreDObject Engine TextureBuild
+			LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder
 			SOURCES Private/AsyncTaskPilotQualificationTests.cpp
 		)
 	else()

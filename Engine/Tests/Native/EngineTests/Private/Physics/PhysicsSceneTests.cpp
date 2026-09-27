@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "StaticMeshTestAccess.h"
 #include "../StaticMeshTestAccess.h"
 #include "World/WorldServiceTestSupport.h"
@@ -986,6 +987,233 @@ TEST(FPhysicsCollisionGeometryStage2Tests, BuildsDeterministicHullAndMeshTopolog
 	}
 	for (uint32 Index = 0; Index < Mesh.GetLeafTriangleCount(); ++Index)
 		EXPECT_EQ(Mesh.GetLeafTriangle(Index), Repeat.GetLeafTriangle(Index));
+}
+
+TEST(FPhysicsCollisionGeometryStage2Tests, PublishesCookedArraysWithoutTransfersAndRetainsLifetime)
+{
+	const std::array<Durin::FVector3, 4> Vertices{
+		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 0.0, 0.0},
+		Durin::FVector3{0.0, 1.0, 0.0}, Durin::FVector3{0.0, 0.0, 1.0}};
+	const std::array<uint32, 6> Indices{0, 1, 2, 0, 2, 3};
+	for (bool bHull : {false, true})
+	{
+		Durin::FCollisionGeometryBuildDiagnostics Facts;
+		auto Cooked = bHull ? Durin::FCollisionCookedData::BuildConvexHull(Vertices, &Facts)
+			: Durin::FCollisionCookedData::BuildTriangleMesh(Vertices, Indices, &Facts);
+		ASSERT_TRUE(Cooked);
+		ASSERT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::Success);
+		const auto VertexBlock = Cooked.GetVertices();
+		const auto TriangleBlock = Cooked.GetTriangles();
+		ASSERT_TRUE(VertexBlock.GetNativeView<Durin::FVector3>());
+		ASSERT_TRUE(TriangleBlock.GetNativeView<Durin::FCollisionGeometryTriangle>());
+		const auto First = Durin::FCollisionGeometryRef::MakeCooked(Cooked);
+		const auto Second = Durin::FCollisionGeometryRef::MakeCooked(Cooked);
+		ASSERT_TRUE(First);
+		ASSERT_TRUE(Second);
+		EXPECT_NE(First.GetIdentity(), Second.GetIdentity());
+		EXPECT_EQ(First.GetVertex(0), VertexBlock.GetNativeView<Durin::FVector3>()->data());
+		EXPECT_EQ(First.GetTriangle(0), TriangleBlock.GetNativeView<Durin::FCollisionGeometryTriangle>()->data());
+		EXPECT_EQ(First.GetVertex(0), Second.GetVertex(0));
+		if (bHull)
+		{
+			EXPECT_EQ(First.GetHullPlane(0), Cooked.GetHullPlanes().GetNativeView<Durin::FCollisionHullPlane>()->data());
+			EXPECT_EQ(First.GetHullHalfEdge(0), Cooked.GetHullHalfEdges().GetNativeView<Durin::FCollisionHullHalfEdge>()->data());
+			EXPECT_EQ(First.GetHullFace(0), Cooked.GetHullFaces().GetNativeView<Durin::FCollisionHullFace>()->data());
+		}
+		else
+		{
+			EXPECT_EQ(First.GetNode(0), Cooked.GetNodes().GetNativeView<Durin::FCollisionGeometryNode>()->data());
+			EXPECT_EQ(First.GetLeafTriangle(0), Cooked.GetLeafTriangles().GetNativeView<uint32>()->front());
+		}
+		Cooked = {};
+		EXPECT_EQ(*Second.GetVertex(0), VertexBlock.GetNativeView<Durin::FVector3>()->front());
+		Durin::FPhysicsQueryHit Hit;
+		EXPECT_EQ(Durin::CollisionGeometry::Raycast({0.2, 0.2, 2.0}, {0.2, 0.2, -1.0}, Second,
+			Durin::FTransform(), Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+	}
+}
+
+TEST(FPhysicsCollisionGeometryStage2Tests, ValidatesSerializedBlocksAndConvertsOnlyAtAssembly)
+{
+	using namespace Durin;
+	const std::array<FVector3, 4> Vertices{FVector3{0.0}, FVector3{1.0, 0.0, 0.0},
+		FVector3{0.0, 1.0, 0.0}, FVector3{0.0, 0.0, 1.0}};
+	const std::array<uint32, 6> Indices{0, 1, 2, 0, 2, 3};
+	for (bool bHull : {false, true})
+	{
+		const auto Cooked = bHull ? FCollisionCookedData::BuildConvexHull(Vertices)
+			: FCollisionCookedData::BuildTriangleMesh(Vertices, Indices);
+		ASSERT_TRUE(Cooked);
+		auto Native = Cooked.GetBlocks();
+		ASSERT_TRUE(FCollisionCookedData::ValidateBlocks(Native));
+		const auto Adopted = FCollisionCookedData::FromBlocks(Native);
+		ASSERT_TRUE(Adopted);
+		EXPECT_TRUE(Adopted.GetVertices().SharesStorageWith(Native.Vertices));
+		EXPECT_TRUE(Adopted.GetTriangles().SharesStorageWith(Native.Triangles));
+		auto Raw = Native;
+		Raw.Vertices = FSharedByteBuffer::Copy(Native.Vertices.GetBytes());
+		Raw.Triangles = FSharedByteBuffer::Copy(Native.Triangles.GetBytes());
+		Raw.Nodes = FSharedByteBuffer::Copy(Native.Nodes.GetBytes());
+		Raw.LeafTriangles = FSharedByteBuffer::Copy(Native.LeafTriangles.GetBytes());
+		Raw.HullPlanes = FSharedByteBuffer::Copy(Native.HullPlanes.GetBytes());
+		Raw.HullHalfEdges = FSharedByteBuffer::Copy(Native.HullHalfEdges.GetBytes());
+		Raw.HullFaces = FSharedByteBuffer::Copy(Native.HullFaces.GetBytes());
+		EXPECT_FALSE(Raw.Vertices.GetNativeView<FVector3>());
+		ASSERT_TRUE(FCollisionCookedData::ValidateBlocks(Raw));
+		EXPECT_FALSE(Raw.Vertices.GetNativeView<FVector3>());
+		const auto Converted = FCollisionCookedData::FromBlocks(Raw);
+		ASSERT_TRUE(Converted);
+		const auto Published = FCollisionGeometryRef::MakeCooked(Converted);
+		ASSERT_TRUE(Published);
+		ASSERT_TRUE(Converted.GetVertices().GetNativeView<FVector3>());
+		EXPECT_EQ(Converted.GetVertices().size(), Native.Vertices.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetVertices().GetBytes(), Native.Vertices.GetBytes()));
+		ASSERT_TRUE(Converted.GetTriangles().GetNativeView<FCollisionGeometryTriangle>());
+		EXPECT_EQ(Converted.GetTriangles().size(), Native.Triangles.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetTriangles().GetBytes(), Native.Triangles.GetBytes()));
+		ASSERT_TRUE(Converted.GetNodes().GetNativeView<FCollisionGeometryNode>());
+		EXPECT_EQ(Converted.GetNodes().size(), Native.Nodes.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetNodes().GetBytes(), Native.Nodes.GetBytes()));
+		ASSERT_TRUE(Converted.GetLeafTriangles().GetNativeView<uint32>());
+		EXPECT_EQ(Converted.GetLeafTriangles().size(), Native.LeafTriangles.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetLeafTriangles().GetBytes(), Native.LeafTriangles.GetBytes()));
+		ASSERT_TRUE(Converted.GetHullPlanes().GetNativeView<FCollisionHullPlane>());
+		EXPECT_EQ(Converted.GetHullPlanes().size(), Native.HullPlanes.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetHullPlanes().GetBytes(), Native.HullPlanes.GetBytes()));
+		ASSERT_TRUE(Converted.GetHullHalfEdges().GetNativeView<FCollisionHullHalfEdge>());
+		EXPECT_EQ(Converted.GetHullHalfEdges().size(), Native.HullHalfEdges.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetHullHalfEdges().GetBytes(), Native.HullHalfEdges.GetBytes()));
+		ASSERT_TRUE(Converted.GetHullFaces().GetNativeView<FCollisionHullFace>());
+		EXPECT_EQ(Converted.GetHullFaces().size(), Native.HullFaces.size());
+		EXPECT_TRUE(std::ranges::equal(Converted.GetHullFaces().GetBytes(), Native.HullFaces.GetBytes()));
+		EXPECT_EQ(Published.GetVertex(0), Converted.GetVertices().GetNativeView<FVector3>()->data());
+		EXPECT_NE(Published.GetVertex(0), Native.Vertices.GetNativeView<FVector3>()->data());
+		EXPECT_FALSE(FCollisionCookedData::ValidateBlocks(Raw, [] { return true; }));
+		EXPECT_FALSE(FCollisionCookedData::FromBlocks(Raw, [] { return true; }));
+		EXPECT_FALSE(FCollisionCookedData::FromBlocks(Native, [] { return true; }));
+	}
+}
+
+TEST(FPhysicsCollisionGeometryStage2Tests, RejectsMalformedArrayBoundsAndHullTopology)
+{
+	using namespace Durin;
+	const std::array<FVector3, 4> Vertices{FVector3{0.0}, FVector3{1.0, 0.0, 0.0},
+		FVector3{0.0, 1.0, 0.0}, FVector3{0.0, 0.0, 1.0}};
+	const auto Hull = FCollisionCookedData::BuildConvexHull(Vertices);
+	ASSERT_TRUE(Hull);
+	const auto Good = Hull.GetBlocks();
+	auto Reject = [&](const FCollisionCookedBlocks& Bad) {
+		EXPECT_FALSE(FCollisionCookedData::ValidateBlocks(Bad));
+		EXPECT_FALSE(FCollisionCookedData::FromBlocks(Bad));
+	};
+	auto Mutate = []<typename T>(const FSharedByteBuffer& Block, auto Change) {
+		const auto View = *Block.GetNativeView<T>();
+		std::vector<T> Values(View.begin(), View.end());
+		Change(Values);
+		return FSharedByteBuffer::TakeNative(std::move(Values));
+	};
+	auto Bad = Good; Bad.LocalMin.x -= 1.0; Reject(Bad);
+	Bad = Good; Bad.Kind = ECollisionGeometryKind::Compound; Reject(Bad);
+	Bad = Good; Bad.Vertices = Bad.Vertices.MakeView(1, Bad.Vertices.size() - 1); Reject(Bad);
+	Bad = Good; Bad.HullFaces = {}; Reject(Bad);
+	Bad = Good; Bad.Nodes = FSharedByteBuffer::TakeNative(std::vector<FCollisionGeometryNode>(1)); Reject(Bad);
+	Bad = Good; Bad.Vertices = Mutate.template operator()<FVector3>(Bad.Vertices,
+		[](auto& Values) { Values[0].x = std::numeric_limits<double>::quiet_NaN(); }); Reject(Bad);
+	Bad = Good; Bad.Triangles = Mutate.template operator()<FCollisionGeometryTriangle>(Bad.Triangles,
+		[](auto& Values) { Values[0].First = 999; }); Reject(Bad);
+	Bad = Good; Bad.HullPlanes = Mutate.template operator()<FCollisionHullPlane>(Bad.HullPlanes,
+		[](auto& Values) { Values[0].Distance += 1.0f; }); Reject(Bad);
+	for (uint32 Field = 0; Field < 4; ++Field)
+	{
+		Bad = Good; Bad.HullHalfEdges = Mutate.template operator()<FCollisionHullHalfEdge>(Bad.HullHalfEdges,
+			[Field](auto& Values) {
+				auto& Edge = Values[0];
+				if (Field == 0) Edge.Origin = 999;
+				if (Field == 1) Edge.Twin = 0;
+				if (Field == 2) Edge.Next = 0;
+				if (Field == 3) Edge.Face = 999;
+			}); Reject(Bad);
+		Bad = Good; Bad.HullFaces = Mutate.template operator()<FCollisionHullFace>(Bad.HullFaces,
+			[Field](auto& Values) {
+				auto& Face = Values[0];
+				if (Field == 0) Face.FirstEdge = 999;
+				if (Field == 1) Face.EdgeCount = 999;
+				if (Field == 2) ++Face.SourceOrdinal;
+				if (Field == 3) Face.Reserved = 1;
+			}); Reject(Bad);
+	}
+}
+
+TEST(FPhysicsCollisionGeometryStage2Tests, RejectsMalformedBvhAndEnforcesDepthLimit)
+{
+	using namespace Durin;
+	const std::array<FVector3, 3> Vertices{FVector3{0.0}, FVector3{1.0, 0.0, 0.0}, FVector3{0.0, 1.0, 0.0}};
+	const std::array<uint32, 3> Indices{0, 1, 2};
+	const auto Cooked = FCollisionCookedData::BuildTriangleMesh(Vertices, Indices);
+	ASSERT_TRUE(Cooked);
+	auto MakeDeep = [&](uint32 Depth) {
+		auto Blocks = Cooked.GetBlocks();
+		std::vector<FCollisionGeometryTriangle> Triangles(Depth + 1, {0, 1, 2, 0});
+		std::vector<FCollisionGeometryNode> Nodes(Depth * 2 + 1);
+		std::vector<uint32> Leaves(Depth + 1);
+		for (uint32 Index = 0; Index < Nodes.size(); ++Index)
+		{
+			Nodes[Index].Minimum = {0.0f, 0.0f, 0.0f};
+			Nodes[Index].Maximum = {1.0f, 1.0f, 0.0f};
+			Nodes[Index].First = Index < Depth ? Depth + Index : Index - Depth;
+			Nodes[Index].CountOrSecond = Index < Depth
+				? (Index + 1 < Depth ? Index + 1 : Depth * 2) : 0x80000001u;
+		}
+		for (uint32 Index = 0; Index < Leaves.size(); ++Index) Leaves[Index] = Index;
+		Blocks.Triangles = FSharedByteBuffer::TakeNative(std::move(Triangles));
+		Blocks.Nodes = FSharedByteBuffer::TakeNative(std::move(Nodes));
+		Blocks.LeafTriangles = FSharedByteBuffer::TakeNative(std::move(Leaves));
+		return Blocks;
+	};
+	EXPECT_TRUE(FCollisionCookedData::ValidateBlocks(MakeDeep(64)));
+	EXPECT_FALSE(FCollisionCookedData::ValidateBlocks(MakeDeep(65)));
+	for (uint32 Fault = 0; Fault < 6; ++Fault)
+	{
+		auto Bad = MakeDeep(2);
+		const auto View = *Bad.Nodes.GetNativeView<FCollisionGeometryNode>();
+		std::vector<FCollisionGeometryNode> Nodes(View.begin(), View.end());
+		if (Fault == 0) Nodes[0].First = 0;
+		if (Fault == 1) Nodes[0].CountOrSecond = 999;
+		if (Fault == 2) Nodes[0].Maximum.x = 0.5f;
+		if (Fault == 3) Nodes[2].First = 999;
+		if (Fault == 4) Nodes[2].CountOrSecond = 0x80000009u;
+		if (Fault == 5) Nodes[2].Minimum.x = std::numeric_limits<float>::quiet_NaN();
+		Bad.Nodes = FSharedByteBuffer::TakeNative(std::move(Nodes));
+		EXPECT_FALSE(FCollisionCookedData::ValidateBlocks(Bad));
+	}
+	auto Bad = MakeDeep(2);
+	Bad.LeafTriangles = FSharedByteBuffer::TakeNative(std::vector<uint32>{0, 0, 1});
+	EXPECT_FALSE(FCollisionCookedData::ValidateBlocks(Bad));
+}
+
+TEST(FPhysicsCollisionGeometryStage2Tests, CancelsCookingAndPublicationTransactionally)
+{
+	const std::array<Durin::FVector3, 4> Vertices{
+		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 0.0, 0.0},
+		Durin::FVector3{0.0, 1.0, 0.0}, Durin::FVector3{0.0, 0.0, 1.0}};
+	const std::array<uint32, 3> Indices{0, 1, 2};
+	for (bool bHull : {false, true})
+	{
+		Durin::FCollisionGeometryBuildDiagnostics Facts;
+		auto Cooked = bHull ? Durin::FCollisionCookedData::BuildConvexHull(Vertices, &Facts, [] { return true; })
+			: Durin::FCollisionCookedData::BuildTriangleMesh(Vertices, Indices, &Facts, [] { return true; });
+		EXPECT_FALSE(Cooked);
+		EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::Cancelled);
+		Cooked = bHull ? Durin::FCollisionCookedData::BuildConvexHull(Vertices, &Facts)
+			: Durin::FCollisionCookedData::BuildTriangleMesh(Vertices, Indices, &Facts);
+		ASSERT_TRUE(Cooked);
+		int Checks = 0;
+		EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCooked(Cooked, [&] { return ++Checks == 2; }));
+		EXPECT_EQ(Checks, 2);
+		EXPECT_TRUE(Durin::FCollisionGeometryRef::MakeCooked(Cooked));
+	}
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCooked({}));
 }
 
 TEST(FPhysicsCollisionGeometryStage2Tests, ReportsTransactionalBuilderFailures)

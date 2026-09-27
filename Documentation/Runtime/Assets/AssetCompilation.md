@@ -128,7 +128,10 @@ Texture2D and TextureCube PostLoad place build operation work on an Engine-owned
 VolumeTexture remains synchronous. TextureBuild stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
-shutdown.
+shutdown. Texture2D and TextureCube execute shared-output build sessions inline within
+those workers; Volume uses the same protocol synchronously. Explicit Engine build-service initialization follows provider loading;
+shutdown closes asset compilation, drains build sessions, then releases providers
+and task services. See [Derived Data Build Protocol](DerivedDataBuild.md#engine-texture2d-execution).
 
 ## Initial Compiling Managers
 

@@ -6,6 +6,8 @@
 #include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
 #include "ShaderBuilder.h"
+#include "ShaderSharedOutput.h"
+#include "Hash/CanonicalHash.h"
 #include "ShaderCompileUtilities.h"
 #include "SlangShaderDependencyResolver.h"
 #include "NativeTestSupport.h"
@@ -462,7 +464,13 @@ float4 FragmentMain() : SV_Target0
 				return Builder->GetOrCompileGenerated(Request);
 			}));
 		Start.count_down();
-		for (auto& Future : Requests) EXPECT_THROW(Future.get(), std::runtime_error);
+		for (auto& Future : Requests)
+		{
+			const auto Failed = Future.get();
+			EXPECT_FALSE(Failed);
+			EXPECT_EQ(Failed.Error.Code, EShaderError::InvalidCompileRequest);
+			EXPECT_TRUE(Failed.CompiledShaders.empty());
+		}
 		Throw = false;
 		const auto Before = Builder->GetStats();
 		Requests.clear();
@@ -534,13 +542,21 @@ float4 FragmentMain() : SV_Target0
 			}));
 		}
 
+		std::vector<FShaderCompilerOutput> Outputs;
 		for (auto& Request : Requests)
 		{
-			EXPECT_TRUE(Request.get());
+			Outputs.push_back(Request.get()); ASSERT_TRUE(Outputs.back());
 		}
+		auto Hit = Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
+		ASSERT_TRUE(Hit);
+		for (const auto& Output : Outputs)
+			EXPECT_EQ(Output.CompiledShaders[0].Code->data(), Hit.CompiledShaders[0].Code->data());
 		const FShaderBuildStats Stats = Builder->GetStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 1u);
 		EXPECT_EQ(Stats.Compilations, 1u);
+		Builder.reset();
+		for (const auto& Output : Outputs)
+			EXPECT_EQ(FXxHash128::HashBuffer(*Output.CompiledShaders[0].Code), Hit.CompiledShaders[0].Hash);
 	}
 
 	TEST_F(FShaderBuilderTests,
@@ -862,7 +878,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			EXPECT_EQ(Shader.SourceEntryPoint, ExpectedEntries[Index]);
 			EXPECT_EQ(Shader.Frequency, EShaderFrequency::Fragment);
 			ASSERT_TRUE(Shader.Code);
-			EXPECT_FALSE(Shader.Code->empty());
+			EXPECT_FALSE(Shader.Code->IsEmpty());
 			SpirvBytes += Shader.Code->size();
 		}
 		EXPECT_EQ(
@@ -1042,5 +1058,216 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return Position()
 		EXPECT_TRUE(bHookRan);
 		Builder = std::make_unique<FShaderBuilder>();
 		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
+	}	namespace
+	{
+		struct FShaderSessionHarness
+		{
+			using Phase = DerivedData::EBuildSessionPhase;
+			std::shared_ptr<FShaderBuildService> Service;
+			FShaderCompileOptions CompileOptions;
+			std::string Source = "[shader(\"vertex\")] float4 VertexMain(uint id : SV_VertexID) : SV_Position { return float4(float(id), 0, 0, 1); }";
+			DerivedData::FBuildRequestOptions Execution;
+			FSharedByteBuffer Stored;
+			DerivedData::FCacheKey Key;
+			uint32 Captures = 0, Compiles = 0, Hits = 0, Issues = 0, Puts = 0;
+			bool Cancel = false;
+			std::vector<Phase> Phases;
+			explicit FShaderSessionHarness(std::function<void(std::string_view)> Hook = {})
+				: Service(std::make_shared<FShaderBuildService>(std::move(Hook)))
+			{
+				using namespace DerivedData;
+				CompileOptions = MakeCompileOptions();
+				CompileOptions.VirtualShaderPath = "/Generated/Materials/SessionFixture";
+				CompileOptions.CompilerEnvironment = Service->GetCompilerEnvironmentIdentity();
+				CompileOptions.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FByteBuffer>{});
+				Execution.Policy.Compress = true;
+				Execution.Cache.Get = [this](const FCacheGetRequest& Request) -> FCacheGetResult {
+					if (Stored.IsEmpty() || Request.Key != Key) return std::unexpected(FCacheError{ECacheError::Miss, "miss"});
+					return Stored;
+				};
+				Execution.Cache.Put = [this](const FCachePutRequest& Request) -> FCachePutResult {
+					++Puts; Key = Request.Key; Stored = FSharedByteBuffer::Copy(Request.Value); return {};
+				};
+				Execution.Cancellation = FBuildCancellation([this] { return Cancel; });
+				Execution.Observer.OnMetric = [this](auto Name, uint64 Count) { if (Name == "Shader.Compilations") Compiles += Count; };
+				Execution.Observer.OnCacheIssue = [this](const auto&, auto, const auto&) { ++Issues; };
+				Execution.Observer.OnCacheHit = [this] { ++Hits; };
+				Execution.Observer.OnPhase = [this](auto Value) { Phases.push_back(Value); };
+			}
+			auto Request(std::optional<std::string> CapturedSource = {}) -> FShaderSessionRequest
+			{
+				FXxHash128Builder EmptyTree; UpdateCanonicalHashString(EmptyTree, "DurinShaderPortableSourceTree_v1"); UpdateCanonicalHash(EmptyTree, uint64(0));
+				FXxHash128Builder Tree; Tree.Update("DurinGeneratedShaderSourceTree_v1");
+				UpdateCanonicalHash(Tree, FXxHash128::HashBuffer(Source)); UpdateCanonicalHash(Tree, EmptyTree.Finalize());
+				FShaderMetaData Meta{.SourceTreeSignature = Tree.Finalize()}; FShaderVariantKey Variant;
+				ShaderCompileUtilities::BuildVariantKey(CompileOptions.VirtualShaderPath, Meta, {}, CompileOptions.CompilerEnvironment, Variant);
+				return MakeShaderSessionRequest(CompileOptions, Variant, {}, CapturedSource.value_or(Source), [this] {
+					++Captures; return std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError>(CompileOptions.SourceArtifacts);
+				}).value();
+			}
+			auto Run() -> DerivedData::FBuildCompletion { return Service->Execute(Request(), Execution).value(); }
+		};
 	}
+
+	TEST_F(FShaderBuilderTests, SharedSessionRetainsBytecodeAndRepairsMalformedRecordOnce)
+	{
+		using namespace DerivedData;
+		FShaderSessionHarness H;
+		auto Cold = H.Run(); ASSERT_EQ(Cold.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Cold.Output);
+		auto Warm = H.Run(); ASSERT_EQ(Warm.Status, EBuildStatus::Succeeded); ASSERT_TRUE(Warm.Output);
+		EXPECT_EQ(H.Captures, 1u); EXPECT_EQ(H.Compiles, 1u); EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Puts, 1u);
+		auto Product = ShaderSharedOutput::Assemble(H.CompileOptions, *Warm.Output); ASSERT_TRUE(Product);
+		EXPECT_EQ(Product->CompiledShaders[0].Code->data(), Warm.Output->FindValue("Entry/0/Code")->Data.data());
+		FBuildOutputData Bad{.Schema = "Shader.Output", .SchemaVersion = 1, .Metadata = Warm.Output->GetMetadata(),
+			.Values = {Warm.Output->GetValues().begin(), Warm.Output->GetValues().end()}};
+		for (auto& Value : Bad.Values) if (Value.Id == "Entry/0/Reflection") Value.Data = FSharedByteBuffer{};
+		H.Stored = FCacheRecord::FromOutput(H.Key, FBuildOutput::TryCreate(std::move(Bad)).value())->Encode().value();
+		auto Rebuilt = H.Run(); ASSERT_EQ(Rebuilt.Status, EBuildStatus::Succeeded);
+		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Captures, 2u); EXPECT_EQ(H.Compiles, 2u); EXPECT_EQ(H.Puts, 2u);
+		Cold = {}; Warm = {}; Rebuilt = {}; H.Stored = {}; H.Service.reset();
+		EXPECT_EQ(FXxHash128::HashBuffer(*Product->CompiledShaders[0].Code), Product->CompiledShaders[0].Hash);
+	}
+
+	TEST_F(FShaderBuilderTests, SharedSessionSeparatesOptionalPersistenceAndCancellation)
+	{
+		using namespace DerivedData;
+		FShaderSessionHarness H;
+		H.Execution.Cache.MakeRecord = [](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> {
+			return std::unexpected(FCacheError{ECacheError::Corrupt, "injected record failure"});
+		};
+		EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded); EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Puts, 0u);
+		H.Execution.Policy.WriteCache = false; H.Phases.clear();
+		EXPECT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+		for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
+			EXPECT_EQ(std::ranges::count(H.Phases, Phase), 0);
+		H.Execution.Cache.MakeRecord = {}; H.Execution.Policy.WriteCache = true;
+		ASSERT_EQ(H.Run().Status, EBuildStatus::Succeeded);
+		const auto Captures = H.Captures; const auto Compiles = H.Compiles;
+		H.Execution.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Validate) H.Cancel = true; };
+		auto Cancelled = H.Run(); EXPECT_EQ(Cancelled.Status, EBuildStatus::Cancelled); EXPECT_FALSE(Cancelled.Output);
+		EXPECT_EQ(H.Captures, Captures); EXPECT_EQ(H.Compiles, Compiles); EXPECT_EQ(H.Issues, 1u);
+	}
+
+	TEST_F(FShaderBuilderTests, SharedSessionVerifiesSourceIdentityBeforeCompilation)
+	{
+		using namespace DerivedData;
+		FShaderSessionHarness H;
+		auto Forged = H.Service->Execute(H.Request(H.Source + "\n// changed bytes"), H.Execution);
+		ASSERT_TRUE(Forged); ASSERT_TRUE(Forged->Error); EXPECT_EQ(Forged->Status, EBuildStatus::Failed);
+		EXPECT_EQ(ShaderSessionError(*Forged->Error).Code, EShaderError::DependencyContentConflict);
+		EXPECT_EQ(H.Compiles, 0u); EXPECT_EQ(H.Puts, 0u);
+		H.Source = "invalid shader source";
+		auto Failed = H.Run(); ASSERT_TRUE(Failed.Error); EXPECT_EQ(Failed.Status, EBuildStatus::Failed);
+		const auto Converted = ShaderSessionError(*Failed.Error);
+		EXPECT_EQ(Converted.Code, EShaderError::SlangFailure);
+		EXPECT_EQ(FormatShaderError(Converted), Failed.Error->Description);
+		ASSERT_TRUE(Failed.Error->DiagnosticIdentity);
+		EXPECT_EQ(Converted.GetSemanticFingerprint(), Failed.Error->DiagnosticIdentity->HashLow);
+	}
+
+	TEST_F(FShaderBuilderTests, SharedSessionShutdownCancelsAndDrainsCompilerBeforeRelease)
+	{
+		using namespace DerivedData;
+		std::promise<void> Acquired, Release;
+		auto Released = Release.get_future().share();
+		FShaderSessionHarness H([&](std::string_view) { Acquired.set_value(); Released.wait(); });
+		auto Request = H.Request();
+		auto Work = std::async(std::launch::async, [&] { return H.Service->Execute(std::move(Request), H.Execution); });
+		const auto Ready = Acquired.get_future().wait_for(std::chrono::seconds(5));
+		if (Ready != std::future_status::ready) { Release.set_value(); Work.wait(); FAIL() << "Compiler did not reach shutdown checkpoint"; }
+		auto Shutdown = std::async(std::launch::async, [&] { H.Service->Close(); });
+		EXPECT_EQ(Shutdown.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+		Release.set_value(); Shutdown.get();
+		auto Result = Work.get(); ASSERT_TRUE(Result); EXPECT_EQ(Result->Status, EBuildStatus::Cancelled); EXPECT_FALSE(Result->Output);
+		EXPECT_EQ(H.Puts, 0u);
+		auto Rejected = H.Service->Execute(H.Request(), H.Execution); ASSERT_FALSE(Rejected);
+		EXPECT_EQ(ShaderSessionError(Rejected.error()).Code, EShaderError::Cancelled);
+	}
+	TEST_F(FShaderBuilderTests, SharedSessionCaptureRetainsSourceBytesAndCanonicalOptions)
+	{
+		using namespace DerivedData;
+		FShaderSessionHarness H;
+		const std::string Text = "public float Value() { return 1.0; }";
+		FByteBuffer Bytes(std::as_bytes(std::span(Text.data(), Text.size())).begin(), std::as_bytes(std::span(Text.data(), Text.size())).end());
+		const auto* Address = Bytes.data();
+		std::map<std::string, FByteBuffer> Files; Files.emplace("/Shared/Helper.slang", std::move(Bytes));
+		auto Artifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::vector<std::string>{"/Shared/"});
+		EXPECT_EQ(Artifacts->GetFiles().at("/Shared/Helper.slang").data(), Address);
+		H.CompileOptions.SourceArtifacts = Artifacts;
+		FShaderVariantKey Variant{.Value = FXxHash128::HashBuffer("resolver fixture")};
+		auto Request = MakeShaderSessionRequest(H.CompileOptions, Variant,
+			{{"/Shared/Helper", FXxHash64::HashBuffer(Text)}}, H.Source,
+			[Artifacts]() -> FShaderArtifactResolver::result_type { return Artifacts; }); ASSERT_TRUE(Request);
+		auto Identities = Request->Resolver->Describe(Request->Definition.GetSources(), {}); ASSERT_TRUE(Identities);
+		auto Inputs = Request->Resolver->Resolve(*Identities, {}); ASSERT_TRUE(Inputs);
+		const auto Block = (*Inputs)[0].Values[0].Data;
+		EXPECT_EQ(Block.data(), Address);
+		Request = std::unexpected(FShaderError{}); H.CompileOptions.SourceArtifacts.reset(); Artifacts.reset(); Inputs = std::vector<FBuildInput>{};
+		EXPECT_EQ(FXxHash64::HashBuffer(Block), FXxHash64::HashBuffer(Text));
+
+		H.CompileOptions.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FByteBuffer>{});
+		H.CompileOptions.Macros = {FShaderMacroDefinition("Z", "2"), FShaderMacroDefinition("A")};
+		auto First = H.Request();
+		std::ranges::reverse(H.CompileOptions.Macros); H.CompileOptions.bForceRecompile = true;
+		auto Same = H.Request();
+		EXPECT_EQ(First.Definition.GetConstants()[0].Value, Same.Definition.GetConstants()[0].Value);
+		H.CompileOptions.Macros[0].Value = "";
+		auto Different = H.Request();
+		EXPECT_NE(First.Definition.GetConstants()[0].Value, Different.Definition.GetConstants()[0].Value);
+
+		std::vector<FBuildConstant> Malformed{Same.Definition.GetConstants().begin(), Same.Definition.GetConstants().end()};
+		std::get<std::string>(Malformed[0].Value).pop_back();
+		auto Definition = FBuildDefinition::TryCreate(std::string(Same.Definition.GetFunctionName()), std::move(Malformed),
+			{Same.Definition.GetSources().begin(), Same.Definition.GetSources().end()}); ASSERT_TRUE(Definition);
+		Same.Definition = std::move(*Definition);
+		auto Failed = H.Service->Execute(std::move(Same), H.Execution); ASSERT_TRUE(Failed);
+		EXPECT_EQ(Failed->Status, EBuildStatus::Failed); EXPECT_EQ(H.Compiles, 0u); EXPECT_FALSE(Failed->Output);
+	}
+	TEST_F(FShaderBuilderTests, SharedSessionAcceptsFullFileCountAndLargeDescriptorTable)
+	{
+		using namespace DerivedData;
+		FShaderSessionHarness H;
+		constexpr uint32 Count = 65536;
+		const auto Contents = FSharedByteBuffer::Copy(std::as_bytes(std::span("// source", 9)));
+		std::map<std::string, FSharedByteBuffer> Files;
+		FShaderMetaData Meta;
+		const std::string Prefix = "/" + std::string(80, 'a') + "/File";
+		for (uint32 Index = 0; Index < Count; ++Index)
+		{
+			const auto Name = Prefix + std::format("{:05}", Index);
+			Files.emplace(Name + ".slang", Contents);
+			Meta.PortableDependencies.push_back({Name, FXxHash64::HashBuffer(Contents)});
+		}
+		H.CompileOptions.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files));
+		FXxHash128Builder Portable; UpdateCanonicalHashString(Portable, "DurinShaderPortableSourceTree_v1"); UpdateCanonicalHash(Portable, uint64(Count));
+		for (const auto& Dependency : Meta.PortableDependencies)
+		{ UpdateCanonicalHashString(Portable, Dependency.VirtualPath); UpdateCanonicalHash(Portable, Dependency.ContentHash); }
+		FXxHash128Builder Tree; Tree.Update("DurinGeneratedShaderSourceTree_v1");
+		UpdateCanonicalHash(Tree, FXxHash128::HashBuffer(H.Source)); UpdateCanonicalHash(Tree, Portable.Finalize());
+		Meta.SourceTreeSignature = Tree.Finalize();
+		FShaderVariantKey Variant;
+		ShaderCompileUtilities::BuildVariantKey(H.CompileOptions.VirtualShaderPath, Meta, {}, H.CompileOptions.CompilerEnvironment, Variant);
+		auto Request = [&] {
+			return MakeShaderSessionRequest(H.CompileOptions, Variant, Meta.PortableDependencies, H.Source,
+				[&]() -> FShaderArtifactResolver::result_type { return H.CompileOptions.SourceArtifacts; }).value();
+		};
+		{
+			auto Captured = Request(); auto Ids = Captured.Resolver->Describe(Captured.Definition.GetSources(), {}); ASSERT_TRUE(Ids);
+			auto Inputs = Captured.Resolver->Resolve(*Ids, {}); ASSERT_TRUE(Inputs);
+			const auto Table = std::ranges::find((*Inputs)[0].Values, "FileTable", &FBuildValue::Id);
+			ASSERT_NE(Table, (*Inputs)[0].Values.end()); EXPECT_GT(Table->Data.size(), 4u * 1024 * 1024);
+			EXPECT_TRUE((*Inputs)[0].Metadata.IsEmpty()); EXPECT_EQ((*Inputs)[0].Values.size(), Count + 2u);
+			EXPECT_EQ((*Inputs)[0].Values[0].Data.data(), Contents.data());
+		}
+		H.Execution.Policy.WriteCache = false;
+		auto Rejected = H.Service->Execute(Request(), H.Execution); ASSERT_TRUE(Rejected);
+		ASSERT_TRUE(Rejected->Error); EXPECT_EQ(Rejected->Error->Phase, EBuildSessionPhase::Resolve); EXPECT_EQ(H.Compiles, 0u);
+		H.Execution.Policy.InputLimits.MaximumValues = Count + 2;
+		H.Execution.Policy.InputLimits.MaximumTotalBytes = 800ull * 1024 * 1024;
+		auto Accepted = H.Service->Execute(Request(), H.Execution); ASSERT_TRUE(Accepted);
+		ASSERT_EQ(Accepted->Status, EBuildStatus::Succeeded) << (Accepted->Error ? Accepted->Error->Description : "");
+		EXPECT_EQ(H.Compiles, 1u); ASSERT_TRUE(Accepted->Output);
+		EXPECT_TRUE(ShaderSharedOutput::Assemble(H.CompileOptions, *Accepted->Output));
+	}
+
 } // namespace Durin

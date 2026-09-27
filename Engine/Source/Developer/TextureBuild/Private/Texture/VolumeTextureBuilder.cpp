@@ -131,13 +131,14 @@ namespace Durin::VolumeTextureBuilder
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"Volume texture authored voxel payload could not be read."});
 		}
-		Base.Voxels.assign(
-			SourceVoxels.GetBytes().begin(), SourceVoxels.GetBytes().end());
-		for (size_t Offset = 0; Offset < Base.Voxels.size(); Offset += BytesPerVoxel)
+		Base.Voxels = SourceVoxels;
+		// Resolve the retained view once; inner voxel loops do not rebuild subspans.
+		const auto BaseBytes = Base.Voxels.GetBytes();
+		for (size_t Offset = 0; Offset < BaseBytes.size(); Offset += BytesPerVoxel)
 			for (uint32 Channel = 0; Channel < Layout.Channels; ++Channel)
 			{
 				float Value = 0.0f;
-				if (!ReadChannel(Base.Voxels.data() + Offset, Channel, Layout, Value))
+				if (!ReadChannel(BaseBytes.data() + Offset, Channel, Layout, Value))
 				{
 					return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 						"Volume texture float source contains a nonfinite channel."});
@@ -149,13 +150,14 @@ namespace Durin::VolumeTextureBuilder
 			|| Candidate.Mips.back().Depth != 1)
 		{
 			const FVolumeTextureMipData& Previous = Candidate.Mips.back();
+			const auto PreviousBytes = Previous.Voxels.GetBytes();
 			FVolumeTextureMipData Next;
 			Next.Width = std::max(1u, Previous.Width / 2);
 			Next.Height = std::max(1u, Previous.Height / 2);
 			Next.Depth = std::max(1u, Previous.Depth / 2);
 			Next.RowPitch = Next.Width * BytesPerVoxel;
 			Next.DepthPitch = Next.RowPitch * Next.Height;
-			Next.Voxels.resize(static_cast<size_t>(Next.DepthPitch) * Next.Depth);
+			FByteBuffer NextBytes(static_cast<size_t>(Next.DepthPitch) * Next.Depth);
 			for (uint32 Z = 0; Z < Next.Depth; ++Z)
 				for (uint32 Y = 0; Y < Next.Height; ++Y)
 					for (uint32 X = 0; X < Next.Width; ++X)
@@ -165,7 +167,7 @@ namespace Durin::VolumeTextureBuilder
 						const uint32 Y1 = std::min(Y0 + 2, Previous.Height);
 						const uint32 Z1 = std::min(Z0 + 2, Previous.Depth);
 						const uint32 SampleCount = (X1 - X0) * (Y1 - Y0) * (Z1 - Z0);
-						std::byte* Destination = Next.Voxels.data()
+						std::byte* Destination = NextBytes.data()
 							+ static_cast<size_t>(Z) * Next.DepthPitch
 							+ static_cast<size_t>(Y) * Next.RowPitch
 							+ static_cast<size_t>(X) * BytesPerVoxel;
@@ -176,7 +178,7 @@ namespace Durin::VolumeTextureBuilder
 								for (uint32 SourceY = Y0; SourceY < Y1; ++SourceY)
 									for (uint32 SourceX = X0; SourceX < X1; ++SourceX)
 									{
-										const std::byte* Source = Previous.Voxels.data()
+										const std::byte* Source = PreviousBytes.data()
 											+ static_cast<size_t>(SourceZ) * Previous.DepthPitch
 											+ static_cast<size_t>(SourceY) * Previous.RowPitch
 											+ static_cast<size_t>(SourceX) * BytesPerVoxel;
@@ -188,6 +190,7 @@ namespace Durin::VolumeTextureBuilder
 								static_cast<float>(Sum / SampleCount));
 						}
 					}
+			Next.Voxels = FSharedByteBuffer::Take(std::move(NextBytes));
 			Candidate.Mips.push_back(std::move(Next));
 		}
 		if (!Candidate.IsValid())

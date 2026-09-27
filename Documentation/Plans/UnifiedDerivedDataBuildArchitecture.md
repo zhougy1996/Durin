@@ -9,6 +9,12 @@ Completed:
 
 ## Current Status
 
+A subsequent design is recorded in
+[Derived Data Build Sessions](DerivedDataBuildSessions.md). It selects UE-inspired
+registered functions, non-template sessions and shared metadata/data-block output to replace
+the typed executor in a later implementation. This plan retains ownership of its
+outstanding Windows Game gate; the successor does not mark that gate complete.
+
 Stages 0-5 are complete. Immutable definitions and synchronous typed execution
 now live inside the existing `DerivedDataCache` module. Texture2D, TextureCube,
 VolumeTexture, StaticMesh render, physics collision and ShaderBuild use that

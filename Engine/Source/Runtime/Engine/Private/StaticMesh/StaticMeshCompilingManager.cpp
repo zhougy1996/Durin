@@ -51,7 +51,9 @@ namespace Durin
 				auto Data = Request.InputTask->Execute(Control);
 				if (!Data) { Outcome = std::unexpected(Data.error()); return; }
 				Request.CookInfo.TriangleMeshDesc = std::move(*Data);
-				Outcome = FPhysicsCookHelper::Cook(Request.CookInfo, Control);
+				auto Input = FPhysicsCookHelper::Capture(std::move(Request.CookInfo), Control);
+				if (!Input) { Outcome = std::unexpected(std::move(Input.error())); return; }
+				Outcome = FPhysicsCookHelper::CookCaptured(*Input, Control);
 			}
 		};
 		// The selected payload type never changes while the worker/owner share this capture.

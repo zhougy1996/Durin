@@ -382,7 +382,7 @@ namespace Durin
 
 		const FCompiledShader& Shader = Output.CompiledShaders[0];
 		EXPECT_EQ(Shader.Frequency, EShaderFrequency::Fragment);
-		EXPECT_FALSE(Shader.Code->empty());
+		EXPECT_FALSE(Shader.Code->IsEmpty());
 		EXPECT_TRUE(Shader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(Shader.Reflection.PushConstantRanges.empty());
 

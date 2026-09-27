@@ -1,8 +1,8 @@
 #include "StaticMesh/StaticMeshBuild.h"
 
-#include "Asset/AssetDerivedDataBuild.h"
-#include "Serialization/Archive.h"
-#include "Serialization/BinaryFormat.h"
+#include "Asset/AssetBuildServicePrivate.h"
+#include "StaticMeshBuildFunction.h"
+#include "StaticMeshSharedOutput.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
 
@@ -59,156 +59,6 @@ namespace Durin
 			return {};
 		}
 
-		// Transfers build storage without copying vertex streams or initializing RHI resources.
-		auto AssembleRenderData(FStaticMeshRenderBuildProduct& Product,
-			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			const std::function<bool()>& ShouldCancel) -> std::unique_ptr<FStaticMeshRenderData>
-		{
-			auto RenderData = std::make_unique<FStaticMeshRenderData>();
-			RenderData->LocalBounds = Product.LocalBounds;
-			RenderData->MaterialSlots.reserve(MaterialSlots.size());
-			for (const auto& Slot : MaterialSlots)
-			{
-				if (ShouldCancel()) return {};
-				RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
-			}
-			RenderData->LODResources.reserve(Product.LODs.size());
-			for (auto& Source : Product.LODs)
-			{
-				if (ShouldCancel()) return {};
-				auto& LOD = RenderData->LODResources.emplace_back();
-				auto& Buffers = LOD.VertexBuffers;
-				Buffers.PositionVertexBuffer.GetMutablePositions() = std::move(Source.Positions);
-				Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableNormals() = std::move(Source.Normals);
-				Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableTangents() = std::move(Source.Tangents);
-				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetMutableTexCoords() = std::move(Source.TexCoords);
-				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.SetNumTexCoords(Source.NumTexCoords);
-				Buffers.ColorVertexBuffer.GetMutableColors() = std::move(Source.Colors);
-				LOD.IndexBuffer.GetMutableIndices() = std::move(Source.Indices);
-				LOD.Sections = std::move(Source.Sections);
-				LOD.LocalBounds = Source.LocalBounds;
-				LOD.ScreenSize = Source.ScreenSize;
-				LOD.NumTexCoords = Source.NumTexCoords;
-				LOD.bHasColorVertexData = Source.bHasColorVertexData;
-			}
-			return RenderData;
-		}
-
-		auto ArchiveCodecFailure(const FArchive& Ar) -> std::expected<void, std::string>
-		{
-			const auto* Failure = Ar.GetFailure();
-			return std::unexpected(std::format("Payload archive failed at byte {} (Archive code {}, path '{}'): {}",
-				Ar.Tell(), Failure ? static_cast<int>(Failure->Code) : -1,
-				Failure ? Failure->Path : std::string{}, Ar.GetError()));
-		}
-
-		auto EncodeRenderData(const FStaticMeshRenderData& RenderData, FByteBuffer& OutBytes,
-			const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
-		{
-			FStaticMeshPayloadData Payload;
-			if (const auto Built = MakeStaticMeshPayloadData(RenderData, Payload, ShouldCancel); !Built)
-				return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
-			OutBytes.clear();
-			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, ShouldCancel);
-			if (!Ar.IsError()) return {};
-			const auto Failure = ArchiveCodecFailure(Ar);
-			OutBytes.clear();
-			return Failure;
-		}
-
-		auto DecodeRenderData(FByteView Bytes, std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-			const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
-		{
-			FStaticMeshPayloadData Payload;
-			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, ShouldCancel);
-			if (Ar.IsError() || !RequireArchiveEnd(Ar)) return ArchiveCodecFailure(Ar);
-			if (const auto Built = MakeStaticMeshRenderData(Payload, OutRenderData, ShouldCancel); !Built)
-				return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
-			return RestoreRuntimeMetadata(MaterialSlots, *OutRenderData);
-		}
-
-		struct FStaticMeshBuildAdapter
-		{
-			using FProduct = std::unique_ptr<FStaticMeshRenderData>;
-			using FError = FStaticMeshBuildFailure;
-			const FStaticMeshBuildRequest& Request;
-			IMeshBuilderModule& Module;
-			const DerivedData::FBuildDefinition& Definition;
-			const FAssetBuildTaskContext& Control;
-			std::function<bool()> ShouldCancel;
-			std::array<DerivedData::FBuildInputReference, 1> Inputs;
-			auto GetFunction() const -> DerivedData::FBuildFunctionDescriptor
-			{
-				auto Function = Definition.GetFunction();
-				Function.Version = Module.GetRenderBuilderVersion();
-				return Function;
-			}
-			auto GetInputs() const -> std::span<const DerivedData::FBuildInputReference> { return Inputs; }
-			auto MakeError(DerivedData::EBuildFailure Code) const -> FError
-			{
-				return Code == DerivedData::EBuildFailure::Cancelled
-					? FError::Cancelled(EStaticMeshBuildStage::Render)
-					: FError{"StaticMesh definition does not match its captured input or producer.", EStaticMeshBuildStage::Source};
-			}
-			auto IsCancelled(const FError& Error) const -> bool { return Error.IsCancelled(); }
-			auto ValidateBindings(const DerivedData::FBuildDefinition&) const -> std::expected<void, FError>
-			{
-				if (Request.Source.GetIdentity() != Inputs[0].Identity)
-					return std::unexpected(MakeError(DerivedData::EBuildFailure::InputMismatch));
-				return {};
-			}
-			auto Resolve() const -> std::expected<FStaticMeshGeometryReadHandle, FError>
-			{
-				auto Decoded = Request.Source.AcquireGeometry(ShouldCancel);
-				if (!Decoded) return std::unexpected(Decoded.error().Code == EStaticMeshSourceError::Cancelled
-					? FError::Cancelled(EStaticMeshBuildStage::Source, FormatStaticMeshSourceError(Decoded.error()))
-					: FError{FormatStaticMeshSourceError(Decoded.error()), EStaticMeshBuildStage::Source});
-				return std::move(*Decoded);
-			}
-			auto Build(FStaticMeshGeometryReadHandle& Geometry) const -> std::expected<FProduct, FError>
-			{
-				std::vector<FStaticMeshBuildMaterialSlot> Slots;
-				for (const auto& Slot : Request.Reconciliation.MaterialSlots)
-					Slots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
-				auto Built = Module.BuildRender({.Geometry = std::move(Geometry), .MaterialSlots = Slots,
-					.NormalizedSize = Request.Reconciliation.NormalizedSize}, Control);
-				if (!Built) return std::unexpected(Built.error().Code == EStaticMeshRenderBuildError::Cancelled
-					? FError::Cancelled(EStaticMeshBuildStage::Render, FormatStaticMeshRenderBuildError(Built.error()))
-					: FError{FormatStaticMeshRenderBuildError(Built.error()), EStaticMeshBuildStage::Render});
-				if (Built->LODs.empty() || !Built->LocalBounds.bIsValid)
-					return std::unexpected(FError{"StaticMesh builder returned invalid render data.", EStaticMeshBuildStage::Render});
-				auto Product = AssembleRenderData(*Built, Request.Reconciliation.MaterialSlots, ShouldCancel);
-				if (!Product) return std::unexpected(FError::Cancelled(EStaticMeshBuildStage::Render));
-				return Product;
-			}
-			auto Validate(const FProduct& Product) const -> std::expected<void, FError>
-			{
-				if (!Product) return std::unexpected(FError{"StaticMesh builder returned no render data.", EStaticMeshBuildStage::Validation});
-				return FinalizeStaticMeshRenderData(*Product, Control);
-			}
-			auto Decode(const FSharedByteBuffer& Bytes) const -> std::expected<FProduct, FError>
-			{
-				FProduct Product;
-				auto Result = DecodeRenderData(Bytes.GetBytes(), Request.Reconciliation.MaterialSlots, Product, ShouldCancel);
-				if (!Result) return std::unexpected(ShouldCancel()
-					? FError::Cancelled(EStaticMeshBuildStage::Render)
-					: FError{Result.error(), EStaticMeshBuildStage::Render});
-				return Product;
-			}
-			auto Encode(FProduct& Product) const -> std::expected<FByteBuffer, FError>
-			{
-				FByteBuffer Bytes;
-				auto Result = EncodeRenderData(*Product, Bytes, ShouldCancel);
-				if (!Result) return std::unexpected(ShouldCancel()
-					? FError::Cancelled(EStaticMeshBuildStage::Render)
-					: FError{Result.error(), EStaticMeshBuildStage::Render});
-				return Bytes;
-			}
-		};
-
 	}
 
 #endif
@@ -244,26 +94,49 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Render});
 #else
-		auto* Module = IMeshBuilderModule::Get();
-		if (!Module) return std::unexpected(FStaticMeshBuildFailure{
-			"The StaticMesh build module is unavailable.", EStaticMeshBuildStage::Render});
-		auto Definition = MakeStaticMeshBuildDefinition({.SourceHash = Request.Source.GetIdentity(),
-			.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
-			.BuilderVersion = Module->GetRenderBuilderVersion(), .TargetPlatform = EAssetPayloadTargetPlatform::Win64});
+		auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()));
 		if (!Definition) return std::unexpected(FStaticMeshBuildFailure{
-			FormatStaticMeshBuildKeyError(Definition.error()), EStaticMeshBuildStage::Render});
-		FStaticMeshBuildAdapter Adapter{.Request = Request, .Module = *Module, .Definition = *Definition,
-			.Control = Control, .ShouldCancel = IsCancelled,
-			.Inputs = {DerivedData::FBuildInputReference{"Source", Request.Source.GetIdentity(),
-				"StaticMeshSource", StaticMeshSourceGeometryPayloadVersion, "StaticMesh.Geometry", 1}}};
-		DerivedData::TBuildObservations<FStaticMeshBuildFailure> Observations;
+			"StaticMesh build definition is invalid.", EStaticMeshBuildStage::Source});
+		auto Session = AssetBuildPrivate::CreateSession(StaticMeshPrivate::MakeRenderInputResolver(Request));
+		if (!Session) return std::unexpected(FStaticMeshBuildFailure{Session.error().Description, EStaticMeshBuildStage::Render});
+		AssetBuildPrivate::FSessionScope SessionScope{*Session};
+		// The resolver retains canonical bulk, not the request's optional decoded residency.
+		Request.Source.ReleaseGeometry();
+		DerivedData::FBuildRequestOptions Options;
+		Options.Policy.WriteCache = Request.bPersistDerivedData;
+		Options.Policy.Compress = true;
+		Options.Policy.MaximumWorkingSetBytes = Control.MaximumWorkingSetBytes;
+		Options.Policy.InputLimits.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
+		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
 		const uint64 MaximumBytes = std::min(MaximumStaticMeshPayloadBytes, Control.MaximumWorkingSetBytes / 16);
-		auto Outcome = DerivedData::ExecuteBuild(*Definition, Adapter,
-			{.bWriteCache = Request.bPersistDerivedData, .MaximumValueBytes = MaximumBytes},
-			{.ShouldCancel = IsCancelled}, Observations);
-		AssetDerivedDataBuild::ReportCacheIssues(*Definition, Observations,
-			[](const FStaticMeshBuildFailure& Error) { return Error.ToString(); });
-		return Outcome;
+		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
+		Options.Policy.MaximumEncodedBytes = MaximumBytes;
+		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
+		DerivedData::EBuildSessionPhase Phase = DerivedData::EBuildSessionPhase::Admission;
+		Options.Observer.OnPhase = [&](auto Current) { Phase = Current; };
+		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
+		if (!Completion) return std::unexpected(FStaticMeshBuildFailure{Completion.error().Description, EStaticMeshBuildStage::Render});
+		if (Completion->Status == DerivedData::EBuildStatus::Cancelled || IsCancelled())
+			return std::unexpected(FStaticMeshBuildFailure::Cancelled(
+				Phase == DerivedData::EBuildSessionPhase::Resolve || Phase == DerivedData::EBuildSessionPhase::Describe
+					? EStaticMeshBuildStage::Source : Phase == DerivedData::EBuildSessionPhase::Validate
+					? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render));
+		if (Completion->Status != DerivedData::EBuildStatus::Succeeded || !Completion->Output)
+		{
+			const auto& Error = Completion->Error;
+			const auto Stage = Error && (Error->Phase == DerivedData::EBuildSessionPhase::Resolve
+				|| Error->Phase == DerivedData::EBuildSessionPhase::Describe || Error->Category == DerivedData::EBuildErrorCategory::InvalidInput)
+				? EStaticMeshBuildStage::Source : Error && Error->Category == DerivedData::EBuildErrorCategory::InvalidOutput
+				? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render;
+			return std::unexpected(FStaticMeshBuildFailure{Error ? Error->Description : "StaticMesh build returned no output.", Stage});
+		}
+		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion->Output, IsCancelled);
+		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));
+		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
+		if (auto Metadata = RestoreRuntimeMetadata(Request.Reconciliation.MaterialSlots, **Product); !Metadata)
+			return std::unexpected(FStaticMeshBuildFailure{std::move(Metadata.error()), EStaticMeshBuildStage::Validation});
+		if (auto Valid = FinalizeStaticMeshRenderData(**Product, Control); !Valid) return std::unexpected(std::move(Valid.error()));
+		return std::move(*Product);
 #endif
 	}
 

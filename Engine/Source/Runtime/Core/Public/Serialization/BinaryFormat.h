@@ -62,6 +62,13 @@ namespace Durin
 		CORE_API auto WriteString(std::string_view Value) -> void;
 		CORE_API auto WriteBytes(FByteView Value) -> void;
 		CORE_API auto WriteHeader(const FBinaryFormatHeader& Header) -> void;
+		// Preallocate a known envelope without changing its serialized length.
+		auto Reserve(uint64 Capacity) -> void
+		{
+			if (Capacity > Limits.MaximumTotalBytes || Capacity > std::numeric_limits<size_t>::max())
+			{ bLimitError = true; return; }
+			if (!HasError()) Bytes.reserve(static_cast<size_t>(Capacity));
+		}
 		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
 		CORE_API auto TakeBytes() -> FByteBuffer;
 		auto Tell() const -> uint64 { return static_cast<uint64>(Bytes.size()); }

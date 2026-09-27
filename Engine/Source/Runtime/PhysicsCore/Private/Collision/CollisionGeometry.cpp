@@ -1,5 +1,7 @@
 #include "Collision/CollisionGeometry.h"
 #include "Physics/PhysicsTypes.h"
+#include <bit>
+#include <cstring>
 
 namespace Durin
 {
@@ -13,10 +15,11 @@ namespace Durin
 		uint64 RetainedBytes = 0;
 	};
 
-	class FFeatureCollisionGeometry final : public FCollisionGeometry
+	struct FOwnedCollisionArrays
 	{
-	public:
 		ECollisionGeometryKind Kind = ECollisionGeometryKind::TriangleMesh;
+		FVector3 LocalMin{0.0};
+		FVector3 LocalMax{0.0};
 		std::vector<FVector3> Vertices;
 		std::vector<FCollisionGeometryTriangle> Triangles;
 		std::vector<FCollisionGeometryNode> Nodes;
@@ -26,10 +29,61 @@ namespace Durin
 		std::vector<FCollisionHullFace> HullFaces;
 	};
 
-	static_assert(sizeof(FCollisionGeometryNode) == 32);
-	static_assert(sizeof(FCollisionHullPlane) == 16);
-	static_assert(sizeof(FCollisionHullHalfEdge) == 16);
-	static_assert(sizeof(FCollisionHullFace) == 16);
+	class FCollisionCookedStorage : public FCollisionCookedBlocks
+	{
+	public:
+		uint64 RetainedBytes = 0;
+	};
+
+	class FFeatureCollisionGeometry final : public FCollisionGeometry
+	{
+	public:
+		ECollisionGeometryKind Kind = ECollisionGeometryKind::TriangleMesh;
+		FCollisionCookedData Cooked;
+		std::span<const FVector3> Vertices;
+		std::span<const FCollisionGeometryTriangle> Triangles;
+		std::span<const FCollisionGeometryNode> Nodes;
+		std::span<const uint32> LeafTriangles;
+		std::span<const FCollisionHullPlane> HullPlanes;
+		std::span<const FCollisionHullHalfEdge> HullHalfEdges;
+		std::span<const FCollisionHullFace> HullFaces;
+	};
+
+	static_assert(std::endian::native == std::endian::little);
+	static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559);
+	static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+	static_assert(sizeof(uint32) == 4);
+	static_assert(std::is_standard_layout_v<FVector3> && std::is_trivially_copyable_v<FVector3> && sizeof(FVector3) == 24);
+	static_assert(offsetof(FVector3, x) == 0);
+	static_assert(offsetof(FVector3, y) == 8);
+	static_assert(offsetof(FVector3, z) == 16);
+	static_assert(std::is_standard_layout_v<FVector3f> && std::is_trivially_copyable_v<FVector3f> && sizeof(FVector3f) == 12);
+	static_assert(offsetof(FVector3f, x) == 0);
+	static_assert(offsetof(FVector3f, y) == 4);
+	static_assert(offsetof(FVector3f, z) == 8);
+	static_assert(std::is_standard_layout_v<FCollisionGeometryTriangle> && std::is_trivially_copyable_v<FCollisionGeometryTriangle> && sizeof(FCollisionGeometryTriangle) == 16);
+	static_assert(offsetof(FCollisionGeometryTriangle, First) == 0);
+	static_assert(offsetof(FCollisionGeometryTriangle, Second) == 4);
+	static_assert(offsetof(FCollisionGeometryTriangle, Third) == 8);
+	static_assert(offsetof(FCollisionGeometryTriangle, SourceOrdinal) == 12);
+	static_assert(std::is_standard_layout_v<FCollisionGeometryNode> && std::is_trivially_copyable_v<FCollisionGeometryNode> && sizeof(FCollisionGeometryNode) == 32);
+	static_assert(offsetof(FCollisionGeometryNode, Minimum) == 0);
+	static_assert(offsetof(FCollisionGeometryNode, First) == 12);
+	static_assert(offsetof(FCollisionGeometryNode, Maximum) == 16);
+	static_assert(offsetof(FCollisionGeometryNode, CountOrSecond) == 28);
+	static_assert(std::is_standard_layout_v<FCollisionHullPlane> && std::is_trivially_copyable_v<FCollisionHullPlane> && sizeof(FCollisionHullPlane) == 16);
+	static_assert(offsetof(FCollisionHullPlane, Normal) == 0);
+	static_assert(offsetof(FCollisionHullPlane, Distance) == 12);
+	static_assert(std::is_standard_layout_v<FCollisionHullHalfEdge> && std::is_trivially_copyable_v<FCollisionHullHalfEdge> && sizeof(FCollisionHullHalfEdge) == 16);
+	static_assert(offsetof(FCollisionHullHalfEdge, Origin) == 0);
+	static_assert(offsetof(FCollisionHullHalfEdge, Twin) == 4);
+	static_assert(offsetof(FCollisionHullHalfEdge, Next) == 8);
+	static_assert(offsetof(FCollisionHullHalfEdge, Face) == 12);
+	static_assert(std::is_standard_layout_v<FCollisionHullFace> && std::is_trivially_copyable_v<FCollisionHullFace> && sizeof(FCollisionHullFace) == 16);
+	static_assert(offsetof(FCollisionHullFace, FirstEdge) == 0);
+	static_assert(offsetof(FCollisionHullFace, EdgeCount) == 4);
+	static_assert(offsetof(FCollisionHullFace, SourceOrdinal) == 8);
+	static_assert(offsetof(FCollisionHullFace, Reserved) == 12);
 
 	namespace
 	{
@@ -81,22 +135,26 @@ namespace Durin
 		}
 
 
+		template<typename TVertices, typename TIndices>
 		auto ValidateFeatureInput(
-			std::span<const FVector3> Vertices,
-			std::span<const uint32> Indices,
+			const TVertices& Vertices,
+			const TIndices& Indices,
 			std::span<const uint32> SourceOrdinals, FCollisionBuildControl& Control) -> bool
 		{
-			if (Vertices.empty() || Indices.empty() || Indices.size() % 3 != 0) return false;
+			if (Vertices.empty() || Vertices.size() > std::numeric_limits<uint32>::max()
+				|| Indices.empty() || Indices.size() % 3 != 0) return false;
 			const size_t TriangleCount = Indices.size() / 3;
 			if (TriangleCount > MaximumCollisionTriangles
 				|| (!SourceOrdinals.empty() && SourceOrdinals.size() != TriangleCount)) return false;
-			for (const FVector3& Vertex : Vertices)
+			for (size_t I = 0; I < Vertices.size(); ++I)
 			{
+				const FVector3 Vertex = Vertices[I];
 				Control.Tick();
 				if (!Math::IsFinite(Vertex)) return false;
 			}
-			for (uint32 Index : Indices)
+			for (size_t I = 0; I < Indices.size(); ++I)
 			{
+				const uint32 Index = Indices[I];
 				Control.Tick();
 				if (Index >= Vertices.size()) return false;
 			}
@@ -113,9 +171,10 @@ namespace Durin
 			return true;
 		}
 
+		template<typename TVertices, typename TIndices>
 		auto ValidateConvexHull(
-			std::span<const FVector3> Vertices,
-			std::span<const uint32> Indices, FCollisionBuildControl& Control) -> bool
+			const TVertices& Vertices,
+			const TIndices& Indices, FCollisionBuildControl& Control) -> bool
 		{
 			if (Vertices.size() < 4 || Vertices.size() > MaximumConvexHullVertices
 				|| Indices.size() < 12 || !ValidateFeatureInput(Vertices, Indices, {}, Control)) return false;
@@ -151,8 +210,9 @@ namespace Durin
 				const FVector3& A = Vertices[Indices[Offset]];
 				const FVector3 Normal = Math::Cross(
 					Vertices[Indices[Offset + 1]] - A, Vertices[Indices[Offset + 2]] - A) * Orientation;
-				for (const FVector3& Vertex : Vertices)
+				for (size_t I = 0; I < Vertices.size(); ++I)
 				{
+					const FVector3 Vertex = Vertices[I];
 					Control.Tick();
 					if (Math::Dot(Normal, Vertex - A) > FeatureTolerance) return false;
 				}
@@ -160,23 +220,117 @@ namespace Durin
 			return true;
 		}
 
-		auto MakeFeatureGeometry(
+		template<typename T>
+		class TCollisionBlockView
+		{
+		public:
+			explicit TCollisionBlockView(const FSharedByteBuffer& Block)
+				: Bytes(Block.GetBytes()), Native(Block.GetNativeView<T>()) {}
+			auto size() const -> size_t { return Bytes.size() / sizeof(T); }
+			auto empty() const -> bool { return Bytes.empty(); }
+			auto operator[](size_t Index) const -> T
+			{
+				if (Native) return (*Native)[Index];
+				T Value;
+				std::memcpy(&Value, Bytes.data() + Index * sizeof(T), sizeof(T));
+				return Value;
+			}
+		private:
+			FByteView Bytes;
+			std::optional<std::span<const T>> Native;
+		};
+
+		struct FCollisionTriangleIndices
+		{
+			TCollisionBlockView<FCollisionGeometryTriangle> Triangles;
+			auto size() const -> size_t { return Triangles.size() * 3; }
+			auto empty() const -> bool { return Triangles.empty(); }
+			auto operator[](size_t Index) const -> uint32
+			{
+				const auto Triangle = Triangles[Index / 3];
+				return Index % 3 == 0 ? Triangle.First : Index % 3 == 1 ? Triangle.Second : Triangle.Third;
+			}
+		};
+
+		template<typename TVertices, typename TIndices, typename TNodes, typename TLeaves>
+		auto ValidateCookedMesh(const TVertices& Vertices, const TIndices& Indices,
+			const TNodes& Nodes, const TLeaves& LeafTriangles,
+			FCollisionBuildControl& Control) -> bool
+		{
+			if (Nodes.empty() || Nodes.size() > Indices.size() / 3 * 2
+				|| LeafTriangles.size() != Indices.size() / 3) return false;
+			std::vector<bool> VisitedNodes(Nodes.size(), false);
+			std::vector<bool> VisitedTriangles(Indices.size() / 3, false);
+			std::array<std::pair<uint32, uint32>, 128> Stack{};
+			uint32 StackCount = 1;
+			Stack[0] = {0, 0};
+			while (StackCount > 0)
+			{
+				Control.Tick();
+				const auto [NodeIndex, Depth] = Stack[--StackCount];
+				if (Depth > 64) return false;
+				if (NodeIndex >= Nodes.size() || VisitedNodes[NodeIndex]) return false;
+				VisitedNodes[NodeIndex] = true;
+				const FCollisionGeometryNode& Node = Nodes[NodeIndex];
+				if (!Math::IsFinite(Node.Minimum) || !Math::IsFinite(Node.Maximum)
+					|| Node.Minimum.x > Node.Maximum.x || Node.Minimum.y > Node.Maximum.y
+					|| Node.Minimum.z > Node.Maximum.z) return false;
+				if (Node.IsLeaf())
+				{
+					const uint32 Count = Node.GetLeafCount();
+					if (Count == 0 || Count > 8 || Node.First > LeafTriangles.size()
+						|| Count > LeafTriangles.size() - Node.First) return false;
+					for (uint32 Offset = 0; Offset < Count; ++Offset)
+					{
+						Control.Tick();
+						const uint32 Triangle = LeafTriangles[Node.First + Offset];
+						if (Triangle >= VisitedTriangles.size() || VisitedTriangles[Triangle]) return false;
+						VisitedTriangles[Triangle] = true;
+						for (uint32 Corner = 0; Corner < 3; ++Corner)
+						{
+							Control.Tick();
+							const FVector3& Vertex = Vertices[Indices[Triangle * 3 + Corner]];
+							for (uint32 Axis = 0; Axis < 3; ++Axis)
+								if (Vertex[Axis] < Node.Minimum[Axis] || Vertex[Axis] > Node.Maximum[Axis]) return false;
+						}
+					}
+					continue;
+				}
+				if (Node.First >= Nodes.size() || Node.CountOrSecond >= Nodes.size()
+					|| StackCount + 2 > Stack.size()) return false;
+				for (uint32 Child : {Node.First, Node.CountOrSecond})
+				{
+					const auto ChildNode = Nodes[Child];
+					for (uint32 Axis = 0; Axis < 3; ++Axis)
+						if (ChildNode.Minimum[Axis] < Node.Minimum[Axis]
+							|| ChildNode.Maximum[Axis] > Node.Maximum[Axis]) return false;
+				}
+				Stack[StackCount++] = {Node.CountOrSecond, Depth + 1};
+				Stack[StackCount++] = {Node.First, Depth + 1};
+			}
+			if (!std::ranges::all_of(VisitedNodes, [&Control](bool Value) { Control.Tick(); return Value; })
+				|| !std::ranges::all_of(VisitedTriangles, [&Control](bool Value) { Control.Tick(); return Value; })) return false;
+			Control.Check();
+			return true;
+		}
+
+		auto MakeFeatureData(
 			ECollisionGeometryKind Kind,
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			std::span<const uint32> SourceOrdinals,
-			std::span<const FCollisionGeometryNode> Nodes,
-			std::span<const uint32> LeafTriangles, FCollisionBuildControl& Control) -> std::shared_ptr<const FCollisionGeometry>
+			std::vector<FCollisionGeometryNode> Nodes,
+			std::vector<uint32> LeafTriangles, FCollisionBuildControl& Control) -> std::shared_ptr<const FCollisionCookedStorage>
 		{
-			auto Payload = std::make_shared<FFeatureCollisionGeometry>();
+			auto Payload = std::make_unique<FOwnedCollisionArrays>();
 			Payload->Kind = Kind;
 			Control.Check();
 			Payload->Vertices.assign(Vertices.begin(), Vertices.end());
 			Payload->Triangles.reserve(Indices.size() / 3);
 			Control.Check();
-			Payload->Nodes.assign(Nodes.begin(), Nodes.end());
+			Payload->Nodes = std::move(Nodes);
 			Control.Check();
-			Payload->LeafTriangles.assign(LeafTriangles.begin(), LeafTriangles.end());
+			Payload->LeafTriangles = std::move(LeafTriangles);
 			for (size_t Triangle = 0; Triangle < Indices.size() / 3; ++Triangle)
 			{
 				Control.Tick();
@@ -224,17 +378,27 @@ namespace Durin
 				Payload->LocalMin = Math::Min(Payload->LocalMin, Vertex);
 				Payload->LocalMax = Math::Max(Payload->LocalMax, Vertex);
 			}
-			Payload->Identity = AllocateCollisionGeometryIdentity(Kind);
-			Payload->RetainedBytes = sizeof(FFeatureCollisionGeometry)
-				+ Payload->Vertices.capacity() * sizeof(FVector3)
-				+ Payload->Triangles.capacity() * sizeof(FCollisionGeometryTriangle)
-				+ Payload->Nodes.capacity() * sizeof(FCollisionGeometryNode)
-				+ Payload->LeafTriangles.capacity() * sizeof(uint32)
-				+ Payload->HullPlanes.capacity() * sizeof(FCollisionHullPlane)
-				+ Payload->HullHalfEdges.capacity() * sizeof(FCollisionHullHalfEdge)
-				+ Payload->HullFaces.capacity() * sizeof(FCollisionHullFace);
+			auto Storage = std::make_shared<FCollisionCookedStorage>();
+			Storage->Kind = Kind;
+			Storage->LocalMin = Payload->LocalMin;
+			Storage->LocalMax = Payload->LocalMax;
+			Storage->RetainedBytes = sizeof(FCollisionCookedStorage);
+			Storage->Vertices = FSharedByteBuffer::TakeNative(std::move(Payload->Vertices));
+			Storage->RetainedBytes += Storage->Vertices.GetRetainedCapacityBytes();
+			Storage->Triangles = FSharedByteBuffer::TakeNative(std::move(Payload->Triangles));
+			Storage->RetainedBytes += Storage->Triangles.GetRetainedCapacityBytes();
+			Storage->Nodes = FSharedByteBuffer::TakeNative(std::move(Payload->Nodes));
+			Storage->RetainedBytes += Storage->Nodes.GetRetainedCapacityBytes();
+			Storage->LeafTriangles = FSharedByteBuffer::TakeNative(std::move(Payload->LeafTriangles));
+			Storage->RetainedBytes += Storage->LeafTriangles.GetRetainedCapacityBytes();
+			Storage->HullPlanes = FSharedByteBuffer::TakeNative(std::move(Payload->HullPlanes));
+			Storage->RetainedBytes += Storage->HullPlanes.GetRetainedCapacityBytes();
+			Storage->HullHalfEdges = FSharedByteBuffer::TakeNative(std::move(Payload->HullHalfEdges));
+			Storage->RetainedBytes += Storage->HullHalfEdges.GetRetainedCapacityBytes();
+			Storage->HullFaces = FSharedByteBuffer::TakeNative(std::move(Payload->HullFaces));
+			Storage->RetainedBytes += Storage->HullFaces.GetRetainedCapacityBytes();
 			Control.Check();
-			return Payload;
+			return Storage;
 		}
 
 		auto BuildGeometryChildBounds(
@@ -317,7 +481,13 @@ namespace Durin
 			}
 			OutNodes.clear();
 			OutLeafTriangles.clear();
-			OutNodes.reserve(Records.size() * 2);
+			// Reserve the exact median-split tree so freezing the recipe allocation
+			// does not retain the old two-nodes-per-triangle scratch over-allocation.
+			const auto CountNodes = [&](auto&& Self, size_t Count) -> size_t {
+				Control.Tick();
+				return Count <= 8 ? 1 : 1 + Self(Self, Count / 2) + Self(Self, Count - Count / 2);
+			};
+			OutNodes.reserve(CountNodes(CountNodes, Records.size()));
 			OutLeafTriangles.reserve(Records.size());
 			OutMaximumDepth = 0;
 			bool bDepthExceeded = false;
@@ -426,10 +596,10 @@ namespace Durin
 		return FCollisionGeometryRef(std::move(Payload));
 	}
 
-	auto FCollisionGeometryRef::MakeConvexHull(
+	auto FCollisionCookedData::MakeConvexHull(
 		std::span<const FVector3> Vertices,
 		std::span<const uint32> Indices,
-		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+		const std::function<bool()>& ShouldCancel) -> FCollisionCookedData
 	try
 	{
 		FCollisionBuildControl Control{ShouldCancel};
@@ -443,7 +613,7 @@ namespace Durin
 		if (SignedVolume < 0.0)
 			for (size_t Offset = 0; Offset < OutwardIndices.size(); Offset += 3)
 				std::swap(OutwardIndices[Offset + 1], OutwardIndices[Offset + 2]);
-		return FCollisionGeometryRef(MakeFeatureGeometry(
+		return FCollisionCookedData(MakeFeatureData(
 			ECollisionGeometryKind::ConvexHull, Vertices, OutwardIndices, {}, {}, {}, Control));
 	}
 	catch (const FCollisionBuildCancelled&)
@@ -451,10 +621,10 @@ namespace Durin
 		return {};
 	}
 
-	auto FCollisionGeometryRef::BuildConvexHull(
+	auto FCollisionCookedData::BuildConvexHull(
 		std::span<const FVector3> Points,
 		FCollisionGeometryBuildDiagnostics* Diagnostics,
-		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+		const std::function<bool()>& ShouldCancel) -> FCollisionCookedData
 	{
 		FCollisionGeometryBuildDiagnostics Result;
 		Result.SourceVertices = Points.size() <= std::numeric_limits<uint32>::max()
@@ -627,7 +797,7 @@ namespace Durin
 			for (const FFace& Face : FinalFaces)
 				HullIndices.insert(HullIndices.end(), {Remap[Face.A], Remap[Face.B], Remap[Face.C]});
 			bool bFinalizationCancelled = false;
-			FCollisionGeometryRef Geometry = MakeConvexHull(HullVertices, HullIndices, [&] {
+			FCollisionCookedData Geometry = MakeConvexHull(HullVertices, HullIndices, [&] {
 				bFinalizationCancelled = bFinalizationCancelled || (ShouldCancel && ShouldCancel());
 				return bFinalizationCancelled;
 			});
@@ -676,8 +846,8 @@ namespace Durin
 		FCollisionBuildControl Control{ShouldCancel};
 		Control.Check();
 		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals, Control)) return {};
-		return FCollisionGeometryRef(MakeFeatureGeometry(
-			ECollisionGeometryKind::TriangleMesh, Vertices, Indices, SourceOrdinals, {}, {}, Control));
+		return MakeCooked(FCollisionCookedData(MakeFeatureData(
+			ECollisionGeometryKind::TriangleMesh, Vertices, Indices, SourceOrdinals, {}, {}, Control)), ShouldCancel);
 	}
 	catch (const FCollisionBuildCancelled&)
 	{
@@ -696,64 +866,21 @@ namespace Durin
 		FCollisionBuildControl Control{ShouldCancel};
 		Control.Check();
 		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals, Control)
-			|| Nodes.empty() || Nodes.size() > Indices.size() / 3 * 2
-			|| LeafTriangles.size() != Indices.size() / 3) return {};
-		std::vector<bool> VisitedNodes(Nodes.size(), false);
-		std::vector<bool> VisitedTriangles(Indices.size() / 3, false);
-		std::array<uint32, 128> Stack{};
-		uint32 StackCount = 1;
-		Stack[0] = 0;
-		while (StackCount > 0)
-		{
-			Control.Tick();
-			const uint32 NodeIndex = Stack[--StackCount];
-			if (NodeIndex >= Nodes.size() || VisitedNodes[NodeIndex]) return {};
-			VisitedNodes[NodeIndex] = true;
-			const FCollisionGeometryNode& Node = Nodes[NodeIndex];
-			if (!Math::IsFinite(Node.Minimum) || !Math::IsFinite(Node.Maximum)
-				|| Node.Minimum.x > Node.Maximum.x || Node.Minimum.y > Node.Maximum.y
-				|| Node.Minimum.z > Node.Maximum.z) return {};
-			if (Node.IsLeaf())
-			{
-				const uint32 Count = Node.GetLeafCount();
-				if (Count == 0 || Count > 8 || Node.First > LeafTriangles.size()
-					|| Count > LeafTriangles.size() - Node.First) return {};
-				for (uint32 Offset = 0; Offset < Count; ++Offset)
-				{
-					Control.Tick();
-					const uint32 Triangle = LeafTriangles[Node.First + Offset];
-					if (Triangle >= VisitedTriangles.size() || VisitedTriangles[Triangle]) return {};
-					VisitedTriangles[Triangle] = true;
-					for (uint32 Corner = 0; Corner < 3; ++Corner)
-					{
-						Control.Tick();
-						const FVector3& Vertex = Vertices[Indices[Triangle * 3 + Corner]];
-						for (uint32 Axis = 0; Axis < 3; ++Axis)
-							if (Vertex[Axis] < Node.Minimum[Axis] || Vertex[Axis] > Node.Maximum[Axis]) return {};
-					}
-				}
-				continue;
-			}
-			if (Node.First >= Nodes.size() || Node.CountOrSecond >= Nodes.size()
-				|| StackCount + 2 > Stack.size()) return {};
-			Stack[StackCount++] = Node.CountOrSecond;
-			Stack[StackCount++] = Node.First;
-		}
-		if (!std::ranges::all_of(VisitedNodes, [&Control](bool Value) { Control.Tick(); return Value; })
-			|| !std::ranges::all_of(VisitedTriangles, [&Control](bool Value) { Control.Tick(); return Value; })) return {};
-		return FCollisionGeometryRef(MakeFeatureGeometry(ECollisionGeometryKind::TriangleMesh,
-			Vertices, Indices, SourceOrdinals, Nodes, LeafTriangles, Control));
+			|| !ValidateCookedMesh(Vertices, Indices, Nodes, LeafTriangles, Control)) return {};
+		return MakeCooked(FCollisionCookedData(MakeFeatureData(ECollisionGeometryKind::TriangleMesh,
+			Vertices, Indices, SourceOrdinals, {Nodes.begin(), Nodes.end()},
+			{LeafTriangles.begin(), LeafTriangles.end()}, Control)), ShouldCancel);
 	}
 	catch (const FCollisionBuildCancelled&)
 	{
 		return {};
 	}
 
-	auto FCollisionGeometryRef::BuildTriangleMesh(
+	auto FCollisionCookedData::BuildTriangleMesh(
 		std::span<const FVector3> Vertices,
 		std::span<const uint32> Indices,
 		FCollisionGeometryBuildDiagnostics* Diagnostics,
-		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+		const std::function<bool()>& ShouldCancel) -> FCollisionCookedData
 	{
 		FCollisionGeometryBuildDiagnostics Result;
 		Result.SourceVertices = Vertices.size() <= std::numeric_limits<uint32>::max()
@@ -834,20 +961,19 @@ namespace Durin
 				Finish(Result);
 				return {};
 			}
-			FCollisionGeometryRef Geometry(MakeFeatureGeometry(ECollisionGeometryKind::TriangleMesh,
-				Vertices, RetainedIndices, RetainedOrdinals, Nodes, LeafTriangles, Control));
+			const uint32 NodeCount = static_cast<uint32>(Nodes.size());
+			FCollisionCookedData Geometry(MakeFeatureData(ECollisionGeometryKind::TriangleMesh,
+				Vertices, RetainedIndices, RetainedOrdinals, std::move(Nodes), std::move(LeafTriangles), Control));
 			Control.Check();
 			Result.Status = ECollisionGeometryBuildStatus::Success;
 			Result.RetainedVertices = static_cast<uint32>(Vertices.size());
 			Result.RetainedTriangles = static_cast<uint32>(RetainedOrdinals.size());
-			Result.NodeCount = static_cast<uint32>(Nodes.size());
+			Result.NodeCount = NodeCount;
 			Result.RetainedBytes = Geometry.GetRetainedBytes();
 			Result.EstimatedPeakBytes = Result.RetainedBytes
 				+ Vertices.size_bytes() + Indices.size_bytes()
 				+ RetainedIndices.capacity() * sizeof(uint32)
 				+ RetainedOrdinals.capacity() * sizeof(uint32)
-				+ Nodes.capacity() * sizeof(FCollisionGeometryNode)
-				+ LeafTriangles.capacity() * sizeof(uint32)
 				+ RetainedOrdinals.size() * sizeof(FTriangleBuildRecord);
 			Finish(Result);
 			return Geometry;
@@ -866,6 +992,275 @@ namespace Durin
 		}
 	}
 
+
+	auto FCollisionCookedData::GetBlocks() const -> FCollisionCookedBlocks
+	{
+		return Storage ? static_cast<const FCollisionCookedBlocks&>(*Storage) : FCollisionCookedBlocks{};
+	}
+
+	auto FCollisionCookedData::ValidateBlocks(const FCollisionCookedBlocks& Blocks,
+		const std::function<bool()>& ShouldCancel) -> bool
+	try
+	{
+		FCollisionBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (Blocks.Kind != ECollisionGeometryKind::TriangleMesh && Blocks.Kind != ECollisionGeometryKind::ConvexHull)
+			return false;
+		if (!Math::IsFinite(Blocks.LocalMin) || !Math::IsFinite(Blocks.LocalMax)) return false;
+		if (Blocks.Vertices.size() % sizeof(FVector3)) return false;
+		if (Blocks.Triangles.size() % sizeof(FCollisionGeometryTriangle)) return false;
+		if (Blocks.Nodes.size() % sizeof(FCollisionGeometryNode)) return false;
+		if (Blocks.LeafTriangles.size() % sizeof(uint32)) return false;
+		if (Blocks.HullPlanes.size() % sizeof(FCollisionHullPlane)) return false;
+		if (Blocks.HullHalfEdges.size() % sizeof(FCollisionHullHalfEdge)) return false;
+		if (Blocks.HullFaces.size() % sizeof(FCollisionHullFace)) return false;
+		const TCollisionBlockView<FVector3> Vertices(Blocks.Vertices);
+		const TCollisionBlockView<FCollisionGeometryTriangle> Triangles(Blocks.Triangles);
+		const FCollisionTriangleIndices Indices{Triangles};
+		if (!ValidateFeatureInput(Vertices, Indices, {}, Control)) return false;
+		auto Minimum = Vertices[0];
+		auto Maximum = Vertices[0];
+		for (size_t Index = 0; Index < Vertices.size(); ++Index)
+		{
+			Control.Tick();
+			Minimum = Math::Min(Minimum, Vertices[Index]);
+			Maximum = Math::Max(Maximum, Vertices[Index]);
+		}
+		if (Minimum != Blocks.LocalMin || Maximum != Blocks.LocalMax) return false;
+		if (Blocks.Kind == ECollisionGeometryKind::TriangleMesh)
+		{
+			if (!Blocks.HullPlanes.IsEmpty() || !Blocks.HullHalfEdges.IsEmpty() || !Blocks.HullFaces.IsEmpty()) return false;
+			return ValidateCookedMesh(Vertices, Indices, TCollisionBlockView<FCollisionGeometryNode>(Blocks.Nodes),
+				TCollisionBlockView<uint32>(Blocks.LeafTriangles), Control);
+		}
+		if (!Blocks.Nodes.IsEmpty() || !Blocks.LeafTriangles.IsEmpty() || !ValidateConvexHull(Vertices, Indices, Control))
+			return false;
+		const TCollisionBlockView<FCollisionHullPlane> Planes(Blocks.HullPlanes);
+		const TCollisionBlockView<FCollisionHullHalfEdge> Edges(Blocks.HullHalfEdges);
+		const TCollisionBlockView<FCollisionHullFace> Faces(Blocks.HullFaces);
+		if (Planes.size() != Triangles.size() || Faces.size() != Triangles.size() || Edges.size() != Indices.size())
+			return false;
+		double SignedVolume = 0.0;
+		for (uint32 Index = 0; Index < Triangles.size(); ++Index)
+		{
+			Control.Tick();
+			const auto Triangle = Triangles[Index];
+			const auto Face = Faces[Index];
+			const auto Plane = Planes[Index];
+			const FVector3 A = Vertices[Triangle.First];
+			const FVector3 B = Vertices[Triangle.Second];
+			const FVector3 C = Vertices[Triangle.Third];
+			SignedVolume += Math::Dot(A, Math::Cross(B, C));
+			const FVector3 Normal = Math::Normalize(Math::Cross(B - A, C - A));
+			if (!Math::IsFinite(Plane.Normal) || !std::isfinite(Plane.Distance)
+				|| Plane.Normal != FVector3f(Normal) || Plane.Distance != static_cast<float>(Math::Dot(Normal, A))
+				|| Face.FirstEdge != Index * 3 || Face.EdgeCount != 3
+				|| Face.SourceOrdinal != Triangle.SourceOrdinal || Face.Reserved != 0) return false;
+			for (uint32 Corner = 0; Corner < 3; ++Corner)
+			{
+				const uint32 EdgeIndex = Index * 3 + Corner;
+				const auto Edge = Edges[EdgeIndex];
+				if (Edge.Origin != Indices[EdgeIndex] || Edge.Face != Index
+					|| Edge.Next != Index * 3 + (Corner + 1) % 3 || Edge.Twin >= Edges.size()) return false;
+				const auto Twin = Edges[Edge.Twin];
+				if (Twin.Twin != EdgeIndex || Twin.Next >= Edges.size() || Twin.Face == Edge.Face
+					|| Twin.Origin != Edges[Edge.Next].Origin || Edges[Twin.Next].Origin != Edge.Origin) return false;
+			}
+		}
+		Control.Check();
+		return SignedVolume > FeatureTolerance;
+	}
+	catch (const FCollisionBuildCancelled&) { return false; }
+	catch (const std::bad_alloc&) { return false; }
+
+	auto FCollisionCookedData::FromBlocks(FCollisionCookedBlocks Blocks,
+		const std::function<bool()>& ShouldCancel) -> FCollisionCookedData
+	try
+	{
+		bool bCancelled = false;
+		const auto Cancel = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		if (!ValidateBlocks(Blocks, Cancel)) return {};
+		FCollisionBuildControl Control{Cancel};
+		auto Adopt = [&]<typename T>(FSharedByteBuffer& Block) {
+			if (Block.GetNativeView<T>()) return;
+			std::vector<T> Values(Block.size() / sizeof(T));
+			const TCollisionBlockView<T> Source(Block);
+			for (size_t Index = 0; Index < Values.size(); ++Index)
+			{
+				Control.Tick();
+				Values[Index] = Source[Index];
+			}
+			Block = FSharedByteBuffer::TakeNative(std::move(Values));
+		};
+		Adopt.template operator()<FVector3>(Blocks.Vertices);
+		Adopt.template operator()<FCollisionGeometryTriangle>(Blocks.Triangles);
+		Adopt.template operator()<FCollisionGeometryNode>(Blocks.Nodes);
+		Adopt.template operator()<uint32>(Blocks.LeafTriangles);
+		Adopt.template operator()<FCollisionHullPlane>(Blocks.HullPlanes);
+		Adopt.template operator()<FCollisionHullHalfEdge>(Blocks.HullHalfEdges);
+		Adopt.template operator()<FCollisionHullFace>(Blocks.HullFaces);
+		auto Storage = std::make_shared<FCollisionCookedStorage>();
+		static_cast<FCollisionCookedBlocks&>(*Storage) = std::move(Blocks);
+		Storage->RetainedBytes = sizeof(FCollisionCookedStorage);
+		Storage->RetainedBytes += Storage->Vertices.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->Triangles.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->Nodes.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->LeafTriangles.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->HullPlanes.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->HullHalfEdges.GetRetainedCapacityBytes();
+		Storage->RetainedBytes += Storage->HullFaces.GetRetainedCapacityBytes();
+		Control.Check();
+		return FCollisionCookedData(std::move(Storage));
+	}
+	catch (const FCollisionBuildCancelled&) { return {}; }
+	catch (const std::bad_alloc&) { return {}; }
+
+	auto FCollisionGeometryRef::MakeCooked(FCollisionCookedData Data,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	{
+		if (!Data || (ShouldCancel && ShouldCancel())) return {};
+		auto Payload = std::make_shared<FFeatureCollisionGeometry>();
+		Payload->Kind = Data.Storage->Kind;
+		Payload->LocalMin = Data.Storage->LocalMin;
+		Payload->LocalMax = Data.Storage->LocalMax;
+		Payload->Vertices = *Data.Storage->Vertices.GetNativeView<FVector3>();
+		Payload->Triangles = *Data.Storage->Triangles.GetNativeView<FCollisionGeometryTriangle>();
+		Payload->Nodes = *Data.Storage->Nodes.GetNativeView<FCollisionGeometryNode>();
+		Payload->LeafTriangles = *Data.Storage->LeafTriangles.GetNativeView<uint32>();
+		Payload->HullPlanes = *Data.Storage->HullPlanes.GetNativeView<FCollisionHullPlane>();
+		Payload->HullHalfEdges = *Data.Storage->HullHalfEdges.GetNativeView<FCollisionHullHalfEdge>();
+		Payload->HullFaces = *Data.Storage->HullFaces.GetNativeView<FCollisionHullFace>();
+		Payload->RetainedBytes = sizeof(FFeatureCollisionGeometry) + Data.GetRetainedBytes();
+		Payload->Cooked = std::move(Data);
+		if (ShouldCancel && ShouldCancel()) return {};
+		Payload->Identity = AllocateCollisionGeometryIdentity(Payload->Kind);
+		return FCollisionGeometryRef(std::move(Payload));
+	}
+
+	auto FCollisionCookedData::GetKind() const -> ECollisionGeometryKind
+	{
+		return Storage ? Storage->Kind : ECollisionGeometryKind::Primitive;
+	}
+
+	auto FCollisionCookedData::GetLocalBounds(FVector3& OutMin, FVector3& OutMax) const -> bool
+	{
+		if (!Storage) return false;
+		OutMin = Storage->LocalMin;
+		OutMax = Storage->LocalMax;
+		return true;
+	}
+
+	auto FCollisionCookedData::GetRetainedBytes() const -> uint64
+	{
+		return Storage ? Storage->RetainedBytes : 0;
+	}
+
+	auto FCollisionCookedData::GetVertices() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->Vertices : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetTriangles() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->Triangles : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetNodes() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->Nodes : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetLeafTriangles() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->LeafTriangles : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetHullPlanes() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->HullPlanes : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetHullHalfEdges() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->HullHalfEdges : FSharedByteBuffer{};
+	}
+
+	auto FCollisionCookedData::GetHullFaces() const -> FSharedByteBuffer
+	{
+		return Storage ? Storage->HullFaces : FSharedByteBuffer{};
+	}
+
+	auto FCollisionGeometryRef::MakeConvexHull(std::span<const FVector3> Vertices, std::span<const uint32> Indices,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	{
+		bool bCancelled = false;
+		const auto Cancel = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		auto Data = FCollisionCookedData::MakeConvexHull(Vertices, Indices, Cancel);
+		auto Geometry = MakeCooked(std::move(Data), Cancel);
+		return Geometry;
+	}
+
+	auto FCollisionGeometryRef::BuildConvexHull(std::span<const FVector3> Points, FCollisionGeometryBuildDiagnostics* Diagnostics,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	try
+	{
+		bool bCancelled = false;
+		const auto Cancel = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		auto Data = FCollisionCookedData::BuildConvexHull(Points, Diagnostics, Cancel);
+		auto Geometry = MakeCooked(std::move(Data), Cancel);
+		if (Diagnostics)
+		{
+			if (bCancelled) Diagnostics->Status = ECollisionGeometryBuildStatus::Cancelled;
+			if (Geometry)
+			{
+				Diagnostics->EstimatedPeakBytes += sizeof(FFeatureCollisionGeometry);
+				Diagnostics->RetainedBytes = Geometry.GetRetainedBytes();
+			}
+		}
+		return Geometry;
+	}
+	catch (const std::bad_alloc&)
+	{
+		if (Diagnostics) Diagnostics->Status = ECollisionGeometryBuildStatus::AllocationFailed;
+		return {};
+	}
+
+	auto FCollisionGeometryRef::BuildTriangleMesh(std::span<const FVector3> Vertices, std::span<const uint32> Indices, FCollisionGeometryBuildDiagnostics* Diagnostics,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	try
+	{
+		bool bCancelled = false;
+		const auto Cancel = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		auto Data = FCollisionCookedData::BuildTriangleMesh(Vertices, Indices, Diagnostics, Cancel);
+		auto Geometry = MakeCooked(std::move(Data), Cancel);
+		if (Diagnostics)
+		{
+			if (bCancelled) Diagnostics->Status = ECollisionGeometryBuildStatus::Cancelled;
+			if (Geometry)
+			{
+				Diagnostics->EstimatedPeakBytes += sizeof(FFeatureCollisionGeometry);
+				Diagnostics->RetainedBytes = Geometry.GetRetainedBytes();
+			}
+		}
+		return Geometry;
+	}
+	catch (const std::bad_alloc&)
+	{
+		if (Diagnostics) Diagnostics->Status = ECollisionGeometryBuildStatus::AllocationFailed;
+		return {};
+	}
 
 	auto FCollisionGeometryRef::GetKind() const -> ECollisionGeometryKind
 	{

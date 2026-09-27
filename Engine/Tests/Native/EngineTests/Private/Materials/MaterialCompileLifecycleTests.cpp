@@ -813,7 +813,7 @@ TEST(FMaterialCompileLifecycleTests,
 		EXPECT_EQ(Decoded.Hash, Source.Hash);
 		ASSERT_TRUE(Decoded.Code);
 		ASSERT_TRUE(Source.Code);
-		EXPECT_EQ(*Decoded.Code, *Source.Code);
+		EXPECT_TRUE(std::ranges::equal(Decoded.Code->GetBytes(), Source.Code->GetBytes()));
 	}
 	EXPECT_TRUE(DecodedProgram->IR.Nodes.empty());
 	EXPECT_TRUE(DecodedProgram->GeneratedSource.empty());

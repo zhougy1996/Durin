@@ -920,8 +920,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Cap
 	const FStaticMeshLODResources& LOD = RenderData->LODResources.front();
 	FCollisionSourceFixture Snapshot{
 		"ImportedMultiSection",
-		LOD.VertexBuffers.PositionVertexBuffer.GetPositions(),
-		LOD.IndexBuffer.GetIndices()};
+		{LOD.VertexBuffers.PositionVertexBuffer.GetPositions().begin(), LOD.VertexBuffers.PositionVertexBuffer.GetPositions().end()},
+		{LOD.IndexBuffer.GetIndices().begin(), LOD.IndexBuffer.GetIndices().end()}};
 	ASSERT_FALSE(Snapshot.Positions.empty());
 	ASSERT_FALSE(Snapshot.Indices.empty());
 	FMeshBuildFacts Facts;
@@ -977,10 +977,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	std::string Error;
 	const Durin::FByteBuffer KeyBytes =
 		BuildPhysicsCookDerivedDataKeyBytes(KeyInput).value();
-	EXPECT_EQ(KeyBytes.size(), 378u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "b9a39702248bf6ed1fd738bbcb6decd2");
+	EXPECT_EQ(KeyBytes.size(), 380u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "92525216610547fa54e74aaf0c25f019");
 	EXPECT_EQ(BuildPhysicsCookDerivedDataKey(KeyInput).value().ToString(),
-		"b9a39702248bf6ed1fd738bbcb6decd2");
+		"92525216610547fa54e74aaf0c25f019");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;

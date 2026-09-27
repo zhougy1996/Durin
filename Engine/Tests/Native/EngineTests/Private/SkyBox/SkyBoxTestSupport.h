@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeAssetBuildTestSupport.h"
 #include "Actors/SkyBoxActor.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageSerialization.h"

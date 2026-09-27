@@ -583,11 +583,12 @@ namespace Durin
 		OutCompiledShader.DebugName = VirtualShaderPath.empty()
 			? OutCompiledShader.SourceEntryPoint
 			: std::format("{}::{}", VirtualShaderPath, OutCompiledShader.SourceEntryPoint);
-		OutCompiledShader.Code = std::make_shared<FByteBuffer>();
-		if (!ConvertBlobToArray(CodeBlob, *OutCompiledShader.Code))
+		FByteBuffer Code;
+		if (!ConvertBlobToArray(CodeBlob, Code))
 		{
 			return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
 		}
+		OutCompiledShader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
 		OutCompiledShader.Hash = FXxHash128::HashBuffer(*OutCompiledShader.Code);
 
 		std::vector<uint32> SpirvWords(OutCompiledShader.Code->size() / sizeof(uint32));

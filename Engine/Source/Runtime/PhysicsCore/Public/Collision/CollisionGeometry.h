@@ -2,6 +2,7 @@
 
 #include "Collision/CollisionShape.h"
 #include "Math/Transform.h"
+#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
 {
@@ -96,6 +97,65 @@ namespace Durin
 		bool bCacheHit = false;
 	};
 
+	// Fixed-width array storage, including serialized blocks with no native provenance.
+	struct FCollisionCookedBlocks
+	{
+		ECollisionGeometryKind Kind = ECollisionGeometryKind::TriangleMesh;
+		FVector3 LocalMin{0.0};
+		FVector3 LocalMax{0.0};
+		FSharedByteBuffer Vertices;
+		FSharedByteBuffer Triangles;
+		FSharedByteBuffer Nodes;
+		FSharedByteBuffer LeafTriangles;
+		FSharedByteBuffer HullPlanes;
+		FSharedByteBuffer HullHalfEdges;
+		FSharedByteBuffer HullFaces;
+	};
+
+	class FCollisionCookedStorage;
+
+	// Immutable recipe arrays without a runtime geometry identity. Copies retain the same native blocks.
+	class FCollisionCookedData
+	{
+	public:
+		FCollisionCookedData() = default;
+		// Checks array semantics without constructing geometry or converting serialized arrays.
+		PHYSICSCORE_API static auto ValidateBlocks(const FCollisionCookedBlocks& Blocks,
+			const std::function<bool()>& ShouldCancel = {}) -> bool;
+		// Retains native arrays; constructs each serialized native array once after validation.
+		PHYSICSCORE_API static auto FromBlocks(FCollisionCookedBlocks Blocks,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionCookedData;
+		PHYSICSCORE_API auto GetBlocks() const -> FCollisionCookedBlocks;
+		PHYSICSCORE_API static auto BuildConvexHull(
+			std::span<const FVector3> Points,
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionCookedData;
+		PHYSICSCORE_API static auto BuildTriangleMesh(
+			std::span<const FVector3> Vertices, std::span<const uint32> Indices,
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionCookedData;
+		auto IsValid() const -> bool { return Storage != nullptr; }
+		explicit operator bool() const { return IsValid(); }
+		PHYSICSCORE_API auto GetKind() const -> ECollisionGeometryKind;
+		PHYSICSCORE_API auto GetLocalBounds(FVector3& OutMin, FVector3& OutMax) const -> bool;
+		PHYSICSCORE_API auto GetRetainedBytes() const -> uint64;
+		PHYSICSCORE_API auto GetVertices() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetTriangles() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetNodes() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetLeafTriangles() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetHullPlanes() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetHullHalfEdges() const -> FSharedByteBuffer;
+		PHYSICSCORE_API auto GetHullFaces() const -> FSharedByteBuffer;
+
+	private:
+		friend class FCollisionGeometryRef;
+		explicit FCollisionCookedData(std::shared_ptr<const FCollisionCookedStorage> InStorage)
+			: Storage(std::move(InStorage)) {}
+		static auto MakeConvexHull(std::span<const FVector3> Vertices, std::span<const uint32> Indices,
+			const std::function<bool()>& ShouldCancel) -> FCollisionCookedData;
+		std::shared_ptr<const FCollisionCookedStorage> Storage;
+	};
+
 	class FCollisionGeometry;
 
 	// Copyable owning reference to one validated immutable collision payload.
@@ -103,6 +163,9 @@ namespace Durin
 	{
 	public:
 		FCollisionGeometryRef() = default;
+		// Publishes already cooked immutable arrays without copying their allocations.
+		PHYSICSCORE_API static auto MakeCooked(FCollisionCookedData Data,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakePrimitive(const FCollisionShape& Shape) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakeCompound(std::span<const FCollisionGeometryChild> Children) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakeConvexHull(

@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "EncodedSourceSnapshot.h"
 #include "TextureTestSupport.h"

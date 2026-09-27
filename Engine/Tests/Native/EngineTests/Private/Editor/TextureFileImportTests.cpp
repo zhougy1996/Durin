@@ -1,3 +1,4 @@
+#include "NativeAssetBuildTestSupport.h"
 #include "Import/TextureFileImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -157,7 +158,7 @@ namespace
 			Texture->SetSource(Source);
 			auto Platform = std::make_unique<FTexturePlatformData>();
 			Platform->PixelFormat = EPixelFormat::RGBA8_UNORM;
-			Platform->Mips.push_back({.Pixels = FByteBuffer(4, std::byte{17}), .Width = 1, .Height = 1, .RowPitch = 4});
+			Platform->Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(4, std::byte{17})), .Width = 1, .Height = 1, .RowPitch = 4});
 			Texture->SetPlatformData(std::move(Platform));
 			return Texture;
 		}
