@@ -4,8 +4,8 @@ Summary: Replace template-adapter execution with UE-inspired build sessions, reg
 
 Last reviewed: 2026-09-27
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-27
 
 ## Current Status
 
@@ -19,9 +19,11 @@ remain unchanged. Paired CPU time, peak-memory and allocation-transfer gates
 pass on the validated macOS profile. ShaderBuild now executes through its
 registered shared-output session, with immutable source and bytecode blocks.
 Stage 5 final CPU performance and consumer validation pass. Stage 6 legacy API
-removal, test migration, documentation and macOS validation are complete. The
-Windows Game build/startup gate remains open on this macOS host; the plan remains
-Active until that new-revision evidence is available.
+removal, test migration, documentation and macOS validation are complete. On
+2026-09-27, the owner deferred Windows Game build/startup validation because no
+Windows acceptance environment is available in the near term. That validation
+was not performed and is no longer a completion gate for this plan; it remains
+future platform coverage when an environment becomes available.
 
 Decision revised on 2026-09-27: establish shared metadata/data-block products
 before migrating execution. Add a UE-inspired `FCacheRecord` as the keyed
@@ -38,12 +40,12 @@ families still execute through `ExecuteBuild<TAdapter>`.
 This plan succeeds the execution design in
 [Unified Derived Data Build Architecture](UnifiedDerivedDataBuildArchitecture.md).
 Its definition capture, source ownership, recipe boundaries and publication
-rules remain useful. The earlier plan's Windows Game build/startup gate remains
-open and independently owned there; this document neither closes nor duplicates
-its completion evidence. Its restrictions against a function registry and
-separate definition/action identities are superseded only as these stages land.
-Until then, [Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md)
-remains the implemented contract.
+rules remain useful. The earlier plan also records the deferred Windows Game
+build/startup validation; neither plan claims completion evidence for it. Its
+restrictions against a function registry and separate definition/action
+identities have been superseded by the implemented stages.
+[Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md) records the
+implemented contract.
 
 ## Goal
 
@@ -1039,8 +1041,8 @@ an intact but semantically invalid family record, prepared Cube checksum
 mismatch, retained grouped-block lifetime and identical Cook bytes. The changed
 application-hosted `VolumetricCloudSceneVulkanTests` fixture is not configured
 with application tests disabled; neither its compilation nor GPU/application
-execution is claimed. This optional coverage does not replace or close any
-Windows gate.
+execution is claimed. This optional coverage does not establish Windows Game
+validation.
 
 
 ### Stage 4: Migrate StaticMesh and collision independently
@@ -1487,10 +1489,12 @@ Dependency: Stages 3-5. Outcome: one shared protocol across all six families.
   Physics, shader contracts and CodeModules only as implemented behavior lands.
 - [x] Complete the required shared Engine API `all` build and affected project
   targets; execute the risk-based native coverage below and record receipts.
-- [ ] Coordinate with the predecessor's Windows Game gate and inspect Game
-  dependencies; final completion requires evidence for the new revision too.
-- [ ] Run documentation/lifecycle validation and close this plan only after all
-  acceptance conditions pass. Preserve explicit host-blocked gates as open.
+- [x] Coordinate with the predecessor's Windows Game gate and inspect Game
+  dependencies. Record the owner's 2026-09-27 decision to defer the unperformed
+  Windows build/startup validation until an environment is available.
+- [x] Run documentation/lifecycle validation and close this plan after the
+  host-supported acceptance conditions pass, with Windows validation explicitly
+  deferred rather than reported as passed.
 
 Stage 6 local cleanup receipt (2026-09-27): removed the template executor,
 schema-1 keyed definition, typed observation visitor, Engine reporting bridge and
@@ -1508,8 +1512,8 @@ Game dependency inspection: `Engine.dproject` selects DerivedDataCache and
 ShaderBuild only in DurinEditor. Engine's DDC dependency remains optional and
 asset service registration is editor-gated; RenderCore depends on RHI/Core and
 has no DDC dependency. Registered Game presets are Win64-only, so this host cannot
-supply a Windows Game build or cooked-only startup receipt. The predecessor's
-independent Windows gate remains open; the new revision requires its own evidence.
+supply a Windows Game build or cooked-only startup receipt. Both revisions lack
+Windows Game evidence; that validation is deferred until an environment is available.
 
 Final local validation: 87 of 88 affected targets passed in
 `20260927-072742-463070-83400-ctest.log`, covering texture/import, StaticMesh,
@@ -1525,8 +1529,9 @@ cases passed serial isolation (`20260927-072901-688418-84133-ctest.log`), as did
 Shader action-key case (`20260927-072917-239331-84156-ctest.log`). Changed-document
 and all-plan validation passed. Stage 5 performance receipts remain applicable:
 cleanup removes unreachable APIs and leaves the session execution and action bytes
-unchanged, with canonical-action and package golden checks still passing. Only
-the explicitly host-blocked Windows Game gate and final plan closure remain open.
+unchanged, with canonical-action and package golden checks still passing.
+Windows Game build/startup validation remains unperformed and deferred by the
+owner's 2026-09-27 decision; it is no longer a plan completion gate.
 
 ## Validation and Handoff
 
