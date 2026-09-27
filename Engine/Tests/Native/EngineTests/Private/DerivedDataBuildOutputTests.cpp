@@ -21,11 +21,12 @@ namespace
 	auto Data() -> FBuildOutputData
 	{
 		return {.Schema = "Fixture.Output", .SchemaVersion = 1, .Metadata = Bytes("meta"),
-			.Values = {{"Mip/1", Bytes("small")}, {"Mip/0", Bytes("large")}}};
+			.Values = {{"Mip/1", Bytes("small")}, {"Mip/0", Bytes("large")}},
+			.Messages = {{EBuildMessageSeverity::Warning, "deterministic warning"}}};
 	}
 }
 
-TEST(FDerivedDataBuildOutputTests, CanonicalValuesPreserveBacking)
+TEST(FDerivedDataBuildOutputTests, CanonicalValuesAndMessagesPreserveBacking)
 {
 	auto Input = Data();
 	const auto Backing = Input.Values[0].Data;
@@ -38,9 +39,11 @@ TEST(FDerivedDataBuildOutputTests, CanonicalValuesPreserveBacking)
 	ASSERT_NE(Output->FindValue("Mip/1"), nullptr);
 	EXPECT_TRUE(Output->FindValue("Mip/1")->Data.SharesStorageWith(Backing));
 	EXPECT_EQ(Output->FindValue("Missing"), nullptr);
+	ASSERT_EQ(Output->GetMessages().size(), 1u);
+	EXPECT_EQ(Output->GetMessages()[0].Text, "deterministic warning");
 }
 
-TEST(FDerivedDataBuildOutputTests, RejectsInvalidSchemasIdsAndDuplicates)
+TEST(FDerivedDataBuildOutputTests, RejectsInvalidSchemasIdsDuplicatesAndMessages)
 {
 	auto Input = Data(); Input.SchemaVersion = 0;
 	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
@@ -53,6 +56,12 @@ TEST(FDerivedDataBuildOutputTests, RejectsInvalidSchemasIdsAndDuplicates)
 	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
 	Input = Data(); Input.Values.push_back(Input.Values.front());
 	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
+	Input = Data(); Input.Messages[0].Severity = static_cast<EBuildMessageSeverity>(255);
+	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
+	Input = Data(); Input.Messages[0].Text.assign(4097, 'x');
+	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
+	Input = Data(); Input.Messages[0].Text = std::string("a\0b", 3);
+	EXPECT_FALSE(FBuildOutput::TryCreate(std::move(Input)));
 }
 
 TEST(FDerivedDataBuildOutputTests, EnforcesIndependentBoundsAndCountsSharedViewsLogically)
@@ -60,8 +69,9 @@ TEST(FDerivedDataBuildOutputTests, EnforcesIndependentBoundsAndCountsSharedViews
 	EXPECT_FALSE(FBuildOutput::TryCreate(Data(), {.MaximumTotalBytes = 1}));
 	EXPECT_FALSE(FBuildOutput::TryCreate(Data(), {.MaximumMetadataBytes = 3}));
 	EXPECT_FALSE(FBuildOutput::TryCreate(Data(), {.MaximumValues = 1}));
+	EXPECT_FALSE(FBuildOutput::TryCreate(Data(), {.MaximumMessages = 0}));
 	auto Input = Data();
-	Input.Metadata = {};
+	Input.Metadata = {}; Input.Messages.clear();
 	Input.Values[1].Data = Input.Values[0].Data;
 	EXPECT_FALSE(FBuildOutput::TryCreate(Input, {.MaximumTotalBytes = 9}));
 	EXPECT_TRUE(FBuildOutput::TryCreate(Input, {.MaximumTotalBytes = 10}));
@@ -105,6 +115,7 @@ TEST(FDerivedDataBuildOutputTests, OptionalRecordRejectionPreservesUsableOutput)
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.error().Code, ECacheError::ValueTooLarge);
 	EXPECT_EQ(Output->FindValue("Mip/0")->Data.data(), Address);
+	EXPECT_EQ(Output->GetMessages()[0].Text, "deterministic warning");
 	EXPECT_FALSE(FCacheRecord::FromOutput({}, *Output));
 	EXPECT_FALSE(FCacheRecord::FromOutput(Key(), {}));
 }
@@ -120,6 +131,7 @@ TEST(FDerivedDataBuildOutputTests, RecordChecksRequestedKeyAndReadBudget)
 	EXPECT_EQ(Record->GetSchemaVersion(), Output->GetSchemaVersion());
 	EXPECT_TRUE(Record->GetMetadata().SharesStorageWith(Output->GetMetadata()));
 	EXPECT_EQ(Record->GetMetadataHash(), FXxHash128::HashBuffer(Output->GetMetadata().GetBytes()));
+	EXPECT_EQ(Record->GetMessages()[0].Text, Output->GetMessages()[0].Text);
 	auto Wrong = Record->ToOutput(Key("other"));
 	ASSERT_FALSE(Wrong);
 	EXPECT_EQ(Wrong.error().Code, ECacheError::Corrupt);
@@ -167,6 +179,7 @@ TEST(FDerivedDataBuildOutputTests, EncodedRecordRetainsBackendAllocationAfterDec
 	ASSERT_TRUE(Loaded) << Loaded.error().Diagnostic;
 	EXPECT_TRUE(Loaded->GetMetadata().SharesStorageWith(BackendBytes));
 	EXPECT_TRUE(Loaded->GetValues()[0].Data.SharesStorageWith(BackendBytes));
+	EXPECT_EQ(Loaded->GetMessages()[0].Text, "deterministic warning");
 	auto Consumer = Loaded->ToOutput(Key());
 	ASSERT_TRUE(Consumer);
 	Owner.reset(); BackendBytes = {}; Loaded = FCacheRecord{}; Record = FCacheRecord{};
@@ -214,6 +227,7 @@ TEST(FDerivedDataBuildOutputTests, EncodedAndLogicalBudgetsAreIndependent)
 	EXPECT_FALSE(FCacheRecord::Decode(Key(), *Encoded, {.MaximumTotalBytes = 1}));
 	EXPECT_FALSE(FCacheRecord::Decode(Key(), *Encoded, {.MaximumMetadataBytes = 3}));
 	EXPECT_FALSE(FCacheRecord::Decode(Key(), *Encoded, {.MaximumValues = 1}));
+	EXPECT_FALSE(FCacheRecord::Decode(Key(), *Encoded, {.MaximumMessages = 0}));
 	EXPECT_EQ(Output->FindValue("Mip/0")->Data.data(), Address);
 	EXPECT_FALSE(FCacheRecord{}.Encode());
 }
@@ -231,7 +245,7 @@ namespace
 		Writer.WriteString("Fixture.Output");
 		Writer.WriteU32(Fault == 3 ? 0u : 1u);
 		Writer.WriteU32(Fault == 4 ? 4097u : 2u);
-		Writer.WriteU32(Fault == 15 ? 1u : 0u); // Nonzero legacy message counts are unsupported.
+		Writer.WriteU32(1);
 		Writer.WriteU64(Fault == 5 ? 4ull * 1024 * 1024 + 1 : 4);
 		Writer.WriteHash128(Fault == 6 ? FXxHash128{} : FXxHash128::HashBuffer("meta"));
 		Writer.WriteString("Mip/0");
@@ -242,7 +256,8 @@ namespace
 		Writer.WriteU64(Fault == 14 ? 4 : 9);
 		Writer.WriteU64(5);
 		Writer.WriteHash128(FXxHash128::HashBuffer("small"));
-		if (Fault == 16) Writer.WriteU8(0); // Unexpected bytes before payload.
+		Writer.WriteU8(Fault == 15 ? 255 : static_cast<uint8>(EBuildMessageSeverity::Warning));
+		Writer.WriteString(Fault == 16 ? std::string_view("a\0b", 3) : "warning");
 		Writer.WriteBytes(std::as_bytes(std::span(std::string_view("metalargesmall"))));
 		if (Fault == 17) Writer.WriteU8(0);
 		const auto Hash = FXxHash128::HashBuffer(Writer.GetBytes());

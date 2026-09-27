@@ -165,11 +165,6 @@ Owning recipes enforce the reservation before scratch/product expansion.
 Persistence constructs a record, encodes it, optionally compresses it and writes
 it atomically through the existing backend. Each operation can fail without
 replacing the original valid output. Disabled writes skip all four operations.
-Build outputs contain schema metadata and named values, without a persisted
-message table. The version-1 record envelope retains its reserved message-count
-field at zero so existing message-free cache entries remain readable; records
-with a nonzero count are rejected and rebuilt on demand.
-
 Cancellation is checked between phases and after persistence; cancellation in
 cached validation does not trigger rebuilding. Results distinguish success,
 failure and cancellation; execution-local observers receive cache diagnostics,
