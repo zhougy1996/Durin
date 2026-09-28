@@ -557,6 +557,12 @@ controls the graph's scheduling policy and defaults to false. When enabled,
 eligible retained passes receive the logical async-compute role. Other passes
 retain the graphics role. Eligibility, policy and physical hardware availability
 are separate inputs. Both setters are building-only declarations.
+The scene renderer exposes this policy through the per-view
+`FSceneViewRenderOptions::bEnableAsyncCompute` opt-in, which defaults to false.
+The production contact-shadow compute pass is the first eligible workload;
+fragment contact shadows and all other production passes remain on graphics.
+When the allocator or backend cannot provide independent compute, enabling the
+option preserves the graph and maps both roles to graphics.
 Dependencies preserve compiler causes, add FIFO edges within each logical
 queue and join both terminal prefixes at the epilogue. Independent branches on
 different logical queues receive no artificial consecutive-pass edge.

@@ -4413,6 +4413,59 @@ namespace Durin
 		EXPECT_EQ(Extracted.GetReference(), Texture.GetReference());
 	}
 
+	TEST_F(FRDGTests, AsyncExtractionReturnsOwnershipBeforeIndependentGraphImport)
+	{
+		FBufferRHIRef Extracted;
+		FRDGBuilder Producer;
+		Producer.SetAsyncComputeEnabled(true);
+		const auto Output = Producer.CreateBuffer(
+			FRDGBufferDesc{.Buffer = FRHIBufferDesc(
+				64, 4, EBufferUsageFlags::UnorderedAccess)}, "CrossGraph.Output");
+		const auto Write = FRDGBuilderTestAccessor::AddPass(Producer,
+			"CrossGraph.Write", ERDGPassType::Compute);
+		Producer.SetPassAsyncComputeEligible(Write);
+		FRDGBuilderTestAccessor::UseBuffer(Producer, Write, Output, 0, 64,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		Producer.QueueBufferExtraction(Output, &Extracted,
+			ERHIAccess::GraphicsShaderRead);
+		FTestRDGAllocator ProducerAllocator;
+		const auto Produced = Producer.Execute(GetCommandList(), &ProducerAllocator);
+		ASSERT_TRUE(Produced.has_value()) << ToString(Produced.error());
+		ASSERT_TRUE(Extracted);
+		const auto& ProducerPlan = Producer.GetExecutionPlan();
+		ASSERT_FALSE(ProducerPlan.Handoffs.empty());
+		const auto& ProducerReturn = ProducerPlan.Handoffs.back();
+		EXPECT_EQ(ProducerReturn.SourceQueue, ERDGQueueAssignment::AsyncCompute);
+		EXPECT_EQ(ProducerPlan.Batches[ProducerReturn.Consumer.Index].Queue,
+			ERDGQueueAssignment::Graphics);
+
+		FRDGBuilder Consumer;
+		Consumer.SetAsyncComputeEnabled(true);
+		const auto Imported = Consumer.RegisterExternalBuffer(Extracted,
+			"CrossGraph.Input", ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::GraphicsShaderRead);
+		const auto Read = FRDGBuilderTestAccessor::AddPass(Consumer,
+			"CrossGraph.Read", ERDGPassType::Compute);
+		Consumer.SetPassAsyncComputeEligible(Read);
+		FRDGBuilderTestAccessor::UseBuffer(Consumer, Read, Imported, 0, 64,
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		const auto Consumed = Consumer.Execute(GetCommandList());
+		ASSERT_TRUE(Consumed.has_value()) << ToString(Consumed.error());
+		const auto& ConsumerPlan = Consumer.GetExecutionPlan();
+		ASSERT_EQ(ConsumerPlan.Handoffs.size(), 2u);
+		EXPECT_EQ(ConsumerPlan.Handoffs.front().SourceQueue,
+			ERDGQueueAssignment::Graphics);
+		EXPECT_TRUE(ConsumerPlan.Handoffs.front().GetProducers().empty());
+		EXPECT_EQ(ConsumerPlan.Batches[
+			ConsumerPlan.Handoffs.front().Consumer.Index].Queue,
+			ERDGQueueAssignment::AsyncCompute);
+		EXPECT_EQ(ConsumerPlan.Handoffs.back().SourceQueue,
+			ERDGQueueAssignment::AsyncCompute);
+		EXPECT_EQ(ConsumerPlan.Batches[
+			ConsumerPlan.Handoffs.back().Consumer.Index].Queue,
+			ERDGQueueAssignment::Graphics);
+	}
+
 	TEST_F(FRDGTests, DuplicateExtractionFailsWithoutPublishing)
 	{
 		FTextureRHIRef First;

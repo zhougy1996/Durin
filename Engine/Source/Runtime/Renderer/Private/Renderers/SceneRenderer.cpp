@@ -44,6 +44,7 @@ namespace Durin
 		const auto& View = *Logical.CallerView;
 		auto* OutputTarget = Logical.OutputTarget;
 		const auto& Options = Logical.Options;
+		Graph.SetAsyncComputeEnabled(Options.bEnableAsyncCompute);
 		const auto& Features = Context.Features;
 		const auto& PreparedEditorAssistance = Logical.EditorAssistance;
 		auto* CloudWeatherTexture = Resolved.CloudWeatherTexture;

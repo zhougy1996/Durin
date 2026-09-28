@@ -227,6 +227,10 @@ namespace Durin
 	struct FSceneViewRenderOptions
 	{
 		std::optional<FViewEnvironmentOverride> Environment;
+		// Explicit per-view opt-in for production async-compute scheduling.
+		// Eligible passes still fall back to the graphics queue when the backend
+		// or execution allocator cannot provide an independent compute queue.
+		bool bEnableAsyncCompute = false;
 		// Supported development visualization written into HDR Scene Color.
 		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
 		// Supported isolated deferred component visualization.

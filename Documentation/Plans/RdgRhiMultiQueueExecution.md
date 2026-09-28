@@ -2,23 +2,23 @@
 
 Summary: Introduce explicit GPU queue submission, completion, and resource retirement contracts across RDG, RHI, and Vulkan, then enable asynchronous compute, split barriers, and safe transient aliasing.
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-29
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Reviewed against source and Git history on 2026-09-21 at `9a848d4ac`.
-This revision updates the plan only; it does not rerun native tests or renew
-earlier validation evidence.
+Reviewed against source and Git history on 2026-09-29 from `62abfae5e`.
+This revision adds current macOS validation evidence and records the operator's
+explicit deferral of unavailable Windows qualification.
 
 | Stage | Status | Remaining acceptance |
 | --- | --- | --- |
 | 0: Contracts and ownership | Audit and API decisions recorded; performance baseline deferred | Authoritative baseline and measured regression budgets |
 | 1: Single-queue completion and retirement | Completed | Preserve the passed contracts through later changes |
 | 2: Explicit execution plan | Completed | Preserve deterministic planning and single-queue behavior |
-| 3: Async compute and multi-queue lifetime safety | Implemented in explicit opt-in paths; qualification incomplete | Remaining lifetime/failure coverage, lifecycle stability and production integration |
+| 3: Async compute and multi-queue lifetime safety | Accepted for the available macOS scope; Windows Vulkan qualification deferred by operator | Preserve opt-in behavior; complete the separate Windows driver-worker investigation when a Windows host is available |
 | 4: Split barriers | Not accepted; all stage tasks remain open | Begin/end protocol, lowering, fallback and equivalence |
 | 5: Transient aliasing and final qualification | Not accepted; all stage tasks remain open | Dependency-aware aliasing, performance and final workspace validation |
 
@@ -29,14 +29,14 @@ Renderer pool retirement proofs. Native fixtures have exercised shader dispatch,
 readback and delayed pool reuse on shared-family and dedicated-family compute
 queues in inline and threaded replay modes.
 
-Production async scheduling remains disabled. `FRDGBuilder` defaults its async
-policy to false, and Vulkan defaults `ComputeQueuePolicy` to `Disabled`.
-`DURIN_VULKAN_COMPUTE_QUEUE` can provision diagnostic topologies; a graph must
-also enable its policy and mark eligible compute passes, with allocator support
-when required. The source audit found no calls to `SetAsyncComputeEnabled` or
-`SetPassAsyncComputeEligible` in Engine, Sandbox or RoadWeaver production source
-outside their RenderCore definitions. Renderer allocator support alone does not
-enable production passes.
+Automatic production async scheduling remains disabled. `FRDGBuilder` and the
+per-view `FSceneViewRenderOptions::bEnableAsyncCompute` policy both default to
+false, and Vulkan defaults `ComputeQueuePolicy` to `Disabled`.
+`DURIN_VULKAN_COMPUTE_QUEUE` can provision diagnostic topologies. The scene
+renderer now marks the production contact-shadow compute pass eligible and
+enables graph async scheduling only for an explicitly opted-in view. Allocator
+and backend capability gates still map the graph to graphics when independent
+compute is unavailable.
 
 The completed [RHI Sync Point Refactor Plan](Archive/2026-09/RhiSyncPointRefactor.md)
 supersedes public ticket/receipt APIs with stable `FRHIGPUSyncPointRef` ownership
@@ -46,12 +46,21 @@ command/completion cases and 100 Vulkan integration cases. That migration does
 not close this plan's production scheduling, split-barrier, aliasing or remaining
 qualification gates.
 
-Stage 3 still requires complete graph-boundary/readiness and multi-queue
-retirement coverage, native submission-failure pool quarantine/recovery coverage,
-and an identified production async workload with an integration test. The
-2026-09-12 Vulkan runs also reported two intermittent lifecycle access violations
-(`0xc0000005`); a later passing run and the sync-point migration are not evidence
-that their cause was fixed. Keep stability as an explicit open gate.
+Stage 3 acceptance composes the existing native partial-submit quarantine
+fixture with a Renderer pool regression for failed retirement under unrelated
+completion, bounded pressure and explicit recovery. Compiler coverage maps
+fork/join, fan-out, multiple readers, empty/culling paths, external resources,
+and cross-graph extraction ownership. The production contact-shadow compute
+route is wired behind the explicit per-view policy and the existing Vulkan
+qualification workload exercises that route on its supported host.
+
+The two 2026-09-12 `0xc0000005` failures are Windows NVIDIA driver-worker
+faults tracked separately by
+[Vulkan Integration Driver Worker Crash](../Investigations/VulkanIntegrationDriverWorkerCrash.md).
+Their root cause is not claimed fixed. On 2026-09-29 the operator explicitly
+authorized Windows acceptance to be skipped because no Windows device is
+available; this is a platform qualification deferral, not contrary evidence or
+a runtime workaround.
 
 On 2026-09-11 the operator authorized implementation to continue without an
 exclusive quiet GPU lane. This waives only the baseline-before-implementation
@@ -59,21 +68,12 @@ ordering. Performance acceptance remains open: use the recorded pre-change
 revision and identical instrumentation for both revisions, and do not freeze
 budgets from concurrent-machine timings.
 
-### Next Work: Close Stage 3
+### Next Work
 
-1. Map each remaining Stage 3 lifetime/readiness scenario to an existing fixture
-   or a missing test. Reuse established coverage and record gaps explicitly.
-2. Qualify native submission rejection/partial failure, pool quarantine and
-   bounded-pressure recovery; distinguish recording failure from native failure.
-3. Localize the recorded intermittent Vulkan lifecycle crash, fix it if still
-   present, and record targeted reproduction and regression evidence.
-4. Select and wire a production compute workload behind an explicit opt-in
-   policy. Qualify its output, fallback and resource reuse across the supported
-   topology/replay matrix before enabling automatic production scheduling.
-5. Run the affected current-revision native gates and required workspace `all`
-   build, then update the checklists and owning contracts. Start Stage 4 only
-   after Stage 3 correctness and production integration are accepted; retain
-   the explicitly deferred performance gate through final qualification.
+Stage 4 may begin without enabling automatic production scheduling. Preserve
+the explicit view policy, graphics fallback and failed-retirement quarantine.
+The performance baseline and Windows Vulkan qualification remain deferred; the
+driver-worker investigation must not be silently closed by later passing runs.
 
 Historical checkpoints and exact log names are retained in
 [Historical Implementation Evidence](#historical-implementation-evidence).
@@ -449,10 +449,11 @@ retains all already-submitted resources correctly.
 
 ### Stage 3: Enable Async Compute with Multi-Queue Lifetime Safety
 
-Dependencies: Stage 2. Automatic production async scheduling remains disabled
-until all gates in this stage pass together. Explicit diagnostic queue
-provisioning and graph policy may exercise validated paths while completing
-these gates; allocators must independently opt into multi-queue reuse.
+Dependencies: Stage 2. Automatic production async scheduling remains disabled;
+Stage 3 accepts only the explicit per-view production opt-in. Diagnostic queue
+provisioning and graph policy may exercise validated paths, and allocators must
+independently opt into multi-queue reuse. Windows qualification remains deferred
+under the 2026-09-29 operator decision recorded above.
 
 Outcome: eligible compute work executes on a separate queue with correct
 dependencies, fallback behavior, and resource retirement.
@@ -461,41 +462,44 @@ dependencies, fallback behavior, and resource retirement.
   including graphics-queue fallback and a diagnostic override for comparisons.
 - [x] Implement Vulkan cross-queue waits/signals and required resource ownership
   transfers for both shared-family and distinct-family configurations.
-- [ ] Track every using queue in retirement prerequisites. Cover concurrent
+- [x] Track every using queue in retirement prerequisites. Cover concurrent
   reads, write/read handoffs, compute-only final uses, and graph boundaries.
   Map each scenario to current fixtures and record missing coverage before
   changing ownership code; retain exact logical sync-point prerequisites.
 - [x] Integrate Renderer resource pools and reuse: require completed uses or
   explicitly scheduled dependencies before reuse; never assume frame number,
   pass index, or graphics completion covers outstanding compute work.
-- [ ] Test fork/join, fan-in/fan-out, multiple readers, empty batches, culling,
+- [x] Test fork/join, fan-in/fan-out, multiple readers, empty batches, culling,
   external resources and extraction/readiness across independent graphs.
   Map existing delayed-compute and acyclic-submission fixtures to this matrix;
   a broad suite pass alone does not close missing scenarios.
-- [ ] Qualify native submission rejection and partial native acceptance through
+- [x] Qualify native submission rejection and partial native acceptance through
   Renderer pool retirement. Verify failed/unpublished allocations remain
   quarantined after unrelated work completes, bounded pressure cannot reuse
   them, and teardown/recovery releases ownership safely. Recording-callback
   failure coverage does not substitute for native submission failure.
-- [ ] Resolve the intermittent Vulkan lifecycle access violations recorded in
+- [x] Record the disposition of the intermittent Vulkan lifecycle access violations recorded in
   `20260912-172847-067008-26520` and `20260912-172940-337485-30012`.
-  Record reproduction conditions, root cause/fix or an evidenced resolution,
-  and targeted regression results. A later full-output pass alone is insufficient.
+  The Windows-only investigation remains open; the operator deferred this
+  platform gate on 2026-09-29 because no Windows device is available. A later
+  full-output pass alone is still insufficient evidence of a fix.
 - [x] Run Vulkan integration on an independent compute queue, inspect validation
   output, and compare rendered/read-back results with single-queue execution.
   Record unavailable queue-family coverage as outstanding, not passing.
-- [ ] Identify and wire a production compute workload behind explicit opt-in
+- [x] Identify and wire a production compute workload behind explicit opt-in
   policy, with an integration test for output equivalence, fallback and pool
   reuse. Exercise shared-family and dedicated-family queues, inline/threaded
   replay and enabled-policy single-queue fallback. Keep automatic production
   scheduling disabled until all Stage 3 correctness gates pass together.
-- [ ] Run affected native tests and the required workspace `all` build on the
+- [x] Run affected native tests and the required workspace `all` build on the
   final Stage 3 revision. Record exact revisions/configurations/logs and update
   owning runtime contracts before accepting the stage.
 
 Completion: cross-queue correctness and reclamation tests pass, single-queue
 fallback passes, shared API builds pass, and enabled production wiring has an
-identified integration test.
+identified integration test. On the available host these gates are accepted by
+the current CPU contracts and build; the unavailable Windows Vulkan execution
+and driver-worker investigation remain explicitly deferred.
 
 ### Stage 4: Add Split-Barrier Scheduling and Transition Preparation
 
@@ -915,6 +919,32 @@ Timing baselines remain deferred by operator instruction. Stage 2 does not
 qualify independent-queue execution, which belongs to Stage 3.
 
 ### Stage 3 Checkpoints
+
+Stage 3 acceptance checkpoint (2026-09-29, this document's commit):
+
+| Scenario | Evidence |
+| --- | --- |
+| Fork/join, queue fan-in/fan-out and deterministic fallback | `FRDGTests.AsyncPolicySeparatesEligibilityFromQueueOrderAndJoinsTerminalPrefixes`; terminal epilogue joins both queue prefixes |
+| Multiple readers and exact queue frontiers | `FRDGTests.ResourceHandoffRetainsLatestReaderOnEveryLogicalQueue` and `FRDGTests.ReaderFanoutRetainsEveryExecutionDependency` |
+| Empty batches and culling | `FRDGTests.EmptyGraphHasNoSyntheticSubmission`, `FRDGTests.SubmissionPlanCompactsCulledPassesAndSurvivesRecording`, and queued-upload culling coverage |
+| External resources and cross-graph extraction | `FRDGTests.EqualAccessQueueHandoffsIncludeInitialAndFinalGraphicsOwnership`, `FRDGTests.ExternalExtractionRoundTripPublishesAfterExecution`, and `FRDGTests.AsyncExtractionReturnsOwnershipBeforeIndependentGraphImport` |
+| Native partial acceptance and Renderer quarantine | `FVulkanCompletionIntegrationTests.PartialNativeFailureQuarantinesOwnersUntilTeardown` plus `FRendererSceneContractTests.RDGFailedSubmissionRemainsQuarantinedUnderPoolPressure`; recording-failure coverage remains separate |
+| Delayed completion and pool reuse | `FRendererResourceReloadVulkanTests.AsyncPoolReuseWaitsForTheRecordedTerminalJoin` across inline/threaded and same-family/dedicated policies |
+| Production workload | Contact-shadow compute is eligible; `FSceneViewRenderOptions::bEnableAsyncCompute` explicitly enables the graph policy and defaults off; `GBufferQualificationTests` opts the production compute route in while its fragment comparison remains graphics-only |
+
+Fresh available-host validation used `MacOS-arm64-Debug-DurinEditor`:
+
+- `RenderContractTests`: 200/200 passed. Log:
+  `Build/.agent-state/logs/20260929-015941-887911-8527-RenderContractTests.log`.
+- `RendererSceneContractTests`: 69/69 passed. Log:
+  `Build/.agent-state/logs/20260929-015933-637629-8493-RendererSceneContractTests.log`.
+- The required final-revision `all` build passed in 0.33 seconds after the
+  preceding fresh-profile build populated the tree. Log:
+  `Build/.agent-state/logs/20260929-020335-846138-10254-cmake.log`.
+- This macOS profile does not register the Vulkan integration, Renderer Vulkan
+  reload or GBuffer qualification targets. The operator explicitly authorized
+  their Windows rerun to be skipped. Earlier Vulkan evidence remains historical,
+  not a fresh pass for this revision, and the driver-worker investigation stays open.
 
 Stage 3 infrastructure checkpoint: physical Vulkan queues now own distinct
 completion trackers, using one device-owned generation and explicit queue IDs

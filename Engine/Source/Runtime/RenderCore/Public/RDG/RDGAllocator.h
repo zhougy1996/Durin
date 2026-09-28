@@ -58,6 +58,7 @@ namespace Durin
 		auto IsReusable() const -> bool { return Completion.GetState() == ERHIGPUSubmissionState::Complete; }
 	private:
 		friend class FRDGBuilder;
+		friend class FRDGBuilderTestAccessor;
 		FRHIGPUSyncPointRef Completion;
 	};
 

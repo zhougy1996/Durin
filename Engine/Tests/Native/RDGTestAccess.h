@@ -40,6 +40,10 @@ namespace Durin
 		static auto GetSubmissionSyncPoints(const FRDGBuilder& Builder)
 			-> std::span<const FRHIGPUSyncPointRef>
 		{ return Builder.GetSubmissionSyncPoints(); }
+		static auto SetAllocationRetirementCompletion(
+			FRDGAllocationRetirement& Retirement,
+			FRHIGPUSyncPointRef Completion) -> void
+		{ Retirement.Completion = std::move(Completion); }
 		static auto HasDiagnostics(const FRDGBuilder& Builder) -> bool
 		{ return Builder.Diagnostics != nullptr; }
 		static auto Compile(FRDGBuilder& Builder) -> FRDGCompileResult

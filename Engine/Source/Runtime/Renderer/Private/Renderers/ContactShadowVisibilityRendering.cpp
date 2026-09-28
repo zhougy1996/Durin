@@ -214,8 +214,9 @@ namespace Durin
 				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
 					*ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)Graph.AddPass(ContactShadowVisibilityPassName, ERDGPassType::Compute,
-				std::move(Parameters), Execute);
+			const auto Pass = Graph.AddPass(ContactShadowVisibilityPassName,
+				ERDGPassType::Compute, std::move(Parameters), Execute);
+			Graph.SetPassAsyncComputeEligible(Pass);
 		}
 		else
 		{

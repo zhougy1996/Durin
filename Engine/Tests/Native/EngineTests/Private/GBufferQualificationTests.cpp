@@ -1331,6 +1331,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	bool bEnableProductionAmbientOcclusion = true;
 	bool bEnableProductionContactShadows = false;
 	bool bForceProductionFragmentContact = false;
+	bool bEnableProductionAsyncCompute = false;
 	uint32 ProductionWidth = TimingWidth;
 	uint32 ProductionHeight = TimingHeight;
 	uint32 ProductionViewportX = 0;
@@ -1343,26 +1344,30 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 								   &bEnableProductionAmbientOcclusion,
 								   &bEnableProductionContactShadows,
 								   &bForceProductionFragmentContact,
+								   &bEnableProductionAsyncCompute,
 								   &ProductionWidth, &ProductionHeight,
 								   &ProductionViewportX, &ProductionViewportY,
 								   &ProductionViewportWidth,
 								   &ProductionViewportHeight,
 								   &ProductionAmbientOcclusionQuality](
-			uint32 FrameCount) {
+			uint32 FrameCount, Durin::FByteBuffer* OutputPixels = nullptr) {
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[&Renderer, &Scene, bEnableProductionAmbientOcclusion,
 			 bEnableProductionContactShadows, bForceProductionFragmentContact,
+			 bEnableProductionAsyncCompute,
 			 ProductionWidth, ProductionHeight, ProductionViewportX,
 				 ProductionViewportY, ProductionViewportWidth,
 				 ProductionViewportHeight,
-				 ProductionAmbientOcclusionQuality, FrameCount](
+				 ProductionAmbientOcclusionQuality, FrameCount, OutputPixels](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 									  "HybridProductionQualification", ProductionWidth, ProductionHeight,
 									  Durin::EPixelFormat::SRGBA8_UNORM
 				)
-									  .SetFlags(Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::ShaderResource);
+									  .SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+										  | Durin::ETextureCreateFlags::ShaderResource
+										  | Durin::ETextureCreateFlags::SourceCopy);
 				Durin::FTextureRHIRef Target =
 					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
 				ASSERT_NE(Target, nullptr);
@@ -1391,11 +1396,17 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 						bForceProductionFragmentContact});
 				for (uint32 Frame = 0; Frame < FrameCount; ++Frame)
 				{
+					Durin::FSceneViewRenderOptions RenderOptions;
+					RenderOptions.bEnableAsyncCompute =
+						bEnableProductionAsyncCompute;
 					++Durin::GRenderFrameCounterRenderThread;
 					Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-					EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
+					EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target,
+						false, RenderOptions), Durin::ERenderViewResult::Success);
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				}
+				if (OutputPixels != nullptr)
+					ReadColorTexture(CommandList, Target, *OutputPixels);
 			}
 		);
 		Durin::FlushRenderingCommands();
@@ -1571,6 +1582,13 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		HalfGTAOResolveDurations, WarmupFrames, MeasuredFrames);
 	bEnableProductionContactShadows = true;
 	bForceProductionFragmentContact = false;
+	Durin::FByteBuffer SingleQueueContactOutput;
+	Durin::FByteBuffer AsyncPolicyContactOutput;
+	bEnableProductionAsyncCompute = false;
+	RenderProductionFrames(1, &SingleQueueContactOutput);
+	bEnableProductionAsyncCompute = true;
+	RenderProductionFrames(1, &AsyncPolicyContactOutput);
+	EXPECT_EQ(AsyncPolicyContactOutput, SingleQueueContactOutput);
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Compute;
 	ProfileProductionInterval(ProductionContactQueries,
@@ -1580,6 +1598,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	const Durin::FViewRenderTelemetry ProductionComputeContactTelemetry =
 		GLastTelemetry;
 	bForceProductionFragmentContact = true;
+	bEnableProductionAsyncCompute = false;
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
 	ProfileProductionInterval(ProductionContactQueries,
@@ -1595,6 +1614,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	ProductionViewportWidth = 1601;
 	ProductionViewportHeight = 901;
 	bForceProductionFragmentContact = false;
+	bEnableProductionAsyncCompute = true;
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Compute;
 	ProfileProductionInterval(ProductionContactQueries,
@@ -1604,6 +1624,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	const Durin::FViewRenderTelemetry ConstrainedComputeContactTelemetry =
 		GLastTelemetry;
 	bForceProductionFragmentContact = true;
+	bEnableProductionAsyncCompute = false;
 	GExpectedContactRoute =
 		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
 	ProfileProductionInterval(ProductionContactQueries,
@@ -1620,6 +1641,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	ProductionViewportHeight = TimingHeight;
 	bEnableProductionContactShadows = false;
 	bForceProductionFragmentContact = false;
+	bEnableProductionAsyncCompute = false;
 	std::vector<uint64> ProductionTotalDurations;
 	ASSERT_EQ(
 		ProductionGBufferDurations.size(), MeasuredFrames);

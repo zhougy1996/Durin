@@ -1,4 +1,5 @@
 #include "../../RDGTestAccess.h"
+#include "Backend/RHICompletionBackend.h"
 #include "RDG/RDG.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Rendering/StaticMeshBatchBinding.h"
@@ -1470,10 +1471,11 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	EXPECT_EQ(Settings.VolumetricCloud.DebugMode, Durin::EVolumetricCloudDebugMode::Lit);
 }
 
-TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverride)
+TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToSafeProductionScheduling)
 {
 	const Durin::FSceneViewRenderOptions Options;
 	EXPECT_FALSE(Options.Environment.has_value());
+	EXPECT_FALSE(Options.bEnableAsyncCompute);
 
 	const Durin::FViewEnvironmentOverride Environment;
 	EXPECT_EQ(Environment.TextureReference, nullptr);
@@ -2618,6 +2620,24 @@ namespace Durin::Tests
 			FRendererRDGAllocator& Pool;
 		};
 
+		class FInjectedRetirementAllocator final : public FRDGAllocator
+		{
+		public:
+			FInjectedRetirementAllocator(FRendererRDGAllocator& InPool,
+				std::shared_ptr<const FRDGAllocationRetirement> InRetirement)
+				: Pool(InPool), Retirement(std::move(InRetirement)) {}
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+				FRDGAllocatedResources& Resources) -> FRDGAllocationResult override
+			{
+				std::vector<FRDGAllocationRequest> Copies(Requests.begin(), Requests.end());
+				for (auto& Copy : Copies) Copy.Retirement = Retirement;
+				return Pool.Allocate(Copies, Resources);
+			}
+		private:
+			FRendererRDGAllocator& Pool;
+			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
+		};
+
 		struct FRDGTestRequest final
 		{
 			bool bTexture;
@@ -2734,6 +2754,61 @@ namespace Durin::Tests
 			EXPECT_LE(RHI.PeakBytes, 640 * MiB);
 			Allocator.Release_RenderThread();
 			const auto Recovered = ExecuteAllocationBatch(Allocator, {{false, 161}});
+			EXPECT_EQ(Recovered.AllocationStatistics.ActiveResources, 1u);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGFailedSubmissionRemainsQuarantinedUnderPoolPressure)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			const auto Generation = AllocateRHIDeviceGeneration();
+
+			auto FailedRetirement = std::make_shared<FRDGAllocationRetirement>();
+			FRHIGPUQueueTimeline FailedQueue(Generation, {0});
+			const auto FailedPoint = FailedQueue.Reserve();
+			const auto FailedSignal = FRHIGPUSyncPoint::Create();
+			ASSERT_TRUE(FRHIGPUSyncPointBackend::Attach(FailedSignal, FailedPoint));
+			ASSERT_TRUE(FailedQueue.MarkSubmitted(FailedPoint));
+			FailedQueue.Fail();
+			ASSERT_EQ(FailedSignal.GetState(), ERHIGPUSubmissionState::Failed);
+			FRDGBuilderTestAccessor::SetAllocationRetirementCompletion(
+				*FailedRetirement, FailedSignal);
+			FInjectedRetirementAllocator Failed(Allocator, FailedRetirement);
+			const auto Quarantined = ExecuteAllocationBatch(Failed, {{false, 320}});
+			ASSERT_EQ(Quarantined.Resources.size(), 1u);
+			const uint64 QuarantinedId = Quarantined.Resources[0].PhysicalAllocationId;
+
+			auto CompleteRetirement = std::make_shared<FRDGAllocationRetirement>();
+			FRHIGPUQueueTimeline CompleteQueue(Generation, {1});
+			const auto CompletePoint = CompleteQueue.Reserve();
+			const auto CompleteSignal = FRHIGPUSyncPoint::Create();
+			ASSERT_TRUE(FRHIGPUSyncPointBackend::Attach(
+				CompleteSignal, CompletePoint));
+			ASSERT_TRUE(CompleteQueue.MarkSubmitted(CompletePoint));
+			ASSERT_TRUE(CompleteQueue.ObserveCompleted(CompletePoint));
+			FRDGBuilderTestAccessor::SetAllocationRetirementCompletion(
+				*CompleteRetirement, CompleteSignal);
+			FInjectedRetirementAllocator Complete(Allocator, CompleteRetirement);
+			const auto Unrelated = ExecuteAllocationBatch(Complete, {{false, 320}});
+			ASSERT_EQ(Unrelated.Resources.size(), 1u);
+			EXPECT_NE(Unrelated.Resources[0].PhysicalAllocationId, QuarantinedId);
+			const auto Reused = ExecuteAllocationBatch(Complete, {{false, 320}});
+			ASSERT_EQ(Reused.Resources.size(), 1u);
+			EXPECT_EQ(Reused.Resources[0].PhysicalAllocationId,
+				Unrelated.Resources[0].PhysicalAllocationId);
+
+			const auto Pressured = ExecuteAllocationBatch(Complete, {{false, 321}});
+			EXPECT_EQ(Pressured.AllocationStatistics.ActiveResources, 0u);
+			EXPECT_EQ(Pressured.AllocationStatistics.Failures, 1u);
+			EXPECT_EQ(Pressured.AllocationStatistics.RetainedResources, 1u);
+			EXPECT_EQ(Pressured.AllocationStatistics.RetainedBytes, 320 * MiB);
+			Allocator.Release_RenderThread();
+			const auto Recovered = ExecuteAllocationBatch(Complete, {{false, 321}});
 			EXPECT_EQ(Recovered.AllocationStatistics.ActiveResources, 1u);
 		});
 		FlushRenderingCommands();
