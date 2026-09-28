@@ -248,10 +248,10 @@ namespace Durin
 			auto Request = MakeShaderSessionRequest(RequestOptions, Variant, {}, std::nullopt,
 				[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError> { return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{}); });
 			if (!Request) return {};
-			auto Inputs = Request->Resolver->Describe(Request->Definition.GetSources(), {});
-			if (!Inputs) return {};
+			const auto Identities = Request->Inputs.GetIdentities();
 			auto Action = DerivedData::FBuildAction::TryCreate(Request->Definition,
-				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")}, std::move(*Inputs));
+				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")},
+				std::vector<DerivedData::FBuildInputReference>(Identities.begin(), Identities.end()));
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
 		};
 		const auto First = Key(Options);

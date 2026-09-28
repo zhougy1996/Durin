@@ -1,26 +1,73 @@
-#include "DerivedDataBuildFunction.h"
+#include "DerivedDataBuildExecutionPrivate.h"
 #include <mutex>
 
 namespace Durin::DerivedData
 {
-	struct FBuildRegistry::FState
+	struct FBuildInputs::FState
+	{
+		std::vector<FBuildInputReference> Identities;
+		std::shared_ptr<const IBuildInputResolver> Resolver;
+	};
+
+	auto FBuildExecutionAccess::Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
+		-> std::expected<std::vector<FBuildInput>, FBuildFailure>
+	{
+		if (!Inputs.State || !Inputs.State->Resolver)
+			return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InputUnavailable,
+				.Operation = EBuildOperation::Resolve, .Description = "Build inputs are unavailable."});
+		return Inputs.State->Resolver->Resolve(Inputs.State->Identities, Cancel);
+	}
+
+	auto FBuildInputs::TryCreate(std::span<const FBuildSourceReference> Sources,
+		std::shared_ptr<const IBuildInputResolver> Resolver, const FBuildCancellation& Cancel)
+		-> std::expected<FBuildInputs, FBuildFailure>
+	{
+		if (!Resolver)
+			return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InputUnavailable,
+				.Operation = EBuildOperation::Describe, .Description = "Build input resolver is missing."});
+		try
+		{
+			auto Identities = Resolver->Describe(Sources, Cancel);
+			if (!Identities) return std::unexpected(std::move(Identities.error()));
+			if (Cancel.IsCancelled())
+				return std::unexpected(FBuildFailure{.Operation = EBuildOperation::Describe,
+					.Description = "Build input capture was canceled."});
+			std::ranges::sort(*Identities, {}, &FBuildInputReference::Name);
+			FBuildInputs Result;
+			auto State = std::make_shared<FState>();
+			State->Identities = std::move(*Identities);
+			State->Resolver = std::move(Resolver);
+			Result.State = std::move(State);
+			return Result;
+		}
+		catch (const std::bad_alloc&)
+		{
+			return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ResourceExhaustion,
+				.Operation = EBuildOperation::Describe, .Description = "Allocation"});
+		}
+	}
+
+	auto FBuildInputs::GetIdentities() const -> std::span<const FBuildInputReference>
+	{ return State ? std::span(State->Identities) : std::span<const FBuildInputReference>{}; }
+
+	struct Private::FBuildRegistry::FState
 	{
 		std::mutex Mutex;
 		bool Frozen = false;
 		std::vector<std::shared_ptr<const FRegisteredBuildFunction>> Entries;
 	};
+	Private::FBuildRegistry::FBuildRegistry() : State(std::make_unique<FState>()) {}
+	Private::FBuildRegistry::~FBuildRegistry() = default;
 
-	FBuildRegistry::FBuildRegistry() : State(std::make_unique<FState>()) {}
-	FBuildRegistry::~FBuildRegistry() = default;
-
-	auto FBuildRegistry::Register(std::shared_ptr<const IBuildFunction> Function) -> std::expected<void, FBuildError>
+	auto Private::FBuildRegistry::Register(std::shared_ptr<const IBuildFunction> Function)
+		-> std::expected<void, FBuildFailure>
 	try
 	{
 		auto Invalid = [](std::string Description) {
-			return std::unexpected(FBuildError{.Description = std::move(Description)});
+			return std::unexpected(FBuildFailure{.Description = std::move(Description)});
 		};
 		if (!Function) return Invalid("Build function is missing.");
-		auto Descriptor = Function->GetDescriptor(); // No registry lock across producer code.
+		auto Descriptor = Function->GetDescriptor();
 		auto Definition = FBuildDefinition::TryCreate(Descriptor.Name, {}, {});
 		if (!Definition || !FBuildAction::TryCreate(*Definition, Descriptor, {})
 			|| !FBuildOutput::TryCreate({.Schema = Descriptor.OutputType, .SchemaVersion = Descriptor.OutputSchema}))
@@ -38,10 +85,11 @@ namespace Durin::DerivedData
 	}
 	catch (const std::bad_alloc&)
 	{
-		return std::unexpected(FBuildError{.Category = EBuildErrorCategory::Unavailable, .Description = "Allocation"});
+		return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ResourceExhaustion,
+			.Description = "Allocation"});
 	}
 
-	auto FBuildRegistry::Freeze() -> std::expected<FBuildRegistrySnapshot, FBuildError>
+	auto Private::FBuildRegistry::Freeze() -> std::expected<FBuildRegistrySnapshot, FBuildFailure>
 	try
 	{
 		std::lock_guard Lock(State->Mutex);
@@ -52,10 +100,12 @@ namespace Durin::DerivedData
 	}
 	catch (const std::bad_alloc&)
 	{
-		return std::unexpected(FBuildError{.Category = EBuildErrorCategory::Unavailable, .Description = "Allocation"});
+		return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ResourceExhaustion,
+			.Description = "Allocation"});
 	}
 
-	auto FBuildRegistrySnapshot::Find(std::string_view Name) const -> std::shared_ptr<const FRegisteredBuildFunction>
+	auto Private::FBuildRegistrySnapshot::Find(std::string_view Name) const
+		-> std::shared_ptr<const FRegisteredBuildFunction>
 	{
 		const auto Position = std::ranges::lower_bound(Entries, Name,
 			{}, [](const auto& Item) -> const std::string& { return Item->Descriptor.Name; });

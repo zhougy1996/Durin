@@ -296,13 +296,13 @@ TEST(FDerivedDataBuildOutputTests, RealBackendRoundTripAndFailedWritePreservePub
 	ASSERT_TRUE(Encoded);
 	ASSERT_TRUE(GetCache().Put({Key(), *Encoded, 4096}));
 	auto Backend = GetCache().Get({Key(), 4096});
-	ASSERT_TRUE(Backend);
-	auto Loaded = FCacheRecord::Decode(Key(), *Backend);
+	ASSERT_TRUE(Backend); ASSERT_TRUE(*Backend);
+	auto Loaded = FCacheRecord::Decode(Key(), **Backend);
 	ASSERT_TRUE(Loaded);
-	EXPECT_TRUE(Loaded->GetValues()[0].Data.SharesStorageWith(*Backend));
+	EXPECT_TRUE(Loaded->GetValues()[0].Data.SharesStorageWith(**Backend));
 	auto Consumer = Loaded->ToOutput(Key());
 	ASSERT_TRUE(Consumer);
-	Backend = FSharedByteBuffer{}; Loaded = FCacheRecord{};
+	Backend = std::optional<FSharedByteBuffer>{}; Loaded = FCacheRecord{};
 	EXPECT_TRUE(std::ranges::equal(Consumer->FindValue("Mip/0")->Data.GetBytes(), Output->FindValue("Mip/0")->Data.GetBytes()));
 
 	const auto Blocker = Directory.Root / "blocked";

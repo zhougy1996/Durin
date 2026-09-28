@@ -1,321 +1,176 @@
-#include "DerivedDataBuildExecution.h"
+#include "DerivedDataBuildSession.h"
 #include <gtest/gtest.h>
-#include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
-#include "NativeTestSupport.h"
-#include "AssetCacheLogTestSupport.h"
 
 namespace
 {
 	using namespace Durin;
 	using namespace Durin::DerivedData;
+	auto Identity() -> FBuildInputReference
+	{ return {"Source", FXxHash128::HashBuffer("captured"), "Fixture", 1, "Bytes", 1}; }
+	auto Definition() -> FBuildDefinition
+	{ return FBuildDefinition::TryCreate("Execution.Fixture", {}, {{"Source", "Captured"}}).value(); }
 	struct FResolver final : IBuildInputResolver
 	{
 		mutable uint32 Describes = 0, Resolves = 0;
-		bool WrongIdentity = false, Fail = false;
-		std::vector<FBuildValue> ExtraValues;
-		FSharedByteBuffer Bytes = FSharedByteBuffer::Take(FByteBuffer(4096, std::byte{7}));
-		FXxHash128 CapturedIdentity = FXxHash128::HashBuffer(Bytes.GetBytes());
-		auto Identity() const -> FBuildInputReference { return {"Source", CapturedIdentity, "Fixture.Hash", 1, "Fixture.Bytes", 1}; }
-		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInputReference>, FBuildError> override
-		{ ++Describes; return std::vector{Identity()}; }
-		auto Resolve(std::span<const FBuildInputReference> Expected, const FBuildCancellation&) const
-			-> std::expected<std::vector<FBuildInput>, FBuildError> override
+		bool FailResolve = false;
+		FSharedByteBuffer Bytes = FSharedByteBuffer::Take(FByteBuffer(32, std::byte{3}));
+		auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
+		{
+			++Describes;
+			if (Sources.size() != 1) return std::unexpected(FBuildFailure{.Description = "Invalid source table"});
+			return std::vector{Identity()};
+		}
+		auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
 		{
 			++Resolves;
-			if (Fail || Expected[0] != Identity() || FXxHash128::HashBuffer(Bytes.GetBytes()) != CapturedIdentity) return std::unexpected(FBuildError{.Description = "Source unavailable"});
-			auto Id = Identity(); if (WrongIdentity) ++Id.RepresentationVersion;
-			FBuildInput Input{.Identity = Id, .Values = {{"Data", Bytes}}};
-			Input.Values.insert(Input.Values.end(), ExtraValues.begin(), ExtraValues.end());
-			return std::vector{std::move(Input)};
+			if (FailResolve || Inputs.size() != 1 || Inputs[0] != Identity())
+				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InputUnavailable,
+					.Description = "Source unavailable"});
+			return std::vector<FBuildInput>{{.Identity = Identity(), .Values = {{"Data", Bytes}}}};
 		}
 	};
 	struct FFunction final : IBuildFunction
 	{
-		mutable uint32 Builds = 0, Validations = 0;
-		mutable uint64 Budget = 0;
-		bool Reject = false, FailBuild = false;
-		bool CollapseInput = false;
-		mutable size_t InputValues = 0;
-		bool* CancelDuringValidation = nullptr;
+		mutable uint32 Builds = 0, Validates = 0;
+		bool FailBuild = false, RejectOutput = false;
 		auto GetDescriptor() const -> FBuildFunctionDescriptor override
-		{ return {"Fixture.Copy", 1, 1, "Fixture.Output", 1, FCacheBucket::FromString("ExecutionFixture")}; }
-		auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+		{ return {"Execution.Fixture", 1, 1, "Fixture.Output", 1, FCacheBucket::FromString("Execution")}; }
+		auto Build(FBuildContext& Context) const -> FBuildFunctionResult override
 		{
-			++Builds; Budget = Context.GetMaximumWorkingSetBytes();
-			if (FailBuild) return std::unexpected(FBuildError{.Category = EBuildErrorCategory::ProducerFailure,
-				.Description = std::string(5000, 'x'), .ProducerCode = 17, .DiagnosticIdentity = FXxHash128::HashBuffer("cause")});
-			const auto& Values = Context.GetInputs()[0].Values;
-			InputValues = Values.size();
-			EXPECT_TRUE(std::ranges::is_sorted(Values, {}, &FBuildValue::Id));
-			auto Output = FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1,
-				.Values = CollapseInput ? std::vector{Values.front()} : Values});
-			return std::move(Output.value());
+			++Builds; Context.ReportMetric("Fixture.Builds", 1);
+			if (FailBuild) return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ProducerFailure,
+				.Description = "Producer failed"});
+			return FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1,
+				.Values = Context.GetInputs()[0].Values}).value();
 		}
-		auto Validate(const FBuildAction&, const FBuildOutput& Output, const FBuildCancellation&) const -> std::expected<void, FBuildError> override
+		auto Validate(const FBuildAction&, const FBuildOutput& Output, const FBuildCancellation&) const
+			-> std::expected<void, FBuildFailure> override
 		{
-			++Validations;
-			if (CancelDuringValidation) *CancelDuringValidation = true;
-			if (Reject || !Output.FindValue("Data")) return std::unexpected(FBuildError{.Category = EBuildErrorCategory::InvalidOutput, .Description = "Missing Data"});
+			++Validates;
+			if (RejectOutput || !Output.FindValue("Data"))
+				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InvalidOutput,
+					.Description = "Invalid fixture output"});
 			return {};
 		}
 	};
 	struct FHarness
 	{
-		FResolver Resolver;
+		std::shared_ptr<FResolver> Resolver = std::make_shared<FResolver>();
 		std::shared_ptr<FFunction> Function = std::make_shared<FFunction>();
-		FBuildRegistrySnapshot Registry;
-		FBuildDefinition Definition = FBuildDefinition::TryCreate("Fixture.Copy", {}, {{"Source", "Capture"}}).value();
-		FBuildRequestPolicy Policy;
-		FBuildCacheOperations Cache;
-		FBuildRunObserver Observer;
 		FSharedByteBuffer Stored;
-		FCacheKey StoredKey;
-		uint32 Gets = 0, Puts = 0, Issues = 0, Hits = 0;
-		std::array<uint32, static_cast<size_t>(EBuildSessionPhase::Count)> Phases{};
-		bool Cancel = false;
+		bool GetFailure = false, PutFailure = false;
+		uint32 SinkCalls = 0;
+		FBuildServiceOptions ServiceOptions;
+		std::shared_ptr<IBuild> Service;
+		std::shared_ptr<FBuildSession> Session;
 		FHarness()
 		{
-			FBuildRegistry Mutable; Mutable.Register(Function).value(); Registry = Mutable.Freeze().value();
-			Cache.Get = [&](const FCacheGetRequest& Request) -> FCacheGetResult {
-				++Gets;
-				if (Request.Key != StoredKey || Stored.IsEmpty()) return std::unexpected(FCacheError{ECacheError::Miss, "miss"});
-				return Stored;
+			ServiceOptions.Cache.Get = [&](const FCacheGetRequest&) -> FCacheGetResult {
+				if (GetFailure) return std::unexpected(FCacheError{ECacheError::StorageFailure, "read failed"});
+				if (Stored.IsEmpty()) return std::optional<FSharedByteBuffer>{};
+				return std::optional<FSharedByteBuffer>{Stored};
 			};
-			Cache.Put = [&](const FCachePutRequest& Request) -> FCachePutResult {
-				++Puts; StoredKey = Request.Key; Stored = FSharedByteBuffer::Copy(Request.Value); return {};
+			ServiceOptions.Cache.Put = [&](const FCachePutRequest& Request) -> FCachePutResult {
+				if (PutFailure) return std::unexpected(FCacheError{ECacheError::StorageFailure, "write failed"});
+				Stored = FSharedByteBuffer::Copy(Request.Value); return {};
 			};
-			Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++Issues; };
-			Observer.OnCacheHit = [&] { ++Hits; };
-			Observer.OnPhase = [&](auto Phase) { ++Phases[static_cast<size_t>(Phase)]; };
+			ServiceOptions.Diagnostics = [&](const FBuildAction&, const FBuildDiagnostic&) { ++SinkCalls; };
+			Service = CreateBuild(ServiceOptions); Service->Register(Function).value();
+			Session = Service->CreateSession().value();
 		}
-		auto Run() -> FBuildResult { return ExecuteBuildRequest(Definition, Registry, Resolver, Policy, FBuildCancellation([&] { return Cancel; }), Cache, Observer); }
+		auto Run(FBuildPolicy Policy = {}, FBuildCancellation Cancel = {}) -> FBuildCompleteParams
+		{
+			auto Inputs = FBuildInputs::TryCreate(Definition().GetSources(), Resolver).value();
+			std::optional<FBuildCompleteParams> Completion;
+			auto Request = Session->Build(Definition(), [&](auto Value) { Completion = std::move(Value); },
+				std::move(Inputs), {.Policy = Policy, .Cancellation = std::move(Cancel)});
+			EXPECT_TRUE(Request.has_value()); EXPECT_TRUE(Completion.has_value());
+			return std::move(*Completion);
+		}
 	};
 }
 
-TEST(FBuildExecutionTests, DefaultDiagnosticsKeepStageKeyAndBoundedCauseWithoutLoggingMisses)
+TEST(FBuildExecutionTests, NormalMissBuildsStoresAndWarmHitAvoidsPayloadResolution)
 {
 	FHarness H;
-	H.Observer.OnCacheIssue = {};
-	FCacheLogCapture Capture;
-	ASSERT_TRUE(H.Run());
-	EXPECT_TRUE(Capture.empty());
-	const auto Key = H.StoredKey.ToString();
-	H.Policy.ForceRebuild = true;
-	H.Cache.Encode = [](const FCacheRecord&, uint64) -> std::expected<FSharedByteBuffer, FCacheError> {
-		return std::unexpected(FCacheError{ECacheError::StorageFailure,
-			"specific encoder failure " + std::string(5000, 'x')});
+	auto Cold = H.Run();
+	ASSERT_EQ(Cold.GetStatus(), EStatus::Ok);
+	EXPECT_TRUE(HasBuildStatus(Cold.GetBuildStatus(), EBuildStatus::CacheQuery));
+	EXPECT_TRUE(HasBuildStatus(Cold.GetBuildStatus(), EBuildStatus::BuildLocal));
+	EXPECT_TRUE(HasBuildStatus(Cold.GetBuildStatus(), EBuildStatus::CacheStore));
+	EXPECT_EQ(Cold.GetReport().Diagnostics.size(), 0u);
+	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
+	auto Warm = H.Run();
+	ASSERT_EQ(Warm.GetStatus(), EStatus::Ok);
+	EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_FALSE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::BuildLocal));
+	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
+	EXPECT_NE(Warm.GetCacheKey(), nullptr); EXPECT_NE(Warm.GetOutput(), nullptr);
+}
+
+TEST(FBuildExecutionTests, CorruptCacheIsDiagnosedAndRebuilt)
+{
+	FHarness H;
+	H.Stored = FSharedByteBuffer::Take(FByteBuffer(8, std::byte{9}));
+	auto Result = H.Run();
+	ASSERT_EQ(Result.GetStatus(), EStatus::Ok);
+	ASSERT_EQ(Result.GetReport().Diagnostics.size(), 1u);
+	EXPECT_EQ(Result.GetReport().Diagnostics[0].Error.Code, ECacheError::Corrupt);
+	EXPECT_EQ(H.SinkCalls, 1u); EXPECT_EQ(H.Function->Builds, 1u);
+}
+
+TEST(FBuildExecutionTests, CacheInfrastructureAndStoreFailuresPreserveUsableOutput)
+{
+	FHarness H;
+	H.GetFailure = true; H.PutFailure = true;
+	auto Result = H.Run();
+	ASSERT_EQ(Result.GetStatus(), EStatus::Ok);
+	EXPECT_NE(Result.GetOutput(), nullptr);
+	ASSERT_EQ(Result.GetReport().Diagnostics.size(), 2u);
+	EXPECT_EQ(Result.GetReport().Diagnostics[0].Error.Code, ECacheError::StorageFailure);
+	EXPECT_EQ(Result.GetReport().Diagnostics[1].Operation, EBuildOperation::CacheStore);
+}
+
+TEST(FBuildExecutionTests, ProducerFailureCancellationAndNoLocalPolicyAreDistinct)
+{
+	FHarness H;
+	H.Function->FailBuild = true;
+	auto Failed = H.Run({.QueryCache = false, .StoreOnBuild = false});
+	ASSERT_EQ(Failed.GetStatus(), EStatus::Error);
+	EXPECT_EQ(Failed.GetFailure()->Reason, EBuildFailureReason::ProducerFailure);
+	EXPECT_EQ(Failed.GetFailure()->Operation, EBuildOperation::Build);
+	EXPECT_EQ(Failed.GetOutput(), nullptr);
+	H.Function->FailBuild = false;
+	auto Canceled = H.Run({.QueryCache = false, .StoreOnBuild = false}, FBuildCancellation([] { return true; }));
+	EXPECT_EQ(Canceled.GetStatus(), EStatus::Canceled);
+	EXPECT_EQ(Canceled.GetFailure(), nullptr); EXPECT_EQ(Canceled.GetOutput(), nullptr);
+	auto Disabled = H.Run({.QueryCache = true, .BuildLocal = false, .StoreOnBuild = false});
+	ASSERT_EQ(Disabled.GetStatus(), EStatus::Error);
+	EXPECT_EQ(Disabled.GetFailure()->Reason, EBuildFailureReason::InputUnavailable);
+}
+
+TEST(FBuildExecutionTests, OutputFailureAndThrowingSinksCannotContradictCompletion)
+{
+	FHarness H;
+	H.Function->RejectOutput = true;
+	auto Invalid = H.Run({.QueryCache = false, .StoreOnBuild = false});
+	ASSERT_EQ(Invalid.GetStatus(), EStatus::Error);
+	EXPECT_EQ(Invalid.GetFailure()->Reason, EBuildFailureReason::InvalidOutput);
+	EXPECT_EQ(Invalid.GetFailure()->Operation, EBuildOperation::Validate);
+	EXPECT_EQ(Invalid.GetOutput(), nullptr);
+	FBuildServiceOptions Options;
+	Options.Cache.Get = [](const auto&) -> FCacheGetResult {
+		return std::unexpected(FCacheError{ECacheError::StorageFailure, "failure"});
 	};
-	ASSERT_TRUE(H.Run());
-	ASSERT_EQ(Capture.size(), 1u);
-	const auto Record = Capture.front();
-	EXPECT_NE(Record.Message.find("cache encode"), std::string::npos);
-	EXPECT_NE(Record.Message.find(Key), std::string::npos);
-	EXPECT_NE(Record.Message.find("specific encoder failure"), std::string::npos);
-	EXPECT_LT(Record.Message.size(), FBuildError::MaximumDescriptionBytes + 128);
-}
-
-TEST(FBuildExecutionTests, ColdWarmAndDisabledWritesRetainBlocksAndSkipWork)
-{
-	FHarness H; H.Policy.Compress = true;
-	auto Cold = H.Run(); ASSERT_TRUE(Cold);
-	EXPECT_EQ(Cold->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
-	ASSERT_EQ(H.Puts, 1u); EXPECT_EQ(H.Issues, 0u);
-	auto Warm = H.Run(); ASSERT_TRUE(Warm);
-	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Resolver.Describes, 2u); EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Function->Builds, 1u);
-	H.Policy.ForceRebuild = true; H.Policy.WriteCache = false;
-	H.Phases.fill(0);
-	auto NoWrite = H.Run(); ASSERT_TRUE(NoWrite);
-	EXPECT_EQ(H.Gets, 2u); EXPECT_EQ(H.Puts, 1u);
-	for (auto Phase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
-		EXPECT_EQ(H.Phases[static_cast<size_t>(Phase)], 0u);
-	EXPECT_EQ(NoWrite->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
-}
-
-TEST(FBuildExecutionTests, EachOptionalPersistenceFailurePreservesOutputAndStopsLaterOperations)
-{
-	for (auto FailurePhase : {EBuildSessionPhase::Record, EBuildSessionPhase::Encode, EBuildSessionPhase::Compress, EBuildSessionPhase::Store})
-	{
-		FHarness H; H.Policy.Compress = true;
-		auto Error = [] { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Injected"}); };
-		if (FailurePhase == EBuildSessionPhase::Record) H.Cache.MakeRecord = [&](const auto&, const auto&, auto) -> std::expected<FCacheRecord, FCacheError> { return Error(); };
-		if (FailurePhase == EBuildSessionPhase::Encode) H.Cache.Encode = [&](const auto&, auto) -> FCacheGetResult { return Error(); };
-		if (FailurePhase == EBuildSessionPhase::Compress) H.Cache.Compress = [&](const auto&, auto) -> FCacheGetResult { return Error(); };
-		if (FailurePhase == EBuildSessionPhase::Store) H.Cache.Put = [&](const auto&) -> FCachePutResult { return Error(); };
-		auto Result = H.Run(); ASSERT_TRUE(Result);
-		EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
-		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 1u);
-		for (size_t Index = static_cast<size_t>(FailurePhase) + 1; Index <= static_cast<size_t>(EBuildSessionPhase::Store); ++Index)
-			EXPECT_EQ(H.Phases[Index], 0u);
-	}
-}
-
-TEST(FBuildExecutionTests, CorruptAndSemanticallyInvalidCacheRebuildOnlyOnce)
-{
-	for (bool Semantic : {false, true})
-	{
-		FHarness H; ASSERT_TRUE(H.Run());
-		if (Semantic)
-		{
-			auto Wrong = FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1, .Values = {{"Other", H.Resolver.Bytes}}});
-			H.Stored = FCacheRecord::FromOutput(H.StoredKey, *Wrong)->Encode().value();
-		}
-		else H.Stored = FSharedByteBuffer::Take(FByteBuffer(32));
-		auto Result = H.Run(); EXPECT_TRUE(Result);
-		EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 2u); EXPECT_EQ(H.Resolver.Resolves, 2u);
-		H.Function->Reject = true;
-		Result = H.Run(); EXPECT_FALSE(Result);
-		EXPECT_EQ(H.Function->Builds, 3u); EXPECT_EQ(H.Puts, 2u);
-	}
-}
-
-TEST(FBuildExecutionTests, CancellationDuringCachedValidationNeverResolvesOrRebuilds)
-{
-	FHarness H; ASSERT_TRUE(H.Run());
-	H.Function->CancelDuringValidation = &H.Cancel;
-	auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result));
-	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Issues, 0u);
-}
-
-TEST(FBuildExecutionTests, CancellationAfterWriteDoesNotPublishOutput)
-{
-	FHarness H;
-	auto Put = H.Cache.Put;
-	H.Cache.Put = [&](const auto& Request) { auto Result = Put(Request); H.Cancel = true; return Result; };
-	auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result));
-	EXPECT_EQ(H.Puts, 1u);
-	H.Cancel = false; Result = H.Run(); EXPECT_TRUE(Result); EXPECT_EQ(H.Hits, 1u);
-}
-
-TEST(FBuildExecutionTests, ResolutionFreshValidationAndProducerFailuresNeverPersist)
-{
-	for (uint32 Kind = 0; Kind < 4; ++Kind)
-	{
-		FHarness H;
-		H.Resolver.WrongIdentity = Kind == 0; H.Resolver.Fail = Kind == 1;
-		H.Function->Reject = Kind == 2; H.Function->FailBuild = Kind == 3;
-		auto Result = H.Run(); ASSERT_FALSE(Result);
-		EXPECT_EQ(H.Puts, 0u);
-		EXPECT_EQ(H.Phases[static_cast<size_t>(EBuildSessionPhase::Record)], 0u);
-		if (Kind < 2) EXPECT_EQ(H.Function->Builds, 0u);
-		if (Kind == 3)
-		{
-			EXPECT_EQ(Result.error().ProducerCode, 17u); EXPECT_EQ(Result.error().Description.size(), 4096u);
-			EXPECT_EQ(Result.error().DiagnosticIdentity, FXxHash128::HashBuffer("cause"));
-		}
-	}
-}
-
-TEST(FBuildExecutionTests, EveryColdPhaseHonorsCancellationBeforeInvokingItsOperation)
-{
-	for (size_t Index = 0; Index <= static_cast<size_t>(EBuildSessionPhase::Store); ++Index)
-	{
-		if (Index == static_cast<size_t>(EBuildSessionPhase::Decode)) continue; // Exercised on the warm path below.
-		FHarness H; H.Policy.Compress = true;
-		H.Observer.OnPhase = [&](auto Phase) { if (static_cast<size_t>(Phase) == Index) H.Cancel = true; };
-		auto Result = H.Run(); EXPECT_TRUE(IsBuildCancelled(Result)) << Index;
-		EXPECT_EQ(H.Puts, 0u); EXPECT_EQ(H.Issues, 0u);
-	}
-	FHarness H; ASSERT_TRUE(H.Run());
-	H.Observer.OnPhase = [&](auto Phase) { if (Phase == EBuildSessionPhase::Decode) H.Cancel = true; };
-	EXPECT_TRUE(IsBuildCancelled(H.Run()));
-	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u);
-}
-
-TEST(FBuildExecutionTests, InputOutputAndPersistenceBudgetsHaveDifferentFailureBoundaries)
-{
-	FHarness Input; Input.Policy.InputLimits.MaximumTotalBytes = 1;
-	EXPECT_FALSE(Input.Run()); EXPECT_EQ(Input.Function->Builds, 0u);
-	FHarness Output; Output.Policy.OutputLimits.MaximumTotalBytes = 1;
-	EXPECT_FALSE(Output.Run()); EXPECT_EQ(Output.Function->Builds, 1u); EXPECT_EQ(Output.Puts, 0u);
-	FHarness Persistence; Persistence.Policy.PersistenceLimits.MaximumTotalBytes = 1;
-	auto Result = Persistence.Run(); ASSERT_TRUE(Result);
-	EXPECT_EQ(Persistence.Issues, 1u); EXPECT_EQ(Persistence.Puts, 0u);
-	EXPECT_EQ(Result->FindValue("Data")->Data.data(), Persistence.Resolver.Bytes.data());
-}
-
-TEST(FBuildExecutionTests, ReadFailuresRebuildAndPersistenceAllocationFailurePreservesOutput)
-{
-	FHarness H;
-	H.Cache.Get = [](const auto&) -> FCacheGetResult { return std::unexpected(FCacheError{ECacheError::StorageFailure, "read failure"}); };
-	H.Cache.Encode = [](const auto&, auto) -> FCacheGetResult { throw std::bad_alloc(); };
-	H.Observer.OnCacheIssue = [&](const auto&, auto, const auto&) { ++H.Issues; throw std::bad_alloc(); };
-	auto Result = H.Run(); ASSERT_TRUE(Result);
-	EXPECT_EQ(H.Issues, 2u); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Puts, 0u);
-	EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
-}
-
-TEST(FBuildExecutionTests, RealFileSystemFailureStillReturnsTheRecipeAllocation)
-{
-	struct FScope
-	{
-		std::string Previous = FPaths::DerivedDataCacheDir();
-		std::filesystem::path Root = Testing::CreateTestFixtureDirectory("ExecutionPersistence");
-		~FScope() { FPaths::SetDerivedDataCacheDirForTests(Previous); Testing::RemoveTestWorkDirectory(Root); }
-	} Scope;
-	FPaths::SetDerivedDataCacheDirForTests(Scope.Root.generic_string());
-	FHarness H; H.Cache = {};
-	ASSERT_TRUE(H.Run());
-	ASSERT_TRUE(H.Run());
-	EXPECT_EQ(H.Hits, 1u); EXPECT_EQ(H.Resolver.Resolves, 1u);
-	const auto Blocker = Scope.Root / "blocked";
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(H.Resolver.Bytes.GetBytes(), Blocker));
-	FPaths::SetDerivedDataCacheDirForTests((Blocker / "cache").generic_string());
-	H.Policy.ForceRebuild = true;
-	auto Result = H.Run(); ASSERT_TRUE(Result);
-	EXPECT_EQ(H.Issues, 1u); EXPECT_EQ(H.Function->Builds, 2u);
-	EXPECT_EQ(Result->FindValue("Data")->Data.data(), H.Resolver.Bytes.data());
-}
-
-TEST(FBuildExecutionTests, WarmMetadataDoesNotRequireReadableSourceButMissRejectsChangedContent)
-{
-	FHarness H; ASSERT_TRUE(H.Run());
-	H.Resolver.Bytes = {};
-	EXPECT_TRUE(H.Run());
-	EXPECT_EQ(H.Resolver.Resolves, 1u); EXPECT_EQ(H.Hits, 1u);
-	H.Policy.ForceRebuild = true;
-	auto Result = H.Run(); EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.error().Phase, EBuildSessionPhase::Resolve);
-	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Puts, 1u);
-}
-
-
-TEST(FDerivedDataBuildExecutionTests, ExecutionReservationReachesFunctionWithoutChangingActionIdentity)
-{
-	FHarness H;
-	H.Policy.ForceRebuild = true;
-	H.Policy.MaximumWorkingSetBytes = 1024;
-	ASSERT_TRUE(H.Run());
-	EXPECT_EQ(H.Function->Budget, 1024u);
-	const auto Key = H.StoredKey;
-	H.Policy.MaximumWorkingSetBytes = 8192;
-	ASSERT_TRUE(H.Run());
-	EXPECT_EQ(H.Function->Budget, 8192u);
-	EXPECT_EQ(H.StoredKey, Key);
-}
-
-TEST(FBuildExecutionTests, LargeInputTablesRequireExplicitAdmissionAndKeepOutputBounds)
-{
-	FHarness H; H.Policy.ReadCache = false; H.Policy.WriteCache = false; H.Function->CollapseInput = true;
-	for (uint32 Index = 0; Index < 65536; ++Index)
-		H.Resolver.ExtraValues.push_back({"File/" + std::to_string(Index), FSharedByteBuffer{}});
-	auto Rejected = H.Run(); EXPECT_FALSE(Rejected); EXPECT_EQ(H.Function->Builds, 0u);
-	H.Policy.InputLimits.MaximumValues = 65537;
-	auto Accepted = H.Run(); ASSERT_TRUE(Accepted);
-	EXPECT_EQ(H.Function->InputValues, 65537u); EXPECT_EQ(Accepted->GetValues().size(), 1u);
-	EXPECT_FALSE(FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1, .Values = H.Resolver.ExtraValues},
-		{.MaximumValues = FBuildInput::MaximumValues}));
-	H.Resolver.ExtraValues[0].Id = "Data";
-	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
-	H.Resolver.ExtraValues[0].Id = "invalid id";
-	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
-	H.Resolver.ExtraValues[0].Id = "File/0";
-	H.Policy.InputLimits.MaximumTotalBytes = H.Resolver.Bytes.size() - 1;
-	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
-	H.Policy.InputLimits.MaximumTotalBytes = 8192;
-	H.Policy.InputLimits.MaximumValues = FBuildInput::MaximumValues + 1;
-	while (H.Resolver.ExtraValues.size() < FBuildInput::MaximumValues)
-		H.Resolver.ExtraValues.push_back({"More/" + std::to_string(H.Resolver.ExtraValues.size()), {}});
-	EXPECT_FALSE(H.Run()); EXPECT_EQ(H.Function->Builds, 1u);
+	Options.Diagnostics = [](const auto&, const auto&) { throw 7; };
+	Options.Metrics = [](auto, auto) { throw 9; };
+	auto Service = CreateBuild(std::move(Options)); auto Function = std::make_shared<FFunction>();
+	Service->Register(Function).value(); auto Session = Service->CreateSession().value();
+	auto Resolver = std::make_shared<FResolver>(); auto Inputs = FBuildInputs::TryCreate(Definition().GetSources(), Resolver).value();
+	std::optional<FBuildCompleteParams> Completion;
+	ASSERT_TRUE(Session->Build(Definition(), [&](auto Value) { Completion = std::move(Value); }, std::move(Inputs),
+		{.Policy = {.StoreOnBuild = false}}));
+	ASSERT_TRUE(Completion); EXPECT_EQ(Completion->GetStatus(), EStatus::Ok);
 }

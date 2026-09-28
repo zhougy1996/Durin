@@ -79,14 +79,14 @@ namespace Durin::DerivedData
 					if (!std::filesystem::is_directory(AncestorStatus))
 						return std::unexpected(FCacheError{ECacheError::StorageFailure,
 							"Cache entry parent is not a directory."});
-					return std::unexpected(FCacheError{ECacheError::Miss, "Cache entry is missing."});
+					return std::optional<FSharedByteBuffer>{};
 				}
 			}
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to inspect cache entry: {}", ErrorCode.message())});
 		}
 		if (!std::filesystem::exists(Status))
-			return std::unexpected(FCacheError{ECacheError::Miss, "Cache entry is missing."});
+			return std::optional<FSharedByteBuffer>{};
 		if (!std::filesystem::is_regular_file(Status))
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache entry is not a regular file."});
 		FFilePath ResolvedPath;
@@ -125,7 +125,7 @@ namespace Durin::DerivedData
 			return std::unexpected(FCacheError{ECacheError::Corrupt,
 				"Cache entry content hash validation failed."});
 		FSharedByteBuffer StoredBytes = FSharedByteBuffer::Take(std::move(*Bytes));
-		return StoredBytes.MakeView(CacheEntryHeaderBytes, ValueSize);
+		return std::optional<FSharedByteBuffer>{StoredBytes.MakeView(CacheEntryHeaderBytes, ValueSize)};
 	}
 
 	auto FFileSystemCacheBackend::Put(const FCachePutRequest& Request) const

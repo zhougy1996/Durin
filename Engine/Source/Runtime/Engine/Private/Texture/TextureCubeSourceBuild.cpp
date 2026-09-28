@@ -36,36 +36,31 @@ namespace Durin
 			.ProjectionVersion = Module->GetTextureCubeProjectionVersion(), .TargetPlatform = Platform, .TargetProfile = Profile});
 		if (!Definition) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 			ETextureBuildStage::Normalize, "Invalid TextureCube build definition."});
-		auto Session = AssetBuildPrivate::CreateSession(MakeTextureCubeInputResolver(Source, PreparedInput));
-		if (!Session) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Session.error().Description});
-		AssetBuildPrivate::FSessionScope Scope{*Session};
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.WriteCache = bPersist;
+		Options.Policy.StoreOnBuild = bPersist;
 		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
-		FCacheKeyProxy Key;
-		bool Hit = false;
-		Options.Observer.OnAction = [&](const auto& Action) { Key = FCacheKeyProxy(Action.GetKey()); };
-		Options.Observer.OnCacheHit = [&] { Hit = true; };
-		auto Built = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (DerivedData::IsBuildCancelled(Built))
+		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
+			MakeTextureCubeInputResolver(Source, PreparedInput), std::move(Options));
+		if (Built.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
-		if (!Built)
+		if (Built.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = Built.error();
-			if (Error.Phase == DerivedData::EBuildSessionPhase::Admission || Error.Phase == DerivedData::EBuildSessionPhase::Dispatch)
+			const auto& Error = *Built.GetFailure();
+			if (Error.Operation == DerivedData::EBuildOperation::Admission || Error.Operation == DerivedData::EBuildOperation::Dispatch)
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Error.Description});
 			return std::unexpected(FTextureBuildError{
-				Error.Category == DerivedData::EBuildErrorCategory::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
-				Error.Phase <= DerivedData::EBuildSessionPhase::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
+				Error.Reason == DerivedData::EBuildFailureReason::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
+				Error.Operation <= DerivedData::EBuildOperation::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
 				Error.Description});
 		}
-		auto Product = AssembleTextureCubeSharedOutput(*Built, Platform, Profile);
+		auto Product = AssembleTextureCubeSharedOutput(*Built.GetOutput(), Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
-		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = std::move(Key),
-			.Origin = Hit ? ETextureCubeBuildProductOrigin::CacheHit : ETextureCubeBuildProductOrigin::Rebuilt};
+		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Built.GetCacheKey()),
+			.Origin = DerivedData::HasBuildStatus(Built.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
+				? ETextureCubeBuildProductOrigin::CacheHit : ETextureCubeBuildProductOrigin::Rebuilt};
 #endif
 	}
 

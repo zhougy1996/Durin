@@ -11,9 +11,9 @@ namespace Durin::StaticMeshPrivate
 	namespace
 	{
 		constexpr uint64 MaximumReconciliationBytes = uint64(MaximumMeshMaterialSlots) * (8192 + 32) + 8;
-		auto Error(std::string Message, EBuildErrorCategory Category = EBuildErrorCategory::InvalidInput) -> FBuildError
-		{ return {.Category = Category, .Description = std::move(Message)}; }
-		auto Cancelled() -> FBuildError { return Error("StaticMesh build was cancelled.", EBuildErrorCategory::Cancelled); }
+		auto Error(std::string Message, EBuildFailureReason Category = EBuildFailureReason::InvalidInput) -> FBuildFailure
+		{ return {.Reason = Category, .Description = std::move(Message)}; }
+		auto Cancelled() -> FBuildFailure { return Error("StaticMesh build was cancelled.", EBuildFailureReason::InternalFailure); }
 		auto SourceIdentity(uint32 Slots, uint32 Meshes, FXxHash128 PayloadId) -> FXxHash128
 		{
 			FXxHash128Builder Hash;
@@ -25,7 +25,7 @@ namespace Durin::StaticMeshPrivate
 		{ return {"Source", Identity, "StaticMeshSource", StaticMeshSourceGeometryPayloadVersion, "StaticMesh.AuthoredGeometry", 1}; }
 		auto ReconciliationReference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Reconciliation", Identity, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1}; }
-		auto MaterialCount(const FBuildAction& Action) -> std::expected<uint32, FBuildError>
+		auto MaterialCount(const FBuildAction& Action) -> std::expected<uint32, FBuildFailure>
 		{
 			const uint64* Count = nullptr; const uint64* Target = nullptr;
 			for (const auto& Constant : Action.GetConstants())
@@ -51,7 +51,7 @@ namespace Durin::StaticMeshPrivate
 				ReconciliationHash = BuildStaticMeshReconciliationHash(Slots, NormalizedSize);
 			}
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildError> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
 			{
 				if (Sources.size() != 2 || SourceHash.IsZero() || ReconciliationHash.IsZero()
 					|| Slots.empty() || Slots.size() > MaximumMeshMaterialSlots)
@@ -63,7 +63,7 @@ namespace Durin::StaticMeshPrivate
 				return std::vector{SourceReference(SourceHash), ReconciliationReference(ReconciliationHash)};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildError> override
+				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
 			{
 				if (Inputs.size() != 2 || std::ranges::find(Inputs, SourceReference(SourceHash)) == Inputs.end()
 					|| std::ranges::find(Inputs, ReconciliationReference(ReconciliationHash)) == Inputs.end())
@@ -106,7 +106,7 @@ namespace Durin::StaticMeshPrivate
 		public:
 			explicit FRenderFunction(IMeshBuilderModule& Module) : Module(Module), Version(Module.GetRenderBuilderVersion()) {}
 			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return GetStaticMeshBuildDescriptor(Version); }
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 			{
 				bool bCancelled = false;
 				const auto ShouldCancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
@@ -157,25 +157,25 @@ namespace Durin::StaticMeshPrivate
 				auto Product = Module.BuildRender({.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size},
 					{.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()});
 				if (!Product) return std::unexpected(Product.error().Code == EStaticMeshRenderBuildError::Cancelled ? Cancelled()
-					: Error(FormatStaticMeshRenderBuildError(Product.error()), EBuildErrorCategory::ProducerFailure));
+					: Error(FormatStaticMeshRenderBuildError(Product.error()), EBuildFailureReason::ProducerFailure));
 				if (Product->LODs.empty() || !Product->LocalBounds.bIsValid)
-					return std::unexpected(Error("StaticMesh builder returned invalid render data.", EBuildErrorCategory::ProducerFailure));
+					return std::unexpected(Error("StaticMesh builder returned invalid render data.", EBuildFailureReason::ProducerFailure));
 				auto Output = MakeSharedOutput(std::move(*Product), *Count, ShouldCancel);
 				if (ShouldCancel()) return std::unexpected(Cancelled());
-				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildErrorCategory::InvalidOutput));
+				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildFailureReason::InvalidOutput));
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-				-> std::expected<void, FBuildError> override
+				-> std::expected<void, FBuildFailure> override
 			{
 				auto Count = MaterialCount(Action); if (!Count) return std::unexpected(std::move(Count.error()));
 				FBinaryReader Metadata(Output.GetMetadata().GetBytes()); uint32 Platform = 0, Profile = 0, StoredCount = 0;
 				if (!Metadata.ReadU32(Platform) || !Metadata.ReadU32(Profile) || !Metadata.ReadU32(StoredCount) || StoredCount != *Count)
-					return std::unexpected(Error("StaticMesh output material count does not match its action.", EBuildErrorCategory::InvalidOutput));
+					return std::unexpected(Error("StaticMesh output material count does not match its action.", EBuildFailureReason::InvalidOutput));
 				bool bCancelled = false;
 				auto Valid = ValidateSharedOutput(Output, [&] { return bCancelled = bCancelled || Cancel.IsCancelled(); });
 				if (bCancelled || Cancel.IsCancelled()) return std::unexpected(Cancelled());
-				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildErrorCategory::InvalidOutput));
+				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildFailureReason::InvalidOutput));
 				return {};
 			}
 		private:

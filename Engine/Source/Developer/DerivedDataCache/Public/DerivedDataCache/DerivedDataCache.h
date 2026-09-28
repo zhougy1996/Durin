@@ -4,6 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Serialization/SharedByteBuffer.h"
 #include <expected>
+#include <optional>
 
 namespace Durin::DerivedData
 {
@@ -42,10 +43,10 @@ namespace Durin::DerivedData
 		FXxHash128 Hash;
 	};
 
-	// Classifies cache failures; Miss is a normal lookup outcome, not a storage error.
+	// Classifies cache failures. A missing entry is represented by an empty
+	// optional in FCacheGetResult and is never a failure.
 	enum class ECacheError : uint8
 	{
-		Miss,
 		InvalidRequest,
 		ValueTooLarge,
 		Corrupt,
@@ -65,8 +66,8 @@ namespace Durin::DerivedData
 		uint64 MaximumValueBytes = 0;
 	};
 
-	// Returns immutable bytes only for a successful cache hit.
-	using FCacheGetResult = std::expected<FSharedByteBuffer, FCacheError>;
+	// A successful lookup contains either immutable hit bytes or an empty miss.
+	using FCacheGetResult = std::expected<std::optional<FSharedByteBuffer>, FCacheError>;
 
 	// Borrows entry bytes only for the duration of a synchronous put call.
 	struct FCachePutRequest

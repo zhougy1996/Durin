@@ -10,13 +10,13 @@ namespace Durin::PhysicsPrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Message, EBuildErrorCategory Category = EBuildErrorCategory::InvalidInput) -> FBuildError
-		{ return {.Category = Category, .Description = std::move(Message)}; }
-		auto Cancelled() -> FBuildError { return Error("Physics cooking was cancelled.", EBuildErrorCategory::Cancelled); }
+		auto Error(std::string Message, EBuildFailureReason Category = EBuildFailureReason::InvalidInput) -> FBuildFailure
+		{ return {.Reason = Category, .Description = std::move(Message)}; }
+		auto Cancelled() -> FBuildFailure { return Error("Physics cooking was cancelled.", EBuildFailureReason::InternalFailure); }
 		auto Reference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Geometry", Identity, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}; }
 		struct FSettings { EBodySetupCollisionSourceMode Mode; EBodySetupCollisionQueryPolicy Policy; };
-		auto Settings(const FBuildAction& Action) -> std::expected<FSettings, FBuildError>
+		auto Settings(const FBuildAction& Action) -> std::expected<FSettings, FBuildFailure>
 		{
 			const uint64 *Mode = nullptr, *Policy = nullptr, *Target = nullptr, *Weld = nullptr;
 			for (const auto& Constant : Action.GetConstants())
@@ -36,7 +36,7 @@ namespace Durin::PhysicsPrivate
 		public:
 			explicit FResolver(FPhysicsCookInput Input) : Input(std::move(Input)) {}
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildError> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
 			{
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (Sources.size() != 1 || Sources[0].Name != "Geometry" || Sources[0].Source != "CapturedGeometry" || Input.GetIdentity().IsZero())
@@ -44,7 +44,7 @@ namespace Durin::PhysicsPrivate
 				return std::vector{Reference(Input.GetIdentity())};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildError> override
+				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
 			{
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (Inputs.size() != 1 || Inputs[0] != Reference(Input.GetIdentity()))
@@ -62,7 +62,7 @@ namespace Durin::PhysicsPrivate
 		{
 		public:
 			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return GetPhysicsCookBuildDescriptor(); }
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 			{
 				bool bCancelled = false;
 				const auto Cancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
@@ -109,22 +109,22 @@ namespace Durin::PhysicsPrivate
 					? FCollisionCookedData::BuildConvexHull(ConvertedPositions, &Diagnostics, Cancel)
 					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
 				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return std::unexpected(Cancelled());
-				if (!Cooked) return std::unexpected(Error(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)), EBuildErrorCategory::ProducerFailure));
+				if (!Cooked) return std::unexpected(Error(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)), EBuildFailureReason::ProducerFailure));
 				Context.ReportMetric("Physics.FloatToDoubleRecipeBytes", PositionCount * sizeof(FVector3));
 				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Config->Policy, Cancel);
 				if (Cancel()) return std::unexpected(Cancelled());
-				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildErrorCategory::InvalidOutput));
+				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildFailureReason::InvalidOutput));
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancellation) const
-				-> std::expected<void, FBuildError> override
+				-> std::expected<void, FBuildFailure> override
 			{
 				auto Config = Settings(Action); if (!Config) return std::unexpected(std::move(Config.error()));
 				bool bCancelled = false;
 				const auto Cancel = [&] { return bCancelled = bCancelled || Cancellation.IsCancelled(); };
 				auto Valid = ValidateSharedOutput(Output, Config->Mode, Config->Policy, Cancel);
 				if (Cancel()) return std::unexpected(Cancelled());
-				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildErrorCategory::InvalidOutput));
+				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildFailureReason::InvalidOutput));
 				return {};
 			}
 		};

@@ -1,4 +1,4 @@
-#include "DerivedDataBuildFunction.h"
+#include "DerivedDataBuildSession.h"
 #include "Serialization/BinaryFormat.h"
 #include <gtest/gtest.h>
 
@@ -22,26 +22,37 @@ namespace
 	public:
 		FBuildFunctionDescriptor DescriptorValue = Descriptor();
 		auto GetDescriptor() const -> FBuildFunctionDescriptor override { return DescriptorValue; }
-		auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+		auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 		{
 			if (Context.IsCancelled())
-				return std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Build, .Category = EBuildErrorCategory::Cancelled});
+				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InternalFailure, .Operation = EBuildOperation::Build});
 			if (Context.GetInputs().size() != 1 || Context.GetInputs()[0].Values.size() != 1)
-				return std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Build, .Description = "Missing fixture block"});
+				return std::unexpected(FBuildFailure{.Operation = EBuildOperation::Build, .Description = "Missing fixture block"});
 			auto Output = FBuildOutput::TryCreate({.Schema = Context.GetAction().GetFunction().OutputType,
 				.SchemaVersion = Context.GetAction().GetFunction().OutputSchema, .Values = Context.GetInputs()[0].Values});
-			if (!Output) return std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Build, .Description = Output.error()});
+			if (!Output) return std::unexpected(FBuildFailure{.Operation = EBuildOperation::Build, .Description = Output.error()});
 			return std::move(*Output);
 		}
 		auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-			-> std::expected<void, FBuildError> override
+			-> std::expected<void, FBuildFailure> override
 		{
 			if (Cancel.IsCancelled())
-				return std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Validate, .Category = EBuildErrorCategory::Cancelled});
+				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InternalFailure, .Operation = EBuildOperation::Validate});
 			if (Output.GetSchema() != Action.GetFunction().OutputType || !Output.FindValue("Data"))
-				return std::unexpected(FBuildError{.Phase = EBuildSessionPhase::Validate, .Category = EBuildErrorCategory::InvalidOutput});
+				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InvalidOutput, .Operation = EBuildOperation::Validate});
 			return {};
 		}
+	};
+	class FCopyResolver final : public IBuildInputResolver
+	{
+	public:
+		FSharedByteBuffer Data = FSharedByteBuffer::Take(FByteBuffer(17, std::byte{1}));
+		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
+		{ return std::vector{Identity()}; }
+		auto Resolve(std::span<const FBuildInputReference>, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
+		{ return std::vector<FBuildInput>{{.Identity = Identity(), .Values = {{"Data", Data}}}}; }
 	};
 }
 
@@ -91,64 +102,53 @@ TEST(FBuildActionTests, RejectsInvalidDefinitionsDescriptorsAndMetadataBindings)
 	EXPECT_FALSE(FBuildAction::TryCreate(*Definition, BadFunction, {Identity()}));
 }
 
-TEST(FBuildRegistryTests, RejectsDuplicateInvalidAndPostFreezeRegistration)
+TEST(FBuildServiceTests, OwnsRegistrationAndFreezesOnFirstSession)
 {
-	FBuildRegistry Registry;
-	EXPECT_FALSE(Registry.Register({}));
+	auto Service = CreateBuild();
+	EXPECT_FALSE(Service->Register({}));
 	auto Function = std::make_shared<FCopyFunction>();
-	ASSERT_TRUE(Registry.Register(Function));
-	EXPECT_FALSE(Registry.Register(Function));
+	ASSERT_TRUE(Service->Register(Function));
+	EXPECT_FALSE(Service->Register(Function));
 	auto Conflicting = std::make_shared<FCopyFunction>();
 	++Conflicting->DescriptorValue.Version;
-	EXPECT_FALSE(Registry.Register(Conflicting));
+	EXPECT_FALSE(Service->Register(Conflicting));
 	auto Invalid = std::make_shared<FCopyFunction>();
 	Invalid->DescriptorValue.Name = "Other"; Invalid->DescriptorValue.OutputSchema = 0;
-	EXPECT_FALSE(Registry.Register(Invalid));
-	auto Snapshot = Registry.Freeze(); ASSERT_TRUE(Snapshot);
-	EXPECT_NE(Snapshot->Find("Fixture.Copy"), nullptr);
-	EXPECT_EQ(Snapshot->Find("Missing"), nullptr);
+	EXPECT_FALSE(Service->Register(Invalid));
+	ASSERT_TRUE(Service->CreateSession());
 	Invalid->DescriptorValue.OutputSchema = 1;
-	EXPECT_FALSE(Registry.Register(Invalid));
-	EXPECT_TRUE(Registry.Freeze());
+	EXPECT_FALSE(Service->Register(Invalid));
 	Function->DescriptorValue.Version = 99;
-	EXPECT_EQ(Snapshot->Find("Fixture.Copy")->Descriptor.Version, 1u);
 }
 
-TEST(FBuildRegistryTests, RetainedEntryOutlivesRegistryAndSharesContextBlocks)
+TEST(FBuildServiceTests, RetainedFunctionAndOutputBlocksOutliveDrainedService)
 {
-	std::shared_ptr<const FRegisteredBuildFunction> Entry;
 	std::weak_ptr<const IBuildFunction> Lifetime;
-	{
-		FBuildRegistry Registry;
-		auto Function = std::make_shared<FCopyFunction>(); Lifetime = Function;
-		ASSERT_TRUE(Registry.Register(Function));
-		auto Snapshot = Registry.Freeze(); ASSERT_TRUE(Snapshot);
-		Entry = Snapshot->Find("Fixture.Copy");
-	}
+	auto Service = CreateBuild();
+	auto Function = std::make_shared<FCopyFunction>(); Lifetime = Function;
+	ASSERT_TRUE(Service->Register(Function));
+	auto Session = Service->CreateSession().value();
+	auto Resolver = std::make_shared<FCopyResolver>();
+	const auto* Address = Resolver->Data.data();
 	EXPECT_FALSE(Lifetime.expired());
 	auto Definition = FBuildDefinition::TryCreate("Fixture.Copy", {}, {{"Source", "Capture"}});
 	ASSERT_TRUE(Definition);
-	auto Action = FBuildAction::TryCreate(*Definition, Entry->Descriptor, {Identity()});
-	ASSERT_TRUE(Action);
-	std::vector<FBuildInput> Inputs{{.Identity = Identity(), .Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(17, std::byte{1}))}}}};
-	const auto* Address = Inputs[0].Values[0].Data.data();
-	FBuildContext Context(*Action, Inputs, {});
-	auto Output = Entry->Function->Build(Context);
-	ASSERT_TRUE(Output);
-	EXPECT_TRUE(Entry->Function->Validate(*Action, *Output, {}));
-	FBuildCancellation Cancel([] { return true; });
-	EXPECT_FALSE(Entry->Function->Validate(*Action, *Output, Cancel));
-	FBuildContext Cancelled(*Action, Inputs, Cancel);
-	auto Failure = Entry->Function->Build(Cancelled);
-	ASSERT_FALSE(Failure); EXPECT_EQ(Failure.error().Category, EBuildErrorCategory::Cancelled);
-	Inputs.clear(); Entry.reset();
+	auto Inputs = FBuildInputs::TryCreate(Definition->GetSources(), Resolver).value();
+	std::optional<FBuildCompleteParams> Completion;
+	ASSERT_TRUE(Session->Build(std::move(*Definition), [&](auto Value) { Completion = std::move(Value); },
+		std::move(Inputs), {.Policy = {.QueryCache = false, .StoreOnBuild = false}}));
+	ASSERT_TRUE(Completion); ASSERT_EQ(Completion->GetStatus(), EStatus::Ok);
+	FBuildOutput Output = *Completion->GetOutput();
+	Function.reset(); Resolver.reset(); Completion.reset();
+	Service->Close(); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+	Session.reset(); Service.reset();
 	EXPECT_TRUE(Lifetime.expired());
-	EXPECT_EQ(Output->FindValue("Data")->Data.data(), Address);
+	EXPECT_EQ(Output.FindValue("Data")->Data.data(), Address);
 }
 
-TEST(FBuildRegistryTests, BoundsDiagnosticTextWithoutDiscardingProducerIdentity)
+TEST(FBuildServiceTests, BoundsDiagnosticTextWithoutDiscardingProducerIdentity)
 {
-	FBuildError Error{.Phase = EBuildSessionPhase::Build, .Category = EBuildErrorCategory::ProducerFailure,
+	FBuildFailure Error{.Reason = EBuildFailureReason::ProducerFailure, .Operation = EBuildOperation::Build,
 		.Description = std::string(5000, 'x'), .ProducerCode = 42, .DiagnosticIdentity = FXxHash128::HashBuffer("semantic")};
 	Error.BoundDescription();
 	EXPECT_EQ(Error.Description.size(), 4096u);

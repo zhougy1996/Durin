@@ -1,186 +1,291 @@
-#include "DerivedDataBuildExecution.h"
+#include "DerivedDataBuildExecutionPrivate.h"
 #include "DerivedDataBuildValidation.h"
 #include "Logging/LogMacros.h"
+#include <chrono>
 
 namespace Durin::DerivedData
 {
+	auto FBuildCompleteParams::Ok(FBuildOutput Output, FCacheKey Key,
+		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
+	{
+		FBuildCompleteParams Result;
+		Result.Status = EStatus::Ok;
+		Result.BuildStatus = Status | EBuildStatus::CacheKey;
+		Result.CacheKey = std::move(Key);
+		Result.Output = std::move(Output);
+		Result.Report = std::move(Report);
+		return Result;
+	}
+	auto FBuildCompleteParams::Error(FBuildFailure Failure, std::optional<FCacheKey> Key,
+		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
+	{
+		Failure.BoundDescription();
+		FBuildCompleteParams Result;
+		Result.Status = EStatus::Error;
+		Result.BuildStatus = Status;
+		Result.CacheKey = std::move(Key);
+		if (Result.CacheKey) Result.BuildStatus |= EBuildStatus::CacheKey;
+		Result.Failure = std::move(Failure);
+		Result.Report = std::move(Report);
+		return Result;
+	}
+	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key,
+		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
+	{
+		FBuildCompleteParams Result;
+		Result.Status = EStatus::Canceled;
+		Result.BuildStatus = Status;
+		Result.CacheKey = std::move(Key);
+		if (Result.CacheKey) Result.BuildStatus |= EBuildStatus::CacheKey;
+		Result.Report = std::move(Report);
+		return Result;
+	}
+}
+
+namespace Durin::DerivedData::Private
+{
 	namespace
 	{
-		auto CacheOperationName(EBuildSessionPhase Phase) -> std::string_view
+		auto OperationName(EBuildOperation Operation) -> std::string_view
 		{
-			switch (Phase)
+			switch (Operation)
 			{
-			case EBuildSessionPhase::Lookup: return "read";
-			case EBuildSessionPhase::Decode: return "decode";
-			case EBuildSessionPhase::Validate: return "validate";
-			case EBuildSessionPhase::Record: return "record";
-			case EBuildSessionPhase::Encode: return "encode";
-			case EBuildSessionPhase::Compress: return "compress";
-			case EBuildSessionPhase::Store: return "write";
+			case EBuildOperation::CacheQuery: return "read";
+			case EBuildOperation::Decode: return "decode";
+			case EBuildOperation::Validate: return "validate";
+			case EBuildOperation::Record: return "record";
+			case EBuildOperation::Encode: return "encode";
+			case EBuildOperation::Compress: return "compress";
+			case EBuildOperation::CacheStore: return "write";
 			default: return "execution";
 			}
 		}
-		auto Failure(FBuildError Error, EBuildSessionPhase Phase) -> FBuildResult
-		{
-			Error.Phase = Phase;
-			Error.BoundDescription();
-			return std::unexpected(std::move(Error));
-		}
 	}
 
-	auto ExecuteBuildRequest(const FBuildDefinition& Definition, const FBuildRegistrySnapshot& Registry,
-		const IBuildInputResolver& Resolver, const FBuildRequestPolicy& Policy, const FBuildCancellation& Cancel,
-		const FBuildCacheOperations& Cache, const FBuildRunObserver& Observer) -> FBuildResult
+	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
+		const FBuildRegistrySnapshot& Registry,
+		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
+		const FBuildInputs& RequestInputs, const FBuildPolicy& Policy,
+		const FBuildCancellation& Cancel, const FBuildServiceOptions& Service)
+		-> FBuildCompleteParams
 	{
-		EBuildSessionPhase Phase = EBuildSessionPhase::Admission;
-		auto Enter = [&](EBuildSessionPhase Next) {
-			Phase = Next;
-			if (Observer.OnPhase) Observer.OnPhase(Phase);
-			return !Cancel.IsCancelled();
-		};
-		auto Cancelled = [&] -> FBuildResult {
-			return std::unexpected(FBuildError{.Phase = Phase, .Category = EBuildErrorCategory::Cancelled});
+		EBuildOperation Operation = EBuildOperation::Admission;
+		EBuildStatus Status = EBuildStatus::None;
+		FBuildExecutionReport Report;
+		std::optional<FCacheKey> CacheKey;
+		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, Status, std::move(Report)); };
+		auto Failed = [&](FBuildFailure Failure, EBuildOperation At) {
+			Failure.Operation = At;
+			return FBuildCompleteParams::Error(std::move(Failure), CacheKey, Status, std::move(Report));
 		};
 		try
 		{
-			if (!Enter(Phase)) return Cancelled();
-			const auto Entry = Registry.Find(Definition.GetFunctionName());
-			if (!Entry) return Failure({.Description = "Build function is not registered."}, Phase);
-			if (!Enter(EBuildSessionPhase::Describe)) return Cancelled();
-			auto Identities = Resolver.Describe(Definition.GetSources(), Cancel);
-			if (Cancel.IsCancelled()) return Cancelled();
-			if (!Identities) return Failure(std::move(Identities.error()), Phase);
-			if (!Enter(EBuildSessionPhase::Action)) return Cancelled();
-			auto Action = FBuildAction::TryCreate(Definition, Entry->Descriptor, std::move(*Identities));
-			if (!Action) return Failure({.Description = "Resolved metadata does not match the build definition."}, Phase);
-			if (Observer.OnAction) Observer.OnAction(*Action);
-			auto Issue = [&](FCacheError Error) noexcept {
+			if (Cancel.IsCancelled()) return Canceled();
+			const std::string_view FunctionName = std::holds_alternative<FBuildDefinition>(Request)
+				? std::get<FBuildDefinition>(Request).GetFunctionName()
+				: std::get<FBuildAction>(Request).GetFunction().Name;
+			const auto Entry = Registry.Find(FunctionName);
+			if (!Entry) return Failed({.Reason = EBuildFailureReason::InternalFailure,
+				.Description = "Build function is not registered."}, Operation);
+
+			std::optional<FBuildAction> ActionStorage;
+			if (const auto* Existing = std::get_if<FBuildAction>(&Request))
+			{
+				Operation = EBuildOperation::Action;
+				if (Existing->GetFunction() != Entry->Descriptor)
+					return Failed({.Description = "Build action does not match the registered function."}, Operation);
+				ActionStorage = *Existing;
+			}
+			else
+			{
+				const auto& Definition = std::get<FBuildDefinition>(Request);
+				std::vector<FBuildInputReference> Identities;
+				if (RequestInputs.IsValid())
+					Identities.assign(RequestInputs.GetIdentities().begin(), RequestInputs.GetIdentities().end());
+				else if (!Definition.GetSources().empty())
+				{
+					Operation = EBuildOperation::Describe;
+					if (!SessionResolver) return Failed({.Reason = EBuildFailureReason::InputUnavailable,
+						.Description = "No build input resolver is available."}, Operation);
+					auto Described = SessionResolver->Describe(Definition.GetSources(), Cancel);
+					if (Cancel.IsCancelled()) return Canceled();
+					if (!Described) return Failed(std::move(Described.error()), Operation);
+					Identities = std::move(*Described);
+				}
+				Operation = EBuildOperation::Action;
+				auto Created = FBuildAction::TryCreate(Definition, Entry->Descriptor, std::move(Identities));
+				if (!Created) return Failed({.Description = "Resolved metadata does not match the build definition."}, Operation);
+				ActionStorage = std::move(*Created);
+			}
+			const FBuildAction& Action = *ActionStorage;
+			CacheKey = Action.GetKey();
+			Status |= EBuildStatus::CacheKey;
+
+			auto Diagnostic = [&](FCacheError Error) noexcept {
 				try
 				{
-					if (Error.Diagnostic.size() > FBuildError::MaximumDescriptionBytes) Error.Diagnostic.resize(FBuildError::MaximumDescriptionBytes);
-					if (Observer.OnCacheIssue) Observer.OnCacheIssue(*Action, Phase, Error);
-					else DURIN_WARN_CATEGORY("DerivedData", "{} cache {} [{}]: {}", Action->GetFunction().Name,
-						CacheOperationName(Phase), Action->GetKey().ToString(), Error.Diagnostic);
+					if (Error.Diagnostic.size() > FBuildFailure::MaximumDescriptionBytes)
+						Error.Diagnostic.resize(FBuildFailure::MaximumDescriptionBytes);
+					FBuildDiagnostic Value{Operation, std::move(Error)};
+					Report.Diagnostics.push_back(Value);
+					if (Service.Diagnostics) Service.Diagnostics(Action, Value);
+					else DURIN_WARN_CATEGORY("DerivedData", "{} cache {} [{}]: {}", FunctionName,
+						OperationName(Operation), Action.GetKey().ToString(), Value.Error.Diagnostic);
 				}
-				catch (...) {} // Diagnostics cannot invalidate a usable output.
+				catch (...) {}
 			};
-			auto ValidateOutput = [&](const FBuildOutput& Output) -> std::expected<void, FBuildError> {
+			auto Validate = [&](const FBuildOutput& Output) -> std::expected<void, FBuildFailure> {
 				if (Output.GetSchema() != Entry->Descriptor.OutputType || Output.GetSchemaVersion() != Entry->Descriptor.OutputSchema)
-					return std::unexpected(FBuildError{.Category = EBuildErrorCategory::InvalidOutput, .Description = "Output schema does not match the registered function."});
+					return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InvalidOutput,
+						.Description = "Output schema does not match the registered function."});
 				if (auto Valid = Output.CheckLimits(Policy.OutputLimits); !Valid)
-					return std::unexpected(FBuildError{.Category = EBuildErrorCategory::InvalidOutput, .Description = std::move(Valid.error())});
-				return Entry->Function->Validate(*Action, Output, Cancel);
+					return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InvalidOutput,
+						.Description = std::move(Valid.error())});
+				return Entry->Function->Validate(Action, Output, Cancel);
 			};
-			if (Policy.ReadCache && !Policy.ForceRebuild)
+
+			if (Policy.QueryCache && !Policy.ForceBuild)
 			{
-				if (!Enter(EBuildSessionPhase::Lookup)) return Cancelled();
-				const FCacheGetRequest Request{Action->GetKey(), Policy.MaximumEncodedBytes};
-				auto Stored = Cache.Get ? Cache.Get(Request) : GetCache().Get(Request);
-				if (Cancel.IsCancelled()) return Cancelled();
-				if (!Stored)
+				Operation = EBuildOperation::CacheQuery;
+				Status |= EBuildStatus::CacheQuery;
+				const FCacheGetRequest Query{Action.GetKey(), Policy.MaximumEncodedBytes};
+				auto Stored = Service.Cache.Get ? Service.Cache.Get(Query) : GetCache().Get(Query);
+				if (Cancel.IsCancelled()) return Canceled();
+				if (!Stored) Diagnostic(std::move(Stored.error()));
+				else if (*Stored)
 				{
-					if (Stored.error().Code != ECacheError::Miss) Issue(std::move(Stored.error()));
-				}
-				else
-				{
-					if (!Enter(EBuildSessionPhase::Decode)) return Cancelled();
-					auto Record = FCacheRecord::Decode(Action->GetKey(), std::move(*Stored), Policy.OutputLimits, Policy.MaximumEncodedBytes);
-					if (Cancel.IsCancelled()) return Cancelled();
-					if (!Record) Issue(std::move(Record.error()));
+					Operation = EBuildOperation::Decode;
+					auto Record = FCacheRecord::Decode(Action.GetKey(), std::move(**Stored),
+						Policy.OutputLimits, Policy.MaximumEncodedBytes);
+					if (Cancel.IsCancelled()) return Canceled();
+					if (!Record) Diagnostic(std::move(Record.error()));
 					else
 					{
-						auto Output = Record->ToOutput(Action->GetKey(), Policy.OutputLimits);
-						if (Cancel.IsCancelled()) return Cancelled();
-						if (!Output) Issue(std::move(Output.error()));
+						auto Output = Record->ToOutput(Action.GetKey(), Policy.OutputLimits);
+						if (!Output) Diagnostic(std::move(Output.error()));
 						else
 						{
-							if (!Enter(EBuildSessionPhase::Validate)) return Cancelled();
-							auto Valid = ValidateOutput(*Output);
-							if (Cancel.IsCancelled() || (!Valid && Valid.error().Category == EBuildErrorCategory::Cancelled)) return Cancelled();
+							Operation = EBuildOperation::Validate;
+							auto Valid = Validate(*Output);
+							if (Cancel.IsCancelled()) return Canceled();
 							if (Valid)
 							{
-								if (Observer.OnCacheHit) Observer.OnCacheHit();
-								if (Cancel.IsCancelled()) return Cancelled();
-								return std::move(*Output);
+								Status |= EBuildStatus::CacheQueryHit;
+								return FBuildCompleteParams::Ok(std::move(*Output), Action.GetKey(), Status, std::move(Report));
 							}
-							Issue({ECacheError::Corrupt, std::move(Valid.error().Description)});
+							Diagnostic({ECacheError::Corrupt, std::move(Valid.error().Description)});
 						}
 					}
 				}
 			}
-			if (!Enter(EBuildSessionPhase::Resolve)) return Cancelled();
-			auto Inputs = Resolver.Resolve(Action->GetInputs(), Cancel);
-			if (Cancel.IsCancelled()) return Cancelled();
-			if (!Inputs) return Failure(std::move(Inputs.error()), Phase);
-			if (Inputs->size() != Action->GetInputs().size()) return Failure({.Description = "Resolved input count mismatch."}, Phase);
+			if (!Policy.BuildLocal)
+				return Failed({.Reason = EBuildFailureReason::InputUnavailable,
+					.Description = "No usable cache value is available and local build is disabled."}, Operation);
+
+			Operation = EBuildOperation::Resolve;
+			std::expected<std::vector<FBuildInput>, FBuildFailure> Inputs = std::vector<FBuildInput>{};
+			if (!Action.GetInputs().empty())
+			{
+				if (RequestInputs.IsValid()) Inputs = FBuildExecutionAccess::Resolve(RequestInputs, Cancel);
+				else if (SessionResolver) Inputs = SessionResolver->Resolve(Action.GetInputs(), Cancel);
+				else Inputs = std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InputUnavailable,
+					.Description = "Build input payloads are unavailable."});
+			}
+			if (Cancel.IsCancelled()) return Canceled();
+			if (!Inputs) return Failed(std::move(Inputs.error()), Operation);
+			if (Inputs->size() != Action.GetInputs().size())
+				return Failed({.Description = "Resolved input count mismatch."}, Operation);
 			std::ranges::sort(*Inputs, {}, [](const FBuildInput& Input) { return std::string_view(Input.Identity.Name); });
 			uint64 Total = 0, Metadata = 0, Values = 0;
 			for (size_t Index = 0; Index < Inputs->size(); ++Index)
 			{
-				if (Cancel.IsCancelled()) return Cancelled();
+				if (Cancel.IsCancelled()) return Canceled();
 				auto& Input = (*Inputs)[Index];
-				if (Input.Identity != Action->GetInputs()[Index]) return Failure({.Description = "Resolved input identity mismatch."}, Phase);
-				if (Input.Metadata.GetSize() > std::min<uint64>(Policy.InputLimits.MaximumMetadataBytes, 4ull * 1024 * 1024) - Metadata
-					|| Input.Values.size() > std::min<uint64>(Policy.InputLimits.MaximumValues, FBuildInput::MaximumValues) - Values)
-					return Failure({.Description = "Resolved input table budget exceeded."}, Phase);
+				if (Input.Identity != Action.GetInputs()[Index]) return Failed({.Description = "Resolved input identity mismatch."}, Operation);
+				const uint64 MetadataLimit = std::min<uint64>(Policy.InputLimits.MaximumMetadataBytes, 4ull * 1024 * 1024);
+				const uint64 ValueLimit = std::min<uint64>(Policy.InputLimits.MaximumValues, FBuildInput::MaximumValues);
+				if (Input.Metadata.GetSize() > MetadataLimit - Metadata || Input.Values.size() > ValueLimit - Values)
+					return Failed({.Reason = EBuildFailureReason::ResourceExhaustion, .Description = "Resolved input table budget exceeded."}, Operation);
 				Metadata += Input.Metadata.GetSize(); Values += Input.Values.size();
 				if (Input.Metadata.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total)
-					return Failure({.Description = "Resolved input byte budget exceeded."}, Phase);
+					return Failed({.Reason = EBuildFailureReason::ResourceExhaustion, .Description = "Resolved input byte budget exceeded."}, Operation);
 				Total += Input.Metadata.GetSize();
 				std::ranges::sort(Input.Values, {}, &FBuildValue::Id);
 				std::string_view Previous;
 				for (const auto& Value : Input.Values)
 				{
-					if (Cancel.IsCancelled()) return Cancelled();
 					if (!Private::IsBuildValueIdentifier(Value.Id) || (!Previous.empty() && Previous >= Value.Id))
-						return Failure({.Description = "Resolved input has invalid or duplicate value IDs."}, Phase);
+						return Failed({.Description = "Resolved input has invalid or duplicate value IDs."}, Operation);
 					Previous = Value.Id;
 					if (Value.Data.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total)
-						return Failure({.Description = "Resolved input byte budget exceeded."}, Phase);
+						return Failed({.Reason = EBuildFailureReason::ResourceExhaustion, .Description = "Resolved input byte budget exceeded."}, Operation);
 					Total += Value.Data.GetSize();
 				}
 			}
-			if (!Enter(EBuildSessionPhase::Build)) return Cancelled();
-			FBuildContext Context(*Action, *Inputs, Cancel, Observer.OnMetric, Policy.MaximumWorkingSetBytes);
+
+			Operation = EBuildOperation::Build;
+			Status |= EBuildStatus::BuildLocal;
+			auto Metric = [&](std::string_view Name, uint64 Value) noexcept {
+				try { Report.Metrics.push_back({std::string(Name), Value}); } catch (...) {}
+				try { if (Service.Metrics) Service.Metrics(Name, Value); } catch (...) {}
+			};
+			FBuildContext Context(Action, *Inputs, Cancel, Metric, Policy.MaximumWorkingSetBytes);
 			auto Output = Entry->Function->Build(Context);
-			if (Cancel.IsCancelled()) return Cancelled();
-			if (!Output) return Failure(std::move(Output.error()), Phase);
-			Inputs->clear(); // Output must own its blocks independently of resolved descriptors.
-			if (!Enter(EBuildSessionPhase::Validate)) return Cancelled();
-			auto Valid = ValidateOutput(*Output);
-			if (Cancel.IsCancelled()) return Cancelled();
-			if (!Valid) return Failure(std::move(Valid.error()), Phase);
-			if (Policy.WriteCache)
+			if (Cancel.IsCancelled()) return Canceled();
+			if (!Output) return Failed(std::move(Output.error()), Operation);
+			Inputs->clear();
+			Operation = EBuildOperation::Validate;
+			auto Valid = Validate(*Output);
+			if (Cancel.IsCancelled()) return Canceled();
+			if (!Valid) return Failed(std::move(Valid.error()), Operation);
+
+			if (Policy.StoreOnBuild)
 			{
-				// Every failure in optional persistence leaves the valid shared output intact.
+				const auto Start = std::chrono::steady_clock::now();
 				try
 				{
 					auto Persist = [&]() -> std::expected<void, FCacheError> {
-						if (!Enter(EBuildSessionPhase::Record)) return {};
-						auto Record = Cache.MakeRecord ? Cache.MakeRecord(Action->GetKey(), *Output, Policy.PersistenceLimits)
-							: FCacheRecord::FromOutput(Action->GetKey(), *Output, Policy.PersistenceLimits);
+						Operation = EBuildOperation::Record;
+						auto Record = Service.Cache.MakeRecord ? Service.Cache.MakeRecord(Action.GetKey(), *Output, Policy.PersistenceLimits)
+							: FCacheRecord::FromOutput(Action.GetKey(), *Output, Policy.PersistenceLimits);
 						if (!Record) return std::unexpected(std::move(Record.error()));
-						if (!Enter(EBuildSessionPhase::Encode)) return {};
-						auto Encoded = Cache.Encode ? Cache.Encode(*Record, Policy.MaximumEncodedBytes) : Record->Encode(Policy.MaximumEncodedBytes);
+						Operation = EBuildOperation::Encode;
+						auto Encoded = Service.Cache.Encode ? Service.Cache.Encode(*Record, Policy.MaximumEncodedBytes)
+							: Record->Encode(Policy.MaximumEncodedBytes);
 						if (!Encoded) return std::unexpected(std::move(Encoded.error()));
-						if (Policy.Compress)
+						if (Service.CompressRecords)
 						{
-							if (!Enter(EBuildSessionPhase::Compress)) return {};
-							Encoded = Cache.Compress ? Cache.Compress(*Encoded, Policy.MaximumEncodedBytes)
+							Operation = EBuildOperation::Compress;
+							Encoded = Service.Cache.Compress ? Service.Cache.Compress(*Encoded, Policy.MaximumEncodedBytes)
 								: FCacheRecord::CompressEncoded(*Encoded, Policy.MaximumEncodedBytes);
 							if (!Encoded) return std::unexpected(std::move(Encoded.error()));
 						}
-						if (!Enter(EBuildSessionPhase::Store)) return {};
-						const FCachePutRequest Request{Action->GetKey(), *Encoded, Policy.MaximumEncodedBytes};
-						return Cache.Put ? Cache.Put(Request) : GetCache().Put(Request);
+						Operation = EBuildOperation::CacheStore;
+						Status |= EBuildStatus::CacheStore;
+						const FCachePutRequest Put{Action.GetKey(), *Encoded, Policy.MaximumEncodedBytes};
+						return Service.Cache.Put ? Service.Cache.Put(Put) : GetCache().Put(Put);
 					};
-					if (auto Saved = Persist(); !Saved && !Cancel.IsCancelled()) Issue(std::move(Saved.error()));
+					if (auto Saved = Persist(); !Saved && !Cancel.IsCancelled()) Diagnostic(std::move(Saved.error()));
 				}
-				catch (const std::bad_alloc&) { if (!Cancel.IsCancelled()) Issue({ECacheError::StorageFailure, "Allocation"}); }
+				catch (const std::bad_alloc&)
+				{
+					if (!Cancel.IsCancelled()) Diagnostic({ECacheError::StorageFailure, "Allocation"});
+				}
+				Report.PersistenceNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - Start).count();
 			}
-			if (Cancel.IsCancelled()) return Cancelled();
-			return std::move(*Output);
+			if (Cancel.IsCancelled()) return Canceled();
+			return FBuildCompleteParams::Ok(std::move(*Output), Action.GetKey(), Status, std::move(Report));
 		}
-		catch (const std::bad_alloc&) { return Failure({.Category = EBuildErrorCategory::Unavailable, .Description = "Allocation"}, Phase); }
+		catch (const std::bad_alloc&)
+		{
+			return Failed({.Reason = EBuildFailureReason::ResourceExhaustion,
+				.Description = "Allocation"}, Operation);
+		}
+		catch (...)
+		{
+			return Failed({.Reason = EBuildFailureReason::InternalFailure,
+				.Description = "Build execution threw an exception."}, Operation);
+		}
 	}
 }

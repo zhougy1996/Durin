@@ -10,12 +10,12 @@ namespace Durin::TexturePrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(ETexture2DBuildError Code, std::string Message) -> FBuildError
+		auto Error(ETexture2DBuildError Code, std::string Message) -> FBuildFailure
 		{
-			return {.Category = Code == ETexture2DBuildError::Cancelled ? EBuildErrorCategory::Cancelled
-				: Code == ETexture2DBuildError::InvalidInput ? EBuildErrorCategory::InvalidInput
-				: Code == ETexture2DBuildError::InvalidBuilderProduct ? EBuildErrorCategory::InvalidOutput
-				: EBuildErrorCategory::ProducerFailure,
+			return {.Reason = Code == ETexture2DBuildError::Cancelled ? EBuildFailureReason::InternalFailure
+				: Code == ETexture2DBuildError::InvalidInput ? EBuildFailureReason::InvalidInput
+				: Code == ETexture2DBuildError::InvalidBuilderProduct ? EBuildFailureReason::InvalidOutput
+				: EBuildFailureReason::ProducerFailure,
 				.Description = std::move(Message), .ProducerCode = static_cast<uint32>(Code)};
 		}
 		auto Identity(const FTextureSource& Source) -> FBuildInputReference
@@ -28,7 +28,7 @@ namespace Durin::TexturePrivate
 				if (Entry.Name == Name) return std::get_if<T>(&Entry.Value);
 			return nullptr;
 		}
-		auto ReadSettings(const FBuildAction& Action) -> std::expected<FTexture2DBuildInput, FBuildError>
+		auto ReadSettings(const FBuildAction& Action) -> std::expected<FTexture2DBuildInput, FBuildFailure>
 		{
 			const auto* Usage = Constant<uint64>(Action, "Usage");
 			const auto* Quality = Constant<uint64>(Action, "Quality");
@@ -60,7 +60,7 @@ namespace Durin::TexturePrivate
 		public:
 			explicit FTexture2DResolver(const FTextureSource& Source) : Source(Source.CopyTornOff()) {}
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildError> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
 			{
 				if (Sources.size() != 1 || Sources[0].Name != "Source" || Sources[0].Source != "CapturedSource"
 					|| !ValidateTexture2DBuildSource(Source) || Source.GetIdentity().IsZero())
@@ -68,7 +68,7 @@ namespace Durin::TexturePrivate
 				return std::vector{Identity(Source)};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildError> override
+				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
 			{
 				if (Inputs.size() != 1 || Inputs[0] != Identity(Source))
 					return std::unexpected(Error(ETexture2DBuildError::InvalidInput, "Texture2D source identity changed."));
@@ -101,7 +101,7 @@ namespace Durin::TexturePrivate
 			explicit FTexture2DFunction(ITextureBuildModule& Module) : Module(Module), Version(Module.GetTexture2DBuilderVersion()) {}
 			auto GetDescriptor() const -> FBuildFunctionDescriptor override
 			{ return {"Durin.Texture2D", Version, 1, "Texture2D.Output", 1, FCacheBucket::FromString(Texture2DCacheBucket)}; }
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 			{
 				auto Input = ReadSettings(Context.GetAction());
 				if (!Input) return std::unexpected(std::move(Input.error()));
@@ -145,7 +145,7 @@ namespace Durin::TexturePrivate
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation&) const
-				-> std::expected<void, FBuildError> override
+				-> std::expected<void, FBuildFailure> override
 			{
 				auto Settings = ReadSettings(Action);
 				if (!Settings) return std::unexpected(std::move(Settings.error()));

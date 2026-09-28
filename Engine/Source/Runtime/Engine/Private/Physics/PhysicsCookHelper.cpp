@@ -56,29 +56,27 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy());
 		if (!Definition) return std::unexpected(FPhysicsCookFailure{"Physics build definition is invalid."});
-		auto Session = AssetBuildPrivate::CreateSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
-		if (!Session) return std::unexpected(FPhysicsCookFailure{Session.error().Description});
-		AssetBuildPrivate::FSessionScope Scope{*Session};
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.WriteCache = Input.ShouldPersist(); Options.Policy.Compress = true;
+		Options.Policy.StoreOnBuild = Input.ShouldPersist();
 		Options.Policy.MaximumWorkingSetBytes = Control.MaximumWorkingSetBytes;
 		Options.Policy.InputLimits.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
 		const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, Control.MaximumWorkingSetBytes / 16);
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
-		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (Cancel() || DerivedData::IsBuildCancelled(Completion))
+		auto Completion = AssetBuildPrivate::Build(std::move(*Definition),
+			PhysicsPrivate::MakeCollisionInputResolver(Input), std::move(Options));
+		if (Cancel() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FPhysicsCookFailure::Cancelled());
-		if (!Completion)
+		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = Completion.error();
-			const auto Stage = (Error.Category == DerivedData::EBuildErrorCategory::InvalidInput
-				|| Error.Phase == DerivedData::EBuildSessionPhase::Resolve || Error.Phase == DerivedData::EBuildSessionPhase::Describe)
+			const auto& Error = *Completion.GetFailure();
+			const auto Stage = (Error.Reason == DerivedData::EBuildFailureReason::InvalidInput
+				|| Error.Operation == DerivedData::EBuildOperation::Resolve || Error.Operation == DerivedData::EBuildOperation::Describe)
 				? EPhysicsCookStage::Input : EPhysicsCookStage::Cook;
 			return std::unexpected(FPhysicsCookFailure{Error.Description, Stage});
 		}
-		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion, Input.GetMode(), Input.GetPolicy(), Cancel);
+		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion.GetOutput(), Input.GetMode(), Input.GetPolicy(), Cancel);
 		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
 		if (!Result) return std::unexpected(FPhysicsCookFailure{std::move(Result.error())});
 		return std::move(*Result);

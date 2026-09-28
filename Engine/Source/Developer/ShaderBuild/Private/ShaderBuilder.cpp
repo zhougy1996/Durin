@@ -618,17 +618,24 @@ namespace Durin
 		auto Request = MakeShaderSessionRequest(Options, VariantKey, std::move(Dependencies), std::move(GeneratedSource), std::move(Resolve));
 		if (!Request) return {.Error = std::move(Request.error())};
 		FBuildRequestOptions Execution;
-		Execution.Policy.ForceRebuild = Options.bForceRecompile;
+		Execution.Policy.ForceBuild = Options.bForceRecompile;
 		Execution.Policy.InputLimits.MaximumTotalBytes = ShaderCaptureLimits::MaximumSessionInputBytes;
 		Execution.Policy.InputLimits.MaximumValues = uint32(ShaderCaptureLimits::MaximumFiles + 2);
 		Execution.Policy.OutputLimits.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes;
 		Execution.Policy.PersistenceLimits = Execution.Policy.OutputLimits;
 		Execution.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
-		Execution.Observer.OnMetric = [&](std::string_view Name, uint64 Count) { if (Name == "Shader.Compilations") Compilations.fetch_add(Count, std::memory_order_relaxed); };
-		Execution.Observer.OnCacheHit = [&] { DdcHits.fetch_add(1, std::memory_order_relaxed); };
 		bool Corrupt = false, StoreFailed = false;
-		Execution.Observer.OnCacheIssue = [&](const FBuildAction&, EBuildSessionPhase Phase, const FCacheError& Error) {
-			if (Phase == EBuildSessionPhase::Record || Phase == EBuildSessionPhase::Encode || Phase == EBuildSessionPhase::Compress || Phase == EBuildSessionPhase::Store)
+		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
+		for (const auto& Metric : Completion.GetReport().Metrics)
+			if (Metric.Name == "Shader.Compilations") Compilations.fetch_add(Metric.Value, std::memory_order_relaxed);
+		if (HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit))
+			DdcHits.fetch_add(1, std::memory_order_relaxed);
+		for (const auto& Diagnostic : Completion.GetReport().Diagnostics)
+		{
+			const auto Operation = Diagnostic.Operation;
+			const auto& Error = Diagnostic.Error;
+			if (Operation == EBuildOperation::Record || Operation == EBuildOperation::Encode
+				|| Operation == EBuildOperation::Compress || Operation == EBuildOperation::CacheStore)
 			{
 				if (!StoreFailed) DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
 				StoreFailed = true; DURIN_WARN("Shader DDC persistence failed: {}", Error.Diagnostic);
@@ -638,10 +645,10 @@ namespace Durin
 				if (!Corrupt) DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
 				Corrupt = true; DURIN_WARN("Shader DDC value was rejected: {}", Error.Diagnostic);
 			}
-		};
-		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
-		if (!Completion) return {.Error = ShaderSessionError(Completion.error())};
-		auto Built = ShaderSharedOutput::Assemble(Options, *Completion);
+		}
+		if (Completion.GetStatus() == EStatus::Canceled) return {.Error = FShaderError{.Code = EShaderError::Cancelled}};
+		if (Completion.GetStatus() == EStatus::Error) return {.Error = ShaderSessionError(*Completion.GetFailure())};
+		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput());
 		if (!Built) return {.Error = std::move(Built.error())};
 		AddOutput(OutputKey, *Built);
 		return std::move(*Built);

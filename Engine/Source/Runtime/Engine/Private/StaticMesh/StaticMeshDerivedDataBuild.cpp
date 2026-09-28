@@ -97,14 +97,11 @@ namespace Durin
 		auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()));
 		if (!Definition) return std::unexpected(FStaticMeshBuildFailure{
 			"StaticMesh build definition is invalid.", EStaticMeshBuildStage::Source});
-		auto Session = AssetBuildPrivate::CreateSession(StaticMeshPrivate::MakeRenderInputResolver(Request));
-		if (!Session) return std::unexpected(FStaticMeshBuildFailure{Session.error().Description, EStaticMeshBuildStage::Render});
-		AssetBuildPrivate::FSessionScope SessionScope{*Session};
+		auto Inputs = StaticMeshPrivate::MakeRenderInputResolver(Request);
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.WriteCache = Request.bPersistDerivedData;
-		Options.Policy.Compress = true;
+		Options.Policy.StoreOnBuild = Request.bPersistDerivedData;
 		Options.Policy.MaximumWorkingSetBytes = Control.MaximumWorkingSetBytes;
 		Options.Policy.InputLimits.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
@@ -112,19 +109,19 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
-		auto Completion = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (IsCancelled() || DerivedData::IsBuildCancelled(Completion))
+		auto Completion = AssetBuildPrivate::Build(std::move(*Definition), std::move(Inputs), std::move(Options));
+		if (IsCancelled() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled());
-		if (!Completion)
+		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = Completion.error();
-			const auto Stage = (Error.Phase == DerivedData::EBuildSessionPhase::Resolve
-				|| Error.Phase == DerivedData::EBuildSessionPhase::Describe || Error.Category == DerivedData::EBuildErrorCategory::InvalidInput)
-				? EStaticMeshBuildStage::Source : Error.Category == DerivedData::EBuildErrorCategory::InvalidOutput
+			const auto& Error = *Completion.GetFailure();
+			const auto Stage = (Error.Operation == DerivedData::EBuildOperation::Resolve
+				|| Error.Operation == DerivedData::EBuildOperation::Describe || Error.Reason == DerivedData::EBuildFailureReason::InvalidInput)
+				? EStaticMeshBuildStage::Source : Error.Reason == DerivedData::EBuildFailureReason::InvalidOutput
 				? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render;
 			return std::unexpected(FStaticMeshBuildFailure{Error.Description, Stage});
 		}
-		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion, IsCancelled);
+		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Reconciliation.MaterialSlots, **Product); !Metadata)

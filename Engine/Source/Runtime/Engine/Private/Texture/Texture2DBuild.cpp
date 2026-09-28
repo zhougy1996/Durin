@@ -140,59 +140,48 @@ namespace Durin
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderVersion});
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request);
 		if (!Definition) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput});
-		auto Session = AssetBuildPrivate::CreateSession(TexturePrivate::MakeTexture2DInputResolver(Request.Source));
-		if (!Session) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable,
-			.Description = Session.error().Description});
-		AssetBuildPrivate::FSessionScope SessionScope{*Session};
 		DerivedData::FBuildRequestOptions Options;
-		Options.Policy.WriteCache = Request.bPersistDerivedData;
+		Options.Policy.StoreOnBuild = Request.bPersistDerivedData;
 		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes;
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
 		FTexture2DBuildMetrics Metrics;
-		FCacheKeyProxy Key;
-		bool CacheHit = false;
-		std::optional<std::chrono::steady_clock::time_point> StoreStart;
-		Options.Observer.OnAction = [&](const auto& Action) { Key = FCacheKeyProxy(Action.GetKey()); };
-		Options.Observer.OnCacheHit = [&] { CacheHit = true; };
-		Options.Observer.OnMetric = [&](std::string_view Name, uint64 Value) {
-			if (Name == "Texture2D.MipGenerationNanoseconds") Metrics.MipGenerationNanoseconds = Value;
-			else if (Name == "Texture2D.CompressionNanoseconds") Metrics.CompressionNanoseconds = Value;
-			else if (Name == "Texture2D.PeakIntermediateBytes") Metrics.PeakIntermediateBytes = Value;
-		};
-		Options.Observer.OnPhase = [&](DerivedData::EBuildSessionPhase Phase) {
-			if (Phase == DerivedData::EBuildSessionPhase::Store)
-			{
-				if (ExecutionControl && ExecutionControl->OnPersisting) ExecutionControl->OnPersisting();
-				StoreStart = std::chrono::steady_clock::now();
-			}
-		};
-		auto Result = (*Session)->ExecuteInline(std::move(*Definition), std::move(Options));
-		if (StoreStart) Metrics.PersistenceNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
-			std::chrono::steady_clock::now() - *StoreStart).count();
-		if (ExecutionControl && ExecutionControl->Metrics) *ExecutionControl->Metrics = Metrics;
-		if (DerivedData::IsBuildCancelled(Result))
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-		if (!Result)
+		auto Result = AssetBuildPrivate::Build(std::move(*Definition),
+			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
+		for (const auto& Metric : Result.GetReport().Metrics)
 		{
-			const auto& BuildError = Result.error();
-			if (BuildError.Phase == DerivedData::EBuildSessionPhase::Admission || BuildError.Phase == DerivedData::EBuildSessionPhase::Dispatch)
+			if (Metric.Name == "Texture2D.MipGenerationNanoseconds") Metrics.MipGenerationNanoseconds = Metric.Value;
+			else if (Metric.Name == "Texture2D.CompressionNanoseconds") Metrics.CompressionNanoseconds = Metric.Value;
+			else if (Metric.Name == "Texture2D.PeakIntermediateBytes") Metrics.PeakIntermediateBytes = Metric.Value;
+		}
+		Metrics.PersistenceNanoseconds = Result.GetReport().PersistenceNanoseconds;
+		if (ExecutionControl && ExecutionControl->OnPersisting
+			&& DerivedData::HasBuildStatus(Result.GetBuildStatus(), DerivedData::EBuildStatus::CacheStore))
+			ExecutionControl->OnPersisting();
+		if (ExecutionControl && ExecutionControl->Metrics) *ExecutionControl->Metrics = Metrics;
+		if (Result.GetStatus() == DerivedData::EStatus::Canceled)
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+		if (Result.GetStatus() == DerivedData::EStatus::Error)
+		{
+			const auto& BuildError = *Result.GetFailure();
+			if (BuildError.Operation == DerivedData::EBuildOperation::Admission || BuildError.Operation == DerivedData::EBuildOperation::Dispatch)
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable,
 					.Description = BuildError.Description});
 			FTexture2DBuildError Error{.Code = ETexture2DBuildError::InvalidBuilderProduct};
 			if (BuildError.ProducerCode && *BuildError.ProducerCode <= static_cast<uint32>(ETexture2DBuildError::InvalidPlatformData))
 				Error.Code = static_cast<ETexture2DBuildError>(*BuildError.ProducerCode);
-			else if (BuildError.Category == DerivedData::EBuildErrorCategory::InvalidInput) Error.Code = ETexture2DBuildError::InvalidInput;
+			else if (BuildError.Reason == DerivedData::EBuildFailureReason::InvalidInput) Error.Code = ETexture2DBuildError::InvalidInput;
 			Error.Description = BuildError.Description;
 			return std::unexpected(std::move(Error));
 		}
-		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result, Request.TargetPlatform, Request.TargetProfile);
+		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct, .Description = std::move(Product.error())});
-		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = std::move(Key),
+		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Result.GetCacheKey()),
 			.BuilderVersion = OutIdentity.BuilderVersion, .Metrics = Metrics,
-			.Origin = CacheHit ? ETexture2DBuildProductOrigin::CacheHit : ETexture2DBuildProductOrigin::Rebuilt};
+			.Origin = DerivedData::HasBuildStatus(Result.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
+				? ETexture2DBuildProductOrigin::CacheHit : ETexture2DBuildProductOrigin::Rebuilt};
 		return {};
 #endif
 	}

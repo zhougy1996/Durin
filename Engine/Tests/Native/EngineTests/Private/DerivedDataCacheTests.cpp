@@ -67,7 +67,7 @@ TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 
 	const FCacheGetResult Get = Cache.Get({Key, 1024});
 	ASSERT_TRUE(Get);
-	EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), Second));
+	EXPECT_TRUE(std::ranges::equal((*Get)->GetBytes(), Second));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Directory.Root / "Test" / "Objects" / "aa" / (std::string(32, 'a') + ".bin")));
 }
@@ -87,7 +87,7 @@ TEST(FDerivedDataCacheTests, NormalizesRootAndContainsBinaryKeyPaths)
 		ASSERT_TRUE(Cache.Put({Key, Value, 1024}));
 		const auto Result = Cache.Get({Key, 1024});
 		ASSERT_TRUE(Result);
-		EXPECT_TRUE(std::ranges::equal(Result->GetBytes(), Value));
+		EXPECT_TRUE(std::ranges::equal((*Result)->GetBytes(), Value));
 		const std::string Text = Key.ToString();
 		EXPECT_TRUE(std::filesystem::is_regular_file(Directory.Root / "Test"
 			/ "Nested" / "Objects" / Text.substr(0, 2) / (Text + ".bin")));
@@ -129,8 +129,8 @@ TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 	}
 	{
 		const auto Result = Cache.Get({Key, 3});
-		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.error().Code, ECacheError::Miss);
+		ASSERT_TRUE(Result);
+		EXPECT_FALSE(*Result);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Directory.Root / "escape.bin"));
 }
@@ -170,8 +170,8 @@ TEST(FDerivedDataCacheTests, BucketIsPartOfTheRecordIdentity)
 	const auto SecondGet = Cache.Get({SecondKey, 1});
 	ASSERT_TRUE(FirstGet);
 	ASSERT_TRUE(SecondGet);
-	EXPECT_TRUE(std::ranges::equal(FirstGet->GetBytes(), First));
-	EXPECT_TRUE(std::ranges::equal(SecondGet->GetBytes(), Second));
+	EXPECT_TRUE(std::ranges::equal((*FirstGet)->GetBytes(), First));
+	EXPECT_TRUE(std::ranges::equal((*SecondGet)->GetBytes(), Second));
 }
 
 TEST(FDerivedDataCacheTests, InternsBucketNamesAcrossThreads)
@@ -251,8 +251,8 @@ TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 			EXPECT_TRUE(Cache.Put({Key, Value, 1024}));
 			const FCacheGetResult Get = Cache.Get({Key, 1024});
 			ASSERT_TRUE(Get);
-			EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), First)
-				|| std::ranges::equal(Get->GetBytes(), Second));
+			EXPECT_TRUE(std::ranges::equal((*Get)->GetBytes(), First)
+				|| std::ranges::equal((*Get)->GetBytes(), Second));
 		});
 	for (std::thread& Thread : Threads) Thread.join();
 }
@@ -295,7 +295,7 @@ TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 				Bucket, std::format("{:032x}", Index + 1));
 			if (!Cache.Put({Key, Value, Value.size()})) return false;
 			const FCacheGetResult Get = Cache.Get({Key, Value.size()});
-			return Get && std::ranges::equal(Get->GetBytes(), Value);
+			return Get && *Get && std::ranges::equal((*Get)->GetBytes(), Value);
 		}));
 	}
 	Start.count_down();
@@ -332,8 +332,8 @@ TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 	const Durin::FByteBuffer Value = Bytes({1, 2, 3});
 	{
 		const auto Result = Cache.Get({Key, 1024});
-		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.error().Code, ECacheError::Miss);
+		ASSERT_TRUE(Result);
+		EXPECT_FALSE(*Result);
 	}
 	ASSERT_TRUE(Cache.Put({Key, Value, 1024}));
 	const Durin::FFilePath Path = Directory.Root / "Test" / "Objects"
@@ -357,7 +357,7 @@ TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 	}
 	const auto Get = Cache.Get({Key, 1024});
 	ASSERT_TRUE(Get);
-	EXPECT_TRUE(std::ranges::equal(Get->GetBytes(), Value));
+	EXPECT_TRUE(std::ranges::equal((*Get)->GetBytes(), Value));
 }
 #endif
 

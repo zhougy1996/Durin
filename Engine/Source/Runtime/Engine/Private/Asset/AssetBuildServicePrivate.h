@@ -4,15 +4,10 @@
 
 namespace Durin::AssetBuildPrivate
 {
-	ENGINE_API auto CreateSession(std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver)
-		-> std::expected<std::shared_ptr<DerivedData::FBuildSession>, DerivedData::FBuildError>;
-	// Release only after execution returns. The service retains abandoned handles
-	// until shutdown so concurrent caller destruction cannot escape its drain.
-	ENGINE_API auto ReleaseSession(const std::shared_ptr<DerivedData::FBuildSession>& Session) -> void;
-	struct FSessionScope
-	{
-		std::shared_ptr<DerivedData::FBuildSession> Session;
-		~FSessionScope() { ReleaseSession(Session); }
-	};
+	// Private synchronous bridge for already-admitted owner workers. All asset
+	// families share the persistent service session and supply request-owned input.
+	ENGINE_API auto Build(DerivedData::FBuildDefinition Definition,
+		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
+		DerivedData::FBuildRequestOptions Options = {}) -> DerivedData::FBuildCompleteParams;
 }
 #endif

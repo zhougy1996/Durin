@@ -4,14 +4,59 @@ Summary: Align Durin's derived-data build interfaces and responsibilities with U
 
 Last reviewed: 2026-09-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-29
 
 ## Current Status
 
-Stage 0 records the selected public architecture and migration boundaries.
-Implementation has not started. No build, native-test or performance result is
-claimed by this plan. Stages 1-7 remain open.
+Stages 1-7 are implemented. `IBuild` now owns registration and persistent
+sessions, request inputs are immutable captures with lazy payload resolution,
+completion has constrained Ok/Error/Canceled states, and cache miss is a normal
+optional lookup result. Texture2D, TextureCube, VolumeTexture, StaticMesh,
+physics collision and ShaderBuild use the shared contract without request
+observers or one-shot production sessions.
+
+Validation-pass tracing found that StaticMesh and Shader validation and typed
+assembly traverse the same serialized layout but protect different boundaries:
+the registered function rejects untrusted cache/build output, while assembly
+materializes typed/native views needed by the owning family. Qualification did
+not show evidence that justified adding a public opaque receipt or weakening
+either boundary, so no receipt mechanism was added. This is the bounded outcome
+required by the stage's "only where safety and benefit are proved" rule.
+
+Validation receipts on `macos-xcode-arm64`, preset
+`MacOS-arm64-Debug-DurinEditor`:
+
+- `./DevTool test affected --test-jobs 4 --report` passed the 48-target affected
+  batch, including DerivedDataCache/build sessions, asset compilation, Cook,
+  texture, StaticMesh, physics and Shader coverage.
+- `DerivedDataBuildTests` passed 36/36 focused tests.
+- CPU qualification passed for `DerivedDataTextureQualificationTests`,
+  `StaticMeshBuildQualificationTests` and `ShaderBuildQualificationTests`.
+  Shader's eight-request sample reported cold/DDC/LRU medians of
+  52.8605/2.952/0.751959 ms and 8/0/0 content reads, demonstrating warm-hit
+  source avoidance, versus the frozen 46.522/2.529/0.851 ms baseline. The small
+  absolute cold/DDC increase was investigated against unchanged output size and
+  content-read counts; the qualification has no timing gate and the LRU path
+  improved. Texture2D cold/warm was 940.059/30.371 ms versus
+  891.449/20.647 ms, Cube 389.244/25.986 ms versus 378.694/24.690 ms, and Volume
+  16.089/6.638 ms versus 12.621/4.529 ms; output bytes, hashes, zero-copy and
+  warm source-request counters remained unchanged. StaticMesh render cold/warm
+  improved from 1940.150/857.931 ms to 1258.35/837.83 ms and collision from
+  1637.970/601.540 ms to 1224.78/295.478 ms. These single-host median samples
+  are diagnostic rather than hard timing gates; no correctness, identity,
+  source-resolution or retained-output regression was found.
+- `./DevTool build` completed the shared API `all` target.
+- Exact obsolete-symbol searches across Engine, Sandbox and RoadWeaver found no
+  derived-data observer, public executor, phase, miss-error or one-shot session
+  consumer. Remaining `Submit` and `CreateSession` matches belong to unrelated
+  RHI, asset-manager and Slang APIs or to the new service/test contract.
+- `./DevTool doc validate --scope changed` and
+  `./DevTool doc plan validate --scope all` passed after the final plan update.
+
+No GPU behavior changed or GPU qualification was required. Windows and other
+platform compilation remain deferred platform coverage; no result is inferred
+for those hosts.
 
 The implemented contract remains the
 [Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md) until each
@@ -273,32 +318,32 @@ continues.
 
 ### Stage 1: Introduce aligned core value and completion types
 
-- [ ] Inventory every affected symbol and consumer across the source and test
+- [x] Inventory every affected symbol and consumer across the source and test
   roots of all projects declared in `Durin.dworkspace`.
-- [ ] Add immutable `FBuildInputs`, `FBuildPolicy`, three-state completion,
+- [x] Add immutable `FBuildInputs`, `FBuildPolicy`, three-state completion,
   `FBuildAdmissionError`, stable execution failures and build-status flags.
-- [ ] Separate cache miss from backend failure and preserve binary codec result
+- [x] Separate cache miss from backend failure and preserve binary codec result
   contracts.
-- [ ] Add constrained factories/builders and tests for invalid state prevention,
+- [x] Add constrained factories/builders and tests for invalid state prevention,
   canonical ordering, limits and completion invariants.
-- [ ] Keep existing action bytes, keys and family output schemas unchanged.
+- [x] Keep existing action bytes, keys and family output schemas unchanged.
 
 Depends on Stage 0. Complete when the new value types and behavior matrix have
 focused tests and no new API permits contradictory status/output/failure state.
 
 ### Stage 2: Establish `IBuild` and persistent sessions
 
-- [ ] Add the `IBuild` service, registry/factory ownership and persistent session
+- [x] Add the `IBuild` service, registry/factory ownership and persistent session
   creation at explicit authoring bootstrap.
-- [ ] Change session `Build` to accept a definition or action plus optional
+- [x] Change session `Build` to accept a definition or action plus optional
   request inputs, policy and completion.
-- [ ] Convert input resolution to session-level metadata/data services and prove
+- [x] Convert input resolution to session-level metadata/data services and prove
   supplied request inputs bypass unnecessary resolver work.
-- [ ] Centralize admission, cancellation arbitration, exception translation,
+- [x] Centralize admission, cancellation arbitration, exception translation,
   shutdown and drain accounting in the service/session path.
-- [ ] Provide a private synchronous bridge for already-admitted owner workers
+- [x] Provide a private synchronous bridge for already-admitted owner workers
   without creating a second scheduler or public execution protocol.
-- [ ] Add lifecycle, inline-completion, rejection, dropped-work, reentrancy and
+- [x] Add lifecycle, inline-completion, rejection, dropped-work, reentrancy and
   shutdown tests before migrating family production callers.
 
 Depends on Stage 1. Complete when one persistent test session safely executes
@@ -307,15 +352,15 @@ resolver closure.
 
 ### Stage 3: Migrate the texture families and remove observers
 
-- [ ] Migrate Texture2D as the first complete vertical slice through `IBuild`,
+- [x] Migrate Texture2D as the first complete vertical slice through `IBuild`,
   persistent session, request inputs, policy and structured completion.
-- [ ] Migrate TextureCube and VolumeTexture through the same family boundary.
-- [ ] Replace `OnAction` and `OnCacheHit` captures with completion cache key and
+- [x] Migrate TextureCube and VolumeTexture through the same family boundary.
+- [x] Replace `OnAction` and `OnCacheHit` captures with completion cache key and
   build-status flags.
-- [ ] Remove phase-order classification and centralize texture failure mapping.
-- [ ] Route metrics and cache diagnostics through service-level sinks; remove all
+- [x] Remove phase-order classification and centralize texture failure mapping.
+- [x] Route metrics and cache diagnostics through service-level sinks; remove all
   texture request observers and observer-dependent tests.
-- [ ] Prove warm hits perform no source-payload resolution and cold builds retain
+- [x] Prove warm hits perform no source-payload resolution and cold builds retain
   immutable captured input after live-object mutation.
 
 Depends on Stage 2. Complete when all three texture families use the aligned API
@@ -324,31 +369,31 @@ and payload schemas unless separately recorded.
 
 ### Stage 4: Migrate StaticMesh render and physics collision
 
-- [ ] Replace request-bound Engine sessions with persistent build-service sessions
+- [x] Replace request-bound Engine sessions with persistent build-service sessions
   and request-owned mesh/collision inputs.
-- [ ] Preserve source/reconciliation identity separation and editor-gated direct
+- [x] Preserve source/reconciliation identity separation and editor-gated direct
   runtime physics behavior.
-- [ ] Translate completion once into typed family outcomes without inspecting
+- [x] Translate completion once into typed family outcomes without inspecting
   generic phase ordinals.
-- [ ] Preserve working-set admission, cancellation, generation checks and typed
+- [x] Preserve working-set admission, cancellation, generation checks and typed
   publication ownership.
-- [ ] Qualify cold, warm, corrupt, cancellation, Cook and shutdown paths.
+- [x] Qualify cold, warm, corrupt, cancellation, Cook and shutdown paths.
 
 Depends on Stage 3. Complete when Engine has no production one-shot DDC sessions
 and both families use the same aligned completion and reporting contract.
 
 ### Stage 5: Migrate ShaderBuild and retire duplicate scheduling
 
-- [ ] Move captured shader closures into request inputs or the shared session
+- [x] Move captured shader closures into request inputs or the shared session
   resolver according to their actual ownership; retain bounded filesystem and
   dependency-content verification.
-- [ ] Reuse a persistent ShaderBuild session and remove the retained vector of
+- [x] Reuse a persistent ShaderBuild session and remove the retained vector of
   completed one-shot sessions.
-- [ ] Preserve ShaderBuild's existing single-flight, LRU, owner scheduling and
+- [x] Preserve ShaderBuild's existing single-flight, LRU, owner scheduling and
   waiter cancellation without duplicating them in DerivedDataCache.
-- [ ] Replace observer phase classification with build status and execution-report
+- [x] Replace observer phase classification with build status and execution-report
   counters, preserving compiler-domain diagnostics.
-- [ ] Qualify compile, DDC, LRU, corruption, force-build, cancellation, reload and
+- [x] Qualify compile, DDC, LRU, corruption, force-build, cancellation, reload and
   shutdown behavior.
 
 Depends on Stage 4. Complete when all six producer families use the same core
@@ -356,16 +401,16 @@ interface and DDC owns no second shader scheduling policy.
 
 ### Stage 6: Remove legacy surfaces and proven duplicate work
 
-- [ ] Delete `FBuildRunObserver`, public `ExecuteBuildRequest`, `ExecuteInline`,
+- [x] Delete `FBuildRunObserver`, public `ExecuteBuildRequest`, `ExecuteInline`,
   per-request cache-operation overrides and unused generic `Submit` compatibility
   surfaces superseded by aligned `Build`.
-- [ ] Search every declared project for old cancellation errors, observer hooks,
+- [x] Search every declared project for old cancellation errors, observer hooks,
   phase-order mappings and request-bound session creation.
-- [ ] Trace validation passes and remove only equivalent repeated scans, starting
+- [x] Trace validation passes and remove only equivalent repeated scans, starting
   with StaticMesh and Shader.
-- [ ] Add bound validation receipts or trusted family assembly entries only where
+- [x] Add bound validation receipts or trusted family assembly entries only where
   scan-count and corruption tests prove safety and benefit.
-- [ ] Measure cold and warm build overhead against the pre-migration baseline;
+- [x] Measure cold and warm build overhead against the pre-migration baseline;
   investigate regressions before closing the stage.
 
 Depends on Stage 5. Complete when no production or test consumer requires the
@@ -374,17 +419,17 @@ evidence proves the intended validation reduction.
 
 ### Stage 7: Qualify and publish the implemented contract
 
-- [ ] Update the owning build protocol and affected family contract documents;
+- [x] Update the owning build protocol and affected family contract documents;
   keep implementation stages and historical rationale in this plan.
-- [ ] Run relevant DerivedDataCache, build-session, texture, StaticMesh, physics,
+- [x] Run relevant DerivedDataCache, build-session, texture, StaticMesh, physics,
   shader, asset-compilation and Cook native tests under the selected host profile.
-- [ ] Validate affected project targets and complete the required shared Engine
+- [x] Validate affected project targets and complete the required shared Engine
   API `all` build.
-- [ ] Run changed-document and all-plan validation and record exact receipts,
+- [x] Run changed-document and all-plan validation and record exact receipts,
   host limitations and deferred platform gaps.
-- [ ] Search every `Durin.dworkspace` project for obsolete API symbols and direct
+- [x] Search every `Durin.dworkspace` project for obsolete API symbols and direct
   cache/build bypasses.
-- [ ] Commit isolated changes with exact `Plan` and `Stage` trailers and mark the
+- [x] Commit isolated changes with exact `Plan` and `Stage` trailers and mark the
   plan complete only after all gates pass.
 
 Depends on Stage 6. Follow [build guidance](../Agents/BuildAndRun.md),

@@ -20,12 +20,13 @@ namespace Durin
 			const auto Found = std::ranges::lower_bound(Input.Values, Id, {}, &FBuildValue::Id);
 			return Found != Input.Values.end() && Found->Id == Id ? &*Found : nullptr;
 		}
-		auto Boundary(FShaderError Error, EBuildSessionPhase Phase) -> FBuildError
+		auto Boundary(FShaderError Error, EBuildOperation Operation) -> FBuildFailure
 		{
-			return {Phase, Error.Code == EShaderError::Cancelled ? EBuildErrorCategory::Cancelled : EBuildErrorCategory::ProducerFailure,
-				FormatShaderError(Error), uint32(Error.Code), FXxHash128{uint64(Error.GetSemanticFingerprint()), 0}};
+			return {.Reason = Error.Code == EShaderError::Cancelled ? EBuildFailureReason::InternalFailure : EBuildFailureReason::ProducerFailure,
+				.Operation = Operation, .Description = FormatShaderError(Error), .ProducerCode = uint32(Error.Code),
+				.DiagnosticIdentity = FXxHash128{uint64(Error.GetSemanticFingerprint()), 0}};
 		}
-		auto Invalid(EBuildSessionPhase Phase) -> FBuildError
+		auto Invalid(EBuildOperation Phase) -> FBuildFailure
 		{ return Boundary({.Code = EShaderError::CaptureInputInvalid}, Phase); }
 		auto Descriptor() -> FBuildFunctionDescriptor
 		{ return {"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, FCacheBucket::FromString("Shaders/CompiledOutput")}; }
@@ -96,26 +97,26 @@ namespace Durin
 			std::optional<std::string> Generated;
 			FShaderArtifactResolver Capture;
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildError> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
 			{
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Describe));
-				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid(EBuildSessionPhase::Describe));
+				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Describe));
+				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid(EBuildOperation::Describe));
 				return std::vector{Identity};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildError> override
+				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
 			{
-				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid(EBuildSessionPhase::Resolve));
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Resolve));
+				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid(EBuildOperation::Resolve));
+				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Resolve));
 				auto Artifacts = Capture();
-				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error()), EBuildSessionPhase::Resolve));
-				if (!*Artifacts) return std::unexpected(Invalid(EBuildSessionPhase::Resolve));
+				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error()), EBuildOperation::Resolve));
+				if (!*Artifacts) return std::unexpected(Invalid(EBuildOperation::Resolve));
 				std::map<std::string, std::pair<std::string, const FSharedByteBuffer*>> Files;
 				for (const auto& [Path, Bytes] : (*Artifacts)->GetFiles())
 				{
 					const auto Name = Portable(Path);
 					if (!Files.emplace(Name, std::pair{Name + (Path.ends_with(".slang") ? ".slang" : ""), &Bytes}).second)
-						return std::unexpected(Invalid(EBuildSessionPhase::Resolve));
+						return std::unexpected(Invalid(EBuildOperation::Resolve));
 				}
 				FBuildInput Input{.Identity = Identity};
 				Input.Values.reserve(Dependencies.size() + 1 + Generated.has_value());
@@ -123,20 +124,20 @@ namespace Durin
 				Metadata.WriteU32(uint32(Dependencies.size())); uint64 Bytes = 0;
 				for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Resolve));
+					if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Resolve));
 					const auto& Dependency = Dependencies[Index]; const auto Found = Files.find(Dependency.VirtualPath);
-					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}, EBuildSessionPhase::Resolve));
+					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}, EBuildOperation::Resolve));
 					const auto& Data = *Found->second.second;
 					if (Data.size() > ShaderCaptureLimits::MaximumFileBytes || Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes
-						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid(EBuildSessionPhase::Resolve));
+						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid(EBuildOperation::Resolve));
 					Bytes += Data.size();
-					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}, EBuildSessionPhase::Resolve));
+					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}, EBuildOperation::Resolve));
 					Metadata.WriteString(Found->second.first);
 					Input.Values.push_back({Indexed("File/", Index), Data});
 				}
 				if (Generated)
 					Input.Values.push_back({"Generated", FSharedByteBuffer::Copy(std::as_bytes(std::span(Generated->data(), Generated->size())))});
-				if (Metadata.HasError()) return std::unexpected(Invalid(EBuildSessionPhase::Resolve));
+				if (Metadata.HasError()) return std::unexpected(Invalid(EBuildOperation::Resolve));
 				Input.Values.push_back({"FileTable", FSharedByteBuffer::Take(Metadata.TakeBytes())});
 				return std::vector{std::move(Input)};
 			}
@@ -153,41 +154,41 @@ namespace Durin
 			explicit FFunction(std::shared_ptr<FCompilerService> InService) : Service(std::move(InService)) {}
 			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return Descriptor(); }
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-				-> std::expected<void, FBuildError> override
+				-> std::expected<void, FBuildFailure> override
 			{
-				auto Options = ReadOptions(Action.GetConstants()); if (!Options) return std::unexpected(Invalid(EBuildSessionPhase::Validate));
+				auto Options = ReadOptions(Action.GetConstants()); if (!Options) return std::unexpected(Invalid(EBuildOperation::Validate));
 				Options->Bind(); auto Valid = ShaderSharedOutput::Validate(Options->Value, Output, [&] { return Cancel.IsCancelled(); });
-				if (!Valid) return std::unexpected(Boundary(std::move(Valid.error()), EBuildSessionPhase::Validate));
+				if (!Valid) return std::unexpected(Boundary(std::move(Valid.error()), EBuildOperation::Validate));
 				return {};
 			}
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildError> override
+			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 			{
 				auto Options = ReadOptions(Context.GetAction().GetConstants());
-				if (!Options || Context.GetInputs().size() != 1 || Context.GetAction().GetInputs().size() != 1) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+				if (!Options || Context.GetInputs().size() != 1 || Context.GetAction().GetInputs().size() != 1) return std::unexpected(Invalid(EBuildOperation::Build));
 				Options->Bind(); const auto& Input = Context.GetInputs()[0];
-				if (Input.Identity != Context.GetAction().GetInputs()[0] || Input.Identity != Reference({.Value = Input.Identity.Identity})) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+				if (Input.Identity != Context.GetAction().GetInputs()[0] || Input.Identity != Reference({.Value = Input.Identity.Identity})) return std::unexpected(Invalid(EBuildOperation::Build));
 				const auto* Table = FindInputValue(Input, "FileTable");
-				if (!Input.Metadata.IsEmpty() || !Table) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+				if (!Input.Metadata.IsEmpty() || !Table) return std::unexpected(Invalid(EBuildOperation::Build));
 				FBinaryReader Reader(Table->Data.GetBytes(), {.MaximumTotalBytes = ShaderCaptureLimits::MaximumFileTableBytes}); uint32 Count = 0;
-				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return std::unexpected(Invalid(EBuildOperation::Build));
 				std::map<std::string, FSharedByteBuffer> Files; FShaderMetaData Meta;
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < Count; ++Index)
 				{
-					if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Build));
+					if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Build));
 					std::string Path;
 					if (!Reader.ReadString(Path, ShaderCaptureLimits::MaximumPathBytes) || Path.empty() || !Path.starts_with('/')
-						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return std::unexpected(Invalid(EBuildOperation::Build));
 					const auto* Found = FindInputValue(Input, Indexed("File/", Index));
 					if (!Found || Found->Data.size() > ShaderCaptureLimits::MaximumFileBytes
-						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return std::unexpected(Invalid(EBuildOperation::Build));
 					Bytes += Found->Data.size();
 					const auto Name = Path.ends_with(".slang") ? Path.substr(0, Path.size() - 6) : Path;
-					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return std::unexpected(Invalid(EBuildOperation::Build));
 					Meta.PortableDependencies.push_back({Name, FXxHash64::HashBuffer(Found->Data.GetBytes())});
-					if (!Files.emplace(Path, Found->Data).second) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+					if (!Files.emplace(Path, Found->Data).second) return std::unexpected(Invalid(EBuildOperation::Build));
 				}
-				if (!Reader.IsAtEnd()) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+				if (!Reader.IsAtEnd()) return std::unexpected(Invalid(EBuildOperation::Build));
 				FXxHash128Builder Tree; UpdateCanonicalHashString(Tree, "DurinShaderPortableSourceTree_v1");
 				UpdateCanonicalHash(Tree, uint64(Meta.PortableDependencies.size()));
 				for (const auto& Dependency : Meta.PortableDependencies) { UpdateCanonicalHashString(Tree, Dependency.VirtualPath); UpdateCanonicalHash(Tree, Dependency.ContentHash); }
@@ -196,7 +197,7 @@ namespace Durin
 				if (Options->Generated)
 				{
 					const auto* Found = FindInputValue(Input, "Generated");
-					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return std::unexpected(Invalid(EBuildSessionPhase::Build));
+					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return std::unexpected(Invalid(EBuildOperation::Build));
 					Generated.assign(reinterpret_cast<const char*>(Found->Data.data()), Found->Data.size());
 					FXxHash128Builder Combined; Combined.Update("DurinGeneratedShaderSourceTree_v1");
 					UpdateCanonicalHash(Combined, FXxHash128::HashBuffer(Generated)); UpdateCanonicalHash(Combined, Meta.SourceTreeSignature);
@@ -204,16 +205,16 @@ namespace Durin
 				}
 				FShaderVariantKey Variant; ShaderCompileUtilities::BuildVariantKey(Options->Value.VirtualShaderPath, Meta, Options->Value.Macros, Options->Value.CompilerEnvironment, Variant);
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
-					return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict}, EBuildSessionPhase::Build));
+					return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict}, EBuildOperation::Build));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
-				if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Build));
+				if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Build));
 				Context.ReportMetric("Shader.Compilations", 1);
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
-				if (!Product) return std::unexpected(Boundary(std::move(Product.Error), EBuildSessionPhase::Build));
+				if (!Product) return std::unexpected(Boundary(std::move(Product.Error), EBuildOperation::Build));
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
-				if (!Output) return std::unexpected(Boundary(std::move(Output.error()), EBuildSessionPhase::Build));
+				if (!Output) return std::unexpected(Boundary(std::move(Output.error()), EBuildOperation::Build));
 				return std::move(*Output);
 			}
 		private: std::shared_ptr<FCompilerService> Service;
@@ -268,62 +269,74 @@ namespace Durin
 		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Variant);
 		Resolver->Dependencies = std::move(Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Resolve);
-		return FShaderSessionRequest{std::move(*Definition), std::move(Resolver)};
+		auto Inputs = FBuildInputs::TryCreate(Definition->GetSources(), std::move(Resolver));
+		if (!Inputs) return std::unexpected(ShaderSessionError(Inputs.error()));
+		return FShaderSessionRequest{std::move(*Definition), std::move(*Inputs)};
 	}
 
-	auto ShaderSessionError(const FBuildError& Error) -> FShaderError
+	auto ShaderSessionError(const FBuildFailure& Error) -> FShaderError
 	{
-		if (Error.Category == EBuildErrorCategory::Cancelled) return {.Code = EShaderError::Cancelled};
+		if (Error.ProducerCode && *Error.ProducerCode == uint32(EShaderError::Cancelled)) return {.Code = EShaderError::Cancelled};
 		if (Error.ProducerCode && *Error.ProducerCode > uint32(EShaderError::None)
 			&& *Error.ProducerCode <= uint32(EShaderError::MissingResourceCode) && Error.DiagnosticIdentity)
 			return FShaderError::FromBuildDiagnostic(EShaderError(*Error.ProducerCode), Error.Description, size_t(Error.DiagnosticIdentity->HashLow));
 		return FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Error.Description,
-			uint64(Error.Phase) * 256 + uint64(Error.Category));
+			uint64(Error.Operation) * 256 + uint64(Error.Reason));
 	}
 	struct FShaderBuildService::FState
 	{
 		std::shared_ptr<FCompilerService> Compiler = std::make_shared<FCompilerService>();
 		std::string Environment = Compiler->Environment;
-		FBuildRegistry Registry;
-		FBuildRegistrySnapshot Snapshot;
+		std::shared_ptr<IBuild> Service;
+		std::shared_ptr<FBuildSession> Session;
 		std::mutex Mutex;
-		std::condition_variable Finished;
 		bool Closed = false;
-		std::vector<std::shared_ptr<FBuildSession>> Sessions;
 	};
 	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook) : State(std::make_unique<FState>())
 	{
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
-		const auto Registered = State->Registry.Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
-		auto Snapshot = State->Registry.Freeze(); require(Snapshot); State->Snapshot = std::move(*Snapshot);
+		State->Service = CreateBuild({.CompressRecords = true});
+		const auto Registered = State->Service->Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
+		auto Session = State->Service->CreateSession(); require(Session); State->Session = std::move(*Session);
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
-	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options) -> FBuildResult
+	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options) -> FBuildCompleteParams
 	{
-		std::shared_ptr<FBuildSession> Session;
+		std::shared_ptr<FBuildSession> Persistent;
 		{
 			std::lock_guard Lock(State->Mutex);
-			if (State->Closed) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildSessionPhase::Admission));
-			Session = std::make_shared<FBuildSession>(State->Snapshot, std::move(Request.Resolver)); State->Sessions.push_back(Session);
+			if (State->Closed || !State->Session)
+				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None, {});
+			Persistent = State->Session;
 		}
-		auto Retire = [&] {
-			Session->Close(); require(Session->Drain() == EBuildDrainResult::Drained);
-			std::lock_guard Lock(State->Mutex); std::erase(State->Sessions, Session); State->Finished.notify_all();
-		};
-		try
-		{
-			auto Result = Session->ExecuteInline(std::move(Request.Definition), std::move(Options));
-			Retire(); return Result;
-		}
-		catch (...) { Retire(); throw; }
+		std::optional<FBuildCompleteParams> Completion;
+		auto Admitted = Persistent->Build(std::move(Request.Definition), [&](auto Result) {
+			Completion = std::move(Result);
+		}, std::move(Request.Inputs), std::move(Options));
+		if (!Admitted) return FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InputUnavailable,
+			.Operation = EBuildOperation::Admission, .Description = std::move(Admitted.error().Description)},
+			std::nullopt, EBuildStatus::None, {});
+		if (!Completion) return FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InternalFailure,
+			.Operation = EBuildOperation::Dispatch, .Description = "Shader build session did not complete inline."},
+			std::nullopt, EBuildStatus::None, {});
+		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void
 	{
-		std::vector<std::shared_ptr<FBuildSession>> Sessions;
-		{ std::lock_guard Lock(State->Mutex); State->Closed = true; Sessions = State->Sessions; }
-		for (const auto& Session : Sessions) Session->Close();
-		for (const auto& Session : Sessions) require(Session->Drain() == EBuildDrainResult::Drained);
-		std::unique_lock Lock(State->Mutex); State->Finished.wait(Lock, [&] { return State->Sessions.empty(); });
+		std::shared_ptr<IBuild> Retired;
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (State->Closed) return;
+			State->Closed = true;
+			Retired = State->Service;
+		}
+		if (Retired)
+		{
+			Retired->Close();
+			require(Retired->Drain() == EBuildDrainResult::Drained);
+		}
+		std::lock_guard Lock(State->Mutex);
+		State->Session.reset(); State->Service.reset();
 	}
 }

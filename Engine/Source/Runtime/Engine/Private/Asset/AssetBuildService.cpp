@@ -17,65 +17,76 @@ namespace Durin
 		std::mutex ServiceMutex;
 		std::mutex ShutdownMutex;
 		bool Stopping = false;
-		std::optional<DerivedData::FBuildRegistrySnapshot> Registry;
-		std::vector<std::shared_ptr<DerivedData::FBuildSession>> Sessions;
+		std::shared_ptr<DerivedData::IBuild> Service;
+		std::shared_ptr<DerivedData::FBuildSession> Session;
+		auto Failure(std::string Description, DerivedData::EBuildOperation Operation = DerivedData::EBuildOperation::Admission)
+			-> DerivedData::FBuildCompleteParams
+		{
+			return DerivedData::FBuildCompleteParams::Error({
+				.Reason = DerivedData::EBuildFailureReason::InputUnavailable,
+				.Operation = Operation, .Description = std::move(Description)},
+				std::nullopt, DerivedData::EBuildStatus::None, {});
+		}
 	}
 	auto InitializeAssetBuildService() -> bool
 	{
 		std::lock_guard Lock(ServiceMutex);
 		if (Stopping) return false;
-		if (Registry) return true;
+		if (Service) return true;
 		auto* Textures = ITextureBuildModule::Get();
 		auto* Meshes = IMeshBuilderModule::Get();
 		if (!Textures || !Meshes) return false;
-		DerivedData::FBuildRegistry Mutable;
-		if (!Mutable.Register(TexturePrivate::MakeTexture2DBuildFunction(*Textures))
-			|| !Mutable.Register(TexturePrivate::MakeVolumeTextureBuildFunction(*Textures))
-			|| !Mutable.Register(TexturePrivate::MakeTextureCubeBuildFunction(*Textures))
-			|| !Mutable.Register(StaticMeshPrivate::MakeRenderBuildFunction(*Meshes))
-			|| !Mutable.Register(PhysicsPrivate::MakeCollisionBuildFunction())) return false;
-		auto Frozen = Mutable.Freeze();
-		if (!Frozen) return false;
-		Registry = std::move(*Frozen);
+		auto Created = DerivedData::CreateBuild({.CompressRecords = true});
+		if (!Created->Register(TexturePrivate::MakeTexture2DBuildFunction(*Textures))
+			|| !Created->Register(TexturePrivate::MakeVolumeTextureBuildFunction(*Textures))
+			|| !Created->Register(TexturePrivate::MakeTextureCubeBuildFunction(*Textures))
+			|| !Created->Register(StaticMeshPrivate::MakeRenderBuildFunction(*Meshes))
+			|| !Created->Register(PhysicsPrivate::MakeCollisionBuildFunction())) return false;
+		auto Persistent = Created->CreateSession();
+		if (!Persistent) return false;
+		Service = std::move(Created);
+		Session = std::move(*Persistent);
 		return true;
 	}
-	auto AssetBuildPrivate::CreateSession(std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver)
-		-> std::expected<std::shared_ptr<DerivedData::FBuildSession>, DerivedData::FBuildError>
+	auto AssetBuildPrivate::Build(DerivedData::FBuildDefinition Definition,
+		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
+		DerivedData::FBuildRequestOptions Options) -> DerivedData::FBuildCompleteParams
 	{
-		std::lock_guard Lock(ServiceMutex);
-		if (!Registry || Stopping || !Resolver)
-			return std::unexpected(DerivedData::FBuildError{.Category = DerivedData::EBuildErrorCategory::Unavailable,
-				.Description = "Asset build service is not accepting requests."});
-		auto Session = std::make_shared<DerivedData::FBuildSession>(*Registry, std::move(Resolver));
-		Sessions.push_back(Session);
-		return Session;
-	}
-	auto AssetBuildPrivate::ReleaseSession(const std::shared_ptr<DerivedData::FBuildSession>& Session) -> void
-	{
-		if (Session->Drain() != DerivedData::EBuildDrainResult::Drained) std::terminate();
-		std::lock_guard Lock(ServiceMutex);
-		std::erase(Sessions, Session);
+		if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+			std::nullopt, DerivedData::EBuildStatus::None, {});
+		std::shared_ptr<DerivedData::FBuildSession> Persistent;
+		{
+			std::lock_guard Lock(ServiceMutex);
+			if (!Service || !Session || Stopping) return Failure("Asset build service is not accepting requests.");
+			Persistent = Session;
+		}
+		auto Inputs = DerivedData::FBuildInputs::TryCreate(Definition.GetSources(), std::move(Resolver), Options.Cancellation);
+		if (!Inputs) return DerivedData::FBuildCompleteParams::Error(std::move(Inputs.error()),
+			std::nullopt, DerivedData::EBuildStatus::None, {});
+		std::optional<DerivedData::FBuildCompleteParams> Completion;
+		auto Admitted = Persistent->Build(std::move(Definition), [&](auto Value) {
+			Completion = std::move(Value);
+		}, std::move(*Inputs), std::move(Options));
+		if (!Admitted) return Failure(std::move(Admitted.error().Description));
+		if (!Completion) return Failure("Asset build session did not complete inline.", DerivedData::EBuildOperation::Dispatch);
+		return std::move(*Completion);
 	}
 	auto ShutdownAssetBuildService() -> void
 	{
 		std::lock_guard ShutdownLock(ShutdownMutex);
-		std::vector<std::shared_ptr<DerivedData::FBuildSession>> Pending;
+		std::shared_ptr<DerivedData::IBuild> Retired;
 		{
 			std::lock_guard Lock(ServiceMutex);
-			if (!Registry) return;
+			if (!Service) return;
 			Stopping = true;
-			Pending = Sessions;
+			Retired = Service;
 		}
-		for (const auto& Session : Pending) Session->Close();
-		for (const auto& Session : Pending)
-			if (Session->Drain() != DerivedData::EBuildDrainResult::Drained) std::terminate();
-		std::optional<DerivedData::FBuildRegistrySnapshot> Retired;
+		Retired->Close();
+		if (Retired->Drain() != DerivedData::EBuildDrainResult::Drained) std::terminate();
 		{
 			std::lock_guard Lock(ServiceMutex);
-			Retired = std::move(Registry); Registry.reset(); Sessions.clear();
+			Session.reset(); Service.reset(); Stopping = false;
 		}
-		Retired.reset();
-		{ std::lock_guard Lock(ServiceMutex); Stopping = false; }
 	}
 }
 #else
