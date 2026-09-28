@@ -10,8 +10,12 @@ namespace Durin
 	{
 		struct FMaterialRenderProxyAtomicCounters
 		{
+			std::atomic<uint64> QueuedPublicationCount = 0;
+			std::atomic<uint64> QueuedPublicationWaveCount = 0;
 			std::atomic<uint64> PublicationCount = 0;
 			std::atomic<uint64> CoalescedPublicationCount = 0;
+			std::atomic<uint64> PendingPublicationCount = 0;
+			std::atomic<uint64> CopiedMaterialPayloadBytes = 0;
 			std::atomic<uint64> ResolutionCacheHitCount = 0;
 			std::atomic<uint64> ResolutionCacheMissCount = 0;
 			std::atomic<uint64> StalePublicationCount = 0;
@@ -20,6 +24,16 @@ namespace Durin
 		};
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
+
+		auto GetMaterialPayloadBytes(const FMaterialLocalRenderLayer& Layer) -> uint64
+		{
+			uint64 Bytes = 0;
+			for (const auto& Parameter : Layer.Parameters)
+				Bytes += std::visit([](const auto& Value) -> uint64 {
+					return sizeof(Value);
+				}, Parameter.Value);
+			return Bytes;
+		}
 
 		auto ApplyStaticProperties(
 			FMaterialRenderData& RenderData,
@@ -42,8 +56,12 @@ namespace Durin
 	auto GetMaterialRenderProxyCounters() -> FMaterialRenderProxyCounters
 	{
 		return {
+			.QueuedPublicationCount = GMaterialRenderProxyCounters.QueuedPublicationCount.load(),
+			.QueuedPublicationWaveCount = GMaterialRenderProxyCounters.QueuedPublicationWaveCount.load(),
 			.PublicationCount = GMaterialRenderProxyCounters.PublicationCount.load(),
 			.CoalescedPublicationCount = GMaterialRenderProxyCounters.CoalescedPublicationCount.load(),
+			.PendingPublicationCount = GMaterialRenderProxyCounters.PendingPublicationCount.load(),
+			.CopiedMaterialPayloadBytes = GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.load(),
 			.ResolutionCacheHitCount = GMaterialRenderProxyCounters.ResolutionCacheHitCount.load(),
 			.ResolutionCacheMissCount = GMaterialRenderProxyCounters.ResolutionCacheMissCount.load(),
 			.StalePublicationCount = GMaterialRenderProxyCounters.StalePublicationCount.load(),
@@ -54,8 +72,13 @@ namespace Durin
 
 	auto ResetMaterialRenderProxyCounters() -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GMaterialRenderProxyCounters.QueuedPublicationCount.store(0);
+		GMaterialRenderProxyCounters.QueuedPublicationWaveCount.store(0);
 		GMaterialRenderProxyCounters.PublicationCount.store(0);
 		GMaterialRenderProxyCounters.CoalescedPublicationCount.store(0);
+		GMaterialRenderProxyCounters.PendingPublicationCount.store(0);
+		GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheHitCount.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.store(0);
 		GMaterialRenderProxyCounters.StalePublicationCount.store(0);
@@ -98,6 +121,7 @@ namespace Durin
 		if (Publication.LocalVersion == 0) return false;
 
 		bool bNeedsRenderCommand = false;
+		uint64 PayloadBytes = 0;
 		{
 			std::lock_guard Lock(PublicationMutex);
 			if (PendingPublication.has_value()
@@ -109,13 +133,17 @@ namespace Durin
 			}
 			else
 			{
+				PayloadBytes = GetMaterialPayloadBytes(Publication.LocalLayer);
 				if (PendingPublication.has_value())
 				{
 					GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
 				}
 				PendingPublication = std::move(Publication);
+				GMaterialRenderProxyCounters.QueuedPublicationCount.fetch_add(1);
+				GMaterialRenderProxyCounters.CopiedMaterialPayloadBytes.fetch_add(PayloadBytes);
 				if (!bPublicationCommandQueued)
 				{
+					GMaterialRenderProxyCounters.PendingPublicationCount.fetch_add(1);
 					bPublicationCommandQueued = true;
 					bNeedsRenderCommand = true;
 				}
@@ -123,6 +151,7 @@ namespace Durin
 		}
 
 		if (!bNeedsRenderCommand) return true;
+		GMaterialRenderProxyCounters.QueuedPublicationWaveCount.fetch_add(1);
 
 		struct FApplyPendingMaterialRenderProxyCommand
 		{
@@ -154,6 +183,7 @@ namespace Durin
 			}
 			Publication = std::move(*PendingPublication);
 			PendingPublication.reset();
+			GMaterialRenderProxyCounters.PendingPublicationCount.fetch_sub(1);
 			bPublicationCommandQueued = false;
 		}
 		return ApplyPublication_RenderThread(std::move(Publication));

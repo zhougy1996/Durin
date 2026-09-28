@@ -63,9 +63,25 @@ namespace Durin
 		uint64 LastResultCount = 0;
 	};
 
+	// Current loaded authored family only. Dynamic instances are deliberately
+	// excluded, and the query never loads a package.
+	struct FLoadedMaterialFamilyStatistics
+	{
+		uint64 LoadedOwnerCount = 0;
+		uint64 AcceptedOwnerCount = 0;
+		uint64 DistinctProgramCount = 0;
+		uint64 DistinctStaticConfigurationCount = 0;
+		uint64 PendingOwnerCount = 0;
+		uint64 FailedOwnerCount = 0;
+	};
+
 	ENGINE_API auto GetMaterialLoadedQueryDiagnostics()
 		-> FMaterialLoadedQueryDiagnostics;
 	ENGINE_API auto ResetMaterialLoadedQueryDiagnostics() -> void;
+	ENGINE_API auto GetMaterialProgramStatistics(const DMaterialInterface& Material)
+		-> FMaterialProgramStatistics;
+	ENGINE_API auto GetLoadedMaterialFamilyStatistics(const DMaterialInterface& Material)
+		-> FLoadedMaterialFamilyStatistics;
 
 	// Per-asset compilation state never retains another material owner.
 	struct FMaterialCompilationOwnerState

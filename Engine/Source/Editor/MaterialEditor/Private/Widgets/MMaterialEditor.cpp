@@ -812,6 +812,59 @@ namespace Durin::Editor::Material
 				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
 		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
+		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			const FMaterialProgramStatistics Statistics =
+				GetMaterialProgramStatistics(*Material);
+			const FLoadedMaterialFamilyStatistics Family =
+				GetLoadedMaterialFamilyStatistics(*Material);
+			if (Statistics.State == EMaterialProgramStatisticsState::Absent)
+			{
+				ImGui::TextDisabled("Accepted program: unavailable");
+			}
+			else
+			{
+				ImGui::Text("Accepted program: %s",
+					Statistics.State == EMaterialProgramStatisticsState::Current
+						? "current snapshot" : "last-known-good snapshot");
+				ImGui::Text("IR nodes / active parameters: %llu / %llu",
+					static_cast<unsigned long long>(Statistics.NormalizedIRNodeCount),
+					static_cast<unsigned long long>(Statistics.ActiveParameterCount));
+				ImGui::Text("Uniform / textures / samplers: %llu B / %llu / %llu",
+					static_cast<unsigned long long>(Statistics.UniformPayloadBytes),
+					static_cast<unsigned long long>(Statistics.TextureCount),
+					static_cast<unsigned long long>(Statistics.SamplerCount));
+				ImGui::Text("Source / shaders / code: %llu B / %llu / %llu B%s",
+					static_cast<unsigned long long>(Statistics.GeneratedSourceBytes),
+					static_cast<unsigned long long>(Statistics.CompiledShaderCount),
+					static_cast<unsigned long long>(Statistics.CompiledCodeBytes),
+					Statistics.bSizeOverflow ? " (overflow)" : "");
+				ImGui::Text("Dependencies: %llu; phases: %llu / %llu / %llu us",
+					static_cast<unsigned long long>(Statistics.DependencyCount),
+					static_cast<unsigned long long>(Statistics.PhaseTimings.NormalizationMicroseconds),
+					static_cast<unsigned long long>(Statistics.PhaseTimings.GenerationMicroseconds),
+					static_cast<unsigned long long>(Statistics.PhaseTimings.CompilationMicroseconds));
+			}
+			ImGui::Text("Loaded authored family: %llu owners, %llu programs, %llu static configurations",
+				static_cast<unsigned long long>(Family.LoadedOwnerCount),
+				static_cast<unsigned long long>(Family.DistinctProgramCount),
+				static_cast<unsigned long long>(Family.DistinctStaticConfigurationCount));
+			ImGui::TextDisabled("Current loaded snapshot; pending %llu, failed %llu",
+				static_cast<unsigned long long>(Family.PendingOwnerCount),
+				static_cast<unsigned long long>(Family.FailedOwnerCount));
+			const FMaterialCompilationDiagnostics Compilation =
+				GetMaterialCompilationDiagnostics();
+			const FMaterialRenderProxyCounters Proxies =
+				GetMaterialRenderProxyCounters();
+			ImGui::Text("Process compile requests: %llu accepted, %llu completed, %llu failed",
+				static_cast<unsigned long long>(Compilation.AcceptedRequests),
+				static_cast<unsigned long long>(Compilation.CompletedRequests),
+				static_cast<unsigned long long>(Compilation.FailedRequests));
+			ImGui::Text("Process proxy work: %llu publications, %llu coalesced, %llu resolves",
+				static_cast<unsigned long long>(Proxies.PublicationCount),
+				static_cast<unsigned long long>(Proxies.CoalescedPublicationCount),
+				static_cast<unsigned long long>(Proxies.ResolutionCacheMissCount));
+		}
 		if (const auto* Session = FindEditingSession(Material); Session && Session->GetSourceMaterial())
 		{
 			const auto* Source = Session->GetSourceMaterial();

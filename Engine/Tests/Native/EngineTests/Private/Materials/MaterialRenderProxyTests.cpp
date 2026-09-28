@@ -601,8 +601,12 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 		Durin::FVector3(2.0, 3.0, 5.0)));
 	const Durin::FMaterialRenderProxyCounters Queued =
 		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Queued.QueuedPublicationCount, 3);
+	EXPECT_EQ(Queued.QueuedPublicationWaveCount, 1);
 	EXPECT_EQ(Queued.PublicationCount, 0);
 	EXPECT_EQ(Queued.CoalescedPublicationCount, 2);
+	EXPECT_EQ(Queued.PendingPublicationCount, 1);
+	EXPECT_GT(Queued.CopiedMaterialPayloadBytes, 0);
 
 	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
@@ -613,8 +617,14 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 	ExpectRenderDataMatches(Updated.RenderData, Material->GetRenderData());
 	const Durin::FMaterialRenderProxyCounters Applied =
 		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Applied.QueuedPublicationCount, 3);
+	EXPECT_EQ(Applied.QueuedPublicationWaveCount, 1);
 	EXPECT_EQ(Applied.PublicationCount, 1);
 	EXPECT_EQ(Applied.CoalescedPublicationCount, 2);
+	EXPECT_EQ(Applied.PendingPublicationCount, 0);
+	EXPECT_EQ(Applied.QueuedPublicationCount,
+		Applied.PublicationCount + Applied.CoalescedPublicationCount
+			+ Applied.PendingPublicationCount);
 
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();

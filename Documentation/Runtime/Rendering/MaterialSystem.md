@@ -33,6 +33,16 @@ property resolution and cooked decoding publish only validated candidates.
 Cancellation and admission remain separate lifecycle outcomes. Semantic tests
 assert codes, context, and publication behavior, not formatted text.
 
+`GetMaterialProgramStatistics` derives a detached value snapshot from the
+currently accepted compiler result. It reports explicit absent, current, or
+last-known-good state plus normalized IR nodes, active declarations, uniform and
+resource layout sizes, generated-source and checked compiled-code bytes,
+dependencies, phase timings, request duration, and cache outcome. It creates no
+cache and does not compile or load anything. `GetLoadedMaterialFamilyStatistics`
+scans only the current loaded authored root/instance family, excludes transient
+dynamic instances, and reports distinct accepted program and resolved static
+configurations with pending and failed owner counts.
+
 ## Parameter Domain
 
 ### Persistent and dynamic instance lifetimes
@@ -46,8 +56,15 @@ with a fixed, valid non-dynamic material parent. It returns null for invalid or
 over-depth chains. A parent without an accepted program is allowed; parameter
 updates require both a matching current declaration and the parent's accepted
 active parameter contract. `IsDynamicInstance()` exposes this immutable lifecycle.
-The existing typed setters and clear operations update only local runtime values
-and render state, without package dirtiness or compilation. Static overrides,
+The existing typed setters and clear operations, and
+`ApplyDynamicParameterUpdates`, update only local runtime values and render state,
+without package dirtiness or compilation. A batch borrows Set/Clear records for
+one GameThread call, rejects duplicate or invalid GUIDs and invalid values with
+the failing record index, and validates every record against one captured accepted
+parent contract before swapping candidate typed storage. A rejected batch changes
+nothing. A fully no-op batch succeeds without publication; a changed batch advances
+render state, publishes, and notifies exactly once regardless of record count.
+Static overrides,
 reparenting, import metadata edits and reflected editor edits are rejected.
 
 Dynamic instances reuse the parent's complete accepted rendering generation and
@@ -63,8 +80,9 @@ not a lifetime root. Reflected parent and texture storage retains those objects
 while the instance lives. Package planning may inspect the normal field manifest,
 but transient instances are excluded from persisted graphs. Duplication and
 snapshot serialization are rejected, and authored instances cannot select a
-dynamic parent. Dynamic-parent chains are not supported. This API does not provide
-atomic multi-parameter batches or new allocation/upload optimizations.
+dynamic parent. Dynamic-parent chains are not supported. Because a dynamic
+instance cannot be a material parent, its parameter commit publishes its stable
+proxy and callback directly without a loaded-family dependency scan.
 
 ### Parameter values and declarations
 
@@ -776,8 +794,12 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, and positional overrides directly from canonical storage.
-- Proxy diagnostics expose publication, coalescing, resolution-cache hit/miss,
-  stale-publication, and binding-update counts; these are not a dependency index.
+- Proxy diagnostics expose queued publications/waves, applied/coalesced/pending/
+  stale publications, copied logical payload bytes, resolution-cache hit/miss,
+  and binding-update counts; these are fixed process aggregates, not a dependency
+  index. Dynamic-instance diagnostics separately count submitted records, changed,
+  no-op and rejected commits, and owner publications. Reset is GameThread-only and
+  requires relevant render work to be drained first.
   Query counters are defined by [Material query diagnostics](MaterialQueries.md#diagnostics-and-validation).
 
 ## Compatibility Boundary

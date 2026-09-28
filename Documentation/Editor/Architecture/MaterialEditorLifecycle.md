@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-29
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -62,6 +62,13 @@ package. Graph validation and dynamic parameter updates remain immediate on the
 working copy; they reach the source and its scene dependents only through Apply.
 
 ## Reachable parameter views
+
+The Diagnostics panel includes a Statistics section derived from Engine snapshots.
+It labels the accepted program as current or last-known-good, shows exact IR,
+layout, resource, source, shader-code, dependency, and phase-timing facts, reports
+loaded authored-family variant counts, and presents process aggregate compilation
+and proxy work. Refreshing the panel performs no compilation, package load, render
+resource creation, or owner retention.
 
 MaterialEditor consumes Engine's detached `InspectMaterialParameterDependencies`
 projection for reachable instance controls in Parameters. Base Parameters lists

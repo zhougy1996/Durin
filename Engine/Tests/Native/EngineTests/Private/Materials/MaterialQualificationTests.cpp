@@ -9,6 +9,8 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Hash/XxHash.h"
 #include "Materials/ObjectCacheContext.h"
+#include "NativeQualificationSupport.h"
+#include "RenderingThread.h"
 
 #include <iostream>
 
@@ -35,6 +37,16 @@ namespace
 		return Input;
 	}
 
+	auto MakeMeasuredValue(const Durin::FMaterialParameterDefinition& Definition,
+		float Seed) -> Durin::FMaterialParameterValue
+	{
+		using namespace Durin;
+		if (Definition.Type == EMaterialParameterType::Scalar)
+			return FMaterialParameterValue::MakeScalar(Seed);
+		return FMaterialParameterValue::MakeVector4(
+			{Seed, Seed + 0.01f, Seed + 0.02f, Seed + 0.03f});
+	}
+
 }
 
 TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
@@ -43,7 +55,8 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaximumLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	Testing::FTestMaterialExpressionGraph Graph;
-	while (Graph.Expressions.size() < MaterialProgramMaxNodeCount)
+	// Applying a graph materializes its required output owner.
+	while (Graph.Expressions.size() + 1 < MaterialProgramMaxNodeCount)
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>().Get());
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const uint64 SemanticRevision =
@@ -142,11 +155,11 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 			<< " load_ms=" << LoadMs << " ledger_allocated=" << Material->HasAllocatedAuthoredOverrideLedger() << '\n';
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
-		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 65u);
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 66u);
 		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").value());
 		ASSERT_NE(Copy, nullptr);
 		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
-		EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), 65u);
+		EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), 66u);
 		MarkObjectHierarchyAsGarbage(Copy);
 	}
 	ASSERT_TRUE(UnloadPackage(Path));
@@ -190,8 +203,8 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 4u);
-	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
-	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
+	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
+	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
@@ -266,6 +279,149 @@ TEST(FMaterialQualificationTests, InstanceVariantPayloadBaseline)
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::CheckInstanceVariantsForTest(true);
 	Durin::ShutdownAssetCompilingManager();
+}
+
+TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	struct FScopedRenderingThread
+	{
+		bool bOwns = GetRenderCommandAdmissionState()
+			== ERenderCommandAdmissionState::Stopped;
+		FScopedRenderingThread() { if (bOwns) InitRenderingThread(); }
+		~FScopedRenderingThread() { if (bOwns) ShutdownRenderingThread(); }
+	} RenderingThread;
+	auto* Base = NewObject<DMaterial>(nullptr, "DynamicUpdateWorkloadBase");
+	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	ASSERT_TRUE(Base->GetAcceptedCompiledProgram());
+	AddToRoot(Base);
+	std::vector<const FMaterialParameterDefinition*> Numeric;
+	for (const auto& Active : Base->GetAcceptedCompiledProgram()->ActiveParameters)
+		if (const auto* Definition = Base->FindParameterDefinition(Active.Id);
+			Definition && (Definition->Type == EMaterialParameterType::Scalar
+				|| Definition->Type == EMaterialParameterType::Vector4))
+			Numeric.push_back(Definition);
+	ASSERT_GE(Numeric.size(), 16u);
+
+	using FClock = std::chrono::steady_clock;
+	const auto Measure = [&](auto&& Work) {
+		std::array<double, 3> Samples{};
+		Work(0);
+		for (uint32 Sample = 0; Sample < Samples.size(); ++Sample)
+		{
+			const auto Begin = FClock::now();
+			Work(Sample + 1);
+			Samples[Sample] = std::chrono::duration<double, std::micro>(
+				FClock::now() - Begin).count();
+		}
+		std::ranges::sort(Samples);
+		return std::pair{Samples[1], Samples[2]};
+	};
+
+	for (const uint32 InstanceCount : {1000u, 10000u})
+	{
+		std::vector<DMaterialInstance*> Instances;
+		Instances.reserve(InstanceCount);
+		for (uint32 Index = 0; Index < InstanceCount; ++Index)
+		{
+			auto* Instance = DMaterialInstance::CreateDynamic(Base, nullptr,
+				FName(std::format("MeasuredDynamic{}", Index).c_str()));
+			ASSERT_TRUE(Instance);
+			Instances.push_back(Instance);
+		}
+		FlushRenderingCommands();
+		for (const uint32 ParameterCount : {1u, 4u, 16u})
+		{
+			ResetMaterialDynamicParameterCounters();
+			ResetMaterialRenderProxyCounters();
+			Testing::FQualificationAllocationSampler IndividualAllocationSampler;
+			const auto Individual = Measure([&](uint32 Sample) {
+				const float Seed = (Sample & 1) ? 0.21f : 0.41f;
+				for (auto* Instance : Instances)
+					for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
+						ASSERT_TRUE(Instance->SetParameterValue(Numeric[Parameter]->Id,
+							MakeMeasuredValue(*Numeric[Parameter], Seed + Parameter * 0.001f)));
+			});
+			FlushRenderingCommands();
+			const auto IndividualAllocation = IndividualAllocationSampler.Finish();
+			const auto IndividualCommits = GetMaterialDynamicParameterCounters();
+			const auto IndividualProxy = GetMaterialRenderProxyCounters();
+			EXPECT_EQ(IndividualCommits.ChangedCommitCount,
+				static_cast<uint64>(InstanceCount) * ParameterCount * 4);
+			EXPECT_EQ(IndividualCommits.OwnerPublicationCount,
+				IndividualCommits.ChangedCommitCount);
+
+			ResetMaterialDynamicParameterCounters();
+			ResetMaterialRenderProxyCounters();
+			Testing::FQualificationAllocationSampler BatchAllocationSampler;
+			const auto Batched = Measure([&](uint32 Sample) {
+				const float Seed = (Sample & 1) ? 0.61f : 0.81f;
+				std::vector<FMaterialDynamicParameterUpdate> Updates;
+				Updates.reserve(ParameterCount);
+				for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
+					Updates.push_back(FMaterialDynamicParameterUpdate::Set(
+						Numeric[Parameter]->Id,
+						MakeMeasuredValue(*Numeric[Parameter], Seed + Parameter * 0.001f)));
+				for (auto* Instance : Instances)
+					ASSERT_TRUE(Instance->ApplyDynamicParameterUpdates(Updates));
+			});
+			FlushRenderingCommands();
+			const auto BatchAllocation = BatchAllocationSampler.Finish();
+			const auto BatchCommits = GetMaterialDynamicParameterCounters();
+			const auto BatchProxy = GetMaterialRenderProxyCounters();
+			EXPECT_EQ(BatchCommits.ChangedCommitCount,
+				static_cast<uint64>(InstanceCount) * 4);
+			EXPECT_EQ(BatchCommits.OwnerPublicationCount,
+				BatchCommits.ChangedCommitCount);
+			const float FinalSeed = 0.61f;
+			std::vector<FMaterialDynamicParameterUpdate> NoOpUpdates;
+			for (uint32 Parameter = 0; Parameter < ParameterCount; ++Parameter)
+				NoOpUpdates.push_back(FMaterialDynamicParameterUpdate::Set(
+					Numeric[Parameter]->Id,
+					MakeMeasuredValue(*Numeric[Parameter], FinalSeed + Parameter * 0.001f)));
+			const auto NoOp = Measure([&](uint32) {
+				for (auto* Instance : Instances)
+					ASSERT_TRUE(Instance->ApplyDynamicParameterUpdates(NoOpUpdates));
+			});
+			std::array RejectedUpdates{
+				FMaterialDynamicParameterUpdate::Set(Numeric[0]->Id,
+					MakeMeasuredValue(*Numeric[0], 0.17f)),
+				FMaterialDynamicParameterUpdate::Clear(Numeric[0]->Id),
+			};
+			const auto Rejected = Measure([&](uint32) {
+				for (auto* Instance : Instances)
+					ASSERT_FALSE(Instance->ApplyDynamicParameterUpdates(RejectedUpdates));
+			});
+			std::cout << "MATERIAL_DYNAMIC_UPDATE_MEASUREMENT instances=" << InstanceCount
+				<< " parameters=" << ParameterCount
+				<< " individual_median_us=" << Individual.first
+				<< " individual_p95_us=" << Individual.second
+				<< " batch_median_us=" << Batched.first
+				<< " batch_p95_us=" << Batched.second
+				<< " noop_median_us=" << NoOp.first
+				<< " noop_p95_us=" << NoOp.second
+				<< " rejected_median_us=" << Rejected.first
+				<< " rejected_p95_us=" << Rejected.second
+				<< " individual_commits=" << IndividualCommits.ChangedCommitCount
+				<< " batch_commits=" << BatchCommits.ChangedCommitCount
+				<< " individual_waves=" << IndividualProxy.QueuedPublicationWaveCount
+				<< " batch_waves=" << BatchProxy.QueuedPublicationWaveCount
+				<< " individual_payload_bytes=" << IndividualProxy.CopiedMaterialPayloadBytes
+				<< " batch_payload_bytes=" << BatchProxy.CopiedMaterialPayloadBytes
+				<< " individual_peak_allocation_increase="
+				<< IndividualAllocation.GetPeakIncrease()
+				<< " batch_peak_allocation_increase="
+				<< BatchAllocation.GetPeakIncrease()
+				<< " allocation_samples=" << BatchAllocation.SampleCount << '\n';
+		}
+		for (auto* Instance : Instances) MarkAsGarbage(Instance);
+		CollectGarbage();
+	}
+	RemoveFromRoot(Base);
+	MarkAsGarbage(Base);
+	CollectGarbage();
 }
 
 TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)

@@ -185,6 +185,91 @@ namespace Durin
 		GMaterialLoadedQueryDiagnostics = {};
 	}
 
+	auto GetMaterialProgramStatistics(const DMaterialInterface& Material)
+		-> FMaterialProgramStatistics
+	{
+		CheckMaterialQueryThread();
+		FMaterialProgramStatistics Result;
+		const DMaterialInterface* StatusOwner = &Material;
+		if (Material.IsDynamicInstance() && IsValid(Material.GetParent()))
+			StatusOwner = Material.GetParent();
+		const auto& Status = StatusOwner->GetMaterialCompileStatus();
+		Result.CacheOutcome = Status.CacheOutcome;
+		Result.RequestDurationMicroseconds = Status.DurationMicroseconds;
+		const auto Program = Material.GetAcceptedCompiledProgram();
+		if (!Program) return Result;
+		Result.State = Status.IsCurrent()
+			? EMaterialProgramStatisticsState::Current
+			: EMaterialProgramStatisticsState::LastKnownGood;
+		Result.ProgramIdentity = Program->Identity;
+		Result.NormalizedIRNodeCount = Program->IR.Nodes.size();
+		Result.ActiveParameterCount = Program->ActiveParameters.size();
+		Result.UniformPayloadBytes = Program->Layout.UniformPayloadSize;
+		Result.TextureCount = std::ranges::count_if(Program->Layout.Fields,
+			[](const FMaterialRenderField& Field) {
+				return Field.Storage == EMaterialRenderFieldStorage::Resource
+					&& Field.Type == EMaterialRenderValueType::Texture2D;
+			});
+		Result.SamplerCount = Result.TextureCount;
+		Result.GeneratedSourceBytes = Program->GeneratedSource.size();
+		Result.CompiledShaderCount = Program->CompiledShaders.size();
+		Result.DependencyCount = Program->Dependencies.size();
+		Result.PhaseTimings = Program->Timings;
+		for (const FCompiledShader& Shader : Program->CompiledShaders)
+		{
+			const uint64 Bytes = Shader.Code ? Shader.Code->size() : 0;
+			if (Bytes > std::numeric_limits<uint64>::max() - Result.CompiledCodeBytes)
+			{
+				Result.CompiledCodeBytes = std::numeric_limits<uint64>::max();
+				Result.bSizeOverflow = true;
+				break;
+			}
+			Result.CompiledCodeBytes += Bytes;
+		}
+		return Result;
+	}
+
+	auto GetLoadedMaterialFamilyStatistics(const DMaterialInterface& Material)
+		-> FLoadedMaterialFamilyStatistics
+	{
+		CheckMaterialQueryThread();
+		FLoadedMaterialFamilyStatistics Result;
+		FResolvedMaterialProperties Resolved;
+		if (!ResolveMaterialProperties(Material, Resolved)) return Result;
+		auto* Root = Cast<DMaterialInterface>(ResolveObjectKey(Resolved.Root));
+		if (!Root) return Result;
+		std::vector<FMaterialProgramIdentity> Programs;
+		std::vector<FMaterialStaticProperties> StaticConfigurations;
+		for (const FObjectKey Key : GetLoadedMaterialDependents(Root))
+		{
+			auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Key));
+			if (!IsValid(Owner) || Owner->IsDynamicInstance()) continue;
+			++Result.LoadedOwnerCount;
+			const auto& Status = Owner->GetMaterialCompileStatus();
+			const bool bPending = Status.State == EMaterialCompileState::Pending
+				|| Status.State == EMaterialCompileState::Deferred
+				|| Status.State == EMaterialCompileState::Running
+				|| Status.State == EMaterialCompileState::Scheduled;
+			const bool bFailed = Status.State == EMaterialCompileState::Failed
+				|| Status.State == EMaterialCompileState::Rejected
+				|| Status.State == EMaterialCompileState::Shutdown;
+			Result.PendingOwnerCount += bPending;
+			Result.FailedOwnerCount += bFailed;
+			const auto Program = Owner->GetAcceptedCompiledProgram();
+			if (!Program) continue;
+			++Result.AcceptedOwnerCount;
+			if (!std::ranges::contains(Programs, Program->Identity))
+				Programs.push_back(Program->Identity);
+			const FMaterialStaticProperties Properties =
+				Owner->GetRenderableStaticProperties();
+			if (!std::ranges::contains(StaticConfigurations, Properties))
+				StaticConfigurations.push_back(Properties);
+		}
+		Result.DistinctProgramCount = Programs.size();
+		Result.DistinctStaticConfigurationCount = StaticConfigurations.size();
+		return Result;
+	}
+
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, MaterialRenderProxy(IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
@@ -697,6 +782,15 @@ namespace Durin
 				Owner.PublishMaterialRenderProxyState();
 			}
 		};
+		// Dynamic instances cannot be material parents. Their stable proxy is the
+		// complete dependent boundary, so avoid a loaded-object family query for
+		// every gameplay parameter commit.
+		if (IsDynamicInstance())
+		{
+			Publish(*this);
+			if (bNotifyParameterChanges) ParameterChanges.Broadcast();
+			return;
+		}
 		std::optional<FObjectCacheContext> LocalContext;
 		if (!Context) { LocalContext.emplace(); Context = &*LocalContext; }
 		const auto Dependents = Context->GetMaterialsAffectedByMaterial(this);

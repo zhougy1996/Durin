@@ -112,6 +112,12 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
+	const auto CookedStatistics = Durin::GetMaterialProgramStatistics(*Cooked);
+	EXPECT_EQ(CookedStatistics.State,
+		Durin::EMaterialProgramStatisticsState::Current);
+	EXPECT_EQ(CookedStatistics.NormalizedIRNodeCount, 0u);
+	EXPECT_EQ(CookedStatistics.GeneratedSourceBytes, 0u);
+	EXPECT_GT(CookedStatistics.CompiledCodeBytes, 0u);
 	EXPECT_EQ(
 		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));

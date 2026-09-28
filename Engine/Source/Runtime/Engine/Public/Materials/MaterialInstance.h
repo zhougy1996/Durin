@@ -9,6 +9,47 @@
 
 namespace Durin
 {
+	enum class EMaterialDynamicParameterUpdateOperation : uint8
+	{
+		Set,
+		Clear,
+	};
+
+	// Borrowed by ApplyDynamicParameterUpdates for one GameThread call.
+	struct FMaterialDynamicParameterUpdate
+	{
+		EMaterialDynamicParameterUpdateOperation Operation =
+			EMaterialDynamicParameterUpdateOperation::Set;
+		FGuid ParameterId;
+		FMaterialParameterValue Value;
+
+		static auto Set(FGuid Id, FMaterialParameterValue InValue)
+			-> FMaterialDynamicParameterUpdate
+		{
+			return {.Operation = EMaterialDynamicParameterUpdateOperation::Set,
+				.ParameterId = Id, .Value = std::move(InValue)};
+		}
+		static auto Clear(FGuid Id) -> FMaterialDynamicParameterUpdate
+		{
+			return {.Operation = EMaterialDynamicParameterUpdateOperation::Clear,
+				.ParameterId = Id};
+		}
+	};
+
+	struct FMaterialDynamicParameterCounters
+	{
+		uint64 LogicalMutationCount = 0;
+		uint64 ChangedCommitCount = 0;
+		uint64 NoOpCommitCount = 0;
+		uint64 RejectedCommitCount = 0;
+		uint64 OwnerPublicationCount = 0;
+	};
+
+	ENGINE_API auto GetMaterialDynamicParameterCounters()
+		-> FMaterialDynamicParameterCounters;
+	// GameThread-only reset; callers must first drain any relevant render work.
+	ENGINE_API auto ResetMaterialDynamicParameterCounters() -> void;
+
 	// Resolves inherited material parameters and stores local values by stable identifier.
 	DCLASS()
 	class DMaterialInstance : public DMaterialInterface
@@ -51,7 +92,12 @@ namespace Durin
 		ENGINE_API auto SetParameterValue(
 			const FGuid& Id,
 			const FMaterialParameterValue& Value
-		) -> FMaterialOperationResult;
+			) -> FMaterialOperationResult;
+		// Dynamic instances only. Validates the complete borrowed batch against one
+		// accepted parent contract, then commits and publishes at most once.
+		ENGINE_API auto ApplyDynamicParameterUpdates(
+			std::span<const FMaterialDynamicParameterUpdate> Updates)
+			-> FMaterialOperationResult;
 		ENGINE_API auto ClearParameterValue(const FGuid& Id) -> bool;
 		ENGINE_API auto HasLocalParameterValue(const FGuid& Id) const -> bool;
 		ENGINE_API auto IsParameterValueOrphan(const FGuid& Id) const -> bool;

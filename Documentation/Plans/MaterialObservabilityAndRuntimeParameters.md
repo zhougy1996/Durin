@@ -9,10 +9,26 @@ Completed:
 
 ## Current Status
 
-This plan is the selected follow-up for the remaining scalability portion of
-Material System M8. It covers evolution phase 0 (capability/cost observability)
-and phase 1 (runtime parameter completion). No other active material plan owns
-this work.
+Stage 0 now has a source-owner inventory, fixed snapshot/counter semantics, and
+executable material and dynamic-instance qualification fixtures. The first
+`MacOS-arm64-Debug-DurinEditor` diagnostic run is recorded below; it is not an
+exclusive quiet-lane baseline, so the numeric timing/allocation budget gate remains
+open. Stage 1 has detached accepted-program statistics, a loaded authored-family
+variant query, additional proxy publication/payload counters, and MaterialEditor
+display. Stage 2 has the dynamic-only atomic Set/Clear API and its central
+single-setter path; focused correctness and qualification workloads pass.
+
+Stage 3 has not started. The active RHI asynchronous-upload plan explicitly keeps
+consumer migration behind its incomplete Stage 2 pressure/lifetime gate, and the
+multi-queue plan still has open Stage 3 readiness/lifetime work. Collection uniform
+storage and retirement must not preempt those owners.
+
+Validation receipt for this checkpoint: the shared-API `./DevTool build` (`all`)
+passed on `MacOS-arm64-Debug-DurinEditor`; `./DevTool test affected --test-jobs 4
+--report` passed all 39 selected targets with report
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/affected.xml`; changed-doc
+and all-plan validation also passed. These early receipts do not close Stage 4,
+whose dependency on completed collection behavior remains unsatisfied.
 
 The completed [Runtime Dynamic Material Instances plan](Archive/2026-09/RuntimeDynamicMaterialInstances.md)
 provides transient instances with typed scalar, vector and Texture2D overrides,
@@ -36,6 +52,73 @@ scoped runtime value owner, or renderer binding source. Global numeric changes
 therefore require per-instance mutation today. The material roadmap also contains
 stale text claiming that transient instances are absent; activating this plan
 reconciles that status.
+
+### Stage 0 Measurement Contract (2026-09-29)
+
+Counter/statistic ownership is frozen as follows:
+
+| Facts | Authority and thread | Semantics |
+| --- | --- | --- |
+| Accepted program IR, declarations, layout/resources, source/code bytes, dependencies and phase timings | Engine `FMaterialProgramStatistics`, queried on GameThread | Current detached snapshot; compiled code uses checked `uint64` accumulation; absent/current/last-known-good is explicit |
+| Request/cache outcome and aggregate queue/cache work | Engine compile status and `FMaterialCompilationDiagnostics` | Per-owner current status plus mutex-protected cumulative process counts and retained/in-flight occupancy |
+| Loaded-family programs/static configurations | Engine loaded material query | Current GameThread snapshot of loaded authored root/instances; dynamic owners excluded; no package load |
+| Dynamic records and commits | Engine `FMaterialDynamicParameterCounters` | Cumulative submitted records and changed/no-op/rejected commits; owner publications equal changed commits |
+| Proxy queue/application/resolution and copied payload bytes | Engine render proxy counters | Atomic cumulative process work plus current pending gauge; reset only on GameThread after draining relevant render work |
+| Surface sampler lookup/create/reuse/failure and retained slots | Renderer `FSurfaceMaterialResources` | RenderThread cumulative work and retained occupancy; `lookups = creations + reuses + failures` |
+| Pipeline creation/cache and upload/storage | RHI pipeline-creation/cache and memory/upload diagnostics | Backend-owned bounded snapshots; this plan does not duplicate them |
+
+Exact missing instrumentation is limited to a public Renderer material shader-map/
+pipeline occupancy/work snapshot and allocator request counts for dynamic-update
+qualification. The existing macOS default-zone sampler supplies peak bytes but is
+explicitly not an exact allocation-count authority. Those omissions keep the
+corresponding Stage 0 and Stage 1 checklist items open.
+
+Conservation rules are `changed commits = owner publications`, no-op and rejected
+commits publish zero work, `queued publications = applied + coalesced + stale +
+pending` after shutdown/cancellation accounting is added, and surface sampler
+lookups obey the equation above. Current counters have fixed-size storage and
+retain no owner or event history.
+
+Representative compile fixtures are the qualification target's default small
+opaque program, PBR masked/texture graph, transitive function/variant fixtures,
+maximum-node layout fixture, and eight-owner/four-identity static-variant family.
+The compiler fixture currently records 167 normalized nodes, 8,185 canonical
+bytes, 14,075 generated-source bytes, six texture samples, four shaders, 138,244
+compiled-code bytes, one dependency, and 142,252 cooked bytes. Exact values are
+schema fixtures; timings are sampled separately.
+
+`DynamicInstanceUpdateWorkloads` creates 1,000 and 10,000 transient instances and
+runs 1, 4 and 16 active numeric parameters. Each case uses one warm-up and three
+alternating measured samples for individual setters, one atomic batch, a no-op
+batch and a rejected duplicate-GUID batch. It records median/p95, changed commits,
+queued waves, copied logical payload bytes, and sampled default-zone peak-byte
+increase. The fixed batch gates are one changed commit/publication per instance per
+sample, no work for no-op/rejected batches, and payload independent of record count.
+
+The future collection workload is also frozen: 1/16/128 declarations, 1/4
+collections per expanded closure, 1/1,000/10,000 referencing draws, one update and
+60 consecutive update frames, plus two simultaneous worlds with different values.
+It must record world publications/versions, coalescing, uploads/payload bytes,
+material compile/proxy deltas, retained bytes, and Forward/GBuffer/masked-shadow
+results.
+
+Diagnostic run receipt: `./DevTool test MaterialQualificationTests --mode
+qualification --report` passed on 2026-09-29 using
+`MacOS-arm64-Debug-DurinEditor`; report:
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MaterialQualificationTests.xml`.
+A direct filtered diagnostic run reported batch median/p95 microseconds of
+46,641/46,774, 54,343/54,478 and 84,875/85,057 for 1K × 1/4/16, and
+482,656/484,148, 566,314/579,400 and 903,627/925,505 for 10K × 1/4/16.
+The corresponding individual-setter p95 values were 47,550, 196,823, 900,662,
+484,964, 2,005,230 and 9,267,320 microseconds. Batch copied payload was 2,544,000
+bytes for 1K and 25,440,000 bytes for 10K in every record-count case (four commits
+per instance); individual payload scaled linearly with record count. Sampled batch
+peak default-zone increases were 9,296/9,696/11,296 bytes for 1K and
+9,296/9,696/39,952 bytes for 10K; individual peaks were
+1,673,232/89,312/440,976 and 16,649,248/809,312/4,329,216 bytes respectively.
+These Debug
+measurements are diagnostic only because exclusive-host quietness was not proven;
+they do not freeze or satisfy numeric regression budgets.
 
 ## Goal
 
@@ -236,21 +319,21 @@ Out of scope:
 Dependency: none. Outcome: the phase-0 measurement contract is executable before
 runtime behavior changes.
 
-- [ ] Inventory every existing material compilation, proxy publication, renderer
+- [x] Inventory every existing material compilation, proxy publication, renderer
   shader-map/pipeline/resource and uniform-upload counter. Assign each requested
   statistic one owner and identify exact missing instrumentation.
-- [ ] Freeze per-material statistics semantics, loaded-family variant query rules,
+- [x] Freeze per-material statistics semantics, loaded-family variant query rules,
   counter reset/snapshot thread contracts and conservation equations. Specify which
   values are current, cumulative, retained occupancy or per-frame work.
-- [ ] Create deterministic representative fixtures: small opaque, masked texture,
+- [x] Create deterministic representative fixtures: small opaque, masked texture,
   function-heavy, maximum practical parameter-layout and multiple static-variant
   materials. Record current IR/layout/resource/source/code facts and compile/cache
   outcomes without changing production behavior.
-- [ ] Define runtime workloads for 1,000 and 10,000 dynamic instances with 1, 4 and
+- [x] Define runtime workloads for 1,000 and 10,000 dynamic instances with 1, 4 and
   16 changed numeric parameters per instance, plus no-op and rejected edits. Record
   current individual-setter GameThread cost, allocations, notifications, owner and
   dependent publications, render commands, payload bytes and render-thread applies.
-- [ ] Define collection workloads before implementation: 1/16/128 declarations,
+- [x] Define collection workloads before implementation: 1/16/128 declarations,
   1/4 collections per material, 1/1,000/10,000 referencing draws, one update and
   60 consecutive update frames, with two simultaneous worlds holding different
   values.
@@ -287,14 +370,14 @@ MaterialEditor without changing material rendering.
 - [ ] Extend existing compilation/proxy/renderer diagnostic snapshots with only the
   missing Stage 0 counters. Add reset, thread and conservation tests; preserve
   bounded cache ownership and avoid per-request history.
-- [ ] Add the loaded-family distinct variant query using loaded material dependency
+- [x] Add the loaded-family distinct variant query using loaded material dependency
   data without package loading. Count exact accepted program/static identities and
   label pending/failed owners separately.
 - [ ] Show per-material statistics, loaded variants and relevant aggregate counters
   in the existing MaterialEditor Diagnostics panel. Keep compiler diagnostics and
   node navigation unchanged; add focused model/interaction coverage rather than
   screenshot-only verification.
-- [ ] Record the final phase-0 fixture results in this plan and document the lasting
+- [x] Record the final phase-0 fixture results in this plan and document the lasting
   statistics contract in the owning Runtime/Editor documents.
 
 Completion: an artist or test can explain current compiled size/resources,
@@ -306,10 +389,10 @@ snapshots, with no compile/load/resource-creation side effect.
 Dependency: Stage 1 counters and frozen Stage 0 budgets. Outcome: related runtime
 overrides commit as one validated publication.
 
-- [ ] Add update records, structured error/index reporting and the dynamic-only
+- [x] Add update records, structured error/index reporting and the dynamic-only
   batch API. Centralize single and batch validation so existing setters retain
   behavior and cannot drift from batch admission rules.
-- [ ] Build complete candidate typed storage before commit; reject duplicates and
+- [x] Build complete candidate typed storage before commit; reject duplicates and
   all invalid/unreachable/type/sampling cases without observable mutation. Preserve
   vector canonicalization and texture reference traversal.
 - [ ] Commit changed candidate storage once, publish/notify once through existing

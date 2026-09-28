@@ -56,8 +56,12 @@ namespace Durin
 	// Reports proxy-owned publication and render-thread resolution work.
 	struct FMaterialRenderProxyCounters
 	{
+		uint64 QueuedPublicationCount = 0;
+		uint64 QueuedPublicationWaveCount = 0;
 		uint64 PublicationCount = 0;
 		uint64 CoalescedPublicationCount = 0;
+		uint64 PendingPublicationCount = 0;
+		uint64 CopiedMaterialPayloadBytes = 0;
 		uint64 ResolutionCacheHitCount = 0;
 		uint64 ResolutionCacheMissCount = 0;
 		uint64 StalePublicationCount = 0;
@@ -67,6 +71,7 @@ namespace Durin
 
 	ENGINE_API auto GetMaterialRenderProxyCounters()
 		-> FMaterialRenderProxyCounters;
+	// Reset only on GameThread after relevant publication commands are drained.
 	ENGINE_API auto ResetMaterialRenderProxyCounters() -> void;
 	ENGINE_API auto RecordMaterialBindingUpdate() -> void;
 

@@ -5,6 +5,7 @@
 #include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
+#include "Threading/RunnableThread.h"
 
 #include "Asset/Asset.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -14,6 +15,41 @@ namespace Durin
 {
 	namespace
 	{
+		struct FMaterialDynamicParameterAtomicCounters
+		{
+			std::atomic<uint64> LogicalMutationCount = 0;
+			std::atomic<uint64> ChangedCommitCount = 0;
+			std::atomic<uint64> NoOpCommitCount = 0;
+			std::atomic<uint64> RejectedCommitCount = 0;
+			std::atomic<uint64> OwnerPublicationCount = 0;
+		};
+
+		FMaterialDynamicParameterAtomicCounters GMaterialDynamicParameterCounters;
+
+		auto IsFiniteMaterialParameterValue(const FMaterialParameterValue& Value) -> bool
+		{
+			switch (Value.GetType())
+			{
+			case EMaterialParameterType::Scalar:
+				return std::isfinite(Value.GetScalar());
+			case EMaterialParameterType::Vector2:
+				return std::isfinite(Value.GetVector2().x)
+					&& std::isfinite(Value.GetVector2().y);
+			case EMaterialParameterType::Vector:
+				return std::isfinite(Value.GetVector().x)
+					&& std::isfinite(Value.GetVector().y)
+					&& std::isfinite(Value.GetVector().z);
+			case EMaterialParameterType::Vector4:
+				return std::isfinite(Value.GetVector4().x)
+					&& std::isfinite(Value.GetVector4().y)
+					&& std::isfinite(Value.GetVector4().z)
+					&& std::isfinite(Value.GetVector4().w);
+			case EMaterialParameterType::Texture:
+				return true;
+			}
+			return false;
+		}
+
 		template <typename TValue, typename TReadValue>
 		auto GetTypedParameterValue(
 			const DMaterialInstance& Material, FName Name, EMaterialParameterType Type,
@@ -52,6 +88,28 @@ namespace Durin
 			}
 			return false;
 		}
+	}
+
+	auto GetMaterialDynamicParameterCounters()
+		-> FMaterialDynamicParameterCounters
+	{
+		return {
+			.LogicalMutationCount = GMaterialDynamicParameterCounters.LogicalMutationCount.load(),
+			.ChangedCommitCount = GMaterialDynamicParameterCounters.ChangedCommitCount.load(),
+			.NoOpCommitCount = GMaterialDynamicParameterCounters.NoOpCommitCount.load(),
+			.RejectedCommitCount = GMaterialDynamicParameterCounters.RejectedCommitCount.load(),
+			.OwnerPublicationCount = GMaterialDynamicParameterCounters.OwnerPublicationCount.load(),
+		};
+	}
+
+	auto ResetMaterialDynamicParameterCounters() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GMaterialDynamicParameterCounters.LogicalMutationCount.store(0);
+		GMaterialDynamicParameterCounters.ChangedCommitCount.store(0);
+		GMaterialDynamicParameterCounters.NoOpCommitCount.store(0);
+		GMaterialDynamicParameterCounters.RejectedCommitCount.store(0);
+		GMaterialDynamicParameterCounters.OwnerPublicationCount.store(0);
 	}
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
@@ -312,6 +370,12 @@ namespace Durin
 		const FMaterialParameterValue& Value
 	) -> FMaterialOperationResult
 	{
+		if (bDynamicInstance)
+		{
+			const std::array Updates{
+				FMaterialDynamicParameterUpdate::Set(Id, Value)};
+			return ApplyDynamicParameterUpdates(Updates);
+		}
 		const auto Type = Value.GetType();
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		const auto Fail = [&](auto Code, std::optional<EMaterialParameterType> Expected = {}) -> FMaterialOperationResult
@@ -323,14 +387,6 @@ namespace Durin
 		};
 		if (!Definition) return Fail(EMaterialParameterError::NotFound);
 		if (Definition->Type != Type) return Fail(EMaterialParameterError::InvalidType, Definition->Type);
-		if (bDynamicInstance)
-		{
-			const auto Program = GetAcceptedCompiledProgram();
-			if (!Program) return Fail(EMaterialParameterError::Unreachable);
-			const auto Active = std::ranges::find(Program->ActiveParameters, Id, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->ActiveParameters.end()) return Fail(EMaterialParameterError::Unreachable);
-			if (Active->Type != Type) return Fail(EMaterialParameterError::InvalidType, Active->Type);
-		}
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail(EMaterialParameterError::Unreachable);
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
 			return Fail(EMaterialInstanceError::InvalidSamplingPolicy);
@@ -364,8 +420,151 @@ namespace Durin
 		return {};
 	}
 
+	auto DMaterialInstance::ApplyDynamicParameterUpdates(
+		std::span<const FMaterialDynamicParameterUpdate> Updates)
+		-> FMaterialOperationResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		GMaterialDynamicParameterCounters.LogicalMutationCount.fetch_add(Updates.size());
+		const auto Reject = [&](FMaterialError Error, uint32 Index,
+			const FGuid& Id) -> FMaterialOperationResult
+		{
+			Error.Index = Index;
+			Error.ParameterId = Id;
+			GMaterialDynamicParameterCounters.RejectedCommitCount.fetch_add(1);
+			return {std::move(Error)};
+		};
+		if (!bDynamicInstance)
+			return Reject(FMaterialError(EMaterialParameterError::OwnerMismatch), 0, {});
+		if (Updates.empty())
+		{
+			GMaterialDynamicParameterCounters.NoOpCommitCount.fetch_add(1);
+			return {};
+		}
+		const auto Program = GetAcceptedCompiledProgram();
+		if (!Program)
+			return Reject(FMaterialError(EMaterialParameterError::Unreachable), 0,
+				Updates.empty() ? FGuid{} : Updates.front().ParameterId);
+		const auto Reachability = GetParameterReachability();
+		if (!Reachability || !Reachability->Validation)
+			return Reject(FMaterialError(EMaterialParameterError::Unreachable), 0,
+				Updates.empty() ? FGuid{} : Updates.front().ParameterId);
+
+		auto CandidateScalars = ScalarParameterValues;
+		auto CandidateVectors = VectorParameterValues;
+		auto CandidateTextures = TextureParameterValues;
+		std::unordered_set<FGuid> Seen;
+		bool bChanged = false;
+		for (uint32 Index = 0; Index < Updates.size(); ++Index)
+		{
+			const auto& Update = Updates[Index];
+			if (!Update.ParameterId.IsValid())
+				return Reject(FMaterialError(EMaterialInstanceError::InvalidParameterId),
+					Index, Update.ParameterId);
+			if (!Seen.insert(Update.ParameterId).second)
+				return Reject(FMaterialError(EMaterialInstanceError::DuplicateParameterId),
+					Index, Update.ParameterId);
+			if (Update.Operation != EMaterialDynamicParameterUpdateOperation::Set
+				&& Update.Operation != EMaterialDynamicParameterUpdateOperation::Clear)
+				return Reject(FMaterialError(EMaterialParameterError::InvalidMetadata),
+					Index, Update.ParameterId);
+			const auto* Definition = FindParameterDefinition(Update.ParameterId);
+			if (!Definition)
+				return Reject(FMaterialError(EMaterialParameterError::NotFound),
+					Index, Update.ParameterId);
+			const auto Active = std::ranges::find(Program->ActiveParameters,
+				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
+			if (Active == Program->ActiveParameters.end()
+				|| !Reachability->ParameterIds.contains(Update.ParameterId))
+				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
+					Index, Update.ParameterId);
+			if (Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear)
+			{
+				bool bRemoved = false;
+				const auto Erase = [&](auto& Records) {
+					bRemoved |= std::erase_if(Records, [&](const auto& Record) {
+						return Record.ParameterId == Update.ParameterId;
+					}) != 0;
+				};
+				Erase(CandidateScalars);
+				Erase(CandidateVectors);
+				Erase(CandidateTextures);
+				bChanged |= bRemoved;
+				continue;
+			}
+			const EMaterialParameterType Type = Update.Value.GetType();
+			if (Definition->Type != Type || Active->Type != Type)
+			{
+				FMaterialError Error(EMaterialParameterError::InvalidType);
+				Error.ExpectedParameterType = Active->Type;
+				Error.ActualParameterType = Type;
+				return Reject(std::move(Error), Index, Update.ParameterId);
+			}
+			if (!IsFiniteMaterialParameterValue(Update.Value))
+				return Reject(FMaterialError(EMaterialParameterError::InvalidDefault),
+					Index, Update.ParameterId);
+			if (Type == EMaterialParameterType::Texture
+				&& !IsValidMaterialSampling(Update.Value.GetTexture().SamplerState,
+					Update.Value.GetTexture().TextureFallback))
+				return Reject(FMaterialError(EMaterialInstanceError::InvalidSamplingPolicy),
+					Index, Update.ParameterId);
+
+			FMaterialParameterValue StoredValue = Update.Value;
+			if (FMaterialVectorParameterValue::SupportsType(Type))
+			{
+				FMaterialVectorParameterValue Vector;
+				Vector.SetValue(Update.Value);
+				StoredValue = Vector.GetValue();
+			}
+			bool bApplied = false;
+			const auto Apply = [&](auto& Records) {
+				using TRecord = typename std::decay_t<decltype(Records)>::value_type;
+				if (!TRecord::SupportsType(Type)) return;
+				auto It = std::ranges::find(Records, Update.ParameterId,
+					&TRecord::ParameterId);
+				if (It != Records.end() && It->GetValue() == StoredValue)
+				{
+					bApplied = true;
+					return;
+				}
+				if (It == Records.end())
+				{
+					It = Records.emplace(Records.end());
+					It->ParameterId = Update.ParameterId;
+				}
+				It->SetValue(StoredValue);
+				bApplied = true;
+				bChanged = true;
+			};
+			Apply(CandidateScalars);
+			Apply(CandidateVectors);
+			Apply(CandidateTextures);
+			if (!bApplied)
+				return Reject(FMaterialError(EMaterialParameterError::InvalidType),
+					Index, Update.ParameterId);
+		}
+		if (!bChanged)
+		{
+			GMaterialDynamicParameterCounters.NoOpCommitCount.fetch_add(1);
+			return {};
+		}
+		ScalarParameterValues.swap(CandidateScalars);
+		VectorParameterValues.swap(CandidateVectors);
+		TextureParameterValues.swap(CandidateTextures);
+		GMaterialDynamicParameterCounters.ChangedCommitCount.fetch_add(1);
+		GMaterialDynamicParameterCounters.OwnerPublicationCount.fetch_add(1);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+		return {};
+	}
+
 	auto DMaterialInstance::ClearParameterValue(const FGuid& Id) -> bool
 	{
+		if (bDynamicInstance)
+		{
+			const bool bHadValue = HasLocalParameterValue(Id);
+			const std::array Updates{FMaterialDynamicParameterUpdate::Clear(Id)};
+			return ApplyDynamicParameterUpdates(Updates) && bHadValue;
+		}
 		bool bRemoved = false;
 		VisitParameterValueArrays([&](auto& Records) {
 			bRemoved |= std::erase_if(Records, [&](const auto& Record) { return Record.ParameterId == Id; }) != 0;

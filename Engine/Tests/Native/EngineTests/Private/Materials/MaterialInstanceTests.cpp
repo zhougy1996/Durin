@@ -271,6 +271,94 @@ TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndPr
 	CollectGarbage();
 }
 
+TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollbackFailures)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedMaterial(nullptr, "DynamicBatchBase");
+	ASSERT_TRUE(Base);
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Base, nullptr, "DynamicBatch");
+	ASSERT_TRUE(Dynamic);
+	const auto* Metallic = Dynamic->FindParameterDefinition(MaterialParameters::MetallicName());
+	const auto* Roughness = Dynamic->FindParameterDefinition(MaterialParameters::RoughnessName());
+	const auto* BaseColor = Dynamic->FindParameterDefinition(MaterialParameters::BaseColorName());
+	ASSERT_TRUE(Metallic && Roughness && BaseColor);
+	uint64 Notifications = 0;
+	const auto Listener = Dynamic->GetParameterChanges().AddLambda([&] { ++Notifications; });
+	ResetMaterialDynamicParameterCounters();
+	const uint64 Version = Dynamic->GetRenderStateVersion();
+	const std::array Updates{
+		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+			FMaterialParameterValue::MakeScalar(0.31f)),
+		FMaterialDynamicParameterUpdate::Set(Roughness->Id,
+			FMaterialParameterValue::MakeScalar(0.72f)),
+		FMaterialDynamicParameterUpdate::Set(BaseColor->Id,
+			FMaterialParameterValue::MakeVector4({0.2, 0.4, 0.6, 1.0})),
+	};
+	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(Updates));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), Version + 1);
+	EXPECT_EQ(Notifications, 1u);
+	float Scalar = 0;
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::MetallicName(), Scalar));
+	EXPECT_FLOAT_EQ(Scalar, 0.31f);
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Scalar));
+	EXPECT_FLOAT_EQ(Scalar, 0.72f);
+	const auto ChangedCounters = GetMaterialDynamicParameterCounters();
+	EXPECT_EQ(ChangedCounters.LogicalMutationCount, 3u);
+	EXPECT_EQ(ChangedCounters.ChangedCommitCount, 1u);
+	EXPECT_EQ(ChangedCounters.OwnerPublicationCount, 1u);
+	EXPECT_EQ(ChangedCounters.NoOpCommitCount, 0u);
+	EXPECT_EQ(ChangedCounters.RejectedCommitCount, 0u);
+
+	const std::array NoOpUpdates{
+		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+			FMaterialParameterValue::MakeScalar(0.31f)),
+		FMaterialDynamicParameterUpdate::Clear(FGuid::NewGuid()),
+	};
+	const uint64 BeforeNoOpVersion = Dynamic->GetRenderStateVersion();
+	const auto NoOp = Dynamic->ApplyDynamicParameterUpdates(NoOpUpdates);
+	ASSERT_FALSE(NoOp);
+	EXPECT_EQ(NoOp.Error.Index, 1u);
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeNoOpVersion);
+	EXPECT_EQ(Notifications, 1u);
+
+	const std::array DuplicateUpdates{
+		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
+			FMaterialParameterValue::MakeScalar(0.9f)),
+		FMaterialDynamicParameterUpdate::Clear(Metallic->Id),
+	};
+	const auto Duplicate = Dynamic->ApplyDynamicParameterUpdates(DuplicateUpdates);
+	ASSERT_FALSE(Duplicate);
+	EXPECT_EQ(Duplicate.Error.Index, 1u);
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::MetallicName(), Scalar));
+	EXPECT_FLOAT_EQ(Scalar, 0.31f);
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeNoOpVersion);
+
+	const std::array ClearUpdates{
+		FMaterialDynamicParameterUpdate::Clear(Metallic->Id),
+		FMaterialDynamicParameterUpdate::Clear(Roughness->Id),
+	};
+	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(ClearUpdates));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeNoOpVersion + 1);
+	EXPECT_EQ(Notifications, 2u);
+	const uint64 BeforeEmpty = Dynamic->GetRenderStateVersion();
+	const std::array ReachableClearNoOp{
+		FMaterialDynamicParameterUpdate::Clear(Metallic->Id)};
+	ASSERT_TRUE(Dynamic->ApplyDynamicParameterUpdates(ReachableClearNoOp));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), BeforeEmpty);
+	const auto FinalCounters = GetMaterialDynamicParameterCounters();
+	EXPECT_EQ(FinalCounters.ChangedCommitCount, 2u);
+	EXPECT_EQ(FinalCounters.NoOpCommitCount, 1u);
+	EXPECT_EQ(FinalCounters.RejectedCommitCount, 2u);
+	EXPECT_EQ(FinalCounters.OwnerPublicationCount, 2u);
+
+	Dynamic->GetParameterChanges().Remove(Listener);
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Base);
+	CollectGarbage();
+}
+
 TEST(FMaterialInstanceTests, DynamicInstancesRetainParentAndTextureOnlyWhileReferenced)
 {
 	using namespace Durin;

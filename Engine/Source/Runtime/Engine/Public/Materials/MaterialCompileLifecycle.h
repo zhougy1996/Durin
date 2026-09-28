@@ -173,6 +173,34 @@ namespace Durin
 		uint64 RetainedProgramBytes = 0;
 	};
 
+	// Detached facts derived from one owner's currently accepted program. This is
+	// a value snapshot: it never retains the material or compiler result.
+	enum class EMaterialProgramStatisticsState : uint8
+	{
+		Absent,
+		Current,
+		LastKnownGood,
+	};
+
+	struct FMaterialProgramStatistics
+	{
+		EMaterialProgramStatisticsState State = EMaterialProgramStatisticsState::Absent;
+		FMaterialProgramIdentity ProgramIdentity;
+		EMaterialCompileCacheOutcome CacheOutcome = EMaterialCompileCacheOutcome::None;
+		uint64 RequestDurationMicroseconds = 0;
+		uint64 NormalizedIRNodeCount = 0;
+		uint64 ActiveParameterCount = 0;
+		uint64 UniformPayloadBytes = 0;
+		uint64 TextureCount = 0;
+		uint64 SamplerCount = 0;
+		uint64 GeneratedSourceBytes = 0;
+		uint64 CompiledShaderCount = 0;
+		uint64 CompiledCodeBytes = 0;
+		uint64 DependencyCount = 0;
+		FMaterialCompileTimings PhaseTimings;
+		bool bSizeOverflow = false;
+	};
+
 	ENGINE_API auto IsMaterialCompilationAcceptingRequests() -> bool;
 	// GameThread-only observation including canceled work awaiting owner-side reap.
 	ENGINE_API auto HasPendingMaterialCompilation(const DMaterialInterface& Material) -> bool;

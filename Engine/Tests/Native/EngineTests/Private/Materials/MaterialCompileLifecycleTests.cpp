@@ -762,6 +762,72 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 }
 
 TEST(FMaterialCompileLifecycleTests,
+	AcceptedProgramStatisticsAndLoadedFamilyQueryAreDetachedAndSideEffectFree)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	auto* AbsentOwner = NewObject<DMaterialInstance>(nullptr, "StatisticsAbsent");
+	EXPECT_EQ(GetMaterialProgramStatistics(*AbsentOwner).State,
+		EMaterialProgramStatisticsState::Absent);
+	auto* Root = NewObject<DMaterial>(nullptr, "StatisticsRoot");
+	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
+	ASSERT_TRUE(Root->GetAcceptedCompiledProgram());
+	const auto Program = Root->GetAcceptedCompiledProgram();
+	const uint64 CompileGeneration = Root->GetMaterialCompileStatus().RequestGeneration;
+	const FMaterialProgramStatistics Current = GetMaterialProgramStatistics(*Root);
+	EXPECT_EQ(Current.State, EMaterialProgramStatisticsState::Current);
+	EXPECT_EQ(Current.ProgramIdentity, Program->Identity);
+	EXPECT_EQ(Current.NormalizedIRNodeCount, Program->IR.Nodes.size());
+	EXPECT_EQ(Current.ActiveParameterCount, Program->ActiveParameters.size());
+	EXPECT_EQ(Current.UniformPayloadBytes, Program->Layout.UniformPayloadSize);
+	EXPECT_EQ(Current.GeneratedSourceBytes, Program->GeneratedSource.size());
+	EXPECT_EQ(Current.CompiledShaderCount, Program->CompiledShaders.size());
+	EXPECT_EQ(Current.DependencyCount, Program->Dependencies.size());
+	uint64 ExpectedCodeBytes = 0;
+	for (const auto& Shader : Program->CompiledShaders)
+		ExpectedCodeBytes += Shader.Code ? Shader.Code->size() : 0;
+	EXPECT_EQ(Current.CompiledCodeBytes, ExpectedCodeBytes);
+	EXPECT_FALSE(Current.bSizeOverflow);
+
+	auto* Same = NewObject<DMaterialInstance>(nullptr, "StatisticsSame");
+	ASSERT_TRUE(Same->SetParent(Root));
+	auto* Variant = NewObject<DMaterialInstance>(nullptr, "StatisticsVariant");
+	ASSERT_TRUE(Variant->SetParent(Root));
+	FMaterialPropertyOverrides Overrides;
+	Overrides.bOverrideBlendMode = true;
+	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Variant->SetPropertyOverrides(Overrides));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Root, nullptr, "StatisticsDynamic");
+	ASSERT_TRUE(Dynamic);
+	EXPECT_EQ(GetMaterialProgramStatistics(*Dynamic).State,
+		EMaterialProgramStatisticsState::Current);
+	const FLoadedMaterialFamilyStatistics Family =
+		GetLoadedMaterialFamilyStatistics(*Same);
+	EXPECT_EQ(Family.LoadedOwnerCount, 3u);
+	EXPECT_EQ(Family.AcceptedOwnerCount, 3u);
+	EXPECT_EQ(Family.DistinctProgramCount, 2u);
+	EXPECT_EQ(Family.DistinctStaticConfigurationCount, 2u);
+	EXPECT_EQ(Family.PendingOwnerCount, 0u);
+	EXPECT_EQ(Family.FailedOwnerCount, 0u);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, CompileGeneration);
+
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.03125f));
+	const FMaterialProgramStatistics Stale = GetMaterialProgramStatistics(*Root);
+	EXPECT_EQ(Stale.State, EMaterialProgramStatisticsState::LastKnownGood);
+	EXPECT_EQ(Stale.ProgramIdentity, Current.ProgramIdentity);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Variant);
+	MarkAsGarbage(Same);
+	MarkAsGarbage(Root);
+	MarkAsGarbage(AbsentOwner);
+	CollectGarbage();
+}
+
+TEST(FMaterialCompileLifecycleTests,
 	CookedProgramRoundTripIsDeterministicBoundedAndTargetQualified)
 {
 	InitializeDObjectSystem();
