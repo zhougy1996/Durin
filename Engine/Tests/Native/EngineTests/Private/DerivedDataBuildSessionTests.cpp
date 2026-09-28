@@ -22,7 +22,7 @@ namespace
 				.Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7}))}}}).value();
 		}
 		auto Validate(const FBuildAction&, const FBuildOutput&, const FBuildCancellation&) const
-			-> std::expected<void, FBuildFailure> override { return {}; }
+			-> FBuildValidationResult override { return {}; }
 	};
 	auto Definition(std::string Name = "Session.Fixture") -> FBuildDefinition
 	{ return FBuildDefinition::TryCreate(std::move(Name), {}, {}).value(); }
@@ -62,7 +62,7 @@ TEST(FBuildSessionTests, RejectedDispatchHasNoCompletionAndDroppedWorkCancels)
 	{
 		FFixture Fixture;
 		auto Session = Fixture.Session([=](auto) -> std::expected<void, FBuildAdmissionError> {
-			if (Mode == 0) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "Rejected"});
+			if (Mode == 0) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, std::string(5000, 'x')});
 			return {};
 		});
 		uint32 Calls = 0;
@@ -70,10 +70,35 @@ TEST(FBuildSessionTests, RejectedDispatchHasNoCompletionAndDroppedWorkCancels)
 			++Calls; EXPECT_EQ(Result.GetStatus(), EStatus::Canceled);
 		}, {}, Options());
 		EXPECT_EQ(Request.has_value(), Mode == 1);
+		if (!Request)
+		{
+			EXPECT_EQ(Request.error().Reason, EBuildAdmissionReason::DispatchRejected);
+			EXPECT_EQ(Request.error().Description.size(), FBuildAdmissionError::MaximumDescriptionBytes);
+		}
 		EXPECT_EQ(Calls, Mode == 1 ? 1u : 0u);
 		EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
 		EXPECT_EQ(Fixture.Function->Builds.load(), 0u);
 	}
+}
+
+TEST(FBuildSessionTests, CapacityRejectionIsTypedAndInvokesNoCompletion)
+{
+	FFixture Fixture;
+	std::vector<std::function<void()>> Queue;
+	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> {
+		Queue.push_back(std::move(Work)); return {};
+	});
+	uint32 Calls = 0;
+	for (uint32 Index = 0; Index < 4096; ++Index)
+		ASSERT_TRUE(Session->Build(Definition(), [&](FBuildCompleteParams Result) {
+			++Calls; EXPECT_EQ(Result.GetStatus(), EStatus::Canceled);
+		}, {}, Options()));
+	auto Overflow = Session->Build(Definition(), [&](auto) { ++Calls; }, {}, Options());
+	ASSERT_FALSE(Overflow);
+	EXPECT_EQ(Overflow.error().Reason, EBuildAdmissionReason::Capacity);
+	EXPECT_EQ(Calls, 0u);
+	EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
+	EXPECT_EQ(Calls, 4096u);
 }
 
 TEST(FBuildSessionTests, QueuedCancellationAndRunnerRaceCompleteExactlyOnce)
@@ -144,14 +169,61 @@ TEST(FBuildSessionTests, RunningCloseDrainsCallbackBeforeServiceRelease)
 	Worker.join();
 }
 
+TEST(FBuildSessionTests, ServiceDrainTracksStateAfterLastSessionHandleDiesInCallback)
+{
+	FFixture Fixture;
+	FThreadEvent CallbackStarted, ReleaseCallback, DrainReturned;
+	std::function<void()> Queued;
+	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> {
+		Queued = std::move(Work); return {};
+	});
+	auto Request = Session->Build(Definition(), [&](FBuildCompleteParams Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
+		Session.reset();
+		CallbackStarted.Trigger();
+		EXPECT_TRUE(ReleaseCallback.WaitFor(2.0));
+	}, {}, Options());
+	ASSERT_TRUE(Request);
+	std::jthread Worker([&] { Queued(); });
+	ASSERT_TRUE(CallbackStarted.WaitFor(2.0));
+	std::jthread Drainer([&] {
+		EXPECT_EQ(Fixture.Service->Drain(), EBuildDrainResult::Drained);
+		DrainReturned.Trigger();
+	});
+	EXPECT_FALSE(DrainReturned.WaitFor(0.05));
+	ReleaseCallback.Trigger();
+	EXPECT_TRUE(DrainReturned.WaitFor(2.0));
+	Worker.join(); Drainer.join();
+	EXPECT_TRUE(Request->IsComplete());
+}
+
 TEST(FBuildSessionTests, AdmissionErrorsNeverInvokeCompletion)
 {
 	FFixture Fixture;
 	auto Session = Fixture.Session();
 	uint32 Calls = 0;
-	EXPECT_FALSE(Session->Build(Definition(), {}, {}, Options()));
-	EXPECT_FALSE(Session->Build(Definition("Missing.Function"), [&](auto) { ++Calls; }, {}, Options()));
+	auto MissingCallback = Session->Build(Definition(), {}, {}, Options());
+	ASSERT_FALSE(MissingCallback); EXPECT_EQ(MissingCallback.error().Reason, EBuildAdmissionReason::InvalidRequest);
+	auto MissingFunction = Session->Build(Definition("Missing.Function"), [&](auto) { ++Calls; }, {}, Options());
+	ASSERT_FALSE(MissingFunction); EXPECT_EQ(MissingFunction.error().Reason, EBuildAdmissionReason::MissingFunction);
+	auto Mismatch = Fixture.Function->GetDescriptor(); ++Mismatch.Version;
+	auto InvalidAction = FBuildAction::TryCreate(Definition(), std::move(Mismatch), {}).value();
+	auto InvalidRequest = Session->Build(std::move(InvalidAction), [&](auto) { ++Calls; }, {}, Options());
+	ASSERT_FALSE(InvalidRequest); EXPECT_EQ(InvalidRequest.error().Reason, EBuildAdmissionReason::InvalidRequest);
 	Session->Close();
-	EXPECT_FALSE(Session->Build(Definition(), [&](auto) { ++Calls; }, {}, Options()));
+	auto Closed = Session->Build(Definition(), [&](auto) { ++Calls; }, {}, Options());
+	ASSERT_FALSE(Closed); EXPECT_EQ(Closed.error().Reason, EBuildAdmissionReason::Closed);
 	EXPECT_EQ(Calls, 0u);
+}
+
+TEST(FBuildSessionTests, CallbackExceptionsDoNotBreakCompletionOrDrainAccounting)
+{
+	FFixture Fixture;
+	auto Session = Fixture.Session();
+	auto Request = Session->Build(Definition(), [](FBuildCompleteParams) { throw std::runtime_error("callback"); },
+		{}, Options());
+	ASSERT_TRUE(Request);
+	EXPECT_TRUE(Request->IsComplete());
+	EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
+	EXPECT_EQ(Fixture.Function->Builds.load(), 1u);
 }

@@ -88,6 +88,13 @@ namespace Durin::StaticMeshPrivate
 			bool bHasVertexColors = false;
 		};
 		struct FLayout { FBox LocalBounds; uint32 MaterialSlotCount = 0; std::vector<FLOD> LODs; };
+		struct FValidatedLayoutReceipt final : FBuildValidationReceipt
+		{
+			FValidatedLayoutReceipt(FBuildOutput InOutput, FLayout InLayout)
+				: Output(std::move(InOutput)), Layout(std::move(InLayout)) {}
+			FBuildOutput Output;
+			FLayout Layout;
+		};
 		template<typename T>
 		auto ReadStream(const FBuildOutput& Output, const std::string& Id, uint32 Count, FStream<T>& Stream) -> bool
 		{
@@ -158,8 +165,8 @@ namespace Durin::StaticMeshPrivate
 	try { auto Layout = ReadLayout(Output, ShouldCancel); if (!Layout) return std::unexpected(std::move(Layout.error())); return {}; }
 	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
 
-	auto MakeSharedOutput(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
-		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
+	auto MakeSharedOutputImpl(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+		const std::function<bool()>& ShouldCancel, bool bValidate) -> std::expected<FBuildOutput, std::string>
 	{
 		if (!IsValidBounds(Product.LocalBounds) || Product.LODs.empty() || Product.LODs.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
@@ -201,16 +208,51 @@ namespace Durin::StaticMeshPrivate
 		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
 		auto Output = FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
 		if (!Output) return Output;
-		if (auto Valid = ValidateSharedOutput(*Output, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (bValidate)
+			if (auto Valid = ValidateSharedOutput(*Output, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Output;
 	}
+	auto MakeSharedOutput(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
+	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, true); }
+	auto MakeSharedOutputForBuild(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
+	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, false); }
 
-	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel)
-		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>
+	auto ValidateSharedOutputWithReceipt(const FBuildOutput& Output, uint32 ExpectedMaterialSlotCount,
+		const std::function<bool()>& ShouldCancel)
+		-> std::expected<std::shared_ptr<const FBuildValidationReceipt>, std::string>
 	try
 	{
 		auto Layout = ReadLayout(Output, ShouldCancel);
 		if (!Layout) return std::unexpected(std::move(Layout.error()));
+		if (Layout->MaterialSlotCount != ExpectedMaterialSlotCount)
+			return std::unexpected("StaticMesh output material count does not match its action.");
+		return std::make_shared<const FValidatedLayoutReceipt>(Output, std::move(*Layout));
+	}
+	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
+	catch (const std::bad_alloc&) { return std::unexpected("Allocation"); }
+
+	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel,
+		const FBuildValidationReceipt* Receipt)
+		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>
+	try
+	{
+		std::optional<FLayout> Parsed;
+		const FLayout* Layout = nullptr;
+		if (Receipt)
+		{
+			const auto* Validated = dynamic_cast<const FValidatedLayoutReceipt*>(Receipt);
+			if (!Validated || !Validated->Output.SharesStateWith(Output))
+				return std::unexpected("StaticMesh validation receipt does not match the output.");
+			Layout = &Validated->Layout;
+		}
+		else
+		{
+			auto Candidate = ReadLayout(Output, ShouldCancel);
+			if (!Candidate) return std::unexpected(std::move(Candidate.error()));
+			Parsed = std::move(*Candidate); Layout = &*Parsed;
+		}
 		auto Result = std::make_unique<FStaticMeshRenderData>();
 		Result->LocalBounds = Layout->LocalBounds; Result->MaterialSlots.resize(Layout->MaterialSlotCount);
 		for (const auto& Source : Layout->LODs)

@@ -1352,6 +1352,21 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlives
 	EXPECT_TRUE(ValidateStaticMeshRenderData(**Render));
 }
 
+TEST(FStaticMeshPayloadCodecTests, ValidationReceiptIsBoundToTheExactOutput)
+{
+	using namespace DerivedData;
+	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(MakeMultiMaterialFixture()), 2);
+	ASSERT_TRUE(Output) << Output.error();
+	auto Receipt = StaticMeshPrivate::ValidateSharedOutputWithReceipt(*Output, 2);
+	ASSERT_TRUE(Receipt) << Receipt.error();
+	EXPECT_TRUE(StaticMeshPrivate::AssembleSharedOutput(*Output, {}, Receipt->get()));
+
+	auto Clone = FBuildOutput::TryCreate(CopyOutputDescriptors(*Output));
+	ASSERT_TRUE(Clone) << Clone.error();
+	EXPECT_FALSE(Clone->SharesStateWith(*Output));
+	EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Clone, {}, Receipt->get()));
+}
+
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWithoutChangingCookBytes)
 {
 	using namespace DerivedData;

@@ -3,6 +3,20 @@
 
 namespace Durin::DerivedData::Private
 {
+	struct FBuildExecutionAccess
+	{
+		static auto Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
+			-> std::expected<std::vector<FBuildInput>, FBuildFailure>;
+	};
+
+	struct FBuildCompletionAccess
+	{
+		static auto Ok(FBuildOutput Output, std::shared_ptr<const FBuildValidationReceipt> ValidationReceipt,
+			FCacheKey Key,
+			EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams;
+		static auto Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams;
+	};
+
 	struct FRegisteredBuildFunction
 	{
 		FBuildFunctionDescriptor Descriptor;

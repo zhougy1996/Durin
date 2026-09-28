@@ -160,23 +160,21 @@ namespace Durin::StaticMeshPrivate
 					: Error(FormatStaticMeshRenderBuildError(Product.error()), EBuildFailureReason::ProducerFailure));
 				if (Product->LODs.empty() || !Product->LocalBounds.bIsValid)
 					return std::unexpected(Error("StaticMesh builder returned invalid render data.", EBuildFailureReason::ProducerFailure));
-				auto Output = MakeSharedOutput(std::move(*Product), *Count, ShouldCancel);
+				auto Output = MakeSharedOutputForBuild(std::move(*Product), *Count, ShouldCancel);
 				if (ShouldCancel()) return std::unexpected(Cancelled());
 				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildFailureReason::InvalidOutput));
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-				-> std::expected<void, FBuildFailure> override
+				-> FBuildValidationResult override
 			{
 				auto Count = MaterialCount(Action); if (!Count) return std::unexpected(std::move(Count.error()));
-				FBinaryReader Metadata(Output.GetMetadata().GetBytes()); uint32 Platform = 0, Profile = 0, StoredCount = 0;
-				if (!Metadata.ReadU32(Platform) || !Metadata.ReadU32(Profile) || !Metadata.ReadU32(StoredCount) || StoredCount != *Count)
-					return std::unexpected(Error("StaticMesh output material count does not match its action.", EBuildFailureReason::InvalidOutput));
 				bool bCancelled = false;
-				auto Valid = ValidateSharedOutput(Output, [&] { return bCancelled = bCancelled || Cancel.IsCancelled(); });
+				auto Valid = ValidateSharedOutputWithReceipt(Output, *Count,
+					[&] { return bCancelled = bCancelled || Cancel.IsCancelled(); });
 				if (bCancelled || Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildFailureReason::InvalidOutput));
-				return {};
+				return std::move(*Valid);
 			}
 		private:
 			IMeshBuilderModule& Module;

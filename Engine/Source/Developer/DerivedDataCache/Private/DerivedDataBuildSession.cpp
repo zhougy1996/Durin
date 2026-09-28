@@ -33,6 +33,8 @@ namespace Durin::DerivedData
 			uint64 NextId = 0, Active = 0, Submitting = 0;
 			std::shared_ptr<FSessionResources> Resources;
 			std::unordered_map<uint64, std::shared_ptr<FBuildRequestState>> Requests;
+			auto Close() -> void;
+			auto Drain() -> EBuildDrainResult;
 			auto ReleaseIfDrained() -> void
 			{
 				std::shared_ptr<FSessionResources> Retired;
@@ -81,9 +83,7 @@ namespace Durin::DerivedData
 					std::lock_guard Lock(Mutex);
 					if (State == ERequestState::Completing || State == ERequestState::Done) return;
 					State = ERequestState::Completing;
-					if (Canceled.load()) Completion = FBuildCompleteParams::Canceled(
-						Completion.GetCacheKey() ? std::optional(*Completion.GetCacheKey()) : std::nullopt,
-						Completion.GetBuildStatus(), Completion.GetReport());
+					if (Canceled.load()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
 					Notify = std::move(Callback);
 					Retired = std::move(Data);
 				}
@@ -169,6 +169,26 @@ namespace Durin::DerivedData
 				return true;
 			}
 		};
+		auto FBuildSessionState::Close() -> void
+		{
+			decltype(Requests) Pending;
+			{
+				std::lock_guard Lock(Mutex);
+				if (Closed) return;
+				Closed = true; Pending = std::move(Requests);
+			}
+			for (const auto& [Id, Request] : Pending) Request->Cancel();
+			ReleaseIfDrained();
+		}
+		auto FBuildSessionState::Drain() -> EBuildDrainResult
+		{
+			Close();
+			for (auto* Scope = CurrentScope; Scope; Scope = Scope->Previous)
+				if (Scope->Owner == this) return EBuildDrainResult::WouldBlock;
+			std::unique_lock Lock(Mutex);
+			Changed.wait(Lock, [&] { return Active == 0 && Submitting == 0 && Released; });
+			return EBuildDrainResult::Drained;
+		}
 		struct FSubmissionScope
 		{
 			std::shared_ptr<FBuildSessionState> Owner;
@@ -192,7 +212,7 @@ namespace Durin::DerivedData
 			FBuildRegistry Registry;
 			std::optional<FBuildRegistrySnapshot> Snapshot;
 			FBuildServiceOptions Options;
-			std::vector<std::weak_ptr<FBuildSession>> Sessions;
+			std::vector<std::weak_ptr<FBuildSessionState>> Sessions;
 		};
 	}
 
@@ -209,7 +229,14 @@ namespace Durin::DerivedData
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
 			if (State->Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build registration is frozen."});
 			auto Added = State->Registry.Register(std::move(Function));
-			if (!Added) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, Added.error().Description});
+			if (!Added)
+			{
+				const auto Reason = Added.error().Reason == EBuildFailureReason::ResourceExhaustion
+					? EBuildAdmissionReason::Capacity
+					: Added.error().Reason == EBuildFailureReason::InternalFailure
+						? EBuildAdmissionReason::InternalFailure : EBuildAdmissionReason::InvalidRequest;
+				return std::unexpected(FBuildAdmissionError{Reason, Added.error().Description});
+			}
 			return {};
 		}
 		auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver,
@@ -226,13 +253,16 @@ namespace Durin::DerivedData
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
 				*State->Snapshot, std::move(Resolver), std::move(Dispatcher), State->Options);
+			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
+			if (State->Sessions.size() >= 4096)
+				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build service session capacity is exhausted."});
+			State->Sessions.push_back(SessionState);
 			auto Session = std::shared_ptr<FBuildSession>(new FBuildSession(std::move(SessionState)));
-			State->Sessions.push_back(Session);
 			return Session;
 		}
 		auto Close() -> void override
 		{
-			std::vector<std::shared_ptr<FBuildSession>> Sessions;
+			std::vector<std::shared_ptr<Private::FBuildSessionState>> Sessions;
 			{
 				std::lock_guard Lock(State->Mutex);
 				State->Closed = true;
@@ -243,7 +273,7 @@ namespace Durin::DerivedData
 		auto Drain() -> EBuildDrainResult override
 		{
 			Close();
-			std::vector<std::shared_ptr<FBuildSession>> Sessions;
+			std::vector<std::shared_ptr<Private::FBuildSessionState>> Sessions;
 			{
 				std::lock_guard Lock(State->Mutex);
 				for (auto& Weak : State->Sessions) if (auto Session = Weak.lock()) Sessions.push_back(std::move(Session));
@@ -292,8 +322,13 @@ namespace Durin::DerivedData
 				if (Owner->Active >= 4096) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build session is full."});
 				const std::string_view Name = std::holds_alternative<FBuildDefinition>(BuildRequest)
 					? std::get<FBuildDefinition>(BuildRequest).GetFunctionName() : std::get<FBuildAction>(BuildRequest).GetFunction().Name;
-				if (!Owner->Resources->Registry.Find(Name))
+				const auto Entry = Owner->Resources->Registry.Find(Name);
+				if (!Entry)
 					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::MissingFunction, "Build function is not registered."});
+				if (const auto* Action = std::get_if<FBuildAction>(&BuildRequest);
+					Action && Action->GetFunction() != Entry->Descriptor)
+					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest,
+						"Build action does not match the registered function."});
 				Request = std::make_shared<Private::FBuildRequestState>();
 				Request->Id = Owner->NextId++;
 				Request->Owner = Owner;
@@ -309,7 +344,11 @@ namespace Durin::DerivedData
 			auto Ticket = std::make_shared<Private::FDispatchTicket>(); Ticket->Request = Request;
 			auto Accepted = Dispatch([Ticket] { Ticket->Request->Run(); });
 			Ticket.reset();
-			if (!Accepted && Request->RejectDispatch()) return std::unexpected(std::move(Accepted.error()));
+			if (!Accepted && Request->RejectDispatch())
+			{
+				auto Error = std::move(Accepted.error()); Error.BoundDescription();
+				return std::unexpected(std::move(Error));
+			}
 			Request->AcceptDispatch();
 			return Handle;
 		}
@@ -320,25 +359,7 @@ namespace Durin::DerivedData
 		}
 	}
 	auto FBuildSession::Close() -> void
-	{
-		auto Owner = State;
-		decltype(Owner->Requests) Pending;
-		{
-			std::lock_guard Lock(Owner->Mutex);
-			if (Owner->Closed) return;
-			Owner->Closed = true; Pending = std::move(Owner->Requests);
-		}
-		for (const auto& [Id, Request] : Pending) Request->Cancel();
-		Owner->ReleaseIfDrained();
-	}
+	{ State->Close(); }
 	auto FBuildSession::Drain() -> EBuildDrainResult
-	{
-		auto Owner = State;
-		Close();
-		for (auto* Scope = Private::CurrentScope; Scope; Scope = Scope->Previous)
-			if (Scope->Owner == Owner.get()) return EBuildDrainResult::WouldBlock;
-		std::unique_lock Lock(Owner->Mutex);
-		Owner->Changed.wait(Lock, [&] { return Owner->Active == 0 && Owner->Submitting == 0 && Owner->Released; });
-		return EBuildDrainResult::Drained;
-	}
+	{ return State->Drain(); }
 }

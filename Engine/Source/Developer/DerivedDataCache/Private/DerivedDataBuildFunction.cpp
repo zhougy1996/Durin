@@ -3,13 +3,15 @@
 
 namespace Durin::DerivedData
 {
+	FBuildValidationReceipt::~FBuildValidationReceipt() = default;
+
 	struct FBuildInputs::FState
 	{
 		std::vector<FBuildInputReference> Identities;
 		std::shared_ptr<const IBuildInputResolver> Resolver;
 	};
 
-	auto FBuildExecutionAccess::Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
+	auto Private::FBuildExecutionAccess::Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
 		-> std::expected<std::vector<FBuildInput>, FBuildFailure>
 	{
 		if (!Inputs.State || !Inputs.State->Resolver)
@@ -28,7 +30,12 @@ namespace Durin::DerivedData
 		try
 		{
 			auto Identities = Resolver->Describe(Sources, Cancel);
-			if (!Identities) return std::unexpected(std::move(Identities.error()));
+			if (!Identities)
+			{
+				auto Failure = std::move(Identities.error());
+				Failure.Operation = EBuildOperation::Describe; Failure.BoundDescription();
+				return std::unexpected(std::move(Failure));
+			}
 			if (Cancel.IsCancelled())
 				return std::unexpected(FBuildFailure{.Operation = EBuildOperation::Describe,
 					.Description = "Build input capture was canceled."});
@@ -44,6 +51,17 @@ namespace Durin::DerivedData
 		{
 			return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ResourceExhaustion,
 				.Operation = EBuildOperation::Describe, .Description = "Allocation"});
+		}
+		catch (const std::exception& Exception)
+		{
+			FBuildFailure Failure{.Reason = EBuildFailureReason::InternalFailure,
+				.Operation = EBuildOperation::Describe, .Description = Exception.what()};
+			Failure.BoundDescription(); return std::unexpected(std::move(Failure));
+		}
+		catch (...)
+		{
+			return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InternalFailure,
+				.Operation = EBuildOperation::Describe, .Description = "Build input description threw an unknown exception."});
 		}
 	}
 
@@ -87,6 +105,16 @@ namespace Durin::DerivedData
 	{
 		return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::ResourceExhaustion,
 			.Description = "Allocation"});
+	}
+	catch (const std::exception& Exception)
+	{
+		FBuildFailure Failure{.Reason = EBuildFailureReason::InternalFailure, .Description = Exception.what()};
+		Failure.BoundDescription(); return std::unexpected(std::move(Failure));
+	}
+	catch (...)
+	{
+		return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InternalFailure,
+			.Description = "Build function registration threw an unknown exception."});
 	}
 
 	auto Private::FBuildRegistry::Freeze() -> std::expected<FBuildRegistrySnapshot, FBuildFailure>

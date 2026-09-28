@@ -160,7 +160,7 @@ namespace Durin::TexturePrivate
 				if (!Output) return std::unexpected(Error(EBuildFailureReason::InvalidOutput, std::move(Output.error())));
 				return std::move(*Output);
 			}
-			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation&) const -> std::expected<void, FBuildFailure> override
+			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation&) const -> FBuildValidationResult override
 			{
 				auto Options = Settings(Action);
 				if (!Options) return std::unexpected(std::move(Options.error()));

@@ -17,12 +17,24 @@ physics collision and ShaderBuild use the shared contract without request
 observers or one-shot production sessions.
 
 Validation-pass tracing found that StaticMesh and Shader validation and typed
-assembly traverse the same serialized layout but protect different boundaries:
-the registered function rejects untrusted cache/build output, while assembly
-materializes typed/native views needed by the owning family. Qualification did
-not show evidence that justified adding a public opaque receipt or weakening
-either boundary, so no receipt mechanism was added. This is the bounded outcome
-required by the stage's "only where safety and benefit are proved" rule.
+assembly traversed the same serialized layout. Their registered functions now
+return private family receipts through the generic completion. Each receipt is
+bound to the exact immutable output state and applicable request facts, and
+retains only the already validated parsed layout or typed product. Family
+assembly accepts a receipt only after its private dynamic type and bindings
+match; direct assembly without a receipt still performs full validation. Tests
+also prove that a same-content output copy or changed Shader request cannot
+reuse a receipt, so the optimization removes the admitted build's duplicate
+scan without creating a public trusted-validation bypass.
+
+The post-implementation completion audit removed two initially sketched but
+unimplemented policy facts: `ReturnData` and `CacheStoreHit`. Successful Durin
+completion always owns its validated output, and the local cache `Put` contract
+does not distinguish insertion from an existing entry. Keeping either field
+would advertise behavior the bounded implementation cannot truthfully report.
+The internal Ok factory is now private, while public Error/Canceled factories
+normalize cache-key-dependent status flags so contradictory terminal values
+cannot be constructed.
 
 Validation receipts on `macos-xcode-arm64`, preset
 `MacOS-arm64-Debug-DurinEditor`:
@@ -30,7 +42,7 @@ Validation receipts on `macos-xcode-arm64`, preset
 - `./DevTool test affected --test-jobs 4 --report` passed the 48-target affected
   batch, including DerivedDataCache/build sessions, asset compilation, Cook,
   texture, StaticMesh, physics and Shader coverage.
-- `DerivedDataBuildTests` passed 36/36 focused tests.
+- `DerivedDataBuildTests` passed 46/46 focused tests.
 - CPU qualification passed for `DerivedDataTextureQualificationTests`,
   `StaticMeshBuildQualificationTests` and `ShaderBuildQualificationTests`.
   Shader's eight-request sample reported cold/DDC/LRU medians of
@@ -46,6 +58,13 @@ Validation receipts on `macos-xcode-arm64`, preset
   1637.970/601.540 ms to 1224.78/295.478 ms. These single-host median samples
   are diagnostic rather than hard timing gates; no correctness, identity,
   source-resolution or retained-output regression was found.
+- After adding bound validation receipts, the focused qualification rerun
+  reported Shader cold/DDC/LRU medians of 56.451/3.080/0.809 ms with unchanged
+  8/0/0 content reads, and StaticMesh render cold/warm medians of
+  1218.41/808.171 ms with 1/0 source requests and collision cold/warm medians of
+  1205.6/290.509 ms. The intended StaticMesh duplicate-scan reduction is visible
+  in the warm sample; the Shader sample remains within the plan's diagnostic,
+  non-gating single-host variance model.
 - `./DevTool build` completed the shared API `all` target.
 - Exact obsolete-symbol searches across Engine, Sandbox and RoadWeaver found no
   derived-data observer, public executor, phase, miss-error or one-shot session
@@ -151,8 +170,8 @@ different responsibilities from the UE type with the same name, rename it.
 ### Build service and session ownership
 
 Add one public `IBuild` service in `DerivedDataCache`. It owns the frozen
-function registry, construction factories, cache/execution services and session
-creation. Engine and ShaderBuild obtain the service through their existing
+function registry, admitted-action construction, cache/execution services and
+session creation. Engine and ShaderBuild obtain the service through their existing
 explicit authoring bootstrap; no static registration or Runtime-to-Developer
 dependency is introduced.
 
@@ -197,7 +216,7 @@ the UE interfaces.
 Replace request booleans and observer-derived facts with an immutable
 `FBuildPolicy` and a constrained `FBuildCompleteParams`-style completion.
 Initial policy supports only behavior Durin implements: cache query, local build,
-store-on-build, force build, returned data and bounded execution limits.
+store-on-build, force build and bounded execution limits.
 Compression selection belongs to bucket/backend configuration unless a measured
 family requirement proves it is request policy.
 
@@ -214,7 +233,6 @@ enum class EBuildStatus : uint32
 	CacheQueryHit = 1 << 2,
 	BuildLocal = 1 << 3,
 	CacheStore = 1 << 4,
-	CacheStoreHit = 1 << 5,
 };
 
 struct FBuildCompleteParams
@@ -455,5 +473,5 @@ build process trees or infer untested platform behavior.
 | Diagnostic/metric sink failure | Terminal outcome and accounting are unchanged. |
 | Shutdown | Admission closes, accepted work terminates, callbacks retire and producer services unload only after drain. |
 | Family publication | Generation, latest-wins, object application and GPU/physics readiness remain owner-controlled. |
-| Validation optimization | Equivalent scans decrease; malformed cache output and mismatched receipts cannot reach trusted assembly. |
+| Validation optimization | Only scans proved equivalent and beneficial may be removed; malformed cache output never reaches typed assembly. |
 | Compatibility | Unchanged semantics retain existing action keys, output schemas, authored bytes and Cook payloads. |

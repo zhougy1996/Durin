@@ -145,7 +145,7 @@ namespace Durin::TexturePrivate
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation&) const
-				-> std::expected<void, FBuildFailure> override
+				-> FBuildValidationResult override
 			{
 				auto Settings = ReadSettings(Action);
 				if (!Settings) return std::unexpected(std::move(Settings.error()));

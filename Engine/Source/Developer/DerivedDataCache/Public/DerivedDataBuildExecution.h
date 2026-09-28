@@ -3,12 +3,14 @@
 
 namespace Durin::DerivedData
 {
+	namespace Private { struct FBuildCompletionAccess; }
+
 	enum class EStatus : uint8 { Ok, Error, Canceled };
 	enum class EBuildStatus : uint32
 	{
 		None = 0, CacheKey = 1 << 0, CacheQuery = 1 << 1,
 		CacheQueryHit = 1 << 2, BuildLocal = 1 << 3,
-		CacheStore = 1 << 4, CacheStoreHit = 1 << 5,
+		CacheStore = 1 << 4,
 	};
 	constexpr auto operator|(EBuildStatus A, EBuildStatus B) -> EBuildStatus
 	{ return EBuildStatus(uint32(A) | uint32(B)); }
@@ -25,6 +27,8 @@ namespace Durin::DerivedData
 	};
 	struct FBuildExecutionReport
 	{
+		static constexpr uint32 MaximumMetrics = 256;
+		static constexpr uint32 MaximumMetricNameBytes = 128;
 		std::vector<FBuildMetric> Metrics;
 		std::vector<FBuildDiagnostic> Diagnostics;
 		uint64 PersistenceNanoseconds = 0;
@@ -33,8 +37,6 @@ namespace Durin::DerivedData
 	class FBuildCompleteParams
 	{
 	public:
-		DERIVEDDATACACHE_API static auto Ok(FBuildOutput Output, FCacheKey Key,
-			EBuildStatus BuildStatus, FBuildExecutionReport Report) -> FBuildCompleteParams;
 		DERIVEDDATACACHE_API static auto Error(FBuildFailure Failure,
 			std::optional<FCacheKey> Key, EBuildStatus BuildStatus,
 			FBuildExecutionReport Report) -> FBuildCompleteParams;
@@ -45,20 +47,23 @@ namespace Durin::DerivedData
 		auto GetCacheKey() const -> const FCacheKey* { return CacheKey ? &*CacheKey : nullptr; }
 		auto GetOutput() const -> const FBuildOutput* { return Output ? &*Output : nullptr; }
 		auto GetFailure() const -> const FBuildFailure* { return Failure ? &*Failure : nullptr; }
+		auto GetValidationReceipt() const -> const FBuildValidationReceipt* { return ValidationReceipt.get(); }
 		auto GetReport() const -> const FBuildExecutionReport& { return Report; }
 	private:
+		friend struct Private::FBuildCompletionAccess;
 		EStatus Status = EStatus::Canceled;
 		EBuildStatus BuildStatus = EBuildStatus::None;
 		std::optional<FCacheKey> CacheKey;
 		std::optional<FBuildOutput> Output;
 		std::optional<FBuildFailure> Failure;
+		std::shared_ptr<const FBuildValidationReceipt> ValidationReceipt;
 		FBuildExecutionReport Report;
 	};
 
 	struct FBuildPolicy
 	{
 		bool QueryCache = true, BuildLocal = true, StoreOnBuild = true;
-		bool ForceBuild = false, ReturnData = true;
+		bool ForceBuild = false;
 		FBuildOutputLimits InputLimits, OutputLimits, PersistenceLimits;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();

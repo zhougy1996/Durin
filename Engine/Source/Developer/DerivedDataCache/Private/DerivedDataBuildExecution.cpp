@@ -5,16 +5,20 @@
 
 namespace Durin::DerivedData
 {
-	auto FBuildCompleteParams::Ok(FBuildOutput Output, FCacheKey Key,
-		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
+	namespace
 	{
-		FBuildCompleteParams Result;
-		Result.Status = EStatus::Ok;
-		Result.BuildStatus = Status | EBuildStatus::CacheKey;
-		Result.CacheKey = std::move(Key);
-		Result.Output = std::move(Output);
-		Result.Report = std::move(Report);
-		return Result;
+		auto NormalizeStatus(std::optional<FCacheKey>& Key, EBuildStatus Status) -> EBuildStatus
+		{
+			if (Key && !Key->IsValid()) Key.reset();
+			if (!Key)
+				return EBuildStatus(uint32(Status) & ~(uint32(EBuildStatus::CacheKey)
+					| uint32(EBuildStatus::CacheQuery) | uint32(EBuildStatus::CacheQueryHit)
+					| uint32(EBuildStatus::BuildLocal) | uint32(EBuildStatus::CacheStore)));
+			Status |= EBuildStatus::CacheKey;
+			if (HasBuildStatus(Status, EBuildStatus::CacheQueryHit)) Status |= EBuildStatus::CacheQuery;
+			if (HasBuildStatus(Status, EBuildStatus::CacheStore)) Status |= EBuildStatus::BuildLocal;
+			return Status;
+		}
 	}
 	auto FBuildCompleteParams::Error(FBuildFailure Failure, std::optional<FCacheKey> Key,
 		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
@@ -22,9 +26,8 @@ namespace Durin::DerivedData
 		Failure.BoundDescription();
 		FBuildCompleteParams Result;
 		Result.Status = EStatus::Error;
-		Result.BuildStatus = Status;
 		Result.CacheKey = std::move(Key);
-		if (Result.CacheKey) Result.BuildStatus |= EBuildStatus::CacheKey;
+		Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status);
 		Result.Failure = std::move(Failure);
 		Result.Report = std::move(Report);
 		return Result;
@@ -34,9 +37,8 @@ namespace Durin::DerivedData
 	{
 		FBuildCompleteParams Result;
 		Result.Status = EStatus::Canceled;
-		Result.BuildStatus = Status;
 		Result.CacheKey = std::move(Key);
-		if (Result.CacheKey) Result.BuildStatus |= EBuildStatus::CacheKey;
+		Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status);
 		Result.Report = std::move(Report);
 		return Result;
 	}
@@ -44,6 +46,32 @@ namespace Durin::DerivedData
 
 namespace Durin::DerivedData::Private
 {
+	auto FBuildCompletionAccess::Ok(FBuildOutput Output,
+		std::shared_ptr<const FBuildValidationReceipt> ValidationReceipt, FCacheKey Key,
+		EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams
+	{
+		if (!Output.IsValid() || !Key.IsValid())
+			return FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InternalFailure,
+				.Operation = EBuildOperation::Validate,
+				.Description = "Validated build completion is invalid."}, std::nullopt, Status, std::move(Report));
+		FBuildCompleteParams Result;
+		Result.Status = EStatus::Ok;
+		Result.CacheKey = std::move(Key);
+		Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status);
+		Result.Output = std::move(Output);
+		Result.ValidationReceipt = std::move(ValidationReceipt);
+		Result.Report = std::move(Report);
+		return Result;
+	}
+	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
+	{
+		Completion.Status = EStatus::Canceled;
+		Completion.Output.reset();
+		Completion.Failure.reset();
+		Completion.ValidationReceipt.reset();
+		return Completion;
+	}
+
 	namespace
 	{
 		auto OperationName(EBuildOperation Operation) -> std::string_view
@@ -134,7 +162,7 @@ namespace Durin::DerivedData::Private
 				}
 				catch (...) {}
 			};
-			auto Validate = [&](const FBuildOutput& Output) -> std::expected<void, FBuildFailure> {
+			auto Validate = [&](const FBuildOutput& Output) -> FBuildValidationResult {
 				if (Output.GetSchema() != Entry->Descriptor.OutputType || Output.GetSchemaVersion() != Entry->Descriptor.OutputSchema)
 					return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InvalidOutput,
 						.Description = "Output schema does not match the registered function."});
@@ -149,7 +177,11 @@ namespace Durin::DerivedData::Private
 				Operation = EBuildOperation::CacheQuery;
 				Status |= EBuildStatus::CacheQuery;
 				const FCacheGetRequest Query{Action.GetKey(), Policy.MaximumEncodedBytes};
-				auto Stored = Service.Cache.Get ? Service.Cache.Get(Query) : GetCache().Get(Query);
+				FCacheGetResult Stored = std::optional<FSharedByteBuffer>{};
+				try { Stored = Service.Cache.Get ? Service.Cache.Get(Query) : GetCache().Get(Query); }
+				catch (const std::bad_alloc&) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
+				catch (const std::exception& Exception) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, Exception.what()}); }
+				catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw an unknown exception."}); }
 				if (Cancel.IsCancelled()) return Canceled();
 				if (!Stored) Diagnostic(std::move(Stored.error()));
 				else if (*Stored)
@@ -171,7 +203,8 @@ namespace Durin::DerivedData::Private
 							if (Valid)
 							{
 								Status |= EBuildStatus::CacheQueryHit;
-								return FBuildCompleteParams::Ok(std::move(*Output), Action.GetKey(), Status, std::move(Report));
+								return FBuildCompletionAccess::Ok(std::move(*Output), std::move(*Valid),
+									Action.GetKey(), Status, std::move(Report));
 							}
 							Diagnostic({ECacheError::Corrupt, std::move(Valid.error().Description)});
 						}
@@ -226,7 +259,13 @@ namespace Durin::DerivedData::Private
 			Operation = EBuildOperation::Build;
 			Status |= EBuildStatus::BuildLocal;
 			auto Metric = [&](std::string_view Name, uint64 Value) noexcept {
-				try { Report.Metrics.push_back({std::string(Name), Value}); } catch (...) {}
+				try
+				{
+					if (Report.Metrics.size() < FBuildExecutionReport::MaximumMetrics)
+						Report.Metrics.push_back({std::string(Name.substr(0,
+							FBuildExecutionReport::MaximumMetricNameBytes)), Value});
+				}
+				catch (...) {}
 				try { if (Service.Metrics) Service.Metrics(Name, Value); } catch (...) {}
 			};
 			FBuildContext Context(Action, *Inputs, Cancel, Metric, Policy.MaximumWorkingSetBytes);
@@ -241,6 +280,7 @@ namespace Durin::DerivedData::Private
 
 			if (Policy.StoreOnBuild)
 			{
+				Status |= EBuildStatus::CacheStore;
 				const auto Start = std::chrono::steady_clock::now();
 				try
 				{
@@ -249,19 +289,21 @@ namespace Durin::DerivedData::Private
 						auto Record = Service.Cache.MakeRecord ? Service.Cache.MakeRecord(Action.GetKey(), *Output, Policy.PersistenceLimits)
 							: FCacheRecord::FromOutput(Action.GetKey(), *Output, Policy.PersistenceLimits);
 						if (!Record) return std::unexpected(std::move(Record.error()));
+						if (Cancel.IsCancelled()) return {};
 						Operation = EBuildOperation::Encode;
 						auto Encoded = Service.Cache.Encode ? Service.Cache.Encode(*Record, Policy.MaximumEncodedBytes)
 							: Record->Encode(Policy.MaximumEncodedBytes);
 						if (!Encoded) return std::unexpected(std::move(Encoded.error()));
+						if (Cancel.IsCancelled()) return {};
 						if (Service.CompressRecords)
 						{
 							Operation = EBuildOperation::Compress;
 							Encoded = Service.Cache.Compress ? Service.Cache.Compress(*Encoded, Policy.MaximumEncodedBytes)
 								: FCacheRecord::CompressEncoded(*Encoded, Policy.MaximumEncodedBytes);
 							if (!Encoded) return std::unexpected(std::move(Encoded.error()));
+							if (Cancel.IsCancelled()) return {};
 						}
 						Operation = EBuildOperation::CacheStore;
-						Status |= EBuildStatus::CacheStore;
 						const FCachePutRequest Put{Action.GetKey(), *Encoded, Policy.MaximumEncodedBytes};
 						return Service.Cache.Put ? Service.Cache.Put(Put) : GetCache().Put(Put);
 					};
@@ -271,11 +313,20 @@ namespace Durin::DerivedData::Private
 				{
 					if (!Cancel.IsCancelled()) Diagnostic({ECacheError::StorageFailure, "Allocation"});
 				}
+				catch (const std::exception& Exception)
+				{
+					if (!Cancel.IsCancelled()) Diagnostic({ECacheError::StorageFailure, Exception.what()});
+				}
+				catch (...)
+				{
+					if (!Cancel.IsCancelled()) Diagnostic({ECacheError::StorageFailure, "Cache persistence threw an unknown exception."});
+				}
 				Report.PersistenceNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - Start).count();
 			}
 			if (Cancel.IsCancelled()) return Canceled();
-			return FBuildCompleteParams::Ok(std::move(*Output), Action.GetKey(), Status, std::move(Report));
+			return FBuildCompletionAccess::Ok(std::move(*Output), std::move(*Valid),
+				Action.GetKey(), Status, std::move(Report));
 		}
 		catch (const std::bad_alloc&)
 		{

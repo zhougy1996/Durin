@@ -85,9 +85,9 @@ trip. Typed assembly and publication remain owner-controlled.
 ## Policy and cache behavior
 
 `FBuildPolicy` controls cache query, local build, store-on-build, force build,
-returned data, input/output/persistence limits, encoded-byte limits, and maximum
-working set. Compression and cache-operation overrides are service configuration,
-not request policy.
+input/output/persistence limits, encoded-byte limits, and maximum working set.
+Successful completion always returns its validated output. Compression and
+cache-operation overrides are service configuration, not request policy.
 
 Cache lookup returns `expected<optional<FSharedByteBuffer>, FCacheError>`.
 An empty optional is a normal miss and emits no diagnostic. Backend failure is a
@@ -109,6 +109,14 @@ Accepted work completes exactly once with `FBuildCompleteParams`:
 - `EStatus::Ok` owns one validated output and no failure.
 - `EStatus::Error` owns one `FBuildFailure` and no output.
 - `EStatus::Canceled` owns neither output nor business failure.
+
+An Ok completion may also carry an opaque family validation receipt. The
+receipt is produced by the registered function after semantic validation and is
+consumed only by that family's typed assembler. Family receipts are private and
+cannot be forged through the generic base type. They bind the exact immutable
+output state and applicable request facts, and do not make a copied or modified output trusted.
+StaticMesh and Shader use them to reuse validated parsed/typed state. Direct
+family assembly without a matching receipt retains its full validation path.
 
 The completion independently exposes its cache key, `EBuildStatus` facts, and
 `FBuildExecutionReport`. Status flags record key construction, cache query/hit,

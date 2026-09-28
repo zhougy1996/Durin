@@ -61,6 +61,8 @@ namespace Durin
 			Persistent = Session;
 		}
 		auto Inputs = DerivedData::FBuildInputs::TryCreate(Definition.GetSources(), std::move(Resolver), Options.Cancellation);
+		if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+			std::nullopt, DerivedData::EBuildStatus::None, {});
 		if (!Inputs) return DerivedData::FBuildCompleteParams::Error(std::move(Inputs.error()),
 			std::nullopt, DerivedData::EBuildStatus::None, {});
 		std::optional<DerivedData::FBuildCompleteParams> Completion;

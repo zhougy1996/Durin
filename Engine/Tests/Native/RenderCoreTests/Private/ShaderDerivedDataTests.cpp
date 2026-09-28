@@ -356,6 +356,26 @@ namespace Durin
 		EXPECT_EQ(Waiter.CompiledShaders[0].Reflection.ResourceBindings, MakeOutput().CompiledShaders[0].Reflection.ResourceBindings);
 	}
 
+	TEST_F(FShaderDerivedDataTests, ValidationReceiptIsBoundToOutputAndRequest)
+	{
+		using namespace DerivedData;
+		auto Options = MakeOptions();
+		auto Output = ShaderSharedOutput::Make(Options, MakeOutput()); ASSERT_TRUE(Output);
+		auto Receipt = ShaderSharedOutput::ValidateWithReceipt(Options, *Output);
+		ASSERT_TRUE(Receipt);
+		EXPECT_TRUE(ShaderSharedOutput::Assemble(Options, *Output, {}, Receipt->get()));
+
+		FBuildOutputData Data{.Schema = std::string(Output->GetSchema()),
+			.SchemaVersion = Output->GetSchemaVersion(), .Metadata = Output->GetMetadata(),
+			.Values = {Output->GetValues().begin(), Output->GetValues().end()}};
+		auto Clone = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Clone);
+		EXPECT_FALSE(Clone->SharesStateWith(*Output));
+		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Clone, {}, Receipt->get()));
+		auto OtherOptions = Options;
+		OtherOptions.VirtualShaderPath += ".other";
+		EXPECT_FALSE(ShaderSharedOutput::Assemble(OtherOptions, *Output, {}, Receipt->get()));
+	}
+
 	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsRawAndCompressedRecordCodeWithoutPackageChanges)
 	{
 		using namespace DerivedData;

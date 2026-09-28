@@ -154,12 +154,13 @@ namespace Durin
 			explicit FFunction(std::shared_ptr<FCompilerService> InService) : Service(std::move(InService)) {}
 			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return Descriptor(); }
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-				-> std::expected<void, FBuildFailure> override
+				-> FBuildValidationResult override
 			{
 				auto Options = ReadOptions(Action.GetConstants()); if (!Options) return std::unexpected(Invalid(EBuildOperation::Validate));
-				Options->Bind(); auto Valid = ShaderSharedOutput::Validate(Options->Value, Output, [&] { return Cancel.IsCancelled(); });
+				Options->Bind(); auto Valid = ShaderSharedOutput::ValidateWithReceipt(Options->Value, Output,
+					[&] { return Cancel.IsCancelled(); });
 				if (!Valid) return std::unexpected(Boundary(std::move(Valid.error()), EBuildOperation::Validate));
-				return {};
+				return std::move(*Valid);
 			}
 			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
 			{

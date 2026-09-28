@@ -46,6 +46,8 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API static auto TryCreate(FBuildOutputData Data,
 			FBuildOutputLimits Limits = {}) -> std::expected<FBuildOutput, std::string>;
 		auto IsValid() const -> bool { return State != nullptr; }
+		auto SharesStateWith(const FBuildOutput& Other) const -> bool
+		{ return State && State == Other.State; }
 		DERIVEDDATACACHE_API auto CheckLimits(FBuildOutputLimits Limits = {}) const -> std::expected<void, std::string>;
 		auto GetSchema() const -> std::string_view { return State ? State->Schema : std::string_view{}; }
 		auto GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }

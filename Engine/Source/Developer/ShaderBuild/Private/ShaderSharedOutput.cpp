@@ -95,6 +95,23 @@ namespace Durin::ShaderSharedOutput
 			FXxHash128 Hash;
 			FSharedByteBuffer Code, Reflection;
 		};
+		struct FValidatedShaderReceipt final : FBuildValidationReceipt
+		{
+			FBuildOutput Output;
+			std::string VirtualPath;
+			FShaderCompilerOutput Product;
+			auto Matches(const FShaderCompileOptions& Options, const FBuildOutput& Candidate) const -> bool
+			{
+				if (!Output.SharesStateWith(Candidate) || VirtualPath != Options.VirtualShaderPath
+					|| Product.CompiledShaders.size() != Options.EntryPoints.size()
+					|| Options.Frequencies.size() != Options.EntryPoints.size()) return false;
+				for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
+					if (!Options.EntryPoints[Index]
+						|| Product.CompiledShaders[Index].SourceEntryPoint != Options.EntryPoints[Index]
+						|| Product.CompiledShaders[Index].Frequency != Options.Frequencies[Index]) return false;
+				return true;
+			}
+		};
 		auto ReadLayout(const FShaderCompileOptions& Options, const FBuildOutput& Output,
 			const std::function<bool()>& Cancel) -> std::expected<std::vector<FEntry>, FShaderError>
 		{
@@ -189,14 +206,12 @@ namespace Durin::ShaderSharedOutput
 
 	auto Validate(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel) -> FShaderOperationResult
 	{
-		auto Entries = ReadLayout(Options, Output, Cancel); if (!Entries) return std::unexpected(std::move(Entries.error()));
-		for (size_t Index = 0; Index < Entries->size(); ++Index)
-			if (auto Valid = ReadReflection((*Entries)[Index].Reflection, Index, nullptr, Cancel); !Valid) return Valid;
-		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
+		auto Receipt = ValidateWithReceipt(Options, Output, Cancel);
+		if (!Receipt) return std::unexpected(std::move(Receipt.error()));
 		return {};
 	}
 
-	auto Assemble(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel)
+	auto AssembleImpl(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel)
 		-> std::expected<FShaderCompilerOutput, FShaderError>
 	{
 		auto Entries = ReadLayout(Options, Output, Cancel); if (!Entries) return std::unexpected(std::move(Entries.error()));
@@ -214,5 +229,32 @@ namespace Durin::ShaderSharedOutput
 		}
 		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 		return Product;
+	}
+
+	auto ValidateWithReceipt(const FShaderCompileOptions& Options, const FBuildOutput& Output,
+		const std::function<bool()>& Cancel)
+		-> std::expected<std::shared_ptr<const FBuildValidationReceipt>, FShaderError>
+	{
+		auto Product = AssembleImpl(Options, Output, Cancel);
+		if (!Product) return std::unexpected(std::move(Product.error()));
+		try
+		{
+			auto Receipt = std::make_shared<FValidatedShaderReceipt>();
+			Receipt->Output = Output; Receipt->VirtualPath = Options.VirtualShaderPath;
+			Receipt->Product = std::move(*Product);
+			return std::shared_ptr<const FBuildValidationReceipt>(std::move(Receipt));
+		}
+		catch (const std::bad_alloc&) { return Failure(EShaderError::PayloadTooLarge); }
+	}
+
+	auto Assemble(const FShaderCompileOptions& Options, const FBuildOutput& Output,
+		const std::function<bool()>& Cancel, const FBuildValidationReceipt* Receipt)
+		-> std::expected<FShaderCompilerOutput, FShaderError>
+	{
+		if (!Receipt) return AssembleImpl(Options, Output, Cancel);
+		const auto* Validated = dynamic_cast<const FValidatedShaderReceipt*>(Receipt);
+		if (!Validated || !Validated->Matches(Options, Output)) return Failure(EShaderError::PayloadRequestInvalid);
+		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
+		return Validated->Product;
 	}
 }

@@ -648,7 +648,8 @@ namespace Durin
 		}
 		if (Completion.GetStatus() == EStatus::Canceled) return {.Error = FShaderError{.Code = EShaderError::Cancelled}};
 		if (Completion.GetStatus() == EStatus::Error) return {.Error = ShaderSessionError(*Completion.GetFailure())};
-		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput());
+		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput(), {},
+			Completion.GetValidationReceipt());
 		if (!Built) return {.Error = std::move(Built.error())};
 		AddOutput(OutputKey, *Built);
 		return std::move(*Built);

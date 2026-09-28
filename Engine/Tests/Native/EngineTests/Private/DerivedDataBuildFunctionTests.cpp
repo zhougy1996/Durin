@@ -34,7 +34,7 @@ namespace
 			return std::move(*Output);
 		}
 		auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-			-> std::expected<void, FBuildFailure> override
+			-> FBuildValidationResult override
 		{
 			if (Cancel.IsCancelled())
 				return std::unexpected(FBuildFailure{.Reason = EBuildFailureReason::InternalFailure, .Operation = EBuildOperation::Validate});
@@ -154,4 +154,22 @@ TEST(FBuildServiceTests, BoundsDiagnosticTextWithoutDiscardingProducerIdentity)
 	EXPECT_EQ(Error.Description.size(), 4096u);
 	EXPECT_EQ(Error.ProducerCode, 42u);
 	EXPECT_EQ(Error.DiagnosticIdentity, FXxHash128::HashBuffer("semantic"));
+}
+
+TEST(FBuildServiceTests, RegistrationExceptionsBecomeTypedAdmissionFailures)
+{
+	struct FThrowingFunction final : IBuildFunction
+	{
+		auto GetDescriptor() const -> FBuildFunctionDescriptor override
+		{ throw std::runtime_error("descriptor exception"); }
+		auto Build(FBuildContext&) const -> FBuildFunctionResult override
+		{ return std::unexpected(FBuildFailure{}); }
+		auto Validate(const FBuildAction&, const FBuildOutput&, const FBuildCancellation&) const
+			-> FBuildValidationResult override { return {}; }
+	};
+	auto Service = CreateBuild();
+	auto Registered = Service->Register(std::make_shared<FThrowingFunction>());
+	ASSERT_FALSE(Registered);
+	EXPECT_EQ(Registered.error().Reason, EBuildAdmissionReason::InternalFailure);
+	EXPECT_EQ(Registered.error().Description, "descriptor exception");
 }

@@ -117,7 +117,7 @@ namespace Durin::PhysicsPrivate
 				return std::move(*Output);
 			}
 			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancellation) const
-				-> std::expected<void, FBuildFailure> override
+				-> FBuildValidationResult override
 			{
 				auto Config = Settings(Action); if (!Config) return std::unexpected(std::move(Config.error()));
 				bool bCancelled = false;

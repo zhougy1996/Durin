@@ -8,6 +8,8 @@
 
 namespace Durin::DerivedData
 {
+	namespace Private { struct FBuildExecutionAccess; }
+
 	enum class EBuildOperation : uint8
 	{
 		Admission, Describe, Action, CacheQuery, Decode, Resolve, Build, Validate,
@@ -32,6 +34,12 @@ namespace Durin::DerivedData
 		}
 	};
 	using FBuildFunctionResult = std::expected<FBuildOutput, FBuildFailure>;
+	class DERIVEDDATACACHE_API FBuildValidationReceipt
+	{
+	public:
+		virtual ~FBuildValidationReceipt();
+	};
+	using FBuildValidationResult = std::expected<std::shared_ptr<const FBuildValidationReceipt>, FBuildFailure>;
 
 	class FBuildCancellation
 	{
@@ -77,15 +85,9 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto GetIdentities() const
 			-> std::span<const FBuildInputReference>;
 	private:
-		friend struct FBuildExecutionAccess;
+		friend struct Private::FBuildExecutionAccess;
 		struct FState;
 		std::shared_ptr<const FState> State;
-	};
-	struct FBuildExecutionAccess
-	{
-		DERIVEDDATACACHE_API static auto Resolve(const FBuildInputs& Inputs,
-			const FBuildCancellation& Cancel)
-			-> std::expected<std::vector<FBuildInput>, FBuildFailure>;
 	};
 
 	using FBuildMetricSink = std::function<void(std::string_view, uint64)>;
@@ -120,6 +122,6 @@ namespace Durin::DerivedData
 		virtual auto GetDescriptor() const -> FBuildFunctionDescriptor = 0;
 		virtual auto Build(FBuildContext& Context) const -> FBuildFunctionResult = 0;
 		virtual auto Validate(const FBuildAction& Action, const FBuildOutput& Output,
-			const FBuildCancellation& Cancel) const -> std::expected<void, FBuildFailure> = 0;
+			const FBuildCancellation& Cancel) const -> FBuildValidationResult = 0;
 	};
 }

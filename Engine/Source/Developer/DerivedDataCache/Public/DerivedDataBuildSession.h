@@ -11,8 +11,11 @@ namespace Durin::DerivedData
 	};
 	struct FBuildAdmissionError
 	{
+		static constexpr size_t MaximumDescriptionBytes = 4096;
 		EBuildAdmissionReason Reason = EBuildAdmissionReason::InvalidRequest;
 		std::string Description;
+		auto BoundDescription() -> void
+		{ if (Description.size() > MaximumDescriptionBytes) Description.resize(MaximumDescriptionBytes); }
 	};
 
 	using FBuildCompletionCallback = std::function<void(FBuildCompleteParams)>;

@@ -121,7 +121,8 @@ namespace Durin
 				? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render;
 			return std::unexpected(FStaticMeshBuildFailure{Error.Description, Stage});
 		}
-		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled);
+		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled,
+			Completion.GetValidationReceipt());
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Reconciliation.MaterialSlots, **Product); !Metadata)
