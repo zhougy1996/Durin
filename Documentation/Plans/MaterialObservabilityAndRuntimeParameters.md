@@ -23,6 +23,13 @@ consumer migration behind its incomplete Stage 2 pressure/lifetime gate, and the
 multi-queue plan still has open Stage 3 readiness/lifetime work. Collection uniform
 storage and retirement must not preempt those owners.
 
+Sequencing deviation: the Stage 2 API and correctness implementation were brought
+forward in this checkpoint so the frozen workload could measure individual and
+atomic paths against the same final validation primitive. This does not waive the
+Stage 0 quiet-lane budget dependency: Stage 2 remains incomplete and may not be
+performance-accepted until numeric budgets are frozen and rerun on an authoritative
+lane. No Stage 3 work is pulled forward by this deviation.
+
 Validation receipt for this checkpoint: the shared-API `./DevTool build` (`all`)
 passed on `MacOS-arm64-Debug-DurinEditor`; `./DevTool test affected --test-jobs 4
 --report` passed all 39 selected targets with report
