@@ -2,7 +2,7 @@
 
 Summary: Add stage- and space-aware material values, complete the bounded math and context expression set, and introduce compile-time selectors without adding a new material pass or Surface output.
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-09-30
 
 Status: Active
 Completed:
@@ -19,9 +19,11 @@ not carry evaluation-stage or coordinate-space semantics. Existing Surface roots
 are fragment-only, while `WorldPosition`, `Time`, texture coordinates, texture
 samples, and numeric operations are admitted through shape-only signatures.
 
-Stage 0 is current. It freezes the semantic algebra, pass-context ABI,
-static-selection ownership, compatibility policy, fixtures, and budgets before
-the shared compiler representation changes.
+Stage 0 completed on 2026-09-30. The frozen contract below records the semantic
+algebra, pass-context ABI, static-selection ownership, compatibility policy,
+fixtures, and budgets. Stage 1 is current: migrate existing material and
+function content through semantic MIR without changing the Surface ABI or
+rendered results.
 
 ## Goal
 
@@ -188,6 +190,254 @@ shader, and source-free payload changes require coordinated version increments.
 Stage 0 selects canonical resave or bounded migration for tracked assets;
 unsupported schemas fail explicitly.
 
+## Stage 0 Frozen Contract
+
+### Inventory and ownership
+
+The existing authored language contains opcodes 0-45. Value shapes are `Float`,
+`Float2`, `Float3`, `Float4`, `Texture2D`, and `Surface`; opcode 3 and retired
+channel opcodes 25-27 remain unavailable and must not be reused. New opcodes are
+appended in this order: Dot, Cross, Length, Distance, Pow, Sqrt, Exp, Log,
+Floor, Ceil, Round, Frac, Fmod, Step, SmoothStep, Sign, Reflect, Transform
+Position, Transform Direction, Transform Normal, CameraPosition, CameraVector,
+VertexNormal, ObjectPosition, ScreenPosition, ViewSize, Static Bool, Static
+Switch, Quality Switch, and Feature Level Switch. Static Bool is an
+authoring/compiler-only type and cannot survive into normalized MIR.
+
+The eight ordered Surface inputs remain BaseColor `Float3`, Normal `Float3`,
+Metallic `Float`, Roughness `Float`, AmbientOcclusion `Float`, Emissive
+`Float3`, Opacity `Float`, and OpacityMask `Float`. All are Pixel roots. Normal
+is exact Tangent Normal; root-owned literal defaults are typed by their root,
+while an ordinary authored `Float3` constant remains non-spatial.
+
+Existing function inputs support None, Numeric, Texture, Surface, another
+Input, and UV0 defaults. Ports are keyed by GUID and shape. Stage 1 adds the
+constraint and stage mask to that same port; it does not add an opaque call
+node. Existing graph catalog entries, graph commands, clipboard records, and
+expression classes cover every old opcode except compiler-only lowering nodes.
+Stage 2-4 entries use the same catalog and command path.
+
+Compiler input currently owns detached MIR, numeric/resource declarations,
+collections, static render properties, source records, and an environment made
+of compiler identity, target, pass-contract version, dependencies, and resource
+limits. The selected quality, accepted RHI feature level, and sorted effective
+static-bool configuration become environment/request fields, not globals.
+
+Generated material shaders retain `FragmentMain`, `GeometryFragmentMain`,
+`ShadowFragmentMain`, and `HitProxyFragmentMain`. StaticMesh and SplineMesh both
+use `VertexMain` and the shared `VSOutput` containing clip position, color,
+world position, world normal, world tangent plus handedness, and UV0-UV3. The
+only current material-view payload is set 0/binding 0, one `float4` carrying
+time, a reserved value, the lighting enable, and the Specular AA enable.
+Per-primitive set 1/binding 0 currently contains LocalToClip, LocalToWorld,
+NormalToWorld, and determinant sign, but is vertex-only. Fragment-visible
+camera, viewport, inverse view, inverse object, and bounds-center fields are
+missing. Forward uses lighting/environment/shadow resources; GBuffer omits
+them; masked shadow admits only material/view resources reachable by the mask;
+opaque shadow remains the fixed resource-free shader. Preview and thumbnail
+render through ordinary `FSceneView` and StaticMesh preparation.
+
+Tracked authored corpus: `/Engine/Materials/DefaultMaterial`, functions
+`SampleNormal`, `SampleORM`, and `UVTransform`, plus
+`/Game/Materials/Metal/M_MetalRust`. The four Metal texture assets and their
+bulk payloads are dependency fixtures, not expression graphs. `Durin.dworkspace`
+declares Engine, Sandbox, and RoadWeaver. Engine owns all C++ API consumers;
+Sandbox consumes the tracked material and Cook/runtime path; RoadWeaver has no
+direct material API use but remains an affected workspace build/Cook consumer.
+
+### Value and operator rules
+
+`S` below is the intersection of the operation mask and every operand mask.
+Empty `S` is an error at the consuming input. `N` means non-spatial. `P`, `D`,
+and `M` mean Position, Direction, and Normal in one exact Object, World, View,
+or Tangent space. `C` means ScreenCoordinate in Screen space. Unless a row says
+otherwise, scalar broadcast follows the existing numeric rule, all numeric
+operands must have the selected result width after broadcast, stages intersect,
+and any unlisted spatial combination is rejected rather than cleared.
+
+| Operation | Shape and stage | Semantic result and rejection rule |
+| --- | --- | --- |
+| Constant, numeric Parameter, Collection Parameter | Authored numeric shape; Both | `N`. Constants and parameters never acquire a space implicitly. |
+| Texture Parameter | `Texture2D`; Both | Resource, no spatial kind/space. |
+| Time | `Float`; Both | `N`, material-view time. |
+| Texture Coordinates, UV Channel | `Float2`; Both | `N`; UV channel selector is scalar `N`. |
+| Texture Sample | texture + `Float2 N`; Pixel | Sample channels are `N`, except the decoded RGB output of a Normal-usage sample is Tangent `M`. Resource/sample outputs share one fetch. |
+| Decode Normal RG | `Float2 N` to `Float3`; Pixel | Tangent `M`; clamp/reconstruct/normalize exactly once. |
+| Blend Normals RNM | two `Float3` Tangent `M`; Pixel | Tangent `M`; any other kind/space is rejected. |
+| Add | equal numeric width; Both | `N+N -> N`; `P+D` or `D+P -> P`; same-space `D+D -> D`; `C+N2` or `N2+C -> C`. Other spatial pairs reject. |
+| Subtract | equal numeric width; Both | `N-N -> N`; same-space `P-P -> D`; `P-D -> P`; same-space `D-D -> D`; `C-C -> Float2 N`; `C-N2 -> C`. Other spatial pairs reject. |
+| Multiply, Divide | numeric; Both | `N` combinations use component rules. A spatial value may combine only with one scalar `N`, preserving its kind/space; division requires spatial/scalar order. Spatial-spatial and scalar/spatial division reject. |
+| Minimum, Maximum, OneMinus, Absolute, Saturate, Clamp | numeric; Both | `N` only. Component-wise spatial use is ambiguous and rejected. |
+| Negate | numeric; Both | `N -> N`, `D -> D`, `M -> M`; Position and ScreenCoordinate reject. |
+| Normalize | vector; Both | `N -> N`, `D -> D`, `M -> M`; Position and ScreenCoordinate reject. Zero length deterministically returns the zero vector and never produces NaN. |
+| Lerp | equal A/B shape plus scalar `N` alpha; Both | `N/N -> N`; equal kind and exact space for `P`, `D`, `M`, or `C` preserves that semantic. Mixed semantics reject; no implicit post-normalization. |
+| Make Float, Append, Splat | existing widths; Both | Inputs must be `N`; output is `N`. These nodes never manufacture spatial meaning. |
+| Swizzle | numeric to selected width; Both | `N -> N`. Exact identity `xyz` on `P/D/M` and `xy` on `C` preserves semantics; every other spatial mask clears to `N` only when its result is consumed as non-spatial, and cannot feed an exact spatial port without an explicit semantic producer. |
+| Sine, Cosine, Pow, Sqrt, Exp, Log, Floor, Ceil, Round, Frac, Fmod, Step, SmoothStep, Sign | numeric; Both | `N` only. Pow/Fmod/Step/SmoothStep use scalar broadcast. Constant folding uses IEEE float operations; invalid domain or non-finite folded output is a source error, while dynamic shader evaluation follows Slang/IEEE behavior. Fmod with folded zero divisor is an error. |
+| Dot | equal vector width 2-4; Both | `N/N -> Float N`; equal-space combinations of `D` and `M` are allowed and return `Float N`. Position and ScreenCoordinate reject. |
+| Cross | `Float3`; Both | `N/N -> Float3 N`; equal-space `D/M` operands return `D` in that space. Position rejects. |
+| Length | vector width 2-4; Both | `N`, `D`, or `M` to `Float N`; Position and ScreenCoordinate reject. |
+| Distance | equal vector width; Both | `N/N -> Float N`; same-space `P/P -> Float N`; `C/C -> Float N`. Other spatial pairs reject. |
+| Reflect | equal vector width; Both | `N/N -> N`; incident `D` and normal `M` in the same space return `D`. Other spatial pairs reject. Zero normal follows the intrinsic result and remains finite when inputs are finite. |
+| Make/Get/Set Surface | fixed attributes; Pixel | BaseColor/Emissive and scalar attributes are `N`; Normal is Tangent `M`. Get preserves the selected attribute semantic; Set validates it. Surface itself has no kind/space. |
+| Function Input/Output/Call | declared shape and stage constraint | Unconstrained numeric input adopts the caller semantic per invocation; non-spatial and exact constraints validate; output is inferred then checked. Defaults are checked as if authored at the call site. |
+
+WorldPosition is Pixel World `P`; CameraPosition is Both World `P`;
+CameraVector is Pixel World `D`; ObjectPosition is Both World `P`;
+VertexNormal is Vertex World `M`; ScreenPosition is Pixel Screen `C`; and
+ViewSize is Both `Float2 N`. Surface roots request Pixel. A `Both` result is
+evaluated in the requested root stage and never implies hoisting or a varying.
+
+### Transform matrix and geometry contract
+
+Transform Position, Direction, and Normal require `Float3`, an exact input kind,
+and an authored source space equal to the input semantic. Source and destination
+must differ and are canonical payload bytes. Screen is never accepted. All 12
+ordered pairs among Object, World, View, and Tangent are supported for Direction
+and Normal. Position supports Object/World/View pairs; Tangent Position is
+rejected because a tangent frame has no stable origin.
+
+Object/World uses the primitive LocalToWorld and its validated inverse;
+World/View uses the active view matrices; Object/View composes them. Position
+uses homogeneous `w=1` and translation. Direction uses the linear `w=0` map.
+Normal uses the inverse transpose of the corresponding direction map and is
+normalized with the zero-vector rule above. Tangent conversions use the
+post-vertex-factory world normal and tangent, reconstruct bitangent as
+`handedness * cross(normal, tangent)`, orthonormalize the frame, and use its
+transpose for the inverse. A non-finite or singular required object/view matrix,
+or a degenerate required tangent frame, rejects preparation transactionally and
+keeps the current last-known-good/error fallback; it never substitutes identity.
+
+For StaticMesh, Object means the vertex-factory local result before the primitive
+LocalToWorld. For SplineMesh it means the spline-deformed local result and
+deformed normal/tangent before LocalToWorld. Thus both factories publish the
+same post-factory world basis; non-uniform spline scale and primitive scale use
+their existing inverse-scale normal path and determinant/tangent handedness.
+
+### Pass-context ABI
+
+Set 0/binding 0 becomes a versioned `MaterialView` uniform with time/flags,
+camera world position, viewport origin/size and reciprocal size, WorldToView,
+and ViewToWorld. Set 1/binding 0 becomes one cross-stage `MaterialPrimitive`
+uniform extending the existing transform data with WorldToLocal and world-space
+bounds center. Reflection admits either buffer only when reachable. Vertex
+shaders and fragment shaders use identical declarations; no duplicate binding
+path is introduced.
+
+Forward and GBuffer use their active `FSceneView`. Preview and thumbnail use the
+view created by their own viewport. Masked shadow uses each shadow caster
+`FSceneView`, including its camera/view matrices and shadow-map viewport; opaque
+shadow remains resource-free because it never evaluates the material. Hit proxy
+uses its active editor view. ScreenPosition is
+`(SV_Position.xy - viewportOrigin) * reciprocalViewportSize`; ViewSize is the
+active viewport width/height, not the backing texture extent. CameraVector is
+the safe-normalized vector from WorldPosition to the active view camera.
+
+The current time and material lighting/Specular-AA flags are reused. Existing
+VSOutput world position, world normal, world tangent/handedness, and UVs are
+reused. Camera position, viewport facts, view transforms, inverse object
+transform, and bounds center are new fields. Pass-contract validation requires
+exact names, bindings, stage visibility, sizes, and reachability; mismatch
+rejects the candidate program without partially publishing resources.
+
+### Static selection and variant policy
+
+A base material owns at most 32 static-bool declarations `{Guid, Name,
+DefaultValue}` with unique valid GUIDs and names. Authored instances own sorted
+`{Guid, Value}` overrides; orphan overrides persist for repair but are rejected
+from compilation. Dynamic instances expose no setter and cannot carry local
+static overrides. Inheritance resolves root declaration defaults followed by
+parent-to-child overrides. The effective sorted GUID/value list is the canonical
+configuration and compile-request key.
+
+Static Bool is an authoring-only value referencing one root declaration. Static
+Switch has False and True value inputs of one shape; Quality Switch has Default,
+Low, and High; Feature Level Switch has Default, ES3_1, SM5, and SM6. All
+authored branches must be structurally valid and type-compatible, but only the
+selected reachable branch is expanded, normalized, dependency-scanned, limited,
+generated, and encoded. A missing exact Quality/Feature branch selects Default;
+a missing selected Static Switch branch is an error. Static Bool never enters a
+uniform layout, parameter collection, dynamic parameter API, or generated code.
+
+Editor preview explicitly requests Low or High and one feature level no greater
+than the initialized RHI capability. Game quality is renderer/scalability state;
+feature level is derived from immutable `FRHICapabilities::FeatureLevel` and
+cannot be authored by an instance. An unsupported requested tier is rejected.
+Game performs exact lookup only and never compiles or falls back to another
+configuration when the program is missing. Default branches are compile-time
+expression fallbacks, not runtime variant fallbacks.
+
+Cook requests the root default and every authored instance's effective static
+configuration for both Low and High and for every feature tier supported by the
+target profile. It deduplicates identical normalized programs and never creates
+unreferenced static-bool combinations. Each DMAT record stores the exact
+quality, feature level, effective static configuration, versions, identity, and
+compiled stages. Missing or incompatible Game configurations fail Cook/load.
+
+### Compatibility and version selection
+
+| Contract | Current | M12 | Policy |
+| --- | ---: | ---: | --- |
+| Material graph custom version | 4 | 5 | Bounded v4-to-v5 load migration, then canonical resave; older/missing versions reject. |
+| Material output custom version | 3 | 3 | Unchanged eight-output representation. |
+| Function-port custom version | 1 | 2 | Bounded v1-to-v2 constraints derived from the frozen legacy table; then resave. |
+| Material-instance custom version | 1 | 2 | Adds static-bool overrides; v1 migrates to an empty override set. |
+| Graph/function presentation schemas | 2 / 1 | 2 / 1 | Presentation is unchanged. |
+| MIR | 5 | 6 | Semantic value and transform/selection payload encoding; no old MIR reinterpretation. |
+| Generator | 8 | 9 | New math/context/transform source and exact reflection. |
+| Compiler envelope | 9 | 10 | Adds quality, feature, static configuration, and requirements. |
+| Pass contract | 5 | 6 | Versioned MaterialView/MaterialPrimitive bindings. |
+| Material render layout | 4 | 4 | Parameter packing is unchanged; context is pass-owned and not a material field. |
+| DMAT payload | 8 | 9 | Exact configuration and requirements; old payloads reject. |
+
+Legacy opcodes migrate to the table above. Existing normal-usage texture RGB
+lowering remains the explicit Tangent Normal producer; tracked function ports
+are resaved with inferred exact constraints where their body requires them and
+otherwise remain unconstrained. Any legacy generic numeric link that would
+acquire spatial meaning only from its destination is rejected with a resave
+diagnostic and must be replaced by a semantic source/transform. No loader
+silently labels a generic `Float3` as spatial.
+
+### Baselines, fixtures, and budgets
+
+The 2026-09-30 `MacOS-arm64-Debug-DurinEditor` CPU qualification passed with no
+failures. The synthetic PBR fixture normalized 260 authored IR nodes to 167,
+including six samples: canonical 13,529 bytes, generated source 14,075 bytes,
+source hash `4d1085e8a903ab942bb06ac7ca663f2e`, program identity
+`ec6ea07b78072a22596b13c36489bd46`, one compiler dependency, 138,244 compiled
+SPIR-V bytes, and 142,260 DMAT bytes. Diagnostic timings were normalize 2,155
+us, generate 875 us, cold compile 225,680 us, and warm compile 408 us. The
+variant fixture produced eight compatible owners, four effective identities,
+13 instance requests, four retained programs/731,509 bytes, 1,173,978 aggregate
+instance DMAT bytes, and 142,260 root DMAT bytes. Timing came from a shared CPU
+lane and is diagnostic, not a regression claim.
+
+Deterministic coverage is owned by `MaterialCompilerTests` (identity/source/code
+and reflection), `MaterialFunctionTests` (expansion/defaults/nesting),
+`MaterialRuntimeTests` (variants, renderer publication, reload/recovery),
+`MaterialEditorInteractionTests` (preview), `MaterialThumbnailTests`,
+`MaterialCookTests`, `MaterialCompileLifecycleTests`, and
+`MaterialQualificationTests`. The qualification command is
+`./DevTool test MaterialQualificationTests --mode qualification --report`; all
+other gates use their registered target or `./DevTool test affected` as changes
+select them. GPU evidence remains a Stage 6 gate and follows the repository GPU
+qualification workflow.
+
+Existing hard bounds remain: 256 authored nodes, 1,024 authored links, 4,096
+expanded nodes, 16,384 expanded links, 64 graph depth, 16 function-call depth,
+128 parameters, 64 function dependencies, 32 static-bool declarations, 1 MiB
+canonical IR/generated source, 2 MiB compile request, 8 MiB compile result, 8
+MiB per DMAT, 128 retained programs, and 256 MiB retained-program storage. The
+fixed synthetic M12 qualification fixture must stay at or below 256 KiB
+canonical bytes, 256 KiB generated source, 2 MiB total compiled shader bytes,
+and 2 MiB root DMAT. Its warm normalization and generation are each bounded to
+25 ms in the Debug qualification profile; cold external compiler time is
+recorded but has no cross-host threshold. Selector fixtures for 1/4/8
+declarations may compile only the explicitly requested owner x quality x
+supported-feature configurations, must deduplicate identical normalized
+results, and must remain within the existing resident count/byte and per-DMAT
+bounds.
+
 ## Current Code Boundaries
 
 | Current owner | Planned change |
@@ -212,22 +462,22 @@ rules move to owning Runtime and Editor documents as stages close.
 Dependency: completed M8/M10/M11/M13. Outcome: no semantic/configuration decision
 remains implicit before representation changes.
 
-- [ ] Inventory every opcode, Surface input, function port/default, compiler
+- [x] Inventory every opcode, Surface input, function port/default, compiler
   environment, generated shader entry, vertex-factory input, pass context,
   tracked asset, editor node, Cook version, and workspace consumer.
-- [ ] Publish the complete shape/stage/kind/space operator table for every old and
+- [x] Publish the complete shape/stage/kind/space operator table for every old and
   new operation, including preservation/clearing and explicit rejection rules.
-- [ ] Freeze supported transform pairs, translation, inverse-transpose normal,
+- [x] Freeze supported transform pairs, translation, inverse-transpose normal,
   tangent handedness, non-uniform scale, spline semantics, and singular failure.
-- [ ] Freeze active-view ABI and exact Forward/GBuffer/masked-shadow/preview/
+- [x] Freeze active-view ABI and exact Forward/GBuffer/masked-shadow/preview/
   thumbnail meanings. Record reused and missing shader/binding fields.
-- [ ] Freeze static-bool persistence/overrides, quality ownership and runtime
+- [x] Freeze static-bool persistence/overrides, quality ownership and runtime
   selection, feature derivation, keys, fallback, Cook inventory, missing-variant
   behavior, and the 32-declaration bound.
-- [ ] Choose graph/function migration and exact graph, function, MIR, generator,
+- [x] Choose graph/function migration and exact graph, function, MIR, generator,
   compiler-envelope, pass-contract, layout-if-needed, and DMAT versions. Inventory
   the tracked asset corpus.
-- [ ] Record deterministic baselines for graph identity/source/code, function
+- [x] Record deterministic baselines for graph identity/source/code, function
   expansion, variants, existing passes, preview/thumbnail, Cook, reload, and
   recovery. Freeze compile, artifact, variant, and Cook budgets before Stage 2;
   timing claims require a valid qualification lane.
