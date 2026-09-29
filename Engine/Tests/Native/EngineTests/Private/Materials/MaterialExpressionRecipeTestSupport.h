@@ -160,6 +160,8 @@ namespace Durin::Testing
 			default: check(false); break;
 			}
 			check(Expression);
+			if (auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression))
+				Declaration->DeclarationId = FGuid::NewGuid();
 			Expression->Id = MakeCanonicalNodeId(NextId++);
 			if (auto* Width = Expression->GetClass()->FindPropertyByName("ResultType"))
 				*static_cast<EMaterialProgramValueType*>(Width->GetValuePtr(Expression)) = Type;

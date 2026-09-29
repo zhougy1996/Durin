@@ -931,6 +931,44 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, StaticSwitchCreationOwnsUniqueDeclarationAndReplaysAtomically)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "StaticSwitchCreationMaterial");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Entry = std::ranges::find_if(Catalog, [](const auto& Candidate) {
+		return Candidate.Opcode == EMaterialProgramOpcode::StaticSwitch
+			&& Candidate.ResultType == EMaterialProgramValueType::Float;
+	});
+	ASSERT_NE(Entry, Catalog.end());
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Before = CaptureExpressions(*Material);
+	const auto First = Document.CreateCatalogNode(*Entry, 400, 200, {}, Transactions.Get());
+	ASSERT_TRUE(First) << FormatMaterialGraphCommandResult(First);
+	ASSERT_EQ(First.GeneratedNodeIds.size(), 2u);
+	const auto Second = Document.CreateCatalogNode(*Entry, 700, 200, {}, Transactions.Get());
+	ASSERT_TRUE(Second) << FormatMaterialGraphCommandResult(Second);
+	ASSERT_EQ(Second.GeneratedNodeIds.size(), 2u);
+	std::vector<FName> DeclarationNames;
+	for (const auto& Expression : Material->GetExpressionCollection().Expressions)
+		if (const auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression.Get()))
+			DeclarationNames.push_back(Declaration->Name);
+	ASSERT_EQ(DeclarationNames.size(), 2u);
+	EXPECT_NE(DeclarationNames[0], DeclarationNames[1]);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), Before.Expressions.size() + 2u);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), Before.Expressions.size() + 4u);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacksAndUndo)
 {
 	InitializeDObjectSystem();

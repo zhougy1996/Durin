@@ -427,7 +427,10 @@ namespace Durin::Editor::Material
 		if (!Expression) return RejectCommand("The catalog expression class is unavailable.");
 		Expression->Id = FGuid::NewGuid();
 		if (auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression.Get()))
+		{
+			Declaration->DeclarationId = FGuid::NewGuid();
 			Declaration->Name = MakeUniqueStaticBoolName();
+		}
 		if (auto* Property = Expression->GetClass()->FindPropertyByName("ResultType"))
 			*static_cast<EMaterialProgramValueType*>(Property->GetValuePtr(Expression.Get())) = Entry.ResultType;
 		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()))

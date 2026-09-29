@@ -1276,7 +1276,7 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionStaticBool(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		DPROPERTY(Edit)
-		FGuid DeclarationId = FGuid::NewGuid();
+		FGuid DeclarationId;
 		DPROPERTY(Edit)
 		FName Name = "StaticBool";
 		DPROPERTY(Edit)

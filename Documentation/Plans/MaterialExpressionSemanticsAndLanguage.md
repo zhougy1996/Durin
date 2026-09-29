@@ -19,13 +19,13 @@ not carry evaluation-stage or coordinate-space semantics. Existing Surface roots
 are fragment-only, while `WorldPosition`, `Time`, texture coordinates, texture
 samples, and numeric operations are admitted through shape-only signatures.
 
-Stages 0 through 4 completed on 2026-09-30. The frozen contract below records the semantic
+Stages 0 through 5 completed on 2026-09-30. The frozen contract below records the semantic
 algebra, pass-context ABI, static-selection ownership, compatibility policy,
 fixtures, and budgets. Existing material and function content now compiles through
 semantic MIR, and the frozen pure-math/geometric operation set is authorable,
 persistent, foldable, and deterministic without changing the Surface or renderer
-ABI. Stage 5 is current: complete product integration across authoring, Cook,
-runtime, and renderer workflows.
+ABI. Stage 6 is current: qualify the complete language and publish its lasting
+contracts.
 
 ## Goal
 
@@ -618,19 +618,31 @@ selector qualification case passes independently.
 
 Dependency: Stages 1-4. Outcome: the language works through all workflows.
 
-- [ ] Complete reflected properties, catalog/search, details, graph commands,
+- [x] Complete reflected properties, catalog/search, details, graph commands,
   canvas, Undo/Redo, copy/paste, preview selection, statistics, and diagnostics.
-- [ ] Migrate/canonical-resave the frozen corpus. Verify duplicate, move, rename,
+- [x] Migrate/canonical-resave the frozen corpus. Verify duplicate, move, rename,
   reload, delete, replacement, round trip, and imported-material behavior.
-- [ ] Complete source-free Cook/runtime coverage for missing, corrupt, incompatible,
+- [x] Complete source-free Cook/runtime coverage for missing, corrupt, incompatible,
   and compiler-provider-absent cases.
-- [ ] Exercise async supersession, cancellation, last-known-good, failure/retry,
+- [x] Exercise async supersession, cancellation, last-known-good, failure/retry,
   cache hit/miss, unload, world teardown, recovery, and shutdown.
-- [ ] Verify editor, preview, thumbnail, StaticMesh, and SplineMesh share the same
+- [x] Verify editor, preview, thumbnail, StaticMesh, and SplineMesh share the same
   accepted program and requirements without local rules or shader forks.
 
 Completion: every selected expression/configuration can be authored, diagnosed,
 saved, cooked, reloaded, and rendered through existing workflows.
+
+Completed 2026-09-30. Selector nodes participate in the closed catalog, search,
+canvas color/type display, reflected details, unique declaration naming, atomic
+creation/history, copy/paste, statistics, and explicit preview quality/feature
+selection. Default-object parity assigns GUIDs at authoring creation rather than
+in class defaults. The canonical material-function command reports every frozen
+Engine/Sandbox material and function current and preserves their implementations.
+Graph editing (100), editor interaction (66), package (6), Cook (7), lifecycle
+(5), runtime (88), and thumbnail (8) suites pass. Existing lifecycle coverage
+exercises supersession, cancellation, retry, cache reuse, unload, teardown,
+recovery, and shutdown; cooked tests exercise stripped graphs, absent compiler
+providers, corruption/version/target rejection, and exact configuration lookup.
 
 ### Stage 6: Qualify and Publish the Contract
 
