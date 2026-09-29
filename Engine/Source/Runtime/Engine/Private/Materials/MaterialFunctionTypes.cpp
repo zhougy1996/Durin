@@ -7,6 +7,35 @@
 
 namespace Durin
 {
+	auto IsValidMaterialFunctionValueConstraint(EMaterialProgramValueType Type,
+		const FMaterialFunctionValueConstraint& Constraint) -> bool
+	{
+		if (Constraint.Stages == EMaterialEvaluationStage::None) return false;
+		if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Unconstrained)
+			return Constraint.Kind == EMaterialSpatialKind::None
+				&& Constraint.Space == EMaterialCoordinateSpace::None;
+		if (Type > EMaterialProgramValueType::Float4) return false;
+		if (Constraint.Mode == EMaterialFunctionValueConstraintMode::NonSpatial)
+			return Constraint.Kind == EMaterialSpatialKind::None
+				&& Constraint.Space == EMaterialCoordinateSpace::None;
+		return Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+			&& IsValidMaterialValueSemantics({Type, Constraint.Stages,
+				Constraint.Kind, Constraint.Space});
+	}
+
+	auto MatchesMaterialFunctionValueConstraint(const FMaterialValueSemantics& Semantics,
+		const FMaterialFunctionValueConstraint& Constraint) -> bool
+	{
+		if (IntersectMaterialStages(Constraint.Stages, Semantics.Stages)
+			== EMaterialEvaluationStage::None) return false;
+		if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Unconstrained) return true;
+		if (Constraint.Mode == EMaterialFunctionValueConstraintMode::NonSpatial)
+			return Semantics.Kind == EMaterialSpatialKind::None
+				&& Semantics.Space == EMaterialCoordinateSpace::None;
+		return Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+			&& Semantics.Kind == Constraint.Kind && Semantics.Space == Constraint.Space;
+	}
+
 	namespace
 	{
 		auto IsType(EMaterialProgramValueType Type) -> bool
@@ -65,6 +94,8 @@ namespace Durin
 				if (!IsType(Port.Type) || Port.Name.empty()
 					|| Port.Name.size() > MaterialProgramMaxDisplayNameBytes)
 					Error(Result, EMaterialFunctionError::PortTypeNameInvalid, {}, Port.Id);
+				if (!IsValidMaterialFunctionValueConstraint(Port.Type, Port.Constraint))
+					Error(Result, EMaterialFunctionError::PortValueConstraintInvalid, {}, Port.Id);
 				const auto& Default = Port.Default;
 				if (!bInput || Port.bRequired)
 				{
@@ -77,6 +108,9 @@ namespace Durin
 				{
 				case EMaterialFunctionDefaultKind::Numeric:
 					bValid = Port.Type <= EMaterialProgramValueType::Float4 && IsFinite(Default.Numeric);
+					if (bValid && Port.Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact)
+						bValid = IsValidMaterialValueSemantics({Port.Type, Port.Constraint.Stages,
+							Port.Constraint.Kind, Port.Constraint.Space});
 					break;
 				case EMaterialFunctionDefaultKind::Texture:
 					bValid = Port.Type == EMaterialProgramValueType::Texture2D

@@ -285,7 +285,11 @@ namespace Durin::Editor::Material
 			{
 				Entry.AcceptedInputTypes.emplace_back(
 					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
-				if (Opcode != EMaterialProgramOpcode::Normalize && Signature.Inputs[Index].size() == 1
+				const bool bExactNormal = Opcode == EMaterialProgramOpcode::BlendNormalsRNM
+					|| (Opcode == EMaterialProgramOpcode::MakeSurface
+						&& Index == static_cast<uint8>(EMaterialSurfaceOutput::Normal));
+				if (Opcode != EMaterialProgramOpcode::Normalize && !bExactNormal
+					&& Signature.Inputs[Index].size() == 1
 					&& Signature.Inputs[Index].front() > EMaterialProgramValueType::Float
 					&& Signature.Inputs[Index].front() <= EMaterialProgramValueType::Float4)
 					Entry.AcceptedInputTypes.back().push_back(EMaterialProgramValueType::Float);
@@ -454,6 +458,14 @@ namespace Durin::Editor::Material
 					const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 					FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
+					if (!bAttributes)
+					{
+						const auto Semantics = GetMaterialSurfaceOutputSemantics(
+							static_cast<EMaterialSurfaceOutput>(Definition.Id));
+						Pin.Constraint = {.Mode = EMaterialFunctionValueConstraintMode::Exact,
+							.Stages = Semantics.Stages, .Kind = Semantics.Kind,
+							.Space = Semantics.Space};
+					}
 					if (Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
 						Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 					Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
@@ -538,10 +550,12 @@ namespace Durin::Editor::Material
 							View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
 								.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? SourceType(Link) : Port.Type,
 								.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
+								.Constraint = Port.Constraint,
 								.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 								.bAdvanced = Port.bAdvanced});
 						}
-						for (const auto& Port : Outputs) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name, .Type = Port.Type});
+						for (const auto& Port : Outputs) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name,
+							.Type = Port.Type, .Constraint = Port.Constraint});
 					}
 					else View.SecondaryLabel = "Missing function";
 					for (const auto& Binding : Call->Inputs)

@@ -227,7 +227,8 @@ namespace Durin
 		if (Components.empty() || Components.size() > 4) return Emitter.Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
 		const std::array Inputs{&Input};
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Swizzle,
-			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Components));
+			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Components,
+			OutputSpatialKind, OutputCoordinateSpace));
 	}
 
 	auto DMaterialExpressionWorldPosition::Build(MIR::FEmitter& Emitter) const -> void
@@ -354,7 +355,12 @@ namespace Durin
 			if (Input.Connection.ExpressionId.IsValid()) Node.Inputs[Slot] = Emitter.ResolveIndex(Input.Connection);
 			else if (Input.Connection.OutputIndex != 0 || Input.Connection.OutputId.IsValid())
 				return Emitter.Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
-			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant);
+			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant,
+				Attribute.Attribute == EMaterialSurfaceOutput::Normal && Input.Constant.size() == 3
+					? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
+				Attribute.Attribute == EMaterialSurfaceOutput::Normal && Input.Constant.size() == 3
+					? EMaterialCoordinateSpace::Tangent
+					: EMaterialCoordinateSpace::None);
 			const auto Selected = Node.Inputs[Slot];
 			if (Selected != MIR::InvalidIndex && Width == 3 && Emitter.GetNode(Selected).ResultType == EMaterialProgramValueType::Float)
 				Node.Inputs[Slot] = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Splat3,

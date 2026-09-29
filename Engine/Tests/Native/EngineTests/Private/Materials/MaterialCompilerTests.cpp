@@ -1,6 +1,35 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"
 
+namespace
+{
+	auto InitializeSurfaceRootSemantics(Durin::MIR::FModule& IR) -> void
+	{
+		for (uint32 Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+		{
+			const auto Semantics = Durin::GetMaterialSurfaceOutputSemantics(
+				static_cast<Durin::EMaterialSurfaceOutput>(Index));
+			auto& Input = IR.SurfaceRoot.Inputs[Index];
+			Input.Type = Semantics.Type;
+			Input.LegalStages = Semantics.Stages;
+			Input.SpatialKind = Semantics.Kind;
+			Input.CoordinateSpace = Semantics.Space;
+		}
+	}
+
+	auto ResolveNodeSemantics(Durin::MIR::FModule& IR, Durin::MIR::FNode& Node) -> void
+	{
+		std::vector<Durin::FMaterialValueSemantics> Inputs;
+		for (const auto Index : Node.Inputs) Inputs.push_back(IR.Nodes.at(Index).GetSemantics());
+		const auto Result = Durin::ResolveMaterialProgramNodeSemantics(
+			Node.Opcode, Node.ResultType, Inputs);
+		if (!Result) return;
+		Node.LegalStages = Result->Stages;
+		Node.SpatialKind = Result->Kind;
+		Node.CoordinateSpace = Result->Space;
+	}
+}
+
 TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess)
 {
 	using namespace Durin;
@@ -32,6 +61,44 @@ TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess
 	Unusable.GeneratedSource = "retained diagnostic context";
 	EXPECT_FALSE(Unusable);
 	EXPECT_FALSE(ValidateMaterialCompilerResult(Unusable));
+}
+
+TEST(FMaterialProgramSemanticTests, TransformNormalIsCanonicalAndRejectsInvalidSpacePairs)
+{
+	using namespace Durin;
+	MIR::FCompilerInput Input;
+	InitializeSurfaceRootSemantics(Input.IR);
+	Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+	Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+		.ResultType = EMaterialProgramValueType::Float3,
+		.SpatialKind = EMaterialSpatialKind::Normal,
+		.CoordinateSpace = EMaterialCoordinateSpace::World,
+		.Payload = FMaterialProgramLiteral{0, 0, 1, 0}});
+	Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::TransformNormal,
+		.ResultType = EMaterialProgramValueType::Float3,
+		.LegalStages = EMaterialEvaluationStage::Pixel,
+		.SpatialKind = EMaterialSpatialKind::Normal,
+		.CoordinateSpace = EMaterialCoordinateSpace::Tangent,
+		.Inputs = {0},
+		.Payload = FMaterialTransformPayload{EMaterialCoordinateSpace::World,
+			EMaterialCoordinateSpace::Tangent}});
+	Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Normal)].bExpression = true;
+	Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Normal)].ExpressionIndex = 1;
+	const auto Baseline = MIR::Normalize(Input);
+	ASSERT_TRUE(Baseline);
+	auto Repeated = MIR::Normalize(Input);
+	ASSERT_TRUE(Repeated);
+	EXPECT_EQ(Repeated.Identity, Baseline.Identity);
+	EXPECT_EQ(Repeated.CanonicalBytes, Baseline.CanonicalBytes);
+
+	auto Invalid = Input;
+	Invalid.IR.Nodes[1].Payload = FMaterialTransformPayload{
+		EMaterialCoordinateSpace::Screen, EMaterialCoordinateSpace::Tangent};
+	EXPECT_FALSE(MIR::Normalize(Invalid));
+	Invalid = Input;
+	Invalid.IR.Nodes[1].Payload = FMaterialTransformPayload{
+		EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::World};
+	EXPECT_FALSE(MIR::Normalize(Invalid));
 }
 
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
@@ -119,7 +186,10 @@ TEST(FMaterialProgramSchemaTests,
 	}
 	EXPECT_LE(LinkCount, MaterialProgramMaxLinkCount);
 	const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, First.Outputs);
-	EXPECT_TRUE(Validation); EXPECT_TRUE(Validation.Diagnostics.empty());
+	EXPECT_TRUE(Validation) << (Validation.Diagnostics.empty() ? std::string{}
+		: std::format("{} at {}", FormatMaterialError(Validation.Diagnostics.front().Error),
+			Validation.Diagnostics.front().NodeId.ToString()));
+	EXPECT_TRUE(Validation.Diagnostics.empty());
 	EXPECT_NE(FMaterialExpressionCollection::StaticStruct()->FindPropertyByName("Expressions"), nullptr);
 	EXPECT_NE(FMaterialExpressionSurfaceOutputs::StaticStruct()->FindPropertyByName("BaseColor"), nullptr);
 	EXPECT_NE(DMaterialExpressionScalarConstant::StaticClass()->FindPropertyByName("Value"), nullptr);
@@ -664,8 +734,7 @@ TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemaps
 	using namespace Durin;
 	MIR::FCompilerInput Input;
 	Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
-	for (uint32 Index = 0; Index < Input.IR.SurfaceRoot.Inputs.size(); ++Index)
-		Input.IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+	InitializeSurfaceRootSemantics(Input.IR);
 	Input.IR.Nodes = {
 		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.25f}},
 		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.5f}},
@@ -708,8 +777,7 @@ TEST(FMaterialProgramCompilerTests, DetachedIRRejectsMalformedInputsWithoutAutho
 	const auto Layout = CompileMaterialLayout({});
 	ASSERT_TRUE(Layout);
 	MIR::FModule IR;
-	for (uint32 Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
-		IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+	InitializeSurfaceRootSemantics(IR);
 	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
 		.ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.25f}});
 	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Saturate,
@@ -815,6 +883,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		FGuid Parameter, std::vector<uint32> Links = {}) {
 		MIR::FNode Node{.Opcode = Opcode, .ResultType = Type, .Inputs = std::move(Links)};
 		if (Parameter.IsValid()) Node.Payload = Parameter;
+		ResolveNodeSemantics(Input.IR, Node);
 		const auto Index = static_cast<uint32>(Input.IR.Nodes.size());
 		Input.IR.Nodes.push_back(std::move(Node));
 		return Index;
@@ -941,6 +1010,7 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 		MIR::FNode Node{.Opcode = Op, .ResultType = Type, .Inputs = std::move(Links)};
 		if (Op == EMaterialProgramOpcode::Constant) Node.Payload = Literal;
 		else if (Parameter.IsValid()) Node.Payload = Parameter;
+		ResolveNodeSemantics(Input.IR, Node);
 		const auto Index = static_cast<uint32>(Input.IR.Nodes.size());
 		Input.IR.Nodes.push_back(std::move(Node));
 		return Index;
@@ -956,6 +1026,8 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	Input.IR.Nodes[X].Payload = MIR::FSwizzle{1, {0}};
 	const auto Color = Add(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, {X, Sin, Cos});
 	const auto Normal = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3, {}, {}, {0, 0, 1, 0});
+	Input.IR.Nodes[Normal].SpatialKind = EMaterialSpatialKind::Normal;
+	Input.IR.Nodes[Normal].CoordinateSpace = EMaterialCoordinateSpace::Tangent;
 	const auto Zero = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float);
 	const auto One = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float, {}, {}, {1, 0, 0, 0});
 	Input.IR.SurfaceRoot.bAggregate = true;
@@ -1001,10 +1073,12 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialExpressionWorldPosition> Position(NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None));
 	TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
-	Position->Id = FGuid::NewGuid(); Time->Id = FGuid::NewGuid();
-	const std::array<DMaterialExpression*, 2> Expressions{Position.Get(), Time.Get()};
+	TStrongObjectPtr<DMaterialExpressionSwizzle> PositionColor(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+	Position->Id = FGuid::NewGuid(); Time->Id = FGuid::NewGuid(); PositionColor->Id = FGuid::NewGuid();
+	PositionColor->Input = {Position->Id}; PositionColor->Components = {0, 1, 0};
+	const std::array<DMaterialExpression*, 3> Expressions{Position.Get(), Time.Get(), PositionColor.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Position->Id}; Outputs.Roughness = {Time->Id};
+	Outputs.BaseColor = {PositionColor->Id}; Outputs.Roughness = {Time->Id};
 	Outputs.OpacityMask = {Time->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
@@ -1058,7 +1132,9 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 		{
 			Attributes.push_back(static_cast<uint32>(Packed.IR.Nodes.size()));
 			Packed.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
-				.ResultType = Root.Type, .Payload = Root.Literal});
+				.ResultType = Root.Type, .LegalStages = Root.LegalStages,
+				.SpatialKind = Root.SpatialKind, .CoordinateSpace = Root.CoordinateSpace,
+				.Payload = Root.Literal});
 		}
 	}
 	Individual.IR.Nodes = Packed.IR.Nodes;
@@ -1070,7 +1146,8 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 	Packed.IR.SurfaceRoot.bAggregate = true;
 	Packed.IR.SurfaceRoot.AggregateExpressionIndex = static_cast<uint32>(Packed.IR.Nodes.size());
 	Packed.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::MakeSurface,
-		.ResultType = EMaterialProgramValueType::Surface, .Inputs = Attributes});
+		.ResultType = EMaterialProgramValueType::Surface,
+		.LegalStages = EMaterialEvaluationStage::Pixel, .Inputs = Attributes});
 	for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
 		for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
 		{

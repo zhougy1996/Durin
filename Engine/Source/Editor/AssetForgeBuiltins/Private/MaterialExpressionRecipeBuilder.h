@@ -16,7 +16,10 @@ namespace Durin::AssetForge::Builtins::Private
 			Recipe.Presentation.Nodes.push_back({N->Id, X, Y});
 			return N;
 		}
-		auto Parameter(const FMaterialParameterDefinition& Definition, uint32 Role, int32 X, int32 Y, EMaterialProgramValueType OutputType)
+		auto Parameter(const FMaterialParameterDefinition& Definition, uint32 Role, int32 X, int32 Y,
+			EMaterialProgramValueType OutputType,
+			EMaterialSpatialKind OutputKind = EMaterialSpatialKind::None,
+			EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None)
 			-> DMaterialExpression*
 		{
 			DMaterialExpressionParameter* Parameter = nullptr;
@@ -53,6 +56,8 @@ namespace Durin::AssetForge::Builtins::Private
 				auto* Mask = Add<DMaterialExpressionSwizzle>(Role, X + 240, Y);
 				Mask->Input = {Parameter->Id}; Mask->Components.clear();
 				for (uint8 C = 0; C <= static_cast<uint8>(OutputType); ++C) Mask->Components.push_back(C);
+				Mask->OutputSpatialKind = OutputKind;
+				Mask->OutputCoordinateSpace = OutputSpace;
 				return Mask;
 			}
 			return Parameter;

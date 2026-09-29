@@ -75,6 +75,17 @@ namespace Durin::AssetForge::Builtins
 				if (ValueType == Type::Float3) N->Components.push_back(Z);
 				return {N->Id};
 			}
+			auto TangentNormal(float X, float Y, float Z) -> Link
+			{
+				auto* Value = Add<DMaterialExpressionVector3Constant>();
+				Value->Value = {X, Y, Z};
+				auto* Annotation = Add<DMaterialExpressionSwizzle>();
+				Annotation->Input = {Value->Id};
+				Annotation->Components = {0, 1, 2};
+				Annotation->OutputSpatialKind = EMaterialSpatialKind::Normal;
+				Annotation->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
+				return {Annotation->Id};
+			}
 		};
 	}
 
@@ -115,7 +126,7 @@ namespace Durin::AssetForge::Builtins
 				// Strength acts on decoded normals; RNM safely normalizes the result.
 				auto* Detail = B.Add<DMaterialExpressionLerp>();
 				Detail->ResultType = Type::Float3;
-				Detail->A.SetConstant({0, 0, 1});
+				Detail->A = B.TangentNormal(0, 0, 1);
 				Detail->B = Decoded;
 				Detail->Alpha = Strength;
 				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, {Detail->Id}}));

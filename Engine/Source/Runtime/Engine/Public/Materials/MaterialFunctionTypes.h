@@ -40,6 +40,36 @@ namespace Durin
 		UV0,
 	};
 
+	DENUM()
+	enum class EMaterialFunctionValueConstraintMode : uint8
+	{
+		Unconstrained,
+		NonSpatial,
+		Exact,
+	};
+
+	// Shape remains owned by the port. This constraint narrows the legal stages
+	// and, when requested, the exact spatial interpretation of numeric values.
+	DSTRUCT()
+	struct FMaterialFunctionValueConstraint
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		EMaterialFunctionValueConstraintMode Mode = EMaterialFunctionValueConstraintMode::Unconstrained;
+
+		DPROPERTY()
+		EMaterialEvaluationStage Stages = EMaterialEvaluationStage::Both;
+
+		DPROPERTY()
+		EMaterialSpatialKind Kind = EMaterialSpatialKind::None;
+
+		DPROPERTY()
+		EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None;
+
+		auto operator==(const FMaterialFunctionValueConstraint&) const -> bool = default;
+	};
+
 	// Only the selected alternative participates in effective function semantics.
 	DSTRUCT()
 	struct FMaterialFunctionDefault
@@ -96,6 +126,9 @@ namespace Durin
 
 		DPROPERTY()
 		FMaterialFunctionDefault Default;
+
+		DPROPERTY()
+		FMaterialFunctionValueConstraint Constraint;
 		auto operator==(const FMaterialFunctionPort&) const -> bool = default;
 	};
 
@@ -163,4 +196,10 @@ namespace Durin
 
 	ENGINE_API auto ValidateMaterialFunctionSignature(const FMaterialFunctionSignature& Signature)
 		-> FMaterialProgramValidationResult;
+
+	ENGINE_API auto IsValidMaterialFunctionValueConstraint(
+		EMaterialProgramValueType Type, const FMaterialFunctionValueConstraint& Constraint) -> bool;
+	ENGINE_API auto MatchesMaterialFunctionValueConstraint(
+		const FMaterialValueSemantics& Semantics,
+		const FMaterialFunctionValueConstraint& Constraint) -> bool;
 }

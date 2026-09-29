@@ -24,6 +24,20 @@ namespace Durin::Editor::Material
 				&& std::ranges::contains(Pin.AcceptedTypes, EMaterialProgramValueType::Float)
 				? "\nScalar inputs are copied to every component." : "";
 		}
+		auto ConstraintHint(EMaterialProgramValueType Type,
+			const FMaterialFunctionValueConstraint& Constraint) -> std::string
+		{
+			if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Unconstrained
+				&& Constraint.Stages == EMaterialEvaluationStage::Both) return {};
+			if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact)
+				return "\n" + GetMaterialValueSemanticsName({Type, Constraint.Stages,
+					Constraint.Kind, Constraint.Space});
+			const char* Stage = Constraint.Stages == EMaterialEvaluationStage::Both
+				? "Vertex|Pixel" : Constraint.Stages == EMaterialEvaluationStage::Vertex
+					? "Vertex" : "Pixel";
+			return std::format("\n{} [{}]", Constraint.Mode
+				== EMaterialFunctionValueConstraintMode::NonSpatial ? "Non-spatial" : "Any semantics", Stage);
+		}
 		constexpr float PinExpansionHeight = 20.0f;
 
 		auto HideUnusedAdvancedPins(FMaterialGraphView& View,
@@ -1307,10 +1321,12 @@ namespace Durin::Editor::Material
 					{
 						const auto& Pin = Visual.View->Inputs[Index];
 						if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
-						else ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+						else ImGui::SetTooltip("%s%s%s\n%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
 							Pin.bMissing ? " (missing port)" : "", (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
 							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
-							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin));
+							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin),
+							ConstraintHint(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes.front(),
+								Pin.Constraint).c_str());
 					}
 				}
 
@@ -1318,7 +1334,8 @@ namespace Durin::Editor::Material
 			if (Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
-				ImGui::SetTooltip("%s (%s)", Pin.Name.c_str(), GetProgramTypeName(Pin.Type));
+				ImGui::SetTooltip("%s (%s)%s", Pin.Name.c_str(), GetProgramTypeName(Pin.Type),
+					ConstraintHint(Pin.Type, Pin.Constraint).c_str());
 			}
 			if (HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{

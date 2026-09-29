@@ -26,13 +26,17 @@ namespace Durin::MIR
 		auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 		auto FunctionCall(const DMaterialExpressionFunctionCall& Call, FEmitter& Emitter) -> void;
 		auto Emit(FNode Node) -> uint32;
-		auto Literal(std::span<const float> Components) -> uint32;
+		auto Literal(std::span<const float> Components,
+			EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
+			EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None) -> uint32;
 		auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
 		auto CollectionParameter(const DMaterialParameterCollection& Collection,
 			FGuid ParameterId) -> uint32;
 		auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::span<const FMaterialNumericInput* const> Inputs,
-			std::span<const uint8> Swizzle = {}) -> uint32;
+			std::span<const uint8> Swizzle = {},
+			EMaterialSpatialKind OutputKind = EMaterialSpatialKind::None,
+			EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None) -> uint32;
 		auto Coordinates() -> uint32;
 		auto Fail(FMaterialError Error, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;

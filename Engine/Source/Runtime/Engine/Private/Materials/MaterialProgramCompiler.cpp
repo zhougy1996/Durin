@@ -38,7 +38,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 5;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 6;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -111,6 +111,10 @@ namespace Durin
 		{
 			AppendLittleEndian(Bytes, Node.Opcode);
 			AppendLittleEndian(Bytes, Node.ResultType);
+			AppendLittleEndian(Bytes, Node.LegalStages);
+			AppendLittleEndian(Bytes, Node.SpatialKind);
+			AppendLittleEndian(Bytes, Node.CoordinateSpace);
+			AppendLittleEndian(Bytes, Node.ScalarBroadcastMask);
 			AppendLittleEndian(Bytes, static_cast<uint32>(Node.Inputs.size()));
 			for (uint32 Input : Node.Inputs) AppendLittleEndian(Bytes, Input);
 			AppendLiteral(Bytes, Node.GetLiteral());
@@ -122,6 +126,8 @@ namespace Durin
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[3]);
 			AppendGuid(Bytes, Node.GetCollectionParameter().CollectionId);
 			AppendGuid(Bytes, Node.GetCollectionParameter().ParameterId);
+			AppendLittleEndian(Bytes, Node.GetTransform().Source);
+			AppendLittleEndian(Bytes, Node.GetTransform().Destination);
 		}
 
 		auto MakeNormalizationFailure(FMaterialError Error)
@@ -475,7 +481,8 @@ namespace Durin
 		AppendLittleEndian(OutBytes, static_cast<uint32>(IR.Nodes.size()));
 		for (const MIR::FNode& Node : IR.Nodes)
 		{
-			if (!Node.HasValidPayload())
+			if (!Node.HasValidPayload()
+				|| !IsValidMaterialValueSemantics(Node.GetSemantics()))
 			{
 				OutBytes.clear();
 				return {EMaterialIRError::OpcodePayloadMismatch};
@@ -487,7 +494,12 @@ namespace Durin
 		if (IR.SurfaceRoot.bAggregate
 			&& (IR.SurfaceRoot.AggregateExpressionIndex >= IR.Nodes.size()
 				|| IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].ResultType
-					!= EMaterialProgramValueType::Surface))
+					!= EMaterialProgramValueType::Surface
+				|| IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].SpatialKind
+					!= EMaterialSpatialKind::None
+				|| !MaterialStagesContain(
+					IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].LegalStages,
+					EMaterialEvaluationStage::Pixel)))
 		{
 			OutBytes.clear();
 			return {EMaterialIRError::AggregateSurfaceRootExpressionInvalid};
@@ -498,11 +510,16 @@ namespace Durin
 			AppendLittleEndian(OutBytes, static_cast<uint8>(Input.bExpression));
 			AppendLittleEndian(OutBytes, Input.ExpressionIndex);
 			AppendLittleEndian(OutBytes, Input.Type);
+			AppendLittleEndian(OutBytes, Input.LegalStages);
+			AppendLittleEndian(OutBytes, Input.SpatialKind);
+			AppendLittleEndian(OutBytes, Input.CoordinateSpace);
 			AppendLiteral(OutBytes, Input.Literal);
 			if ((!IR.SurfaceRoot.bAggregate && Input.bExpression
 					&& (Input.ExpressionIndex >= IR.Nodes.size()
 						|| IR.Nodes[Input.ExpressionIndex].ResultType != Input.Type))
-				|| Input.Type != GetMaterialSurfaceOutputType(GSurfaceOutputOrder[Index]))
+				|| Input.Type != GetMaterialSurfaceOutputType(GSurfaceOutputOrder[Index])
+				|| Input.GetSemantics() != GetMaterialSurfaceOutputSemantics(
+					GSurfaceOutputOrder[Index]))
 			{
 				OutBytes.clear();
 				return {EMaterialIRError::PerPropertySurfaceRootInputInvalid};

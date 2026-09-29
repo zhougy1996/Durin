@@ -1,9 +1,62 @@
 #include "Materials/MaterialProgramTypes.h"
 
+#include <format>
 #include <unordered_set>
 
 namespace Durin
 {
+	auto IsValidMaterialValueSemantics(const FMaterialValueSemantics& Value) -> bool
+	{
+		const auto StageBits = static_cast<uint8>(Value.Stages);
+		if (Value.Type > EMaterialProgramValueType::Surface || StageBits == 0
+			|| (StageBits & ~static_cast<uint8>(EMaterialEvaluationStage::Both)) != 0)
+			return false;
+		if (Value.Kind == EMaterialSpatialKind::None)
+			return Value.Space == EMaterialCoordinateSpace::None;
+		if (Value.Kind == EMaterialSpatialKind::ScreenCoordinate)
+			return Value.Type == EMaterialProgramValueType::Float2
+				&& Value.Space == EMaterialCoordinateSpace::Screen;
+		return Value.Type == EMaterialProgramValueType::Float3
+			&& Value.Space >= EMaterialCoordinateSpace::Object
+			&& Value.Space <= EMaterialCoordinateSpace::Tangent;
+	}
+
+	auto GetMaterialValueSemanticsName(const FMaterialValueSemantics& Value)
+		-> std::string
+	{
+		constexpr std::array Types{"Float", "Float2", "Float3", "Float4",
+			"Texture2D", "Surface"};
+		constexpr std::array Kinds{"", "Position", "Direction", "Normal",
+			"ScreenCoordinate"};
+		constexpr std::array Spaces{"", "Object", "World", "View", "Tangent",
+			"Screen"};
+		const auto Type = static_cast<size_t>(Value.Type);
+		const auto Kind = static_cast<size_t>(Value.Kind);
+		const auto Space = static_cast<size_t>(Value.Space);
+		if (Type >= Types.size() || Kind >= Kinds.size() || Space >= Spaces.size())
+			return "Invalid";
+		std::string Result = Types[Type];
+		if (Value.Kind != EMaterialSpatialKind::None)
+			Result += std::format(" {} {}", Spaces[Space], Kinds[Kind]);
+		Result += Value.Stages == EMaterialEvaluationStage::Both ? " [Vertex|Pixel]"
+			: Value.Stages == EMaterialEvaluationStage::Vertex ? " [Vertex]" : " [Pixel]";
+		return Result;
+	}
+
+	auto GetMaterialSurfaceOutputSemantics(EMaterialSurfaceOutput Output)
+		-> FMaterialValueSemantics
+	{
+		FMaterialValueSemantics Result{
+			.Type = GetMaterialSurfaceOutputType(Output),
+			.Stages = EMaterialEvaluationStage::Pixel};
+		if (Output == EMaterialSurfaceOutput::Normal)
+		{
+			Result.Kind = EMaterialSpatialKind::Normal;
+			Result.Space = EMaterialCoordinateSpace::Tangent;
+		}
+		return Result;
+	}
+
 	auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
 		const FMaterialStaticProperties& Properties) -> bool
 	{

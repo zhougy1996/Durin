@@ -80,6 +80,7 @@ namespace Durin::Editor::Material
 		bool bRequired = false;
 		bool bMissing = false;
 		FMaterialFunctionDefault Default;
+		FMaterialFunctionValueConstraint Constraint;
 		FMaterialInputDefault InlineDefault;
 		FMaterialInputDefault RetainedConstant;
 		bool bSupportsConstant = false;
@@ -94,6 +95,7 @@ namespace Durin::Editor::Material
 		FGuid PortId;
 		std::string Name;
 		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+		FMaterialFunctionValueConstraint Constraint;
 		bool bMissing = false;
 	};
 

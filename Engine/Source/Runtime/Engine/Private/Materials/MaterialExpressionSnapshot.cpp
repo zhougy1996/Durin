@@ -60,7 +60,18 @@ namespace Durin
 				FMaterialError Error(EMaterialExpressionError::OutputSourceIncompatibleType);
 				Error.ExpectedType = Root.Type;
 				Error.ActualType = Result.IR.Nodes[ExpressionIndex].ResultType;
-				OutputError(Index, std::move(Error));
+					OutputError(Index, std::move(Error));
+				}
+			if (Result.Diagnostics.empty())
+			{
+				const auto Actual = Result.IR.Nodes[ExpressionIndex].GetSemantics();
+				const auto Expected = Root.GetSemantics();
+				if (Actual.Type != Expected.Type || Actual.Kind != Expected.Kind
+					|| Actual.Space != Expected.Space
+					|| !MaterialStagesContain(Actual.Stages,
+						EMaterialEvaluationStage::Pixel))
+					OutputError(Index,
+						EMaterialExpressionError::OutputSourceIncompatibleSemantics);
 			}
 		}
 		if (Outputs.Surface.ExpressionId.IsValid() && Result.Diagnostics.empty())
@@ -93,6 +104,9 @@ namespace Durin
 			for (const auto& Node : Built.IR.Nodes)
 			{
 				Hash.UpdateValue(Node.Opcode); Hash.UpdateValue(Node.ResultType);
+				Hash.UpdateValue(Node.LegalStages); Hash.UpdateValue(Node.SpatialKind);
+				Hash.UpdateValue(Node.CoordinateSpace);
+				Hash.UpdateValue(Node.ScalarBroadcastMask);
 				Hash.UpdateValue(static_cast<uint32>(Node.Inputs.size()));
 				for (const auto Input : Node.Inputs) Hash.UpdateValue(Input);
 				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
@@ -108,13 +122,20 @@ namespace Durin
 					Hash.UpdateValue(Swizzle->Length);
 					for (const auto Component : Swizzle->Components) Hash.UpdateValue(Component);
 				}
+				else if (const auto* Transform = std::get_if<FMaterialTransformPayload>(&Node.Payload))
+				{
+					Hash.UpdateValue(Transform->Source);
+					Hash.UpdateValue(Transform->Destination);
+				}
 			}
 			Hash.UpdateValue(Built.IR.SurfaceRoot.bAggregate);
 			Hash.UpdateValue(Built.IR.SurfaceRoot.AggregateExpressionIndex);
 			for (const auto& Input : Built.IR.SurfaceRoot.Inputs)
 			{
 				Hash.UpdateValue(Input.bExpression); Hash.UpdateValue(Input.ExpressionIndex);
-				Hash.UpdateValue(Input.Type); Literal(Input.Literal);
+				Hash.UpdateValue(Input.Type); Hash.UpdateValue(Input.LegalStages);
+				Hash.UpdateValue(Input.SpatialKind); Hash.UpdateValue(Input.CoordinateSpace);
+				Literal(Input.Literal);
 			}
 			*OutCodeFingerprint = Hash.Finalize();
 		}

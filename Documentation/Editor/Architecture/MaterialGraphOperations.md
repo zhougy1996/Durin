@@ -263,7 +263,12 @@ Normalize still requires a vector source. Retained defaults keep their declared 
 
 Shared document inspection resolves function call pins from the live signature,
 ordered by display order and GUID. Detached pin records retain stable port GUIDs,
-types, names, defaults, required flags and missing-port markers. Function terminals
+types, names, defaults, required flags, missing-port markers, and their detached
+value constraints. Fixed Surface pins expose their exact Pixel semantics, including
+Tangent/Normal for Normal; function terminals and call pins expose unconstrained,
+non-spatial, or exact stage/kind/space constraints. The canvas formats those fields
+in pin tooltips and uses Engine diagnostics for rejected semantic links, so it does
+not duplicate the semantic algebra. Function terminals
 have typed named pins; Surface attribute pins retain their fixed attribute indices.
 The material canvas draws each output separately and preserves the full source
 link through drag, reconnection, Surface assignment and node creation.

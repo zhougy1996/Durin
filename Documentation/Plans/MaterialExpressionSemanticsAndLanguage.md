@@ -19,11 +19,11 @@ not carry evaluation-stage or coordinate-space semantics. Existing Surface roots
 are fragment-only, while `WorldPosition`, `Time`, texture coordinates, texture
 samples, and numeric operations are admitted through shape-only signatures.
 
-Stage 0 completed on 2026-09-30. The frozen contract below records the semantic
+Stages 0 and 1 completed on 2026-09-30. The frozen contract below records the semantic
 algebra, pass-context ABI, static-selection ownership, compatibility policy,
-fixtures, and budgets. Stage 1 is current: migrate existing material and
-function content through semantic MIR without changing the Surface ABI or
-rendered results.
+fixtures, and budgets. Existing material and function content now compiles through
+semantic MIR without changing the Surface ABI or rendered results. Stage 2 is
+current: add the frozen pure-math and geometric operation set.
 
 ## Goal
 
@@ -197,11 +197,13 @@ unsupported schemas fail explicitly.
 The existing authored language contains opcodes 0-45. Value shapes are `Float`,
 `Float2`, `Float3`, `Float4`, `Texture2D`, and `Surface`; opcode 3 and retired
 channel opcodes 25-27 remain unavailable and must not be reused. New opcodes are
-appended in this order: Dot, Cross, Length, Distance, Pow, Sqrt, Exp, Log,
-Floor, Ceil, Round, Frac, Fmod, Step, SmoothStep, Sign, Reflect, Transform
-Position, Transform Direction, Transform Normal, CameraPosition, CameraVector,
-VertexNormal, ObjectPosition, ScreenPosition, ViewSize, Static Bool, Static
-Switch, Quality Switch, and Feature Level Switch. Static Bool is an
+appended in compatibility groups. Stage 1 reserves Transform Position, Transform
+Direction, and Transform Normal as opcodes 46-48 so semantics can be validated
+before context lowering is exposed. Stage 2 then appends Dot, Cross, Length,
+Distance, Pow, Sqrt, Exp, Log, Floor, Ceil, Round, Frac, Fmod, Step,
+SmoothStep, Sign, and Reflect. Stage 3 appends CameraPosition, CameraVector,
+VertexNormal, ObjectPosition, ScreenPosition, and ViewSize. Stage 4 appends
+Static Bool, Static Switch, Quality Switch, and Feature Level Switch. Static Bool is an
 authoring/compiler-only type and cannot survive into normalized MIR.
 
 The eight ordered Surface inputs remain BaseColor `Float3`, Normal `Float3`,
@@ -490,21 +492,28 @@ owners, migration, fixtures, commands, and budgets are recorded in this plan.
 Dependency: Stage 0. Outcome: existing materials compile through semantic MIR
 before the language grows.
 
-- [ ] Introduce the detached value contract and migrate emitter values, MIR,
+- [x] Introduce the detached value contract and migrate emitter values, MIR,
   signatures, validation, normalization, encoding, sources, and diagnostics.
-- [ ] Migrate every existing opcode and eight Pixel Surface roots. Preserve valid
+- [x] Migrate every existing opcode and eight Pixel Surface roots. Preserve valid
   tracked output and explicitly migrate formerly ambiguous links.
-- [ ] Add canonical position/direction/normal transform IR and deterministic
+- [x] Add canonical position/direction/normal transform IR and deterministic
   invalid-pair diagnostics without exposing screen reconstruction/interpolation.
-- [ ] Extend function port contracts and invocation substitution; prove nested
+- [x] Extend function port contracts and invocation substitution; prove nested
   calls, defaults, independent calls, dependencies, and call-path diagnostics.
-- [ ] Apply selected version/migration policy; incompatible authored/cooked data
+- [x] Apply selected version/migration policy; incompatible authored/cooked data
   must fail or migrate explicitly, never reinterpret silently.
-- [ ] Add editor pin/tooltips and diagnostics for stage, kind, space, transforms,
+- [x] Add editor pin/tooltips and diagnostics for stage, kind, space, transforms,
   and call paths without editor-owned semantic logic.
 
 Completion: all existing accepted content uses semantic MIR; invalid stage/space
 graphs fail before shader compilation; no Surface ABI or rendered result changes.
+
+Evidence (2026-09-30): graph/function writers advanced to 5/2 with bounded 4/1
+read migration, MIR/generator/envelope advanced to 6/9/10, and all five tracked
+graph assets were canonically resaved. Focused compiler, function, graph editing,
+editor interaction, persistence, package, Cook, runtime, and lifecycle suites pass.
+The transform IR is canonical and validated but remains unavailable in the
+authoring catalog until Stage 3 supplies its pass-context lowering.
 
 ### Stage 2: Add Pure Math and Geometric Operations
 

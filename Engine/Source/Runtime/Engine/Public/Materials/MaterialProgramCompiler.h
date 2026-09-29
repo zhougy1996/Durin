@@ -23,10 +23,10 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 5;
+		inline constexpr uint32 CurrentVersion = 6;
 	}
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 8;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 9;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 9;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 10;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 5;
 
 	struct FMaterialCompilerDependency
@@ -68,12 +68,16 @@ namespace Durin
 			auto operator==(const FCollectionParameter&) const -> bool = default;
 		};
 		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
-			FSwizzle, FCollectionParameter>;
+			FSwizzle, FCollectionParameter, FMaterialTransformPayload>;
 
 		struct FNode
 		{
 			EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
 			EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+			EMaterialEvaluationStage LegalStages = EMaterialEvaluationStage::Both;
+			EMaterialSpatialKind SpatialKind = EMaterialSpatialKind::None;
+			EMaterialCoordinateSpace CoordinateSpace = EMaterialCoordinateSpace::None;
+			uint8 ScalarBroadcastMask = 0;
 			std::vector<uint32> Inputs;
 			FPayload Payload;
 
@@ -97,6 +101,15 @@ namespace Durin
 				const auto* Value = std::get_if<FCollectionParameter>(&Payload);
 				return Value ? *Value : FCollectionParameter{};
 			}
+			auto GetTransform() const -> FMaterialTransformPayload
+			{
+				const auto* Value = std::get_if<FMaterialTransformPayload>(&Payload);
+				return Value ? *Value : FMaterialTransformPayload{};
+			}
+			auto GetSemantics() const -> FMaterialValueSemantics
+			{
+				return {ResultType, LegalStages, SpatialKind, CoordinateSpace};
+			}
 			auto HasValidPayload() const -> bool
 			{
 				switch (Opcode)
@@ -107,6 +120,10 @@ namespace Durin
 				case EMaterialProgramOpcode::CollectionParameter:
 					return std::holds_alternative<FCollectionParameter>(Payload);
 				case EMaterialProgramOpcode::Swizzle: return std::holds_alternative<FSwizzle>(Payload);
+				case EMaterialProgramOpcode::TransformPosition:
+				case EMaterialProgramOpcode::TransformDirection:
+				case EMaterialProgramOpcode::TransformNormal:
+					return std::holds_alternative<FMaterialTransformPayload>(Payload);
 				default: return std::holds_alternative<std::monostate>(Payload);
 				}
 			}
@@ -123,7 +140,14 @@ namespace Durin
 				bool bExpression = false;
 				uint32 ExpressionIndex = 0;
 				EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+				EMaterialEvaluationStage LegalStages = EMaterialEvaluationStage::Pixel;
+				EMaterialSpatialKind SpatialKind = EMaterialSpatialKind::None;
+				EMaterialCoordinateSpace CoordinateSpace = EMaterialCoordinateSpace::None;
 				FMaterialProgramLiteral Literal;
+				auto GetSemantics() const -> FMaterialValueSemantics
+				{
+					return {Type, LegalStages, SpatialKind, CoordinateSpace};
+				}
 				auto operator==(const FSurfaceInput&) const -> bool = default;
 			};
 			struct FSurfaceRoot

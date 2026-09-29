@@ -728,23 +728,48 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 	Texture.Id = FGuid::NewGuid(); Texture.Name = "SignatureTexture";
 	Texture.Type = EMaterialParameterType::Texture; Texture.Value = FMaterialParameterValue::MakeTexture(nullptr);
 	const std::array Definitions{Texture};
-	std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
+		std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
 		if (ValueType == Type::Texture2D)
 			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, Texture.Id, {}, Definitions));
 		std::vector<FMaterialExpressionInput> Inputs;
-		if (ValueType == Type::Surface)
-			for (uint32 Index = 0; Index < 8; ++Index) Inputs.push_back(AddSource(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))));
+			if (ValueType == Type::Surface)
+				for (uint32 Index = 0; Index < 8; ++Index)
+				{
+					auto Source = AddSource(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index)));
+					if (Index == static_cast<uint32>(EMaterialSurfaceOutput::Normal))
+					{
+						auto& Annotation = Graph.Add(EMaterialProgramOpcode::Swizzle,
+							Type::Float3, {Source}, {}, {});
+						auto* Swizzle = Cast<DMaterialExpressionSwizzle>(&Annotation);
+						Swizzle->Components = {0, 1, 2};
+						Swizzle->OutputSpatialKind = EMaterialSpatialKind::Normal;
+						Swizzle->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
+						Source = {Annotation.Id};
+					}
+					Inputs.push_back(Source);
+				}
 		return Testing::MakeLink(Graph.Add(ValueType == Type::Surface ? EMaterialProgramOpcode::MakeSurface : EMaterialProgramOpcode::Constant,
 			ValueType, std::move(Inputs), {}, {}));
 	};
 	std::array<FMaterialExpressionInput, 6> Sources;
 	std::array<std::vector<DMaterialExpression*>, 6> SourceExpressions;
-	for (uint32 I = 0; I < Sources.size(); ++I)
+		for (uint32 I = 0; I < Sources.size(); ++I)
 	{
 		const auto First = Graph.Expressions.size();
 		Sources[I] = AddSource(static_cast<Type>(I));
-		for (size_t J = First; J < Graph.Expressions.size(); ++J) SourceExpressions[I].push_back(Graph.Expressions[J].Get());
-	}
+			for (size_t J = First; J < Graph.Expressions.size(); ++J) SourceExpressions[I].push_back(Graph.Expressions[J].Get());
+		}
+		const auto NormalFirst = Graph.Expressions.size();
+		auto& NormalAnnotation = Graph.Add(EMaterialProgramOpcode::Swizzle, Type::Float3,
+			{Sources[static_cast<size_t>(Type::Float3)]}, {}, {});
+		auto* NormalSwizzle = Cast<DMaterialExpressionSwizzle>(&NormalAnnotation);
+		NormalSwizzle->Components = {0, 1, 2};
+		NormalSwizzle->OutputSpatialKind = EMaterialSpatialKind::Normal;
+		NormalSwizzle->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
+		const FMaterialExpressionInput NormalSource{NormalAnnotation.Id};
+		std::vector<DMaterialExpression*> NormalExpressions;
+		for (size_t J = NormalFirst; J < Graph.Expressions.size(); ++J)
+			NormalExpressions.push_back(Graph.Expressions[J].Get());
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& Entry : Catalog)
 	{
@@ -773,12 +798,30 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 			{
 				SCOPED_TRACE(std::format("{} result {} pin {} source {}", Entry.OperationName,
 					static_cast<uint8>(Entry.ResultType), Pin, static_cast<uint8>(SourceType)));
-				Expressions.clear();
-				std::array<bool, 6> Included{};
+					Expressions.clear();
+					std::array<bool, 6> Included{};
+					bool bNormalIncluded = false;
 				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 					const auto TypeIndex = static_cast<size_t>(Index == Pin ? SourceType : Entry.AcceptedInputTypes[Index].front());
-					Input = Sources[TypeIndex];
-					if (!Included[TypeIndex])
+					const bool bNormalInput = Entry.Opcode == EMaterialProgramOpcode::BlendNormalsRNM
+						|| (Entry.Opcode == EMaterialProgramOpcode::MakeSurface
+							&& Index == static_cast<uint32>(EMaterialSurfaceOutput::Normal));
+					Input = bNormalInput && static_cast<Type>(TypeIndex) == Type::Float3
+						? NormalSource : Sources[TypeIndex];
+					if (bNormalInput && static_cast<Type>(TypeIndex) == Type::Float3)
+					{
+						if (!Included[TypeIndex])
+						{
+							Included[TypeIndex] = true;
+							Expressions.insert(Expressions.end(), SourceExpressions[TypeIndex].begin(), SourceExpressions[TypeIndex].end());
+						}
+						if (!bNormalIncluded)
+						{
+							bNormalIncluded = true;
+							Expressions.insert(Expressions.end(), NormalExpressions.begin(), NormalExpressions.end());
+						}
+					}
+					else if (!Included[TypeIndex])
 					{
 						Included[TypeIndex] = true;
 						Expressions.insert(Expressions.end(), SourceExpressions[TypeIndex].begin(), SourceExpressions[TypeIndex].end());

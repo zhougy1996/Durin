@@ -17,6 +17,7 @@ namespace Durin
 {
 	struct FMaterialParameterDefinition;
 	struct FMaterialProgramValidationResult;
+	enum class EMaterialSurfaceOutput : uint8;
 
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
@@ -41,6 +42,70 @@ namespace Durin
 		Texture2D,
 		Surface,
 	};
+
+	// A value is legal in every stage represented by this mask. Both is not an
+	// interpolation request: the consuming root still selects one exact stage.
+	DENUM()
+	enum class EMaterialEvaluationStage : uint8
+	{
+		None = 0,
+		Vertex = 1,
+		Pixel = 2,
+		Both = 3,
+	};
+
+	DENUM()
+	enum class EMaterialSpatialKind : uint8
+	{
+		None,
+		Position,
+		Direction,
+		Normal,
+		ScreenCoordinate,
+	};
+
+	DENUM()
+	enum class EMaterialCoordinateSpace : uint8
+	{
+		None,
+		Object,
+		World,
+		View,
+		Tangent,
+		Screen,
+	};
+
+	// Detached semantic value used by authored emission, MIR, functions, and
+	// diagnostics. Base shape remains independent from spatial meaning.
+	struct FMaterialValueSemantics
+	{
+		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+		EMaterialEvaluationStage Stages = EMaterialEvaluationStage::Both;
+		EMaterialSpatialKind Kind = EMaterialSpatialKind::None;
+		EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None;
+
+		auto operator==(const FMaterialValueSemantics&) const -> bool = default;
+	};
+
+	constexpr auto IntersectMaterialStages(
+		EMaterialEvaluationStage Left, EMaterialEvaluationStage Right)
+		-> EMaterialEvaluationStage
+	{
+		return static_cast<EMaterialEvaluationStage>(
+			static_cast<uint8>(Left) & static_cast<uint8>(Right));
+	}
+
+	constexpr auto MaterialStagesContain(
+		EMaterialEvaluationStage Mask, EMaterialEvaluationStage Stage) -> bool
+	{
+		return (static_cast<uint8>(Mask) & static_cast<uint8>(Stage))
+			== static_cast<uint8>(Stage);
+	}
+
+	ENGINE_API auto IsValidMaterialValueSemantics(
+		const FMaterialValueSemantics& Value) -> bool;
+	ENGINE_API auto GetMaterialValueSemanticsName(
+		const FMaterialValueSemantics& Value) -> std::string;
 
 	DENUM()
 	enum class EMaterialProgramOpcode : uint8
@@ -87,6 +152,16 @@ namespace Durin
 		WorldPosition,
 		Time,
 		CollectionParameter,
+		TransformPosition,
+		TransformDirection,
+		TransformNormal,
+	};
+
+	struct FMaterialTransformPayload
+	{
+		EMaterialCoordinateSpace Source = EMaterialCoordinateSpace::None;
+		EMaterialCoordinateSpace Destination = EMaterialCoordinateSpace::None;
+		auto operator==(const FMaterialTransformPayload&) const -> bool = default;
 	};
 
 	// Numeric authoring nodes infer their width from their operands in the editor.
@@ -120,6 +195,17 @@ namespace Durin
 	ENGINE_API auto GetMaterialProgramNodeSignature(
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
 		-> std::optional<FMaterialProgramNodeSignature>;
+
+	// Resolves one concrete semantic result and validates every operand. The
+	// returned error is deterministic and independent from editor presentation.
+	ENGINE_API auto ResolveMaterialProgramNodeSemantics(
+		EMaterialProgramOpcode Opcode,
+		EMaterialProgramValueType ResultType,
+		std::span<const FMaterialValueSemantics> Inputs,
+		const FMaterialTransformPayload* Transform = nullptr)
+		-> std::optional<FMaterialValueSemantics>;
+	ENGINE_API auto GetMaterialSurfaceOutputSemantics(EMaterialSurfaceOutput Output)
+		-> FMaterialValueSemantics;
 
 	DSTRUCT()
 	struct FMaterialProgramLink

@@ -579,6 +579,77 @@ float4 FragmentMain(
 				}
 				Depth[Index] = std::max(Depth[Index], Depth[Input] + 1);
 			}
+			std::vector<FMaterialValueSemantics> InputSemantics;
+			InputSemantics.reserve(Node.Inputs.size());
+			for (const auto Input : Node.Inputs)
+				InputSemantics.push_back(IR.Nodes[Input].GetSemantics());
+			if (Node.ScalarBroadcastMask >> Node.Inputs.size())
+			{
+				Fail(EMaterialIRError::InputSemanticMismatch);
+				return Result;
+			}
+			for (size_t Slot = 0; Slot < InputSemantics.size(); ++Slot)
+				if (Node.ScalarBroadcastMask & (1u << Slot))
+				{
+					const auto& Broadcast = IR.Nodes[Node.Inputs[Slot]];
+					if (Broadcast.Opcode < EMaterialProgramOpcode::Splat2
+						|| Broadcast.Opcode > EMaterialProgramOpcode::Splat4
+						|| Broadcast.Inputs.size() != 1
+						|| IR.Nodes[Broadcast.Inputs[0]].ResultType != EMaterialProgramValueType::Float)
+					{
+						Fail(EMaterialIRError::InputSemanticMismatch);
+						return Result;
+					}
+					InputSemantics[Slot].Type = EMaterialProgramValueType::Float;
+				}
+			const auto Transform = Node.Opcode == EMaterialProgramOpcode::TransformPosition
+				|| Node.Opcode == EMaterialProgramOpcode::TransformDirection
+				|| Node.Opcode == EMaterialProgramOpcode::TransformNormal
+				? &std::get<FMaterialTransformPayload>(Node.Payload) : nullptr;
+			auto ExpectedSemantics = ResolveMaterialProgramNodeSemantics(
+				Node.Opcode, Node.ResultType, InputSemantics, Transform);
+			if (Node.Opcode == EMaterialProgramOpcode::Constant
+				&& Node.SpatialKind != EMaterialSpatialKind::None)
+				ExpectedSemantics = Node.GetSemantics();
+			if (ExpectedSemantics && Node.Opcode == EMaterialProgramOpcode::Swizzle)
+			{
+				const auto& Input = InputSemantics.front();
+				const auto Swizzle = Node.GetSwizzle();
+				const bool bIdentity3 = Input.Type == EMaterialProgramValueType::Float3
+					&& Swizzle.Length == 3 && Swizzle.Components[0] == 0
+					&& Swizzle.Components[1] == 1 && Swizzle.Components[2] == 2;
+				const bool bIdentity2 = Input.Type == EMaterialProgramValueType::Float2
+					&& Swizzle.Length == 2 && Swizzle.Components[0] == 0
+					&& Swizzle.Components[1] == 1;
+				const bool bSelectXYZ = Input.Type >= EMaterialProgramValueType::Float3
+					&& Input.Type <= EMaterialProgramValueType::Float4
+					&& Swizzle.Length == 3 && Swizzle.Components[0] == 0
+					&& Swizzle.Components[1] == 1 && Swizzle.Components[2] == 2;
+				const bool bSelectXY = Input.Type >= EMaterialProgramValueType::Float2
+					&& Input.Type <= EMaterialProgramValueType::Float4
+					&& Swizzle.Length == 2 && Swizzle.Components[0] == 0
+					&& Swizzle.Components[1] == 1;
+				if ((bIdentity3 && Input.Kind != EMaterialSpatialKind::ScreenCoordinate)
+					|| (bIdentity2 && Input.Kind == EMaterialSpatialKind::ScreenCoordinate))
+					ExpectedSemantics = FMaterialValueSemantics{Node.ResultType,
+						Input.Stages, Input.Kind, Input.Space};
+				if (Node.SpatialKind != EMaterialSpatialKind::None
+					|| Node.CoordinateSpace != EMaterialCoordinateSpace::None)
+				{
+					const bool bIdentityWidth = (bSelectXYZ
+						&& Node.SpatialKind != EMaterialSpatialKind::ScreenCoordinate)
+						|| (bSelectXY
+							&& Node.SpatialKind == EMaterialSpatialKind::ScreenCoordinate);
+					if (Input.Kind == EMaterialSpatialKind::None && bIdentityWidth)
+						ExpectedSemantics = FMaterialValueSemantics{Node.ResultType,
+							Input.Stages, Node.SpatialKind, Node.CoordinateSpace};
+				}
+			}
+			if (!ExpectedSemantics || *ExpectedSemantics != Node.GetSemantics())
+			{
+				Fail(EMaterialIRError::InputSemanticMismatch);
+				return Result;
+			}
 			if (Depth[Index] > MaterialProgramMaxDepth)
 			{
 				Fail(EMaterialIRError::ExpressionDepthExceedsSupportedBound);
@@ -632,6 +703,25 @@ float4 FragmentMain(
 			}
 		}
 		for (const auto& Input : IR.SurfaceRoot.Inputs)
+		{
+			if (Input.GetSemantics() != GetMaterialSurfaceOutputSemantics(
+				static_cast<EMaterialSurfaceOutput>(&Input - IR.SurfaceRoot.Inputs.data())))
+			{
+				Fail(EMaterialIRError::SurfaceRootSemanticMismatch);
+				return Result;
+			}
+			if (!IR.SurfaceRoot.bAggregate && Input.bExpression)
+			{
+				const auto Actual = IR.Nodes[Input.ExpressionIndex].GetSemantics();
+				if (Actual.Type != Input.Type || Actual.Kind != Input.SpatialKind
+					|| Actual.Space != Input.CoordinateSpace
+					|| !MaterialStagesContain(Actual.Stages,
+						EMaterialEvaluationStage::Pixel))
+				{
+					Fail(EMaterialIRError::SurfaceRootSemanticMismatch);
+					return Result;
+				}
+			}
 			if (!IR.SurfaceRoot.bAggregate && !Input.bExpression)
 			{
 				const std::array Values{Input.Literal.X, Input.Literal.Y, Input.Literal.Z, Input.Literal.W};
@@ -642,6 +732,7 @@ float4 FragmentMain(
 					return Result;
 				}
 			}
+		}
 		Result.bSucceeded = true;
 		return Result;
 	}

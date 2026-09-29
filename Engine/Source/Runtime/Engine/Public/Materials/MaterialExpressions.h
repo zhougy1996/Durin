@@ -878,6 +878,14 @@ namespace Durin
 		DPROPERTY()
 		std::vector<uint8> Components{0};
 
+		// An identity-width swizzle may explicitly classify an authored numeric
+		// value. Non-identity swizzles cannot manufacture spatial meaning.
+		DPROPERTY()
+		EMaterialSpatialKind OutputSpatialKind = EMaterialSpatialKind::None;
+
+		DPROPERTY()
+		EMaterialCoordinateSpace OutputCoordinateSpace = EMaterialCoordinateSpace::None;
+
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;

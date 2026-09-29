@@ -83,6 +83,7 @@ namespace Durin
 				case EMaterialExpressionError::OpcodeResultWidthInputCountInvalid: return "Expression opcode, result width, or input count is invalid.";
 				case EMaterialExpressionError::BuildExceedsExpandedIRNodeLinkBound: return "Expression Build exceeds the expanded IR node or link bound.";
 				case EMaterialExpressionError::InputIncompatibleType: return "Expression input has an incompatible type.";
+				case EMaterialExpressionError::InputIncompatibleSemantics: return "Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.";
 				case EMaterialExpressionError::BuildExceedsIRDepthBound: return "Expression Build exceeds the IR depth bound.";
 				case EMaterialExpressionError::NonFiniteConstant: return "Expression constant must be finite.";
 				case EMaterialExpressionError::SwizzleWidthMismatch: return "Swizzle selection does not match its result width.";
@@ -130,6 +131,7 @@ namespace Durin
 				case EMaterialExpressionError::DisconnectedSurfaceOutputOutputSelector: return "Disconnected Surface output has an output selector.";
 				case EMaterialExpressionError::OutputInvalidSelectorRetainedDefault: return "Material output has an invalid selector or retained default.";
 				case EMaterialExpressionError::OutputSourceIncompatibleType: return "Material output source has an incompatible type.";
+				case EMaterialExpressionError::OutputSourceIncompatibleSemantics: return "Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.";
 				case EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression: return "Aggregate material output requires a Surface expression.";
 				case EMaterialExpressionError::NoTypedExpressionOwner: return "Material has no typed expression owner.";
 				case EMaterialExpressionError::NoAcceptedCompiledProgram: return "Material has no accepted compiled program.";
@@ -146,6 +148,10 @@ namespace Durin
 				case EMaterialFunctionError::AuthoringInputInvalid: return "Function authoring input is invalid.";
 				case EMaterialFunctionError::AuthoringValueExceedsExpressionDepth: return "Function authoring value exceeds expression depth.";
 				case EMaterialFunctionError::CallPortBindingsExceedBounds: return "Function call port bindings exceed their bounds.";
+				case EMaterialFunctionError::PortValueConstraintInvalid: return "Function port has an invalid stage or spatial constraint.";
+				case EMaterialFunctionError::BindingValueConstraintMismatch: return "Function binding does not satisfy its stage or spatial constraint.";
+				case EMaterialFunctionError::DefaultValueConstraintMismatch: return "Function default does not satisfy its stage or spatial constraint.";
+				case EMaterialFunctionError::OutputValueConstraintMismatch: return "Function output does not satisfy its stage or spatial constraint.";
 				case EMaterialFunctionError::CallInputRequiresUniqueValidTypedPort: return "Function call input requires a unique valid typed port.";
 				case EMaterialFunctionError::RetainedFunctionBindingDefaultInvalidTypeComponent: return "Retained function binding default has an invalid type or component.";
 				case EMaterialFunctionError::DisconnectedFunctionBindingOutputSelector: return "Disconnected function binding has an output selector.";
@@ -219,6 +225,9 @@ namespace Durin
 				case EMaterialIRError::InputCountExceedsExpandedGraphBound: return "Material IR input count exceeds the expanded graph bound.";
 				case EMaterialIRError::InvalidInputOrder: return "Material IR inputs must refer to an earlier expression.";
 				case EMaterialIRError::InputTypeMismatch: return "Material IR input type does not match its opcode signature.";
+				case EMaterialIRError::InvalidValueSemantics: return "Material IR value semantics are invalid.";
+				case EMaterialIRError::InputSemanticMismatch: return "Material IR input stage, spatial kind, or coordinate space is incompatible with its opcode.";
+				case EMaterialIRError::SurfaceRootSemanticMismatch: return "Material IR surface root requires a Pixel value with the exact attribute semantics.";
 				case EMaterialIRError::ExpressionDepthExceedsSupportedBound: return "Material IR expression depth exceeds the supported bound.";
 				case EMaterialIRError::NonFiniteConstant: return "Material IR constant components must be finite.";
 				case EMaterialIRError::ParameterMissingIncompatibleBindingType: return "Material IR parameter is missing or has an incompatible binding type.";

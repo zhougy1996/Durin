@@ -52,9 +52,10 @@ namespace Durin::MIR
 		return Builder.Emit(std::move(Node));
 	}
 
-	auto FEmitter::Literal(std::span<const float> Components) -> uint32
+	auto FEmitter::Literal(std::span<const float> Components,
+		EMaterialSpatialKind Kind, EMaterialCoordinateSpace Space) -> uint32
 	{
-		return Builder.Literal(Components);
+		return Builder.Literal(Components, Kind, Space);
 	}
 
 	auto FEmitter::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
@@ -70,9 +71,10 @@ namespace Durin::MIR
 
 	auto FEmitter::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialNumericInput* const> Inputs,
-		std::span<const uint8> Swizzle) -> uint32
+		std::span<const uint8> Swizzle, EMaterialSpatialKind OutputKind,
+		EMaterialCoordinateSpace OutputSpace) -> uint32
 	{
-		return Builder.Numeric(Opcode, Type, Inputs, Swizzle);
+		return Builder.Numeric(Opcode, Type, Inputs, Swizzle, OutputKind, OutputSpace);
 	}
 
 	auto FEmitter::Coordinates() -> uint32

@@ -44,7 +44,15 @@ namespace Durin::MIR
 	{
 		Admit(InExpressions);
 		for (uint32 Index = 0; Index < Result.IR.SurfaceRoot.Inputs.size(); ++Index)
-			Result.IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+		{
+			const auto Semantics = GetMaterialSurfaceOutputSemantics(
+				static_cast<EMaterialSurfaceOutput>(Index));
+			auto& Input = Result.IR.SurfaceRoot.Inputs[Index];
+			Input.Type = Semantics.Type;
+			Input.LegalStages = Semantics.Stages;
+			Input.SpatialKind = Semantics.Kind;
+			Input.CoordinateSpace = Semantics.Space;
+		}
 	}
 
 	FGraphBuilderImpl::FGraphBuilderImpl(FGraphBuilderImpl& Parent,
@@ -259,8 +267,17 @@ namespace Durin::MIR
 		// Adapt authored fixed-width inputs before admitting strictly typed IR.
 		// Normalize keeps its requirement for a vector source.
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
+		{
 			if (Signature->Inputs[Slot].size() == 1 && Node.Opcode != EMaterialProgramOpcode::Normalize)
-				Node.Inputs[Slot] = *BroadcastScalar(Node.Inputs[Slot], Signature->Inputs[Slot].front()).GetIndex();
+			{
+				const auto Before = Node.Inputs[Slot];
+				Node.Inputs[Slot] = *BroadcastScalar(Before, Signature->Inputs[Slot].front()).GetIndex();
+				if (Node.Inputs[Slot] != Before
+					&& (Node.Opcode == EMaterialProgramOpcode::Multiply
+						|| Node.Opcode == EMaterialProgramOpcode::Divide))
+					Node.ScalarBroadcastMask |= static_cast<uint8>(1u << Slot);
+			}
+		}
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		if (Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Node.Inputs.size() > MaterialFunctionMaxExpandedLinks)
@@ -291,6 +308,62 @@ namespace Durin::MIR
 				if (Mask[Index] > static_cast<uint32>(Result.IR.Nodes[Node.Inputs[0]].ResultType))
 					return Fail(EMaterialExpressionError::SwizzleSelectionExceedsSourceWidth);
 		}
+		std::vector<FMaterialValueSemantics> InputSemantics;
+		InputSemantics.reserve(Node.Inputs.size());
+		for (const auto Input : Node.Inputs)
+			InputSemantics.push_back(Result.IR.Nodes[Input].GetSemantics());
+		for (size_t Slot = 0; Slot < InputSemantics.size(); ++Slot)
+			if (Node.ScalarBroadcastMask & (1u << Slot))
+				InputSemantics[Slot].Type = EMaterialProgramValueType::Float;
+		const auto Transform = Node.Opcode == EMaterialProgramOpcode::TransformPosition
+			|| Node.Opcode == EMaterialProgramOpcode::TransformDirection
+			|| Node.Opcode == EMaterialProgramOpcode::TransformNormal
+			? &std::get<FMaterialTransformPayload>(Node.Payload) : nullptr;
+		const auto RequestedKind = Node.SpatialKind;
+		const auto RequestedSpace = Node.CoordinateSpace;
+		auto Semantics = ResolveMaterialProgramNodeSemantics(
+			Node.Opcode, Node.ResultType, InputSemantics, Transform);
+		if (Node.Opcode == EMaterialProgramOpcode::Constant
+			&& Node.SpatialKind != EMaterialSpatialKind::None)
+			Semantics = Node.GetSemantics();
+		if (Semantics && Node.Opcode == EMaterialProgramOpcode::Swizzle)
+		{
+			const auto& Input = InputSemantics.front();
+			const auto Swizzle = Node.GetSwizzle();
+			const bool bIdentity3 = Input.Type == EMaterialProgramValueType::Float3
+				&& Swizzle.Length == 3 && Swizzle.Components[0] == 0
+				&& Swizzle.Components[1] == 1 && Swizzle.Components[2] == 2;
+			const bool bIdentity2 = Input.Type == EMaterialProgramValueType::Float2
+				&& Swizzle.Length == 2 && Swizzle.Components[0] == 0
+				&& Swizzle.Components[1] == 1;
+			const bool bSelectXYZ = Input.Type >= EMaterialProgramValueType::Float3
+				&& Input.Type <= EMaterialProgramValueType::Float4
+				&& Swizzle.Length == 3 && Swizzle.Components[0] == 0
+				&& Swizzle.Components[1] == 1 && Swizzle.Components[2] == 2;
+			const bool bSelectXY = Input.Type >= EMaterialProgramValueType::Float2
+				&& Input.Type <= EMaterialProgramValueType::Float4
+				&& Swizzle.Length == 2 && Swizzle.Components[0] == 0
+				&& Swizzle.Components[1] == 1;
+			if ((bIdentity3 && Input.Kind != EMaterialSpatialKind::ScreenCoordinate)
+				|| (bIdentity2 && Input.Kind == EMaterialSpatialKind::ScreenCoordinate))
+				Semantics = FMaterialValueSemantics{Node.ResultType, Input.Stages,
+					Input.Kind, Input.Space};
+			if (RequestedKind != EMaterialSpatialKind::None
+				|| RequestedSpace != EMaterialCoordinateSpace::None)
+			{
+				const bool bIdentityWidth = (bSelectXYZ && RequestedKind != EMaterialSpatialKind::ScreenCoordinate)
+					|| (bSelectXY && RequestedKind == EMaterialSpatialKind::ScreenCoordinate);
+				if (Input.Kind != EMaterialSpatialKind::None || !bIdentityWidth)
+					return Fail(EMaterialExpressionError::InputIncompatibleSemantics);
+				Semantics = FMaterialValueSemantics{Node.ResultType, Input.Stages,
+					RequestedKind, RequestedSpace};
+			}
+		}
+		if (!Semantics || !IsValidMaterialValueSemantics(*Semantics))
+			return Fail(EMaterialExpressionError::InputIncompatibleSemantics);
+		Node.LegalStages = Semantics->Stages;
+		Node.SpatialKind = Semantics->Kind;
+		Node.CoordinateSpace = Semantics->Space;
 		const auto Index = static_cast<uint32>(Result.IR.Nodes.size());
 		LinkCount += static_cast<uint32>(Node.Inputs.size());
 		Result.IR.Nodes.push_back(std::move(Node));
@@ -300,11 +373,13 @@ namespace Durin::MIR
 		return Index;
 	}
 
-	auto FGraphBuilderImpl::Literal(std::span<const float> Components) -> uint32
+	auto FGraphBuilderImpl::Literal(std::span<const float> Components,
+		EMaterialSpatialKind Kind, EMaterialCoordinateSpace Space) -> uint32
 	{
 		if (Components.empty() || Components.size() > 4) return Fail(EMaterialExpressionError::NumericInputRequiresDefaultOneFourComponents);
 		FNode Node{.Opcode = EMaterialProgramOpcode::Constant,
-			.ResultType = static_cast<EMaterialProgramValueType>(Components.size() - 1)};
+			.ResultType = static_cast<EMaterialProgramValueType>(Components.size() - 1),
+			.SpatialKind = Kind, .CoordinateSpace = Space};
 		FMaterialProgramLiteral Literal;
 		const std::array Targets{&Literal.X, &Literal.Y, &Literal.Z, &Literal.W};
 		for (size_t Index = 0; Index < Components.size(); ++Index) *Targets[Index] = Components[Index];
@@ -370,7 +445,8 @@ namespace Durin::MIR
 
 	auto FGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialNumericInput* const> Inputs,
-		std::span<const uint8> Swizzle) -> uint32
+		std::span<const uint8> Swizzle, EMaterialSpatialKind OutputKind,
+		EMaterialCoordinateSpace OutputSpace) -> uint32
 	{
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Inputs.size() != Signature->InputCount)
@@ -382,6 +458,8 @@ namespace Durin::MIR
 			FSwizzle Payload{.Length = static_cast<uint8>(Swizzle.size())};
 			std::ranges::copy(Swizzle, Payload.Components.begin());
 			Node.Payload = Payload;
+			Node.SpatialKind = OutputKind;
+			Node.CoordinateSpace = OutputSpace;
 		}
 		for (size_t Slot = 0; Slot < Inputs.size(); ++Slot)
 		{
@@ -402,10 +480,24 @@ namespace Durin::MIR
 			const auto& Input = Stored.Connection;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
-			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Stored.UseConstant ? Default : GetMaterialNumericInputFallback(Opcode, Type, Slot));
+			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeSurface
+				&& Slot == static_cast<size_t>(EMaterialSurfaceOutput::Normal)
+				&& !Input.ExpressionId.IsValid();
+			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
+				: Literal(Stored.UseConstant ? Default
+					: GetMaterialNumericInputFallback(Opcode, Type, Slot),
+					bSurfaceNormalDefault ? EMaterialSpatialKind::Normal
+						: EMaterialSpatialKind::None,
+					bSurfaceNormalDefault ? EMaterialCoordinateSpace::Tangent
+						: EMaterialCoordinateSpace::None);
 			if (bBroadcast && Index != InvalidIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
+			{
 				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
 					+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {Index}});
+				if (Opcode == EMaterialProgramOpcode::Multiply
+					|| Opcode == EMaterialProgramOpcode::Divide)
+					Node.ScalarBroadcastMask |= static_cast<uint8>(1u << Slot);
+			}
 			Node.Inputs.push_back(Index);
 		}
 		return Emit(std::move(Node));

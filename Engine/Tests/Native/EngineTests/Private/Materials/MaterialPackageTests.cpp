@@ -316,8 +316,14 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	EXPECT_FALSE(ContainsSerializedField(Saved, "Signature"));
 	EXPECT_FALSE(ContainsSerializedField(Saved, "PortId"));
 	ASSERT_TRUE(UnloadPackage(Path));
-	for (const FGuid Guid : {FMaterialGraphVersion::Guid, FMaterialInstanceVersion::Guid, FMaterialFunctionVersion::Guid, FMaterialOutputVersion::Guid})
-		for (const int32 Version : {-1, 0, 1, 2, 3})
+	const std::array UnsupportedVersions{
+		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 0, 1, 2, 3, 6}},
+		std::pair{FMaterialInstanceVersion::Guid, std::array{-1, 0, 2, 3, 4, 5}},
+		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 0, 3, 4, 5, 6}},
+		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 0, 1, 2, 4, 5}},
+	};
+	for (const auto& [Guid, Versions] : UnsupportedVersions)
+		for (const int32 Version : Versions)
 		{
 			auto Candidate = Saved;
 			const auto Record = std::ranges::find(Candidate.CustomVersions, Guid, &FCustomVersion::Guid);

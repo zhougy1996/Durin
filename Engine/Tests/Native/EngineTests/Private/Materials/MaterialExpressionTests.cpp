@@ -10,6 +10,93 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 
+TEST(FMaterialExpressionSemanticTests, SourcesAndConstantsCarryExplicitDetachedSemantics)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionWorldPosition> Position(NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Constant(NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Scale(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
+	Position->Id = FGuid::NewGuid(); Constant->Id = FGuid::NewGuid(); Scale->Id = FGuid::NewGuid(); Product->Id = FGuid::NewGuid();
+	Scale->Value = 2; Product->ResultType = EMaterialProgramValueType::Float3;
+	Product->A = {Position->Id}; Product->B = {Scale->Id};
+	const std::array<DMaterialExpression*, 4> Expressions{Position.Get(), Constant.Get(), Scale.Get(), Product.Get()};
+	const std::array Roots{FMaterialExpressionInput{Position->Id}, FMaterialExpressionInput{Constant->Id},
+		FMaterialExpressionInput{Product->Id}};
+	const auto Built = MIR::BuildGraph(Expressions, Roots);
+	ASSERT_TRUE(Built);
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSemantics(),
+		(FMaterialValueSemantics{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Pixel,
+			EMaterialSpatialKind::Position, EMaterialCoordinateSpace::World}));
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[1]].GetSemantics(),
+		(FMaterialValueSemantics{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Both,
+			EMaterialSpatialKind::None, EMaterialCoordinateSpace::None}));
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[2]].GetSemantics(),
+		Built.IR.Nodes[Built.Roots[0]].GetSemantics());
+	EXPECT_NE(Built.IR.Nodes[Built.Roots[2]].ScalarBroadcastMask, 0);
+}
+
+TEST(FMaterialExpressionSemanticTests, InvalidNormalCompositionReportsTheConsumingExpression)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionBlendNormalsRNM> Blend(NewObject<DMaterialExpressionBlendNormalsRNM>(nullptr, NAME_None));
+	Blend->Id = FGuid::NewGuid();
+	Blend->Base.SetConstant({0, 0, 1}); Blend->Detail.SetConstant({0, 0, 1});
+	const std::array<DMaterialExpression*, 1> Expressions{Blend.Get()};
+	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Blend->Id}});
+	ASSERT_FALSE(Built);
+	ASSERT_FALSE(Built.Diagnostics.empty());
+	EXPECT_EQ(Built.Diagnostics.front().Error.Code,
+		FMaterialError::FCode(EMaterialExpressionError::InputIncompatibleSemantics));
+	EXPECT_EQ(Built.Diagnostics.front().NodeId, Blend->Id);
+}
+
+TEST(FMaterialExpressionSemanticTests, FunctionConstraintsRejectIncompatibleBindingsBeforeExpansion)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const FMaterialFunctionValueConstraint PixelNormal{
+		.Mode = EMaterialFunctionValueConstraintMode::Exact,
+		.Stages = EMaterialEvaluationStage::Pixel,
+		.Kind = EMaterialSpatialKind::Normal,
+		.Space = EMaterialCoordinateSpace::Tangent};
+	EXPECT_FALSE(MatchesMaterialFunctionValueConstraint(
+		{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Vertex,
+			EMaterialSpatialKind::Normal, EMaterialCoordinateSpace::Tangent}, PixelNormal));
+
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	auto* Input = NewObject<DMaterialExpressionFunctionInput>(Function.Get(), NAME_None);
+	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None);
+	Input->Id = FGuid::NewGuid(); Output->Id = FGuid::NewGuid();
+	Input->Port = {.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float3,
+		.Name = "Normal", .bRequired = true, .Constraint = PixelNormal};
+	Output->Port = {.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float3,
+		.Name = "Normal", .Constraint = PixelNormal};
+	Output->Source = {Input->Id};
+	const std::array<DMaterialExpression*, 2> FunctionNodes{Input, Output};
+	ASSERT_TRUE(Function->SetFunctionExpressions(FunctionNodes));
+
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Generic(NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Generic->Id = FGuid::NewGuid(); Generic->Value = {0, 0, 1}; Call->Id = FGuid::NewGuid();
+	Call->Function = Function.Get();
+	Call->Inputs = {{Input->Port.Id, Input->Port.Type, {Generic->Id}}};
+	Call->Outputs = {{Output->Port.Id, Output->Port.Type}};
+	const std::array<DMaterialExpression*, 2> Graph{Generic.Get(), Call.Get()};
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Candidate) {
+		return &Candidate == Function.Get() ? std::optional(Function->GetExpressionBody()) : std::nullopt;
+	}};
+	const auto Built = MIR::BuildGraph(Graph,
+		std::array{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}}, Environment);
+	ASSERT_FALSE(Built);
+	ASSERT_FALSE(Built.Diagnostics.empty());
+	EXPECT_EQ(Built.Diagnostics.front().Error.Code,
+		FMaterialError::FCode(EMaterialFunctionError::BindingValueConstraintMismatch));
+	EXPECT_EQ(Built.Diagnostics.front().PortId, Input->Port.Id);
+}
+
 TEST(FMaterialExpressionTests, SnapshotFailureHasNoPayloadAndCanBeRetried)
 {
 	using namespace Durin;
@@ -490,6 +577,11 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = Type::Texture2D, .Name = "Texture",
 		.Default = {.Kind = EMaterialFunctionDefaultKind::Texture, .TextureFallback = EMaterialTextureFallback::FlatRGNormal}}};
 	Body.Signature.Outputs = {{.Id = Output->Port.Id, .Type = Type::Float3, .Name = "Normal"}};
+	Body.Signature.Outputs[0].Constraint = {
+		.Mode = EMaterialFunctionValueConstraintMode::Exact,
+		.Stages = EMaterialEvaluationStage::Pixel,
+		.Kind = EMaterialSpatialKind::Normal,
+		.Space = EMaterialCoordinateSpace::Tangent};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Body.Signature, Body.Expressions)));
 	TStrongObjectPtr<DMaterialExpressionTextureParameter> Texture(NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None));
 	Texture->Id = FGuid::NewGuid(); Texture->Metadata = {.Id = FGuid::NewGuid(), .Name = "NormalTexture"};
@@ -504,8 +596,7 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	FMaterialExpressionSurfaceOutputs Surface; Surface.Normal = Roots[0];
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Surface, &ColorFingerprint));
 	const auto Color = MIR::BuildGraph(Graph, Roots, Environment);
-	ASSERT_TRUE(Color);
-	EXPECT_EQ(Color.IR.Nodes[Color.Roots[0]].Opcode, EMaterialProgramOpcode::Swizzle);
+	EXPECT_FALSE(Color);
 	Texture->TextureUsage = ETextureUsage::Normal;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Surface, &NormalFingerprint));
 	EXPECT_NE(ColorFingerprint, NormalFingerprint);
@@ -750,8 +841,9 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	TStrongObjectPtr<DMaterialExpressionMakeSurface> Surface(NewObject<DMaterialExpressionMakeSurface>(nullptr, "BuildSurface"));
 	TStrongObjectPtr<DMaterialExpressionGetSurfaceAttributes> Get(NewObject<DMaterialExpressionGetSurfaceAttributes>(nullptr, "BuildGet"));
 	Sample->Id = {1, 2, 3, 1}; Sample->Metadata.Id = {4, 5, 6, 7}; Sample->Metadata.Name = "Sample";
+	Sample->TextureUsage = ETextureUsage::Normal;
 	Surface->Id = {1, 2, 3, 2};
-	Surface->BaseColor = {Sample->Id, 1}; Surface->Normal = {Sample->Id, 1};
+	Surface->BaseColor.SetConstant({1, 1, 1}); Surface->Normal = {Sample->Id, 1};
 	Surface->Metallic.SetConstant({0}); Surface->Roughness.SetConstant({.5f});
 	Surface->AmbientOcclusion.SetConstant({1}); Surface->Emissive.SetConstant({0, 0, 0});
 	Surface->Opacity.SetConstant({1}); Surface->OpacityMask.SetConstant({1});

@@ -483,7 +483,6 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 		}
 		if (Definition.Name == Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName())
 		{
-			Definition.TextureUsage = Texture->GetUsage();
 			Definition.Value.GetTexture().Texture = Texture;
 		}
 	}
@@ -493,8 +492,6 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 	{
 		if (auto* Scalar = Durin::Cast<Durin::DMaterialExpressionScalarParameter>(Expression.Get());
 			Scalar && Scalar->Metadata.Name == Durin::AssetForge::Builtins::MaterialParameters::RoughnessName()) Scalar->MaximumValue = 4.f;
-		if (auto* Resource = Durin::Cast<Durin::DMaterialExpressionTextureParameter>(Expression.Get());
-			Resource && Resource->Metadata.Name == Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName()) Resource->TextureUsage = Texture->GetUsage();
 	}
 	ASSERT_TRUE(Graph.Apply(*Base));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));

@@ -143,6 +143,15 @@ namespace Durin::Testing
 				auto* Mask = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
 				Mask->Id = MakeCanonicalNodeId(NextId++); Mask->Input = {Expression->Id}; Mask->Components.clear();
 				for (uint8 C = 0; C <= static_cast<uint8>(Type); ++C) Mask->Components.push_back(C);
+				using namespace Durin::AssetForge::Builtins;
+				using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
+				if (Type == EMaterialProgramValueType::Float3
+					&& ParameterId == GetMaterialSurfaceParameterId(
+						EMaterialSurfaceOutput::Normal, ParameterKind::Value))
+				{
+					Mask->OutputSpatialKind = EMaterialSpatialKind::Normal;
+					Mask->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
+				}
 				Types[Expression->Id] = EMaterialProgramValueType::Float4; Types.emplace(Mask->Id, Type);
 				Expressions.emplace_back(Mask); return *Mask;
 			}

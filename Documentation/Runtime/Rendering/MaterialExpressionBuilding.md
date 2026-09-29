@@ -30,6 +30,18 @@ Collection expressions resolve one numeric declaration from a referenced
 through a function uses the same invocation boundary and contributes that
 collection to the caller's closure.
 
+Every numeric MIR value also carries its legal evaluation-stage mask, spatial
+kind, and coordinate space. Existing operations resolve those semantics through
+one signature table before a node is published. Constants and parameters are
+non-spatial; normal-texture RGB is an explicit Pixel/Tangent/Normal producer;
+Surface roots require Pixel values and Normal requires the exact Tangent/Normal
+contract. Scalar broadcast is represented explicitly and records which operand
+was broadcast so canonical validation cannot confuse it with vector arithmetic.
+Position, direction, and normal transform nodes carry canonical source and
+destination spaces. Stage 1 validates their supported pairs and canonical bytes;
+shader context lowering and authored transform nodes are introduced with the
+context-source stage.
+
 ## Numeric input ownership
 
 `FMaterialExpressionInput` contains only upstream identity. Reflected
@@ -52,11 +64,14 @@ Canonical inactive storage is finite zero with an appropriate input width; it
 does not define the fallback. Authored fingerprints include the flag and retained
 components, while shader identity still uses the resolved compiler representation.
 
-Authored graph custom version 4 and terminal output version 3 are required.
-Older packages are rejected. The repository's two materials and three standard
-functions were converted with a temporary reader and canonical resave; no
-historical reader remains in the runtime. Existing explicit values, including
-those behind connections, were preserved as enabled constants.
+Authored graph custom versions 4-5 and function-port versions 1-2 are the bounded
+read windows; graph 5 and function 2 are written. Terminal output version 3 is
+unchanged. Older, missing, and future versions reject. Version-4 graphs retain
+generic numeric semantics unless an explicit producer supplies spatial meaning.
+The legacy shipped `SampleNormal` function alone has a path- and GUID-bounded
+version-1 migration to exact Pixel/Tangent/Normal ports and an explicit flat-normal
+producer. The tracked materials and standard functions were canonically resaved;
+arbitrary user ports are never guessed into a spatial contract.
 
 ## Traversal and invocation state
 

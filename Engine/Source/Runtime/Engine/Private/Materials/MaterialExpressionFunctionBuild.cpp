@@ -27,8 +27,20 @@ namespace Durin
 		{
 			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = Type};
 			for (uint8 Attribute = 0; Attribute < 8; ++Attribute)
-				Surface.Inputs.push_back(OpaqueAuthoringValue(Opcode,
-					GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Attribute)), Inputs));
+			{
+				const auto Output = static_cast<EMaterialSurfaceOutput>(Attribute);
+				const auto Value = OpaqueAuthoringValue(Opcode,
+					GetMaterialSurfaceOutputType(Output), Inputs);
+				if (Value != InvalidIndex)
+				{
+					const auto Semantics = GetMaterialSurfaceOutputSemantics(Output);
+					auto& Node = Result.IR.Nodes[Value];
+					Node.LegalStages = Semantics.Stages;
+					Node.SpatialKind = Semantics.Kind;
+					Node.CoordinateSpace = Semantics.Space;
+				}
+				Surface.Inputs.push_back(Value);
+			}
 			return Emit(std::move(Surface));
 		}
 		if (Type > EMaterialProgramValueType::Surface || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
@@ -84,7 +96,8 @@ namespace Durin
 				if (Value.GetIndex()) Inputs.push_back(*Value.GetIndex());
 			}
 		}
-		std::map<EMaterialProgramValueType, uint32> TypeValues;
+		std::map<std::tuple<EMaterialProgramValueType, EMaterialEvaluationStage,
+			EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> TypeValues;
 		for (const auto& Output : Call.Outputs)
 		{
 			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
@@ -92,9 +105,33 @@ namespace Durin
 				return Emitter.Fail(EMaterialFunctionError::CallOutputRequiresUniqueValidTypedPort, Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.ExpectedType);
-			auto [TypeValue, bInserted] = TypeValues.try_emplace(Output.ExpectedType, MIR::InvalidIndex);
-			if (bInserted) TypeValue->second = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionCall, Output.ExpectedType, Inputs);
-			Emitter.Output(Output.OutputId, TypeValue->second);
+			FMaterialFunctionValueConstraint Constraint;
+			if (IsValid(Call.Function.Get()))
+			{
+				const auto& Signature = Call.Function->GetFunctionSignature();
+				const auto Port = std::ranges::find(
+					Signature.Outputs, Output.OutputId, &FMaterialFunctionPort::Id);
+				if (Port != Signature.Outputs.end()) Constraint = Port->Constraint;
+			}
+			const auto Kind = Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+				? Constraint.Kind : EMaterialSpatialKind::None;
+			const auto Space = Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+				? Constraint.Space : EMaterialCoordinateSpace::None;
+			const auto Key = std::tuple{Output.ExpectedType, Constraint.Stages, Kind, Space};
+			auto [Value, bInserted] = TypeValues.try_emplace(Key, InvalidIndex);
+			if (bInserted)
+			{
+				Value->second = OpaqueAuthoringValue(
+					EMaterialProgramOpcode::FunctionCall, Output.ExpectedType, Inputs);
+				if (Value->second != InvalidIndex && Output.ExpectedType <= EMaterialProgramValueType::Float4)
+				{
+					auto& Node = Result.IR.Nodes[Value->second];
+					Node.LegalStages = Constraint.Stages;
+					Node.SpatialKind = Kind;
+					Node.CoordinateSpace = Space;
+				}
+			}
+			Emitter.Output(Output.OutputId, Value->second);
 		}
 		if (!Result.Diagnostics.empty()) return;
 	}
@@ -119,8 +156,33 @@ namespace Durin
 		if (!Signature) return Fail(EMaterialFunctionError::InputTerminalNoOwningInvocation);
 		const auto Port = std::ranges::find(Signature->Inputs, PortId, &FMaterialFunctionPort::Id);
 		if (Port == Signature->Inputs.end()) return Fail(EMaterialFunctionError::InputTerminalNoMatchingDeclaration);
-		if (bValidateAuthoring) return OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
-		if (const auto Bound = BoundInputs.find(PortId); Bound != BoundInputs.end()) return Bound->second;
+		if (bValidateAuthoring)
+		{
+			if (Port->Type == EMaterialProgramValueType::Texture2D
+				&& Port->Default.Kind == EMaterialFunctionDefaultKind::Texture)
+				return MIR::FTextureDefault{Port->Default.Sampler,
+					Port->Default.TextureFallback};
+			const auto Value = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
+			if (Value != InvalidIndex && Port->Type <= EMaterialProgramValueType::Float4)
+			{
+				auto& Node = Result.IR.Nodes[Value];
+				Node.LegalStages = Port->Constraint.Stages;
+				if (Port->Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact)
+				{
+					Node.SpatialKind = Port->Constraint.Kind;
+					Node.CoordinateSpace = Port->Constraint.Space;
+				}
+			}
+			return Value;
+		}
+		if (const auto Bound = BoundInputs.find(PortId); Bound != BoundInputs.end())
+		{
+			if (const auto Index = Bound->second.GetIndex(); Index
+				&& !MatchesMaterialFunctionValueConstraint(
+					GetNode(*Index).GetSemantics(), Port->Constraint))
+				return Fail(EMaterialFunctionError::BindingValueConstraintMismatch, PortId);
+			return Bound->second;
+		}
 		if (Port->bRequired) return Fail(EMaterialFunctionError::RequiredFunctionInputNoBinding);
 		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::contains(PortStack, PortId))
 			return Fail(EMaterialFunctionError::InputDefaultsContainCycle);
@@ -133,7 +195,11 @@ namespace Durin
 		{
 			const std::array Components{Default.Numeric.X, Default.Numeric.Y, Default.Numeric.Z, Default.Numeric.W};
 			if (Port->Type > EMaterialProgramValueType::Float4) { Fail(EMaterialFunctionError::NumericFunctionDefaultNonNumericType); break; }
-			Value = Literal(std::span(Components).first(static_cast<size_t>(Port->Type) + 1));
+			Value = Literal(std::span(Components).first(static_cast<size_t>(Port->Type) + 1),
+				Port->Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+					? Port->Constraint.Kind : EMaterialSpatialKind::None,
+				Port->Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact
+					? Port->Constraint.Space : EMaterialCoordinateSpace::None);
 			break;
 		}
 		case EMaterialFunctionDefaultKind::Texture:
@@ -158,7 +224,14 @@ namespace Durin
 				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
 				const auto& Numeric = GetMaterialSurfaceOutputDefault(Default.Surface, Attribute);
 				const std::array Components{Numeric.X, Numeric.Y, Numeric.Z, Numeric.W};
-				Surface.Inputs.push_back(Literal(std::span(Components).first(static_cast<size_t>(GetMaterialSurfaceOutputType(Attribute)) + 1)));
+				Surface.Inputs.push_back(Literal(
+					std::span(Components).first(static_cast<size_t>(
+						GetMaterialSurfaceOutputType(Attribute)) + 1),
+					Attribute == EMaterialSurfaceOutput::Normal
+						? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
+					Attribute == EMaterialSurfaceOutput::Normal
+						? EMaterialCoordinateSpace::Tangent
+						: EMaterialCoordinateSpace::None));
 			}
 			Value = Emit(std::move(Surface));
 			break;
@@ -166,6 +239,10 @@ namespace Durin
 		default: Fail(EMaterialFunctionError::InputNoUsableBindingDefault); break;
 		}
 		if (!MatchesType(Value, Port->Type)) Fail(EMaterialFunctionError::DefaultTypeMismatch);
+		if (const auto Index = Value.GetIndex(); Index
+			&& !MatchesMaterialFunctionValueConstraint(
+				GetNode(*Index).GetSemantics(), Port->Constraint))
+			Fail(EMaterialFunctionError::DefaultValueConstraintMismatch, PortId);
 		PortStack.pop_back();
 		if (!Result.Diagnostics.empty()) return MIR::InvalidIndex;
 		BoundInputs.emplace(PortId, Value);
@@ -180,6 +257,10 @@ namespace Durin
 		if (Port == Signature->Outputs.end()) return Fail(EMaterialFunctionError::OutputTerminalNoMatchingDeclaration);
 		const auto Value = BroadcastScalar(Resolve(Source), Port->Type);
 		if (!MatchesType(Value, Port->Type)) return Fail(EMaterialFunctionError::OutputTypeMismatch);
+		if (const auto Index = Value.GetIndex(); Index
+			&& !MatchesMaterialFunctionValueConstraint(
+				GetNode(*Index).GetSemantics(), Port->Constraint))
+			return Fail(EMaterialFunctionError::OutputValueConstraintMismatch, PortId);
 		return Value;
 	}
 
@@ -252,6 +333,10 @@ namespace Durin
 					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : MIR::FValue(Literal(Default));
 				PortStack.pop_back();
 				if (!MatchesType(Value, Port->Type)) return Emitter.Fail(EMaterialFunctionError::BindingTypeMismatch, Binding.InputId);
+				if (const auto Index = Value.GetIndex(); Index
+					&& !MatchesMaterialFunctionValueConstraint(
+						GetNode(*Index).GetSemantics(), Port->Constraint))
+					return Emitter.Fail(EMaterialFunctionError::BindingValueConstraintMismatch, Binding.InputId);
 				Child.BoundInputs.emplace(Binding.InputId, Value);
 			}
 		}

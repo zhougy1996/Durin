@@ -512,6 +512,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	UV->Metadata.Id = FGuid::NewGuid(); UV->Metadata.Name = "OnlySampleUV";
 	auto Sample = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
 	Sample->Metadata.Id = FGuid::NewGuid(); Sample->Metadata.Name = "SharedTexture";
+	Sample->TextureUsage = ETextureUsage::Normal;
 	auto Mask = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>();
 	Mask->Input = {UV->Id}; Mask->Components = {0, 1};
 	Sample->UV = {Mask->Id};
@@ -519,7 +520,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	ResourceConsumer->Texture = {Sample->Id, 7};
 	const std::array<DMaterialExpression*, 4> Expressions{UV.Get(), Mask.Get(), Sample.Get(), ResourceConsumer.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {ResourceConsumer->Id, 1};
+	Outputs.OpacityMask = {ResourceConsumer->Id, 5};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
 	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());

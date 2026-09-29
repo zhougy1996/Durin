@@ -395,8 +395,11 @@ Build. Root materials own concrete expressions, including function calls with
 base-typed asset references and GUID bindings; instances retain no function graph.
 Function expression collections and presentation are `EditorOnly`.
 
-Ports have persistent GUIDs, names, types, ordering, required/advanced flags and
-typed defaults. Calls bind by port GUID, and multi-output links retain output
+Ports have persistent GUIDs, names, types, ordering, required/advanced flags,
+typed defaults, and a value constraint. A numeric constraint is Unconstrained,
+NonSpatial, or an exact stage/kind/space tuple. Unconstrained inputs adopt each
+caller's semantics independently; defaults, bindings, and inferred outputs are
+checked at the invocation boundary. Calls bind by port GUID, and multi-output links retain output
 GUIDs rather than declaration indices. Reordering or renaming preserves wiring;
 deleting or incompatibly changing a used port produces a diagnostic. Functions
 accept Float, Float2, Float3, Float4, Texture2D and Surface. `GetSurfaceAttributes`
@@ -855,12 +858,15 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current versions are compiler envelope 9, DMAT 8, IR 5, layout 4, generator 8,
-pass contract 4, and material Cook contributor 5. Time uses the material uniform;
+Current versions are compiler envelope 10, DMAT 8, IR 6, layout 4, generator 9,
+pass contract 5, and material Cook contributor 5. Time uses the material uniform;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10
 default-relative owned-object serialization, with no material-specific serializer
-or old-asset conversion path. Unrelated property/package migrations remain intact.
+or universal old-asset conversion path. Material graphs accept only versions 4-5
+and function ports only versions 1-2; current saves write 5 and 2. The shipped
+`SampleNormal` v1 asset has a narrowly identified semantic migration, while other
+legacy ports remain unconstrained. Unrelated property/package migrations remain intact.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base

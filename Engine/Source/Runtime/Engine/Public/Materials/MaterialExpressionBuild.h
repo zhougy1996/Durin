@@ -92,13 +92,17 @@ namespace Durin
 			ENGINE_API auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 			ENGINE_API auto FunctionCall(const DMaterialExpressionFunctionCall& Call) -> void;
 			ENGINE_API auto Emit(FNode Node) -> uint32;
-			ENGINE_API auto Literal(std::span<const float> Components) -> uint32;
+			ENGINE_API auto Literal(std::span<const float> Components,
+				EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
+				EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None) -> uint32;
 			ENGINE_API auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
 			ENGINE_API auto CollectionParameter(
 				const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32;
 			ENGINE_API auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 				std::span<const FMaterialNumericInput* const> Inputs,
-				std::span<const uint8> Swizzle = {}) -> uint32;
+				std::span<const uint8> Swizzle = {},
+				EMaterialSpatialKind OutputKind = EMaterialSpatialKind::None,
+				EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None) -> uint32;
 			ENGINE_API auto Coordinates() -> uint32;
 			ENGINE_API auto IsNormalTexture(FValue Value) const -> bool;
 			ENGINE_API auto Fail(FMaterialError Error, FGuid PortId = {},

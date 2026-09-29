@@ -21,14 +21,19 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 		const auto Interface = GetStandardMaterialFunctionInterface(static_cast<EStandardMaterialFunction>(Index + 1));
 		EXPECT_TRUE(ValidateMaterialFunctionSignature(Interface));
 		EXPECT_EQ(Recipe.GetSignature(), Interface);
-		// Focused sampling recipes use channel outputs and an inline flat normal.
+		// Focused sampling recipes use channel outputs and an explicitly typed flat normal.
 		for (const auto& Expression : Recipe.Expressions)
 		{
 			EXPECT_FALSE(Expression->IsA<DMaterialExpressionScalarConstant>());
 			if (const auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get()))
 			{
-				EXPECT_FALSE(Lerp->A.Connection.ExpressionId.IsValid());
-				EXPECT_EQ(Lerp->A.Constant, (std::vector<float>{0, 0, 1}));
+				EXPECT_TRUE(Lerp->A.Connection.ExpressionId.IsValid());
+			}
+			if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle
+				&& Swizzle->OutputSpatialKind != EMaterialSpatialKind::None)
+			{
+				EXPECT_EQ(Swizzle->OutputSpatialKind, EMaterialSpatialKind::Normal);
+				EXPECT_EQ(Swizzle->OutputCoordinateSpace, EMaterialCoordinateSpace::Tangent);
 			}
 		}
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
@@ -415,8 +420,7 @@ TEST(FMaterialFunctionTests, NormalRGBDecodesOnceAndRejectsRetiredSelectors)
 	Outputs.Roughness = {Sample->Id, 3};
 	Sample->TextureUsage = ETextureUsage::Color; Outputs.Normal = {Sample->Id, 1};
 	const auto ColorRGB = NormalizeTypedExpressions(Expressions, Outputs);
-	ASSERT_TRUE(ColorRGB);
-	EXPECT_EQ(std::ranges::count(ColorRGB.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &MIR::FNode::Opcode), 0);
+	EXPECT_FALSE(ColorRGB);
 	Sample->TextureUsage = ETextureUsage::Normal;
 	for (const uint8 Index : {6, 8, 9})
 	{
@@ -1230,11 +1234,11 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 		| (1u << static_cast<uint8>(EMaterialSurfaceOutput::Metallic));
 	const std::array<DMaterialExpression*, 2> Expressions{Call, Get};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {GetId, static_cast<uint8>(EMaterialSurfaceOutput::Normal)};
+	Outputs.Normal = {GetId, static_cast<uint8>(EMaterialSurfaceOutput::Normal)};
 	Outputs.Roughness = {GetId, static_cast<uint8>(EMaterialSurfaceOutput::Metallic)};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics[0].Error));
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[0].ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[1].ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
 	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex].GetLiteral().X, 0.75f);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
@@ -1271,6 +1275,16 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 		{
 			auto* Vector = NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None);
 			Vector->Value = FVector3{.125f * Index, .25f, .5f}; Constant = Vector;
+			if (Attribute == EMaterialSurfaceOutput::Normal)
+			{
+				Vector->Id = FGuid::NewGuid(); Expressions.push_back(Vector);
+				auto* Annotation = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+				Annotation->Id = FGuid::NewGuid(); Annotation->Input = {Vector->Id};
+				Annotation->Components = {0, 1, 2};
+				Annotation->OutputSpatialKind = EMaterialSpatialKind::Normal;
+				Annotation->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
+				Constant = Annotation;
+			}
 		}
 		else
 		{

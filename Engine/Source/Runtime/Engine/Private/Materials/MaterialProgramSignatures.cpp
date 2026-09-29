@@ -61,6 +61,12 @@ namespace Durin
 		case EMaterialProgramOpcode::Time:
 			if (ResultType != Type::Float) return std::nullopt;
 			break;
+		case EMaterialProgramOpcode::TransformPosition:
+		case EMaterialProgramOpcode::TransformDirection:
+		case EMaterialProgramOpcode::TransformNormal:
+			if (ResultType != Type::Float3) return std::nullopt;
+			Same(1, Type::Float3);
+			break;
 		case EMaterialProgramOpcode::Parameter:
 			if (ResultType != Type::Float && ResultType != Type::Float4) return std::nullopt;
 			break;
@@ -172,5 +178,215 @@ namespace Durin
 			return std::nullopt;
 		}
 		return Signature;
+	}
+
+	namespace
+	{
+		auto IsNumeric(EMaterialProgramValueType Type) -> bool
+		{
+			return Type >= EMaterialProgramValueType::Float
+				&& Type <= EMaterialProgramValueType::Float4;
+		}
+
+		auto IsSpatial(const FMaterialValueSemantics& Value) -> bool
+		{
+			return Value.Kind != EMaterialSpatialKind::None;
+		}
+
+		auto SameSpatial(const FMaterialValueSemantics& Left,
+			const FMaterialValueSemantics& Right) -> bool
+		{
+			return Left.Kind == Right.Kind && Left.Space == Right.Space;
+		}
+
+		auto WithStages(FMaterialValueSemantics Value,
+			std::span<const FMaterialValueSemantics> Inputs,
+			EMaterialEvaluationStage Operation = EMaterialEvaluationStage::Both)
+			-> std::optional<FMaterialValueSemantics>
+		{
+			Value.Stages = Operation;
+			for (const auto& Input : Inputs)
+				Value.Stages = IntersectMaterialStages(Value.Stages, Input.Stages);
+			if (Value.Stages == EMaterialEvaluationStage::None
+				|| !IsValidMaterialValueSemantics(Value)) return std::nullopt;
+			return Value;
+		}
+	}
+
+	auto ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode Opcode,
+		EMaterialProgramValueType ResultType,
+		std::span<const FMaterialValueSemantics> Inputs,
+		const FMaterialTransformPayload* Transform)
+		-> std::optional<FMaterialValueSemantics>
+	{
+		const auto Signature = GetMaterialProgramNodeSignature(Opcode, ResultType);
+		if (!Signature || Inputs.size() != Signature->InputCount) return std::nullopt;
+		for (size_t Index = 0; Index < Inputs.size(); ++Index)
+			if (!IsValidMaterialValueSemantics(Inputs[Index])
+				|| (!std::ranges::contains(Signature->Inputs[Index], Inputs[Index].Type)
+					&& !(IsMaterialAdaptiveNumeric(Opcode)
+						&& Inputs[Index].Type == EMaterialProgramValueType::Float
+						&& !(Opcode == EMaterialProgramOpcode::Lerp && Index == 2))))
+				return std::nullopt;
+
+		FMaterialValueSemantics Result{.Type = ResultType};
+		using OpcodeType = EMaterialProgramOpcode;
+		using Kind = EMaterialSpatialKind;
+		using Space = EMaterialCoordinateSpace;
+		using Stage = EMaterialEvaluationStage;
+		const auto NonSpatial = [&](Stage Operation = Stage::Both) {
+			if (std::ranges::any_of(Inputs, IsSpatial))
+				return std::optional<FMaterialValueSemantics>{};
+			return WithStages(Result, Inputs, Operation);
+		};
+
+		switch (Opcode)
+		{
+		case OpcodeType::WorldPosition:
+			Result.Kind = Kind::Position; Result.Space = Space::World;
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::Time:
+		case OpcodeType::Constant:
+		case OpcodeType::Parameter:
+		case OpcodeType::CollectionParameter:
+		case OpcodeType::TextureParameter:
+			return WithStages(Result, Inputs);
+		case OpcodeType::UVChannel:
+		case OpcodeType::TextureCoordinates:
+			return NonSpatial();
+		case OpcodeType::TextureSample2D:
+		case OpcodeType::TextureSampleParameter2D:
+			return NonSpatial(Stage::Pixel);
+		case OpcodeType::DecodeNormalRG:
+			if (IsSpatial(Inputs[0])) return std::nullopt;
+			Result.Kind = Kind::Normal; Result.Space = Space::Tangent;
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::BlendNormalsRNM:
+			if (Inputs[0].Kind != Kind::Normal || Inputs[0].Space != Space::Tangent
+				|| !SameSpatial(Inputs[0], Inputs[1])) return std::nullopt;
+			Result.Kind = Kind::Normal; Result.Space = Space::Tangent;
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::Add:
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if (Inputs[0].Space != Inputs[1].Space
+				&& IsSpatial(Inputs[0]) && IsSpatial(Inputs[1])) return std::nullopt;
+			if (Inputs[0].Kind == Kind::Position && Inputs[1].Kind == Kind::Direction)
+				Result = Inputs[0];
+			else if (Inputs[0].Kind == Kind::Direction && Inputs[1].Kind == Kind::Position)
+				Result = Inputs[1];
+			else if (Inputs[0].Kind == Kind::Direction && Inputs[1].Kind == Kind::Direction)
+				Result = Inputs[0];
+			else if (Inputs[0].Kind == Kind::ScreenCoordinate && Inputs[1].Kind == Kind::None)
+				Result = Inputs[0];
+			else if (Inputs[1].Kind == Kind::ScreenCoordinate && Inputs[0].Kind == Kind::None)
+				Result = Inputs[1];
+			else return std::nullopt;
+			Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Subtract:
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if (Inputs[0].Kind == Kind::Position && Inputs[1].Kind == Kind::Position
+				&& Inputs[0].Space == Inputs[1].Space)
+				{ Result.Kind = Kind::Direction; Result.Space = Inputs[0].Space; }
+			else if (Inputs[0].Kind == Kind::Position && Inputs[1].Kind == Kind::Direction
+				&& Inputs[0].Space == Inputs[1].Space) Result = Inputs[0];
+			else if (Inputs[0].Kind == Kind::Direction && Inputs[1].Kind == Kind::Direction
+				&& Inputs[0].Space == Inputs[1].Space) Result = Inputs[0];
+			else if (Inputs[0].Kind == Kind::ScreenCoordinate
+				&& Inputs[1].Kind == Kind::ScreenCoordinate) {}
+			else if (Inputs[0].Kind == Kind::ScreenCoordinate
+				&& Inputs[1].Kind == Kind::None) Result = Inputs[0];
+			else return std::nullopt;
+			Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Multiply:
+		case OpcodeType::Divide:
+		{
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			const bool LeftScalar = Inputs[0].Type == EMaterialProgramValueType::Float
+				&& !IsSpatial(Inputs[0]);
+			const bool RightScalar = Inputs[1].Type == EMaterialProgramValueType::Float
+				&& !IsSpatial(Inputs[1]);
+			if (Opcode == OpcodeType::Divide && !RightScalar) return std::nullopt;
+			if (!(LeftScalar ^ RightScalar)) return std::nullopt;
+			Result = LeftScalar ? Inputs[1] : Inputs[0]; Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		}
+		case OpcodeType::Negate:
+			if (Inputs[0].Kind == Kind::Position
+				|| Inputs[0].Kind == Kind::ScreenCoordinate) return std::nullopt;
+			Result = Inputs[0]; Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Normalize:
+			if (Inputs[0].Kind == Kind::Position
+				|| Inputs[0].Kind == Kind::ScreenCoordinate) return std::nullopt;
+			Result = Inputs[0]; Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Lerp:
+			if (IsSpatial(Inputs[2])) return std::nullopt;
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if (!SameSpatial(Inputs[0], Inputs[1])) return std::nullopt;
+			Result = Inputs[0]; Result.Type = ResultType;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Swizzle:
+			if (!IsSpatial(Inputs[0])) return NonSpatial();
+			// Payload-specific identity checking is performed by the emitter/IR validator.
+			return WithStages(Result, Inputs);
+		case OpcodeType::MakeSurface:
+			if (Inputs.size() != 8) return std::nullopt;
+			for (size_t Index = 0; Index < Inputs.size(); ++Index)
+			{
+				const auto Expected = GetMaterialSurfaceOutputSemantics(
+					static_cast<EMaterialSurfaceOutput>(Index));
+				if (Inputs[Index].Type != Expected.Type
+					|| Inputs[Index].Kind != Expected.Kind
+					|| Inputs[Index].Space != Expected.Space
+					|| !MaterialStagesContain(Inputs[Index].Stages, Stage::Pixel))
+					return std::nullopt;
+			}
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::GetSurfaceAttributes:
+		case OpcodeType::SetSurfaceAttributes:
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::FunctionInput:
+		case OpcodeType::FunctionOutput:
+		case OpcodeType::FunctionCall:
+			return WithStages(Result, Inputs);
+		case OpcodeType::TransformPosition:
+		case OpcodeType::TransformDirection:
+		case OpcodeType::TransformNormal:
+		{
+			if (!Transform || Transform->Source == Transform->Destination
+				|| Transform->Source == Space::None || Transform->Destination == Space::None
+				|| Transform->Source == Space::Screen || Transform->Destination == Space::Screen)
+				return std::nullopt;
+			const Kind Expected = Opcode == OpcodeType::TransformPosition ? Kind::Position
+				: Opcode == OpcodeType::TransformDirection ? Kind::Direction : Kind::Normal;
+			if (Inputs[0].Kind != Expected || Inputs[0].Space != Transform->Source
+				|| (Expected == Kind::Position && (Transform->Source == Space::Tangent
+					|| Transform->Destination == Space::Tangent))) return std::nullopt;
+			Result.Kind = Expected; Result.Space = Transform->Destination;
+			const bool bTangent = Transform->Source == Space::Tangent
+				|| Transform->Destination == Space::Tangent;
+			return WithStages(Result, Inputs, bTangent ? Stage::Pixel : Stage::Both);
+		}
+		case OpcodeType::Minimum:
+		case OpcodeType::Maximum:
+		case OpcodeType::OneMinus:
+		case OpcodeType::Absolute:
+		case OpcodeType::Saturate:
+		case OpcodeType::Clamp:
+		case OpcodeType::Sine:
+		case OpcodeType::Cosine:
+		case OpcodeType::MakeFloat2:
+		case OpcodeType::MakeFloat3:
+		case OpcodeType::MakeFloat4:
+		case OpcodeType::Splat2:
+		case OpcodeType::Splat3:
+		case OpcodeType::Splat4:
+		case OpcodeType::AppendVector:
+			return NonSpatial();
+		}
+		return std::nullopt;
 	}
 }

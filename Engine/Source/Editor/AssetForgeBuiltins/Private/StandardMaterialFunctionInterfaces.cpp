@@ -43,6 +43,13 @@ namespace Durin::AssetForge::Builtins
 				Input(3, "Strength", Type::Float, Numeric(1));
 				Input(4, "Normal", Type::Float3, Numeric(0, 0, 1));
 				Output(100, "Normal", Type::Float3);
+				const FMaterialFunctionValueConstraint TangentNormal{
+					.Mode = EMaterialFunctionValueConstraintMode::Exact,
+					.Stages = EMaterialEvaluationStage::Pixel,
+					.Kind = EMaterialSpatialKind::Normal,
+					.Space = EMaterialCoordinateSpace::Tangent};
+				Result.Inputs.back().Constraint = TangentNormal;
+				Result.Outputs.back().Constraint = TangentNormal;
 			}
 			else
 			{
