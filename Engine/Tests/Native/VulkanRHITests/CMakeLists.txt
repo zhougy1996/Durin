@@ -86,7 +86,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 
 durin_add_native_test(VulkanCreationQualificationTests
 	KIND qualification
-	DOMAINS renderer rhi-creation
+	DOMAINS render-performance renderer rhi-creation
 	MODULES rhi vulkan-rhi shaderbuild
 	BACKENDS vulkan
 	PROCESSORS 8

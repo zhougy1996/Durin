@@ -868,7 +868,7 @@ namespace Durin
 					  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
 					  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
 					  << ",driver=" << DeviceProperties.driverVersion
-					  << ",configuration=Win64-Debug-DurinEditor"
+					  << ",configuration=" << DURIN_BUILD_CONFIGURATION
 					  << ",execution=" << ExecutionMode
 					  << ",extent=" << Profile.Extent.Width << 'x' << Profile.Extent.Height
 					  << ",viewport=" << Profile.Extent.ViewportX << ':'

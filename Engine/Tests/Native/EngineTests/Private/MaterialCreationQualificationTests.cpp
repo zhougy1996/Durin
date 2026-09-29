@@ -135,6 +135,10 @@ namespace Durin
 		std::ofstream Requests(Output / "requests.csv");
 		Requests << "round,frame," << CreationRequestColumns << '\n';
 		std::vector<FByteBuffer> FrozenShaders;
+		std::vector<uint64> FirstFrameNanoseconds;
+		std::vector<uint64> FollowingFrameNanoseconds;
+		FirstFrameNanoseconds.reserve(30);
+		FollowingFrameNanoseconds.reserve(30 * 120);
 		for (uint32 Round = 0; Round < 30; ++Round)
 		{
 			std::filesystem::remove(CachePath);
@@ -218,6 +222,9 @@ namespace Durin
 				});
 				FlushRenderingCommands();
 				const auto ProducerEnd = VulkanCreationTimestamp();
+				const uint64 EndToEndNanoseconds = RenderTimes[2] - ProducerStart;
+				(Frame == 0 ? FirstFrameNanoseconds : FollowingFrameNanoseconds)
+					.push_back(EndToEndNanoseconds);
 				uint64 Dropped = 0;
 				const auto Samples = EndVulkanCreationTimingCapture(Dropped);
 				const auto Memory = MemorySampler.Stop();
@@ -258,6 +265,31 @@ namespace Durin
 			}
 		}
 		ASSERT_TRUE(Frames.good()); ASSERT_TRUE(Requests.good()); ASSERT_TRUE(Manifest.good());
+		auto Summarize = [](std::vector<uint64> Samples) {
+			std::ranges::sort(Samples);
+			const size_t Middle = Samples.size() / 2;
+			const uint64 Median = Samples.size() % 2 == 0
+				? (Samples[Middle - 1] + Samples[Middle]) / 2
+				: Samples[Middle];
+			const size_t P95Index = (Samples.size() * 95 + 99) / 100 - 1;
+			return std::pair{Median, Samples[P95Index]};
+		};
+		const auto [FirstMedian, FirstP95] = Summarize(FirstFrameNanoseconds);
+		const auto [FollowingMedian, FollowingP95] = Summarize(FollowingFrameNanoseconds);
+		RecordProperty("baseline_rounds", "30");
+		RecordProperty("baseline_following_frames_per_round", "120");
+		RecordProperty("baseline_first_frame_median_ns", std::to_string(FirstMedian));
+		RecordProperty("baseline_first_frame_p95_ns", std::to_string(FirstP95));
+		RecordProperty("baseline_following_frame_median_ns", std::to_string(FollowingMedian));
+		RecordProperty("baseline_following_frame_p95_ns", std::to_string(FollowingP95));
+		RecordProperty("baseline_timing_authority", "diagnostic");
+		std::cout << "MATERIAL_CREATION_QUALIFICATION status=observation"
+			<< ",configuration=" << DURIN_BUILD_CONFIGURATION
+			<< ",rounds=30,following_frames_per_round=120"
+			<< ",first_frame_median_ns=" << FirstMedian
+			<< ",first_frame_p95_ns=" << FirstP95
+			<< ",following_frame_median_ns=" << FollowingMedian
+			<< ",following_frame_p95_ns=" << FollowingP95 << '\n';
 		std::cout << "Material creation timing output: " << Output << std::endl;
 	}
 }

@@ -177,7 +177,7 @@ namespace Durin
 			<< ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
 			<< '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
 			<< '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
-			<< ",configuration=Win64-Debug-DurinEditor"
+			<< ",configuration=" << DURIN_BUILD_CONFIGURATION
 			<< ",warmup_frames=" << WarmupFrames
 			<< ",measured_frames=" << MeasuredFrames
 			<< ",copy_median_ns=" << Copy.MedianNanoseconds

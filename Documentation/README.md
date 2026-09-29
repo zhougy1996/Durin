@@ -22,6 +22,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |
 | Advanced native-test selection, modes, diagnosis, aggregates, or CI execution | [Native test execution](Development/Build/NativeTests.md) |
+| RHI, RDG, or Renderer performance baselines, measurement inventory, or comparison protocol | [Rendering performance baseline](Development/Build/RenderingPerformanceBaseline.md) |
 | GPU qualification admission, quiet timing lanes, or Vulkan creation memory measurements | [Native test qualification](Development/Build/NativeTestQualification.md) |
 | Adding, classifying, registering, or changing native-test targets | [Native test authoring](Development/Build/NativeTestAuthoring.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |

@@ -1127,7 +1127,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
 			  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
 			  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
-			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
+			  << ",configuration=" << DURIN_BUILD_CONFIGURATION
 			  << ",resolution=1920x1080,warmup_frames=" << WarmupFrames
 			  << ",measured_frames=" << MeasuredFrames
 			  << ",median_ns=" << AmbientOcclusionMedian
@@ -1855,7 +1855,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			  << ",vulkan=" << vk::apiVersionMajor(DeviceProperties.apiVersion)
 			  << '.' << vk::apiVersionMinor(DeviceProperties.apiVersion)
 			  << '.' << vk::apiVersionPatch(DeviceProperties.apiVersion)
-			  << ",configuration=Win64-Debug-DurinEditor,validation=enabled"
+			  << ",configuration=" << DURIN_BUILD_CONFIGURATION
 			  << ",resolution=1920x1080,warmup_frames=" << WarmupFrames
 			  << ",measured_frames=" << MeasuredFrames
 			  << ",gbuffer_median_ns=" << ProductionGBufferMedian

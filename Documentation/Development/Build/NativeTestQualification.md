@@ -7,6 +7,8 @@ Last reviewed: 2026-09-15
 Use this document only for hardware, performance, scale, or memory qualification.
 Routine selection follows [Agent Testing Workflow](../../Agents/Testing.md);
 selectors, modes, and reports follow [Native Test Execution](NativeTests.md).
+The rendering measurement catalog, baseline matrix, and comparison protocol are
+owned by [Rendering Performance Baseline](RenderingPerformanceBaseline.md).
 
 ## GPU Qualification Environments
 

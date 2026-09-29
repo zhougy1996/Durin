@@ -139,7 +139,7 @@ durin_add_native_test(RenderContractTests
 
 durin_add_native_test(RDGQualificationTests
 	KIND qualification
-	DOMAINS renderer
+	DOMAINS render-performance renderer
 	MODULES rendercore rhi
 	SOURCES Private/RDGQualificationTests.cpp
 	LIBRARIES Core RHI RenderCore

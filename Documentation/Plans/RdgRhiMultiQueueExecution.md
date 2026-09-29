@@ -16,7 +16,7 @@ remains.
 
 | Stage | Status | Remaining acceptance |
 | --- | --- | --- |
-| 0: Contracts and ownership | Audit and API decisions recorded; performance baseline deferred | Authoritative baseline and measured regression budgets |
+| 0: Contracts and ownership | Audit/API decisions and a local diagnostic baseline recorded | Authoritative quiet-lane baseline and measured regression budgets |
 | 1: Single-queue completion and retirement | Completed | Preserve the passed contracts through later changes |
 | 2: Explicit execution plan | Completed | Preserve deterministic planning and single-queue behavior |
 | 3: Async compute and multi-queue lifetime safety | Accepted for the available macOS scope; Windows Vulkan qualification deferred by operator | Preserve opt-in behavior; complete the separate Windows driver-worker investigation when a Windows host is available |
@@ -68,6 +68,15 @@ exclusive quiet GPU lane. This waives only the baseline-before-implementation
 ordering. Performance acceptance remains open: use the recorded pre-change
 revision and identical instrumentation for both revisions, and do not freeze
 budgets from concurrent-machine timings.
+
+On 2026-09-29 the repository gained a single `render-performance` catalog and
+an Apple M4 Release/Tracy-off diagnostic run. Six of seven available targets
+passed; the directional-shadow target retained a deterministic high-motion
+output mismatch and its timings are not accepted. The normalized measurements,
+environment, report paths, and remaining gaps are in the
+[2026-09-29 receipt](../Development/Build/RenderingPerformanceBaselineReceipt20260929.md).
+This closes measurement discovery and local pipeline setup, not the quiet-lane
+baseline or numerical-budget gate.
 
 ### Next Work
 
@@ -392,11 +401,15 @@ recorded unchanged single-queue revision and the implementation revision:
    physical topology overrides. Measure elapsed graph GPU cost and actual
    overlap using supported timestamp semantics, not summed queue-local times.
 
-For the added measurement fixtures use 10 warm-up iterations followed by 100
-samples in each of three consecutive runs; preserve any longer warm-up already
-required by an existing qualification. Record median/p95, adapter/driver,
-profile, validation configuration and source revision. Also record peak
-transient/retained bytes, retirement backlog and count/duration/purpose of waits.
+Use the inventory and protocol in
+[Rendering Performance Baseline](../Development/Build/RenderingPerformanceBaseline.md).
+Frame-oriented measurement fixtures use at least 30 warm-up iterations followed
+by 120 samples and three consecutive runs; creation fixtures may use a smaller
+documented round count because cold-state reset is part of the workload. Preserve
+any longer warm-up already required by an existing qualification. Record
+median/p95, adapter/driver, profile, validation configuration and source revision.
+Also record peak transient/retained bytes, retirement backlog and
+count/duration/purpose of waits.
 Freeze numerical regression budgets from the baseline revision's results, with
 explicit justification for any noise allowance, before accepting performance.
 Keep topology, resolution and warm-up identical for later full/split and

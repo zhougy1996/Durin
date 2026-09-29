@@ -161,7 +161,7 @@ durin_add_native_test(RendererResourceReloadVulkanTests
 
 durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
-	DOMAINS static-mesh
+	DOMAINS render-performance static-mesh
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
@@ -181,7 +181,7 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 
 durin_add_native_test(DirectionalShadowBaselineVulkanTests
 	KIND qualification
-	DOMAINS renderer shadow
+	DOMAINS render-performance renderer shadow
 	MODULES asset-forge-builtins engine renderer
 	BACKENDS vulkan
 	STACKS editor renderer
@@ -206,7 +206,7 @@ durin_add_native_test(DirectionalShadowBaselineVulkanTests
 
 durin_add_native_test(HDRDisplayMappingQualificationTests
 	KIND qualification
-	DOMAINS renderer viewport
+	DOMAINS render-performance renderer viewport
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
@@ -225,7 +225,7 @@ durin_add_native_test(HDRDisplayMappingQualificationTests
 
 durin_add_native_test(GBufferQualificationTests
 	KIND qualification
-	DOMAINS renderer
+	DOMAINS render-performance renderer
 	MODULES asset-forge-builtins engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
@@ -255,7 +255,7 @@ durin_add_native_test(GBufferQualificationTests
 
 durin_add_native_test(VolumetricCloudQualificationTests
 	KIND qualification
-	DOMAINS renderer
+	DOMAINS render-performance renderer
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
@@ -523,7 +523,7 @@ endif()
 
 durin_add_native_test(MaterialCreationQualificationTests
 	KIND qualification
-	DOMAINS material renderer rhi-creation
+	DOMAINS material render-performance renderer rhi-creation
 	MODULES asset-forge-builtins engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
