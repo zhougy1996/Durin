@@ -118,17 +118,21 @@ namespace Durin::DerivedData
 				}
 				FExecutionScope Scope(Session.get());
 				FBuildCompleteParams Completion = FBuildCompleteParams::Canceled(
-					std::nullopt, EBuildStatus::None, {});
+					std::nullopt, EBuildStatus::None);
 				try
 				{
-					FBuildCancellation Token([&] { return Canceled.load() || Work->Options.Cancellation.IsCancelled(); });
+					FBuildCancellation ExternalCancellation = std::move(Work->Options.Cancellation);
+					FBuildCancellation Token([&, ExternalCancellation = std::move(ExternalCancellation)] {
+						return Canceled.load() || ExternalCancellation.IsCancelled();
+					});
+					Work->Options.Cancellation = std::move(Token);
 					Completion = ExecuteBuild(Work->Request, Work->Resources->Registry,
-						Work->Resources->Resolver, Work->Inputs, Work->Options.Policy,
-						Token, Work->Resources->Service);
+						Work->Resources->Resolver, Work->Inputs, Work->Options,
+						Work->Resources->Service);
 				}
 				catch (...)
 				{
-					Completion = FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, {});
+					Completion = FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
 				}
 				Work.reset();
 				Finish(std::move(Completion));

@@ -35,7 +35,6 @@ namespace Durin
 		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;
 		FTexture2DBuildInputIdentity InputIdentity;
-		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 		bool bSourceDecoderInvoked = false;
 		std::unique_ptr<FTexturePlatformCacheResult> PlatformCache;

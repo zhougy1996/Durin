@@ -197,7 +197,6 @@ namespace Durin
 					return Fail(FormatShaderError({.Code = EShaderError::DependencyContentConflict}));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
 				if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
-				Context.ReportMetric("Shader.Compilations", 1);
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
@@ -282,26 +281,27 @@ namespace Durin
 	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook) : State(std::make_unique<FState>())
 	{
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
-		State->Service = CreateBuild({.CompressRecords = true});
+		State->Service = CreateBuild();
 		const auto Registered = State->Service->Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
 		auto Session = State->Service->CreateSession(); require(Session); State->Session = std::move(*Session);
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
-	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options) -> FBuildCompleteParams
+	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
+		-> FBuildCompleteParams
 	{
 		std::shared_ptr<FBuildSession> Persistent;
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed || !State->Session)
-				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None, {});
+				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None);
 			Persistent = State->Session;
 		}
 		std::optional<FBuildCompleteParams> Completion;
 		auto Admitted = Persistent->Build(std::move(Request.Definition), [&](auto Result) {
 			Completion = std::move(Result);
 		}, std::move(Request.Inputs), std::move(Options));
-		if (!Admitted || !Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, {});
+		if (!Admitted || !Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
 		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void

@@ -1,5 +1,6 @@
 #pragma once
 #include "DerivedDataBuildFunction.h"
+#include "DerivedDataCache/DerivedDataCache.h"
 
 namespace Durin::DerivedData
 {
@@ -8,9 +9,7 @@ namespace Durin::DerivedData
 	enum class EStatus : uint8 { Ok, Error, Canceled };
 	enum class EBuildStatus : uint32
 	{
-		None = 0, CacheKey = 1 << 0, CacheQuery = 1 << 1,
-		CacheQueryHit = 1 << 2, BuildLocal = 1 << 3,
-		CacheStore = 1 << 4,
+		None = 0, CacheQueryHit = 1 << 0, BuildLocal = 1 << 1,
 	};
 	constexpr auto operator|(EBuildStatus A, EBuildStatus B) -> EBuildStatus
 	{ return EBuildStatus(uint32(A) | uint32(B)); }
@@ -19,40 +18,23 @@ namespace Durin::DerivedData
 	constexpr auto HasBuildStatus(EBuildStatus Value, EBuildStatus Flag) -> bool
 	{ return (uint32(Value) & uint32(Flag)) != 0; }
 
-	struct FBuildMetric { std::string Name; uint64 Value = 0; };
-	struct FBuildDiagnostic
-	{
-		EBuildOperation Operation = EBuildOperation::Admission;
-		FCacheError Error;
-	};
-	struct FBuildExecutionReport
-	{
-		static constexpr uint32 MaximumMetrics = 256;
-		static constexpr uint32 MaximumMetricNameBytes = 128;
-		std::vector<FBuildMetric> Metrics;
-		std::vector<FBuildDiagnostic> Diagnostics;
-		uint64 PersistenceNanoseconds = 0;
-	};
-
 	class FBuildCompleteParams
 	{
 	public:
-		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key, EBuildStatus BuildStatus,
-			FBuildExecutionReport Report) -> FBuildCompleteParams;
+		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key,
+			EBuildStatus BuildStatus) -> FBuildCompleteParams;
 		DERIVEDDATACACHE_API static auto Canceled(std::optional<FCacheKey> Key,
-			EBuildStatus BuildStatus, FBuildExecutionReport Report) -> FBuildCompleteParams;
+			EBuildStatus BuildStatus) -> FBuildCompleteParams;
 		auto GetStatus() const -> EStatus { return Status; }
 		auto GetBuildStatus() const -> EBuildStatus { return BuildStatus; }
 		auto GetCacheKey() const -> const FCacheKey* { return CacheKey ? &*CacheKey : nullptr; }
 		auto GetOutput() const -> const FBuildOutput* { return Output ? &*Output : nullptr; }
-		auto GetReport() const -> const FBuildExecutionReport& { return Report; }
 	private:
 		friend struct Private::FBuildCompletionAccess;
 		EStatus Status = EStatus::Canceled;
 		EBuildStatus BuildStatus = EBuildStatus::None;
 		std::optional<FCacheKey> CacheKey;
 		std::optional<FBuildOutput> Output;
-		FBuildExecutionReport Report;
 	};
 
 	struct FBuildPolicy
@@ -63,20 +45,8 @@ namespace Durin::DerivedData
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 	};
-	struct FBuildCacheOperations
-	{
-		std::function<FCacheGetResult(const FCacheGetRequest&)> Get;
-		std::function<FCachePutResult(const FCachePutRequest&)> Put;
-		std::function<std::expected<FCacheRecord, FCacheError>(const FCacheKey&, const FBuildOutput&, FBuildOutputLimits)> MakeRecord;
-		std::function<std::expected<FSharedByteBuffer, FCacheError>(const FCacheRecord&, uint64)> Encode;
-		std::function<std::expected<FSharedByteBuffer, FCacheError>(const FSharedByteBuffer&, uint64)> Compress;
-	};
-	using FBuildDiagnosticSink = std::function<void(const FBuildAction&, const FBuildDiagnostic&)>;
 	struct FBuildServiceOptions
 	{
-		FBuildCacheOperations Cache;
-		FBuildDiagnosticSink Diagnostics;
-		FBuildMetricSink Metrics;
-		bool CompressRecords = false;
+		std::shared_ptr<ICache> Cache;
 	};
 }

@@ -1,4 +1,5 @@
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
+#include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsMeshInputTask.h"
 #include "Physics/PhysicsCookHelper.h"
@@ -966,7 +967,7 @@ TEST(FStaticMeshSourceResidencyTests, MalformedCanonicalBytesNeverPublishPartial
 	ASSERT_TRUE(Source.AcquireGeometry().value()) << Error;
 }
 
-TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissPreservesReadDiagnostic)
+TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissReturnsGenericFailure)
 {
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
@@ -984,7 +985,7 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissPreserv
 	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, GetStaticMeshKey(*Fixture.Mesh))));
 	const auto& FailedRead = (Product = BuildRenderForTest(Request, {}, &RenderCacheLog));
 	EXPECT_FALSE(FailedRead);
-	EXPECT_EQ(FailedRead.error().GetStage(), EStaticMeshBuildStage::Source);
+	EXPECT_EQ(FailedRead.error().GetStage(), EStaticMeshBuildStage::Render);
 	EXPECT_FALSE(FailedRead.error().ToString().empty());
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
 	EXPECT_FALSE(Request.Source.IsGeometryResident());
@@ -2470,11 +2471,11 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
 		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
-	ASSERT_TRUE(DerivedData::GetCache().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
+	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog))) << Error;
 	ASSERT_EQ(RenderCacheLog.size(), 1u);
 	const auto RenderRejection = RenderCacheLog.front();
-	EXPECT_NE(RenderRejection.Message.find("cache decode"), std::string::npos);
+	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
 	EXPECT_NE(RenderRejection.Message.find("record"), std::string::npos);
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	EXPECT_TRUE(RenderCacheLog.empty());
@@ -2488,7 +2489,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	const auto Path = Fixture.CacheRoot / "StaticMeshCollision/Objects"
 		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
-	ASSERT_TRUE(DerivedData::GetCache().Put({*Key.AsCacheKey(), Invalid, MaximumPhysicsCollisionPayloadBytes}));
+	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*Key.AsCacheKey(), Invalid, MaximumPhysicsCollisionPayloadBytes}));
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -2496,9 +2497,9 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_EQ(CollisionLog.size(), 1u);
 	const auto CollisionRejection = CollisionLog.front();
 	Collision = {};
-	EXPECT_NE(CollisionRejection.Message.find("cache decode"), std::string::npos);
+	EXPECT_NE(CollisionRejection.Message.find("cache read"), std::string::npos);
 	EXPECT_NE(CollisionRejection.Message.find("record"), std::string::npos);
-	EXPECT_NE(RenderRejection.Message.find("cache decode"), std::string::npos);
+	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 

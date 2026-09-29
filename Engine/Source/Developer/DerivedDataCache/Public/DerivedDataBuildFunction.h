@@ -8,8 +8,6 @@
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildExecutionAccess; }
-	enum class EBuildOperation : uint8 { Admission, Describe, Action, CacheQuery, Decode, Resolve, Build, Record, Encode, Compress, CacheStore, Dispatch };
-
 	class FBuildCancellation
 	{
 	public:
@@ -85,7 +83,6 @@ namespace Durin::DerivedData
 		FBuildFunctionDescriptor Descriptor;
 	};
 
-	using FBuildMetricSink = std::function<void(std::string_view, uint64)>;
 	class FBuildContext
 	{
 	public:
@@ -100,19 +97,19 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto AddMessage(std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto AddWarning(std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto AddError(std::string Text) -> bool;
+		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
+			std::string Text) -> bool;
 		auto GetMaximumWorkingSetBytes() const -> uint64 { return MaximumWorkingSetBytes; }
 		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
-		auto ReportMetric(std::string_view Name, uint64 Value) const noexcept -> void { try { if (Metrics) Metrics(Name, Value); } catch (...) {} }
 	private:
 		friend struct Private::FBuildExecutionAccess;
 		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs, FBuildOutputBuilder& Output,
-			FBuildCancellation Cancel, FBuildMetricSink Metrics, uint64 MaximumWorkingSetBytes)
-			: Action(Action), Inputs(Inputs), Output(Output), Cancel(std::move(Cancel)), Metrics(std::move(Metrics)), MaximumWorkingSetBytes(MaximumWorkingSetBytes) {}
+			FBuildCancellation Cancel, uint64 MaximumWorkingSetBytes)
+			: Action(Action), Inputs(Inputs), Output(Output), Cancel(std::move(Cancel)), MaximumWorkingSetBytes(MaximumWorkingSetBytes) {}
 		const FBuildAction& Action;
 		std::span<const FBuildInput> Inputs;
 		FBuildOutputBuilder& Output;
 		FBuildCancellation Cancel;
-		FBuildMetricSink Metrics;
 		uint64 MaximumWorkingSetBytes;
 	};
 

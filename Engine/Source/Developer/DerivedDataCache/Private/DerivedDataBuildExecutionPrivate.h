@@ -9,7 +9,7 @@ namespace Durin::DerivedData::Private
 			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
 		static auto MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-			FBuildOutputBuilder& Output, FBuildCancellation Cancel, FBuildMetricSink Metrics,
+			FBuildOutputBuilder& Output, FBuildCancellation Cancel,
 			uint64 MaximumWorkingSetBytes) -> FBuildContext;
 		static auto MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
@@ -18,7 +18,7 @@ namespace Durin::DerivedData::Private
 	struct FBuildCompletionAccess
 	{
 		static auto Ok(FBuildOutput Output, FCacheKey Key,
-			EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams;
+			EBuildStatus Status) -> FBuildCompleteParams;
 		static auto Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams;
 	};
 
@@ -52,7 +52,7 @@ namespace Durin::DerivedData::Private
 	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
 		const FBuildRegistrySnapshot& Registry,
 		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildPolicy& Policy,
-		const FBuildCancellation& Cancel, const FBuildServiceOptions& Service)
+		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
+		const FBuildServiceOptions& Service)
 		-> FBuildCompleteParams;
 }

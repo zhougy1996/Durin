@@ -15,6 +15,13 @@ namespace Durin::DerivedData
 			return Message.Severity <= EBuildMessageSeverity::Error && Message.Text.size() <= 4096
 				&& Message.Text.find('\0') == std::string::npos;
 		}
+		auto IsValidLog(const FBuildOutputLog& Log) -> bool
+		{
+			return Log.Severity <= EBuildLogSeverity::Error && !Log.Category.empty()
+				&& Log.Category.size() <= 128 && Log.Text.size() <= 4096
+				&& Log.Category.find('\0') == std::string::npos
+				&& Log.Text.find('\0') == std::string::npos;
+		}
 	}
 
 	struct FBuildOutput::FState
@@ -24,6 +31,7 @@ namespace Durin::DerivedData
 		std::vector<FValueWithId> Values;
 		std::vector<FBuildOutputMeta> Metadata;
 		std::vector<FBuildOutputMessage> Messages;
+		std::vector<FBuildOutputLog> Logs;
 	};
 	struct FBuildOutputBuilder::FState
 	{
@@ -43,7 +51,8 @@ namespace Durin::DerivedData
 		if (!IsIdentifier(Data.Schema) || !Data.SchemaVersion) return std::unexpected("Build output schema is invalid.");
 		if (Data.Values.size() > std::min<uint32>(Limits.MaximumValues, 4096)
 			|| Data.Metadata.size() > std::min<uint32>(Limits.MaximumMetadata, 4096)
-			|| Data.Messages.size() > std::min<uint32>(Limits.MaximumMessages, 128))
+			|| Data.Messages.size() > std::min<uint32>(Limits.MaximumMessages, 128)
+			|| Data.Logs.size() > std::min<uint32>(Limits.MaximumLogs, 128))
 			return std::unexpected("Build output table limit exceeded.");
 		uint64 Total = 0, MetadataBytes = 0;
 		auto Add = [&](uint64 Size) { if (Size > Limits.MaximumTotalBytes - Total) return false; Total += Size; return true; };
@@ -73,6 +82,12 @@ namespace Durin::DerivedData
 		{
 			if (!IsValidMessage(Message) || !Add(Message.Text.size())) return std::unexpected("Build output message is invalid.");
 			Error |= Message.Severity == EBuildMessageSeverity::Error;
+		}
+		for (const auto& Log : Data.Logs)
+		{
+			if (!IsValidLog(Log) || !Add(Log.Category.size()) || !Add(Log.Text.size()))
+				return std::unexpected("Build output log is invalid.");
+			Error |= Log.Severity == EBuildLogSeverity::Error;
 		}
 		if (Error && !Data.Values.empty()) return std::unexpected("Build output with an error cannot contain values.");
 		return {};
@@ -106,6 +121,16 @@ namespace Durin::DerivedData
 		{ State->Error = "Build output message limit exceeded."; return false; }
 		State->Data.Messages.push_back(std::move(Message)); return true;
 	}
+	auto FBuildOutputBuilder::AddLog(std::string Category, EBuildLogSeverity Severity,
+		std::string Text) -> bool
+	{
+		if (!State || State->Frozen) return false;
+		FBuildOutputLog Log{std::move(Category), Severity, std::move(Text)};
+		if (State->Data.Logs.size() >= std::min<uint32>(State->Limits.MaximumLogs, 128)
+			|| !IsValidLog(Log))
+		{ State->Error = "Build output log limit exceeded."; return false; }
+		State->Data.Logs.push_back(std::move(Log)); return true;
+	}
 	auto FBuildOutputBuilder::Build() && -> std::expected<FBuildOutput, std::string>
 	{
 		if (!State || State->Frozen) return std::unexpected("Build output builder is no longer mutable.");
@@ -121,18 +146,28 @@ namespace Durin::DerivedData
 		}
 		if (std::ranges::any_of(State->Data.Messages, [](const auto& M) { return M.Severity == EBuildMessageSeverity::Error; }))
 			State->Data.Values.clear();
+		if (std::ranges::any_of(State->Data.Logs, [](const auto& L) { return L.Severity == EBuildLogSeverity::Error; }))
+			State->Data.Values.clear();
 		std::ranges::sort(State->Data.Values, {}, &FValueWithId::Id);
 		std::ranges::sort(State->Data.Metadata, {}, &FBuildOutputMeta::Id);
 		if (auto Valid = Validate(State->Data, State->Limits); !Valid) return std::unexpected(std::move(Valid.error()));
 		FBuildOutput Result; Result.State = std::make_shared<const FBuildOutput::FState>(std::move(State->Data)); return Result;
 	}
-	auto FBuildOutput::HasError() const -> bool { return State && std::ranges::any_of(State->Messages, [](const auto& M) { return M.Severity == EBuildMessageSeverity::Error; }); }
+	auto FBuildOutput::HasError() const -> bool
+	{
+		return State && (std::ranges::any_of(State->Messages,
+			[](const auto& M) { return M.Severity == EBuildMessageSeverity::Error; })
+			|| std::ranges::any_of(State->Logs,
+				[](const auto& L) { return L.Severity == EBuildLogSeverity::Error; }));
+	}
+	auto FBuildOutput::HasLogs() const -> bool { return State && !State->Logs.empty(); }
 	auto FBuildOutput::CheckLimits(FBuildOutputLimits Limits) const -> std::expected<void, std::string> { return State ? Validate(*State, Limits) : std::unexpected("Build output is empty."); }
 	auto FBuildOutput::GetSchema() const -> std::string_view { return State ? State->Schema : std::string_view{}; }
 	auto FBuildOutput::GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }
 	auto FBuildOutput::GetValues() const -> std::span<const FValueWithId> { return State ? std::span(State->Values) : std::span<const FValueWithId>{}; }
 	auto FBuildOutput::GetMetadata() const -> std::span<const FBuildOutputMeta> { return State ? std::span(State->Metadata) : std::span<const FBuildOutputMeta>{}; }
 	auto FBuildOutput::GetMessages() const -> std::span<const FBuildOutputMessage> { return State ? std::span(State->Messages) : std::span<const FBuildOutputMessage>{}; }
+	auto FBuildOutput::GetLogs() const -> std::span<const FBuildOutputLog> { return State ? std::span(State->Logs) : std::span<const FBuildOutputLog>{}; }
 	auto FBuildOutput::FindValue(FValueId Id) const -> const FValue* { const auto Values = GetValues(); const auto It = std::ranges::lower_bound(Values, Id, {}, &FValueWithId::Id); return It != Values.end() && It->Id == Id ? &It->Value : nullptr; }
 	auto FBuildOutput::FindMeta(FValueId Id) const -> FCbObjectView { const auto Meta = GetMetadata(); const auto It = std::ranges::lower_bound(Meta, Id, {}, &FBuildOutputMeta::Id); return It != Meta.end() && It->Id == Id ? It->Object.GetView() : FCbObjectView{}; }
 
@@ -140,6 +175,8 @@ namespace Durin::DerivedData
 	auto FCacheRecord::FromOutput(const FCacheKey& Key, const FBuildOutput& Output, FBuildOutputLimits Limits) -> std::expected<FCacheRecord, FCacheError>
 	{
 		if (!Key.IsValid() || !Output.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record requires a key and output."});
+		if (Output.HasLogs()) return std::unexpected(FCacheError{ECacheError::InvalidRequest,
+			"Build outputs with transient logs cannot be cached."});
 		if (auto Valid = Output.CheckLimits(Limits); !Valid) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, std::move(Valid.error())});
 		FCacheRecord Result; Result.State = std::make_shared<FState>(Key, Output); return Result;
 	}

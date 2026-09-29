@@ -1,6 +1,7 @@
 #pragma once
 
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataCache/DerivedDataCacheTypes.h"
+#include "Serialization/SharedByteBuffer.h"
 
 #include <array>
 

@@ -297,37 +297,19 @@ namespace Durin
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			Result.Metrics.DecodedBytes = 0;
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
-			FTexture2DBuildMetrics BuildMetrics;
-			bool bEnteredPersisting = false;
 			const FTexture2DBuildExecutionControl Control{
-				.ShouldCancel = Cancel,
-				.OnPersisting = [&] {
-					bEnteredPersisting = true;
-					SetPhase(RequestState, ETexture2DCompilationPhase::Persisting);
-				},
-				.Metrics = &BuildMetrics};
+				.ShouldCancel = Cancel};
 			FTexture2DBuildProduct Product;
 			const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
 				Result.BuildCause = BuildResult.error();
 				Result.Error = TexturePrivate::MakeCompilationBuildFailure(BuildResult.error());
-				Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
-				Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
-				Result.Metrics.PersistenceNanoseconds = BuildMetrics.PersistenceNanoseconds;
-				Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
 				Result.Phase = BuildResult.error().Code == ETexture2DBuildError::Cancelled
 					? ETexture2DCompilationPhase::Cancelled
 					: ETexture2DCompilationPhase::Failed;
-				if (Result.Phase == ETexture2DCompilationPhase::Failed)
-					Result.FailurePhase = bEnteredPersisting
-						? ETexture2DCompilationPhase::Persisting : ETexture2DCompilationPhase::Building;
 				return Result;
 			}
-			Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
-			Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
-			Result.Metrics.PersistenceNanoseconds = BuildMetrics.PersistenceNanoseconds;
-			Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
 			Result.Origin = Product.Origin;
@@ -363,7 +345,6 @@ namespace Durin
 				RequestState->Diagnostic.BuildCause = Result.BuildCause;
 				RequestState->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				RequestState->Diagnostic.Metrics = Result.Metrics;
-				RequestState->Diagnostic.FailurePhase = Result.FailurePhase;
 				RequestState->Diagnostic.Origin = Result.Origin == ETexture2DBuildProductOrigin::CacheHit
 					? ETexture2DCompilationOrigin::CacheHit
 					: ETexture2DCompilationOrigin::Rebuilt;
@@ -371,7 +352,6 @@ namespace Durin
 				RequestState->Diagnostic.QueuedNanoseconds = RequestState->WorkerStartNanoseconds != 0
 					? RequestState->WorkerStartNanoseconds - RequestState->EnqueueNanoseconds
 					: NowNanoseconds() - RequestState->EnqueueNanoseconds;
-				RequestState->Diagnostic.WorkerNanoseconds = Result.Metrics.WorkerNanoseconds;
 			}
 			NotifyPhaseHook(RequestState->Diagnostic.RequestId, Result.Phase);
 		}
@@ -584,7 +564,7 @@ namespace Durin
 			&& Result.Phase != ETexture2DCompilationPhase::Ready
 			&& Result.Phase != ETexture2DCompilationPhase::Failed
 			&& Result.Phase != ETexture2DCompilationPhase::Cancelled)
-			Result.WorkerNanoseconds = NowNanoseconds() - RequestState->WorkerStartNanoseconds;
+			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - RequestState->WorkerStartNanoseconds;
 		return Result;
 	}
 

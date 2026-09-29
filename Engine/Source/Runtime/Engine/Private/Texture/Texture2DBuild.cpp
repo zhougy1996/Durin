@@ -147,33 +147,24 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
-		FTexture2DBuildMetrics Metrics;
-		auto Result = AssetBuildPrivate::Build(std::move(*Definition),
+		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
-		for (const auto& Metric : Result.GetReport().Metrics)
-		{
-			if (Metric.Name == "Texture2D.MipGenerationNanoseconds") Metrics.MipGenerationNanoseconds = Metric.Value;
-			else if (Metric.Name == "Texture2D.CompressionNanoseconds") Metrics.CompressionNanoseconds = Metric.Value;
-			else if (Metric.Name == "Texture2D.PeakIntermediateBytes") Metrics.PeakIntermediateBytes = Metric.Value;
-		}
-		Metrics.PersistenceNanoseconds = Result.GetReport().PersistenceNanoseconds;
-		if (ExecutionControl && ExecutionControl->OnPersisting
-			&& DerivedData::HasBuildStatus(Result.GetBuildStatus(), DerivedData::EBuildStatus::CacheStore))
-			ExecutionControl->OnPersisting();
-		if (ExecutionControl && ExecutionControl->Metrics) *ExecutionControl->Metrics = Metrics;
+		if (!Built) return std::unexpected(FTexture2DBuildError{
+			.Code = ETexture2DBuildError::ModuleUnavailable});
+		auto& Result = *Built;
 		if (Result.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		if (Result.GetStatus() == DerivedData::EStatus::Error)
 		{
 			FTexture2DBuildError Error{.Code = Result.GetOutput() ? ETexture2DBuildError::InvalidBuilderProduct : ETexture2DBuildError::ModuleUnavailable};
 			if (const auto* Output = Result.GetOutput(); Output && !Output->GetMessages().empty()) Error.Description = Output->GetMessages().back().Text;
-			else if (!Result.GetReport().Diagnostics.empty()) Error.Description = Result.GetReport().Diagnostics.back().Error.Diagnostic;
+			else if (const auto* Output = Result.GetOutput(); Output && !Output->GetLogs().empty()) Error.Description = Output->GetLogs().back().Text;
 			return std::unexpected(std::move(Error));
 		}
 		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct, .Description = std::move(Product.error())});
 		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Result.GetCacheKey()),
-			.BuilderVersion = OutIdentity.BuilderVersion, .Metrics = Metrics,
+			.BuilderVersion = OutIdentity.BuilderVersion,
 			.Origin = DerivedData::HasBuildStatus(Result.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
 				? ETexture2DBuildProductOrigin::CacheHit : ETexture2DBuildProductOrigin::Rebuilt};
 		return {};

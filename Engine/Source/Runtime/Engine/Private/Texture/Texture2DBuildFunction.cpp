@@ -121,10 +121,8 @@ namespace Durin::TexturePrivate
 				FTexture2DBuildControl Control{.ShouldCancel = [&] { return Context.IsCancelled(); }};
 				auto Built = Module.BuildTexture2D(*Input, &Control);
 				if (!Built) return Fail(FormatTexture2DBuildError(Built.error()));
-				Context.ReportMetric("Texture2D.MipGenerationNanoseconds", Built->Metrics.MipGenerationNanoseconds);
-				Context.ReportMetric("Texture2D.CompressionNanoseconds", Built->Metrics.CompressionNanoseconds);
-				Context.ReportMetric("Texture2D.PeakIntermediateBytes", Built->Metrics.PeakIntermediateBytes);
-				auto Output = MakeTexture2DSharedOutput(Built->PlatformData, Input->TargetPlatform, Input->TargetProfile);
+				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
+					Input->TargetPlatform, Input->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);

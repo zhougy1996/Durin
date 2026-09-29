@@ -38,6 +38,14 @@ TEST(FDerivedDataBuildOutputTests, ErrorOutputDiscardsValues)
 	auto Built = Output(true); EXPECT_TRUE(Built.HasError()); EXPECT_TRUE(Built.GetValues().empty()); ASSERT_EQ(Built.GetMessages().back().Severity, EBuildMessageSeverity::Error);
 }
 
+TEST(FDerivedDataBuildOutputTests, TransientLogsAreReturnedButNotCacheable)
+{
+	FBuildOutputBuilder Builder("Fixture.Output", 1); Builder.AddValue(FValueId::FromName("Data"), Bytes("value"));
+	EXPECT_TRUE(Builder.AddLog("Fixture", EBuildLogSeverity::Warning, "transient"));
+	auto Built = std::move(Builder).Build(); ASSERT_TRUE(Built); ASSERT_TRUE(Built->HasLogs()); EXPECT_EQ(Built->GetLogs().size(), 1u);
+	auto Record = FCacheRecord::FromOutput(Key(), *Built); ASSERT_FALSE(Record); EXPECT_EQ(Record.error().Code, ECacheError::InvalidRequest);
+}
+
 TEST(FDerivedDataBuildOutputTests, RawAndCompressedRecordsRoundTripWithRetainedViews)
 {
 	auto Built = Output(); auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record); auto Raw = Record->Encode(); ASSERT_TRUE(Raw); auto Decoded = FCacheRecord::Decode(Key(), *Raw); ASSERT_TRUE(Decoded); auto Loaded = Decoded->ToOutput(Key()); ASSERT_TRUE(Loaded); EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(*Raw));

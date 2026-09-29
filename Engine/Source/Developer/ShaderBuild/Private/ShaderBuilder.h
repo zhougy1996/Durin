@@ -130,8 +130,6 @@ namespace Durin
 		std::atomic_uint64_t ManifestHits = 0;
 		std::atomic_uint64_t MemoryHits = 0;
 		std::atomic_uint64_t DdcHits = 0;
-		std::atomic_uint64_t DdcCorruptMisses = 0;
-		std::atomic_uint64_t DdcStoreFailures = 0;
 		std::atomic_uint64_t Compilations = 0;
 		std::atomic_uint64_t SourceTreeFingerprintHits = 0;
 	};

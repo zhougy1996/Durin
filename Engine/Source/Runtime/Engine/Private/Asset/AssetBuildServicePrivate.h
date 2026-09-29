@@ -8,6 +8,7 @@ namespace Durin::AssetBuildPrivate
 	// families share the persistent service session and supply request-owned input.
 	ENGINE_API auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildRequestOptions Options = {}) -> DerivedData::FBuildCompleteParams;
+		DerivedData::FBuildRequestOptions Options = {})
+		-> std::optional<DerivedData::FBuildCompleteParams>;
 }
 #endif

@@ -276,8 +276,8 @@ Delete `FBuildRunObserver` and every request-level `OnAction`, `OnCacheHit`,
   interface.
 - Cache diagnostics have one service-configured reporting sink. Installing a
   metrics consumer cannot suppress default diagnostic delivery.
-- Producer scalar metrics remain available through `FBuildContext`, backed by a
-  service-level metrics/trace sink rather than a request callback.
+- Producer-specific metrics belong to the producer output or its owning subsystem,
+  not to `FBuildContext` or request callbacks.
 - Backend and codec fault injection moves to service/executor construction or
   dedicated test fixtures, not ordinary request options.
 
@@ -376,8 +376,9 @@ resolver closure.
 - [x] Replace `OnAction` and `OnCacheHit` captures with completion cache key and
   build-status flags.
 - [x] Remove phase-order classification and centralize texture failure mapping.
-- [x] Route metrics and cache diagnostics through service-level sinks; remove all
-  texture request observers and observer-dependent tests.
+- [x] Keep Texture recipe metrics in producer-local qualification paths and route
+  cache diagnostics through owning-layer logs; remove all request observers and
+  observer-dependent tests.
 - [x] Prove warm hits perform no source-payload resolution and cold builds retain
   immutable captured input after live-object mutation.
 

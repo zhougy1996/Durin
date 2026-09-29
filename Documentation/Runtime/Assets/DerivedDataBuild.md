@@ -10,10 +10,12 @@ Last reviewed: 2026-09-29
 
 `DerivedDataCache` owns the local `IBuild` service, function registration,
 immutable definitions/actions/inputs/outputs, persistent sessions, execution,
-and backend-neutral byte storage. It depends only on Core. The service adds no
-worker pool, remote execution, transitive graph, generic single-flight, or
-publication policy. A session dispatches through its caller-supplied adapter or
-completes inline.
+and the backend-neutral structured-record cache. The cache boundary accepts and
+returns `FCacheRecord`; serialization, compression, integrity validation, and
+private byte storage remain below it. The module depends only on Core. The
+service adds no worker pool, remote execution, transitive graph, generic
+single-flight, or publication policy. A session dispatches through its
+caller-supplied adapter or completes inline.
 
 Engine owns the registered Texture2D, TextureCube, VolumeTexture, StaticMesh
 render, and physics collision functions. ShaderBuild owns its shader function.
@@ -75,11 +77,13 @@ own `FBuildInputs` and reuse persistent sessions.
 Before producer invocation, DDC sorts input/value tables, rejects invalid or
 duplicate identifiers, verifies exact identities, and enforces metadata, value,
 byte, and working-set bounds. `FBuildContext` borrows the action and materialized
-inputs, exposes cooperative cancellation and the working-set limit, and records
-scalar metrics. `IBuildFunction::Build` returns `void`; it reads only through
+inputs and exposes cooperative cancellation and the working-set limit.
+`IBuildFunction::Build` returns `void`; it reads only through
 `FBuildContext` and publishes values, Compact Binary metadata, notes, warnings,
-and deterministic errors into the context-owned output builder. DDC freezes the
-output synchronously after return. Family semantic validation runs while
+deterministic errors, and transient logs into the context-owned output builder.
+Deterministic messages may be cached; transient logs are returned only with the
+cold output and prevent cache storage. DDC freezes the output synchronously after
+return. Family semantic validation runs while
 producing fresh output and again during typed assembly; DDC owns generic schema,
 hash, ordering, and byte-bound validation.
 
@@ -109,20 +113,23 @@ trip. Typed assembly and publication remain owner-controlled.
 `FBuildPolicy` controls cache query, local build, store-on-build, force build,
 input/output/persistence limits, encoded-byte limits, and maximum working set.
 Successful completion always returns its validated output. Compression and
-cache-operation overrides are service configuration, not request policy.
+encoding are cache implementation details, not build service or request policy.
+Tests may replace the complete structured cache interface for deterministic
+miss, hit, corruption, and store behavior.
 
-Cache lookup returns `expected<optional<FSharedByteBuffer>, FCacheError>`.
+Cache lookup returns `expected<optional<FCacheRecord>, FCacheError>`.
 An empty optional is a normal miss and emits no diagnostic. Backend failure is a
 real error and is never labeled corruption. When policy allows local build, a
 miss, rejected record, or cache infrastructure failure falls through once to
-resolution/build. A corrupt decoded or family-invalid cached output is recorded
-in the execution report before rebuilding.
+resolution/build. The cache validates and decodes persisted bytes before
+returning a record. Cache-query failures are logged by DDC before the build falls
+back; their internal reason is not returned as completion data.
 
-Persistence builds a keyed record, encodes it, optionally compresses it according
-to service configuration, and stores it. Record, encode, compression, or store
-failure cannot discard an already validated local output; the completion remains
-successful and the bounded failure is retained in its report. Fresh invalid
-producer output never reaches persistence.
+Persistence converts the validated build output into a keyed record and submits
+that record to the cache. The cache encodes, compresses, and stores it. Record or
+cache-store failure cannot discard an already validated local output; completion
+remains successful and DDC logs the store failure. Fresh invalid producer output
+and outputs containing transient logs never reach persistence.
 
 Record envelope schema 2 is the only reader and writer. It persists the action
 key, output type/schema, ordered 12-byte value and metadata IDs, value size/hash,
@@ -148,27 +155,23 @@ Accepted work completes exactly once with `FBuildCompleteParams`:
 - `EStatus::Canceled` owns no output.
 
 There is no public typed producer failure and no validation receipt. Families
-decide only from status, output presence, bounded output messages, and execution
-diagnostics. Message text is display data, never control-flow identity. Typed
+decide only from status, output presence, and bounded deterministic output
+messages. Message and log text is display data, never control-flow identity. Typed
 assemblers reparse and revalidate immutable output at their trust boundary.
 
-The completion independently exposes its cache key, `EBuildStatus` facts, and
-`FBuildExecutionReport`. Status flags record key construction, cache query/hit,
-local build, and store attempt. The report carries bounded cache diagnostics,
-producer metrics, and persistence timing. Families obtain all build facts from
-completion; there are no request observers and no phase-order inference.
+The completion independently exposes its cache key and two `EBuildStatus` facts:
+cache hit and local build. It contains no query/store bookkeeping, execution
+report, cache error, metric, timing, or internal phase identifier.
 
-Deterministic producer errors are bounded output messages. Cache/backend,
-decode, resolve, and executor failures are bounded `FBuildDiagnostic` entries;
-their `Operation` is diagnostic context and may select a family presentation
-stage, but message text never selects behavior. Descriptions are capped at 4096
-bytes. Cancellation is a distinct terminal status.
+Deterministic producer errors are bounded output messages. Non-deterministic
+producer logs have their own category, severity, and text and make the output
+non-cacheable. Cache and input infrastructure failures are logged by their owning
+layer and are not translated into request-level phase or cause objects.
+Cancellation is a distinct terminal status.
 
 Admission rejection uses `FBuildAdmissionError` and invokes no completion.
 Closed service/session, capacity, missing function, invalid request, dispatch
-rejection, and internal admission failure are distinct reasons. Service-level
-diagnostic and metric sinks are best-effort/noexcept observations; exceptions
-from them do not alter completion or accounting.
+rejection, and internal admission failure are distinct reasons.
 
 ## Persistent sessions and lifecycle
 
@@ -197,7 +200,8 @@ dispatch. There is no second public executor or compatibility submission API.
 
 Texture2D, TextureCube, and VolumeTexture use one Engine session for import,
 detached build, manager work, PostLoad, and Cook. Completion supplies the cache
-key and hit fact. Recipe timing metrics are collected in the report. Their
+key and hit fact. Recipe timing stays inside producer-local qualification paths;
+it is not part of DDC output or Engine request diagnostics. Their
 version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
 

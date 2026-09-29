@@ -1,7 +1,8 @@
 #pragma once
 
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataCache/DerivedDataCacheTypes.h"
 
+#include <expected>
 #include <span>
 #include <string>
 #include <variant>

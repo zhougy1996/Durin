@@ -64,15 +64,18 @@ namespace Durin
 		const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, Control.MaximumWorkingSetBytes / 16);
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
-		auto Completion = AssetBuildPrivate::Build(std::move(*Definition),
+		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
 			PhysicsPrivate::MakeCollisionInputResolver(Input), std::move(Options));
+		if (!Built) return std::unexpected(FPhysicsCookFailure{
+			"Physics build service is unavailable.", EPhysicsCookStage::Cook});
+		auto& Completion = *Built;
 		if (Cancel() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FPhysicsCookFailure::Cancelled());
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
 			std::string Description = "Physics derived-data build failed.";
 			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
+			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
 			return std::unexpected(FPhysicsCookFailure{std::move(Description), EPhysicsCookStage::Cook});
 		}
 		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion.GetOutput(), Input.GetMode(), Input.GetPolicy(), Cancel);

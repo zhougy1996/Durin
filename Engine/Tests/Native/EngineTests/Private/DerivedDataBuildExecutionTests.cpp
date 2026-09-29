@@ -15,20 +15,39 @@ namespace
 	};
 	struct FFunction final : IBuildFunction
 	{
-		mutable uint32 Builds = 0; bool Fail = false, Throw = false;
+		mutable uint32 Builds = 0; bool Fail = false, Throw = false, Log = false;
 		auto GetName() const -> std::string_view override { return "Execution.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& C) const -> void override { C.SetConstantsSchema(1); C.SetOutput("Fixture.Output", 1); C.SetCacheBucket(FCacheBucket::FromString("Execution")); }
-		auto Build(FBuildContext& C) const -> void override { ++Builds; C.ReportMetric("Fixture.Builds", Builds); if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); }
+		auto Build(FBuildContext& C) const -> void override { ++Builds; if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); if (Log) C.AddLog("Fixture", EBuildLogSeverity::Warning, "transient warning"); }
+	};
+	struct FMemoryCache final : ICache
+	{
+		mutable uint32 Gets = 0, Puts = 0;
+		mutable bool Corrupt = false;
+		mutable std::optional<FCacheRecord> Stored;
+		auto Get(const FCacheGetRequest&) const -> FCacheGetResult override
+		{
+			++Gets;
+			if (Corrupt)
+			{
+				Corrupt = false;
+				return std::unexpected(FCacheError{ECacheError::Corrupt, "fixture corruption"});
+			}
+			return Stored;
+		}
+		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+		{
+			++Puts; Stored = Request.Record; return {};
+		}
 	};
 	struct FHarness
 	{
-		std::shared_ptr<FResolver> Resolver = std::make_shared<FResolver>(); std::shared_ptr<FFunction> Function = std::make_shared<FFunction>(); FSharedByteBuffer Stored; uint32 Gets = 0, Puts = 0;
+		std::shared_ptr<FResolver> Resolver = std::make_shared<FResolver>(); std::shared_ptr<FFunction> Function = std::make_shared<FFunction>(); std::shared_ptr<FMemoryCache> Cache = std::make_shared<FMemoryCache>();
 		std::shared_ptr<IBuild> Service; std::shared_ptr<FBuildSession> Session;
 		FHarness()
 		{
-			FBuildServiceOptions O; O.Cache.Get = [&](const FCacheGetRequest&) -> FCacheGetResult { ++Gets; return Stored.IsEmpty() ? FCacheGetResult(std::optional<FSharedByteBuffer>{}) : FCacheGetResult(std::optional<FSharedByteBuffer>{Stored}); };
-			O.Cache.Put = [&](const FCachePutRequest& R) -> FCachePutResult { ++Puts; Stored = FSharedByteBuffer::Copy(R.Value); return {}; };
+			FBuildServiceOptions O; O.Cache = Cache;
 			Service = CreateBuild(std::move(O)); Service->Register(Function).value(); Session = Service->CreateSession().value();
 		}
 		auto Run(FBuildRequestOptions O = {}) -> FBuildCompleteParams
@@ -41,18 +60,23 @@ namespace
 
 TEST(FBuildExecutionTests, ColdBuildPersistsAndWarmHitAvoidsResolve)
 {
-	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Puts, 1u);
+	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Cache->Puts, 1u);
 	auto Warm = H.Run(); ASSERT_EQ(Warm.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
 }
 
 TEST(FBuildExecutionTests, CorruptRecordFallsBackOnce)
 {
-	FHarness H; H.Stored = FSharedByteBuffer::Take(FByteBuffer(40, std::byte{9})); auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); ASSERT_FALSE(Result.GetReport().Diagnostics.empty()); EXPECT_EQ(Result.GetReport().Diagnostics[0].Error.Code, ECacheError::Corrupt);
+	FHarness H; H.Cache->Corrupt = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Cache->Gets, 1u); EXPECT_EQ(H.Cache->Puts, 1u);
+}
+
+TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)
+{
+	FHarness H; H.Function->Log = true; auto Result = H.Run(); ASSERT_EQ(Result.GetStatus(), EStatus::Ok); ASSERT_NE(Result.GetOutput(), nullptr); EXPECT_TRUE(Result.GetOutput()->HasLogs()); EXPECT_EQ(H.Cache->Puts, 0u);
 }
 
 TEST(FBuildExecutionTests, DeterministicErrorIsPersistedAndReplayed)
 {
-	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Error); ASSERT_NE(Cold.GetOutput(), nullptr); EXPECT_TRUE(Cold.GetOutput()->HasError()); EXPECT_EQ(H.Puts, 1u);
+	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Error); ASSERT_NE(Cold.GetOutput(), nullptr); EXPECT_TRUE(Cold.GetOutput()->HasError()); EXPECT_EQ(H.Cache->Puts, 1u);
 	H.Function->Fail = false; auto Warm = H.Run(); EXPECT_EQ(Warm.GetStatus(), EStatus::Error); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u);
 }
 
@@ -63,5 +87,5 @@ TEST(FBuildExecutionTests, CancellationRemainsDistinct)
 
 TEST(FBuildExecutionTests, ProducerExceptionIsInfrastructureFailureAndIsNotCached)
 {
-	FHarness H; H.Function->Throw = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_EQ(Result.GetOutput(), nullptr); EXPECT_EQ(H.Puts, 0u);
+	FHarness H; H.Function->Throw = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_EQ(Result.GetOutput(), nullptr); EXPECT_EQ(H.Cache->Puts, 0u);
 }

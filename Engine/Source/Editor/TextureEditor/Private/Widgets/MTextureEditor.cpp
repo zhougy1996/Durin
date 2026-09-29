@@ -45,7 +45,6 @@ namespace Durin::Editor::Texture
 			case ETexture2DCompilationPhase::Queued: return "Queued";
 			case ETexture2DCompilationPhase::Preparing: return "Preparing";
 			case ETexture2DCompilationPhase::Building: return "Building";
-			case ETexture2DCompilationPhase::Persisting: return "Persisting";
 			case ETexture2DCompilationPhase::UploadPending: return "Upload Pending";
 			case ETexture2DCompilationPhase::Ready: return "Ready";
 			case ETexture2DCompilationPhase::Failed: return "Failed";
@@ -457,20 +456,15 @@ namespace Durin::Editor::Texture
 			static_cast<unsigned long long>(Diagnostic.RequestSerial));
 		if (Diagnostic.QueuedNanoseconds > 0)
 			ImGui::Text("Queue: %.2f ms", Diagnostic.QueuedNanoseconds / 1'000'000.0);
-		if (Diagnostic.WorkerNanoseconds > 0)
-			ImGui::Text("Worker: %.2f ms", Diagnostic.WorkerNanoseconds / 1'000'000.0);
+		if (Diagnostic.Metrics.WorkerNanoseconds > 0)
+			ImGui::Text("Worker: %.2f ms", Diagnostic.Metrics.WorkerNanoseconds / 1'000'000.0);
 		ImGui::Text(
-			"Estimated: %s  Decoded: %s  Peak intermediate: %s  Result: %s",
+			"Estimated: %s  Decoded: %s  Result: %s",
 			StringUtils::FormatByteSize(Diagnostic.Metrics.EstimatedBytes).c_str(),
 			StringUtils::FormatByteSize(Diagnostic.Metrics.DecodedBytes).c_str(),
-			StringUtils::FormatByteSize(Diagnostic.Metrics.PeakIntermediateBytes).c_str(),
 			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
 		if (Diagnostic.Error.HasError())
 			ImGui::TextWrapped("%s", FormatTexture2DCompilationError(Diagnostic.Error).c_str());
-		if (Diagnostic.Phase == ETexture2DCompilationPhase::Failed
-			&& Diagnostic.FailurePhase != ETexture2DCompilationPhase::None)
-			ImGui::TextDisabled(
-				"Failure stage: %s", DescribeBuildPhase(Diagnostic.FailurePhase));
 		if (bPending)
 		{
 			if (ImGui::Button("Cancel Build"))

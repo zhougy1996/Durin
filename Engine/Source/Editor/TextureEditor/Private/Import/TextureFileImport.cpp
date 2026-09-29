@@ -219,12 +219,9 @@ namespace Durin::Editor::Texture
 				UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
 			TimingDetails += std::format(
-				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms (mips {:.1f}, compression {:.1f}, cache write {:.1f} ms; {}), save {:.1f} ms\n",
+				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms ({}), save {:.1f} ms\n",
 				Filename, PreparationMilliseconds,
 				std::chrono::duration<double, std::milli>(CompilationEnd - CompilationStart).count(),
-				Diagnostic.Metrics.MipGenerationNanoseconds / 1e6,
-				Diagnostic.Metrics.CompressionNanoseconds / 1e6,
-				Diagnostic.Metrics.PersistenceNanoseconds / 1e6,
 				Diagnostic.Origin == ETexture2DCompilationOrigin::CacheHit ? "cache hit" : "build",
 				SaveMilliseconds);
 			Completion.reset();

@@ -8,6 +8,7 @@
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMeshBuildFunction.h"
 #include "Physics/PhysicsBuildFunction.h"
+#include "Logging/LogMacros.h"
 #include <mutex>
 
 namespace Durin
@@ -19,13 +20,6 @@ namespace Durin
 		bool Stopping = false;
 		std::shared_ptr<DerivedData::IBuild> Service;
 		std::shared_ptr<DerivedData::FBuildSession> Session;
-		auto Failure(std::string Description, DerivedData::EBuildOperation Operation = DerivedData::EBuildOperation::Admission)
-			-> DerivedData::FBuildCompleteParams
-		{
-			DerivedData::FBuildExecutionReport Report;
-			Report.Diagnostics.push_back({Operation, {DerivedData::ECacheError::InvalidRequest, std::move(Description)}});
-			return DerivedData::FBuildCompleteParams::Error(std::nullopt, DerivedData::EBuildStatus::None, std::move(Report));
-		}
 	}
 	auto InitializeAssetBuildService() -> bool
 	{
@@ -35,7 +29,7 @@ namespace Durin
 		auto* Textures = ITextureBuildModule::Get();
 		auto* Meshes = IMeshBuilderModule::Get();
 		if (!Textures || !Meshes) return false;
-		auto Created = DerivedData::CreateBuild({.CompressRecords = true});
+		auto Created = DerivedData::CreateBuild();
 		if (!Created->Register(TexturePrivate::MakeTexture2DBuildFunction(*Textures))
 			|| !Created->Register(TexturePrivate::MakeVolumeTextureBuildFunction(*Textures))
 			|| !Created->Register(TexturePrivate::MakeTextureCubeBuildFunction(*Textures))
@@ -49,28 +43,35 @@ namespace Durin
 	}
 	auto AssetBuildPrivate::Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildRequestOptions Options) -> DerivedData::FBuildCompleteParams
+		DerivedData::FBuildRequestOptions Options)
+		-> std::optional<DerivedData::FBuildCompleteParams>
 	{
+		const std::string FunctionName(Definition.GetFunctionName());
+		auto Reject = [&](std::string_view Description) -> std::optional<DerivedData::FBuildCompleteParams>
+		{
+			DURIN_ERROR_CATEGORY("AssetBuild", "{} request failed: {}", FunctionName, Description);
+			return std::nullopt;
+		};
 		if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-			std::nullopt, DerivedData::EBuildStatus::None, {});
+			std::nullopt, DerivedData::EBuildStatus::None);
 		std::shared_ptr<DerivedData::FBuildSession> Persistent;
 		{
 			std::lock_guard Lock(ServiceMutex);
-			if (!Service || !Session || Stopping) return Failure("Asset build service is not accepting requests.");
-			Persistent = Session;
+			if (Service && Session && !Stopping) Persistent = Session;
 		}
+		if (!Persistent) return Reject("Asset build service is not accepting requests.");
 		auto InputBuilder = DerivedData::FBuildInputsBuilder(Definition.GetSources(), std::move(Resolver));
 		InputBuilder.SetCancellation(Options.Cancellation);
 		auto Inputs = std::move(InputBuilder).Build();
 		if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-			std::nullopt, DerivedData::EBuildStatus::None, {});
-		if (!Inputs) return Failure(std::move(Inputs.error().Description), DerivedData::EBuildOperation::Describe);
+			std::nullopt, DerivedData::EBuildStatus::None);
+		if (!Inputs) return Reject(Inputs.error().Description);
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
 		auto Admitted = Persistent->Build(std::move(Definition), [&](auto Value) {
 			Completion = std::move(Value);
 		}, std::move(*Inputs), std::move(Options));
-		if (!Admitted) return Failure(std::move(Admitted.error().Description));
-		if (!Completion) return Failure("Asset build session did not complete inline.", DerivedData::EBuildOperation::Dispatch);
+		if (!Admitted) return Reject(Admitted.error().Description);
+		if (!Completion) return Reject("Asset build session did not complete inline.");
 		return std::move(*Completion);
 	}
 	auto ShutdownAssetBuildService() -> void

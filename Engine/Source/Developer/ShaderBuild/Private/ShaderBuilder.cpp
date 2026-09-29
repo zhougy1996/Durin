@@ -352,8 +352,6 @@ namespace Durin
 			.ManifestHits = ManifestHits.load(std::memory_order_relaxed),
 			.MemoryHits = MemoryHits.load(std::memory_order_relaxed),
 			.DdcHits = DdcHits.load(std::memory_order_relaxed),
-			.DdcCorruptMisses = DdcCorruptMisses.load(std::memory_order_relaxed),
-			.DdcStoreFailures = DdcStoreFailures.load(std::memory_order_relaxed),
 			.Compilations = Compilations.load(std::memory_order_relaxed),
 			.ContentReads = FileFingerprintCache.GetContentReadCount(),
 			.OutputEntries = OutputCache.size(),
@@ -624,34 +622,17 @@ namespace Durin
 		Execution.Policy.OutputLimits.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes;
 		Execution.Policy.PersistenceLimits = Execution.Policy.OutputLimits;
 		Execution.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
-		bool Corrupt = false, StoreFailed = false;
 		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
-		for (const auto& Metric : Completion.GetReport().Metrics)
-			if (Metric.Name == "Shader.Compilations") Compilations.fetch_add(Metric.Value, std::memory_order_relaxed);
+		if (HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal))
+			Compilations.fetch_add(1, std::memory_order_relaxed);
 		if (HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit))
 			DdcHits.fetch_add(1, std::memory_order_relaxed);
-		for (const auto& Diagnostic : Completion.GetReport().Diagnostics)
-		{
-			const auto Operation = Diagnostic.Operation;
-			const auto& Error = Diagnostic.Error;
-			if (Operation == EBuildOperation::Record || Operation == EBuildOperation::Encode
-				|| Operation == EBuildOperation::Compress || Operation == EBuildOperation::CacheStore)
-			{
-				if (!StoreFailed) DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
-				StoreFailed = true; DURIN_WARN("Shader DDC persistence failed: {}", Error.Diagnostic);
-			}
-			else if (Error.Code == ECacheError::Corrupt || Error.Code == ECacheError::ValueTooLarge)
-			{
-				if (!Corrupt) DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
-				Corrupt = true; DURIN_WARN("Shader DDC value was rejected: {}", Error.Diagnostic);
-			}
-		}
 		if (Completion.GetStatus() == EStatus::Canceled) return {.Error = FShaderError{.Code = EShaderError::Cancelled}};
 		if (Completion.GetStatus() == EStatus::Error)
 		{
 			std::string Description = "Shader derived-data build failed.";
 			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
+			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
 			return {.Error = FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Description, 0)};
 		}
 		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput());

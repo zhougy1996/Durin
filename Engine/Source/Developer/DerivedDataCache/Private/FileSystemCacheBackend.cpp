@@ -48,8 +48,8 @@ namespace Durin::DerivedData
 		return true;
 	}
 
-	auto FFileSystemCacheBackend::Get(const FCacheGetRequest& Request) const
-		-> FCacheGetResult
+	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
+		-> FCacheStorageGetResult
 	{
 		if (!Request.Key.IsValid() || Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
@@ -128,8 +128,8 @@ namespace Durin::DerivedData
 		return std::optional<FSharedByteBuffer>{StoredBytes.MakeView(CacheEntryHeaderBytes, ValueSize)};
 	}
 
-	auto FFileSystemCacheBackend::Put(const FCachePutRequest& Request) const
-		-> FCachePutResult
+	auto FFileSystemCacheBackend::Put(const FCacheStoragePutRequest& Request) const
+		-> FCacheStoragePutResult
 	{
 		if (!Request.Key.IsValid() || Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});

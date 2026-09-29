@@ -151,7 +151,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
 		EXPECT_EQ(Stats.DdcHits, 0u);
-		EXPECT_EQ(Stats.DdcCorruptMisses, 1u);
 		EXPECT_EQ(Stats.Compilations, 1u);
 		EXPECT_EQ(Stats.ManifestHits, 1u);
 	}
@@ -173,7 +172,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
 		EXPECT_EQ(Stats.Compilations, 1u);
-		EXPECT_EQ(Stats.DdcStoreFailures, 1u);
 		EXPECT_EQ(Stats.OutputEntries, 1u);
 	}
 

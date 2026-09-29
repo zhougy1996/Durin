@@ -109,19 +109,18 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
-		auto Completion = AssetBuildPrivate::Build(std::move(*Definition), std::move(Inputs), std::move(Options));
+		auto Built = AssetBuildPrivate::Build(std::move(*Definition), std::move(Inputs), std::move(Options));
+		if (!Built) return std::unexpected(FStaticMeshBuildFailure{
+			"StaticMesh build service is unavailable.", EStaticMeshBuildStage::Render});
+		auto& Completion = *Built;
 		if (IsCancelled() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled());
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
 			std::string Description = "StaticMesh derived-data build failed.";
 			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
-			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
-			const auto Stage = !Completion.GetOutput() && !Completion.GetReport().Diagnostics.empty()
-				&& (Completion.GetReport().Diagnostics.back().Operation == DerivedData::EBuildOperation::Describe
-					|| Completion.GetReport().Diagnostics.back().Operation == DerivedData::EBuildOperation::Resolve)
-				? EStaticMeshBuildStage::Source : EStaticMeshBuildStage::Render;
-			return std::unexpected(FStaticMeshBuildFailure{std::move(Description), Stage});
+			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
+			return std::unexpected(FStaticMeshBuildFailure{std::move(Description), EStaticMeshBuildStage::Render});
 		}
 		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));

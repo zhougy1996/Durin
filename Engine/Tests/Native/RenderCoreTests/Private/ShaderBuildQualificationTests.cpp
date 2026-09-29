@@ -95,7 +95,6 @@ namespace Durin
 				EXPECT_EQ(After.Compilations - Before.Compilations, Mode == 0 ? BatchSize : 0u);
 				EXPECT_EQ(After.DdcHits - Before.DdcHits, Mode == 1 ? BatchSize : 0u);
 				EXPECT_EQ(After.MemoryHits - Before.MemoryHits, Mode == 2 ? BatchSize : 0u);
-				EXPECT_EQ(After.DdcStoreFailures, 0u);
 				if (Mode) EXPECT_EQ(After.ContentReads - Before.ContentReads, 0u);
 				else
 				{

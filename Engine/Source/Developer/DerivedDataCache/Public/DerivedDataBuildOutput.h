@@ -9,6 +9,13 @@ namespace Durin::DerivedData
 	class FBuildOutput;
 	enum class EBuildMessageSeverity : uint8 { Note, Warning, Error };
 	struct FBuildOutputMessage { EBuildMessageSeverity Severity = EBuildMessageSeverity::Note; std::string Text; };
+	enum class EBuildLogSeverity : uint8 { Display, Warning, Error };
+	struct FBuildOutputLog
+	{
+		std::string Category;
+		EBuildLogSeverity Severity = EBuildLogSeverity::Display;
+		std::string Text;
+	};
 	struct FBuildOutputMeta { FValueId Id; FCbObject Object; };
 	DERIVEDDATACACHE_API auto MakeBuildMetadata(FSharedByteBuffer Payload) -> std::expected<FCbObject, std::string>;
 	DERIVEDDATACACHE_API auto GetBuildMetadataPayload(const FBuildOutput& Output,
@@ -21,6 +28,7 @@ namespace Durin::DerivedData
 		uint32 MaximumValues = 4096;
 		uint32 MaximumMetadata = 4096;
 		uint32 MaximumMessages = 128;
+		uint32 MaximumLogs = 128;
 	};
 
 	class FBuildOutput
@@ -30,6 +38,7 @@ namespace Durin::DerivedData
 		FBuildOutput() = default;
 		auto IsValid() const -> bool { return State != nullptr; }
 		DERIVEDDATACACHE_API auto HasError() const -> bool;
+		DERIVEDDATACACHE_API auto HasLogs() const -> bool;
 		auto SharesStateWith(const FBuildOutput& Other) const -> bool { return State && State == Other.State; }
 		DERIVEDDATACACHE_API auto CheckLimits(FBuildOutputLimits Limits = {}) const -> std::expected<void, std::string>;
 		DERIVEDDATACACHE_API auto GetSchema() const -> std::string_view;
@@ -37,6 +46,7 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FValueWithId>;
 		DERIVEDDATACACHE_API auto GetMetadata() const -> std::span<const FBuildOutputMeta>;
 		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildOutputMessage>;
+		DERIVEDDATACACHE_API auto GetLogs() const -> std::span<const FBuildOutputLog>;
 		DERIVEDDATACACHE_API auto FindValue(FValueId Id) const -> const FValue*;
 		DERIVEDDATACACHE_API auto FindMeta(FValueId Id) const -> FCbObjectView;
 	private:
@@ -57,6 +67,8 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto AddValue(FValueId Id, FSharedByteBuffer Data) -> bool;
 		DERIVEDDATACACHE_API auto AddMeta(FValueId Id, FCbObject Object) -> bool;
 		DERIVEDDATACACHE_API auto AddMessage(EBuildMessageSeverity Severity, std::string Text) -> bool;
+		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
+			std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto Build() && -> std::expected<FBuildOutput, std::string>;
 	private:
 		friend class FBuildContext;

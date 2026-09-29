@@ -105,7 +105,6 @@ namespace Durin::PhysicsPrivate
 					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
 				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return Fail(Cancelled().Description);
 				if (!Cooked) return Fail(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
-				Context.ReportMetric("Physics.FloatToDoubleRecipeBytes", PositionCount * sizeof(FVector3));
 				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Config->Policy, Cancel);
 				if (Cancel()) return Fail(Cancelled().Description);
 				if (!Output) return Fail(std::move(Output.error()));

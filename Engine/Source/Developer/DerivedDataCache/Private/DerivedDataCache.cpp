@@ -1,5 +1,6 @@
 #include "DerivedDataCache/DerivedDataCache.h"
 
+#include "DerivedDataCacheStorage.h"
 #include "FileSystemCacheBackend.h"
 
 namespace Durin::DerivedData
@@ -43,28 +44,38 @@ namespace Durin::DerivedData
 			return Identity;
 		}
 
-		// Bucket locks are retained only while an operation is active. The short
-		// registry lock never covers backend IO.
-		std::mutex GBucketLockRegistryMutex;
-		std::unordered_map<const char*, std::weak_ptr<std::shared_mutex>> GBucketLocks;
-		FDerivedDataCache GDerivedDataCache;
+		FCacheStorage GCacheStorage;
 
-		auto AcquireBucketLock(const FCacheBucket& Bucket) -> std::shared_ptr<std::shared_mutex>
+		class FRecordCache final : public ICache
 		{
-			std::lock_guard RegistryLock(GBucketLockRegistryMutex);
-			for (auto It = GBucketLocks.begin(); It != GBucketLocks.end();)
+		public:
+			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
 			{
-				It = It->second.expired() ? GBucketLocks.erase(It) : std::next(It);
+				auto Stored = GCacheStorage.Get({Request.Key, Request.MaximumEncodedBytes});
+				if (!Stored) return std::unexpected(std::move(Stored.error()));
+				if (!*Stored) return std::optional<FCacheRecord>{};
+				auto Record = FCacheRecord::Decode(Request.Key, std::move(**Stored),
+					Request.OutputLimits, Request.MaximumEncodedBytes);
+				if (!Record) return std::unexpected(std::move(Record.error()));
+				return std::optional<FCacheRecord>{std::move(*Record)};
 			}
-			auto& WeakLock = GBucketLocks[Bucket.ToString().data()];
-			std::shared_ptr<std::shared_mutex> Lock = WeakLock.lock();
-			if (!Lock)
+
+			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
 			{
-				Lock = std::make_shared<std::shared_mutex>();
-				WeakLock = Lock;
+				if (!Request.Record.IsValid())
+					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
+						"Cache put request has no record."});
+				auto Encoded = Request.Record.Encode(Request.MaximumEncodedBytes);
+				if (!Encoded) return std::unexpected(std::move(Encoded.error()));
+				Encoded = FCacheRecord::CompressEncoded(
+					*Encoded, Request.MaximumEncodedBytes);
+				if (!Encoded) return std::unexpected(std::move(Encoded.error()));
+				return GCacheStorage.Put({Request.Record.GetKey(), *Encoded,
+					Request.MaximumEncodedBytes});
 			}
-			return Lock;
-		}
+		};
+
+		FRecordCache GRecordCache;
 
 		auto SetError(std::string* OutError, std::string Message) -> void
 		{
@@ -146,22 +157,22 @@ namespace Durin::DerivedData
 		return IsValid() ? Hash.ToString() : std::string{};
 	}
 
-	auto FDerivedDataCache::Get(const FCacheGetRequest& Request) const -> FCacheGetResult
+	auto FCacheStorage::Get(const FCacheStorageGetRequest& Request) const
+		-> FCacheStorageGetResult
 	{
-		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Key.GetBucket());
-		std::shared_lock Lock(*BucketLock);
 		return FFileSystemCacheBackend().Get(Request);
 	}
 
-	auto FDerivedDataCache::Put(const FCachePutRequest& Request) const -> FCachePutResult
+	auto FCacheStorage::Put(const FCacheStoragePutRequest& Request) const
+		-> FCacheStoragePutResult
 	{
-		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Key.GetBucket());
-		std::shared_lock Lock(*BucketLock);
 		return FFileSystemCacheBackend().Put(Request);
 	}
 
-	auto GetCache() -> FDerivedDataCache&
+	auto GetCacheStorage() -> FCacheStorage&
 	{
-		return GDerivedDataCache;
+		return GCacheStorage;
 	}
+
+	auto GetCache() -> ICache& { return GRecordCache; }
 }

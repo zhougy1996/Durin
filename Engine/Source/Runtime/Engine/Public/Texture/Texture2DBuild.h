@@ -45,18 +45,10 @@ namespace Durin
 		Rebuilt
 	};
 
-	// Engine observations extend build timings with cache persistence.
-	struct FTexture2DBuildMetrics : FTexture2DBuildTimings
-	{
-		uint64 PersistenceNanoseconds = 0;
-	};
-
-	// This observation/control value is borrowed only for the duration of Build.
+	// This cancellation value is borrowed only for the duration of Build.
 	struct FTexture2DBuildExecutionControl
 	{
 		std::function<bool()> ShouldCancel;
-		std::function<void()> OnPersisting;
-		FTexture2DBuildMetrics* Metrics = nullptr;
 	};
 
 	// Detached Engine-owned CPU product. Applying it remains a separate
@@ -66,7 +58,6 @@ namespace Durin
 		FTexturePlatformData PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		uint32 BuilderVersion = 0;
-		FTexture2DBuildMetrics Metrics;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 	};
 

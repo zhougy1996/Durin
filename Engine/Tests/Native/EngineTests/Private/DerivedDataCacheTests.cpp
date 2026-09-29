@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -54,10 +55,39 @@ namespace
 	}
 }
 
-TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
+TEST(FCacheTests, StoresAndLoadsValidatedStructuredRecords)
+{
+	FScopedCacheDirectory Directory("StructuredCacheReadWrite");
+	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Records"), '7');
+	FBuildOutputBuilder Builder("Fixture.Output", 1);
+	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"),
+		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
+	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
+	auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+	ASSERT_TRUE(GetCache().Put({std::move(*Record), 4096}));
+
+	auto Loaded = GetCache().Get({Key, {}, 4096}); ASSERT_TRUE(Loaded);
+	ASSERT_TRUE(*Loaded);
+	auto Warm = (**Loaded).ToOutput(Key); ASSERT_TRUE(Warm);
+	const FValue* Value = Warm->FindValue(FValueId::FromName("Data"));
+	ASSERT_NE(Value, nullptr);
+	EXPECT_TRUE(std::ranges::equal(Value->GetData().GetBytes(), Bytes({1, 2, 3, 4})));
+}
+
+TEST(FCacheTests, RejectsCorruptStorageBeforeReturningARecord)
+{
+	FScopedCacheDirectory Directory("StructuredCacheCorruption");
+	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Records"), '8');
+	ASSERT_TRUE(GetCacheStorage().Put({Key, Bytes({9, 9, 9}), 4096}));
+	auto Loaded = GetCache().Get({Key, {}, 4096});
+	ASSERT_FALSE(Loaded);
+	EXPECT_EQ(Loaded.error().Code, ECacheError::Corrupt);
+}
+
+TEST(FCacheStorageTests, GetsAndAtomicallyReplacesCanonicalEntries)
 {
 	FScopedCacheDirectory Directory("CacheReadWrite");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'a');
 	const Durin::FByteBuffer First = Bytes({1, 2, 3});
@@ -65,19 +95,19 @@ TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 	ASSERT_TRUE(Cache.Put({Key, First, 1024}));
 	ASSERT_TRUE(Cache.Put({Key, Second, 1024}));
 
-	const FCacheGetResult Get = Cache.Get({Key, 1024});
+	const FCacheStorageGetResult Get = Cache.Get({Key, 1024});
 	ASSERT_TRUE(Get);
 	EXPECT_TRUE(std::ranges::equal((*Get)->GetBytes(), Second));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Directory.Root / "Test" / "Objects" / "aa" / (std::string(32, 'a') + ".bin")));
 }
 
-TEST(FDerivedDataCacheTests, NormalizesRootAndContainsBinaryKeyPaths)
+TEST(FCacheStorageTests, NormalizesRootAndContainsBinaryKeyPaths)
 {
 	FScopedCacheDirectory Directory("CacheNormalizedRoot");
 	FPaths::SetDerivedDataCacheDirForTests(
 		(Directory.Root / "unused" / "..").generic_string());
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Nested/Objects");
 	const FByteBuffer Value = Bytes({7, 8});
 	for (const FXxHash128 Hash : {FXxHash128{1, 0}, FXxHash128{0, 1},
@@ -95,10 +125,10 @@ TEST(FDerivedDataCacheTests, NormalizesRootAndContainsBinaryKeyPaths)
 	EXPECT_FALSE(std::filesystem::exists(Directory.Root / "unused"));
 }
 
-TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
+TEST(FCacheStorageTests, ValidatesRequestsAndBoundsValuesTransactionally)
 {
 	FScopedCacheDirectory Directory("CacheValidation");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	std::string Error;
 	EXPECT_FALSE(FCacheBucket::FromString("../escape", &Error).IsValid());
 	EXPECT_FALSE(FCacheBucket::FromString("/absolute", &Error).IsValid());
@@ -135,7 +165,7 @@ TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 	EXPECT_FALSE(std::filesystem::exists(Directory.Root / "escape.bin"));
 }
 
-TEST(FDerivedDataCacheTests, CacheKeyProxyPreservesBinaryIdentity)
+TEST(FCacheStorageTests, CacheKeyProxyPreservesBinaryIdentity)
 {
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'd');
@@ -154,10 +184,10 @@ TEST(FDerivedDataCacheTests, CacheKeyProxyPreservesBinaryIdentity)
 	EXPECT_NE(Key, MakeKey(FCacheBucket::FromString("Test/Other"), 'd'));
 }
 
-TEST(FDerivedDataCacheTests, BucketIsPartOfTheRecordIdentity)
+TEST(FCacheStorageTests, BucketIsPartOfTheRecordIdentity)
 {
 	FScopedCacheDirectory Directory("CacheBucketIdentity");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheKey FirstKey = MakeKey(
 		FCacheBucket::FromString("Test/First"), '8');
 	const FCacheKey SecondKey = MakeKey(
@@ -174,7 +204,7 @@ TEST(FDerivedDataCacheTests, BucketIsPartOfTheRecordIdentity)
 	EXPECT_TRUE(std::ranges::equal((*SecondGet)->GetBytes(), Second));
 }
 
-TEST(FDerivedDataCacheTests, InternsBucketNamesAcrossThreads)
+TEST(FCacheStorageTests, InternsBucketNamesAcrossThreads)
 {
 	std::vector<std::future<FCacheBucket>> Operations;
 	for (uint32 Index = 0; Index < 16; ++Index)
@@ -191,10 +221,10 @@ TEST(FDerivedDataCacheTests, InternsBucketNamesAcrossThreads)
 	}
 }
 
-TEST(FDerivedDataCacheTests, RejectsContentThatDoesNotMatchStoredHash)
+TEST(FCacheStorageTests, RejectsContentThatDoesNotMatchStoredHash)
 {
 	FScopedCacheDirectory Directory("CacheContentValidation");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'f');
 	const FByteBuffer Value = Bytes({1, 2, 3, 4});
@@ -208,16 +238,16 @@ TEST(FDerivedDataCacheTests, RejectsContentThatDoesNotMatchStoredHash)
 	ASSERT_GT(Stored.size(), Value.size());
 	Stored.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Stored, Path));
-	const FCacheGetResult Result = Cache.Get({Key, Value.size()});
+	const FCacheStorageGetResult Result = Cache.Get({Key, Value.size()});
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
 	EXPECT_FALSE(Result.error().Diagnostic.empty());
 }
 
-TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
+TEST(FCacheStorageTests, RejectsOversizedAndNonregularStoredEntries)
 {
 	FScopedCacheDirectory Directory("CacheStoredEntryValidation");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'c');
 	const Durin::FByteBuffer Value(8, std::byte{1});
@@ -236,10 +266,10 @@ TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
 	}
 }
 
-TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
+TEST(FCacheStorageTests, ConcurrentSameKeyCallsPublishCompleteValues)
 {
 	FScopedCacheDirectory Directory("CacheConcurrency");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'e');
 	const Durin::FByteBuffer First(128, std::byte{1});
@@ -249,7 +279,7 @@ TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 		Threads.emplace_back([&, Index] {
 			const auto& Value = Index % 2 ? First : Second;
 			EXPECT_TRUE(Cache.Put({Key, Value, 1024}));
-			const FCacheGetResult Get = Cache.Get({Key, 1024});
+			const FCacheStorageGetResult Get = Cache.Get({Key, 1024});
 			ASSERT_TRUE(Get);
 			EXPECT_TRUE(std::ranges::equal((*Get)->GetBytes(), First)
 				|| std::ranges::equal((*Get)->GetBytes(), Second));
@@ -257,10 +287,10 @@ TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 	for (std::thread& Thread : Threads) Thread.join();
 }
 
-TEST(FDerivedDataCacheTests, PutNeverEvictsExistingEntries)
+TEST(FCacheStorageTests, PutNeverEvictsExistingEntries)
 {
 	FScopedCacheDirectory Directory("CacheNoRequestEviction");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/NoEviction");
 	const Durin::FByteBuffer Value(64, std::byte{5});
 	for (uint32 Index = 0; Index < 32; ++Index)
@@ -277,10 +307,10 @@ TEST(FDerivedDataCacheTests, PutNeverEvictsExistingEntries)
 	}
 }
 
-TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
+TEST(FCacheStorageTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 {
 	FScopedCacheDirectory Directory("CacheParallelBuckets");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket FirstBucket = FCacheBucket::FromString("Test/First");
 	const FCacheBucket SecondBucket = FCacheBucket::FromString("Test/Second");
 	const Durin::FByteBuffer Value(4096, std::byte{7});
@@ -294,7 +324,7 @@ TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 			const FCacheKey Key = FCacheKey::FromString(
 				Bucket, std::format("{:032x}", Index + 1));
 			if (!Cache.Put({Key, Value, Value.size()})) return false;
-			const FCacheGetResult Get = Cache.Get({Key, Value.size()});
+			const FCacheStorageGetResult Get = Cache.Get({Key, Value.size()});
 			return Get && *Get && std::ranges::equal((*Get)->GetBytes(), Value);
 		}));
 	}
@@ -302,14 +332,14 @@ TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 	for (auto& Operation : Operations) EXPECT_TRUE(Operation.get());
 }
 
-TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
+TEST(FCacheStorageTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 {
 	FScopedCacheDirectory Directory("CacheBlockedStorage");
 	const std::filesystem::path Blocker = Directory.Root / "blocked";
 	const Durin::FByteBuffer Value = Bytes({1, 2, 3});
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Value, Blocker));
 	const FCacheBucket Bucket = FCacheBucket::FromString("blocked/Bucket");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	{
 		const auto Result = Cache.Put({MakeKey(Bucket, '1'), Value, 1024});
 		ASSERT_FALSE(Result);
@@ -323,10 +353,10 @@ TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 }
 
 #if defined(_WIN32)
-TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
+TEST(FCacheStorageTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 {
 	FScopedCacheDirectory Directory("CacheLockedEntry");
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey(Bucket, 'a');
 	const Durin::FByteBuffer Value = Bytes({1, 2, 3});
@@ -361,7 +391,7 @@ TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 }
 #endif
 
-TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverRead)
+TEST(FCacheStorageTests, SymlinkEntriesAreNeverRead)
 {
 	FScopedCacheDirectory Directory("CacheSymlinkSafety");
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
@@ -375,7 +405,7 @@ TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverRead)
 	std::error_code Error;
 	std::filesystem::create_symlink(Outside, Link, Error);
 	if (Error) GTEST_SKIP() << "Host cannot create a test symlink: " << Error.message();
-	FDerivedDataCache& Cache = DerivedData::GetCache();
+	FCacheStorage& Cache = DerivedData::GetCacheStorage();
 	{
 		const auto Result = Cache.Get({Key, 1024});
 		ASSERT_FALSE(Result);
