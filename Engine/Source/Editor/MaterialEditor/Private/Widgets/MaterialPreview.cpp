@@ -13,6 +13,7 @@
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
+#include "DynamicRHI.h"
 
 namespace Durin::Editor::Material
 {
@@ -22,6 +23,17 @@ namespace Durin::Editor::Material
 		constexpr double PreviewMinZoom = 0.4;
 		constexpr double PreviewMaxZoom = 4.0;
 		constexpr double PreviewZoomScale = 0.85;
+
+		auto FeatureLevelLabel(ERHIFeatureLevel FeatureLevel) -> const char*
+		{
+			switch (FeatureLevel)
+			{
+			case ERHIFeatureLevel::ES3_1: return "ES3_1";
+			case ERHIFeatureLevel::SM5: return "SM5";
+			case ERHIFeatureLevel::SM6: return "SM6";
+			}
+			return "Unsupported";
+		}
 
 		// Selects the mesh used to visualize a material in the preview scene.
 		enum class EMaterialPreviewShape : uint8
@@ -187,6 +199,45 @@ namespace Durin::Editor::Material
 
 			ImGui::SameLine();
 			if (ImGui::Button("Fit")) ViewportClient->Fit();
+			const ERHIFeatureLevel Capability = GDynamicRHI
+				&& GDynamicRHI->RHIGetCapabilities()
+				? GDynamicRHI->RHIGetCapabilities()->FeatureLevel
+				: ERHIFeatureLevel::SM5;
+			if (PreviewFeatureLevel > Capability) PreviewFeatureLevel = Capability;
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(90.0f));
+			if (ImGui::BeginCombo("Quality", PreviewQuality == EMaterialQualityLevel::Low
+				? "Low" : "High"))
+			{
+				for (const auto Candidate : {EMaterialQualityLevel::Low,
+					EMaterialQualityLevel::High})
+					if (ImGui::Selectable(Candidate == EMaterialQualityLevel::Low ? "Low" : "High",
+						Candidate == PreviewQuality))
+					{
+						PreviewQuality = Candidate;
+						if (Material) Material->RequestPreviewProgramCompile(
+							PreviewQuality, PreviewFeatureLevel);
+					}
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(90.0f));
+			if (ImGui::BeginCombo("Feature", FeatureLevelLabel(PreviewFeatureLevel)))
+			{
+				for (const auto Candidate : {ERHIFeatureLevel::ES3_1,
+					ERHIFeatureLevel::SM5, ERHIFeatureLevel::SM6})
+				{
+					if (Candidate > Capability) continue;
+					if (ImGui::Selectable(FeatureLevelLabel(Candidate),
+						Candidate == PreviewFeatureLevel))
+					{
+						PreviewFeatureLevel = Candidate;
+						if (Material) Material->RequestPreviewProgramCompile(
+							PreviewQuality, PreviewFeatureLevel);
+					}
+				}
+				ImGui::EndCombo();
+			}
 			UpdateScene(Material);
 			if (!SceneStatus.empty())
 			{
@@ -263,6 +314,8 @@ namespace Durin::Editor::Material
 		DMaterialInterface* CurrentMaterial = nullptr;
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
+		EMaterialQualityLevel PreviewQuality = EMaterialQualityLevel::High;
+		ERHIFeatureLevel PreviewFeatureLevel = ERHIFeatureLevel::SM5;
 		bool bProxyDirty = true;
 		// Mesh readiness is retried each frame; initialization errors are terminal.
 		std::string SceneStatus;

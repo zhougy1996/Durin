@@ -12,6 +12,7 @@ namespace Durin::Editor::Material
 		return !Node.Node.bMaterialOutput && (Node.Node.Opcode == EMaterialProgramOpcode::Constant
 			|| Node.Node.Opcode == EMaterialProgramOpcode::Time
 			|| Node.Node.Opcode == EMaterialProgramOpcode::WorldPosition
+			|| Node.Node.Opcode == EMaterialProgramOpcode::StaticBool
 			|| (Node.Node.Opcode >= EMaterialProgramOpcode::CameraPosition
 				&& Node.Node.Opcode <= EMaterialProgramOpcode::ViewSize));
 	}

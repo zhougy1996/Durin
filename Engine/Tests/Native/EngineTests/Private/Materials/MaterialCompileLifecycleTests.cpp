@@ -865,6 +865,38 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProgram->ActiveParameters,
 		Material->GetAcceptedCompiledProgram()->ActiveParameters);
 	EXPECT_EQ(DecodedProgram->ActiveParameters.size(), 36u);
+	std::vector<Durin::FMaterialCompilerResult> FamilyPrograms;
+	for (const auto Quality : {Durin::EMaterialQualityLevel::Low,
+		Durin::EMaterialQualityLevel::High})
+		for (const auto Feature : {Durin::ERHIFeatureLevel::ES3_1,
+			Durin::ERHIFeatureLevel::SM5, Durin::ERHIFeatureLevel::SM6})
+		{
+			auto Variant = *Material->GetAcceptedCompiledProgram();
+			Variant.Quality = Quality;
+			Variant.FeatureLevel = Feature;
+			FamilyPrograms.push_back(std::move(Variant));
+		}
+	std::vector<const Durin::FMaterialCompilerResult*> FamilyPointers;
+	for (const auto& Program : FamilyPrograms) FamilyPointers.push_back(&Program);
+	Durin::FByteBuffer FamilyBytes;
+	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgramFamily(FamilyPointers,
+		Material->GetStaticProperties(), Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game, FamilyBytes)))
+		<< Durin::FormatMaterialError(Error.Error);
+	EXPECT_LT(FamilyBytes.size(), FirstBytes.size() * 2);
+	ASSERT_TRUE((Error = Durin::DecodeMaterialCookedProgramFamily(FamilyBytes,
+		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
+		Durin::EMaterialQualityLevel::Low, Durin::ERHIFeatureLevel::SM6, {},
+		DecodedProperties, DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
+	EXPECT_EQ(DecodedProgram->Quality, Durin::EMaterialQualityLevel::Low);
+	EXPECT_EQ(DecodedProgram->FeatureLevel, Durin::ERHIFeatureLevel::SM6);
+	const std::array MissingStatic{
+		Durin::FMaterialCompilerEnvironment::FStaticBoolValue{
+			Durin::FGuid::NewGuid(), true}};
+	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgramFamily(FamilyBytes,
+		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
+		Durin::EMaterialQualityLevel::Low, Durin::ERHIFeatureLevel::SM6,
+		MissingStatic, DecodedProperties, DecodedProgram)));
 	ASSERT_EQ(DecodedProgram->CompiledShaders.size(),
 		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
 	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)

@@ -135,6 +135,10 @@ namespace Durin
 			-> FMaterialStaticProperties;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
+		// Editor preview only: selects an explicit quality and a feature level no
+		// greater than the initialized RHI capability.
+		ENGINE_API auto RequestPreviewProgramCompile(
+			EMaterialQualityLevel Quality, ERHIFeatureLevel FeatureLevel) -> bool;
 		auto GetAcceptedExpressionSources() const -> std::span<const MIR::FSource>
 		{
 			return CompilationOwner.AcceptedExpressionSources;
@@ -183,7 +187,8 @@ namespace Durin
 		FMaterialError MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialStaticProperties& CandidateProperties,
-			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr) -> bool;
+			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr,
+			std::optional<FMaterialCompilerEnvironment> RequestedEnvironment = std::nullopt) -> bool;
 		// Invalidates authored dependencies before requesting detached replacements.
 		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
 			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;

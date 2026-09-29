@@ -16,16 +16,23 @@ namespace Durin
 			FMaterialSamplerState Sampler;
 			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White;
 		};
+		struct FStaticBoolReference
+		{
+			FGuid DeclarationId;
+			bool DefaultValue = false;
+		};
 
 		// Function texture defaults are values, not fake resource nodes or IR indices.
 		struct FValue
 		{
-			std::variant<uint32, FTextureDefault> Value = InvalidIndex;
+			std::variant<uint32, FTextureDefault, FStaticBoolReference> Value = InvalidIndex;
 			FValue() = default;
 			FValue(uint32 Index) : Value(Index) {}
 			FValue(FTextureDefault Texture) : Value(std::move(Texture)) {}
+			FValue(FStaticBoolReference StaticBool) : Value(std::move(StaticBool)) {}
 			auto GetIndex() const -> const uint32* { return std::get_if<uint32>(&Value); }
 			auto GetTexture() const -> const FTextureDefault* { return std::get_if<FTextureDefault>(&Value); }
+			auto GetStaticBool() const -> const FStaticBoolReference* { return std::get_if<FStaticBoolReference>(&Value); }
 		};
 
 		// Supplied by the owning function collection. The provider may not load assets.
@@ -39,6 +46,9 @@ namespace Durin
 		struct FBuildEnvironment
 		{
 			std::function<std::optional<FFunctionBody>(const DMaterialFunctionInterface&)> FindFunction;
+			EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
+			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+			std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		};
 		struct FFunctionDependency
 		{
@@ -106,6 +116,16 @@ namespace Durin
 			ENGINE_API auto Transform(EMaterialProgramOpcode Opcode,
 				const FMaterialNumericInput& Input, EMaterialCoordinateSpace Source,
 				EMaterialCoordinateSpace Destination) -> uint32;
+			ENGINE_API auto StaticBool(FGuid DeclarationId, bool DefaultValue) -> FValue;
+			ENGINE_API auto StaticSwitch(const FMaterialExpressionInput& Condition,
+				EMaterialProgramValueType Type, const FMaterialNumericInput& FalseValue,
+				const FMaterialNumericInput& TrueValue) -> FValue;
+			ENGINE_API auto QualitySwitch(EMaterialProgramValueType Type,
+				const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& Low,
+				const FMaterialExpressionInput& High) -> FValue;
+			ENGINE_API auto FeatureLevelSwitch(EMaterialProgramValueType Type,
+				const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& ES3_1,
+				const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue;
 			ENGINE_API auto Coordinates() -> uint32;
 			ENGINE_API auto IsNormalTexture(FValue Value) const -> bool;
 			ENGINE_API auto Fail(FMaterialError Error, FGuid PortId = {},

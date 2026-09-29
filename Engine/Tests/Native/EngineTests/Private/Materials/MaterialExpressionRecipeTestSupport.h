@@ -134,6 +134,10 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::VertexNormal: Expression = NewObject<DMaterialExpressionVertexNormal>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::ScreenPosition: Expression = NewObject<DMaterialExpressionScreenPosition>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::ViewSize: Expression = NewObject<DMaterialExpressionViewSize>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::StaticBool: Expression = NewObject<DMaterialExpressionStaticBool>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::StaticSwitch: Expression = NewObject<DMaterialExpressionStaticSwitch>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::QualitySwitch: Expression = NewObject<DMaterialExpressionQualitySwitch>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::FeatureLevelSwitch: Expression = NewObject<DMaterialExpressionFeatureLevelSwitch>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TransformPosition: Expression = NewObject<DMaterialExpressionTransformPosition>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TransformDirection: Expression = NewObject<DMaterialExpressionTransformDirection>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TransformNormal: Expression = NewObject<DMaterialExpressionTransformNormal>(nullptr, NAME_None); break;

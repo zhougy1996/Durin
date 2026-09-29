@@ -178,16 +178,17 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	EXPECT_EQ(Changed.IR, Retained);
 }
 
-TEST(FMaterialExpressionTests, SurfaceSnapshotRejectsDisconnectedInvalidNodesAndAuthoredLinkOverflow)
+TEST(FMaterialExpressionTests, AuthoringRejectsDisconnectedInvalidNodesAndSnapshotPrunesThem)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Constant(NewObject<DMaterialExpressionScalarConstant>(nullptr, "DeadConstant"));
 	Constant->Id = {1, 2, 3, 4}; Constant->Value = std::numeric_limits<float>::infinity();
 	const std::array<DMaterialExpression*, 1> Expressions{Constant.Get()};
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 	MIR::FGraphBuilder Invalid(Expressions);
 	const auto Rejected = Invalid.FinishSurface({});
-	EXPECT_FALSE(Rejected); EXPECT_TRUE(Rejected.IR.Nodes.empty()); EXPECT_TRUE(Rejected.Parameters.empty());
+	EXPECT_TRUE(Rejected); EXPECT_TRUE(Rejected.IR.Nodes.empty()); EXPECT_TRUE(Rejected.Parameters.empty());
 	Constant->Value = .5f;
 	FMaterialExpressionSurfaceOutputs Wrong;
 	Wrong.BaseColor = {Constant->Id};
@@ -1131,6 +1132,10 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionVertexNormal::StaticClass(), EMaterialProgramOpcode::VertexNormal, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionScreenPosition::StaticClass(), EMaterialProgramOpcode::ScreenPosition, EMaterialProgramValueType::Float2},
 		FEntry{DMaterialExpressionViewSize::StaticClass(), EMaterialProgramOpcode::ViewSize, EMaterialProgramValueType::Float2},
+		FEntry{DMaterialExpressionStaticBool::StaticClass(), EMaterialProgramOpcode::StaticBool, EMaterialProgramValueType::StaticBool},
+		FEntry{DMaterialExpressionStaticSwitch::StaticClass(), EMaterialProgramOpcode::StaticSwitch, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionQualitySwitch::StaticClass(), EMaterialProgramOpcode::QualitySwitch, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionFeatureLevelSwitch::StaticClass(), EMaterialProgramOpcode::FeatureLevelSwitch, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionTransformPosition::StaticClass(), EMaterialProgramOpcode::TransformPosition, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionTransformDirection::StaticClass(), EMaterialProgramOpcode::TransformDirection, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionTransformNormal::StaticClass(), EMaterialProgramOpcode::TransformNormal, EMaterialProgramValueType::Float3},

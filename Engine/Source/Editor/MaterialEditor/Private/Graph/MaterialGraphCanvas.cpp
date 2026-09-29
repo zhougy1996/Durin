@@ -167,6 +167,9 @@ namespace Durin::Editor::Material
 				return IM_COL32(91, 65, 122, 255);
 			case Op::FunctionInput: case Op::FunctionOutput: case Op::FunctionCall:
 				return IM_COL32(39, 99, 105, 255);
+			case Op::StaticBool: case Op::StaticSwitch: case Op::QualitySwitch:
+			case Op::FeatureLevelSwitch:
+				return IM_COL32(112, 76, 142, 255);
 			case Op::MakeSurface: case Op::GetSurfaceAttributes: case Op::SetSurfaceAttributes:
 				return IM_COL32(119, 57, 60, 255);
 			default: return IM_COL32(66, 72, 83, 255);
@@ -183,6 +186,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float4: return IM_COL32(210, 110, 180, 255);
 			case EMaterialProgramValueType::Texture2D: return IM_COL32(150, 110, 230, 255);
 			case EMaterialProgramValueType::Surface: return IM_COL32(235, 155, 70, 255);
+			case EMaterialProgramValueType::StaticBool: return IM_COL32(188, 125, 225, 255);
 			}
 			return IM_COL32_WHITE;
 		}

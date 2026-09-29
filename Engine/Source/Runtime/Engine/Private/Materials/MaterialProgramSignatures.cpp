@@ -43,7 +43,7 @@ namespace Durin
 		using Type = EMaterialProgramValueType;
 		static constexpr std::array Types{
 			Type::Float, Type::Float2, Type::Float3, Type::Float4,
-			Type::Texture2D, Type::Surface};
+			Type::Texture2D, Type::Surface, Type::StaticBool};
 		const auto One = [](Type Value) -> std::span<const Type> {
 			return {&Types[static_cast<size_t>(Value)], 1};
 		};
@@ -55,6 +55,23 @@ namespace Durin
 		};
 		switch (Opcode)
 		{
+		case EMaterialProgramOpcode::StaticBool:
+			if (ResultType != Type::StaticBool) return std::nullopt;
+			break;
+		case EMaterialProgramOpcode::StaticSwitch:
+			if (!bNumeric) return std::nullopt;
+			Signature.InputCount = 3;
+			Signature.Inputs[0] = One(Type::StaticBool);
+			Signature.Inputs[1] = Signature.Inputs[2] = One(ResultType);
+			break;
+		case EMaterialProgramOpcode::QualitySwitch:
+			if (!bNumeric) return std::nullopt;
+			Same(3, ResultType);
+			break;
+		case EMaterialProgramOpcode::FeatureLevelSwitch:
+			if (!bNumeric) return std::nullopt;
+			Same(4, ResultType);
+			break;
 		case EMaterialProgramOpcode::WorldPosition:
 		case EMaterialProgramOpcode::CameraPosition:
 		case EMaterialProgramOpcode::CameraVector:

@@ -39,6 +39,16 @@ namespace Durin::MIR
 			EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None) -> uint32;
 		auto Transform(EMaterialProgramOpcode Opcode, const FMaterialNumericInput& Input,
 			EMaterialCoordinateSpace Source, EMaterialCoordinateSpace Destination) -> uint32;
+		auto StaticBool(FGuid DeclarationId, bool DefaultValue) -> FValue;
+		auto StaticSwitch(const FMaterialExpressionInput& Condition,
+			EMaterialProgramValueType Type, const FMaterialNumericInput& FalseValue,
+			const FMaterialNumericInput& TrueValue) -> FValue;
+		auto QualitySwitch(EMaterialProgramValueType Type,
+			const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& Low,
+			const FMaterialExpressionInput& High) -> FValue;
+		auto FeatureLevelSwitch(EMaterialProgramValueType Type,
+			const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& ES3_1,
+			const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue;
 		auto Coordinates() -> uint32;
 		auto Fail(FMaterialError Error, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;
@@ -69,6 +79,10 @@ namespace Durin::MIR
 		uint64 AuthoredLinks = 0;
 		auto MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool;
 		auto BroadcastScalar(FValue Value, EMaterialProgramValueType Type) -> FValue;
+		auto ResolveNumericChoice(const FMaterialNumericInput& Input,
+			EMaterialProgramValueType Type) -> FValue;
+		auto ResolveOptionalChoice(const FMaterialExpressionInput& Input,
+			const FMaterialNumericInput& DefaultValue, EMaterialProgramValueType Type) -> FValue;
 		std::shared_ptr<FSharedState> Shared;
 		FBuildResult& Result;
 		std::vector<uint32>& Depths;

@@ -41,6 +41,8 @@ namespace Durin
 		Float4,
 		Texture2D,
 		Surface,
+		// Authoring-only selector value. Normalization must eliminate it.
+		StaticBool,
 	};
 
 	// A value is legal in every stage represented by this mask. Both is not an
@@ -178,6 +180,10 @@ namespace Durin
 		VertexNormal,
 		ScreenPosition,
 		ViewSize,
+		StaticBool,
+		StaticSwitch,
+		QualitySwitch,
+		FeatureLevelSwitch,
 	};
 
 	struct FMaterialTransformPayload

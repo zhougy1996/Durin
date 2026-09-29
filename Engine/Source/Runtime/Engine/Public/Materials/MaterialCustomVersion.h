@@ -35,7 +35,7 @@ namespace Durin
 	struct FMaterialInstanceVersion
 	{
 		static constexpr FGuid Guid{0x9e8247bc, 0x4f0f48d6, 0xb3167d09, 0x56ade221};
-		static constexpr int32 CurrentVersion = 1;
+		static constexpr int32 CurrentVersion = 2;
 		// Uses the same package-only policy as the material graph domain.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};

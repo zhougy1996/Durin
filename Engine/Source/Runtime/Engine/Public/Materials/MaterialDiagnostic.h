@@ -100,6 +100,10 @@ namespace Durin
 		CollectionParameterMissingDeclaration,
 		CollectionParameterInvalidSchema,
 		CollectionCountExceedsBound,
+		StaticBoolDeclarationInvalidDuplicateExceedsBound,
+		StaticBoolOverrideOrphan,
+		StaticSwitchMissingSelectedBranch,
+		UnsupportedMaterialFeatureLevel,
 	};
 
 	enum class EMaterialFunctionError : uint16
@@ -228,6 +232,7 @@ namespace Durin
 		InvalidArchive,
 		ProgramUnavailable,
 		PayloadReadFailed,
+		CookedProgramConfigurationMissing,
 	};
 
 	enum class EMaterialCompileError : uint16

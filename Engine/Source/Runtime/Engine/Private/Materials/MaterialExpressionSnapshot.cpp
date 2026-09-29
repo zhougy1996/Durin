@@ -3,8 +3,10 @@
 
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialInstance.h"
 #include "Threading/RunnableThread.h"
 #include <cmath>
+#include <unordered_set>
 
 namespace Durin
 {
@@ -28,7 +30,10 @@ namespace Durin
 		auto ValidSelector = [](const FMaterialExpressionInput& Input) {
 			return Input.ExpressionId.IsValid() || (Input.OutputIndex == 0 && !Input.OutputId.IsValid());
 		};
-		BuildAllExpressions();
+		// Authoring validates every disconnected node and every selector branch.
+		// Compilation starts from the surface roots so selector resolution can keep
+		// inactive branches out of expanded MIR, resource/dependency discovery and limits.
+		if (bValidateAuthoring) BuildAllExpressions();
 		const bool bAggregate = Outputs.bUseMaterialAttributes;
 		const FMaterialSurfaceOutputs StandardDefaults;
 		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.Connection.ExpressionId.IsValid(); })
@@ -157,6 +162,50 @@ namespace Durin
 		}
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Owner->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
+		std::map<FGuid, std::pair<FName, bool>> StaticDeclarations;
+		std::unordered_map<FName, FGuid> StaticNames;
+		for (const auto* Expression : Expressions)
+			if (const auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression))
+			{
+				const auto Existing = StaticDeclarations.find(Declaration->DeclarationId);
+				const auto ExistingName = StaticNames.find(Declaration->Name);
+				if (!Declaration->DeclarationId.IsValid() || Declaration->Name.IsNone()
+					|| (Existing == StaticDeclarations.end()
+						&& StaticDeclarations.size() >= MaterialMaxStaticBoolDeclarations)
+					|| (Existing != StaticDeclarations.end()
+						&& Existing->second != std::pair{Declaration->Name, Declaration->DefaultValue})
+					|| (ExistingName != StaticNames.end()
+						&& ExistingName->second != Declaration->DeclarationId))
+				{
+					Result.Diagnostics.push_back({.Error = EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound});
+					return Result;
+				}
+				if (Existing == StaticDeclarations.end())
+				{
+					StaticDeclarations.emplace(Declaration->DeclarationId,
+						std::pair{Declaration->Name, Declaration->DefaultValue});
+					StaticNames.emplace(Declaration->Name, Declaration->DeclarationId);
+					StaticBools.push_back({Declaration->DeclarationId, Declaration->DefaultValue});
+				}
+			}
+		std::vector<const DMaterialInstance*> Instances;
+		for (const DMaterialInterface* Layer = &Material; Layer && Layer != Owner; Layer = Layer->GetParent())
+			if (const auto* Instance = Cast<DMaterialInstance>(Layer)) Instances.push_back(Instance);
+		for (const auto* Instance : Instances | std::views::reverse)
+			for (const auto& Override : Instance->GetStaticBoolOverrides())
+			{
+				auto Found = std::ranges::find(StaticBools, Override.DeclarationId,
+					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
+				if (Found == StaticBools.end())
+				{
+					Result.Diagnostics.push_back({.Error = EMaterialExpressionError::StaticBoolOverrideOrphan});
+					return Result;
+				}
+				Found->Value = Override.Value;
+			}
+		std::ranges::sort(StaticBools, {}, &FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
+		Environment.StaticBools = StaticBools;
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
 		MIR::FGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
 			-> std::optional<MIR::FFunctionBody> {
@@ -164,7 +213,8 @@ namespace Durin
 			if (!Concrete) return std::nullopt;
 			Owners.push_back({FObjectKey(const_cast<DMaterialFunction*>(Concrete)), Concrete->GetObjectPath(), Concrete->GetFunctionRevision()});
 			return Concrete->GetExpressionBody();
-		}});
+		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
+			.StaticBools = Environment.StaticBools});
 		auto Built = Context.FinishSurface(Owner->GetExpressionOutputs());
 		if (!Built)
 		{

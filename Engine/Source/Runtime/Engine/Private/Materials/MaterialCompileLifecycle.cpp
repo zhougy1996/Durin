@@ -65,6 +65,21 @@ namespace Durin
 			return Refreshed;
 		}
 
+		auto ApplyProgramConfiguration(
+			std::shared_ptr<const FMaterialCompilerResult> Program,
+			const FMaterialCompilerEnvironment& Environment)
+			-> std::shared_ptr<const FMaterialCompilerResult>
+		{
+			if (!Program || (Program->Quality == Environment.Quality
+				&& Program->FeatureLevel == Environment.FeatureLevel
+				&& Program->StaticBools == Environment.StaticBools)) return Program;
+			auto Configured = std::make_shared<FMaterialCompilerResult>(*Program);
+			Configured->Quality = Environment.Quality;
+			Configured->FeatureLevel = Environment.FeatureLevel;
+			Configured->StaticBools = Environment.StaticBools;
+			return Configured;
+		}
+
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
 			uint64 Bytes = sizeof(Request) + sizeof(FMaterialPreparedProgram)
@@ -429,6 +444,8 @@ namespace Durin
 				EMaterialCompileCacheOutcome CacheOutcome,
 				uint64 TaskId) -> FMaterialCompileResult
 			{
+				Program = ApplyProgramConfiguration(std::move(Program),
+					Request.PreparedProgram->Environment);
 				Program = RefreshCollectionDefaults(std::move(Program),
 					Request.PreparedProgram->Normalized.ActiveCollections);
 				return {

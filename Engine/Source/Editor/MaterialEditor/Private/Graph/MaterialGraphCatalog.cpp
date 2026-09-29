@@ -88,6 +88,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TransformPosition:
 			case EMaterialProgramOpcode::TransformDirection:
 			case EMaterialProgramOpcode::TransformNormal: Names = {"Input"}; break;
+			case EMaterialProgramOpcode::StaticSwitch: Names = {"Condition", "False", "True"}; break;
+			case EMaterialProgramOpcode::QualitySwitch: Names = {"Default", "Low", "High"}; break;
+			case EMaterialProgramOpcode::FeatureLevelSwitch: Names = {"Default", "ES3_1", "SM5", "SM6"}; break;
 			case EMaterialProgramOpcode::Clamp: Names = {"Value", "Min", "Max"}; break;
 			case EMaterialProgramOpcode::Lerp: Names = {"A", "B", "Alpha"}; break;
 			case EMaterialProgramOpcode::MakeFloat2: Names = {"X", "Y"}; break;
@@ -118,6 +121,10 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::ScreenPosition:
 			case EMaterialProgramOpcode::ViewSize:
 			case EMaterialProgramOpcode::TextureCoordinates: return "Inputs";
+			case EMaterialProgramOpcode::StaticBool:
+			case EMaterialProgramOpcode::StaticSwitch:
+			case EMaterialProgramOpcode::QualitySwitch:
+			case EMaterialProgramOpcode::FeatureLevelSwitch: return "Static Selection";
 			case EMaterialProgramOpcode::TransformPosition:
 			case EMaterialProgramOpcode::TransformDirection:
 			case EMaterialProgramOpcode::TransformNormal: return "Transforms";
@@ -156,6 +163,10 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::VertexNormal: return "Vertex Normal";
 			case EMaterialProgramOpcode::ScreenPosition: return "Screen Position";
 			case EMaterialProgramOpcode::ViewSize: return "View Size";
+			case EMaterialProgramOpcode::StaticBool: return "Static Bool";
+			case EMaterialProgramOpcode::StaticSwitch: return "Static Switch";
+			case EMaterialProgramOpcode::QualitySwitch: return "Quality Switch";
+			case EMaterialProgramOpcode::FeatureLevelSwitch: return "Feature Level Switch";
 			case EMaterialProgramOpcode::TransformPosition: return "Transform Position";
 			case EMaterialProgramOpcode::TransformDirection: return "Transform Direction";
 			case EMaterialProgramOpcode::TransformNormal: return "Transform Normal";
@@ -275,6 +286,10 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::VertexNormal: return DMaterialExpressionVertexNormal::StaticClass();
 			case EMaterialProgramOpcode::ScreenPosition: return DMaterialExpressionScreenPosition::StaticClass();
 			case EMaterialProgramOpcode::ViewSize: return DMaterialExpressionViewSize::StaticClass();
+			case EMaterialProgramOpcode::StaticBool: return DMaterialExpressionStaticBool::StaticClass();
+			case EMaterialProgramOpcode::StaticSwitch: return DMaterialExpressionStaticSwitch::StaticClass();
+			case EMaterialProgramOpcode::QualitySwitch: return DMaterialExpressionQualitySwitch::StaticClass();
+			case EMaterialProgramOpcode::FeatureLevelSwitch: return DMaterialExpressionFeatureLevelSwitch::StaticClass();
 			case EMaterialProgramOpcode::TransformPosition: return DMaterialExpressionTransformPosition::StaticClass();
 			case EMaterialProgramOpcode::TransformDirection: return DMaterialExpressionTransformDirection::StaticClass();
 			case EMaterialProgramOpcode::TransformNormal: return DMaterialExpressionTransformNormal::StaticClass();
@@ -336,6 +351,10 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal; Vertex-only and rejected by current Pixel roots."; break;
 			case EMaterialProgramOpcode::ScreenPosition: Entry.Description = "Normalized position within the active pass viewport (Float2)."; break;
 			case EMaterialProgramOpcode::ViewSize: Entry.Description = "Active pass viewport size in pixels (Float2)."; break;
+			case EMaterialProgramOpcode::StaticBool: Entry.Description = "Declares a root-owned compile-time boolean keyed by stable GUID."; break;
+			case EMaterialProgramOpcode::StaticSwitch: Entry.Description = "Selects exactly one branch from a static bool before normalized MIR."; break;
+			case EMaterialProgramOpcode::QualitySwitch: Entry.Description = "Selects Low or High, using Default when that branch is unconnected."; break;
+			case EMaterialProgramOpcode::FeatureLevelSwitch: Entry.Description = "Selects the accepted RHI feature tier, using Default when unconnected."; break;
 			case EMaterialProgramOpcode::TransformPosition: Entry.Description = "Transforms a spatial position between explicit coordinate spaces."; break;
 			case EMaterialProgramOpcode::TransformDirection: Entry.Description = "Transforms a spatial direction between explicit coordinate spaces."; break;
 			case EMaterialProgramOpcode::TransformNormal: Entry.Description = "Transforms and normalizes a spatial normal with inverse-transpose semantics."; break;
@@ -747,9 +766,9 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::ViewSize); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::FeatureLevelSwitch); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
-				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
+				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::StaticBool); ++TypeValue)
 			{
 				const auto Opcode = static_cast<EMaterialProgramOpcode>(OpcodeValue);
 				const auto Type = static_cast<EMaterialProgramValueType>(TypeValue);

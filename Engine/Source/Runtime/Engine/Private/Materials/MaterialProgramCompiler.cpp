@@ -166,6 +166,7 @@ namespace Durin
 		FMaterialCompilerEnvironment Environment;
 		if (const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
+			Environment.FeatureLevel = Capabilities->FeatureLevel;
 			auto& Limits = Environment.ResourceLimits;
 			Limits.SampledImages = std::min(Limits.SampledImages, Capabilities->MaxFragmentSampledImages);
 			Limits.Samplers = std::min(Limits.Samplers, Capabilities->MaxFragmentSamplers);
@@ -206,6 +207,24 @@ namespace Durin
 				EMaterialIRError::InvalidCompilerEnvironment));
 			return Result;
 		}
+		if (Input.Environment.FeatureLevel > ERHIFeatureLevel::SM6
+			|| Input.Environment.StaticBools.size() > MaterialMaxStaticBoolDeclarations
+			|| !std::ranges::is_sorted(Input.Environment.StaticBools, {},
+				&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId))
+		{
+			Result.Diagnostics.push_back(MakeNormalizationFailure(
+				EMaterialIRError::InvalidCompilerEnvironment));
+			return Result;
+		}
+		for (size_t Index = 0; Index < Input.Environment.StaticBools.size(); ++Index)
+			if (!Input.Environment.StaticBools[Index].DeclarationId.IsValid()
+				|| (Index && Input.Environment.StaticBools[Index - 1].DeclarationId
+					== Input.Environment.StaticBools[Index].DeclarationId))
+			{
+				Result.Diagnostics.push_back(MakeNormalizationFailure(
+					EMaterialIRError::InvalidCompilerEnvironment));
+				return Result;
+			}
 		for (size_t Index = 0;
 			Index < Input.Environment.Dependencies.size(); ++Index)
 		{
@@ -590,6 +609,9 @@ namespace Durin
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.StageResources);
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBufferBytes);
 		AppendLittleEndian(Bytes, Input.Environment.PassContractVersion);
+		// Static selection is already represented by the selected normalized MIR.
+		// Do not salt the program identity with the request configuration itself:
+		// distinct configurations that select identical code share one retained program.
 		constexpr std::array<std::string_view, 4> EntryPoints{
 			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
 		AppendLittleEndian(Bytes, static_cast<uint32>(EntryPoints.size()));

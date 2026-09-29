@@ -21,6 +21,28 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	inline constexpr uint32 MaterialMaxStaticBoolDeclarations = 32;
+
+	DENUM()
+	enum class EMaterialQualityLevel : uint8
+	{
+		Low,
+		High,
+	};
+
+	ENGINE_API auto GetMaterialQualityLevel() -> EMaterialQualityLevel;
+	ENGINE_API auto SetMaterialQualityLevel(EMaterialQualityLevel Quality) -> bool;
+
+	DSTRUCT()
+	struct FMaterialStaticBoolOverride
+	{
+		GENERATED_BODY()
+		DPROPERTY(Edit)
+		FGuid DeclarationId;
+		DPROPERTY(Edit)
+		bool Value = false;
+		auto operator==(const FMaterialStaticBoolOverride&) const -> bool = default;
+	};
 
 	// Logical parameter type used in declarations and serialized records.
 	DENUM()

@@ -327,6 +327,26 @@ namespace Durin
 
 #undef DURIN_DEFINE_MATERIAL_CONTEXT_BUILD
 
+	auto DMaterialExpressionStaticBool::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.StaticBool(DeclarationId, DefaultValue));
+	}
+
+	auto DMaterialExpressionStaticSwitch::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.StaticSwitch(Condition, ResultType, FalseValue, TrueValue));
+	}
+
+	auto DMaterialExpressionQualitySwitch::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.QualitySwitch(ResultType, DefaultValue, Low, High));
+	}
+
+	auto DMaterialExpressionFeatureLevelSwitch::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.FeatureLevelSwitch(ResultType, DefaultValue, ES3_1, SM5, SM6));
+	}
+
 	namespace
 	{
 		auto BuildTransform(MIR::FEmitter& Emitter, EMaterialProgramOpcode Opcode,

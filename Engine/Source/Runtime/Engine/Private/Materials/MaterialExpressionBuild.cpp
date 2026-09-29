@@ -75,6 +75,8 @@ namespace Durin::MIR
 		}
 		std::map<FGuid, FMaterialParameterDefinition> ParameterOwners;
 		std::unordered_set<FName> ParameterNames;
+		std::map<FGuid, std::pair<FName, bool>> StaticBoolDeclarations;
+		std::unordered_map<FName, FGuid> StaticBoolNames;
 		for (auto* Expression : InExpressions)
 		{
 			if (!IsValid(Expression) || !Expression->Id.IsValid()
@@ -95,6 +97,28 @@ namespace Durin::MIR
 			});
 			if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression))
 				for (const auto& Attribute : Surface->Attributes) HashInput(Attribute.Source);
+			if (const auto* StaticBool = Cast<DMaterialExpressionStaticBool>(Expression))
+			{
+				AuthoringCodeHash.UpdateValue(StaticBool->DeclarationId);
+				AuthoringCodeHash.Update(StaticBool->Name.ToString());
+				AuthoringCodeHash.UpdateValue(StaticBool->DefaultValue);
+				const auto Existing = StaticBoolDeclarations.find(StaticBool->DeclarationId);
+				const auto ExistingName = StaticBoolNames.find(StaticBool->Name);
+				if (!StaticBool->DeclarationId.IsValid() || StaticBool->Name.IsNone()
+					|| (Existing == StaticBoolDeclarations.end()
+						&& StaticBoolDeclarations.size() >= MaterialMaxStaticBoolDeclarations)
+					|| (Existing != StaticBoolDeclarations.end()
+						&& Existing->second != std::pair{StaticBool->Name, StaticBool->DefaultValue})
+					|| (ExistingName != StaticBoolNames.end()
+						&& ExistingName->second != StaticBool->DeclarationId))
+				{
+					Fail(EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound);
+					return;
+				}
+				StaticBoolDeclarations.emplace(StaticBool->DeclarationId,
+					std::pair{StaticBool->Name, StaticBool->DefaultValue});
+				StaticBoolNames.emplace(StaticBool->Name, StaticBool->DeclarationId);
+			}
 
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
 				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
@@ -246,7 +270,9 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool
 	{
 		if (Value.GetTexture()) return Type == EMaterialProgramValueType::Texture2D;
-		return *Value.GetIndex() < Result.IR.Nodes.size() && Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
+		if (Value.GetStaticBool()) return Type == EMaterialProgramValueType::StaticBool;
+		return Value.GetIndex() && *Value.GetIndex() < Result.IR.Nodes.size()
+			&& Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
 	}
 
 	auto FGraphBuilderImpl::BroadcastScalar(FValue Value,
@@ -631,6 +657,102 @@ namespace Durin::MIR
 			.Inputs = {Index}, .Payload = FMaterialTransformPayload{Source, Destination}});
 	}
 
+	auto FGraphBuilderImpl::ResolveNumericChoice(const FMaterialNumericInput& Stored,
+		EMaterialProgramValueType Type) -> FValue
+	{
+		if (Type > EMaterialProgramValueType::Float4 || Stored.Constant.empty()
+			|| Stored.Constant.size() > 4
+			|| !std::ranges::all_of(Stored.Constant,
+				[](float Value) { return std::isfinite(Value); }))
+			return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+		const auto StoredType = static_cast<EMaterialProgramValueType>(Stored.Constant.size() - 1);
+		if (StoredType != Type && StoredType != EMaterialProgramValueType::Float)
+			return Fail(EMaterialExpressionError::InputIncompatibleType);
+		if (!Stored.Connection.ExpressionId.IsValid()
+			&& (Stored.Connection.OutputIndex != 0 || Stored.Connection.OutputId.IsValid()))
+			return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+		FValue Value = Stored.Connection.ExpressionId.IsValid()
+			? Resolve(Stored.Connection)
+			: FValue(Literal(Stored.UseConstant ? Stored.Constant
+				: std::vector<float>(static_cast<uint32>(Type) + 1, 0.f)));
+		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
+		if (!MatchesType(Value, Type)) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		return Value;
+	}
+
+	auto FGraphBuilderImpl::ResolveOptionalChoice(const FMaterialExpressionInput& Input,
+		const FMaterialNumericInput& DefaultValue, EMaterialProgramValueType Type) -> FValue
+	{
+		if (!Input.ExpressionId.IsValid())
+		{
+			if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
+				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+			return ResolveNumericChoice(DefaultValue, Type);
+		}
+		auto Value = Resolve(Input);
+		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
+		if (!MatchesType(Value, Type)) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		return Value;
+	}
+
+	auto FGraphBuilderImpl::StaticBool(FGuid DeclarationId, bool DefaultValue) -> FValue
+	{
+		if (!DeclarationId.IsValid()) return Fail(EMaterialExpressionError::ParameterExpressionRequiresValidParameterGUID);
+		return FStaticBoolReference{DeclarationId, DefaultValue};
+	}
+
+	auto FGraphBuilderImpl::StaticSwitch(const FMaterialExpressionInput& Condition,
+		EMaterialProgramValueType Type, const FMaterialNumericInput& FalseValue,
+		const FMaterialNumericInput& TrueValue) -> FValue
+	{
+		const auto Selector = Resolve(Condition);
+		const auto* StaticBool = Selector.GetStaticBool();
+		if (!StaticBool) return Fail(EMaterialExpressionError::InputIncompatibleType);
+		bool bSelected = StaticBool->DefaultValue;
+		if (const auto Found = std::ranges::find(Environment.StaticBools,
+			StaticBool->DeclarationId, &FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
+			Found != Environment.StaticBools.end()) bSelected = Found->Value;
+		if (bValidateAuthoring)
+		{
+			const auto False = ResolveNumericChoice(FalseValue, Type);
+			const auto True = ResolveNumericChoice(TrueValue, Type);
+			return bSelected ? True : False;
+		}
+		return ResolveNumericChoice(bSelected ? TrueValue : FalseValue, Type);
+	}
+
+	auto FGraphBuilderImpl::QualitySwitch(EMaterialProgramValueType Type,
+		const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& Low,
+		const FMaterialExpressionInput& High) -> FValue
+	{
+		if (bValidateAuthoring)
+		{
+			(void)ResolveNumericChoice(DefaultValue, Type);
+			(void)ResolveOptionalChoice(Low, DefaultValue, Type);
+			(void)ResolveOptionalChoice(High, DefaultValue, Type);
+			if (!Result.Diagnostics.empty()) return InvalidIndex;
+		}
+		return ResolveOptionalChoice(Environment.Quality == EMaterialQualityLevel::Low ? Low : High,
+			DefaultValue, Type);
+	}
+
+	auto FGraphBuilderImpl::FeatureLevelSwitch(EMaterialProgramValueType Type,
+		const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& ES3_1,
+		const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue
+	{
+		if (bValidateAuthoring)
+		{
+			(void)ResolveNumericChoice(DefaultValue, Type);
+			(void)ResolveOptionalChoice(ES3_1, DefaultValue, Type);
+			(void)ResolveOptionalChoice(SM5, DefaultValue, Type);
+			(void)ResolveOptionalChoice(SM6, DefaultValue, Type);
+			if (!Result.Diagnostics.empty()) return InvalidIndex;
+		}
+		const auto& Selected = Environment.FeatureLevel == ERHIFeatureLevel::ES3_1 ? ES3_1
+			: Environment.FeatureLevel == ERHIFeatureLevel::SM5 ? SM5 : SM6;
+		return ResolveOptionalChoice(Selected, DefaultValue, Type);
+	}
+
 	auto FGraphBuilderImpl::Coordinates() -> uint32
 	{
 		const std::array Channel{0.f};
@@ -651,7 +773,7 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult
 	{
 		if (Roots.size() > MaterialFunctionMaxOutputs) Fail(EMaterialExpressionError::RootCountExceedsBound);
-		BuildAllExpressions();
+		if (bValidateAuthoring) BuildAllExpressions();
 		if (Result.Diagnostics.empty()) for (const auto& Root : Roots) Result.Roots.push_back(ResolveIndex(Root));
 		if (!Result.Diagnostics.empty())
 		{

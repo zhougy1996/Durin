@@ -87,6 +87,12 @@ namespace Durin
 		}
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
 		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
+		auto GetStaticBoolOverrides() const -> std::span<const FMaterialStaticBoolOverride>
+		{
+			return StaticBoolOverrides;
+		}
+		ENGINE_API auto SetStaticBoolOverride(FGuid DeclarationId, bool Value) -> bool;
+		ENGINE_API auto ClearStaticBoolOverride(FGuid DeclarationId) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterValue(
@@ -155,6 +161,9 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		FMaterialPropertyOverrides PropertyOverrides;
+
+		DPROPERTY(Edit)
+		std::vector<FMaterialStaticBoolOverride> StaticBoolOverrides;
 
 		mutable FMaterialStaticProperties ResolvedStaticProperties;
 	};

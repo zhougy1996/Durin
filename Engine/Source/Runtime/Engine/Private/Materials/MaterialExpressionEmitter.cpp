@@ -84,6 +84,32 @@ namespace Durin::MIR
 		return Builder.Transform(Opcode, Input, Source, Destination);
 	}
 
+	auto FEmitter::StaticBool(FGuid DeclarationId, bool DefaultValue) -> FValue
+	{
+		return Builder.StaticBool(DeclarationId, DefaultValue);
+	}
+
+	auto FEmitter::StaticSwitch(const FMaterialExpressionInput& Condition,
+		EMaterialProgramValueType Type, const FMaterialNumericInput& FalseValue,
+		const FMaterialNumericInput& TrueValue) -> FValue
+	{
+		return Builder.StaticSwitch(Condition, Type, FalseValue, TrueValue);
+	}
+
+	auto FEmitter::QualitySwitch(EMaterialProgramValueType Type,
+		const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& Low,
+		const FMaterialExpressionInput& High) -> FValue
+	{
+		return Builder.QualitySwitch(Type, DefaultValue, Low, High);
+	}
+
+	auto FEmitter::FeatureLevelSwitch(EMaterialProgramValueType Type,
+		const FMaterialNumericInput& DefaultValue, const FMaterialExpressionInput& ES3_1,
+		const FMaterialExpressionInput& SM5, const FMaterialExpressionInput& SM6) -> FValue
+	{
+		return Builder.FeatureLevelSwitch(Type, DefaultValue, ES3_1, SM5, SM6);
+	}
+
 	auto FEmitter::Coordinates() -> uint32
 	{
 		return Builder.Coordinates();

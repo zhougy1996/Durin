@@ -400,9 +400,34 @@ namespace Durin::Editor::Material
 		if (FirstInput.ExpressionId.IsValid() && Entry.AcceptedInputTypes.empty())
 			return RejectCommand("This catalog expression has no input pin.");
 		FGraphEditSession State(*Owner.Get());
+		auto MakeUniqueStaticBoolName = [&]() {
+			const std::string BaseName = "StaticBool";
+			FName Candidate(BaseName);
+			for (uint32 Suffix = 1; std::ranges::any_of(State.Expressions, [&](const auto& Value) {
+				const auto* Declaration = Cast<DMaterialExpressionStaticBool>(Value.Get());
+				return Declaration && Declaration->Name == Candidate;
+			}); ++Suffix)
+				Candidate = FName(std::format("{}{}", BaseName, Suffix));
+			return Candidate;
+		};
+		FGuid GeneratedStaticBoolId;
+		if (Entry.Opcode == EMaterialProgramOpcode::StaticSwitch
+			&& !FirstInput.ExpressionId.IsValid())
+		{
+			TStrongObjectPtr<DMaterialExpressionStaticBool> Condition(
+				NewObject<DMaterialExpressionStaticBool>(nullptr, NAME_None));
+			Condition->Id = GeneratedStaticBoolId = FGuid::NewGuid();
+			Condition->DeclarationId = FGuid::NewGuid();
+			Condition->Name = MakeUniqueStaticBoolName();
+			FirstInput = {Condition->Id};
+			State.Presentation.Nodes.push_back({Condition->Id, X - 220, Y, "StaticBool"});
+			State.Expressions.emplace_back(Condition.Get());
+		}
 		TStrongObjectPtr<DMaterialExpression> Expression(NewObject<DMaterialExpression>(Entry.ExpressionClass, nullptr, NAME_None));
 		if (!Expression) return RejectCommand("The catalog expression class is unavailable.");
 		Expression->Id = FGuid::NewGuid();
+		if (auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression.Get()))
+			Declaration->Name = MakeUniqueStaticBoolName();
 		if (auto* Property = Expression->GetClass()->FindPropertyByName("ResultType"))
 			*static_cast<EMaterialProgramValueType*>(Property->GetValuePtr(Expression.Get())) = Entry.ResultType;
 		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()))
@@ -436,6 +461,9 @@ namespace Durin::Editor::Material
 			}
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
+			if ((Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
+				|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch)
+				&& Index > 0) return;
 			if (!FindMaterialNumericInput(*Expression, Input) && !Input.ExpressionId.IsValid())
 				if (!InvalidInput) InvalidInput = Index;
 		});
@@ -448,6 +476,11 @@ namespace Durin::Editor::Material
 		if (Result)
 		{
 			Result.GeneratedNodeIds = Result.AffectedNodeIds = {Id};
+			if (GeneratedStaticBoolId.IsValid())
+			{
+				Result.GeneratedNodeIds.push_back(GeneratedStaticBoolId);
+				Result.AffectedNodeIds.push_back(GeneratedStaticBoolId);
+			}
 			if (ParameterId.IsValid()) Result.AffectedParameterIds = {ParameterId};
 		}
 		return Result;

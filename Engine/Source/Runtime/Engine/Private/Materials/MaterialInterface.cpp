@@ -313,7 +313,8 @@ namespace Durin
 
 	auto DMaterialInterface::RequestProgramCompile(
 		const FMaterialStaticProperties& CandidateProperties,
-		bool bForceRecompile, FObjectCacheContext* Context) -> bool
+		bool bForceRecompile, FObjectCacheContext* Context,
+		std::optional<FMaterialCompilerEnvironment> RequestedEnvironment) -> bool
 	{
 		if (IsDynamicInstance()) return false;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
@@ -321,8 +322,10 @@ namespace Durin
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
-		const auto EnvironmentError = BuildDefaultMaterialCompilerEnvironment(
-			Environment);
+		const auto EnvironmentError = RequestedEnvironment
+			? FMaterialOperationResult{}
+			: BuildDefaultMaterialCompilerEnvironment(Environment);
+		if (RequestedEnvironment) Environment = std::move(*RequestedEnvironment);
 		if (!EnvironmentError)
 		{
 			CompilationOwner.MaterialCompileStatus.RequestGeneration =
@@ -368,6 +371,21 @@ namespace Durin
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
 			*this, std::move(Input), bForceRecompile, std::move(Snapshot.Snapshot->FunctionOwners), Context);
+	}
+
+	auto DMaterialInterface::RequestPreviewProgramCompile(
+		EMaterialQualityLevel Quality, ERHIFeatureLevel FeatureLevel) -> bool
+	{
+		if (Quality > EMaterialQualityLevel::High || FeatureLevel > ERHIFeatureLevel::SM6
+			|| IsDynamicInstance() || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
+		FModuleManager::Get().LoadModule("RenderCore");
+		FMaterialCompilerEnvironment Environment;
+		if (!BuildDefaultMaterialCompilerEnvironment(Environment)
+			|| FeatureLevel > Environment.FeatureLevel) return false;
+		Environment.Quality = Quality;
+		Environment.FeatureLevel = FeatureLevel;
+		return RequestProgramCompile(GetStaticProperties(), false, nullptr,
+			std::move(Environment));
 	}
 
 	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged, FObjectCacheContext* Context) -> void

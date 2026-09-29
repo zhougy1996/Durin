@@ -111,6 +111,27 @@ namespace Durin
 				MaterialRenderMaxUniformPayloadBytes);
 		}
 
+		auto SerializeProgramConfiguration(FArchive& Ar,
+			FMaterialCompilerResult& Program) -> void
+		{
+			Ar << Program.Quality << Program.FeatureLevel;
+			SerializeBoundedSequence(Ar, Program.StaticBools,
+				MaterialMaxStaticBoolDeclarations,
+				[](FArchive& Inner, FMaterialCompilerEnvironment::FStaticBoolValue& Value) {
+					Inner << Value.DeclarationId << Value.Value;
+				});
+		}
+
+		auto SerializeRequirements(FArchive& Ar,
+			FMaterialProgramRequirements& Requirements) -> void
+		{
+			Ar << Requirements.bMaterialView << Requirements.bMaterialPrimitive
+				<< Requirements.bCameraPosition << Requirements.bViewport
+				<< Requirements.bViewTransforms << Requirements.bObjectTransforms
+				<< Requirements.bBoundsCenter << Requirements.bTangentFrame
+				<< Requirements.bVertexNormal;
+		}
+
 		auto SerializePayload(
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
@@ -146,7 +167,9 @@ namespace Durin
 			SerializeBoundedString(
 				Ar, Program.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
+			SerializeProgramConfiguration(Ar, Program);
 			SerializeLayout(Ar, Program.Layout);
+			SerializeRequirements(Ar, Program.Requirements);
 			SerializeBoundedSequence(
 				Ar, Program.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
@@ -179,6 +202,16 @@ namespace Durin
 				|| Program.PassContractVersion
 					!= CurrentMaterialPassContractVersion)
 				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+			if (Program.FeatureLevel > ERHIFeatureLevel::SM6
+				|| Program.StaticBools.size() > MaterialMaxStaticBoolDeclarations
+				|| !std::ranges::is_sorted(Program.StaticBools, {},
+					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId))
+				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+			for (size_t Index = 0; Index < Program.StaticBools.size(); ++Index)
+				if (!Program.StaticBools[Index].DeclarationId.IsValid()
+					|| (Index && Program.StaticBools[Index - 1].DeclarationId
+						== Program.StaticBools[Index].DeclarationId))
+					return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
 			if (bRequireCurrentEnvironment && Program.Target != "vulkan-spirv-1.5")
 				return {EMaterialCookError::CookedProgramTargetIncompatible};
 			// Cooked execution has no compiler provider. Versions, target, layout,
@@ -309,6 +342,197 @@ namespace Durin
 		OutStaticProperties = CandidateProperties;
 		OutProgram = std::make_shared<const FMaterialCompilerResult>(
 			std::move(Candidate));
+		return {};
+	}
+
+	namespace
+	{
+		constexpr uint32 MaterialCookedProgramFamilyMagic = 0x464d4444; // DDMF
+
+		struct FCookedConfigurationRecord
+		{
+			EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
+			ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+			std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
+			uint32 ArtifactIndex = 0;
+		};
+
+		auto SerializeConfigurationRecord(FArchive& Ar,
+			FCookedConfigurationRecord& Record) -> void
+		{
+			Ar << Record.Quality << Record.FeatureLevel;
+			SerializeBoundedSequence(Ar, Record.StaticBools,
+				MaterialMaxStaticBoolDeclarations,
+				[](FArchive& Inner,
+					FMaterialCompilerEnvironment::FStaticBoolValue& Value) {
+					Inner << Value.DeclarationId << Value.Value;
+				});
+			Ar << Record.ArtifactIndex;
+		}
+
+		auto IsValidConfiguration(const FCookedConfigurationRecord& Record) -> bool
+		{
+			if (Record.Quality > EMaterialQualityLevel::High
+				|| Record.FeatureLevel > ERHIFeatureLevel::SM6
+				|| !std::ranges::is_sorted(Record.StaticBools, {},
+					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId)) return false;
+			for (size_t Index = 0; Index < Record.StaticBools.size(); ++Index)
+				if (!Record.StaticBools[Index].DeclarationId.IsValid()
+					|| (Index && Record.StaticBools[Index - 1].DeclarationId
+						== Record.StaticBools[Index].DeclarationId)) return false;
+			return true;
+		}
+	}
+
+	auto EncodeMaterialCookedProgramFamily(
+		std::span<const FMaterialCompilerResult* const> Programs,
+		const FMaterialStaticProperties& StaticProperties,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
+		FByteBuffer& OutBytes) -> FMaterialOperationResult
+	{
+		OutBytes.clear();
+		if (Programs.empty() || Programs.size() > MaterialCookedProgramMaxConfigurations)
+			return {EMaterialCookError::ProgramUnavailable};
+		std::vector<FCookedConfigurationRecord> Configurations;
+		std::vector<FByteBuffer> Artifacts;
+		std::vector<FMaterialProgramIdentity> ArtifactIdentities;
+		for (const auto* Program : Programs)
+		{
+			if (!Program) return {EMaterialCookError::ProgramUnavailable};
+			FCookedConfigurationRecord Configuration{
+				.Quality = Program->Quality,
+				.FeatureLevel = Program->FeatureLevel,
+				.StaticBools = Program->StaticBools};
+			if (!IsValidConfiguration(Configuration))
+				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+			if (std::ranges::any_of(Configurations, [&](const auto& Existing) {
+				return Existing.Quality == Configuration.Quality
+					&& Existing.FeatureLevel == Configuration.FeatureLevel
+					&& Existing.StaticBools == Configuration.StaticBools;
+			})) return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+			const auto Existing = std::ranges::find(ArtifactIdentities, Program->Identity);
+			if (Existing == ArtifactIdentities.end())
+			{
+				FByteBuffer Artifact;
+				if (auto Encoded = EncodeMaterialCookedProgram(*Program, StaticProperties,
+					TargetPlatform, TargetProfile, Artifact); !Encoded) return Encoded;
+				Configuration.ArtifactIndex = static_cast<uint32>(Artifacts.size());
+				ArtifactIdentities.push_back(Program->Identity);
+				Artifacts.push_back(std::move(Artifact));
+			}
+			else Configuration.ArtifactIndex = static_cast<uint32>(Existing - ArtifactIdentities.begin());
+			Configurations.push_back(std::move(Configuration));
+		}
+		std::ranges::sort(Configurations, [](const auto& Left, const auto& Right) {
+			if (Left.Quality != Right.Quality) return Left.Quality < Right.Quality;
+			if (Left.FeatureLevel != Right.FeatureLevel) return Left.FeatureLevel < Right.FeatureLevel;
+			return Left.StaticBools < Right.StaticBools;
+		});
+		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
+		uint32 Magic = MaterialCookedProgramFamilyMagic;
+		uint32 Version = MaterialCookedProgramPayloadSchemaVersion;
+		Ar << Magic << Version << TargetPlatform << TargetProfile;
+		SerializeBoundedSequence(Ar, Configurations,
+			MaterialCookedProgramMaxConfigurations, SerializeConfigurationRecord);
+		SerializeBoundedSequence(Ar, Artifacts,
+			MaterialCookedProgramMaxConfigurations,
+			[](FArchive& Inner, FByteBuffer& Artifact) {
+				SerializeByteBuffer(Inner, Artifact, MaterialCookedProgramMaxPayloadBytes);
+			});
+		if (!Ar.IsError())
+		{
+			auto Checksum = FXxHash128::HashBuffer(OutBytes);
+			SerializeHash(Ar, Checksum);
+		}
+		if (Ar.IsError() || OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
+		{
+			OutBytes.clear();
+			return {EMaterialCookError::CookedProgramExceedsPayloadByteLimit};
+		}
+		return {};
+	}
+
+	auto DecodeMaterialCookedProgramFamily(
+		FByteView Bytes,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
+		EMaterialQualityLevel Quality,
+		ERHIFeatureLevel FeatureLevel,
+		std::span<const FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools,
+		FMaterialStaticProperties& OutStaticProperties,
+		std::shared_ptr<const FMaterialCompilerResult>& OutProgram) -> FMaterialOperationResult
+	{
+		if (Bytes.size() < 32 || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
+			return {EMaterialCookError::CookedProgramByteExtentInvalid};
+		const FByteView Payload = Bytes.first(Bytes.size() - 16);
+		FCanonicalMemoryReader ChecksumReader(Bytes.last(16), EArchivePurpose::CookedPayload);
+		FXxHash128 StoredChecksum;
+		SerializeHash(ChecksumReader, StoredChecksum);
+		if (ChecksumReader.IsError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
+			return {EMaterialCookError::CookedProgramChecksumInvalid};
+		uint32 Magic = 0, Version = 0;
+		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
+		std::vector<FCookedConfigurationRecord> Configurations;
+		std::vector<FByteBuffer> Artifacts;
+		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
+		Ar << Magic << Version << Platform << Profile;
+		SerializeBoundedSequence(Ar, Configurations,
+			MaterialCookedProgramMaxConfigurations, SerializeConfigurationRecord);
+		SerializeBoundedSequence(Ar, Artifacts,
+			MaterialCookedProgramMaxConfigurations,
+			[](FArchive& Inner, FByteBuffer& Artifact) {
+				SerializeByteBuffer(Inner, Artifact, MaterialCookedProgramMaxPayloadBytes);
+			});
+		if (Ar.IsError() || !RequireArchiveEnd(Ar))
+			return {FMaterialError::FromArchive(*Ar.GetFailure())};
+		if (Magic != MaterialCookedProgramFamilyMagic
+			|| Version != MaterialCookedProgramPayloadSchemaVersion)
+			return {EMaterialCookError::IncompatiblePayloadFormat};
+		if (Platform != ExpectedPlatform || Profile != ExpectedProfile)
+			return {EMaterialCookError::CookedProgramTargetIncompatible};
+		if (Configurations.empty() || Artifacts.empty())
+			return {EMaterialCookError::ProgramUnavailable};
+		std::vector<std::shared_ptr<const FMaterialCompilerResult>> DecodedArtifacts;
+		DecodedArtifacts.reserve(Artifacts.size());
+		std::optional<FMaterialStaticProperties> CommonProperties;
+		for (const auto& Artifact : Artifacts)
+		{
+			FMaterialStaticProperties Properties;
+			std::shared_ptr<const FMaterialCompilerResult> Program;
+			if (auto Decoded = DecodeMaterialCookedProgram(Artifact, ExpectedPlatform,
+				ExpectedProfile, Properties, Program); !Decoded) return Decoded;
+			if (CommonProperties && *CommonProperties != Properties)
+				return {EMaterialCookError::StaticPropertiesMismatch};
+			CommonProperties = Properties;
+			DecodedArtifacts.push_back(std::move(Program));
+		}
+		const FCookedConfigurationRecord* Selected = nullptr;
+		for (const auto& Configuration : Configurations)
+		{
+			if (!IsValidConfiguration(Configuration)
+				|| Configuration.ArtifactIndex >= DecodedArtifacts.size())
+				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+			if (Configuration.Quality == Quality
+				&& Configuration.FeatureLevel == FeatureLevel
+				&& (StaticBools.empty()
+					|| std::ranges::equal(Configuration.StaticBools, StaticBools)))
+			{
+				if (Selected && StaticBools.empty()
+					&& Selected->StaticBools != Configuration.StaticBools)
+					return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
+				Selected = &Configuration;
+			}
+		}
+		if (!Selected) return {EMaterialCookError::CookedProgramConfigurationMissing};
+		auto Configured = std::make_shared<FMaterialCompilerResult>(
+			*DecodedArtifacts[Selected->ArtifactIndex]);
+		Configured->Quality = Quality;
+		Configured->FeatureLevel = FeatureLevel;
+		Configured->StaticBools = Selected->StaticBools;
+		OutStaticProperties = *CommonProperties;
+		OutProgram = std::move(Configured);
 		return {};
 	}
 }

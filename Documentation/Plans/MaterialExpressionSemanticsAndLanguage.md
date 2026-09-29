@@ -19,12 +19,13 @@ not carry evaluation-stage or coordinate-space semantics. Existing Surface roots
 are fragment-only, while `WorldPosition`, `Time`, texture coordinates, texture
 samples, and numeric operations are admitted through shape-only signatures.
 
-Stages 0 through 2 completed on 2026-09-30. The frozen contract below records the semantic
+Stages 0 through 4 completed on 2026-09-30. The frozen contract below records the semantic
 algebra, pass-context ABI, static-selection ownership, compatibility policy,
 fixtures, and budgets. Existing material and function content now compiles through
 semantic MIR, and the frozen pure-math/geometric operation set is authorable,
 persistent, foldable, and deterministic without changing the Surface or renderer
-ABI. Stage 4 is current: add bounded static, quality, and feature selection.
+ABI. Stage 5 is current: complete product integration across authoring, Cook,
+runtime, and renderer workflows.
 
 ## Goal
 
@@ -584,22 +585,34 @@ also pass, including view changes, non-uniform transforms, reload and recovery.
 
 Dependency: Stage 3. Outcome: compile-time selection reuses bounded variants.
 
-- [ ] Add static bool declarations/defaults and instance overrides with GUIDs,
+- [x] Add static bool declarations/defaults and instance overrides with GUIDs,
   inheritance, editing, persistence, invalidation, variant resolution, and no
   dynamic/uniform representation.
-- [ ] Add Static Bool and lazy Static Switch. Validate authored inputs but admit
+- [x] Add Static Bool and lazy Static Switch. Validate authored inputs but admit
   only the selected branch into IR, resources, dependencies, limits, and code.
-- [ ] Add Low/High Quality and ES3_1/SM5/SM6 Feature Level switches with Default;
+- [x] Add Low/High Quality and ES3_1/SM5/SM6 Feature Level switches with Default;
   route selections through requests, preview, lookup, diagnostics, and identity.
-- [ ] Extend Cook/DMAT for exact required root/instance/quality/feature variants;
+- [x] Extend Cook/DMAT for exact required root/instance/quality/feature variants;
   reject incompatible feature tiers or missing Game variants without compilation.
-- [ ] Prove inactive branches retain no resources/dependencies, identical results
+- [x] Prove inactive branches retain no resources/dependencies, identical results
   reuse programs, changes request one variant, and declaration/cache bounds hold.
-- [ ] Record variant/code/Cook growth for fixed 1/4/8 switches and Low/High times
+- [x] Record variant/code/Cook growth for fixed 1/4/8 switches and Low/High times
   supported feature tiers; never enumerate an unbounded Cartesian product.
 
 Completion: selectors prune before resource/layout generation, reuse safely, and
 load source-free with explicit configuration.
+
+Completed 2026-09-30. Static declarations and sorted inherited overrides now
+resolve before root-driven expansion; inactive branches do not enter MIR,
+parameters, function dependencies, resources, limits, generated source, or
+code. Preview requests explicit bounded quality/feature configurations. DMAT 9
+stores exact configuration mappings and deduplicates identical program
+identities; Game performs source-free exact lookup. The fixed selector fixture
+requested exactly six variants for each 1/4/8-declaration graph, retained one
+identical program, held canonical/generated maxima at 487/8,802 bytes, and
+produced 113,604/113,961/114,437-byte configuration families. Compiler (62),
+graph editing (99), package (6), lifecycle (5), and Cook (7) suites pass; the
+selector qualification case passes independently.
 
 ### Stage 5: Complete Product Integration
 

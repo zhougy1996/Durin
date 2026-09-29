@@ -336,6 +336,120 @@ TEST(FMaterialProgramGeneratorTests, ContextAndSpatialTransformsCompileWithExact
 	EXPECT_FALSE(MIR::Normalize(Rejected));
 }
 
+TEST(FMaterialProgramSemanticTests, StaticSelectorsPruneBeforeNormalizationAndResourceDiscovery)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	Testing::FTestMaterialExpressionGraph Graph;
+	FMaterialParameterDefinition SelectedParameter;
+	SelectedParameter.Id = FGuid::NewGuid();
+	SelectedParameter.Name = "SelectedVector";
+	SelectedParameter.Type = EMaterialParameterType::Scalar;
+	SelectedParameter.Value = FMaterialParameterValue::MakeScalar(0.8f);
+	const std::array Definitions{SelectedParameter};
+	auto& SelectorNode = Graph.Add(EMaterialProgramOpcode::StaticBool, Type::StaticBool,
+		{}, {}, {}, Definitions);
+	auto* Selector = Cast<DMaterialExpressionStaticBool>(&SelectorNode);
+	ASSERT_NE(Selector, nullptr);
+	Selector->Name = "UseParameter";
+	Selector->DefaultValue = false;
+	auto& Fallback = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+		{}, {}, {0.1f}, Definitions);
+	auto& Parameter = Graph.Add(EMaterialProgramOpcode::Parameter, Type::Float,
+		{}, SelectedParameter.Id, {}, Definitions);
+	auto& SwitchNode = Graph.Add(EMaterialProgramOpcode::StaticSwitch, Type::Float,
+		{},
+		{}, {}, Definitions);
+	auto* Switch = Cast<DMaterialExpressionStaticSwitch>(&SwitchNode);
+	ASSERT_NE(Switch, nullptr);
+	Switch->Condition = Testing::MakeLink(SelectorNode);
+	Switch->FalseValue.Connection = Testing::MakeLink(Fallback);
+	Switch->TrueValue.Connection = Testing::MakeLink(Parameter);
+	Graph.Outputs.Roughness.Connection = Testing::MakeLink(SwitchNode);
+
+	auto NormalizeSelection = [&](bool bUseParameter) {
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
+		MIR::FBuildEnvironment BuildEnvironment;
+		BuildEnvironment.StaticBools.push_back({Selector->DeclarationId, bUseParameter});
+		MIR::FGraphBuilder Builder(Expressions, BuildEnvironment);
+		auto Built = Builder.FinishSurface(Graph.Outputs);
+		EXPECT_TRUE(Built) << (Built.Diagnostics.empty() ? "missing diagnostic"
+			: FormatMaterialError(Built.Diagnostics.front().Error));
+		MIR::FCompilerInput Input{.IR = std::move(Built.IR),
+			.Parameters = std::move(Built.Parameters)};
+		Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+		Input.Environment.StaticBools = BuildEnvironment.StaticBools;
+		return MIR::Normalize(Input);
+	};
+	const auto Disabled = NormalizeSelection(false);
+	ASSERT_TRUE(Disabled);
+	EXPECT_TRUE(Disabled.ActiveParameters.empty());
+	const auto Enabled = NormalizeSelection(true);
+	ASSERT_TRUE(Enabled);
+	ASSERT_EQ(Enabled.ActiveParameters.size(), 1u);
+	EXPECT_EQ(Enabled.ActiveParameters.front().Id, SelectedParameter.Id);
+	EXPECT_NE(Enabled.Identity, Disabled.Identity);
+	for (const auto& Node : Enabled.IR.Nodes)
+	{
+		EXPECT_NE(Node.Opcode, EMaterialProgramOpcode::StaticBool);
+		EXPECT_NE(Node.Opcode, EMaterialProgramOpcode::StaticSwitch);
+	}
+}
+
+TEST(FMaterialProgramSemanticTests, QualityAndFeatureSelectorsUseExactBranchOrDefault)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	Testing::FTestMaterialExpressionGraph Graph;
+	auto& QualityDefault = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+		{}, {}, {.X = .25f});
+	auto& QualityLow = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+		{}, {}, {.X = .1f});
+	auto& QualityNode = Graph.Add(EMaterialProgramOpcode::QualitySwitch, Type::Float,
+		{} , {}, {});
+	auto* Quality = Cast<DMaterialExpressionQualitySwitch>(&QualityNode);
+	ASSERT_NE(Quality, nullptr);
+	Quality->DefaultValue.Connection = Testing::MakeLink(QualityDefault);
+	Quality->Low = Testing::MakeLink(QualityLow);
+	auto& FeatureDefault = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+		{}, {}, {.X = .4f});
+	auto& FeatureSM5 = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+		{}, {}, {.X = .5f});
+	auto& FeatureNode = Graph.Add(EMaterialProgramOpcode::FeatureLevelSwitch, Type::Float,
+		{}, {}, {});
+	auto* Feature = Cast<DMaterialExpressionFeatureLevelSwitch>(&FeatureNode);
+	ASSERT_NE(Feature, nullptr);
+	Feature->DefaultValue.Connection = Testing::MakeLink(FeatureDefault);
+	Feature->SM5 = Testing::MakeLink(FeatureSM5);
+	Graph.Outputs.Roughness.Connection = Testing::MakeLink(QualityNode);
+	Graph.Outputs.Metallic.Connection = Testing::MakeLink(FeatureNode);
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Graph.Outputs));
+	auto Build = [&](EMaterialQualityLevel InQuality, ERHIFeatureLevel InFeature) {
+		MIR::FGraphBuilder Builder(Expressions,
+			{.Quality = InQuality, .FeatureLevel = InFeature});
+		return Builder.FinishSurface(Graph.Outputs);
+	};
+	const auto LowSM5 = Build(EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5);
+	ASSERT_TRUE(LowSM5);
+	EXPECT_FLOAT_EQ(LowSM5.IR.Nodes[
+		LowSM5.IR.SurfaceRoot.Inputs[static_cast<uint32>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex]
+		.GetLiteral().X, .1f);
+	EXPECT_FLOAT_EQ(LowSM5.IR.Nodes[
+		LowSM5.IR.SurfaceRoot.Inputs[static_cast<uint32>(EMaterialSurfaceOutput::Metallic)].ExpressionIndex]
+		.GetLiteral().X, .5f);
+	const auto HighSM6 = Build(EMaterialQualityLevel::High, ERHIFeatureLevel::SM6);
+	ASSERT_TRUE(HighSM6);
+	EXPECT_FLOAT_EQ(HighSM6.IR.Nodes[
+		HighSM6.IR.SurfaceRoot.Inputs[static_cast<uint32>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex]
+		.GetLiteral().X, .25f);
+	EXPECT_FLOAT_EQ(HighSM6.IR.Nodes[
+		HighSM6.IR.SurfaceRoot.Inputs[static_cast<uint32>(EMaterialSurfaceOutput::Metallic)].ExpressionIndex]
+		.GetLiteral().X, .4f);
+}
+
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
 {
 	using namespace Durin;

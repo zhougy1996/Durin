@@ -9,6 +9,7 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "RHIFeatureLevel.h"
 
 #include <optional>
 #include <span>
@@ -40,9 +41,18 @@ namespace Durin
 
 	struct FMaterialCompilerEnvironment
 	{
+		struct FStaticBoolValue
+		{
+			FGuid DeclarationId;
+			bool Value = false;
+			auto operator<=>(const FStaticBoolValue&) const = default;
+		};
 		std::string CompilerIdentity;
 		std::string Target = "vulkan-spirv-1.5";
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		std::vector<FStaticBoolValue> StaticBools;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		FMaterialCompilerResourceLimits ResourceLimits;
 
@@ -230,6 +240,9 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		MIR::FModule IR;
 		// Sorted unique runtime binding contract, published with these shaders.
 		// Values and resource references remain owned by material definitions/instances.

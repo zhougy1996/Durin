@@ -27,7 +27,15 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(BasePath, Base));
-	ASSERT_TRUE(SetExpandedProgram(*Base));
+	auto BaseGraph = Durin::Testing::MakePBRMaterialExpressionsForTest();
+	auto& StaticBool = BaseGraph.Add(Durin::EMaterialProgramOpcode::StaticBool,
+		Durin::EMaterialProgramValueType::StaticBool, {}, {}, {});
+	auto* StaticDeclaration = Durin::Cast<Durin::DMaterialExpressionStaticBool>(&StaticBool);
+	ASSERT_NE(StaticDeclaration, nullptr);
+	StaticDeclaration->Name = Durin::FName("UsePackageDetail");
+	StaticDeclaration->DefaultValue = false;
+	const Durin::FGuid StaticBoolId = StaticDeclaration->DeclarationId;
+	ASSERT_TRUE(BaseGraph.Apply(*Base));
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	Base->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::NormalName(), Durin::FVector3(0.0, 1.0, 1.0));
 	Base->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.7f);
@@ -43,6 +51,17 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	Durin::DMaterialInstance* Instance = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Instance->SetStaticBoolOverride(StaticBoolId, true));
+	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Instance->GetAcceptedCompiledProgram());
+	ASSERT_EQ(Instance->GetAcceptedCompiledProgram()->StaticBools.size(), 1u);
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram()->StaticBools.front(),
+		(Durin::FMaterialCompilerEnvironment::FStaticBoolValue{StaticBoolId, true}));
+	auto* Dynamic = Durin::DMaterialInstance::CreateDynamic(
+		Instance, nullptr, "StaticOverrideDynamic");
+	ASSERT_NE(Dynamic, nullptr);
+	EXPECT_FALSE(Dynamic->SetStaticBoolOverride(StaticBoolId, false));
+	Durin::MarkAsGarbage(Dynamic);
 	Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.35f);
 	Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.8f);
 	Instance->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.0f);
@@ -72,6 +91,9 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Loaded->GetParent(), nullptr);
+	ASSERT_EQ(Loaded->GetStaticBoolOverrides().size(), 1u);
+	EXPECT_EQ(Loaded->GetStaticBoolOverrides().front(),
+		(Durin::FMaterialStaticBoolOverride{StaticBoolId, true}));
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LoadedTexture));

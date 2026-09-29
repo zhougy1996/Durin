@@ -78,6 +78,10 @@ namespace Durin
 				case EMaterialExpressionError::CollectionParameterMissingDeclaration: return "Collection parameter expression refers to a missing declaration.";
 				case EMaterialExpressionError::CollectionParameterInvalidSchema: return "Collection parameter expression refers to an invalid collection schema.";
 				case EMaterialExpressionError::CollectionCountExceedsBound: return "A material closure may reference at most four parameter collections.";
+				case EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound: return "Static bool declarations require unique valid GUIDs and names and are bounded to 32 per root.";
+				case EMaterialExpressionError::StaticBoolOverrideOrphan: return "A static bool override does not match a root declaration.";
+				case EMaterialExpressionError::StaticSwitchMissingSelectedBranch: return "The selected static-switch branch is missing.";
+				case EMaterialExpressionError::UnsupportedMaterialFeatureLevel: return "The requested material feature level is unsupported.";
 				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build registered an invalid IR index.";
 				case EMaterialExpressionError::InvalidTextureDefaultConsumer: return "A texture default may only be consumed by sampling or a function texture port.";
 				case EMaterialExpressionError::OpcodeResultWidthInputCountInvalid: return "Expression opcode, result width, or input count is invalid.";
@@ -272,6 +276,7 @@ namespace Durin
 				case EMaterialCookError::InvalidArchive: return "Material cooked archive is invalid.";
 				case EMaterialCookError::ProgramUnavailable: return "Material cooked program is unavailable.";
 				case EMaterialCookError::PayloadReadFailed: return "Material cooked payload could not be read.";
+				case EMaterialCookError::CookedProgramConfigurationMissing: return "The exact cooked material quality, feature, and static configuration is missing.";
 				}
 			}
 			else if constexpr (std::is_same_v<T, EMaterialCompileError>)

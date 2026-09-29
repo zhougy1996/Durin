@@ -45,6 +45,7 @@ namespace Durin::Editor::Material
 		case EMaterialProgramValueType::Float4: return "Float4";
 		case EMaterialProgramValueType::Texture2D: return "Texture2D";
 		case EMaterialProgramValueType::Surface: return "Surface";
+		case EMaterialProgramValueType::StaticBool: return "Static Bool";
 		}
 		return "Unknown";
 	}

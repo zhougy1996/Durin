@@ -1029,6 +1029,9 @@ float4 FragmentMain(
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
+		Result.Quality = Input.Environment.Quality;
+		Result.FeatureLevel = Input.Environment.FeatureLevel;
+		Result.StaticBools = Input.Environment.StaticBools;
 		Result.Timings.NormalizationMicroseconds = Input.NormalizationMicroseconds;
 		const auto GenerateBegin = std::chrono::steady_clock::now();
 		const auto& Normalized = Input.Normalized;

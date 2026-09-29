@@ -53,6 +53,6 @@ namespace Durin
 
 	auto FMaterialInstanceVersion::Serialize(FArchive& Ar) -> bool
 	{
-		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialInstanceParameters");
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialInstanceParameters", 1);
 	}
 }

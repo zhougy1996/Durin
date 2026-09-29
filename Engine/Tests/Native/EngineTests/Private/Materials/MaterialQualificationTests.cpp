@@ -281,6 +281,125 @@ TEST(FMaterialQualificationTests, InstanceVariantPayloadBaseline)
 	Durin::ShutdownAssetCompilingManager();
 }
 
+TEST(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	FModuleManager::Get().LoadModule("RenderCore");
+	for (const uint32 DeclarationCount : {1u, 4u, 8u})
+	{
+		Testing::FTestMaterialExpressionGraph Graph;
+		auto& Base = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .05f});
+		DMaterialExpression* Chain = &Base;
+		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
+		for (uint32 Index = 0; Index < DeclarationCount; ++Index)
+		{
+			auto& DeclarationNode = Graph.Add(EMaterialProgramOpcode::StaticBool,
+				Type::StaticBool, {}, {}, {});
+			auto* Declaration = Cast<DMaterialExpressionStaticBool>(&DeclarationNode);
+			ASSERT_NE(Declaration, nullptr);
+			Declaration->Name = FName(std::format("QualificationStatic{}", Index));
+			Declaration->DefaultValue = false;
+			StaticBools.push_back({Declaration->DeclarationId, false});
+			auto& Enabled = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+				{}, {}, {.X = .1f + .01f * static_cast<float>(Index)});
+			auto& SwitchNode = Graph.Add(EMaterialProgramOpcode::StaticSwitch,
+				Type::Float, {}, {}, {});
+			auto* Switch = Cast<DMaterialExpressionStaticSwitch>(&SwitchNode);
+			ASSERT_NE(Switch, nullptr);
+			Switch->Condition = Testing::MakeLink(DeclarationNode);
+			Switch->FalseValue.Connection = Testing::MakeLink(*Chain);
+			Switch->TrueValue.Connection = Testing::MakeLink(Enabled);
+			Chain = &SwitchNode;
+		}
+		std::ranges::sort(StaticBools, {},
+			&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
+		auto& Low = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .2f});
+		auto& High = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .3f});
+		auto& QualityNode = Graph.Add(EMaterialProgramOpcode::QualitySwitch,
+			Type::Float, {}, {}, {});
+		auto* Quality = Cast<DMaterialExpressionQualitySwitch>(&QualityNode);
+		ASSERT_NE(Quality, nullptr);
+		Quality->DefaultValue.Connection = Testing::MakeLink(Low);
+		Quality->Low = Testing::MakeLink(Low);
+		Quality->High = Testing::MakeLink(High);
+		auto& ES31 = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .4f});
+		auto& SM5 = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .5f});
+		auto& SM6 = Graph.Add(EMaterialProgramOpcode::Constant, Type::Float,
+			{}, {}, {.X = .6f});
+		auto& FeatureNode = Graph.Add(EMaterialProgramOpcode::FeatureLevelSwitch,
+			Type::Float, {}, {}, {});
+		auto* Feature = Cast<DMaterialExpressionFeatureLevelSwitch>(&FeatureNode);
+		ASSERT_NE(Feature, nullptr);
+		Feature->DefaultValue.Connection = Testing::MakeLink(ES31);
+		Feature->ES3_1 = Testing::MakeLink(ES31);
+		Feature->SM5 = Testing::MakeLink(SM5);
+		Feature->SM6 = Testing::MakeLink(SM6);
+		auto& QualityFeature = Graph.Add(EMaterialProgramOpcode::Add, Type::Float,
+			{Testing::MakeLink(QualityNode), Testing::MakeLink(FeatureNode)}, {}, {});
+		auto& Result = Graph.Add(EMaterialProgramOpcode::Add, Type::Float,
+			{Testing::MakeLink(*Chain), Testing::MakeLink(QualityFeature)}, {}, {});
+		Graph.Outputs.Roughness.Connection = Testing::MakeLink(Result);
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
+		ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Graph.Outputs));
+		FMaterialCompilerEnvironment BaseEnvironment;
+		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(BaseEnvironment));
+		std::vector<FMaterialCompilerResult> Programs;
+		uint64 MaximumCanonicalBytes = 0, MaximumGeneratedBytes = 0;
+		for (const auto QualityLevel : {EMaterialQualityLevel::Low,
+			EMaterialQualityLevel::High})
+			for (const auto FeatureLevel : {ERHIFeatureLevel::ES3_1,
+				ERHIFeatureLevel::SM5, ERHIFeatureLevel::SM6})
+			{
+				MIR::FGraphBuilder Builder(Expressions, {.Quality = QualityLevel,
+					.FeatureLevel = FeatureLevel, .StaticBools = StaticBools});
+				auto Built = Builder.FinishSurface(Graph.Outputs);
+				ASSERT_TRUE(Built);
+				MIR::FCompilerInput Input{.IR = std::move(Built.IR)};
+				Input.Environment = BaseEnvironment;
+				Input.Environment.Quality = QualityLevel;
+				Input.Environment.FeatureLevel = FeatureLevel;
+				Input.Environment.StaticBools = StaticBools;
+				auto Normalized = MIR::Normalize(Input);
+				ASSERT_TRUE(Normalized);
+				MaximumCanonicalBytes = std::max<uint64>(MaximumCanonicalBytes,
+					Normalized.CanonicalBytes.size());
+				auto Program = MIR::Compile(Input);
+				ASSERT_TRUE(Program);
+				MaximumGeneratedBytes = std::max<uint64>(MaximumGeneratedBytes,
+					Program.GeneratedSource.size());
+				Programs.push_back(std::move(Program));
+			}
+		std::vector<const FMaterialCompilerResult*> ProgramPointers;
+		std::unordered_set<FMaterialProgramIdentity> Identities;
+		for (const auto& Program : Programs)
+		{
+			ProgramPointers.push_back(&Program);
+			Identities.insert(Program.Identity);
+		}
+		FByteBuffer Cooked;
+		ASSERT_TRUE(EncodeMaterialCookedProgramFamily(ProgramPointers, {},
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Cooked));
+		EXPECT_EQ(Programs.size(), MaterialCookedProgramMaxConfigurations);
+		EXPECT_LE(Identities.size(), Programs.size());
+		EXPECT_LE(MaximumCanonicalBytes, 256ull * 1024ull);
+		EXPECT_LE(MaximumGeneratedBytes, 256ull * 1024ull);
+		EXPECT_LE(Cooked.size(), 2ull * 1024ull * 1024ull);
+		std::cout << "[MaterialSelectorGrowth] declarations=" << DeclarationCount
+			<< " requested_variants=" << Programs.size()
+			<< " distinct_programs=" << Identities.size()
+			<< " max_canonical_bytes=" << MaximumCanonicalBytes
+			<< " max_generated_bytes=" << MaximumGeneratedBytes
+			<< " family_cooked_bytes=" << Cooked.size() << '\n';
+	}
+}
+
 TEST(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 {
 	using namespace Durin;

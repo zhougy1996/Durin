@@ -176,6 +176,34 @@ namespace Durin
 				}
 			}
 		});
+		const std::vector<FMaterialStaticBoolOverride>* StaticRecords = &StaticBoolOverrides;
+		if (Proposal && Proposal->MemberProperty
+			&& Proposal->MemberProperty->NamePrivate == FName("StaticBoolOverrides"))
+		{
+			if (Proposal->DraftRootProperty != Proposal->MemberProperty
+				|| !Proposal->DraftRootContainer)
+				return {EMaterialInstanceError::IncompleteParameterDraft};
+			StaticRecords = Proposal->DraftRootProperty->ContainerPtrToValuePtr<
+				std::vector<FMaterialStaticBoolOverride>>(
+					Proposal->DraftRootContainer, Proposal->DraftRootArrayIndex);
+		}
+		std::unordered_set<FGuid> StaticIds;
+		if (StaticRecords->size() > MaterialMaxStaticBoolDeclarations)
+			Result.Error = EMaterialInstanceError::DuplicateParameterId;
+		for (uint32 Index = 0; Result && Index < StaticRecords->size(); ++Index)
+		{
+			const auto& Override = (*StaticRecords)[Index];
+			if (!Override.DeclarationId.IsValid()) Result.Error = EMaterialInstanceError::InvalidParameterId;
+			else if (!StaticIds.insert(Override.DeclarationId).second)
+				Result.Error = EMaterialInstanceError::DuplicateParameterId;
+			else if (Index && (*StaticRecords)[Index - 1].DeclarationId > Override.DeclarationId)
+				Result.Error = EMaterialInstanceError::DuplicateParameterId;
+			if (!Result)
+			{
+				Result.Error.ParameterId = Override.DeclarationId;
+				Result.Error.Index = Index;
+			}
+		}
 		return Result;
 	}
 
@@ -318,6 +346,36 @@ namespace Durin
 	auto DMaterialInstance::SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool
 	{
 		return SetParentAndPropertyOverrides(Parent.Get(), Overrides);
+	}
+
+	auto DMaterialInstance::SetStaticBoolOverride(FGuid DeclarationId, bool Value) -> bool
+	{
+		if (bDynamicInstance || !DeclarationId.IsValid()) return false;
+		auto Found = std::ranges::find(StaticBoolOverrides, DeclarationId,
+			&FMaterialStaticBoolOverride::DeclarationId);
+		if (Found != StaticBoolOverrides.end() && Found->Value == Value) return true;
+		if (Found == StaticBoolOverrides.end()
+			&& StaticBoolOverrides.size() >= MaterialMaxStaticBoolDeclarations) return false;
+		if (Found == StaticBoolOverrides.end())
+			StaticBoolOverrides.push_back({DeclarationId, Value});
+		else Found->Value = Value;
+		std::ranges::sort(StaticBoolOverrides, {}, &FMaterialStaticBoolOverride::DeclarationId);
+		InvalidateMaterialCompilation();
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DMaterialInstance::ClearStaticBoolOverride(FGuid DeclarationId) -> bool
+	{
+		if (bDynamicInstance) return false;
+		const auto Before = StaticBoolOverrides.size();
+		std::erase_if(StaticBoolOverrides, [&](const auto& Entry) {
+			return Entry.DeclarationId == DeclarationId;
+		});
+		if (StaticBoolOverrides.size() == Before) return false;
+		InvalidateMaterialCompilation();
+		MarkPackageDirty();
+		return true;
 	}
 
 	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>

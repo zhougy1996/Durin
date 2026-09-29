@@ -9,9 +9,30 @@
 #include "DObject/Property.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "DynamicRHI.h"
+
+#include <atomic>
 
 namespace Durin
 {
+	namespace
+	{
+		std::atomic<EMaterialQualityLevel> GMaterialQualityLevel{
+			EMaterialQualityLevel::High};
+	}
+
+	auto GetMaterialQualityLevel() -> EMaterialQualityLevel
+	{
+		return GMaterialQualityLevel.load(std::memory_order_acquire);
+	}
+
+	auto SetMaterialQualityLevel(EMaterialQualityLevel Quality) -> bool
+	{
+		if (Quality > EMaterialQualityLevel::High) return false;
+		GMaterialQualityLevel.store(Quality, std::memory_order_release);
+		return true;
+	}
+
 	auto DMaterialInterface::LoadCookedProgram() -> FMaterialOperationResult
 	{
 		auto FailCooked = [&](FMaterialError Error) -> FMaterialOperationResult {
@@ -27,10 +48,15 @@ namespace Durin
 
 		FMaterialStaticProperties PayloadProperties;
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
-		const auto Decoded = DecodeMaterialCookedProgram(
+		const ERHIFeatureLevel FeatureLevel = GDynamicRHI
+			&& GDynamicRHI->RHIGetCapabilities()
+			? GDynamicRHI->RHIGetCapabilities()->FeatureLevel
+			: ERHIFeatureLevel::SM5;
+		const auto Decoded = DecodeMaterialCookedProgramFamily(
 			Bytes,
 			ECookTargetPlatform::Win64,
 			ECookTargetProfile::Game,
+			GetMaterialQualityLevel(), FeatureLevel, {},
 			PayloadProperties, ProgramCandidate);
 		if (!Decoded)
 		{
@@ -123,9 +149,50 @@ namespace Durin
 					"Material cooked program data is unavailable.");
 				return;
 			}
+			FMaterialCompilerEnvironment BaseEnvironment;
+			if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment);
+				!Environment)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					FormatMaterialError(Environment.Error));
+				return;
+			}
+			std::vector<FMaterialCompilerResult> Variants;
+			Variants.reserve(MaterialCookedProgramMaxConfigurations);
+			constexpr std::array Qualities{
+				EMaterialQualityLevel::Low, EMaterialQualityLevel::High};
+			constexpr std::array FeatureLevels{
+				ERHIFeatureLevel::ES3_1, ERHIFeatureLevel::SM5,
+				ERHIFeatureLevel::SM6};
+			for (const auto Quality : Qualities)
+				for (const auto FeatureLevel : FeatureLevels)
+				{
+					auto Environment = BaseEnvironment;
+					Environment.Quality = Quality;
+					Environment.FeatureLevel = FeatureLevel;
+					auto Snapshot = SnapshotMaterialCompilerInput(*this,
+						std::move(Environment));
+					if (!Snapshot)
+					{
+						Ar.Fail(EArchiveFailureCode::InvalidData,
+							"Material cooked configuration snapshot failed.");
+						return;
+					}
+					auto Compiled = MIR::Compile(Snapshot.Snapshot->Input);
+					if (!Compiled)
+					{
+						Ar.Fail(EArchiveFailureCode::InvalidData,
+							"Material cooked configuration compilation failed.");
+						return;
+					}
+					Variants.push_back(std::move(Compiled));
+				}
+			std::vector<const FMaterialCompilerResult*> VariantPointers;
+			VariantPointers.reserve(Variants.size());
+			for (const auto& Variant : Variants) VariantPointers.push_back(&Variant);
 			FByteBuffer Bytes;
-			const auto Encoded = EncodeMaterialCookedProgram(
-				*CompilationOwner.RenderLayer.CompiledProgram, GetRenderableStaticProperties(),
+			const auto Encoded = EncodeMaterialCookedProgramFamily(
+				VariantPointers, GetRenderableStaticProperties(),
 				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
 			if (!Encoded)
 			{

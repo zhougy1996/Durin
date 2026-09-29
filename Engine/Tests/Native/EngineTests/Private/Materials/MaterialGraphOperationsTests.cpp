@@ -663,7 +663,8 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 		}
 		const auto Created = Document.CreateCatalogNode(Entry, 400, 200, Source);
 		ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
-		ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
+		ASSERT_EQ(Created.GeneratedNodeIds.size(),
+			Entry.Opcode == EMaterialProgramOpcode::StaticSwitch ? 2u : 1u);
 		const auto& Expressions = Material->GetExpressionCollection().Expressions;
 		const auto It = std::ranges::find(Expressions, Created.GeneratedNodeIds.front(), [](const auto& E) { return E->Id; });
 		ASSERT_NE(It, Expressions.end());
@@ -730,7 +731,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 	Texture.Id = FGuid::NewGuid(); Texture.Name = "SignatureTexture";
 	Texture.Type = EMaterialParameterType::Texture; Texture.Value = FMaterialParameterValue::MakeTexture(nullptr);
 	const std::array Definitions{Texture};
-		std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
+	std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
 		if (ValueType == Type::Texture2D)
 			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, Texture.Id, {}, Definitions));
 		std::vector<FMaterialExpressionInput> Inputs;
@@ -776,6 +777,12 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 	for (const auto& Entry : Catalog)
 	{
 		if (Entry.AcceptedInputTypes.empty()) continue;
+		// Static selectors have an authoring-only condition or optional exact
+		// branches with Default fallback; their semantic matrix is covered by
+		// dedicated selector tests rather than this all-pins-required shape test.
+		if (Entry.Opcode == EMaterialProgramOpcode::StaticSwitch
+			|| Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
+			|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch) continue;
 		ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
 		FMaterialExpressionInput Prerequisite;
 		const auto FirstType = Entry.AcceptedInputTypes.front().front();
@@ -796,7 +803,8 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Target.Get()))
 			std::ranges::fill(Swizzle->Components, 0);
 		for (uint32 Pin = 0; Pin < Entry.AcceptedInputTypes.size(); ++Pin)
-			for (Type SourceType : {Type::Float, Type::Float2, Type::Float3, Type::Float4, Type::Texture2D, Type::Surface})
+			for (Type SourceType : {Type::Float, Type::Float2, Type::Float3, Type::Float4,
+				Type::Texture2D, Type::Surface})
 			{
 				SCOPED_TRACE(std::format("{} result {} pin {} source {}", Entry.OperationName,
 					static_cast<uint8>(Entry.ResultType), Pin, static_cast<uint8>(SourceType)));
