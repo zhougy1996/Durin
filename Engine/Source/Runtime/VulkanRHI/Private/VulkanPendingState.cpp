@@ -9,7 +9,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
-#include "RHIShaderParameterValidationInternal.h"
+#include "Backend/RHIShaderParameterValidationInternal.h"
 
 #include <cstdlib>
 

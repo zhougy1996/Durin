@@ -1432,7 +1432,10 @@ namespace Durin
 				ERHITextureAspect::Color, 0, 1, 0, 1};
 			{
 				const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
-				if (*QueuePolicy) ASSERT_TRUE(Queues.bIndependentCompute);
+				// A forced diagnostic topology still has to preserve the graphics
+				// fallback when the device exposes no independent compute queue.
+				if (*QueuePolicy && !Queues.bIndependentCompute)
+					EXPECT_EQ(Queues.Compute, Queues.Graphics);
 				FRDGBuilder Graph;
 				Graph.SetAsyncComputeEnabled(true);
 				const auto GraphBuffer = Graph.RegisterExternalBuffer(OutputBuffer, "Buffer",

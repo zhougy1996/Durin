@@ -61,6 +61,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
 | Fixed non-Material shader registration, typed global lookup, atomic shader sets, or shader/pipeline generation coupling | [Global shaders](Runtime/Rendering/GlobalShaders.md) |
 | Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/RenderGraph.md) |
+| RHI public API stability, experimental headers, backend-only interfaces, deprecation, or compatibility | [RHI public API stability](Runtime/Rendering/RHIPublicAPIStability.md) |
 | Production frame preparation, feature ordering, transient allocation, or output transactions | [Renderer frame preparation](Runtime/Rendering/RendererFramePreparation.md) |
 | Rendering statistics overlay, diagnostics panel, or sampled graph inspection UI | [Viewport rendering diagnostics](Editor/Architecture/ViewportRenderingDiagnostics.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |

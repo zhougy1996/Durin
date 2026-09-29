@@ -9,9 +9,10 @@ Completed:
 
 ## Current Status
 
-Reviewed against source and Git history on 2026-09-29 from `62abfae5e`.
-This revision adds current macOS validation evidence and records the operator's
-explicit deferral of unavailable Windows qualification.
+Reviewed against source and Git history on 2026-09-29 from `070e80e69`, with
+the acceptance correction and API promotion recorded by this document's commit.
+This revision adds current Apple M4 Vulkan and production-workload evidence;
+the operator's explicit deferral of unavailable Windows qualification remains.
 
 | Stage | Status | Remaining acceptance |
 | --- | --- | --- |
@@ -934,17 +935,31 @@ Stage 3 acceptance checkpoint (2026-09-29, this document's commit):
 
 Fresh available-host validation used `MacOS-arm64-Debug-DurinEditor`:
 
+- `RHICommandListTests`: 109/109 passed. Log:
+  `Build/.agent-state/logs/20260929-201445-779965-25310-RHICommandListTests.log`.
+- `RHIThreadTests`: 15/15 passed. Log:
+  `Build/.agent-state/logs/20260929-200727-902492-23027-RHIThreadTests.log`.
 - `RenderContractTests`: 200/200 passed. Log:
-  `Build/.agent-state/logs/20260929-015941-887911-8527-RenderContractTests.log`.
+  `Build/.agent-state/logs/20260929-200738-579445-23063-RenderContractTests.log`.
 - `RendererSceneContractTests`: 69/69 passed. Log:
-  `Build/.agent-state/logs/20260929-015933-637629-8493-RendererSceneContractTests.log`.
-- The required final-revision `all` build passed in 0.33 seconds after the
-  preceding fresh-profile build populated the tree. Log:
-  `Build/.agent-state/logs/20260929-020335-846138-10254-cmake.log`.
-- This macOS profile does not register the Vulkan integration, Renderer Vulkan
-  reload or GBuffer qualification targets. The operator explicitly authorized
-  their Windows rerun to be skipped. Earlier Vulkan evidence remains historical,
-  not a fresh pass for this revision, and the driver-worker investigation stays open.
+  `Build/.agent-state/logs/20260929-200752-302804-23136-RendererSceneContractTests.log`.
+- `VulkanRHIIntegrationTests` passed under Vulkan 1.3.334 with Khronos
+  validation on Apple M4 / MoltenVK 1.4.357.0. The device exposes no independent
+  compute queue, so forced `same-family` and `dedicated` policies exercised and
+  verified graphics fallback instead of being counted as independent-queue
+  passes. Log:
+  `Build/.agent-state/logs/20260929-201501-141465-25375-ctest.log`.
+- `GBufferQualificationTests` passed the production contact-shadow opt-in and
+  fragment comparison workload. Log:
+  `Build/.agent-state/logs/20260929-201525-418032-25612-ctest.log`.
+- The required final-revision `all` build passed after promoting the completion
+  and queue-transfer headers to the stable public root. Log:
+  `Build/.agent-state/logs/20260929-201242-141834-24454-cmake.log`.
+
+The earlier Vulkan integration assertion that required an independent compute
+queue whenever a diagnostic policy was requested was corrected: unsupported
+topologies must preserve the documented graphics fallback. Windows Vulkan and
+the driver-worker investigation stay explicitly deferred.
 
 Stage 3 infrastructure checkpoint: physical Vulkan queues now own distinct
 completion trackers, using one device-owned generation and explicit queue IDs

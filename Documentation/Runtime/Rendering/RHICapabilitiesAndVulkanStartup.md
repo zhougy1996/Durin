@@ -181,6 +181,7 @@ the current native-test framework and are not part of this contract.
 
 ## Related Documentation
 
+- [RHI public API stability](RHIPublicAPIStability.md)
 - [RHI command execution](RHICommandExecution.md)
 - [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [Viewport rendering](ViewportRendering.md)

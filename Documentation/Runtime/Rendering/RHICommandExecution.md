@@ -359,6 +359,7 @@ queue sizing; they are not GPU timing measurements.
 
 ## Related Documentation
 
+- [RHI public API stability](RHIPublicAPIStability.md)
 - [Runtime lifecycle](../Core/RuntimeLifecycle.md)
 - [Render resource lifecycle](RenderResourceLifecycle.md)
 - [Viewport rendering](ViewportRendering.md)

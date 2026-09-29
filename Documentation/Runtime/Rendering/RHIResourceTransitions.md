@@ -151,6 +151,7 @@ transient allocation, and later queue scheduling is owned by the
 
 ## Related Documentation
 
+- [RHI public API stability](RHIPublicAPIStability.md)
 - [RHI command execution](RHICommandExecution.md)
 - [RHI resource views and transfers](RHIResourceViewsAndTransfers.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
