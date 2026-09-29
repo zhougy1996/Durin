@@ -9,6 +9,14 @@ Completed:
 
 ## Current Status
 
+On 2026-09-29 M12 was selected as the
+[Material Expression Semantics and Language plan](../Plans/MaterialExpressionSemanticsAndLanguage.md).
+It adds stage- and space-aware values, the bounded general math and spatial/view
+expression set, and compile-time static/quality/feature selectors before any WPO,
+SceneDepth, new Surface output, material domain, or render pass. Stage 0 freezes
+the semantic algebra, pass-context ABI, variant ownership, migration, fixtures,
+and budgets before shared compiler representations change.
+
 On 2026-09-29 the
 [Material Observability and Runtime Parameters plan](../Plans/MaterialObservabilityAndRuntimeParameters.md)
 completed the remaining selected M8 implementation: detached cost/variant
@@ -23,9 +31,10 @@ surface outputs and material domains remain outside that child plan.
 On 2026-09-18 the user closed M13 with all remaining qualification gates waived,
 not passed. Its implementation is the accepted foundation for the completed
 [Runtime Dynamic Material Instances plan](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md).
-That bounded M8 slice separates lifetime and mutation APIs, with all 11 material
-CPU regression targets and the workspace all build passing; atomic multi-parameter
-updates and measured scalability work remain subsequent M8 scope.
+That bounded M8 slice separated lifetime and mutation APIs, with all 11 material
+CPU regression targets and the workspace all build passing. Atomic multi-parameter
+updates and world-scoped numeric collections were subsequently completed by the
+observability and runtime-parameters plan above.
 
 The [Reusable Material Functions plan](../Plans/Archive/2026-09/ReusableMaterialFunctions.md)
 completed M11 on 2026-09-12: typed function assets, bounded compiler expansion,
@@ -52,7 +61,7 @@ cancelled the unavailable historical pre/post image and performance baseline;
 current CPU/GPU correctness, migration, Cook and resource-bound checks remain
 required. See the child plan for final receipts and unrelated macOS test exceptions.
 M1-M7 retain their historical completion. M11 now delivers reusable functions;
-M8 now proceeds from M13 and remains outside the completed M10/M11 plans.
+M8 subsequently completed from the accepted M13 foundation.
 
 The compiled-layout material stack is production-capable. Material and material-
 instance assets provide stable parameter identities, inheritance, serialization,
@@ -87,9 +96,10 @@ is complete: bounded authored programs compile deterministically and render
 through every production surface consumer. The
 [M6 lifecycle plan](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) is
 complete: Engine owns bounded Worker orchestration and Cook admission while
-ShaderBuild now owns shader-artifact DDC behind RenderCore contracts. M7 graph authoring is
-complete; M8's runtime instance API is selected, while advanced batching and
-reuse remain evidence-gated on measurements after M10.
+ShaderBuild now owns shader-artifact DDC behind RenderCore contracts. M7 graph
+authoring and M8 runtime instances, batching, observability, and world-scoped
+numeric collections are complete. M12 is now the active material compiler
+evolution boundary.
 
 ## Outcome
 
@@ -206,16 +216,14 @@ transition and qualification across StaticMesh, SplineMesh,
 
 ### Material-specific gaps
 
-- Shader-affecting instance overrides now request matching accepted
-  variants, including scene-import overrides. Final platform/workflow qualification
-  remains active.
-  M13 owns per-field inheritance, instance compilation/publication, Cook and the
-  editor/import workflow. Its detailed acceptance gates belong to the child plan.
 - Atomic multi-parameter dynamic-instance updates and world-scoped numeric
   collections are complete with exact commit/publication counters, bounded
   layouts and source-free Cook loading. The unavailable Windows RTX 3090 timing,
   allocation and retained-memory comparison was skipped without claiming a pass;
   future optimization must begin from a newly selected authoritative lane.
+- MIR and function ports still carry numeric/resource shape without evaluation
+  stage, spatial kind, or coordinate space. M12 now owns that semantic foundation,
+  the selected math/context expressions, and bounded compile-time selectors.
 
 ## Milestone Map
 
@@ -237,7 +245,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | --- | --- | --- | --- |
 | 10. Material-owned parameters and compiled layouts | Complete; historical baseline cancelled by user | Landed M5-M7; current correctness and resource bounds | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated-content correctness, fixed-role production bindings retired |
 | 11. Reusable material functions | Complete | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
-| 12. Context expressions and output extensions | Conditional | Concrete effect selected after M10; M11 where useful | Selected time/world/view inputs, or a separately scoped vertex/shading/domain extension; geometry, shadow, Cook and recovery qualification for that effect |
+| 12. Expression semantics and bounded language completion | Active | M8, M10, M11 and M13 complete | Stage/space-aware values, selected math and spatial/view expressions, and static/quality/feature selectors through existing Surface passes; excludes WPO, depth, new outputs/domains/passes |
 | 13. Material instance shader variants | Complete; remaining qualification waived by user | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import integration; retained evidence and waived gates recorded in the plan |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
@@ -263,8 +271,9 @@ resource scheduler or payload publication mechanism.
 
 M10 and M11 are complete. M13 establishes the accepted variant boundary before
 M8. Further overlapping material source changes must be sequenced or integrated
-in separate writer checkouts. M12 creates only the bounded plan demanded by an actual
-effect. M13 keeps runtime dynamic edits outside shader compilation.
+in separate writer checkouts. M12 is selected as a bounded expression-language
+plan and does not activate WPO, SceneDepth, new outputs/domains, or new passes.
+M13 keeps runtime dynamic edits outside shader compilation.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
@@ -281,9 +290,9 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | [Material Instance Shader Variants](../Plans/Archive/2026-09/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Complete; remaining qualification waived by user |
-| [Runtime Dynamic Material Instances](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md) | M8 | Non-asset lifecycle and parameter API first; atomic batching and measured optimization remain subsequent scope | Lifecycle/API slice complete; M8 remains open |
+| [Runtime Dynamic Material Instances](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md) and [Material Observability and Runtime Parameters](../Plans/MaterialObservabilityAndRuntimeParameters.md) | M8 | Transient lifecycle/API followed by observability, atomic batching and world-scoped numeric collections | Complete; unavailable Windows performance comparison dispositioned without pass |
 | [Reusable Material Functions](../Plans/Archive/2026-09/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
-| Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |
+| [Material Expression Semantics and Language](../Plans/MaterialExpressionSemanticsAndLanguage.md) | M12 | Stage/space semantics, bounded math/context language and compile-time selectors; no WPO, depth, new Surface output/domain/pass | Active; Stage 0 freezes semantic algebra, ABI, variants and migration |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
 
 M5 locked the smallest useful expression/output domain, serialized ownership,
@@ -326,15 +335,15 @@ targets, fixtures, profiles, budgets, and final evidence.
   Preserve last-known-good state while compiling, retire failed generations to
   ErrorMaterial, separate authored dirty state from compiled readiness, and reject
   stale generations before publication.
-- **Premature scalability machinery:** existing proxy coalescing may already
-  cover many update cases. M8 remains evidence-gated and adds only mechanisms
-  justified by measured compiled-material workloads.
+- **Semantic qualifier drift:** stage/space rules can diverge between root graphs,
+  functions, the editor, and generated shaders. M12 must keep one detached value
+  contract and one checker, with exact pass reflection and source diagnostics.
 
 ## Completion Criteria
 
-- Historical M5-M7 and required M10, M13, M8 and M11 have passed their exit gates;
-  M9 and M12 are completed or explicitly dispositioned with remaining work
-  routed to an owning roadmap or plan.
+- Historical M5-M8, M10, M11 and M13 have passed their exit gates; selected M12
+  passes its child-plan exit gate; M9 is completed or explicitly dispositioned
+  with remaining work routed to an owning roadmap or plan.
 - Authored compiled materials render through every supported production
   geometry/pass path without bypassing the shared representation and fallback
   contracts.
