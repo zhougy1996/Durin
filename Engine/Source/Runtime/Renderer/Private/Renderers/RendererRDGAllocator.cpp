@@ -248,9 +248,12 @@ namespace Durin
 	};
 
 	FRendererRDGAllocator::FRendererRDGAllocator(
-		FRendererResourceCoordinator& InCoordinator)
-		: Coordinator(InCoordinator), State(std::make_unique<FState>())
+		FRendererResourceCoordinator& InCoordinator,
+		FNowFunction InNow)
+		: Coordinator(InCoordinator), Now(std::move(InNow)),
+		  State(std::make_unique<FState>())
 	{
+		check(Now);
 	}
 
 	FRendererRDGAllocator::~FRendererRDGAllocator() = default;
@@ -298,7 +301,7 @@ namespace Durin
 			Release_RenderThread();
 			State->DeviceGeneration = Generation.Device;
 		}
-		const auto Now = std::chrono::steady_clock::now();
+		const FClock::time_point CurrentTime = Now();
 		constexpr auto RetryDependencies = ERenderResourceGenerationDependency::Device
 			| ERenderResourceGenerationDependency::Manual;
 		if (!State->RetryGeneration || HasSelectedRenderResourceGenerationChanged(
@@ -426,7 +429,7 @@ namespace Durin
 					if (!HasSelectedRenderResourceGenerationChanged(
 						*Failed.FailedGeneration, Generation, RetryDependencies)
 						&& (Failed.Failure.Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
-							|| Now < Failed.NextRetryTime))
+							|| CurrentTime < Failed.NextRetryTime))
 						return Fail(ERDGAllocationError::AllocationRetrySuppressed,
 							ResourceId, Failed.Failure);
 				}
@@ -455,7 +458,7 @@ namespace Durin
 				Request.ResourceId);
 			if (!PlanResult.has_value()) return PlanResult;
 		}
-		if (MissingBytes != 0 && Now < State->NextRetryTime)
+		if (MissingBytes != 0 && CurrentTime < State->NextRetryTime)
 			return Fail(ERDGAllocationError::AllocationRetryDeferred);
 
 		auto EvictUntil = [&](uint64 Limit) {
@@ -544,7 +547,7 @@ namespace Durin
 						It->RetryFailures = std::min(It->RetryFailures + 1, 6u);
 						const auto Delay = std::chrono::milliseconds(
 							std::min(100u << (It->RetryFailures - 1), 2000u));
-						It->NextRetryTime = std::chrono::steady_clock::now() + Delay;
+						It->NextRetryTime = Now() + Delay;
 						State->NextRetryTime = It->NextRetryTime;
 					}
 					return Fail(ERDGAllocationError::PhysicalAllocationFailed,

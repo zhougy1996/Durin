@@ -3,6 +3,8 @@
 #include "RendererAPI.h"
 #include "RDG/RDGAllocator.h"
 
+#include <chrono>
+#include <functional>
 #include <memory>
 #include <span>
 #include <vector>
@@ -45,8 +47,12 @@ namespace Durin
 	class RENDERER_API FRendererRDGAllocator final : public FRDGAllocator
 	{
 	public:
+		using FClock = std::chrono::steady_clock;
+		using FNowFunction = std::function<FClock::time_point()>;
+
 		explicit FRendererRDGAllocator(
-			FRendererResourceCoordinator& InCoordinator);
+			FRendererResourceCoordinator& InCoordinator,
+			FNowFunction InNow = [] { return FClock::now(); });
 		~FRendererRDGAllocator();
 		auto SupportsAsyncCompute() const -> bool override { return true; }
 
@@ -60,6 +66,7 @@ namespace Durin
 	private:
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
+		FNowFunction Now;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

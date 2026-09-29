@@ -11,6 +11,17 @@ durin_add_native_test(RendererSceneContractTests
 	HEAVY_RUNTIME_RATIONALE "Exercises renderer-owned SceneProxy and SceneInfo lifetime contracts."
 )
 
+durin_add_native_test(RendererRDGAllocatorTests
+	KIND contract
+	DOMAINS renderer
+	MODULES renderer
+	STACKS renderer
+	SOURCES Private/RendererRDGAllocatorTests.cpp
+	LIBRARIES Core CoreDObject Engine RenderCore Renderer
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	HEAVY_RUNTIME_RATIONALE "Exercises renderer-owned RDG allocation and retirement through the rendering thread."
+)
+
 durin_add_native_test(SceneImportVulkanTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS asset-import

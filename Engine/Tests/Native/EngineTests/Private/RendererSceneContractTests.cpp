@@ -59,6 +59,7 @@
 #include <thread>
 #include <type_traits>
 
+#if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
 namespace
 {
 	static_assert(!std::is_convertible_v<Durin::FPrimitiveComponentId, Durin::FLightComponentId>);
@@ -2515,6 +2516,7 @@ TEST(FRendererSceneContractTests, PrimitiveCollectionHasAnEmptyDefault)
 	Proxy.CollectMeshBatches(FMeshCollectionContext{}, Collector);
 	EXPECT_TRUE(Collector.GetBatches().empty());
 }
+#endif
 
 namespace Durin::Tests
 {
@@ -2524,6 +2526,21 @@ namespace Durin::Tests
 		struct FRDGAllocatorTestCommand final
 		{
 			static constexpr auto GetName() -> const char* { return "RDGAllocatorTest"; }
+		};
+
+		class FAllocatorRenderingThreadScope final
+		{
+		public:
+			FAllocatorRenderingThreadScope()
+			{
+				if (!GIsGameThreadIdInitialized)
+				{
+					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+					GIsGameThreadIdInitialized = true;
+				}
+				InitRenderingThread();
+			}
+			~FAllocatorRenderingThreadScope() { ShutdownRenderingThread(); }
 		};
 
 		// Account native lifetime separately from pool lifetime without consuming VRAM.
@@ -2645,6 +2662,16 @@ namespace Durin::Tests
 			bool bExtracted = false;
 		};
 
+		struct FManualRDGAllocationClock final
+		{
+			using FClock = FRendererRDGAllocator::FClock;
+
+			auto Now() const -> FClock::time_point { return CurrentTime; }
+			auto Advance(FClock::duration Duration) -> void { CurrentTime += Duration; }
+
+			FClock::time_point CurrentTime{};
+		};
+
 		auto ExecuteAllocationBatch(FRDGAllocator& Allocator,
 			std::span<const FRDGTestRequest> Requests) -> FRDGCapture
 		{
@@ -2696,9 +2723,10 @@ namespace Durin::Tests
 		}
 	}
 
-	TEST(FRendererSceneContractTests, RDGNativeFailureAndSuppressedRetryPreserveCause)
+#if defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
+	TEST(FRendererRDGAllocatorTests, NativeFailureAndSuppressedRetryPreserveCause)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate& CommandList) {
 			FRDGAllocationTestRHI RHI;
 			RHI.FailOnCreate = 1;
@@ -2732,9 +2760,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGUnpublishedRetirementCannotEvictOrExceedThePoolBudget)
+	TEST(FRendererRDGAllocatorTests, UnpublishedRetirementCannotEvictOrExceedThePoolBudget)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2759,9 +2787,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGFailedSubmissionRemainsQuarantinedUnderPoolPressure)
+	TEST(FRendererRDGAllocatorTests, FailedSubmissionRemainsQuarantinedUnderPoolPressure)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2814,9 +2842,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGBucketsReserveDuplicateDescriptorsInCreationOrder)
+	TEST(FRendererRDGAllocatorTests, BucketsReserveDuplicateDescriptorsInCreationOrder)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2851,9 +2879,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGBatchEvictionMergesKindsAndReindexesSurvivors)
+	TEST(FRendererRDGAllocatorTests, BatchEvictionMergesKindsAndReindexesSurvivors)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2881,9 +2909,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGExportCompactionRemovesIdsAndPreservesBucketOrder)
+	TEST(FRendererRDGAllocatorTests, ExportCompactionRemovesIdsAndPreservesBucketOrder)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2912,9 +2940,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGRetryRollbackReindexesEmptyAndFailedBucketMembers)
+	TEST(FRendererRDGAllocatorTests, RetryRollbackReindexesEmptyAndFailedBucketMembers)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2943,9 +2971,9 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGReservesWholeBatchAndCollectsBeforeCreating)
+	TEST(FRendererRDGAllocatorTests, ReservesWholeBatchAndCollectsBeforeCreating)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
@@ -2967,13 +2995,14 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGTemporaryFailureRetriesWithoutInvalidationAndSuppressesWholeBatch)
+	TEST(FRendererRDGAllocatorTests, TemporaryFailureRetriesWithoutInvalidationAndSuppressesWholeBatch)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
-			FRendererRDGAllocator Allocator(Coordinator);
+			FManualRDGAllocationClock Clock;
+			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
 			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
 			RHI.FailOnCreate = 2;
 			const auto Failed = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
@@ -2982,7 +3011,10 @@ namespace Durin::Tests
 			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
 			ExecuteAllocationBatch(Allocator, {{true, 2}});
 			EXPECT_EQ(RHI.Creates, 2u);
-			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			Clock.Advance(std::chrono::milliseconds(99));
+			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			EXPECT_EQ(RHI.Creates, 2u);
+			Clock.Advance(std::chrono::milliseconds(1));
 			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
 			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, 2 * MiB);
 			EXPECT_EQ(RHI.Creates, 4u);
@@ -2992,17 +3024,18 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererSceneContractTests, RDGUnsupportedDescriptorRequiresRelevantInvalidation)
+	TEST(FRendererRDGAllocatorTests, UnsupportedDescriptorRequiresRelevantInvalidation)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
-			FRendererRDGAllocator Allocator(Coordinator);
+			FManualRDGAllocationClock Clock;
+			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
 			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
 			RHI.FailOnCreate = 1;
 			ExecuteAllocationBatch(Allocator, {{true, 1}});
-			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			Clock.Advance(std::chrono::seconds(10));
 			ExecuteAllocationBatch(Allocator, {{true, 1}});
 			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ShaderChanged, {});
 			ExecuteAllocationBatch(Allocator, {{true, 1}});
@@ -3014,13 +3047,14 @@ namespace Durin::Tests
 		});
 		FlushRenderingCommands();
 	}
-	TEST(FRendererSceneContractTests, RDGRollsBackMaterializedRetryAndAllowsReuseDuringCooldown)
+	TEST(FRendererRDGAllocatorTests, RollsBackMaterializedRetryAndAllowsReuseDuringCooldown)
 	{
-		FRenderingThreadScope RenderingThread;
+		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
-			FRendererRDGAllocator Allocator(Coordinator);
+			FManualRDGAllocationClock Clock;
+			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
 			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
 			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
 			RHI.FailOnCreate = 3;
@@ -3030,7 +3064,7 @@ namespace Durin::Tests
 			const auto Reused = ExecuteAllocationBatch(Allocator, {{true, 1}});
 			EXPECT_EQ(Reused.AllocationStatistics.ActiveBytes, MiB);
 			EXPECT_EQ(RHI.Creates, 3u);
-			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			Clock.Advance(std::chrono::milliseconds(100));
 			RHI.FailOnCreate = 5;
 			const auto RetryFailed = ExecuteAllocationBatch(Allocator, {{true, 2}, {false, 2}});
 			EXPECT_EQ(RHI.Creates, 5u);
@@ -3043,9 +3077,11 @@ namespace Durin::Tests
 		});
 		FlushRenderingCommands();
 	}
+#endif
 
 }
 
+#if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
 TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContracts)
 {
 	using namespace Durin;
@@ -3315,3 +3351,4 @@ namespace Durin
 		FlushRenderingCommands();
 	}
 }
+#endif
