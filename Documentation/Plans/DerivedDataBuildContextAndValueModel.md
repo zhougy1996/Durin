@@ -1,6 +1,6 @@
-# UE-Style Derived Data Build Context Plan
+# Derived Data Build Context and Value Model Plan
 
-Summary: Replace Durin's returned-output and typed-failure build-function contract with UE-style context-owned inputs, outputs, deterministic messages, Compact Binary constants, and fixed value identifiers.
+Summary: Replace Durin's returned-output and typed-failure build-function contract with context-owned inputs, outputs, deterministic messages, bounded structured metadata, and fixed value identifiers.
 
 Last reviewed: 2026-09-29
 
@@ -12,17 +12,20 @@ Completed:
 No implementation has started. The completed
 [Derived Data Build Interface Alignment](DerivedDataBuildInterfaceAlignment.md)
 plan established `IBuild`, persistent sessions, immutable actions and outputs,
-and the current local cache execution contract. It deliberately retained
-`std::expected`, constrained constant variants, string value identifiers, and a
-public `IBuildFunction::Validate` hook, while excluding Compact Binary.
+and the current local cache execution contract. It retained `std::expected`,
+constrained constant variants, string value identifiers, and a public
+`IBuildFunction::Validate` hook, while excluding Compact Binary.
 
-This plan changes those decisions. It selects the UE public responsibility
-model for function execution: a function reads constants and inputs from
+This plan changes the function, output, and error decisions while preserving
+the current constrained constant variant and its canonical action encoding. It
+selects the referenced public responsibility model for function execution: a
+function reads constants and inputs from
 `FBuildContext`, writes values, metadata, and deterministic messages back to the
 context, and returns no product or public failure object. It also introduces a
 Durin-owned Compact Binary implementation in Core and a 12-byte `FValueId` in
 DerivedDataCache. It does not claim source or wire compatibility with Unreal
-Engine and does not copy UE implementation code.
+Engine, does not copy UE implementation code, and does not use Compact Binary
+for build constants in this plan.
 
 The first stage must freeze cache compatibility, deterministic error caching,
 and the replacement for family semantic validation before shared APIs change.
@@ -38,12 +41,14 @@ immutable collection of `FValueWithId`, metadata, and messages; output with an
 error contains no values.
 
 Replace public construction from vectors and mutable output data with builders
-created by `IBuild`. Constants use immutable Compact Binary objects, output
-values use fixed 12-byte identifiers, and input keys remain UTF-8 names. Preserve
-the existing local-only scheduler, captured-input warm-hit behavior, owner
-publication rules, and zero-copy retained buffers.
+created by `IBuild`. Constants continue to use the current bounded
+`FBuildConstantValue` variant, while output metadata uses Durin's bounded Compact
+Binary objects, output values use fixed 12-byte identifiers, and input keys
+remain UTF-8 names. Preserve the existing action schema-2 constant bytes,
+local-only scheduler, captured-input warm-hit behavior, owner publication rules,
+and zero-copy retained buffers.
 
-## UE Reference and Selected Scope
+## Reference and Selected Scope
 
 The following Epic public interfaces define the selected responsibility model:
 
@@ -54,8 +59,9 @@ The following Epic public interfaces define the selected responsibility model:
   exposes `FindConstant`, `FindInput`, `AddValue`, `AddMeta`, deterministic
   messages, and errors.
 - [`FBuildDefinitionBuilder`](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/DerivedDataCache/FBuildDefinitionBuilder)
-  adds uniquely named Compact Binary constants and input references before
-  freezing an immutable definition.
+  adds uniquely named constants and input references before freezing an
+  immutable definition. Durin retains its constrained variant instead of the
+  referenced Compact Binary constant representation in this plan.
 - [`FValueId`](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/DerivedDataCache/FValueId)
   is a 12-byte context-local value identifier with name/hash construction and
   indexed derivation.
@@ -74,11 +80,13 @@ flags remain out of scope until a production requirement justifies them.
 ### Compact Binary ownership
 
 Core owns a bounded immutable Compact Binary value system because
-DerivedDataCache may depend only on Core. The initial public surface includes
+DerivedDataCache may depend only on Core and build metadata benefits from a
+shared structured representation. The initial public surface includes
 owned and view forms for fields, objects, and arrays; a writer; validation; and
 canonical serialization. It supports null, bool, signed and unsigned integers,
-32/64-bit floating point, strings, binary attachments or byte strings, object
-IDs, arrays, and objects. Exact supported kinds and names are frozen in Stage 0.
+32/64-bit floating point, strings, bounded byte strings, object IDs, arrays, and
+objects. External attachments and streaming are out of scope. Exact supported
+kinds and names are frozen in Stage 0.
 
 Canonical encoding defines byte order, numeric widths, field ordering, duplicate
 field rejection, maximum nesting, maximum field count, maximum string length,
@@ -91,6 +99,13 @@ Durin may use UE vocabulary such as `FCbObject`, `FCbObjectView`, `FCbField`,
 responsibility. No binary compatibility with UE Compact Binary is assumed
 unless separately specified and tested.
 
+Compact Binary is used for structured build metadata and output persistence;
+its Core ownership permits later reuse without adding unrelated consumers to
+this plan. Build constants remain the current
+closed `std::variant<bool, uint64, float, std::string, FXxHash128>` and continue
+to use their existing canonical action encoding. Extending constants to Compact
+Binary is a separate future decision with its own identity migration.
+
 ### Definition, action, and builders
 
 `IBuild` creates move-only builders for definitions, actions, inputs, and
@@ -98,17 +113,19 @@ outputs. Builders reject duplicate keys and invalid values before producing an
 immutable handle. Public callers no longer construct `std::vector<FBuildConstant>`
 or `FBuildOutputData` directly.
 
-`FBuildDefinitionBuilder::AddConstant(Key, FCbObject)` records uniquely named
-constant objects. `FBuildDefinition` and `FBuildAction` expose lookup and ordered
-iteration without exposing storage. Action identity hashes an explicitly
-versioned canonical encoding of the registered function, constants, and resolved
+`FBuildDefinitionBuilder::AddConstant` provides typed overloads for the current
+variant alternatives and records uniquely named constant values.
+`FBuildDefinition` and `FBuildAction` expose lookup and ordered iteration without
+exposing mutable storage. Action identity continues to hash the current explicit
+schema-2 canonical encoding of the registered function, constants, and resolved
 input identities.
 
-Changing from the current variant encoding is an intentional identity change.
-The new action encoding uses schema 3 unless Stage 0 proves and selects a
-byte-identical compatibility encoder. Family `ConstantsSchema`, function
-versions, and output schemas change when their interpretation or output contract
-changes; version bumps are not used as a substitute for an envelope version.
+Builder adoption must be byte-identical for existing definitions: the same
+function, constants, and resolved input identities produce the same canonical
+action bytes and key. Family `ConstantsSchema` changes only when a family's
+constant interpretation changes. Function versions and output schemas change
+when behavior or the output contract changes; they are not substitutes for
+cache-record envelope versions.
 
 ### Input and output identities
 
@@ -149,8 +166,9 @@ public:
 };
 ```
 
-`FBuildContext` provides bounded lookup for constants and inputs and bounded
-output mutation through `AddValue`, `AddMeta`, `AddMessage`, `AddWarning`, and
+`FBuildContext` provides typed bounded lookup over the retained constant variant
+and named inputs, plus bounded output mutation through `AddValue`, `AddMeta`,
+`AddMessage`, `AddWarning`, and
 `AddError`. It also exposes cancellation and required-memory facts. The context
 is single-threaded during synchronous `Build`; all mutation becomes invalid when
 the function returns. The executor alone freezes the output builder.
@@ -209,10 +227,12 @@ integrity failure remains recoverable when policy allows local build.
 
 ### Compatibility and non-goals
 
-Compact Binary constants, `FValueId`, and context-owned error output change
-action identity and cache-record encoding. Prefer explicit cold invalidation over
-an indefinite compatibility facade. If legacy reading is retained, it is a
-bounded schema-1-to-schema-2 cache-record decoder only; no legacy writer remains.
+`FValueId`, Compact Binary output metadata, and context-owned error output change
+the output and cache-record contract, but the existing constant encoding and
+action schema remain unchanged. Output schema/function-version changes may still
+produce new action keys. Prefer explicit cold invalidation over an indefinite
+compatibility facade. If legacy reading is retained, it is a bounded
+schema-1-to-schema-2 cache-record decoder only; no legacy writer remains.
 
 Authored package bytes, Cook payload bytes, runtime asset codecs, family source
 identity, scheduling, latest-wins publication, shader single-flight/LRU, and
@@ -236,8 +256,9 @@ function registration is introduced.
   output falls back without restoring a public typed failure.
 - [ ] Decide deterministic error-output caching and document the exact status,
   output, and retry behavior for cache hits and local builds.
-- [ ] Record the action, cache-record, function, constants, and output schema
-  version changes and whether any bounded legacy reader exists.
+- [ ] Prove the builder migration preserves action schema-2 canonical bytes and
+  record the cache-record, function, and output schema changes plus whether any
+  bounded legacy reader exists.
 - [ ] Capture current canonical action bytes, record bytes, output sizes, cold
   and warm timings, source-read counts, and retained-buffer behavior as the
   migration baseline.
@@ -275,16 +296,17 @@ Depends on Stages 0-1. Complete when all values round-trip through raw and
 compressed records with fixed IDs and no producer still persists a string value
 identifier.
 
-### Stage 3: Add UE-style immutable builders and service factories
+### Stage 3: Add immutable builders and service factories
 
 - [ ] Add move-only definition, action, inputs, and output builders created by
   `IBuild` and backed by private immutable state.
 - [ ] Replace public vector construction of constants and outputs with builder
   methods that reject invalid or duplicate entries at insertion/freeze.
-- [ ] Store constants as Compact Binary objects and expose lookup/ordered
-  iteration without leaking the backing container.
-- [ ] Encode action schema 3 and add golden identity tests proving insertion
-  order independence and type/value sensitivity.
+- [ ] Retain `FBuildConstantValue` as the constant representation, expose typed
+  builder overloads and lookup/ordered iteration, and do not leak mutable
+  backing containers.
+- [ ] Preserve action schema 2 and add golden identity tests proving byte-for-byte
+  compatibility, insertion-order independence, and type/value sensitivity.
 - [ ] Keep debug names out of identity and bound every builder-owned table and
   byte allocation.
 
@@ -310,9 +332,9 @@ to read all deterministic inputs and publish every deterministic result.
 
 ### Stage 5: Migrate all producer families and consumers
 
-- [ ] Migrate Texture2D, TextureCube, and VolumeTexture to Compact Binary
-  constants, named input lookup, fixed output IDs, Context output writes, and
-  deterministic messages.
+- [ ] Migrate Texture2D, TextureCube, and VolumeTexture to builder-owned variant
+  constants, named input lookup, Compact Binary metadata, fixed output IDs,
+  Context output writes, and deterministic messages.
 - [ ] Migrate StaticMesh render and physics collision while preserving source
   capture, reconciliation, working-set bounds, typed assembly, and Cook bytes.
 - [ ] Migrate ShaderBuild while preserving dependency closure verification,
@@ -327,10 +349,11 @@ Context contract and all publication gates remain owner-controlled.
 
 ### Stage 6: Remove legacy surfaces and qualify compatibility
 
-- [ ] Delete `FBuildConstantValue`, public `FBuildConstant`, `FBuildOutputData`,
-  string output IDs, `FBuildFailure`, `FBuildFunctionResult`, public
-  `IBuildFunction::Validate`, and superseded validation-receipt plumbing after
-  all consumers migrate.
+- [ ] Delete direct public vector construction with `FBuildConstant`,
+  `FBuildOutputData`, string output IDs, `FBuildFailure`,
+  `FBuildFunctionResult`, public `IBuildFunction::Validate`, and superseded
+  validation-receipt plumbing after all consumers migrate; retain the bounded
+  `FBuildConstantValue` variant behind builder/context APIs.
 - [ ] Search every declared project for direct mutable output construction,
   typed generic failure inspection, legacy action schema assumptions, and
   string output value IDs.
@@ -369,12 +392,16 @@ implemented contract without relying on this active plan as runtime authority.
 - [ ] Deterministic build errors are output messages, error output contains no
   values, infrastructure failure is not cacheable output, and cancellation is a
   distinct terminal status.
-- [ ] Constants are immutable Compact Binary objects with bounded canonical
-  encoding; no public constrained-variant constant representation remains.
+- [ ] Constants retain the bounded variant and schema-2 canonical encoding;
+  builder/context adoption produces byte-identical action identity for unchanged
+  definitions.
+- [ ] Durin's bounded Compact Binary implementation owns structured output
+  metadata without becoming the build-constant representation in this plan.
 - [ ] Output values use stable 12-byte IDs, inputs retain names, and no persisted
   output value uses a dynamic string ID.
-- [ ] Action and cache-record schema transitions are explicit, tested, and do
-  not silently reinterpret legacy bytes.
+- [ ] Action schema-2 bytes remain stable for unchanged definitions; the
+  cache-record schema transition is explicit, tested, and does not silently
+  reinterpret legacy bytes.
 - [ ] Corrupt cache data falls back according to policy, invalid fresh output is
   never persisted, and the selected validation boundary performs no unsafe
   trusted bypass.
@@ -383,4 +410,3 @@ implemented contract without relying on this active plan as runtime authority.
   preserved.
 - [ ] Affected tests, CPU qualifications, shared API `all` build, documentation
   validation, and exact legacy-symbol searches pass on the selected host.
-
