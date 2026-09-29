@@ -364,7 +364,9 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	DMaterial* Material = nullptr;
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
-	ASSERT_TRUE(SetBindingProgram(*Material));
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	Graph.Add(EMaterialProgramOpcode::Pow, EMaterialProgramValueType::Float3, {}, {}, {});
+	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
 	const auto ExpectedSignature = Function->GetFunctionSignature();
 	const auto ExpectedExpressionCount = Function->GetExpressionCollection().Expressions.size();
@@ -409,6 +411,12 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 			EXPECT_EQ(Copy->GetFunctionSignature(), ExpectedSignature);
 			MarkObjectHierarchyAsGarbage(Copy);
 		}
+		if (auto* LoadedMaterial = Cast<DMaterial>(Loaded))
+			EXPECT_TRUE(std::ranges::any_of(
+				LoadedMaterial->GetExpressionCollection().Expressions,
+				[](const auto& Expression) {
+					return Cast<DMaterialExpressionPow>(Expression.Get()) != nullptr;
+				}));
 		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	ShutdownAssetManager();

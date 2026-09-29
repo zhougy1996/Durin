@@ -42,6 +42,24 @@ destination spaces. Stage 1 validates their supported pairs and canonical bytes;
 shader context lowering and authored transform nodes are introduced with the
 context-source stage.
 
+The pure numeric language includes `Pow`, `Sqrt`, `Exp`, `Log`, `Floor`, `Ceil`,
+`Round`, `Frac`, `Fmod`, `Step`, `SmoothStep`, and `Sign`. Scalar operands may
+broadcast to the selected vector width; different vector widths do not coerce.
+`Dot`, `Cross`, `Length`, `Distance`, and `Reflect` apply the semantic signature
+table: geometric vector operands have exact widths and compatible kinds/spaces,
+while ordinary non-spatial vectors retain non-spatial results. `Dot`, `Length`,
+and `Distance` produce scalar values; `Cross` produces a direction for compatible
+direction/normal inputs, and `Reflect` preserves an incident direction. These
+nodes add no renderer requirement or pass binding.
+
+Compilation folds finite constant-only math and geometry subgraphs before
+normalization. A domain error, zero `Fmod` divisor, overflow, or non-finite folded
+component is a source-located compiler error; it never publishes partial IR.
+Zero-length `Length` and a zero normal in `Reflect` remain finite and deterministic.
+Authoring validation still retains disconnected and domain-invalid literal state
+so the editor can present and repair it; compiler snapshot construction owns the
+fold diagnostic.
+
 ## Numeric input ownership
 
 `FMaterialExpressionInput` contains only upstream identity. Reflected
@@ -117,7 +135,8 @@ See [Material diagnostics](MaterialSystem.md#results-and-diagnostics) for error 
 
 The expression tests in `MaterialCompilerTests` cover multi-output sharing,
 function invocation isolation, stable output selectors, normal texture handling,
-cycle detection, and failed-result publication.
+pure-math folding and generated intrinsics, geometric semantic mismatches, cycle
+detection, and failed-result publication.
 
 ## Compiler input capture
 

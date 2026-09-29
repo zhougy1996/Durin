@@ -113,6 +113,25 @@ namespace Durin
 			if (ResultType != Type::Float3) return std::nullopt;
 			Same(2, Type::Float3);
 			break;
+		case EMaterialProgramOpcode::Dot:
+		case EMaterialProgramOpcode::Distance:
+			if (ResultType != Type::Float) return std::nullopt;
+			Signature.InputCount = 2;
+			Signature.Inputs[0] = Signature.Inputs[1] = std::span(Types).subspan(1, 3);
+			break;
+		case EMaterialProgramOpcode::Length:
+			if (ResultType != Type::Float) return std::nullopt;
+			Signature.InputCount = 1;
+			Signature.Inputs[0] = std::span(Types).subspan(1, 3);
+			break;
+		case EMaterialProgramOpcode::Cross:
+			if (ResultType != Type::Float3) return std::nullopt;
+			Same(2, Type::Float3);
+			break;
+		case EMaterialProgramOpcode::Reflect:
+			if (!bNumeric || ResultType == Type::Float) return std::nullopt;
+			Same(2, ResultType);
+			break;
 		case EMaterialProgramOpcode::Add:
 		case EMaterialProgramOpcode::Subtract:
 		case EMaterialProgramOpcode::Multiply:
@@ -131,8 +150,26 @@ namespace Durin
 		case EMaterialProgramOpcode::Saturate:
 		case EMaterialProgramOpcode::Sine:
 		case EMaterialProgramOpcode::Cosine:
+		case EMaterialProgramOpcode::Sqrt:
+		case EMaterialProgramOpcode::Exp:
+		case EMaterialProgramOpcode::Log:
+		case EMaterialProgramOpcode::Floor:
+		case EMaterialProgramOpcode::Ceil:
+		case EMaterialProgramOpcode::Round:
+		case EMaterialProgramOpcode::Frac:
+		case EMaterialProgramOpcode::Sign:
 			if (!bNumeric) return std::nullopt;
 			Same(1, ResultType);
+			break;
+		case EMaterialProgramOpcode::Pow:
+		case EMaterialProgramOpcode::Fmod:
+		case EMaterialProgramOpcode::Step:
+			if (!bNumeric) return std::nullopt;
+			Same(2, ResultType);
+			break;
+		case EMaterialProgramOpcode::SmoothStep:
+			if (!bNumeric) return std::nullopt;
+			Same(3, ResultType);
 			break;
 		case EMaterialProgramOpcode::Clamp:
 		case EMaterialProgramOpcode::Lerp:
@@ -224,9 +261,9 @@ namespace Durin
 		for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			if (!IsValidMaterialValueSemantics(Inputs[Index])
 				|| (!std::ranges::contains(Signature->Inputs[Index], Inputs[Index].Type)
-					&& !(IsMaterialAdaptiveNumeric(Opcode)
+					&& !(MaterialNumericInputAllowsScalarBroadcast(Opcode, static_cast<uint32>(Index))
 						&& Inputs[Index].Type == EMaterialProgramValueType::Float
-						&& !(Opcode == EMaterialProgramOpcode::Lerp && Index == 2))))
+						)))
 				return std::nullopt;
 
 		FMaterialValueSemantics Result{.Type = ResultType};
@@ -266,6 +303,38 @@ namespace Durin
 				|| !SameSpatial(Inputs[0], Inputs[1])) return std::nullopt;
 			Result.Kind = Kind::Normal; Result.Space = Space::Tangent;
 			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::Dot:
+			if (Inputs[0].Type != Inputs[1].Type) return std::nullopt;
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if ((Inputs[0].Kind != Kind::Direction && Inputs[0].Kind != Kind::Normal)
+				|| (Inputs[1].Kind != Kind::Direction && Inputs[1].Kind != Kind::Normal)
+				|| Inputs[0].Space != Inputs[1].Space) return std::nullopt;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Cross:
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if ((Inputs[0].Kind != Kind::Direction && Inputs[0].Kind != Kind::Normal)
+				|| (Inputs[1].Kind != Kind::Direction && Inputs[1].Kind != Kind::Normal)
+				|| Inputs[0].Space != Inputs[1].Space) return std::nullopt;
+			Result.Kind = Kind::Direction; Result.Space = Inputs[0].Space;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Length:
+			if (Inputs[0].Kind == Kind::Position
+				|| Inputs[0].Kind == Kind::ScreenCoordinate) return std::nullopt;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Distance:
+			if (Inputs[0].Type != Inputs[1].Type) return std::nullopt;
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if (!SameSpatial(Inputs[0], Inputs[1])
+				|| (Inputs[0].Kind != Kind::Position
+					&& Inputs[0].Kind != Kind::ScreenCoordinate)) return std::nullopt;
+			return WithStages(Result, Inputs);
+		case OpcodeType::Reflect:
+			if (Inputs[0].Type != Inputs[1].Type) return std::nullopt;
+			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
+			if (Inputs[0].Kind != Kind::Direction || Inputs[1].Kind != Kind::Normal
+				|| Inputs[0].Space != Inputs[1].Space) return std::nullopt;
+			Result.Kind = Kind::Direction; Result.Space = Inputs[0].Space;
+			return WithStages(Result, Inputs);
 		case OpcodeType::Add:
 			if (!IsSpatial(Inputs[0]) && !IsSpatial(Inputs[1])) return NonSpatial();
 			if (Inputs[0].Space != Inputs[1].Space
@@ -378,6 +447,18 @@ namespace Durin
 		case OpcodeType::Clamp:
 		case OpcodeType::Sine:
 		case OpcodeType::Cosine:
+		case OpcodeType::Pow:
+		case OpcodeType::Sqrt:
+		case OpcodeType::Exp:
+		case OpcodeType::Log:
+		case OpcodeType::Floor:
+		case OpcodeType::Ceil:
+		case OpcodeType::Round:
+		case OpcodeType::Frac:
+		case OpcodeType::Fmod:
+		case OpcodeType::Step:
+		case OpcodeType::SmoothStep:
+		case OpcodeType::Sign:
 		case OpcodeType::MakeFloat2:
 		case OpcodeType::MakeFloat3:
 		case OpcodeType::MakeFloat4:

@@ -22,7 +22,7 @@ namespace Durin::Editor::Material
 				Result += Index < Entry.InputNames.size()
 					? Entry.InputNames[Index] : std::format("Input {}", Index + 1);
 				Result += ": ";
-				if (IsMaterialAdaptiveNumeric(Entry.Opcode) && !(Entry.Opcode == EMaterialProgramOpcode::Lerp && Index == 2))
+				if (MaterialNumericInputAllowsScalarBroadcast(Entry.Opcode, static_cast<uint32>(Index)))
 				{
 					Result += Entry.Opcode == EMaterialProgramOpcode::Normalize ? "Vector (automatic)" : "Numeric (automatic)";
 					continue;

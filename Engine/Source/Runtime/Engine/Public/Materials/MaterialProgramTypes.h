@@ -155,6 +155,23 @@ namespace Durin
 		TransformPosition,
 		TransformDirection,
 		TransformNormal,
+		Dot,
+		Cross,
+		Length,
+		Distance,
+		Pow,
+		Sqrt,
+		Exp,
+		Log,
+		Floor,
+		Ceil,
+		Round,
+		Frac,
+		Fmod,
+		Step,
+		SmoothStep,
+		Sign,
+		Reflect,
 	};
 
 	struct FMaterialTransformPayload
@@ -168,7 +185,9 @@ namespace Durin
 	inline auto IsMaterialAdaptiveNumeric(EMaterialProgramOpcode Opcode) -> bool
 	{
 		return (Opcode >= EMaterialProgramOpcode::Add && Opcode <= EMaterialProgramOpcode::Lerp)
-			|| Opcode == EMaterialProgramOpcode::Sine || Opcode == EMaterialProgramOpcode::Cosine;
+			|| Opcode == EMaterialProgramOpcode::Sine || Opcode == EMaterialProgramOpcode::Cosine
+			|| (Opcode >= EMaterialProgramOpcode::Pow && Opcode <= EMaterialProgramOpcode::Sign)
+			|| Opcode == EMaterialProgramOpcode::Reflect;
 	}
 
 	DENUM()
@@ -183,6 +202,25 @@ namespace Durin
 		Opacity,
 		OpacityMask,
 	};
+
+	inline auto MaterialNumericInputAllowsScalarBroadcast(
+		EMaterialProgramOpcode Opcode, uint32 Slot) -> bool
+	{
+		if (Opcode == EMaterialProgramOpcode::Normalize
+			|| Opcode == EMaterialProgramOpcode::BlendNormalsRNM
+			|| Opcode == EMaterialProgramOpcode::DecodeNormalRG
+			|| Opcode == EMaterialProgramOpcode::TransformPosition
+			|| Opcode == EMaterialProgramOpcode::TransformDirection
+			|| Opcode == EMaterialProgramOpcode::TransformNormal
+			|| (Opcode >= EMaterialProgramOpcode::Dot
+				&& Opcode <= EMaterialProgramOpcode::Distance)
+			|| Opcode == EMaterialProgramOpcode::Reflect
+			|| (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2)
+			|| (Opcode == EMaterialProgramOpcode::MakeSurface
+				&& Slot == static_cast<uint32>(EMaterialSurfaceOutput::Normal)))
+			return false;
+		return true;
+	}
 
 	// Describes base pin types only; literal, parameter, and swizzle payloads need validation.
 	struct FMaterialProgramNodeSignature

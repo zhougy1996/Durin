@@ -101,6 +101,97 @@ TEST(FMaterialProgramSemanticTests, TransformNormalIsCanonicalAndRejectsInvalidS
 	EXPECT_FALSE(MIR::Normalize(Invalid));
 }
 
+TEST(FMaterialProgramSemanticTests, GeometricOperationsEnforceWidthKindSpaceAndStage)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	using Stage = EMaterialEvaluationStage;
+	using Kind = EMaterialSpatialKind;
+	using Space = EMaterialCoordinateSpace;
+	const FMaterialValueSemantics WorldDirection{Type::Float3, Stage::Both, Kind::Direction, Space::World};
+	const FMaterialValueSemantics WorldNormal{Type::Float3, Stage::Pixel, Kind::Normal, Space::World};
+	const FMaterialValueSemantics ViewNormal{Type::Float3, Stage::Pixel, Kind::Normal, Space::View};
+	const FMaterialValueSemantics WorldPosition{Type::Float3, Stage::Pixel, Kind::Position, Space::World};
+	const FMaterialValueSemantics Generic3{Type::Float3, Stage::Both, Kind::None, Space::None};
+
+	std::array Pair{WorldDirection, WorldNormal};
+	auto Result = ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Dot, Type::Float, Pair);
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Type, Type::Float); EXPECT_EQ(Result->Kind, Kind::None);
+	EXPECT_EQ(Result->Stages, Stage::Pixel);
+	Result = ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Cross, Type::Float3, Pair);
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Kind, Kind::Direction); EXPECT_EQ(Result->Space, Space::World);
+	Pair[1] = ViewNormal;
+	EXPECT_FALSE(ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Dot, Type::Float, Pair));
+	const std::array PositionInput{WorldPosition};
+	EXPECT_FALSE(ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Length, Type::Float, PositionInput));
+	const std::array Positions{WorldPosition, WorldPosition};
+	EXPECT_TRUE(ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Distance, Type::Float, Positions));
+	Pair = {WorldDirection, WorldNormal};
+	Result = ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Reflect, Type::Float3, Pair);
+	ASSERT_TRUE(Result); EXPECT_EQ(Result->Kind, Kind::Direction); EXPECT_EQ(Result->Space, Space::World);
+	const std::array GenericPair{Generic3, Generic3};
+	EXPECT_TRUE(ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode::Reflect, Type::Float3, GenericPair));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Reflect, Type::Float));
+}
+
+TEST(FMaterialProgramGeneratorTests, PureMathAndGeometryEmitDeterministicIntrinsics)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	MIR::FModule IR = MakeDefaultMaterialCompilerIR();
+	auto Add = [&](EMaterialProgramOpcode Opcode, Type ResultType,
+		std::vector<uint32> Inputs = {}, FMaterialProgramLiteral Literal = {}) {
+		MIR::FNode Node{.Opcode = Opcode, .ResultType = ResultType, .Inputs = std::move(Inputs)};
+		if (Opcode == EMaterialProgramOpcode::Constant) Node.Payload = Literal;
+		ResolveNodeSemantics(IR, Node);
+		const uint32 Index = static_cast<uint32>(IR.Nodes.size());
+		IR.Nodes.push_back(std::move(Node));
+		return Index;
+	};
+	const auto A = Add(EMaterialProgramOpcode::Constant, Type::Float3, {}, {1, 2, 3});
+	const auto B = Add(EMaterialProgramOpcode::Constant, Type::Float3, {}, {4, 5, 6});
+	const auto Zero = Add(EMaterialProgramOpcode::Constant, Type::Float3, {}, {0, 0, 0});
+	std::vector<uint32> Terms;
+	const auto Splat = [&](uint32 Scalar) {
+		return Add(EMaterialProgramOpcode::Splat3, Type::Float3, {Scalar});
+	};
+	Terms.push_back(Splat(Add(EMaterialProgramOpcode::Dot, Type::Float, {A, B})));
+	Terms.push_back(Add(EMaterialProgramOpcode::Cross, Type::Float3, {A, B}));
+	Terms.push_back(Splat(Add(EMaterialProgramOpcode::Length, Type::Float, {A})));
+	Terms.push_back(Splat(Add(EMaterialProgramOpcode::Distance, Type::Float, {A, B})));
+	Terms.push_back(Add(EMaterialProgramOpcode::Pow, Type::Float3, {A, B}));
+	for (const auto Opcode : {EMaterialProgramOpcode::Sqrt, EMaterialProgramOpcode::Exp,
+		EMaterialProgramOpcode::Log, EMaterialProgramOpcode::Floor,
+		EMaterialProgramOpcode::Ceil, EMaterialProgramOpcode::Round,
+		EMaterialProgramOpcode::Frac, EMaterialProgramOpcode::Sign})
+		Terms.push_back(Add(Opcode, Type::Float3, {A}));
+	Terms.push_back(Add(EMaterialProgramOpcode::Fmod, Type::Float3, {A, B}));
+	Terms.push_back(Add(EMaterialProgramOpcode::Step, Type::Float3, {A, B}));
+	Terms.push_back(Add(EMaterialProgramOpcode::SmoothStep, Type::Float3, {Zero, B, A}));
+	Terms.push_back(Add(EMaterialProgramOpcode::Reflect, Type::Float3, {A, B}));
+	uint32 Aggregate = Terms.front();
+	for (size_t Index = 1; Index < Terms.size(); ++Index)
+		Aggregate = Add(EMaterialProgramOpcode::Add, Type::Float3, {Aggregate, Terms[Index]});
+	auto& BaseColor = IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::BaseColor)];
+	BaseColor.bExpression = true; BaseColor.ExpressionIndex = Aggregate;
+	const auto Generated = GenerateMaterialProgramSlang(IR);
+	ASSERT_TRUE(Generated) << (Generated.Diagnostics.empty() ? "missing diagnostic"
+		: FormatMaterialError(Generated.Diagnostics.front().Error));
+	for (const std::string_view Intrinsic : {"dot(", "cross(", "length(", "distance(",
+		"pow(", "sqrt(", "exp(", "log(", "floor(", "ceil(", "round(",
+		"frac(", "fmod(", "step(", "smoothstep(", "sign(", "reflect("})
+		EXPECT_NE(Generated.Source.find(Intrinsic), std::string::npos) << Intrinsic;
+	const auto Repeated = GenerateMaterialProgramSlang(IR);
+	ASSERT_TRUE(Repeated); EXPECT_EQ(Repeated.Source, Generated.Source);
+	MIR::FCompilerInput Input;
+	Input.IR = IR;
+	Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
+		: FormatMaterialError(Compiled.Diagnostics.front().Error));
+	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+}
+
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
 {
 	using namespace Durin;

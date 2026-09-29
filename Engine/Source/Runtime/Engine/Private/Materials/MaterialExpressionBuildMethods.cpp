@@ -127,6 +127,76 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Cosine, ResultType, Inputs));
 	}
 
+	auto DMaterialExpressionDot::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&A, &B};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Dot, EMaterialProgramValueType::Float, Inputs));
+	}
+
+	auto DMaterialExpressionCross::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&A, &B};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Cross, EMaterialProgramValueType::Float3, Inputs));
+	}
+
+	auto DMaterialExpressionLength::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Input};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Length, EMaterialProgramValueType::Float, Inputs));
+	}
+
+	auto DMaterialExpressionDistance::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&A, &B};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Distance, EMaterialProgramValueType::Float, Inputs));
+	}
+
+	auto DMaterialExpressionPow::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Base, &Exponent};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Pow, ResultType, Inputs));
+	}
+
+#define DURIN_BUILD_MATERIAL_UNARY(ClassName, OpcodeName) \
+	auto ClassName::Build(MIR::FEmitter& Emitter) const -> void \
+	{ \
+		const std::array Inputs{&Input}; \
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::OpcodeName, ResultType, Inputs)); \
+	}
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionSqrt, Sqrt)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionExp, Exp)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionLog, Log)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionFloor, Floor)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionCeil, Ceil)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionRound, Round)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionFrac, Frac)
+	DURIN_BUILD_MATERIAL_UNARY(DMaterialExpressionSign, Sign)
+#undef DURIN_BUILD_MATERIAL_UNARY
+
+	auto DMaterialExpressionFmod::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&A, &B};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Fmod, ResultType, Inputs));
+	}
+
+	auto DMaterialExpressionStep::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Edge, &Value};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Step, ResultType, Inputs));
+	}
+
+	auto DMaterialExpressionSmoothStep::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Minimum, &Maximum, &Value};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::SmoothStep, ResultType, Inputs));
+	}
+
+	auto DMaterialExpressionReflect::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Incident, &Normal};
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Reflect, ResultType, Inputs));
+	}
+
 	auto DMaterialExpressionClamp::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input, &Minimum, &Maximum};

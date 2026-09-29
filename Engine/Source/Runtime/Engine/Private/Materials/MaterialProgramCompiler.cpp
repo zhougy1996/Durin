@@ -45,7 +45,9 @@ namespace Durin
 			return Opcode == EMaterialProgramOpcode::Add
 				|| Opcode == EMaterialProgramOpcode::Multiply
 				|| Opcode == EMaterialProgramOpcode::Minimum
-				|| Opcode == EMaterialProgramOpcode::Maximum;
+				|| Opcode == EMaterialProgramOpcode::Maximum
+				|| Opcode == EMaterialProgramOpcode::Dot
+				|| Opcode == EMaterialProgramOpcode::Distance;
 		}
 
 		template <typename TValue>

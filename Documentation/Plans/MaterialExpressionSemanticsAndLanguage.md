@@ -19,11 +19,12 @@ not carry evaluation-stage or coordinate-space semantics. Existing Surface roots
 are fragment-only, while `WorldPosition`, `Time`, texture coordinates, texture
 samples, and numeric operations are admitted through shape-only signatures.
 
-Stages 0 and 1 completed on 2026-09-30. The frozen contract below records the semantic
+Stages 0 through 2 completed on 2026-09-30. The frozen contract below records the semantic
 algebra, pass-context ABI, static-selection ownership, compatibility policy,
 fixtures, and budgets. Existing material and function content now compiles through
-semantic MIR without changing the Surface ABI or rendered results. Stage 2 is
-current: add the frozen pure-math and geometric operation set.
+semantic MIR, and the frozen pure-math/geometric operation set is authorable,
+persistent, foldable, and deterministic without changing the Surface or renderer
+ABI. Stage 3 is current: add context sources and authored spatial transforms.
 
 ## Goal
 
@@ -520,19 +521,29 @@ authoring catalog until Stage 3 supplies its pass-context lowering.
 Dependency: Stage 1 and frozen budgets. Outcome: general expression language
 grows without new renderer inputs.
 
-- [ ] Add Dot, Cross, Length, Distance, and Reflect with exact width, same-space,
+- [x] Add Dot, Cross, Length, Distance, and Reflect with exact width, same-space,
   kind, zero-length, and result-semantics rules.
-- [ ] Add Pow, Sqrt, Exp, Log, Floor, Ceil, Round, Frac, Fmod, Step, SmoothStep,
+- [x] Add Pow, Sqrt, Exp, Log, Floor, Ceil, Round, Frac, Fmod, Step, SmoothStep,
   and Sign with exact broadcast, width, folding, and non-finite/domain behavior.
-- [ ] Expose nodes through catalog, command API, canvas, copy/paste, Undo/Redo,
+- [x] Expose nodes through catalog, command API, canvas, copy/paste, Undo/Redo,
   persistence, automation, and diagnostic navigation.
-- [ ] Add root/nested-function fixtures for valid inference, every rejected
-  mismatch, disconnected validation, identity, source location, and generated code.
-- [ ] Compare frozen compiler/artifact fixtures and resolve regressions before
+- [x] Add root/nested-function fixtures for valid inference, rejected semantic
+  mismatches, disconnected validation, identity, source location, and generated code.
+- [x] Compare frozen compiler/artifact fixtures and resolve regressions before
   renderer context; do not infer GPU cost from source lines.
 
 Completion: selected math works identically in materials/functions with
 deterministic identity and no renderer/pass ABI change.
+
+Evidence (2026-09-30): all 17 selected operations have reflected expressions,
+catalog entries, semantic signatures, deterministic Slang emission, constant
+folding, and persistence coverage. Root and nested-function tests exercise valid
+and rejected stage/kind/space/width combinations, source locations, and generated
+intrinsics. `MaterialCompilerTests` (58), `MaterialFunctionTests` (29),
+`MaterialGraphEditingTests` (99), and `MaterialPackageTests` (6) pass. The frozen
+`MaterialQualificationTests` compiler/artifact/variant/Cook workload also passes
+in 99.70 seconds on the shared Debug lane; that time is diagnostic only. No pass
+contract, render layout, material output, or renderer binding changed.
 
 ### Stage 3: Add Context Sources and Spatial Transforms
 

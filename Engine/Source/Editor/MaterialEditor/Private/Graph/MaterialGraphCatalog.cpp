@@ -77,6 +77,14 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Divide:
 			case EMaterialProgramOpcode::Minimum:
 			case EMaterialProgramOpcode::Maximum: Names = {"A", "B"}; break;
+			case EMaterialProgramOpcode::Dot:
+			case EMaterialProgramOpcode::Cross:
+			case EMaterialProgramOpcode::Distance: Names = {"A", "B"}; break;
+			case EMaterialProgramOpcode::Pow: Names = {"Base", "Exponent"}; break;
+			case EMaterialProgramOpcode::Fmod: Names = {"A", "B"}; break;
+			case EMaterialProgramOpcode::Step: Names = {"Edge", "Value"}; break;
+			case EMaterialProgramOpcode::SmoothStep: Names = {"Min", "Max", "Value"}; break;
+			case EMaterialProgramOpcode::Reflect: Names = {"Incident", "Normal"}; break;
 			case EMaterialProgramOpcode::Clamp: Names = {"Value", "Min", "Max"}; break;
 			case EMaterialProgramOpcode::Lerp: Names = {"A", "B", "Alpha"}; break;
 			case EMaterialProgramOpcode::MakeFloat2: Names = {"X", "Y"}; break;
@@ -158,6 +166,23 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::UVChannel: return "UV Channel";
 			case EMaterialProgramOpcode::Sine: return "Sine";
 			case EMaterialProgramOpcode::Cosine: return "Cosine";
+			case EMaterialProgramOpcode::Dot: return "Dot Product";
+			case EMaterialProgramOpcode::Cross: return "Cross Product";
+			case EMaterialProgramOpcode::Length: return "Length";
+			case EMaterialProgramOpcode::Distance: return "Distance";
+			case EMaterialProgramOpcode::Pow: return "Power";
+			case EMaterialProgramOpcode::Sqrt: return "Square Root";
+			case EMaterialProgramOpcode::Exp: return "Exponential";
+			case EMaterialProgramOpcode::Log: return "Natural Log";
+			case EMaterialProgramOpcode::Floor: return "Floor";
+			case EMaterialProgramOpcode::Ceil: return "Ceil";
+			case EMaterialProgramOpcode::Round: return "Round";
+			case EMaterialProgramOpcode::Frac: return "Fraction";
+			case EMaterialProgramOpcode::Fmod: return "Fmod";
+			case EMaterialProgramOpcode::Step: return "Step";
+			case EMaterialProgramOpcode::SmoothStep: return "Smooth Step";
+			case EMaterialProgramOpcode::Sign: return "Sign";
+			case EMaterialProgramOpcode::Reflect: return "Reflect";
 			case EMaterialProgramOpcode::MakeSurface: return "Make Surface";
 			case EMaterialProgramOpcode::FunctionInput: return "Function Input";
 			case EMaterialProgramOpcode::FunctionOutput: return "Function Output";
@@ -206,6 +231,23 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::UVChannel: return DMaterialExpressionUVChannel::StaticClass();
 			case EMaterialProgramOpcode::Sine: return DMaterialExpressionSine::StaticClass();
 			case EMaterialProgramOpcode::Cosine: return DMaterialExpressionCosine::StaticClass();
+			case EMaterialProgramOpcode::Dot: return DMaterialExpressionDot::StaticClass();
+			case EMaterialProgramOpcode::Cross: return DMaterialExpressionCross::StaticClass();
+			case EMaterialProgramOpcode::Length: return DMaterialExpressionLength::StaticClass();
+			case EMaterialProgramOpcode::Distance: return DMaterialExpressionDistance::StaticClass();
+			case EMaterialProgramOpcode::Pow: return DMaterialExpressionPow::StaticClass();
+			case EMaterialProgramOpcode::Sqrt: return DMaterialExpressionSqrt::StaticClass();
+			case EMaterialProgramOpcode::Exp: return DMaterialExpressionExp::StaticClass();
+			case EMaterialProgramOpcode::Log: return DMaterialExpressionLog::StaticClass();
+			case EMaterialProgramOpcode::Floor: return DMaterialExpressionFloor::StaticClass();
+			case EMaterialProgramOpcode::Ceil: return DMaterialExpressionCeil::StaticClass();
+			case EMaterialProgramOpcode::Round: return DMaterialExpressionRound::StaticClass();
+			case EMaterialProgramOpcode::Frac: return DMaterialExpressionFrac::StaticClass();
+			case EMaterialProgramOpcode::Fmod: return DMaterialExpressionFmod::StaticClass();
+			case EMaterialProgramOpcode::Step: return DMaterialExpressionStep::StaticClass();
+			case EMaterialProgramOpcode::SmoothStep: return DMaterialExpressionSmoothStep::StaticClass();
+			case EMaterialProgramOpcode::Sign: return DMaterialExpressionSign::StaticClass();
+			case EMaterialProgramOpcode::Reflect: return DMaterialExpressionReflect::StaticClass();
 			case EMaterialProgramOpcode::MakeSurface: return DMaterialExpressionMakeSurface::StaticClass();
 			case EMaterialProgramOpcode::FunctionInput: return DMaterialExpressionFunctionInput::StaticClass();
 			case EMaterialProgramOpcode::FunctionOutput: return DMaterialExpressionFunctionOutput::StaticClass();
@@ -268,6 +310,23 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::UVChannel: Entry.Description = "Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped."; break;
 			case EMaterialProgramOpcode::Sine: Entry.Description = "Returns the component-wise sine in radians."; break;
 			case EMaterialProgramOpcode::Cosine: Entry.Description = "Returns the component-wise cosine in radians."; break;
+			case EMaterialProgramOpcode::Dot: Entry.Description = "Returns the scalar dot product of equal-width vectors."; break;
+			case EMaterialProgramOpcode::Cross: Entry.Description = "Returns the cross product of two Float3 values."; break;
+			case EMaterialProgramOpcode::Length: Entry.Description = "Returns the scalar length of a vector."; break;
+			case EMaterialProgramOpcode::Distance: Entry.Description = "Returns the scalar distance between equal-width values."; break;
+			case EMaterialProgramOpcode::Pow: Entry.Description = "Raises each base component to its exponent."; break;
+			case EMaterialProgramOpcode::Sqrt: Entry.Description = "Returns the component-wise square root."; break;
+			case EMaterialProgramOpcode::Exp: Entry.Description = "Returns the component-wise natural exponential."; break;
+			case EMaterialProgramOpcode::Log: Entry.Description = "Returns the component-wise natural logarithm."; break;
+			case EMaterialProgramOpcode::Floor: Entry.Description = "Rounds each component down."; break;
+			case EMaterialProgramOpcode::Ceil: Entry.Description = "Rounds each component up."; break;
+			case EMaterialProgramOpcode::Round: Entry.Description = "Rounds each component to the nearest integer."; break;
+			case EMaterialProgramOpcode::Frac: Entry.Description = "Returns each component's fractional part."; break;
+			case EMaterialProgramOpcode::Fmod: Entry.Description = "Returns the component-wise floating-point remainder."; break;
+			case EMaterialProgramOpcode::Step: Entry.Description = "Returns zero below Edge and one otherwise."; break;
+			case EMaterialProgramOpcode::SmoothStep: Entry.Description = "Returns smooth Hermite interpolation between Min and Max."; break;
+			case EMaterialProgramOpcode::Sign: Entry.Description = "Returns the sign of each component."; break;
+			case EMaterialProgramOpcode::Reflect: Entry.Description = "Reflects an incident vector around a normal of equal width."; break;
 			case EMaterialProgramOpcode::MakeSurface: Entry.Description = "Combines eight explicit surface properties without hidden parameter access."; break;
 			case EMaterialProgramOpcode::GetSurfaceAttributes: Entry.Description = "Reads selected attributes from a Surface."; break;
 			case EMaterialProgramOpcode::SetSurfaceAttributes: Entry.Description = "Overrides selected attributes while retaining the base Surface."; break;
@@ -288,7 +347,7 @@ namespace Durin::Editor::Material
 				const bool bExactNormal = Opcode == EMaterialProgramOpcode::BlendNormalsRNM
 					|| (Opcode == EMaterialProgramOpcode::MakeSurface
 						&& Index == static_cast<uint8>(EMaterialSurfaceOutput::Normal));
-				if (Opcode != EMaterialProgramOpcode::Normalize && !bExactNormal
+				if (MaterialNumericInputAllowsScalarBroadcast(Opcode, Index) && !bExactNormal
 					&& Signature.Inputs[Index].size() == 1
 					&& Signature.Inputs[Index].front() > EMaterialProgramValueType::Float
 					&& Signature.Inputs[Index].front() <= EMaterialProgramValueType::Float4)
@@ -649,7 +708,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::Time); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::Reflect); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{
@@ -729,7 +788,9 @@ namespace Durin::Editor::Material
 				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
 			if (IsMaterialAdaptiveNumeric(Entry.Opcode))
 			{
-				const auto Type = SourceType.value_or(Entry.Opcode == EMaterialProgramOpcode::Normalize
+				const auto Type = SourceType.value_or(
+					Entry.Opcode == EMaterialProgramOpcode::Normalize
+						|| Entry.Opcode == EMaterialProgramOpcode::Reflect
 					? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float);
 				if (Entry.ResultType != Type) continue;
 			}

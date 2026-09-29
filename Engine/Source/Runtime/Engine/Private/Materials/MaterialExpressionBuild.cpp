@@ -1,6 +1,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "MaterialExpressionGraphBuilder.h"
+#include <cmath>
 #include <unordered_set>
 
 #include "Threading/RunnableThread.h"
@@ -268,7 +269,8 @@ namespace Durin::MIR
 		// Normalize keeps its requirement for a vector source.
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
 		{
-			if (Signature->Inputs[Slot].size() == 1 && Node.Opcode != EMaterialProgramOpcode::Normalize)
+			if (Signature->Inputs[Slot].size() == 1
+				&& MaterialNumericInputAllowsScalarBroadcast(Node.Opcode, static_cast<uint32>(Slot)))
 			{
 				const auto Before = Node.Inputs[Slot];
 				Node.Inputs[Slot] = *BroadcastScalar(Before, Signature->Inputs[Slot].front()).GetIndex();
@@ -364,6 +366,106 @@ namespace Durin::MIR
 		Node.LegalStages = Semantics->Stages;
 		Node.SpatialKind = Semantics->Kind;
 		Node.CoordinateSpace = Semantics->Space;
+		const auto IsFoldable = [](EMaterialProgramOpcode Opcode) {
+			return Opcode >= EMaterialProgramOpcode::Dot
+				&& Opcode <= EMaterialProgramOpcode::Reflect;
+		};
+		if (IsFoldable(Node.Opcode) && !bValidateAuthoring)
+		{
+			std::array<FMaterialProgramLiteral, 3> Values{};
+			bool bAllConstant = true;
+			for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
+			{
+				const auto& InputNode = Result.IR.Nodes[Node.Inputs[Slot]];
+				if (InputNode.Opcode == EMaterialProgramOpcode::Constant)
+					Values[Slot] = InputNode.GetLiteral();
+				else if (InputNode.Opcode >= EMaterialProgramOpcode::Splat2
+					&& InputNode.Opcode <= EMaterialProgramOpcode::Splat4
+					&& InputNode.Inputs.size() == 1
+					&& Result.IR.Nodes[InputNode.Inputs[0]].Opcode == EMaterialProgramOpcode::Constant)
+				{
+					const float Scalar = Result.IR.Nodes[InputNode.Inputs[0]].GetLiteral().X;
+					Values[Slot] = {Scalar, Scalar, Scalar, Scalar};
+				}
+				else { bAllConstant = false; break; }
+			}
+			if (bAllConstant)
+			{
+				FMaterialProgramLiteral Folded;
+				const std::array<float*, 4> Output{&Folded.X, &Folded.Y, &Folded.Z, &Folded.W};
+				const auto Lane = [&](size_t Input, uint32 Component) -> float {
+					const auto& V = Values[Input];
+					return Component == 0 ? V.X : Component == 1 ? V.Y : Component == 2 ? V.Z : V.W;
+				};
+				const uint32 Width = static_cast<uint32>(Node.ResultType) + 1;
+				const uint32 InputWidth = Node.Opcode == EMaterialProgramOpcode::Dot
+					|| Node.Opcode == EMaterialProgramOpcode::Length
+					|| Node.Opcode == EMaterialProgramOpcode::Distance
+					? static_cast<uint32>(Result.IR.Nodes[Node.Inputs[0]].ResultType) + 1 : Width;
+				for (uint32 Component = 0; Component < Width; ++Component)
+				{
+					const float A = Lane(0, Component), B = Lane(1, Component), C = Lane(2, Component);
+					switch (Node.Opcode)
+					{
+					case EMaterialProgramOpcode::Pow: *Output[Component] = std::pow(A, B); break;
+					case EMaterialProgramOpcode::Sqrt: *Output[Component] = std::sqrt(A); break;
+					case EMaterialProgramOpcode::Exp: *Output[Component] = std::exp(A); break;
+					case EMaterialProgramOpcode::Log: *Output[Component] = std::log(A); break;
+					case EMaterialProgramOpcode::Floor: *Output[Component] = std::floor(A); break;
+					case EMaterialProgramOpcode::Ceil: *Output[Component] = std::ceil(A); break;
+					case EMaterialProgramOpcode::Round: *Output[Component] = std::round(A); break;
+					case EMaterialProgramOpcode::Frac: *Output[Component] = A - std::floor(A); break;
+					case EMaterialProgramOpcode::Fmod: *Output[Component] = std::fmod(A, B); break;
+					case EMaterialProgramOpcode::Step: *Output[Component] = A <= B ? 1.f : 0.f; break;
+					case EMaterialProgramOpcode::SmoothStep:
+					{
+						const float T = std::clamp((C - A) / (B - A), 0.f, 1.f);
+						*Output[Component] = T * T * (3.f - 2.f * T);
+						break;
+					}
+					case EMaterialProgramOpcode::Sign: *Output[Component] = A > 0.f ? 1.f : A < 0.f ? -1.f : 0.f; break;
+					default: break;
+					}
+				}
+				const auto Dot = [&](size_t Left, size_t Right) {
+					float Sum = 0.f;
+					for (uint32 Component = 0; Component < InputWidth; ++Component)
+						Sum += Lane(Left, Component) * Lane(Right, Component);
+					return Sum;
+				};
+				if (Node.Opcode == EMaterialProgramOpcode::Dot) Folded.X = Dot(0, 1);
+				if (Node.Opcode == EMaterialProgramOpcode::Length) Folded.X = std::sqrt(Dot(0, 0));
+				if (Node.Opcode == EMaterialProgramOpcode::Distance)
+				{
+					float Sum = 0.f;
+					for (uint32 Component = 0; Component < InputWidth; ++Component)
+					{
+						const float Delta = Lane(0, Component) - Lane(1, Component);
+						Sum += Delta * Delta;
+					}
+					Folded.X = std::sqrt(Sum);
+				}
+				if (Node.Opcode == EMaterialProgramOpcode::Cross)
+					Folded = {Lane(0, 1) * Lane(1, 2) - Lane(0, 2) * Lane(1, 1),
+						Lane(0, 2) * Lane(1, 0) - Lane(0, 0) * Lane(1, 2),
+						Lane(0, 0) * Lane(1, 1) - Lane(0, 1) * Lane(1, 0)};
+				if (Node.Opcode == EMaterialProgramOpcode::Reflect)
+				{
+					const float Scale = 2.f * Dot(1, 0);
+					for (uint32 Component = 0; Component < Width; ++Component)
+						*Output[Component] = Lane(0, Component) - Scale * Lane(1, Component);
+				}
+				const std::array FoldedComponents{Folded.X, Folded.Y, Folded.Z, Folded.W};
+				for (uint32 Component = 0; Component < Width; ++Component)
+					if (!std::isfinite(FoldedComponents[Component]))
+						return Fail(EMaterialExpressionError::ConstantFoldInvalidDomainNonFinite);
+				Node.Opcode = EMaterialProgramOpcode::Constant;
+				Node.Inputs.clear();
+				Node.ScalarBroadcastMask = 0;
+				Node.Payload = Folded;
+				Depth = 1;
+			}
+		}
 		const auto Index = static_cast<uint32>(Result.IR.Nodes.size());
 		LinkCount += static_cast<uint32>(Node.Inputs.size());
 		Result.IR.Nodes.push_back(std::move(Node));
@@ -466,7 +568,10 @@ namespace Durin::MIR
 			const bool bScalarDefault = IsMaterialAdaptiveNumeric(Opcode)
 				&& Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
 				&& !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2);
-			const bool bBroadcast = bScalarDefault && (Inputs.size() > 1 || !Inputs[Slot]->Connection.ExpressionId.IsValid());
+			const bool bBroadcast = bScalarDefault
+				&& (!Inputs[Slot]->Connection.ExpressionId.IsValid()
+					|| (Inputs.size() > 1 && MaterialNumericInputAllowsScalarBroadcast(
+						Opcode, static_cast<uint32>(Slot))));
 			const auto& Stored = *Inputs[Slot];
 			const auto& Default = Stored.Constant;
 			if (Default.empty()) return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);

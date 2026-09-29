@@ -853,6 +853,81 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	CollectGarbage();
 }
 
+TEST(FMaterialFunctionTests, NestedPureMathPreservesCallPathAndGeneratedOperations)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Leaf(NewObject<DMaterialFunction>(nullptr, "LengthLeaf"));
+	FMaterialFunctionSignature LeafSignature;
+	LeafSignature.Inputs = {FunctionPort(101, Type::Float3, "Vector")};
+	LeafSignature.Inputs[0].bRequired = true;
+	LeafSignature.Inputs[0].Constraint.Mode = EMaterialFunctionValueConstraintMode::NonSpatial;
+	LeafSignature.Outputs = {FunctionPort(102, Type::Float, "Length")};
+	const FGuid LeafInputId = FGuid::NewGuid(), LengthId = FGuid::NewGuid();
+	auto* LeafInput = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
+	auto* Length = NewObject<DMaterialExpressionLength>(nullptr, NAME_None);
+	auto* LeafOutput = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+	LeafInput->Id = LeafInputId; LeafInput->Port.Id = LeafSignature.Inputs[0].Id;
+	Length->Id = LengthId; Length->Input = {LeafInputId};
+	LeafOutput->Id = FGuid::NewGuid(); LeafOutput->Port.Id = LeafSignature.Outputs[0].Id;
+	LeafOutput->Source = {LengthId};
+	std::vector<DMaterialExpression*> LeafBody{LeafInput, Length, LeafOutput};
+	ASSERT_TRUE(Leaf->SetFunctionExpressions(Testing::WithFunctionPorts(LeafSignature, LeafBody)));
+
+	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PowerWrapper"));
+	FMaterialFunctionSignature WrapperSignature;
+	WrapperSignature.Inputs = {FunctionPort(103, Type::Float3, "Vector")};
+	WrapperSignature.Inputs[0].bRequired = true;
+	WrapperSignature.Inputs[0].Constraint.Mode = EMaterialFunctionValueConstraintMode::NonSpatial;
+	WrapperSignature.Outputs = {FunctionPort(104, Type::Float, "SquaredLength")};
+	const FGuid WrapperInputId = FGuid::NewGuid(), NestedCallId = FGuid::NewGuid();
+	const FGuid ExponentId = FGuid::NewGuid(), PowerId = FGuid::NewGuid();
+	auto* WrapperInput = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
+	auto* NestedCall = NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None);
+	auto* Exponent = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
+	auto* Power = NewObject<DMaterialExpressionPow>(nullptr, NAME_None);
+	auto* WrapperOutput = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+	WrapperInput->Id = WrapperInputId; WrapperInput->Port.Id = WrapperSignature.Inputs[0].Id;
+	NestedCall->Id = NestedCallId; NestedCall->Function = Leaf.Get();
+	NestedCall->Inputs = {{LeafSignature.Inputs[0].Id, Type::Float3, {WrapperInputId}}};
+	NestedCall->Outputs = {{LeafSignature.Outputs[0].Id, Type::Float}};
+	Exponent->Id = ExponentId; Exponent->Value = 2;
+	Power->Id = PowerId; Power->Base = FMaterialExpressionInput{
+		NestedCallId, 0, LeafSignature.Outputs[0].Id};
+	Power->Exponent = {ExponentId};
+	WrapperOutput->Id = FGuid::NewGuid(); WrapperOutput->Port.Id = WrapperSignature.Outputs[0].Id;
+	WrapperOutput->Source = {PowerId};
+	std::vector<DMaterialExpression*> WrapperBody{
+		WrapperInput, NestedCall, Exponent, Power, WrapperOutput};
+	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Testing::WithFunctionPorts(
+		WrapperSignature, WrapperBody)));
+
+	auto* Position = NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None);
+	auto* Value = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+	auto* Call = NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None);
+	Position->Id = FGuid::NewGuid(); Value->Id = FGuid::NewGuid();
+	Value->Input = {Position->Id}; Value->Components = {0, 1, 0};
+	Call->Id = FGuid::NewGuid(); Call->Function = Wrapper.Get();
+	Call->Inputs = {{WrapperSignature.Inputs[0].Id, Type::Float3, {Value->Id}}};
+	Call->Outputs = {{WrapperSignature.Outputs[0].Id, Type::Float}};
+	std::vector<DMaterialExpression*> Expressions{Position, Value, Call};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.Roughness = {.ExpressionId = Call->Id,
+		.OutputId = WrapperSignature.Outputs[0].Id};
+	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? ""
+		: FormatMaterialError(Normalized.Diagnostics.front().Error));
+	const auto Generated = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(Generated);
+	EXPECT_NE(Generated.Source.find("length("), std::string::npos);
+	EXPECT_NE(Generated.Source.find("pow("), std::string::npos);
+	EXPECT_TRUE(std::ranges::any_of(Normalized.Sources, [&](const auto& Source) {
+		return Source.NodeId == LengthId
+			&& Source.CallPath == std::vector<FGuid>{Call->Id, NestedCallId};
+	}));
+}
+
 TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 {
 	using namespace Durin;

@@ -86,6 +86,7 @@ namespace Durin
 				case EMaterialExpressionError::InputIncompatibleSemantics: return "Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.";
 				case EMaterialExpressionError::BuildExceedsIRDepthBound: return "Expression Build exceeds the IR depth bound.";
 				case EMaterialExpressionError::NonFiniteConstant: return "Expression constant must be finite.";
+				case EMaterialExpressionError::ConstantFoldInvalidDomainNonFinite: return "Expression constant folding encountered an invalid domain or non-finite result.";
 				case EMaterialExpressionError::SwizzleWidthMismatch: return "Swizzle selection does not match its result width.";
 				case EMaterialExpressionError::SwizzleSelectionExceedsSourceWidth: return "Swizzle selection exceeds the source width.";
 				case EMaterialExpressionError::NumericInputRequiresDefaultOneFourComponents: return "Numeric input requires a default of one to four components.";

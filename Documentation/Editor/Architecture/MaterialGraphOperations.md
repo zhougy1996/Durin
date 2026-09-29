@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-20
+Last reviewed: 2026-09-30
 
 ## Task routing
 
@@ -244,7 +244,13 @@ graph. Undo/Redo replays recorded types without rerunning inference. Linked oper
 the width; uniform defaults can collapse to an equivalent scalar when the width
 changes. A graph without constraining operands retains its current width. Different
 vector widths produce compiler diagnostics, while scalars broadcast. Lerp Alpha
-stays scalar; Normalize requires at least two components. These compilation rules
+stays scalar; Normalize and Reflect require at least two components. Dot,
+Distance, Length, and Cross retain their exact geometric width and semantic
+constraints rather than using component-wise adaptive coercion. The catalog and
+creation API expose the complete pure-math/geometric family as concrete reflected
+classes; inspection, clipboard, transactions, automation, and diagnostic
+navigation consequently use the same generic paths as existing expressions.
+These compilation rules
 do not block editing. Undo/Redo restores recorded fields, including inferred types.
 Append Vector participates in upstream width inference, summing both input widths;
 totals above four produce compiler diagnostics. Compilation expands it into existing scalar

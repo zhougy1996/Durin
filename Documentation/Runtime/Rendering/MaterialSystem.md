@@ -284,6 +284,16 @@ invocation, and result-publication contracts. Unconnected outputs use finite typ
 creates independently owned expression children while preserving their GUIDs;
 presentation names round trip without affecting rendering semantics.
 
+Pure math expressions are reflected graph children and persist through the same
+graph version as existing numeric expressions. Their adaptive scalar/vector
+widths and scalar broadcast are resolved by the shared MIR signature table.
+Geometric expressions additionally carry the detached stage, spatial-kind, and
+coordinate-space rules described by
+[Material expression building](MaterialExpressionBuilding.md). Constant folding,
+generated intrinsics, nested-function expansion, canonical identity, and
+diagnostics therefore use one compiler path; no material pass or render layout is
+added for these operations.
+
 Base materials also persist bounded `EditorOnly` graph presentation containing
 one integral position per live node GUID and an optional integral position for
 the derived Surface terminal. Presentation schema 2 sanitizes both

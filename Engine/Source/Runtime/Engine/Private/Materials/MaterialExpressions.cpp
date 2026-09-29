@@ -28,11 +28,17 @@ namespace Durin
 		const auto& Accepted = Signature->Inputs[Slot];
 		if (Accepted.empty() || Accepted.front() > EMaterialProgramValueType::Float4) return {};
 		if (Opcode == EMaterialProgramOpcode::Swizzle) return std::vector<float>(static_cast<uint32>(Type) + 1, 0.f);
-		const auto Width = IsMaterialAdaptiveNumeric(Opcode) && !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2)
+		const auto Width = IsMaterialAdaptiveNumeric(Opcode)
+			&& !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2)
 			? static_cast<uint32>(Type) + 1 : static_cast<uint32>(Accepted.front()) + 1;
 		float Value = 0.f;
 		if (((Opcode == EMaterialProgramOpcode::Multiply || Opcode == EMaterialProgramOpcode::Divide) && Slot == 1)
-			|| (Opcode == EMaterialProgramOpcode::Clamp && Slot == 2) || Opcode == EMaterialProgramOpcode::Normalize) Value = 1.f;
+			|| (Opcode == EMaterialProgramOpcode::Clamp && Slot == 2)
+			|| (Opcode == EMaterialProgramOpcode::Pow && Slot == 1)
+			|| (Opcode == EMaterialProgramOpcode::Fmod && Slot == 1)
+			|| (Opcode == EMaterialProgramOpcode::SmoothStep && Slot == 1)
+			|| Opcode == EMaterialProgramOpcode::Normalize
+			|| Opcode == EMaterialProgramOpcode::Log) Value = 1.f;
 		if (Opcode == EMaterialProgramOpcode::Lerp) Value = Slot == 1 ? 1.f : Slot == 2 ? .5f : 0.f;
 		return std::vector<float>(Width, Value);
 	}

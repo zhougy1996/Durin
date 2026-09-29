@@ -187,6 +187,23 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
+			case EMaterialProgramOpcode::Dot: Expression = std::format("dot({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::Cross: Expression = std::format("cross({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::Length: Expression = std::format("length({})", Input(0)); break;
+			case EMaterialProgramOpcode::Distance: Expression = std::format("distance({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::Pow: Expression = std::format("pow({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::Sqrt: Expression = std::format("sqrt({})", Input(0)); break;
+			case EMaterialProgramOpcode::Exp: Expression = std::format("exp({})", Input(0)); break;
+			case EMaterialProgramOpcode::Log: Expression = std::format("log({})", Input(0)); break;
+			case EMaterialProgramOpcode::Floor: Expression = std::format("floor({})", Input(0)); break;
+			case EMaterialProgramOpcode::Ceil: Expression = std::format("ceil({})", Input(0)); break;
+			case EMaterialProgramOpcode::Round: Expression = std::format("round({})", Input(0)); break;
+			case EMaterialProgramOpcode::Frac: Expression = std::format("frac({})", Input(0)); break;
+			case EMaterialProgramOpcode::Fmod: Expression = std::format("fmod({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::Step: Expression = std::format("step({}, {})", Input(0), Input(1)); break;
+			case EMaterialProgramOpcode::SmoothStep: Expression = std::format("smoothstep({}, {}, {})", Input(0), Input(1), Input(2)); break;
+			case EMaterialProgramOpcode::Sign: Expression = std::format("sign({})", Input(0)); break;
+			case EMaterialProgramOpcode::Reflect: Expression = std::format("reflect({}, {})", Input(0), Input(1)); break;
 			case EMaterialProgramOpcode::MakeSurface:
 				Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
 					Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;

@@ -1023,6 +1023,46 @@ TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidt
 	EXPECT_FALSE(MIR::BuildGraph(Swizzles, SwizzleRoots));
 }
 
+TEST(FMaterialExpressionTests, NewMathConstantFoldingIsFiniteDeterministicAndSourceLocated)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Base(
+		NewObject<DMaterialExpressionVector3Constant>(nullptr, "FoldBase"));
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Exponent(
+		NewObject<DMaterialExpressionScalarConstant>(nullptr, "FoldExponent"));
+	TStrongObjectPtr<DMaterialExpressionPow> Power(
+		NewObject<DMaterialExpressionPow>(nullptr, "FoldPower"));
+	Base->Id = FGuid::NewGuid(); Base->Value = {2, 3, 4};
+	Exponent->Id = FGuid::NewGuid(); Exponent->Value = 2;
+	Power->Id = FGuid::NewGuid(); Power->ResultType = EMaterialProgramValueType::Float3;
+	Power->Base = {Base->Id}; Power->Exponent = {Exponent->Id};
+	const std::array<DMaterialExpression*, 3> Expressions{Base.Get(), Exponent.Get(), Power.Get()};
+	const std::array Roots{FMaterialExpressionInput{Power->Id}};
+	const auto First = MIR::BuildGraph(Expressions, Roots);
+	ASSERT_TRUE(First); ASSERT_EQ(First.Roots.size(), 1u);
+	const auto& Folded = First.IR.Nodes[First.Roots[0]];
+	EXPECT_EQ(Folded.Opcode, EMaterialProgramOpcode::Constant);
+	EXPECT_EQ(Folded.ResultType, EMaterialProgramValueType::Float3);
+	EXPECT_EQ(Folded.GetLiteral(), (FMaterialProgramLiteral{4, 9, 16, 0}));
+	const auto Repeated = MIR::BuildGraph(Expressions, Roots);
+	ASSERT_TRUE(Repeated); EXPECT_EQ(Repeated.IR, First.IR);
+
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Negative(
+		NewObject<DMaterialExpressionScalarConstant>(nullptr, "Negative"));
+	TStrongObjectPtr<DMaterialExpressionLog> Log(
+		NewObject<DMaterialExpressionLog>(nullptr, "InvalidLog"));
+	Negative->Id = FGuid::NewGuid(); Negative->Value = -1;
+	Log->Id = FGuid::NewGuid(); Log->Input = {Negative->Id};
+	const std::array<DMaterialExpression*, 2> InvalidExpressions{Negative.Get(), Log.Get()};
+	const std::array InvalidRoots{FMaterialExpressionInput{Log->Id}};
+	const auto Invalid = MIR::BuildGraph(InvalidExpressions, InvalidRoots);
+	ASSERT_FALSE(Invalid); ASSERT_FALSE(Invalid.Diagnostics.empty());
+	EXPECT_EQ(Invalid.Diagnostics.front().Error.Code,
+		FMaterialError::FCode(EMaterialExpressionError::ConstantFoldInvalidDomainNonFinite));
+	EXPECT_EQ(Invalid.Diagnostics.front().NodeId, Log->Id);
+}
+
 TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 {
 	using namespace Durin;
@@ -1054,6 +1094,23 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionLerp::StaticClass(), EMaterialProgramOpcode::Lerp, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionSine::StaticClass(), EMaterialProgramOpcode::Sine, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionCosine::StaticClass(), EMaterialProgramOpcode::Cosine, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionDot::StaticClass(), EMaterialProgramOpcode::Dot, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionCross::StaticClass(), EMaterialProgramOpcode::Cross, EMaterialProgramValueType::Float3},
+		FEntry{DMaterialExpressionLength::StaticClass(), EMaterialProgramOpcode::Length, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionDistance::StaticClass(), EMaterialProgramOpcode::Distance, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionPow::StaticClass(), EMaterialProgramOpcode::Pow, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionSqrt::StaticClass(), EMaterialProgramOpcode::Sqrt, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionExp::StaticClass(), EMaterialProgramOpcode::Exp, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionLog::StaticClass(), EMaterialProgramOpcode::Log, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionFloor::StaticClass(), EMaterialProgramOpcode::Floor, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionCeil::StaticClass(), EMaterialProgramOpcode::Ceil, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionRound::StaticClass(), EMaterialProgramOpcode::Round, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionFrac::StaticClass(), EMaterialProgramOpcode::Frac, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionFmod::StaticClass(), EMaterialProgramOpcode::Fmod, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionStep::StaticClass(), EMaterialProgramOpcode::Step, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionSmoothStep::StaticClass(), EMaterialProgramOpcode::SmoothStep, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionSign::StaticClass(), EMaterialProgramOpcode::Sign, EMaterialProgramValueType::Float},
+		FEntry{DMaterialExpressionReflect::StaticClass(), EMaterialProgramOpcode::Reflect, EMaterialProgramValueType::Float2},
 		FEntry{DMaterialExpressionNormalize::StaticClass(), EMaterialProgramOpcode::Normalize, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionMakeVector2::StaticClass(), EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2},
 		FEntry{DMaterialExpressionSplat2::StaticClass(), EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2},

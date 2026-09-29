@@ -637,6 +637,254 @@ namespace Durin
 
 	};
 
+	DCLASS()
+	class DMaterialExpressionDot : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionDot(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput A{2};
+		DPROPERTY()
+		FMaterialNumericInput B{2};
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionCross : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionCross(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput A{3};
+		DPROPERTY()
+		FMaterialNumericInput B{3};
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionLength : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionLength(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Input{2};
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionDistance : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionDistance(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput A{2};
+		DPROPERTY()
+		FMaterialNumericInput B{2};
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionPow : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionPow(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Base;
+		DPROPERTY()
+		FMaterialNumericInput Exponent;
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionSqrt : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionSqrt(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionExp : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionExp(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionLog : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionLog(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionFloor : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionFloor(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionCeil : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionCeil(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionRound : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionRound(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionFrac : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionFrac(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionFmod : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionFmod(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput A;
+		DPROPERTY()
+		FMaterialNumericInput B;
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionStep : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionStep(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Edge;
+		DPROPERTY()
+		FMaterialNumericInput Value;
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionSmoothStep : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionSmoothStep(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Minimum;
+		DPROPERTY()
+		FMaterialNumericInput Maximum;
+		DPROPERTY()
+		FMaterialNumericInput Value;
+		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionSign : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionSign(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionReflect : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionReflect(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float2;
+		DPROPERTY()
+		FMaterialNumericInput Incident;
+		DPROPERTY()
+		FMaterialNumericInput Normal;
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
 	// Owns only the inputs and width required by Clamp.
 	DCLASS()
 	class DMaterialExpressionClamp : public DMaterialExpressionNumeric

@@ -44,6 +44,7 @@ namespace Durin
 		InputIncompatibleSemantics,
 		BuildExceedsIRDepthBound,
 		NonFiniteConstant,
+		ConstantFoldInvalidDomainNonFinite,
 		SwizzleWidthMismatch,
 		SwizzleSelectionExceedsSourceWidth,
 		NumericInputRequiresDefaultOneFourComponents,

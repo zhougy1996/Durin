@@ -491,7 +491,9 @@ TEST(FMaterialGraphOperationsTests, MathPaletteHasOneEntryPerOperationAndSourceW
 		for (const auto& Entry : Catalog)
 		{
 			if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) continue;
-			const bool bAllowed = Source != Type::Texture2D && !(Source == Type::Float && Entry.Opcode == EMaterialProgramOpcode::Normalize);
+			const bool bAllowed = Source != Type::Texture2D
+				&& !(Source == Type::Float && (Entry.Opcode == EMaterialProgramOpcode::Normalize
+					|| Entry.Opcode == EMaterialProgramOpcode::Reflect));
 			EXPECT_EQ(std::ranges::count(Rows, Entry.Opcode, &FMaterialGraphCatalogEntry::Opcode), bAllowed ? 1 : 0);
 		}
 	}
@@ -801,8 +803,11 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					Expressions.clear();
 					std::array<bool, 6> Included{};
 					bool bNormalIncluded = false;
-				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
-					const auto TypeIndex = static_cast<size_t>(Index == Pin ? SourceType : Entry.AcceptedInputTypes[Index].front());
+			VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
+					const bool bEqualWidthGeometry = Entry.Opcode == EMaterialProgramOpcode::Dot
+						|| Entry.Opcode == EMaterialProgramOpcode::Distance;
+					const auto TypeIndex = static_cast<size_t>(Index == Pin || bEqualWidthGeometry
+						? SourceType : Entry.AcceptedInputTypes[Index].front());
 					const bool bNormalInput = Entry.Opcode == EMaterialProgramOpcode::BlendNormalsRNM
 						|| (Entry.Opcode == EMaterialProgramOpcode::MakeSurface
 							&& Index == static_cast<uint32>(EMaterialSurfaceOutput::Normal));
@@ -830,7 +835,10 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 				Expressions.push_back(Target.Get());
 				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
 				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end();
-				EXPECT_EQ(static_cast<bool>(MIR::FGraphBuilder::ValidateSurface(Expressions, {})), bAccepted);
+				const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, {});
+				EXPECT_EQ(static_cast<bool>(Validation), bAccepted)
+					<< (Validation.Diagnostics.empty() ? std::string{}
+						: FormatMaterialError(Validation.Diagnostics.front().Error));
 				// Fixed concrete pins cannot disappear; a dangling source is rejected instead.
 				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 					if (Index == Pin) Input.ExpressionId = FGuid::NewGuid();
