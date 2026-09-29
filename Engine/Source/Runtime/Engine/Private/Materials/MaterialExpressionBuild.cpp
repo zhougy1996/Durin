@@ -608,6 +608,29 @@ namespace Durin::MIR
 		return Emit(std::move(Node));
 	}
 
+	auto FGraphBuilderImpl::Transform(EMaterialProgramOpcode Opcode,
+		const FMaterialNumericInput& Stored, EMaterialCoordinateSpace Source,
+		EMaterialCoordinateSpace Destination) -> uint32
+	{
+		if (Opcode != EMaterialProgramOpcode::TransformPosition
+			&& Opcode != EMaterialProgramOpcode::TransformDirection
+			&& Opcode != EMaterialProgramOpcode::TransformNormal)
+			return Fail(EMaterialExpressionError::NumericSignatureMismatch);
+		if (Stored.Constant.size() != 3
+			|| !std::ranges::all_of(Stored.Constant,
+				[](float Value) { return std::isfinite(Value); }))
+			return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+		const auto& Input = Stored.Connection;
+		if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+			return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+		const auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
+			: Literal(Stored.UseConstant ? Stored.Constant
+				: GetMaterialNumericInputFallback(Opcode, EMaterialProgramValueType::Float3, 0));
+		if (Index == InvalidIndex) return InvalidIndex;
+		return Emit({.Opcode = Opcode, .ResultType = EMaterialProgramValueType::Float3,
+			.Inputs = {Index}, .Payload = FMaterialTransformPayload{Source, Destination}});
+	}
+
 	auto FGraphBuilderImpl::Coordinates() -> uint32
 	{
 		const std::array Channel{0.f};

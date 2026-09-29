@@ -14,6 +14,57 @@ namespace Durin
 {
 	namespace
 	{
+		auto DeriveMaterialProgramRequirements(const MIR::FModule& IR)
+			-> FMaterialProgramRequirements
+		{
+			FMaterialProgramRequirements Result;
+			for (const auto& Node : IR.Nodes)
+			{
+				switch (Node.Opcode)
+				{
+				case EMaterialProgramOpcode::Time:
+					Result.bMaterialView = true; break;
+				case EMaterialProgramOpcode::CameraPosition:
+				case EMaterialProgramOpcode::CameraVector:
+					Result.bMaterialView = true; Result.bCameraPosition = true; break;
+				case EMaterialProgramOpcode::ScreenPosition:
+				case EMaterialProgramOpcode::ViewSize:
+					Result.bMaterialView = true; Result.bViewport = true; break;
+				case EMaterialProgramOpcode::ObjectPosition:
+					Result.bMaterialPrimitive = true; Result.bBoundsCenter = true; break;
+				case EMaterialProgramOpcode::VertexNormal:
+					Result.bVertexNormal = true; break;
+				case EMaterialProgramOpcode::TransformPosition:
+				case EMaterialProgramOpcode::TransformDirection:
+				case EMaterialProgramOpcode::TransformNormal:
+				{
+					const auto Transform = Node.GetTransform();
+					if (Transform.Source == EMaterialCoordinateSpace::View
+						|| Transform.Destination == EMaterialCoordinateSpace::View)
+					{
+						Result.bMaterialView = true;
+						Result.bViewTransforms = true;
+					}
+					if (Transform.Source == EMaterialCoordinateSpace::Object
+						|| Transform.Destination == EMaterialCoordinateSpace::Object)
+					{
+						Result.bMaterialPrimitive = true;
+						Result.bObjectTransforms = true;
+					}
+					if (Transform.Source == EMaterialCoordinateSpace::Tangent
+						|| Transform.Destination == EMaterialCoordinateSpace::Tangent)
+						Result.bTangentFrame = true;
+					break;
+				}
+				default: break;
+				}
+			}
+			return Result;
+		}
+	}
+
+	namespace
+	{
 		auto SlangType(EMaterialProgramValueType Type) -> std::string_view
 		{
 			switch (Type)
@@ -102,7 +153,11 @@ struct VSOutput
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
 		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
-			"[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\nstruct MeshViewUniform { float4 Parameters; };\n[[vk::binding(0, 0)]] ConstantBuffer<MeshViewUniform> MeshView;\n";
+			"[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\n"
+			"struct MaterialViewUniform { float4 Parameters; float4 CameraWorldPosition; float4 Viewport; float4 ReciprocalViewport; float4x4 WorldToView; float4x4 ViewToWorld; };\n"
+			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n"
+			"struct MaterialPrimitiveUniform { float4x4 LocalToClip; float4x4 LocalToWorld; float4x4 NormalToWorld; float4x4 WorldToLocal; float4 BoundsCenter; float4 TransformParams; };\n"
+			"[[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;\n";
 		for (uint32 Index = 0; Index < Layout.ResourceFieldCount; ++Index)
 			OutSource += std::format(
 				"[[vk::binding({}, 1)]] Texture2D<float4> MaterialTexture{};\n"
@@ -156,6 +211,19 @@ FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float meta
     s.opacity = opacity; s.opacityMask = mask;
     return s;
 }
+float3 MaterialSafeNormalize(float3 value)
+{
+    float lengthSquared = dot(value, value);
+    return lengthSquared > 1.0e-12 ? value * rsqrt(lengthSquared) : float3(0.0);
+}
+float3x3 MaterialTangentToWorld(VSOutput input)
+{
+    float3 normal = MaterialSafeNormalize(input.worldNormal);
+    float3 tangent = input.worldTangent.xyz - normal * dot(normal, input.worldTangent.xyz);
+    tangent = MaterialSafeNormalize(tangent);
+    float3 bitangent = input.worldTangent.w * MaterialSafeNormalize(cross(normal, tangent));
+    return float3x3(tangent, bitangent, normal);
+}
 )";
 		OutSource += R"(
 FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
@@ -183,7 +251,78 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 				// Authored operations must be expanded before source generation.
 				break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
-			case EMaterialProgramOpcode::Time: Expression = "MeshView.Parameters.x"; break;
+			case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
+			case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
+			case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
+			case EMaterialProgramOpcode::ObjectPosition: Expression = "MaterialPrimitive.BoundsCenter.xyz"; break;
+			case EMaterialProgramOpcode::VertexNormal: Expression = "MaterialSafeNormalize(input.worldNormal)"; break;
+			case EMaterialProgramOpcode::ScreenPosition: Expression = "(input.pos.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy"; break;
+			case EMaterialProgramOpcode::ViewSize: Expression = "MaterialView.Viewport.zw"; break;
+			case EMaterialProgramOpcode::TransformPosition:
+			case EMaterialProgramOpcode::TransformDirection:
+			case EMaterialProgramOpcode::TransformNormal:
+			{
+				const auto Transform = Node.GetTransform();
+				const auto Value = Input(0);
+				auto ToWorldDirection = [&](std::string_view InputValue) -> std::string {
+					switch (Transform.Source)
+					{
+					case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 0.0)).xyz", InputValue);
+					case EMaterialCoordinateSpace::World: return std::string(InputValue);
+					case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.ViewToWorld, float4({}, 0.0)).xyz", InputValue);
+					case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
+					default: return {};
+					}
+				};
+				auto FromWorldDirection = [&](std::string_view InputValue) -> std::string {
+					switch (Transform.Destination)
+					{
+					case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 0.0)).xyz", InputValue);
+					case EMaterialCoordinateSpace::World: return std::string(InputValue);
+					case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.WorldToView, float4({}, 0.0)).xyz", InputValue);
+					case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
+					default: return {};
+					}
+				};
+				if (Node.Opcode == EMaterialProgramOpcode::TransformPosition)
+				{
+					std::string World = Transform.Source == EMaterialCoordinateSpace::Object
+						? std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 1.0)).xyz", Value)
+						: Transform.Source == EMaterialCoordinateSpace::View
+							? std::format("mul(MaterialView.ViewToWorld, float4({}, 1.0)).xyz", Value) : Value;
+					Expression = Transform.Destination == EMaterialCoordinateSpace::Object
+						? std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 1.0)).xyz", World)
+						: Transform.Destination == EMaterialCoordinateSpace::View
+							? std::format("mul(MaterialView.WorldToView, float4({}, 1.0)).xyz", World) : World;
+				}
+				else if (Node.Opcode == EMaterialProgramOpcode::TransformDirection)
+					Expression = FromWorldDirection(ToWorldDirection(Value));
+				else
+				{
+					auto ToWorldNormal = [&](std::string_view InputValue) -> std::string {
+						switch (Transform.Source)
+						{
+						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.NormalToWorld, float4({}, 0.0)).xyz", InputValue);
+						case EMaterialCoordinateSpace::World: return std::string(InputValue);
+						case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.WorldToView), {})", InputValue);
+						case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
+						default: return {};
+						}
+					};
+					auto FromWorldNormal = [&](std::string_view InputValue) -> std::string {
+						switch (Transform.Destination)
+						{
+						case EMaterialCoordinateSpace::Object: return std::format("mul(transpose((float3x3)MaterialPrimitive.LocalToWorld), {})", InputValue);
+						case EMaterialCoordinateSpace::World: return std::string(InputValue);
+						case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.ViewToWorld), {})", InputValue);
+						case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
+						default: return {};
+						}
+					};
+					Expression = std::format("MaterialSafeNormalize({})", FromWorldNormal(ToWorldNormal(Value)));
+				}
+				break;
+			}
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
@@ -353,7 +492,7 @@ FResolvedGeneratedSurfaceShading ResolveGeneratedSurfaceShading(
     result.normalFrame = EvaluateMaterialNormalFrame(input.worldNormal,
         input.worldTangent, surface.tangentNormal, isFrontFace);
     result.effectiveRoughness = FilterSpecularRoughness(surface.roughness,
-        result.normalFrame.shadingNormal, MeshView.Parameters.w > 0.5);
+        result.normalFrame.shadingNormal, MaterialView.Parameters.w > 0.5);
     return result;
 }
 struct GeometryPassFragmentOutput
@@ -428,7 +567,7 @@ float4 FragmentMain(
 #if DURIN_MATERIAL_SHADING_MODEL == 1
     return float4(s.baseColor + s.emissive, s.opacity);
 #else
-    if (MeshView.Parameters.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
+    if (MaterialView.Parameters.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
     FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
         input.worldPosition, shading.normalFrame.shadingNormal,
         Lighting.ViewPosition.xyz);
@@ -820,7 +959,7 @@ float4 FragmentMain(
 			if (!Stage.Code || Stage.Code->IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
-					> 2 * Layout.ResourceFieldCount + 9 + Collections.size())
+					> 2 * Layout.ResourceFieldCount + 10 + Collections.size())
 				return Rejected;
 			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
@@ -830,13 +969,19 @@ float4 FragmentMain(
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
 				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
-				const bool bMaterialSet = Slot == 2 || Slot == 27
+				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
+				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27
 					|| bCollection || Slot >= MaterialTextureBindingBase;
 				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
-				if (Slot == 0)
+				if (bPrimitive)
 				{
 					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != "MeshView") return Rejected;
+					if (Binding.Name != "MaterialPrimitive") return Rejected;
+				}
+				else if (Slot == 0)
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != "MaterialView") return Rejected;
 				}
 				else if (Slot == 2 || (Index == 0 && Slot == 1))
 				{
@@ -897,6 +1042,7 @@ float4 FragmentMain(
 		Result.ActiveParameters = Normalized.ActiveParameters;
 		Result.ActiveCollections = Normalized.ActiveCollections;
 		Result.Layout = Normalized.Layout;
+		Result.Requirements = DeriveMaterialProgramRequirements(Result.IR);
 		Result.Dependencies = Input.Environment.Dependencies;
 		auto Generated = GenerateMaterialProgramSlang(
 			Result.IR, Result.Layout, Result.ActiveCollections);

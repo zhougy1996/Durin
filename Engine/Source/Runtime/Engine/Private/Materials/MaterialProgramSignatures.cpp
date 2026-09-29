@@ -56,7 +56,15 @@ namespace Durin
 		switch (Opcode)
 		{
 		case EMaterialProgramOpcode::WorldPosition:
+		case EMaterialProgramOpcode::CameraPosition:
+		case EMaterialProgramOpcode::CameraVector:
+		case EMaterialProgramOpcode::ObjectPosition:
+		case EMaterialProgramOpcode::VertexNormal:
 			if (ResultType != Type::Float3) return std::nullopt;
+			break;
+		case EMaterialProgramOpcode::ScreenPosition:
+		case EMaterialProgramOpcode::ViewSize:
+			if (ResultType != Type::Float2) return std::nullopt;
 			break;
 		case EMaterialProgramOpcode::Time:
 			if (ResultType != Type::Float) return std::nullopt;
@@ -282,6 +290,21 @@ namespace Durin
 		case OpcodeType::WorldPosition:
 			Result.Kind = Kind::Position; Result.Space = Space::World;
 			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::CameraPosition:
+		case OpcodeType::ObjectPosition:
+			Result.Kind = Kind::Position; Result.Space = Space::World;
+			return WithStages(Result, Inputs);
+		case OpcodeType::CameraVector:
+			Result.Kind = Kind::Direction; Result.Space = Space::World;
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::VertexNormal:
+			Result.Kind = Kind::Normal; Result.Space = Space::World;
+			return WithStages(Result, Inputs, Stage::Vertex);
+		case OpcodeType::ScreenPosition:
+			Result.Kind = Kind::ScreenCoordinate; Result.Space = Space::Screen;
+			return WithStages(Result, Inputs, Stage::Pixel);
+		case OpcodeType::ViewSize:
+			return WithStages(Result, Inputs);
 		case OpcodeType::Time:
 		case OpcodeType::Constant:
 		case OpcodeType::Parameter:

@@ -294,6 +294,17 @@ generated intrinsics, nested-function expansion, canonical identity, and
 diagnostics therefore use one compiler path; no material pass or render layout is
 added for these operations.
 
+Context and spatial-transform expressions use pass-owned data only when reachable.
+Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
+viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
+Set 1 binding 0 is `MaterialPrimitive`: Local-to-Clip, Local-to-World,
+Normal-to-World, World-to-Local, primitive bounds center, and transform flags.
+Forward, GBuffer, masked shadow, hit proxy, preview, and thumbnail populate the
+same ABI from their active view and prepared primitive. StaticMesh and SplineMesh
+publish their post-factory tangent basis. Reflection is reachability exact, so
+programs that do not consume a field or block do not bind it, and opaque shadow
+remains resource-free.
+
 Base materials also persist bounded `EditorOnly` graph presentation containing
 one integral position per live node GUID and an optional integral position for
 the derived Surface terminal. Presentation schema 2 sanitizes both
@@ -869,7 +880,7 @@ detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
 Current versions are compiler envelope 10, DMAT 8, IR 6, layout 4, generator 9,
-pass contract 5, and material Cook contributor 5. Time uses the material uniform;
+pass contract 6, and material Cook contributor 5. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10
 default-relative owned-object serialization, with no material-specific serializer

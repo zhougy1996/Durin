@@ -117,6 +117,14 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
 	auto Authored = Testing::MakePBRMaterialExpressionsForTest();
+	auto& WorldPosition = Authored.Add(EMaterialProgramOpcode::WorldPosition,
+		EMaterialProgramValueType::Float3, {}, {}, {});
+	auto& Transform = Authored.Add(EMaterialProgramOpcode::TransformPosition,
+		EMaterialProgramValueType::Float3, {Testing::MakeLink(WorldPosition)}, {}, {});
+	auto* TransformPosition = Cast<DMaterialExpressionTransformPosition>(&Transform);
+	ASSERT_NE(TransformPosition, nullptr);
+	TransformPosition->Source = EMaterialCoordinateSpace::World;
+	TransformPosition->Destination = EMaterialCoordinateSpace::View;
 	std::ranges::reverse(Authored.Expressions);
 	const auto LabelId = Authored.Expressions.front()->Id;
 	const auto Label = std::ranges::find(Authored.Presentation.Nodes, LabelId, &FMaterialGraphNodePresentation::NodeId);

@@ -52,6 +52,23 @@ and `Distance` produce scalar values; `Cross` produces a direction for compatibl
 direction/normal inputs, and `Reflect` preserves an incident direction. These
 nodes add no renderer requirement or pass binding.
 
+Context expressions carry exact stage and space semantics. `WorldPosition` is a
+Pixel/World/Position value; `CameraPosition` and `ObjectPosition` are
+Both/World/Position; `CameraVector` is a normalized Pixel/World/Direction;
+`VertexNormal` is Vertex/World/Normal after vertex-factory deformation;
+`ScreenPosition` is normalized viewport Float2 and `ViewSize` is the active
+viewport Float2. `Time` and `ViewSize` are non-spatial. A Pixel root cannot
+consume `VertexNormal`, including through a function call.
+
+Transform Position accepts exact Float3 Position values between Object, World,
+and View. Transform Direction and Transform Normal accept exact Float3 values
+for every ordered Object, World, View, and Tangent pair. Source and destination
+must differ and must match the input semantics; there is no implicit conversion.
+Positions use homogeneous point transforms, directions use homogeneous vector
+transforms, and normals use inverse-transpose transforms followed by finite,
+zero-safe normalization. Tangent conversions use the post-vertex-factory normal,
+orthonormalized tangent, and handed bitangent supplied by the active mesh pass.
+
 Compilation folds finite constant-only math and geometry subgraphs before
 normalization. A domain error, zero `Fmod` divisor, overflow, or non-finite folded
 component is a source-located compiler error; it never publishes partial IR.

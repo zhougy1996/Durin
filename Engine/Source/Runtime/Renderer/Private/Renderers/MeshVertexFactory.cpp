@@ -11,7 +11,7 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferLocalVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
@@ -26,7 +26,7 @@ namespace Durin::RendererPrivate
 				FSplineMeshVertexShader::ModifyCompilationEnvironment(Parameters, Options);
 			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSplineVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader, FMeshMaterialShader,
@@ -51,7 +51,7 @@ namespace Durin::RendererPrivate
 				const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> override
 			{
 				typename TShader::FParameters Parameters;
-				Parameters.Transform = Transform;
+				Parameters.MaterialPrimitive = Transform;
 				if constexpr (bSpline)
 				{
 					const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(&Binding);

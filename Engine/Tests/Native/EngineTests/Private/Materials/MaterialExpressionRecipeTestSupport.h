@@ -126,6 +126,17 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::SmoothStep: Expression = NewObject<DMaterialExpressionSmoothStep>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Sign: Expression = NewObject<DMaterialExpressionSign>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Reflect: Expression = NewObject<DMaterialExpressionReflect>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::WorldPosition: Expression = NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::Time: Expression = NewObject<DMaterialExpressionTime>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::CameraPosition: Expression = NewObject<DMaterialExpressionCameraPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::CameraVector: Expression = NewObject<DMaterialExpressionCameraVector>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::ObjectPosition: Expression = NewObject<DMaterialExpressionObjectPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::VertexNormal: Expression = NewObject<DMaterialExpressionVertexNormal>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::ScreenPosition: Expression = NewObject<DMaterialExpressionScreenPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::ViewSize: Expression = NewObject<DMaterialExpressionViewSize>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::TransformPosition: Expression = NewObject<DMaterialExpressionTransformPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::TransformDirection: Expression = NewObject<DMaterialExpressionTransformDirection>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::TransformNormal: Expression = NewObject<DMaterialExpressionTransformNormal>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TextureSample2D: Expression = NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::UVChannel: Expression = NewObject<DMaterialExpressionUVChannel>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Splat3: Expression = NewObject<DMaterialExpressionSplat3>(nullptr, NAME_None); break;

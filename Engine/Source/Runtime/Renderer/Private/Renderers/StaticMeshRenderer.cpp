@@ -551,7 +551,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		using FBindings = std::shared_ptr<const FPreparedSurfaceMaterialBindings>;
-		std::map<std::tuple<uint32, uint32, FRHIShader*>, FBindings> Batches;
+		std::map<std::tuple<uint32, uint32, uint32, FRHIShader*>, FBindings> Batches;
 		std::map<std::pair<uint32, FRHIShader*>, std::shared_ptr<const FRHIShaderParameterBatch>> VertexBatches;
 		ResolvedView.Observations.PreparedSurfaceBindingBatches = 0;
 		ResolvedView.Observations.SurfaceBindingBatchReuses = 0;
@@ -566,7 +566,7 @@ namespace Durin
 		}
 		auto Prepare = [&](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
 			const FCompiledSurfaceBindingLayout& Layout, FBindings& Out) -> bool {
-			const auto Key = std::make_tuple(Draw.MaterialUniformIndex, Pass, Shader);
+			const auto Key = std::make_tuple(Draw.MaterialUniformIndex, Pass, Draw.PrimitiveIndex, Shader);
 			if (const auto Existing = Batches.find(Key); Existing != Batches.end())
 			{
 				Out = Existing->second;
@@ -574,10 +574,11 @@ namespace Durin
 				return true;
 			}
 			const auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
-			if (!Material) return false;
+			if (!Material || Draw.PrimitiveIndex >= ResolvedView.PrimitiveUniforms.size()) return false;
 			auto Candidate = std::make_shared<FPreparedSurfaceMaterialBindings>();
 			if (!PrepareCompiledSurfaceMaterial(Shader, Layout, Material->Surface, Material->Uniform,
 				Lighting, {}, ResolvedView.ViewUniforms[Pass],
+				ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex],
 				Material->CollectionUniforms, *Candidate)) return false;
 			Out = std::move(Candidate);
 			Batches.emplace(Key, Out);

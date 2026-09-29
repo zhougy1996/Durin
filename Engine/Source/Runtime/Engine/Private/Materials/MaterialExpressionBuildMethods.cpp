@@ -311,6 +311,47 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::Time, .ResultType = EMaterialProgramValueType::Float}));
 	}
 
+#define DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(ClassName, OpcodeValue, TypeValue) \
+	auto ClassName::Build(MIR::FEmitter& Emitter) const -> void \
+	{ \
+		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::OpcodeValue, \
+			.ResultType = EMaterialProgramValueType::TypeValue})); \
+	}
+
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraPosition, CameraPosition, Float3)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraVector, CameraVector, Float3)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionObjectPosition, ObjectPosition, Float3)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionVertexNormal, VertexNormal, Float3)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionScreenPosition, ScreenPosition, Float2)
+	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionViewSize, ViewSize, Float2)
+
+#undef DURIN_DEFINE_MATERIAL_CONTEXT_BUILD
+
+	namespace
+	{
+		auto BuildTransform(MIR::FEmitter& Emitter, EMaterialProgramOpcode Opcode,
+			const FMaterialNumericInput& Input, EMaterialCoordinateSpace Source,
+			EMaterialCoordinateSpace Destination) -> void
+		{
+			Emitter.Output(0, Emitter.Transform(Opcode, Input, Source, Destination));
+		}
+	}
+
+	auto DMaterialExpressionTransformPosition::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		BuildTransform(Emitter, EMaterialProgramOpcode::TransformPosition, Input, Source, Destination);
+	}
+
+	auto DMaterialExpressionTransformDirection::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		BuildTransform(Emitter, EMaterialProgramOpcode::TransformDirection, Input, Source, Destination);
+	}
+
+	auto DMaterialExpressionTransformNormal::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		BuildTransform(Emitter, EMaterialProgramOpcode::TransformNormal, Input, Source, Destination);
+	}
+
 	auto DMaterialExpressionTextureCoordinates::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Channel};

@@ -3233,12 +3233,12 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 		"PreparedSurface", 64, 16, EBufferUsageFlags::UniformBuffer));
 	const FRHIUniformBufferRange Range{Buffer.GetReference(), 16, 32};
 	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		Range, {}, {}, {}, Bindings));
+		Range, {}, {}, {}, {}, Bindings));
 	ASSERT_EQ(Bindings.GetResources().size(), 1u);
 	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
 	EXPECT_EQ(Bindings.GetResources()[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
 	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
-		{Buffer.GetReference(), 48, 32}, {}, {}, {}, Bindings));
+		{Buffer.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
 	EXPECT_EQ(Bindings.GetShader(), nullptr);
 	EXPECT_TRUE(Bindings.GetResources().empty());
 }

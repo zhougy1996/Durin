@@ -28,16 +28,18 @@ struct VSOutput
 
 
 
-struct TransformUniform
+struct MaterialPrimitiveUniform
 {
     float4x4 LocalToClip;
     float4x4 LocalToWorld;
     float4x4 NormalToWorld;
+    float4x4 WorldToLocal;
+    float4 BoundsCenter;
     // x: determinant sign; remaining components reserved.
     float4 TransformParams;
 };
 
-[[vk::binding(0, 1)]] ConstantBuffer<TransformUniform> Transform;
+[[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
@@ -53,12 +55,12 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
         GetLocalVertexFactoryIntermediates(input);
 #endif
     VSOutput output;
-    output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
+    output.pos = mul(MaterialPrimitive.LocalToClip, float4(vertex.localPosition, 1.0));
     output.color = vertex.color;
-    output.worldPosition = mul(Transform.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
-    output.worldNormal = mul(Transform.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
-    float3 worldTangent = mul(Transform.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz;
-    output.worldTangent = float4(worldTangent, vertex.localTangent.w * Transform.TransformParams.x);
+    output.worldPosition = mul(MaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
+    output.worldNormal = mul(MaterialPrimitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
+    float3 worldTangent = mul(MaterialPrimitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz;
+    output.worldTangent = float4(worldTangent, vertex.localTangent.w * MaterialPrimitive.TransformParams.x);
     output.uv0 = vertex.texCoords[0];
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];

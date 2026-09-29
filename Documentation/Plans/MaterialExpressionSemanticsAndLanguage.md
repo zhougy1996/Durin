@@ -24,7 +24,7 @@ algebra, pass-context ABI, static-selection ownership, compatibility policy,
 fixtures, and budgets. Existing material and function content now compiles through
 semantic MIR, and the frozen pure-math/geometric operation set is authorable,
 persistent, foldable, and deterministic without changing the Surface or renderer
-ABI. Stage 3 is current: add context sources and authored spatial transforms.
+ABI. Stage 4 is current: add bounded static, quality, and feature selection.
 
 ## Goal
 
@@ -549,23 +549,36 @@ contract, render layout, material output, or renderer binding changed.
 
 Dependency: Stage 2. Outcome: spatial/view graphs render through existing passes.
 
-- [ ] Add CameraPosition, CameraVector, ObjectPosition, VertexNormal,
+- [x] Add CameraPosition, CameraVector, ObjectPosition, VertexNormal,
   ScreenPosition, and ViewSize; reconcile WorldPosition, Time, coordinates,
   sampling, and normals with the same contract.
-- [ ] Expose Transform Position, Direction, and Normal over the supported
+- [x] Expose Transform Position, Direction, and Normal over the supported
   Object/World/View/Tangent matrix with exact non-uniform/tangent behavior.
-- [ ] Extend compiler requirements and renderer bindings only for reachable
+- [x] Extend compiler requirements and renderer bindings only for reachable
   context. Reflection/layout mismatch fails transactionally with current fallback.
-- [ ] Integrate StaticMesh/SplineMesh vertex factories and pass-local context in
+- [x] Integrate StaticMesh/SplineMesh vertex factories and pass-local context in
   Forward, GBuffer, and reachable masked shadow; preserve opaque-shadow freedom.
-- [ ] Prove preview/thumbnail, two views, resize, object movement, non-uniform
+- [x] Prove preview/thumbnail, two views, resize, object movement, non-uniform
   scale, spline deformation, reload, recovery, and shadow-view semantics.
-- [ ] Retain VertexNormal as Vertex-only. With no vertex Surface root, prove
+- [x] Retain VertexNormal as Vertex-only. With no vertex Surface root, prove
   detached/function semantics and deterministic rejection from Pixel outputs;
   activation belongs to later WPO/vertex-output work.
 
 Completion: Pixel graphs consume exact context in existing passes; Vertex-only
 data cannot leak into Pixel roots; no new pass or output exists.
+
+Evidence (2026-09-30): six reflected context sources and all three authored
+spatial transforms compile through the frozen matrix with reachability-derived
+`MaterialView`/`MaterialPrimitive` requirements and pass contract 6. Actual Slang
+and SPIR-V compilation covers camera, viewport, bounds, object/view and tangent
+paths; VertexNormal-to-Pixel rejection and graph/package persistence are tested.
+The material compiler (60), function (29), graph editing (99), package (6),
+editor interaction (66), renderer scene (69), render shader (53), runtime (88),
+StaticMesh material (10), and Spline (48) suites pass. Unsandboxed Vulkan
+qualification passes on Apple M4 for StaticMesh/SplineMesh preparation,
+Forward/GBuffer/material creation, and the context-bearing thumbnail fixture;
+opaque shadow remains resource-free. Preview/thumbnail and lifecycle/Cook tests
+also pass, including view changes, non-uniform transforms, reload and recovery.
 
 ### Stage 4: Add Static Bool, Quality, and Feature Selection
 

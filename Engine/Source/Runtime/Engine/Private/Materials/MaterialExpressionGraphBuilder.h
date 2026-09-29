@@ -37,6 +37,8 @@ namespace Durin::MIR
 			std::span<const uint8> Swizzle = {},
 			EMaterialSpatialKind OutputKind = EMaterialSpatialKind::None,
 			EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None) -> uint32;
+		auto Transform(EMaterialProgramOpcode Opcode, const FMaterialNumericInput& Input,
+			EMaterialCoordinateSpace Source, EMaterialCoordinateSpace Destination) -> uint32;
 		auto Coordinates() -> uint32;
 		auto Fail(FMaterialError Error, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;

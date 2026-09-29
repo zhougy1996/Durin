@@ -33,7 +33,7 @@ namespace Durin
 		public:
 			enum class ESource : uint8
 			{
-				View, Lighting, Material, HitProxy, Texture, Sampler,
+				View, Primitive, Lighting, Material, HitProxy, Texture, Sampler,
 				Collection,
 				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
 				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
@@ -72,7 +72,8 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentIrradiance);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentPrefiltered);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentBrdfLut);
@@ -99,7 +100,8 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FCompiledSurfaceMaterialShader,
@@ -149,7 +151,7 @@ namespace Durin
 		private:
 			friend RENDERER_API auto PrepareCompiledSurfaceMaterial(FRHIShader*, const FCompiledSurfaceBindingLayout&,
 				const FResolvedSurfaceMaterial&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
-				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
+				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
 				std::span<const FRHIUniformBufferRange>, FPreparedSurfaceMaterialBindings&) -> bool;
 			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
 		};
@@ -161,6 +163,7 @@ namespace Durin
 			const FRHIUniformBufferRange& Lighting,
 			const FRHIUniformBufferRange& HitProxy,
 			const FRHIUniformBufferRange& View,
+			const FRHIUniformBufferRange& Primitive,
 			std::span<const FRHIUniformBufferRange> Collections,
 			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
@@ -170,6 +173,7 @@ namespace Durin
 			const FRHIUniformBufferRange& Lighting,
 			const FRHIUniformBufferRange& HitProxy,
 			const FRHIUniformBufferRange& View,
+			const FRHIUniformBufferRange& Primitive,
 			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
 
 		class FSurfaceMaterialResources final

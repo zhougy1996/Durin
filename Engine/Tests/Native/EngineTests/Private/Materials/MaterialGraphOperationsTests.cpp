@@ -834,7 +834,14 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 				});
 				Expressions.push_back(Target.Get());
 				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
-				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end();
+				const bool bSpatialTransform = Entry.Opcode == EMaterialProgramOpcode::TransformPosition
+					|| Entry.Opcode == EMaterialProgramOpcode::TransformDirection
+					|| Entry.Opcode == EMaterialProgramOpcode::TransformNormal;
+				// Transform inputs are additionally constrained by spatial kind and source
+				// coordinate space. The generic constants in this shape matrix are
+				// intentionally non-spatial, so even Float3 must fail semantic validation.
+				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end()
+					&& !bSpatialTransform;
 				const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, {});
 				EXPECT_EQ(static_cast<bool>(Validation), bAccepted)
 					<< (Validation.Diagnostics.empty() ? std::string{}

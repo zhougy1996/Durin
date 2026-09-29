@@ -432,7 +432,7 @@ namespace Durin
 		);
 		ExpectBinding(
 			VertexShader,
-			"Transform",
+			"MaterialPrimitive",
 			0,
 			ERHIBindingType::UniformBuffer,
 			EShaderStageFlags::Vertex, 1

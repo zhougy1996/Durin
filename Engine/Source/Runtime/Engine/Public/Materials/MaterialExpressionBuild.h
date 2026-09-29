@@ -103,6 +103,9 @@ namespace Durin
 				std::span<const uint8> Swizzle = {},
 				EMaterialSpatialKind OutputKind = EMaterialSpatialKind::None,
 				EMaterialCoordinateSpace OutputSpace = EMaterialCoordinateSpace::None) -> uint32;
+			ENGINE_API auto Transform(EMaterialProgramOpcode Opcode,
+				const FMaterialNumericInput& Input, EMaterialCoordinateSpace Source,
+				EMaterialCoordinateSpace Destination) -> uint32;
 			ENGINE_API auto Coordinates() -> uint32;
 			ENGINE_API auto IsNormalTexture(FValue Value) const -> bool;
 			ENGINE_API auto Fail(FMaterialError Error, FGuid PortId = {},

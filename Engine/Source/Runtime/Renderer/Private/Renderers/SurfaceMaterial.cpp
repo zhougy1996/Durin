@@ -221,15 +221,16 @@ namespace Durin::RendererPrivate
 			FEntry Entry{Binding.SetIndex, Binding.BindingIndex, Binding.Type};
 			const uint32 Slot = Binding.BindingIndex;
 			const bool bView = Binding.SetIndex == 0 && Slot == 0;
+			const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
 			const bool bCollection = Slot >= 3
 				&& Slot < 3 + MaterialParameterCollectionMaxPerMaterial;
-			const bool bMaterialSet = Slot == 2 || Slot == 27 || bCollection
+			const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || bCollection
 				|| Slot >= MaterialTextureBindingBase;
 			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return;
 			ERHIBindingType Expected = ERHIBindingType::Texture;
-			if (bView || Slot == 1 || Slot == 2 || Slot == 27)
+			if (bView || bPrimitive || Slot == 1 || Slot == 2 || Slot == 27)
 			{
-				Entry.Source = bView ? ESource::View : Slot == 27 ? ESource::HitProxy
+				Entry.Source = bView ? ESource::View : bPrimitive ? ESource::Primitive : Slot == 27 ? ESource::HitProxy
 					: Slot == 1 ? ESource::Lighting : ESource::Material;
 				Expected = ERHIBindingType::UniformBuffer;
 				Entry.Type = ERHIBindingType::UniformBufferDynamic;
@@ -266,7 +267,7 @@ namespace Durin::RendererPrivate
 	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
 		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
-		const FRHIUniformBufferRange& View,
+		const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
 		std::span<const FRHIUniformBufferRange> Collections,
 		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
 	{
@@ -286,6 +287,7 @@ namespace Durin::RendererPrivate
 			switch (Entry.Source)
 			{
 			case ESource::View: Range = &View; break;
+			case ESource::Primitive: Range = &Primitive; break;
 			case ESource::Lighting: Range = &Lighting; break;
 			case ESource::Material: Range = &MaterialBuffer; break;
 			case ESource::HitProxy: Range = &HitProxy; break;
@@ -327,10 +329,11 @@ namespace Durin::RendererPrivate
 		const FRHIUniformBufferRange& Lighting,
 		const FRHIUniformBufferRange& HitProxy,
 		const FRHIUniformBufferRange& View,
+		const FRHIUniformBufferRange& Primitive,
 		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
 	{
 		return PrepareCompiledSurfaceMaterial(Shader, Layout, Material,
-			MaterialBuffer, Lighting, HitProxy, View, {}, OutBindings);
+			MaterialBuffer, Lighting, HitProxy, View, Primitive, {}, OutBindings);
 	}
 
 	auto FPreparedSurfaceMaterialBindings::Bind(FRHICommandList& CommandList) const -> bool

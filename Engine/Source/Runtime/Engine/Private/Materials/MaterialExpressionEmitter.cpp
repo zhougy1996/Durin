@@ -77,6 +77,13 @@ namespace Durin::MIR
 		return Builder.Numeric(Opcode, Type, Inputs, Swizzle, OutputKind, OutputSpace);
 	}
 
+	auto FEmitter::Transform(EMaterialProgramOpcode Opcode,
+		const FMaterialNumericInput& Input, EMaterialCoordinateSpace Source,
+		EMaterialCoordinateSpace Destination) -> uint32
+	{
+		return Builder.Transform(Opcode, Input, Source, Destination);
+	}
+
 	auto FEmitter::Coordinates() -> uint32
 	{
 		return Builder.Coordinates();

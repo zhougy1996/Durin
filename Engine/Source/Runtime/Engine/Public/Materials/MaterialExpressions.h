@@ -1214,6 +1214,108 @@ namespace Durin
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
+	DCLASS()
+	class DMaterialExpressionCameraPosition : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionCameraPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionCameraVector : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionCameraVector(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionObjectPosition : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionObjectPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionVertexNormal : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionVertexNormal(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionScreenPosition : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionScreenPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionViewSize : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionViewSize(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionTransformPosition : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionTransformPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Input{3};
+		DPROPERTY()
+		EMaterialCoordinateSpace Source = EMaterialCoordinateSpace::Object;
+		DPROPERTY()
+		EMaterialCoordinateSpace Destination = EMaterialCoordinateSpace::World;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionTransformDirection : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionTransformDirection(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Input{3};
+		DPROPERTY()
+		EMaterialCoordinateSpace Source = EMaterialCoordinateSpace::Object;
+		DPROPERTY()
+		EMaterialCoordinateSpace Destination = EMaterialCoordinateSpace::World;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionTransformNormal : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionTransformNormal(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Input{3};
+		DPROPERTY()
+		EMaterialCoordinateSpace Source = EMaterialCoordinateSpace::Object;
+		DPROPERTY()
+		EMaterialCoordinateSpace Destination = EMaterialCoordinateSpace::World;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
 	// Reads one mesh UV channel as a Float2; transforms belong to upstream math nodes.
 	DCLASS()
 	class DMaterialExpressionTextureCoordinates : public DMaterialExpression

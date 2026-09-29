@@ -124,7 +124,9 @@ namespace Durin
 		FMatrix WorldToLocal;
 		if (!std::isfinite(Fact.Determinant) || !Math::TryInverse(LocalToWorld, WorldToLocal)) return Fact;
 		Fact.NormalToWorld = Math::TransposeToFloat(Math::Transpose(WorldToLocal));
-		Fact.bValid = Math::IsFinite(FMatrix(Fact.NormalToWorld));
+		Fact.WorldToLocal = Math::TransposeToFloat(WorldToLocal);
+		Fact.bValid = Math::IsFinite(FMatrix(Fact.NormalToWorld))
+			&& Math::IsFinite(FMatrix(Fact.WorldToLocal));
 		return Fact;
 	}
 
@@ -464,9 +466,20 @@ namespace Durin
 					[&Captured - Primitive.Batches.data()];
 				if (!FrozenBatch.Transform.bValid) return;
 				const auto& NormalToWorld = FrozenBatch.Transform.NormalToWorld;
+				const auto& WorldToLocal = FrozenBatch.Transform.WorldToLocal;
+				FVector3 BoundsCenter;
+				if (Batch.WorldBounds.bIsValid && Math::IsFinite(Batch.WorldBounds.Min)
+					&& Math::IsFinite(Batch.WorldBounds.Max))
+					BoundsCenter = Batch.WorldBounds.GetCenter();
+				else
+				{
+					const FVector4 Origin = LocalToWorld * FVector4(0.0, 0.0, 0.0, 1.0);
+					if (!Math::IsFinite(Origin)) return;
+					BoundsCenter = FVector3(Origin);
+				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
-				Result.Primitives.push_back({.PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld});
+				Result.Primitives.push_back({.PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld, .WorldToLocal = WorldToLocal, .BoundsCenter = BoundsCenter});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 

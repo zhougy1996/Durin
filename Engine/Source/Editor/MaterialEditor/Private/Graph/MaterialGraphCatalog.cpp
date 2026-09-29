@@ -85,6 +85,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Step: Names = {"Edge", "Value"}; break;
 			case EMaterialProgramOpcode::SmoothStep: Names = {"Min", "Max", "Value"}; break;
 			case EMaterialProgramOpcode::Reflect: Names = {"Incident", "Normal"}; break;
+			case EMaterialProgramOpcode::TransformPosition:
+			case EMaterialProgramOpcode::TransformDirection:
+			case EMaterialProgramOpcode::TransformNormal: Names = {"Input"}; break;
 			case EMaterialProgramOpcode::Clamp: Names = {"Value", "Min", "Max"}; break;
 			case EMaterialProgramOpcode::Lerp: Names = {"A", "B", "Alpha"}; break;
 			case EMaterialProgramOpcode::MakeFloat2: Names = {"X", "Y"}; break;
@@ -108,7 +111,16 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::UVChannel:
 			case EMaterialProgramOpcode::WorldPosition:
 			case EMaterialProgramOpcode::Time:
+			case EMaterialProgramOpcode::CameraPosition:
+			case EMaterialProgramOpcode::CameraVector:
+			case EMaterialProgramOpcode::ObjectPosition:
+			case EMaterialProgramOpcode::VertexNormal:
+			case EMaterialProgramOpcode::ScreenPosition:
+			case EMaterialProgramOpcode::ViewSize:
 			case EMaterialProgramOpcode::TextureCoordinates: return "Inputs";
+			case EMaterialProgramOpcode::TransformPosition:
+			case EMaterialProgramOpcode::TransformDirection:
+			case EMaterialProgramOpcode::TransformNormal: return "Transforms";
 			case EMaterialProgramOpcode::TextureSampleParameter2D:
 			case EMaterialProgramOpcode::TextureSample2D:
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
@@ -138,6 +150,15 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::WorldPosition: return "World Position";
 			case EMaterialProgramOpcode::Time: return "Time";
 			case EMaterialProgramOpcode::CollectionParameter: return "Collection Parameter";
+			case EMaterialProgramOpcode::CameraPosition: return "Camera Position";
+			case EMaterialProgramOpcode::CameraVector: return "Camera Vector";
+			case EMaterialProgramOpcode::ObjectPosition: return "Object Position";
+			case EMaterialProgramOpcode::VertexNormal: return "Vertex Normal";
+			case EMaterialProgramOpcode::ScreenPosition: return "Screen Position";
+			case EMaterialProgramOpcode::ViewSize: return "View Size";
+			case EMaterialProgramOpcode::TransformPosition: return "Transform Position";
+			case EMaterialProgramOpcode::TransformDirection: return "Transform Direction";
+			case EMaterialProgramOpcode::TransformNormal: return "Transform Normal";
 			case EMaterialProgramOpcode::TextureCoordinates: return "Texture Coordinates";
 			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
 			case EMaterialProgramOpcode::Add: return "Add";
@@ -248,6 +269,15 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::SmoothStep: return DMaterialExpressionSmoothStep::StaticClass();
 			case EMaterialProgramOpcode::Sign: return DMaterialExpressionSign::StaticClass();
 			case EMaterialProgramOpcode::Reflect: return DMaterialExpressionReflect::StaticClass();
+			case EMaterialProgramOpcode::CameraPosition: return DMaterialExpressionCameraPosition::StaticClass();
+			case EMaterialProgramOpcode::CameraVector: return DMaterialExpressionCameraVector::StaticClass();
+			case EMaterialProgramOpcode::ObjectPosition: return DMaterialExpressionObjectPosition::StaticClass();
+			case EMaterialProgramOpcode::VertexNormal: return DMaterialExpressionVertexNormal::StaticClass();
+			case EMaterialProgramOpcode::ScreenPosition: return DMaterialExpressionScreenPosition::StaticClass();
+			case EMaterialProgramOpcode::ViewSize: return DMaterialExpressionViewSize::StaticClass();
+			case EMaterialProgramOpcode::TransformPosition: return DMaterialExpressionTransformPosition::StaticClass();
+			case EMaterialProgramOpcode::TransformDirection: return DMaterialExpressionTransformDirection::StaticClass();
+			case EMaterialProgramOpcode::TransformNormal: return DMaterialExpressionTransformNormal::StaticClass();
 			case EMaterialProgramOpcode::MakeSurface: return DMaterialExpressionMakeSurface::StaticClass();
 			case EMaterialProgramOpcode::FunctionInput: return DMaterialExpressionFunctionInput::StaticClass();
 			case EMaterialProgramOpcode::FunctionOutput: return DMaterialExpressionFunctionOutput::StaticClass();
@@ -300,6 +330,15 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position in world space (Float3)."; break;
 			case EMaterialProgramOpcode::Time: Entry.Description = "Elapsed real time in seconds (Float), updated every rendered view."; break;
 			case EMaterialProgramOpcode::CollectionParameter: Entry.Description = "Reads a numeric value from a material parameter collection in the current world."; break;
+			case EMaterialProgramOpcode::CameraPosition: Entry.Description = "Active pass camera position in world space (Float3)."; break;
+			case EMaterialProgramOpcode::CameraVector: Entry.Description = "Direction from the fragment to the active pass camera (Float3)."; break;
+			case EMaterialProgramOpcode::ObjectPosition: Entry.Description = "Render primitive bounds center in world space (Float3)."; break;
+			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal; Vertex-only and rejected by current Pixel roots."; break;
+			case EMaterialProgramOpcode::ScreenPosition: Entry.Description = "Normalized position within the active pass viewport (Float2)."; break;
+			case EMaterialProgramOpcode::ViewSize: Entry.Description = "Active pass viewport size in pixels (Float2)."; break;
+			case EMaterialProgramOpcode::TransformPosition: Entry.Description = "Transforms a spatial position between explicit coordinate spaces."; break;
+			case EMaterialProgramOpcode::TransformDirection: Entry.Description = "Transforms a spatial direction between explicit coordinate spaces."; break;
+			case EMaterialProgramOpcode::TransformNormal: Entry.Description = "Transforms and normalizes a spatial normal with inverse-transpose semantics."; break;
 			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;
 			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
 			case EMaterialProgramOpcode::Splat2:
@@ -708,7 +747,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::Reflect); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::ViewSize); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{

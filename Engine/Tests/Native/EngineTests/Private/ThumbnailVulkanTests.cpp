@@ -228,10 +228,15 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	auto Recipe = Durin::Testing::MakePBRMaterialExpressionsForTest();
 	// Exercise environment inputs through shader compilation, vertex linkage and thumbnail rendering.
 	Durin::TStrongObjectPtr<Durin::DMaterialExpressionWorldPosition> Position(Durin::NewObject<Durin::DMaterialExpressionWorldPosition>(nullptr, Durin::NAME_None));
+	Durin::TStrongObjectPtr<Durin::DMaterialExpressionSwizzle> PositionRgb(Durin::NewObject<Durin::DMaterialExpressionSwizzle>(nullptr, Durin::NAME_None));
 	Durin::TStrongObjectPtr<Durin::DMaterialExpressionTime> Time(Durin::NewObject<Durin::DMaterialExpressionTime>(nullptr, Durin::NAME_None));
-	Position->Id = Durin::FGuid::NewGuid(); Time->Id = Durin::FGuid::NewGuid();
-	Recipe.Expressions.emplace_back(Position.Get()); Recipe.Expressions.emplace_back(Time.Get());
-	Recipe.Outputs.Emissive = {Position->Id}; Recipe.Outputs.Roughness = {Time->Id};
+	Position->Id = Durin::FGuid::NewGuid(); PositionRgb->Id = Durin::FGuid::NewGuid(); Time->Id = Durin::FGuid::NewGuid();
+	PositionRgb->Input.Connection = {Position->Id};
+	// A non-identity swizzle intentionally converts the spatial Position into
+	// ordinary color data before it reaches the Emissive terminal.
+	PositionRgb->Components = {0, 1, 0};
+	Recipe.Expressions.emplace_back(Position.Get()); Recipe.Expressions.emplace_back(PositionRgb.Get()); Recipe.Expressions.emplace_back(Time.Get());
+	Recipe.Outputs.Emissive = {PositionRgb->Id}; Recipe.Outputs.Roughness = {Time->Id};
 	ASSERT_TRUE(Recipe.Apply(*StaticMeshAssetMaterial));
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),

@@ -109,7 +109,7 @@ namespace Durin::RendererPrivate
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 		DURIN_END_SHADER_PARAMETERS();
 
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(
@@ -130,7 +130,7 @@ namespace Durin::RendererPrivate
 				Options.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
 		}
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
@@ -142,7 +142,19 @@ namespace Durin::RendererPrivate
 		FMatrix4f LocalToClip{1.0f};
 		FMatrix4f LocalToWorld{1.0f};
 		FMatrix4f NormalToWorld{1.0f};
+		FMatrix4f WorldToLocal{1.0f};
+		FVector4f BoundsCenter{0.0f};
 		FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
+	};
+
+	struct FMaterialViewUniform
+	{
+		FVector4f Parameters{0.0f};
+		FVector4f CameraWorldPosition{0.0f};
+		FVector4f Viewport{0.0f};
+		FVector4f ReciprocalViewport{0.0f};
+		FMatrix4f WorldToView{1.0f};
+		FMatrix4f ViewToWorld{1.0f};
 	};
 
 	struct FSplineMeshUniform

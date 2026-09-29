@@ -172,6 +172,12 @@ namespace Durin
 		SmoothStep,
 		Sign,
 		Reflect,
+		CameraPosition,
+		CameraVector,
+		ObjectPosition,
+		VertexNormal,
+		ScreenPosition,
+		ViewSize,
 	};
 
 	struct FMaterialTransformPayload

@@ -14,7 +14,8 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FHitProxyFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(HitProxy);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MeshView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FHitProxyFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "HitProxyFragmentMain");
@@ -143,7 +144,8 @@ namespace Durin
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(FVector3f(View.ViewLocation), 0.f)};
 				Item.Id = Commands.CreateUniformBufferRange(&Id, sizeof(Id));
 				if (!PrepareCompiledSurfaceMaterial(Item.Fragment.GetRHIShader(false), Item.Fragment.GetShader()->GetSurfaceLayout(),
-					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform, Item.FragmentBindings)) { bReady = false; break; }
+					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform,
+					Item.Transform, Item.FragmentBindings)) { bReady = false; break; }
 				Item.VertexBindings = Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding);
 				if (!Item.VertexBindings) { bReady = false; break; }
 				Draws.push_back(std::move(Item));

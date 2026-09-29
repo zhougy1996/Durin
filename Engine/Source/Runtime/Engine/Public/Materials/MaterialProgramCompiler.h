@@ -27,7 +27,7 @@ namespace Durin
 	}
 	inline constexpr uint32 CurrentMaterialGeneratorVersion = 9;
 	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 10;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 5;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 6;
 
 	struct FMaterialCompilerDependency
 	{
@@ -209,6 +209,20 @@ namespace Durin
 		uint64 CompilationMicroseconds = 0;
 	};
 
+	struct FMaterialProgramRequirements
+	{
+		bool bMaterialView = false;
+		bool bMaterialPrimitive = false;
+		bool bCameraPosition = false;
+		bool bViewport = false;
+		bool bViewTransforms = false;
+		bool bObjectTransforms = false;
+		bool bBoundsCenter = false;
+		bool bTangentFrame = false;
+		bool bVertexNormal = false;
+		auto operator==(const FMaterialProgramRequirements&) const -> bool = default;
+	};
+
 	struct FMaterialCompilerResult
 	{
 		bool bSucceeded = false;
@@ -222,6 +236,7 @@ namespace Durin
 		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		FMaterialRenderLayout Layout;
+		FMaterialProgramRequirements Requirements;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		std::vector<FCompiledShader> CompiledShaders;

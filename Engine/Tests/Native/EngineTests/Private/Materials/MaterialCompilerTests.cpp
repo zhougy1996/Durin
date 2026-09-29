@@ -21,9 +21,15 @@ namespace
 	{
 		std::vector<Durin::FMaterialValueSemantics> Inputs;
 		for (const auto Index : Node.Inputs) Inputs.push_back(IR.Nodes.at(Index).GetSemantics());
+		const auto* Transform = Node.Opcode == Durin::EMaterialProgramOpcode::TransformPosition
+			|| Node.Opcode == Durin::EMaterialProgramOpcode::TransformDirection
+			|| Node.Opcode == Durin::EMaterialProgramOpcode::TransformNormal
+			? &std::get<Durin::FMaterialTransformPayload>(Node.Payload) : nullptr;
 		const auto Result = Durin::ResolveMaterialProgramNodeSemantics(
-			Node.Opcode, Node.ResultType, Inputs);
+			Node.Opcode, Node.ResultType, Inputs, Transform);
 		if (!Result) return;
+		if (Node.Opcode == Durin::EMaterialProgramOpcode::Constant
+			&& Node.SpatialKind != Durin::EMaterialSpatialKind::None) return;
 		Node.LegalStages = Result->Stages;
 		Node.SpatialKind = Result->Kind;
 		Node.CoordinateSpace = Result->Space;
@@ -99,6 +105,46 @@ TEST(FMaterialProgramSemanticTests, TransformNormalIsCanonicalAndRejectsInvalidS
 	Invalid.IR.Nodes[1].Payload = FMaterialTransformPayload{
 		EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::World};
 	EXPECT_FALSE(MIR::Normalize(Invalid));
+}
+
+TEST(FMaterialProgramSemanticTests, SpatialTransformsImplementTheFrozenSpaceMatrix)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Kind = EMaterialSpatialKind;
+	using Space = EMaterialCoordinateSpace;
+	const std::array Spaces{Space::Object, Space::World, Space::View, Space::Tangent};
+	for (const auto Opcode : {Op::TransformPosition, Op::TransformDirection, Op::TransformNormal})
+	{
+		const auto ExpectedKind = Opcode == Op::TransformPosition ? Kind::Position
+			: Opcode == Op::TransformDirection ? Kind::Direction : Kind::Normal;
+		for (const auto Source : Spaces)
+			for (const auto Destination : Spaces)
+			{
+				const std::array Inputs{FMaterialValueSemantics{EMaterialProgramValueType::Float3,
+					EMaterialEvaluationStage::Both, ExpectedKind, Source}};
+				const FMaterialTransformPayload Payload{Source, Destination};
+				const auto Resolved = ResolveMaterialProgramNodeSemantics(Opcode,
+					EMaterialProgramValueType::Float3, Inputs, &Payload);
+				const bool bPositionTangent = Opcode == Op::TransformPosition
+					&& (Source == Space::Tangent || Destination == Space::Tangent);
+				const bool bExpected = Source != Destination && !bPositionTangent;
+				EXPECT_EQ(static_cast<bool>(Resolved), bExpected)
+					<< static_cast<uint32>(Opcode) << " " << static_cast<uint32>(Source)
+					<< " -> " << static_cast<uint32>(Destination);
+				if (Resolved)
+				{
+					EXPECT_EQ(Resolved->Kind, ExpectedKind);
+					EXPECT_EQ(Resolved->Space, Destination);
+				}
+			}
+	}
+
+	const FMaterialTransformPayload WorldToView{Space::World, Space::View};
+	const std::array WrongKind{FMaterialValueSemantics{EMaterialProgramValueType::Float3,
+		EMaterialEvaluationStage::Pixel, Kind::None, Space::None}};
+	EXPECT_FALSE(ResolveMaterialProgramNodeSemantics(Op::TransformDirection,
+		EMaterialProgramValueType::Float3, WrongKind, &WorldToView));
 }
 
 TEST(FMaterialProgramSemanticTests, GeometricOperationsEnforceWidthKindSpaceAndStage)
@@ -190,6 +236,104 @@ TEST(FMaterialProgramGeneratorTests, PureMathAndGeometryEmitDeterministicIntrins
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 		: FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+}
+
+TEST(FMaterialProgramGeneratorTests, ContextAndSpatialTransformsCompileWithExactReachableBindings)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	using Op = EMaterialProgramOpcode;
+	MIR::FModule IR = MakeDefaultMaterialCompilerIR();
+	auto Add = [&](MIR::FNode Node) {
+		ResolveNodeSemantics(IR, Node);
+		const uint32 Index = static_cast<uint32>(IR.Nodes.size());
+		IR.Nodes.push_back(std::move(Node));
+		return Index;
+	};
+	const auto WorldPosition = Add({.Opcode = Op::WorldPosition, .ResultType = Type::Float3});
+	const auto CameraPosition = Add({.Opcode = Op::CameraPosition, .ResultType = Type::Float3});
+	const auto CameraVector = Add({.Opcode = Op::CameraVector, .ResultType = Type::Float3});
+	const auto ObjectPosition = Add({.Opcode = Op::ObjectPosition, .ResultType = Type::Float3});
+	const auto ScreenPosition = Add({.Opcode = Op::ScreenPosition, .ResultType = Type::Float2});
+	const auto ViewSize = Add({.Opcode = Op::ViewSize, .ResultType = Type::Float2});
+	const auto ViewPosition = Add({.Opcode = Op::TransformPosition, .ResultType = Type::Float3,
+		.Inputs = {WorldPosition}, .Payload = FMaterialTransformPayload{
+			EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::View}});
+	const auto ObjectLocalPosition = Add({.Opcode = Op::TransformPosition, .ResultType = Type::Float3,
+		.Inputs = {WorldPosition}, .Payload = FMaterialTransformPayload{
+			EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::Object}});
+	const auto TangentDirection = Add({.Opcode = Op::TransformDirection, .ResultType = Type::Float3,
+		.Inputs = {CameraVector}, .Payload = FMaterialTransformPayload{
+			EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::Tangent}});
+	const auto WorldNormal = Add({.Opcode = Op::Constant, .ResultType = Type::Float3,
+		.LegalStages = EMaterialEvaluationStage::Pixel,
+		.SpatialKind = EMaterialSpatialKind::Normal,
+		.CoordinateSpace = EMaterialCoordinateSpace::World,
+		.Payload = FMaterialProgramLiteral{0, 0, 1, 0}});
+	const auto TangentNormal = Add({.Opcode = Op::TransformNormal, .ResultType = Type::Float3,
+		.Inputs = {WorldNormal}, .Payload = FMaterialTransformPayload{
+			EMaterialCoordinateSpace::World, EMaterialCoordinateSpace::Tangent}});
+	auto Clear3 = [&](uint32 Input) {
+		return Add({.Opcode = Op::Swizzle, .ResultType = Type::Float3, .Inputs = {Input},
+			.Payload = MIR::FSwizzle{3, {0, 1, 0, 0}}});
+	};
+	auto Expand2 = [&](uint32 Input) {
+		const auto X = Add({.Opcode = Op::Swizzle, .ResultType = Type::Float, .Inputs = {Input},
+			.Payload = MIR::FSwizzle{1, {0, 0, 0, 0}}});
+		const auto Y = Add({.Opcode = Op::Swizzle, .ResultType = Type::Float, .Inputs = {Input},
+			.Payload = MIR::FSwizzle{1, {1, 0, 0, 0}}});
+		return Add({.Opcode = Op::MakeFloat3, .ResultType = Type::Float3,
+			.Inputs = {X, Y, X}});
+	};
+	std::vector<uint32> Terms{Clear3(CameraPosition), Clear3(ObjectPosition),
+		Clear3(ViewPosition), Clear3(ObjectLocalPosition), Clear3(TangentDirection), Clear3(TangentNormal),
+		Expand2(ScreenPosition), Expand2(ViewSize)};
+	uint32 Aggregate = Terms.front();
+	for (size_t Index = 1; Index < Terms.size(); ++Index)
+		Aggregate = Add({.Opcode = Op::Add, .ResultType = Type::Float3,
+			.Inputs = {Aggregate, Terms[Index]}});
+	auto& BaseColor = IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::BaseColor)];
+	BaseColor.bExpression = true;
+	BaseColor.ExpressionIndex = Aggregate;
+
+	MIR::FCompilerInput Input;
+	Input.IR = IR;
+	Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
+		: FormatMaterialError(Compiled.Diagnostics.front().Error));
+	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+	for (const std::string_view Text : {"MaterialView.CameraWorldPosition", "MaterialPrimitive.BoundsCenter",
+		"MaterialView.Viewport", "MaterialPrimitive.WorldToLocal", "MaterialTangentToWorld(input)"})
+		EXPECT_NE(Compiled.GeneratedSource.find(Text), std::string::npos) << Text;
+	EXPECT_TRUE(Compiled.Requirements.bMaterialView);
+	EXPECT_TRUE(Compiled.Requirements.bMaterialPrimitive);
+	EXPECT_TRUE(Compiled.Requirements.bCameraPosition);
+	EXPECT_TRUE(Compiled.Requirements.bViewport);
+	EXPECT_TRUE(Compiled.Requirements.bViewTransforms);
+	EXPECT_TRUE(Compiled.Requirements.bObjectTransforms);
+	EXPECT_TRUE(Compiled.Requirements.bBoundsCenter);
+	EXPECT_TRUE(Compiled.Requirements.bTangentFrame);
+	for (const auto& Stage : Compiled.CompiledShaders | std::views::take(2))
+	{
+		EXPECT_NE(std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialView",
+			&FShaderResourceBinding::Name), Stage.Reflection.ResourceBindings.end());
+		EXPECT_NE(std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialPrimitive",
+			&FShaderResourceBinding::Name), Stage.Reflection.ResourceBindings.end());
+	}
+
+	auto VertexOnly = MakeDefaultMaterialCompilerIR();
+	VertexOnly.Nodes.push_back({.Opcode = Op::VertexNormal, .ResultType = Type::Float3,
+		.LegalStages = EMaterialEvaluationStage::Vertex,
+		.SpatialKind = EMaterialSpatialKind::Normal,
+		.CoordinateSpace = EMaterialCoordinateSpace::World});
+	auto& Normal = VertexOnly.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Normal)];
+	Normal.bExpression = true;
+	Normal.ExpressionIndex = 0;
+	MIR::FCompilerInput Rejected;
+	Rejected.IR = std::move(VertexOnly);
+	Rejected.Environment = Input.Environment;
+	EXPECT_FALSE(MIR::Normalize(Rejected));
 }
 
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
@@ -1184,7 +1328,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("input.worldPosition"), std::string::npos);
-	EXPECT_NE(Source.Source.find("MeshView.Parameters.x"), std::string::npos);
+	EXPECT_NE(Source.Source.find("MaterialView.Parameters.x"), std::string::npos);
 	EXPECT_EQ(Source.Source.find("Material.SurfaceParams"), std::string::npos);
 	EXPECT_EQ(Source.Source.find("materialTime :"), std::string::npos);
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
@@ -1193,7 +1337,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	for (const auto& Stage : Compiled.CompiledShaders)
 	{
-		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, "MeshView",
+		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialView",
 			&FShaderResourceBinding::Name);
 		ASSERT_NE(Uniform, Stage.Reflection.ResourceBindings.end()) << Stage.SourceEntryPoint;
 		EXPECT_EQ(Uniform->SetIndex, 0u);
@@ -1203,7 +1347,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	}
 	auto WrongSet = Compiled.CompiledShaders;
 	for (auto& Binding : WrongSet.front().Reflection.ResourceBindings)
-		if (Binding.Name == "MeshView") Binding.SetIndex = 1;
+		if (Binding.Name == "MaterialView") Binding.SetIndex = 1;
 	EXPECT_FALSE(ValidateMaterialCompiledStages(WrongSet, Compiled.Layout));
 
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
