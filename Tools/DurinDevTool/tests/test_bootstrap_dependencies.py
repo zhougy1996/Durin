@@ -284,17 +284,16 @@ class TestRelocatedManifest:
         names = [manifest["name"] for manifest in manifests]
         assert len(names) == len(set(names)), "Dependency manifest names must be unique."
 
-    def test_tracy_repair_command_is_focused_and_runnable(self) -> None:
-        manifest = next((item for item in dependency_manifests.load_manifests(REPOSITORY) if item['name'] == 'tracy-tools'))
-        assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
-        assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
-
-    def test_tracy_tools_include_verified_macos_release(self) -> None:
+    def test_tracy_tools_manifest_is_pinned_for_supported_hosts(self) -> None:
         manifest = next(
             item
             for item in dependency_manifests.load_manifests(REPOSITORY)
             if item['name'] == 'tracy-tools'
         )
+        assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
+        assert manifest['repair_commands_by_platform']['MacOS'] == './DevTool dependency prepare --libs tracy,tracy-tools'
+        assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
+        assert (REPOSITORY_ROOT / 'DevTool').is_file()
         source = manifest['source']['platforms']['MacOS']
         assert source['archive_name'] == 'macos-0.14.1.zip'
         assert source['sha256'] == (

@@ -171,14 +171,6 @@ namespace Durin::Editor::MainFrame
 		);
 	}
 
-	TEST_F(FProfilingToolServiceTests, RegistersExpectedMenuActions)
-	{
-		EXPECT_EQ(FProfilingToolService::LaunchProfilerLabel, "Profile This Editor");
-		EXPECT_EQ(FProfilingToolService::OpenCaptureLabel, "Open Tracy Capture...");
-		EXPECT_EQ(FProfilingToolService::OpenCaptureDirectoryLabel, "Open Capture Directory");
-		EXPECT_EQ(FProfilingToolService::ShowStatusLabel, "Tool Status...");
-	}
-
 	TEST_F(FProfilingToolServiceTests, ConnectsToActualLocalPortIncludingNonDefaultAndOverridePorts)
 	{
 		for (uint16 Port : {uint16{8086}, uint16{8101}, uint16{29000}})

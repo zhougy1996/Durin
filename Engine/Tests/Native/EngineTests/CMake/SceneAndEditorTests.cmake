@@ -464,14 +464,13 @@ durin_add_native_test(EditorHostToolTests
 )
 
 durin_add_native_test(ExternalToolTests
-	KIND feature
+	KIND contract
 	DOMAINS editor-shell
 	MODULES durin-ed main-frame
 	STACKS editor
 	PRIVATE_SOURCE_OWNER MainFrame
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned profiling integration white-box coverage avoids exporting the private service implementation."
-	TIMEOUT 600
 	SOURCES Private/ProfilingToolServiceTests.cpp
 	PRIVATE_SOURCES ${_durin_main_frame_private}/ProfilingToolService.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
