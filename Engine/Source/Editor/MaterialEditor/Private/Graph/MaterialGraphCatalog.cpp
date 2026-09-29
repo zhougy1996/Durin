@@ -129,6 +129,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TextureSampleParameter2D: return "Texture Sample Parameter 2D";
 			case EMaterialProgramOpcode::WorldPosition: return "World Position";
 			case EMaterialProgramOpcode::Time: return "Time";
+			case EMaterialProgramOpcode::CollectionParameter: return "Collection Parameter";
 			case EMaterialProgramOpcode::TextureCoordinates: return "Texture Coordinates";
 			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
 			case EMaterialProgramOpcode::Add: return "Add";
@@ -256,6 +257,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
 			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position in world space (Float3)."; break;
 			case EMaterialProgramOpcode::Time: Entry.Description = "Elapsed real time in seconds (Float), updated every rendered view."; break;
+			case EMaterialProgramOpcode::CollectionParameter: Entry.Description = "Reads a numeric value from a material parameter collection in the current world."; break;
 			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;
 			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
 			case EMaterialProgramOpcode::Splat2:
