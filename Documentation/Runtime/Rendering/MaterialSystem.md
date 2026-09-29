@@ -294,6 +294,23 @@ generated intrinsics, nested-function expansion, canonical identity, and
 diagnostics therefore use one compiler path; no material pass or render layout is
 added for these operations.
 
+Static bool declarations are reflected expressions keyed by valid stable GUIDs
+and unique names, bounded to 32 per root material. A base declaration supplies
+the default and an authored material instance may override the same GUID; orphan,
+duplicate, or over-bound records reject. These values belong to shader selection,
+not compiled layout v4, parameter collections, or dynamic material-instance
+mutation. Static, Quality, and Feature Level switches select before normalized IR
+and dependency discovery, so only the root-reachable selected branch contributes
+parameters, resources, functions, limits, source, and code.
+
+Every compile request names Low or High quality, an accepted RHI feature level
+of ES3_1, SM5, or SM6, and the sorted effective static-bool configuration.
+Renderer requests use the process quality and active RHI capability; editor
+previews may request another supported configuration explicitly. Program identity
+comes from the selected normalized program and environment, allowing equivalent
+selections to reuse one immutable compiler result while family diagnostics retain
+the distinct requested and static-configuration counts.
+
 Context and spatial-transform expressions use pass-owned data only when reachable.
 Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
 viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
@@ -565,21 +582,25 @@ IR/source or compiled artifacts. The material manager reports retained-result
 hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
 artifacts follow ShaderBuild's cache-miss/repair contract.
 
-Cook requires a current successful Win64 Game result and never substitutes
+Cook requires current successful Win64 Game results and never substitutes
 ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v8 value per material or instance in the `DMaterialInterface::ProgramData`
-BulkData field stores the exact
-compiler/target/pass/version envelope, program identity, canonical shader properties and separate pipeline metadata,
-active declaration contract, compiled layout, active collection asset paths,
-schemas, layouts and default fallbacks, and complete shader
-code/reflection set. It is uncompressed, 16-byte aligned, bounded to 8 MiB, and
-protected by an internal checksum plus the DAST field range and raw-segment extent/hash
-contract. Metadata load is range-free; first render-layer construction locks
-and decodes the field. Loading rejects missing, truncated, corrupt, trailing, wrong-target,
-wrong-profile, wrong-version, invalid-stage, or package/payload static-property
-mismatches before publishing an immutable result. Runtime loading therefore
-requires neither authored IR/generated source, Shader source files, editor DDC,
-nor live compilation.
+DMAT v9 family per material or instance in the
+`DMaterialInterface::ProgramData` BulkData field stores six exact configurations:
+Low and High quality crossed with ES3_1, SM5, and SM6, each using that owner's
+effective static-bool values. Each entry retains its configuration, exact
+compiler/target/pass/version envelope, program identity, canonical shader
+properties and separate pipeline metadata, active declaration contract, compiled
+layout, active collection asset paths, schemas, layouts and default fallbacks,
+and complete shader code/reflection set. Equivalent selected programs may share
+immutable artifacts by identity. The family is uncompressed, 16-byte aligned,
+bounded to 8 MiB, and protected by an internal checksum plus the DAST field range
+and raw-segment extent/hash contract. Metadata load is range-free; first
+render-layer construction locks and decodes the exact requested configuration.
+Loading rejects a missing configuration, truncated, corrupt, trailing,
+wrong-target, wrong-profile, wrong-version, invalid-stage, or package/payload
+static-property mismatch before publishing an immutable result. Runtime loading
+therefore requires neither authored IR/generated source, Shader source files,
+editor DDC, nor live compilation.
 Source-free loading resolves every recorded collection asset, requires the exact
 captured collection identity/schema/layout, and refreshes only the default payload.
 Missing or incompatible collection dependencies reject the cooked program
@@ -879,7 +900,7 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current versions are compiler envelope 10, DMAT 8, IR 6, layout 4, generator 9,
+Current versions are compiler envelope 10, DMAT 9, IR 6, layout 4, generator 9,
 pass contract 6, and material Cook contributor 5. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10

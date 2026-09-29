@@ -1606,7 +1606,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, ExpandedBoundsApplyBeforePruningWithoutRaisingAuthoredBounds)
+TEST(FMaterialFunctionTests, ExpandedBoundsApplyAfterPruningWithoutRaisingAuthoredBounds)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1614,29 +1614,67 @@ TEST(FMaterialFunctionTests, ExpandedBoundsApplyBeforePruningWithoutRaisingAutho
 	FMaterialFunctionSignature Signature;
 	Signature.Outputs = {FunctionPort(1, EMaterialProgramValueType::Float, "Result")};
 	std::vector<DMaterialExpression*> Body;
-	for (uint32 Index = 0; Index < 199; ++Index)
+	for (uint32 Index = 0; Index < 100; ++Index)
 	{
 		auto* Value = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
 		Value->Id = FGuid::NewGuid(); Value->Value = static_cast<float>(Index); Body.push_back(Value);
 	}
+	std::vector<FMaterialExpressionInput> Layer;
+	for (auto* Expression : Body) Layer.push_back({.ExpressionId = Expression->Id});
+	while (Layer.size() > 1)
+	{
+		std::vector<FMaterialExpressionInput> Next;
+		for (size_t Index = 0; Index < Layer.size(); Index += 2)
+		{
+			if (Index + 1 == Layer.size()) { Next.push_back(Layer[Index]); continue; }
+			auto* Sum = NewObject<DMaterialExpressionAdd>(nullptr, NAME_None);
+			Sum->Id = FGuid::NewGuid(); Sum->A = Layer[Index]; Sum->B = Layer[Index + 1];
+			Next.push_back({.ExpressionId = Sum->Id}); Body.push_back(Sum);
+		}
+		Layer = std::move(Next);
+	}
+	const auto FunctionResult = Layer.front();
 	auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
 	Terminal->Id = FGuid::NewGuid(); Terminal->Port.Id = Signature.Outputs[0].Id;
-	Terminal->Source = {Body.front()->Id}; Body.push_back(Terminal);
-	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
+	Terminal->Source = FunctionResult; Body.push_back(Terminal);
+	const auto SetResult = Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body));
+	ASSERT_TRUE(SetResult) << (SetResult.Diagnostics.empty() ? ""
+		: Durin::FormatMaterialError(SetResult.Diagnostics.front().Error));
 	std::vector<DMaterialExpression*> Expressions;
-	const auto AddCall = [&] {
+	const auto AddCall = [&] -> DMaterialExpressionFunctionCall* {
 		auto* Call = NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None);
 		Call->Id = FGuid::NewGuid(); Call->Function = Function;
 		Call->Outputs = {{Signature.Outputs[0].Id, EMaterialProgramValueType::Float}};
-		Expressions.push_back(Call);
+		Expressions.push_back(Call); return Call;
 	};
 	for (uint32 Index = 0; Index < 20; ++Index) AddCall();
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.Metallic = {.ExpressionId = Expressions.front()->Id, .OutputId = Signature.Outputs[0].Id};
 	const auto Valid = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Valid);
-	EXPECT_EQ(Valid.IR.Nodes.size(), 1u);
+	EXPECT_EQ(Valid.IR.Nodes.size(), 199u);
 	AddCall();
+	EXPECT_TRUE(NormalizeTypedExpressions(Expressions, Outputs));
+	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
+	Expressions.clear();
+	FMaterialExpressionInput Aggregate;
+	for (uint32 Index = 0; Index < 20; ++Index)
+	{
+		auto* Call = AddCall();
+		const FMaterialExpressionInput CallResult{.ExpressionId = Call->Id,
+			.OutputId = Signature.Outputs[0].Id};
+		if (!Aggregate.ExpressionId.IsValid()) { Aggregate = CallResult; continue; }
+		auto* Sum = NewObject<DMaterialExpressionAdd>(nullptr, NAME_None);
+		Sum->Id = FGuid::NewGuid(); Sum->A = Aggregate; Sum->B = CallResult;
+		Expressions.push_back(Sum); Aggregate = {.ExpressionId = Sum->Id};
+	}
+	Outputs.Metallic = Aggregate;
+	ASSERT_TRUE(NormalizeTypedExpressions(Expressions, Outputs));
+	auto* ExcessCall = AddCall();
+	auto* ExcessSum = NewObject<DMaterialExpressionAdd>(nullptr, NAME_None);
+	ExcessSum->Id = FGuid::NewGuid(); ExcessSum->A = Aggregate;
+	ExcessSum->B = {.ExpressionId = ExcessCall->Id, .OutputId = Signature.Outputs[0].Id};
+	Expressions.push_back(ExcessSum); Outputs.Metallic = {.ExpressionId = ExcessSum->Id};
 	const auto Excessive = NormalizeTypedExpressions(Expressions, Outputs);
 	EXPECT_FALSE(Excessive);
 	ASSERT_FALSE(Excessive.Diagnostics.empty());

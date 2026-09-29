@@ -77,6 +77,24 @@ Authoring validation still retains disconnected and domain-invalid literal state
 so the editor can present and repair it; compiler snapshot construction owns the
 fold diagnostic.
 
+Static selection is resolved by the graph builder before normalized IR and
+resource discovery. `DMaterialExpressionStaticBool` names one root declaration
+by stable GUID; base defaults and the compiling instance's sorted overrides form
+the effective compiler environment. `StaticSwitch` requests only its selected
+branch. `QualitySwitch` selects Low or High and `FeatureLevelSwitch` selects
+ES3_1, SM5, or SM6, with each node's Default input used when its exact input is
+absent. Static bool values never become MIR nodes, uniform fields, or dynamic
+instance values.
+
+Local authoring validation checks selector payloads and the structure of every
+authored input, including inactive branches. Compiler traversal starts from the
+active Surface roots and follows only the selected branch, so inactive or
+disconnected expressions do not contribute expanded-node limits, parameters,
+resources, function dependencies, canonical bytes, or generated code. The
+quality, feature level, and sorted effective static-bool set are explicit
+snapshot inputs; equivalent selected normalized programs may reuse the same
+compiled result.
+
 ## Numeric input ownership
 
 `FMaterialExpressionInput` contains only upstream identity. Reflected
@@ -127,10 +145,12 @@ and diagnostic call paths. Invocations share detached IR storage, resource usage
 function-body captures, and expanded graph budgets. Sharing a function body does
 not share values computed from different caller bindings.
 
-Every authored expression is checked, including disconnected nodes and unused
-function calls. Material output terminals are handled by surface finalization and
-cannot be consumed as expression sources. Builds run on the owning thread and
-must finish before a graph edit or asynchronous dispatch.
+Every authored expression is checked for locally valid storage, including
+disconnected nodes and unused function calls. Compilation semantics and expanded
+bounds are evaluated only for the root-reachable, selector-chosen closure.
+Material output terminals are handled by surface finalization and cannot be
+consumed as expression sources. Builds run on the owning thread and must finish
+before a graph edit or asynchronous dispatch.
 
 ## Validation and publication
 

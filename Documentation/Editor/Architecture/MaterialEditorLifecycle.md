@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-09-30
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -26,6 +26,12 @@ adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that frami
 Fit and mesh changes restore the fitted view.
 
 Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
+Each preview document owns explicit Low/High quality and ES3_1/SM5/SM6 feature
+selectors. Changing either requests the matching ordinary material variant and
+does not alter the asset, global game quality, or RHI capability. Unsupported
+feature choices are clamped to the active device capability. Preview, Apply, and
+Save continue to use the same compiler lifecycle and accepted-program rules;
+there is no editor-only selector evaluator.
 Thumbnail sessions and texture-node images follow the shared
 [texture preview contract](AssetThumbnails.md#identity-and-output-size). Texture
 nodes sample published built allocations for every usage, including normals;

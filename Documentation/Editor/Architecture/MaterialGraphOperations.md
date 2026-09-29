@@ -322,6 +322,15 @@ separate function-node draft or Apply Node step. Function graph
 publication validates dependency closure, including recursive replacement targets.
 `CreateExpression()` publishes a concrete candidate with a stable GUID and position.
 The former CreateNode, ReplaceNode and ReplaceProgram editor APIs are removed.
+Creating a Static Bool assigns its declaration GUID at command time, derives a
+unique root-local name, and commits node storage, presentation, dirty state, and
+history atomically. Static Switch, Quality Switch, and Feature Level Switch use
+the same catalog, search, schema, clipboard, transaction, and canvas paths as
+other expressions; their reflected result type and branch payloads are edited in
+the shared Details panel. Failed creation or replay publishes none of those
+effects. Static declarations are available in material graphs and functions may
+consume selector semantics through the ordinary shared compiler boundary without
+owning root declarations.
 New material setup, parameter reachability and texture previews read typed owners;
 a resource-only use of a combined sample excludes its unevaluated UV branch. Rejection and no-op results
 leave program, presentation, dirty state, transaction history, authored
