@@ -1,5 +1,4 @@
 #include "EngineTestSupport.h"
-#include "Asset/AssetBuildService.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "NativeQualificationSupport.h"
@@ -110,11 +109,9 @@ namespace
 			ASSERT_NE(Provider, nullptr);
 			ASSERT_EQ(ITextureBuildModule::Get(), Provider);
 			FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-			ASSERT_TRUE(InitializeAssetBuildService());
 		}
 		auto TearDown() -> void override
 		{
-			ShutdownAssetBuildService();
 			FPaths::SetDerivedDataCacheDirForTests(PreviousRoot);
 			Log.reset();
 			Testing::RemoveTestWorkDirectory(Root);

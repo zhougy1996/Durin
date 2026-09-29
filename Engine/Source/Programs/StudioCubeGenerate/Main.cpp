@@ -9,7 +9,6 @@
 #include "Math/Operations.h"
 #include "Misc/MountPaths.h"
 #include "Modules/ModuleManager.h"
-#include "Asset/AssetBuildService.h"
 #include "Texture/TextureCubeBuild.h"
 #include "Threading/Task.h"
 
@@ -59,7 +58,6 @@ namespace
 		~FCompilationCleanup()
 		{
 			ShutdownAssetCompilingManager();
-			ShutdownAssetBuildService();
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}
 	};
@@ -94,7 +92,6 @@ auto main(int Count, char** Args) -> int
 	InitializeAssetManager();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	if (!InitializeAssetBuildService()) return 1;
 	if (!RefreshAssetRegistry()) return 1;
 
 	FObjectPath CubeObjectPath;

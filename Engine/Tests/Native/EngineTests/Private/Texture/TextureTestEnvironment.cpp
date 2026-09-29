@@ -28,7 +28,6 @@ namespace
 			EXPECT_EQ(BeforeShutdown.PendingCompletionCount, 0u);
 			EXPECT_EQ(BeforeShutdown.InFlightEstimatedBytes, 0u);
 			Durin::ShutdownAssetCompilingManager();
-			Durin::ShutdownAssetBuildService();
 			const Durin::FTexture2DCompilationManagerDiagnostics AfterShutdown =
 				Durin::GetTexture2DCompilationManagerDiagnostics();
 			EXPECT_EQ(AfterShutdown.ActiveRecordCount, 0u);

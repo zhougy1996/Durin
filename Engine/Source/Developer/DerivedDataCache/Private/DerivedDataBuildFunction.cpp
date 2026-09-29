@@ -55,7 +55,7 @@ namespace Durin::DerivedData
 		std::string Text) -> bool
 	{ return Output.AddLog(std::move(Category), Severity, std::move(Text)); }
 
-	struct Private::FBuildRegistry::FState { std::mutex Mutex; bool Frozen = false; std::vector<std::shared_ptr<const FRegisteredBuildFunction>> Entries; };
+	struct Private::FBuildRegistry::FState { std::mutex Mutex; std::vector<std::shared_ptr<const FRegisteredBuildFunction>> Entries; };
 	Private::FBuildRegistry::FBuildRegistry() : State(std::make_unique<FState>()) {}
 	Private::FBuildRegistry::~FBuildRegistry() = default;
 	auto Private::FBuildRegistry::Register(std::shared_ptr<const IBuildFunction> Function) -> std::expected<void, std::string>
@@ -66,7 +66,7 @@ namespace Durin::DerivedData
 		auto Definition = std::move(FBuildDefinitionBuilder(Descriptor.Name)).Build();
 		if (!Definition || !std::move(FBuildActionBuilder(*Definition, Descriptor)).Build()) return std::unexpected("Build function descriptor is invalid.");
 		auto Entry = std::make_shared<const FRegisteredBuildFunction>(std::move(Descriptor), std::move(Function)); std::lock_guard Lock(State->Mutex);
-		if (State->Frozen) return std::unexpected("Build registry is frozen."); if (State->Entries.size() >= 4096) return std::unexpected("Build registry entry limit exceeded.");
+		if (State->Entries.size() >= 4096) return std::unexpected("Build registry entry limit exceeded.");
 		const auto Position = std::ranges::lower_bound(State->Entries, Entry->Descriptor.Name, {}, [](const auto& Item) -> const std::string& { return Item->Descriptor.Name; });
 		if (Position != State->Entries.end() && (*Position)->Descriptor.Name == Entry->Descriptor.Name) return std::unexpected("Build function name is already registered.");
 		State->Entries.insert(Position, std::move(Entry)); return {};
@@ -74,7 +74,7 @@ namespace Durin::DerivedData
 	catch (const std::exception& E) { return std::unexpected(E.what()); }
 	catch (...) { return std::unexpected("Build function registration threw an exception."); }
 	auto Private::FBuildRegistry::Freeze() -> std::expected<FBuildRegistrySnapshot, std::string>
-	try { std::lock_guard Lock(State->Mutex); FBuildRegistrySnapshot Snapshot; Snapshot.Entries = State->Entries; State->Frozen = true; return Snapshot; }
+	try { std::lock_guard Lock(State->Mutex); FBuildRegistrySnapshot Snapshot; Snapshot.Entries = State->Entries; return Snapshot; }
 	catch (...) { return std::unexpected("Build registry snapshot allocation failed."); }
 	auto Private::FBuildRegistrySnapshot::Find(std::string_view Name) const -> std::shared_ptr<const FRegisteredBuildFunction>
 	{

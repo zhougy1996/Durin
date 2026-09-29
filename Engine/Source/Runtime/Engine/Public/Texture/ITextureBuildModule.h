@@ -11,6 +11,7 @@ namespace Durin
 	class ITextureBuildModule : public IModuleInterface
 	{
 	public:
+		ENGINE_API auto StartupModule() -> void override;
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> ITextureBuildModule*;
 		virtual auto GetTexture2DBuilderVersion() const -> uint32 = 0;

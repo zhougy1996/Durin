@@ -110,7 +110,7 @@ namespace Durin::TexturePrivate
 		class FCubeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FCubeFunction(ITextureBuildModule& Module) : Module(Module), Version(Module.GetTextureCubeBuilderVersion()), Projection(Module.GetTextureCubeProjectionVersion()) {}
+			explicit FCubeFunction(ITextureBuildModule& Module) : Version(Module.GetTextureCubeBuilderVersion()), Projection(Module.GetTextureCubeProjectionVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.TextureCube"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -144,7 +144,9 @@ namespace Durin::TexturePrivate
 					if (HDR) Panorama = std::move(*Image); else Faces.Faces[Index] = std::move(*Image);
 				}
 				Faces.SourceChannelCounts.fill(static_cast<uint8>(Channels)); Faces.TransparencyMask = static_cast<uint8>(Transparency);
-				auto Built = Module.BuildTextureCube({.DecodedFaces = std::cref(Faces), .bSRGB = Options->bSRGB,
+				auto* Module = ITextureBuildModule::Get();
+				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto Built = Module->BuildTextureCube({.DecodedFaces = std::cref(Faces), .bSRGB = Options->bSRGB,
 					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile, .HDRPanorama = HDR ? &Panorama : nullptr,
 					.PanoramaSettings = {.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV,
 						.Output = HDR ? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR}});
@@ -156,7 +158,6 @@ namespace Durin::TexturePrivate
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
 		private:
-			ITextureBuildModule& Module;
 			uint32 Version, Projection;
 		};
 	}

@@ -4,7 +4,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "VolumeTextureBuildFunction.h"
 #include "TexturePlatformSharedOutput.h"
-#include "Asset/AssetBuildServicePrivate.h"
+#include "TextureBuildSession.h"
 #include "TextureDerivedDataKey.h"
 #include "TextureBuildDiagnostics.h"
 #include "Threading/RunnableThread.h"
@@ -55,10 +55,10 @@ namespace Durin
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
-		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
+		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeVolumeTextureInputResolver(Source), std::move(Options));
 		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "VolumeTexture build service is unavailable."});
+			ETextureBuildStage::Module, "VolumeTexture build session is unavailable."});
 		auto& Completion = *Built;
 		if (Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});

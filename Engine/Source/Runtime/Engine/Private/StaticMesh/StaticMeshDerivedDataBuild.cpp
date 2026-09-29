@@ -1,10 +1,11 @@
 #include "StaticMesh/StaticMeshBuild.h"
 
-#include "Asset/AssetBuildServicePrivate.h"
+#include "DerivedDataBuildSession.h"
 #include "StaticMeshBuildFunction.h"
 #include "StaticMeshSharedOutput.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
+#include <mutex>
 
 namespace Durin
 {
@@ -35,6 +36,44 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
+		std::mutex BuildSessionMutex;
+		std::shared_ptr<DerivedData::FBuildSession> BuildSession;
+
+		auto GetBuildSession() -> std::shared_ptr<DerivedData::FBuildSession>
+		{
+			std::lock_guard Lock(BuildSessionMutex);
+			if (!BuildSession)
+			{
+				auto Created = DerivedData::GetBuild().CreateSession();
+				if (!Created) return {};
+				BuildSession = std::move(*Created);
+			}
+			return BuildSession;
+		}
+
+		auto BuildRenderDefinition(DerivedData::FBuildDefinition Definition,
+			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
+			DerivedData::FBuildRequestOptions Options)
+			-> std::optional<DerivedData::FBuildCompleteParams>
+		{
+			if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+				std::nullopt, DerivedData::EBuildStatus::None);
+			auto Session = GetBuildSession();
+			if (!Session) return std::nullopt;
+			DerivedData::FBuildInputsBuilder InputBuilder(Definition.GetSources(), std::move(Resolver));
+			InputBuilder.SetCancellation(Options.Cancellation);
+			auto Inputs = std::move(InputBuilder).Build();
+			if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+				std::nullopt, DerivedData::EBuildStatus::None);
+			if (!Inputs) return std::nullopt;
+			std::optional<DerivedData::FBuildCompleteParams> Completion;
+			auto Admitted = Session->Build(std::move(Definition), [&](auto Value) {
+				Completion = std::move(Value);
+			}, std::move(*Inputs), std::move(Options));
+			if (!Admitted || !Completion) return std::nullopt;
+			return std::move(*Completion);
+		}
+
 		auto RestoreRuntimeMetadata(
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			FStaticMeshRenderData& RenderData) -> std::expected<void, std::string>
@@ -109,9 +148,9 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(IsCancelled);
-		auto Built = AssetBuildPrivate::Build(std::move(*Definition), std::move(Inputs), std::move(Options));
+		auto Built = BuildRenderDefinition(std::move(*Definition), std::move(Inputs), std::move(Options));
 		if (!Built) return std::unexpected(FStaticMeshBuildFailure{
-			"StaticMesh build service is unavailable.", EStaticMeshBuildStage::Render});
+			"StaticMesh build session is unavailable.", EStaticMeshBuildStage::Render});
 		auto& Completion = *Built;
 		if (IsCancelled() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled());

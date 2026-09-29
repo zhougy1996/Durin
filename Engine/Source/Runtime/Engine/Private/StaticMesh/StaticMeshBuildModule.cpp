@@ -1,7 +1,17 @@
 #include "StaticMesh/IMeshBuilderModule.h"
+#if DURIN_WITH_EDITOR
+#include "StaticMeshBuildFunction.h"
+#endif
 
 namespace Durin
 {
+	auto IMeshBuilderModule::StartupModule() -> void
+	{
+#if DURIN_WITH_EDITOR
+		StaticMeshPrivate::RegisterBuildFunction(*this);
+#endif
+	}
+
 	auto IMeshBuilderModule::Get() -> IMeshBuilderModule*
 	{
 #if DURIN_WITH_EDITOR

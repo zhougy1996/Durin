@@ -4,11 +4,11 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-09-30
 
 ## Ownership
 
-`DerivedDataCache` owns the local `IBuild` service, function registration,
+`DerivedDataCache` owns the process-wide production `IBuild`, function registry,
 immutable definitions/actions/inputs/outputs, persistent sessions, execution,
 and the backend-neutral structured-record cache. The cache boundary accepts and
 returns `FCacheRecord`; serialization, compression, integrity validation, and
@@ -17,17 +17,19 @@ service adds no worker pool, remote execution, transitive graph, generic
 single-flight, or publication policy. A session dispatches through its
 caller-supplied adapter or completes inline.
 
-Engine owns the registered Texture2D, TextureCube, VolumeTexture, StaticMesh
-render, and physics collision functions. ShaderBuild owns its shader function.
+Engine owns the Texture2D, TextureCube, VolumeTexture, StaticMesh render, and
+physics collision function implementations. TextureBuild and MeshBuilder
+register their Engine function adapters during module startup; physics registers
+on first use. ShaderBuild owns its shader function.
 Each family owns typed assembly, business-error translation, scheduling,
 reservations, latest-wins checks, and publication. TextureBuild and MeshBuilder
 remain pure recipe modules; ShaderBuild retains compiler scheduling, LRU, and
 single-flight.
 
-Engine creates one authoring-lifetime build service and one persistent session
-after TextureBuild and MeshBuilder load. ShaderBuild creates one service/session
-for its module lifetime. Shutdown closes admission and drains accepted work
-before producer services unload.
+Texture, StaticMesh, and physics each lazily create a family-owned session from
+the DDC production build. There is no Engine integration service or explicit
+asset-build lifecycle. ShaderBuild creates an isolated service/session for its
+module lifetime. Asset compilation is drained before producer modules unload.
 
 ## Definitions, actions, and identity
 
@@ -175,8 +177,10 @@ rejection, and internal admission failure are distinct reasons.
 
 ## Persistent sessions and lifecycle
 
-`IBuild` owns registration and freezes its internal registry on first session
-creation. Registered functions and required services remain owned through drain.
+`IBuild` owns registration. Each session captures an immutable registry snapshot
+when it is created; later registration affects later sessions without mutating
+existing sessions. Registered functions and required services remain owned
+through drain.
 `FBuildSession::Build` accepts a definition or action, optional request inputs,
 policy, cancellation, and completion callback. It creates no scheduler. An empty
 dispatcher completes inline; an owner dispatcher may run accepted work on its
@@ -192,21 +196,22 @@ callbacks, dispatch return, and callable-owner release. Calling drain from the
 same session execution/completion stack returns `WouldBlock`. Completed handles
 and stale thunks retain no producer/resolver owners.
 
-Engine and ShaderBuild use private synchronous bridges only because their caller
-is already an admitted owner worker and their persistent sessions have inline
-dispatch. There is no second public executor or compatibility submission API.
+Engine asset families submit directly through their own synchronous, inline
+sessions because their callers are already admitted owner workers. ShaderBuild
+does the same through its isolated session. There is no cross-family submission
+bridge, second public executor, or compatibility submission API.
 
 ## Family boundaries
 
-Texture2D, TextureCube, and VolumeTexture use one Engine session for import,
+Texture2D, TextureCube, and VolumeTexture use one texture-owned session for import,
 detached build, manager work, PostLoad, and Cook. Completion supplies the cache
 key and hit fact. Recipe timing stays inside producer-local qualification paths;
 it is not part of DDC output or Engine request diagnostics. Their
 version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
 
-StaticMesh render and physics collision use separate definitions/actions and
-request inputs through the same Engine session. Source/reconciliation identity,
+StaticMesh render and physics collision each use a family-owned session with
+separate definitions/actions and request inputs. Source/reconciliation identity,
 working-set admission, generation checks, typed construction, collision editor
 gating, and publication remain unchanged. Serialized and native physics
 validation protect different trust boundaries and remain separate.

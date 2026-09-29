@@ -3,7 +3,6 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/AssetBuildService.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
@@ -47,7 +46,7 @@ inline auto EnsureTextureCompilingManager() -> bool
 		&& !Durin::InitializeAssetCompilingManager()) return false;
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	return Durin::InitializeAssetBuildService();
+	return true;
 }
 
 namespace

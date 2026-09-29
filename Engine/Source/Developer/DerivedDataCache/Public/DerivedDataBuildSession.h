@@ -84,4 +84,5 @@ namespace Durin::DerivedData
 	};
 
 	DERIVEDDATACACHE_API auto CreateBuild(FBuildServiceOptions Options = {}) -> std::shared_ptr<IBuild>;
+	DERIVEDDATACACHE_API auto GetBuild() -> IBuild&;
 }

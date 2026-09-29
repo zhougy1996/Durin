@@ -23,6 +23,15 @@ namespace
 			Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
 		}
 	};
+	struct FSecondFunction final : IBuildFunction
+	{
+		auto GetName() const -> std::string_view override { return "Session.Second"; }
+		auto GetVersion() const -> uint32 override { return 1; }
+		auto Configure(FBuildConfigContext& Context) const -> void override
+		{ Context.SetConstantsSchema(1); Context.SetOutput("Fixture.Output", 1); Context.SetCacheBucket(FCacheBucket::FromString("Sessions")); }
+		auto Build(FBuildContext& Context) const -> void override
+		{ Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(1, std::byte{1}))); }
+	};
 	auto Definition(std::string Name = "Session.Fixture") -> FBuildDefinition
 	{ return std::move(FBuildDefinitionBuilder(std::move(Name))).Build().value(); }
 	auto Options() -> FBuildRequestOptions
@@ -35,6 +44,25 @@ namespace
 		auto Session(FBuildDispatcher Dispatcher = {}) -> std::shared_ptr<FBuildSession>
 		{ return Service->CreateSession({}, std::move(Dispatcher)).value(); }
 	};
+}
+
+TEST(FBuildSessionTests, RegistrationOnlyAffectsSessionsCreatedAfterIt)
+{
+	auto Service = CreateBuild();
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto First = Service->CreateSession().value();
+	ASSERT_TRUE(Service->Register(std::make_shared<FSecondFunction>()));
+	auto Second = Service->CreateSession().value();
+	uint32 Calls = 0;
+	auto Missing = First->Build(Definition("Session.Second"), [&](auto) { ++Calls; }, {}, Options());
+	ASSERT_FALSE(Missing);
+	EXPECT_EQ(Missing.error().Reason, EBuildAdmissionReason::MissingFunction);
+	auto Accepted = Second->Build(Definition("Session.Second"), [&](FBuildCompleteParams Result) {
+		++Calls; EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
+	}, {}, Options());
+	ASSERT_TRUE(Accepted);
+	EXPECT_TRUE(Accepted->IsComplete());
+	EXPECT_EQ(Calls, 1u);
 }
 
 TEST(FBuildSessionTests, PersistentSessionCompletesMultipleRequestsAndReentersWithoutLocks)

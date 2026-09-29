@@ -212,7 +212,6 @@ namespace Durin::DerivedData
 			std::mutex Mutex;
 			bool Closed = false;
 			FBuildRegistry Registry;
-			std::optional<FBuildRegistrySnapshot> Snapshot;
 			FBuildServiceOptions Options;
 			std::vector<std::weak_ptr<FBuildSessionState>> Sessions;
 		};
@@ -229,7 +228,6 @@ namespace Durin::DerivedData
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
-			if (State->Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build registration is frozen."});
 			auto Added = State->Registry.Register(std::move(Function));
 			if (!Added)
 			{
@@ -242,15 +240,11 @@ namespace Durin::DerivedData
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
-			if (!State->Snapshot)
-			{
-				auto Frozen = State->Registry.Freeze();
-				if (!Frozen) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Frozen.error())});
-				State->Snapshot = std::move(*Frozen);
-			}
+			auto Snapshot = State->Registry.Freeze();
+			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
-				*State->Snapshot, std::move(Resolver), std::move(Dispatcher), State->Options);
+				std::move(*Snapshot), std::move(Resolver), std::move(Dispatcher), State->Options);
 			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
 			if (State->Sessions.size() >= 4096)
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build service session capacity is exhausted."});
@@ -286,6 +280,11 @@ namespace Durin::DerivedData
 
 	auto CreateBuild(FBuildServiceOptions Options) -> std::shared_ptr<IBuild>
 	{ return std::make_shared<FBuildService>(std::move(Options)); }
+	auto GetBuild() -> IBuild&
+	{
+		static const std::shared_ptr<IBuild> Build = CreateBuild();
+		return *Build;
+	}
 
 	FBuildSession::FBuildSession(std::shared_ptr<Private::FBuildSessionState> InState) : State(std::move(InState)) {}
 	FBuildSession::~FBuildSession() { Close(); Drain(); }

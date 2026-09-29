@@ -16,7 +16,6 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
-#include "Asset/AssetBuildService.h"
 #include "StaticMesh/StaticMeshBuildFunction.h"
 #include "StaticMesh/StaticMeshSharedOutput.h"
 #include "Physics/PhysicsBuildFunction.h"
@@ -2526,7 +2525,6 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto Info = FModuleManager::Get().FindModule("MeshBuilder");
-	ShutdownAssetBuildService();
 	struct FRestoreImplementation
 	{
 		FModuleManager::FModuleInfoPtr Info;
@@ -2534,15 +2532,12 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 		~FRestoreImplementation()
 		{
 			FAssetCompilingManager::Get().FinishAllCompilation();
-			ShutdownAssetBuildService();
 			Info->Module = std::move(Original);
-			EXPECT_TRUE(InitializeAssetBuildService());
 		}
 	} Restore{Info, std::move(Info->Module)};
 	auto Implementation = std::make_unique<FInvalidProductModule>();
 	auto& Module = *Implementation;
 	Info->Module = std::move(Implementation);
-	ASSERT_TRUE(InitializeAssetBuildService());
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;

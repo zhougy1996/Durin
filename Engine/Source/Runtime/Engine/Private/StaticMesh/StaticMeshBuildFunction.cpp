@@ -1,5 +1,6 @@
 #include "StaticMeshBuildFunction.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataBuildSession.h"
 #include "StaticMeshDerivedDataKey.h"
 #include "StaticMeshSharedOutput.h"
 #include "StaticMeshSourceCodec.h"
@@ -98,7 +99,7 @@ namespace Durin::StaticMeshPrivate
 		class FRenderFunction final : public IBuildFunction
 		{
 		public:
-			explicit FRenderFunction(IMeshBuilderModule& Module) : Module(Module), Version(Module.GetRenderBuilderVersion()) {}
+			explicit FRenderFunction(IMeshBuilderModule& Module) : Version(Module.GetRenderBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.StaticMesh.Render"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -144,7 +145,9 @@ namespace Durin::StaticMeshPrivate
 
 				auto Geometry = DecodeSourceGeometry(Bytes, SlotCount, MeshCount, ShouldCancel);
 				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
-				auto Product = Module.BuildRender({.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size},
+				auto* Module = IMeshBuilderModule::Get();
+				if (!Module) return Fail("The MeshBuilder module is unavailable.");
+				auto Product = Module->BuildRender({.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size},
 					{.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()});
 				if (!Product) return Fail(Product.error().Code == EStaticMeshRenderBuildError::Cancelled ? Cancelled().Description : FormatStaticMeshRenderBuildError(Product.error()));
 				if (Product->LODs.empty() || !Product->LocalBounds.bIsValid)
@@ -156,12 +159,19 @@ namespace Durin::StaticMeshPrivate
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
 		private:
-			IMeshBuilderModule& Module;
 			uint32 Version;
 		};
 	}
 	auto MakeRenderBuildFunction(IMeshBuilderModule& Module) -> std::shared_ptr<const IBuildFunction>
 	{ return std::make_shared<FRenderFunction>(Module); }
+	auto RegisterBuildFunction(IMeshBuilderModule& Module) -> void
+	{
+		static std::once_flag Once;
+		std::call_once(Once, [&] {
+			if (!GetBuild().Register(MakeRenderBuildFunction(Module)))
+				throw std::runtime_error("Failed to register the static-mesh derived-data build function.");
+		});
+	}
 	auto MakeRenderInputResolver(const FStaticMeshBuildRequest& Request) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FRenderResolver>(Request); }
 }

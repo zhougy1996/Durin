@@ -84,7 +84,7 @@ namespace Durin::TexturePrivate
 		class FTexture2DFunction final : public IBuildFunction
 		{
 		public:
-			explicit FTexture2DFunction(ITextureBuildModule& Module) : Module(Module), Version(Module.GetTexture2DBuilderVersion()) {}
+			explicit FTexture2DFunction(ITextureBuildModule& Module) : Version(Module.GetTexture2DBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.Texture2D"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -119,7 +119,9 @@ namespace Durin::TexturePrivate
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
 				FTexture2DBuildControl Control{.ShouldCancel = [&] { return Context.IsCancelled(); }};
-				auto Built = Module.BuildTexture2D(*Input, &Control);
+				auto* Module = ITextureBuildModule::Get();
+				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto Built = Module->BuildTexture2D(*Input, &Control);
 				if (!Built) return Fail(FormatTexture2DBuildError(Built.error()));
 				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
 					Input->TargetPlatform, Input->TargetProfile);
@@ -128,7 +130,6 @@ namespace Durin::TexturePrivate
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
 		private:
-			ITextureBuildModule& Module;
 			uint32 Version;
 		};
 	}

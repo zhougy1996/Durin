@@ -62,7 +62,7 @@ namespace Durin::TexturePrivate
 		class FVolumeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FVolumeFunction(ITextureBuildModule& Module) : Module(Module), Version(Module.GetVolumeTextureBuilderVersion()) {}
+			explicit FVolumeFunction(ITextureBuildModule& Module) : Version(Module.GetVolumeTextureBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.VolumeTexture"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -85,7 +85,9 @@ namespace Durin::TexturePrivate
 				FVolumeTextureSourceData Source{.Width = Width, .Height = Height, .Depth = Depth, .Format = Constants->Settings.OutputFormat};
 				Source.CanonicalSourceIdentity = SourceInput->Identity.Identity;
 				if (!Source.Voxels.UpdatePayload(SourceInput->Values[0].Data) || !Source.IsValid()) return Fail("Volume voxel byte count is invalid.");
-				auto Built = Module.BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
+				auto* Module = ITextureBuildModule::Get();
+				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
 				if (!Built) return Fail(Built.error().Diagnostic);
 				if (!*Built) return Fail("Volume recipe returned no product.");
@@ -95,7 +97,6 @@ namespace Durin::TexturePrivate
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
 		private:
-			ITextureBuildModule& Module;
 			uint32 Version;
 		};
 	}

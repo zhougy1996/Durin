@@ -1,14 +1,63 @@
 #include "Physics/PhysicsCookHelper.h"
 #include "PhysicsCookInputPrivate.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataBuildSession.h"
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsBuildFunction.h"
 #include "PhysicsSharedOutput.h"
-#include "Asset/AssetBuildServicePrivate.h"
+#include <mutex>
 #endif
 
 namespace Durin
 {
+#if DURIN_WITH_EDITOR
+	namespace
+	{
+		std::mutex PhysicsBuildSessionMutex;
+		std::shared_ptr<DerivedData::FBuildSession> PhysicsBuildSession;
+
+		auto GetPhysicsBuildSession() -> std::shared_ptr<DerivedData::FBuildSession>
+		{
+			std::lock_guard Lock(PhysicsBuildSessionMutex);
+			if (!PhysicsBuildSession)
+			{
+				static std::once_flag RegisterOnce;
+				std::call_once(RegisterOnce, [] {
+					if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
+						throw std::runtime_error("Failed to register the physics derived-data build function.");
+				});
+				auto Created = DerivedData::GetBuild().CreateSession();
+				if (!Created) return {};
+				PhysicsBuildSession = std::move(*Created);
+			}
+			return PhysicsBuildSession;
+		}
+
+		auto BuildPhysicsDefinition(DerivedData::FBuildDefinition Definition,
+			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
+			DerivedData::FBuildRequestOptions Options)
+			-> std::optional<DerivedData::FBuildCompleteParams>
+		{
+			if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+				std::nullopt, DerivedData::EBuildStatus::None);
+			auto Session = GetPhysicsBuildSession();
+			if (!Session) return std::nullopt;
+			DerivedData::FBuildInputsBuilder InputBuilder(Definition.GetSources(), std::move(Resolver));
+			InputBuilder.SetCancellation(Options.Cancellation);
+			auto Inputs = std::move(InputBuilder).Build();
+			if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
+				std::nullopt, DerivedData::EBuildStatus::None);
+			if (!Inputs) return std::nullopt;
+			std::optional<DerivedData::FBuildCompleteParams> Completion;
+			auto Admitted = Session->Build(std::move(Definition), [&](auto Value) {
+				Completion = std::move(Value);
+			}, std::move(*Inputs), std::move(Options));
+			if (!Admitted || !Completion) return std::nullopt;
+			return std::move(*Completion);
+		}
+	}
+#endif
+
 	auto FPhysicsCookHelper::Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Control)
 		-> std::expected<FPhysicsCookInput, FPhysicsCookFailure>
 	{
@@ -64,10 +113,10 @@ namespace Durin
 		const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, Control.MaximumWorkingSetBytes / 16);
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
-		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
+		auto Built = BuildPhysicsDefinition(std::move(*Definition),
 			PhysicsPrivate::MakeCollisionInputResolver(Input), std::move(Options));
 		if (!Built) return std::unexpected(FPhysicsCookFailure{
-			"Physics build service is unavailable.", EPhysicsCookStage::Cook});
+			"Physics build session is unavailable.", EPhysicsCookStage::Cook});
 		auto& Completion = *Built;
 		if (Cancel() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FPhysicsCookFailure::Cancelled());

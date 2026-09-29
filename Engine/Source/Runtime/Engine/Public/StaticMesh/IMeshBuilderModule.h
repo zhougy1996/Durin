@@ -9,6 +9,7 @@ namespace Durin
 	class IMeshBuilderModule : public IModuleInterface
 	{
 	public:
+		ENGINE_API auto StartupModule() -> void override;
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> IMeshBuilderModule*;
 		// The builder version is immutable for the editor lifetime.

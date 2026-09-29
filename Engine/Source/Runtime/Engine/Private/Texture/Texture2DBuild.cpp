@@ -2,7 +2,7 @@
 #include "Texture/ITextureBuildModule.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "Asset/AssetBuildServicePrivate.h"
+#include "TextureBuildSession.h"
 #include "Texture2DBuildFunction.h"
 #include <chrono>
 #include "TexturePlatformCodec.h"
@@ -147,7 +147,7 @@ namespace Durin
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
 		Options.Cancellation = DerivedData::FBuildCancellation(ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
-		auto Built = AssetBuildPrivate::Build(std::move(*Definition),
+		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
 		if (!Built) return std::unexpected(FTexture2DBuildError{
 			.Code = ETexture2DBuildError::ModuleUnavailable});
