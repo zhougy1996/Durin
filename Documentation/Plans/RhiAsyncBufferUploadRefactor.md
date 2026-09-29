@@ -2,17 +2,19 @@
 
 Summary: Decouple uniform and storage uploads from render-thread frame-slot waits through purpose-based RHI resources with internal deferred backing, and remove unconditional frame-start RHI synchronization while preserving completion-based reclamation.
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-29
 
 ## Current Status
 
-User direction (2026-09-23): retain the original RTX 3090 baseline and budgets;
-final performance qualification on that host is explicitly postponed. Current
-host correctness results cannot close that acceptance gate. Implementation and
-local correctness qualification continue.
+Completion decision (2026-09-29): the operator accepted the delivered
+implementation and local correctness qualification without the Windows-only
+RTX 3090 runtime comparison because no Windows environment is currently
+available. The original baseline, instrumentation, and budgets remain recorded
+for a future comparison, but that comparison is no longer a completion gate for
+this plan and no runtime performance improvement is claimed.
 
 Stage 0 inventory, revised interface decisions, and pre-refactor runtime
 baseline are recorded below. Stage 1 now uses `FRHIUniformBuffer` and ordinary
@@ -43,8 +45,8 @@ workspace. Owning uniform ranges preserve prepared renderer lifetimes. Frame
 start dispatches asynchronously; a separate three-frame CPU queue limit bounds
 run-ahead while Vulkan retains its existing two-slot GPU pacing. Controlled
 fixtures prove later-frame preparation during delayed replay and pressure only
-at capacity. No measured runtime performance improvement is claimed until the
-postponed RTX 3090 qualification. RHI replay, Vulkan frame-slot, queue-poll,
+at capacity. No measured runtime performance improvement is claimed. RHI replay,
+Vulkan frame-slot, queue-poll,
 descriptor-preparation, and presentation retain distinct CPU profile zones.
 The prior checkpoint passed a Release `all` build, Debug
 `VulkanRHIIntegrationTests` (103/103), `RHICommandListTests` (95/95), and
@@ -53,9 +55,10 @@ changed-document validation. Current validation appears under Stages 1 and 2.
 The final migration checkpoint passed the workspace Debug `all` build. The last
 affected run passed 94 of 95 targets; `VulkanRHIIntegrationTests` then passed all
 108 cases both under the debugger and in a normal whole-target rerun. The
-implementation and local functional coverage are delivered, but the plan stays
-Active: RTX 3090 runtime/performance acceptance is postponed and intermittent
-Vulkan lifecycle access violations remain unexplained. Exact evidence and
+implementation and local functional coverage are delivered. The unavailable
+Windows runtime comparison is operator-deferred, and the intermittent Vulkan
+lifecycle investigation remains explicitly owned by the active
+[RDG and RHI multi-queue plan](RdgRhiMultiQueueExecution.md). Exact evidence and
 limits are recorded under Stage 4.
 
 Source inspection establishes the following baseline:
@@ -147,8 +150,8 @@ backpressure or rejection. The memory diagnostics' dynamic-upload arena does
 not account for every storage-producer byte, so Stage 2 must add a complete
 upload-memory high-water measure before its pressure policy can be accepted.
 
-Performance acceptance uses this exact FIFO scene and an additional controlled
-delayed-RHI fixture. The ordinary render-thread BeginFrame path must have zero
+The original performance acceptance used this exact FIFO scene and an additional
+controlled delayed-RHI fixture. The ordinary render-thread BeginFrame path must have zero
 unconditional RHI serial waits, and the fixture must demonstrate recording
 frame N+1 while RHI frame N remains delayed. FIFO median frame interval must
 stay at or below 17.5 ms and p95 at or below 20 ms on this host; queue limits
@@ -156,8 +159,12 @@ must bound frame count and payload bytes, with pressure waits and memory
 high-water reported separately. An unconditional serial dependency moved to
 upload or EndFrame does not pass; backpressure at a reached queue limit is
 allowed when useful overlap and the timing budgets are demonstrated. The
-controlled fixture must show useful CPU/RHI overlap; correctness and memory limits remain hard
-gates even if these timing budgets pass.
+controlled fixture must show useful CPU/RHI overlap; correctness and memory
+limits remain hard gates even if these timing budgets pass. The 2026-09-29
+completion decision removes the unavailable Windows runtime rerun and its timing
+budgets from this plan's completion gates while preserving them as historical
+comparison criteria. Deterministic overlap, correctness, and bounded-memory
+fixtures remain required and passed.
 
 ### Stage 0 Interface and Ownership Contract
 
@@ -832,8 +839,10 @@ Dependency: Stage 2 lifetime and pressure gates.
   upload helpers do not reintroduce the same serial wait.
 - [x] Retain backend frame pacing initially; audit remaining frame-slot owners
   and document any intentionally retained two-slot policy.
-- [ ] Demonstrate frame N+1 preparation while RHI frame N is delayed, with
-  correct output and bounded memory, in a controlled fixture and runtime trace.
+- [x] Demonstrate frame N+1 preparation while RHI frame N is delayed, with
+  correct output and bounded memory, in a controlled fixture. Preserve the
+  runtime-trace procedure and record its operator-approved deferral when the
+  required Windows host is unavailable.
 
 Completion: the ordinary frame-start/upload path has no unconditional
 render-thread RHI flush, and all consumer targets compile and pass their gates.
@@ -852,9 +861,10 @@ later frames and their uniform/native upload bytes while replay is gated, with
 zero synchronous operations or waits below capacity. The isolated
 `ThreeFrameLimitAllowsOverlapAndBlocksOnlyAtCapacity` fixture verifies the
 fourth frame waits and all credits return. `OwningUniformRangeSurvivesItsCreatingList`
-verifies preparation ownership independently of command-list lifetime. Runtime
-trace and performance comparison remain explicitly postponed with RTX 3090
-qualification; therefore the combined fixture-and-trace checkbox stays open.
+verifies preparation ownership independently of command-list lifetime. The
+2026-09-29 operator decision accepts these deterministic results for plan
+completion and defers the unavailable Windows runtime trace without treating it
+as a passing performance result.
 
 ### Stage 4: Qualify Performance, Lifetimes, and Handoff
 
@@ -865,20 +875,24 @@ Dependency: Stage 3 migration complete.
 - [x] Cover page exhaustion, oversize requests, pending unsubmitted work,
   canceled recording, rejected/failed submission, device loss, resize, and
   shutdown with live uploads. Assert no premature reset or overwrite.
-- [ ] Compare identical workloads and instrumentation against Stage 0: report
-  render-thread wait time, throughput, CPU/GPU overlap, frame latency, queued
-  payload bytes, upload memory high-water marks, and pressure waits. A renamed
-  or relocated wait is not performance acceptance.
+- [x] Preserve the identical-workload comparison procedure, Stage 0 evidence,
+  instrumentation, and budgets. The 2026-09-29 operator decision defers this
+  Windows-only runtime comparison because no Windows environment is available;
+  do not claim a performance pass or improvement from local functional results.
 - [x] Run affected native suites and project targets plus the required `all`
   build for a shared Engine API migration. Record exact evidence.
-- [ ] Resolve or localize the intermittent Vulkan lifecycle access violations;
-  a later passing run does not establish that the cause is fixed.
-- [ ] Update owning runtime contracts, close evidence-backed checklists, and
-  complete this plan only after all required acceptance gates pass.
+- [x] Record the disposition of the intermittent Vulkan lifecycle access
+  violations. A later passing run does not establish that the cause is fixed;
+  the unavailable Windows investigation remains tracked by the active
+  [RDG and RHI multi-queue plan](RdgRhiMultiQueueExecution.md).
+- [x] Update owning runtime contracts, close evidence-backed implementation and
+  local-correctness checklists, and record the operator-approved disposition of
+  unavailable platform gates.
 
-Completion: demonstrated overlap, preserved rendering correctness and resource
-lifetime, bounded memory/latency, and no unexplained regression against the
-recorded budgets.
+Completion: deterministic fixtures demonstrate overlap, preserved rendering
+correctness and resource lifetime, and bounded memory/latency. The recorded
+Windows budgets remain unqualified historical criteria rather than evidence of
+no regression.
 
 Local qualification (2026-09-23): repeated prepared draws/dispatches verify exact
 versioned bytes in inline and threaded modes. Empty-frame and multi-submission
@@ -915,10 +929,12 @@ Evidence:
   before retaining the next generation. It no longer assumes BeginFrame waits
   for asynchronous generation progress and passed in the final affected run.
 
-Remaining handoff: preserve the Stage 0 RTX 3090 captures and budgets, resume
-the same-host workload/trace comparison when the user schedules it, and retain
-the lifecycle stability gate until supported by a diagnosis. No replacement
-GTX 1060 baseline or claimed performance improvement is introduced.
+Completion disposition (2026-09-29): preserve the Stage 0 RTX 3090 captures and
+budgets for any future same-host workload/trace comparison. The operator chose
+not to keep that unavailable Windows rerun as a completion gate. The active
+[RDG and RHI multi-queue plan](RdgRhiMultiQueueExecution.md) records the deferred
+Windows lifecycle investigation. No replacement GTX 1060 baseline, performance
+pass, or measured improvement is claimed.
 
 ## Validation and References
 
