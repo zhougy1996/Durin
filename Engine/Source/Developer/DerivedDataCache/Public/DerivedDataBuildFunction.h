@@ -4,42 +4,11 @@
 #include "DerivedDataBuildOutput.h"
 #include <functional>
 #include <limits>
-#include <optional>
 
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildExecutionAccess; }
-
-	enum class EBuildOperation : uint8
-	{
-		Admission, Describe, Action, CacheQuery, Decode, Resolve, Build, Validate,
-		Record, Encode, Compress, CacheStore, Dispatch
-	};
-	enum class EBuildFailureReason : uint8
-	{
-		InvalidInput, InputUnavailable, ProducerFailure, InvalidOutput,
-		ResourceExhaustion, InternalFailure
-	};
-	struct FBuildFailure
-	{
-		EBuildFailureReason Reason = EBuildFailureReason::InvalidInput;
-		EBuildOperation Operation = EBuildOperation::Admission;
-		std::string Description;
-		std::optional<uint32> ProducerCode;
-		std::optional<FXxHash128> DiagnosticIdentity;
-		static constexpr size_t MaximumDescriptionBytes = 4096;
-		auto BoundDescription() -> void
-		{
-			if (Description.size() > MaximumDescriptionBytes) Description.resize(MaximumDescriptionBytes);
-		}
-	};
-	using FBuildFunctionResult = std::expected<FBuildOutput, FBuildFailure>;
-	class DERIVEDDATACACHE_API FBuildValidationReceipt
-	{
-	public:
-		virtual ~FBuildValidationReceipt();
-	};
-	using FBuildValidationResult = std::expected<std::shared_ptr<const FBuildValidationReceipt>, FBuildFailure>;
+	enum class EBuildOperation : uint8 { Admission, Describe, Action, CacheQuery, Decode, Resolve, Build, Record, Encode, Compress, CacheStore, Dispatch };
 
 	class FBuildCancellation
 	{
@@ -51,65 +20,97 @@ namespace Durin::DerivedData
 		std::function<bool()> Predicate;
 	};
 
+	struct FBuildInputValue { std::string Name; FSharedByteBuffer Data; };
 	struct FBuildInput
 	{
 		static constexpr uint32 MaximumValues = 131072;
 		FBuildInputReference Identity;
 		FSharedByteBuffer Metadata;
-		std::vector<FBuildValue> Values;
+		std::vector<FBuildInputValue> Values;
 	};
+	struct FBuildInputError { std::string Description; };
+
 	class IBuildInputResolver
 	{
 	public:
 		virtual ~IBuildInputResolver() = default;
-		virtual auto Describe(std::span<const FBuildSourceReference> Sources,
-			const FBuildCancellation& Cancel) const
-			-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> = 0;
-		virtual auto Resolve(std::span<const FBuildInputReference> Inputs,
-			const FBuildCancellation& Cancel) const
-			-> std::expected<std::vector<FBuildInput>, FBuildFailure> = 0;
+		virtual auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
+			-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> = 0;
+		virtual auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
+			-> std::expected<std::vector<FBuildInput>, FBuildInputError> = 0;
 	};
 
-	// Request-owned capture: identities are frozen now, while source bytes remain
-	// lazy so a valid cache hit does not materialize them.
 	class FBuildInputs
 	{
 	public:
 		FBuildInputs() = default;
-		DERIVEDDATACACHE_API static auto TryCreate(
-			std::span<const FBuildSourceReference> Sources,
-			std::shared_ptr<const IBuildInputResolver> Resolver,
-			const FBuildCancellation& Cancel = {})
-			-> std::expected<FBuildInputs, FBuildFailure>;
 		auto IsValid() const -> bool { return State != nullptr; }
-		DERIVEDDATACACHE_API auto GetIdentities() const
-			-> std::span<const FBuildInputReference>;
+		DERIVEDDATACACHE_API auto GetIdentities() const -> std::span<const FBuildInputReference>;
 	private:
+		friend class FBuildInputsBuilder;
 		friend struct Private::FBuildExecutionAccess;
+		DERIVEDDATACACHE_API static auto TryCreate(std::span<const FBuildSourceReference> Sources,
+			std::shared_ptr<const IBuildInputResolver> Resolver, const FBuildCancellation& Cancel = {})
+			-> std::expected<FBuildInputs, FBuildInputError>;
 		struct FState;
 		std::shared_ptr<const FState> State;
+	};
+
+	class FBuildInputsBuilder
+	{
+	public:
+		FBuildInputsBuilder(std::span<const FBuildSourceReference> Sources,
+			std::shared_ptr<const IBuildInputResolver> Resolver)
+			: Sources(Sources.begin(), Sources.end()), Resolver(std::move(Resolver)) {}
+		FBuildInputsBuilder(FBuildInputsBuilder&&) noexcept = default;
+		auto operator=(FBuildInputsBuilder&&) noexcept -> FBuildInputsBuilder& = default;
+		FBuildInputsBuilder(const FBuildInputsBuilder&) = delete;
+		auto SetCancellation(FBuildCancellation Value) -> FBuildInputsBuilder& { Cancel = std::move(Value); return *this; }
+		DERIVEDDATACACHE_API auto Build() && -> std::expected<FBuildInputs, FBuildInputError>;
+	private:
+		std::vector<FBuildSourceReference> Sources;
+		std::shared_ptr<const IBuildInputResolver> Resolver;
+		FBuildCancellation Cancel;
+	};
+
+	class FBuildConfigContext
+	{
+	public:
+		auto SetConstantsSchema(uint32 Value) -> void { Descriptor.ConstantsSchema = Value; }
+		auto SetOutput(std::string Type, uint32 Schema) -> void { Descriptor.OutputType = std::move(Type); Descriptor.OutputSchema = Schema; }
+		auto SetCacheBucket(FCacheBucket Bucket) -> void { Descriptor.Bucket = std::move(Bucket); }
+	private:
+		friend struct Private::FBuildExecutionAccess;
+		friend class IBuildFunction;
+		FBuildFunctionDescriptor Descriptor;
 	};
 
 	using FBuildMetricSink = std::function<void(std::string_view, uint64)>;
 	class FBuildContext
 	{
 	public:
-		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-			FBuildCancellation Cancel, FBuildMetricSink Metrics = {},
-			uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max())
-			: Action(Action), Inputs(Inputs), Cancel(std::move(Cancel)), Metrics(std::move(Metrics)),
-			  MaximumWorkingSetBytes(MaximumWorkingSetBytes) {}
-		auto GetAction() const -> const FBuildAction& { return Action; }
-		auto GetMaximumWorkingSetBytes() const -> uint64 { return MaximumWorkingSetBytes; }
-		auto GetInputs() const -> std::span<const FBuildInput> { return Inputs; }
-		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
-		auto ReportMetric(std::string_view Name, uint64 Value) const noexcept -> void
+		DERIVEDDATACACHE_API auto FindConstant(std::string_view Name) const -> const FBuildConstantValue*;
+		template<typename T> auto FindConstant(std::string_view Name) const -> const T*
 		{
-			try { if (Metrics) Metrics(Name, Value); } catch (...) {}
+			const auto* Value = FindConstant(Name); return Value ? std::get_if<T>(Value) : nullptr;
 		}
+		DERIVEDDATACACHE_API auto FindInput(std::string_view Name) const -> const FBuildInput*;
+		DERIVEDDATACACHE_API auto AddValue(FValueId Id, FSharedByteBuffer Data) -> bool;
+		DERIVEDDATACACHE_API auto AddMeta(FValueId Id, FCbObject Object) -> bool;
+		DERIVEDDATACACHE_API auto AddMessage(std::string Text) -> bool;
+		DERIVEDDATACACHE_API auto AddWarning(std::string Text) -> bool;
+		DERIVEDDATACACHE_API auto AddError(std::string Text) -> bool;
+		auto GetMaximumWorkingSetBytes() const -> uint64 { return MaximumWorkingSetBytes; }
+		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
+		auto ReportMetric(std::string_view Name, uint64 Value) const noexcept -> void { try { if (Metrics) Metrics(Name, Value); } catch (...) {} }
 	private:
+		friend struct Private::FBuildExecutionAccess;
+		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs, FBuildOutputBuilder& Output,
+			FBuildCancellation Cancel, FBuildMetricSink Metrics, uint64 MaximumWorkingSetBytes)
+			: Action(Action), Inputs(Inputs), Output(Output), Cancel(std::move(Cancel)), Metrics(std::move(Metrics)), MaximumWorkingSetBytes(MaximumWorkingSetBytes) {}
 		const FBuildAction& Action;
 		std::span<const FBuildInput> Inputs;
+		FBuildOutputBuilder& Output;
 		FBuildCancellation Cancel;
 		FBuildMetricSink Metrics;
 		uint64 MaximumWorkingSetBytes;
@@ -119,9 +120,9 @@ namespace Durin::DerivedData
 	{
 	public:
 		virtual ~IBuildFunction() = default;
-		virtual auto GetDescriptor() const -> FBuildFunctionDescriptor = 0;
-		virtual auto Build(FBuildContext& Context) const -> FBuildFunctionResult = 0;
-		virtual auto Validate(const FBuildAction& Action, const FBuildOutput& Output,
-			const FBuildCancellation& Cancel) const -> FBuildValidationResult = 0;
+		virtual auto GetName() const -> std::string_view = 0;
+		virtual auto GetVersion() const -> uint32 = 0;
+		virtual auto Configure(FBuildConfigContext& Context) const -> void = 0;
+		virtual auto Build(FBuildContext& Context) const -> void = 0;
 	};
 }

@@ -647,9 +647,14 @@ namespace Durin
 			}
 		}
 		if (Completion.GetStatus() == EStatus::Canceled) return {.Error = FShaderError{.Code = EShaderError::Cancelled}};
-		if (Completion.GetStatus() == EStatus::Error) return {.Error = ShaderSessionError(*Completion.GetFailure())};
-		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput(), {},
-			Completion.GetValidationReceipt());
+		if (Completion.GetStatus() == EStatus::Error)
+		{
+			std::string Description = "Shader derived-data build failed.";
+			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
+			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
+			return {.Error = FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Description, 0)};
+		}
+		auto Built = ShaderSharedOutput::Assemble(Options, *Completion.GetOutput());
 		if (!Built) return {.Error = std::move(Built.error())};
 		AddOutput(OutputKey, *Built);
 		return std::move(*Built);

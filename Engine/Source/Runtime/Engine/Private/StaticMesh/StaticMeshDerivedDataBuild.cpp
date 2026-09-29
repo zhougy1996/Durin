@@ -114,15 +114,16 @@ namespace Durin
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled());
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = *Completion.GetFailure();
-			const auto Stage = (Error.Operation == DerivedData::EBuildOperation::Resolve
-				|| Error.Operation == DerivedData::EBuildOperation::Describe || Error.Reason == DerivedData::EBuildFailureReason::InvalidInput)
-				? EStaticMeshBuildStage::Source : Error.Reason == DerivedData::EBuildFailureReason::InvalidOutput
-				? EStaticMeshBuildStage::Validation : EStaticMeshBuildStage::Render;
-			return std::unexpected(FStaticMeshBuildFailure{Error.Description, Stage});
+			std::string Description = "StaticMesh derived-data build failed.";
+			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
+			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
+			const auto Stage = !Completion.GetOutput() && !Completion.GetReport().Diagnostics.empty()
+				&& (Completion.GetReport().Diagnostics.back().Operation == DerivedData::EBuildOperation::Describe
+					|| Completion.GetReport().Diagnostics.back().Operation == DerivedData::EBuildOperation::Resolve)
+				? EStaticMeshBuildStage::Source : EStaticMeshBuildStage::Render;
+			return std::unexpected(FStaticMeshBuildFailure{std::move(Description), Stage});
 		}
-		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled,
-			Completion.GetValidationReceipt());
+		auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled);
 		if (IsCancelled()) return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation));
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Reconciliation.MaterialSlots, **Product); !Metadata)

@@ -88,29 +88,25 @@ namespace Durin::StaticMeshPrivate
 			bool bHasVertexColors = false;
 		};
 		struct FLayout { FBox LocalBounds; uint32 MaterialSlotCount = 0; std::vector<FLOD> LODs; };
-		struct FValidatedLayoutReceipt final : FBuildValidationReceipt
-		{
-			FValidatedLayoutReceipt(FBuildOutput InOutput, FLayout InLayout)
-				: Output(std::move(InOutput)), Layout(std::move(InLayout)) {}
-			FBuildOutput Output;
-			FLayout Layout;
-		};
+		constexpr uint32 StreamStride = 16;
+		auto StreamId(uint32 LOD, uint32 Stream) -> FValueId
+		{ return FValueId::FromName("Durin.StaticMesh.Stream").MakeIndexed(LOD * StreamStride + Stream); }
 		template<typename T>
-		auto ReadStream(const FBuildOutput& Output, const std::string& Id, uint32 Count, FStream<T>& Stream) -> bool
+		auto ReadStream(const FBuildOutput& Output, FValueId Id, uint32 Count, FStream<T>& Stream) -> bool
 		{
 			const auto* Value = Output.FindValue(Id);
-			if (!Value || Value->Data.GetSize() != uint64(Count) * sizeof(T)) return false;
-			Stream.Block = Value->Data; Stream.Bytes = Stream.Block.GetBytes();
+			if (!Value || Value->GetRawSize() != uint64(Count) * sizeof(T)) return false;
+			Stream.Block = Value->GetData(); Stream.Bytes = Stream.Block.GetBytes();
 			if (auto Native = Stream.Block.template GetNativeView<T>()) Stream.Native = *Native;
 			return true;
 		}
 		auto ReadLayout(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel) -> std::expected<FLayout, std::string>
 		{
 			AssetPrivate::FPayloadBuildControl Control{ShouldCancel}; Control.Check();
-			if (Output.GetSchema() != "StaticMesh.RenderOutput" || Output.GetSchemaVersion() != 1
+			if (Output.GetSchema() != "StaticMesh.RenderOutput" || Output.GetSchemaVersion() != 2
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumStaticMeshPayloadBytes}))
 				return std::unexpected("StaticMesh output schema or size is invalid.");
-			FBinaryReader Reader(Output.GetMetadata().GetBytes(), {.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
+			FBinaryReader Reader(GetBuildMetadataPayload(Output).GetBytes(), {.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
 			uint32 Platform = 0, Profile = 0, Count = 0;
 			FLayout Layout;
 			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Profile) || !Reader.ReadU32(Layout.MaterialSlotCount)
@@ -130,22 +126,21 @@ namespace Durin::StaticMeshPrivate
 					|| LOD.NumTexCoords > MaxStaticMeshUVChannels || Colors > 1 || Sections > MaximumStaticMeshSectionsPerLOD)
 					return std::unexpected("StaticMesh output LOD descriptor is invalid.");
 				LOD.bHasVertexColors = Colors != 0;
-				const auto Prefix = std::format("LOD/{}/", Index);
-				if (!ReadStream(Output, Prefix + "Positions", Vertices, LOD.Positions)
-					|| !ReadStream(Output, Prefix + "Normals", Vertices, LOD.Normals)
-					|| !ReadStream(Output, Prefix + "Tangents", Vertices, LOD.Tangents)
-					|| !ReadStream(Output, Prefix + "Indices", Indices, LOD.Indices))
+				if (!ReadStream(Output, StreamId(Index, 0), Vertices, LOD.Positions)
+					|| !ReadStream(Output, StreamId(Index, 1), Vertices, LOD.Normals)
+					|| !ReadStream(Output, StreamId(Index, 2), Vertices, LOD.Tangents)
+					|| !ReadStream(Output, StreamId(Index, 3), Indices, LOD.Indices))
 					return std::unexpected("StaticMesh output stream size is invalid.");
 				ValueCount += 5 + LOD.NumTexCoords + Colors;
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-					if (!ReadStream(Output, Prefix + std::format("UV/{}", Channel), Vertices, LOD.TexCoords[Channel]))
+					if (!ReadStream(Output, StreamId(Index, 4 + Channel), Vertices, LOD.TexCoords[Channel]))
 						return std::unexpected("StaticMesh output UV stream is invalid.");
-				if (Colors && !ReadStream(Output, Prefix + "Colors", Vertices, LOD.Colors))
+				if (Colors && !ReadStream(Output, StreamId(Index, 4 + MaxStaticMeshUVChannels), Vertices, LOD.Colors))
 					return std::unexpected("StaticMesh output color stream is invalid.");
-				const auto* SectionValue = Output.FindValue(Prefix + "Sections");
-				if (!SectionValue || SectionValue->Data.GetSize() != uint64(Sections) * SectionBytes)
+				const auto* SectionValue = Output.FindValue(StreamId(Index, 5 + MaxStaticMeshUVChannels));
+				if (!SectionValue || SectionValue->GetRawSize() != uint64(Sections) * SectionBytes)
 					return std::unexpected("StaticMesh output section table is invalid.");
-				LOD.Sections.Block = SectionValue->Data;
+				LOD.Sections.Block = SectionValue->GetData();
 				for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
 				{
 					Control.Tick();
@@ -170,7 +165,7 @@ namespace Durin::StaticMeshPrivate
 	{
 		if (!IsValidBounds(Product.LocalBounds) || Product.LODs.empty() || Product.LODs.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
-		FBuildOutputData Data{.Schema = "StaticMesh.RenderOutput", .SchemaVersion = 1};
+		FBuildOutputBuilder Output("StaticMesh.RenderOutput", 2, {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
 		FBinaryWriter Metadata({.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
 		Metadata.WriteU32(uint32(ECookTargetPlatform::Win64)); Metadata.WriteU32(uint32(ECookTargetProfile::Game));
 		Metadata.WriteU32(MaterialSlotCount); Metadata.WriteU32(uint32(Product.LODs.size())); WriteBounds(Metadata, Product.LocalBounds);
@@ -184,14 +179,13 @@ namespace Durin::StaticMeshPrivate
 			Metadata.WriteFloat(LOD.ScreenSize); WriteBounds(Metadata, LOD.LocalBounds);
 			Metadata.WriteU32(uint32(LOD.Positions.size())); Metadata.WriteU32(uint32(LOD.Indices.size()));
 			Metadata.WriteU32(LOD.NumTexCoords); Metadata.WriteU32(LOD.bHasColorVertexData); Metadata.WriteU32(uint32(LOD.Sections.size()));
-			const auto Prefix = std::format("LOD/{}/", Index);
-			Data.Values.push_back({Prefix + "Positions", FSharedByteBuffer::TakeNative(std::move(LOD.Positions))});
-			Data.Values.push_back({Prefix + "Normals", FSharedByteBuffer::TakeNative(std::move(LOD.Normals))});
-			Data.Values.push_back({Prefix + "Tangents", FSharedByteBuffer::TakeNative(std::move(LOD.Tangents))});
-			Data.Values.push_back({Prefix + "Indices", FSharedByteBuffer::TakeNative(std::move(LOD.Indices))});
+			Output.AddValue(StreamId(Index, 0), FSharedByteBuffer::TakeNative(std::move(LOD.Positions)));
+			Output.AddValue(StreamId(Index, 1), FSharedByteBuffer::TakeNative(std::move(LOD.Normals)));
+			Output.AddValue(StreamId(Index, 2), FSharedByteBuffer::TakeNative(std::move(LOD.Tangents)));
+			Output.AddValue(StreamId(Index, 3), FSharedByteBuffer::TakeNative(std::move(LOD.Indices)));
 			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-				Data.Values.push_back({Prefix + std::format("UV/{}", Channel), FSharedByteBuffer::TakeNative(std::move(LOD.TexCoords[Channel]))});
-			if (LOD.bHasColorVertexData) Data.Values.push_back({Prefix + "Colors", FSharedByteBuffer::TakeNative(std::move(LOD.Colors))});
+				Output.AddValue(StreamId(Index, 4 + Channel), FSharedByteBuffer::TakeNative(std::move(LOD.TexCoords[Channel])));
+			if (LOD.bHasColorVertexData) Output.AddValue(StreamId(Index, 4 + MaxStaticMeshUVChannels), FSharedByteBuffer::TakeNative(std::move(LOD.Colors)));
 			FBinaryWriter Sections({.MaximumTotalBytes = MaximumStaticMeshSectionsPerLOD * SectionBytes});
 			for (const auto& Section : LOD.Sections)
 			{
@@ -202,57 +196,27 @@ namespace Durin::StaticMeshPrivate
 				WriteBounds(Sections, Section.LocalBounds);
 			}
 			if (Sections.HasError()) return std::unexpected("StaticMesh section metadata exceeds its bound.");
-			Data.Values.push_back({Prefix + "Sections", FSharedByteBuffer::Take(Sections.TakeBytes())});
+			Output.AddValue(StreamId(Index, 5 + MaxStaticMeshUVChannels), FSharedByteBuffer::Take(Sections.TakeBytes()));
 		}
 		if (Metadata.HasError()) return std::unexpected("StaticMesh output metadata exceeds its bound.");
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
-		if (!Output) return Output;
+		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("StaticMesh metadata is invalid.");
+		auto Built = std::move(Output).Build(); if (!Built) return Built;
 		if (bValidate)
-			if (auto Valid = ValidateSharedOutput(*Output, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
-		return Output;
+			if (auto Valid = ValidateSharedOutput(*Built, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		return Built;
 	}
 	auto MakeSharedOutput(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
 		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
 	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, true); }
-	auto MakeSharedOutputForBuild(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
-		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
-	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, false); }
 
-	auto ValidateSharedOutputWithReceipt(const FBuildOutput& Output, uint32 ExpectedMaterialSlotCount,
-		const std::function<bool()>& ShouldCancel)
-		-> std::expected<std::shared_ptr<const FBuildValidationReceipt>, std::string>
-	try
-	{
-		auto Layout = ReadLayout(Output, ShouldCancel);
-		if (!Layout) return std::unexpected(std::move(Layout.error()));
-		if (Layout->MaterialSlotCount != ExpectedMaterialSlotCount)
-			return std::unexpected("StaticMesh output material count does not match its action.");
-		return std::make_shared<const FValidatedLayoutReceipt>(Output, std::move(*Layout));
-	}
-	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
-	catch (const std::bad_alloc&) { return std::unexpected("Allocation"); }
-
-	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel,
-		const FBuildValidationReceipt* Receipt)
+	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel)
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>
 	try
 	{
-		std::optional<FLayout> Parsed;
-		const FLayout* Layout = nullptr;
-		if (Receipt)
-		{
-			const auto* Validated = dynamic_cast<const FValidatedLayoutReceipt*>(Receipt);
-			if (!Validated || !Validated->Output.SharesStateWith(Output))
-				return std::unexpected("StaticMesh validation receipt does not match the output.");
-			Layout = &Validated->Layout;
-		}
-		else
-		{
-			auto Candidate = ReadLayout(Output, ShouldCancel);
-			if (!Candidate) return std::unexpected(std::move(Candidate.error()));
-			Parsed = std::move(*Candidate); Layout = &*Parsed;
-		}
+		auto Parsed = ReadLayout(Output, ShouldCancel);
+		if (!Parsed) return std::unexpected(std::move(Parsed.error()));
+		const FLayout* Layout = &*Parsed;
 		auto Result = std::make_unique<FStaticMeshRenderData>();
 		Result->LocalBounds = Layout->LocalBounds; Result->MaterialSlots.resize(Layout->MaterialSlotCount);
 		for (const auto& Source : Layout->LODs)

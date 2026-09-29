@@ -15,21 +15,15 @@ namespace Durin
 		{
 			std::string Name(Prefix); Name += std::to_string(Index); Name += Suffix; return Name;
 		}
-		auto FindInputValue(const FBuildInput& Input, std::string_view Id) -> const FBuildValue*
+		auto FindInputValue(const FBuildInput& Input, std::string_view Id) -> const FBuildInputValue*
 		{
-			const auto Found = std::ranges::lower_bound(Input.Values, Id, {}, &FBuildValue::Id);
-			return Found != Input.Values.end() && Found->Id == Id ? &*Found : nullptr;
+			const auto Found = std::ranges::lower_bound(Input.Values, Id, {}, &FBuildInputValue::Name);
+			return Found != Input.Values.end() && Found->Name == Id ? &*Found : nullptr;
 		}
-		auto Boundary(FShaderError Error, EBuildOperation Operation) -> FBuildFailure
-		{
-			return {.Reason = Error.Code == EShaderError::Cancelled ? EBuildFailureReason::InternalFailure : EBuildFailureReason::ProducerFailure,
-				.Operation = Operation, .Description = FormatShaderError(Error), .ProducerCode = uint32(Error.Code),
-				.DiagnosticIdentity = FXxHash128{uint64(Error.GetSemanticFingerprint()), 0}};
-		}
-		auto Invalid(EBuildOperation Phase) -> FBuildFailure
-		{ return Boundary({.Code = EShaderError::CaptureInputInvalid}, Phase); }
+		auto Boundary(FShaderError Error) -> FBuildInputError { return {FormatShaderError(Error)}; }
+		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
 		auto Descriptor() -> FBuildFunctionDescriptor
-		{ return {"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, FCacheBucket::FromString("Shaders/CompiledOutput")}; }
+		{ return {"Durin.Shader.Compile", 2, 1, "Shader.Output", 3, FCacheBucket::FromString("Shaders/CompiledOutput")}; }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
 		{ return {"Closure", Variant.Value, "ShaderVariant", 6, "Shader.SourceClosure", 2}; }
 		struct FOptions
@@ -41,10 +35,9 @@ namespace Durin
 		};
 		// Options is a canonical, bounded byte constant, not a native struct image.
 		// Its versioned fields preserve entry, macro and search-root order explicitly.
-		auto ReadOptions(std::span<const FBuildConstant> Constants) -> std::optional<FOptions>
+		auto ReadOptions(const FBuildContext& Context) -> std::optional<FOptions>
 		{
-			if (Constants.size() != 1 || Constants[0].Name != "Options") return {};
-			const auto* Bytes = std::get_if<std::string>(&Constants[0].Value);
+			const auto* Bytes = Context.FindConstant<std::string>("Options");
 			if (!Bytes) return {};
 			FBinaryReader Reader(std::as_bytes(std::span(Bytes->data(), Bytes->size())), {.MaximumTotalBytes = 1024 * 1024});
 			FOptions Result; uint32 Version = 0, Generated = 0, Count = 0;
@@ -97,26 +90,26 @@ namespace Durin
 			std::optional<std::string> Generated;
 			FShaderArtifactResolver Capture;
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
 			{
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Describe));
-				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid(EBuildOperation::Describe));
+				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
+				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid());
 				return std::vector{Identity};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
+				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
 			{
-				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid(EBuildOperation::Resolve));
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Resolve));
+				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid());
+				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
 				auto Artifacts = Capture();
-				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error()), EBuildOperation::Resolve));
-				if (!*Artifacts) return std::unexpected(Invalid(EBuildOperation::Resolve));
+				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error())));
+				if (!*Artifacts) return std::unexpected(Invalid());
 				std::map<std::string, std::pair<std::string, const FSharedByteBuffer*>> Files;
 				for (const auto& [Path, Bytes] : (*Artifacts)->GetFiles())
 				{
 					const auto Name = Portable(Path);
 					if (!Files.emplace(Name, std::pair{Name + (Path.ends_with(".slang") ? ".slang" : ""), &Bytes}).second)
-						return std::unexpected(Invalid(EBuildOperation::Resolve));
+						return std::unexpected(Invalid());
 				}
 				FBuildInput Input{.Identity = Identity};
 				Input.Values.reserve(Dependencies.size() + 1 + Generated.has_value());
@@ -124,20 +117,20 @@ namespace Durin
 				Metadata.WriteU32(uint32(Dependencies.size())); uint64 Bytes = 0;
 				for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Resolve));
+					if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
 					const auto& Dependency = Dependencies[Index]; const auto Found = Files.find(Dependency.VirtualPath);
-					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}, EBuildOperation::Resolve));
+					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}));
 					const auto& Data = *Found->second.second;
 					if (Data.size() > ShaderCaptureLimits::MaximumFileBytes || Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes
-						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid(EBuildOperation::Resolve));
+						|| Found->second.first.size() > ShaderCaptureLimits::MaximumPathBytes) return std::unexpected(Invalid());
 					Bytes += Data.size();
-					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}, EBuildOperation::Resolve));
+					if (FXxHash64::HashBuffer(Data) != Dependency.ContentHash) return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}));
 					Metadata.WriteString(Found->second.first);
 					Input.Values.push_back({Indexed("File/", Index), Data});
 				}
 				if (Generated)
 					Input.Values.push_back({"Generated", FSharedByteBuffer::Copy(std::as_bytes(std::span(Generated->data(), Generated->size())))});
-				if (Metadata.HasError()) return std::unexpected(Invalid(EBuildOperation::Resolve));
+				if (Metadata.HasError()) return std::unexpected(Invalid());
 				Input.Values.push_back({"FileTable", FSharedByteBuffer::Take(Metadata.TakeBytes())});
 				return std::vector{std::move(Input)};
 			}
@@ -152,44 +145,39 @@ namespace Durin
 		{
 		public:
 			explicit FFunction(std::shared_ptr<FCompilerService> InService) : Service(std::move(InService)) {}
-			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return Descriptor(); }
-			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancel) const
-				-> FBuildValidationResult override
+			auto GetName() const -> std::string_view override { return "Durin.Shader.Compile"; }
+			auto GetVersion() const -> uint32 override { return 2; }
+			auto Configure(FBuildConfigContext& Context) const -> void override
+			{ const auto D = Descriptor(); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
+			auto Build(FBuildContext& Context) const -> void override
 			{
-				auto Options = ReadOptions(Action.GetConstants()); if (!Options) return std::unexpected(Invalid(EBuildOperation::Validate));
-				Options->Bind(); auto Valid = ShaderSharedOutput::ValidateWithReceipt(Options->Value, Output,
-					[&] { return Cancel.IsCancelled(); });
-				if (!Valid) return std::unexpected(Boundary(std::move(Valid.error()), EBuildOperation::Validate));
-				return std::move(*Valid);
-			}
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
-			{
-				auto Options = ReadOptions(Context.GetAction().GetConstants());
-				if (!Options || Context.GetInputs().size() != 1 || Context.GetAction().GetInputs().size() != 1) return std::unexpected(Invalid(EBuildOperation::Build));
-				Options->Bind(); const auto& Input = Context.GetInputs()[0];
-				if (Input.Identity != Context.GetAction().GetInputs()[0] || Input.Identity != Reference({.Value = Input.Identity.Identity})) return std::unexpected(Invalid(EBuildOperation::Build));
+				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				auto Options = ReadOptions(Context); const auto* InputPtr = Context.FindInput("Closure");
+				if (!Options || !InputPtr) return Fail(Invalid().Description);
+				Options->Bind(); const auto& Input = *InputPtr;
+				if (Input.Identity != Reference({.Value = Input.Identity.Identity})) return Fail(Invalid().Description);
 				const auto* Table = FindInputValue(Input, "FileTable");
-				if (!Input.Metadata.IsEmpty() || !Table) return std::unexpected(Invalid(EBuildOperation::Build));
+				if (!Input.Metadata.IsEmpty() || !Table) return Fail(Invalid().Description);
 				FBinaryReader Reader(Table->Data.GetBytes(), {.MaximumTotalBytes = ShaderCaptureLimits::MaximumFileTableBytes}); uint32 Count = 0;
-				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return std::unexpected(Invalid(EBuildOperation::Build));
+				if (!Reader.ReadU32(Count) || Count > ShaderCaptureLimits::MaximumFiles || Input.Values.size() != Count + 1 + size_t(Options->Generated)) return Fail(Invalid().Description);
 				std::map<std::string, FSharedByteBuffer> Files; FShaderMetaData Meta;
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < Count; ++Index)
 				{
-					if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Build));
+					if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
 					std::string Path;
 					if (!Reader.ReadString(Path, ShaderCaptureLimits::MaximumPathBytes) || Path.empty() || !Path.starts_with('/')
-						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return std::unexpected(Invalid(EBuildOperation::Build));
+						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return Fail(Invalid().Description);
 					const auto* Found = FindInputValue(Input, Indexed("File/", Index));
 					if (!Found || Found->Data.size() > ShaderCaptureLimits::MaximumFileBytes
-						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return std::unexpected(Invalid(EBuildOperation::Build));
+						|| Found->Data.size() > ShaderCaptureLimits::MaximumTotalBytes - Bytes) return Fail(Invalid().Description);
 					Bytes += Found->Data.size();
 					const auto Name = Path.ends_with(".slang") ? Path.substr(0, Path.size() - 6) : Path;
-					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return std::unexpected(Invalid(EBuildOperation::Build));
+					if (!Meta.PortableDependencies.empty() && Meta.PortableDependencies.back().VirtualPath >= Name) return Fail(Invalid().Description);
 					Meta.PortableDependencies.push_back({Name, FXxHash64::HashBuffer(Found->Data.GetBytes())});
-					if (!Files.emplace(Path, Found->Data).second) return std::unexpected(Invalid(EBuildOperation::Build));
+					if (!Files.emplace(Path, Found->Data).second) return Fail(Invalid().Description);
 				}
-				if (!Reader.IsAtEnd()) return std::unexpected(Invalid(EBuildOperation::Build));
+				if (!Reader.IsAtEnd()) return Fail(Invalid().Description);
 				FXxHash128Builder Tree; UpdateCanonicalHashString(Tree, "DurinShaderPortableSourceTree_v1");
 				UpdateCanonicalHash(Tree, uint64(Meta.PortableDependencies.size()));
 				for (const auto& Dependency : Meta.PortableDependencies) { UpdateCanonicalHashString(Tree, Dependency.VirtualPath); UpdateCanonicalHash(Tree, Dependency.ContentHash); }
@@ -198,7 +186,7 @@ namespace Durin
 				if (Options->Generated)
 				{
 					const auto* Found = FindInputValue(Input, "Generated");
-					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return std::unexpected(Invalid(EBuildOperation::Build));
+					if (!Found || Found->Data.IsEmpty() || Found->Data.size() > 1024 * 1024) return Fail(Invalid().Description);
 					Generated.assign(reinterpret_cast<const char*>(Found->Data.data()), Found->Data.size());
 					FXxHash128Builder Combined; Combined.Update("DurinGeneratedShaderSourceTree_v1");
 					UpdateCanonicalHash(Combined, FXxHash128::HashBuffer(Generated)); UpdateCanonicalHash(Combined, Meta.SourceTreeSignature);
@@ -206,17 +194,18 @@ namespace Durin
 				}
 				FShaderVariantKey Variant; ShaderCompileUtilities::BuildVariantKey(Options->Value.VirtualShaderPath, Meta, Options->Value.Macros, Options->Value.CompilerEnvironment, Variant);
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
-					return std::unexpected(Boundary({.Code = EShaderError::DependencyContentConflict}, EBuildOperation::Build));
+					return Fail(FormatShaderError({.Code = EShaderError::DependencyContentConflict}));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
-				if (Context.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}, EBuildOperation::Build));
+				if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
 				Context.ReportMetric("Shader.Compilations", 1);
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
-				if (!Product) return std::unexpected(Boundary(std::move(Product.Error), EBuildOperation::Build));
+				if (!Product) return Fail(FormatShaderError(std::move(Product.Error)));
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
-				if (!Output) return std::unexpected(Boundary(std::move(Output.error()), EBuildOperation::Build));
-				return std::move(*Output);
+				if (!Output) return Fail(FormatShaderError(std::move(Output.error())));
+				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
+				for (const auto& MetaValue : Output->GetMetadata()) Context.AddMeta(MetaValue.Id, MetaValue.Object);
 			}
 		private: std::shared_ptr<FCompilerService> Service;
 		};
@@ -265,24 +254,21 @@ namespace Durin
 		Writer.WriteU32(uint32(Roots.size())); for (const auto& Root : Roots) Writer.WriteString(Root);
 		if (Writer.HasError() || Options.CompilerEnvironment.size() > 32768) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		const auto Encoded = Writer.TakeBytes();
-		std::vector<FBuildConstant> Constants{{"Options", std::string(reinterpret_cast<const char*>(Encoded.data()), Encoded.size())}};
-		auto Definition = FBuildDefinition::TryCreate("Durin.Shader.Compile", std::move(Constants), {{"Closure", "CapturedShaderClosure"}});
+		FBuildDefinitionBuilder DefinitionBuilder("Durin.Shader.Compile");
+		DefinitionBuilder.AddConstant("Options", std::string(reinterpret_cast<const char*>(Encoded.data()), Encoded.size()))
+			.AddInput("Closure", "CapturedShaderClosure");
+		auto Definition = std::move(DefinitionBuilder).Build();
 		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Variant);
 		Resolver->Dependencies = std::move(Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Resolve);
-		auto Inputs = FBuildInputs::TryCreate(Definition->GetSources(), std::move(Resolver));
+		auto Inputs = std::move(FBuildInputsBuilder(Definition->GetSources(), std::move(Resolver))).Build();
 		if (!Inputs) return std::unexpected(ShaderSessionError(Inputs.error()));
 		return FShaderSessionRequest{std::move(*Definition), std::move(*Inputs)};
 	}
 
-	auto ShaderSessionError(const FBuildFailure& Error) -> FShaderError
+	auto ShaderSessionError(const FBuildInputError& Error) -> FShaderError
 	{
-		if (Error.ProducerCode && *Error.ProducerCode == uint32(EShaderError::Cancelled)) return {.Code = EShaderError::Cancelled};
-		if (Error.ProducerCode && *Error.ProducerCode > uint32(EShaderError::None)
-			&& *Error.ProducerCode <= uint32(EShaderError::MissingResourceCode) && Error.DiagnosticIdentity)
-			return FShaderError::FromBuildDiagnostic(EShaderError(*Error.ProducerCode), Error.Description, size_t(Error.DiagnosticIdentity->HashLow));
-		return FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Error.Description,
-			uint64(Error.Operation) * 256 + uint64(Error.Reason));
+		return FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Error.Description, 0);
 	}
 	struct FShaderBuildService::FState
 	{
@@ -315,12 +301,7 @@ namespace Durin
 		auto Admitted = Persistent->Build(std::move(Request.Definition), [&](auto Result) {
 			Completion = std::move(Result);
 		}, std::move(Request.Inputs), std::move(Options));
-		if (!Admitted) return FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InputUnavailable,
-			.Operation = EBuildOperation::Admission, .Description = std::move(Admitted.error().Description)},
-			std::nullopt, EBuildStatus::None, {});
-		if (!Completion) return FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InternalFailure,
-			.Operation = EBuildOperation::Dispatch, .Description = "Shader build session did not complete inline."},
-			std::nullopt, EBuildStatus::None, {});
+		if (!Admitted || !Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, {});
 		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void

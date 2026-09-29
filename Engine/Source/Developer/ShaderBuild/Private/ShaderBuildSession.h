@@ -16,7 +16,7 @@ namespace Durin
 		const FShaderVariantKey& Variant, std::vector<FShaderPortableDependency> Dependencies,
 		std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
 		-> std::expected<FShaderSessionRequest, FShaderError>;
-	SHADERBUILD_API auto ShaderSessionError(const DerivedData::FBuildFailure& Error) -> FShaderError;
+	SHADERBUILD_API auto ShaderSessionError(const DerivedData::FBuildInputError& Error) -> FShaderError;
 
 	// Explicitly constructed before the builder. Close drains all admitted sessions
 	// before the module releases compiler services and registration.

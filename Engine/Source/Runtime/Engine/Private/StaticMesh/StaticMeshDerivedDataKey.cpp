@@ -33,9 +33,11 @@ namespace Durin
 	auto MakeStaticMeshSessionDefinition(uint32 MaterialSlotCount)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
-		return DerivedData::FBuildDefinition::TryCreate("Durin.StaticMesh.Render",
-			{{"TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64)}, {"MaterialSlotCount", uint64(MaterialSlotCount)}},
-			{{"Source", "CapturedSource"}, {"Reconciliation", "CapturedReconciliation"}});
+		DerivedData::FBuildDefinitionBuilder Builder("Durin.StaticMesh.Render");
+		Builder.AddConstant("TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64))
+			.AddConstant("MaterialSlotCount", uint64(MaterialSlotCount)).AddInput("Source", "CapturedSource")
+			.AddInput("Reconciliation", "CapturedReconciliation");
+		return std::move(Builder).Build();
 	}
 	auto GetStaticMeshBuildDescriptor(uint32 BuilderVersion, uint32 OutputVersion) -> DerivedData::FBuildFunctionDescriptor
 	{
@@ -66,9 +68,10 @@ namespace Durin
 		auto Request = MakeStaticMeshSessionDefinition(Input.MaterialSlotCount);
 		if (!Request) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
-		auto Definition = FBuildAction::TryCreate(*Request, GetStaticMeshBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion),
-			{{"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryPayloadVersion, "StaticMesh.AuthoredGeometry", 1},
-			 {"Reconciliation", Input.ReconciliationHash, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1}});
+		FBuildActionBuilder Builder(*Request, GetStaticMeshBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion));
+		Builder.AddInput({"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryPayloadVersion, "StaticMesh.AuthoredGeometry", 1})
+			.AddInput({"Reconciliation", Input.ReconciliationHash, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1});
+		auto Definition = std::move(Builder).Build();
 		if (!Definition) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
 		return std::move(*Definition);

@@ -85,6 +85,24 @@ Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
 nest another DURF envelope; their owning asset slot supplies the codec and
 schema.
 
+### Compact Binary
+
+`Serialization/CompactBinary.h` owns Durin's bounded structured-value format.
+It is local and makes no Unreal Compact Binary wire- or source-compatibility
+claim. A field encodes a type byte, little-endian uint32 name length,
+little-endian uint64 payload length, then exact name and payload bytes. The
+supported kinds are null, bool, signed/unsigned 64-bit integer, finite 32/64-bit
+float, UTF-8 string, binary, 12-byte object ID, array, and object. Arrays
+preserve insertion order and forbid names; objects require unique names and
+encode them in ascending byte order.
+
+`FCbField`, `FCbObject`, and `FCbArray` own shared immutable bytes. Their views,
+including nested binary views, retain that storage. Loading validates the whole
+region before publishing a view. `FCbLimits` bounds encoded bytes, depth, field
+count, strings, and binary payloads. Malformed, trailing, duplicate,
+non-canonical, invalid UTF-8, non-finite, or over-limit values are rejected.
+`FCbWriter` is the sole construction surface and freezes on save.
+
 ### Persistent value serialization
 
 Persistent values expose one bidirectional customization: member

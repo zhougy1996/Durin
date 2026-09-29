@@ -1,98 +1,92 @@
 #pragma once
 
-#include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataValue.h"
+#include "Serialization/CompactBinary.h"
 
 namespace Durin::DerivedData
 {
-	enum class EBuildMessageSeverity : uint8 { Note, Warning };
-
-	struct FBuildMessage
-	{
-		EBuildMessageSeverity Severity = EBuildMessageSeverity::Note;
-		std::string Text;
-	};
-
-	struct FBuildValue
-	{
-		std::string Id;
-		FSharedByteBuffer Data;
-	};
-
-	// Mutable construction data. Publishing moves descriptors and retains only
-	// immutable blocks; callers must not retain writable aliases to shared bytes.
-	struct FBuildOutputData
-	{
-		std::string Schema;
-		uint32 SchemaVersion = 0;
-		FSharedByteBuffer Metadata;
-		std::vector<FBuildValue> Values;
-		std::vector<FBuildMessage> Messages;
-	};
+	namespace Private { struct FBuildExecutionAccess; }
+	class FBuildOutput;
+	enum class EBuildMessageSeverity : uint8 { Note, Warning, Error };
+	struct FBuildOutputMessage { EBuildMessageSeverity Severity = EBuildMessageSeverity::Note; std::string Text; };
+	struct FBuildOutputMeta { FValueId Id; FCbObject Object; };
+	DERIVEDDATACACHE_API auto MakeBuildMetadata(FSharedByteBuffer Payload) -> std::expected<FCbObject, std::string>;
+	DERIVEDDATACACHE_API auto GetBuildMetadataPayload(const FBuildOutput& Output,
+		FValueId Id = FValueId::FromName("Metadata")) -> FSharedByteBuffer;
 
 	struct FBuildOutputLimits
 	{
 		uint64 MaximumTotalBytes = 2ull * 1024 * 1024 * 1024;
 		uint64 MaximumMetadataBytes = 4ull * 1024 * 1024;
 		uint32 MaximumValues = 4096;
+		uint32 MaximumMetadata = 4096;
 		uint32 MaximumMessages = 128;
 	};
 
-	// Family-neutral immutable representation. Family validators interpret schema
-	// metadata and required values without resolving source or constructing products.
 	class FBuildOutput
 	{
 	public:
+		struct FState;
 		FBuildOutput() = default;
-		DERIVEDDATACACHE_API static auto TryCreate(FBuildOutputData Data,
-			FBuildOutputLimits Limits = {}) -> std::expected<FBuildOutput, std::string>;
 		auto IsValid() const -> bool { return State != nullptr; }
-		auto SharesStateWith(const FBuildOutput& Other) const -> bool
-		{ return State && State == Other.State; }
+		DERIVEDDATACACHE_API auto HasError() const -> bool;
+		auto SharesStateWith(const FBuildOutput& Other) const -> bool { return State && State == Other.State; }
 		DERIVEDDATACACHE_API auto CheckLimits(FBuildOutputLimits Limits = {}) const -> std::expected<void, std::string>;
-		auto GetSchema() const -> std::string_view { return State ? State->Schema : std::string_view{}; }
-		auto GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }
-		auto GetMetadata() const -> FSharedByteBuffer { return State ? State->Metadata : FSharedByteBuffer{}; }
-		auto GetValues() const -> std::span<const FBuildValue> { return State ? std::span(State->Values) : std::span<const FBuildValue>{}; }
-		auto GetMessages() const -> std::span<const FBuildMessage> { return State ? std::span(State->Messages) : std::span<const FBuildMessage>{}; }
-		DERIVEDDATACACHE_API auto FindValue(std::string_view Id) const -> const FBuildValue*;
+		DERIVEDDATACACHE_API auto GetSchema() const -> std::string_view;
+		DERIVEDDATACACHE_API auto GetSchemaVersion() const -> uint32;
+		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FValueWithId>;
+		DERIVEDDATACACHE_API auto GetMetadata() const -> std::span<const FBuildOutputMeta>;
+		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildOutputMessage>;
+		DERIVEDDATACACHE_API auto FindValue(FValueId Id) const -> const FValue*;
+		DERIVEDDATACACHE_API auto FindMeta(FValueId Id) const -> FCbObjectView;
 	private:
+		friend class FBuildOutputBuilder;
 		friend class FCacheRecord;
-		std::shared_ptr<const FBuildOutputData> State;
+		std::shared_ptr<const FState> State;
 	};
 
-	// Keyed persistence representation. Construction is optional cache work and
-	// retains blocks rather than flattening or serializing a family product.
+	class FBuildOutputBuilder
+	{
+	public:
+		DERIVEDDATACACHE_API FBuildOutputBuilder(std::string Schema, uint32 SchemaVersion, FBuildOutputLimits Limits = {});
+		DERIVEDDATACACHE_API ~FBuildOutputBuilder();
+		FBuildOutputBuilder(FBuildOutputBuilder&&) noexcept = default;
+		auto operator=(FBuildOutputBuilder&&) noexcept -> FBuildOutputBuilder& = default;
+		FBuildOutputBuilder(const FBuildOutputBuilder&) = delete;
+		auto operator=(const FBuildOutputBuilder&) -> FBuildOutputBuilder& = delete;
+		DERIVEDDATACACHE_API auto AddValue(FValueId Id, FSharedByteBuffer Data) -> bool;
+		DERIVEDDATACACHE_API auto AddMeta(FValueId Id, FCbObject Object) -> bool;
+		DERIVEDDATACACHE_API auto AddMessage(EBuildMessageSeverity Severity, std::string Text) -> bool;
+		DERIVEDDATACACHE_API auto Build() && -> std::expected<FBuildOutput, std::string>;
+	private:
+		friend class FBuildContext;
+		friend class FCacheRecord;
+		friend struct Private::FBuildExecutionAccess;
+		struct FState;
+		std::unique_ptr<FState> State;
+	};
+
 	class FCacheRecord
 	{
 	public:
-		// Payload budget plus a bounded descriptor/message table and framing.
 		static constexpr uint64 DefaultMaximumEncodedBytes = 2ull * 1024 * 1024 * 1024 + 2ull * 1024 * 1024;
 		FCacheRecord() = default;
-		DERIVEDDATACACHE_API static auto FromOutput(const FCacheKey& Key,
-			const FBuildOutput& Output, FBuildOutputLimits Limits = {})
-			-> std::expected<FCacheRecord, FCacheError>;
+		DERIVEDDATACACHE_API static auto FromOutput(const FCacheKey& Key, const FBuildOutput& Output,
+			FBuildOutputLimits Limits = {}) -> std::expected<FCacheRecord, FCacheError>;
 		DERIVEDDATACACHE_API auto ToOutput(const FCacheKey& ExpectedKey,
 			FBuildOutputLimits Limits = {}) const -> std::expected<FBuildOutput, FCacheError>;
-		// Optional persistence. Encoding never replaces the original output blocks.
-		DERIVEDDATACACHE_API auto Encode(uint64 MaximumBytes = DefaultMaximumEncodedBytes) const
-			-> std::expected<FSharedByteBuffer, FCacheError>;
-		// A separate optional step: one Zstd frame containing a raw record.
+		DERIVEDDATACACHE_API auto Encode(uint64 MaximumBytes = DefaultMaximumEncodedBytes) const -> std::expected<FSharedByteBuffer, FCacheError>;
 		DERIVEDDATACACHE_API static auto CompressEncoded(const FSharedByteBuffer& RawRecord,
 			uint64 MaximumBytes = DefaultMaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
-		// Raw records retain views into Bytes after validating the complete envelope.
-		// MaximumEncodedBytes also bounds the inflated envelope before allocation.
 		DERIVEDDATACACHE_API static auto Decode(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes,
-			FBuildOutputLimits Limits = {}, uint64 MaximumEncodedBytes = DefaultMaximumEncodedBytes)
-			-> std::expected<FCacheRecord, FCacheError>;
+			FBuildOutputLimits Limits = {}, uint64 MaximumEncodedBytes = DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
 		auto IsValid() const -> bool { return State != nullptr; }
 		DERIVEDDATACACHE_API auto GetKey() const -> FCacheKey;
 		DERIVEDDATACACHE_API auto GetSchema() const -> std::string_view;
 		DERIVEDDATACACHE_API auto GetSchemaVersion() const -> uint32;
-		DERIVEDDATACACHE_API auto GetMetadata() const -> FSharedByteBuffer;
-		DERIVEDDATACACHE_API auto GetMetadataHash() const -> FXxHash128;
-		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildMessage>;
-		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FBuildValue>;
-		DERIVEDDATACACHE_API auto GetValueHashes() const -> std::span<const FXxHash128>;
+		DERIVEDDATACACHE_API auto GetMetadata() const -> std::span<const FBuildOutputMeta>;
+		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildOutputMessage>;
+		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FValueWithId>;
 	private:
 		struct FState;
 		std::shared_ptr<const FState> State;

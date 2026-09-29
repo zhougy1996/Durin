@@ -61,13 +61,11 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
 		if (Built.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = *Built.GetFailure();
-			if (Error.Operation == DerivedData::EBuildOperation::Admission || Error.Operation == DerivedData::EBuildOperation::Dispatch)
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, Error.Description});
-			return std::unexpected(FTextureBuildError{
-				Error.Reason == DerivedData::EBuildFailureReason::InvalidInput ? ETextureBuildFailure::InvalidInput : ETextureBuildFailure::InvalidBuilderOutput,
-				Error.Operation <= DerivedData::EBuildOperation::Resolve ? ETextureBuildStage::Normalize : ETextureBuildStage::Build,
-				Error.Description});
+			std::string Description = "VolumeTexture derived-data build failed.";
+			if (const auto* Output = Built.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
+			else if (!Built.GetReport().Diagnostics.empty()) Description = Built.GetReport().Diagnostics.back().Error.Diagnostic;
+			return std::unexpected(FTextureBuildError{Built.GetOutput() ? ETextureBuildFailure::InvalidBuilderOutput : ETextureBuildFailure::Unavailable,
+				Built.GetOutput() ? ETextureBuildStage::Build : ETextureBuildStage::Module, std::move(Description)});
 		}
 		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(*Built.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});

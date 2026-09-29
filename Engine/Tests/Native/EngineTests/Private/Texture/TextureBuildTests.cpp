@@ -946,7 +946,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	std::string GoldenKeyError;
 	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
 		GoldenKeyInput, GoldenKeyError).ToString(),
-		"868aedbc1b663d4ffd621d5d954afbaa") << GoldenKeyError;
+		"0f1e97cfeca2fe12596649ab9dc4fb14") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;

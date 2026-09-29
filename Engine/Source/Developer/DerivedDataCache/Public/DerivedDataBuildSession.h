@@ -65,6 +65,15 @@ namespace Durin::DerivedData
 	{
 	public:
 		virtual ~IBuild() = default;
+		auto CreateDefinitionBuilder(std::string FunctionName) const -> FBuildDefinitionBuilder
+		{ return FBuildDefinitionBuilder(std::move(FunctionName)); }
+		auto CreateActionBuilder(FBuildDefinition Definition, FBuildFunctionDescriptor Function) const -> FBuildActionBuilder
+		{ return FBuildActionBuilder(std::move(Definition), std::move(Function)); }
+		auto CreateInputsBuilder(std::span<const FBuildSourceReference> Sources,
+			std::shared_ptr<const IBuildInputResolver> Resolver) const -> FBuildInputsBuilder
+		{ return FBuildInputsBuilder(Sources, std::move(Resolver)); }
+		auto CreateOutputBuilder(std::string Schema, uint32 SchemaVersion, FBuildOutputLimits Limits = {}) const -> FBuildOutputBuilder
+		{ return FBuildOutputBuilder(std::move(Schema), SchemaVersion, Limits); }
 		virtual auto Register(std::shared_ptr<const IBuildFunction> Function)
 			-> std::expected<void, FBuildAdmissionError> = 0;
 		virtual auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver = {},

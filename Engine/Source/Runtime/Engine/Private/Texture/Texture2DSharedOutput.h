@@ -12,7 +12,7 @@ namespace Durin::TexturePrivate
 		struct FMip
 		{
 			uint32 Width = 0, Height = 0, RowPitch = 0;
-			const DerivedData::FBuildValue* Value = nullptr;
+			const DerivedData::FValue* Value = nullptr;
 		};
 		EPixelFormat Format = EPixelFormat::Unknown;
 		uint32 Count = 0;
@@ -27,9 +27,9 @@ namespace Durin::TexturePrivate
 	{
 		if (Platform != ECookTargetPlatform::Win64
 			|| (Profile != ECookTargetProfile::Game && Profile != ECookTargetProfile::EditorValidation)
-			|| Output.GetSchema() != "Texture2D.Output" || Output.GetSchemaVersion() != 1)
+			|| Output.GetSchema() != "Texture2D.Output" || Output.GetSchemaVersion() != 2)
 			return std::unexpected("Texture output schema or target is unsupported.");
-		const auto Metadata = Output.GetMetadata();
+		const auto Metadata = DerivedData::GetBuildMetadataPayload(Output);
 		FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = 16 + MaximumTextureMipCount * 20});
 		uint32 StoredPlatform = 0, StoredProfile = 0, Format = 0;
 		FTexture2DOutputLayout Layout;
@@ -50,10 +50,10 @@ namespace Durin::TexturePrivate
 				|| Mip.Height > MaximumTexture2DDimension || Size > MaximumTexturePayloadBytes - Total)
 				return std::unexpected("Texture output mip extent is invalid.");
 			Total += Size;
-			Mip.Value = Output.FindValue(std::format("Mip/{}", Index));
+			Mip.Value = Output.FindValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index));
 			const auto Expected = GetPixelFormatLayout(Layout.Format, Mip.Width, Mip.Height);
 			if (!Mip.Value || Expected.DataSize == 0 || Size != Expected.DataSize
-				|| Mip.Value->Data.GetSize() != Size || Mip.RowPitch != Expected.RowPitch)
+				|| Mip.Value->GetRawSize() != Size || Mip.RowPitch != Expected.RowPitch)
 				return std::unexpected("Texture output mip block does not match its layout.");
 			if (Index)
 			{
@@ -81,22 +81,22 @@ namespace Durin::TexturePrivate
 		FBinaryWriter Metadata({.MaximumTotalBytes = 16 + MaximumTextureMipCount * 20});
 		Metadata.WriteU32(static_cast<uint32>(Platform)); Metadata.WriteU32(static_cast<uint32>(Profile));
 		Metadata.WriteU32(static_cast<uint32>(Format)); Metadata.WriteU32(static_cast<uint32>(Product.Mips.size()));
-		DerivedData::FBuildOutputData Data{.Schema = "Texture2D.Output", .SchemaVersion = 1};
-		Data.Values.reserve(Product.Mips.size());
+		DerivedData::FBuildOutputBuilder Output("Texture2D.Output", 2, {.MaximumTotalBytes = MaximumTexturePayloadBytes});
 		for (size_t Index = 0; Index < Product.Mips.size(); ++Index)
 		{
 			const auto& Mip = Product.Mips[Index];
 			Metadata.WriteU32(Mip.Width); Metadata.WriteU32(Mip.Height); Metadata.WriteU32(Mip.RowPitch);
 			Metadata.WriteU64(Mip.Pixels.GetSize());
-			Data.Values.push_back({std::format("Mip/{}", Index), Mip.Pixels});
+			Output.AddValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index), Mip.Pixels);
 		}
 		if (Metadata.HasError()) return std::unexpected("Texture output metadata exceeds its limit.");
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = DerivedData::FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumTexturePayloadBytes});
-		if (!Output) return Output;
-		if (auto Layout = ReadTexture2DOutputLayout(*Output, Platform, Profile); !Layout)
+		auto Meta = DerivedData::MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Texture output metadata is invalid.");
+		auto Built = std::move(Output).Build();
+		if (!Built) return Built;
+		if (auto Layout = ReadTexture2DOutputLayout(*Built, Platform, Profile); !Layout)
 			return std::unexpected(std::move(Layout.error()));
-		return Output;
+		return Built;
 	}
 
 	inline auto AssembleTexture2DSharedOutput(const DerivedData::FBuildOutput& Output,
@@ -111,7 +111,7 @@ namespace Durin::TexturePrivate
 		for (uint32 Index = 0; Index < Layout->Count; ++Index)
 		{
 			const auto& Mip = Layout->Mips[Index];
-			Product.Mips.push_back({.Pixels = Mip.Value->Data, .Width = Mip.Width,
+			Product.Mips.push_back({.Pixels = Mip.Value->GetData(), .Width = Mip.Width,
 				.Height = Mip.Height, .RowPitch = Mip.RowPitch});
 		}
 		return Product;

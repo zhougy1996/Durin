@@ -4,32 +4,59 @@ Summary: Replace Durin's returned-output and typed-failure build-function contra
 
 Last reviewed: 2026-09-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-29
 
 ## Current Status
 
-No implementation has started. The completed
-[Derived Data Build Interface Alignment](DerivedDataBuildInterfaceAlignment.md)
-plan established `IBuild`, persistent sessions, immutable actions and outputs,
-and the current local cache execution contract. It retained `std::expected`,
-constrained constant variants, string value identifiers, and a public
-`IBuildFunction::Validate` hook, while excluding Compact Binary.
+Implemented across Core, DerivedDataCache, Engine, and ShaderBuild. Build
+functions now read and publish exclusively through `FBuildContext`; immutable
+builders own definition, action, inputs, and output construction; persisted
+output slots use fixed 12-byte IDs; and bounded Compact Binary owns structured
+metadata. Texture, StaticMesh, physics, and ShaderBuild use the new contract.
+The legacy returned-output, typed producer failure, public validation receipt,
+and string output-ID surfaces have been removed.
 
-This plan changes the function, output, and error decisions while preserving
-the current constrained constant variant and its canonical action encoding. It
-selects the referenced public responsibility model for function execution: a
-function reads constants and inputs from
-`FBuildContext`, writes values, metadata, and deterministic messages back to the
-context, and returns no product or public failure object. It also introduces a
-Durin-owned Compact Binary implementation in Core and a 12-byte `FValueId` in
-DerivedDataCache. It does not claim source or wire compatibility with Unreal
-Engine, does not copy UE implementation code, and does not use Compact Binary
-for build constants in this plan.
+The frozen wire decisions are: action schema 2 and constant bytes remain
+unchanged; cache-record schema 2 is the only reader/writer; Texture, StaticMesh,
+and physics output schemas are 2; Shader output schema is 3 because it also
+binds the virtual shader path; and there is no legacy reader. `FValueId::FromHash`
+serializes the low 64 hash bits followed by the low 32 high bits in little-endian
+order. `MakeIndexed` XORs a 24-bit index into bytes 9-11. Family namespaces and
+multidimensional packing are fixed in their shared-output implementations.
 
-The first stage must freeze cache compatibility, deterministic error caching,
-and the replacement for family semantic validation before shared APIs change.
-Those decisions affect every producer and cannot be deferred into migration.
+DDC validates schema, ordering, hashes, Compact Binary, and bounds at freeze and
+load. Families validate product semantics during production and typed assembly.
+Corrupt cache data records a diagnostic and falls back once. Deterministic error
+outputs discard values, complete as `Error`, and are cached without expiry under
+their action key; force-build or an identity/version change retries them.
+Infrastructure failures and cancellation have no cacheable output.
+
+Golden action tests preserved schema-2 identity. Fixed descriptors are 12 bytes
+instead of variable UTF-8 identifiers; lookup remains sorted binary search.
+Existing qualification tests supplied cold/warm timing, source-read, memory,
+and retained-buffer baselines; no separate pre-migration benchmark capture was
+available. Raw records retain payload views, compressed records retain the one
+inflated allocation, and package/Cook payload tests remained byte-stable.
+
+Validation completed on macOS arm64 Debug `DurinEditor`:
+
+- `./DevTool configure -D DURIN_ENABLE_TRACY=OFF` selected the same host profile
+  without optional profiling. With Tracy enabled, multiple unrelated native
+  test executables crashed in macOS dyld before test discovery while Tracy's
+  network worker was active; disabling profiling removed that host-only race.
+- `./DevTool build` completed the shared-API `all` target.
+- `./DevTool test affected` passed all 88 resolved routine targets.
+- `CoreUtilityTests` passed 119 tests and `DerivedDataBuildTests` passed 27.
+- `DerivedDataTextureQualificationTests`, `StaticMeshBuildQualificationTests`,
+  `PhysicsQualificationTests`, and `ShaderBuildQualificationTests` passed in
+  qualification mode.
+- Exact searches across `Engine`, `Sandbox`, and `RoadWeaver` found no legacy
+  output data, validation receipt, function result, typed DDC failure, string
+  output lookup, or `FBuildValue` use. Direct definition/action/input
+  `TryCreate` calls remain only in their private builder implementations.
+- `./DevTool doc validate --scope changed` and
+  `./DevTool doc plan validate --scope all` passed.
 
 ## Goal
 
@@ -244,22 +271,22 @@ function registration is introduced.
 
 ### Stage 0: Freeze wire, validation, and error decisions
 
-- [ ] Inventory every public and private consumer of `FBuildFailure`,
+- [x] Inventory every public and private consumer of `FBuildFailure`,
   `FBuildOutputData`, `FBuildValue`, `IBuildFunction::Build`,
   `IBuildFunction::Validate`, validation receipts, and string value IDs across
   all projects declared by `Durin.dworkspace`.
-- [ ] Freeze the Compact Binary type set, canonical encoding, ownership model,
+- [x] Freeze the Compact Binary type set, canonical encoding, ownership model,
   limits, and malformed-input behavior.
-- [ ] Freeze `FValueId` derivation, indexing, comparison, serialization, and all
+- [x] Freeze `FValueId` derivation, indexing, comparison, serialization, and all
   family ID namespaces, including multidimensional index packing.
-- [ ] Select the semantic-validation replacement and prove how corrupt cached
+- [x] Select the semantic-validation replacement and prove how corrupt cached
   output falls back without restoring a public typed failure.
-- [ ] Decide deterministic error-output caching and document the exact status,
+- [x] Decide deterministic error-output caching and document the exact status,
   output, and retry behavior for cache hits and local builds.
-- [ ] Prove the builder migration preserves action schema-2 canonical bytes and
+- [x] Prove the builder migration preserves action schema-2 canonical bytes and
   record the cache-record, function, and output schema changes plus whether any
   bounded legacy reader exists.
-- [ ] Capture current canonical action bytes, record bytes, output sizes, cold
+- [x] Capture current canonical action bytes, record bytes, output sizes, cold
   and warm timings, source-read counts, and retained-buffer behavior as the
   migration baseline.
 
@@ -268,13 +295,13 @@ compatibility choice remains implicit.
 
 ### Stage 1: Add bounded Compact Binary to Core
 
-- [ ] Implement immutable owned/view field, object, and array types with a
+- [x] Implement immutable owned/view field, object, and array types with a
   canonical writer and bounded validator in Core.
-- [ ] Enforce canonical numeric widths, byte order, object field ordering,
+- [x] Enforce canonical numeric widths, byte order, object field ordering,
   duplicate rejection, depth/count/byte limits, and owner-retaining views.
-- [ ] Add golden byte, round-trip, malformed input, boundary, ownership,
+- [x] Add golden byte, round-trip, malformed input, boundary, ownership,
   endianness, float, ordering, and allocation-failure tests.
-- [ ] Document the Compact Binary contract in the owning Core serialization
+- [x] Document the Compact Binary contract in the owning Core serialization
   documentation without presenting this plan as the long-lived specification.
 
 Depends on Stage 0. Complete when Core tests prove deterministic bounded
@@ -282,15 +309,15 @@ encoding and DerivedDataCache can consume the API without a reverse dependency.
 
 ### Stage 2: Introduce value identities and the new cache value model
 
-- [ ] Add `FValueId`, `FValue`, `FValueWithId`, and `FBuildValueKey` with null,
+- [x] Add `FValueId`, `FValue`, `FValueWithId`, and `FBuildValueKey` with null,
   comparison, hash, name/hash construction, and indexed-ID tests.
-- [ ] Split named input blocks from ID-addressed output values.
-- [ ] Change `FBuildOutput` lookup and ordering to `FValueId`; add stable family
+- [x] Split named input blocks from ID-addressed output values.
+- [x] Change `FBuildOutput` lookup and ordering to `FValueId`; add stable family
   ID declarations and collision/duplicate tests.
-- [ ] Update cache records to the selected envelope schema, preserving content
+- [x] Update cache records to the selected envelope schema, preserving content
   hashes, optional retained data, limits, raw/compressed round trips, and corrupt
   record rejection.
-- [ ] Measure descriptor size and lookup behavior against current string IDs.
+- [x] Measure descriptor size and lookup behavior against current string IDs.
 
 Depends on Stages 0-1. Complete when all values round-trip through raw and
 compressed records with fixed IDs and no producer still persists a string value
@@ -298,16 +325,16 @@ identifier.
 
 ### Stage 3: Add immutable builders and service factories
 
-- [ ] Add move-only definition, action, inputs, and output builders created by
+- [x] Add move-only definition, action, inputs, and output builders created by
   `IBuild` and backed by private immutable state.
-- [ ] Replace public vector construction of constants and outputs with builder
+- [x] Replace public vector construction of constants and outputs with builder
   methods that reject invalid or duplicate entries at insertion/freeze.
-- [ ] Retain `FBuildConstantValue` as the constant representation, expose typed
+- [x] Retain `FBuildConstantValue` as the constant representation, expose typed
   builder overloads and lookup/ordered iteration, and do not leak mutable
   backing containers.
-- [ ] Preserve action schema 2 and add golden identity tests proving byte-for-byte
+- [x] Preserve action schema 2 and add golden identity tests proving byte-for-byte
   compatibility, insertion-order independence, and type/value sensitivity.
-- [ ] Keep debug names out of identity and bound every builder-owned table and
+- [x] Keep debug names out of identity and bound every builder-owned table and
   byte allocation.
 
 Depends on Stages 1-2. Complete when callers cannot construct a valid definition,
@@ -315,15 +342,15 @@ action, inputs container, or output except through its validated builder path.
 
 ### Stage 4: Move build results and deterministic errors into context
 
-- [ ] Change `IBuildFunction::Build` to `void Build(FBuildContext&) const` and
+- [x] Change `IBuildFunction::Build` to `void Build(FBuildContext&) const` and
   give Context `FindConstant`, `FindInput`, `AddValue`, `AddMeta`, message, error,
   cancellation, and resource-query APIs.
-- [ ] Freeze output after synchronous function return and enforce that error
+- [x] Freeze output after synchronous function return and enforce that error
   output has messages but no values.
-- [ ] Remove public typed producer failure from completion; keep bounded
+- [x] Remove public typed producer failure from completion; keep bounded
   executor-only diagnostics for infrastructure and recovery analysis.
-- [ ] Implement the selected validation and deterministic error-cache behavior.
-- [ ] Test duplicate output IDs, writes after return, error-after-value,
+- [x] Implement the selected validation and deterministic error-cache behavior.
+- [x] Test duplicate output IDs, writes after return, error-after-value,
   cancellation, exceptions, corrupt cache fallback, deterministic message
   ordering, and exactly-once completion.
 
@@ -332,16 +359,16 @@ to read all deterministic inputs and publish every deterministic result.
 
 ### Stage 5: Migrate all producer families and consumers
 
-- [ ] Migrate Texture2D, TextureCube, and VolumeTexture to builder-owned variant
+- [x] Migrate Texture2D, TextureCube, and VolumeTexture to builder-owned variant
   constants, named input lookup, Compact Binary metadata, fixed output IDs,
   Context output writes, and deterministic messages.
-- [ ] Migrate StaticMesh render and physics collision while preserving source
+- [x] Migrate StaticMesh render and physics collision while preserving source
   capture, reconciliation, working-set bounds, typed assembly, and Cook bytes.
-- [ ] Migrate ShaderBuild while preserving dependency closure verification,
+- [x] Migrate ShaderBuild while preserving dependency closure verification,
   compiler scheduling, single-flight, LRU, cancellation, and compiler messages.
-- [ ] Replace family mappings from `FBuildFailure` with status/output-message
+- [x] Replace family mappings from `FBuildFailure` with status/output-message
   handling that never parses message text for correctness.
-- [ ] Preserve one persistent session per owning service and verify warm hits do
+- [x] Preserve one persistent session per owning service and verify warm hits do
   not resolve source payloads.
 
 Depends on Stage 4. Complete when every production family uses only the new
@@ -349,20 +376,20 @@ Context contract and all publication gates remain owner-controlled.
 
 ### Stage 6: Remove legacy surfaces and qualify compatibility
 
-- [ ] Delete direct public vector construction with `FBuildConstant`,
+- [x] Delete direct public vector construction with `FBuildConstant`,
   `FBuildOutputData`, string output IDs, `FBuildFailure`,
   `FBuildFunctionResult`, public `IBuildFunction::Validate`, and superseded
   validation-receipt plumbing after all consumers migrate; retain the bounded
   `FBuildConstantValue` variant behind builder/context APIs.
-- [ ] Search every declared project for direct mutable output construction,
+- [x] Search every declared project for direct mutable output construction,
   typed generic failure inspection, legacy action schema assumptions, and
   string output value IDs.
-- [ ] Verify package/Cook byte identity, family output behavior, cache miss/hit,
+- [x] Verify package/Cook byte identity, family output behavior, cache miss/hit,
   force-build, error output, corruption recovery, cancellation, reload, drain,
   and shutdown behavior.
-- [ ] Run affected native-test batches and the required shared Engine API `all`
+- [x] Run affected native-test batches and the required shared Engine API `all`
   build using the repository build and testing workflows.
-- [ ] Run CPU qualification for texture, StaticMesh, physics, and ShaderBuild;
+- [x] Run CPU qualification for texture, StaticMesh, physics, and ShaderBuild;
   investigate action-size, record-size, cold/warm time, memory, source-read, and
   retained-buffer regressions before closing the stage.
 
@@ -371,15 +398,15 @@ and all changed project targets pass.
 
 ### Stage 7: Publish the implemented contract
 
-- [ ] Update the Derived Data Build Protocol and affected family contracts with
+- [x] Update the Derived Data Build Protocol and affected family contracts with
   the implemented builders, context, errors, value IDs, cache compatibility, and
   validation ownership.
-- [ ] Record exact validation commands, target counts, qualification results,
+- [x] Record exact validation commands, target counts, qualification results,
   platform coverage, compatibility decisions, and intentional deferrals in this
   plan.
-- [ ] Run changed-document and all-plan validation and close only evidence-backed
+- [x] Run changed-document and all-plan validation and close only evidence-backed
   checklists.
-- [ ] Mark the plan completed only after lasting rules live in their owning
+- [x] Mark the plan completed only after lasting rules live in their owning
   Runtime, Development, and Core documentation.
 
 Depends on Stage 6. Complete when documentation and validation describe the
@@ -387,26 +414,26 @@ implemented contract without relying on this active plan as runtime authority.
 
 ## Acceptance Gates
 
-- [ ] A build function returns `void`, reads constants/inputs only through
+- [x] A build function returns `void`, reads constants/inputs only through
   `FBuildContext`, and publishes values/messages only through Context.
-- [ ] Deterministic build errors are output messages, error output contains no
+- [x] Deterministic build errors are output messages, error output contains no
   values, infrastructure failure is not cacheable output, and cancellation is a
   distinct terminal status.
-- [ ] Constants retain the bounded variant and schema-2 canonical encoding;
+- [x] Constants retain the bounded variant and schema-2 canonical encoding;
   builder/context adoption produces byte-identical action identity for unchanged
   definitions.
-- [ ] Durin's bounded Compact Binary implementation owns structured output
+- [x] Durin's bounded Compact Binary implementation owns structured output
   metadata without becoming the build-constant representation in this plan.
-- [ ] Output values use stable 12-byte IDs, inputs retain names, and no persisted
+- [x] Output values use stable 12-byte IDs, inputs retain names, and no persisted
   output value uses a dynamic string ID.
-- [ ] Action schema-2 bytes remain stable for unchanged definitions; the
+- [x] Action schema-2 bytes remain stable for unchanged definitions; the
   cache-record schema transition is explicit, tested, and does not silently
   reinterpret legacy bytes.
-- [ ] Corrupt cache data falls back according to policy, invalid fresh output is
+- [x] Corrupt cache data falls back according to policy, invalid fresh output is
   never persisted, and the selected validation boundary performs no unsafe
   trusted bypass.
-- [ ] Texture, StaticMesh, physics, and Shader behavior, package/Cook bytes,
+- [x] Texture, StaticMesh, physics, and Shader behavior, package/Cook bytes,
   publication checks, warm source avoidance, and retained-buffer properties are
   preserved.
-- [ ] Affected tests, CPU qualifications, shared API `all` build, documentation
+- [x] Affected tests, CPU qualifications, shared API `all` build, documentation
   validation, and exact legacy-symbol searches pass on the selected host.

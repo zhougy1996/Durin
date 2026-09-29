@@ -12,7 +12,8 @@ namespace Durin::ShaderSharedOutput
 		constexpr uint32 MaximumDescriptorIndex = 65535;
 		constexpr uint32 MaximumPushBytes = 65536;
 		constexpr uint64 MaximumStringBytes = 32768;
-		constexpr uint64 MaximumMetadataBytes = 4 + 32 * (2 * (8 + MaximumStringBytes) + 4 + 16);
+		constexpr uint64 MaximumMetadataBytes = 4 + 8 + MaximumStringBytes
+			+ 32 * (2 * (8 + MaximumStringBytes) + 4 + 16);
 		auto Failure(EShaderError Code, uint64 Index = 0) -> std::unexpected<FShaderError>
 		{ return std::unexpected(FShaderError{.Code = Code, .Index = Index}); }
 		auto ValidFlags(uint32 Flags) -> bool
@@ -35,7 +36,8 @@ namespace Durin::ShaderSharedOutput
 		}
 		auto ValidRequest(const FShaderCompileOptions& Options) -> bool
 		{
-			if (Options.EntryPoints.empty() || Options.EntryPoints.size() > ShaderCompiledOutput::MaximumEntryPoints
+			if (Options.VirtualShaderPath.size() > MaximumStringBytes
+				|| Options.EntryPoints.empty() || Options.EntryPoints.size() > ShaderCompiledOutput::MaximumEntryPoints
 				|| Options.Frequencies.size() != Options.EntryPoints.size()) return false;
 			std::set<std::pair<std::string_view, uint32>> Unique;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
@@ -95,35 +97,23 @@ namespace Durin::ShaderSharedOutput
 			FXxHash128 Hash;
 			FSharedByteBuffer Code, Reflection;
 		};
-		struct FValidatedShaderReceipt final : FBuildValidationReceipt
-		{
-			FBuildOutput Output;
-			std::string VirtualPath;
-			FShaderCompilerOutput Product;
-			auto Matches(const FShaderCompileOptions& Options, const FBuildOutput& Candidate) const -> bool
-			{
-				if (!Output.SharesStateWith(Candidate) || VirtualPath != Options.VirtualShaderPath
-					|| Product.CompiledShaders.size() != Options.EntryPoints.size()
-					|| Options.Frequencies.size() != Options.EntryPoints.size()) return false;
-				for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
-					if (!Options.EntryPoints[Index]
-						|| Product.CompiledShaders[Index].SourceEntryPoint != Options.EntryPoints[Index]
-						|| Product.CompiledShaders[Index].Frequency != Options.Frequencies[Index]) return false;
-				return true;
-			}
-		};
+		auto ValueId(uint32 Index, bool Reflection) -> FValueId
+		{ return FValueId::FromName("Durin.Shader.EntryValue").MakeIndexed(Index * 2 + uint32(Reflection)); }
 		auto ReadLayout(const FShaderCompileOptions& Options, const FBuildOutput& Output,
 			const std::function<bool()>& Cancel) -> std::expected<std::vector<FEntry>, FShaderError>
 		{
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 			if (!ValidRequest(Options)) return Failure(EShaderError::PayloadRequestInvalid);
-			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 1
-				|| Output.GetMetadata().size() > MaximumMetadataBytes
+			const auto Metadata = GetBuildMetadataPayload(Output);
+			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 3
+				|| Metadata.size() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes}))
 				return Failure(EShaderError::PayloadHeaderInvalid);
-			FBinaryReader Reader(Output.GetMetadata().GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
-			uint32 Count = 0;
-			if (!Reader.ReadU32(Count) || Count != Options.EntryPoints.size() || Output.GetValues().size() != Count * 2)
+			FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
+			uint32 Count = 0; std::string VirtualShaderPath;
+			if (!Reader.ReadU32(Count) || !Reader.ReadString(VirtualShaderPath, MaximumStringBytes)
+				|| VirtualShaderPath != Options.VirtualShaderPath
+				|| Count != Options.EntryPoints.size() || Output.GetValues().size() != Count * 2)
 				return Failure(EShaderError::PayloadHeaderInvalid);
 			std::vector<FEntry> Entries; Entries.reserve(Count);
 			for (uint32 Index = 0; Index < Count; ++Index)
@@ -135,13 +125,12 @@ namespace Durin::ShaderSharedOutput
 					|| Entry.SourceName != Options.EntryPoints[Index] || Entry.BinaryName.empty()
 					|| Frequency != uint32(Options.Frequencies[Index])) return Failure(EShaderError::PayloadEntryInvalid, Index);
 				Entry.Frequency = EShaderFrequency(Frequency);
-				const auto Prefix = "Entry/" + std::to_string(Index);
-				const auto* Code = Output.FindValue(Prefix + "/Code");
-				const auto* Reflection = Output.FindValue(Prefix + "/Reflection");
+				const auto* Code = Output.FindValue(ValueId(Index, false));
+				const auto* Reflection = Output.FindValue(ValueId(Index, true));
 				if (!Code || !Reflection) return Failure(EShaderError::PayloadEntryInvalid, Index);
-				if (!ValidCode(Code->Data.GetBytes())) return Failure(EShaderError::PayloadSpirvInvalid, Index);
-				if (FXxHash128::HashBuffer(Code->Data.GetBytes()) != Entry.Hash) return Failure(EShaderError::PayloadSpirvHashMismatch, Index);
-				Entry.Code = Code->Data; Entry.Reflection = Reflection->Data;
+				if (!ValidCode(Code->GetData().GetBytes())) return Failure(EShaderError::PayloadSpirvInvalid, Index);
+				if (Code->GetRawHash() != Entry.Hash) return Failure(EShaderError::PayloadSpirvHashMismatch, Index);
+				Entry.Code = Code->GetData(); Entry.Reflection = Reflection->GetData();
 				Entries.push_back(std::move(Entry));
 			}
 			if (!Reader.IsAtEnd()) return Failure(EShaderError::PayloadTrailingBytes);
@@ -154,9 +143,10 @@ namespace Durin::ShaderSharedOutput
 	{
 		if (!Product || !ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
 			return Failure(EShaderError::PayloadRequestInvalid);
-		FBuildOutputData Data{.Schema = "Shader.Output", .SchemaVersion = 1};
+		FBuildOutputBuilder Output("Shader.Output", 3, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
 		uint64 DataBytes = 0;
-		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes}); Metadata.WriteU32(uint32(Product.CompiledShaders.size()));
+		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
+		Metadata.WriteU32(uint32(Product.CompiledShaders.size())); Metadata.WriteString(Options.VirtualShaderPath);
 		for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
 		{
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
@@ -192,23 +182,22 @@ namespace Durin::ShaderSharedOutput
 			}
 			if (Descriptor.HasError()) return Failure(EShaderError::PayloadTooLarge, Index);
 			DataBytes += Shader.Code->size() + Descriptor.Tell();
-			const auto Prefix = "Entry/" + std::to_string(Index);
-			Data.Values.push_back({Prefix + "/Code", *Shader.Code});
-			Data.Values.push_back({Prefix + "/Reflection", FSharedByteBuffer::Take(Descriptor.TakeBytes())});
+			Output.AddValue(ValueId(uint32(Index), false), *Shader.Code);
+			Output.AddValue(ValueId(uint32(Index), true), FSharedByteBuffer::Take(Descriptor.TakeBytes()));
 		}
 		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 		if (Metadata.HasError()) return Failure(EShaderError::PayloadTooLarge);
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
-		if (!Output) return Failure(EShaderError::PayloadTooLarge);
-		return std::move(*Output);
+		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return Failure(EShaderError::PayloadTooLarge);
+		auto Built = std::move(Output).Build(); if (!Built) return Failure(EShaderError::PayloadTooLarge);
+		return std::move(*Built);
 	}
 
+	auto AssembleImpl(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel)
+		-> std::expected<FShaderCompilerOutput, FShaderError>;
 	auto Validate(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel) -> FShaderOperationResult
 	{
-		auto Receipt = ValidateWithReceipt(Options, Output, Cancel);
-		if (!Receipt) return std::unexpected(std::move(Receipt.error()));
-		return {};
+		auto Product = AssembleImpl(Options, Output, Cancel); if (!Product) return std::unexpected(std::move(Product.error())); return {};
 	}
 
 	auto AssembleImpl(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel)
@@ -231,30 +220,8 @@ namespace Durin::ShaderSharedOutput
 		return Product;
 	}
 
-	auto ValidateWithReceipt(const FShaderCompileOptions& Options, const FBuildOutput& Output,
-		const std::function<bool()>& Cancel)
-		-> std::expected<std::shared_ptr<const FBuildValidationReceipt>, FShaderError>
-	{
-		auto Product = AssembleImpl(Options, Output, Cancel);
-		if (!Product) return std::unexpected(std::move(Product.error()));
-		try
-		{
-			auto Receipt = std::make_shared<FValidatedShaderReceipt>();
-			Receipt->Output = Output; Receipt->VirtualPath = Options.VirtualShaderPath;
-			Receipt->Product = std::move(*Product);
-			return std::shared_ptr<const FBuildValidationReceipt>(std::move(Receipt));
-		}
-		catch (const std::bad_alloc&) { return Failure(EShaderError::PayloadTooLarge); }
-	}
-
 	auto Assemble(const FShaderCompileOptions& Options, const FBuildOutput& Output,
-		const std::function<bool()>& Cancel, const FBuildValidationReceipt* Receipt)
+		const std::function<bool()>& Cancel)
 		-> std::expected<FShaderCompilerOutput, FShaderError>
-	{
-		if (!Receipt) return AssembleImpl(Options, Output, Cancel);
-		const auto* Validated = dynamic_cast<const FValidatedShaderReceipt*>(Receipt);
-		if (!Validated || !Validated->Matches(Options, Output)) return Failure(EShaderError::PayloadRequestInvalid);
-		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
-		return Validated->Product;
-	}
+	{ return AssembleImpl(Options, Output, Cancel); }
 }

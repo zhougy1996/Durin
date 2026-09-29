@@ -24,7 +24,7 @@ namespace Durin
 		uint32 MaximumResolution = 0;
 		float AlphaCoverageThreshold = 0.5f;
 		uint32 BuilderVersion = Texture2DBuilderVersion;
-		uint32 OutputSchemaVersion = 1;
+		uint32 OutputSchemaVersion = 2;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
@@ -46,7 +46,7 @@ namespace Durin
 		float ExposureEV = 0.0f;
 		bool bSRGB = true;
 		uint32 BuilderVersion = TextureCubeBuilderVersion;
-		uint32 OutputSchemaVersion = 1;
+		uint32 OutputSchemaVersion = 2;
 		uint32 ProjectionVersion = TextureCubeProjectionVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;

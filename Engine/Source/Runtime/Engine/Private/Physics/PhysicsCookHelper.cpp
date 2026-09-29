@@ -70,11 +70,10 @@ namespace Durin
 			return std::unexpected(FPhysicsCookFailure::Cancelled());
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& Error = *Completion.GetFailure();
-			const auto Stage = (Error.Reason == DerivedData::EBuildFailureReason::InvalidInput
-				|| Error.Operation == DerivedData::EBuildOperation::Resolve || Error.Operation == DerivedData::EBuildOperation::Describe)
-				? EPhysicsCookStage::Input : EPhysicsCookStage::Cook;
-			return std::unexpected(FPhysicsCookFailure{Error.Description, Stage});
+			std::string Description = "Physics derived-data build failed.";
+			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
+			else if (!Completion.GetReport().Diagnostics.empty()) Description = Completion.GetReport().Diagnostics.back().Error.Diagnostic;
+			return std::unexpected(FPhysicsCookFailure{std::move(Description), EPhysicsCookStage::Cook});
 		}
 		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion.GetOutput(), Input.GetMode(), Input.GetPolicy(), Cancel);
 		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());

@@ -120,6 +120,33 @@ namespace Durin
 				std::filesystem::create_directories(GetRoot() / "Manifests");
 			}
 		};
+
+		struct FMutableShaderOutput
+		{
+			std::string Schema;
+			uint32 SchemaVersion = 0;
+			FSharedByteBuffer Metadata;
+			std::vector<std::pair<DerivedData::FValueId, FSharedByteBuffer>> Values;
+			auto Build() && -> std::expected<DerivedData::FBuildOutput, std::string>
+			{
+				DerivedData::FBuildOutputBuilder Builder(std::move(Schema), SchemaVersion);
+				auto Object = DerivedData::MakeBuildMetadata(Metadata);
+				if (!Object || !Builder.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Object)))
+					return std::unexpected("Invalid test metadata.");
+				for (auto& [Id, Data] : Values) if (!Builder.AddValue(Id, std::move(Data)))
+					return std::unexpected("Invalid test value.");
+				return std::move(Builder).Build();
+			}
+		};
+		auto CopyShaderOutput(const DerivedData::FBuildOutput& Output) -> FMutableShaderOutput
+		{
+			FMutableShaderOutput Copy{.Schema = std::string(Output.GetSchema()), .SchemaVersion = Output.GetSchemaVersion(),
+				.Metadata = DerivedData::GetBuildMetadataPayload(Output)};
+			for (const auto& Value : Output.GetValues()) Copy.Values.emplace_back(Value.Id, Value.Value.GetData());
+			return Copy;
+		}
+		auto ShaderValueId(uint32 Entry, bool Reflection) -> DerivedData::FValueId
+		{ return DerivedData::FValueId::FromName("Durin.Shader.EntryValue").MakeIndexed(Entry * 2 + uint32(Reflection)); }
 	}
 
 	TEST_F(FShaderDerivedDataTests, CompleteMultiStagePayloadRoundTrips)
@@ -249,9 +276,10 @@ namespace Durin
 				[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError> { return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{}); });
 			if (!Request) return {};
 			const auto Identities = Request->Inputs.GetIdentities();
-			auto Action = DerivedData::FBuildAction::TryCreate(Request->Definition,
-				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 1, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")},
-				std::vector<DerivedData::FBuildInputReference>(Identities.begin(), Identities.end()));
+			DerivedData::FBuildActionBuilder Builder(Request->Definition,
+				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 3, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")});
+			for (const auto& Identity : Identities) Builder.AddInput(Identity);
+			auto Action = std::move(Builder).Build();
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
 		};
 		const auto First = Key(Options);
@@ -344,7 +372,7 @@ namespace Durin
 		auto Product = MakeOutput();
 		const auto* Bytes = Product.CompiledShaders[0].Code->data();
 		auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
-		EXPECT_EQ(Output->FindValue("Entry/0/Code")->Data.data(), Bytes);
+		EXPECT_EQ(Output->FindValue(ShaderValueId(0, false))->GetData().data(), Bytes);
 		Product = {};
 		ASSERT_TRUE(ShaderSharedOutput::Validate(Options, *Output));
 		auto Assembled = ShaderSharedOutput::Assemble(Options, *Output); ASSERT_TRUE(Assembled);
@@ -356,24 +384,17 @@ namespace Durin
 		EXPECT_EQ(Waiter.CompiledShaders[0].Reflection.ResourceBindings, MakeOutput().CompiledShaders[0].Reflection.ResourceBindings);
 	}
 
-	TEST_F(FShaderDerivedDataTests, ValidationReceiptIsBoundToOutputAndRequest)
+	TEST_F(FShaderDerivedDataTests, IndependentlyBuiltOutputIsValidatedAgainstRequest)
 	{
 		using namespace DerivedData;
 		auto Options = MakeOptions();
 		auto Output = ShaderSharedOutput::Make(Options, MakeOutput()); ASSERT_TRUE(Output);
-		auto Receipt = ShaderSharedOutput::ValidateWithReceipt(Options, *Output);
-		ASSERT_TRUE(Receipt);
-		EXPECT_TRUE(ShaderSharedOutput::Assemble(Options, *Output, {}, Receipt->get()));
-
-		FBuildOutputData Data{.Schema = std::string(Output->GetSchema()),
-			.SchemaVersion = Output->GetSchemaVersion(), .Metadata = Output->GetMetadata(),
-			.Values = {Output->GetValues().begin(), Output->GetValues().end()}};
-		auto Clone = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Clone);
+		auto Clone = std::move(CopyShaderOutput(*Output)).Build(); ASSERT_TRUE(Clone);
 		EXPECT_FALSE(Clone->SharesStateWith(*Output));
-		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Clone, {}, Receipt->get()));
+		EXPECT_TRUE(ShaderSharedOutput::Assemble(Options, *Clone));
 		auto OtherOptions = Options;
 		OtherOptions.VirtualShaderPath += ".other";
-		EXPECT_FALSE(ShaderSharedOutput::Assemble(OtherOptions, *Output, {}, Receipt->get()));
+		EXPECT_FALSE(ShaderSharedOutput::Assemble(OtherOptions, *Output));
 	}
 
 	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsRawAndCompressedRecordCodeWithoutPackageChanges)
@@ -393,7 +414,7 @@ namespace Durin
 			ASSERT_TRUE(Encoded);
 			auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 			auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
-			const auto* Code = Warm->FindValue("Entry/0/Code")->Data.data();
+			const auto* Code = Warm->FindValue(ShaderValueId(0, false))->GetData().data();
 			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
 			EXPECT_EQ(Assembled->CompiledShaders[0].Code->data(), Code);
 			Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
@@ -410,26 +431,25 @@ namespace Durin
 		for (uint32 Fault = 0; Fault < 9; ++Fault)
 		{
 			SCOPED_TRACE(Fault);
-			FBuildOutputData Data{.Schema = std::string(Output->GetSchema()), .SchemaVersion = Output->GetSchemaVersion(),
-				.Metadata = Output->GetMetadata(), .Values = {Output->GetValues().begin(), Output->GetValues().end()}};
+			auto Data = CopyShaderOutput(*Output);
 			if (Fault == 0) ++Data.SchemaVersion;
 			if (Fault == 1) Data.Metadata = FSharedByteBuffer::Copy(Data.Metadata.GetBytes().first(4));
 			if (Fault == 2) Data.Values.pop_back();
-			if (Fault == 3) Data.Values.push_back({"Unexpected", FSharedByteBuffer::Take(FByteBuffer(1))});
-			if (Fault >= 4) for (auto& Value : Data.Values)
+			if (Fault == 3) Data.Values.push_back({FValueId::FromName("Unexpected"), FSharedByteBuffer::Take(FByteBuffer(1))});
+			if (Fault >= 4) for (auto& [Id, Value] : Data.Values)
 			{
-				if ((Fault < 6 && Value.Id == "Entry/0/Code") || (Fault >= 6 && Value.Id == "Entry/0/Reflection"))
+				if ((Fault < 6 && Id == ShaderValueId(0, false)) || (Fault >= 6 && Id == ShaderValueId(0, true)))
 				{
-					FByteBuffer Bytes(Value.Data.begin(), Value.Data.end());
+					FByteBuffer Bytes(Value.begin(), Value.end());
 					if (Fault == 4) Bytes[0] ^= std::byte{1};
 					if (Fault == 5) Bytes[12] ^= std::byte{1};
 					if (Fault == 6) WriteU32At(Bytes, 0, 65537);
 					if (Fault == 7) Bytes.pop_back();
 					if (Fault == 8) Bytes.push_back(std::byte{});
-					Value.Data = FSharedByteBuffer::Take(std::move(Bytes));
+					Value = FSharedByteBuffer::Take(std::move(Bytes));
 				}
 			}
-			auto Bad = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Bad);
+			auto Bad = std::move(Data).Build(); ASSERT_TRUE(Bad);
 			EXPECT_FALSE(ShaderSharedOutput::Validate(Options, *Bad));
 			EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Bad));
 		}

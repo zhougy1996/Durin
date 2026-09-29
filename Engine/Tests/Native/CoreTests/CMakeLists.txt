@@ -11,6 +11,7 @@ durin_add_native_test(CoreUtilityTests
 		Private/BinaryEnvelopeTests.cpp
 		Private/CheckedArithmeticTests.cpp
 		Private/ColorTests.cpp
+		Private/CompactBinaryTests.cpp
 		Private/DisabledProfilingTests.cpp
 		Private/ConsoleCommandTests.cpp
 		Private/GuidTests.cpp

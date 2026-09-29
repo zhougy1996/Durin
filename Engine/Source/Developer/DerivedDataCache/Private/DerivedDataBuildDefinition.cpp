@@ -160,6 +160,23 @@ namespace Durin::DerivedData
 		Result.Sources = std::move(Sources);
 		return Result;
 	}
+	auto FBuildDefinitionBuilder::Add(std::string Name, FBuildConstantValue Value) -> FBuildDefinitionBuilder&
+	{
+		if (!Error && std::ranges::any_of(Constants, [&](const auto& Item) { return Item.Name == Name; })) Error = FBuildDefinitionError{EBuildDefinitionError::DuplicateName, Name};
+		else if (!Error) Constants.push_back({std::move(Name), std::move(Value)}); return *this;
+	}
+	auto FBuildDefinitionBuilder::AddConstant(std::string N, bool V) -> FBuildDefinitionBuilder& { return Add(std::move(N), V); }
+	auto FBuildDefinitionBuilder::AddConstant(std::string N, uint64 V) -> FBuildDefinitionBuilder& { return Add(std::move(N), V); }
+	auto FBuildDefinitionBuilder::AddConstant(std::string N, float V) -> FBuildDefinitionBuilder& { return Add(std::move(N), V); }
+	auto FBuildDefinitionBuilder::AddConstant(std::string N, std::string V) -> FBuildDefinitionBuilder& { return Add(std::move(N), std::move(V)); }
+	auto FBuildDefinitionBuilder::AddConstant(std::string N, FXxHash128 V) -> FBuildDefinitionBuilder& { return Add(std::move(N), V); }
+	auto FBuildDefinitionBuilder::AddInput(std::string Name, std::string Source) -> FBuildDefinitionBuilder&
+	{
+		if (!Error && std::ranges::any_of(Sources, [&](const auto& Item) { return Item.Name == Name; })) Error = FBuildDefinitionError{EBuildDefinitionError::DuplicateName, Name};
+		else if (!Error) Sources.push_back({std::move(Name), std::move(Source)}); return *this;
+	}
+	auto FBuildDefinitionBuilder::Build() && -> std::expected<FBuildDefinition, FBuildDefinitionError>
+	{ if (Error) return std::unexpected(std::move(*Error)); return FBuildDefinition::TryCreate(std::move(FunctionName), std::move(Constants), std::move(Sources)); }
 
 	auto FBuildAction::TryCreate(const FBuildDefinition& Definition,
 		FBuildFunctionDescriptor Function, std::vector<FBuildInputReference> Inputs)
@@ -183,4 +200,11 @@ namespace Durin::DerivedData
 		Result.Key = FCacheKey::FromHash(Result.Function.Bucket, FXxHash128::HashBuffer(Result.CanonicalBytes));
 		return Result;
 	}
+	auto FBuildActionBuilder::AddInput(FBuildInputReference Input) -> FBuildActionBuilder&
+	{
+		if (!Error && std::ranges::any_of(Inputs, [&](const auto& Item) { return Item.Name == Input.Name; })) Error = FBuildDefinitionError{EBuildDefinitionError::DuplicateName, Input.Name};
+		else if (!Error) Inputs.push_back(std::move(Input)); return *this;
+	}
+	auto FBuildActionBuilder::Build() && -> std::expected<FBuildAction, FBuildDefinitionError>
+	{ if (Error) return std::unexpected(std::move(*Error)); return FBuildAction::TryCreate(Definition, std::move(Function), std::move(Inputs)); }
 }

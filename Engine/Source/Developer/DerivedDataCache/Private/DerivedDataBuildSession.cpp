@@ -128,9 +128,7 @@ namespace Durin::DerivedData
 				}
 				catch (...)
 				{
-					Completion = FBuildCompleteParams::Error({.Reason = EBuildFailureReason::InternalFailure,
-						.Operation = EBuildOperation::Build, .Description = "Build callable threw an exception."},
-						std::nullopt, EBuildStatus::None, {});
+					Completion = FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, {});
 				}
 				Work.reset();
 				Finish(std::move(Completion));
@@ -231,11 +229,7 @@ namespace Durin::DerivedData
 			auto Added = State->Registry.Register(std::move(Function));
 			if (!Added)
 			{
-				const auto Reason = Added.error().Reason == EBuildFailureReason::ResourceExhaustion
-					? EBuildAdmissionReason::Capacity
-					: Added.error().Reason == EBuildFailureReason::InternalFailure
-						? EBuildAdmissionReason::InternalFailure : EBuildAdmissionReason::InvalidRequest;
-				return std::unexpected(FBuildAdmissionError{Reason, Added.error().Description});
+				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, std::move(Added.error())});
 			}
 			return {};
 		}
@@ -247,7 +241,7 @@ namespace Durin::DerivedData
 			if (!State->Snapshot)
 			{
 				auto Frozen = State->Registry.Freeze();
-				if (!Frozen) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, Frozen.error().Description});
+				if (!Frozen) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Frozen.error())});
 				State->Snapshot = std::move(*Frozen);
 			}
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();

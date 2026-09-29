@@ -22,10 +22,9 @@ namespace Durin
 		auto Failure(std::string Description, DerivedData::EBuildOperation Operation = DerivedData::EBuildOperation::Admission)
 			-> DerivedData::FBuildCompleteParams
 		{
-			return DerivedData::FBuildCompleteParams::Error({
-				.Reason = DerivedData::EBuildFailureReason::InputUnavailable,
-				.Operation = Operation, .Description = std::move(Description)},
-				std::nullopt, DerivedData::EBuildStatus::None, {});
+			DerivedData::FBuildExecutionReport Report;
+			Report.Diagnostics.push_back({Operation, {DerivedData::ECacheError::InvalidRequest, std::move(Description)}});
+			return DerivedData::FBuildCompleteParams::Error(std::nullopt, DerivedData::EBuildStatus::None, std::move(Report));
 		}
 	}
 	auto InitializeAssetBuildService() -> bool
@@ -60,11 +59,12 @@ namespace Durin
 			if (!Service || !Session || Stopping) return Failure("Asset build service is not accepting requests.");
 			Persistent = Session;
 		}
-		auto Inputs = DerivedData::FBuildInputs::TryCreate(Definition.GetSources(), std::move(Resolver), Options.Cancellation);
+		auto InputBuilder = DerivedData::FBuildInputsBuilder(Definition.GetSources(), std::move(Resolver));
+		InputBuilder.SetCancellation(Options.Cancellation);
+		auto Inputs = std::move(InputBuilder).Build();
 		if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
 			std::nullopt, DerivedData::EBuildStatus::None, {});
-		if (!Inputs) return DerivedData::FBuildCompleteParams::Error(std::move(Inputs.error()),
-			std::nullopt, DerivedData::EBuildStatus::None, {});
+		if (!Inputs) return Failure(std::move(Inputs.error().Description), DerivedData::EBuildOperation::Describe);
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
 		auto Admitted = Persistent->Build(std::move(Definition), [&](auto Value) {
 			Completion = std::move(Value);

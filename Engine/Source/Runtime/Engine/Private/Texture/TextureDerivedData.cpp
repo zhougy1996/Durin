@@ -136,16 +136,18 @@ namespace Durin
 		using namespace DerivedData;
 		if (!Input.IsValid())
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "Texture2D"});
-		auto Definition = FBuildDefinition::TryCreate("Durin.Texture2D",
-			{{"Usage", uint64(Input.Usage)}, {"SRGB", Input.bSRGB},
-			 {"Quality", uint64(Input.CompressionQuality)}, {"AlphaMode", uint64(Input.AlphaMipMode)},
-			 {"MaximumResolution", uint64(Input.MaximumResolution)}, {"AlphaThreshold", Input.AlphaCoverageThreshold},
-			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
-			{{"Source", "CapturedSource"}});
+		FBuildDefinitionBuilder DefinitionBuilder("Durin.Texture2D");
+		DefinitionBuilder.AddConstant("Usage", uint64(Input.Usage)).AddConstant("SRGB", Input.bSRGB)
+			.AddConstant("Quality", uint64(Input.CompressionQuality)).AddConstant("AlphaMode", uint64(Input.AlphaMipMode))
+			.AddConstant("MaximumResolution", uint64(Input.MaximumResolution)).AddConstant("AlphaThreshold", Input.AlphaCoverageThreshold)
+			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))
+			.AddInput("Source", "CapturedSource");
+		auto Definition = std::move(DefinitionBuilder).Build();
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
-		return FBuildAction::TryCreate(*Definition, {"Durin.Texture2D", Input.BuilderVersion, 1,
-			"Texture2D.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)},
-			{{"Source", Input.SourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1}});
+		FBuildActionBuilder ActionBuilder(*Definition, {"Durin.Texture2D", Input.BuilderVersion, 1,
+			"Texture2D.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)});
+		ActionBuilder.AddInput({"Source", Input.SourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1});
+		return std::move(ActionBuilder).Build();
 	}
 	auto MakeTextureCubeBuildAction(const FTextureCubeBuildKeyInput& Input)
 		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>
@@ -154,10 +156,11 @@ namespace Durin
 		auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition(Input);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
 		const bool Panorama = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
-		return FBuildAction::TryCreate(*Definition, {"Durin.TextureCube", Input.BuilderVersion, 2,
-			"TextureCube.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)},
-			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion,
-				Panorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1}});
+		FBuildActionBuilder Builder(*Definition, {"Durin.TextureCube", Input.BuilderVersion, 2,
+			"TextureCube.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)});
+		Builder.AddInput({"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion,
+			Panorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1});
+		return std::move(Builder).Build();
 	}
 
 	auto MakeVolumeTextureBuildAction(const FVolumeTextureBuildKeyInput& Input)
@@ -166,16 +169,18 @@ namespace Durin
 		using namespace DerivedData;
 		if (!Input.IsValid())
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "VolumeTexture"});
-		auto Definition = FBuildDefinition::TryCreate("Durin.VolumeTexture",
-			{{"Width", uint64(Input.Width)}, {"Height", uint64(Input.Height)}, {"Depth", uint64(Input.Depth)},
-			 {"Format", uint64(Input.Settings.OutputFormat)}, {"MipFilter", uint64(Input.Settings.MipFilter)},
-			 {"SourceSchema", uint64(Input.SourcePayloadSchemaVersion)},
-			 {"TargetPlatform", uint64(Input.TargetPlatform)}, {"TargetProfile", uint64(Input.TargetProfile)}},
-			{{"Source", "CapturedSource"}});
+		FBuildDefinitionBuilder DefinitionBuilder("Durin.VolumeTexture");
+		DefinitionBuilder.AddConstant("Width", uint64(Input.Width)).AddConstant("Height", uint64(Input.Height))
+			.AddConstant("Depth", uint64(Input.Depth)).AddConstant("Format", uint64(Input.Settings.OutputFormat))
+			.AddConstant("MipFilter", uint64(Input.Settings.MipFilter)).AddConstant("SourceSchema", uint64(Input.SourcePayloadSchemaVersion))
+			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))
+			.AddInput("Source", "CapturedSource");
+		auto Definition = std::move(DefinitionBuilder).Build();
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
-		return FBuildAction::TryCreate(*Definition, {"Durin.VolumeTexture", Input.BuilderVersion, 1,
-			"VolumeTexture.Output", 1, FCacheBucket::FromString(VolumeTextureCacheBucket)},
-			{{"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1}});
+		FBuildActionBuilder ActionBuilder(*Definition, {"Durin.VolumeTexture", Input.BuilderVersion, 1,
+			"VolumeTexture.Output", 2, FCacheBucket::FromString(VolumeTextureCacheBucket)});
+		ActionBuilder.AddInput({"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1});
+		return std::move(ActionBuilder).Build();
 	}
 
 #endif

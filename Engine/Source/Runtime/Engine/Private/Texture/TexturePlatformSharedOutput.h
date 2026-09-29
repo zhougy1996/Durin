@@ -13,15 +13,15 @@ namespace Durin::TexturePrivate
 		struct FBlock
 		{
 			uint32 Width = 0, Height = 0, Depth = 1, RowPitch = 0, DepthPitch = 0;
-			const DerivedData::FBuildValue* Value = nullptr;
+			const DerivedData::FValue* Value = nullptr;
 		};
 		EPixelFormat Format = EPixelFormat::Unknown;
 		uint32 MipCount = 0;
 		std::array<FBlock, TextureCubeFaceCount * MaximumTextureMipCount> Blocks;
 	};
 
-	inline auto TexturePlatformValueId(bool Cube, uint32 Face, uint32 Mip) -> std::string
-	{ return Cube ? std::format("Face/{}/Mip/{}", Face, Mip) : std::format("VoxelMip/{}", Mip); }
+	inline auto TexturePlatformValueId(bool Cube, uint32 Face, uint32 Mip) -> DerivedData::FValueId
+	{ return DerivedData::FValueId::FromName(Cube ? "Durin.TextureCube.Block" : "Durin.VolumeTexture.Mip").MakeIndexed(Cube ? Face * MaximumTextureMipCount + Mip : Mip); }
 
 	// Reads descriptors only, with no temporary family product or source acquisition.
 	inline auto ReadTexturePlatformOutputLayout(const DerivedData::FBuildOutput& Output,
@@ -30,10 +30,10 @@ namespace Durin::TexturePrivate
 	{
 		if (Platform != ECookTargetPlatform::Win64
 			|| (Profile != ECookTargetProfile::Game && Profile != ECookTargetProfile::EditorValidation)
-			|| Output.GetSchema() != (Cube ? "TextureCube.Output" : "VolumeTexture.Output") || Output.GetSchemaVersion() != 1)
+			|| Output.GetSchema() != (Cube ? "TextureCube.Output" : "VolumeTexture.Output") || Output.GetSchemaVersion() != 2)
 			return std::unexpected("Texture output schema or target is unsupported.");
 		const uint32 Faces = Cube ? TextureCubeFaceCount : 1;
-		const auto Metadata = Output.GetMetadata();
+		const auto Metadata = DerivedData::GetBuildMetadataPayload(Output);
 		FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = 16 + Faces * MaximumTextureMipCount * (Cube ? 20u : 28u)});
 		uint32 StoredPlatform = 0, StoredProfile = 0, Format = 0;
 		FTexturePlatformOutputLayout Result;
@@ -65,7 +65,7 @@ namespace Durin::TexturePrivate
 				if (!Block.Value || !Slice.DataSize || Slice.RowPitch != Block.RowPitch
 					|| (!Cube && Slice.DataSize != Block.DepthPitch)
 					|| Slice.DataSize > MaximumTexturePayloadBytes / Block.Depth
-					|| Size != Slice.DataSize * Block.Depth || Block.Value->Data.GetSize() != Size)
+					|| Size != Slice.DataSize * Block.Depth || Block.Value->GetRawSize() != Size)
 					return std::unexpected("Texture output block does not match its format and pitches.");
 				if (Mip)
 				{
@@ -93,20 +93,20 @@ namespace Durin::TexturePrivate
 		FBinaryWriter Metadata({.MaximumTotalBytes = 16 + TextureCubeFaceCount * MaximumTextureMipCount * 20});
 		Metadata.WriteU32(static_cast<uint32>(Platform)); Metadata.WriteU32(static_cast<uint32>(Profile));
 		Metadata.WriteU32(static_cast<uint32>(Format)); Metadata.WriteU32(static_cast<uint32>(Product.Faces[0].Mips.size()));
-		DerivedData::FBuildOutputData Data{.Schema = "TextureCube.Output", .SchemaVersion = 1};
+		DerivedData::FBuildOutputBuilder Output("TextureCube.Output", 2, {.MaximumTotalBytes = MaximumTexturePayloadBytes});
 		for (uint32 Face = 0; Face < TextureCubeFaceCount; ++Face)
 			for (uint32 Index = 0; Index < Product.Faces[Face].Mips.size(); ++Index)
 			{
 				const auto& Mip = Product.Faces[Face].Mips[Index];
 				Metadata.WriteU32(Mip.Width); Metadata.WriteU32(Mip.Height); Metadata.WriteU32(Mip.RowPitch); Metadata.WriteU64(Mip.Pixels.GetSize());
-				Data.Values.push_back({TexturePlatformValueId(true, Face, Index), Mip.Pixels});
+				Output.AddValue(TexturePlatformValueId(true, Face, Index), Mip.Pixels);
 			}
 		if (Metadata.HasError()) return std::unexpected("Cube output metadata exceeds its bound.");
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = DerivedData::FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumTexturePayloadBytes});
-		if (!Output) return Output;
-		if (auto Layout = ReadTexturePlatformOutputLayout(*Output, true, Platform, Profile); !Layout) return std::unexpected(std::move(Layout.error()));
-		return Output;
+		auto Meta = DerivedData::MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Cube output metadata is invalid.");
+		auto Built = std::move(Output).Build(); if (!Built) return Built;
+		if (auto Layout = ReadTexturePlatformOutputLayout(*Built, true, Platform, Profile); !Layout) return std::unexpected(std::move(Layout.error()));
+		return Built;
 	}
 
 	inline auto MakeVolumeTextureSharedOutput(const FVolumeTexturePlatformData& Product,
@@ -118,20 +118,20 @@ namespace Durin::TexturePrivate
 		FBinaryWriter Metadata({.MaximumTotalBytes = 16 + MaximumTextureMipCount * 28});
 		Metadata.WriteU32(static_cast<uint32>(Platform)); Metadata.WriteU32(static_cast<uint32>(Profile));
 		Metadata.WriteU32(static_cast<uint32>(Format)); Metadata.WriteU32(static_cast<uint32>(Product.Mips.size()));
-		DerivedData::FBuildOutputData Data{.Schema = "VolumeTexture.Output", .SchemaVersion = 1};
+		DerivedData::FBuildOutputBuilder Output("VolumeTexture.Output", 2, {.MaximumTotalBytes = MaximumTexturePayloadBytes});
 		for (uint32 Index = 0; Index < Product.Mips.size(); ++Index)
 		{
 			const auto& Mip = Product.Mips[Index];
 			Metadata.WriteU32(Mip.Width); Metadata.WriteU32(Mip.Height); Metadata.WriteU32(Mip.Depth);
 			Metadata.WriteU32(Mip.RowPitch); Metadata.WriteU32(Mip.DepthPitch); Metadata.WriteU64(Mip.Voxels.GetSize());
-			Data.Values.push_back({TexturePlatformValueId(false, 0, Index), Mip.Voxels});
+			Output.AddValue(TexturePlatformValueId(false, 0, Index), Mip.Voxels);
 		}
 		if (Metadata.HasError()) return std::unexpected("Volume output metadata exceeds its bound.");
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = DerivedData::FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumTexturePayloadBytes});
-		if (!Output) return Output;
-		if (auto Layout = ReadTexturePlatformOutputLayout(*Output, false, Platform, Profile); !Layout) return std::unexpected(std::move(Layout.error()));
-		return Output;
+		auto Meta = DerivedData::MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Volume output metadata is invalid.");
+		auto Built = std::move(Output).Build(); if (!Built) return Built;
+		if (auto Layout = ReadTexturePlatformOutputLayout(*Built, false, Platform, Profile); !Layout) return std::unexpected(std::move(Layout.error()));
+		return Built;
 	}
 
 	inline auto AssembleTextureCubeSharedOutput(const DerivedData::FBuildOutput& Output,
@@ -146,7 +146,7 @@ namespace Durin::TexturePrivate
 			for (uint32 Index = 0; Index < Layout->MipCount; ++Index)
 			{
 				const auto& Block = Layout->Blocks[Face * Layout->MipCount + Index];
-				Product->Faces[Face].Mips.push_back({.Pixels = Block.Value->Data,
+				Product->Faces[Face].Mips.push_back({.Pixels = Block.Value->GetData(),
 					.Width = Block.Width, .Height = Block.Height, .RowPitch = Block.RowPitch});
 			}
 		}
@@ -161,7 +161,7 @@ namespace Durin::TexturePrivate
 		for (uint32 Index = 0; Index < Layout->MipCount; ++Index)
 		{
 			const auto& Block = Layout->Blocks[Index];
-			Product->Mips.push_back({.Voxels = Block.Value->Data, .Width = Block.Width, .Height = Block.Height,
+			Product->Mips.push_back({.Voxels = Block.Value->GetData(), .Width = Block.Width, .Height = Block.Height,
 				.Depth = Block.Depth, .RowPitch = Block.RowPitch, .DepthPitch = Block.DepthPitch});
 		}
 		return Product;

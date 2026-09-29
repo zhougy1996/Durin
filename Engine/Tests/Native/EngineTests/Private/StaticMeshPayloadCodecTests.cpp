@@ -1320,11 +1320,37 @@ namespace
 		return Product;
 	}
 
-	auto CopyOutputDescriptors(const DerivedData::FBuildOutput& Output) -> DerivedData::FBuildOutputData
+	struct FMutableBuildOutput
 	{
-		return {.Schema = std::string(Output.GetSchema()), .SchemaVersion = Output.GetSchemaVersion(),
-			.Metadata = Output.GetMetadata(), .Values = {Output.GetValues().begin(), Output.GetValues().end()}};
+		std::string Schema;
+		uint32 SchemaVersion = 0;
+		FSharedByteBuffer Metadata;
+		std::vector<std::pair<DerivedData::FValueId, FSharedByteBuffer>> Values;
+		auto Build() && -> std::expected<DerivedData::FBuildOutput, std::string>
+		{
+			DerivedData::FBuildOutputBuilder Builder(std::move(Schema), SchemaVersion);
+			if (!Metadata.IsEmpty())
+			{
+				auto Object = DerivedData::MakeBuildMetadata(Metadata);
+				if (!Object || !Builder.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Object)))
+					return std::unexpected("Invalid test metadata.");
+			}
+			for (auto& [Id, Data] : Values) if (!Builder.AddValue(Id, std::move(Data)))
+				return std::unexpected("Invalid test value.");
+			return std::move(Builder).Build();
+		}
+	};
+	auto CopyOutputDescriptors(const DerivedData::FBuildOutput& Output) -> FMutableBuildOutput
+	{
+		FMutableBuildOutput Copy{.Schema = std::string(Output.GetSchema()), .SchemaVersion = Output.GetSchemaVersion(),
+			.Metadata = DerivedData::GetBuildMetadataPayload(Output)};
+		for (const auto& Value : Output.GetValues()) Copy.Values.emplace_back(Value.Id, Value.Value.GetData());
+		return Copy;
 	}
+	auto StaticMeshStreamId(uint32 Stream) -> DerivedData::FValueId
+	{ return DerivedData::FValueId::FromName("Durin.StaticMesh.Stream").MakeIndexed(Stream); }
+	auto CollisionBlockId(uint32 Geometry, uint32 Array) -> DerivedData::FValueId
+	{ return DerivedData::FValueId::FromName("Durin.Physics.CollisionBlock").MakeIndexed(Geometry * 7 + Array); }
 }
 
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlivesRecipe)
@@ -1352,19 +1378,15 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlives
 	EXPECT_TRUE(ValidateStaticMeshRenderData(**Render));
 }
 
-TEST(FStaticMeshPayloadCodecTests, ValidationReceiptIsBoundToTheExactOutput)
+TEST(FStaticMeshPayloadCodecTests, IndependentlyBuiltOutputIsValidatedDuringAssembly)
 {
 	using namespace DerivedData;
 	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(MakeMultiMaterialFixture()), 2);
 	ASSERT_TRUE(Output) << Output.error();
-	auto Receipt = StaticMeshPrivate::ValidateSharedOutputWithReceipt(*Output, 2);
-	ASSERT_TRUE(Receipt) << Receipt.error();
-	EXPECT_TRUE(StaticMeshPrivate::AssembleSharedOutput(*Output, {}, Receipt->get()));
-
-	auto Clone = FBuildOutput::TryCreate(CopyOutputDescriptors(*Output));
+	auto Clone = std::move(CopyOutputDescriptors(*Output)).Build();
 	ASSERT_TRUE(Clone) << Clone.error();
 	EXPECT_FALSE(Clone->SharesStateWith(*Output));
-	EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Clone, {}, Receipt->get()));
+	EXPECT_TRUE(StaticMeshPrivate::AssembleSharedOutput(*Clone));
 }
 
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWithoutChangingCookBytes)
@@ -1384,7 +1406,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWi
 		ASSERT_TRUE(Encoded);
 		auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
-		EXPECT_FALSE(Warm->FindValue("LOD/0/Positions")->Data.GetNativeView<FVector3f>());
+		EXPECT_FALSE(Warm->FindValue(StaticMeshStreamId(0))->GetData().GetNativeView<FVector3f>());
 		auto Render = StaticMeshPrivate::AssembleSharedOutput(*Warm); ASSERT_TRUE(Render) << Render.error();
 		Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
 		FStaticMeshPayloadData Restored; ASSERT_TRUE(MakeStaticMeshPayloadData(**Render, Restored));
@@ -1405,7 +1427,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsMalformedDescriptorsAndStr
 		auto Data = CopyOutputDescriptors(*Output);
 		if (Mutation == 0) Data.SchemaVersion++;
 		if (Mutation == 1) Data.Values.pop_back();
-		if (Mutation == 2) Data.Values.push_back({"Extra", FSharedByteBuffer{}});
+		if (Mutation == 2) Data.Values.push_back({FValueId::FromName("Extra"), FSharedByteBuffer{}});
 		if (Mutation >= 3 && Mutation <= 6)
 		{
 			auto View = Data.Metadata.GetBytes(); FByteBuffer Bytes(View.begin(), View.end());
@@ -1415,25 +1437,25 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsMalformedDescriptorsAndStr
 			if (Mutation == 6) Bytes.push_back(std::byte{});
 			Data.Metadata = FSharedByteBuffer::Take(std::move(Bytes));
 		}
-		for (auto& Value : Data.Values)
+		for (auto& [Id, Value] : Data.Values)
 		{
-			if (Mutation == 7 && Value.Id == "LOD/0/Positions") Value.Data = Value.Data.MakeView(0, 1);
-			if (Mutation == 8 && Value.Id == "LOD/0/Normals")
+			if (Mutation == 7 && Id == StaticMeshStreamId(0)) Value = Value.MakeView(0, 1);
+			if (Mutation == 8 && Id == StaticMeshStreamId(1))
 			{
 				auto Values = MakeMultiMaterialFixture().LODs[0].Normals;
 				Values[0].x = std::numeric_limits<float>::quiet_NaN();
-				Value.Data = FSharedByteBuffer::TakeNative(std::move(Values));
+				Value = FSharedByteBuffer::TakeNative(std::move(Values));
 			}
-			if (Mutation == 9 && Value.Id == "LOD/0/Indices")
-				Value.Data = FSharedByteBuffer::TakeNative(std::vector<uint32>{0, 1, 99, 2, 1, 3});
-			if (Mutation >= 10 && Value.Id == "LOD/0/Sections")
+			if (Mutation == 9 && Id == StaticMeshStreamId(3))
+				Value = FSharedByteBuffer::TakeNative(std::vector<uint32>{0, 1, 99, 2, 1, 3});
+			if (Mutation >= 10 && Id == StaticMeshStreamId(9))
 			{
-				auto View = Value.Data.GetBytes(); FByteBuffer Bytes(View.begin(), View.end());
+				auto View = Value.GetBytes(); FByteBuffer Bytes(View.begin(), View.end());
 				Bytes[Mutation == 10 ? 0 : 16] = std::byte{99};
-				Value.Data = FSharedByteBuffer::Take(std::move(Bytes));
+				Value = FSharedByteBuffer::Take(std::move(Bytes));
 			}
 		}
-		auto Invalid = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Invalid);
+		auto Invalid = std::move(Data).Build(); ASSERT_TRUE(Invalid);
 		EXPECT_FALSE(StaticMeshPrivate::ValidateSharedOutput(*Invalid));
 		EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Invalid));
 	}
@@ -1462,8 +1484,8 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsNonTriangleSectionsAndHono
 	ASSERT_TRUE(Output);
 	// Make every stream byte-backed, exercising typed restoration after validation.
 	auto Data = CopyOutputDescriptors(*Output);
-	for (auto& Value : Data.Values) Value.Data = FSharedByteBuffer::Copy(Value.Data.GetBytes());
-	Output = DerivedData::FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Output);
+	for (auto& [Id, Value] : Data.Values) Value = FSharedByteBuffer::Copy(Value.GetBytes());
+	Output = std::move(Data).Build(); ASSERT_TRUE(Output);
 	uint32 ValidationChecks = 0;
 	ASSERT_TRUE(StaticMeshPrivate::ValidateSharedOutput(*Output, [&] { ++ValidationChecks; return false; }));
 	uint32 Checks = 0;
@@ -1525,7 +1547,7 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRetainsColdArraysAndPres
 		ASSERT_TRUE(Encoded);
 		auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
-		EXPECT_FALSE(Warm->FindValue(Hull ? "Simple/Vertices" : "Complex/Vertices")->Data.GetNativeView<FVector3>());
+		EXPECT_FALSE(Warm->FindValue(CollisionBlockId(Hull ? 0 : 1, 0))->GetData().GetNativeView<FVector3>());
 		auto Assembled = PhysicsPrivate::AssembleSharedOutput(*Warm, Mode, Policy); ASSERT_TRUE(Assembled) << Assembled.error();
 		const auto& Restored = Hull ? Assembled->Simple : Assembled->Complex;
 		EXPECT_NE(Restored.GetIdentity(), Geometry.GetIdentity());
@@ -1562,12 +1584,12 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 		if (Fault == 7) Metadata.pop_back();
 		if (Fault == 8) Metadata.push_back(std::byte{});
 		if (Fault == 9) Data.Values.pop_back();
-		if (Fault == 10) Data.Values.push_back({"Simple/Vertices", Output->FindValue("Complex/Vertices")->Data});
-		if (Fault == 11) Data.Values.push_back({"Complex/Planes", FSharedByteBuffer::TakeNative(std::vector<FCollisionHullPlane>(1))});
-		if (Fault == 12) for (auto& Value : Data.Values) if (Value.Id == "Complex/LeafTriangles")
-			Value.Data = FSharedByteBuffer::TakeNative(std::vector<uint32>{999});
+		if (Fault == 10) Data.Values.push_back({CollisionBlockId(0, 0), Output->FindValue(CollisionBlockId(1, 0))->GetData()});
+		if (Fault == 11) Data.Values.push_back({CollisionBlockId(1, 4), FSharedByteBuffer::TakeNative(std::vector<FCollisionHullPlane>(1))});
+		if (Fault == 12) for (auto& [Id, Value] : Data.Values) if (Id == CollisionBlockId(1, 3))
+			Value = FSharedByteBuffer::TakeNative(std::vector<uint32>{999});
 		Data.Metadata = FSharedByteBuffer::Take(std::move(Metadata));
-		auto Invalid = FBuildOutput::TryCreate(std::move(Data)); ASSERT_TRUE(Invalid);
+		auto Invalid = std::move(Data).Build(); ASSERT_TRUE(Invalid);
 		EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Invalid, Mode, Policy));
 		EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Invalid, Mode, Policy));
 	}

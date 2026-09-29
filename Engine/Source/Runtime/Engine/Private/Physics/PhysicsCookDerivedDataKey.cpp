@@ -24,9 +24,11 @@ namespace Durin
 	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
 		uint32 WeldToleranceBits) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
-		return DerivedData::FBuildDefinition::TryCreate("Durin.Physics.Collision",
-			{{"TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64)}, {"SourceMode", uint64(Mode)},
-			 {"QueryPolicy", uint64(Policy)}, {"WeldToleranceBits", uint64(WeldToleranceBits)}}, {{"Geometry", "CapturedGeometry"}});
+		DerivedData::FBuildDefinitionBuilder Builder("Durin.Physics.Collision");
+		Builder.AddConstant("TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64))
+			.AddConstant("SourceMode", uint64(Mode)).AddConstant("QueryPolicy", uint64(Policy))
+			.AddConstant("WeldToleranceBits", uint64(WeldToleranceBits)).AddInput("Geometry", "CapturedGeometry");
+		return std::move(Builder).Build();
 	}
 	auto GetPhysicsCookBuildDescriptor(uint32 BuilderVersion, uint32 OutputVersion) -> DerivedData::FBuildFunctionDescriptor
 	{
@@ -43,8 +45,9 @@ namespace Durin
 		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.QueryPolicy, Input.WeldToleranceBits);
 		if (!Request) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
-		auto Definition = FBuildAction::TryCreate(*Request, GetPhysicsCookBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion),
-			{{"Geometry", Input.GeometryHash, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}});
+		FBuildActionBuilder Builder(*Request, GetPhysicsCookBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion));
+		Builder.AddInput({"Geometry", Input.GeometryHash, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1});
+		auto Definition = std::move(Builder).Build();
 		if (!Definition) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
 		return std::move(*Definition);

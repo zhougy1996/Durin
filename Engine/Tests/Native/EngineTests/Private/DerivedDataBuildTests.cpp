@@ -18,11 +18,14 @@ namespace
 	auto Action(FBuildFunctionDescriptor Descriptor, std::vector<FBuildConstant> Constants,
 		std::vector<FBuildInputReference> Inputs) -> std::expected<FBuildAction, FBuildDefinitionError>
 	{
-		std::vector<FBuildSourceReference> Sources;
-		for (const auto& Input : Inputs) Sources.push_back({Input.Name, "Capture"});
-		auto Definition = FBuildDefinition::TryCreate(Descriptor.Name, std::move(Constants), std::move(Sources));
+		FBuildDefinitionBuilder DefinitionBuilder(Descriptor.Name);
+		for (auto& Constant : Constants) std::visit([&](auto&& Value) { DefinitionBuilder.AddConstant(Constant.Name, std::forward<decltype(Value)>(Value)); }, std::move(Constant.Value));
+		for (const auto& Input : Inputs) DefinitionBuilder.AddInput(Input.Name, "Capture");
+		auto Definition = std::move(DefinitionBuilder).Build();
 		if (!Definition) return std::unexpected(Definition.error());
-		return FBuildAction::TryCreate(*Definition, std::move(Descriptor), std::move(Inputs));
+		FBuildActionBuilder ActionBuilder(*Definition, std::move(Descriptor));
+		for (auto& Input : Inputs) ActionBuilder.AddInput(std::move(Input));
+		return std::move(ActionBuilder).Build();
 	}
 	auto Definition() -> FBuildAction { return Action(Function(), {{"Enabled", true}}, {Input()}).value(); }
 }

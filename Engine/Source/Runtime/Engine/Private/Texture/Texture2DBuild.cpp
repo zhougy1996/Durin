@@ -165,15 +165,9 @@ namespace Durin
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		if (Result.GetStatus() == DerivedData::EStatus::Error)
 		{
-			const auto& BuildError = *Result.GetFailure();
-			if (BuildError.Operation == DerivedData::EBuildOperation::Admission || BuildError.Operation == DerivedData::EBuildOperation::Dispatch)
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable,
-					.Description = BuildError.Description});
-			FTexture2DBuildError Error{.Code = ETexture2DBuildError::InvalidBuilderProduct};
-			if (BuildError.ProducerCode && *BuildError.ProducerCode <= static_cast<uint32>(ETexture2DBuildError::InvalidPlatformData))
-				Error.Code = static_cast<ETexture2DBuildError>(*BuildError.ProducerCode);
-			else if (BuildError.Reason == DerivedData::EBuildFailureReason::InvalidInput) Error.Code = ETexture2DBuildError::InvalidInput;
-			Error.Description = BuildError.Description;
+			FTexture2DBuildError Error{.Code = Result.GetOutput() ? ETexture2DBuildError::InvalidBuilderProduct : ETexture2DBuildError::ModuleUnavailable};
+			if (const auto* Output = Result.GetOutput(); Output && !Output->GetMessages().empty()) Error.Description = Output->GetMessages().back().Text;
+			else if (!Result.GetReport().Diagnostics.empty()) Error.Description = Result.GetReport().Diagnostics.back().Error.Diagnostic;
 			return std::unexpected(std::move(Error));
 		}
 		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result.GetOutput(), Request.TargetPlatform, Request.TargetProfile);

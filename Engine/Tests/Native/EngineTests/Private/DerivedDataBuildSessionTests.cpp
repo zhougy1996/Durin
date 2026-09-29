@@ -13,19 +13,18 @@ namespace
 	{
 		mutable std::atomic<uint32> Builds = 0;
 		std::function<void()> OnBuild;
-		auto GetDescriptor() const -> FBuildFunctionDescriptor override
-		{ return {"Session.Fixture", 1, 1, "Fixture.Output", 1, FCacheBucket::FromString("Sessions")}; }
-		auto Build(FBuildContext&) const -> FBuildFunctionResult override
+		auto GetName() const -> std::string_view override { return "Session.Fixture"; }
+		auto GetVersion() const -> uint32 override { return 1; }
+		auto Configure(FBuildConfigContext& Context) const -> void override
+		{ Context.SetConstantsSchema(1); Context.SetOutput("Fixture.Output", 1); Context.SetCacheBucket(FCacheBucket::FromString("Sessions")); }
+		auto Build(FBuildContext& Context) const -> void override
 		{
 			++Builds; if (OnBuild) OnBuild();
-			return FBuildOutput::TryCreate({.Schema = "Fixture.Output", .SchemaVersion = 1,
-				.Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7}))}}}).value();
+			Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
 		}
-		auto Validate(const FBuildAction&, const FBuildOutput&, const FBuildCancellation&) const
-			-> FBuildValidationResult override { return {}; }
 	};
 	auto Definition(std::string Name = "Session.Fixture") -> FBuildDefinition
-	{ return FBuildDefinition::TryCreate(std::move(Name), {}, {}).value(); }
+	{ return std::move(FBuildDefinitionBuilder(std::move(Name))).Build().value(); }
 	auto Options() -> FBuildRequestOptions
 	{ return {.Policy = {.QueryCache = false, .StoreOnBuild = false}}; }
 	struct FFixture
@@ -206,8 +205,15 @@ TEST(FBuildSessionTests, AdmissionErrorsNeverInvokeCompletion)
 	ASSERT_FALSE(MissingCallback); EXPECT_EQ(MissingCallback.error().Reason, EBuildAdmissionReason::InvalidRequest);
 	auto MissingFunction = Session->Build(Definition("Missing.Function"), [&](auto) { ++Calls; }, {}, Options());
 	ASSERT_FALSE(MissingFunction); EXPECT_EQ(MissingFunction.error().Reason, EBuildAdmissionReason::MissingFunction);
-	auto Mismatch = Fixture.Function->GetDescriptor(); ++Mismatch.Version;
-	auto InvalidAction = FBuildAction::TryCreate(Definition(), std::move(Mismatch), {}).value();
+	FBuildFunctionDescriptor Mismatch{
+		.Name = "Session.Fixture",
+		.Version = 1,
+		.ConstantsSchema = 1,
+		.OutputType = "Fixture.Output",
+		.OutputSchema = 1,
+		.Bucket = FCacheBucket::FromString("Sessions")};
+	++Mismatch.Version;
+	auto InvalidAction = std::move(FBuildActionBuilder(Definition(), std::move(Mismatch))).Build().value();
 	auto InvalidRequest = Session->Build(std::move(InvalidAction), [&](auto) { ++Calls; }, {}, Options());
 	ASSERT_FALSE(InvalidRequest); EXPECT_EQ(InvalidRequest.error().Reason, EBuildAdmissionReason::InvalidRequest);
 	Session->Close();

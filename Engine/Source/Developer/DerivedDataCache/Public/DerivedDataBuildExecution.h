@@ -37,8 +37,7 @@ namespace Durin::DerivedData
 	class FBuildCompleteParams
 	{
 	public:
-		DERIVEDDATACACHE_API static auto Error(FBuildFailure Failure,
-			std::optional<FCacheKey> Key, EBuildStatus BuildStatus,
+		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key, EBuildStatus BuildStatus,
 			FBuildExecutionReport Report) -> FBuildCompleteParams;
 		DERIVEDDATACACHE_API static auto Canceled(std::optional<FCacheKey> Key,
 			EBuildStatus BuildStatus, FBuildExecutionReport Report) -> FBuildCompleteParams;
@@ -46,8 +45,6 @@ namespace Durin::DerivedData
 		auto GetBuildStatus() const -> EBuildStatus { return BuildStatus; }
 		auto GetCacheKey() const -> const FCacheKey* { return CacheKey ? &*CacheKey : nullptr; }
 		auto GetOutput() const -> const FBuildOutput* { return Output ? &*Output : nullptr; }
-		auto GetFailure() const -> const FBuildFailure* { return Failure ? &*Failure : nullptr; }
-		auto GetValidationReceipt() const -> const FBuildValidationReceipt* { return ValidationReceipt.get(); }
 		auto GetReport() const -> const FBuildExecutionReport& { return Report; }
 	private:
 		friend struct Private::FBuildCompletionAccess;
@@ -55,8 +52,6 @@ namespace Durin::DerivedData
 		EBuildStatus BuildStatus = EBuildStatus::None;
 		std::optional<FCacheKey> CacheKey;
 		std::optional<FBuildOutput> Output;
-		std::optional<FBuildFailure> Failure;
-		std::shared_ptr<const FBuildValidationReceipt> ValidationReceipt;
 		FBuildExecutionReport Report;
 	};
 

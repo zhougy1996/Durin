@@ -6,13 +6,18 @@ namespace Durin::DerivedData::Private
 	struct FBuildExecutionAccess
 	{
 		static auto Resolve(const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
-			-> std::expected<std::vector<FBuildInput>, FBuildFailure>;
+			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
+		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
+		static auto MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
+			FBuildOutputBuilder& Output, FBuildCancellation Cancel, FBuildMetricSink Metrics,
+			uint64 MaximumWorkingSetBytes) -> FBuildContext;
+		static auto MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
+			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
 	};
 
 	struct FBuildCompletionAccess
 	{
-		static auto Ok(FBuildOutput Output, std::shared_ptr<const FBuildValidationReceipt> ValidationReceipt,
-			FCacheKey Key,
+		static auto Ok(FBuildOutput Output, FCacheKey Key,
 			EBuildStatus Status, FBuildExecutionReport Report) -> FBuildCompleteParams;
 		static auto Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams;
 	};
@@ -37,8 +42,8 @@ namespace Durin::DerivedData::Private
 		~FBuildRegistry();
 		FBuildRegistry(const FBuildRegistry&) = delete;
 		auto operator=(const FBuildRegistry&) -> FBuildRegistry& = delete;
-		auto Register(std::shared_ptr<const IBuildFunction> Function) -> std::expected<void, FBuildFailure>;
-		auto Freeze() -> std::expected<FBuildRegistrySnapshot, FBuildFailure>;
+		auto Register(std::shared_ptr<const IBuildFunction> Function) -> std::expected<void, std::string>;
+		auto Freeze() -> std::expected<FBuildRegistrySnapshot, std::string>;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

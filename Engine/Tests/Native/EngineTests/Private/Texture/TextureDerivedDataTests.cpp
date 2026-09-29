@@ -89,6 +89,35 @@ namespace
 	}
 }
 
+namespace
+{
+	struct FMutableTextureOutput
+	{
+		std::string Schema;
+		uint32 SchemaVersion = 0;
+		Durin::FSharedByteBuffer Metadata;
+		std::vector<std::pair<Durin::DerivedData::FValueId, Durin::FSharedByteBuffer>> Values;
+		auto Build() && -> std::expected<Durin::DerivedData::FBuildOutput, std::string>
+		{
+			using namespace Durin::DerivedData;
+			FBuildOutputBuilder Builder(std::move(Schema), SchemaVersion);
+			auto Object = MakeBuildMetadata(Metadata);
+			if (!Object || !Builder.AddMeta(FValueId::FromName("Metadata"), std::move(*Object)))
+				return std::unexpected("Invalid test metadata.");
+			for (auto& [Id, Data] : Values) if (!Builder.AddValue(Id, std::move(Data)))
+				return std::unexpected("Invalid test value.");
+			return std::move(Builder).Build();
+		}
+	};
+	auto CopyTextureOutput(const Durin::DerivedData::FBuildOutput& Output) -> FMutableTextureOutput
+	{
+		FMutableTextureOutput Copy{.Schema = std::string(Output.GetSchema()), .SchemaVersion = Output.GetSchemaVersion(),
+			.Metadata = Durin::DerivedData::GetBuildMetadataPayload(Output)};
+		for (const auto& Value : Output.GetValues()) Copy.Values.emplace_back(Value.Id, Value.Value.GetData());
+		return Copy;
+	}
+}
+
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
 	Durin::FTexture2DBuildKeyInput Input{
@@ -104,7 +133,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
 	// Schema-2 action and shared output schema invalidate the legacy cache key.
-	EXPECT_EQ(Baseline.ToString(), "e61ee4bf1de319d653ce7b3cb8b492f0");
+	EXPECT_EQ(Baseline.ToString(), "078ed01da2fbf2565e65dc6290734eda");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -260,7 +289,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "71a417531fded5faaab02e3c0265d30d");
+	EXPECT_EQ(Baseline.ToString(), "08625bbecab440c991b2ebf28040bb51");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -289,7 +318,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "0fe45f5840fd7969b8cc6753f0f3183e");
+	EXPECT_EQ(Baseline.ToString(), "cf06d2f8cf0bc5ed65421b0f97c96885");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -627,19 +656,16 @@ TEST(FTextureDerivedDataTests, SharedOutputRejectsMalformedLayoutWithoutAssembly
 	using namespace Durin;
 	auto Output = TexturePrivate::MakeTexture2DSharedOutput(MakePlatformData(), ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Output);
-	auto Copy = [&] {
-		return DerivedData::FBuildOutputData{.Schema = std::string(Output->GetSchema()), .SchemaVersion = Output->GetSchemaVersion(),
-			.Metadata = Output->GetMetadata(), .Values = {Output->GetValues().begin(), Output->GetValues().end()}};
-	};
+	auto Copy = [&] { return CopyTextureOutput(*Output); };
 	for (uint32 Case = 0; Case < 8; ++Case)
 	{
 		auto Data = Copy();
 		switch (Case)
 		{
-		case 0: Data.SchemaVersion = 2; break;
+		case 0: Data.SchemaVersion = 3; break;
 		case 1: Data.Values.pop_back(); break;
-		case 2: Data.Values[0].Id = "Mip/00"; break;
-		case 3: Data.Values[0].Data = FSharedByteBuffer::Take(FByteBuffer(1)); break;
+		case 2: Data.Values[0].first = DerivedData::FValueId::FromName("Invalid.Mip"); break;
+		case 3: Data.Values[0].second = FSharedByteBuffer::Take(FByteBuffer(1)); break;
 		default:
 		{
 			FByteBuffer Metadata(Data.Metadata.begin(), Data.Metadata.end());
@@ -650,7 +676,7 @@ TEST(FTextureDerivedDataTests, SharedOutputRejectsMalformedLayoutWithoutAssembly
 			Data.Metadata = FSharedByteBuffer::Take(std::move(Metadata));
 		}
 		}
-		auto Invalid = DerivedData::FBuildOutput::TryCreate(std::move(Data));
+		auto Invalid = std::move(Data).Build();
 		ASSERT_TRUE(Invalid);
 		EXPECT_FALSE(TexturePrivate::ReadTexture2DOutputLayout(*Invalid, ECookTargetPlatform::Win64, ECookTargetProfile::Game)) << Case;
 	}
@@ -702,9 +728,9 @@ TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdentica
 		ASSERT_TRUE(Product);
 		for (size_t Index = 0; Index < Product->Mips.size(); ++Index)
 		{
-			const auto* Value = Loaded->FindValue(std::format("Mip/{}", Index));
+			const auto* Value = Loaded->FindValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(uint32(Index)));
 			ASSERT_NE(Value, nullptr);
-			EXPECT_EQ(Product->Mips[Index].Pixels.data(), Value->Data.data());
+			EXPECT_EQ(Product->Mips[Index].Pixels.data(), Value->GetData().data());
 			EXPECT_EQ(Product->Mips[Index].Pixels.SharesStorageWith(*Stored), !bCompress);
 		}
 		Stored = FSharedByteBuffer{}; LoadedRecord = DerivedData::FCacheRecord{}; Loaded = DerivedData::FBuildOutput{};
@@ -768,15 +794,14 @@ TEST(FTexturePlatformSharedOutputTests, RejectsInconsistentBlocksAndBoundedLayou
 	for (const bool IsCube : {true, false})
 	{
 		const auto& Original = IsCube ? CubeOutput : VolumeOutput;
-		auto Data = [&] { return FBuildOutputData{.Schema = std::string(Original.GetSchema()), .SchemaVersion = 1,
-			.Metadata = Original.GetMetadata(), .Values = {Original.GetValues().begin(), Original.GetValues().end()}}; };
-		auto Reject = [&](FBuildOutputData Invalid) {
-			auto Output = FBuildOutput::TryCreate(std::move(Invalid)); ASSERT_TRUE(Output);
+		auto Data = [&] { return CopyTextureOutput(Original); };
+		auto Reject = [&](FMutableTextureOutput Invalid) {
+			auto Output = std::move(Invalid).Build(); ASSERT_TRUE(Output);
 			EXPECT_FALSE(ReadTexturePlatformOutputLayout(*Output, IsCube, ECookTargetPlatform::Win64, ECookTargetProfile::Game));
 		};
 		auto Invalid = Data(); Invalid.Values.pop_back(); Reject(std::move(Invalid));
-		Invalid = Data(); Invalid.Values[0].Id += "0"; Reject(std::move(Invalid));
-		Invalid = Data(); Invalid.SchemaVersion = 2; Reject(std::move(Invalid));
+		Invalid = Data(); Invalid.Values[0].first = FValueId::FromName("Invalid.Block"); Reject(std::move(Invalid));
+		Invalid = Data(); ++Invalid.SchemaVersion; Reject(std::move(Invalid));
 		Invalid = Data(); Invalid.Metadata = Invalid.Metadata.MakeView(0, 15); Reject(std::move(Invalid));
 		for (const auto Offset : {12u, 16u, 20u, 24u, 28u})
 		{
@@ -816,7 +841,7 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	ASSERT_TRUE(Invalid->Describe(Definition.GetSources(), {}));
 	auto Rejected = Invalid->Resolve(Identities, {});
 	ASSERT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.error().Reason, EBuildFailureReason::InvalidInput);
+	EXPECT_FALSE(Rejected.error().Description.empty());
 	// The first resolver retained the original blocks independently of the caller.
 	EXPECT_TRUE(Valid->Resolve(Identities, {}));
 }

@@ -11,8 +11,7 @@ namespace
 {
 	constexpr uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
 	constexpr std::array<size_t, 4> FixtureBodyCounts{0, 32, 1'000, 10'000};
-	inline constexpr uint64 ExpectedPrimitiveRetainedBytes =
-		DURIN_BUILD_DEBUG ? 208u : 200u;
+	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = 200u;
 
 	enum class EFixtureDistribution
 	{

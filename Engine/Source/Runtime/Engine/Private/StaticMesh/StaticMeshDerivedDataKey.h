@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 StaticMeshRenderOutputSchemaVersion = 1;
+	inline constexpr uint32 StaticMeshRenderOutputSchemaVersion = 2;
 	inline constexpr std::string_view StaticMeshCacheBucket = "StaticMesh/Objects";
 
 

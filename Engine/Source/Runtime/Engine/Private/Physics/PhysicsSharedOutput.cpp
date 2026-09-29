@@ -25,6 +25,8 @@ namespace Durin::PhysicsPrivate
 			FArrayDescriptor{"HalfEdges", &FCollisionCookedBlocks::HullHalfEdges, sizeof(FCollisionHullHalfEdge)},
 			FArrayDescriptor{"Faces", &FCollisionCookedBlocks::HullFaces, sizeof(FCollisionHullFace)}};
 		constexpr std::array<std::string_view, 2> Prefixes{"Simple/", "Complex/"};
+		auto ValueId(size_t Geometry, size_t Array) -> FValueId
+		{ return FValueId::FromName("Durin.Physics.CollisionBlock").MakeIndexed(uint32(Geometry * Arrays.size() + Array)); }
 		using FLayout = std::array<std::optional<FCollisionCookedBlocks>, 2>;
 		auto ValidSettings(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy) -> bool
 		{
@@ -42,11 +44,12 @@ namespace Durin::PhysicsPrivate
 			bool ValidateArrays) -> std::expected<FLayout, std::string>
 		{
 			if (ShouldCancel && ShouldCancel()) return std::unexpected("Collision output validation was cancelled.");
-			if (!ValidSettings(Mode, Policy) || Output.GetSchema() != "Physics.CollisionOutput" || Output.GetSchemaVersion() != 1
-				|| Output.GetMetadata().GetSize() > MaximumMetadataBytes
+			const auto Metadata = GetBuildMetadataPayload(Output);
+			if (!ValidSettings(Mode, Policy) || Output.GetSchema() != "Physics.CollisionOutput" || Output.GetSchemaVersion() != 2
+				|| Metadata.GetSize() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes}))
 				return std::unexpected("Collision output schema, settings or size is invalid.");
-			FBinaryReader Reader(Output.GetMetadata().GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
+			FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
 			uint32 Platform = 0, Profile = 0, SourceMode = 0, QueryPolicy = 0;
 			std::array<uint32, 2> Present{};
 			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Profile) || !Reader.ReadU32(SourceMode) || !Reader.ReadU32(QueryPolicy)
@@ -76,15 +79,15 @@ namespace Durin::PhysicsPrivate
 					const auto& Descriptor = Arrays[Array];
 					uint32 Count = 0;
 					if (!Reader.ReadU32(Count)) return std::unexpected("Collision output array count is truncated.");
-					const auto* Value = Output.FindValue(std::string(Prefixes[Geometry]) + std::string(Descriptor.Name));
+					const auto* Value = Output.FindValue(ValueId(Geometry, Array));
 					if (!ActiveArray(Array, Geometry))
 					{
 						if (Count || Value) return std::unexpected("Collision output contains an inactive array.");
 						continue;
 					}
-					if (!Count || !Value || Value->Data.GetSize() != uint64(Count) * Descriptor.ElementSize)
+					if (!Count || !Value || Value->GetRawSize() != uint64(Count) * Descriptor.ElementSize)
 						return std::unexpected("Collision output array size is invalid.");
-					Blocks.*Descriptor.Member = Value->Data;
+					Blocks.*Descriptor.Member = Value->GetData();
 					++ValueCount;
 				}
 				if (ValidateArrays && !FCollisionCookedData::ValidateBlocks(Blocks, ShouldCancel))
@@ -103,7 +106,7 @@ namespace Durin::PhysicsPrivate
 	{
 		if (!ValidSettings(Mode, Policy) || bool(Cooked) != (Mode != EBodySetupCollisionSourceMode::None))
 			return std::unexpected("Collision recipe presence or settings are invalid.");
-		FBuildOutputData Data{.Schema = "Physics.CollisionOutput", .SchemaVersion = 1};
+		FBuildOutputBuilder Output("Physics.CollisionOutput", 2, {.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes});
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(ECookTargetPlatform::Win64)); Metadata.WriteU32(uint32(ECookTargetProfile::Game));
 		Metadata.WriteU32(uint32(Mode)); Metadata.WriteU32(uint32(Policy));
@@ -123,15 +126,15 @@ namespace Durin::PhysicsPrivate
 				if (Block.GetSize() % Descriptor.ElementSize || Block.GetSize() / Descriptor.ElementSize > std::numeric_limits<uint32>::max())
 					return std::unexpected("Collision recipe array size exceeds its bound.");
 				Metadata.WriteU32(uint32(Block.GetSize() / Descriptor.ElementSize));
-				if (ActiveArray(Array, Geometry)) Data.Values.push_back({std::string(Prefixes[Geometry]) + std::string(Descriptor.Name), Block});
+				if (ActiveArray(Array, Geometry)) Output.AddValue(ValueId(Geometry, Array), Block);
 			}
 		}
 		if (Metadata.HasError()) return std::unexpected("Collision metadata exceeds its bound.");
-		Data.Metadata = FSharedByteBuffer::Take(Metadata.TakeBytes());
-		auto Output = FBuildOutput::TryCreate(std::move(Data), {.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes});
-		if (!Output) return Output;
-		if (auto Valid = ValidateSharedOutput(*Output, Mode, Policy, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
-		return Output;
+		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Collision metadata is invalid.");
+		auto Built = std::move(Output).Build(); if (!Built) return Built;
+		if (auto Valid = ValidateSharedOutput(*Built, Mode, Policy, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		return Built;
 	}
 
 	auto ValidateSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,

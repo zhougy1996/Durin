@@ -10,25 +10,18 @@ namespace Durin::PhysicsPrivate
 	using namespace DerivedData;
 	namespace
 	{
-		auto Error(std::string Message, EBuildFailureReason Category = EBuildFailureReason::InvalidInput) -> FBuildFailure
-		{ return {.Reason = Category, .Description = std::move(Message)}; }
-		auto Cancelled() -> FBuildFailure { return Error("Physics cooking was cancelled.", EBuildFailureReason::InternalFailure); }
+		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
+		auto Cancelled() -> FBuildInputError { return Error("Physics cooking was cancelled."); }
 		auto Reference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Geometry", Identity, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}; }
 		struct FSettings { EBodySetupCollisionSourceMode Mode; EBodySetupCollisionQueryPolicy Policy; };
-		auto Settings(const FBuildAction& Action) -> std::expected<FSettings, FBuildFailure>
+		auto Settings(const FBuildContext& Context) -> std::expected<FSettings, std::string>
 		{
-			const uint64 *Mode = nullptr, *Policy = nullptr, *Target = nullptr, *Weld = nullptr;
-			for (const auto& Constant : Action.GetConstants())
-			{
-				if (Constant.Name == "SourceMode") Mode = std::get_if<uint64>(&Constant.Value);
-				if (Constant.Name == "QueryPolicy") Policy = std::get_if<uint64>(&Constant.Value);
-				if (Constant.Name == "TargetPlatform") Target = std::get_if<uint64>(&Constant.Value);
-				if (Constant.Name == "WeldToleranceBits") Weld = std::get_if<uint64>(&Constant.Value);
-			}
-			if (Action.GetConstants().size() != 4 || !Mode || !Policy || !Target || !Weld || *Weld
+			const auto* Mode = Context.FindConstant<uint64>("SourceMode"); const auto* Policy = Context.FindConstant<uint64>("QueryPolicy");
+			const auto* Target = Context.FindConstant<uint64>("TargetPlatform"); const auto* Weld = Context.FindConstant<uint64>("WeldToleranceBits");
+			if (!Mode || !Policy || !Target || !Weld || *Weld
 				|| *Target != uint64(EAssetPayloadTargetPlatform::Win64) || *Mode < 1 || *Mode > 2 || *Policy > 2)
-				return std::unexpected(Error("Physics action constants are invalid."));
+				return std::unexpected("Physics action constants are invalid.");
 			return FSettings{EBodySetupCollisionSourceMode(*Mode), EBodySetupCollisionQueryPolicy(*Policy)};
 		}
 		class FResolver final : public IBuildInputResolver
@@ -36,7 +29,7 @@ namespace Durin::PhysicsPrivate
 		public:
 			explicit FResolver(FPhysicsCookInput Input) : Input(std::move(Input)) {}
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInputReference>, FBuildFailure> override
+				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
 			{
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (Sources.size() != 1 || Sources[0].Name != "Geometry" || Sources[0].Source != "CapturedGeometry" || Input.GetIdentity().IsZero())
@@ -44,7 +37,7 @@ namespace Durin::PhysicsPrivate
 				return std::vector{Reference(Input.GetIdentity())};
 			}
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancel) const
-				-> std::expected<std::vector<FBuildInput>, FBuildFailure> override
+				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
 			{
 				if (Cancel.IsCancelled()) return std::unexpected(Cancelled());
 				if (Inputs.size() != 1 || Inputs[0] != Reference(Input.GetIdentity()))
@@ -61,34 +54,36 @@ namespace Durin::PhysicsPrivate
 		class FFunction final : public IBuildFunction
 		{
 		public:
-			auto GetDescriptor() const -> FBuildFunctionDescriptor override { return GetPhysicsCookBuildDescriptor(); }
-			auto Build(FBuildContext& Context) const -> std::expected<FBuildOutput, FBuildFailure> override
+			auto GetName() const -> std::string_view override { return "Durin.Physics.Collision"; }
+			auto GetVersion() const -> uint32 override { return GetPhysicsCookBuildDescriptor().Version; }
+			auto Configure(FBuildConfigContext& Context) const -> void override
+			{ const auto D = GetPhysicsCookBuildDescriptor(); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
+			auto Build(FBuildContext& Context) const -> void override
 			{
+				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
 				bool bCancelled = false;
 				const auto Cancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
-				auto Config = Settings(Context.GetAction()); if (!Config) return std::unexpected(std::move(Config.error()));
-				const auto Inputs = Context.GetInputs();
-				if (Inputs.size() != 1 || Inputs[0].Identity != Reference(Inputs[0].Identity.Identity)
-					|| !Inputs[0].Metadata.IsEmpty() || Inputs[0].Values.size() != 2)
-					return std::unexpected(Error("Physics source representation is invalid."));
+				auto Config = Settings(Context); if (!Config) return Fail(std::move(Config.error()));
+				const auto* Input = Context.FindInput("Geometry");
+				if (!Input || Input->Identity != Reference(Input->Identity.Identity) || !Input->Metadata.IsEmpty() || Input->Values.size() != 2) return Fail("Physics source representation is invalid.");
 				const FSharedByteBuffer *Positions = nullptr, *Indices = nullptr;
-				for (const auto& Value : Inputs[0].Values)
+				for (const auto& Value : Input->Values)
 				{
-					if (Value.Id == "Positions") Positions = &Value.Data;
-					if (Value.Id == "Indices") Indices = &Value.Data;
+					if (Value.Name == "Positions") Positions = &Value.Data;
+					if (Value.Name == "Indices") Indices = &Value.Data;
 				}
 				if (!Positions || !Indices || Positions->size() % sizeof(FVector3f) || Indices->size() % sizeof(uint32))
-					return std::unexpected(Error("Physics source arrays are malformed."));
+					return Fail("Physics source arrays are malformed.");
 				const auto PositionCount = Positions->size() / sizeof(FVector3f), IndexCount = Indices->size() / sizeof(uint32);
 				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, Config->Policy, Context.GetMaximumWorkingSetBytes()); !Valid)
-					return std::unexpected(Error(Valid.error().ToString()));
+					return Fail(Valid.error().ToString());
 				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes(), Cancel);
-				if (!Identity) return std::unexpected(Cancelled());
-				if (*Identity != Inputs[0].Identity.Identity) return std::unexpected(Error("Physics source semantic identity is invalid."));
+				if (!Identity) return Fail(Cancelled().Description);
+				if (*Identity != Input->Identity.Identity) return Fail("Physics source semantic identity is invalid.");
 				std::vector<FVector3> ConvertedPositions; ConvertedPositions.reserve(PositionCount);
 				for (size_t Index = 0; Index < PositionCount; ++Index)
 				{
-					if (Index % 256 == 0 && Cancel()) return std::unexpected(Cancelled());
+					if (Index % 256 == 0 && Cancel()) return Fail(Cancelled().Description);
 					FVector3f Position; std::memcpy(&Position, Positions->data() + Index * sizeof(Position), sizeof(Position));
 					ConvertedPositions.emplace_back(Position);
 				}
@@ -99,7 +94,7 @@ namespace Durin::PhysicsPrivate
 					ConvertedIndices.resize(IndexCount);
 					for (size_t Index = 0; Index < IndexCount; ++Index)
 					{
-						if (Index % 256 == 0 && Cancel()) return std::unexpected(Cancelled());
+						if (Index % 256 == 0 && Cancel()) return Fail(Cancelled().Description);
 						std::memcpy(&ConvertedIndices[Index], Indices->data() + Index * sizeof(uint32), sizeof(uint32));
 					}
 					NativeIndices = std::span<const uint32>(ConvertedIndices);
@@ -108,24 +103,14 @@ namespace Durin::PhysicsPrivate
 				auto Cooked = Config->Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 					? FCollisionCookedData::BuildConvexHull(ConvertedPositions, &Diagnostics, Cancel)
 					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
-				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return std::unexpected(Cancelled());
-				if (!Cooked) return std::unexpected(Error(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)), EBuildFailureReason::ProducerFailure));
+				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return Fail(Cancelled().Description);
+				if (!Cooked) return Fail(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
 				Context.ReportMetric("Physics.FloatToDoubleRecipeBytes", PositionCount * sizeof(FVector3));
 				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Config->Policy, Cancel);
-				if (Cancel()) return std::unexpected(Cancelled());
-				if (!Output) return std::unexpected(Error(std::move(Output.error()), EBuildFailureReason::InvalidOutput));
-				return std::move(*Output);
-			}
-			auto Validate(const FBuildAction& Action, const FBuildOutput& Output, const FBuildCancellation& Cancellation) const
-				-> FBuildValidationResult override
-			{
-				auto Config = Settings(Action); if (!Config) return std::unexpected(std::move(Config.error()));
-				bool bCancelled = false;
-				const auto Cancel = [&] { return bCancelled = bCancelled || Cancellation.IsCancelled(); };
-				auto Valid = ValidateSharedOutput(Output, Config->Mode, Config->Policy, Cancel);
-				if (Cancel()) return std::unexpected(Cancelled());
-				if (!Valid) return std::unexpected(Error(std::move(Valid.error()), EBuildFailureReason::InvalidOutput));
-				return {};
+				if (Cancel()) return Fail(Cancelled().Description);
+				if (!Output) return Fail(std::move(Output.error()));
+				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
+				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
 		};
 	}
