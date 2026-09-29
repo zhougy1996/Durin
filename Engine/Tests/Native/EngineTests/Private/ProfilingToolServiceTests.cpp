@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 
+#include "HAL/Platform.h"
 #include "HAL/PlatformProcess.h"
 #include "NativeTestSupport.h"
 #include "ProfilingToolService.h"
@@ -11,6 +12,8 @@ namespace Durin::Editor::MainFrame
 {
 	namespace
 	{
+		constexpr std::string_view PlatformName = DURIN_BUILD_PLATFORM_STRING;
+
 		class FProfilingToolServiceTests : public testing::Test
 		{
 		protected:
@@ -18,7 +21,7 @@ namespace Durin::Editor::MainFrame
 			{
 				RootDirectory = Testing::GetTestWorkDirectory() / "ProfilingToolService";
 				Durin::Testing::RemoveTestWorkDirectory(RootDirectory);
-				WriteManifest("0.13.1", "v0.13.1");
+				WriteManifest("0.14.1", "v0.14.1");
 			}
 
 			void TearDown() override
@@ -44,19 +47,37 @@ namespace Durin::Editor::MainFrame
 							"version": "{}",
 							"kind": "tool_package",
 							"repair_command": "DevTool.bat dependency prepare --libs tracy,tracy-tools",
+							"repair_commands_by_platform": {{
+								"MacOS": "./DevTool dependency prepare --libs tracy,tracy-tools"
+							}},
 							"source_dir": "Engine/External/Packages/tracy-tools/{}/Win64",
+							"source_dirs_by_platform": {{
+								"Win64": "Engine/External/Packages/tracy-tools/{}/Win64",
+								"MacOS": "Engine/External/Packages/tracy-tools/{}/MacOS"
+							}},
 							"source": {{
 								"platforms": {{
 									"Win64": {{
+										"profiler_path": "tracy-profiler.exe",
 										"required_files": [
 											"tracy-profiler.exe",
 											"tracy-capture.exe",
 											"tracy-csvexport.exe"
 										]
+									}},
+									"MacOS": {{
+										"profiler_path": "tracy-profiler.app/Contents/MacOS/tracy-profiler",
+										"required_files": [
+											"tracy-profiler.app/Contents/MacOS/tracy-profiler",
+											"tracy-capture",
+											"tracy-csvexport"
+										]
 									}}
 								}}
 							}}
 						}})",
+						ToolVersion,
+						ToolVersion,
 						ToolVersion,
 						ToolVersion
 					)
@@ -67,13 +88,22 @@ namespace Durin::Editor::MainFrame
 				);
 			}
 
-			void WriteRequiredTools(std::string_view Version = "0.13.1")
+			void WriteRequiredTools(std::string_view Version = "0.14.1")
 			{
-				const std::filesystem::path Package =
-					std::filesystem::path("Engine/External/Packages/tracy-tools") / Version / "Win64";
-				WriteFile(Package / "tracy-profiler.exe");
-				WriteFile(Package / "tracy-capture.exe");
-				WriteFile(Package / "tracy-csvexport.exe");
+				const std::filesystem::path Package = std::filesystem::path("Engine/External/Packages/tracy-tools")
+					/ Version / PlatformName;
+				if (PlatformName == "MacOS")
+				{
+					WriteFile(Package / "tracy-profiler.app/Contents/MacOS/tracy-profiler");
+					WriteFile(Package / "tracy-capture");
+					WriteFile(Package / "tracy-csvexport");
+				}
+				else
+				{
+					WriteFile(Package / "tracy-profiler.exe");
+					WriteFile(Package / "tracy-capture.exe");
+					WriteFile(Package / "tracy-csvexport.exe");
+				}
 			}
 
 			std::filesystem::path RootDirectory;
@@ -89,14 +119,18 @@ namespace Durin::Editor::MainFrame
 		EXPECT_TRUE(Status.bPlatformSupported);
 		EXPECT_TRUE(Status.bVersionMatches);
 		EXPECT_TRUE(Status.bAvailable);
-		EXPECT_EQ(Status.ExpectedVersion, "0.13.1");
-		EXPECT_TRUE(Status.ProfilerPath.ends_with("tracy-tools/0.13.1/Win64/tracy-profiler.exe"));
+		EXPECT_EQ(Status.ExpectedVersion, "0.14.1");
+		if (PlatformName == "MacOS")
+			EXPECT_TRUE(Status.ProfilerPath.ends_with(
+				"tracy-tools/0.14.1/MacOS/tracy-profiler.app/Contents/MacOS/tracy-profiler"));
+		else
+			EXPECT_TRUE(Status.ProfilerPath.ends_with("tracy-tools/0.14.1/Win64/tracy-profiler.exe"));
 		EXPECT_TRUE(Status.MissingFiles.empty());
 	}
 
 	TEST_F(FProfilingToolServiceTests, ReportsVersionMismatch)
 	{
-		WriteManifest("0.13.1", "v0.13.0");
+		WriteManifest("0.14.1", "v0.14.0");
 		WriteRequiredTools();
 		const FTracyToolStatus Status = FProfilingToolService(RootDirectory).QueryStatus();
 
@@ -113,10 +147,19 @@ namespace Durin::Editor::MainFrame
 		EXPECT_FALSE(Status.bAvailable);
 		EXPECT_EQ(Status.MissingFiles.size(), 3);
 		EXPECT_FALSE(std::filesystem::exists(RootDirectory / "Engine/External"));
-		EXPECT_NE(Status.Diagnostic.find("tracy-profiler.exe"), std::string::npos);
+		EXPECT_NE(
+			Status.Diagnostic.find(
+				PlatformName == "MacOS"
+					? "tracy-profiler.app/Contents/MacOS/tracy-profiler"
+					: "tracy-profiler.exe"
+			),
+			std::string::npos
+		);
 		EXPECT_EQ(
 			Status.RepairCommand,
-			R"(DevTool.bat dependency prepare --libs tracy,tracy-tools)"
+			PlatformName == "MacOS"
+				? R"(./DevTool dependency prepare --libs tracy,tracy-tools)"
+				: R"(DevTool.bat dependency prepare --libs tracy,tracy-tools)"
 		);
 	}
 

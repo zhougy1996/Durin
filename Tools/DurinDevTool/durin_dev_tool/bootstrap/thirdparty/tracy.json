@@ -7,7 +7,7 @@
   "source": {
     "type": "git",
     "url": "https://github.com/wolfpld/tracy.git",
-    "tag": "v0.13.1",
+    "tag": "v0.14.1",
     "marker": "CMakeLists.txt",
     "required_files": [
       "LICENSE",

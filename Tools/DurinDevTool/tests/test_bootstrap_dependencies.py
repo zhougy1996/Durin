@@ -17,7 +17,7 @@ class TestThirdPartyBootstrap:
 
     @staticmethod
     def make_manifests() -> list[dict[str, object]]:
-        return [{'name': 'normal', 'kind': 'direct_source', 'source_dir': 'normal', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tests', 'kind': 'direct_source', 'test_only': True, 'source_dir': 'tests', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tracy', 'kind': 'direct_source', 'development_only': True, 'source_dir': 'tracy', 'source': {'type': 'git', 'tag': 'v0.13.1'}}, {'name': 'tracy-tools', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'source_dir': 'tracy-tools', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/tracy-tools.zip', 'archive_name': 'tracy-tools.zip', 'required_files': ['tracy-profiler.exe']}}}}]
+        return [{'name': 'normal', 'kind': 'direct_source', 'source_dir': 'normal', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tests', 'kind': 'direct_source', 'test_only': True, 'source_dir': 'tests', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tracy', 'kind': 'direct_source', 'development_only': True, 'source_dir': 'tracy', 'source': {'type': 'git', 'tag': 'v0.14.1'}}, {'name': 'tracy-tools', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'source_dir': 'tracy-tools', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/tracy-tools.zip', 'archive_name': 'tracy-tools.zip', 'required_files': ['tracy-profiler.exe']}}}}]
 
     def test_all_excludes_development_dependencies_by_default(self) -> None:
         selected = dependency_manifests.select_manifests(self.make_manifests(), DependencyRequest(use_all=True))
@@ -119,9 +119,67 @@ class TestThirdPartyBootstrap:
         with pytest.raises(BootstrapError, match='must be a boolean'):
             dependency_manifests.validate_manifests(manifests)
 
+    def test_complete_git_source_updates_to_changed_pinned_revision(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        source_dir = root / 'tracy'
+        (source_dir / '.git').mkdir(parents=True)
+        (source_dir / 'CMakeLists.txt').touch()
+        manifest = {
+            'name': 'tracy',
+            'kind': 'direct_source',
+            'source_dir': 'tracy',
+            'source': {
+                'type': 'git',
+                'url': 'https://example.invalid/tracy.git',
+                'tag': 'v0.14.1',
+            },
+        }
+        output = io.StringIO()
+        with mock.patch.object(
+            dependency_sources, '_git_revision_matches', side_effect=[False, True]
+        ), mock.patch.object(
+            dependency_sources, '_git_output', return_value=''
+        ), mock.patch.object(dependency_sources, 'run_command') as run:
+            dependency_sources.ensure_git_source(
+                manifest,
+                REPOSITORY.at_root(root),
+                CommandIO(stdout=output, stderr=output),
+            )
+        assert run.call_count == 2
+        assert run.call_args_list[0].args[0][-3:] == ['origin', 'tag', 'v0.14.1']
+        assert run.call_args_list[1].args[0][-3:] == ['checkout', '--detach', 'FETCH_HEAD']
+
+    def test_git_source_update_preserves_local_changes(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        source_dir = root / 'tracy'
+        (source_dir / '.git').mkdir(parents=True)
+        (source_dir / 'CMakeLists.txt').touch()
+        manifest = {
+            'name': 'tracy',
+            'kind': 'direct_source',
+            'source_dir': 'tracy',
+            'source': {
+                'type': 'git',
+                'url': 'https://example.invalid/tracy.git',
+                'tag': 'v0.14.1',
+            },
+        }
+        with mock.patch.object(
+            dependency_sources, '_git_revision_matches', return_value=False
+        ), mock.patch.object(
+            dependency_sources, '_git_output', return_value='local edit'
+        ), pytest.raises(BootstrapError, match='has local changes'):
+            dependency_sources.ensure_git_source(
+                manifest, REPOSITORY.at_root(root), CommandIO.system()
+            )
+
     @staticmethod
     def make_tool_manifest(*, sha256: str='0' * 64) -> dict[str, object]:
-        return {'name': 'tracy-tools', 'version': '0.13.1', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'repair_command': 'DevTool.bat dependency prepare --libs tracy,tracy-tools', 'source_dir': 'packages/tracy-tools/0.13.1/Win64', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/windows-0.13.1.zip', 'archive_name': 'windows-0.13.1.zip', 'sha256': sha256, 'required_files': ['tracy-profiler.exe', 'tracy-capture.exe']}}}}
+        return {'name': 'tracy-tools', 'version': '0.14.1', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'repair_command': 'DevTool.bat dependency prepare --libs tracy,tracy-tools', 'source_dir': 'packages/tracy-tools/0.14.1/Win64', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/windows-0.14.1.zip', 'archive_name': 'windows-0.14.1.zip', 'sha256': sha256, 'required_files': ['tracy-profiler.exe', 'tracy-capture.exe']}}}}
 
     def test_archive_sha256_must_be_64_hexadecimal_digits(self) -> None:
         manifest = self.make_tool_manifest(sha256='not-a-digest')
@@ -166,6 +224,40 @@ class TestThirdPartyBootstrap:
             dependency_sources.ensure_archive_source(manifest, 'Win64', REPOSITORY.at_root(root), CommandIO.system())
         urlretrieve.assert_not_called()
 
+    def test_platform_directory_and_executable_permissions_are_applied(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        archive_path = root / 'source.zip'
+        executable = 'tracy-profiler.app/Contents/MacOS/tracy-profiler'
+        with zipfile.ZipFile(archive_path, 'w') as archive:
+            archive.writestr(executable, b'profiler')
+            archive.writestr('tracy-capture', b'capture')
+        manifest = self.make_tool_manifest(
+            sha256=dependency_sources.compute_sha256(archive_path)
+        )
+        manifest['source_dirs_by_platform'] = {
+            'MacOS': 'packages/tracy-tools/0.14.1/MacOS'
+        }
+        manifest['source']['platforms']['MacOS'] = {
+            'url': 'https://example.invalid/macos-0.14.1.zip',
+            'archive_name': 'macos-0.14.1.zip',
+            'sha256': dependency_sources.compute_sha256(archive_path),
+            'required_files': [executable],
+            'executable_files': [executable],
+        }
+        with mock.patch.object(
+            dependency_sources.urllib.request,
+            'urlretrieve',
+            side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
+        ):
+            dependency_sources.ensure_archive_source(
+                manifest, 'MacOS', REPOSITORY.at_root(root), CommandIO.system()
+            )
+        installed = root / manifest['source_dirs_by_platform']['MacOS'] / executable
+        assert installed.is_file()
+        assert installed.stat().st_mode & 0o111 == 0o111
+
     def test_optional_tool_package_skips_unsupported_platform(self) -> None:
         manifest = self.make_tool_manifest()
         output = io.StringIO()
@@ -179,7 +271,7 @@ class TestThirdPartyBootstrap:
         root = Path(directory)
         status = dependency_manifests.query_manifest_status(manifest, 'Win64', REPOSITORY.at_root(root))
         assert not status['prepared']
-        assert status['version'] == '0.13.1'
+        assert status['version'] == '0.14.1'
         assert status['missing_files'] == ['tracy-profiler.exe', 'tracy-capture.exe']
         assert not (root / 'packages').exists()
 
@@ -196,6 +288,20 @@ class TestRelocatedManifest:
         manifest = next((item for item in dependency_manifests.load_manifests(REPOSITORY) if item['name'] == 'tracy-tools'))
         assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
         assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
+
+    def test_tracy_tools_include_verified_macos_release(self) -> None:
+        manifest = next(
+            item
+            for item in dependency_manifests.load_manifests(REPOSITORY)
+            if item['name'] == 'tracy-tools'
+        )
+        source = manifest['source']['platforms']['MacOS']
+        assert source['archive_name'] == 'macos-0.14.1.zip'
+        assert source['sha256'] == (
+            '971e2d8a742a57dc081cb2e36cc6200d565be7555c39a2f6439f9d65e2b416cb'
+        )
+        assert source['profiler_path'] in source['required_files']
+        assert manifest['source_dirs_by_platform']['MacOS'].endswith('/0.14.1/MacOS')
 
     def test_slang_macos_archive_is_pinned_to_verified_arm64_sdk(self) -> None:
         manifest = next(

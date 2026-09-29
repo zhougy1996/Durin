@@ -1,23 +1,53 @@
 {
   "name": "tracy-tools",
-  "version": "0.13.1",
+  "version": "0.14.1",
   "order": 81,
   "kind": "tool_package",
   "development_only": true,
   "allow_unsupported_platform": true,
   "repair_command": "DevTool.bat dependency prepare --libs tracy,tracy-tools",
-  "source_dir": "Engine/External/Packages/tracy-tools/0.13.1/Win64",
+  "repair_commands_by_platform": {
+    "Win64": "DevTool.bat dependency prepare --libs tracy,tracy-tools",
+    "MacOS": "./DevTool dependency prepare --libs tracy,tracy-tools"
+  },
+  "source_dir": "Engine/External/Packages/tracy-tools/0.14.1/Win64",
+  "source_dirs_by_platform": {
+    "Win64": "Engine/External/Packages/tracy-tools/0.14.1/Win64",
+    "MacOS": "Engine/External/Packages/tracy-tools/0.14.1/MacOS"
+  },
   "source": {
     "type": "archive",
     "platforms": {
       "Win64": {
-        "url": "https://github.com/wolfpld/tracy/releases/download/v0.13.1/windows-0.13.1.zip",
-        "archive_name": "windows-0.13.1.zip",
-        "sha256": "ee6db1a7e71a12deb5973a8dbfdf9f36d3635bec0e0b31b1cc74f28de7dac4c9",
+        "url": "https://github.com/wolfpld/tracy/releases/download/v0.14.1/windows-0.14.1.zip",
+        "archive_name": "windows-0.14.1.zip",
+        "sha256": "f7499d74914aa3ba94a2c1ce72f36477d7b61d9d0f7c9790e05274c258c97fb5",
+        "profiler_path": "tracy-profiler.exe",
         "required_files": [
           "tracy-profiler.exe",
           "tracy-capture.exe",
           "tracy-csvexport.exe"
+        ]
+      },
+      "MacOS": {
+        "url": "https://github.com/wolfpld/tracy/releases/download/v0.14.1/macos-0.14.1.zip",
+        "archive_name": "macos-0.14.1.zip",
+        "sha256": "971e2d8a742a57dc081cb2e36cc6200d565be7555c39a2f6439f9d65e2b416cb",
+        "profiler_path": "tracy-profiler.app/Contents/MacOS/tracy-profiler",
+        "required_files": [
+          "tracy-profiler.app/Contents/MacOS/tracy-profiler",
+          "tracy-capture",
+          "tracy-csvexport"
+        ],
+        "executable_files": [
+          "tracy-profiler.app/Contents/MacOS/tracy-profiler",
+          "tracy-capture",
+          "tracy-csvexport",
+          "tracy-capture-daemon",
+          "tracy-import-chrome",
+          "tracy-import-fuchsia",
+          "tracy-merge",
+          "tracy-update"
         ]
       }
     }

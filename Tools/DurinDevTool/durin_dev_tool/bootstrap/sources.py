@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -24,6 +25,15 @@ def normalize_rel_path(value: str) -> Path:
 
 def resolve_repo_path(value: str, repository: RepositoryContext) -> Path:
     return repository.root / normalize_rel_path(value)
+
+
+def resolve_source_dir(
+    manifest: dict[str, Any], repository: RepositoryContext, platform_name: str | None = None
+) -> Path:
+    value = manifest["source_dir"]
+    if platform_name is not None:
+        value = manifest.get("source_dirs_by_platform", {}).get(platform_name, value)
+    return resolve_repo_path(value, repository)
 
 
 def run_command(
@@ -65,15 +75,56 @@ def git_required_files(source: dict[str, Any]) -> list[str]:
     return [source.get("marker", "CMakeLists.txt"), *source.get("required_files", [])]
 
 
+def _git_output(arguments: Sequence[str], source_dir: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(source_dir), *arguments],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise BootstrapError(
+            f"Could not inspect Git source at \"{source_dir}\": {result.stderr.strip()}"
+        )
+    return result.stdout.strip()
+
+
+def _git_revision_matches(source: dict[str, Any], source_dir: Path) -> bool:
+    if commit := source.get("commit"):
+        return _git_output(["rev-parse", "HEAD"], source_dir) == commit
+    return source["tag"] in _git_output(["tag", "--points-at", "HEAD"], source_dir).splitlines()
+
+
 def _update_submodules(source_dir: Path, command_io: CommandIO) -> None:
     run_command(["git", "submodule", "update", "--init", "--recursive"], cwd=source_dir, command_io=command_io)
 
 
 def ensure_git_source(manifest: dict[str, Any], repository: RepositoryContext, command_io: CommandIO) -> None:
     source = manifest["source"]
-    source_dir = resolve_repo_path(manifest["source_dir"], repository)
+    source_dir = resolve_source_dir(manifest, repository)
     required = git_required_files(source)
     if verify_required_files(source_dir, required):
+        if (source_dir / ".git").is_dir() and not _git_revision_matches(source, source_dir):
+            if _git_output(["status", "--porcelain"], source_dir):
+                raise BootstrapError(
+                    f"{manifest['name']} source is not at the pinned revision and has local changes: \"{source_dir}\"."
+                )
+            revision = source.get("commit") or source["tag"]
+            command_io.out(f"Updating {manifest['name']} source to {revision} in \"{source_dir}\"...")
+            fetch_revision = [revision] if source.get("commit") else ["tag", revision]
+            run_command(
+                ["git", "-C", str(source_dir), "fetch", "--depth", "1", "origin", *fetch_revision],
+                command_io=command_io,
+            )
+            run_command(
+                ["git", "-C", str(source_dir), "checkout", "--detach", "FETCH_HEAD"],
+                command_io=command_io,
+            )
+            if source.get("recursive_submodules", False):
+                _update_submodules(source_dir, command_io)
+            if not verify_required_files(source_dir, required) or not _git_revision_matches(source, source_dir):
+                raise BootstrapError(
+                    f"{manifest['name']} source update completed, but the pinned revision is incomplete."
+                )
         command_io.out(f"{manifest['name']} source is already available at \"{source_dir}\".")
         return
     if not find_command("git"):
@@ -129,12 +180,13 @@ def ensure_archive_source(
     repository: RepositoryContext,
     command_io: CommandIO,
 ) -> None:
-    source_dir = resolve_repo_path(manifest["source_dir"], repository)
+    source_dir = resolve_source_dir(manifest, repository, platform_name)
     platform_source = manifest["source"]["platforms"].get(platform_name)
     if not platform_source:
         raise BootstrapError(f"{manifest['name']} does not define a bootstrap archive for platform {platform_name}.")
     required = platform_source["required_files"]
     if verify_required_files(source_dir, required):
+        _apply_executable_permissions(source_dir, platform_source)
         command_io.out(f"{manifest['name']} package is already available at \"{source_dir}\".")
         return
     if source_dir.exists():
@@ -166,10 +218,18 @@ def ensure_archive_source(
         else:
             raise BootstrapError(f"Unsupported archive format for {archive_name}")
         _copy_extracted(extract_dir, source_dir)
+    _apply_executable_permissions(source_dir, platform_source)
     if not verify_required_files(source_dir, required):
         raise BootstrapError(
             f"{manifest['name']} package was extracted, but expected files were not found in \"{source_dir}\"."
         )
+
+
+def _apply_executable_permissions(source_dir: Path, platform_source: dict[str, Any]) -> None:
+    for relative_path in platform_source.get("executable_files", []):
+        executable = source_dir / normalize_rel_path(relative_path)
+        if executable.is_file():
+            executable.chmod(executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def ensure_source_prepared(

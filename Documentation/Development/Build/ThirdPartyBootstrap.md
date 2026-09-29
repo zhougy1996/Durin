@@ -98,6 +98,9 @@ Current examples: `glm`, `bc7enc_rdo`, `googletest`, `tracy`
 `bc7enc_rdo` has no release tags, so its manifest pins an exact upstream commit.
 Git sources may define exactly one `tag` or `commit`; commit-pinned sources are
 fetched shallowly and checked out detached for reproducible bootstrap results.
+Preparation updates a clean existing Git source directory when its checked-out
+revision differs from the manifest. Local source changes stop the update rather
+than being overwritten.
 
 ### Tool Package
 
@@ -105,8 +108,10 @@ Current example: `tracy-tools`
 
 - Tool packages contain development executables and are not linkable engine
   dependencies.
-- Tracy `v0.13.1` Windows tools are installed at
-  `Engine/External/Packages/tracy-tools/0.13.1/Win64/`.
+- Tracy `v0.14.1` tools are installed beneath
+  `Engine/External/Packages/tracy-tools/0.14.1/<Platform>/` on Windows and
+  macOS. The macOS package retains its `.app` bundle layout and executable
+  permissions.
 - A former manual copy beneath `Build/Tools/Tracy-0.13.1/` is obsolete after
   managed preparation. Bootstrap does not search, migrate, or delete that
   disposable build-tree location.
@@ -173,13 +178,11 @@ architecture, install names, and runtime behavior have been verified.
   effective Debug or Release configuration and includes test dependencies when
   `BUILD_TESTING` is enabled. Shipping maps to the Release install tree.
 - `googletest` is test-only.
-- Tracy `v0.13.1` source and matching Win64 host tools are development-only and
+- Tracy `v0.14.1` source and matching Windows/macOS host tools are development-only and
   licensed under BSD-3-Clause. Profiling presets prepare only the Tracy client
   source before their first configure. Use
   `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair the
-  client and optional tools together. On macOS the Tracy client remains
-  available, while the
-  explicitly unsupported Win64-only Tracy tool package is skipped without
+  client and tools together. Unsupported host platforms are skipped without
   blocking ordinary dependency preparation.
   The upstream binary archive does not include its license file; the prepared
   Tracy source retains `Engine/External/Source/tracy/LICENSE`, and repository

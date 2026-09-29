@@ -1,6 +1,7 @@
 #include "ProfilingToolService.h"
 
 #include "Dialogs/FileDialog.h"
+#include "HAL/Platform.h"
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
 #include "Profiling/Profiling.h"
@@ -84,9 +85,14 @@ namespace Durin::Editor::MainFrame
 
 		const FJsonNodeView ToolsRoot = ToolsManifest.GetRootView();
 		Status.ExpectedVersion = ToolsRoot.GetView("version").GetString();
-		Status.RepairCommand = ToolsRoot.GetView("repair_command").GetString();
-		const std::string SourceDirectory = ToolsRoot.GetView("source_dir").GetString();
-		const FJsonNodeView Win64Source = ToolsRoot.GetView("source").GetView("platforms").GetView("Win64");
+		const std::string PlatformName = DURIN_BUILD_PLATFORM_STRING;
+		Status.RepairCommand = ToolsRoot.GetView("repair_commands_by_platform").GetView(PlatformName).GetString();
+		if (Status.RepairCommand.empty())
+			Status.RepairCommand = ToolsRoot.GetView("repair_command").GetString();
+		std::string SourceDirectory = ToolsRoot.GetView("source_dirs_by_platform").GetView(PlatformName).GetString();
+		if (SourceDirectory.empty()) SourceDirectory = ToolsRoot.GetView("source_dir").GetString();
+		const FJsonNodeView PlatformSource =
+			ToolsRoot.GetView("source").GetView("platforms").GetView(PlatformName);
 		if (
 			ToolsRoot.GetView("name").GetString() != "tracy-tools"
 			|| ToolsRoot.GetView("kind").GetString() != "tool_package"
@@ -102,13 +108,26 @@ namespace Durin::Editor::MainFrame
 		}
 
 		Status.bManifestValid = true;
-		Status.bPlatformSupported = Win64Source.IsObject();
+		Status.bPlatformSupported = PlatformSource.IsObject();
 		Status.PackagePath = (RootDirectory / SourceDirectory).lexically_normal().generic_string();
-		Status.ProfilerPath =
-			(std::filesystem::path(Status.PackagePath) / "tracy-profiler.exe").generic_string();
+		const std::string ProfilerRelativePath = PlatformSource.GetView("profiler_path").GetString();
+		if (!ProfilerRelativePath.empty())
+			Status.ProfilerPath =
+				(std::filesystem::path(Status.PackagePath) / ProfilerRelativePath).generic_string();
 		if (!Status.bPlatformSupported)
 		{
-			Status.Diagnostic = "The managed Tracy tools package does not support Win64.";
+			Status.Diagnostic = std::format(
+				"The managed Tracy tools package does not support {}.",
+				PlatformName
+			);
+			return Status;
+		}
+		if (ProfilerRelativePath.empty())
+		{
+			Status.Diagnostic = std::format(
+				"The managed Tracy tools manifest does not define a profiler path for {}.",
+				PlatformName
+			);
 			return Status;
 		}
 
@@ -127,7 +146,7 @@ namespace Durin::Editor::MainFrame
 			return Status;
 		}
 
-		for (const std::string& RequiredFile : ReadRequiredFiles(Win64Source))
+		for (const std::string& RequiredFile : ReadRequiredFiles(PlatformSource))
 		{
 			if (!std::filesystem::is_regular_file(std::filesystem::path(Status.PackagePath) / RequiredFile))
 				Status.MissingFiles.emplace_back(RequiredFile);

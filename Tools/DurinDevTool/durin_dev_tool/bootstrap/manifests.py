@@ -38,6 +38,14 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
         for field_name in ("test_only", "development_only", "allow_unsupported_platform"):
             if field_name in manifest and not isinstance(manifest[field_name], bool):
                 raise BootstrapError(f"Manifest {manifest['name']} field {field_name} must be a boolean.")
+        source_dirs = manifest.get("source_dirs_by_platform", {})
+        if not isinstance(source_dirs, dict) or any(
+            not isinstance(platform, str) or not isinstance(path, str) or not path
+            for platform, path in source_dirs.items()
+        ):
+            raise BootstrapError(
+                f"Manifest {manifest['name']} source_dirs_by_platform must map platform names to paths."
+            )
         source_kind = manifest["source"].get("type")
         if source_kind not in {"git", "archive"}:
             raise BootstrapError(f"Manifest {manifest['name']} has unsupported source type: {source_kind}")
@@ -67,6 +75,13 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
                 ):
                     raise BootstrapError(
                         f"Archive manifest {manifest['name']} platform {platform_name} sha256 must contain exactly 64 hexadecimal digits."
+                    )
+                executable_files = platform_source.get("executable_files", [])
+                if not isinstance(executable_files, list) or any(
+                    not isinstance(path, str) or not path for path in executable_files
+                ):
+                    raise BootstrapError(
+                        f"Archive manifest {manifest['name']} platform {platform_name} executable_files must be a list of paths."
                     )
         if manifest["kind"] == "shared_install" and (
             "cmake_dir" not in manifest or "install_required_file_sets" not in manifest
@@ -160,7 +175,7 @@ def query_manifest_status(
     platform_name: str,
     repository: RepositoryContext,
 ) -> dict[str, Any]:
-    source_dir = sources.resolve_repo_path(manifest["source_dir"], repository)
+    source_dir = sources.resolve_source_dir(manifest, repository, platform_name)
     source = manifest["source"]
     platform_source = source.get("platforms", {}).get(platform_name) if source["type"] == "archive" else None
     platform_supported = source["type"] != "archive" or platform_source is not None

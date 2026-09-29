@@ -24,10 +24,9 @@ set(TRACY_STATIC OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON)
 add_subdirectory("${_durin_tracy_source_dir}" "${CMAKE_BINARY_DIR}/ThirdParty/tracy")
 
-# Tracy v0.13.1 leaves this on-demand reconnect barrier set forever when
-# callstack support is disabled because the absent symbol worker is its only
-# normal reset path. Patch the build-local translation unit so prepared upstream
-# source remains immutable and a later profiler can reconnect to the same client.
+# Patch the build-local translation unit so the Editor can report the actual
+# automatically selected listen port while prepared upstream source remains
+# immutable.
 set(_durin_tracy_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/Generated")
 set(_durin_tracy_profiler_source
 	"${_durin_tracy_source_dir}/public/client/TracyProfiler.cpp"
@@ -43,29 +42,6 @@ set(_durin_tracy_patched_client
 )
 file(MAKE_DIRECTORY "${_durin_tracy_generated_dir}")
 file(READ "${_durin_tracy_profiler_source}" _durin_tracy_profiler_contents)
-set(_durin_tracy_reconnect_barrier
-	"        while( m_symbolsBusy.load( std::memory_order_acquire ) ) { YieldThread(); }\n        m_symbolsBusy.store( true, std::memory_order_release );"
-)
-set(_durin_tracy_guarded_reconnect_barrier
-	"#ifdef TRACY_HAS_CALLSTACK\n${_durin_tracy_reconnect_barrier}\n#endif"
-)
-string(FIND
-	"${_durin_tracy_profiler_contents}"
-	"${_durin_tracy_reconnect_barrier}"
-	_durin_tracy_reconnect_barrier_offset
-)
-if(_durin_tracy_reconnect_barrier_offset EQUAL -1)
-	message(FATAL_ERROR
-		"Tracy v0.13.1 reconnect compatibility patch no longer matches "
-		"public/client/TracyProfiler.cpp."
-	)
-endif()
-string(REPLACE
-	"${_durin_tracy_reconnect_barrier}"
-	"${_durin_tracy_guarded_reconnect_barrier}"
-	_durin_tracy_profiler_contents
-	"${_durin_tracy_profiler_contents}"
-)
 # Expose the actual bound port, not the requested/default port. Keep this
 # bridge in the shared client so every instrumented module sees one endpoint.
 set(_durin_tracy_worker_entry "void Profiler::Worker()\n{")
@@ -73,7 +49,7 @@ set(_durin_tracy_listening_entry "#ifndef TRACY_NO_BROADCAST\n    m_broadcast ="
 foreach(_durin_tracy_endpoint_anchor IN ITEMS _durin_tracy_worker_entry _durin_tracy_listening_entry)
 	string(FIND "${_durin_tracy_profiler_contents}" "${${_durin_tracy_endpoint_anchor}}" _durin_tracy_endpoint_offset)
 	if(_durin_tracy_endpoint_offset EQUAL -1)
-		message(FATAL_ERROR "Tracy v0.13.1 endpoint bridge no longer matches public/client/TracyProfiler.cpp.")
+		message(FATAL_ERROR "Tracy v0.14.1 endpoint bridge no longer matches public/client/TracyProfiler.cpp.")
 	endif()
 endforeach()
 set(_durin_tracy_endpoint_bridge [=[

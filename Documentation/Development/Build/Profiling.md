@@ -6,15 +6,17 @@ There is no separate profiling preset or output directory.
 
 ## Preparation And Presets
 
-Configure and build automatically prepare the pinned Tracy `v0.13.1` client
+Configure and build automatically prepare the pinned Tracy `v0.14.1` client
 source when instrumentation is enabled. Main-checkout `DevTool setup` installs
-the matching host tools on Windows by default. CI and build-only environments
+the matching host tools on Windows and macOS by default. CI and build-only environments
 can use `setup --skip-development-tools`; configure/build do not install these
 tools. Existing workspaces can install or repair them explicitly:
 
 ```powershell
 .\DevTool.bat dependency prepare --libs tracy,tracy-tools
 ```
+
+On macOS, use `./DevTool dependency prepare --libs tracy,tracy-tools`.
 
 Use the ordinary Release builds for representative performance captures:
 
@@ -34,12 +36,13 @@ are not required to run an instrumented application.
 
 The client is configured for on-demand, localhost-only capture. Capturing is
 optional at runtime. The repository-managed profiler and capture tool always
-match the pinned Tracy `v0.13.1` client.
+match the pinned Tracy `v0.14.1` client.
 
 ## Editor Tool Workflow
 
-Setup installs the matching Tracy host tools at
-`Engine/External/Packages/tracy-tools/0.13.1/Win64/`. To install or repair them
+Setup installs the matching Tracy host tools beneath
+`Engine/External/Packages/tracy-tools/0.14.1/<Platform>/`. On macOS the profiler
+is the official `tracy-profiler.app` bundle. To install or repair the tools
 without rerunning setup:
 
 ```powershell
@@ -70,7 +73,7 @@ and select that Game through Tracy discovery.
 
 If the managed tools are missing, malformed, or version-mismatched, actions that
 need the profiler are disabled and show the status reason. A launch failure
-reports the resolved executable, readable Windows error, expected version, and
+reports the resolved executable, readable platform error, expected version, and
 repair command. Once launched, the profiler is not owned by Editor shutdown, so
 an interactive profiler with an unsaved capture remains open.
 
@@ -116,7 +119,7 @@ New-Item -ItemType Directory -Path $CaptureDirectory -Force | Out-Null
 $Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $CapturePath = Join-Path $CaptureDirectory "DurinEditor-task-owner-normal-$Timestamp.tracy"
 
-Engine\External\Packages\tracy-tools\0.13.1\Win64\tracy-capture.exe `
+Engine\External\Packages\tracy-tools\0.14.1\Win64\tracy-capture.exe `
   -a 127.0.0.1 `
   -p <discovered-port> `
   -o $CapturePath `
@@ -132,10 +135,9 @@ uses local time and Windows-safe characters. The command intentionally omits
 only when replacement of one explicitly selected capture is intended. The
 capture directory is ignored by Git.
 
-On-demand clients remain available after a capture disconnects. Durin applies a
-build-local compatibility fix for Tracy v0.13.1 when call-stack support is
-disabled, allowing another profiler or capture process to reconnect without
-restarting Editor or Game. The prepared upstream source remains unchanged.
+On-demand clients remain available after a capture disconnects, allowing
+another profiler or capture process to reconnect without restarting Editor or
+Game. The prepared upstream source remains unchanged.
 
 If a connection fails:
 

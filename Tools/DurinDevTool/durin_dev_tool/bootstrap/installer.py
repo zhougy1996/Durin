@@ -89,7 +89,7 @@ def prepare_manifest(
         command_io.out(f"Skipping {manifest['name']}: no package is available for platform {platform_name}.")
         return
     sources.ensure_source_prepared(manifest, platform_name, repository, command_io)
-    source_dir = sources.resolve_repo_path(manifest["source_dir"], repository)
+    source_dir = sources.resolve_source_dir(manifest, repository, platform_name)
     if manifest["kind"] == "direct_source":
         required = manifest.get("required_files", [])
         if required and not sources.verify_required_files(source_dir, required):
