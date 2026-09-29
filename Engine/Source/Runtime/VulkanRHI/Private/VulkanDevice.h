@@ -41,6 +41,7 @@ namespace Durin::VulkanRHI
 		bool bSwapchainMaintenanceFeature = false;
 		bool bHasSwapchainMaintenanceInstanceDependencies = false;
 		bool bRequirePortabilitySubset = false;
+		bool bEventsFeature = true;
 		bool bRequirePresentation = true;
 		std::vector<std::string> AvailableExtensions;
 		std::vector<FVulkanQueueFamilyCandidate> QueueFamilies;
@@ -56,6 +57,7 @@ namespace Durin::VulkanRHI
 		uint32 ComputeQueueIndex = 0;
 		bool bEnableTimelineSemaphores = false;
 		bool bEnableSynchronization2 = false;
+		bool bEnableEvents = true;
 		bool bEnableSwapchainMaintenance1 = false;
 
 		auto IsSuitable() const -> bool { return RejectionReasons.empty(); }
@@ -328,6 +330,7 @@ namespace Durin::VulkanRHI
 
 		bool bSupportsSwapchainMaintenance1 = false;
 		bool bSupportsSynchronization2 = false;
+		bool bSupportsEvents = true;
 
 		int32 GraphicsQueueFamilyIndex = -1;
 

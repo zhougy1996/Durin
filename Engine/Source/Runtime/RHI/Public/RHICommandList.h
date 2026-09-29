@@ -114,6 +114,8 @@ namespace Durin
 		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
 		RHI_API auto TransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void;
 		RHI_API auto TransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void;
+		RHI_API auto BeginTransition(std::shared_ptr<FRHITransition> Transition) -> void;
+		RHI_API auto EndTransition(std::shared_ptr<FRHITransition> Transition) -> void;
 		RHI_API auto CopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferCopyRegion> Regions) -> void;
 		RHI_API auto CopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
@@ -244,6 +246,7 @@ namespace Durin
 		uint32 RenderPassDiagnosticRegionDepth = 0;
 		std::vector<FRHIGPUTimingQuery*> ActiveGPUTimingQueries;
 		std::vector<std::shared_ptr<void>> ActiveGPUTimingReservations;
+		std::vector<std::shared_ptr<FRHITransition>> ActiveTransitions;
 		uint64 NumRecordedDrawCommands = 0;
 
 		friend class FRHICommandList;

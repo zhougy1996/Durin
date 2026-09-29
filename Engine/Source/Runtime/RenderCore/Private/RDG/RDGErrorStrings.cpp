@@ -135,6 +135,7 @@ namespace Durin
 		{
 		case ERDGPreparationError::AllocatorMissing: return "allocator missing";
 		case ERDGPreparationError::QueueTransferFailed: return "queue transfer failed";
+		case ERDGPreparationError::TransitionCreationFailed: return "split transition creation failed";
 		}
 		return "unknown RDG error";
 	}

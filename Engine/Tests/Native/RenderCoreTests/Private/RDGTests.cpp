@@ -111,6 +111,7 @@ namespace Durin
 		class FBarrierRecordingContext : public IRHICommandContext
 		{
 		public:
+			std::vector<std::string> BarrierOperations;
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo&, FName) -> void override
 			{ ADD_FAILURE() << "Unexpected render pass"; }
 			auto RHIBindVertexBuffer(uint32, FRHIBuffer*, uint32) -> void override
@@ -144,9 +145,16 @@ namespace Durin
 			auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIBindIndexBuffer"; }
 			auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void override
-			{ BufferBatches.emplace_back(Transitions.begin(), Transitions.end()); }
+			{ BarrierOperations.emplace_back("FullBuffer"); BufferBatches.emplace_back(Transitions.begin(), Transitions.end()); }
 			auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void override
-			{ TextureBatches.emplace_back(Transitions.begin(), Transitions.end()); }
+			{ BarrierOperations.emplace_back("FullTexture"); TextureBatches.emplace_back(Transitions.begin(), Transitions.end()); }
+			auto RHIBeginTransition(const std::shared_ptr<FRHITransition>&) -> void override
+			{ BarrierOperations.emplace_back("BeginSplit"); }
+			auto RHIEndTransition(const std::shared_ptr<FRHITransition>& Transition) -> void override
+			{
+				BarrierOperations.emplace_back("EndSplit");
+				IRHICommandContext::RHIEndTransition(Transition);
+			}
 			auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination, std::span<const FRHIBufferCopyRegion> Regions) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHICopyBuffer"; }
 			auto RHICopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination, std::span<const FRHIBufferTextureCopyRegion> Regions) -> void override
@@ -179,6 +187,36 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIDraw"; }
 			auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIDrawIndexed"; }
+		};
+
+		class FSplitBarrierTestRHI final : public FDynamicRHI
+		{
+		public:
+			FSplitBarrierTestRHI() { Queues.bSplitBarriers = true; }
+			auto Init(const FRHIInitializationContext&) -> void override {}
+			auto Shutdown() -> void override {}
+			auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override { return Queues; }
+			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
+			auto RHIEndFrame() -> void override {}
+			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> TRefCountPtr<FRHIViewport> override { return {}; }
+			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
+				-> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
+			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
+			auto RHIGetViewportBackBuffer(FRHIViewport*) -> TRefCountPtr<FRHITexture> override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
+				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
+			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
+			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
+				-> std::expected<FTextureRHIRef, FRHICreationError> override
+			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) -> TRefCountPtr<FRHIShader> override { return {}; }
+			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> std::expected<FBufferRHIRef, FRHICreationError> override
+			{ return std::unexpected(FRHICreationError{}); }
+		private:
+			FRHIQueueCapabilities Queues;
 		};
 
 		class FUploadRecordingContext final : public FBarrierRecordingContext
@@ -2844,6 +2882,49 @@ namespace Durin
 				}
 			}
 		}
+	}
+
+	TEST_F(FRDGTests, SplitBarrierPlanPairsProducerAndConsumerAndPreservesFullFallback)
+	{
+		FBarrierRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		FSplitBarrierTestRHI TestRHI;
+		struct FScopedRHI final
+		{
+			FDynamicRHI* Previous = GDynamicRHI;
+			explicit FScopedRHI(FDynamicRHI& Current) { GDynamicRHI = &Current; }
+			~FScopedRHI() { GDynamicRHI = Previous; }
+		} ScopedRHI(TestRHI);
+
+		auto Physical = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Split", 64, 4, EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::SourceCopy));
+		FRDGBuilder Builder;
+		const auto Buffer = Builder.RegisterExternalBuffer(Physical, "Split",
+			ERHIAccess::TransferRead, ERHIAccess::TransferRead);
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder, "Producer", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Producer, Buffer, 0, 64,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Consumer = FRDGBuilderTestAccessor::AddPass(Builder, "Consumer", ERDGPassType::Copy);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Consumer, Buffer, 0, 64,
+			ERDGUse::Read, ERHIAccess::TransferRead);
+		Builder.MarkPassRoot(Producer, "split producer");
+		Builder.MarkPassRoot(Consumer, "split consumer");
+
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		const auto& Plan = Builder.GetExecutionPlan();
+		ASSERT_EQ(Plan.SplitBarriers.size(), 1u);
+		EXPECT_EQ(Plan.SplitBarriers[0].Producer.Index, 0u);
+		EXPECT_EQ(Plan.SplitBarriers[0].Consumer.Index, 1u);
+		ASSERT_EQ(Plan.SplitBarriers[0].HandoffIndices.size(), 1u);
+		EXPECT_LT(Plan.SplitBarriers[0].HandoffIndices[0], Plan.Handoffs.size());
+
+		Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(Backend.BarrierOperations, (std::vector<std::string>{
+			"FullBuffer", "BeginSplit", "EndSplit", "FullBuffer"}));
+		ASSERT_EQ(Backend.BufferBatches.size(), 2u);
+		EXPECT_EQ(Backend.BufferBatches.back()[0].ExpectedBefore, ERHIAccess::ComputeShaderReadWrite);
+		EXPECT_EQ(Backend.BufferBatches.back()[0].RequiredAfter, ERHIAccess::TransferRead);
 	}
 
 	TEST_F(FRDGTests, CompilesStableHazardOrderAndExactTextureTransitions)

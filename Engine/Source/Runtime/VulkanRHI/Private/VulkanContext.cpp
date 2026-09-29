@@ -20,9 +20,67 @@
 #include "VulkanResourceState.h"
 #include "VulkanView.h"
 #include "VulkanQueueTransfer.h"
+#include "VulkanTransition.h"
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		struct FVulkanSplitBarrierSet final
+		{
+			std::vector<vk::BufferMemoryBarrier2> Buffers;
+			std::vector<vk::ImageMemoryBarrier2> Images;
+		};
+
+		auto BuildSplitBarrierSet(const FRHITransition& Transition,
+			uint32 QueueFamily) -> FVulkanSplitBarrierSet
+		{
+			FVulkanSplitBarrierSet Result;
+			Result.Buffers.reserve(Transition.GetBufferTransitions().size());
+			for (const auto& Entry : Transition.GetBufferTransitions())
+			{
+				auto* Buffer = FVulkanBuffer::Cast(Entry.Buffer);
+				requiref(Buffer->GetStateTracker().GetOwnership().CanUse(
+					Entry.Offset, Entry.Size, QueueFamily),
+					"Split buffer range is owned by another queue family or awaiting acquire.");
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Buffer->GetStateTracker().Validate(
+					Entry.Offset, Entry.Size, Entry.ExpectedBefore, Tracked),
+					"Vulkan split buffer transition state mismatch.");
+				const auto Source = Buffer->GetStateTracker().GetBarrierSource(Entry.Offset, Entry.Size);
+				const auto Destination = MapVulkanResourceState(Entry.RequiredAfter);
+				Result.Buffers.push_back(vk::BufferMemoryBarrier2()
+					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setBuffer(Buffer->GetHandle()).setOffset(Entry.Offset).setSize(Entry.Size));
+			}
+			Result.Images.reserve(Transition.GetTextureTransitions().size());
+			for (const auto& Entry : Transition.GetTextureTransitions())
+			{
+				auto* Texture = static_cast<FVulkanTexture*>(Entry.Texture);
+				requiref(Texture->GetStateTracker().CanUseOwnership(Entry.Range, QueueFamily),
+					"Split texture range is owned by another queue family or awaiting acquire.");
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Texture->GetStateTracker().Validate(Entry.Range, Entry.ExpectedBefore, Tracked),
+					"Vulkan split texture transition state mismatch.");
+				const auto Source = Texture->GetStateTracker().GetBarrierSource(Entry.Range,
+					Entry.bDiscardContents || Entry.ExpectedBefore == ERHIAccess::Discard);
+				const auto Destination = MapVulkanResourceState(Entry.RequiredAfter);
+				Result.Images.push_back(vk::ImageMemoryBarrier2()
+					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setImage(Texture->Image).setSubresourceRange({ToVulkanAspectFlags(Entry.Range.Aspects),
+						Entry.Range.FirstMip, Entry.Range.NumMips,
+						Entry.Range.FirstArrayLayer, Entry.Range.NumArrayLayers}));
+			}
+			return Result;
+		}
+	}
 	namespace
 	{
 		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, uint32 Width, uint32 Height, const char* Label) -> void
@@ -791,6 +849,58 @@ namespace Durin::VulkanRHI
 				Transition.Range, Queue->GetFamilyIndex()));
 			static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().Apply(
 				Transition.Range, Transition.RequiredAfter);
+		}
+	}
+
+	auto FVulkanCommandListContext::RHIBeginTransition(
+		const std::shared_ptr<FRHITransition>& Transition) -> void
+	{
+		CheckVulkanRHIThread();
+		if (!RHI->RHIGetQueueCapabilities().bSplitBarriers) return;
+		auto VulkanTransition = std::dynamic_pointer_cast<FVulkanTransition>(Transition);
+		requiref(VulkanTransition, "Vulkan split transition has an incompatible backend object.");
+		requiref(VulkanTransition->BeginOn(Queue->GetId()),
+			"Vulkan split transition begin is not single-use.");
+		auto Barriers = BuildSplitBarrierSet(*Transition, Queue->GetFamilyIndex());
+		const vk::DependencyInfo Dependency = vk::DependencyInfo()
+			.setBufferMemoryBarriers(Barriers.Buffers)
+			.setImageMemoryBarriers(Barriers.Images);
+		GetCommandBuffer()->GetHandle().setEvent2(
+			VulkanTransition->GetOrCreateEvent(), Dependency);
+	}
+
+	auto FVulkanCommandListContext::RHIEndTransition(
+		const std::shared_ptr<FRHITransition>& Transition) -> void
+	{
+		CheckVulkanRHIThread();
+		if (!RHI->RHIGetQueueCapabilities().bSplitBarriers)
+		{
+			IRHICommandContext::RHIEndTransition(Transition);
+			return;
+		}
+		auto VulkanTransition = std::dynamic_pointer_cast<FVulkanTransition>(Transition);
+		requiref(VulkanTransition && VulkanTransition->GetEvent(),
+			"Vulkan split transition end requires its recorded begin.");
+		requiref(VulkanTransition->EndOn(Queue->GetId()),
+			"Vulkan split transition must end on the physical queue where it began.");
+		auto Barriers = BuildSplitBarrierSet(*Transition, Queue->GetFamilyIndex());
+		const std::array Events{VulkanTransition->GetEvent()};
+		const std::array Dependencies{vk::DependencyInfo()
+			.setBufferMemoryBarriers(Barriers.Buffers)
+			.setImageMemoryBarriers(Barriers.Images)};
+		GetCommandBuffer()->GetHandle().waitEvents2(Events, Dependencies);
+		for (const auto& Entry : Transition->GetBufferTransitions())
+		{
+			auto* Buffer = FVulkanBuffer::Cast(Entry.Buffer);
+			require(Buffer->GetStateTracker().GetOwnership().Claim(
+				Entry.Offset, Entry.Size, Queue->GetFamilyIndex()));
+			Buffer->GetStateTracker().Apply(Entry.Offset, Entry.Size, Entry.RequiredAfter);
+		}
+		for (const auto& Entry : Transition->GetTextureTransitions())
+		{
+			auto* Texture = static_cast<FVulkanTexture*>(Entry.Texture);
+			require(Texture->GetStateTracker().ClaimOwnership(Entry.Range, Queue->GetFamilyIndex()));
+			Texture->GetStateTracker().Apply(Entry.Range, Entry.RequiredAfter);
 		}
 	}
 

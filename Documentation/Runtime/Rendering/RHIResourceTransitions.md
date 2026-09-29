@@ -60,6 +60,44 @@ state are identical in inline and dedicated-thread execution; threaded callers
 use the existing submission serial and fence contract when they need CPU
 completion.
 
+## Split Transition Contract
+
+`Experimental/RHITransition.h` defines one execution-local, single-use
+transition object. `RHICreateTransition` validates and copies its exact buffer
+and texture ranges, and the object retains every resource through its final
+recorded and backend use. `BeginTransition` and `EndTransition` must pair on the
+same command list, cannot nest the same object, cannot overlap another open
+transition on the same range, and are illegal inside a render pass. A command
+list cannot be sealed while a transition remains open. Graph and manual callers
+must not access a transitioned range between the pair; overlapping ordinary
+transition commands are rejected while it is open.
+
+Backend split support is published by `FRHIQueueCapabilities::bSplitBarriers`
+independently of independent-compute or queue-family support. An unsupported
+backend records Begin as a no-op and lowers End to the same complete buffer and
+texture barriers used by the ordinary API. This fallback preserves validation,
+state updates, resource retention, and results without claiming overlap.
+
+RDG compiles candidate begin/end relationships only when one exact producer
+batch precedes the consumer batch. It groups transitions with the same pair,
+resolves all physical backings centrally during execution preparation, and uses
+split lowering only when both batches map to one physical queue and the backend
+publishes support. Begin records after the producer batch; End records before
+the consumer barriers. Cross-queue ranges continue through queue ownership
+transfer, initial transitions and ambiguous multi-producer ranges remain full,
+and transitions within one batch remain full. Consequently begin/end are always
+outside render passes and upload/pass batching cannot separate a pair illegally.
+
+The Vulkan backend implements native split lowering with matching
+`vkCmdSetEvent2` and `vkCmdWaitEvents2` dependency descriptions. It publishes
+the capability only when synchronization2 and native device events are both
+available and `DURIN_VULKAN_SPLIT_BARRIERS=1` explicitly selects the diagnostic
+policy. Portability-subset devices are conservatively kept on the full-barrier
+fallback because Durin does not enable their optional event feature; Apple
+MoltenVK additionally reports native events unsupported. Native split remains
+off by default until its performance gate is qualified; support is not inferred
+from multi-queue availability.
+
 ## Vulkan State Authority
 
 Each Vulkan buffer owns an interval state tracker, and each Vulkan texture owns
@@ -131,7 +169,7 @@ the [submission batch contract](VulkanMemoryAndGPUCompletion.md#completion-domai
 An unsubmitted producer must be present in that batch. Production RDG scheduling
 still uses graphics.
 
-Ordinary transition commands still emit full barriers on the graphics queue.
+Ordinary transition commands still emit full barriers on their recording queue.
 Counted resource views and recorded transfers
 consume these exact ranges through the separate
 [RHI resource views and transfers](RHIResourceViewsAndTransfers.md) contract. Compute access intent and Vulkan

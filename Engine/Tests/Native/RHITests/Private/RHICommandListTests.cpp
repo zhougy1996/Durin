@@ -232,6 +232,13 @@ namespace Durin
 				OperationThreadRoles.emplace_back(IsInRHIThread());
 				ObservedTextureTransitions.assign(Transitions.begin(), Transitions.end());
 			}
+			auto RHIBeginTransition(const std::shared_ptr<FRHITransition>&) -> void override
+			{ Operations.emplace_back("BeginTransition"); }
+			auto RHIEndTransition(const std::shared_ptr<FRHITransition>& Transition) -> void override
+			{
+				Operations.emplace_back("EndTransition");
+				IRHICommandContext::RHIEndTransition(Transition);
+			}
 			auto RHICopyBuffer(FRHIBuffer*, FRHIBuffer*,
 				std::span<const FRHIBufferCopyRegion> Regions) -> void override
 			{
@@ -1974,6 +1981,60 @@ namespace Durin
 				+ sizeof(TRefCountPtr<FRHIBuffer>) + sizeof(TRefCountPtr<FRHITexture>));
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
 		EXPECT_EQ(Texture->GetRefCount(), 1u);
+	}
+
+	TEST(FRHICommandListTests, SplitTransitionPairsReplayAndFallbackToFullBarrier)
+	{
+		struct FTransition final : FRHITransition
+		{
+			explicit FTransition(FRHITransitionDesc Desc)
+				: FRHITransition(std::move(Desc)) {}
+		};
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto Buffer = MakeRefCount<FTestBuffer>(64);
+		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+			"SplitTexture", 8, 8, EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource));
+		auto Transition = std::make_shared<FTransition>(FRHITransitionDesc{
+			.Buffers = {FRHIBufferTransition::Whole(Buffer.GetReference(),
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead)},
+			.Textures = {{Texture.GetReference(), {ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead}}});
+		std::weak_ptr<FRHITransition> Observer = Transition;
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.BeginTransition(Transition);
+		Commands.EnqueueLambda([&Context] { Context.Operations.emplace_back("IndependentWork"); });
+		Commands.EndTransition(Transition);
+		Transition.reset();
+		EXPECT_FALSE(Observer.expired());
+
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"BeginTransition",
+			"IndependentWork", "EndTransition", "TransitionBuffers", "TransitionTextures"}));
+		EXPECT_TRUE(Observer.expired());
+	}
+
+	TEST(FRHICommandListTests, SplitTransitionRejectsUnpairedRecording)
+	{
+		struct FTransition final : FRHITransition
+		{
+			explicit FTransition(FRHIBuffer* Buffer) : FRHITransition(FRHITransitionDesc{
+				.Buffers = {FRHIBufferTransition::Whole(Buffer,
+					ERHIAccess::Discard, ERHIAccess::VertexBufferRead)}}) {}
+		};
+		auto Buffer = MakeRefCount<FTestBuffer>(32);
+		auto Transition = std::make_shared<FTransition>(Buffer.GetReference());
+		EXPECT_DEATH(FRHICommandList().EndTransition(Transition), "matching begin");
+		EXPECT_DEATH({ FRHICommandList Commands; Commands.BeginTransition(Transition);
+			Commands.BeginTransition(Transition); }, "same object twice");
+		EXPECT_DEATH({ FRHICommandList Commands; Commands.BeginTransition(Transition);
+			Commands.FinishRecording(); }, "open split transition");
+		EXPECT_DEATH({ FRHICommandList Commands; Commands.BeginTransition(Transition);
+			const std::array Full{FRHIBufferTransition::Whole(Buffer.GetReference(),
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead)};
+			Commands.TransitionBuffers(Full); }, "while its split transition is open");
 	}
 
 	TEST(FRHICommandListTests, DestroyingRecorderReleasesTransitionResources)

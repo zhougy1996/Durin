@@ -4,6 +4,7 @@
 #include "RHIResources.h"
 #include "RHICompletion.h"
 #include "RHITextureReadback.h"
+#include "Experimental/RHITransition.h"
 
 namespace Durin
 {
@@ -60,6 +61,14 @@ namespace Durin
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void = 0;
 		virtual auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void = 0;
+		virtual auto RHIBeginTransition(const std::shared_ptr<FRHITransition>&) -> void {}
+		virtual auto RHIEndTransition(const std::shared_ptr<FRHITransition>& Transition) -> void
+		{
+			if (!Transition->GetBufferTransitions().empty())
+				RHITransitionBuffers(Transition->GetBufferTransitions());
+			if (!Transition->GetTextureTransitions().empty())
+				RHITransitionTextures(Transition->GetTextureTransitions());
+		}
 		virtual auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferCopyRegion> Regions) -> void = 0;
 		virtual auto RHICopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,

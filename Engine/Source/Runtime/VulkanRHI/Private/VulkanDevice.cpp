@@ -125,6 +125,7 @@ namespace Durin::VulkanRHI
 			Input.AvailableExtensions, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 		Result.bEnableSynchronization2 = Input.bSynchronization2Feature
 			&& (Input.ApiVersion >= VK_API_VERSION_1_3 || bSynchronization2Extension);
+		Result.bEnableEvents = !Input.bRequirePortabilitySubset || Input.bEventsFeature;
 		if (Result.bEnableSynchronization2 && Input.ApiVersion < VK_API_VERSION_1_3)
 			Result.EnabledExtensions.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 		Result.bEnableSwapchainMaintenance1 = Input.bHasSwapchainMaintenanceInstanceDependencies
@@ -310,6 +311,7 @@ namespace Durin::VulkanRHI
 		DeviceExtensions = std::move(InEvaluation.EnabledExtensions);
 		bSupportsSwapchainMaintenance1 = InEvaluation.bEnableSwapchainMaintenance1;
 		bSupportsSynchronization2 = InEvaluation.bEnableSynchronization2;
+		bSupportsEvents = InEvaluation.bEnableEvents;
 	}
 
 	FVulkanDevice::~FVulkanDevice()
@@ -334,6 +336,9 @@ namespace Durin::VulkanRHI
 			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
 		QueueCapabilities.DeviceGeneration = DeviceGeneration;
+		const char* SplitPolicy = std::getenv("DURIN_VULKAN_SPLIT_BARRIERS");
+		QueueCapabilities.bSplitBarriers = bSupportsSynchronization2 && bSupportsEvents && SplitPolicy
+			&& std::string_view(SplitPolicy) == "1";
 		const auto& GraphicsProperties = QueueFamilyProps[GraphicsQueueFamilyIndex];
 		QueueCapabilities.Queues.push_back({.Id = {0},
 			.OwnershipDomain = static_cast<uint32>(GraphicsQueueFamilyIndex),

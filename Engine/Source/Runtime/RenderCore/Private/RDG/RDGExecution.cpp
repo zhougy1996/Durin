@@ -16,7 +16,7 @@ namespace Durin::RDGPrivate
 		{
 			std::vector<FRHIBufferTransition> Buffers;
 			std::vector<FRHITextureTransition> Textures;
-			std::vector<bool> TransferredBuffers, TransferredTextures;
+			std::vector<bool> LoweredBuffers, LoweredTextures;
 		};
 		struct FPreparedBarrierBatch final
 		{
@@ -70,9 +70,9 @@ namespace Durin::RDGPrivate
 					if (First != Begin) Emit(Begin, First - Begin);
 				}
 			};
-			Record(Batch.FirstBuffer, Batch.NumBuffers, Prepared.TransferredBuffers,
+			Record(Batch.FirstBuffer, Batch.NumBuffers, Prepared.LoweredBuffers,
 				[&](size_t First, size_t Count) { CommandList.TransitionBuffers(std::span{Prepared.Buffers}.subspan(First, Count)); });
-			Record(Batch.FirstTexture, Batch.NumTextures, Prepared.TransferredTextures,
+			Record(Batch.FirstTexture, Batch.NumTextures, Prepared.LoweredTextures,
 				[&](size_t First, size_t Count) { CommandList.TransitionTextures(std::span{Prepared.Textures}.subspan(First, Count)); });
 		}
 
@@ -113,6 +113,8 @@ namespace Durin
 		bool bAsync = false;
 		using FTransfers = std::vector<std::shared_ptr<FRHIQueueTransfer>>;
 		std::vector<FTransfers> Acquires, Releases;
+		using FTransitions = std::vector<std::shared_ptr<FRHITransition>>;
+		std::vector<FTransitions> TransitionBegins, TransitionEnds;
 		FTransfers InitialReleases;
 		std::vector<bool> WaitForInitial;
 		std::vector<std::vector<uint32>> Predecessors;
@@ -284,11 +286,13 @@ namespace Durin
 			&& (Compiled->AllocationRequests.empty() || (Allocator && Allocator->SupportsAsyncCompute()));
 		Context.Acquires.resize(Compiled->ExecutionPlan.Batches.size());
 		Context.Releases.resize(Context.Acquires.size());
+		Context.TransitionBegins.resize(Context.Acquires.size());
+		Context.TransitionEnds.resize(Context.Acquires.size());
 		Context.WaitForInitial.resize(Context.Acquires.size(), false);
 		if (Context.bAsync)
 		{
-			Context.PreparedTransitions.TransferredBuffers.resize(Context.PreparedTransitions.Buffers.size(), false);
-			Context.PreparedTransitions.TransferredTextures.resize(Context.PreparedTransitions.Textures.size(), false);
+			Context.PreparedTransitions.LoweredBuffers.resize(Context.PreparedTransitions.Buffers.size(), false);
+			Context.PreparedTransitions.LoweredTextures.resize(Context.PreparedTransitions.Textures.size(), false);
 			for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
 			{
 				const auto& Consumer = Compiled->ExecutionPlan.Batches[Handoff.Consumer.Index];
@@ -299,13 +303,13 @@ namespace Durin
 				{
 					const size_t Index = Barrier.FirstTexture + Handoff.TransitionIndex;
 					Desc.Textures.push_back(Context.PreparedTransitions.Textures[Index]);
-					Context.PreparedTransitions.TransferredTextures[Index] = true;
+					Context.PreparedTransitions.LoweredTextures[Index] = true;
 				}
 				else
 				{
 					const size_t Index = Barrier.FirstBuffer + Handoff.TransitionIndex;
 					Desc.Buffers.push_back(Context.PreparedTransitions.Buffers[Index]);
-					Context.PreparedTransitions.TransferredBuffers[Index] = true;
+					Context.PreparedTransitions.LoweredBuffers[Index] = true;
 				}
 				auto Transfer = GDynamicRHI->RHICreateQueueTransfer(Desc);
 				if (!Transfer) return std::unexpected(ERDGPreparationError::QueueTransferFailed);
@@ -320,6 +324,42 @@ namespace Durin
 					Context.InitialReleases.push_back(std::move(Transfer));
 					Context.WaitForInitial[Consumer.Id.Index] = true;
 				}
+			}
+		}
+		if (Context.Queues && Context.Queues->bSplitBarriers)
+		{
+			if (Context.PreparedTransitions.LoweredBuffers.empty())
+				Context.PreparedTransitions.LoweredBuffers.resize(Context.PreparedTransitions.Buffers.size(), false);
+			if (Context.PreparedTransitions.LoweredTextures.empty())
+				Context.PreparedTransitions.LoweredTextures.resize(Context.PreparedTransitions.Textures.size(), false);
+			for (const auto& Split : Compiled->ExecutionPlan.SplitBarriers)
+			{
+				const auto& Producer = Compiled->ExecutionPlan.Batches[Split.Producer.Index];
+				const auto& Consumer = Compiled->ExecutionPlan.Batches[Split.Consumer.Index];
+				if (Context.PhysicalQueue(Producer.Queue) != Context.PhysicalQueue(Consumer.Queue)) continue;
+				FRHITransitionDesc Desc;
+				for (uint32 HandoffIndex : Split.HandoffIndices)
+				{
+					const auto& Handoff = Compiled->ExecutionPlan.Handoffs[HandoffIndex];
+					const auto& Barrier = Consumer.bEpilogue ? Context.PreparedEpilogue
+						: Context.PreparedPassBarriers[Handoff.ConsumerPass];
+					if (Handoff.bTexture)
+					{
+						const size_t Index = Barrier.FirstTexture + Handoff.TransitionIndex;
+						Desc.Textures.push_back(Context.PreparedTransitions.Textures[Index]);
+						Context.PreparedTransitions.LoweredTextures[Index] = true;
+					}
+					else
+					{
+						const size_t Index = Barrier.FirstBuffer + Handoff.TransitionIndex;
+						Desc.Buffers.push_back(Context.PreparedTransitions.Buffers[Index]);
+						Context.PreparedTransitions.LoweredBuffers[Index] = true;
+					}
+				}
+				auto Transition = GDynamicRHI->RHICreateTransition(std::move(Desc));
+				if (!Transition) return std::unexpected(ERDGPreparationError::TransitionCreationFailed);
+				Context.TransitionBegins[Split.Producer.Index].push_back(Transition);
+				Context.TransitionEnds[Split.Consumer.Index].push_back(std::move(Transition));
 			}
 		}
 		Context.Predecessors.resize(Compiled->ExecutionPlan.Batches.size());
@@ -431,9 +471,11 @@ namespace Durin
 				~FCloseSubmission() { if (bEnabled) Commands.EndGPUSubmission(); }
 			} CloseSubmission{CommandList, Context.bExplicitSubmissions};
 			for (const auto& Transfer : Context.Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
+			for (const auto& Transition : Context.TransitionEnds[Batch.Id.Index]) CommandList.EndTransition(Transition);
 			if (Batch.bEpilogue)
 			{
 				RecordBarrierBatch(CommandList, Context.PreparedEpilogue, Context.PreparedTransitions);
+				for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
 				for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 				continue;
 			}
@@ -495,6 +537,7 @@ namespace Durin
 					else (*Runtime.ParameterizedExecute)(CommandList, Resolver);
 				}
 			}
+			for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
 			for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 		}
 		return {};

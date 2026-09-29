@@ -9,10 +9,10 @@ Completed:
 
 ## Current Status
 
-Reviewed against source and Git history on 2026-09-29 from `070e80e69`, with
-the acceptance correction and API promotion recorded by this document's commit.
-This revision adds current Apple M4 Vulkan and production-workload evidence;
-the operator's explicit deferral of unavailable Windows qualification remains.
+Reviewed against source and Git history on 2026-09-29 from `1a5adf336`, with
+the Stage 4 implementation and current evidence recorded by this document's
+commit. The operator's explicit deferral of unavailable Windows qualification
+remains.
 
 | Stage | Status | Remaining acceptance |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ the operator's explicit deferral of unavailable Windows qualification remains.
 | 1: Single-queue completion and retirement | Completed | Preserve the passed contracts through later changes |
 | 2: Explicit execution plan | Completed | Preserve deterministic planning and single-queue behavior |
 | 3: Async compute and multi-queue lifetime safety | Accepted for the available macOS scope; Windows Vulkan qualification deferred by operator | Preserve opt-in behavior; complete the separate Windows driver-worker investigation when a Windows host is available |
-| 4: Split barriers | Not accepted; all stage tasks remain open | Begin/end protocol, lowering, fallback and equivalence |
+| 4: Split barriers | Implementation complete; fallback accepted on available macOS scope | Native event-capable Vulkan output/performance qualification on a supported device |
 | 5: Transient aliasing and final qualification | Not accepted; all stage tasks remain open | Dependency-aware aliasing, performance and final workspace validation |
 
 The implemented path includes RDG async eligibility and deterministic queue
@@ -71,9 +71,11 @@ budgets from concurrent-machine timings.
 
 ### Next Work
 
-Stage 4 may begin without enabling automatic production scheduling. Preserve
-the explicit view policy, graphics fallback and failed-retirement quarantine.
-The performance baseline and Windows Vulkan qualification remain deferred; the
+Stage 4 native split acceptance needs a non-portability Vulkan device that
+supports synchronization2 and native events, plus the deferred quiet-lane
+performance comparison. Apple M4 / MoltenVK does not expose native events and
+correctly takes the full-barrier fallback. Do not begin Stage 5 or enable split
+barriers by default until those remaining Stage 4 gates close. The Windows
 driver-worker investigation must not be silently closed by later passing runs.
 
 Historical checkpoints and exact log names are retained in
@@ -509,20 +511,63 @@ Dependencies: Stage 3.
 Outcome: supported handoffs can begin after producers and complete before
 consumers without changing their synchronization or lifetime guarantees.
 
-- [ ] Introduce begin/end batch relationships and explicit transition-object
+- [x] Introduce begin/end batch relationships and explicit transition-object
   ownership. Define legal placement around render passes and merged passes.
-- [ ] Specify backend split-barrier support independently from queue support;
+- [x] Specify backend split-barrier support independently from queue support;
   preserve a full-barrier lowering when the optimization is unavailable.
-- [ ] Validate pairing, exact resource/range agreement, no intervening illegal
+- [x] Validate pairing, exact resource/range agreement, no intervening illegal
   accesses, and transition-object retention through its final backend use.
-- [ ] Centralize transition creation after required backings are prepared;
+- [x] Centralize transition creation after required backings are prepared;
   add a creation queue only where batching or parallel creation needs it.
 - [ ] Compare full and split lowering with CPU plan tests and Vulkan validation
-  and output-equivalence tests on supported hardware.
+  and output-equivalence tests on supported hardware. CPU split/full comparison
+  and Vulkan full fallback pass; the available portability device cannot create
+  native events, so native split and performance evidence remain open.
 
 Completion: split lowering preserves results and synchronization; forced full
 barriers remain a tested fallback, and performance stays within the Stage 0
 baseline or has an explicitly reviewed adjustment.
+
+#### Stage 4 Implementation Checkpoint (2026-09-29)
+
+`FRDGSplitBarrierBatch` groups exact handoffs by producer and consumer. Physical
+transition objects are created only after backing preparation, retained by both
+recorded commands and backend payload ownership, begun after producer batches,
+and ended before consumer barriers. Cross-queue, initial, multi-producer,
+same-batch, unsupported, and portability-event cases retain full or ownership-
+transfer lowering.
+
+`Experimental/RHITransition.h` defines the explicit object and pairing
+protocol. Command recording rejects unmatched, duplicate, render-pass,
+overlapping, and unclosed pairs. Vulkan implements matching synchronization2
+event dependencies behind `DURIN_VULKAN_SPLIT_BARRIERS=1`; the published
+capability additionally requires native events and remains independent of
+compute-queue topology. The policy defaults off pending performance acceptance.
+
+Available-host evidence using `MacOS-arm64-Debug-DurinEditor`:
+
+- `RHICommandListTests`: 111/111 passed, including pairing, retention,
+  overlapping-access rejection and full lowering. Log:
+  `Build/.agent-state/logs/20260929-203212-462154-31511-RHICommandListTests.log`.
+- `RenderContractTests`: 201/201 passed, including deterministic producer/end
+  relationships and split/full CPU equivalence. Log:
+  `Build/.agent-state/logs/20260929-203220-124266-32175-RenderContractTests.log`.
+- `VulkanRHIIntegrationTests` passed with the diagnostic split policy requested.
+  Apple M4 / MoltenVK advertises portability without native events, so the test
+  verifies capability rejection and full-barrier fallback under Khronos
+  Validation rather than claiming native split execution. Log:
+  `Build/.agent-state/logs/20260929-203441-732031-33029-ctest.log`.
+- `GBufferQualificationTests` passed the production contact-shadow workload
+  with the same requested policy and fallback. Log:
+  `Build/.agent-state/logs/20260929-203527-983895-33137-ctest.log`.
+- The shared API `all` build passed. Log:
+  `Build/.agent-state/logs/20260929-203717-879254-33572-cmake.log`.
+
+The first full diagnostic-policy run correctly exposed that MoltenVK forbids
+`vkCreateEvent` when portability events are false. Device admission now rejects
+that capability before recording; the subsequent full suite passed. This is a
+verified fallback and an explicit native-split coverage gap, not a native split
+pass.
 
 ### Stage 5: Add Dependency-Aware Transient Aliasing and Qualify the Model
 

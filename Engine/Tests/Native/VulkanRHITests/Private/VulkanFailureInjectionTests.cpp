@@ -520,9 +520,24 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(Result.IsSuitable());
 		EXPECT_EQ(Result.GraphicsPresentQueueFamilyIndex, 1);
 		EXPECT_TRUE(Result.bEnableSynchronization2);
+		EXPECT_TRUE(Result.bEnableEvents);
 		EXPECT_TRUE(Result.bEnableSwapchainMaintenance1);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
 			std::string(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)), 0);
+	}
+
+	TEST(FVulkanDeviceCandidateTests,
+		PortabilitySubsetCanDisableEventsWithoutDisablingSynchronization2)
+	{
+		auto Input = MakePhysicalDeviceCandidateInput();
+		Input.bRequirePortabilitySubset = true;
+		Input.bEventsFeature = false;
+		Input.bSynchronization2Feature = true;
+		Input.AvailableExtensions.push_back("VK_KHR_portability_subset");
+		const auto Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		ASSERT_TRUE(Result.IsSuitable());
+		EXPECT_TRUE(Result.bEnableSynchronization2);
+		EXPECT_FALSE(Result.bEnableEvents);
 	}
 
 	TEST(FVulkanDeviceCandidateTests,

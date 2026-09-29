@@ -43,6 +43,7 @@ namespace Durin::VulkanRHI
 		auto Shutdown() -> void override;
 		auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override;
 		auto RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer> override;
+		auto RHICreateTransition(FRHITransitionDesc Desc) -> std::shared_ptr<FRHITransition> override;
 		auto RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 			-> ERHIGPUSubmissionState override;
 		auto RHIWaitForCompletion(const FRHIGPUSyncPointRef& SyncPoint,

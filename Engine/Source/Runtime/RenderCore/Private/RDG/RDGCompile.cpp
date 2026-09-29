@@ -1035,6 +1035,20 @@ namespace Durin
 				for (; Count < Handoff.ProducerStorage.size(); ++Count)
 					Handoff.ProducerStorage[Count] = {};
 			}
+			for (uint32 HandoffIndex = 0; HandoffIndex < Execution.Handoffs.size(); ++HandoffIndex)
+			{
+				const auto& Handoff = Execution.Handoffs[HandoffIndex];
+				if (Handoff.ProducerCount != 1 || Handoff.ProducerStorage[0] == Handoff.Consumer) continue;
+				const auto Producer = Handoff.ProducerStorage[0];
+				auto Existing = std::ranges::find_if(Execution.SplitBarriers, [&](const auto& Batch) {
+					return Batch.Producer == Producer && Batch.Consumer == Handoff.Consumer;
+				});
+				if (Existing == Execution.SplitBarriers.end())
+				{
+					Execution.SplitBarriers.push_back({Producer, Handoff.Consumer, {HandoffIndex}});
+				}
+				else Existing->HandoffIndices.push_back(HandoffIndex);
+			}
 			Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
 			for (const auto& Edge : CompiledState->Dependencies)
 			{

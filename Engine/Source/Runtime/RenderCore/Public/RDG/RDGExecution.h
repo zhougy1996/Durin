@@ -87,6 +87,7 @@ namespace Durin
 	{
 		AllocatorMissing,
 		QueueTransferFailed,
+		TransitionCreationFailed,
 	};
 	RENDERCORE_API auto ToString(ERDGPreparationError Error) -> std::string_view;
 
@@ -284,12 +285,23 @@ namespace Durin
 		auto operator==(const FRDGResourceHandoff&) const -> bool = default;
 	};
 
+	// Candidate same-physical-queue split. Runtime capabilities decide whether
+	// this relationship lowers to begin/end or remains a full consumer barrier.
+	struct FRDGSplitBarrierBatch final
+	{
+		FRDGSubmissionId Producer;
+		FRDGSubmissionId Consumer;
+		std::vector<uint32> HandoffIndices;
+		auto operator==(const FRDGSplitBarrierBatch&) const -> bool = default;
+	};
+
 	// Immutable logical execution data, prepared and replayed through separate state.
 	struct FRDGExecutionPlan final
 	{
 		std::vector<FRDGSubmissionBatch> Batches;
 		std::vector<FRDGSubmissionDependency> Dependencies;
 		std::vector<FRDGResourceHandoff> Handoffs;
+		std::vector<FRDGSplitBarrierBatch> SplitBarriers;
 		auto operator==(const FRDGExecutionPlan&) const -> bool = default;
 	};
 

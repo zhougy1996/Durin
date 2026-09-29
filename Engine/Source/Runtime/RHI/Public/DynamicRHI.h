@@ -5,6 +5,7 @@
 #include "RHIAPI.h"
 #include "RHICompletion.h"
 #include "RHIQueueTransfer.h"
+#include "Experimental/RHITransition.h"
 #include "RHIFwd.h"
 #include "RHIInitialization.h"
 #include "RHIPresentation.h"
@@ -222,6 +223,10 @@ namespace Durin
 		// Creates owning metadata without a native submission or an RHI-thread wait.
 		// Unsupported topology or invalid descriptions return null.
 		RHI_API virtual auto RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer>;
+		// Creates validated execution metadata. Backends that do not publish split
+		// support retain the object but lower its End operation to a full barrier.
+		RHI_API virtual auto RHICreateTransition(FRHITransitionDesc Desc)
+			-> std::shared_ptr<FRHITransition>;
 		// Observes published metadata without dispatching CPU work or waiting for GPU.
 		RHI_API virtual auto RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 			-> ERHIGPUSubmissionState;

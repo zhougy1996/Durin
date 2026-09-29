@@ -15,6 +15,24 @@ namespace Durin
 	{
 		std::atomic<uint64> GInvalidDiagnosticRegionCount = 0;
 
+		auto BufferTransitionsOverlap(const FRHIBufferTransition& A,
+			const FRHIBufferTransition& B) -> bool
+		{
+			return A.Buffer == B.Buffer && A.Offset < B.Offset + B.Size
+				&& B.Offset < A.Offset + A.Size;
+		}
+
+		auto TextureTransitionsOverlap(const FRHITextureTransition& A,
+			const FRHITextureTransition& B) -> bool
+		{
+			return A.Texture == B.Texture
+				&& EnumHasAnyFlags(A.Range.Aspects, B.Range.Aspects)
+				&& A.Range.FirstMip < B.Range.FirstMip + B.Range.NumMips
+				&& B.Range.FirstMip < A.Range.FirstMip + A.Range.NumMips
+				&& A.Range.FirstArrayLayer < B.Range.FirstArrayLayer + B.Range.NumArrayLayers
+				&& B.Range.FirstArrayLayer < A.Range.FirstArrayLayer + A.Range.NumArrayLayers;
+		}
+
 		[[noreturn]] auto FatalPayloadSizeOverflow() -> void
 		{
 			DURIN_FATAL("Recorded RHI command payload byte count overflowed.");
@@ -947,6 +965,30 @@ namespace Durin
 			std::vector<TRefCountPtr<FRHITexture>> Resources;
 		};
 
+		struct FBeginTransitionCommand
+		{
+			explicit FBeginTransitionCommand(std::shared_ptr<FRHITransition> InTransition)
+				: Transition(std::move(InTransition)) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("BeginTransition")
+					.RHIBeginTransition(Transition);
+			}
+			std::shared_ptr<FRHITransition> Transition;
+		};
+
+		struct FEndTransitionCommand
+		{
+			explicit FEndTransitionCommand(std::shared_ptr<FRHITransition> InTransition)
+				: Transition(std::move(InTransition)) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("EndTransition")
+					.RHIEndTransition(Transition);
+			}
+			std::shared_ptr<FRHITransition> Transition;
+		};
+
 		template<typename RegionType>
 		auto GetRegionPayloadBytes(const std::vector<RegionType>& Regions) -> size_t
 		{
@@ -1698,6 +1740,7 @@ namespace Durin
 		, ActiveGPUTimingQueries(std::move(Other.ActiveGPUTimingQueries))
 		, ActiveGPUTimingReservations(
 			std::move(Other.ActiveGPUTimingReservations))
+		, ActiveTransitions(std::move(Other.ActiveTransitions))
 		, NumRecordedDrawCommands(Other.NumRecordedDrawCommands)
 	{
 		Other.RecordingState = ERecordingState::MovedFrom;
@@ -1708,6 +1751,7 @@ namespace Durin
 		Other.RenderPassDiagnosticRegionDepth = 0;
 		Other.ActiveGPUTimingQueries.clear();
 		Other.ActiveGPUTimingReservations.clear();
+		Other.ActiveTransitions.clear();
 		Other.NumRecordedDrawCommands = 0;
 	}
 
@@ -1732,6 +1776,7 @@ namespace Durin
 			ActiveGPUTimingQueries = std::move(Other.ActiveGPUTimingQueries);
 			ActiveGPUTimingReservations =
 				std::move(Other.ActiveGPUTimingReservations);
+			ActiveTransitions = std::move(Other.ActiveTransitions);
 			NumRecordedDrawCommands = Other.NumRecordedDrawCommands;
 			Other.RecordingState = ERecordingState::MovedFrom;
 			Other.ActivePipeline = ERHIPipeline::None;
@@ -1741,6 +1786,7 @@ namespace Durin
 			Other.RenderPassDiagnosticRegionDepth = 0;
 			Other.ActiveGPUTimingQueries.clear();
 			Other.ActiveGPUTimingReservations.clear();
+			Other.ActiveTransitions.clear();
 			Other.NumRecordedDrawCommands = 0;
 		}
 		return *this;
@@ -1847,6 +1893,8 @@ namespace Durin
 			"FinishRecording cannot seal a command list with open diagnostic regions.");
 		checkf(ActiveGPUTimingQueries.empty(),
 			"FinishRecording cannot seal a command list with an open GPU timing query.");
+		checkf(ActiveTransitions.empty(),
+			"FinishRecording cannot seal a command list with an open split transition.");
 		RecordingState = ERecordingState::Finished;
 	}
 
@@ -2062,7 +2110,14 @@ namespace Durin
 	auto FRHICommandListBase::TransitionBuffers(
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
-		for (const auto& Transition : Transitions) require(!IsCPUAuthoredBuffer(Transition.Buffer));
+		for (const auto& Transition : Transitions)
+		{
+			require(!IsCPUAuthoredBuffer(Transition.Buffer));
+			for (const auto& Active : ActiveTransitions)
+				for (const auto& Pending : Active->GetBufferTransitions())
+					requiref(!BufferTransitionsOverlap(Transition, Pending),
+						"A resource range cannot be transitioned while its split transition is open.");
+		}
 		if (Transitions.empty()) return;
 		checkf(!bInsideRenderPass,
 			"Buffer transitions cannot be recorded inside a render pass.");
@@ -2078,6 +2133,11 @@ namespace Durin
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{
 		if (Transitions.empty()) return;
+		for (const auto& Transition : Transitions)
+			for (const auto& Active : ActiveTransitions)
+				for (const auto& Pending : Active->GetTextureTransitions())
+					requiref(!TextureTransitionsOverlap(Transition, Pending),
+						"A subresource range cannot be transitioned while its split transition is open.");
 		checkf(!bInsideRenderPass,
 			"Texture transitions cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2086,6 +2146,40 @@ namespace Durin
 			"Invalid RHI texture transition batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FTextureTransitionCommand>(Transitions);
+	}
+
+	auto FRHICommandListBase::BeginTransition(
+		std::shared_ptr<FRHITransition> Transition) -> void
+	{
+		requiref(Transition && !bInsideRenderPass,
+			"Split transition begin requires a valid object outside a render pass.");
+		requiref(!std::ranges::contains(ActiveTransitions, Transition),
+			"Split transition begin cannot record the same object twice.");
+		for (const auto& Active : ActiveTransitions)
+		{
+			for (const auto& A : Active->GetBufferTransitions())
+				for (const auto& B : Transition->GetBufferTransitions())
+					requiref(!BufferTransitionsOverlap(A, B),
+						"Open split transitions cannot overlap one buffer range.");
+			for (const auto& A : Active->GetTextureTransitions())
+				for (const auto& B : Transition->GetTextureTransitions())
+					requiref(!TextureTransitionsOverlap(A, B),
+						"Open split transitions cannot overlap one texture range.");
+		}
+		ActiveTransitions.push_back(Transition);
+		RecordCommand<FBeginTransitionCommand>(std::move(Transition));
+	}
+
+	auto FRHICommandListBase::EndTransition(
+		std::shared_ptr<FRHITransition> Transition) -> void
+	{
+		requiref(Transition && !bInsideRenderPass,
+			"Split transition end requires a valid object outside a render pass.");
+		const auto It = std::ranges::find(ActiveTransitions, Transition);
+		requiref(It != ActiveTransitions.end(),
+			"Split transition end requires a matching begin on this command list.");
+		ActiveTransitions.erase(It);
+		RecordCommand<FEndTransitionCommand>(std::move(Transition));
 	}
 
 	auto FRHICommandListBase::CopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,

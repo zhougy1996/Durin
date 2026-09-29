@@ -818,6 +818,7 @@ namespace Durin::VulkanRHI
 		const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
 		ASSERT_EQ(Queues.Queues.size(), 1u);
 		EXPECT_EQ(Queues.Graphics, Queues.Compute);
+		EXPECT_FALSE(Queues.bSplitBarriers);
 		EXPECT_EQ(Queues.DeviceGeneration, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration);
 		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(SyncPoint), ERHIGPUSubmissionState::Submitted);
 		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus({}), ERHIGPUSubmissionState::Invalid);

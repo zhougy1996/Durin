@@ -43,6 +43,15 @@ namespace Durin
 	auto FDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc&) -> std::shared_ptr<FRHIQueueTransfer>
 	{ return {}; }
 
+	auto FDynamicRHI::RHICreateTransition(FRHITransitionDesc Desc)
+		-> std::shared_ptr<FRHITransition>
+	{
+		if ((Desc.Buffers.empty() && Desc.Textures.empty())
+			|| !ValidateBufferTransitions(Desc.Buffers)
+			|| !ValidateTextureTransitions(Desc.Textures)) return {};
+		return std::shared_ptr<FRHITransition>(new FRHITransition(std::move(Desc)));
+	}
+
 	auto FDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 		-> ERHIGPUSubmissionState
 	{

@@ -73,6 +73,8 @@ namespace Durin::VulkanRHI
 		auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void override;
 
 		auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void override;
+		auto RHIBeginTransition(const std::shared_ptr<FRHITransition>& Transition) -> void override;
+		auto RHIEndTransition(const std::shared_ptr<FRHITransition>& Transition) -> void override;
 		auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferCopyRegion> Regions) -> void override;
 		auto RHICopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,

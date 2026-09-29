@@ -71,9 +71,11 @@ their API surface and does not duplicate their detailed rules.
 
 ## Current Experimental Families
 
-There are currently no experimental public RHI header families. The directory
-remains reserved so a future caller-visible unstable family has an explicit
-include-path boundary.
+`Experimental/RHITransition.h` contains the Stage 4 split-barrier transition
+object, descriptor, creation boundary, and command-list begin/end operations.
+It remains experimental while native split lowering and its performance gate
+are open; unsupported backends must preserve the documented full-barrier
+fallback.
 
 The queue-qualified completion and queue-ownership-transfer family was promoted
 to `RHICompletion.h` and `RHIQueueTransfer.h` when Stage 3 of the multi-queue
@@ -94,8 +96,8 @@ is additionally covered by deterministic contracts and earlier native fixtures;
 unavailable macOS queue topologies and the separately deferred Windows Vulkan
 run remain recorded coverage gaps rather than implied passes.
 
-Split barriers and transient aliasing are not public experimental contracts
-until their owning stages introduce a complete header and behavior boundary.
+Transient aliasing is not a public experimental contract until its owning stage
+introduces a complete header and behavior boundary.
 
 ## Change and Promotion Rules
 

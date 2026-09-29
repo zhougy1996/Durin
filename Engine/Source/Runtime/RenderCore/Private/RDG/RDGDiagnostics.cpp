@@ -306,6 +306,13 @@ namespace Durin
 			for (const auto Producer : Handoff.GetProducers()) Output << Producer.Index << ',';
 			Output << '\n';
 		}
+		for (const auto& Split : Compiled->ExecutionPlan.SplitBarriers)
+		{
+			Output << "split-barrier producer=" << Split.Producer.Index
+				<< " consumer=" << Split.Consumer.Index << " handoffs=";
+			for (uint32 Handoff : Split.HandoffIndices) Output << Handoff << ',';
+			Output << '\n';
+		}
 		Output << "allocation active-resources="
 			<< Compiled->AllocationStatistics.ActiveResources
 			<< " retained-resources="

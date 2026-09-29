@@ -12,6 +12,7 @@
 #include "VulkanGPUTiming.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanSubmission.h"
+#include "VulkanTransition.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
@@ -203,6 +204,15 @@ namespace Durin::VulkanRHI
 
 		if (!ValidateBufferTransitions(Desc.Buffers) || !ValidateTextureTransitions(Desc.Textures)) return {};
 		return std::make_shared<FVulkanQueueTransfer>(*Device, Desc.Source, Desc.Destination, Desc.Buffers, Desc.Textures);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateTransition(FRHITransitionDesc Desc)
+		-> std::shared_ptr<FRHITransition>
+	{
+		if (!Device || (Desc.Buffers.empty() && Desc.Textures.empty())
+			|| !ValidateBufferTransitions(Desc.Buffers)
+			|| !ValidateTextureTransitions(Desc.Textures)) return {};
+		return std::make_shared<FVulkanTransition>(*Device, std::move(Desc));
 	}
 
 	auto FVulkanDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
@@ -654,6 +664,9 @@ namespace Durin::VulkanRHI
 			Candidate.Input.bRequirePresentation = bRequirePresentation;
 #ifdef __APPLE__
 			Candidate.Input.bRequirePortabilitySubset = true;
+			// Portability event features are neither required nor enabled by Durin's
+			// device chain; publish the conservative full-barrier fallback.
+			Candidate.Input.bEventsFeature = false;
 #endif
 			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())
 				Candidate.Input.AvailableExtensions.emplace_back(Extension.extensionName.data());
