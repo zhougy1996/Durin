@@ -68,7 +68,9 @@ namespace Durin
 	}
 
 	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
-		const FMaterialRenderLayout& Layout, std::string& OutSource) -> FMaterialOperationResult
+		const FMaterialRenderLayout& Layout,
+		std::span<const FMaterialParameterCollectionLayout> Collections,
+		std::string& OutSource) -> FMaterialOperationResult
 	{
 		OutSource.clear();
 		if (IR.Version != MIR::CurrentVersion
@@ -107,6 +109,14 @@ struct VSOutput
 				"[[vk::binding({}, 1)]] SamplerState MaterialSampler{};\n",
 				MaterialTextureBindingBase + 2 * Index, Index,
 				MaterialTextureBindingBase + 2 * Index + 1, Index);
+		for (uint32 Index = 0; Index < Collections.size(); ++Index)
+		{
+			OutSource += std::format("struct MaterialCollectionUniform{}\n{{\n    float4 Reserved;\n", Index);
+			for (uint32 Field = 0; Field < Collections[Index].UniformLayout.UniformFieldCount; ++Field)
+				OutSource += std::format("    float4 Value{};\n", Field);
+			OutSource += std::format("}};\n[[vk::binding({}, 1)]] ConstantBuffer<MaterialCollectionUniform{}> MaterialCollection{};\n",
+				3 + Index, Index, Index);
+		}
 		OutSource += R"(
 [[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
 [[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
@@ -118,6 +128,18 @@ struct VSOutput
 		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
 			const auto It = std::ranges::find(Layout.Fields, Id, &FMaterialRenderField::ParameterId);
 			return It == Layout.Fields.end() ? nullptr : &*It;
+		};
+		auto FindCollectionField = [&](FGuid CollectionId, FGuid ParameterId)
+			-> std::pair<uint32, const FMaterialRenderField*> {
+			for (uint32 Index = 0; Index < Collections.size(); ++Index)
+				if (Collections[Index].CollectionId == CollectionId)
+				{
+					const auto Field = std::ranges::find(Collections[Index].UniformLayout.Fields,
+						ParameterId, &FMaterialRenderField::ParameterId);
+					return {Index, Field == Collections[Index].UniformLayout.Fields.end()
+						? nullptr : &*Field};
+				}
+			return {0, nullptr};
 		};
 		OutSource += R"(
 float2 SelectAuthoredUV(VSOutput input, float channel)
@@ -178,6 +200,21 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 						Swizzles[static_cast<size_t>(Node.ResultType)]);
 				}
 				break;
+			case EMaterialProgramOpcode::CollectionParameter:
+			{
+				const auto Reference = Node.GetCollectionParameter();
+				const auto [CollectionIndex, Field] = FindCollectionField(
+					Reference.CollectionId, Reference.ParameterId);
+				if (Field)
+				{
+					constexpr std::array<std::string_view, 4> Swizzles{
+						".x", ".xy", ".xyz", ""};
+					Expression = std::format("MaterialCollection{}.Value{}{}",
+						CollectionIndex, Field->CompactIndex,
+						Swizzles[static_cast<size_t>(Node.ResultType)]);
+				}
+				break;
+			}
 			case EMaterialProgramOpcode::TextureParameter:
 			{
 				if (const auto* Field = FindField(Node.GetParameterId()))
@@ -612,10 +649,19 @@ float4 FragmentMain(
 	auto GenerateMaterialProgramSlang(const MIR::FModule& IR, const FMaterialRenderLayout& Layout)
 		-> FMaterialSourceGenerationResult
 	{
+		return GenerateMaterialProgramSlang(IR, Layout, {});
+	}
+
+	auto GenerateMaterialProgramSlang(const MIR::FModule& IR,
+		const FMaterialRenderLayout& Layout,
+		std::span<const FMaterialParameterCollectionLayout> Collections)
+		-> FMaterialSourceGenerationResult
+	{
 		FMaterialSourceGenerationResult Result;
 		auto Validation = MIR::Validate(IR, Layout);
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
-		const auto Error = GenerateMaterialProgramSlangImpl(IR, Layout, Result.Source);
+		const auto Error = GenerateMaterialProgramSlangImpl(
+			IR, Layout, Collections, Result.Source);
 		Result.bSucceeded = static_cast<bool>(Error);
 		if (!Error)
 			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error.Error)));
@@ -631,11 +677,28 @@ float4 FragmentMain(
 		const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
 		if (!Expected) return Expected.Validation;
 		if (Expected.Layout != Result.Layout) return {.Error = EMaterialLayoutError::InvalidField};
-		return ValidateMaterialCompiledStages(Result.CompiledShaders, Result.Layout);
+		if (Result.ActiveCollections.size() > MaterialParameterCollectionMaxPerMaterial)
+			return {.Error = EMaterialLayoutError::ResourceLimit};
+		FGuid PreviousCollection;
+		for (const auto& Collection : Result.ActiveCollections)
+		{
+			if (!Collection.CollectionId.IsValid()
+				|| (PreviousCollection.IsValid()
+					&& !(PreviousCollection < Collection.CollectionId))
+				|| Collection.SchemaVersion != CurrentMaterialParameterCollectionSchemaVersion
+				|| !ValidateCompiledMaterialLayout(Collection.UniformLayout)
+				|| Collection.DefaultPayload.size()
+					!= Collection.UniformLayout.UniformPayloadSize)
+				return {.Error = EMaterialLayoutError::InvalidField};
+			PreviousCollection = Collection.CollectionId;
+		}
+		return ValidateMaterialCompiledStages(
+			Result.CompiledShaders, Result.Layout, {}, Result.ActiveCollections);
 	}
 
 	auto ValidateMaterialCompiledStages(std::span<const FCompiledShader> Stages,
-		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits)
+		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits,
+		std::span<const FMaterialParameterCollectionLayout> Collections)
 		-> FMaterialLayoutValidationResult
 	{
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
@@ -648,7 +711,8 @@ float4 FragmentMain(
 			const auto& Stage = Stages[Index];
 			if (!Stage.Code || Stage.Code->IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
-				|| Stage.Reflection.ResourceBindings.size() > 2 * Layout.ResourceFieldCount + 9)
+				|| Stage.Reflection.ResourceBindings.size()
+					> 2 * Layout.ResourceFieldCount + 9 + Collections.size())
 				return Rejected;
 			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
@@ -657,7 +721,9 @@ float4 FragmentMain(
 					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
-				const bool bMaterialSet = Slot == 2 || Slot == 27 || Slot >= MaterialTextureBindingBase;
+				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
+				const bool bMaterialSet = Slot == 2 || Slot == 27
+					|| bCollection || Slot >= MaterialTextureBindingBase;
 				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
 				if (Slot == 0)
 				{
@@ -673,6 +739,12 @@ float4 FragmentMain(
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "HitProxy") return Rejected;
+				}
+				else if (bCollection)
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != std::format("MaterialCollection{}", Slot - 3))
+						return Rejected;
 				}
 				else if (Index == 0 && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
 				else if (Index == 0 && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
@@ -715,9 +787,11 @@ float4 FragmentMain(
 		Result.Identity = Normalized.Identity;
 		Result.IR = Normalized.IR;
 		Result.ActiveParameters = Normalized.ActiveParameters;
+		Result.ActiveCollections = Normalized.ActiveCollections;
 		Result.Layout = Normalized.Layout;
 		Result.Dependencies = Input.Environment.Dependencies;
-		auto Generated = GenerateMaterialProgramSlang(Result.IR, Result.Layout);
+		auto Generated = GenerateMaterialProgramSlang(
+			Result.IR, Result.Layout, Result.ActiveCollections);
 		if (!Generated)
 		{
 			Result.Diagnostics = std::move(Generated.Diagnostics);
@@ -757,7 +831,8 @@ float4 FragmentMain(
 				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
 			return Result;
 		}
-		const auto Reflection = ValidateMaterialCompiledStages(Output.CompiledShaders, Result.Layout, Input.Environment.ResourceLimits);
+		const auto Reflection = ValidateMaterialCompiledStages(Output.CompiledShaders,
+			Result.Layout, Input.Environment.ResourceLimits, Result.ActiveCollections);
 		if (!Reflection)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(

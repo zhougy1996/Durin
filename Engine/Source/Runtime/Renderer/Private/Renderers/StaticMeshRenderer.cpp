@@ -456,7 +456,7 @@ namespace Durin
 	}
 
 	auto FStaticMeshRenderer::PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
-		const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
+		FScene* Scene, const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
 		FResolvedStaticMeshView& ResolvedView, bool bProductionDeferred,
 		bool bGBuffer, bool bShadow) -> bool
 	{
@@ -466,6 +466,7 @@ namespace Durin
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
 		std::vector<std::array<bool, 3>> Requests(PreparedView.MaterialUniformGroups.size());
+		std::map<FGuid, FRHIUniformBufferRange> CollectionUniforms;
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const auto& Draw : Bucket)
 			{
@@ -490,8 +491,36 @@ namespace Durin
 		}
 		for (uint32 Group = 0; Group < Requests.size(); ++Group)
 		{
+			if (!std::ranges::any_of(Requests[Group], [](bool bRequired) {
+				return bRequired;
+			})) continue;
 			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
 			const auto* Binding = ResolvedView.GetMaterialBinding(Draw);
+			const auto Program = Draw.Command ? Draw.Command->Material.CompiledProgram : nullptr;
+			std::vector<FRHIUniformBufferRange> RequiredCollections;
+			if (Program)
+				for (const auto& Required : Program->ActiveCollections)
+				{
+					auto Cached = CollectionUniforms.find(Required.CollectionId);
+					if (Cached == CollectionUniforms.end())
+					{
+						FByteView Payload = Required.DefaultPayload;
+						if (Scene)
+							if (const auto Snapshot = Scene->GetMaterialParameterCollection_RenderThread(
+								Required.CollectionId))
+							{
+								if (!Snapshot->Layout.HasCompatibleSchema(Required)) return false;
+								Payload = Snapshot->Payload;
+							}
+						if (Payload.size() != Required.UniformLayout.UniformPayloadSize)
+							return false;
+						auto Range = CommandList.CreateUniformBufferRange(
+							Payload.data(), Payload.size());
+						if (!Range.Buffer) return false;
+						Cached = CollectionUniforms.emplace(Required.CollectionId, Range).first;
+					}
+					RequiredCollections.push_back(Cached->second);
+				}
 			FRHIUniformBufferRange SharedMaterialUniform;
 			for (uint32 Pass = 0; Pass < 3; ++Pass)
 			{
@@ -507,7 +536,7 @@ namespace Durin
 					++ResolvedView.Observations.MaterialUniformUploads;
 				}
 				ResolvedView.MaterialUniforms[Group][Pass] = FResolvedStaticMeshView::FMaterialUniform{
-					std::move(Material.Surface), Material.Uniform};
+					std::move(Material.Surface), Material.Uniform, RequiredCollections};
 			}
 		}
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("primitives={} material_groups={} primitive_uploads={} material_uploads={}",
@@ -548,7 +577,8 @@ namespace Durin
 			if (!Material) return false;
 			auto Candidate = std::make_shared<FPreparedSurfaceMaterialBindings>();
 			if (!PrepareCompiledSurfaceMaterial(Shader, Layout, Material->Surface, Material->Uniform,
-				Lighting, {}, ResolvedView.ViewUniforms[Pass], *Candidate)) return false;
+				Lighting, {}, ResolvedView.ViewUniforms[Pass],
+				Material->CollectionUniforms, *Candidate)) return false;
 			Out = std::move(Candidate);
 			Batches.emplace(Key, Out);
 			++ResolvedView.Observations.PreparedSurfaceBindingBatches;

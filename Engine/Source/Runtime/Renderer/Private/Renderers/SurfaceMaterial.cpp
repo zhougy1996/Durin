@@ -221,7 +221,10 @@ namespace Durin::RendererPrivate
 			FEntry Entry{Binding.SetIndex, Binding.BindingIndex, Binding.Type};
 			const uint32 Slot = Binding.BindingIndex;
 			const bool bView = Binding.SetIndex == 0 && Slot == 0;
-			const bool bMaterialSet = Slot == 2 || Slot == 27 || Slot >= MaterialTextureBindingBase;
+			const bool bCollection = Slot >= 3
+				&& Slot < 3 + MaterialParameterCollectionMaxPerMaterial;
+			const bool bMaterialSet = Slot == 2 || Slot == 27 || bCollection
+				|| Slot >= MaterialTextureBindingBase;
 			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return;
 			ERHIBindingType Expected = ERHIBindingType::Texture;
 			if (bView || Slot == 1 || Slot == 2 || Slot == 27)
@@ -230,6 +233,12 @@ namespace Durin::RendererPrivate
 					: Slot == 1 ? ESource::Lighting : ESource::Material;
 				Expected = ERHIBindingType::UniformBuffer;
 				Entry.Type = ERHIBindingType::UniformBufferDynamic;
+			}
+			else if (bCollection)
+			{
+				Entry.Source = ESource::Collection;
+				Entry.ResourceIndex = Slot - 3;
+				Expected = ERHIBindingType::UniformBuffer;
 			}
 			else if (Slot >= MaterialTextureBindingBase)
 			{
@@ -257,7 +266,9 @@ namespace Durin::RendererPrivate
 	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
 		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
-		const FRHIUniformBufferRange& View, FPreparedSurfaceMaterialBindings& OutBindings) -> bool
+		const FRHIUniformBufferRange& View,
+		std::span<const FRHIUniformBufferRange> Collections,
+		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
 	{
 		OutBindings = {};
 		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
@@ -278,6 +289,9 @@ namespace Durin::RendererPrivate
 			case ESource::Lighting: Range = &Lighting; break;
 			case ESource::Material: Range = &MaterialBuffer; break;
 			case ESource::HitProxy: Range = &HitProxy; break;
+			case ESource::Collection:
+				if (Entry.ResourceIndex >= Collections.size()) return false;
+				Range = &Collections[Entry.ResourceIndex]; break;
 			case ESource::Texture:
 				if (Entry.ResourceIndex >= Material.CompiledTextures.size()) return false;
 				Resource.Resource = Material.CompiledTextures[Entry.ResourceIndex]; break;
@@ -304,6 +318,19 @@ namespace Durin::RendererPrivate
 		}
 		OutBindings.Batch = FRHIShaderParameterBatch::Create(Shader, Resources);
 		return OutBindings.Batch != nullptr;
+	}
+
+	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader,
+		const FCompiledSurfaceBindingLayout& Layout,
+		const FResolvedSurfaceMaterial& Material,
+		const FRHIUniformBufferRange& MaterialBuffer,
+		const FRHIUniformBufferRange& Lighting,
+		const FRHIUniformBufferRange& HitProxy,
+		const FRHIUniformBufferRange& View,
+		FPreparedSurfaceMaterialBindings& OutBindings) -> bool
+	{
+		return PrepareCompiledSurfaceMaterial(Shader, Layout, Material,
+			MaterialBuffer, Lighting, HitProxy, View, {}, OutBindings);
 	}
 
 	auto FPreparedSurfaceMaterialBindings::Bind(FRHICommandList& CommandList) const -> bool

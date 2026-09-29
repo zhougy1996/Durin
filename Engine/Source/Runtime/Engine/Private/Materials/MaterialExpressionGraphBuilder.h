@@ -28,6 +28,8 @@ namespace Durin::MIR
 		auto Emit(FNode Node) -> uint32;
 		auto Literal(std::span<const float> Components) -> uint32;
 		auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
+		auto CollectionParameter(const DMaterialParameterCollection& Collection,
+			FGuid ParameterId) -> uint32;
 		auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::span<const FMaterialNumericInput* const> Inputs,
 			std::span<const uint8> Swizzle = {}) -> uint32;

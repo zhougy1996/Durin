@@ -63,6 +63,7 @@ namespace Durin
 
 	auto FDirectionalShadowRenderer::PrepareResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
+		FScene* Scene,
 		FStaticMeshRenderer& StaticMeshes,
 		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
@@ -162,7 +163,7 @@ namespace Durin
 				CommandList, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
 			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList,
-				Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
+				Scene, Shadow.View.Cascades[Cascade].CasterView, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade], false, false, true);
 			if (bReady) bReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,
 				Shadow.StaticMeshes[Cascade], ResolvedShadow.StaticMeshes[Cascade], State->FallbackLighting, true);

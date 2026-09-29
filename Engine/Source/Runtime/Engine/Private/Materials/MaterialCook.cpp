@@ -4,9 +4,11 @@
 #include "Asset/Asset.h"
 #include "Asset/AssetCook.h"
 #include "Asset/CookDependencies.h"
+#include "Asset/Load.h"
 #include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialCookedProgram.h"
+#include "Materials/MaterialParameterCollection.h"
 
 namespace Durin
 {
@@ -48,6 +50,31 @@ namespace Durin
 			{
 				return FailCooked(EMaterialCookError::ParameterContractMismatch);
 			}
+		}
+		if (!ProgramCandidate->ActiveCollections.empty())
+		{
+			auto ResolvedProgram = std::make_shared<FMaterialCompilerResult>(
+				*ProgramCandidate);
+			for (auto& Required : ResolvedProgram->ActiveCollections)
+			{
+				// Empty paths exist only for detached/transient compiler fixtures; real
+				// package-authored collection expressions always capture an exact path.
+				if (Required.AssetPath.empty()) continue;
+				FObjectPath Path;
+				if (!FObjectPath::TryCreate(Required.AssetPath, Path))
+					return FailCooked(
+						EMaterialCookError::CollectionContractMismatch);
+				auto Collection = LoadObject<DMaterialParameterCollection>(Path);
+				if (!Collection)
+					return FailCooked(
+						EMaterialCookError::CollectionContractMismatch);
+				auto Current = (*Collection)->BuildLayout();
+				if (!Current || !Required.HasCompatibleSchema(*Current))
+					return FailCooked(
+						EMaterialCookError::CollectionContractMismatch);
+				Required.DefaultPayload = std::move(Current->DefaultPayload);
+			}
+			ProgramCandidate = std::move(ResolvedProgram);
 		}
 		Read.Lock.Reset();
 

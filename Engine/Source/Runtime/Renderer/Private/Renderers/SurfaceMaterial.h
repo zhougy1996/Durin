@@ -34,6 +34,7 @@ namespace Durin
 			enum class ESource : uint8
 			{
 				View, Lighting, Material, HitProxy, Texture, Sampler,
+				Collection,
 				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
 				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
 			};
@@ -148,10 +149,20 @@ namespace Durin
 		private:
 			friend RENDERER_API auto PrepareCompiledSurfaceMaterial(FRHIShader*, const FCompiledSurfaceBindingLayout&,
 				const FResolvedSurfaceMaterial&, const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
-				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&, FPreparedSurfaceMaterialBindings&) -> bool;
+				const FRHIUniformBufferRange&, const FRHIUniformBufferRange&,
+				std::span<const FRHIUniformBufferRange>, FPreparedSurfaceMaterialBindings&) -> bool;
 			std::shared_ptr<const FRHIShaderParameterBatch> Batch;
 		};
 
+		RENDERER_API auto PrepareCompiledSurfaceMaterial(
+			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
+			const FResolvedSurfaceMaterial& Material,
+			const FRHIUniformBufferRange& MaterialBuffer,
+			const FRHIUniformBufferRange& Lighting,
+			const FRHIUniformBufferRange& HitProxy,
+			const FRHIUniformBufferRange& View,
+			std::span<const FRHIUniformBufferRange> Collections,
+			FPreparedSurfaceMaterialBindings& OutBindings) -> bool;
 		RENDERER_API auto PrepareCompiledSurfaceMaterial(
 			FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 			const FResolvedSurfaceMaterial& Material,

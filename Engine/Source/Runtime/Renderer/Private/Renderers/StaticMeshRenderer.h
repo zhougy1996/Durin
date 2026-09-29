@@ -9,6 +9,7 @@
 namespace Durin
 {
 	class FGBufferRenderer;
+	class FScene;
 	class FRendererResourceCoordinator;
 	namespace RendererPrivate { class FSurfaceMaterialResources; }
 	class FRHICommandListImmediate;
@@ -32,7 +33,7 @@ namespace Durin
 	public:
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView) -> bool;
-		auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
+			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			const FRHIUniformBufferRange& Lighting, bool bShadow = false) -> bool;
 		FStaticMeshRenderer(
@@ -90,7 +91,7 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 		auto PrepareUniforms_RenderThread(FRHICommandListImmediate& CommandList,
-			const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
+			FScene* Scene, const FSceneView& View, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView, bool bProductionDeferred,
 			bool bGBuffer, bool bShadow = false) -> bool;
 

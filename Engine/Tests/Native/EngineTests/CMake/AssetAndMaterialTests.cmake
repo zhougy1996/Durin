@@ -513,6 +513,7 @@ durin_add_native_test(MaterialRuntimeTests
 		Private/Materials/MaterialRenderingTests.cpp
 		Private/Materials/MaterialRenderRepresentationTests.cpp
 		Private/Materials/MaterialProgramPublicationTests.cpp
+		Private/Materials/MaterialParameterCollectionTests.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}

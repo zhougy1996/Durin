@@ -21,6 +21,7 @@ namespace Durin
 		FTextureViewRHIRef DepthAttachment;
 	};
 	class FStaticMeshRenderer;
+	class FScene;
 	struct FPreparedDirectionalShadow;
 	struct FResolvedDirectionalShadow;
 	struct FViewRenderTelemetry;
@@ -53,6 +54,7 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
+			FScene* Scene,
 			FStaticMeshRenderer& StaticMeshes,
 			const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow,

@@ -226,7 +226,9 @@ namespace Durin
 		}
 		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
 			if (Component && Component->IsRegistered()) Component->UnregisterComponent();
+		FSceneInterface* PreviousScene = RenderScene;
 		RenderScene = InRenderScene;
+		Subsystems.RenderSceneChanged(PreviousScene, RenderScene);
 		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
 			if (Component && !Component->IsPendingKill()) Component->RegisterComponent();
 	}

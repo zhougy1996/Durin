@@ -71,6 +71,16 @@ namespace
 		{
 		}
 
+		auto UpdateMaterialParameterCollection(
+			std::shared_ptr<const Durin::FMaterialParameterCollectionSnapshot>)
+			-> void override
+		{
+		}
+
+		auto RemoveMaterialParameterCollection(Durin::FGuid) -> void override
+		{
+		}
+
 		auto UpdateSplineMeshDynamicData(
 			Durin::FPrimitiveComponentId,
 			Durin::FSplineMeshRenderDynamicData

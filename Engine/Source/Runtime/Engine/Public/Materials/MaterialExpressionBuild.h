@@ -68,6 +68,7 @@ namespace Durin
 			FModule IR;
 			std::vector<uint32> Roots;
 			std::vector<FMaterialCompilerParameterDeclaration> Parameters;
+			std::vector<FMaterialParameterCollectionLayout> Collections;
 			std::vector<FSource> Sources;
 			std::vector<FFunctionDependency> Dependencies;
 			std::vector<FMaterialProgramDiagnostic> Diagnostics;
@@ -93,6 +94,8 @@ namespace Durin
 			ENGINE_API auto Emit(FNode Node) -> uint32;
 			ENGINE_API auto Literal(std::span<const float> Components) -> uint32;
 			ENGINE_API auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
+			ENGINE_API auto CollectionParameter(
+				const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32;
 			ENGINE_API auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 				std::span<const FMaterialNumericInput* const> Inputs,
 				std::span<const uint8> Swizzle = {}) -> uint32;

@@ -11,6 +11,7 @@ namespace Durin
 {
 	class DWorld;
 	class DLevel;
+	class FSceneInterface;
 	enum class EWorldType : uint8;
 
 	using EWorldSubsystemState = ESubsystemState;
@@ -32,6 +33,7 @@ namespace Durin
 		virtual auto OnWorldEndPlay() noexcept -> void {}
 		virtual auto OnLevelAttached(DLevel&) noexcept -> void {}
 		virtual auto OnLevelDetached(DLevel&) noexcept -> void {}
+		virtual auto OnRenderSceneChanged(FSceneInterface*, FSceneInterface*) noexcept -> void {}
 		virtual auto Tick(float DeltaSeconds) noexcept -> void {}
 		// Changes are observed at the next World Tick entry.
 		ENGINE_API auto SetTickEnabled(bool bEnabled) -> void;
@@ -85,6 +87,7 @@ namespace Durin
 		auto BeginPlay() -> void;
 		auto EndPlay() -> void;
 		auto LevelChanged(DLevel& Level, bool bAttached) -> void;
+		auto RenderSceneChanged(FSceneInterface* Previous, FSceneInterface* Current) -> void;
 		auto StartTick() -> void;
 		auto Tick(ETickingGroup Group, float DeltaSeconds, bool bGameplay) -> void;
 		DWorld& World;

@@ -98,6 +98,11 @@ namespace Durin
 				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
 				if (const auto* Value = std::get_if<FMaterialProgramLiteral>(&Node.Payload)) Literal(*Value);
 				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
+				else if (const auto* Collection = std::get_if<MIR::FCollectionParameter>(&Node.Payload))
+				{
+					Hash.UpdateValue(Collection->CollectionId);
+					Hash.UpdateValue(Collection->ParameterId);
+				}
 				else if (const auto* Swizzle = std::get_if<MIR::FSwizzle>(&Node.Payload))
 				{
 					Hash.UpdateValue(Swizzle->Length);
@@ -146,6 +151,7 @@ namespace Durin
 			return Result;
 		}
 		MIR::FCompilerInput Snapshot{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
+			.Collections = std::move(Built.Collections),
 			.StaticProperties = Material.GetStaticProperties(), .Environment = std::move(Environment), .Sources = std::move(Built.Sources)};
 		std::ranges::sort(Snapshot.Environment.Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);

@@ -11,6 +11,7 @@
 #include <numeric>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Durin
 {
@@ -119,6 +120,8 @@ namespace Durin
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[1]);
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[2]);
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[3]);
+			AppendGuid(Bytes, Node.GetCollectionParameter().CollectionId);
+			AppendGuid(Bytes, Node.GetCollectionParameter().ParameterId);
 		}
 
 		auto MakeNormalizationFailure(FMaterialError Error)
@@ -234,6 +237,30 @@ namespace Durin
 		MIR::FNormalizationResult Result;
 		const auto EnvironmentValidation = ValidateNormalizationEnvironment(Input);
 		if (!EnvironmentValidation) return EnvironmentValidation;
+		if (Input.Collections.size() > MaterialParameterCollectionMaxPerMaterial)
+		{
+			Result.Diagnostics.push_back(MakeNormalizationFailure(
+				EMaterialIRError::ParameterDeclarationCountExceedsBound));
+			return Result;
+		}
+		if (Input.Collections.size() + 5 > Input.Environment.ResourceLimits.UniformBuffers)
+		{
+			Result.Diagnostics.push_back(MakeNormalizationFailure(
+				EMaterialIRError::ParameterDeclarationCountExceedsBound));
+			return Result;
+		}
+		std::unordered_set<FGuid> CollectionIds;
+		for (const auto& Collection : Input.Collections)
+			if (!Collection.CollectionId.IsValid()
+				|| Collection.SchemaVersion != CurrentMaterialParameterCollectionSchemaVersion
+				|| !CollectionIds.insert(Collection.CollectionId).second
+				|| !ValidateCompiledMaterialLayout(Collection.UniformLayout,
+					Input.Environment.ResourceLimits))
+			{
+				Result.Diagnostics.push_back(MakeNormalizationFailure(
+					EMaterialIRError::ParameterDeclarationInvalidDuplicated));
+				return Result;
+			}
 		auto Validation = MIR::Validate(Input.IR, Input.Parameters);
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
 		if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes)
@@ -372,7 +399,40 @@ namespace Durin
 				if (!std::ranges::contains(Result.ActiveParameters, Parameter->Id, &FMaterialCompilerParameterDeclaration::Id))
 					Result.ActiveParameters.push_back(*Parameter);
 			}
+		for (const auto& Node : IR.Nodes)
+			if (Node.Opcode == EMaterialProgramOpcode::CollectionParameter)
+			{
+				const auto Reference = Node.GetCollectionParameter();
+				const auto Collection = std::ranges::find(Input.Collections,
+					Reference.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+				if (!Reference.CollectionId.IsValid() || !Reference.ParameterId.IsValid()
+					|| Collection == Input.Collections.end())
+				{
+					Result.Diagnostics.push_back(MakeNormalizationFailure(
+						EMaterialIRError::ParameterMissingIncompatibleBindingType));
+					return Result;
+				}
+				const auto Field = std::ranges::find(Collection->UniformLayout.Fields,
+					Reference.ParameterId, &FMaterialRenderField::ParameterId);
+				const auto Expected = static_cast<EMaterialRenderValueType>(
+					Node.ResultType == EMaterialProgramValueType::Float ? EMaterialRenderValueType::Scalar
+					: Node.ResultType == EMaterialProgramValueType::Float2 ? EMaterialRenderValueType::Vector2
+					: Node.ResultType == EMaterialProgramValueType::Float3 ? EMaterialRenderValueType::Vector3
+					: EMaterialRenderValueType::Vector4);
+				if (Node.ResultType > EMaterialProgramValueType::Float4
+					|| Field == Collection->UniformLayout.Fields.end()
+					|| Field->Type != Expected)
+				{
+					Result.Diagnostics.push_back(MakeNormalizationFailure(
+						EMaterialIRError::ParameterMissingIncompatibleBindingType));
+					return Result;
+				}
+				if (!std::ranges::contains(Result.ActiveCollections,
+					Reference.CollectionId, &FMaterialParameterCollectionLayout::CollectionId))
+					Result.ActiveCollections.push_back(*Collection);
+			}
 		std::ranges::sort(Result.ActiveParameters, {}, &FMaterialCompilerParameterDeclaration::Id);
+		std::ranges::sort(Result.ActiveCollections, {}, &FMaterialParameterCollectionLayout::CollectionId);
 		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
 		if (!Layout)
 		{
@@ -386,7 +446,10 @@ namespace Durin
 			return Result;
 		}
 		Result.Layout = std::move(Layout.Layout);
-		Result.Identity = BuildMaterialProgramIdentity(Input, Result.CanonicalBytes, Result.Layout);
+		auto IdentityInput = Input;
+		IdentityInput.Collections = Result.ActiveCollections;
+		Result.Identity = BuildMaterialProgramIdentity(
+			IdentityInput, Result.CanonicalBytes, Result.Layout);
 		Result.IR = std::move(IR);
 		Result.bSucceeded = Result.Identity.IsValid();
 		if (!Result.bSucceeded) Result.Diagnostics.push_back(MakeNormalizationFailure(EMaterialIRError::IdentityUnexpectedlyResolvedZero));
@@ -492,6 +555,16 @@ namespace Durin
 		AppendString(Bytes, Input.Environment.Target);
 		AppendLittleEndian(Bytes, Layout.Identity.Version);
 		AppendGuid(Bytes, Layout.Identity.Id);
+		std::vector<FMaterialParameterCollectionLayout> Collections = Input.Collections;
+		std::ranges::sort(Collections, {}, &FMaterialParameterCollectionLayout::CollectionId);
+		AppendLittleEndian(Bytes, static_cast<uint32>(Collections.size()));
+		for (const auto& Collection : Collections)
+		{
+			AppendGuid(Bytes, Collection.CollectionId);
+			AppendLittleEndian(Bytes, Collection.SchemaVersion);
+			AppendLittleEndian(Bytes, Collection.UniformLayout.Identity.Version);
+			AppendGuid(Bytes, Collection.UniformLayout.Identity.Id);
+		}
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.SampledImages);
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.Samplers);
 		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBuffers);

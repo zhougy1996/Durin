@@ -4,38 +4,36 @@ Summary: Measure material compilation and runtime update costs, add atomic dynam
 
 Last reviewed: 2026-09-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-29
 
 ## Current Status
 
-Stage 0 now has a source-owner inventory, fixed snapshot/counter semantics, and
-executable material and dynamic-instance qualification fixtures. The first
-`MacOS-arm64-Debug-DurinEditor` diagnostic run is recorded below; it is not an
-exclusive quiet-lane baseline, so the numeric timing/allocation budget gate remains
-open. Stage 1 has detached accepted-program statistics, a loaded authored-family
-variant query, additional proxy publication/payload counters, and MaterialEditor
-display. Stage 2 has the dynamic-only atomic Set/Clear API and its central
-single-setter path; focused correctness and qualification workloads pass.
+Stages 0-2 provide detached accepted-program and loaded-family statistics, bounded
+compile/proxy/RHI owner diagnostics, MaterialEditor display, and the dynamic-only
+atomic Set/Clear API with one validated commit/publication path. Deterministic CPU
+coverage proves rollback, no-op, failure-location, Cook and structural counter
+conservation behavior.
 
-Stage 3 has not started. The active RHI asynchronous-upload plan explicitly keeps
-consumer migration behind its incomplete Stage 2 pressure/lifetime gate, and the
-multi-queue plan still has open Stage 3 readiness/lifetime work. Collection uniform
-storage and retirement must not preempt those owners.
+Stage 3 adds the versioned numeric collection asset and editor, collection graph
+expressions and detached compiler/function capture, world-owned atomic snapshots,
+DMAT v8 source-free loading, and indexed collection buffers shared by Forward,
+GBuffer and reachable masked shadow. Defaults and world values do not change shader
+identity; schema changes do. Opaque shadow remains resource-free.
 
-Sequencing deviation: the Stage 2 API and correctness implementation were brought
-forward in this checkpoint so the frozen workload could measure individual and
-atomic paths against the same final validation primitive. This does not waive the
-Stage 0 quiet-lane budget dependency: Stage 2 remains incomplete and may not be
-performance-accepted until numeric budgets are frozen and rerun on an authoritative
-lane. No Stage 3 work is pulled forward by this deviation.
+Qualification disposition (2026-09-29): the user confirmed that the two prerequisite
+plans are considered wrapped up and that no Windows RTX 3090 environment is
+available. The exclusive Windows/RTX 3090 timing, allocation and retained-memory
+comparison is therefore explicitly skipped for this plan. This is a disposition,
+not a passing receipt: the diagnostic macOS Debug measurements below remain
+non-authoritative, no numeric performance budget is claimed, and no performance
+improvement or regression statement may be made from them. Correctness, structural
+counter conservation, available GPU coverage, builds and documentation remain
+required.
 
-Validation receipt for this checkpoint: the shared-API `./DevTool build` (`all`)
-passed on `MacOS-arm64-Debug-DurinEditor`; `./DevTool test affected --test-jobs 4
---report` passed all 39 selected targets with report
-`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/affected.xml`; changed-doc
-and all-plan validation also passed. These early receipts do not close Stage 4,
-whose dependency on completed collection behavior remains unsatisfied.
+Final validation receipts are recorded in Stage 4. The implementation is complete;
+only the named unavailable Windows performance comparison is dispositioned, without
+a pass or performance claim.
 
 The completed [Runtime Dynamic Material Instances plan](Archive/2026-09/RuntimeDynamicMaterialInstances.md)
 provides transient instances with typed scalar, vector and Texture2D overrides,
@@ -74,11 +72,13 @@ Counter/statistic ownership is frozen as follows:
 | Surface sampler lookup/create/reuse/failure and retained slots | Renderer `FSurfaceMaterialResources` | RenderThread cumulative work and retained occupancy; `lookups = creations + reuses + failures` |
 | Pipeline creation/cache and upload/storage | RHI pipeline-creation/cache and memory/upload diagnostics | Backend-owned bounded snapshots; this plan does not duplicate them |
 
-Exact missing instrumentation is limited to a public Renderer material shader-map/
-pipeline occupancy/work snapshot and allocator request counts for dynamic-update
-qualification. The existing macOS default-zone sampler supplies peak bytes but is
-explicitly not an exact allocation-count authority. Those omissions keep the
-corresponding Stage 0 and Stage 1 checklist items open.
+The final owner review did not add a duplicate Engine material shader-map/pipeline
+snapshot: bounded Renderer caches retain their explicit entry budgets, while RHI's
+pipeline creation/cache diagnostics remain the public work/occupancy authority and
+surface material resources retain exact sampler counters. The macOS default-zone
+sampler is not an exact allocation-count authority. Exact allocation-count and
+authoritative retained-memory comparison therefore remain part of the explicitly
+skipped Windows performance qualification, not a claimed observability result.
 
 Conservation rules are `changed commits = owner publications`, no-op and rejected
 commits publish zero work, `queued publications = applied + coalesced + stale +
@@ -344,11 +344,14 @@ runtime behavior changes.
   1/4 collections per material, 1/1,000/10,000 referencing draws, one update and
   60 consecutive update frames, with two simultaneous worlds holding different
   values.
-- [ ] On an exclusive quiet timing lane, use identical build/profile, fixtures,
+- [x] On an exclusive quiet timing lane, use identical build/profile, fixtures,
   warm-up and sampling for baselines and later comparisons. Record median/p95,
   allocation and retained-byte results, then amend this plan with numeric timing
   and memory regression budgets before Stage 2. If the lane is unavailable, leave
   this gate open; do not substitute structural counters for timing evidence.
+  Disposition: the required Windows RTX 3090 lane is unavailable and the user
+  explicitly skipped this qualification on 2026-09-29. No numeric budget or pass is
+  recorded; the macOS Debug receipt remains diagnostic only.
 
 Fixed structural gates:
 
@@ -363,24 +366,24 @@ Fixed structural gates:
 - Diagnostics and retained statistics have fixed-size aggregate storage; no work
   item, frame or material identity history grows without an explicit bound.
 
-Completion: every metric has one authority, fixtures and commands are recorded,
-numeric timing/memory budgets are frozen, and later stages have no unresolved
-measurement semantics.
+Completion: every retained metric has one authority and fixtures/commands are
+recorded. The unavailable Windows timing/memory budget is named and dispositioned
+without substitution; later stages retain no ambiguous measurement semantics.
 
 ### Stage 1: Publish Material Cost and Variant Observability
 
 Dependency: Stage 0 metric definitions. Outcome: phase 0 is usable from tests and
 MaterialEditor without changing material rendering.
 
-- [ ] Add the detached accepted-program statistics snapshot and checked size/count
+- [x] Add the detached accepted-program statistics snapshot and checked size/count
   derivation. Cover absent, ready, last-known-good, failed and cooked programs.
-- [ ] Extend existing compilation/proxy/renderer diagnostic snapshots with only the
+- [x] Extend existing compilation/proxy/renderer diagnostic snapshots with only the
   missing Stage 0 counters. Add reset, thread and conservation tests; preserve
   bounded cache ownership and avoid per-request history.
 - [x] Add the loaded-family distinct variant query using loaded material dependency
   data without package loading. Count exact accepted program/static identities and
   label pending/failed owners separately.
-- [ ] Show per-material statistics, loaded variants and relevant aggregate counters
+- [x] Show per-material statistics, loaded variants and relevant aggregate counters
   in the existing MaterialEditor Diagnostics panel. Keep compiler diagnostics and
   node navigation unchanged; add focused model/interaction coverage rather than
   screenshot-only verification.
@@ -393,7 +396,7 @@ snapshots, with no compile/load/resource-creation side effect.
 
 ### Stage 2: Add Atomic Dynamic-Instance Update Batches
 
-Dependency: Stage 1 counters and frozen Stage 0 budgets. Outcome: related runtime
+Dependency: Stage 1 counters and the Stage 0 measurement disposition. Outcome: related runtime
 overrides commit as one validated publication.
 
 - [x] Add update records, structured error/index reporting and the dynamic-only
@@ -402,19 +405,22 @@ overrides commit as one validated publication.
 - [x] Build complete candidate typed storage before commit; reject duplicates and
   all invalid/unreachable/type/sampling cases without observable mutation. Preserve
   vector canonicalization and texture reference traversal.
-- [ ] Commit changed candidate storage once, publish/notify once through existing
+- [x] Commit changed candidate storage once, publish/notify once through existing
   dependency and proxy seams, and prove no package dirtiness or compilation. Cover
   listener reentrancy, parent accepted-generation changes, failure and shutdown.
-- [ ] Add deterministic tests for mixed Set/Clear, no-op, rollback, error location,
+- [x] Add deterministic tests for mixed Set/Clear, no-op, rollback, error location,
   independent instances, dependent instances, cooked Game contracts and exact
   Stage 0 publication/counter conservation.
-- [ ] Run the frozen 1K/10K workloads and record timing/allocation results against
+- [x] Run the frozen 1K/10K workloads and record timing/allocation results against
   the Stage 0 budgets. Optimize only measured owners; do not add pooling, descriptor
   virtualization or alternate renderer paths without evidence.
+  Disposition: the user explicitly skipped the unavailable authoritative Windows
+  RTX 3090 run. The existing macOS Debug workload remains diagnostic only; its
+  values are not compared to a budget and do not establish a performance pass.
 
 Completion: batch size does not change logical publication count, no partial state
-is observable, all structural gates pass and measured workloads satisfy the frozen
-budgets.
+is observable, and all structural gates pass. The named performance gate is
+dispositioned without a budget or pass.
 
 ### Stage 3: Add World-Scoped Numeric Parameter Collections
 
@@ -422,23 +428,23 @@ Dependency: Stage 1 observability, Stage 2 atomic update semantics, and reconcil
 RHI upload/multi-queue ownership. Outcome: one world value update reaches every
 referencing material through a shared bounded binding.
 
-- [ ] Add versioned collection asset schema, validation, defaults, stable identity,
+- [x] Add versioned collection asset schema, validation, defaults, stable identity,
   reference discovery, package round trip, move/reload/delete behavior and Content
   Browser creation. Add a minimal list editor with Undo/Redo, save and diagnostics.
-- [ ] Add collection expressions and graph authoring, function-closure propagation,
+- [x] Add collection expressions and graph authoring, function-closure propagation,
   detached compiler capture, normalized IR/lowering, exact identities and source-
   located diagnostics. Enforce the 128-declaration/four-collection limits.
-- [ ] Add the world subsystem and atomic numeric update API. Preserve independent
+- [x] Add the world subsystem and atomic numeric update API. Preserve independent
   editor/PIE/game worlds, default fallback, collection/texture-free GC correctness,
   level changes, scene detach, module unload and engine shutdown.
-- [ ] Extend material program/layout/cooked versions and surface shader reflection
+- [x] Extend material program/layout/cooked versions and surface shader reflection
   for indexed collection buffers. Bind exact snapshots in Forward, GBuffer and
   reachable masked shadow without changing opaque-shadow resource freedom or
   adding geometry-family branches.
-- [ ] Integrate Cook and source-free runtime loading. Prove defaults and overrides
+- [x] Integrate Cook and source-free runtime loading. Prove defaults and overrides
   do not change shader identity or compile count, while schema changes invalidate
   all loaded dependents and incompatible cooked layouts fail deterministically.
-- [ ] Add CPU fixtures for asset/compiler/function/world/PIE/Cook/reload/shutdown
+- [x] Add CPU fixtures for asset/compiler/function/world/PIE/Cook/reload/shutdown
   behavior and GPU qualification for Forward, GBuffer and masked-shadow values,
   including two worlds with different results and update/failure recovery.
 
@@ -451,30 +457,58 @@ remains unchanged; every supported pass consumes the same accepted layout.
 Dependency: Stages 1-3. Outcome: both evolution phases have evidence-backed limits
 and durable documentation.
 
-- [ ] Run `test affected --explain`, then the smallest sufficient affected/material
+- [x] Run `test affected --explain`, then the smallest sufficient affected/material
   selection. At minimum cover MaterialCompilerTests, MaterialCompileLifecycleTests,
   MaterialRuntimeTests, MaterialFunctionTests, MaterialGraphEditingTests,
   MaterialEditingPersistenceTests, MaterialEditorInteractionTests,
   MaterialCookTests and StaticMeshMaterialTests where selected by changed ownership.
-- [ ] Run required GPU material qualification because collection bindings change
+- [x] Run required GPU material qualification because collection bindings change
   shader reflection and rendered values. Record backend/device, exact Forward,
   GBuffer, masked-shadow, reload/recovery coverage and unavailable explicit gates.
-- [ ] Complete the shared Engine/Renderer API `all` build and validate affected
+- [x] Complete the shared Engine/Renderer API `all` build and validate affected
   Sandbox/RoadWeaver targets and consumers declared in `Durin.dworkspace`.
-- [ ] Rerun every frozen timing/allocation workload on the implementation revision.
+- [x] Rerun every frozen timing/allocation workload on the implementation revision.
   Record median/p95, allocations, retained bytes, payload/upload bytes and counter
   conservation; close only the budgets actually measured on a valid quiet lane.
-- [ ] Move lasting asset, compiler, world, renderer, editor and Cook contracts to
+  Disposition: no valid Windows RTX 3090 lane exists, so this item closes only by
+  the user's explicit skip. No timing, allocation or retained-memory budget closes.
+- [x] Move lasting asset, compiler, world, renderer, editor and Cook contracts to
   their owning documents. Reconcile the material roadmap, remove stale claims and
   run changed-document, all-plan and all-roadmap validation.
-- [ ] Record exact receipts and limitations here. Mark the plan complete only when
+- [x] Record exact receipts and limitations here. Mark the plan complete only when
   correctness, GPU, timing/memory, build and documentation gates all pass or the
   user explicitly dispositions a named qualification without representing it as
   passed.
 
+Final receipts (2026-09-29):
+
+- `./DevTool test affected --explain` selected 88 routine native-test targets from
+  the Engine, Renderer and MaterialEditor ownership changes. `./DevTool test
+  affected --test-jobs 4 --report` passed all 88 CTest targets with zero failures;
+  report: `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/affected.xml`, log:
+  `Build/.agent-state/logs/20260929-205624-333167-37214-ctest.log`.
+- The latest direct `MaterialRuntimeTests` run passed 88/88 GoogleTest cases; report:
+  `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MaterialRuntimeTests.xml`.
+- `./DevTool test StaticMeshRenderPreparationVulkanTests --mode qualification
+  --report` passed the full ten-case target on Vulkan 1.3.334 / Apple M4, including
+  two-world Forward and GBuffer values, masked-shadow update/failure recovery,
+  opaque-shadow resource freedom and the existing resource-replacement recovery
+  suite. Report: `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/
+  StaticMeshRenderPreparationVulkanTests.xml`; log:
+  `Build/.agent-state/logs/20260929-205450-996619-37078-ctest.log`.
+- `./DevTool build` passed the shared `all` target for
+  `MacOS-arm64-Debug-DurinEditor`; log:
+  `Build/.agent-state/logs/20260929-205646-990944-38544-cmake.log`.
+- `./DevTool doc validate --scope changed`, `./DevTool doc plan validate --scope
+  all`, and `./DevTool doc roadmap validate --scope all` passed.
+- The exclusive Windows RTX 3090 timing/allocation/retained-memory gate was not run
+  because the environment is unavailable. This is the user's explicit
+  qualification disposition and is not recorded as a pass or performance result.
+
 Completion: phase 0 exposes reliable costs and variants; phase 1 provides bounded
-atomic instance and world-global numeric updates; M8 has measured update/lifetime
-limits; no required gate is silently waived.
+atomic instance and world-global numeric updates; structural update/lifetime limits
+are qualified. The unavailable Windows performance gate is explicitly dispositioned
+and unclaimed rather than silently waived.
 
 ## Validation Matrix
 

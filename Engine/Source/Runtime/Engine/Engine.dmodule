@@ -84,6 +84,7 @@
         "Public/Materials/MaterialTypes.h",
         "Public/Materials/MaterialParameterValues.h",
 		"Public/Materials/MaterialExpressions.h",
+		"Public/Materials/MaterialParameterCollection.h",
 		"Public/Materials/MaterialProgramTypes.h",
 		"Public/Materials/MaterialFunctionTypes.h",
 		"Public/Materials/MaterialFunctionInterface.h",

@@ -9,6 +9,10 @@ namespace Durin::Editor::Material::Workspace
 {
 	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
+	inline const ::Durin::Editor::FWorkspaceTypeId CollectionType(
+		"MaterialParameterCollectionEditor");
+	inline constexpr std::string_view CollectionRootKey =
+		"MaterialParameterCollectionEditor";
 	inline constexpr uint32 LayoutVersion = 4;
 	inline constexpr uint32 FunctionLayoutVersion = 5;
 

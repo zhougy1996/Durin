@@ -44,6 +44,27 @@ namespace Durin
 			return Left.GetKey() == Right.GetKey();
 		}
 
+		auto RefreshCollectionDefaults(
+			std::shared_ptr<const FMaterialCompilerResult> Program,
+			std::span<const FMaterialParameterCollectionLayout> Current)
+			-> std::shared_ptr<const FMaterialCompilerResult>
+		{
+			if (!Program || Program->ActiveCollections.size() != Current.size())
+				return Program;
+			bool bChanged = false;
+			for (size_t Index = 0; Index < Current.size(); ++Index)
+			{
+				if (!Program->ActiveCollections[Index].HasCompatibleSchema(Current[Index]))
+					return Program;
+				bChanged |= Program->ActiveCollections[Index].DefaultPayload
+					!= Current[Index].DefaultPayload;
+			}
+			if (!bChanged) return Program;
+			auto Refreshed = std::make_shared<FMaterialCompilerResult>(*Program);
+			Refreshed->ActiveCollections.assign(Current.begin(), Current.end());
+			return Refreshed;
+		}
+
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
 			uint64 Bytes = sizeof(Request) + sizeof(FMaterialPreparedProgram)
@@ -61,6 +82,14 @@ namespace Durin
 			for (const FMaterialCompilerDependency& Dependency
 				: Request.PreparedProgram->Environment.Dependencies)
 				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
+			for (const FMaterialParameterCollectionLayout& Collection
+				: Request.PreparedProgram->Normalized.ActiveCollections)
+			{
+				Bytes += sizeof(Collection) + Collection.AssetPath.size()
+					+ Collection.UniformLayout.Fields.size()
+						* sizeof(FMaterialRenderField)
+					+ Collection.DefaultPayload.size();
+			}
 			return Bytes;
 		}
 
@@ -76,6 +105,14 @@ namespace Durin
 				Bytes += Node.Inputs.size() * sizeof(uint32);
 			for (const FMaterialCompilerDependency& Dependency : Result.Dependencies)
 				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
+			for (const FMaterialParameterCollectionLayout& Collection
+				: Result.ActiveCollections)
+			{
+				Bytes += sizeof(Collection) + Collection.AssetPath.size()
+					+ Collection.UniformLayout.Fields.size()
+						* sizeof(FMaterialRenderField)
+					+ Collection.DefaultPayload.size();
+			}
 			for (const FCompiledShader& Shader : Result.CompiledShaders)
 			{
 				Bytes += sizeof(Shader) + Shader.SourceEntryPoint.size()
@@ -392,6 +429,8 @@ namespace Durin
 				EMaterialCompileCacheOutcome CacheOutcome,
 				uint64 TaskId) -> FMaterialCompileResult
 			{
+				Program = RefreshCollectionDefaults(std::move(Program),
+					Request.PreparedProgram->Normalized.ActiveCollections);
 				return {
 					.Owner = Request.Owner,
 					.AuthoredRevision = Request.AuthoredRevision,
@@ -900,6 +939,8 @@ namespace Durin
 						const auto Program = Owner->CompilationOwner.RenderLayer.CompiledProgram;
 						if (Program && Program->Identity == Request.ProgramIdentity)
 						{
+							const auto Refreshed = RefreshCollectionDefaults(Program,
+								Request.PreparedProgram->Normalized.ActiveCollections);
 							return Admit(Material, {
 								.Owner = Request.Owner,
 								.AuthoredRevision = Request.AuthoredRevision,
@@ -911,7 +952,7 @@ namespace Durin
 								.Target = Request.Target,
 								.State = EMaterialCompileState::Ready,
 								.CacheOutcome = EMaterialCompileCacheOutcome::RetainedHit,
-								.CompiledProgram = Program}, Context);
+								.CompiledProgram = Refreshed}, Context);
 						}
 					}
 				}

@@ -95,6 +95,14 @@ namespace Durin
 			else static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->OnLevelDetached(Level);
 		}
 	}
+	auto FWorldSubsystemCollection::RenderSceneChanged(
+		FSceneInterface* Previous, FSceneInterface* Current) -> void
+	{
+		for (auto& Entry : Entries)
+			if (Entry.bInitialized)
+				static_cast<DWorldSubsystem*>(Entry.Object.Get())
+					->OnRenderSceneChanged(Previous, Current);
+	}
 	auto FWorldSubsystemCollection::StartTick() -> void
 	{
 		for (auto& Entry : Entries) WorldEntries[Entry.Descriptor.Type].bFrameTickEnabled = static_cast<DWorldSubsystem*>(Entry.Object.Get())->IsTickEnabled();

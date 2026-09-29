@@ -31,6 +31,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Misc/Paths.h"
@@ -2018,6 +2019,271 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		});
 		FlushRenderingCommands();
 		Owner.Reset();
+	}
+	FlushRenderingCommands();
+	RendererLifecycle.Shutdown();
+	ShutdownRenderingThread();
+	RHIExit();
+}
+
+TEST(FMaterialParameterCollectionVulkanTests,
+	WorldSnapshotsDriveForwardGBufferAndMaskedShadowValues)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness RendererLifecycle("MaterialCollectionQualification");
+	RendererLifecycle.Start(Renderer);
+	{
+		TStrongObjectPtr<DMaterialParameterCollection> Collection(
+			NewObject<DMaterialParameterCollection>(nullptr, "GPUCollection"));
+		const FGuid ColorId = FGuid::NewGuid();
+		const FGuid MaskId = FGuid::NewGuid();
+		const std::array Declarations{
+			FMaterialParameterCollectionDeclaration{.Id = ColorId,
+				.Name = FName("Color"), .Type = EMaterialParameterType::Vector,
+				.DefaultValue = FVector4(1.0, 0.0, 0.0, 0.0)},
+			FMaterialParameterCollectionDeclaration{.Id = MaskId,
+				.Name = FName("Mask"), .Type = EMaterialParameterType::Scalar,
+				.DefaultValue = FVector4(1.0, 0.0, 0.0, 0.0)}};
+		ASSERT_TRUE(Collection->SetDeclarations(Declarations));
+		auto Layout = Collection->BuildLayout();
+		ASSERT_TRUE(Layout);
+
+		TStrongObjectPtr<DMaterial> Material(
+			NewObject<DMaterial>(nullptr, "GPUCollectionMaterial"));
+		TStrongObjectPtr<DMaterialExpressionCollectionParameter> Color(
+			NewObject<DMaterialExpressionCollectionParameter>(nullptr, "GPUCollectionColor"));
+		TStrongObjectPtr<DMaterialExpressionCollectionParameter> Mask(
+			NewObject<DMaterialExpressionCollectionParameter>(nullptr, "GPUCollectionMask"));
+		Color->Id = FGuid::NewGuid(); Color->Collection = Collection.Get();
+		Color->ParameterId = ColorId;
+		Mask->Id = FGuid::NewGuid(); Mask->Collection = Collection.Get();
+		Mask->ParameterId = MaskId;
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.BaseColor = {Color->Id};
+		Outputs.OpacityMask = {Mask->Id};
+		const std::array<DMaterialExpression*, 2> Expressions{Color.Get(), Mask.Get()};
+		FMaterialStaticProperties Properties;
+		Properties.BlendMode = EMaterialBlendMode::Masked;
+		Properties.OpacityMaskThreshold = 0.5f;
+		Properties.bTwoSided = true;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		ASSERT_EQ(Material->GetMaterialCompileStatus().State,
+			EMaterialCompileState::Ready);
+
+		auto MakeSnapshot = [&](FVector4 ColorValue, float MaskValue, uint64 Version) {
+			auto Snapshot = std::make_shared<FMaterialParameterCollectionSnapshot>();
+			Snapshot->Layout = *Layout;
+			Snapshot->Version = Version;
+			Snapshot->Payload = Layout->DefaultPayload;
+			auto Write = [&](FGuid Id, const FVector4& Value) {
+				const auto Field = std::ranges::find(
+					Layout->UniformLayout.Fields, Id,
+					&FMaterialRenderField::ParameterId);
+				if (Field == Layout->UniformLayout.Fields.end())
+				{
+					ADD_FAILURE() << "Missing collection field";
+					return;
+				}
+				const std::array<float, 4> Components{
+					static_cast<float>(Value.x), static_cast<float>(Value.y),
+					static_cast<float>(Value.z), static_cast<float>(Value.w)};
+				std::memcpy(Snapshot->Payload.data() + Field->Offset,
+					Components.data(), Field->Size);
+			};
+			Write(ColorId, ColorValue);
+			Write(MaskId, FVector4(MaskValue, 0.0, 0.0, 0.0));
+			return Snapshot;
+		};
+
+		FSceneTestOwner RedWorld;
+		FSceneTestOwner GreenWorld;
+		RedWorld->UpdateMaterialParameterCollection(
+			MakeSnapshot(FVector4(1.0, 0.0, 0.0, 0.0), 1.0f, 1));
+		GreenWorld->UpdateMaterialParameterCollection(
+			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 1.0f, 1));
+		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		FProceduralGeometry Geometry;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+			[&](FRHICommandListImmediate& Commands) {
+				Geometry = FProceduralGeometry::Create(Commands, 901, false);
+				const auto Resolved = MaterialProxy->Resolve_RenderThread();
+				for (FScene* Scene : {RedWorld.Get(), GreenWorld.Get()})
+				{
+					auto Proxy = std::make_unique<FProceduralProxy>();
+					Proxy->Geometry = Geometry;
+					Proxy->Materials = {Resolved, Resolved};
+					ASSERT_TRUE(Proxy->PublishGeometry());
+					FMatrix Transform(1.0);
+					Transform[0][0] = Transform[1][1] = Transform[2][2] = 0.8;
+					Transform[3][0] = 0.05;
+					FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene,
+						FPrimitiveComponentId(901), std::move(Proxy), Transform);
+				}
+			});
+		FlushRenderingCommands();
+		for (FScene* Scene : {RedWorld.Get(), GreenWorld.Get()})
+		{
+			FDirectionalLightSceneData Light;
+			Light.Intensity = 3.0f;
+			ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(
+				*Scene, FLightComponentId(901), Light), nullptr);
+		}
+		FlushRenderingCommands();
+
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+			[&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = 192; View.ViewportHeight = 108;
+				View.Settings.Mode.VisibilityMode =
+					EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.DirectionalShadow.Candidate =
+					EDirectionalShadowCandidate::SingleMap;
+				std::array<FByteBuffer, 2> ForwardPixels;
+				for (size_t I = 0; I < 2; ++I)
+				{
+					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+					const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("CollectionForward", 192, 108,
+							EPixelFormat::SRGBA8_UNORM).SetFlags(
+								ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::SourceCopy));
+					++GRenderFrameCounterRenderThread;
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					ASSERT_EQ(Renderer.RenderView(Commands,
+						I == 0 ? RedWorld.Get() : GreenWorld.Get(), View,
+						Target, false, {}), ERenderViewResult::Success);
+					ReadGeometryTexture(Commands, Target, ForwardPixels[I]);
+					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+				}
+				size_t RedDominant = 0, GreenDominant = 0;
+				for (size_t Pixel = 0; Pixel < ForwardPixels[0].size(); Pixel += 4)
+				{
+					RedDominant += std::to_integer<int>(ForwardPixels[0][Pixel])
+						> std::to_integer<int>(ForwardPixels[0][Pixel + 1]) + 32;
+					GreenDominant += std::to_integer<int>(ForwardPixels[1][Pixel + 1])
+						> std::to_integer<int>(ForwardPixels[1][Pixel]) + 32;
+				}
+				EXPECT_GT(RedDominant, 1000u);
+				EXPECT_GT(GreenDominant, 1000u);
+
+				std::array<FByteBuffer, 2> GBufferMaterial;
+				std::array<FByteBuffer, 2> ShadowDepth;
+				static FByteBuffer* GBufferCapture = nullptr;
+				static FByteBuffer* ShadowCapture = nullptr;
+				static FViewRenderTelemetry Telemetry;
+				View.Settings.Mode.RenderMode = ERenderMode::Lit;
+				for (size_t I = 0; I < 2; ++I)
+				{
+					Telemetry = {};
+					SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) {
+						Telemetry = Value;
+					});
+					const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("CollectionDeferred", 192, 108,
+							EPixelFormat::SRGBA8_UNORM).SetFlags(
+								ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::SourceCopy));
+					GBufferCapture = &GBufferMaterial[I];
+					ShadowCapture = &ShadowDepth[I];
+					SetGBufferCaptureSink(+[](FRHICommandListImmediate& LocalCommands,
+						FRHITexture* MaterialTexture, FRHITexture*, FRHITexture*,
+						FRHITexture*, FRHITexture*) {
+						ReadGeometryTexture(LocalCommands, MaterialTexture,
+							*GBufferCapture);
+					});
+					SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& LocalCommands,
+						FRHITexture* Depth, uint32) {
+						ReadGeometryTexture(LocalCommands, Depth, *ShadowCapture, true);
+					});
+					++GRenderFrameCounterRenderThread;
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					ASSERT_EQ(Renderer.RenderView(Commands,
+						I == 0 ? RedWorld.Get() : GreenWorld.Get(), View,
+						Target, false, {}), ERenderViewResult::Success);
+					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+					SetGBufferCaptureSink(nullptr);
+					SetShadowDepthCaptureSink(nullptr);
+					SetViewRenderTelemetrySink(nullptr);
+					EXPECT_GT(Telemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+				}
+				GBufferCapture = nullptr;
+				ShadowCapture = nullptr;
+				EXPECT_NE(GBufferMaterial[0], GBufferMaterial[1]);
+				auto Covered = [](const FByteBuffer& Pixels) {
+					size_t Count = 0;
+					for (size_t Offset = 0; Offset < Pixels.size(); Offset += sizeof(float))
+					{
+						float Depth = 1.0f;
+						std::memcpy(&Depth, Pixels.data() + Offset, sizeof(float));
+						Count += Depth < 1.0f;
+					}
+					return Count;
+				};
+				EXPECT_GT(Covered(ShadowDepth[0]), 100u);
+				EXPECT_GT(Covered(ShadowDepth[1]), 100u);
+			});
+		FlushRenderingCommands();
+
+		GreenWorld->UpdateMaterialParameterCollection(
+			MakeSnapshot(FVector4(0.0, 1.0, 0.0, 0.0), 0.0f, 2));
+		FlushRenderingCommands();
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+			[&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = 192; View.ViewportHeight = 108;
+				View.Settings.Mode.RenderMode = ERenderMode::Lit;
+				View.Settings.Mode.VisibilityMode =
+					EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.DirectionalShadow.Candidate =
+					EDirectionalShadowCandidate::SingleMap;
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("CollectionMaskedOut", 192, 108,
+						EPixelFormat::SRGBA8_UNORM).SetFlags(
+							ETextureCreateFlags::RenderTargetable
+							| ETextureCreateFlags::ShaderResource
+							| ETextureCreateFlags::SourceCopy));
+				FByteBuffer MaskedShadow;
+				static FByteBuffer* ShadowCapture = nullptr;
+				ShadowCapture = &MaskedShadow;
+				SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& LocalCommands,
+					FRHITexture* Depth, uint32) {
+					ReadGeometryTexture(LocalCommands, Depth, *ShadowCapture, true);
+				});
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				ASSERT_EQ(Renderer.RenderView(Commands, GreenWorld.Get(), View,
+					Target, false, {}), ERenderViewResult::Success);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+				SetShadowDepthCaptureSink(nullptr);
+				ShadowCapture = nullptr;
+				size_t Covered = 0;
+				for (size_t Offset = 0; Offset < MaskedShadow.size(); Offset += sizeof(float))
+				{
+					float Depth = 1.0f;
+					std::memcpy(&Depth, MaskedShadow.data() + Offset, sizeof(float));
+					Covered += Depth < 1.0f;
+				}
+				EXPECT_EQ(Covered, 0u);
+			});
+		FlushRenderingCommands();
+		RedWorld.Reset();
+		GreenWorld.Reset();
 	}
 	FlushRenderingCommands();
 	RendererLifecycle.Shutdown();

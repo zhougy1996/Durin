@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-29
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -83,6 +83,25 @@ snapshot serialization are rejected, and authored instances cannot select a
 dynamic parent. Dynamic-parent chains are not supported. Because a dynamic
 instance cannot be a material parent, its parameter commit publishes its stable
 proxy and callback directly without a loaded-family dependency scan.
+
+### World-scoped parameter collections
+
+`DMaterialParameterCollection` is a versioned top-level asset with at most 128
+numeric scalar/Vector2/Vector3/Vector4 declarations. Declaration GUIDs are stable,
+public names are case-insensitive, defaults are finite and canonical, and the
+GUID-sorted uniform layout is deterministic. Schema edits and default-only edits
+have separate revisions. Content Browser creation and the Material Parameter
+Collection workspace use ordinary reflected transactions, package Save/Discard,
+Undo/Redo, move, reload and deletion lifecycle.
+
+Each world owns a `DMaterialParameterCollectionSubsystem`. A borrowed batch of
+GUID-addressed Set/Clear records is validated completely before one candidate
+payload is published; duplicate, missing, nonfinite or type-invalid records reject
+the whole update. Changed, no-op and rejected commits have exact counters. Values
+fall back to asset defaults, and authored default edits refresh instantiated world
+states without material compilation. Worlds retain independent immutable
+snapshots, and scene publication coalesces superseded snapshots without mutating
+the collection asset, dirtying material packages or publishing material proxies.
 
 ### Parameter values and declarations
 
@@ -290,6 +309,13 @@ earlier exact-typed expression or an inline finite literal; aggregate mode names
 one earlier Surface expression. A default material therefore has zero ordinary
 IR nodes. Function calls expand into ordinary expressions before normalization; the editor
 retains the compact authored calls and their stable port identities.
+
+Collection expressions identify one collection asset and declaration. Compiler
+capture copies its detached layout/default payload and retains no collection object
+on worker threads. Function expansion propagates collection use through the same
+closure as ordinary expressions. A program may use at most four distinct
+collections. Collection GUID, schema and exact uniform layout participate in the
+program identity; asset defaults and per-world values do not.
 
 The default material compiler environment represents the dedicated
 `/Engine/MaterialCompilerEnvironment` dependency graph with one
@@ -517,10 +543,11 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v7 value per material or instance in the `DMaterialInterface::ProgramData`
+DMAT v8 value per material or instance in the `DMaterialInterface::ProgramData`
 BulkData field stores the exact
 compiler/target/pass/version envelope, program identity, canonical shader properties and separate pipeline metadata,
-active declaration contract, compiled layout, and complete shader
+active declaration contract, compiled layout, active collection asset paths,
+schemas, layouts and default fallbacks, and complete shader
 code/reflection set. It is uncompressed, 16-byte aligned, bounded to 8 MiB, and
 protected by an internal checksum plus the DAST field range and raw-segment extent/hash
 contract. Metadata load is range-free; first render-layer construction locks
@@ -529,6 +556,10 @@ wrong-profile, wrong-version, invalid-stage, or package/payload static-property
 mismatches before publishing an immutable result. Runtime loading therefore
 requires neither authored IR/generated source, Shader source files, editor DDC,
 nor live compilation.
+Source-free loading resolves every recorded collection asset, requires the exact
+captured collection identity/schema/layout, and refreshes only the default payload.
+Missing or incompatible collection dependencies reject the cooked program
+deterministically rather than binding a mismatched buffer.
 
 Both material asset kinds publish a complete `FMaterialLocalRenderLayer`:
 shared immutable compiler result, accepted static properties, and native
@@ -570,6 +601,14 @@ typed shader map transactionally. Opaque shadow retains the fixed material-
 resource-free fragment. StaticMesh, SplineMesh, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
 none reads the authored graph or IR.
+
+The scene snapshot supplies indexed collection buffers at material-set bindings
+3 through 6. One per-view cache uploads each distinct accepted world snapshot once
+and shares it across referencing draws. Forward, GBuffer and reachable masked
+shadow fragments bind the same compiler-declared order and layout; absent scene
+overrides use the compatible cooked/default payload. Opaque shadow remains
+material-resource-free and allocates no collection binding. Collection updates do
+not branch the geometry-family path or rebuild shader maps and pipelines.
 
 RenderCore represents those sets with `FMaterialShaderMap` and strongly owned
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
@@ -801,6 +840,11 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   no-op and rejected commits, and owner publications. Reset is GameThread-only and
   requires relevant render work to be drained first.
   Query counters are defined by [Material query diagnostics](MaterialQueries.md#diagnostics-and-validation).
+- A collection schema edit schedules every loaded material/function-dependent
+  owner through the ordinary compilation lifecycle and changes program identity.
+  A default-only edit refreshes retained compiler results and instantiated world
+  snapshots without changing identity or compile count. Runtime world updates
+  publish only the collection snapshot to that world's scene.
 
 ## Compatibility Boundary
 
@@ -811,7 +855,7 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current versions are compiler envelope 9, DMAT 7, IR 4, layout 4, generator 8,
+Current versions are compiler envelope 9, DMAT 8, IR 5, layout 4, generator 8,
 pass contract 4, and material Cook contributor 5. Time uses the material uniform;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10

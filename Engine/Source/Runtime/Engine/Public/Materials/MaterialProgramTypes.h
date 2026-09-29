@@ -86,6 +86,7 @@ namespace Durin
 		AppendVector,
 		WorldPosition,
 		Time,
+		CollectionParameter,
 	};
 
 	// Numeric authoring nodes infer their width from their operands in the editor.

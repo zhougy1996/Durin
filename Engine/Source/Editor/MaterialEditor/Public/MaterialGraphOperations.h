@@ -118,12 +118,20 @@ namespace Durin::Editor::Material
 		bool bOutput = false;
 		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
 	};
+	struct FMaterialGraphCollectionParameterCreation
+	{
+		std::string CollectionPath;
+		FGuid ParameterId;
+		std::string ParameterName;
+	};
 	// Detached action metadata and payload shared by all creation entry points.
 	struct FMaterialGraphCreationAction
 	{
 		std::string Id, Name, Category, Keywords, Description;
 		bool bMaterial = true, bFunction = true;
-		std::variant<FMaterialGraphCatalogEntry, std::string, FMaterialGraphPortCreation> Payload;
+		std::variant<FMaterialGraphCatalogEntry, std::string,
+			FMaterialGraphPortCreation,
+			FMaterialGraphCollectionParameterCreation> Payload;
 	};
 	struct FMaterialGraphCreationRequest
 	{
@@ -133,6 +141,9 @@ namespace Durin::Editor::Material
 	};
 	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction;
+	MATERIALEDITOR_API auto MakeCollectionParameterCreationAction(
+		std::string Path, FGuid ParameterId, std::string ParameterName)
+		-> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
 		EMaterialProgramValueType Source) -> bool;

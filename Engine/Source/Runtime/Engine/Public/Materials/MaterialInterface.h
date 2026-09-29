@@ -107,6 +107,8 @@ namespace Durin
 	{
 		GENERATED_BODY()
 		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
+		friend ENGINE_API auto NotifyMaterialParameterCollectionChanged(
+			DMaterialParameterCollection& Collection) -> void;
 	public:
 		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
 		virtual auto IsDynamicInstance() const -> bool { return false; }

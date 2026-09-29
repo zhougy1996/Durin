@@ -1,5 +1,6 @@
 #include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialExpressionInputs.h"
@@ -48,6 +49,8 @@ namespace Durin::Editor::Material
 	{
 		if (!Owner.IsValid()) return false;
 		if (!Schema.CanCreate(Action, SourceType)) return false;
+		if (std::holds_alternative<FMaterialGraphCollectionParameterCreation>(
+			Action.Payload)) return !SourceType;
 		if (!std::holds_alternative<std::string>(Action.Payload)) return true;
 		if (!SourceType) return true;
 		const auto Loaded = LoadCreationFunction(std::get<std::string>(Action.Payload));
@@ -99,6 +102,27 @@ namespace Durin::Editor::Material
 					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
 					: EMaterialFunctionDefaultKind::Numeric;
 			return AddPort(Spec->bOutput, Port, Source, Request.X, Request.Y, Transactions);
+		}
+		if (const auto* Spec = std::get_if<
+			FMaterialGraphCollectionParameterCreation>(&Request.Action.Payload))
+		{
+			if (SourceType) return RejectCommand(
+				"Collection parameters do not accept an input connection.");
+			FTopLevelAssetPath Path;
+			if (!FTopLevelAssetPath::TryCreateWithDiagnostic(
+				Spec->CollectionPath, Path))
+				return RejectCommand("The collection asset path is invalid.");
+			auto Loaded = LoadObject<DMaterialParameterCollection>(Path);
+			if (!Loaded) return RejectCommand(
+				"The collection asset could not be loaded.");
+			if (!(*Loaded)->FindDeclaration(Spec->ParameterId))
+				return RejectCommand("The selected collection declaration no longer exists.");
+			TStrongObjectPtr<DMaterialExpressionCollectionParameter> Expression(
+				NewObject<DMaterialExpressionCollectionParameter>(nullptr, NAME_None));
+			Expression->Id = FGuid::NewGuid();
+			Expression->Collection = *Loaded;
+			Expression->ParameterId = Spec->ParameterId;
+			return CreateExpression(*Expression, Request.X, Request.Y, Transactions);
 		}
 		auto Loaded = LoadCreationFunction(std::get<std::string>(Request.Action.Payload));
 		if (!Loaded)

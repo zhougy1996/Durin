@@ -7,6 +7,7 @@
 #include "DObject/Class.h"
 #include "Asset/AssetPicker.h"
 #include "Misc/StringHelper.h"
+#include "Materials/MaterialParameterCollection.h"
 
 namespace Durin::Editor::Material
 {
@@ -56,11 +57,27 @@ namespace Durin::Editor::Material
 			CreationMenu->Search.fill('\0');
 			CreationMenu->Selection = 0;
 			CreationMenu->FunctionPaths.clear();
+			CreationMenu->CollectionParameters.clear();
 			for (const auto& [PackagePath, Data] : CaptureAssetCatalogSnapshot().Assets)
 				for (const auto& Asset : Data.TopLevelAssets)
+				{
 					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(FindClassByQualifiedName(Asset.AssetClassName),
 						DMaterialFunctionInterface::StaticClass(), EAssetClassPolicy::Derived))
 						CreationMenu->FunctionPaths.push_back(Asset.AssetPath.ToString());
+					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(
+						FindClassByQualifiedName(Asset.AssetClassName),
+						DMaterialParameterCollection::StaticClass(),
+						EAssetClassPolicy::Exact))
+						if (auto Loaded = LoadObject<DMaterialParameterCollection>(
+							Asset.AssetPath); Loaded)
+							for (const auto& Declaration : (*Loaded)->GetDeclarations())
+								CreationMenu->CollectionParameters.push_back(
+									MakeCollectionParameterCreationAction(
+										Asset.AssetPath.ToString(), Declaration.Id,
+										Declaration.DisplayName.empty()
+											? Declaration.Name.ToString()
+											: Declaration.DisplayName));
+				}
 			std::ranges::sort(CreationMenu->FunctionPaths);
 			bCreationMenuResultsDirty = true;
 			ImGui::OpenPopup("MaterialNodeCreationMenu");
@@ -113,6 +130,9 @@ namespace Durin::Editor::Material
 				CachedCreationActions.push_back(MakePortCreationAction(bOutput, SourceType.value_or(EMaterialProgramValueType::Float)));
 			for (const auto& Path : CreationMenu->FunctionPaths)
 				CachedCreationActions.push_back(MakeFunctionCreationAction(Path));
+			CachedCreationActions.insert(CachedCreationActions.end(),
+				CreationMenu->CollectionParameters.begin(),
+				CreationMenu->CollectionParameters.end());
 			CachedCreationMenuResults.clear();
 			const std::string Query = CreationMenu->Search.data();
 			const auto Needle = StringUtils::FoldAscii(Query);
@@ -205,6 +225,10 @@ namespace Durin::Editor::Material
 				{
 					if (const auto* FunctionPath = std::get_if<std::string>(&Action.Payload))
 						ImGui::SetTooltip("%s", FunctionPath->c_str());
+					else if (const auto* Collection = std::get_if<
+						FMaterialGraphCollectionParameterCreation>(&Action.Payload))
+						ImGui::SetTooltip("%s\n%s", Action.Description.c_str(),
+							Collection->CollectionPath.c_str());
 					else
 						ImGui::SetTooltip("%s\n%s", Action.Description.c_str(), Entry ? FormatInputSignature(*Entry).c_str() : Action.Name.c_str());
 				}

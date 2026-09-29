@@ -42,6 +42,13 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture));
 	}
 
+	auto DMaterialExpressionCollectionParameter::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		if (!Collection)
+			return Emitter.Fail(EMaterialExpressionError::CollectionParameterMissingCollection);
+		Emitter.Output(0, Emitter.CollectionParameter(*Collection, ParameterId));
+	}
+
 	auto DMaterialExpressionAdd::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};

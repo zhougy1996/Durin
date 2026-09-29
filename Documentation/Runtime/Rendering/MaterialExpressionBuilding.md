@@ -25,6 +25,10 @@ the texture resource at index seven. Retired index six remains invalid. Normal
 texture RGB outputs decode RG normal data; RGBA and scalar outputs remain raw.
 Surface extraction registers every enabled attribute. Function calls register
 all declared GUID outputs after validating their bindings and building the body.
+Collection expressions resolve one numeric declaration from a referenced
+`DMaterialParameterCollection` and emit its typed collection-read node. Expansion
+through a function uses the same invocation boundary and contributes that
+collection to the caller's closure.
 
 ## Numeric input ownership
 
@@ -88,8 +92,12 @@ are transient edit checkpoints, not persisted shader identities.
 `Finish` and `FinishSurface` publish detached results and consume the build session.
 They set an explicit completed success flag, including for a valid empty build.
 On failure they clear IR, roots, parameters, source mappings, and dependencies,
+active collection layouts,
 while retaining typed diagnostics. Duplicate output registration, missing output
 registration, invalid IR references, and invalid connection selectors are errors.
+Missing collection assets/declarations, incompatible types, malformed layouts, the
+128-declaration asset limit and the four-distinct-collections program limit produce
+source-located diagnostics and publish no partial result.
 See [Material diagnostics](MaterialSystem.md#results-and-diagnostics) for error and location contracts.
 
 The expression tests in `MaterialCompilerTests` cover multi-output sharing,
@@ -112,5 +120,9 @@ object references. Function stamps retain object keys, paths and revisions rathe
 than object ownership; freshness checks remain on the owning thread. Compilation
 moves the captured input and stamps into its lifecycle request; reachability
 uses the same capture and validates stamps before reusing its cached result.
-Cooking continues through this compilation boundary. Shader identities, cache
-keys and cooked encodings are unchanged.
+Collection capture stores only detached asset path, collection GUID, schema,
+uniform layout and default bytes; no collection object reference reaches worker
+execution. Cooking continues through this compilation boundary. Collection GUID,
+schema and layout participate in versioned IR, shader/cache identity and DMAT;
+authored defaults and per-world values do not, so value changes can reuse the
+accepted shader artifact.

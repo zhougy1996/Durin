@@ -13,6 +13,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunctionInterface.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "Logging/LogMacros.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
@@ -123,6 +124,38 @@ namespace Durin
 		Context.EndDiscovery();
 		for (const auto Key : Owners)
 			if (auto* Material = Cast<DMaterialInterface>(Key.ResolveObjectPtr())) Material->ParameterChanges.Broadcast();
+	}
+
+	auto NotifyMaterialParameterCollectionChanged(
+		DMaterialParameterCollection& Collection) -> void
+	{
+		CheckMaterialQueryThread();
+		for (auto* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+			if (auto* Subsystem = Cast<DMaterialParameterCollectionSubsystem>(Object))
+				if (auto Refreshed = Subsystem->RefreshCollection(Collection); !Refreshed)
+					DURIN_ERROR("Failed to refresh material parameter collection '{}': {}",
+						Collection.GetObjectPath(), Refreshed.Message);
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		FObjectCacheContext Context;
+		const auto Owners = QueryLoadedMaterialHandles(
+			EMaterialLoadedQueryOperation::Dependents,
+			[&](const DMaterialInterface* Material) {
+				const auto Program = Material->CompilationOwner.RenderLayer.CompiledProgram;
+				return Program && std::ranges::contains(Program->ActiveCollections,
+					Collection.GetCollectionId(),
+					&FMaterialParameterCollectionLayout::CollectionId);
+			});
+		for (const auto Handle : Owners)
+			if (auto* Material = Cast<DMaterialInterface>(ResolveObjectKey(Handle));
+				IsValid(Material))
+			{
+				auto& Revision =
+					Material->CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+				Revision = Revision == std::numeric_limits<uint64>::max()
+					? 1 : Revision + 1;
+				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material, &Context);
+			}
+		Context.EndDiscovery();
 	}
 
 	auto ResolveMaterialProperties(const DMaterialInterface& Material,

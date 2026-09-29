@@ -10,6 +10,7 @@
 #include "Engine/Actor.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
+#include "Materials/MaterialParameterCollection.h"
 
 #include "Math/Operations.h"
 #include "RenderingThread.h"
@@ -261,6 +262,68 @@ namespace Durin
 		Cloud->SceneProxy = nullptr;
 	}
 
+	auto FScene::UpdateMaterialParameterCollection(
+		std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot) -> void
+	{
+		requiref(IsInGameThread(), "Collection publication must execute on the game thread.");
+		RequireActive("UpdateMaterialParameterCollection");
+		require(Snapshot && Snapshot->Layout.CollectionId.IsValid());
+		bool bQueueCommand = false;
+		{
+			std::scoped_lock Lock(MaterialParameterCollectionPublicationMutex);
+			auto& Pending = PendingMaterialParameterCollections[
+				Snapshot->Layout.CollectionId];
+			if (!Pending || Pending->Version < Snapshot->Version)
+				Pending = std::move(Snapshot);
+			if (!bMaterialParameterCollectionCommandQueued)
+			{
+				bMaterialParameterCollectionCommandQueued = true;
+				bQueueCommand = true;
+			}
+		}
+		if (!bQueueCommand) return;
+		EnqueueRenderCommand("UpdateMaterialParameterCollections",
+			[this](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				decltype(PendingMaterialParameterCollections) Pending;
+				{
+					std::scoped_lock Lock(
+						MaterialParameterCollectionPublicationMutex);
+					Pending.swap(PendingMaterialParameterCollections);
+					bMaterialParameterCollectionCommandQueued = false;
+				}
+				for (auto& [Id, Snapshot] : Pending)
+				{
+					auto& Current = MaterialParameterCollections[Id];
+					if (!Current || Current->Version < Snapshot->Version)
+						Current = std::move(Snapshot);
+				}
+			});
+	}
+
+	auto FScene::RemoveMaterialParameterCollection(FGuid CollectionId) -> void
+	{
+		requiref(IsInGameThread(), "Collection removal must execute on the game thread.");
+		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active) return;
+		{
+			std::scoped_lock Lock(MaterialParameterCollectionPublicationMutex);
+			PendingMaterialParameterCollections.erase(CollectionId);
+		}
+		EnqueueRenderCommand("RemoveMaterialParameterCollection",
+			[this, CollectionId](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				MaterialParameterCollections.erase(CollectionId);
+			});
+	}
+
+	auto FScene::GetMaterialParameterCollection_RenderThread(FGuid CollectionId) const
+		-> std::shared_ptr<const FMaterialParameterCollectionSnapshot>
+	{
+		CheckRenderingThread();
+		const auto Found = MaterialParameterCollections.find(CollectionId);
+		return Found == MaterialParameterCollections.end() ? nullptr : Found->second;
+	}
+
 	auto FScene::RequireActive(std::string_view Operation) const -> void
 	{
 		requiref(LifecycleState.load(std::memory_order_acquire) == ELifecycleState::Active, "{} requires an active renderer scene.", Operation);
@@ -503,7 +566,8 @@ namespace Durin
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
 			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
-			   && VolumetricClouds->Num() == 0 && SkyLights.empty() && ProceduralSkies.empty();
+			   && VolumetricClouds->Num() == 0 && SkyLights.empty()
+			   && ProceduralSkies.empty() && MaterialParameterCollections.empty();
 	}
 
 	auto FScene::Clear_RenderThread() -> void
@@ -518,6 +582,7 @@ namespace Durin
 		if (Renderer) Renderer->PendingSkyScenes.erase(this);
 		SkyLighting = {};
 		ProceduralSkies.clear();
+		MaterialParameterCollections.clear();
 	}
 
 	auto FLightSceneRegistry::Attach(FLightSceneInfo& Info) -> void

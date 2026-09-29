@@ -93,6 +93,10 @@ namespace Durin
 		NoAcceptedCompiledProgram,
 		BuildOutputNotRegistered,
 		BuildOutputAlreadyRegistered,
+		CollectionParameterMissingCollection,
+		CollectionParameterMissingDeclaration,
+		CollectionParameterInvalidSchema,
+		CollectionCountExceedsBound,
 	};
 
 	enum class EMaterialFunctionError : uint16
@@ -210,6 +214,7 @@ namespace Durin
 		CookedProgramChecksumInvalid,
 		StaticPropertiesMismatch,
 		ParameterContractMismatch,
+		CollectionContractMismatch,
 		InvalidArchive,
 		ProgramUnavailable,
 		PayloadReadFailed,

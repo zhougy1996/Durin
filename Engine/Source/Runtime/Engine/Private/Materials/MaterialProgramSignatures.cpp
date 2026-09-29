@@ -64,6 +64,9 @@ namespace Durin
 		case EMaterialProgramOpcode::Parameter:
 			if (ResultType != Type::Float && ResultType != Type::Float4) return std::nullopt;
 			break;
+		case EMaterialProgramOpcode::CollectionParameter:
+			if (!bNumeric) return std::nullopt;
+			break;
 		case EMaterialProgramOpcode::Constant:
 			if (!bNumeric) return std::nullopt;
 			break;

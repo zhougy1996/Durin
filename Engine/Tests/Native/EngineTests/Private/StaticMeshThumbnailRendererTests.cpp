@@ -695,8 +695,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(MaterialModule.RegisterMaterialEditor(Manager, ThumbnailManager));
 	ASSERT_TRUE(TextureModule.RegisterTextureEditor(Manager, ThumbnailManager));
 	ASSERT_TRUE(StaticMeshModule.RegisterStaticMeshEditor(Manager, ThumbnailManager));
-	// Material and Material Function, Texture and Volume Texture, and Static Mesh.
-	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 5u);
+	// Material, Material Function, Material Parameter Collection, Texture,
+	// Volume Texture, and Static Mesh.
+	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 6u);
 
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();

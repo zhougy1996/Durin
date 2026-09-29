@@ -95,6 +95,21 @@ value and makes that override eligible again.
 
 ## Document and asset lifecycle
 
+MaterialEditor also registers the exact `DMaterialParameterCollection` asset type
+with Content Browser creation and a dedicated Material Parameter Collection
+workspace. Its bounded reflected declaration list uses the shared property-edit
+session and transaction stack, so declaration/default edits, Undo/Redo,
+Save/Discard, package reload, relocation and deletion follow the same workspace
+lifecycle as other assets. The diagnostics view exposes collection identity,
+schema/default revisions and deterministic packed layout without compiling or
+creating renderer resources.
+
+Material and function graph creation menus enumerate loaded collection
+declarations and create a configured collection expression in one graph command.
+The command validates the selected asset/declaration and retains stable GUID
+identity; compile diagnostics navigate back to the expression when a dependency is
+missing or incompatible.
+
 Base-material documents own canvases; instance documents retain the parameter
 override workflow and direct users to the root base material for graph editing.
 `FMaterialEditingSession` strongly owns the working material and its unique

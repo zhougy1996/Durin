@@ -31,6 +31,24 @@ namespace Durin::Editor::Material
 			.Category = "Material Functions",
 			.Keywords = "function call " + Path, .Payload = std::move(Path)};
 	}
+	auto MakeCollectionParameterCreationAction(std::string Path,
+		FGuid ParameterId, std::string ParameterName)
+		-> FMaterialGraphCreationAction
+	{
+		const std::string CollectionName = AssetPicker::GetAssetPathDisplayName(
+			Path, EAssetPathDisplayMode::AssetName);
+		return {
+			.Id = std::format("collection:{}:{}", Path, ParameterId.ToString()),
+			.Name = ParameterName,
+			.Category = "Collection Parameters",
+			.Keywords = "collection parameter " + CollectionName + " "
+				+ ParameterName,
+			.Description = "Reads " + ParameterName + " from " + CollectionName
+				+ " in the current world.",
+			.Payload = FMaterialGraphCollectionParameterCreation{
+				std::move(Path), ParameterId, std::move(ParameterName)},
+		};
+	}
 	auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction
 	{
 		return {.Id = std::format("port:{}:{}", bOutput ? "output" : "input", static_cast<uint32>(Type)), .Name = bOutput ? "Function Output" : "Function Input",

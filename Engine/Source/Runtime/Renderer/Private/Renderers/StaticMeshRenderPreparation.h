@@ -255,6 +255,7 @@ namespace Durin
 		{
 			RendererPrivate::FResolvedSurfaceMaterial Surface;
 			FRHIUniformBufferRange Uniform;
+			std::vector<FRHIUniformBufferRange> CollectionUniforms;
 		};
 		std::vector<FResolvedMeshDrawRecord> Draws;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.

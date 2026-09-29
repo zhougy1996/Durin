@@ -844,6 +844,7 @@ TEST(FMaterialPropertyEditingTests, ProductionClassDefaultsMatchFreshOrdinaryObj
 				if ((Class == Durin::DMaterialFunction::StaticClass() || Class == Durin::DMaterial::StaticClass())
 					&& Property->NamePrivate == Durin::FName("ExpressionCollection")) return;
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
+					|| Property->NamePrivate == Durin::FName("CollectionId")
 					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")
 					|| Property->NamePrivate == Durin::FName("SkyLightSceneId")
 					|| Property->NamePrivate == Durin::FName("ProceduralSkySceneId")) return;

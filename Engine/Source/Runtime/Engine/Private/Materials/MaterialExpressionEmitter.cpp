@@ -62,6 +62,12 @@ namespace Durin::MIR
 		return Builder.Parameter(Id, Type);
 	}
 
+	auto FEmitter::CollectionParameter(
+		const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32
+	{
+		return Builder.CollectionParameter(Collection, ParameterId);
+	}
+
 	auto FEmitter::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialNumericInput* const> Inputs,
 		std::span<const uint8> Swizzle) -> uint32

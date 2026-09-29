@@ -6,6 +6,7 @@
 #include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompiledLayout.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -22,7 +23,7 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 4;
+		inline constexpr uint32 CurrentVersion = 5;
 	}
 	inline constexpr uint32 CurrentMaterialGeneratorVersion = 8;
 	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 9;
@@ -60,7 +61,14 @@ namespace Durin
 
 		// Only the selected immediate payload is present. Operations without immediates
 		// use monostate; opcode/payload agreement is checked before encoding/generation.
-		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid, FSwizzle>;
+		struct FCollectionParameter
+		{
+			FGuid CollectionId;
+			FGuid ParameterId;
+			auto operator==(const FCollectionParameter&) const -> bool = default;
+		};
+		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
+			FSwizzle, FCollectionParameter>;
 
 		struct FNode
 		{
@@ -84,6 +92,11 @@ namespace Durin
 				const auto* Value = std::get_if<FSwizzle>(&Payload);
 				return Value ? *Value : FSwizzle{};
 			}
+			auto GetCollectionParameter() const -> FCollectionParameter
+			{
+				const auto* Value = std::get_if<FCollectionParameter>(&Payload);
+				return Value ? *Value : FCollectionParameter{};
+			}
 			auto HasValidPayload() const -> bool
 			{
 				switch (Opcode)
@@ -91,6 +104,8 @@ namespace Durin
 				case EMaterialProgramOpcode::Constant: return std::holds_alternative<FMaterialProgramLiteral>(Payload);
 				case EMaterialProgramOpcode::Parameter:
 				case EMaterialProgramOpcode::TextureParameter: return std::holds_alternative<FGuid>(Payload);
+				case EMaterialProgramOpcode::CollectionParameter:
+					return std::holds_alternative<FCollectionParameter>(Payload);
 				case EMaterialProgramOpcode::Swizzle: return std::holds_alternative<FSwizzle>(Payload);
 				default: return std::holds_alternative<std::monostate>(Payload);
 				}
@@ -140,6 +155,7 @@ namespace Durin
 			bool bSucceeded = false;
 			FModule IR;
 			std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+			std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 			FMaterialRenderLayout Layout;
 			FByteBuffer CanonicalBytes;
 			FMaterialProgramIdentity Identity;
@@ -155,6 +171,7 @@ namespace Durin
 		{
 			FModule IR;
 			std::vector<FMaterialCompilerParameterDeclaration> Parameters;
+			std::vector<FMaterialParameterCollectionLayout> Collections;
 			FMaterialStaticProperties StaticProperties;
 			FMaterialCompilerEnvironment Environment;
 			std::vector<FSource> Sources;
@@ -179,6 +196,7 @@ namespace Durin
 		// Sorted unique runtime binding contract, published with these shaders.
 		// Values and resource references remain owned by material definitions/instances.
 		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
 		FMaterialRenderLayout Layout;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
@@ -238,9 +256,15 @@ namespace Durin
 		const FMaterialCompilerResult& Result) -> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
 		const MIR::FModule& IR, const FMaterialRenderLayout& Layout) -> FMaterialSourceGenerationResult;
+	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
+		const MIR::FModule& IR, const FMaterialRenderLayout& Layout,
+		std::span<const FMaterialParameterCollectionLayout> Collections)
+		-> FMaterialSourceGenerationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompiledStages(
 		std::span<const FCompiledShader> Stages, const FMaterialRenderLayout& Layout,
-		const FMaterialCompilerResourceLimits& Limits = {}) -> FMaterialLayoutValidationResult;
+		const FMaterialCompilerResourceLimits& Limits = {},
+		std::span<const FMaterialParameterCollectionLayout> Collections = {})
+		-> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
 		const MIR::FModule& IR) -> FMaterialSourceGenerationResult;
 	namespace MIR

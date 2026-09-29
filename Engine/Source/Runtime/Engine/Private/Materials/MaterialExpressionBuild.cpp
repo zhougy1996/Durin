@@ -333,6 +333,41 @@ namespace Durin::MIR
 			.ResultType = ValueType, .Payload = Id});
 	}
 
+	auto FGraphBuilderImpl::CollectionParameter(
+		const DMaterialParameterCollection& Collection, FGuid ParameterId) -> uint32
+	{
+		if (!ParameterId.IsValid())
+			return Fail(EMaterialExpressionError::CollectionParameterMissingDeclaration);
+		const auto* Declaration = Collection.FindDeclaration(ParameterId);
+		if (!Declaration)
+			return Fail(EMaterialExpressionError::CollectionParameterMissingDeclaration);
+		auto Layout = Collection.BuildLayout();
+		if (!Layout)
+			return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+		const auto Existing = std::ranges::find(Result.Collections,
+			Layout->CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+		if (Existing != Result.Collections.end() && !Existing->HasCompatibleSchema(*Layout))
+			return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+		if (Existing == Result.Collections.end())
+		{
+			if (Result.Collections.size() >= MaterialParameterCollectionMaxPerMaterial)
+				return Fail(EMaterialExpressionError::CollectionCountExceedsBound);
+			Result.Collections.push_back(std::move(*Layout));
+		}
+		EMaterialProgramValueType ValueType;
+		switch (Declaration->Type)
+		{
+		case EMaterialParameterType::Scalar: ValueType = EMaterialProgramValueType::Float; break;
+		case EMaterialParameterType::Vector2: ValueType = EMaterialProgramValueType::Float2; break;
+		case EMaterialParameterType::Vector: ValueType = EMaterialProgramValueType::Float3; break;
+		case EMaterialParameterType::Vector4: ValueType = EMaterialProgramValueType::Float4; break;
+		default: return Fail(EMaterialExpressionError::CollectionParameterInvalidSchema);
+		}
+		return Emit({.Opcode = EMaterialProgramOpcode::CollectionParameter,
+			.ResultType = ValueType,
+			.Payload = FCollectionParameter{Collection.GetCollectionId(), ParameterId}});
+	}
+
 	auto FGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialNumericInput* const> Inputs,
 		std::span<const uint8> Swizzle) -> uint32
@@ -403,12 +438,14 @@ namespace Durin::MIR
 			Result.IR = {};
 			Result.Roots.clear();
 			Result.Parameters.clear();
+			Result.Collections.clear();
 			Result.Sources.clear();
 			Result.Dependencies.clear();
 		}
 		else
 		{
 			std::ranges::sort(Result.Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
+			std::ranges::sort(Result.Collections, {}, &FMaterialParameterCollectionLayout::CollectionId);
 			std::ranges::sort(Result.Dependencies, {}, &FFunctionDependency::AssetPath);
 			Result.bSucceeded = true;
 		}

@@ -1,7 +1,10 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Misc/Guid.h"
 #include "Rendering/PrimitiveComponentId.h"
+
+#include <memory>
 
 namespace Durin
 {
@@ -12,6 +15,7 @@ namespace Durin
 	class DProceduralSkyComponent;
 	class DVolumetricCloudComponent;
 	struct FMaterialRenderProxyBindingUpdate;
+	struct FMaterialParameterCollectionSnapshot;
 	struct FSplineMeshRenderDynamicData;
 
 	// Defines the game-thread publication boundary of a renderer-owned scene.
@@ -55,6 +59,9 @@ namespace Durin
 			FPrimitiveComponentId PrimitiveId,
 			const FMaterialRenderProxyBindingUpdate& Update
 		) -> void = 0;
+		virtual auto UpdateMaterialParameterCollection(
+			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot) -> void = 0;
+		virtual auto RemoveMaterialParameterCollection(FGuid CollectionId) -> void = 0;
 		virtual auto UpdateSplineMeshDynamicData(
 			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData

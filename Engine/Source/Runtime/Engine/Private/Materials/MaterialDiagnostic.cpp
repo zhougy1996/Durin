@@ -74,6 +74,10 @@ namespace Durin
 				case EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound: return "Expression inputs contain a cycle or exceed the traversal depth bound.";
 				case EMaterialExpressionError::BuildOutputNotRegistered: return "Expression Build did not register the requested output.";
 				case EMaterialExpressionError::BuildOutputAlreadyRegistered: return "Expression Build registered an output more than once.";
+				case EMaterialExpressionError::CollectionParameterMissingCollection: return "Collection parameter expression has no collection asset.";
+				case EMaterialExpressionError::CollectionParameterMissingDeclaration: return "Collection parameter expression refers to a missing declaration.";
+				case EMaterialExpressionError::CollectionParameterInvalidSchema: return "Collection parameter expression refers to an invalid collection schema.";
+				case EMaterialExpressionError::CollectionCountExceedsBound: return "A material closure may reference at most four parameter collections.";
 				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build registered an invalid IR index.";
 				case EMaterialExpressionError::InvalidTextureDefaultConsumer: return "A texture default may only be consumed by sampling or a function texture port.";
 				case EMaterialExpressionError::OpcodeResultWidthInputCountInvalid: return "Expression opcode, result width, or input count is invalid.";
@@ -254,6 +258,7 @@ namespace Durin
 				case EMaterialCookError::CookedProgramChecksumInvalid: return "Material cooked program checksum is invalid.";
 				case EMaterialCookError::StaticPropertiesMismatch: return "payload static properties do not match package metadata.";
 				case EMaterialCookError::ParameterContractMismatch: return "payload parameter contract does not match package metadata.";
+				case EMaterialCookError::CollectionContractMismatch: return "payload collection asset is missing or its schema does not match the cooked material.";
 				case EMaterialCookError::InvalidArchive: return "Material cooked archive is invalid.";
 				case EMaterialCookError::ProgramUnavailable: return "Material cooked program is unavailable.";
 				case EMaterialCookError::PayloadReadFailed: return "Material cooked payload could not be read.";

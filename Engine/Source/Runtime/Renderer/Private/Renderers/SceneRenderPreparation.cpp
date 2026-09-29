@@ -327,7 +327,7 @@ namespace Durin
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
 			Service.DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, Service.StaticMeshRenderer,
+				CommandList, Context.Logical.Scene, Service.StaticMeshRenderer,
 				*PreparedView.DirectionalShadow,
 				*ResolvedSceneResources.DirectionalShadow, Telemetry.View);
 		}

@@ -331,7 +331,8 @@ namespace Durin
 			if (!Context.Resolved.bHybridRetainedResourcesReady)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
-			if (!StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList, RenderView,
+			if (!StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList,
+				Context.Logical.Scene, RenderView,
 				PreparedView.Receiver.StaticMeshes, ResolvedSceneResources.Receiver.StaticMeshes,
 				bWantsProductionDeferred, bNeedsGBuffer)) return ERenderViewResult::RendererResourcesUnavailable;
 			auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;

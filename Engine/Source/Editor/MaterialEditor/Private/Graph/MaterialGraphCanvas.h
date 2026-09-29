@@ -119,6 +119,7 @@ namespace Durin::Editor::Material
 			std::array<char, 96> Search{};
 			std::array<char, 96> ParameterFilter{};
 			std::vector<std::string> FunctionPaths;
+			std::vector<FMaterialGraphCreationAction> CollectionParameters;
 		};
 		struct FContextMenuInteraction
 		{

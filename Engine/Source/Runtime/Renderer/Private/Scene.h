@@ -58,6 +58,11 @@ namespace Durin
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;
 		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
+		RENDERER_API auto UpdateMaterialParameterCollection(
+			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot) -> void override;
+		RENDERER_API auto RemoveMaterialParameterCollection(FGuid CollectionId) -> void override;
+		RENDERER_API auto GetMaterialParameterCollection_RenderThread(FGuid CollectionId) const
+			-> std::shared_ptr<const FMaterialParameterCollectionSnapshot>;
 		RENDERER_API auto UpdateSplineMeshDynamicData(
 			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
@@ -118,6 +123,10 @@ namespace Durin
 		std::unique_ptr<FVolumetricCloudSceneRegistry> VolumetricClouds;
 		std::unordered_map<const FSkyLightSceneProxy*, std::shared_ptr<const FSkyLightSceneProxy>> SkyLights;
 		std::unordered_map<const FProceduralSkySceneProxy*, std::shared_ptr<const FProceduralSkySceneProxy>> ProceduralSkies;
+		std::unordered_map<FGuid, std::shared_ptr<const FMaterialParameterCollectionSnapshot>> MaterialParameterCollections;
+		std::mutex MaterialParameterCollectionPublicationMutex;
+		std::unordered_map<FGuid, std::shared_ptr<const FMaterialParameterCollectionSnapshot>> PendingMaterialParameterCollections;
+		bool bMaterialParameterCollectionCommandQueued = false;
 		FSkyBoxSceneProxy* PublishedSkyBoxProxy = nullptr;
 		std::atomic<ELifecycleState> LifecycleState{ELifecycleState::Active};
 

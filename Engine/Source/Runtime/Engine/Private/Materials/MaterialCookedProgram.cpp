@@ -100,6 +100,17 @@ namespace Durin
 				});
 		}
 
+		auto SerializeCollectionLayout(FArchive& Ar,
+			FMaterialParameterCollectionLayout& Collection) -> void
+		{
+			SerializeBoundedString(Ar, Collection.AssetPath,
+				MaterialCookedProgramMaxStringBytes);
+			Ar << Collection.CollectionId << Collection.SchemaVersion;
+			SerializeLayout(Ar, Collection.UniformLayout);
+			SerializeByteBuffer(Ar, Collection.DefaultPayload,
+				MaterialRenderMaxUniformPayloadBytes);
+		}
+
 		auto SerializePayload(
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
@@ -140,6 +151,11 @@ namespace Durin
 				Ar, Program.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
 					Inner << Parameter.Id << Parameter.Type;
+				});
+			SerializeBoundedSequence(Ar, Program.ActiveCollections,
+				MaterialParameterCollectionMaxPerMaterial,
+				[](FArchive& Inner, FMaterialParameterCollectionLayout& Collection) {
+					SerializeCollectionLayout(Inner, Collection);
 				});
 			SerializeBoundedSequence(
 				Ar, Program.Dependencies, 64,
@@ -187,6 +203,24 @@ namespace Durin
 					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id)))
 					return {EMaterialCookError::ActiveParameterContractInvalid};
 				PreviousId = Parameter.Id;
+			}
+			FGuid PreviousCollection;
+			for (const auto& Collection : Program.ActiveCollections)
+			{
+				FObjectPath AssetPath;
+				if ((!Collection.AssetPath.empty()
+						&& (!FObjectPath::TryCreate(Collection.AssetPath, AssetPath)
+							|| !AssetPath.IsTopLevelAsset()))
+					|| !Collection.CollectionId.IsValid()
+					|| (PreviousCollection.IsValid()
+						&& !(PreviousCollection < Collection.CollectionId))
+					|| Collection.SchemaVersion
+						!= CurrentMaterialParameterCollectionSchemaVersion
+					|| !ValidateCompiledMaterialLayout(Collection.UniformLayout)
+					|| Collection.DefaultPayload.size()
+						!= Collection.UniformLayout.UniformPayloadSize)
+					return {EMaterialCookError::ActiveParameterContractInvalid};
+				PreviousCollection = Collection.CollectionId;
 			}
 			for (const FCompiledShader& Shader : Program.CompiledShaders)
 			{

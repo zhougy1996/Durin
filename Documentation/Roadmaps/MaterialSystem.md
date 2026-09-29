@@ -9,13 +9,16 @@ Completed:
 
 ## Current Status
 
-On 2026-09-29 the user selected the
+On 2026-09-29 the
 [Material Observability and Runtime Parameters plan](../Plans/MaterialObservabilityAndRuntimeParameters.md)
-for evolution phases 0 and 1 and the remaining M8 scalability work. It first
-freezes material cost/variant metrics and representative budgets, then adds
-atomic dynamic-instance batches and bounded world-scoped numeric parameter
-collections. Static switches, new shader stages, surface outputs and material
-domains remain outside that child plan.
+completed the remaining selected M8 implementation: detached cost/variant
+observability, atomic dynamic-instance batches, and bounded world-scoped numeric
+parameter collections across authoring, Cook and Forward/GBuffer/masked-shadow
+execution. Available macOS correctness and GPU qualification passed. The user
+explicitly skipped the unavailable exclusive Windows RTX 3090 timing/allocation
+gate; it is recorded as a disposition, not a performance pass, and no numeric
+regression or improvement claim is made. Static switches, new shader stages,
+surface outputs and material domains remain outside that child plan.
 
 On 2026-09-18 the user closed M13 with all remaining qualification gates waived,
 not passed. Its implementation is the accepted foundation for the completed
@@ -74,9 +77,10 @@ shader-map identity. Compilation is generation-safe, cancelable, shared by
 identity, last-known-good, and visible in MaterialEditor; Win64 Game Cook emits
 a strict DMAT payload that loads without authored graph state or live
 compilation. M7 command-driven authoring, human canvas, structured automation,
-and diagnostic navigation are complete. Runtime-only dynamic material instances
-are landed; atomic batches, world-scoped shared numeric parameters and measured
-reuse/update budgets are active in the selected M8 follow-up plan.
+and diagnostic navigation are complete. Runtime-only dynamic material instances,
+atomic batches, and world-scoped shared numeric parameters are landed. Their
+structural work bounds are qualified; the named Windows performance comparison
+remains explicitly unmeasured.
 
 The [M5 material-program and compiler foundation plan](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md)
 is complete: bounded authored programs compile deterministically and render
@@ -207,13 +211,11 @@ transition and qualification across StaticMesh, SplineMesh,
   remains active.
   M13 owns per-field inheritance, instance compilation/publication, Cook and the
   editor/import workflow. Its detailed acceptance gates belong to the child plan.
-- Transient non-asset material instances are available and reuse accepted parent
-  programs, but there is no atomic multi-parameter update API. Existing proxy
-  coalescing does not provide caller-visible atomicity, and allocation, update,
-  upload and stress limits have not been measured.
-- There is no material parameter collection asset or world-scoped shared numeric
-  value path. Repeated global numeric changes currently require per-instance
-  mutation.
+- Atomic multi-parameter dynamic-instance updates and world-scoped numeric
+  collections are complete with exact commit/publication counters, bounded
+  layouts and source-free Cook loading. The unavailable Windows RTX 3090 timing,
+  allocation and retained-memory comparison was skipped without claiming a pass;
+  future optimization must begin from a newly selected authoritative lane.
 
 ## Milestone Map
 
@@ -226,7 +228,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 5. Material program and synchronous compiler foundation | Complete | M4; landed Shader Cache and Shader Parameters contracts | Persisted bounded program schema, typed validation/IR, deterministic dependency identity, and one synchronous compiled surface vertical slice through the existing v3 boundary | Fixed surface ABI and multi-family execution are stable; generic compiler/cache infrastructure is available | Authored program round-trips, invalid graphs fail deterministically, two materially distinct programs compile and render, dependency edits invalidate identity, and fixed-schema content retains explicit fallback/transition behavior |
 | 6. Asynchronous compilation, derived data, and cooking | Complete | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, bounded diagnostics, non-duplicative cache ownership, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
 | 7. Material graph authoring workflow | Complete | M5 schema; M6 request/diagnostic model | Shared graph inspection/command surface, reflected presentation data, human canvas, structured automation, node/pin operations, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Equivalent canvas and structured authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing without coordinate-based automation or semantic/identity drift |
-| 8. Runtime dynamic materials and scalability | Active; lifecycle API complete, observability/batching/collections selected | M10 and M13 | Transient instances, material cost/variant observability, atomic multi-parameter updates, bounded world-scoped numeric collections and measured lifetime/cost bounds | Stable compiled layouts and accepted variant contract; [active child plan](../Plans/MaterialObservabilityAndRuntimeParameters.md) freezes representative workloads before optimization | Independent objects and shared world values update without asset mutation or compilation; measurements justify batching/reuse and all supported passes consume exact collection layouts |
+| 8. Runtime dynamic materials and scalability | Complete; Windows performance comparison dispositioned without pass | M10 and M13 | Transient instances, material cost/variant observability, atomic multi-parameter updates, and bounded world-scoped numeric collections | Stable compiled layouts and accepted variant contract; the child plan fixed workloads and ownership before implementation | Independent objects and shared world values update without asset mutation or compilation; structural counters conserve work and all supported passes consume exact collection layouts; unavailable Windows timing/allocation evidence remains explicitly unclaimed |
 | 9. Remaining Material Editor lifecycle polish | Conditional; independently selectable | Shared asset mutation APIs | Explicit parent-chain inspection and any newly selected end-to-end workflow polish | A concrete user workflow remains unserved after M7 | The selected workflow has focused coverage without duplicating shared editor infrastructure |
 
 ## Refactor Milestones
