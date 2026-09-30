@@ -1181,10 +1181,22 @@ namespace Durin::MonaImGui
 		IO.DeltaTime = static_cast<float>(CurrentTime - LastTime);
 		LastTime = CurrentTime;
 
-		SyncAllViewportsFrameStates();
-		UpdateMonitors();
-		UpdateMouseData();
-		UpdateMouseCursor();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.SyncViewportStates");
+			SyncAllViewportsFrameStates();
+		}
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdateMonitors");
+			UpdateMonitors();
+		}
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdateMouseData");
+			UpdateMouseData();
+		}
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdateMouseCursor");
+			UpdateMouseCursor();
+		}
 	}
 
 	auto ImGuiMonaImpl_BindMainViewport(const std::shared_ptr<MWindow>& Window) -> void
