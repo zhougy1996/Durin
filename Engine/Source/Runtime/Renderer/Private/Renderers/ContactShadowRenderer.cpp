@@ -342,7 +342,7 @@ namespace Durin
 			return {.Route = Decision.Route, .Reason = Decision.Reason};
 
 		FMatrix InverseViewProjection;
-		if (!Math::TryInverse(View.ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
+		if (!Math::TryInverse(View.GetTranslatedWorldToClip(), InverseViewProjection, 1.0e-8))
 			return {.Route = ERoute::FactorOne, .Reason = ERouteReason::InvalidInputs};
 		FContactVisibilityUniform Uniform;
 		for (uint32 Row = 0; Row < 4; ++Row)
@@ -351,7 +351,7 @@ namespace Durin
 				Uniform.InverseViewProjection[Row * 4 + Col] =
 					static_cast<float>(InverseViewProjection[Col][Row]);
 				Uniform.ViewProjection[Row * 4 + Col] =
-					static_cast<float>(View.ViewProjectionMatrix[Col][Row]);
+					static_cast<float>(View.GetTranslatedWorldToClip()[Col][Row]);
 			}
 		const FVector3 ToLight = -Math::Normalize(LightDirection);
 		Uniform.ToLightMaxDistance[0] = static_cast<float>(ToLight.x);

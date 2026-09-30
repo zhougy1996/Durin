@@ -72,6 +72,17 @@ namespace Durin
 			[[nodiscard]] RENDERER_API auto IsValid() const -> bool;
 		};
 
+		struct FTexturePhases
+		{
+			FVector3f Base{0.0f};
+			FVector3f Detail{0.0f};
+			FVector2f Weather{0.0f};
+		};
+
+		// Reduce absolute texture coordinates in double before uploading float phases.
+		[[nodiscard]] static RENDERER_API auto CalculateTexturePhases(
+			const FParameters& Parameters, const FVector3& Origin) -> FTexturePhases;
+
 		struct FTextureBindings
 		{
 			class FRHITexture* BaseDensity = nullptr;

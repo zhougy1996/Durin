@@ -124,7 +124,7 @@ namespace Durin
 		FMatrix WorldToLocal;
 		if (!std::isfinite(Fact.Determinant) || !Math::TryInverse(LocalToWorld, WorldToLocal)) return Fact;
 		Fact.NormalToWorld = Math::TransposeToFloat(Math::Transpose(WorldToLocal));
-		Fact.WorldToLocal = Math::TransposeToFloat(WorldToLocal);
+		Fact.WorldToLocal = WorldToLocal;
 		Fact.bValid = Math::IsFinite(FMatrix(Fact.NormalToWorld))
 			&& Math::IsFinite(FMatrix(Fact.WorldToLocal));
 		return Fact;

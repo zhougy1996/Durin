@@ -11,7 +11,8 @@ struct VolumetricCloudUniform
     float4 Sampling;    // primary samples, light samples, cutoff, reversed Z
     float4 BaseFrequency;
     float4 DetailFrequency;
-    float4 WindOffset;
+    float4 BasePhase;
+    float4 DetailPhase;
     float4 Weather;     // frequency.xy, offset.zw
     float4 LightDirection;
     float4 LightColor;
@@ -65,7 +66,7 @@ bool IntersectLayer(float3 origin, float3 direction,
 float SampleBase(float3 position)
 {
     return saturate(BaseDensity.SampleLevel(DensitySampler,
-        frac(position * Params.BaseFrequency.xyz + Params.WindOffset.xyz), 0.0));
+        frac(position * Params.BaseFrequency.xyz + Params.BasePhase.xyz), 0.0));
 }
 
 float SampleDensity(float3 position)
@@ -77,7 +78,7 @@ float SampleDensity(float3 position)
     float base = SampleBase(position);
     float detail = saturate(DetailDensity.SampleLevel(DensitySampler,
         frac(position * Params.DetailFrequency.xyz
-            + Params.WindOffset.xyz * 3.7), 0.0));
+            + Params.DetailPhase.xyz), 0.0));
     float weather = saturate(WeatherTexture.SampleLevel(DensitySampler,
         frac(position.xy * Params.Weather.xy + Params.Weather.zw), 0.0));
     float coverage = saturate(Params.Density.x * weather);

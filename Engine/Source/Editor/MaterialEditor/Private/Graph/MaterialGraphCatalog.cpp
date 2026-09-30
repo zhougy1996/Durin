@@ -344,12 +344,12 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
 			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
-			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position in world space (Float3)."; break;
+			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position relative to the current view origin (Float3)."; break;
 			case EMaterialProgramOpcode::Time: Entry.Description = "Elapsed real time in seconds (Float), updated every rendered view."; break;
 			case EMaterialProgramOpcode::CollectionParameter: Entry.Description = "Reads a numeric value from a material parameter collection in the current world."; break;
-			case EMaterialProgramOpcode::CameraPosition: Entry.Description = "Active pass camera position in world space (Float3)."; break;
+			case EMaterialProgramOpcode::CameraPosition: Entry.Description = "Active pass camera position in translated world space; zero at the view origin (Float3)."; break;
 			case EMaterialProgramOpcode::CameraVector: Entry.Description = "Direction from the fragment to the active pass camera (Float3)."; break;
-			case EMaterialProgramOpcode::ObjectPosition: Entry.Description = "Render primitive bounds center in world space (Float3)."; break;
+			case EMaterialProgramOpcode::ObjectPosition: Entry.Description = "Render primitive bounds center relative to the current view origin (Float3)."; break;
 			case EMaterialProgramOpcode::VertexInterpolator: Entry.Description = "Evaluates the input per vertex and interpolates its value to pixel calculations."; break;
 			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal for vertex offsets or explicit interpolation."; break;
 			case EMaterialProgramOpcode::ScreenPosition: Entry.Description = "Normalized position within the active pass viewport (Float2)."; break;
@@ -358,7 +358,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::StaticSwitch: Entry.Description = "Selects exactly one branch from a static bool before normalized MIR."; break;
 			case EMaterialProgramOpcode::QualitySwitch: Entry.Description = "Selects Low or High, using Default when that branch is unconnected."; break;
 			case EMaterialProgramOpcode::FeatureLevelSwitch: Entry.Description = "Selects the accepted RHI feature tier, using Default when unconnected."; break;
-			case EMaterialProgramOpcode::TransformPosition: Entry.Description = "Transforms a spatial position between explicit coordinate spaces."; break;
+			case EMaterialProgramOpcode::TransformPosition: Entry.Description = "Transforms a spatial position between explicit coordinate spaces; World is relative to the current view origin."; break;
 			case EMaterialProgramOpcode::TransformDirection: Entry.Description = "Transforms a spatial direction between explicit coordinate spaces."; break;
 			case EMaterialProgramOpcode::TransformNormal: Entry.Description = "Transforms and normalizes a spatial normal with inverse-transpose semantics."; break;
 			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;

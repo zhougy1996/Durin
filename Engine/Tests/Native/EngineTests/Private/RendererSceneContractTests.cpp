@@ -871,6 +871,28 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 		Primitive.VertexDomain = EVertexDeformationDomain::Spline;
 	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
 		Prepared, Resolved, View, true, true));
+	// Translating the whole scene by a huge origin must not collapse GPU bounds.
+	View.ViewLocation = FVector3{1099511627776.0, -1099511627776.0, 1099511627776.0};
+	View.ViewMatrix = Math::TranslationMatrix(-View.ViewLocation);
+	for (auto& Primitive : Prepared.Primitives)
+	{
+		Primitive.VertexDomain = EVertexDeformationDomain::Local;
+		Primitive.WorldBounds.Min += View.ViewLocation;
+		Primitive.WorldBounds.Max += View.ViewLocation;
+		Primitive.BoundsCenter += View.ViewLocation;
+		Primitive.LocalToWorld = Math::TranslationMatrix(View.ViewLocation) * Primitive.LocalToWorld;
+		Primitive.WorldToLocal = Primitive.WorldToLocal * Math::TranslationMatrix(-View.ViewLocation);
+	}
+	const auto TranslatedPlan = BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true);
+	ASSERT_TRUE(TranslatedPlan);
+	ASSERT_EQ(TranslatedPlan->Candidates.size(), Plan->Candidates.size());
+	for (size_t Index = 0; Index < Plan->Candidates.size(); ++Index)
+	{
+		EXPECT_EQ(TranslatedPlan->Candidates[Index].BoundsMin, Plan->Candidates[Index].BoundsMin);
+		EXPECT_EQ(TranslatedPlan->Candidates[Index].BoundsMax, Plan->Candidates[Index].BoundsMax);
+		EXPECT_EQ(TranslatedPlan->Transforms[Index].LocalToWorld, Plan->Transforms[Index].LocalToWorld);
+	}
+
 }
 
 TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleResources)

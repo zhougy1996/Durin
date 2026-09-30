@@ -141,7 +141,7 @@ namespace Durin
 				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands, View).Prepare(*Item.Primitive).Transform;
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
-				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(FVector3f(View.ViewLocation), 0.f)};
+				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(0.f)};
 				Item.Id = Commands.CreateUniformBufferRange(&Id, sizeof(Id));
 				std::vector<FRHIUniformBufferRange> Collections;
 				if (const auto Program = Draw.Command->Material.CompiledProgram)

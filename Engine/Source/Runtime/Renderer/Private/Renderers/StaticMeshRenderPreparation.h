@@ -48,7 +48,7 @@ namespace Durin
 		{
 			FMatrix LocalToWorld{1.0};
 			FMatrix4f NormalToWorld{1.0f};
-			FMatrix4f WorldToLocal{1.0f};
+			FMatrix WorldToLocal{1.0};
 			double Determinant = 0.0;
 			bool bValid = false;
 		};
@@ -98,7 +98,7 @@ namespace Durin
 		FMatrix LocalToWorld{1.0};
 		// Validated inverse-transpose in shader uniform storage order.
 		FMatrix4f NormalToWorld{1.0f};
-		FMatrix4f WorldToLocal{1.0f};
+		FMatrix WorldToLocal{1.0};
 		FVector3 BoundsCenter{0.0};
 	};
 

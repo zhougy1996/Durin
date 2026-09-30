@@ -2384,6 +2384,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Request.View.ViewportWidth = Request.View.ViewportHeight = 64;
 	Request.View.Settings.Mode.LODMode = EViewLODMode::ForceLOD0;
 	Request.Primitives = {{501, {0xabcdef12}}, {502, {17}}};
+	float CenterDistance = 0.0f;
 	const auto CaptureCenter = [&]() -> uint32 {
 		Request.Readback = std::make_shared<FRHITextureReadback>();
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
@@ -2407,13 +2408,35 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 		if (!Request.Readback->TakePixels(Pixels) || Pixels.size() != 64u * 64u * 8u) { ADD_FAILURE(); return 0; }
 		std::array<uint32, 2> Center;
 		std::memcpy(Center.data(), Pixels.data() + (32 * 64 + 32) * 8, 8);
-		EXPECT_TRUE(std::isfinite(std::bit_cast<float>(Center[1])));
+		CenterDistance = std::bit_cast<float>(Center[1]);
+		EXPECT_TRUE(std::isfinite(CenterDistance));
 		uint32 Background;
 		std::memcpy(&Background, Pixels.data(), 4);
 		EXPECT_EQ(Background, 0u);
 		return Center[0];
 	};
 	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	const float OriginDistance = CenterDistance;
+	const FVector3 LargeOrigin{1099511627776.0, -1099511627776.0, 1099511627776.0};
+	const FMatrix LargeTranslation = Math::TranslationMatrix(LargeOrigin);
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), LargeTranslation);
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(502),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), LargeTranslation * FarTransform);
+	Request.View.ViewLocation = LargeOrigin;
+	Request.View.ViewMatrix = Math::TranslationMatrix(-LargeOrigin);
+	Request.View.ViewProjectionMatrix = Request.View.ProjectionMatrix * Request.View.ViewMatrix;
+	EXPECT_EQ(CaptureCenter(), 0xabcdef12u);
+	EXPECT_NEAR(CenterDistance, OriginDistance, 1.0e-4f);
+	// Restore the origin for the existing depth, mask, spline, and cancellation cases.
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(501),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FMatrix(1.0));
+	FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(502),
+		std::make_unique<FStaticMeshSceneProxy>(Data.get(), std::vector<FMaterialRenderProxyRef>{Material}), FarTransform);
+	Request.View.ViewLocation = FVector3(0.0);
+	Request.View.ViewMatrix = FMatrix(1.0);
+	Request.View.ViewProjectionMatrix = Request.View.ProjectionMatrix;
+
 	FHitProxyOverlay Handle;
 	Handle.Id = FHitProxyId{91};
 	const std::array<FVector4f, 4> Corners{FVector4f(-.2f,-.2f,.8f,1.f), FVector4f(.2f,-.2f,.8f,1.f),

@@ -291,7 +291,7 @@ namespace Durin
 		}
 
 		FMatrix ViewToWorld;
-		if (!Math::TryInverse(View->ViewMatrix, ViewToWorld, 1.0e-12))
+		if (!Math::TryInverse(View->GetTranslatedWorldToView(), ViewToWorld, 1.0e-12))
 			return false;
 		FViewUniform Uniform;
 		for (uint32 Row = 0; Row < 4; ++Row)

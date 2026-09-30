@@ -159,7 +159,7 @@ namespace Durin
 		const FPreparedDirectionalShadowView* Shadow) -> FForwardLightingUniform
 	{
 		FForwardLightingUniform Result;
-		Result.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 0.0f);
+		Result.ViewPosition = FVector4f(0.0f);
 		Result.Counts[0] = static_cast<uint32>(Lights.Directional.size());
 		Result.Counts[1] = static_cast<uint32>(Lights.Local.size());
 		if (!Lights.Directional.empty())
@@ -177,7 +177,8 @@ namespace Durin
 				static_cast<float>(Shadow->CascadeCount),
 				static_cast<float>(Shadow->Candidate)};
 			Result.DirectionalShadow.ViewDepthTransform = FVector4f(
-				Shadow->ViewDepthTransform);
+				FVector4(FVector3(Shadow->ViewDepthTransform),
+					Shadow->ViewDepthTransform.w + Math::Dot(FVector3(Shadow->ViewDepthTransform), View.ViewLocation)));
 			Result.DirectionalShadow.SplitDepths = {
 				static_cast<float>(Shadow->SplitDepths[0]),
 				static_cast<float>(Shadow->SplitDepths[1]),
@@ -200,10 +201,12 @@ namespace Durin
 			{
 				const auto& Cascade = Shadow->Cascades[CascadeIndex];
 				auto& Packed = Result.DirectionalShadow.Cascades[CascadeIndex];
+				const FMatrix TranslatedWorldToShadow = Cascade.WorldToShadowMatrix
+					* Math::TranslationMatrix(View.ViewLocation);
 				for (uint32 Column = 0; Column < 4; ++Column)
 					for (uint32 Row = 0; Row < 4; ++Row)
 						Packed.WorldToShadow[Column][Row] = static_cast<float>(
-							Cascade.WorldToShadowMatrix[Row][Column]);
+							TranslatedWorldToShadow[Row][Column]);
 				Packed.TexelBias = {
 					static_cast<float>(Cascade.TexelWorldSize.x),
 					static_cast<float>(Cascade.TexelWorldSize.y),
@@ -230,7 +233,7 @@ namespace Durin
 			const auto& Light = Lights.Local[Index];
 			auto& Packed = Result.Local[Index];
 			Packed.PositionInverseRange = FVector4f(
-				FVector3f(Light.Position), 1.0f / Light.Range);
+				FVector3f(View.TranslateWorldPosition(Light.Position)), 1.0f / Light.Range);
 			Packed.DirectionType = FVector4f(
 				FVector3f(Light.Direction),
 				Light.Kind == ELightSceneProxyKind::Spot ? 1.0f : 0.0f);

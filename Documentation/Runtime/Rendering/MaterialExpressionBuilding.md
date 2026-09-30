@@ -53,6 +53,7 @@ and `Distance` produce scalar values; `Cross` produces a direction for compatibl
 direction/normal inputs, and `Reflect` preserves an incident direction. These
 nodes add no renderer requirement or pass binding.
 
+Material World positions use [translated world space](CameraRelativeRendering.md#material-positions).
 Context expressions carry exact stage and space semantics. `WorldPosition` is a
 Both/World/Position value; `CameraPosition` and `ObjectPosition` are
 Both/World/Position; `CameraVector` is a normalized Pixel/World/Direction;

@@ -39,6 +39,24 @@ namespace Durin
 		}
 	} // namespace
 
+	auto FVolumetricCloudSpatialRenderer::CalculateTexturePhases(
+		const FParameters& Parameters, const FVector3& Origin) -> FTexturePhases
+	{
+		auto Phase = [](double Value) { return static_cast<float>(Value - std::floor(Value)); };
+		FTexturePhases Result;
+		for (uint32 Axis = 0; Axis < 3; ++Axis)
+		{
+			Result.Base[Axis] = Phase(Origin[Axis] * static_cast<double>(Parameters.BaseFrequency[Axis])
+				+ Parameters.WindOffset[Axis]);
+			Result.Detail[Axis] = Phase(Origin[Axis] * static_cast<double>(Parameters.DetailFrequency[Axis])
+				+ static_cast<double>(Parameters.WindOffset[Axis]) * 3.7f);
+		}
+		for (uint32 Axis = 0; Axis < 2; ++Axis)
+			Result.Weather[Axis] = Phase(Origin[Axis] * static_cast<double>(Parameters.WeatherFrequency[Axis])
+				+ Parameters.WeatherOffset[Axis]);
+		return Result;
+	}
+
 	auto FVolumetricCloudSpatialRenderer::FParameters::IsValid() const -> bool
 	{
 		const float LightLengthSquared = Math::Dot(LightDirection, LightDirection);
@@ -282,7 +300,8 @@ namespace Durin
 		const FVector3f Direction = Math::Normalize(
 			FVector3f(Ray.Direction)
 		);
-		const FVector3f Origin = FVector3f(Ray.Origin);
+		const FVector3f Origin(0.0f);
+		const auto Phases = CalculateTexturePhases(Parameters, Ray.Origin);
 		const FVector3f ToLight = Math::Normalize(Parameters.LightDirection);
 		const float LayerThickness = static_cast<float>(
 			Parameters.MaximumZ - Parameters.MinimumZ
@@ -299,22 +318,22 @@ namespace Durin
 			const FVector3f Position = Origin
 									   + Direction * static_cast<float>(Distance);
 			const float Height = Saturate(
-				(Position.z - static_cast<float>(Parameters.MinimumZ))
+				(Position.z - static_cast<float>(Parameters.MinimumZ - Ray.Origin.z))
 				/ LayerThickness
 			);
 			const float HeightProfile = Saturate(
 				std::min(Height / 0.15f, (1.0f - Height) / 0.20f)
 			);
 			const float Base = Saturate(Input.Samplers.BaseDensity(Fract(
-				Position * Parameters.BaseFrequency + Parameters.WindOffset
+				Position * Parameters.BaseFrequency + Phases.Base
 			)));
 			const float Detail = Saturate(Input.Samplers.DetailDensity(Fract(
 				Position * Parameters.DetailFrequency
-				+ Parameters.WindOffset * 3.7f
+				+ Phases.Detail
 			)));
 			const float Weather = Input.Samplers.Weather ? Saturate(Input.Samplers.Weather(Fract(
 															   FVector2f(Position) * Parameters.WeatherFrequency
-															   + Parameters.WeatherOffset
+															   + Phases.Weather
 														   ))) :
 														   1.0f;
 			const float Coverage = Saturate(Parameters.Coverage * Weather);
@@ -332,14 +351,14 @@ namespace Durin
 			{
 				const FVector3f LightPosition = Position + ToLight * (static_cast<float>(LightIndex) + 0.5f) * LightStep;
 				const float LightBase = Saturate(Input.Samplers.BaseDensity(
-					Fract(LightPosition * Parameters.BaseFrequency + Parameters.WindOffset)
+					Fract(LightPosition * Parameters.BaseFrequency + Phases.Base)
 				));
 				const float LightDetail = Saturate(Input.Samplers.DetailDensity(
-					Fract(LightPosition * Parameters.DetailFrequency + Parameters.WindOffset * 3.7f)
+					Fract(LightPosition * Parameters.DetailFrequency + Phases.Detail)
 				));
 				const float LightWeather = Input.Samplers.Weather ? Saturate(Input.Samplers.Weather(Fract(
 																		FVector2f(LightPosition) * Parameters.WeatherFrequency
-																		+ Parameters.WeatherOffset
+																		+ Phases.Weather
 																	))) :
 																	1.0f;
 				const float LightCoverage = Saturate(
@@ -347,7 +366,7 @@ namespace Durin
 				);
 				const float LightShape = LightCoverage > 0.0f ? Saturate((LightBase - (1.0f - LightCoverage)) / std::max(LightCoverage, 1.0e-4f)) : 0.0f;
 				const float LightHeight = Saturate(
-					(LightPosition.z - static_cast<float>(Parameters.MinimumZ))
+					(LightPosition.z - static_cast<float>(Parameters.MinimumZ - Ray.Origin.z))
 					/ LayerThickness
 				);
 				const float LightHeightProfile = Saturate(std::min(

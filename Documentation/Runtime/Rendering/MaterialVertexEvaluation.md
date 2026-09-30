@@ -31,7 +31,7 @@ Float2 to a texture sample's UV input. Nonlinear math before interpolation can
 produce results that vary with tessellation; interpolate inputs first when the
 operation requires per-pixel precision.
 
-`WorldPosition` is Both/World/Position: the vertex stage reads the position after
+`WorldPosition` is Both/World/Position in [translated world space](CameraRelativeRendering.md#material-positions): the vertex stage reads the position after
 vertex-factory deformation and before material WPO, while the pixel stage reads
 the interpolated displaced position. `VertexNormal` remains Vertex/World/Normal.
 WPO does not reconstruct normals or update collision geometry. Existing geometry

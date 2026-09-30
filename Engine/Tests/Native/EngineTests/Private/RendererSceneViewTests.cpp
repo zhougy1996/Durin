@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "GBufferContract.h"
+#include "Renderers/StaticMeshDrawExecution.h"
+#include "Renderers/ForwardLighting.h"
+#include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/DisplayMapping.h"
 #include "Renderers/SceneViewPreparation.h"
 #include "Renderers/SceneRenderResults.h"
@@ -35,6 +38,98 @@ namespace Durin
 		static_assert(std::is_same_v<
 			decltype(FGBufferPassResult{}.IsComplete()), bool>);
 	} // namespace
+
+	TEST(FRendererSceneViewTests, TranslatedMeshAndLightsPreserveFractionalOffsetsAtLargeOrigins)
+	{
+		const FVector3 Offset{12.125, -3.25, 0.0625};
+		FSceneView View;
+		View.ViewLocation = FVector3{1099511627776.0, -1099511627776.0, 1099511627776.0};
+		View.ViewMatrix = Math::TranslationMatrix(-View.ViewLocation);
+		View.ViewProjectionMatrix = View.ViewMatrix;
+		FPreparedStaticMeshPrimitive Primitive;
+		Primitive.LocalToWorld = Math::TranslationMatrix(View.ViewLocation + Offset);
+		ASSERT_TRUE(Math::TryInverse(Primitive.LocalToWorld, Primitive.WorldToLocal));
+		Primitive.BoundsCenter = View.ViewLocation + Offset;
+		const auto Uniform = RendererPrivate::BuildMeshTransformUniform(View, Primitive);
+		const FVector4f Relative = glm::transpose(Uniform.LocalToWorld) * FVector4f(0, 0, 0, 1);
+		EXPECT_EQ(FVector3f(Relative), FVector3f(Offset));
+		EXPECT_EQ(FVector3f(Uniform.BoundsCenter), FVector3f(Offset));
+		const FVector4f Local = glm::transpose(Uniform.WorldToLocal) * Relative;
+		EXPECT_EQ(FVector3f(Local), FVector3f(0.0f));
+		EXPECT_EQ(glm::transpose(Uniform.LocalToClip) * FVector4f(0, 0, 0, 1), Relative);
+
+		FPreparedLightView Lights;
+		Lights.Local.push_back({.Id = FLightComponentId{}, .Position = View.ViewLocation + Offset, .Range = 4.0f});
+		const auto Lighting = BuildForwardLightingUniform(Lights, View);
+		EXPECT_EQ(FVector3f(Lighting.Local[0].PositionInverseRange), FVector3f(Offset));
+		EXPECT_EQ(Lighting.ViewPosition, FVector4f(0.0f));
+
+		FSceneView OtherView = View;
+		OtherView.ViewLocation += FVector3{1.0, 2.0, 3.0};
+		OtherView.ViewMatrix = Math::TranslationMatrix(-OtherView.ViewLocation);
+		const auto Other = RendererPrivate::BuildMeshTransformUniform(OtherView, Primitive);
+		EXPECT_EQ(FVector3f(Other.BoundsCenter), FVector3f(Offset - FVector3{1.0, 2.0, 3.0}));
+		EXPECT_EQ(Primitive.BoundsCenter, View.ViewLocation + Offset);
+	}
+
+	TEST(FRendererSceneViewTests, ShadowReceiverMatricesAndDepthUseTheSameTranslatedOrigin)
+	{
+		FSceneView View;
+		View.ViewLocation = FVector3{1099511627776.0, -1099511627776.0, 1099511627776.0};
+		FPreparedLightView Lights;
+		Lights.Directional.push_back({.Id = FLightComponentId{}});
+		FPreparedDirectionalShadowView Shadow;
+		Shadow.bEnabled = true;
+		Shadow.CascadeCount = 1;
+		Shadow.ViewDepthTransform = FVector4{1, 0, 0, -View.ViewLocation.x};
+		Shadow.Cascades[0].WorldToShadowMatrix = Math::TranslationMatrix(-View.ViewLocation);
+		const auto Uniform = BuildForwardLightingUniform(Lights, View, &Shadow);
+		const FVector4f Relative{12.125f, -3.25f, 0.0625f, 1.0f};
+		EXPECT_EQ(glm::transpose(Uniform.DirectionalShadow.Cascades[0].WorldToShadow) * Relative, Relative);
+		EXPECT_FLOAT_EQ(Math::Dot(Uniform.DirectionalShadow.ViewDepthTransform, Relative), 12.125f);
+	}
+
+	TEST(FRendererSceneViewTests, TranslatedHistoryProjectionIncludesOriginMotionBeforeNarrowing)
+	{
+		const FVector3 PreviousOrigin{1099511627776.0, 1099511627776.0, 1099511627776.0};
+		FSceneView Current;
+		Current.ViewLocation = PreviousOrigin + FVector3{0.125, -0.25, 0.0625};
+		Current.ViewMatrix = Math::TranslationMatrix(-Current.ViewLocation);
+		const FMatrix PreviousClip = Math::TranslationMatrix(-PreviousOrigin);
+		const FMatrix4f CurrentRelativeToPreviousClip(PreviousClip * Math::TranslationMatrix(Current.ViewLocation));
+		const FVector4f Position{4.0f, 2.0f, -1.0f, 1.0f};
+		EXPECT_EQ(CurrentRelativeToPreviousClip * Position, (FVector4f{4.125f, 1.75f, -0.9375f, 1.0f}));
+		FMatrix Inverse;
+		ASSERT_TRUE(Math::TryInverse(Current.GetTranslatedWorldToClip(), Inverse));
+		EXPECT_EQ(FMatrix4f(Inverse) * Position, Position);
+	}
+
+	TEST(FRendererSceneViewTests, CloudTexturePhasesPreserveAbsolutePatternsAtLargeOrigins)
+	{
+		using FCloud = FVolumetricCloudSpatialRenderer;
+		FCloud::FParameters Parameters;
+		Parameters.BaseFrequency = FVector3f(0.125f);
+		Parameters.DetailFrequency = FVector3f(0.25f);
+		Parameters.WeatherFrequency = FVector2f(0.5f);
+		Parameters.WindOffset = FVector3f(0.125f);
+		Parameters.WeatherOffset = FVector2f(0.25f);
+		const FVector3 Origin{1099511627776.5, -1099511627776.25, 1099511627776.125};
+		const auto Phases = FCloud::CalculateTexturePhases(Parameters, Origin);
+		EXPECT_EQ(Phases.Base, (FVector3f{0.1875f, 0.09375f, 0.140625f}));
+		EXPECT_EQ(Phases.Weather, (FVector2f{0.5f, 0.125f}));
+		// Evaluate a nearby sample in translated space and compare to a double absolute oracle.
+		const FVector3 Offset{0.25, 0.5, -0.75};
+		for (uint32 Axis = 0; Axis < 3; ++Axis)
+		{
+			const double Absolute = (Origin[Axis] + Offset[Axis]) * Parameters.BaseFrequency[Axis]
+				+ Parameters.WindOffset[Axis];
+			const float Relative = static_cast<float>(Offset[Axis]) * Parameters.BaseFrequency[Axis] + Phases.Base[Axis];
+			EXPECT_NEAR(Relative - std::floor(Relative), Absolute - std::floor(Absolute), 1.0e-5);
+			const double Detail = Origin[Axis] * Parameters.DetailFrequency[Axis]
+				+ static_cast<double>(Parameters.WindOffset[Axis]) * 3.7f;
+			EXPECT_FLOAT_EQ(Phases.Detail[Axis], static_cast<float>(Detail - std::floor(Detail)));
+		}
+	}
 
 	TEST(FDisplayMappingTests, ACESGoldensAreFiniteMonotonicAndClamped)
 	{

@@ -59,6 +59,8 @@ composition, and transient resources are owned by
 [Renderer Frame Preparation](RendererFramePreparation.md); fixed non-Material
 shader maps are owned by [Global Shaders](GlobalShaders.md).
 
+GPU coordinate ownership is defined by [Camera relative rendering](CameraRelativeRendering.md).
+
 ## Output Policies
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.

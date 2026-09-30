@@ -10,6 +10,7 @@
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
+#include "Renderers/StaticMeshDrawExecution.h"
 
 namespace Durin
 {
@@ -57,14 +58,8 @@ namespace Durin
 				if (!Math::IsFinite(Center) || !std::isfinite(RadiusSquared)
 					|| RadiusSquared < 0.0)
 					continue;
-				const FVector3f BoundsMin(
-					static_cast<float>(Primitive->WorldBounds.Min.x),
-					static_cast<float>(Primitive->WorldBounds.Min.y),
-					static_cast<float>(Primitive->WorldBounds.Min.z));
-				const FVector3f BoundsMax(
-					static_cast<float>(Primitive->WorldBounds.Max.x),
-					static_cast<float>(Primitive->WorldBounds.Max.y),
-					static_cast<float>(Primitive->WorldBounds.Max.z));
+				const FVector3f BoundsMin(View.TranslateWorldPosition(Primitive->WorldBounds.Min));
+				const FVector3f BoundsMax(View.TranslateWorldPosition(Primitive->WorldBounds.Max));
 				if (!Math::IsFinite(BoundsMin) || !Math::IsFinite(BoundsMax))
 					continue;
 				const auto& Record = Resolved.Draws[Draw.ResolvedIndex];
@@ -125,17 +120,7 @@ namespace Durin
 						.ArgumentIndex = ArgumentIndex,
 						.BoundsMax = Group[GroupIndex].BoundsMax,
 						.TransformIndex = Index});
-					RendererPrivate::FStaticMeshTransformUniform Transform;
-					Transform.LocalToClip = Math::TransposeToFloat(
-						View.ViewProjectionMatrix * Primitive.LocalToWorld);
-					Transform.LocalToWorld = Math::TransposeToFloat(
-						Primitive.LocalToWorld);
-					Transform.NormalToWorld = Primitive.NormalToWorld;
-					Transform.WorldToLocal = Primitive.WorldToLocal;
-					Transform.BoundsCenter = FVector4f(
-						FVector3f(Primitive.BoundsCenter), 1.0f);
-					Transform.TransformParams.x = Math::LinearDeterminant(
-						FMatrix4f(Primitive.LocalToWorld)) < 0.0f ? -1.0f : 1.0f;
+					const auto Transform = RendererPrivate::BuildMeshTransformUniform(View, Primitive);
 					Plan->Transforms.push_back(Transform);
 				}
 			}

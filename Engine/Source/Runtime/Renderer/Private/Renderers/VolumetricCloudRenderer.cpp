@@ -128,7 +128,8 @@ namespace Durin
 			float Sampling[4]{};
 			float BaseFrequency[4]{};
 			float DetailFrequency[4]{};
-			float WindOffset[4]{};
+			float BasePhase[4]{};
+			float DetailPhase[4]{};
 			float Weather[4]{};
 			float LightDirection[4]{};
 			float LightColor[4]{};
@@ -139,7 +140,7 @@ namespace Durin
 			float Target[4]{};
 			float Jitter[4]{};
 		};
-		static_assert(sizeof(FCloudUniform) == 304);
+		static_assert(sizeof(FCloudUniform) == 320);
 
 		struct alignas(16) FCloudCompositeUniform
 		{
@@ -643,7 +644,7 @@ namespace Durin
 		if (Decision.Route == ERoute::Disabled)
 			return {.Counters = Counters};
 		FMatrix InverseViewProjection;
-		if (!Math::TryInverse(View->ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
+		if (!Math::TryInverse(View->GetTranslatedWorldToClip(), InverseViewProjection, 1.0e-8))
 		{
 			RouteInputs.bRequiredInputsValid = false;
 			Decision = FSpatial::SelectRoute(RouteInputs);
@@ -657,8 +658,8 @@ namespace Durin
 				Uniform.InverseViewProjection[Row * 4 + Col] =
 					static_cast<float>(InverseViewProjection[Col][Row]);
 		auto Copy3 = [](float* Out, const FVector3f& V) { Out[0] = V.x; Out[1] = V.y; Out[2] = V.z; };
-		Uniform.Layer[0] = static_cast<float>(Parameters.MinimumZ);
-		Uniform.Layer[1] = static_cast<float>(Parameters.MaximumZ);
+		Uniform.Layer[0] = static_cast<float>(Parameters.MinimumZ - View->ViewLocation.z);
+		Uniform.Layer[1] = static_cast<float>(Parameters.MaximumZ - View->ViewLocation.z);
 		Uniform.Layer[2] = static_cast<float>(Parameters.MaximumDistance);
 		Uniform.Layer[3] = Parameters.Extinction;
 		Uniform.Density[0] = Parameters.Coverage;
@@ -671,17 +672,19 @@ namespace Durin
 		Uniform.Sampling[3] = View->DepthConvention == ESceneDepthConvention::ReversedZ ? 1.0f : 0.0f;
 		Copy3(Uniform.BaseFrequency, Parameters.BaseFrequency);
 		Copy3(Uniform.DetailFrequency, Parameters.DetailFrequency);
-		Copy3(Uniform.WindOffset, Parameters.WindOffset);
+		const auto Phases = FSpatial::CalculateTexturePhases(Parameters, View->ViewLocation);
+		Copy3(Uniform.BasePhase, Phases.Base);
+		Copy3(Uniform.DetailPhase, Phases.Detail);
 		Uniform.Weather[0] = Parameters.WeatherFrequency.x;
 		Uniform.Weather[1] = Parameters.WeatherFrequency.y;
-		Uniform.Weather[2] = Parameters.WeatherOffset.x;
-		Uniform.Weather[3] = Parameters.WeatherOffset.y;
+		Uniform.Weather[2] = Phases.Weather.x;
+		Uniform.Weather[3] = Phases.Weather.y;
 		Copy3(Uniform.LightDirection, Math::Normalize(Parameters.LightDirection));
 		Copy3(Uniform.LightColor, Parameters.LightColor);
 		Copy3(Uniform.AmbientColor, Parameters.AmbientColor);
-		Uniform.CameraPosition[0] = static_cast<float>(View->ViewLocation.x);
-		Uniform.CameraPosition[1] = static_cast<float>(View->ViewLocation.y);
-		Uniform.CameraPosition[2] = static_cast<float>(View->ViewLocation.z);
+		Uniform.CameraPosition[0] = 0.0f;
+		Uniform.CameraPosition[1] = 0.0f;
+		Uniform.CameraPosition[2] = 0.0f;
 		Uniform.Viewport[0] = 1.0f / static_cast<float>(CloudView.ViewportWidth);
 		Uniform.Viewport[1] = 1.0f / static_cast<float>(CloudView.ViewportHeight);
 		Uniform.Viewport[2] = static_cast<float>(CloudView.ViewportX);
@@ -905,7 +908,7 @@ namespace Durin
 			return Result;
 
 		FMatrix InverseViewProjection;
-		if (!Math::TryInverse(Input.View->ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
+		if (!Math::TryInverse(Input.View->GetTranslatedWorldToClip(), InverseViewProjection, 1.0e-8))
 		{
 			return Result;
 		}
@@ -917,17 +920,17 @@ namespace Durin
 						static_cast<float>(Matrix[Column][Row]);
 		};
 		CopyMatrix(Uniform.InverseViewProjection, InverseViewProjection);
-		CopyMatrix(Uniform.PreviousViewProjection, Input.TemporalContext->Previous.ViewProjectionMatrix);
-		Uniform.Layer[0] = static_cast<float>(Input.Parameters.MinimumZ);
-		Uniform.Layer[1] = static_cast<float>(Input.Parameters.MaximumZ);
+		CopyMatrix(Uniform.PreviousViewProjection, Input.TemporalContext->Previous.ViewProjectionMatrix * Math::TranslationMatrix(Input.View->ViewLocation));
+		Uniform.Layer[0] = static_cast<float>(Input.Parameters.MinimumZ - Input.View->ViewLocation.z);
+		Uniform.Layer[1] = static_cast<float>(Input.Parameters.MaximumZ - Input.View->ViewLocation.z);
 		Uniform.Layer[2] = static_cast<float>(Input.Parameters.MaximumDistance);
 		Uniform.Layer[3] = Input.View->DepthConvention
 								   == ESceneDepthConvention::ReversedZ ?
 							   1.0f :
 							   0.0f;
-		Uniform.CameraPosition[0] = static_cast<float>(Input.View->ViewLocation.x);
-		Uniform.CameraPosition[1] = static_cast<float>(Input.View->ViewLocation.y);
-		Uniform.CameraPosition[2] = static_cast<float>(Input.View->ViewLocation.z);
+		Uniform.CameraPosition[0] = 0.0f;
+		Uniform.CameraPosition[1] = 0.0f;
+		Uniform.CameraPosition[2] = 0.0f;
 		const auto Viewport = FSpatial::CalculateScaledViewport(
 			{Input.View->ViewportX, Input.View->ViewportY,
 			 Input.View->ViewportWidth, Input.View->ViewportHeight},

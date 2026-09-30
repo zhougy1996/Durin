@@ -30,6 +30,9 @@ compute shader, and fragment shader. The production phase, self-transmittance,
 ambient, and receiver-shadow contract is documented in
 [Volumetric cloud lighting and shadows](VolumetricCloudLightingAndShadows.md).
 
+GPU reconstruction, layer heights, density phases, and history reprojection use
+[camera relative rendering](CameraRelativeRendering.md#lighting-and-history).
+
 ## Output and composition
 
 The spatial target is `RGBA16_FLOAT`. RGB contains premultiplied scene-linear

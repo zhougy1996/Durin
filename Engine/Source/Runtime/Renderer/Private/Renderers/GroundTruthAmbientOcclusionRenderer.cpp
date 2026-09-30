@@ -436,7 +436,7 @@ namespace Durin
 				Uniform.ProjectionRows[Row][Col] =
 					static_cast<float>(View.ProjectionMatrix[Col][Row]);
 				Uniform.WorldToViewRows[Row][Col] =
-					static_cast<float>(View.ViewMatrix[Col][Row]);
+					static_cast<float>(View.GetTranslatedWorldToView()[Col][Row]);
 			}
 		}
 		Uniform.Viewport = {

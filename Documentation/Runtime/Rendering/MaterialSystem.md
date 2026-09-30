@@ -313,6 +313,7 @@ selections to reuse one immutable compiler result while family diagnostics retai
 the distinct requested and static-configuration counts.
 
 Context and spatial-transform expressions use pass-owned data only when reachable.
+Their World positions follow [camera relative rendering](CameraRelativeRendering.md#material-positions).
 Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
 viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
 Set 1 binding 0 is `MaterialPrimitive`: Local-to-Clip, Local-to-World,

@@ -76,12 +76,13 @@ namespace Durin
 			float Density[4]{};
 			float BaseFrequency[4]{};
 			float DetailFrequency[4]{};
-			float WindOffset[4]{};
+			float BasePhase[4]{};
+			float DetailPhase[4]{};
 			float Weather[4]{};
 			float LightDirection[4]{};
 			float Viewport[4]{};
 		};
-		static_assert(sizeof(FCloudShadowUniform) == 192);
+		static_assert(sizeof(FCloudShadowUniform) == 208);
 
 		auto MakeFailure(const char* Resource, const char* Key, ERenderResourceCreateErrorReason Reason,
 			ERenderResourceCreateErrorCategory Category)
@@ -335,7 +336,7 @@ namespace Durin
 		const bool bUseCompute = Decision.Route == ERoute::Compute;
 		const ERouteReason FallbackReason = Decision.Reason;
 		FMatrix InverseViewProjection;
-		if (!Math::TryInverse(View->ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
+		if (!Math::TryInverse(View->GetTranslatedWorldToClip(), InverseViewProjection, 1.0e-8))
 		{
 			Result.Reason = ERouteReason::InvalidInputs;
 			return Result;
@@ -345,8 +346,8 @@ namespace Durin
 			for (uint32 Col = 0; Col < 4; ++Col)
 				Uniform.InverseViewProjection[Row * 4 + Col] =
 					static_cast<float>(InverseViewProjection[Col][Row]);
-		Uniform.Layer[0] = static_cast<float>(Input.Parameters.MinimumZ);
-		Uniform.Layer[1] = static_cast<float>(Input.Parameters.MaximumZ);
+		Uniform.Layer[0] = static_cast<float>(Input.Parameters.MinimumZ - View->ViewLocation.z);
+		Uniform.Layer[1] = static_cast<float>(Input.Parameters.MaximumZ - View->ViewLocation.z);
 		Uniform.Layer[2] = Input.Parameters.LightExtinction;
 		Uniform.Layer[3] = View->DepthConvention == ESceneDepthConvention::ReversedZ ? 1.0f : 0.0f;
 		Uniform.Density[0] = Input.Parameters.Coverage;
@@ -357,11 +358,13 @@ namespace Durin
 		};
 		Copy3(Uniform.BaseFrequency, Input.Parameters.BaseFrequency);
 		Copy3(Uniform.DetailFrequency, Input.Parameters.DetailFrequency);
-		Copy3(Uniform.WindOffset, Input.Parameters.WindOffset);
+		const auto Phases = FVolumetricCloudSpatialRenderer::CalculateTexturePhases(Input.Parameters, View->ViewLocation);
+		Copy3(Uniform.BasePhase, Phases.Base);
+		Copy3(Uniform.DetailPhase, Phases.Detail);
 		Uniform.Weather[0] = Input.Parameters.WeatherFrequency.x;
 		Uniform.Weather[1] = Input.Parameters.WeatherFrequency.y;
-		Uniform.Weather[2] = Input.Parameters.WeatherOffset.x;
-		Uniform.Weather[3] = Input.Parameters.WeatherOffset.y;
+		Uniform.Weather[2] = Phases.Weather.x;
+		Uniform.Weather[3] = Phases.Weather.y;
 		Copy3(Uniform.LightDirection, Math::Normalize(Input.Parameters.LightDirection));
 		Uniform.Viewport[0] = 1.0f / static_cast<float>(View->ViewportWidth);
 		Uniform.Viewport[1] = 1.0f / static_cast<float>(View->ViewportHeight);

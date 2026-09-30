@@ -4,6 +4,9 @@
 
 namespace Durin::RendererPrivate
 {
+	RENDERER_API auto BuildMeshTransformUniform(const FSceneView& View,
+		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform;
+
 	// Uniform ranges shared by every pass that draws one prepared primitive.
 	struct FStaticMeshPrimitiveUniformBindings
 	{

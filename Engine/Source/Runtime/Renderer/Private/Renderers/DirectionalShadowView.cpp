@@ -455,6 +455,9 @@ namespace Durin
 			Candidate.Cascades[CascadeIndex].CasterView.MaterialTimeSeconds = View.MaterialTimeSeconds;
 		}
 		Candidate.bEnabled = true;
+		for (uint32 Index = 0; Index < Candidate.CascadeCount; ++Index)
+			Candidate.Cascades[Index].CasterView.ViewLocation = View.ViewLocation;
+
 		OutShadow = Candidate;
 		return true;
 	}

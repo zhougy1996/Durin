@@ -8,17 +8,17 @@ namespace Durin::RendererPrivate
 		bool bLighting) -> FRHIUniformBufferRange
 	{
 		FMatrix ViewToWorld;
-		if (!Math::TryInverse(View.ViewMatrix, ViewToWorld, 1.0e-12)) return {};
+		if (!Math::TryInverse(View.GetTranslatedWorldToView(), ViewToWorld, 1.0e-12)) return {};
 		FMaterialViewUniform Uniform;
 		Uniform.Parameters = FVector4f(static_cast<float>(View.MaterialTimeSeconds), 0.0f,
 			bLighting ? 1.0f : 0.0f, bLighting && View.Settings.Mode.bEnableSpecularAA ? 1.0f : 0.0f);
-		Uniform.CameraWorldPosition = FVector4f(FVector3f(View.ViewLocation), 1.0f);
+		Uniform.CameraWorldPosition = FVector4f(0.0f, 0.0f, 0.0f, 1.0f);
 		Uniform.Viewport = FVector4f(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY),
 			static_cast<float>(View.ViewportWidth), static_cast<float>(View.ViewportHeight));
 		Uniform.ReciprocalViewport = FVector4f(
 			View.ViewportWidth ? 1.0f / static_cast<float>(View.ViewportWidth) : 0.0f,
 			View.ViewportHeight ? 1.0f / static_cast<float>(View.ViewportHeight) : 0.0f, 0.0f, 0.0f);
-		Uniform.WorldToView = Math::TransposeToFloat(View.ViewMatrix);
+		Uniform.WorldToView = Math::TransposeToFloat(View.GetTranslatedWorldToView());
 		Uniform.ViewToWorld = Math::TransposeToFloat(ViewToWorld);
 		return CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 	}
@@ -64,23 +64,28 @@ namespace Durin::RendererPrivate
 		return false;
 	}
 
+	auto BuildMeshTransformUniform(const FSceneView& View,
+		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform
+	{
+		FStaticMeshTransformUniform TransformUniform;
+		const FMatrix LocalToTranslatedWorld = View.GetTranslatedLocalToWorld(Primitive.LocalToWorld);
+		TransformUniform.LocalToClip = Math::TransposeToFloat(
+			View.GetTranslatedWorldToClip() * LocalToTranslatedWorld);
+		TransformUniform.LocalToWorld = Math::TransposeToFloat(LocalToTranslatedWorld);
+		TransformUniform.NormalToWorld = Primitive.NormalToWorld;
+		TransformUniform.WorldToLocal = Math::TransposeToFloat(
+			Primitive.WorldToLocal * Math::TranslationMatrix(View.ViewLocation));
+		TransformUniform.BoundsCenter = FVector4f(FVector3f(View.TranslateWorldPosition(Primitive.BoundsCenter)), 1.0f);
+		TransformUniform.TransformParams.x = Math::LinearDeterminant(Primitive.LocalToWorld) < 0.0 ? -1.0f : 1.0f;
+		return TransformUniform;
+	}
+
 	auto FStaticMeshPrimitiveUniformPreparer::Prepare(
 		const FPreparedStaticMeshPrimitive& Primitive
 	) const -> FStaticMeshPrimitiveUniformBindings
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PreparePrimitiveUniform");
-		FStaticMeshTransformUniform TransformUniform;
-		TransformUniform.LocalToClip = Math::TransposeToFloat(
-			View.ViewProjectionMatrix * Primitive.LocalToWorld
-		);
-		TransformUniform.LocalToWorld =
-			Math::TransposeToFloat(Primitive.LocalToWorld);
-		TransformUniform.NormalToWorld = Primitive.NormalToWorld;
-		TransformUniform.WorldToLocal = Primitive.WorldToLocal;
-		TransformUniform.BoundsCenter = FVector4f(FVector3f(Primitive.BoundsCenter), 1.0f);
-		TransformUniform.TransformParams.x = Math::LinearDeterminant(
-			FMatrix4f(Primitive.LocalToWorld)
-		) < 0.0f ? -1.0f : 1.0f;
+		const auto TransformUniform = BuildMeshTransformUniform(View, Primitive);
 
 		return {
 			.Transform = CommandList.CreateUniformBufferRange(

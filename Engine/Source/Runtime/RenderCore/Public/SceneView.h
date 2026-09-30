@@ -288,6 +288,27 @@ namespace Durin
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};
 		FVector3 ViewLocation{0.0};
+		// GPU world positions are relative to this view's double-precision ViewLocation.
+		[[nodiscard]] auto TranslateWorldPosition(const FVector3& Position) const -> FVector3
+		{
+			return Position - ViewLocation;
+		}
+
+		[[nodiscard]] auto GetTranslatedLocalToWorld(const FMatrix& LocalToWorld) const -> FMatrix
+		{
+			return Math::TranslationMatrix(-ViewLocation) * LocalToWorld;
+		}
+
+		[[nodiscard]] auto GetTranslatedWorldToView() const -> FMatrix
+		{
+			return ViewMatrix * Math::TranslationMatrix(ViewLocation);
+		}
+
+		[[nodiscard]] auto GetTranslatedWorldToClip() const -> FMatrix
+		{
+			return ProjectionMatrix * GetTranslatedWorldToView();
+		}
+
 		ESceneDepthConvention DepthConvention = ESceneDepthConvention::ForwardZ;
 		double NearClipDistance = 0.1;
 		double FarClipDistance = 500000.0;

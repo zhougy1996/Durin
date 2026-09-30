@@ -399,7 +399,7 @@ namespace Durin
 		for (uint32 Row = 0; Row < 4; ++Row)
 			for (uint32 Column = 0; Column < 4; ++Column)
 				Uniform.ViewProjection[Row * 4 + Column] = static_cast<float>(
-					View.ViewProjectionMatrix[Column][Row]);
+					View.GetTranslatedWorldToClip()[Column][Row]);
 		Uniform.CandidateCount = CandidateCount;
 		const auto UniformBuffer = CommandList.CreateUniformBufferRange(
 			&Uniform, sizeof(Uniform));

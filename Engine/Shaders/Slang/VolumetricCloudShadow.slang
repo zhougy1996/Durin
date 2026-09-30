@@ -10,7 +10,8 @@ struct CloudShadowUniform
     float4 Density;     // coverage, erosion, sample count, unused
     float4 BaseFrequency;
     float4 DetailFrequency;
-    float4 WindOffset;
+    float4 BasePhase;
+    float4 DetailPhase;
     float4 Weather;
     float4 LightDirection;
     float4 Viewport;    // inverse local extent.xy, absolute origin.zw
@@ -46,10 +47,10 @@ float SampleDensity(float3 position)
     float height = saturate((position.z - Params.Layer.x) / layerHeight);
     float heightProfile = saturate(min(height / 0.15, (1.0 - height) / 0.20));
     float base = saturate(BaseDensity.SampleLevel(DensitySampler,
-        frac(position * Params.BaseFrequency.xyz + Params.WindOffset.xyz), 0.0));
+        frac(position * Params.BaseFrequency.xyz + Params.BasePhase.xyz), 0.0));
     float detail = saturate(DetailDensity.SampleLevel(DensitySampler,
         frac(position * Params.DetailFrequency.xyz
-            + Params.WindOffset.xyz * 3.7), 0.0));
+            + Params.DetailPhase.xyz), 0.0));
     float weather = saturate(WeatherTexture.SampleLevel(DensitySampler,
         frac(position.xy * Params.Weather.xy + Params.Weather.zw), 0.0));
     float coverage = saturate(Params.Density.x * weather);
