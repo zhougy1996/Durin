@@ -1,4 +1,5 @@
 #include "DerivedDataBuildOutput.h"
+#include "Serialization/BinaryFormat.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -56,4 +57,43 @@ TEST(FDerivedDataBuildOutputTests, CorruptionAndWrongKeysAreRejected)
 {
 	auto Record = FCacheRecord::FromOutput(Key(), Output()).value(); auto Raw = Record.Encode().value(); FByteBuffer Corrupt(Raw.begin(), Raw.end()); Corrupt[Corrupt.size() / 2] ^= std::byte{1}; EXPECT_FALSE(FCacheRecord::Decode(Key(), FSharedByteBuffer::Take(std::move(Corrupt))));
 	auto Other = FCacheKey::FromHash(FCacheBucket::FromString("OutputFixtures"), FXxHash128::HashBuffer("other")); EXPECT_FALSE(FCacheRecord::Decode(Other, Raw));
+}
+
+TEST(FDerivedDataBuildOutputTests, PayloadHashesAreCheckedEvenWithAValidEnvelopeHash)
+{
+	auto Record = FCacheRecord::FromOutput(Key(), Output()).value();
+	auto Raw = Record.Encode().value();
+	for (std::string_view Payload : {"large", "meta"})
+	{
+		FByteBuffer Body(Raw.begin(), Raw.end() - 16);
+		const auto Target = std::as_bytes(std::span(Payload));
+		const auto Found = std::ranges::search(Body, Target);
+		ASSERT_FALSE(Found.empty());
+		*Found.begin() ^= std::byte{1};
+		FBinaryWriter Writer;
+		Writer.WriteBytes(Body);
+		Writer.WriteHash128(FXxHash128::HashBuffer(Body));
+		auto Decoded = FCacheRecord::Decode(Key(), FSharedByteBuffer::Take(Writer.TakeBytes()));
+		ASSERT_FALSE(Decoded);
+		EXPECT_EQ(Decoded.error().Code, ECacheError::Corrupt);
+	}
+}
+
+TEST(FDerivedDataBuildOutputTests, ReusedOutputStillEnforcesStricterLimitsAndKeys)
+{
+	auto Built = Output();
+	auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record);
+	auto Raw = Record->Encode(); ASSERT_TRUE(Raw);
+	auto Loaded = FCacheRecord::Decode(Key(), *Raw); ASSERT_TRUE(Loaded);
+	for (const auto& Candidate : {*Record, *Loaded})
+	{
+		auto Warm = Candidate.ToOutput(Key()); ASSERT_TRUE(Warm);
+		EXPECT_TRUE(Warm->CheckLimits());
+		EXPECT_FALSE(Warm->CheckLimits({.MaximumTotalBytes = 1}));
+		EXPECT_FALSE(Candidate.ToOutput(Key(), {.MaximumValues = 1}));
+		EXPECT_FALSE(Candidate.ToOutput(Key(), {.MaximumMetadataBytes = 1}));
+		EXPECT_FALSE(FCacheRecord::FromOutput(Key(), *Warm, {.MaximumValues = 1}));
+		auto Other = FCacheKey::FromHash(Key().GetBucket(), FXxHash128::HashBuffer("other"));
+		EXPECT_FALSE(Candidate.ToOutput(Other));
+	}
 }

@@ -25,6 +25,7 @@ namespace Durin::DerivedData
 
 	using FCacheStoragePutResult = std::expected<void, FCacheError>;
 
+	// Private bounded byte persistence; the record codec owns content integrity.
 	class FCacheStorage
 	{
 	public:

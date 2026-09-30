@@ -56,12 +56,13 @@ namespace Durin::DerivedData
 			return std::unexpected("Build output table limit exceeded.");
 		uint64 Total = 0, MetadataBytes = 0;
 		auto Add = [&](uint64 Size) { if (Size > Limits.MaximumTotalBytes - Total) return false; Total += Size; return true; };
+		// FValue computes its hash when constructed over immutable data. Limits and
+		// output/record conversions must not rehash that same allocation.
 		FValueId Previous;
 		for (const auto& Item : Data.Values)
 		{
 			if (Item.Id.IsNull() || (!Previous.IsNull() && Previous >= Item.Id)
-				|| Item.Value.GetRawHash().IsZero() || Item.Value.GetRawSize() != Item.Value.GetData().GetSize()
-				|| FXxHash128::HashBuffer(Item.Value.GetData().GetBytes()) != Item.Value.GetRawHash())
+				|| Item.Value.GetRawHash().IsZero() || Item.Value.GetRawSize() != Item.Value.GetData().GetSize())
 				return std::unexpected("Build output value is invalid or duplicated.");
 			Previous = Item.Id;
 			if (!Add(Item.Value.GetRawSize())) return std::unexpected("Build output byte limit exceeded.");
@@ -241,7 +242,16 @@ namespace Durin::DerivedData
 		if (!ReadDescriptors(Values) || !ReadDescriptors(Meta)) return Corrupt();
 		std::vector<FBuildOutputMessage> Messages(MessageCount); for (auto& M : Messages) { uint8 S; if (!R.ReadU8(S) || !R.ReadString(M.Text, 4096)) return Corrupt(); M.Severity = EBuildMessageSeverity(S); }
 		FBuildOutputBuilder Builder(std::move(Schema), Version, Limits); uint64 Offset = R.Tell();
-		for (const auto& D : Values) { if (D.Size > BodySize - Offset) return Corrupt(); auto Data = Bytes.MakeView(Offset, D.Size); if (FXxHash128::HashBuffer(Data.GetBytes()) != D.Hash || !Builder.AddValue(D.Id, Data)) return Corrupt(); Offset += D.Size; }
+		for (const auto& D : Values)
+		{
+			if (D.Size > BodySize - Offset) return Corrupt();
+			auto Data = Bytes.MakeView(Offset, D.Size);
+			if (!Builder.AddValue(D.Id, std::move(Data))) return Corrupt();
+			// AddValue constructs FValue and hashes the payload once. Compare that
+			// identity with the persisted descriptor instead of scanning it again.
+			if (Builder.State->Data.Values.back().Value.GetRawHash() != D.Hash) return Corrupt();
+			Offset += D.Size;
+		}
 		for (const auto& D : Meta) { if (D.Size > BodySize - Offset) return Corrupt(); auto Data = Bytes.MakeView(Offset, D.Size); if (FXxHash128::HashBuffer(Data.GetBytes()) != D.Hash) return Corrupt(); auto Object = FCbObject::TryLoad(Data); if (!Object || !Builder.AddMeta(D.Id, std::move(*Object))) return Corrupt(); Offset += D.Size; }
 		if (Offset != BodySize) return Corrupt(); for (auto& M : Messages) if (!Builder.AddMessage(M.Severity, std::move(M.Text))) return Corrupt(); auto Output = std::move(Builder).Build(); if (!Output) return Corrupt(); return FromOutput(ExpectedKey, *Output, Limits);
 	}

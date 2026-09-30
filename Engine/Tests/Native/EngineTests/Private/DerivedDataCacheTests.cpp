@@ -6,6 +6,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "Serialization/BinaryFormat.h"
 
 #include <latch>
 #if defined(_WIN32)
@@ -221,27 +222,67 @@ TEST(FCacheStorageTests, InternsBucketNamesAcrossThreads)
 	}
 }
 
-TEST(FCacheStorageTests, RejectsContentThatDoesNotMatchStoredHash)
+TEST(FCacheTests, RejectsDamagedRawAndCompressedRecordsWithoutAStorageEnvelope)
 {
 	FScopedCacheDirectory Directory("CacheContentValidation");
-	FCacheStorage& Cache = DerivedData::GetCacheStorage();
-	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
-	const FCacheKey Key = MakeKey(Bucket, 'f');
-	const FByteBuffer Value = Bytes({1, 2, 3, 4});
-	ASSERT_TRUE(Cache.Put({Key, Value, Value.size()}));
-	const std::filesystem::path Path = Directory.Root / "Test" / "Objects"
-		/ "ff" / (std::string(32, 'f') + ".bin");
-	FByteBuffer Stored;
-	auto StoredRead = FFileHelper::LoadFileToArray(Path);
-	ASSERT_TRUE(StoredRead) << StoredRead.error().ToString();
-	Stored = std::move(*StoredRead);
-	ASSERT_GT(Stored.size(), Value.size());
-	Stored.back() ^= std::byte{1};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Stored, Path));
-	const FCacheStorageGetResult Result = Cache.Get({Key, Value.size()});
-	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
-	EXPECT_FALSE(Result.error().Diagnostic.empty());
+	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Objects"), 'f');
+	FBuildOutputBuilder Builder("Fixture.Output", 1);
+	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"),
+		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
+	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
+	auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+	auto Raw = Record->Encode(4096); ASSERT_TRUE(Raw);
+	auto Compressed = FCacheRecord::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
+	const auto Path = Directory.Root / "Test" / "Objects" / "ff"
+		/ (std::string(32, 'f') + ".bin");
+	for (const auto& Encoded : {*Raw, *Compressed})
+	{
+		ASSERT_TRUE(GetCacheStorage().Put({Key, Encoded, 4096}));
+		auto Stored = FFileHelper::LoadFileToArray(Path); ASSERT_TRUE(Stored);
+		EXPECT_TRUE(std::ranges::equal(*Stored, Encoded.GetBytes()));
+		auto Loaded = GetCache().Get({Key, {}, 4096}); ASSERT_TRUE(Loaded);
+		ASSERT_TRUE(*Loaded);
+		Stored->back() ^= std::byte{1};
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Stored, Path));
+		auto Result = GetCache().Get({Key, {}, 4096});
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
+		EXPECT_FALSE(Result.error().Diagnostic.empty());
+		FByteBuffer Truncated(Encoded.begin(), Encoded.end() - 1);
+		ASSERT_TRUE(GetCacheStorage().Put({Key, Truncated, 4096}));
+		auto Short = GetCache().Get({Key, {}, 4096}); ASSERT_FALSE(Short);
+		EXPECT_EQ(Short.error().Code, ECacheError::Corrupt);
+		FByteBuffer Appended(Encoded.begin(), Encoded.end());
+		Appended.push_back(std::byte{0});
+		ASSERT_TRUE(GetCacheStorage().Put({Key, Appended, 4096}));
+		auto Long = GetCache().Get({Key, {}, 4096}); ASSERT_FALSE(Long);
+		EXPECT_EQ(Long.error().Code, ECacheError::Corrupt);
+	}
+}
+
+TEST(FCacheTests, RejectsLegacyStorageEnvelopesAndReplacesThemOnPut)
+{
+	FScopedCacheDirectory Directory("CacheLegacyEnvelope");
+	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Objects"), 'f');
+	FBuildOutputBuilder Builder("Fixture.Output", 1);
+	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"),
+		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
+	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
+	auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+	auto Raw = Record->Encode(4096); ASSERT_TRUE(Raw);
+	auto Compressed = FCacheRecord::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
+	FBinaryWriter Legacy;
+	Legacy.WriteHeader({0x43444444, 1, 1});
+	Legacy.WriteU64(Compressed->GetSize());
+	Legacy.WriteHash128(FXxHash128::HashBuffer(Compressed->GetBytes()));
+	Legacy.WriteBytes(Compressed->GetBytes());
+	ASSERT_TRUE(GetCacheStorage().Put({Key, Legacy.GetBytes(), 4096}));
+	auto Rejected = GetCache().Get({Key, {}, 4096}); ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Code, ECacheError::Corrupt);
+	ASSERT_TRUE(GetCache().Put({*Record, 4096}));
+	auto Loaded = GetCache().Get({Key, {}, 4096}); ASSERT_TRUE(Loaded);
+	ASSERT_TRUE(*Loaded);
+	EXPECT_TRUE((**Loaded).ToOutput(Key));
 }
 
 TEST(FCacheStorageTests, RejectsOversizedAndNonregularStoredEntries)

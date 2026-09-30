@@ -2,18 +2,9 @@
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Serialization/BinaryFormat.h"
 
 namespace Durin::DerivedData
 {
-	namespace
-	{
-		constexpr uint32 CacheEntryMagic = 0x43444444; // DDDC
-		constexpr uint32 CacheEntrySchemaVersion = 1;
-		constexpr uint32 CacheEntryFormatVersion = 1;
-		constexpr uint64 CacheEntryHeaderBytes = 40;
-	}
-
 	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket) const
 		-> FFilePath
 	{
@@ -91,35 +82,22 @@ namespace Durin::DerivedData
 		const uint64 FileSize = std::filesystem::file_size(ResolvedPath, ErrorCode);
 		if (ErrorCode)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "Failed to inspect cache entry size."});
-		if (Request.MaximumValueBytes > std::numeric_limits<uint64>::max()
-			- CacheEntryHeaderBytes
-			|| FileSize > Request.MaximumValueBytes + CacheEntryHeaderBytes)
+		if (FileSize > Request.MaximumValueBytes)
 			return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache entry exceeds its configured size limit."});
 
-		auto Bytes = FFileHelper::LoadFileToArray(ResolvedPath);
+		// Bound the opened file before allocation as well as the earlier path query.
+		auto Bytes = FFileHelper::LoadFileToArray(ResolvedPath,
+			{.MaximumBytes = Request.MaximumValueBytes});
 		if (!Bytes)
+		{
+			if (Bytes.error().NativeError == std::errc::file_too_large)
+				return std::unexpected(FCacheError{ECacheError::ValueTooLarge,
+					"Cache entry exceeds its configured size limit."});
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to read cache entry: {}", Bytes.error().ToString())});
-		FBinaryReader Reader(*Bytes, {
-			.MaximumTotalBytes = Request.MaximumValueBytes + CacheEntryHeaderBytes,
-			.MaximumFieldBytes = std::max<uint64>(Request.MaximumValueBytes, 16)});
-		uint64 ValueSize = 0;
-		FXxHash128 ExpectedHash;
-		FByteView Value;
-		if (!Reader.ReadAndValidateHeader(
-			CacheEntryMagic, CacheEntrySchemaVersion, CacheEntryFormatVersion)
-			|| !Reader.ReadU64(ValueSize)
-			|| ValueSize > Request.MaximumValueBytes
-			|| !Reader.ReadHash128(ExpectedHash)
-			|| !Reader.ReadRegion(Value, ValueSize, Request.MaximumValueBytes)
-			|| !Reader.IsAtEnd())
-			return std::unexpected(FCacheError{ECacheError::Corrupt,
-				"Cache entry envelope is unsupported, truncated, or malformed."});
-		if (ExpectedHash.IsZero() || FXxHash128::HashBuffer(Value) != ExpectedHash)
-			return std::unexpected(FCacheError{ECacheError::Corrupt,
-				"Cache entry content hash validation failed."});
-		FSharedByteBuffer StoredBytes = FSharedByteBuffer::Take(std::move(*Bytes));
-		return std::optional<FSharedByteBuffer>{StoredBytes.MakeView(CacheEntryHeaderBytes, ValueSize)};
+		}
+		// Record decoding owns integrity validation; storage returns the exact bytes.
+		return std::optional<FSharedByteBuffer>{FSharedByteBuffer::Take(std::move(*Bytes))};
 	}
 
 	auto FFileSystemCacheBackend::Put(const FCacheStoragePutRequest& Request) const
@@ -127,10 +105,6 @@ namespace Durin::DerivedData
 	{
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});
-		if (Request.MaximumValueBytes > std::numeric_limits<uint64>::max()
-			- CacheEntryHeaderBytes)
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
-				"Cache put request size limit is invalid."});
 		if (Request.Value.size() > Request.MaximumValueBytes)
 			return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache entry exceeds its configured size limit."});
 		auto EntryPath = GetEntryPath(Request.Key);
@@ -153,18 +127,8 @@ namespace Durin::DerivedData
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, ErrorCode
 				? std::format("Failed to resolve cache entry path: {}", ErrorCode.message())
 				: "Cache entry resolves outside its configured bucket."});
-		FBinaryWriter Writer({
-			.MaximumTotalBytes = Request.MaximumValueBytes + CacheEntryHeaderBytes,
-			.MaximumFieldBytes = std::max<uint64>(Request.MaximumValueBytes, 16)});
-		Writer.WriteHeader({CacheEntryMagic, CacheEntrySchemaVersion,
-			CacheEntryFormatVersion});
-		Writer.WriteU64(Request.Value.size());
-		Writer.WriteHash128(FXxHash128::HashBuffer(Request.Value));
-		Writer.WriteBytes(Request.Value);
-		if (Writer.HasError())
-			return std::unexpected(FCacheError{ECacheError::StorageFailure,
-				"Failed to encode the cache entry envelope."});
-		auto Saved = FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), ResolvedPath);
+		// Persist the self-validating record without a second envelope or payload copy.
+		auto Saved = FFileHelper::SaveArrayToFileAtomically(Request.Value, ResolvedPath);
 		if (!Saved)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				std::format("Failed to write cache entry: {}", Saved.error().ToString())});

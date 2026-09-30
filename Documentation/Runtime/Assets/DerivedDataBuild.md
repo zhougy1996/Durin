@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-01
 
 ## Ownership
 
@@ -94,7 +94,10 @@ Outputs use `FValueId`, a stable 12-byte identity derived from a name or hash.
 `MakeIndexed` reserves the final 24 bits for indices `0..0x00ffffff`. Production
 families derive every output ID from a fixed family base and index; persisted
 records contain no debug-name dependency. `FValue` owns raw XXH3-128, raw size,
-and immutable data. Metadata is keyed by `FValueId` and stored as owned bounded
+and immutable data. Value construction computes the hash once; persisted decode
+compares that hash with the value descriptor. Output limit checks and record/output
+conversions validate structure and budgets without rehashing immutable values.
+Metadata is keyed by `FValueId` and stored as owned bounded
 Compact Binary objects.
 
 | Producer | Request input | Identity-specific fields |
@@ -139,6 +142,13 @@ Compact Binary metadata size/hash, ordered messages, payloads, and an envelope
 hash. Raw decode retains views into the record allocation; compressed decode
 owns one inflated allocation. Schema-1 records are cold misses; there is no
 compatibility reader or rewrite path.
+
+The filesystem backend atomically stores encoded record bytes directly, with
+path containment and byte limits but no separate size/hash envelope. The record
+codec owns envelope and value/metadata integrity checks. Compressed records retain
+both the compressed envelope hash and the raw record hash; decoding validates the
+compressed envelope before inflation and the raw record afterward. Legacy filesystem
+envelopes are rejected and use the normal cache-failure rebuild path.
 
 An output containing an error message is a deterministic negative result: its
 values are discarded, it completes with `EStatus::Error`, and it is persisted
