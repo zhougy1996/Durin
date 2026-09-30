@@ -21,15 +21,12 @@ namespace Durin::DerivedData
 			/ std::string(Bucket.ToString())).lexically_normal();
 	}
 
-	auto FFileSystemCacheBackend::GetEntryPath(
-		const FCacheKey& Key,
-		FFilePath& OutPath, std::string& OutError) const -> bool
+	auto FFileSystemCacheBackend::GetEntryPath(const FCacheKey& Key) const
+		-> std::expected<FFilePath, FCacheError>
 	{
 		if (!Key.IsValid())
-		{
-			OutError = "Cache key is invalid.";
-			return false;
-		}
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
+				"Cache key is invalid."});
 		const FCacheBucket& Bucket = Key.GetBucket();
 		const FFilePath Directory = GetBucketDirectory(Bucket);
 		const std::string KeyText = Key.ToString();
@@ -40,23 +37,20 @@ namespace Durin::DerivedData
 			return (C >= '0' && C <= '9') || (C >= 'a' && C <= 'f');
 		}))
 		{
-			OutError = "Cache key has an invalid path representation.";
-			return false;
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
+				"Cache key has an invalid path representation."});
 		}
-		OutPath = Directory / KeyText.substr(0, 2) / (KeyText + ".bin");
-		OutError.clear();
-		return true;
+		return Directory / KeyText.substr(0, 2) / (KeyText + ".bin");
 	}
 
 	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
 		-> FCacheStorageGetResult
 	{
-		if (!Request.Key.IsValid() || Request.MaximumValueBytes == 0)
+		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
-		FFilePath Path;
-		std::string Error;
-		if (!GetEntryPath(Request.Key, Path, Error))
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, std::move(Error)});
+		auto EntryPath = GetEntryPath(Request.Key);
+		if (!EntryPath) return std::unexpected(std::move(EntryPath.error()));
+		FFilePath Path = std::move(*EntryPath);
 
 		std::error_code ErrorCode;
 		const std::filesystem::file_status Status = std::filesystem::symlink_status(Path, ErrorCode);
@@ -131,7 +125,7 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::Put(const FCacheStoragePutRequest& Request) const
 		-> FCacheStoragePutResult
 	{
-		if (!Request.Key.IsValid() || Request.MaximumValueBytes == 0)
+		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});
 		if (Request.MaximumValueBytes > std::numeric_limits<uint64>::max()
 			- CacheEntryHeaderBytes)
@@ -139,10 +133,9 @@ namespace Durin::DerivedData
 				"Cache put request size limit is invalid."});
 		if (Request.Value.size() > Request.MaximumValueBytes)
 			return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache entry exceeds its configured size limit."});
-		FFilePath Path;
-		std::string Error;
-		if (!GetEntryPath(Request.Key, Path, Error))
-			return std::unexpected(FCacheError{ECacheError::InvalidRequest, std::move(Error)});
+		auto EntryPath = GetEntryPath(Request.Key);
+		if (!EntryPath) return std::unexpected(std::move(EntryPath.error()));
+		FFilePath Path = std::move(*EntryPath);
 
 		std::error_code ErrorCode;
 		FFilePath ResolvedPath;
