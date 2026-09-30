@@ -277,7 +277,7 @@ namespace Durin
 			if (!Request) return {};
 			const auto Identities = Request->Inputs.GetIdentities();
 			DerivedData::FBuildActionBuilder Builder(Request->Definition,
-				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 3, DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput")});
+				{"Durin.Shader.Compile", 2, 1, "Shader.Output", 3, DerivedData::FCacheBucket::FromString("Shader")});
 			for (const auto& Identity : Identities) Builder.AddInput(Identity);
 			auto Action = std::move(Builder).Build();
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};

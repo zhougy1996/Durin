@@ -54,7 +54,7 @@ optimization, not portable DDC data. Missing, old-schema, malformed, or stale
 manifests are reparsed and replaced atomically. A warm manifest validates
 unchanged size/time facts without reading source contents.
 
-Compiled output uses the generic DDC bucket `Shaders/CompiledOutput`. Its key is
+Compiled output uses the generic DDC bucket `Shader`. Its key is
 a canonical lowercase XXH3-128 identity and its filesystem backend currently
 maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
 RenderCore never constructs or observes that physical path; ShaderBuild uses

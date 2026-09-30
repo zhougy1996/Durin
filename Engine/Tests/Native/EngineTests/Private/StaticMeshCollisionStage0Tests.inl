@@ -977,10 +977,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	std::string Error;
 	const Durin::FByteBuffer KeyBytes =
 		BuildPhysicsCookDerivedDataKeyBytes(KeyInput).value();
-	EXPECT_EQ(KeyBytes.size(), 380u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "aa6993fc3be0b39c28212034f5c360b3");
+	EXPECT_EQ(KeyBytes.size(), 372u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "2be640ab5144a5170dfe1aea9d80d2df");
 	EXPECT_EQ(BuildPhysicsCookDerivedDataKey(KeyInput).value().ToString(),
-		"aa6993fc3be0b39c28212034f5c360b3");
+		"2be640ab5144a5170dfe1aea9d80d2df");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;

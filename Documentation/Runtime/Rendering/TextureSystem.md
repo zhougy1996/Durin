@@ -106,7 +106,7 @@ The authored bulk source is the sole rebuild authority; request-local family
 values are views or snapshots, not a second persistent source container.
 
 Texture2D platform mip chains are content-addressed beneath
-`DerivedDataCache/Textures/Objects/` as `.bin` objects. A canonical 128-bit key
+`DerivedDataCache/Texture2D/` as `.bin` objects. A canonical 128-bit key
 includes the imported source-content hash, usage, explicit color-space choice,
 maximum resolution, compression quality, alpha-mip policy and threshold, target
 platform, and texture-builder version.

@@ -134,7 +134,7 @@ payload schema and stable value identifiers determine runtime readability.
 Low-level Get and Put permit concurrency under a logical bucket's shared lock.
 Requests never scan or evict entries. ShaderBuild registers its compiler function and source-closure resolver,
 using the same sessions to store shared SPIR-V and reflection blocks in
-`Shaders/CompiledOutput`. RenderCore owns the payload codec and runtime values.
+`Shader`. RenderCore owns the payload codec and runtime values.
 Machine-local dependency manifests do not enter portable values; see
 [Shader Cache](../Rendering/ShaderCache.md).
 
@@ -413,7 +413,7 @@ carry no cache warning lists or diagnostic wrappers. Callers handle the actual
 build/application error or completion state. Internal timings, byte counts and
 cache-origin observations remain available to their existing metrics owners.
 
-TextureCube uses Engine-owned bucket `TextureCube/Objects`. Explicit import or
+TextureCube uses Engine-owned bucket `TextureCube`. Explicit import or
 reimport decodes and projects a panorama into six canonical authored RGBA8
 faces before the cache lookup. Engine derives the key from those faces and the
 builder descriptor; only a miss invokes TextureBuild platform construction.

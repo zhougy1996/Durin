@@ -946,7 +946,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	std::string GoldenKeyError;
 	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
 		GoldenKeyInput, GoldenKeyError).ToString(),
-		"0f1e97cfeca2fe12596649ab9dc4fb14") << GoldenKeyError;
+		"bfbf9400c1623720ab05c0d507c42899") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
@@ -963,7 +963,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 
 	const auto CachePath = std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
-		/ "VolumeTexture/Objects" / First.DerivedDataKey.ToString().substr(0, 2)
+		/ "VolumeTexture" / First.DerivedDataKey.ToString().substr(0, 2)
 		/ (First.DerivedDataKey.ToString() + ".bin");
 	Durin::FByteBuffer CachedBytes;
 	auto CachedBytesRead = Durin::FFileHelper::LoadFileToArray(CachePath);

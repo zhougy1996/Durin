@@ -115,10 +115,10 @@ carry no warning list. Private cache codecs use the existing failure type rather
 than expose a separate codec error domain.
 `PhysicsDerivedData.h/.cpp` owns the DCOL payload and typed validation failures;
 `PhysicsCookDerivedDataKey.h/.cpp` owns the collision cache key and key failures.
-The shared archive platform identifier belongs to Asset. Existing payload identifiers,
-canonical bytes, schema versions and the historical `StaticMeshCollision/Objects`
-cache bucket remain unchanged; the bucket spelling is a compatibility identity,
-not a code dependency.
+The shared archive platform identifier belongs to Asset. Payload identifiers,
+canonical bytes and schema versions are independent of the DDC namespace. Collision
+derived data uses the flat `StaticMeshCollision` bucket; its spelling is a cache
+compatibility identity, not a code dependency.
 
 `DBodySetup::InvalidatePhysicsData` cancels prior requests, clears derived geometry,
 advances request/resource revisions, and refreshes physics consumers.
@@ -150,7 +150,7 @@ its setup and installed immutable geometry, without a per-generation snapshot ca
 without changing component filters. The qualified `/Engine/Models/Box` asset
 continues to derive its authored Box setup from verified LOD 0 bounds.
 
-Editor derived data uses the separate `StaticMeshCollision/Objects` namespace
+Editor derived data uses the separate `StaticMeshCollision` namespace
 and a key containing collision builder/schema/platform versions, exact source
 geometry hash, mode/policy, and target platform. Asset commits with changed source
 or normalization invalidate prior derived collision and schedule independently.

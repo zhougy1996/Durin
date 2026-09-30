@@ -150,7 +150,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	ASSERT_TRUE(Imported.Asset->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(std::filesystem::remove(Source));
-	Durin::Testing::RemoveTestWorkDirectory(CacheRoot / "Textures");
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot / "Texture2D");
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const auto Load =

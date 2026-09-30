@@ -46,7 +46,12 @@ after successful validation. Constants retain typed bool, uint64, float, string,
 and XXH3-128 overloads.
 
 The descriptor records function/version, constants schema, output type/schema,
-and bucket. Constants are named bool, uint64, float, string, or XXH3-128 values.
+and bucket. Engine resource families use stable, flat bucket names: `Texture2D`,
+`TextureCube`, `VolumeTexture`, `StaticMesh`, `StaticMeshCollision`, and `Shader`.
+Individual assets, build parameters and versions are represented by action keys.
+Renaming a bucket invalidates prior cache lookups; old cache directories are not
+automatically migrated or removed. Constants are named bool, uint64, float, string,
+or XXH3-128 values.
 Input references record a name, semantic content identity, identity
 scheme/version, and representation/version. Source paths, object addresses,
 cancellation, scheduling, persistence policy, and compression do not enter

@@ -135,7 +135,7 @@ namespace
 
 	auto GetObjectPath(const FStaticMeshCacheFixture& Fixture, std::string_view Key) -> std::filesystem::path
 	{
-		return Fixture.CacheRoot / "StaticMesh" / "Objects"
+		return Fixture.CacheRoot / "StaticMesh"
 			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
@@ -274,7 +274,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
-	const auto CollisionPath = Fixture.CacheRoot / "StaticMeshCollision/Objects"
+	const auto CollisionPath = Fixture.CacheRoot / "StaticMeshCollision"
 		/ GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString().substr(0, 2)
 		/ (GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(CollisionPath));
@@ -2485,7 +2485,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex))));
 	const auto Key = GetCollisionKey(*Fixture.Mesh->GetRenderData());
-	const auto Path = Fixture.CacheRoot / "StaticMeshCollision/Objects"
+	const auto Path = Fixture.CacheRoot / "StaticMeshCollision"
 		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
 	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*Key.AsCacheKey(), Invalid, MaximumPhysicsCollisionPayloadBytes}));
@@ -2996,7 +2996,7 @@ TEST(FStaticMeshSeparatedBuildTests, IndependentCollisionHonorsPersistenceAndPre
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	const auto Key = GetCollisionKey(*Mesh->GetRenderData()).ToString();
-	const auto CollisionPath = Cache / "StaticMeshCollision/Objects" / Key.substr(0, 2) / (Key + ".bin");
+	const auto CollisionPath = Cache / "StaticMeshCollision" / Key.substr(0, 2) / (Key + ".bin");
 	EXPECT_FALSE(std::filesystem::exists(CollisionPath));
 	Mesh->RebuildCollision();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);

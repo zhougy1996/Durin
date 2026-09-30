@@ -10,9 +10,9 @@ namespace Durin
 	namespace DerivedData { class FBuildAction; struct FBuildDefinitionError; }
 	struct FArchiveFailure;
 
-	inline constexpr std::string_view Texture2DCacheBucket = "Textures/Objects";
-	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube/Objects";
-	inline constexpr std::string_view VolumeTextureCacheBucket = "VolumeTexture/Objects";
+	inline constexpr std::string_view Texture2DCacheBucket = "Texture2D";
+	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube";
+	inline constexpr std::string_view VolumeTextureCacheBucket = "VolumeTexture";
 
 	struct FTexture2DBuildKeyInput
 	{

@@ -43,7 +43,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"afab5bdff6773e9bd06b1533106cb000");
+		"99e5d7ba219a5a117ea74d151845fcef");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -88,7 +88,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	EXPECT_EQ(Bytes, Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value());
 	const Durin::FCacheKeyProxy BaselineKey =
 		Durin::BuildPhysicsCookDerivedDataKey(Baseline).value();
-	EXPECT_EQ(BaselineKey.ToString(), "df742eb90f34cf8e146820f4d0b8b6d1");
+	EXPECT_EQ(BaselineKey.ToString(), "0c1836c76d6968f748cc33a0d91f5ead");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{

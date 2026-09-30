@@ -10,7 +10,7 @@ namespace Durin
 	inline constexpr uint32 PhysicsCollisionOutputSchemaVersion = 2;
 	// Bucket identity is stable; definition keys intentionally invalidate old entries.
 	inline constexpr std::string_view PhysicsCollisionCacheBucket =
-		"StaticMeshCollision/Objects";
+		"StaticMeshCollision";
 	enum class EArchiveFailureCode : uint8;
 	enum class EPhysicsCookKeyError : uint8 { None, UnsupportedTarget, Archive };
 	struct FPhysicsCookKeyError

@@ -131,8 +131,8 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
-	// Schema-2 action and shared output schema invalidate the legacy cache key.
-	EXPECT_EQ(Baseline.ToString(), "078ed01da2fbf2565e65dc6290734eda");
+	// Canonical schema-2 action includes the flat resource-family bucket.
+	EXPECT_EQ(Baseline.ToString(), "c1e5ae84ceac07b699aa9a507f8d466d");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -288,7 +288,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "08625bbecab440c991b2ebf28040bb51");
+	EXPECT_EQ(Baseline.ToString(), "cb1afc899dee59d3ba90e9829e322928");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -317,7 +317,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "cf06d2f8cf0bc5ed65421b0f97c96885");
+	EXPECT_EQ(Baseline.ToString(), "7de0792e245cfa14b745e869132ac67e");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
