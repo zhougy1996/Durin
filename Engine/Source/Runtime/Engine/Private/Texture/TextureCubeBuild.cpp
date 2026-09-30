@@ -90,6 +90,10 @@ namespace Durin
 		) -> std::expected<void, FTextureBuildError>
 		{
 			CheckGameThread();
+#if !DURIN_WITH_EDITORONLY_DATA
+			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Apply,
+				"Texture authoring requires editor-only data."});
+#else
 			require(Product.PlatformData != nullptr);
 			// The build boundary has already validated these value contracts.
 			check((CanonicalInput.DecodedFaces.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR)
@@ -113,6 +117,7 @@ namespace Durin
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 			return {};
+#endif
 	}
 	}
 }

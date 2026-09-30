@@ -30,7 +30,12 @@ namespace Durin
 				const FMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
 				FStaticMeshMaterialSlot& Slot = RenderData.MaterialSlots[SlotIndex];
 				Slot.Name = Definition.Name.ToString();
+				// Cooked packages strip source reconciliation metadata.
+#if DURIN_WITH_EDITORONLY_DATA
 				Slot.SourceMaterialIndex = Definition.SourceMaterialIndex;
+#else
+				Slot.SourceMaterialIndex = 0;
+#endif
 			}
 			for (size_t LODIndex = 0; LODIndex < RenderData.LODResources.size(); ++LODIndex)
 				for (size_t SectionIndex = 0;

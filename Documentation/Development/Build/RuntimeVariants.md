@@ -2,7 +2,7 @@
 
 Summary: Define how build presets select independent runtime module closures and outputs.
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-30
 
 This document explains runtime variants, how presets select them, which compile
 definitions they expose, and what must be updated when adding one.
@@ -63,10 +63,36 @@ Runtime variants determine:
 - launcher output naming such as `DurinEditor.exe`
 - runtime output directories such as
   `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
-- semantic compile definitions including `DURIN_WITH_EDITOR`
+- semantic compile definitions including `DURIN_WITH_EDITOR` and
+  `DURIN_WITH_EDITORONLY_DATA`
 
 Prefer `DURIN_WITH_EDITOR` for code-level branching. Use the runtime variant for
 output naming and runtime module filename construction.
+
+## Editor Behavior And Data
+
+Both feature macros are explicit numeric `0`/`1` definitions, derived from the
+runtime-variant configuration and supplied consistently to module compilation,
+shared PCHs, standalone programs, and HeaderTool's hermetic parser:
+
+- `DURIN_WITH_EDITOR` selects editor behavior and editor-service dependencies.
+- `DURIN_WITH_EDITORONLY_DATA` selects authored source, import provenance,
+  graph/presentation, and reconciliation members in native asset layouts.
+
+Use `#if`, not `#ifdef`: both macros are defined in Game builds too.
+Editor requires editor-only data. A future headless authoring variant may retain
+data without editor behavior, but no such additional variant is currently defined.
+DurinEditor uses `1/1`; DurinGame uses `0/0`. `Misc/Build.h` validates the contract.
+
+Keep `DPROPERTY(EditorOnly)` inside the data guard: the annotation strips fields
+from cooked serialization, whereas the macro removes their C++ storage and Game
+reflection registration. HeaderTool generates separate metadata for each variant;
+never mix generated reflection files, PCHs, or binaries across variants.
+Cooked runtime properties and payload readers remain available without source
+data. Authored publication/build paths reject use when source data is absent.
+
+The macOS profile includes `MacOS-arm64-Debug-DurinGame` for native Game layout
+and consumer validation, alongside its Editor presets.
 
 ## Module Selection
 
@@ -115,4 +141,5 @@ Minimum steps:
 3. Add matching presets in `CMakePresets.json`.
 4. Verify generated output under
    `Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/`.
-5. Decide the `WithEditor` value and verify launcher naming, module naming, and config file naming.
+5. Decide both editor behavior and editor-only data values and verify launcher
+   naming, module naming, config file naming, and variant-specific reflection.

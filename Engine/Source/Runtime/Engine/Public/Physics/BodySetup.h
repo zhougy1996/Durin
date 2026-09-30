@@ -81,7 +81,9 @@ namespace Durin
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
 		auto GetCollisionSourceMode() const -> EBodySetupCollisionSourceMode { return CollisionSourceMode; }
 		auto GetCollisionQueryPolicy() const -> EBodySetupCollisionQueryPolicy { return CollisionQueryPolicy; }
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetCollisionBuildRevision() const -> uint64 { return CollisionBuildRevision; }
+#endif
 
 	private:
 		auto NotifyPhysicsDataChanged() -> void;
@@ -107,8 +109,10 @@ namespace Durin
 		DPROPERTY(Edit)
 		EBodySetupCollisionQueryPolicy CollisionQueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		uint64 CollisionBuildRevision = 0;
+#endif
 
 		mutable FCollisionGeometryRef CachedGeometry;
 		mutable uint64 CachedGeometryRevision = 0;

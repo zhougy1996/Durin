@@ -249,7 +249,9 @@ namespace Durin
 			|| (Complex && Complex.GetKind() != ECollisionGeometryKind::TriangleMesh)) return false;
 		CachedSimpleCollision = Simple;
 		CachedComplexCollision = Complex;
+#if DURIN_WITH_EDITORONLY_DATA
 		++CollisionBuildRevision;
+#endif
 		++Revision;
 		PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
 		PhysicsMeshError = {};

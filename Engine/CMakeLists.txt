@@ -3,7 +3,6 @@ add_durin_project(Engine)
 
 if(DURIN_RUNTIME_VARIANT STREQUAL "DurinEditor")
 	add_subdirectory(Source/Programs/DurinAssetTool)
-	set(DURIN_WITH_EDITOR 1)
 	add_executable(StudioCubeGenerate
 		"Source/Programs/StudioCubeGenerate/Main.cpp")
 	durin_target_apply_common_definitions(StudioCubeGenerate "StudioCubeGenerate")

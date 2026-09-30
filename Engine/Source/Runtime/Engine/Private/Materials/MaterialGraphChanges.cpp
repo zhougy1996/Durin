@@ -59,6 +59,7 @@ namespace Durin
 		auto Capture(DObject& Owner) -> FGraphState
 		{
 			FGraphState State;
+#if DURIN_WITH_EDITORONLY_DATA
 			const FMaterialExpressionCollection* Collection;
 			if (const auto* Material = Cast<DMaterial>(&Owner))
 			{
@@ -89,6 +90,7 @@ namespace Durin
 					}
 				});
 			}
+#endif
 			return State;
 		}
 		auto DifferencePresentation(const FMaterialGraphPresentation& Before,
@@ -240,8 +242,10 @@ namespace Durin
 			else
 			{
 				FMaterialGraphPresentation Current;
+#if DURIN_WITH_EDITORONLY_DATA
 				if (const auto* Material = Cast<DMaterial>(&Owner)) Current = Material->GetMaterialGraphPresentation();
 				else Current.Nodes = Cast<DMaterialFunction>(&Owner)->GetFunctionPresentation().Nodes;
+#endif
 				Changes = DifferencePresentation(Impl->Checkpoint.Presentation, Current);
 				Impl->Checkpoint.Presentation = std::move(Current);
 			}

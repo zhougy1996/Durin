@@ -47,6 +47,7 @@ namespace Durin
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
 			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::AssetLoad
 			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::Duplication)
@@ -55,9 +56,12 @@ namespace Durin
 			Output->Id = FGuid::NewGuid();
 			ExpressionCollection.Expressions.push_back(Output);
 		}
+#endif
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
+#endif
 			if (!IsMaterialCompilationAcceptingRequests())
 				RequestProgramCompile(StaticProperties);
 			PublishMaterialRenderProxyState();
@@ -70,6 +74,7 @@ namespace Durin
 		InvalidateMaterialCompilation(false, false, Context);
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterial::SetEditCompileMode(EMaterialEditCompileMode Mode) -> void
 	{
 		if (EditCompileMode == Mode) return;
@@ -153,6 +158,7 @@ namespace Durin
 		GraphChanges.PublishPresentation(*this);
 		return EMaterialGraphPresentationResult::Changed;
 	}
+#endif
 
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
@@ -242,6 +248,7 @@ namespace Durin
 		if (*Entry == Definition) return {};
 		if (!bCooked)
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			std::vector<DMaterialExpressionParameter*> Owners;
 			for (const auto& Expression : ExpressionCollection.Expressions)
 				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
@@ -255,6 +262,9 @@ namespace Durin
 				const auto Applied = Parameter->SetParameterDefinition(Definition);
 				require(Applied);
 			}
+#else
+			return {FMaterialError(EMaterialParameterError::OwnerMissing, Id)};
+#endif
 		}
 
 		*Entry = std::move(Definition);
@@ -311,12 +321,21 @@ namespace Durin
 
 	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		if (Ar.IsSaving() && !GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& !DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Cannot Cook an invalid material parameter schema.");
 			return;
 		}
+#else
+		if (Ar.IsSaving() && !GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"Cooking authored materials requires editor-only data support.");
+			return;
+		}
+#endif
 		Super::SerializeCooked(Ar);
 		if (Ar.IsError()) return;
 		std::vector<FMaterialParameterDefinition> Loaded;
@@ -459,6 +478,7 @@ namespace Durin
 			MaterialCookDiagnostic = {};
 			return;
 		}
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);
 		if (!SchemaValidation)
 		{
@@ -483,11 +503,15 @@ namespace Durin
 		PublishMaterialRenderProxyState();
 		NotifyParameterChanges();
 		GraphChanges.Publish(*this);
+#else
+		DURIN_ERROR("PostLoad '{}': authored materials require editor-only data support.", GetObjectPath());
+#endif
 	}
 
 	auto DMaterial::PostEditChangeProperty(
 		const FPropertyChangedEvent& Event) -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);
 		if (!Event.MemberProperty) return;
@@ -522,6 +546,9 @@ namespace Durin
 		}
 		Context.EndDiscovery();
 		GraphChanges.Publish(*this);
+#else
+		Super::PostEditChangeProperty(Event);
+#endif
 	}
 
 	auto DMaterial::BeginDestroy() -> void

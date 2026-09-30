@@ -52,6 +52,7 @@ namespace Durin
 		ENGINE_API auto FinishCachePlatformData() -> bool;
 		ENGINE_API auto BeginDestroy() -> void override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetSource() const -> const FTextureSource& { return Source; }
 		// GameThread only. Adopts prepared source compatible with this texture family,
 		// binds ownership and invalidates authored builds, CPU data and GPU publication; does not read payloads.
@@ -71,6 +72,7 @@ namespace Durin
 		// GameThread only. Accepts validated import data owned by this texture as an inner object.
 		ENGINE_API auto SetAssetImportData(
 			DAssetImportData& Value) -> void;
+#endif
 
 		// Queries installed CPU data without loading bulk data or updating resources.
 		virtual auto HasPlatformData() const -> bool = 0;
@@ -103,7 +105,9 @@ namespace Durin
 
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
+#if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto InvalidateAuthoredBuild() -> void;
+#endif
 		ENGINE_API auto InvalidateRenderResource() -> void;
 		// Restricted to family serializers and blocking loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
@@ -145,11 +149,13 @@ namespace Durin
 		bool bAcceptingRenderResourceBuilds = true;
 		bool bCacheRequestCurrent = false;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		FTextureSource Source;
+#endif
 
 		FBulkData CookedPlatformData;
 

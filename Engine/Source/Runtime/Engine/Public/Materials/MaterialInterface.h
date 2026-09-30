@@ -111,9 +111,11 @@ namespace Durin
 	public:
 		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
 		virtual auto IsDynamicInstance() const -> bool { return false; }
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetImportProvenance() const -> const FMaterialImportProvenance& { return ImportProvenance; }
 		// Changes only persisted editor metadata, without invalidating compiled material state.
 		ENGINE_API auto SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool;
+#endif
 
 		ENGINE_API virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
 		ENGINE_API auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
@@ -211,8 +213,10 @@ namespace Durin
 			std::string_view VirtualPackagePath) -> FCookContributionResult;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		FMaterialImportProvenance ImportProvenance;
+#endif
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration(FObjectCacheContext* Context = nullptr) -> void;
 		auto PublishMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) -> void;

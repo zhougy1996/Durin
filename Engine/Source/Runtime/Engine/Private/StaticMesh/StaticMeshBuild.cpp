@@ -13,10 +13,14 @@ namespace Durin
 	auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
-		return {.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
+		FStaticMeshReconciliationSnapshot Snapshot{
+			.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
 				Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()),
-			.NormalizedSize = Mesh.GetNormalizedSize(),
-			.SourceIdentity = Mesh.GetSource().GetIdentity()};
+			.NormalizedSize = Mesh.GetNormalizedSize()};
+#if DURIN_WITH_EDITORONLY_DATA
+		Snapshot.SourceIdentity = Mesh.GetSource().GetIdentity();
+#endif
+		return Snapshot;
 	}
 
 	auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,

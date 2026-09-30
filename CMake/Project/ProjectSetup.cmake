@@ -73,6 +73,10 @@ function(add_durin_project project_name)
 	endif()
 
 	include("${_durin_project_cmake_file}")
+	# Standalone programs in the project's parent directory use the same semantic
+	# feature values as modules, reflection parsing, and shared PCHs.
+	set(DURIN_WITH_EDITOR "${DURIN_WITH_EDITOR}" PARENT_SCOPE)
+	set(DURIN_WITH_EDITORONLY_DATA "${DURIN_WITH_EDITORONLY_DATA}" PARENT_SCOPE)
 
 	set(DURIN_PROJECT_NAME "${project_name}")
 	if(NOT DEFINED DURIN_PROJECT_ROOT_DIR)

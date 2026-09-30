@@ -28,12 +28,14 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		// GameThread only. Assigns validated settings and cancels pending authored builds.
 		ENGINE_API auto SetBuildSettings(
 			FVolumeTextureBuildSettings Value) -> void;
 
 		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
+#endif
 
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData*
@@ -59,8 +61,10 @@ namespace Durin
 		auto BuildPlatformDataForLoad() -> void override;
 		auto LoadCookedPlatformData() -> bool override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		FVolumeTextureBuildSettings BuildSettings;
+#endif
 
 		std::shared_ptr<FVolumeTexturePlatformData> PlatformData;
 	};

@@ -49,6 +49,13 @@ namespace Durin
 	auto ValidateMaterialFunctionDependencies(std::span<DMaterialFunctionInterface* const> Roots,
 		std::vector<FMaterialFunctionOwnerStamp>& OutOwners, EMaterialFunctionValidationMode Mode) -> FMaterialProgramValidationResult
 	{
+#if !DURIN_WITH_EDITORONLY_DATA
+		OutOwners.clear();
+		FMaterialProgramValidationResult Unavailable;
+		Unavailable.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Dependency,
+			.Error = EMaterialFunctionError::NoTypedExpressionBody});
+		return Unavailable;
+#else
 		check(IsInGameThread());
 		FMaterialProgramValidationResult Result;
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
@@ -127,5 +134,6 @@ namespace Durin
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
 		OutOwners = std::move(Owners); Result.bSucceeded = true;
 		return Result;
+#endif
 	}
 }

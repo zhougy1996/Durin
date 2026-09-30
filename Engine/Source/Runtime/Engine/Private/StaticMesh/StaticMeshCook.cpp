@@ -58,7 +58,11 @@ namespace Durin
 			for (const FMeshMaterialSlotDefinition& Slot : Mesh.GetMaterialSlots())
 			{
 				Builder.Update(Slot.Name.ToString());
+#if DURIN_WITH_EDITORONLY_DATA
 				Builder.UpdateValue(Slot.SourceMaterialIndex);
+#else
+				Builder.UpdateValue(uint32{0});
+#endif
 			}
 			return Builder.Finalize().HashValue;
 		}
@@ -102,9 +106,9 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> DetachedRender;
 			const FStaticMeshRenderData* Projection = RenderData.get();
 			std::string Error;
-			if (Source.IsValid())
+			if (GetSource().IsValid())
 			{
-				FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*this), .Source = Source};
+				FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*this), .Source = GetSource()};
 				Request.bPersistDerivedData = false;
 				auto Built = BuildStaticMeshRenderData(std::move(Request));
 				if (!Built)
@@ -270,8 +274,8 @@ namespace Durin
 		{
 			return;
 		}
-		if (CanJoinStaticMeshCompilation(*this, Source)) return;
-		if (const auto Submitted = AsyncBuild({.Source = Source, .bMarkPackageDirty = false}); !Submitted)
+		if (CanJoinStaticMeshCompilation(*this, GetSource())) return;
+		if (const auto Submitted = AsyncBuild({.Source = GetSource(), .bMarkPackageDirty = false}); !Submitted)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshBuildMessages(Submitted.error()));
 			return;
@@ -501,7 +505,7 @@ namespace Durin
 		};
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
-		if (!RenderData && !Source.IsValid()) return Reject(ECookContributionError::RenderData);
+		if (!RenderData && !GetSource().IsValid()) return Reject(ECookContributionError::RenderData);
 		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
 		if (!Added)
 		{

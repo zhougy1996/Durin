@@ -1,4 +1,5 @@
 import hashlib
+import ctypes
 from pathlib import Path
 import re
 from typing import TypeAlias
@@ -10,9 +11,9 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v6"
+PARSER_CONTEXT_VERSION = "target-predefines-v8"
 _FILE_ID_READABLE_PREFIX_LENGTH = 48
-_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
+_INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
 
 
@@ -41,6 +42,9 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
     module_config = configs.get_module_config(module_name)
     deps = configs.collect_all_dependent_modules(module_name)
     modules = [module_name, *sorted(deps)]
+    variant = configs.get_runtime_variant_config("Engine", configs.RUNTIME_VARIANT)
+    if variant is None:
+        raise ValueError(f"unsupported runtime variant '{configs.RUNTIME_VARIANT}'")
 
     args = [
         "-x", "c++",
@@ -50,7 +54,8 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
         "-D_DHT_PARSER=1",
         "-DNDEBUG",
         "-DFORCEINLINE=inline",
-        f"-DDURIN_WITH_EDITOR={1 if configs.RUNTIME_VARIANT == 'DurinEditor' else 0}",
+        f"-DDURIN_WITH_EDITOR={int(variant.with_editor)}",
+        f"-DDURIN_WITH_EDITORONLY_DATA={int(variant.with_editor_only_data)}",
     ]
     args.extend(_target_predefined_macros(configs.ARCH))
     if export_mode:
@@ -68,6 +73,7 @@ def _validate_preprocessor_context(source: str) -> None:
         "_DHT_PARSER",
         "_DHT_EXPORTS_PARSER",
         "DURIN_WITH_EDITOR",
+        "DURIN_WITH_EDITORONLY_DATA",
         "NDEBUG",
         "_MSC_VER",
         "_WIN32",
@@ -192,6 +198,33 @@ def _parse_translation_unit(
         str(header_path),
         args=[*_clang_args(module_name, export_mode), "-include", str(prelude_path)],
         unsaved_files=unsaved_files,
-        options=clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
+        options=(clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+                 | clang.cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD),
     )
     return translation_unit, dmeta_uses
+
+
+class _SourceRangeList(ctypes.Structure):
+    _fields_ = [("count", ctypes.c_uint), ("ranges", ctypes.POINTER(clang.cindex.SourceRange))]
+
+
+def _skipped_source_lines(tu: clang.cindex.TranslationUnit, header_path: Path) -> set[int]:
+    # Python's libclang bindings do not expose this C API. Ask Clang rather than
+    # duplicating its preprocessor expression/define semantics in source recovery.
+    lib = clang.cindex.conf.lib
+    get_ranges = lib.clang_getSkippedRanges
+    get_ranges.argtypes = [clang.cindex.TranslationUnit, clang.cindex.File]
+    get_ranges.restype = ctypes.POINTER(_SourceRangeList)
+    dispose = lib.clang_disposeSourceRangeList
+    dispose.argtypes = [ctypes.POINTER(_SourceRangeList)]
+    dispose.restype = None
+    ranges = get_ranges(tu, tu.get_file(str(header_path)))
+    skipped: set[int] = set()
+    if ranges:
+        try:
+            for index in range(ranges.contents.count):
+                span = ranges.contents.ranges[index]
+                skipped.update(range(span.start.line, span.end.line + 1))
+        finally:
+            dispose(ranges)
+    return skipped

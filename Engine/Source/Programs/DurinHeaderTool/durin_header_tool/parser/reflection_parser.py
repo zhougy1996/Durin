@@ -65,6 +65,7 @@ from durin_header_tool.parser.clang_context import (
     _include_path_for_header,
     _parse_translation_unit,
     _validate_preprocessor_context,
+    _skipped_source_lines,
 )
 
 
@@ -176,7 +177,6 @@ def parse_reflection_header(
     header_path = (module_config.module_dir / header).resolve()
     source = header_path.read_text(encoding="utf-8")
     _validate_preprocessor_context(source)
-    property_context = HeaderPropertyContext.from_source(source)
     tu, dmeta_uses = _parse_translation_unit(
         module_name,
         header,
@@ -185,6 +185,14 @@ def parse_reflection_header(
         export_mode,
         exported_symbols,
     )
+    skipped_lines = _skipped_source_lines(tu, header_path)
+    source = "".join(
+        "".join("\n" if char == "\n" else " " for char in line)
+        if number in skipped_lines else line
+        for number, line in enumerate(source.splitlines(keepends=True), start=1)
+    )
+    dmeta_uses = {key: use for key, use in dmeta_uses.items() if use.line not in skipped_lines}
+    property_context = HeaderPropertyContext.from_source(source)
 
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []

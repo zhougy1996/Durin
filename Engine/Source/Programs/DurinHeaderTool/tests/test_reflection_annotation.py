@@ -228,7 +228,8 @@ struct FSecond
         assert unsaved_files[0][1].count("\n") == 2
         assert (
             index.parse.call_args.kwargs["options"]
-            == clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+            == (clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+                | clang.cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
         )
 
 
@@ -344,6 +345,7 @@ namespace Fixture
             macos = _clang_args("Fixture", False)
 
         assert "-D_WIN32=1" in win64
+        assert "-DDURIN_WITH_EDITORONLY_DATA=1" in win64
         assert "-D_MSC_VER=1930" in win64
         assert "--target=x86_64-pc-windows-msvc" in win64
         assert "-D__APPLE__=1" not in win64
@@ -352,6 +354,66 @@ namespace Fixture
         assert "--target=arm64-apple-macos" in macos
         assert "-D_WIN32=1" not in macos
         assert "-D_MSC_VER=1930" not in macos
+
+    def test_game_parser_defines_editor_only_data_as_zero(self):
+        from durin_header_tool.parser.clang_context import _clang_args
+
+        config = DurinModuleConfig(module_name="Fixture", module_dir=self.module_dir)
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "ARCH", "Win64"),
+            mock.patch.object(configs, "RUNTIME_VARIANT", "DurinGame"),
+        ):
+            game = _clang_args("Fixture", False)
+
+        assert "-DDURIN_WITH_EDITOR=0" in game
+        assert "-DDURIN_WITH_EDITORONLY_DATA=0" in game
+
+    def test_parser_can_retain_data_without_editor_behavior(self):
+        from durin_header_tool.parser.clang_context import _clang_args
+
+        config = DurinModuleConfig(module_name="Fixture", module_dir=self.module_dir)
+        variant = configs.DurinRuntimeVariantConfig("DataOnlyFixture", False, True, "Engine")
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "get_runtime_variant_config", return_value=variant),
+        ):
+            args = _clang_args("Fixture", False)
+        assert "-DDURIN_WITH_EDITOR=0" in args
+        assert "-DDURIN_WITH_EDITORONLY_DATA=1" in args
+
+    @pytest.mark.parametrize("variant, has_source", [("DurinEditor", True), ("DurinGame", False)])
+    def test_editor_only_data_controls_reflected_layout(self, variant, has_source):
+        header = "Public/EditorData.h"
+        (self.module_dir / header).write_text('''#pragma once
+
+#include "Ignored.h"
+
+namespace Fixture {
+    DCLASS()
+    class AEditorData : public Durin::DObject {
+        GENERATED_BODY()
+        DPROPERTY()
+        float RuntimeValue;
+#if DURIN_WITH_EDITORONLY_DATA
+        DPROPERTY(EditorOnly)
+        float SourceValue;
+#endif
+    };
+}''', encoding="utf-8")
+        config = DurinModuleConfig(module_name="Fixture", module_dir=self.module_dir)
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "RUNTIME_VARIANT", variant),
+        ):
+            info = parse_reflection_header("Fixture", header, exported_symbols=self.symbols)
+            generated = generate_cpp_content(info, self.symbols)
+        assert "RuntimeValue" in generated
+        assert ("SourceValue" in generated) == has_source
+        assert "_GENERATED_BODY" in generate_header_content(info)
 
     def test_file_id_distinguishes_paths_that_share_a_readable_prefix(self):
         flat_file_id = _file_id_for_header("Fixture", "Public/A_B.h")

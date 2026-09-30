@@ -1,3 +1,11 @@
+durin_add_native_test(AssetEditorDataTests
+	KIND contract
+	DOMAINS asset-workflow
+	MODULES core engine
+	SOURCES Private/AssetEditorDataTests.cpp
+	LIBRARIES Core CoreDObject Engine
+)
+
 durin_add_native_test(AssetSaveReadinessTests
 	KIND contract
 	DOMAINS asset-workflow

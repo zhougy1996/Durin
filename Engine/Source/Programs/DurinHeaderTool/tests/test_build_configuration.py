@@ -406,10 +406,23 @@ class TestIntermediateLayout:
         expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         assert output_path == expected_root / "Engine.project.cmake"
         assert expected_root.as_posix() in content
+        assert "set(DURIN_WITH_EDITORONLY_DATA 1)" in content
+        assert "set(DURIN_PROJECT_RUNTIME_VARIANT_WITH_EDITORONLY_DATA ON)" in content
         assert (
             "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/${DURIN_THIRDPARTY_OUTPUT_CONFIG}/ThirdParty"
             in content
         )
+
+    def test_game_project_metadata_disables_editor_behavior_and_data(self):
+        with (
+            mock.patch.object(configs, "RUNTIME_VARIANT", "DurinGame"),
+            mock.patch.object(project_cmake_file_generator.utils, "generate_file") as generate_file,
+        ):
+            project_cmake_file_generator.generate_project_cmake_file("Engine")
+        _, content = generate_file.call_args.args
+        assert "set(DURIN_WITH_EDITOR 0)" in content
+        assert "set(DURIN_WITH_EDITORONLY_DATA 0)" in content
+        assert "set(DURIN_PROJECT_RUNTIME_VARIANT_WITH_EDITORONLY_DATA OFF)" in content
 
     def test_cmake_commands_forward_shared_dht_context(self):
         workspace_root = ROOT.parents[3]

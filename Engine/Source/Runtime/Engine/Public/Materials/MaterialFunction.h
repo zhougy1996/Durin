@@ -25,6 +25,7 @@ namespace Durin
 		ENGINE_API auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> MIR::FFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
@@ -32,6 +33,7 @@ namespace Durin
 			{ return Presentation; }
 		// Position-only edits never advance the semantic dependency revision.
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
+#endif
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
@@ -46,11 +48,13 @@ namespace Durin
 		mutable FMaterialFunctionSignature CachedSignature;
 		mutable bool bSignatureCached = false;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
 
 		DPROPERTY(EditorOnly)
 		FMaterialFunctionPresentation Presentation;
+#endif
 
 		uint64 Revision = 1;
 	};

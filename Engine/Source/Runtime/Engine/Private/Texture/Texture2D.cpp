@@ -81,11 +81,13 @@ namespace Durin
 			PlatformData.get(), FName("Durin::DTexture2D"), "Texture2D");
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture2D::CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
 		-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>
 	{
 		return MakeTexture2DBuildRequest(GetSource(), Settings);
 	}
+#endif
 
 	auto DTexture2D::SetPlatformData(
 		std::unique_ptr<FTexturePlatformData> Data) -> void
@@ -107,6 +109,7 @@ namespace Durin
 
 	auto DTexture2D::BuildPlatformDataForLoad() -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!GetSource().IsValid())
 		{
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
@@ -123,6 +126,9 @@ namespace Durin
 			.bReportLoadMutation = false,
 			.bSourceDecoderInvoked = false}}); !Built)
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.error()));
+#else
+		DURIN_ERROR("PostLoad '{}': authored Texture2D builds require editor-only data support.", GetObjectPath());
+#endif
 	}
 
 	auto DTexture2D::LoadCookedPlatformData() -> bool
@@ -175,6 +181,7 @@ namespace Durin
 		return NewSource;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture2D::SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 		uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void
@@ -188,5 +195,6 @@ namespace Durin
 		AlphaCoverageThreshold = InAlphaCoverageThreshold;
 		InvalidateAuthoredBuild();
 	}
+#endif
 
 }

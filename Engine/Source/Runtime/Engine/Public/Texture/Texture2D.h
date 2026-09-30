@@ -49,6 +49,7 @@ namespace Durin
 
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
@@ -61,6 +62,7 @@ namespace Durin
 		// Captures a detached source snapshot without reading or decompressing its payload.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
 			-> std::expected<FTexture2DBuildRequest, FTexture2DInputError>;
+#endif
 
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTexturePlatformData*
@@ -95,6 +97,7 @@ namespace Durin
 		DPROPERTY()
 		bool bSRGB = true;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		// Zero retains the source-sized base mip. Other values select the largest
 		// generated mip whose dimensions both fit within the limit.
 		DPROPERTY(EditorOnly)
@@ -109,6 +112,7 @@ namespace Durin
 		// Alpha-test threshold used only by PreserveCoverage Color mip generation.
 		DPROPERTY(EditorOnly)
 		float AlphaCoverageThreshold = 0.5f;
+#endif
 
 		// Installed runtime data is rebuilt from Source but has an independent lifetime.
 		std::shared_ptr<FTexturePlatformData> PlatformData;

@@ -36,7 +36,9 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, TextureReference(std::make_unique<FTextureReference>())
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		Source.BindOwner(this);
+#endif
 	}
 
 	DTexture::~DTexture()
@@ -52,13 +54,20 @@ namespace Durin
 		if (Context.bCooked)
 			return CookedPlatformData.GetMetadata().LogicalSize != 0 ? std::expected<void, FObjectValidationError>{}
 				: RejectLoadedObjectGraph(GetObjectPath(), "Required cooked PlatformData field is missing.");
+#if DURIN_WITH_EDITORONLY_DATA
 		return Source.IsValid() ? std::expected<void, FObjectValidationError>{}
 			: RejectLoadedObjectGraph(GetObjectPath(), "Invalid or unsupported texture source.");
+#else
+		return RejectLoadedObjectGraph(GetObjectPath(),
+			"Authored texture packages require editor-only data support.");
+#endif
 	}
 
 	auto DTexture::PostLoad() -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		Source.BindOwner(this);
+#endif
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
@@ -69,12 +78,16 @@ namespace Durin
 			ResetPlatformData();
 			return;
 		}
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!Source.IsValid())
 		{
 			DURIN_ERROR("PostLoad '{}': invalid or unsupported texture source.", GetObjectPath());
 			return;
 		}
 		BeginCachePlatformData();
+#else
+		DURIN_ERROR("PostLoad '{}': authored texture packages require editor-only data support.", GetObjectPath());
+#endif
 	}
 
 	auto DTexture::BeginCachePlatformData() -> void
@@ -188,6 +201,7 @@ namespace Durin
 		return RenderResource ? RenderResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture::ReplaceSourceStorage(FTextureSource Value) -> bool
 	{
 		CheckGameThread();
@@ -219,6 +233,7 @@ namespace Durin
 		CookedPlatformData = {};
 		InvalidateRenderResource();
 	}
+#endif
 
 	auto DTexture::InvalidateRenderResource() -> void
 	{
@@ -237,12 +252,14 @@ namespace Durin
 		LastUpdateState = ETextureResourceUpdateState::Idle;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture::SetAssetImportData(DAssetImportData& Value) -> void
 	{
 		CheckGameThread();
 		check(Value.GetOuter() == this);
 		AssetImportData = &Value;
 	}
+#endif
 
 	auto DTexture::UpdateResource() -> void
 	{

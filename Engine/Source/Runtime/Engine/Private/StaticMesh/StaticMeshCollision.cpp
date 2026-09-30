@@ -27,7 +27,7 @@ namespace Durin
 
 	auto DStaticMesh::ContainsPhysicsTriMeshData() const -> bool
 	{
-		return Source.IsValid() || (RenderData && !RenderData->LODResources.empty());
+		return GetSource().IsValid() || (RenderData && !RenderData->LODResources.empty());
 	}
 
 	namespace
@@ -100,6 +100,7 @@ namespace Durin
 	auto DStaticMesh::CreatePhysicsMeshInputTask() const
 		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure>
 	{
+		const auto& Source = GetSource();
 		if (!Source.IsValid()) return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
 		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 		if (!Memory.Add(Source.GetGeometryBulk().GetPayloadSize(), 64) || !Memory.Add(Source.GetMeshCount(), 1024))
@@ -110,6 +111,7 @@ namespace Durin
 	auto DStaticMesh::GetPhysicsTriMeshData() const
 		-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure>
 	{
+		const auto& Source = GetSource();
 		if (Source.IsValid())
 		{
 			auto Task = CreatePhysicsMeshInputTask();

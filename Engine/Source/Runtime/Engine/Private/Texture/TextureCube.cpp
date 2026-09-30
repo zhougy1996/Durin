@@ -24,6 +24,7 @@ namespace Durin
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
+#if DURIN_WITH_EDITORONLY_DATA
 		struct FCubeCacheResult final : FTexturePlatformCacheResult
 		{
 			std::unique_ptr<FTextureCubePlatformData> Data;
@@ -140,6 +141,7 @@ namespace Durin
 			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;
 		}
+#endif
 
 		auto ValidateCubeSourceData(const FTextureCubeDecodedFaces& SourceData, std::string& OutError) -> bool
 		{
@@ -287,6 +289,7 @@ namespace Durin
 			PlatformData);
 	}
 
+#if DURIN_WITH_EDITOR
 	auto DTextureCube::RebuildPlatformData() -> bool
 	{
 		std::string Error;
@@ -300,11 +303,16 @@ namespace Durin
 			{.bSourceDecoderInvoked = false, .bPreserveSource = true});
 		return static_cast<bool>(Result);
 	}
+#endif
 
 	auto DTextureCube::BuildPlatformDataForLoad() -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!SubmitTexturePlatformCache(*this, std::make_shared<FCubeCacheInput>(*this)))
 			DURIN_ERROR("PostLoad '{}': TextureCube cache admission failed.", GetObjectPath());
+#else
+		DURIN_ERROR("PostLoad '{}': authored TextureCube builds require editor-only data support.", GetObjectPath());
+#endif
 	}
 
 	auto DTextureCube::LoadCookedPlatformData() -> bool
@@ -351,6 +359,7 @@ namespace Durin
 		return NewSource;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DTextureCube::SetBuildSettings(
 		ETextureCubeSourceLayout InSourceLayout,
 		uint32 InPanoramaFaceDimension,
@@ -369,4 +378,5 @@ namespace Durin
 		Output = InOutput;
 		InvalidateAuthoredBuild();
 	}
+#endif
 }

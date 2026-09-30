@@ -35,20 +35,24 @@ namespace Durin
 		ENGINE_API ~DTextureCube() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOutput() const -> ETextureCubeOutput { return Output; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
 		auto GetOriginalSourceHeight() const -> uint32 { return OriginalSourceHeight; }
-		auto IsSRGB() const -> bool { return bSRGB; }
 		// GameThread only. Assigns validated settings and cancels pending authored builds.
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
 			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
 			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,
 			bool bInSRGB, ETextureCubeOutput InOutput = ETextureCubeOutput::LDR) -> void;
+#endif
+		auto IsSRGB() const -> bool { return bSRGB; }
 
+#if DURIN_WITH_EDITOR
 		ENGINE_API auto RebuildPlatformData() -> bool;
+#endif
 
 		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
@@ -78,6 +82,7 @@ namespace Durin
 		auto BuildPlatformDataForLoad() -> void override;
 		auto LoadCookedPlatformData() -> bool override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly, AlwaysSerialize, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
@@ -96,6 +101,7 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		uint32 OriginalSourceHeight = 0;
+#endif
 
 		DPROPERTY()
 		bool bSRGB = true;

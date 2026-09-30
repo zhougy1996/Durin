@@ -14,6 +14,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterial::GetOutputNode() const -> const DMaterialExpressionMaterialOutput*
 	{
 		for (const auto& Expression : ExpressionCollection.Expressions)
@@ -82,6 +83,7 @@ namespace Durin
 		OutDefinitions = std::move(Definitions);
 		return {.bSucceeded = true};
 	}
+#endif
 
 
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
@@ -91,6 +93,7 @@ namespace Durin
 		if (Context.bCooked)
 			return CookedProgramData.GetMetadata().LogicalSize != 0 ? std::expected<void, FObjectValidationError>{}
 				: RejectMaterialObjectGraph(GetObjectPath(), EMaterialCookError::ProgramUnavailable);
+#if DURIN_WITH_EDITORONLY_DATA
 		std::vector<FMaterialParameterDefinition> Schema;
 		if (const auto Validation = DeriveExpressionParameterSchema(ExpressionCollection, Schema); !Validation)
 			return RejectLoadedObjectGraph(GetObjectPath(), "Material graph has an invalid parameter schema.");
@@ -106,8 +109,13 @@ namespace Durin
 			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
 		}
 		return {};
+#else
+		return RejectLoadedObjectGraph(GetObjectPath(),
+			"Authored materials require editor-only data support.");
+#endif
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 		FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult
 	{
@@ -174,4 +182,5 @@ namespace Durin
 		GraphChanges.Publish(*this);
 		return Result;
 	}
+#endif
 }

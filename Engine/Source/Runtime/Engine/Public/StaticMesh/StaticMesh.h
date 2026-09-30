@@ -215,11 +215,19 @@ namespace Durin
 		ENGINE_API auto InitResources() -> void;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			return AssetImportData.Get();
+#else
+			return nullptr;
+#endif
 		}
 		auto GetAssetImportData() -> DAssetImportData*
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			return AssetImportData.Get();
+#else
+			return nullptr;
+#endif
 		}
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
@@ -230,7 +238,15 @@ namespace Durin
 
 		// Owner-thread observation only; never submits or retries loading.
 		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
-		auto GetSource() const -> const FStaticMeshSource& { return Source; }
+		auto GetSource() const -> const FStaticMeshSource&
+		{
+#if DURIN_WITH_EDITORONLY_DATA
+			return Source;
+#else
+			static const FStaticMeshSource Empty;
+			return Empty;
+#endif
+		}
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
@@ -263,11 +279,13 @@ namespace Durin
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>;
 		// Also installs valid source settings before rebuilding, retaining them on failure.
 		// Package dirtying remains the operation owner's responsibility.
+#if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto ReplaceSourceRenderDataDestructively(
 			FStaticMeshSource InSource,
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			float InNormalizedSize) -> std::expected<void, FStaticMeshReplacementError>;
+#endif
 		// Last direct CPU replacement error, cleared by successful CPU publication.
 		// Async compilation and GPU initialization expose their own status/diagnostics.
 		auto GetRenderDataUpdateError() const -> const FStaticMeshReplacementError& { return RenderDataUpdateError; }
@@ -334,11 +352,13 @@ namespace Durin
 		auto RefreshQualifiedBoxBodySetup() -> void;
 
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		FStaticMeshSource Source;
+#endif
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;

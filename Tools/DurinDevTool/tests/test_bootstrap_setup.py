@@ -150,6 +150,16 @@ class TestVSCodeConfigLifecycle:
                 'console': 'integratedTerminal',
                 'MIMode': 'lldb',
             },
+            {
+                'name': 'MacOS-arm64-Debug-DurinGame',
+                'type': 'cppdbg',
+                'request': 'launch',
+                'program': '${workspaceFolder}/Engine/Binaries/MacOS/Debug/Runtime/DurinGame/DurinGame',
+                'cwd': '${workspaceFolder}',
+                'stopAtEntry': False,
+                'console': 'integratedTerminal',
+                'MIMode': 'lldb',
+            },
         ]
 
 class TestBootstrapRegistry:

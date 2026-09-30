@@ -3,7 +3,7 @@ import re
 
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 
-_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
+_INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 
 
 @dataclass(frozen=True)

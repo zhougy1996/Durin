@@ -1,10 +1,5 @@
 # Capability-separated asset audit and canonical-resave host used by DurinDevTool. It
 # deliberately links no Launch/editor executable and performs no engine loop.
-if(DURIN_RUNTIME_VARIANT STREQUAL "DurinEditor")
-    set(DURIN_WITH_EDITOR 1)
-else()
-    set(DURIN_WITH_EDITOR 0)
-endif()
 add_executable(DurinAssetTool "Private/AssetToolMain.cpp")
 
 durin_target_enable_windows_long_paths(DurinAssetTool)

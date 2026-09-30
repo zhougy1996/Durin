@@ -22,12 +22,14 @@ namespace Durin
 		DPROPERTY()
 		FName Name;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		std::string SourceName;
 
 		// Original importer index used only for source reconciliation.
 		DPROPERTY(EditorOnly)
 		uint32 SourceMaterialIndex = 0;
+#endif
 
 		DPROPERTY()
 		TObjectPtr<DMaterialInterface> DefaultMaterial;

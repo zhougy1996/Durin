@@ -176,7 +176,11 @@ namespace Durin
 				for (size_t Index = 0; Index < InputSlots.size(); ++Index)
 				{
 					const auto& Slot = InputSlots[Index];
-					if (Slot.Name.IsNone() || Slot.SourceName.size() > 4096 || !SlotNames.insert(Slot.Name).second)
+					if (Slot.Name.IsNone()
+#if DURIN_WITH_EDITORONLY_DATA
+						|| Slot.SourceName.size() > 4096
+#endif
+						|| !SlotNames.insert(Slot.Name).second)
 						return Reject(std::format("StaticMesh compilation requires bounded unique material slots (slot {}, name {}).", Index, Slot.Name.ToString()));
 				}
 				if (Mesh.GetAssetImportData())
@@ -464,7 +468,10 @@ namespace Durin
 				{
 					const auto& A = Current.MaterialSlots[Index];
 					const auto& B = Expected.MaterialSlots[Index];
-					if (A.Name != B.Name || A.SourceName != B.SourceName || A.SourceMaterialIndex != B.SourceMaterialIndex
+					if (A.Name != B.Name
+#if DURIN_WITH_EDITORONLY_DATA
+						|| A.SourceName != B.SourceName || A.SourceMaterialIndex != B.SourceMaterialIndex
+#endif
 						|| A.DefaultMaterial != B.DefaultMaterial) return false;
 				}
 				return true;

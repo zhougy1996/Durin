@@ -1547,8 +1547,10 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionFunctionCall(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DMaterialFunctionInterface> Function;
+#endif
 
 		DPROPERTY()
 		std::vector<FMaterialExpressionFunctionInputBinding> Inputs;

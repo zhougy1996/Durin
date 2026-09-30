@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-09-30
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -401,6 +401,15 @@ target profile and omits `EditorOnly` fields unless diagnostic retention is
 explicit. Owned per-save overrides may omit objects/properties or supply copied
 replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
+
+`EditorOnly` is a serialization policy, not a native-layout switch. Authored
+source, import provenance, material graphs/presentation, and source reconciliation
+members are additionally guarded by `DURIN_WITH_EDITORONLY_DATA`. Game builds
+omit their storage and reflection registration; Editor builds retain them for
+authoring and Cook. Cooked runtime properties and payload readers remain intact.
+See [editor behavior and data](../../Development/Build/RuntimeVariants.md#editor-behavior-and-data)
+for the build and HeaderTool contract. Diagnostic retention cannot restore
+fields that were compiled out of a variant.
 
 Synchronous, asynchronous, and batch saves share destination admission,
 version validation, destination stamp capture, closure encoding,

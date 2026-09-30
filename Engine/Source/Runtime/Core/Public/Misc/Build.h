@@ -1,5 +1,18 @@
 #pragma once
 
+#ifndef DURIN_WITH_EDITOR
+	#error DURIN_WITH_EDITOR must be supplied by the runtime variant.
+#endif
+#ifndef DURIN_WITH_EDITORONLY_DATA
+	#error DURIN_WITH_EDITORONLY_DATA must be supplied by the runtime variant.
+#endif
+#if (DURIN_WITH_EDITOR != 0 && DURIN_WITH_EDITOR != 1) || (DURIN_WITH_EDITORONLY_DATA != 0 && DURIN_WITH_EDITORONLY_DATA != 1)
+	#error Durin editor feature macros must be either 0 or 1.
+#endif
+#if DURIN_WITH_EDITOR && !DURIN_WITH_EDITORONLY_DATA
+	#error Editor behavior requires editor-only data.
+#endif
+
 #ifndef DURIN_BUILD_DEBUG
 	#define DURIN_BUILD_DEBUG 0
 #endif

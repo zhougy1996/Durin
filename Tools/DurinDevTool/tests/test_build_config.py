@@ -113,6 +113,7 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert profile.presets == (
             'MacOS-arm64-Debug-DurinEditor',
             'MacOS-arm64-Release-DurinEditor',
+            'MacOS-arm64-Debug-DurinGame',
         )
         assert profile.test_executable_suffix == ''
         assert {'ninja', 'clang', 'xcrun'} <= set(profile.required_commands)
@@ -134,6 +135,7 @@ from durin_dev_tool.build import purge, recovery, runtime
         ]
         assert [preset['name'] for preset in macos_presets] == [
             'MacOS-arm64-Debug-DurinEditor',
+            'MacOS-arm64-Debug-DurinGame',
             'MacOS-arm64-Release-DurinEditor',
         ]
         presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
@@ -146,6 +148,10 @@ from durin_dev_tool.build import purge, recovery, runtime
             assert selection.preset_cache_string(preset, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
             assert selection.preset_cache_string(preset, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
             assert not selection.preset_cache_bool(preset, 'DURIN_ENABLE_APPLICATION_TESTS')
+        game = presets['MacOS-arm64-Debug-DurinGame']
+        assert selection.preset_cache_string(game, 'DURIN_RUNTIME_VARIANT') == 'DurinGame'
+        assert selection.preset_cache_string(game, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
+        assert not selection.preset_cache_bool(game, 'DURIN_ENABLE_APPLICATION_TESTS')
         base = next(
             item for item in manifest['configurePresets'] if item['name'] == 'macos-base'
         )

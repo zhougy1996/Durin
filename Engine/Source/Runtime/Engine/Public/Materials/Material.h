@@ -33,25 +33,32 @@ namespace Durin
 		ENGINE_API explicit DMaterial(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs&;
 		ENGINE_API auto GetOutputNode() const -> const DMaterialExpressionMaterialOutput*;
+#endif
 		auto GetDomain() const -> EMaterialDomain { return Domain; }
+#if DURIN_WITH_EDITORONLY_DATA
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
+#endif
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetMaterialGraphPresentation() const
 			-> const FMaterialGraphPresentation&
 		{
 			return GraphPresentation;
 		}
+#endif
 		auto GetMaterialProgramRevision() const -> uint64
 		{
 			return MaterialProgramRevision;
 		}
 		// Transient editor preference, inherited by loaded instances. Switching policy
 		// reschedules unsubmitted edits without modifying authored or saved state.
+#if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto SetEditCompileMode(EMaterialEditCompileMode Mode) -> void;
 		auto GetEditCompileMode() const -> EMaterialEditCompileMode { return EditCompileMode; }
 		// Explicitly submits the current root and all loaded dependent variants, using caches.
@@ -64,6 +71,7 @@ namespace Durin
 		ENGINE_API auto ApplyMaterialGraphNodePositions(
 			std::span<const FMaterialGraphNodePresentation> Positions,
 			uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult;
+#endif
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> FMaterialOperationResult;
@@ -102,8 +110,10 @@ namespace Durin
 		// Resources are retained by explicit reference collection.
 		std::vector<FMaterialParameterDefinition> ParameterSchema;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
+#endif
 
 		DPROPERTY()
 		EMaterialDomain Domain = EMaterialDomain::Surface;
@@ -115,8 +125,10 @@ namespace Durin
 			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
 
 		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
+#if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)
 		FMaterialGraphPresentation GraphPresentation;
+#endif
 
 
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.

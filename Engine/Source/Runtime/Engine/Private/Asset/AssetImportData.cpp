@@ -344,8 +344,10 @@ namespace Durin
 		if (GetState() == State) return;
 		SchemaVersion = State.SchemaVersion;
 		SourceData = std::move(State.SourceData);
+#if DURIN_WITH_EDITORONLY_DATA
 		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); Mesh && Mesh->GetAssetImportData() == this)
 			NotifyStaticMeshCompilationMutation(*Mesh);
+#endif
 	}
 
 	auto InspectAssetImportInfo(

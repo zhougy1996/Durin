@@ -48,6 +48,10 @@ def _append_project_runtime_variant_to_cmake_content(content: list[str], project
         f"set(DURIN_PROJECT_RUNTIME_VARIANT_WITH_EDITOR "
         f"{'ON' if runtime_variant_config.with_editor else 'OFF'})\n"
     )
+    content.append(
+        f"set(DURIN_PROJECT_RUNTIME_VARIANT_WITH_EDITORONLY_DATA "
+        f"{'ON' if runtime_variant_config.with_editor_only_data else 'OFF'})\n"
+    )
     content.append("\n")
 
 
@@ -62,9 +66,11 @@ def _append_project_build_variables_to_cmake_content(content: list[str], project
             f"for project {project_name}."
         )
     with_editor = 1 if runtime_variant_config.with_editor else 0
+    with_editor_only_data = 1 if runtime_variant_config.with_editor_only_data else 0
 
     content.append("# Derived build variables for this project/runtime variant\n")
     content.append(f"set(DURIN_WITH_EDITOR {with_editor})\n")
+    content.append(f"set(DURIN_WITH_EDITORONLY_DATA {with_editor_only_data})\n")
     content.append("\n")
     content.append("set(DURIN_PROJECT_APP_CONFIG_FILE \"${DURIN_PROJECT_RUNTIME_VARIANT}.yaml\")\n")
     content.append("set(DURIN_PROJECT_OUTPUT_CONFIG \"${DURIN_OUTPUT_CONFIG}\")\n")

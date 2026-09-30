@@ -152,6 +152,10 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		FMaterialCompilerSnapshotResult Result;
+#if !DURIN_WITH_EDITORONLY_DATA
+		Result.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
+		return Result;
+#else
 		const DMaterialInterface* Root = &Material;
 		for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth) Root = Root->GetParent();
 		const auto* Owner = Cast<DMaterial>(Root);
@@ -228,6 +232,7 @@ namespace Durin
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
 		Result.Snapshot.emplace(FMaterialCompilerSnapshot{std::move(Snapshot), std::move(Owners)});
 		return Result;
+#endif
 	}
 
 	auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool

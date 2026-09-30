@@ -199,6 +199,7 @@ struct FAssetState
 		}
 		if (Result.PlatformCache)
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			const bool bSucceeded = Result.Phase == ETexture2DCompilationPhase::UploadPending
 				&& Texture->GetSource().GetIdentity() == ExpectedInput.SourceIdentity;
 			if (bSucceeded) Result.PlatformCache->Apply(*Texture);
@@ -208,6 +209,11 @@ struct FAssetState
 			if (auto* State = CompilationState->FindLocked(Result.Owner))
 				State->bLastRequestFailed = !bSucceeded;
 			if (bSucceeded) CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
+#else
+			std::lock_guard Lock(CompilationState->Mutex);
+			if (auto* State = CompilationState->FindLocked(Result.Owner))
+				State->bLastRequestFailed = true;
+#endif
 			return;
 		}
 		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
@@ -650,6 +656,11 @@ struct FAssetState
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
+#if !DURIN_WITH_EDITORONLY_DATA
+		return std::unexpected(FTexture2DCompilationError{
+			.Code = ETexture2DCompilationError::ManagerUnavailable,
+			.ObjectPath = Texture.GetObjectPath()});
+#else
 		if (!Texture.GetPackage())
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
@@ -688,6 +699,7 @@ struct FAssetState
 				"Texture source identity metadata was reconciled by an uncooked post-load build.");
 		}
 		return {};
+#endif
 	}
 	}
 

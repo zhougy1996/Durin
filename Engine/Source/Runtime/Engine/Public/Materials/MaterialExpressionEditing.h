@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	// Owning-thread editor access. The caller must retain removed objects, record
 	// edits before writing, and finish or restore the edit before publishing it.
 	// Compilation validity is deliberately separate from editable storage validity.
@@ -15,4 +16,5 @@ namespace Durin
 			std::span<DMaterialExpression* const> Previous) -> void;
 		ENGINE_API static auto Publish(DObject& Owner) -> void;
 	};
+#endif
 }

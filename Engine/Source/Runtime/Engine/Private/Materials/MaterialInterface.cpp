@@ -23,6 +23,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialInterface::SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool
 	{
 		if (IsDynamicInstance()) return false;
@@ -33,6 +34,7 @@ namespace Durin
 		MarkPackageDirty();
 		return true;
 	}
+#endif
 
 	namespace
 	{
@@ -91,6 +93,7 @@ namespace Durin
 		CheckMaterialQueryThread();
 		GetMaterialFunctionChangedEvent().Broadcast(Function);
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+#if DURIN_WITH_EDITORONLY_DATA
 		FObjectCacheContext Context;
 		const auto Owners = QueryLoadedMaterialHandles(EMaterialLoadedQueryOperation::Dependents,
 			[&](const DMaterialInterface* Material) {
@@ -124,6 +127,7 @@ namespace Durin
 		Context.EndDiscovery();
 		for (const auto Key : Owners)
 			if (auto* Material = Cast<DMaterialInterface>(Key.ResolveObjectPtr())) Material->ParameterChanges.Broadcast();
+#endif
 	}
 
 	auto NotifyMaterialParameterCollectionChanged(

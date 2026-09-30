@@ -25,7 +25,8 @@
       "defaultPreset": "MacOS-arm64-Debug-DurinEditor",
       "presets": [
         "MacOS-arm64-Debug-DurinEditor",
-        "MacOS-arm64-Release-DurinEditor"
+        "MacOS-arm64-Release-DurinEditor",
+        "MacOS-arm64-Debug-DurinGame"
       ],
       "platform": "MacOS",
       "environmentProvider": "inherit",

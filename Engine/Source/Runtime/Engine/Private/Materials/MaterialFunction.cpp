@@ -14,6 +14,7 @@ namespace Durin
 
 	auto DMaterialFunction::GetFunctionSignature() const -> const FMaterialFunctionSignature&
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!bSignatureCached)
 		{
 			std::vector<DMaterialExpression*> Expressions;
@@ -21,6 +22,7 @@ namespace Durin
 			CachedSignature = DeriveMaterialFunctionSignature(Expressions);
 			bSignatureCached = true;
 		}
+#endif
 		return CachedSignature;
 	}
 
@@ -31,16 +33,19 @@ namespace Durin
 		GraphChanges.Publish(*this);
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialFunction::GetExpressionBody() const -> MIR::FFunctionBody
 	{
 		MIR::FFunctionBody Body{.Signature = GetFunctionSignature(), .AssetPath = GetObjectPath(), .Revision = Revision};
 		for (const auto& Expression : ExpressionCollection.Expressions) Body.Expressions.push_back(Expression.Get());
 		return Body;
 	}
+#endif
 
 	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (Context.bCooked) return {};
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
 		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
 		std::vector<DMaterialExpression*> Expressions;
@@ -53,8 +58,13 @@ namespace Durin
 			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
 		}
 		return {};
+#else
+		return RejectLoadedObjectGraph(GetObjectPath(),
+			"Authored material functions require editor-only data support.");
+#endif
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialFunction::SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
@@ -69,6 +79,7 @@ namespace Durin
 		GraphChanges.Publish(*this);
 		return Result;
 	}
+#endif
 
 	auto DMaterialFunction::Serialize(FArchive& Ar) -> void
 	{
@@ -97,6 +108,7 @@ namespace Durin
 	DMaterialFunction::DMaterialFunction(const FObjectInitializer& Initializer)
 		: Super(Initializer)
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		const FGuid InputId{0x3461fcad, 0x92ac4714, 0x83d68f1e, 0x219814c4};
 		const FGuid OutputId{0x690923fd, 0x879544a9, 0x864a3518, 0x81f59b74};
 		const FGuid InputNodeId{0xc5e3f95b, 0x818a4f46, 0x90564e64, 0x45f39324};
@@ -114,6 +126,7 @@ namespace Durin
 		}
 
 		Presentation.Nodes = {{InputNodeId, 0, 0}, {OutputNodeId, 320, 0}};
+#endif
 	}
 
 	auto DMaterialFunction::GetFunctionDependencies() const
@@ -121,13 +134,16 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		std::vector<TObjectPtr<DMaterialFunctionInterface>> Dependencies;
+#if DURIN_WITH_EDITORONLY_DATA
 		for (const auto& Expression : ExpressionCollection.Expressions)
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()); Call && Call->Function
 				&& !std::ranges::contains(Dependencies, Call->Function)) Dependencies.push_back(Call->Function);
+#endif
 
 		return Dependencies;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterialFunction::SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool
 	{
 		check(IsInGameThread());
@@ -143,10 +159,12 @@ namespace Durin
 		GraphChanges.PublishPresentation(*this);
 		return true;
 	}
+#endif
 
 	auto DMaterialFunction::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
+#if DURIN_WITH_EDITORONLY_DATA
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection"))
 		{
 			bSignatureCached = false;
@@ -154,5 +172,6 @@ namespace Durin
 			NotifyMaterialFunctionChanged(*this);
 		}
 		GraphChanges.Publish(*this);
+#endif
 	}
 }

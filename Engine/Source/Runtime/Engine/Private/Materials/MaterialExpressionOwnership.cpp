@@ -12,6 +12,7 @@
 #include "Threading/RunnableThread.h"
 #include <unordered_set>
 
+#if DURIN_WITH_EDITORONLY_DATA
 namespace Durin
 {
 	auto FMaterialExpressionEditing::GetExpressions(DObject& Owner) -> std::vector<TObjectPtr<DMaterialExpression>>&
@@ -82,6 +83,7 @@ namespace Durin
 		Owner.PostEditChangeProperty(Event);
 	}
 }
+#endif
 
 namespace Durin::Private
 {

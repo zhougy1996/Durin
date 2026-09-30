@@ -519,9 +519,18 @@ namespace Durin
 		{
 			std::optional<FStaticMeshRenderStateRecreateContext> RecreateContext;
 			RecreateContext.emplace(this);
+#if DURIN_WITH_EDITORONLY_DATA
 			const bool bGeometryChanged = bAcceptGeometry && (!PreparedSource
 				|| Source.GetIdentity() != PreparedSource->GetIdentity()
 				|| AcceptedGeometryNormalizedSize != NormalizedSize);
+#else
+			if (PreparedSource || PreparedImportData)
+				return std::unexpected(FStaticMeshBuildFailure{
+					"Authored StaticMesh publication requires editor-only data support.",
+					EStaticMeshBuildStage::Application});
+			const bool bGeometryChanged = bAcceptGeometry
+				&& AcceptedGeometryNormalizedSize != NormalizedSize;
+#endif
 			if (bGeometryChanged) InvalidateCollisionData();
 			if (bAcceptGeometry) AcceptedGeometryNormalizedSize = NormalizedSize;
 			std::unique_ptr<FStaticMeshRenderData> OldRenderData =
@@ -530,10 +539,14 @@ namespace Durin
 			{
 				MaterialSlots = std::move(*InMaterialSlots);
 			}
+#if DURIN_WITH_EDITORONLY_DATA
 			if (PreparedSource) Source = std::move(*PreparedSource);
+#endif
 			RenderData = std::move(InRenderData);
 			if (bAcceptGeometry) RefreshQualifiedBoxBodySetup();
+#if DURIN_WITH_EDITORONLY_DATA
 			if (PreparedImportData) AssetImportData = PreparedImportData;
+#endif
 			PublishRenderResourceState(CandidateState);
 			if (OldRenderData) RetireStaticMeshRenderData(OldRenderData);
 		}
@@ -555,6 +568,11 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots,
 		bool bPersistCollisionDerivedData) -> std::expected<void, FStaticMeshBuildFailure>
 	{
+#if !DURIN_WITH_EDITORONLY_DATA
+		return std::unexpected(FStaticMeshBuildFailure{
+			"Authored StaticMesh publication requires editor-only data support.",
+			EStaticMeshBuildStage::Application});
+#else
 		CheckStaticMeshUpdateThread();
 		const auto Fail = [](FStaticMeshBuildFailure Error) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(std::move(Error));
@@ -605,6 +623,7 @@ namespace Durin
 			Mesh.ScheduleCollisionData(true, bPersistCollisionDerivedData);
 		if (bMarkPackageDirty) Mesh.MarkPackageDirty();
 		return {};
+#endif
 	}
 
 	auto DStaticMesh::BeginDestroy() -> void
@@ -646,7 +665,7 @@ namespace Durin
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
 	{
 		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, "DebugStaticMesh");
-		Mesh->MaterialSlots.push_back({.Name = FName("Default"), .SourceMaterialIndex = 0});
+		Mesh->MaterialSlots.push_back({.Name = FName("Default")});
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.push_back({"Default", 0});
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
@@ -718,6 +737,7 @@ namespace Durin
 		return {};
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DStaticMesh::ReplaceSourceRenderDataDestructively(
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
@@ -739,6 +759,7 @@ namespace Durin
 		Source = std::move(InSource);
 		return ReplaceRenderDataDestructively(std::move(InRenderData), std::move(InMaterialSlots));
 	}
+#endif
 
 	auto DStaticMesh::ReplaceRenderDataDestructively(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,

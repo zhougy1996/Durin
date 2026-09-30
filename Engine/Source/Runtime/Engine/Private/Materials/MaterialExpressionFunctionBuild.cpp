@@ -63,6 +63,9 @@ namespace Durin
 	auto MIR::FGraphBuilderImpl::ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call,
 		MIR::FEmitter& Emitter) -> void
 	{
+#if !DURIN_WITH_EDITORONLY_DATA
+		return Emitter.Fail(EMaterialFunctionError::CallNoAvailableExpressionBody);
+#else
 		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
 			return Emitter.Fail(EMaterialFunctionError::CallPortBindingsExceedBounds);
 		const auto Callee = FObjectKey(Call.Function.Get());
@@ -134,6 +137,7 @@ namespace Durin
 			Emitter.Output(Output.OutputId, Value->second);
 		}
 		if (!Result.Diagnostics.empty()) return;
+#endif
 	}
 
 	auto MIR::FGraphBuilderImpl::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
@@ -266,6 +270,9 @@ namespace Durin
 
 	auto MIR::FGraphBuilderImpl::FunctionCall(const DMaterialExpressionFunctionCall& Call, MIR::FEmitter& Emitter) -> void
 	{
+#if !DURIN_WITH_EDITORONLY_DATA
+		return Emitter.Fail(EMaterialFunctionError::CallNoAvailableExpressionBody);
+#else
 		if (!Result.Diagnostics.empty()) return;
 		if (bValidateAuthoring) return ValidateAuthoringCall(Call, Emitter);
 		const auto* Function = Call.Function.Get();
@@ -364,5 +371,6 @@ namespace Durin
 			Emitter.Output(Output.OutputId, Child.Resolve({OutputTerminals.at(Output.OutputId)}));
 		Shared->ActiveFunctions.pop_back();
 		if (!Result.Diagnostics.empty()) return;
+#endif
 	}
 }

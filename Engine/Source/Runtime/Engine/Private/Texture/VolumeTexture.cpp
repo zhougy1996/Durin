@@ -171,10 +171,12 @@ namespace Durin
 
 	DVolumeTexture::~DVolumeTexture() = default;
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DVolumeTexture::CreateBuildInput() const -> FVolumeTextureSourceData
 	{
 		return MakeVolumeTextureBuildInput(GetSource());
 	}
+#endif
 
 	auto DVolumeTexture::SetPlatformData(
 		std::unique_ptr<FVolumeTexturePlatformData> Data) -> void
@@ -202,9 +204,13 @@ namespace Durin
 
 	auto DVolumeTexture::BuildPlatformDataForLoad() -> void
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto Result = BuildVolumeTextureSynchronously(*this,
 			{.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
 			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
+#else
+		DURIN_ERROR("PostLoad '{}': authored VolumeTexture builds require editor-only data support.", GetObjectPath());
+#endif
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData() -> bool
@@ -239,6 +245,7 @@ namespace Durin
 		return NewSource;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DVolumeTexture::SetBuildSettings(
 		FVolumeTextureBuildSettings Value) -> void
 	{
@@ -246,5 +253,6 @@ namespace Durin
 		BuildSettings = Value;
 		InvalidateAuthoredBuild();
 	}
+#endif
 
 }

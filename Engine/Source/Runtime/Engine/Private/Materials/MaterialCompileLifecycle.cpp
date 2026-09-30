@@ -839,6 +839,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context) -> void
 		{
 			CheckMaterialCompileGameThread();
+#if DURIN_WITH_EDITORONLY_DATA
 			if (Material.IsDynamicInstance()) return;
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 			DMaterialInterface* Root = &Material;
@@ -871,6 +872,7 @@ namespace Durin
 				std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
 			if (Status.State == EMaterialCompileState::Scheduled)
 				GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(&Material));
+#endif
 		}
 
 		auto FMaterialCompilationLifecycle::Submit(
