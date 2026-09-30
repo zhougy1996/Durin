@@ -183,6 +183,16 @@ full MoltenVK rendering and asset compatibility matrices, `.app` bundles,
 signing, notarization, and distribution remain under qualification. Track the
 current boundary in the [macOS Platform Enablement Roadmap](../../Roadmaps/Archive/2026-08/MacOSPlatformEnablement.md).
 
+## macOS Worktree Terminals
+
+Install iTerm2 in Applications, then run `./DevTool worktree open` to open all
+registered worktrees in a new iTerm2 window with one tab per worktree. Each tab
+uses the default iTerm2 profile, enters its worktree directory, and uses the
+directory name as its session title. macOS may request permission for the calling
+terminal to control iTerm2; allow it under System Settings > Privacy & Security >
+Automation. `./DevTool worktree open --dry-run` lists the worktrees without
+launching iTerm2. Windows environment setup scripts are not used on macOS.
+
 ## Windows Workflow
 
 A checkout has one source/build writer at a time. An Agent may own the current checkout; a separate worktree is needed only for concurrent Agents, branches, or human editing/build workflows. An IDE may observe and debug an Agent-owned checkout, but it must not build it.

@@ -1,8 +1,10 @@
-"""Windows Terminal layout and launch behavior for worktrees."""
+"""Platform-specific terminal layout and launch behavior for worktrees."""
 
 from __future__ import annotations
 
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -87,6 +89,60 @@ def terminal_arguments(
     return arguments
 
 
+ITERM_SCRIPT = '''
+on run argv
+    tell application id "com.googlecode.iterm2"
+        activate
+        set worktreeWindow to (create window with default profile)
+        repeat with itemIndex from 1 to count of argv by 2
+            tell worktreeWindow
+                if itemIndex > 1 then
+                    create tab with default profile
+                end if
+                tell current session
+                    set name to item itemIndex of argv
+                    write text (item (itemIndex + 1) of argv)
+                end tell
+            end tell
+        end repeat
+    end tell
+end run
+'''
+
+
+def iterm_arguments(worktrees: Sequence[Worktree]) -> list[str]:
+    arguments = ["osascript", "-"]
+    for worktree in worktrees:
+        path = str(worktree.path)
+        if "\n" in path or "\r" in path:
+            raise WorktreeToolError("iTerm2 cannot open worktree paths containing line breaks.")
+        title = shlex.quote(worktree.path.name)
+        command = f"cd -- {shlex.quote(path)} && printf '\\033]1;%s\\007' {title}"
+        arguments.extend([worktree.path.name, command])
+    return arguments
+
+
+def open_iterm(worktrees: Sequence[Worktree], command_io: CommandIO, *, dry_run: bool) -> None:
+    arguments = iterm_arguments(worktrees)
+    command_io.out("Layout: iTerm2 window with one tab per worktree.")
+    if dry_run:
+        command_io.out("Dry run complete; iTerm2 was not opened.")
+        return
+    try:
+        result = subprocess.run(
+            arguments, input=ITERM_SCRIPT, text=True, capture_output=True, check=False,
+        )
+    except OSError as exc:
+        raise WorktreeToolError(f"Could not launch iTerm2 through osascript: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip()
+        raise WorktreeToolError(
+            f"Could not open iTerm2 (exit code {result.returncode}). "
+            "Install iTerm2 in Applications and allow your terminal to control it "
+            f"in System Settings > Privacy & Security > Automation. {detail}"
+        )
+
+
 def open_worktree_terminals(
     repository: RepositoryContext,
     command_io: CommandIO,
@@ -95,6 +151,14 @@ def open_worktree_terminals(
 ) -> None:
     worktrees = ordered_worktrees(get_worktrees(repository, command_io))
     display_worktrees(worktrees, command_io=command_io)
+    if not worktrees:
+        command_io.out("No worktrees to open.")
+        return
+    if sys.platform == "darwin":
+        open_iterm(worktrees, command_io, dry_run=dry_run)
+        return
+    if sys.platform != "win32":
+        raise WorktreeToolError("worktree open supports Windows Terminal on Windows and iTerm2 on macOS.")
     arguments = terminal_arguments(worktrees, repository, command_io)
     command_io.out("Layout: maximized window with one tab per worktree.")
     if dry_run:
