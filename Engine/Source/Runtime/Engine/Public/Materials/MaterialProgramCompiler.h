@@ -24,11 +24,14 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 6;
+		inline constexpr uint32 CurrentVersion = 7;
 	}
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 9;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 10;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 6;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 10;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 11;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 7;
+	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
+		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
+		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
 
 	struct FMaterialCompilerDependency
 	{
@@ -168,6 +171,8 @@ namespace Durin
 				auto operator==(const FSurfaceRoot&) const -> bool = default;
 			};
 			FSurfaceRoot SurfaceRoot;
+			FSurfaceInput WorldPositionOffset{.Type = EMaterialProgramValueType::Float3,
+				.LegalStages = EMaterialEvaluationStage::Vertex};
 
 			auto operator==(const FModule&) const -> bool = default;
 		};

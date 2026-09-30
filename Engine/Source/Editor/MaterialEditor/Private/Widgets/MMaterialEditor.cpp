@@ -886,7 +886,8 @@ namespace Durin::Editor::Material
 					[&](const auto& Expression) { return Expression->Id == Diagnostic.Source.NodeId; });
 				break;
 			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-				bLocated = Diagnostic.Source.LocationIndex < 8;
+				bLocated = Diagnostic.Source.LocationIndex < 8
+					|| Diagnostic.Source.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
 				break;
 			case EMaterialProgramDiagnosticLocationKind::Program:
 				break;

@@ -31,7 +31,7 @@ namespace Durin::RendererPrivate
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
-				"VertexMain");
+				"SplineVertexMain");
 		};
 
 		class FGBufferGPUCullingVertexShader final : public FMeshMaterialShader
@@ -49,7 +49,7 @@ namespace Durin::RendererPrivate
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferGPUCullingVertexShader,
 				FMeshMaterialShader, "/Engine/StaticMeshBasePass",
-				EShaderFrequency::Vertex, "VertexMain");
+				EShaderFrequency::Vertex, "GPUCullingVertexMain");
 		};
 
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
@@ -61,6 +61,7 @@ namespace Durin::RendererPrivate
 		{
 		public:
 			explicit TMeshVertexShaderBinding(const FMaterialShaderMap& Map) : Shader(Map) {}
+			auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
 			{
 				return Shader.GetRHIShader(bRequired);
@@ -91,6 +92,7 @@ namespace Durin::RendererPrivate
 		public:
 			explicit FGPUCullingVertexShaderBinding(
 				const FMaterialShaderMap& Map) : Shader(Map) {}
+			auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
 			{ return Shader.GetRHIShader(bRequired); }
 			auto Prepare(FRHICommandListImmediate&,

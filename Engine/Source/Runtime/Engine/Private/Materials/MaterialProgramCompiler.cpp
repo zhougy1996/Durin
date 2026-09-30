@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <bit>
 #include <functional>
 #include <numeric>
@@ -147,11 +148,9 @@ namespace Durin
 		FMaterialCompilerEnvironment& OutEnvironment) -> FMaterialOperationResult
 	{
 		FShaderCompileOptions Options;
-		Options.EntryPoints = {
-			"FragmentMain", "GeometryFragmentMain",
-			"OpaqueShadowFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
-		Options.Frequencies.assign(
-			Options.EntryPoints.size(), EShaderFrequency::Fragment);
+		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
+		Options.Frequencies.assign(4, EShaderFrequency::Fragment);
+		Options.Frequencies.insert(Options.Frequencies.end(), 3, EShaderFrequency::Vertex);
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
 		Options.Macros.emplace_back(
@@ -356,17 +355,24 @@ namespace Durin
 		// Validation guarantees topological order, so all child keys already exist.
 		for (size_t Index = 0; Index < Count; ++Index)
 		{
+			Keys[Index].Inputs = Nodes[Index].Inputs;
+			if (IsCommutative(Nodes[Index].Opcode) && Keys[Index].Inputs.size() == 2
+				&& Compare(Keys[Index].Inputs[1], Keys[Index].Inputs[0]) < 0)
+			{
+				std::swap(Keys[Index].Inputs[0], Keys[Index].Inputs[1]);
+				// Operand metadata must follow the canonical operand permutation.
+				const auto Mask = Nodes[Index].ScalarBroadcastMask;
+				Nodes[Index].ScalarBroadcastMask = ((Mask & 1u) << 1) | ((Mask & 2u) >> 1);
+			}
 			auto Header = Nodes[Index];
 			Header.Inputs.clear();
 			AppendIRNode(Keys[Index].Header, Header);
-			Keys[Index].Inputs = Nodes[Index].Inputs;
-			if (IsCommutative(Nodes[Index].Opcode))
-				std::ranges::stable_sort(Keys[Index].Inputs, [&](uint32 A, uint32 B) { return Compare(A, B) < 0; });
 		}
 		constexpr uint32 InvalidIndex = 0xffffffffu;
 		std::vector<uint32> Indices(Count, InvalidIndex);
 		MIR::FModule IR;
 		IR.SurfaceRoot = Input.IR.SurfaceRoot;
+		IR.WorldPositionOffset = Input.IR.WorldPositionOffset;
 		std::function<uint32(uint32)> Emit = [&](uint32 Index) -> uint32 {
 			if (Indices[Index] != InvalidIndex) return Indices[Index];
 			auto Node = Nodes[Index];
@@ -412,6 +418,12 @@ namespace Durin
 				}
 			}
 		}
+		if (IR.WorldPositionOffset.bExpression)
+		{
+			IR.WorldPositionOffset.ExpressionIndex = Emit(IR.WorldPositionOffset.ExpressionIndex);
+			IR.WorldPositionOffset.Literal = {};
+		}
+		else { IR.WorldPositionOffset.ExpressionIndex = 0; IR.WorldPositionOffset.Literal.W = 0.f; }
 		for (const auto& Source : Input.Sources)
 			if (Indices[Source.ExpressionIndex] != InvalidIndex)
 			{
@@ -547,6 +559,21 @@ namespace Durin
 				return {EMaterialIRError::PerPropertySurfaceRootInputInvalid};
 			}
 		}
+		const auto& Offset = IR.WorldPositionOffset;
+		if (Offset.Type != EMaterialProgramValueType::Float3
+			|| Offset.LegalStages != EMaterialEvaluationStage::Vertex
+			|| Offset.SpatialKind != EMaterialSpatialKind::None
+			|| Offset.CoordinateSpace != EMaterialCoordinateSpace::None
+			|| (Offset.bExpression && (Offset.ExpressionIndex >= IR.Nodes.size()
+				|| !IsMaterialWorldPositionOffsetSemantics(IR.Nodes[Offset.ExpressionIndex].GetSemantics())))
+			|| !std::isfinite(Offset.Literal.X) || !std::isfinite(Offset.Literal.Y) || !std::isfinite(Offset.Literal.Z))
+		{
+			OutBytes.clear();
+			return {EMaterialIRError::PerPropertySurfaceRootInputInvalid};
+		}
+		AppendLittleEndian(OutBytes, static_cast<uint8>(Offset.bExpression));
+		AppendLittleEndian(OutBytes, Offset.ExpressionIndex);
+		AppendLiteral(OutBytes, Offset.Literal);
 		if (OutBytes.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutBytes.clear();
@@ -613,13 +640,13 @@ namespace Durin
 		// Static selection is already represented by the selected normalized MIR.
 		// Do not salt the program identity with the request configuration itself:
 		// distinct configurations that select identical code share one retained program.
-		constexpr std::array<std::string_view, 4> EntryPoints{
-			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
+		constexpr auto EntryPoints = MaterialCompiledEntryPoints;
 		AppendLittleEndian(Bytes, static_cast<uint32>(EntryPoints.size()));
-		for (std::string_view EntryPoint : EntryPoints)
+		for (size_t Index = 0; Index < EntryPoints.size(); ++Index)
 		{
-			AppendString(Bytes, EntryPoint);
-			AppendLittleEndian(Bytes, static_cast<uint8>(1));
+			AppendString(Bytes, EntryPoints[Index]);
+			AppendLittleEndian(Bytes, static_cast<uint8>(Index < 4
+				? EShaderFrequency::Fragment : EShaderFrequency::Vertex));
 		}
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}

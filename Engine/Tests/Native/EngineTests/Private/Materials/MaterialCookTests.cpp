@@ -363,7 +363,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto TintNode = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint.Id);
 	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {TintNode});
 	const auto TextureNode = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture.Id);
-	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	const auto MeshUV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	const auto UV = Add(EMaterialProgramOpcode::VertexInterpolator, EMaterialProgramValueType::Float2, {}, {MeshUV});
+	Graph.Outputs.WorldPositionOffset.SetConstant({0.f, 0.f, .01f});
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
 	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Sample});
 	ASSERT_TRUE(Graph.Apply(*Source));

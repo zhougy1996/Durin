@@ -160,6 +160,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::CameraPosition: return "Camera Position";
 			case EMaterialProgramOpcode::CameraVector: return "Camera Vector";
 			case EMaterialProgramOpcode::ObjectPosition: return "Object Position";
+			case EMaterialProgramOpcode::VertexInterpolator: return "Vertex Interpolator";
 			case EMaterialProgramOpcode::VertexNormal: return "Vertex Normal";
 			case EMaterialProgramOpcode::ScreenPosition: return "Screen Position";
 			case EMaterialProgramOpcode::ViewSize: return "View Size";
@@ -283,6 +284,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::CameraPosition: return DMaterialExpressionCameraPosition::StaticClass();
 			case EMaterialProgramOpcode::CameraVector: return DMaterialExpressionCameraVector::StaticClass();
 			case EMaterialProgramOpcode::ObjectPosition: return DMaterialExpressionObjectPosition::StaticClass();
+			case EMaterialProgramOpcode::VertexInterpolator: return DMaterialExpressionVertexInterpolator::StaticClass();
 			case EMaterialProgramOpcode::VertexNormal: return DMaterialExpressionVertexNormal::StaticClass();
 			case EMaterialProgramOpcode::ScreenPosition: return DMaterialExpressionScreenPosition::StaticClass();
 			case EMaterialProgramOpcode::ViewSize: return DMaterialExpressionViewSize::StaticClass();
@@ -348,7 +350,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::CameraPosition: Entry.Description = "Active pass camera position in world space (Float3)."; break;
 			case EMaterialProgramOpcode::CameraVector: Entry.Description = "Direction from the fragment to the active pass camera (Float3)."; break;
 			case EMaterialProgramOpcode::ObjectPosition: Entry.Description = "Render primitive bounds center in world space (Float3)."; break;
-			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal; Vertex-only and rejected by current Pixel roots."; break;
+			case EMaterialProgramOpcode::VertexInterpolator: Entry.Description = "Evaluates the input per vertex and interpolates its value to pixel calculations."; break;
+			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal for vertex offsets or explicit interpolation."; break;
 			case EMaterialProgramOpcode::ScreenPosition: Entry.Description = "Normalized position within the active pass viewport (Float2)."; break;
 			case EMaterialProgramOpcode::ViewSize: Entry.Description = "Active pass viewport size in pixels (Float2)."; break;
 			case EMaterialProgramOpcode::StaticBool: Entry.Description = "Declares a root-owned compile-time boolean keyed by stable GUID."; break;
@@ -571,11 +574,14 @@ namespace Durin::Editor::Material
 				for (const auto& Definition : GetMaterialDomainOutputPins(Material->GetDomain()))
 				{
 					const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
-					if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
+					if (Definition.Id != EMaterialOutputPin::WorldPositionOffset
+						&& bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
 					const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 					FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
-					if (!bAttributes)
+					if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
+						Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
+					else if (!bAttributes)
 					{
 						const auto Semantics = GetMaterialSurfaceOutputSemantics(
 							static_cast<EMaterialSurfaceOutput>(Definition.Id));
@@ -583,7 +589,8 @@ namespace Durin::Editor::Material
 							.Stages = Semantics.Stages, .Kind = Semantics.Kind,
 							.Space = Semantics.Space};
 					}
-					if (Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
+					if (Definition.Id != EMaterialOutputPin::WorldPositionOffset
+						&& Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
 						Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 					Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
 					if (const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialExpressionSurfaceOutputs&>(Terminal->Outputs), Definition.Id))
@@ -591,7 +598,7 @@ namespace Durin::Editor::Material
 						Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
 						Pin.RetainedConstant = DefaultView(Numeric->Constant);
 					}
-					Pin.bActive = bAttributes || IsMaterialSurfaceOutputActive(
+					Pin.bActive = bAttributes || Definition.Id == EMaterialOutputPin::WorldPositionOffset || IsMaterialSurfaceOutputActive(
 						static_cast<EMaterialSurfaceOutput>(Definition.Id), Material->GetStaticProperties());
 					View.Inputs.push_back(std::move(Pin));
 				}
@@ -766,7 +773,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::FeatureLevelSwitch); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::VertexInterpolator); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::StaticBool); ++TypeValue)
 			{

@@ -106,6 +106,31 @@ namespace Durin::RendererPrivate
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 
+	inline auto PrepareMeshVertexMaterial(const FMeshVertexShaderBinding& Shader,
+		std::shared_ptr<const FRHIShaderParameterBatch> Base,
+		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& Uniform,
+		const FRHIUniformBufferRange& View, std::span<const FRHIUniformBufferRange> Collections = {})
+		-> std::shared_ptr<const FRHIShaderParameterBatch>
+	{
+		if (!Base) return {};
+		const auto* Reflection = Shader.GetReflection();
+		if (!Reflection) return Base;
+		auto Remaining = *Reflection;
+		std::erase_if(Remaining.ResourceBindings, [&](const auto& Binding) {
+			return std::ranges::any_of(Base->GetParameters(), [&](const auto& Resource) {
+				return Resource.SetIndex == Binding.SetIndex && Resource.BindingIndex == Binding.BindingIndex;
+			});
+		});
+		if (Remaining.ResourceBindings.empty()) return Base;
+		FCompiledSurfaceBindingLayout Layout(Remaining);
+		FPreparedSurfaceMaterialBindings Additional;
+		if (!PrepareCompiledSurfaceMaterial(Shader.GetRHIShader(false), Layout, Material, Uniform,
+			{}, {}, View, {}, Collections, Additional)) return {};
+		std::vector<FRHIShaderParameterResource> Resources(Base->GetParameters().begin(), Base->GetParameters().end());
+		Resources.insert(Resources.end(), Additional.GetResources().begin(), Additional.GetResources().end());
+		return FRHIShaderParameterBatch::Create(Shader.GetRHIShader(false), Resources);
+	}
+
 	class FStaticMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
@@ -134,7 +159,7 @@ namespace Durin::RendererPrivate
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 		DURIN_END_SHADER_PARAMETERS();
-		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
+		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "SplineVertexMain");
 	};
 
 

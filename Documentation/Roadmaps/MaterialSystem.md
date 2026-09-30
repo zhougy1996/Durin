@@ -2,12 +2,19 @@
 
 Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-01
 
 Status: Active
 Completed:
 
 ## Current Status
+
+On 2026-10-01 the
+[Material Vertex Evaluation plan](../Plans/MaterialVertexEvaluation.md) completed
+WPO and explicit vertex-to-pixel interpolation through the existing Surface
+passes. Material, renderer and Cook coverage and the shared API all build passed;
+visual GPU execution remains unverified. The lasting contracts are documented in
+[Material Vertex Evaluation](../Runtime/Rendering/MaterialVertexEvaluation.md).
 
 On 2026-09-30 M12 completed through the
 [Material Expression Semantics and Language plan](../Plans/MaterialExpressionSemanticsAndLanguage.md).

@@ -3,6 +3,12 @@
 namespace Durin
 {
 
+	auto DMaterialExpressionVertexInterpolator::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const std::array Inputs{&Input};
+		Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::VertexInterpolator, ResultType, Inputs));
+	}
+
 	auto DMaterialExpressionScalarConstant::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Components{Value};

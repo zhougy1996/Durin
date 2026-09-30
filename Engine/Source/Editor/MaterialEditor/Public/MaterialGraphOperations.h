@@ -188,7 +188,7 @@ namespace Durin::Editor::Material
 		std::string FunctionPath;
 		auto InputAddress(const FMaterialGraphPinView& Pin) const -> FMaterialGraphPinAddress
 		{
-			if (Node.bMaterialOutput)
+			if (Node.bMaterialOutput && Pin.InputIndex != static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset))
 				return {Node.Id, Pin.InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
 					? EMaterialGraphPinKind::MaterialSurface : EMaterialGraphPinKind::MaterialAttribute, Pin.InputIndex};
 			return FMaterialGraphPinAddress::Input(Node.Id, Pin.InputIndex, Pin.PortId);

@@ -274,6 +274,8 @@ namespace Durin::Editor::Material
 			SelectedSurfaceOutput.reset();
 			return SelectAndFrame(Diagnostic.NodeId);
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
+			if (Diagnostic.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset))
+				return SelectAndFrame(Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId);
 			if (Diagnostic.LocationIndex
 				> static_cast<uint32>(EMaterialSurfaceOutput::OpacityMask)) return false;
 			SelectedNodes = {Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId};
@@ -1115,7 +1117,8 @@ namespace Durin::Editor::Material
 				Interaction = FContextMenuInteraction{
 					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
 						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
-					.SurfaceOutput = HoveredInputNode && HoveredInputNode->View->Node.bMaterialOutput ? std::optional{static_cast<EMaterialSurfaceOutput>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
+					.SurfaceOutput = HoveredInputNode && HoveredInputNode->View->Node.bMaterialOutput
+						&& HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex <= static_cast<uint32>(EMaterialOutputPin::Surface) ? std::optional{static_cast<EMaterialSurfaceOutput>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
 		}

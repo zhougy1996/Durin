@@ -53,8 +53,11 @@ but cannot be deleted or duplicated. Copying a mixed selection excludes it.
 `DMaterial::Domain` selects the output-pin definition contract; Surface is the
 only implemented domain. `EMaterialOutputPin` gives pins stable semantic keys,
 independent of display order. The output terminal stores `bUseMaterialAttributes`: false
-shows eight property inputs; true shows only Material Attributes. Both connection
-sets and property defaults persist across mode changes.
+shows eight pixel property inputs; true shows Material Attributes. The independent
+World Position Offset input remains visible in both modes. Both pixel connection
+sets, the WPO connection and defaults persist across mode changes. WPO uses an
+ordinary terminal input address; [vertex evaluation](../../Runtime/Rendering/MaterialVertexEvaluation.md)
+owns stage rules and the separate Vertex Interpolator expression.
 Connections and edits address those keys. Additional domains must define their
 pin schema and validation/migration policy in Engine; canvas rendering consumes
 ordinary node input descriptors. Domain switching is not implemented.

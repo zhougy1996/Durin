@@ -203,7 +203,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
-	ASSERT_EQ(Compiled.CompiledShaders.size(), 4u);
+	ASSERT_EQ(Compiled.CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
 	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());

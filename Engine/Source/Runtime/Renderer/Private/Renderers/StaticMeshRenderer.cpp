@@ -299,7 +299,7 @@ namespace Durin
 						bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward,
 						Identity,
 						Coordinator.GetGeneration_RenderThread(),
-						bOpaqueShadow ? nullptr : Material.CompiledProgram.get(),
+						Material.CompiledProgram.get(),
 						CompileOptions, ShaderMap);
 					if (!ShaderResult)
 					{
@@ -472,7 +472,7 @@ namespace Durin
 			{
 				if (!ResolvedView.IsReady(Draw)) continue;
 				auto& Required = Requests[Draw.MaterialUniformIndex];
-				if (bShadow) Required[2] |= Pass == EMeshBasePass::Masked;
+				if (bShadow) Required[2] = true;
 				else
 				{
 					const bool bDeferredDraw = Draw.Command->bSupportsGBuffer && Pass != EMeshBasePass::Translucent
@@ -552,7 +552,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		using FBindings = std::shared_ptr<const FPreparedSurfaceMaterialBindings>;
 		std::map<std::tuple<uint32, uint32, uint32, FRHIShader*>, FBindings> Batches;
-		std::map<std::pair<uint32, FRHIShader*>, std::shared_ptr<const FRHIShaderParameterBatch>> VertexBatches;
+		std::map<std::tuple<uint32, uint32, uint32, FRHIShader*>, std::shared_ptr<const FRHIShaderParameterBatch>> VertexBatches;
 		ResolvedView.Observations.PreparedSurfaceBindingBatches = 0;
 		ResolvedView.Observations.SurfaceBindingBatchReuses = 0;
 		for (auto& Record : ResolvedView.Draws)
@@ -593,24 +593,28 @@ namespace Durin
 			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
 			const auto* Primitive = PreparedView.GetPrimitive(Draw);
 			if (!Primitive || !Primitive->CollectedBinding) return false;
-			auto PrepareVertex = [&](const std::shared_ptr<const FMeshVertexShaderBinding>& Shader,
+			auto PrepareVertex = [&](const std::shared_ptr<const FMeshVertexShaderBinding>& Shader, uint32 Pass,
 				std::shared_ptr<const FRHIShaderParameterBatch>& Out) -> bool {
 				if (!Shader || !Shader->GetRHIShader(false)) return false;
-				const auto Key = std::make_pair(Draw.PrimitiveIndex, Shader->GetRHIShader(false));
+				const auto Key = std::make_tuple(Draw.PrimitiveIndex, Draw.MaterialUniformIndex, Pass, Shader->GetRHIShader(false));
 				if (const auto Existing = VertexBatches.find(Key); Existing != VertexBatches.end())
 				{
 					Out = Existing->second;
 					return true;
 				}
-				Out = Shader->Prepare(CommandList, ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], *Primitive->CollectedBinding);
+				const auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
+				if (!Material) return false;
+				Out = PrepareMeshVertexMaterial(*Shader,
+					Shader->Prepare(CommandList, ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex], *Primitive->CollectedBinding),
+					Material->Surface, Material->Uniform, ResolvedView.ViewUniforms[Pass], Material->CollectionUniforms);
 				if (!Out) return false;
 				VertexBatches.emplace(Key, Out);
 				return true;
 			};
-			if (Record.Pipeline && !PrepareVertex(Record.Pipeline->VertexShader, Record.VertexBindings)) return false;
-			if (Record.HybridPipeline && !PrepareVertex(Record.HybridPipeline->VertexShader, Record.HybridVertexBindings)) return false;
+			if (Record.Pipeline && !PrepareVertex(Record.Pipeline->VertexShader, bShadow ? 2u : 0u, Record.VertexBindings)) return false;
+			if (Record.HybridPipeline && !PrepareVertex(Record.HybridPipeline->VertexShader, 0u, Record.HybridVertexBindings)) return false;
 			if (Record.GBufferPipeline && (!GBuffer || !PrepareVertex(
-				GBuffer->GetVertexBinding(*Record.GBufferPipeline, *Primitive->CollectedBinding), Record.GBufferVertexBindings))) return false;
+				GBuffer->GetVertexBinding(*Record.GBufferPipeline, *Primitive->CollectedBinding), 1u, Record.GBufferVertexBindings))) return false;
 			if (bShadow)
 			{
 				if (Draw.Command->Pass != EMeshBasePass::Masked) continue;
@@ -921,6 +925,10 @@ namespace Durin
 			GPUVertexBindings = Vertex->PrepareGPUCulling(
 				{VisibleInstances, 0, VisibleInstances->GetSize()},
 				{InstanceTransforms, 0, InstanceTransforms->GetSize()});
+			const auto& Material = ResolvedView.MaterialUniforms[Item.MaterialUniformIndex][1];
+			if (!Material) return false;
+			GPUVertexBindings = PrepareMeshVertexMaterial(*Vertex, std::move(GPUVertexBindings),
+				Material->Surface, Material->Uniform, ResolvedView.ViewUniforms[1], Material->CollectionUniforms);
 			if (!GPUVertexBindings) return false;
 		}
 

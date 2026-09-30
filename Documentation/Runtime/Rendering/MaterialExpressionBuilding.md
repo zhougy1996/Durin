@@ -34,8 +34,9 @@ Every numeric MIR value also carries its legal evaluation-stage mask, spatial
 kind, and coordinate space. Existing operations resolve those semantics through
 one signature table before a node is published. Constants and parameters are
 non-spatial; normal-texture RGB is an explicit Pixel/Tangent/Normal producer;
-Surface roots require Pixel values and Normal requires the exact Tangent/Normal
-contract. Scalar broadcast is represented explicitly and records which operand
+Surface attributes require Pixel values and Normal requires the exact Tangent/Normal
+contract. The independent WPO root requires Vertex values; explicit interpolators
+bridge vertex inputs to pixel consumers. See [vertex evaluation](MaterialVertexEvaluation.md). Scalar broadcast is represented explicitly and records which operand
 was broadcast so canonical validation cannot confuse it with vector arithmetic.
 Position, direction, and normal transform nodes carry canonical source and
 destination spaces. Stage 1 validates their supported pairs and canonical bytes;
@@ -53,12 +54,14 @@ direction/normal inputs, and `Reflect` preserves an incident direction. These
 nodes add no renderer requirement or pass binding.
 
 Context expressions carry exact stage and space semantics. `WorldPosition` is a
-Pixel/World/Position value; `CameraPosition` and `ObjectPosition` are
+Both/World/Position value; `CameraPosition` and `ObjectPosition` are
 Both/World/Position; `CameraVector` is a normalized Pixel/World/Direction;
 `VertexNormal` is Vertex/World/Normal after vertex-factory deformation;
 `ScreenPosition` is normalized viewport Float2 and `ViewSize` is the active
 viewport Float2. `Time` and `ViewSize` are non-spatial. A Pixel root cannot
-consume `VertexNormal`, including through a function call.
+consume `VertexNormal` directly, including through a function call. An explicit
+`VertexInterpolator` retains its World/Normal meaning and produces a Pixel value.
+Vertex WorldPosition is pre-WPO; pixel WorldPosition is displaced and interpolated.
 
 Transform Position accepts exact Float3 Position values between Object, World,
 and View. Transform Direction and Transform Normal accept exact Float3 values

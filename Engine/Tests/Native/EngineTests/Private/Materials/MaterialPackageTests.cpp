@@ -147,6 +147,11 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	ASSERT_NE(TransformPosition, nullptr);
 	TransformPosition->Source = EMaterialCoordinateSpace::World;
 	TransformPosition->Destination = EMaterialCoordinateSpace::View;
+	Authored.Outputs.WorldPositionOffset.SetConstant({1.f, 2.f, 3.f});
+	const auto Time = Testing::MakeLink(Authored.Add(EMaterialProgramOpcode::Time,
+		EMaterialProgramValueType::Float, {}, {}, {}));
+	Authored.Outputs.Emissive = Testing::MakeLink(Authored.Add(EMaterialProgramOpcode::VertexInterpolator,
+		EMaterialProgramValueType::Float3, {Time}, {}, {}));
 	std::ranges::reverse(Authored.Expressions);
 	const auto LabelId = Authored.Expressions.front()->Id;
 	const auto Label = std::ranges::find(Authored.Presentation.Nodes, LabelId, &FMaterialGraphNodePresentation::NodeId);

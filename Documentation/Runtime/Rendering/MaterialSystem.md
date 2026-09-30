@@ -235,8 +235,9 @@ vertex-to-fragment interpolator.
 outputs. Concrete reflected expression classes own only their applicable values,
 inputs and defaults; there is no authored Program, universal node, or separate call
 table. GUID connections preserve node, parameter and function-port identities.
-The material owns eight typed Surface outputs and an optional aggregate Surface
-connection. `DMaterialInstance` owns no expressions and resolves its root through
+The material owns eight typed pixel Surface outputs, an optional aggregate Surface
+connection, and an independent zero-default World Position Offset input.
+[Vertex evaluation](MaterialVertexEvaluation.md) owns vertex roots and interpolation. `DMaterialInstance` owns no expressions and resolves its root through
 the parent chain, independently of expression ordering.
 
 Numeric inputs retain component arrays of length zero (absent) or one through four,
@@ -379,7 +380,7 @@ from each pass's closed allowlist. Unused material textures, samplers, and
 uniform fields may therefore be optimized out; a default material contains no
 material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
-four compiled stages, phase timings, and bounded diagnostics; any failure
+seven compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
 
 ### Final surface evaluation
@@ -546,7 +547,7 @@ cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
 dependency generation, parent-chain revision, target, and program identity all match. Successful
-admission atomically replaces the complete four-stage result and proxy state;
+admission atomically replaces the complete seven-stage result and proxy state;
 current compilation failure or admission rejection retires the complete accepted
 program, layout, values and resources and publishes ErrorMaterial through the
 ordinary render proxy path. This includes normalization and dependency failures
@@ -640,7 +641,7 @@ instance controls and active local bindings; base Details can still edit a selec
 Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
 and deterministic draw ordering by the material-program digest plus the exact
 pass and geometry-domain contract. On the rendering thread they combine the
-shared fixed geometry vertex stage with the accepted generated `FragmentMain`,
+accepted generated local, spline or GPU-culling vertex artifact with `FragmentMain`,
 `GeometryFragmentMain`, `ShadowFragmentMain`, or `HitProxyFragmentMain` artifact and create a complete
 typed shader map transactionally. Opaque shadow retains the fixed material-
 resource-free fragment. StaticMesh, SplineMesh, Material
@@ -843,10 +844,10 @@ geometry resources remain family-owned. A failed
 sampler or incomplete resolved packet rejects the smallest owning draw or
 batch, preserving feature-local attempt/result accounting.
 
-Resolution is pass-aware. Opaque shadow draws resolve no material uniform,
-texture, sampler, environment, or receiver-shadow resource. Masked shadow, Forward and GBuffer
-draws resolve the accepted layout and bind only resources present in validated
-pass reflection; only forward adds lighting, environment, and
+Resolution is pass-aware. Opaque shadow draws retain a resource-free fragment
+but resolve material and view resources needed by their generated vertex stage.
+Opaque/masked shadow, Forward and GBuffer draws resolve the accepted layout and
+bind only resources present in validated stage reflection; only forward adds lighting, environment, and
 directional-shadow inputs. Irradiance, prefilter, BRDF LUT, and environment
 sampler are accepted only as a complete set and otherwise fall back together.
 Directional-shadow texture and sampler each retain their deterministic array

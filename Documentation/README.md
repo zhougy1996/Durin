@@ -72,6 +72,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
+| Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/MaterialVertexEvaluation.md) |
 | Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/MaterialExpressionBuilding.md) |
 | Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
 | Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |

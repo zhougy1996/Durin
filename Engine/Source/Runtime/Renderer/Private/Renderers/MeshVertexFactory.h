@@ -14,6 +14,7 @@ namespace Durin::RendererPrivate
 	public:
 		virtual ~FMeshVertexShaderBinding() = default;
 		virtual auto GetRHIShader(bool bRequired = true) const -> FRHIShader* = 0;
+		virtual auto GetReflection() const -> const FShaderReflectionData* { return nullptr; }
 		// Runs before recording. Upload view-dependent data and return owned
 		// parameters without binding a pipeline or emitting draw commands.
 		// One primitive/shader pair may share the result across its sections.

@@ -21,7 +21,12 @@ namespace
 	auto ResolveNodeSemantics(Durin::MIR::FModule& IR, Durin::MIR::FNode& Node) -> void
 	{
 		std::vector<Durin::FMaterialValueSemantics> Inputs;
-		for (const auto Index : Node.Inputs) Inputs.push_back(IR.Nodes.at(Index).GetSemantics());
+		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
+		{
+			auto Value = IR.Nodes.at(Node.Inputs[Slot]).GetSemantics();
+			if (Node.ScalarBroadcastMask & (1u << Slot)) Value.Type = Durin::EMaterialProgramValueType::Float;
+			Inputs.push_back(Value);
+		}
 		const auto* Transform = Node.Opcode == Durin::EMaterialProgramOpcode::TransformPosition
 			|| Node.Opcode == Durin::EMaterialProgramOpcode::TransformDirection
 			|| Node.Opcode == Durin::EMaterialProgramOpcode::TransformNormal
@@ -35,6 +40,143 @@ namespace
 		Node.SpatialKind = Result->Kind;
 		Node.CoordinateSpace = Result->Space;
 	}
+}
+
+TEST(FMaterialVertexEvaluationTests, InterpolationRequiresVertexInputsAndPreservesSpatialMeaning)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	using Stage = EMaterialEvaluationStage;
+	const FMaterialValueSemantics VertexNormal{Type::Float3, Stage::Vertex,
+		EMaterialSpatialKind::Normal, EMaterialCoordinateSpace::World};
+	const auto Interpolated = ResolveMaterialProgramNodeSemantics(Op::VertexInterpolator,
+		Type::Float3, std::array{VertexNormal});
+	ASSERT_TRUE(Interpolated);
+	EXPECT_EQ(Interpolated->Stages, Stage::Pixel);
+	EXPECT_EQ(Interpolated->Kind, VertexNormal.Kind);
+	EXPECT_EQ(Interpolated->Space, VertexNormal.Space);
+	EXPECT_FALSE(ResolveMaterialProgramNodeSemantics(Op::VertexInterpolator,
+		Type::Float3, std::array{*Interpolated}));
+	EXPECT_TRUE(IsMaterialWorldPositionOffsetSemantics(VertexNormal));
+	EXPECT_FALSE(IsMaterialWorldPositionOffsetSemantics(*Interpolated));
+	auto Position = VertexNormal;
+	Position.Kind = EMaterialSpatialKind::Position;
+	EXPECT_FALSE(IsMaterialWorldPositionOffsetSemantics(Position));
+	Position.Kind = EMaterialSpatialKind::Direction;
+	Position.Space = EMaterialCoordinateSpace::Object;
+	EXPECT_FALSE(IsMaterialWorldPositionOffsetSemantics(Position));
+}
+
+TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompileAsOneCompleteProgram)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input;
+	Input.IR = MakeDefaultMaterialCompilerIR();
+	FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << FormatMaterialError(Error.Error);
+	const FGuid ScaleId = FGuid::NewGuid();
+	Input.Parameters = {{ScaleId, EMaterialParameterType::Scalar}};
+	auto Add = [&](MIR::FNode Node) {
+		ResolveNodeSemantics(Input.IR, Node);
+		Input.IR.Nodes.push_back(std::move(Node));
+		return static_cast<uint32>(Input.IR.Nodes.size() - 1);
+	};
+	const auto Scale = Add({.Opcode = Op::Parameter, .ResultType = Type::Float, .Payload = ScaleId});
+	const auto Scale3 = Add({.Opcode = Op::Splat3, .ResultType = Type::Float3, .Inputs = {Scale}});
+	const auto Normal = Add({.Opcode = Op::VertexNormal, .ResultType = Type::Float3});
+	const auto Offset = Add({.Opcode = Op::Multiply, .ResultType = Type::Float3,
+		.ScalarBroadcastMask = 2, .Inputs = {Normal, Scale3}});
+	const auto Time = Add({.Opcode = Op::Time, .ResultType = Type::Float});
+	const auto Interpolator = Add({.Opcode = Op::VertexInterpolator, .ResultType = Type::Float, .Inputs = {Time}});
+	const auto Color = Add({.Opcode = Op::Splat3, .ResultType = Type::Float3, .Inputs = {Interpolator}});
+	Input.IR.WorldPositionOffset.bExpression = true;
+	Input.IR.WorldPositionOffset.ExpressionIndex = Offset;
+	auto& Emissive = Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Emissive)];
+	Emissive.bExpression = true; Emissive.ExpressionIndex = Color;
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : FormatMaterialError(Compiled.Diagnostics.front().Error));
+	ASSERT_EQ(Compiled.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
+	ASSERT_EQ(Compiled.ActiveParameters.size(), 1u);
+	EXPECT_EQ(Compiled.ActiveParameters.front().Id, ScaleId);
+	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
+	{
+		const auto& Shader = Compiled.CompiledShaders[Index];
+		EXPECT_EQ(Shader.SourceEntryPoint, MaterialCompiledEntryPoints[Index]);
+		EXPECT_EQ(Shader.Frequency, Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex);
+		const auto& Bindings = Shader.Reflection.ResourceBindings;
+		EXPECT_EQ(std::ranges::contains(Bindings, "Material", &FShaderResourceBinding::Name), Index >= 4);
+		if (Index >= 4) EXPECT_TRUE(std::ranges::contains(Bindings, "MaterialView", &FShaderResourceBinding::Name));
+	}
+	auto InvalidStages = Compiled.CompiledShaders;
+	InvalidStages.back().Frequency = EShaderFrequency::Fragment;
+	EXPECT_FALSE(ValidateMaterialCompiledStages(InvalidStages, Compiled.Layout));
+	auto PixelOffset = Input;
+	PixelOffset.IR.WorldPositionOffset.ExpressionIndex = Color;
+	EXPECT_FALSE(MIR::Normalize(PixelOffset));
+	auto NoOffset = Input;
+	NoOffset.IR.WorldPositionOffset.bExpression = false;
+	const auto Normalized = MIR::Normalize(NoOffset);
+	ASSERT_TRUE(Normalized);
+	EXPECT_TRUE(Normalized.ActiveParameters.empty());
+	EXPECT_NE(Normalized.Identity, Compiled.Identity);
+}
+
+TEST(FMaterialVertexEvaluationTests, ReachableInterpolatorsHaveABoundedInterface)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input;
+	Input.IR = MakeDefaultMaterialCompilerIR();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	auto Add = [&](MIR::FNode Node) {
+		ResolveNodeSemantics(Input.IR, Node);
+		Input.IR.Nodes.push_back(std::move(Node));
+		return static_cast<uint32>(Input.IR.Nodes.size() - 1);
+	};
+	uint32 Sum = 0;
+	for (uint32 Index = 0; Index <= MaterialProgramMaxVertexInterpolators; ++Index)
+	{
+		const auto Value = Add({.Opcode = Op::Constant, .ResultType = Type::Float,
+			.Payload = FMaterialProgramLiteral{static_cast<float>(Index)}});
+		const auto Interpolated = Add({.Opcode = Op::VertexInterpolator, .ResultType = Type::Float, .Inputs = {Value}});
+		Sum = Index ? Add({.Opcode = Op::Add, .ResultType = Type::Float, .Inputs = {Sum, Interpolated}}) : Interpolated;
+		if (Index + 1 == MaterialProgramMaxVertexInterpolators)
+		{
+			auto& Root = Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Roughness)];
+			Root.bExpression = true; Root.ExpressionIndex = Sum;
+			const auto Normalized = MIR::Normalize(Input);
+			ASSERT_TRUE(Normalized);
+			EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
+		}
+	}
+	Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex = Sum;
+	const auto Normalized = MIR::Normalize(Input);
+	ASSERT_TRUE(Normalized);
+	const auto Rejected = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	EXPECT_FALSE(Rejected);
+	EXPECT_TRUE(Rejected.Source.empty());
+}
+
+TEST(FMaterialVertexEvaluationTests, LiteralOffsetsParticipateInCanonicalIdentity)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input;
+	Input.IR = MakeDefaultMaterialCompilerIR();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	const auto Zero = MIR::Normalize(Input);
+	ASSERT_TRUE(Zero);
+	Input.IR.WorldPositionOffset.Literal = {1.f, 2.f, 3.f};
+	const auto Offset = MIR::Normalize(Input);
+	ASSERT_TRUE(Offset);
+	EXPECT_NE(Zero.Identity, Offset.Identity);
+	EXPECT_NE(Zero.CanonicalBytes, Offset.CanonicalBytes);
 }
 
 TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess)
@@ -1072,7 +1214,7 @@ TEST(FMaterialProgramCompilerTests,
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
-	ASSERT_EQ(Compiled.CompiledShaders.size(), 4u);
+	ASSERT_EQ(Compiled.CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
 	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
@@ -1386,7 +1528,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().Name, "HitProxy");
 			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().BindingIndex, 27u);
 		}
-		else EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
+		else if (Stage.Frequency == EShaderFrequency::Fragment) EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
 	}
 }
 
@@ -1495,7 +1637,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
-	for (const auto& Stage : Compiled.CompiledShaders)
+	for (const auto& Stage : Compiled.CompiledShaders | std::views::take(4))
 	{
 		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialView",
 			&FShaderResourceBinding::Name);

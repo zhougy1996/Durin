@@ -127,6 +127,7 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::Sign: Expression = NewObject<DMaterialExpressionSign>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Reflect: Expression = NewObject<DMaterialExpressionReflect>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::VertexInterpolator: Expression = NewObject<DMaterialExpressionVertexInterpolator>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Time: Expression = NewObject<DMaterialExpressionTime>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::CameraPosition: Expression = NewObject<DMaterialExpressionCameraPosition>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::CameraVector: Expression = NewObject<DMaterialExpressionCameraVector>(nullptr, NAME_None); break;

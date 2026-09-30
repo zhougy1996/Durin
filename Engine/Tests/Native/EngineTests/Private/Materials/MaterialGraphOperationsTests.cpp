@@ -681,7 +681,7 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 			const auto Expression = std::ranges::find_if(Material->GetExpressionCollection().Expressions,
 				[&](const auto& Value) { return Value->Id == Node.Node.Id; });
 			ASSERT_NE(Expression, Material->GetExpressionCollection().Expressions.end());
-			EXPECT_EQ(Node.Inputs.size(), Node.Node.bMaterialOutput ? 8u : (*Expression)->GetAuthoredInputCount());
+			EXPECT_EQ(Node.Inputs.size(), Node.Node.bMaterialOutput ? 9u : (*Expression)->GetAuthoredInputCount());
 			for (const FMaterialGraphPinView& Input : Node.Inputs)
 			{
 				EXPECT_FALSE(Input.Name.empty());
@@ -2743,6 +2743,49 @@ TEST(FMaterialGraphOperationsTests, ChangeObserversCanDetachDuringDispatchAndSup
 	EXPECT_EQ(FirstCalls, 1);
 }
 
+TEST(FMaterialGraphOperationsTests, VertexOffsetPinRetainsConnectionsAndDefaultsAcrossAttributesMode)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "VertexOffsetPin"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Tests::FTestTransactorOwner Transactions;
+	const auto OutputId = Material->GetOutputNode()->Id;
+	const auto PinId = static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
+	ASSERT_TRUE(Document.SetInputDefault(OutputId, PinId,
+		{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float3,
+			.Literal = {1.f, 2.f, 3.f}}, {}, Transactions.Get()));
+	EXPECT_EQ(ReadMaterialOutputDefault(Material->GetExpressionOutputs(), EMaterialOutputPin::WorldPositionOffset),
+		(std::vector<float>{1.f, 2.f, 3.f}));
+	const auto Normal = Testing::CreateGraphCatalogNode(Document,
+		EMaterialProgramOpcode::VertexNormal, EMaterialProgramValueType::Float3);
+	ASSERT_TRUE(Normal);
+	auto View = Document.Inspect();
+	const auto* Terminal = FindViewNode(View, OutputId);
+	ASSERT_NE(Terminal, nullptr);
+	const auto Pin = std::ranges::find(Terminal->Inputs, PinId, &FMaterialGraphPinView::InputIndex);
+	ASSERT_NE(Pin, Terminal->Inputs.end());
+	EXPECT_EQ(Pin->Constraint.Stages, EMaterialEvaluationStage::Vertex);
+	ASSERT_TRUE(Document.Connect(Terminal->InputAddress(*Pin),
+		FMaterialGraphPinAddress::Output({Normal.GeneratedNodeIds.front()}), false, Transactions.Get()));
+	ASSERT_TRUE(Document.SetUseMaterialAttributes(true));
+	View = Document.Inspect();
+	Terminal = FindViewNode(View, OutputId);
+	ASSERT_NE(Terminal, nullptr);
+	ASSERT_EQ(Terminal->Inputs.size(), 2u);
+	EXPECT_EQ(Material->GetExpressionOutputs().WorldPositionOffset.Connection.ExpressionId, Normal.GeneratedNodeIds.front());
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(Built.IR.WorldPositionOffset.bExpression);
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::Input(OutputId, PinId), Transactions.Get()));
+	EXPECT_EQ(ReadMaterialOutputDefault(Material->GetExpressionOutputs(), EMaterialOutputPin::WorldPositionOffset),
+		(std::vector<float>{1.f, 2.f, 3.f}));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->GetExpressionOutputs().WorldPositionOffset.Connection.ExpressionId, Normal.GeneratedNodeIds.front());
+}
+
 TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeChanges)
 {
 	InitializeDObjectSystem();
@@ -2758,7 +2801,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	ASSERT_NE(Terminal, nullptr);
 	EXPECT_TRUE(Terminal->Node.bMaterialOutput);
 	EXPECT_TRUE(Terminal->Outputs.empty());
-	ASSERT_EQ(Terminal->Inputs.size(), 8u);
+	ASSERT_EQ(Terminal->Inputs.size(), 9u);
 	EXPECT_EQ(Terminal->Inputs.front().InputIndex, static_cast<uint32>(EMaterialOutputPin::BaseColor));
 	EXPECT_GT(GraphNodeHeight(*Terminal), GraphNodePinOffset(*Terminal) + 7 * FMaterialGraphGeometry::GetMetrics().PinRowHeight);
 	EXPECT_TRUE(GetMaterialDomainOutputPins(static_cast<EMaterialDomain>(255)).empty());
@@ -3059,17 +3102,17 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 		auto View = Document.Inspect();
 		return std::ranges::find_if(View.Nodes, [](const auto& Node) { return Node.Node.bMaterialOutput; })->Inputs;
 	};
-	ASSERT_EQ(Pins().size(), 8u);
+	ASSERT_EQ(Pins().size(), 9u);
 	ASSERT_TRUE(Document.SetUseMaterialAttributes(true, Transactions.Get()));
-	ASSERT_EQ(Pins().size(), 1u);
+	ASSERT_EQ(Pins().size(), 2u);
 	EXPECT_EQ(Pins()[0].Name, "Material Attributes");
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor, Before.BaseColor);
 	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Before.Surface);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetExpressionOutputs(), Before);
-	EXPECT_EQ(Pins().size(), 8u);
+	EXPECT_EQ(Pins().size(), 9u);
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Pins().size(), 1u);
+	EXPECT_EQ(Pins().size(), 2u);
 	// Editing either stored connection set never switches the mode or clears the other.
 	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::BaseColor)));
 	EXPECT_TRUE(Material->GetExpressionOutputs().bUseMaterialAttributes);

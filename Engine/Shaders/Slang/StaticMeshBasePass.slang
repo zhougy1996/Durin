@@ -49,8 +49,7 @@ struct MaterialPrimitiveUniform
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
 
-[shader("vertex")]
-VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput EvaluateFixedGeometry(FLocalVertexFactoryInput input, uint instanceId)
 {
 #if DURIN_SPLINE_MESH
     FLocalVertexFactoryIntermediates vertex =
@@ -124,3 +123,24 @@ struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
 [[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz))); }
+
+#if DURIN_SPLINE_MESH
+[shader("vertex")]
+VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateFixedGeometry(input, instanceId);
+}
+#endif
+#if DURIN_GPU_CULLING
+[shader("vertex")]
+VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateFixedGeometry(input, instanceId);
+}
+#endif
+
+[shader("vertex")]
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateFixedGeometry(input, instanceId);
+}

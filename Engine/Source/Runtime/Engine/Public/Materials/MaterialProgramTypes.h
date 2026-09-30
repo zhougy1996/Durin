@@ -19,6 +19,7 @@ namespace Durin
 	struct FMaterialProgramValidationResult;
 	enum class EMaterialSurfaceOutput : uint8;
 
+	inline constexpr uint32 MaterialProgramMaxVertexInterpolators = 8;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -104,6 +105,15 @@ namespace Durin
 			== static_cast<uint8>(Stage);
 	}
 
+	inline auto IsMaterialWorldPositionOffsetSemantics(const FMaterialValueSemantics& Value) -> bool
+	{
+		return Value.Type == EMaterialProgramValueType::Float3
+			&& MaterialStagesContain(Value.Stages, EMaterialEvaluationStage::Vertex)
+			&& ((Value.Kind == EMaterialSpatialKind::None && Value.Space == EMaterialCoordinateSpace::None)
+				|| ((Value.Kind == EMaterialSpatialKind::Direction || Value.Kind == EMaterialSpatialKind::Normal)
+					&& Value.Space == EMaterialCoordinateSpace::World));
+	}
+
 	ENGINE_API auto IsValidMaterialValueSemantics(
 		const FMaterialValueSemantics& Value) -> bool;
 	ENGINE_API auto GetMaterialValueSemanticsName(
@@ -184,6 +194,7 @@ namespace Durin
 		StaticSwitch,
 		QualitySwitch,
 		FeatureLevelSwitch,
+		VertexInterpolator,
 	};
 
 	struct FMaterialTransformPayload
@@ -199,7 +210,8 @@ namespace Durin
 		return (Opcode >= EMaterialProgramOpcode::Add && Opcode <= EMaterialProgramOpcode::Lerp)
 			|| Opcode == EMaterialProgramOpcode::Sine || Opcode == EMaterialProgramOpcode::Cosine
 			|| (Opcode >= EMaterialProgramOpcode::Pow && Opcode <= EMaterialProgramOpcode::Sign)
-			|| Opcode == EMaterialProgramOpcode::Reflect;
+			|| Opcode == EMaterialProgramOpcode::Reflect
+			|| Opcode == EMaterialProgramOpcode::VertexInterpolator;
 	}
 
 	DENUM()

@@ -143,10 +143,27 @@ namespace Durin
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(FVector3f(View.ViewLocation), 0.f)};
 				Item.Id = Commands.CreateUniformBufferRange(&Id, sizeof(Id));
+				std::vector<FRHIUniformBufferRange> Collections;
+				if (const auto Program = Draw.Command->Material.CompiledProgram)
+					for (const auto& Required : Program->ActiveCollections)
+					{
+						FByteView Payload = Required.DefaultPayload;
+						if (Scene)
+							if (const auto Snapshot = Scene->GetMaterialParameterCollection_RenderThread(Required.CollectionId))
+							{
+								if (!Snapshot->Layout.HasCompatibleSchema(Required)) { bReady = false; break; }
+								Payload = Snapshot->Payload;
+							}
+						if (Payload.size() != Required.UniformLayout.UniformPayloadSize) { bReady = false; break; }
+						Collections.push_back(Commands.CreateUniformBufferRange(Payload.data(), Payload.size()));
+					}
+				if (!bReady) break;
 				if (!PrepareCompiledSurfaceMaterial(Item.Fragment.GetRHIShader(false), Item.Fragment.GetShader()->GetSurfaceLayout(),
 					Item.Material.Surface, Item.Material.Uniform, {}, Item.Id, ViewUniform,
-					Item.Transform, Item.FragmentBindings)) { bReady = false; break; }
-				Item.VertexBindings = Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding);
+					Item.Transform, Collections, Item.FragmentBindings)) { bReady = false; break; }
+				Item.VertexBindings = PrepareMeshVertexMaterial(*Item.Vertex,
+					Item.Vertex->Prepare(Commands, Item.Transform, *Item.Primitive->CollectedBinding),
+					Item.Material.Surface, Item.Material.Uniform, ViewUniform, Collections);
 				if (!Item.VertexBindings) { bReady = false; break; }
 				Draws.push_back(std::move(Item));
 			}

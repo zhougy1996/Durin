@@ -928,6 +928,45 @@ TEST(FMaterialFunctionTests, NestedPureMathPreservesCallPathAndGeneratedOperatio
 	}));
 }
 
+TEST(FMaterialFunctionTests, ExpandedVertexInterpolatorPreservesStageBoundaryAndCallPath)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "VertexValue"));
+	FMaterialFunctionSignature Signature;
+	Signature.Inputs = {FunctionPort(1, Type::Float, "Value")};
+	Signature.Inputs[0].bRequired = true;
+	Signature.Outputs = {FunctionPort(2, Type::Float, "Interpolated")};
+	auto* Input = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
+	auto* Interpolator = NewObject<DMaterialExpressionVertexInterpolator>(nullptr, NAME_None);
+	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
+	Input->Id = FGuid::NewGuid(); Input->Port.Id = Signature.Inputs[0].Id;
+	Interpolator->Id = FGuid::NewGuid(); Interpolator->Input = {Input->Id};
+	Output->Id = FGuid::NewGuid(); Output->Port.Id = Signature.Outputs[0].Id;
+	Output->Source = {Interpolator->Id};
+	std::vector<DMaterialExpression*> Body{Input, Interpolator, Output};
+	ASSERT_TRUE(Function->SetFunctionExpressions(Testing::WithFunctionPorts(Signature, Body)));
+
+	auto* Time = NewObject<DMaterialExpressionTime>(nullptr, NAME_None);
+	auto* Call = NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None);
+	Time->Id = FGuid::NewGuid(); Call->Id = FGuid::NewGuid(); Call->Function = Function.Get();
+	Call->Inputs = {{Signature.Inputs[0].Id, Type::Float, {Time->Id}}};
+	Call->Outputs = {{Signature.Outputs[0].Id, Type::Float}};
+	std::vector<DMaterialExpression*> Expressions{Time, Call};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.Roughness = {.ExpressionId = Call->Id, .OutputId = Signature.Outputs[0].Id};
+	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? ""
+		: FormatMaterialError(Normalized.Diagnostics.front().Error));
+	const auto Generated = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(Generated);
+	EXPECT_NE(Generated.Source.find("interpolator0"), std::string::npos);
+	EXPECT_TRUE(std::ranges::any_of(Normalized.Sources, [&](const auto& Source) {
+		return Source.NodeId == Interpolator->Id && Source.CallPath == std::vector<FGuid>{Call->Id};
+	}));
+}
+
 TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 {
 	using namespace Durin;

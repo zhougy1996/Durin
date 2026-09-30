@@ -306,6 +306,9 @@ namespace Durin
 		DPROPERTY()
 		FMaterialNumericInput OpacityMask;
 
+		DPROPERTY()
+		FMaterialNumericInput WorldPositionOffset{3};
+
 		// Both connection sets are retained; only the selected set drives the output.
 		DPROPERTY()
 		bool bUseMaterialAttributes = false;
@@ -321,7 +324,7 @@ namespace Durin
 	enum class EMaterialOutputPin : uint8
 	{
 		BaseColor = 0, Normal = 1, Metallic = 2, Roughness = 3,
-		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7, Surface = 8,
+		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7, Surface = 8, WorldPositionOffset = 9,
 	};
 	struct FMaterialOutputPinDefinition
 	{
@@ -346,7 +349,7 @@ namespace Durin
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		DPROPERTY()
 		FMaterialExpressionSurfaceOutputs Outputs;
-		auto GetAuthoredInputCount() const -> uint32 override { return 9; }
+		auto GetAuthoredInputCount() const -> uint32 override { return 10; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
@@ -357,6 +360,20 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionNumeric(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	};
+
+	DCLASS()
+	class DMaterialExpressionVertexInterpolator : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionVertexInterpolator(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	// Owns only the inputs and width required by Add.

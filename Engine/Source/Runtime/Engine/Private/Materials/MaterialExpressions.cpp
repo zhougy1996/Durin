@@ -62,7 +62,8 @@ namespace Durin
 			FMaterialOutputPinDefinition{P::AmbientOcclusion, "Ambient Occlusion", T::Float},
 			FMaterialOutputPinDefinition{P::Emissive, "Emissive", T::Float3},
 			FMaterialOutputPinDefinition{P::Opacity, "Opacity", T::Float},
-			FMaterialOutputPinDefinition{P::OpacityMask, "Opacity Mask", T::Float}};
+			FMaterialOutputPinDefinition{P::OpacityMask, "Opacity Mask", T::Float},
+			FMaterialOutputPinDefinition{P::WorldPositionOffset, "World Position Offset", T::Float3}};
 		return Domain == EMaterialDomain::Surface ? std::span<const FMaterialOutputPinDefinition>(Pins) : std::span<const FMaterialOutputPinDefinition>{};
 	}
 
@@ -70,6 +71,7 @@ namespace Durin
 	{
 		switch (Pin)
 		{
+		case EMaterialOutputPin::WorldPositionOffset: return &Outputs.WorldPositionOffset;
 		case EMaterialOutputPin::BaseColor: return &Outputs.BaseColor;
 		case EMaterialOutputPin::Normal: return &Outputs.Normal;
 		case EMaterialOutputPin::Metallic: return &Outputs.Metallic;
@@ -93,6 +95,7 @@ namespace Durin
 	{
 		const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialExpressionSurfaceOutputs&>(Outputs), Pin);
 		if (!Numeric) return {};
+		if (Pin == EMaterialOutputPin::WorldPositionOffset) return Numeric->UseConstant ? Numeric->Constant : std::vector<float>{0.f, 0.f, 0.f};
 		return Numeric->UseConstant ? Numeric->Constant : GetMaterialNumericInputFallback(
 			EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, static_cast<uint32>(Pin));
 	}
@@ -102,7 +105,8 @@ namespace Durin
 		auto* Numeric = GetMaterialOutputNumericInput(Outputs, Pin);
 		if (!Numeric) return false;
 		if (Value.empty()) { Numeric->UseConstant = false; return true; }
-		const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Pin))) + 1;
+		const auto Width = Pin == EMaterialOutputPin::WorldPositionOffset ? 3u
+			: static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Pin))) + 1;
 		if (Value.size() != Width) return false;
 		Numeric->SetConstant({Value.begin(), Value.end()});
 		return true;

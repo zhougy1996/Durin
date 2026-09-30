@@ -27,7 +27,7 @@ TEST(FMaterialExpressionSemanticTests, SourcesAndConstantsCarryExplicitDetachedS
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSemantics(),
-		(FMaterialValueSemantics{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Pixel,
+		(FMaterialValueSemantics{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Both,
 			EMaterialSpatialKind::Position, EMaterialCoordinateSpace::World}));
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[1]].GetSemantics(),
 		(FMaterialValueSemantics{EMaterialProgramValueType::Float3, EMaterialEvaluationStage::Both,
@@ -870,7 +870,7 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.CompiledShaders.size(), 4u);
+	EXPECT_EQ(Compiled.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }

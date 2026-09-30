@@ -37,7 +37,8 @@ namespace Durin
 		const bool bAggregate = Outputs.bUseMaterialAttributes;
 		const FMaterialSurfaceOutputs StandardDefaults;
 		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.Connection.ExpressionId.IsValid(); })
-			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0);
+			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0)
+			+ (Outputs.WorldPositionOffset.Connection.ExpressionId.IsValid() ? 1 : 0);
 		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, EMaterialExpressionError::OutputConnectionsExceedAuthoredLinkBound);
 		if (!ValidSelector(Outputs.Surface)) OutputError(0, EMaterialExpressionError::DisconnectedSurfaceOutputOutputSelector);
 		for (uint32 Index = 0; Index < Inputs.size() && Result.Diagnostics.empty(); ++Index)
@@ -86,6 +87,33 @@ namespace Durin
 			if (bAggregate) { Root.bAggregate = true; Root.AggregateExpressionIndex = ExpressionIndex; }
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
 				OutputError(0, EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression);
+		}
+		if (Result.Diagnostics.empty())
+		{
+			const auto& Stored = Outputs.WorldPositionOffset;
+			const auto& Input = Stored.Connection;
+			const auto Values = ReadMaterialOutputDefault(Outputs, EMaterialOutputPin::WorldPositionOffset);
+			const auto Pin = static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
+			AuthoringCodeHash.UpdateValue(Stored.UseConstant);
+			for (float Value : Stored.Constant) AuthoringCodeHash.UpdateValue(Value);
+			if (!ValidSelector(Input) || Stored.Constant.size() != 3
+				|| !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); }))
+				OutputError(Pin, EMaterialExpressionError::OutputInvalidSelectorRetainedDefault);
+			else
+			{
+				auto& Root = Result.IR.WorldPositionOffset;
+				Root.Literal = {Values[0], Values[1], Values[2]};
+				if (Input.ExpressionId.IsValid())
+				{
+					const auto Index = ResolveIndex(Input);
+					if (Result.Diagnostics.empty())
+					{
+						if (!IsMaterialWorldPositionOffsetSemantics(Result.IR.Nodes[Index].GetSemantics()))
+							OutputError(Pin, EMaterialExpressionError::OutputSourceIncompatibleSemantics);
+						else { Root.bExpression = true; Root.ExpressionIndex = Index; }
+					}
+				}
+			}
 		}
 		return Finish({});
 	}
@@ -142,6 +170,9 @@ namespace Durin
 				Hash.UpdateValue(Input.SpatialKind); Hash.UpdateValue(Input.CoordinateSpace);
 				Literal(Input.Literal);
 			}
+			Hash.UpdateValue(Built.IR.WorldPositionOffset.bExpression);
+			Hash.UpdateValue(Built.IR.WorldPositionOffset.ExpressionIndex);
+			Literal(Built.IR.WorldPositionOffset.Literal);
 			*OutCodeFingerprint = Hash.Finalize();
 		}
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};

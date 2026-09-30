@@ -9,6 +9,7 @@
 #include <format>
 #include <ranges>
 #include <set>
+#include <functional>
 
 namespace Durin
 {
@@ -130,8 +131,15 @@ namespace Durin
 		{
 			return {EMaterialIRError::InvalidMaterialIRSlangGeneration};
 		}
+		std::vector<uint32> Interpolators;
+		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+			if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Interpolators.push_back(Index);
+		if (Interpolators.size() > MaterialProgramMaxVertexInterpolators)
+			return {EMaterialIRError::InvalidMaterialIRSlangGeneration};
 		OutSource = R"(module DurinGeneratedMaterial;
 import Material.SurfaceMaterial;
+import VertexFactory.LocalVertexFactory;
+import VertexFactory.SplineMeshVertexFactory;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
 import Lighting.ForwardLightingUniform;
@@ -148,8 +156,11 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
-};
 )";
+		for (uint32 Slot = 0; Slot < Interpolators.size(); ++Slot)
+			OutSource += std::format("    {} interpolator{} : TEXCOORD{};\n",
+				SlangType(IR.Nodes[Interpolators[Slot]].ResultType), Slot, Slot + 7);
+		OutSource += "};\n";
 		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
@@ -226,251 +237,282 @@ float3x3 MaterialTangentToWorld(VSOutput input)
     return float3x3(tangent, bitangent, normal);
 }
 )";
-		OutSource += R"(
-FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
-{
-)";
-
-		std::vector<std::string> Expressions(IR.Nodes.size());
-		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+		for (const auto Stage : {EMaterialEvaluationStage::Vertex, EMaterialEvaluationStage::Pixel})
 		{
-			const MIR::FNode& Node = IR.Nodes[Index];
-			auto Input = [&](size_t Slot) -> const std::string& {
-				return Expressions[Node.Inputs[Slot]];
+			const bool bVertex = Stage == EMaterialEvaluationStage::Vertex;
+			std::vector<bool> Reachable(IR.Nodes.size());
+			std::function<void(uint32)> Visit = [&](uint32 Index) {
+				if (Reachable[Index]) return;
+				Reachable[Index] = true;
+				if (!bVertex && IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
+				for (const auto Child : IR.Nodes[Index].Inputs) Visit(Child);
 			};
-			std::string Expression;
-			switch (Node.Opcode)
+			if (bVertex)
 			{
-			case EMaterialProgramOpcode::FunctionInput:
-			case EMaterialProgramOpcode::FunctionOutput:
-			case EMaterialProgramOpcode::FunctionCall:
-			case EMaterialProgramOpcode::TextureSampleParameter2D:
-			case EMaterialProgramOpcode::TextureCoordinates:
-			case EMaterialProgramOpcode::GetSurfaceAttributes:
-			case EMaterialProgramOpcode::SetSurfaceAttributes:
-			case EMaterialProgramOpcode::AppendVector:
-			case EMaterialProgramOpcode::StaticBool:
-			case EMaterialProgramOpcode::StaticSwitch:
-			case EMaterialProgramOpcode::QualitySwitch:
-			case EMaterialProgramOpcode::FeatureLevelSwitch:
-				// Authored operations must be expanded before source generation.
-				break;
-			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
-			case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
-			case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
-			case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
-			case EMaterialProgramOpcode::ObjectPosition: Expression = "MaterialPrimitive.BoundsCenter.xyz"; break;
-			case EMaterialProgramOpcode::VertexNormal: Expression = "MaterialSafeNormalize(input.worldNormal)"; break;
-			case EMaterialProgramOpcode::ScreenPosition: Expression = "(input.pos.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy"; break;
-			case EMaterialProgramOpcode::ViewSize: Expression = "MaterialView.Viewport.zw"; break;
-			case EMaterialProgramOpcode::TransformPosition:
-			case EMaterialProgramOpcode::TransformDirection:
-			case EMaterialProgramOpcode::TransformNormal:
+				if (IR.WorldPositionOffset.bExpression) Visit(IR.WorldPositionOffset.ExpressionIndex);
+				for (const auto Index : Interpolators) Visit(IR.Nodes[Index].Inputs[0]);
+			}
+			else if (IR.SurfaceRoot.bAggregate) Visit(IR.SurfaceRoot.AggregateExpressionIndex);
+			else for (const auto& Root : IR.SurfaceRoot.Inputs) if (Root.bExpression) Visit(Root.ExpressionIndex);
+			OutSource += bVertex
+				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
+				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n";
+			std::vector<std::string> Expressions(IR.Nodes.size());
+			for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 			{
-				const auto Transform = Node.GetTransform();
-				const auto Value = Input(0);
-				auto ToWorldDirection = [&](std::string_view InputValue) -> std::string {
-					switch (Transform.Source)
-					{
-					case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 0.0)).xyz", InputValue);
-					case EMaterialCoordinateSpace::World: return std::string(InputValue);
-					case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.ViewToWorld, float4({}, 0.0)).xyz", InputValue);
-					case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
-					default: return {};
-					}
+				if (!Reachable[Index]) continue;
+				const MIR::FNode& Node = IR.Nodes[Index];
+				auto Input = [&](size_t Slot) -> const std::string& {
+					return Expressions[Node.Inputs[Slot]];
 				};
-				auto FromWorldDirection = [&](std::string_view InputValue) -> std::string {
-					switch (Transform.Destination)
-					{
-					case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 0.0)).xyz", InputValue);
-					case EMaterialCoordinateSpace::World: return std::string(InputValue);
-					case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.WorldToView, float4({}, 0.0)).xyz", InputValue);
-					case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
-					default: return {};
-					}
-				};
-				if (Node.Opcode == EMaterialProgramOpcode::TransformPosition)
+				std::string Expression;
+				switch (Node.Opcode)
 				{
-					std::string World = Transform.Source == EMaterialCoordinateSpace::Object
-						? std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 1.0)).xyz", Value)
-						: Transform.Source == EMaterialCoordinateSpace::View
-							? std::format("mul(MaterialView.ViewToWorld, float4({}, 1.0)).xyz", Value) : Value;
-					Expression = Transform.Destination == EMaterialCoordinateSpace::Object
-						? std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 1.0)).xyz", World)
-						: Transform.Destination == EMaterialCoordinateSpace::View
-							? std::format("mul(MaterialView.WorldToView, float4({}, 1.0)).xyz", World) : World;
+				case EMaterialProgramOpcode::FunctionInput:
+				case EMaterialProgramOpcode::FunctionOutput:
+				case EMaterialProgramOpcode::FunctionCall:
+				case EMaterialProgramOpcode::TextureSampleParameter2D:
+				case EMaterialProgramOpcode::TextureCoordinates:
+				case EMaterialProgramOpcode::GetSurfaceAttributes:
+				case EMaterialProgramOpcode::SetSurfaceAttributes:
+				case EMaterialProgramOpcode::AppendVector:
+				case EMaterialProgramOpcode::StaticBool:
+				case EMaterialProgramOpcode::StaticSwitch:
+				case EMaterialProgramOpcode::QualitySwitch:
+				case EMaterialProgramOpcode::FeatureLevelSwitch:
+					// Authored operations must be expanded before source generation.
+					break;
+				case EMaterialProgramOpcode::VertexInterpolator:
+				{
+					const auto Slot = std::ranges::find(Interpolators, Index) - Interpolators.begin();
+					Expression = std::format("input.interpolator{}", Slot);
+					break;
 				}
-				else if (Node.Opcode == EMaterialProgramOpcode::TransformDirection)
-					Expression = FromWorldDirection(ToWorldDirection(Value));
-				else
+				case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
+				case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
+				case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
+				case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
+				case EMaterialProgramOpcode::ObjectPosition: Expression = "MaterialPrimitive.BoundsCenter.xyz"; break;
+				case EMaterialProgramOpcode::VertexNormal: Expression = "MaterialSafeNormalize(input.worldNormal)"; break;
+				case EMaterialProgramOpcode::ScreenPosition: Expression = "(input.pos.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy"; break;
+				case EMaterialProgramOpcode::ViewSize: Expression = "MaterialView.Viewport.zw"; break;
+				case EMaterialProgramOpcode::TransformPosition:
+				case EMaterialProgramOpcode::TransformDirection:
+				case EMaterialProgramOpcode::TransformNormal:
 				{
-					auto ToWorldNormal = [&](std::string_view InputValue) -> std::string {
+					const auto Transform = Node.GetTransform();
+					const auto Value = Input(0);
+					auto ToWorldDirection = [&](std::string_view InputValue) -> std::string {
 						switch (Transform.Source)
 						{
-						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.NormalToWorld, float4({}, 0.0)).xyz", InputValue);
+						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::World: return std::string(InputValue);
-						case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.WorldToView), {})", InputValue);
+						case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.ViewToWorld, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
 						default: return {};
 						}
 					};
-					auto FromWorldNormal = [&](std::string_view InputValue) -> std::string {
+					auto FromWorldDirection = [&](std::string_view InputValue) -> std::string {
 						switch (Transform.Destination)
 						{
-						case EMaterialCoordinateSpace::Object: return std::format("mul(transpose((float3x3)MaterialPrimitive.LocalToWorld), {})", InputValue);
+						case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::World: return std::string(InputValue);
-						case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.ViewToWorld), {})", InputValue);
+						case EMaterialCoordinateSpace::View: return std::format("mul(MaterialView.WorldToView, float4({}, 0.0)).xyz", InputValue);
 						case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
 						default: return {};
 						}
 					};
-					Expression = std::format("MaterialSafeNormalize({})", FromWorldNormal(ToWorldNormal(Value)));
-				}
-				break;
-			}
-			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
-			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
-			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
-			case EMaterialProgramOpcode::Dot: Expression = std::format("dot({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Cross: Expression = std::format("cross({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Length: Expression = std::format("length({})", Input(0)); break;
-			case EMaterialProgramOpcode::Distance: Expression = std::format("distance({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Pow: Expression = std::format("pow({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Sqrt: Expression = std::format("sqrt({})", Input(0)); break;
-			case EMaterialProgramOpcode::Exp: Expression = std::format("exp({})", Input(0)); break;
-			case EMaterialProgramOpcode::Log: Expression = std::format("log({})", Input(0)); break;
-			case EMaterialProgramOpcode::Floor: Expression = std::format("floor({})", Input(0)); break;
-			case EMaterialProgramOpcode::Ceil: Expression = std::format("ceil({})", Input(0)); break;
-			case EMaterialProgramOpcode::Round: Expression = std::format("round({})", Input(0)); break;
-			case EMaterialProgramOpcode::Frac: Expression = std::format("frac({})", Input(0)); break;
-			case EMaterialProgramOpcode::Fmod: Expression = std::format("fmod({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Step: Expression = std::format("step({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::SmoothStep: Expression = std::format("smoothstep({}, {}, {})", Input(0), Input(1), Input(2)); break;
-			case EMaterialProgramOpcode::Sign: Expression = std::format("sign({})", Input(0)); break;
-			case EMaterialProgramOpcode::Reflect: Expression = std::format("reflect({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::MakeSurface:
-				Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
-					Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
-			case EMaterialProgramOpcode::Constant:
-				Expression = LiteralExpression(Node); break;
-			case EMaterialProgramOpcode::Parameter:
-				if (const auto* Field = FindField(Node.GetParameterId()))
-				{
-					constexpr std::array<std::string_view, 4> Swizzles{".x", ".xy", ".xyz", ""};
-					Expression = std::format("Material.Value{}{}", Field->CompactIndex,
-						Swizzles[static_cast<size_t>(Node.ResultType)]);
-				}
-				break;
-			case EMaterialProgramOpcode::CollectionParameter:
-			{
-				const auto Reference = Node.GetCollectionParameter();
-				const auto [CollectionIndex, Field] = FindCollectionField(
-					Reference.CollectionId, Reference.ParameterId);
-				if (Field)
-				{
-					constexpr std::array<std::string_view, 4> Swizzles{
-						".x", ".xy", ".xyz", ""};
-					Expression = std::format("MaterialCollection{}.Value{}{}",
-						CollectionIndex, Field->CompactIndex,
-						Swizzles[static_cast<size_t>(Node.ResultType)]);
-				}
-				break;
-			}
-			case EMaterialProgramOpcode::TextureParameter:
-			{
-				if (const auto* Field = FindField(Node.GetParameterId()))
-					Expression = std::format("MaterialTexture{}", Field->CompactIndex);
-				break;
-			}
-			case EMaterialProgramOpcode::TextureSample2D:
-			{
-				const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
-				if (const auto* Field = FindField(TextureNode.GetParameterId()))
-					Expression = std::format("{}.Sample(MaterialSampler{}, {})",
-						Input(0), Field->CompactIndex, Input(1));
-				break;
-			}
-			case EMaterialProgramOpcode::Add: Expression = std::format("({} + {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Subtract: Expression = std::format("({} - {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Multiply: Expression = std::format("({} * {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Divide: Expression = std::format("({} / {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Minimum: Expression = std::format("min({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Maximum: Expression = std::format("max({}, {})", Input(0), Input(1)); break;
-			case EMaterialProgramOpcode::Negate: Expression = std::format("(-{})", Input(0)); break;
-			case EMaterialProgramOpcode::OneMinus: Expression = std::format("(1.0 - {})", Input(0)); break;
-			case EMaterialProgramOpcode::Absolute: Expression = std::format("abs({})", Input(0)); break;
-			case EMaterialProgramOpcode::Saturate: Expression = std::format("saturate({})", Input(0)); break;
-			case EMaterialProgramOpcode::Normalize: Expression = std::format("normalize({})", Input(0)); break;
-			case EMaterialProgramOpcode::Clamp: Expression = std::format("clamp({}, {}, {})", Input(0), Input(1), Input(2)); break;
-			case EMaterialProgramOpcode::Lerp: Expression = std::format("lerp({}, {}, {})", Input(0), Input(1), Input(2)); break;
-			case EMaterialProgramOpcode::MakeFloat2:
-			case EMaterialProgramOpcode::MakeFloat3:
-			case EMaterialProgramOpcode::MakeFloat4:
-			{
-				Expression = std::format("{}(", SlangType(Node.ResultType));
-				for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
-				{
-					if (Slot) Expression += ", ";
-					Expression += Input(Slot);
-				}
-				Expression += ")"; break;
-			}
-			case EMaterialProgramOpcode::Swizzle:
-			{
-				constexpr std::string_view Components = "xyzw";
-				std::array Mask{Node.GetSwizzle().Components[0], Node.GetSwizzle().Components[1],
-					Node.GetSwizzle().Components[2], Node.GetSwizzle().Components[3]};
-				Expression = Input(0) + ".";
-				for (uint8 Slot = 0; Slot < Node.GetSwizzle().Length; ++Slot)
-					Expression += Components[Mask[Slot]];
-				break;
-			}
-			case EMaterialProgramOpcode::Splat2:
-			case EMaterialProgramOpcode::Splat3:
-			case EMaterialProgramOpcode::Splat4:
-				Expression = std::format("{}({})", SlangType(Node.ResultType), Input(0)); break;
-			case EMaterialProgramOpcode::DecodeNormalRG: Expression = std::format("DecodeTextureNormal({})", Input(0)); break;
-			case EMaterialProgramOpcode::BlendNormalsRNM: Expression = std::format("BlendSurfaceNormalsRNM({}, {})", Input(0), Input(1)); break;
-			}
-			if (Expression.empty())
-			{
-				OutSource.clear();
-				return {FMaterialError(EMaterialIRError::UnsupportedGenerationNode, Index)};
-			}
-			Expressions[Index] = std::format("n{}", Index);
-			if (Node.ResultType != EMaterialProgramValueType::Texture2D)
-				OutSource += std::format("    {} n{} = {};\n",
-					SlangType(Node.ResultType), Index, Expression);
-			else
-				Expressions[Index] = std::move(Expression);
-		}
-		if (IR.SurfaceRoot.bAggregate)
-		{
-			if (IR.SurfaceRoot.AggregateExpressionIndex >= Expressions.size())
-			{
-				OutSource.clear();
-				return {EMaterialIRError::AggregateSurfaceRootExpressionOutBounds};
-			}
-			OutSource += std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
-		}
-		else
-		{
-			std::array<std::string, 8> Outputs;
-			for (size_t Index = 0; Index < Outputs.size(); ++Index)
-			{
-				const auto& Input = IR.SurfaceRoot.Inputs[Index];
-				if (Input.bExpression)
-				{
-					if (Input.ExpressionIndex >= Expressions.size())
+					if (Node.Opcode == EMaterialProgramOpcode::TransformPosition)
 					{
-						OutSource.clear();
-						return {EMaterialIRError::PerPropertySurfaceRootExpressionOutBounds};
+						std::string World = Transform.Source == EMaterialCoordinateSpace::Object
+							? std::format("mul(MaterialPrimitive.LocalToWorld, float4({}, 1.0)).xyz", Value)
+							: Transform.Source == EMaterialCoordinateSpace::View
+								? std::format("mul(MaterialView.ViewToWorld, float4({}, 1.0)).xyz", Value) : Value;
+						Expression = Transform.Destination == EMaterialCoordinateSpace::Object
+							? std::format("mul(MaterialPrimitive.WorldToLocal, float4({}, 1.0)).xyz", World)
+							: Transform.Destination == EMaterialCoordinateSpace::View
+								? std::format("mul(MaterialView.WorldToView, float4({}, 1.0)).xyz", World) : World;
 					}
-					Outputs[Index] = Expressions[Input.ExpressionIndex];
+					else if (Node.Opcode == EMaterialProgramOpcode::TransformDirection)
+						Expression = FromWorldDirection(ToWorldDirection(Value));
+					else
+					{
+						auto ToWorldNormal = [&](std::string_view InputValue) -> std::string {
+							switch (Transform.Source)
+							{
+							case EMaterialCoordinateSpace::Object: return std::format("mul(MaterialPrimitive.NormalToWorld, float4({}, 0.0)).xyz", InputValue);
+							case EMaterialCoordinateSpace::World: return std::string(InputValue);
+							case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.WorldToView), {})", InputValue);
+							case EMaterialCoordinateSpace::Tangent: return std::format("mul({}, MaterialTangentToWorld(input))", InputValue);
+							default: return {};
+							}
+						};
+						auto FromWorldNormal = [&](std::string_view InputValue) -> std::string {
+							switch (Transform.Destination)
+							{
+							case EMaterialCoordinateSpace::Object: return std::format("mul(transpose((float3x3)MaterialPrimitive.LocalToWorld), {})", InputValue);
+							case EMaterialCoordinateSpace::World: return std::string(InputValue);
+							case EMaterialCoordinateSpace::View: return std::format("mul(transpose((float3x3)MaterialView.ViewToWorld), {})", InputValue);
+							case EMaterialCoordinateSpace::Tangent: return std::format("mul(MaterialTangentToWorld(input), {})", InputValue);
+							default: return {};
+							}
+						};
+						Expression = std::format("MaterialSafeNormalize({})", FromWorldNormal(ToWorldNormal(Value)));
+					}
+					break;
 				}
-				else Outputs[Index] = LiteralExpression(Input.Type, Input.Literal);
+				case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
+				case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
+				case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
+				case EMaterialProgramOpcode::Dot: Expression = std::format("dot({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Cross: Expression = std::format("cross({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Length: Expression = std::format("length({})", Input(0)); break;
+				case EMaterialProgramOpcode::Distance: Expression = std::format("distance({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Pow: Expression = std::format("pow({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Sqrt: Expression = std::format("sqrt({})", Input(0)); break;
+				case EMaterialProgramOpcode::Exp: Expression = std::format("exp({})", Input(0)); break;
+				case EMaterialProgramOpcode::Log: Expression = std::format("log({})", Input(0)); break;
+				case EMaterialProgramOpcode::Floor: Expression = std::format("floor({})", Input(0)); break;
+				case EMaterialProgramOpcode::Ceil: Expression = std::format("ceil({})", Input(0)); break;
+				case EMaterialProgramOpcode::Round: Expression = std::format("round({})", Input(0)); break;
+				case EMaterialProgramOpcode::Frac: Expression = std::format("frac({})", Input(0)); break;
+				case EMaterialProgramOpcode::Fmod: Expression = std::format("fmod({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Step: Expression = std::format("step({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::SmoothStep: Expression = std::format("smoothstep({}, {}, {})", Input(0), Input(1), Input(2)); break;
+				case EMaterialProgramOpcode::Sign: Expression = std::format("sign({})", Input(0)); break;
+				case EMaterialProgramOpcode::Reflect: Expression = std::format("reflect({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::MakeSurface:
+					Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
+						Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
+				case EMaterialProgramOpcode::Constant:
+					Expression = LiteralExpression(Node); break;
+				case EMaterialProgramOpcode::Parameter:
+					if (const auto* Field = FindField(Node.GetParameterId()))
+					{
+						constexpr std::array<std::string_view, 4> Swizzles{".x", ".xy", ".xyz", ""};
+						Expression = std::format("Material.Value{}{}", Field->CompactIndex,
+							Swizzles[static_cast<size_t>(Node.ResultType)]);
+					}
+					break;
+				case EMaterialProgramOpcode::CollectionParameter:
+				{
+					const auto Reference = Node.GetCollectionParameter();
+					const auto [CollectionIndex, Field] = FindCollectionField(
+						Reference.CollectionId, Reference.ParameterId);
+					if (Field)
+					{
+						constexpr std::array<std::string_view, 4> Swizzles{
+							".x", ".xy", ".xyz", ""};
+						Expression = std::format("MaterialCollection{}.Value{}{}",
+							CollectionIndex, Field->CompactIndex,
+							Swizzles[static_cast<size_t>(Node.ResultType)]);
+					}
+					break;
+				}
+				case EMaterialProgramOpcode::TextureParameter:
+				{
+					if (const auto* Field = FindField(Node.GetParameterId()))
+						Expression = std::format("MaterialTexture{}", Field->CompactIndex);
+					break;
+				}
+				case EMaterialProgramOpcode::TextureSample2D:
+				{
+					const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
+					if (const auto* Field = FindField(TextureNode.GetParameterId()))
+						Expression = std::format("{}.Sample(MaterialSampler{}, {})",
+							Input(0), Field->CompactIndex, Input(1));
+					break;
+				}
+				case EMaterialProgramOpcode::Add: Expression = std::format("({} + {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Subtract: Expression = std::format("({} - {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Multiply: Expression = std::format("({} * {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Divide: Expression = std::format("({} / {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Minimum: Expression = std::format("min({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Maximum: Expression = std::format("max({}, {})", Input(0), Input(1)); break;
+				case EMaterialProgramOpcode::Negate: Expression = std::format("(-{})", Input(0)); break;
+				case EMaterialProgramOpcode::OneMinus: Expression = std::format("(1.0 - {})", Input(0)); break;
+				case EMaterialProgramOpcode::Absolute: Expression = std::format("abs({})", Input(0)); break;
+				case EMaterialProgramOpcode::Saturate: Expression = std::format("saturate({})", Input(0)); break;
+				case EMaterialProgramOpcode::Normalize: Expression = std::format("normalize({})", Input(0)); break;
+				case EMaterialProgramOpcode::Clamp: Expression = std::format("clamp({}, {}, {})", Input(0), Input(1), Input(2)); break;
+				case EMaterialProgramOpcode::Lerp: Expression = std::format("lerp({}, {}, {})", Input(0), Input(1), Input(2)); break;
+				case EMaterialProgramOpcode::MakeFloat2:
+				case EMaterialProgramOpcode::MakeFloat3:
+				case EMaterialProgramOpcode::MakeFloat4:
+				{
+					Expression = std::format("{}(", SlangType(Node.ResultType));
+					for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
+					{
+						if (Slot) Expression += ", ";
+						Expression += Input(Slot);
+					}
+					Expression += ")"; break;
+				}
+				case EMaterialProgramOpcode::Swizzle:
+				{
+					constexpr std::string_view Components = "xyzw";
+					std::array Mask{Node.GetSwizzle().Components[0], Node.GetSwizzle().Components[1],
+						Node.GetSwizzle().Components[2], Node.GetSwizzle().Components[3]};
+					Expression = Input(0) + ".";
+					for (uint8 Slot = 0; Slot < Node.GetSwizzle().Length; ++Slot)
+						Expression += Components[Mask[Slot]];
+					break;
+				}
+				case EMaterialProgramOpcode::Splat2:
+				case EMaterialProgramOpcode::Splat3:
+				case EMaterialProgramOpcode::Splat4:
+					Expression = std::format("{}({})", SlangType(Node.ResultType), Input(0)); break;
+				case EMaterialProgramOpcode::DecodeNormalRG: Expression = std::format("DecodeTextureNormal({})", Input(0)); break;
+				case EMaterialProgramOpcode::BlendNormalsRNM: Expression = std::format("BlendSurfaceNormalsRNM({}, {})", Input(0), Input(1)); break;
+				}
+				if (Expression.empty())
+				{
+					OutSource.clear();
+					return {FMaterialError(EMaterialIRError::UnsupportedGenerationNode, Index)};
+				}
+				Expressions[Index] = std::format("n{}", Index);
+				if (Node.ResultType != EMaterialProgramValueType::Texture2D)
+					OutSource += std::format("    {} n{} = {};\n",
+						SlangType(Node.ResultType), Index, Expression);
+				else
+					Expressions[Index] = std::move(Expression);
 			}
-			OutSource += std::format(R"(    FMaterialSurface result;
+			if (bVertex)
+			{
+				for (uint32 Slot = 0; Slot < Interpolators.size(); ++Slot)
+					OutSource += std::format("    input.interpolator{} = {};\n", Slot,
+						Expressions[IR.Nodes[Interpolators[Slot]].Inputs[0]]);
+				const auto& Offset = IR.WorldPositionOffset;
+				OutSource += std::format("    offset = {};\n    input.worldPosition += offset;\n    return input;\n}}\n",
+					Offset.bExpression ? Expressions[Offset.ExpressionIndex] : LiteralExpression(Offset.Type, Offset.Literal));
+			}
+			else if (IR.SurfaceRoot.bAggregate)
+			{
+				if (IR.SurfaceRoot.AggregateExpressionIndex >= Expressions.size())
+				{
+					OutSource.clear();
+					return {EMaterialIRError::AggregateSurfaceRootExpressionOutBounds};
+				}
+				OutSource += std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
+			}
+			else
+			{
+				std::array<std::string, 8> Outputs;
+				for (size_t Index = 0; Index < Outputs.size(); ++Index)
+				{
+					const auto& Input = IR.SurfaceRoot.Inputs[Index];
+					if (Input.bExpression)
+					{
+						if (Input.ExpressionIndex >= Expressions.size())
+						{
+							OutSource.clear();
+							return {EMaterialIRError::PerPropertySurfaceRootExpressionOutBounds};
+						}
+						Outputs[Index] = Expressions[Input.ExpressionIndex];
+					}
+					else Outputs[Index] = LiteralExpression(Input.Type, Input.Literal);
+				}
+				OutSource += std::format(R"(    FMaterialSurface result;
     result.baseColor = {};
     result.tangentNormal = {};
     result.metallic = {};
@@ -482,9 +524,46 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
     return EvaluateMaterialSurface(result);
 }}
 )", Outputs[0], Outputs[1], Outputs[2], Outputs[3], Outputs[4], Outputs[5],
-			Outputs[6], Outputs[7]);
-		}
+				Outputs[6], Outputs[7]);
+			}
+		} // Stage-specific expression closures.
 		OutSource += R"(
+[[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
+[[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
+[[vk::binding(29, 1)]] StructuredBuffer<MaterialPrimitiveUniform> InstanceTransforms;
+VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, MaterialPrimitiveUniform primitive)
+{
+    VSOutput input = (VSOutput)0;
+    input.pos = mul(primitive.LocalToClip, float4(vertex.localPosition, 1.0));
+    input.color = vertex.color;
+    input.worldPosition = mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
+    input.worldNormal = mul(primitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
+    input.worldTangent = float4(mul(primitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz,
+        vertex.localTangent.w * primitive.TransformParams.x);
+    input.uv0 = vertex.texCoords[0]; input.uv1 = vertex.texCoords[1];
+    input.uv2 = vertex.texCoords[2]; input.uv3 = vertex.texCoords[3];
+    float3 offset;
+    VSOutput output = EvaluateGeneratedVertex(input, primitive, offset);
+    output.pos += mul(primitive.LocalToClip, mul(primitive.WorldToLocal,
+        float4(offset, 0.0)));
+    return output;
+}
+[shader("vertex")]
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input), MaterialPrimitive);
+}
+[shader("vertex")]
+VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), MaterialPrimitive);
+}
+[shader("vertex")]
+VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+{
+    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input),
+        InstanceTransforms[VisibleInstances[instanceId]]);
+}
 struct FResolvedGeneratedSurfaceShading
 {
     FMaterialNormalFrame normalFrame;
@@ -709,6 +788,7 @@ float4 FragmentMain(
 		std::vector<uint32> Depth(IR.Nodes.size(), 1);
 		uint32 LinkCount = IR.SurfaceRoot.bAggregate ? 1u : static_cast<uint32>(
 			std::ranges::count(IR.SurfaceRoot.Inputs, true, &MIR::FModule::FSurfaceInput::bExpression));
+		LinkCount += IR.WorldPositionOffset.bExpression ? 1u : 0u;
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 		{
 			const auto& Node = IR.Nodes[Index];
@@ -956,26 +1036,26 @@ float4 FragmentMain(
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
-		constexpr std::array<std::string_view, 4> Entries{"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
+		constexpr auto Entries = MaterialCompiledEntryPoints;
 		if (Stages.size() != Entries.size()) return Rejected;
 		for (uint32 Index = 0; Index < Stages.size(); ++Index)
 		{
 			const auto& Stage = Stages[Index];
 			if (!Stage.Code || Stage.Code->IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
-				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
+				|| Stage.Frequency != (Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex) || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
-					> 2 * Layout.ResourceFieldCount + 10 + Collections.size())
+					> 2 * Layout.ResourceFieldCount + 12 + Collections.size())
 				return Rejected;
 			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
 			{
-				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != EShaderStageFlags::Fragment
+				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != (Index < 4 ? EShaderStageFlags::Fragment : EShaderStageFlags::Vertex)
 					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
 				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
 				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
-				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27
+				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Index >= 4 && (Slot == 24 || Slot == 28 || Slot == 29))
 					|| bCollection || Slot >= MaterialTextureBindingBase;
 				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
 				if (bPrimitive)
@@ -987,6 +1067,16 @@ float4 FragmentMain(
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "MaterialView") return Rejected;
+				}
+				else if (Index == 5 && Slot == 24)
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != "SplineMesh") return Rejected;
+				}
+				else if (Index == 6 && (Slot == 28 || Slot == 29))
+				{
+					Expected = ERHIBindingType::StorageBuffer;
+					if (Binding.Name != (Slot == 28 ? "VisibleInstances" : "InstanceTransforms")) return Rejected;
 				}
 				else if (Slot == 2 || (Index == 0 && Slot == 1))
 				{
@@ -1067,9 +1157,9 @@ float4 FragmentMain(
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
-		Request.EntryPoints = {
-			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain"};
+		Request.EntryPoints.assign(MaterialCompiledEntryPoints.begin(), MaterialCompiledEntryPoints.end());
 		Request.Frequencies.assign(4, EShaderFrequency::Fragment);
+		Request.Frequencies.insert(Request.Frequencies.end(), 3, EShaderFrequency::Vertex);
 		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
 			std::to_string(static_cast<uint8>(Input.StaticProperties.BlendMode)));
 		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",
@@ -1079,7 +1169,7 @@ float4 FragmentMain(
 			std::to_string(std::bit_cast<uint32>(
 				CanonicalizeMaterialShaderProperties(Input.StaticProperties).OpacityMaskThreshold)));
 		Request.AllowedImportVirtualPrefixes = {
-			"/Engine/Material/", "/Engine/Lighting/"};
+			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
 		Request.bForceRecompile = bForceRecompile;
 		FShaderCompilerOutput Output = CompileGeneratedShader(Request);
 		const auto CompileEnd = std::chrono::steady_clock::now();

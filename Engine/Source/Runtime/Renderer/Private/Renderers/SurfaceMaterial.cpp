@@ -75,7 +75,7 @@ namespace Durin::RendererPrivate
 		ESurfaceMaterialPass Pass) -> bool
 	{
 		check(IsInRenderingThread());
-		if (Pass == ESurfaceMaterialPass::OpaqueShadow || Binding.bError) return true;
+		if (Binding.bError) return true;
 		if (Binding.LayoutIdentity.Version != CompiledMaterialRenderLayoutVersion) return false;
 		std::vector<FMaterialSamplerState> RequiredSamplers(Binding.CompiledSamplers.begin(), Binding.CompiledSamplers.end());
 		if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
@@ -115,7 +115,6 @@ namespace Durin::RendererPrivate
 	{
 		check(IsInRenderingThread());
 		OutMaterial = {};
-		if (Pass == ESurfaceMaterialPass::OpaqueShadow) return true;
 
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();

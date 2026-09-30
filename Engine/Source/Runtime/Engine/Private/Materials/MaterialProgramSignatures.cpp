@@ -55,6 +55,10 @@ namespace Durin
 		};
 		switch (Opcode)
 		{
+		case EMaterialProgramOpcode::VertexInterpolator:
+			if (!bNumeric) return std::nullopt;
+			Same(1, ResultType);
+			break;
 		case EMaterialProgramOpcode::StaticBool:
 			if (ResultType != Type::StaticBool) return std::nullopt;
 			break;
@@ -304,9 +308,14 @@ namespace Durin
 
 		switch (Opcode)
 		{
+		case OpcodeType::VertexInterpolator:
+			if (!MaterialStagesContain(Inputs[0].Stages, Stage::Vertex)) return std::nullopt;
+			Result = Inputs[0];
+			Result.Stages = Stage::Pixel;
+			return Result;
 		case OpcodeType::WorldPosition:
 			Result.Kind = Kind::Position; Result.Space = Space::World;
-			return WithStages(Result, Inputs, Stage::Pixel);
+			return WithStages(Result, Inputs);
 		case OpcodeType::CameraPosition:
 		case OpcodeType::ObjectPosition:
 			Result.Kind = Kind::Position; Result.Space = Space::World;

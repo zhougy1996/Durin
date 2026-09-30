@@ -50,7 +50,7 @@ namespace Durin::Editor::Material
 			State.Modify(*Expression);
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return {.Message = "The material output input address is invalid."};
+				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset)) return {.Message = "The material output input address is invalid."};
 				return {.Source = GetMaterialOutputInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index)),
 					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index),
 					.Numeric = GetMaterialOutputNumericInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index))};

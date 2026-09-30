@@ -186,7 +186,7 @@ namespace Durin
 					SerializeDependency(Inner, Dependency);
 				});
 			SerializeBoundedSequence(
-				Ar, Program.CompiledShaders, 4,
+				Ar, Program.CompiledShaders, MaterialCompiledEntryPoints.size(),
 				[](FArchive& Inner, FCompiledShader& Shader) {
 					SerializeShader(Inner, Shader);
 				});
