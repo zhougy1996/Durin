@@ -9,7 +9,10 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "RHI.h"
 #include "Shader/MaterialShader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "RDG/RDGParameters.h"
+#include "SceneView.h"
 
 namespace Durin
 {
@@ -31,11 +34,31 @@ namespace Durin
 
 		DURIN_IMPLEMENT_MATERIAL_SHADER(FGBufferFragmentShader);
 
+		class FGBufferGPUCullingComputeShader final : public FGlobalShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferGPUCullingComputeShader)
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(Candidates);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(VisibleInstances);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(IndirectArguments);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_GLOBAL_SHADER(FGBufferGPUCullingComputeShader,
+				FGlobalShader, "/Engine/GBufferGPUCulling",
+				EShaderFrequency::Compute, "CullMain");
+		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferGPUCullingComputeShader);
+		const FGlobalShaderSetRegistration GGBufferGPUCullingShaderSet(
+			"Renderer", "GBuffer.GPUCulling",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FGBufferGPUCullingComputeShader::StaticType()});
+
 		struct FGBufferShaderMapKey
 		{
 			FMaterialShaderMapIdentity Material;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
+			bool bGPUCulling = false;
 			auto operator==(const FGBufferShaderMapKey&) const -> bool = default;
 		};
 
@@ -47,6 +70,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
+			bool bGPUCulling = false;
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 			auto operator==(const FGBufferPipelineKey&) const -> bool = default;
 		};
@@ -55,13 +79,14 @@ namespace Durin
 			-> std::string
 		{
 			return std::format(
-				"layout-version={},layout-id={},program={},blend={},shading={},domain={},declaration={}",
+				"layout-version={},layout-id={},program={},blend={},shading={},domain={},gpu-culling={},declaration={}",
 				Key.Material.ShaderMap.RenderLayout.Version,
 				Key.Material.ShaderMap.RenderLayout.Id.ToString(),
 				Key.Material.ShaderMap.ProgramIdentity.ToString(),
 				static_cast<uint8>(Key.Material.ShaderMap.BlendMode),
 				static_cast<uint8>(Key.Material.ShaderMap.ShadingModel),
 				Key.FactoryKey.HashValue,
+				Key.bGPUCulling,
 				reinterpret_cast<uintptr_t>(
 					Key.VertexDeclaration.GetReference()));
 		}
@@ -81,6 +106,12 @@ namespace Durin
 
 	struct FGBufferRenderer::FState
 	{
+		struct FGPUCullingPayload
+		{
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FGBufferGPUCullingComputeShader> Shader;
+			FComputePipelineStateRHIRef Pipeline;
+		};
 		struct FShaderMapPayload
 		{
 			FMaterialShaderMap ShaderMap;
@@ -92,6 +123,9 @@ namespace Durin
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>>
 			Pipelines{ERenderResourceGenerationDependency::Shader
+				| ERenderResourceGenerationDependency::Device};
+		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
+			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
 	};
 
@@ -133,10 +167,13 @@ namespace Durin
 
 		const auto Factory = RendererPrivate::FindMeshVertexFactory(Request.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Request.LayoutKey
-			|| !Factory->GetShaderType(RendererPrivate::MaterialMeshPassGBuffer)) return nullptr;
+			|| !Factory->GetShaderType(Request.bGPUCulling
+				? RendererPrivate::MaterialMeshPassGBufferGPUCulling
+				: RendererPrivate::MaterialMeshPassGBuffer)) return nullptr;
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
-			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey};
+			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
+			.bGPUCulling = Request.bGPUCulling};
 		auto& ShaderEntry = State->ShaderMaps.FindOrAddBounded(
 			ShaderKey, RendererPrivate::MaterialShaderMapCacheEntryBudget);
 		using FShaderResult =
@@ -159,7 +196,10 @@ namespace Durin
 					"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 					std::to_string(std::bit_cast<uint32>(
 						ShaderKey.Material.OpacityMaskThreshold)));
-				FShaderType* VertexType = Factory->GetShaderType(RendererPrivate::MaterialMeshPassGBuffer);
+				const uint32 MeshPass = ShaderKey.bGPUCulling
+					? RendererPrivate::MaterialMeshPassGBufferGPUCulling
+					: RendererPrivate::MaterialMeshPassGBuffer;
+				FShaderType* VertexType = Factory->GetShaderType(MeshPass);
 				FShaderType& FragmentType =
 					FGBufferFragmentShader::StaticType();
 				FMaterialShaderMap ShaderMap;
@@ -167,7 +207,7 @@ namespace Durin
 				auto ShaderResult = RendererPrivate::InitializeMaterialShaderMap(
 					*VertexType, FragmentType,
 					Factory->GetType(),
-					RendererPrivate::MaterialMeshPassGBuffer, ShaderKey.Material,
+					MeshPass, ShaderKey.Material,
 					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
 					Options, ShaderMap);
 				if (!ShaderResult)
@@ -183,7 +223,7 @@ namespace Durin
 				}
 				FState::FShaderMapPayload Candidate;
 				Candidate.ShaderMap = std::move(ShaderMap);
-				Candidate.Vertex = Factory->Resolve(Candidate.ShaderMap, RendererPrivate::MaterialMeshPassGBuffer);
+				Candidate.Vertex = Factory->Resolve(Candidate.ShaderMap, MeshPass);
 				Candidate.Fragment =
 					TMaterialShaderRef<FGBufferFragmentShader>(Candidate.ShaderMap);
 				FRHIShader* VertexRHI = Candidate.Vertex ? Candidate.Vertex->GetRHIShader(false) : nullptr;
@@ -210,7 +250,8 @@ namespace Durin
 			.Rasterizer = Request.Rasterizer,
 			.Depth = Request.Depth,
 			.VertexDeclaration = Request.VertexDeclaration,
-			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey, .Topology = Request.Topology};
+			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
+			.bGPUCulling = Request.bGPUCulling, .Topology = Request.Topology};
 		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
 			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget);
 		FRenderResourceGeneration PipelineGeneration =
@@ -298,9 +339,86 @@ namespace Durin
 		return Pipeline.Fragment.GetShader()->GetSurfaceLayout();
 	}
 
+	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread() -> bool
+	{
+		using FPayload = FState::FGPUCullingPayload;
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return State->GPUCulling.Resolve(
+			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
+				const std::array<const FGlobalShaderType*, 1> Types{
+					&FGBufferGPUCullingComputeShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"GBuffer.GPUCulling", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						"GBufferGPUCulling", "shader",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Manual));
+				Candidate.Shader = TShaderMapRef<FGBufferGPUCullingComputeShader>(
+					Candidate.ShaderSet);
+				FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
+				if (ComputeRHI == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"GBufferGPUCulling", "pipeline",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FComputePipelineStateInitializer Initializer;
+				Initializer.ComputeShader = ComputeRHI;
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Candidate.Pipeline = FRenderPipelineRequestScope::Compute(
+					"GBufferGPUCullingPipeline", Initializer);
+				if (Candidate.Pipeline == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"GBufferGPUCulling", "pipeline",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
+			!= nullptr;
+	}
+
+	auto FGBufferRenderer::DispatchGPUCulling_RenderThread(
+		FRHICommandListImmediate& CommandList, const FSceneView& View,
+		uint32 CandidateCount,
+		const FRDGShaderParameterScope& GraphShaderParameters) -> bool
+	{
+		check(!CommandList.IsInsideRenderPass());
+		auto* Payload = State->GPUCulling.GetPayload();
+		if (Payload == nullptr || CandidateCount == 0) return false;
+		FGBufferGPUCullingUniform Uniform;
+		for (uint32 Row = 0; Row < 4; ++Row)
+			for (uint32 Column = 0; Column < 4; ++Column)
+				Uniform.ViewProjection[Row * 4 + Column] = static_cast<float>(
+					View.ViewProjectionMatrix[Column][Row]);
+		Uniform.CandidateCount = CandidateCount;
+		const auto UniformBuffer = CommandList.CreateUniformBufferRange(
+			&Uniform, sizeof(Uniform));
+		if (!UniformBuffer.Buffer) return false;
+		CommandList.SwitchPipeline(ERHIPipeline::Compute);
+		CommandList.SetComputePipelineState(*Payload->Pipeline);
+		FGBufferGPUCullingComputeShader::FParameters Parameters;
+		Parameters.Params = UniformBuffer;
+		SetShaderParameters(CommandList, Payload->Shader,
+			GraphShaderParameters, Parameters);
+		CommandList.Dispatch((CandidateCount + 63u) / 64u, 1, 1);
+		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+		return true;
+	}
+
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
+		State->GPUCulling.Reset();
 	}
 } // namespace Durin

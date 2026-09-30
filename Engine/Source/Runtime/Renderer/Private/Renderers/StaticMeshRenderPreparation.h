@@ -94,6 +94,7 @@ namespace Durin
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		std::shared_ptr<const FVertexFactoryInputBinding> CollectedBinding;
 		std::shared_ptr<const FMeshGeometryRecord> GeometryRecord;
+		FBox WorldBounds;
 		FMatrix LocalToWorld{1.0};
 		// Validated inverse-transpose in shader uniform storage order.
 		FMatrix4f NormalToWorld{1.0f};
@@ -307,6 +308,7 @@ namespace Durin
 			bool bPresent = false;
 			bool bSplineMesh = false;
 			bool bProjectedSizeFallback = false;
+			FBox WorldBounds;
 			decltype(FPreparedStaticMeshView::SubmissionOutcomes) Outcomes{};
 			std::vector<FBatch> Batches;
 		};

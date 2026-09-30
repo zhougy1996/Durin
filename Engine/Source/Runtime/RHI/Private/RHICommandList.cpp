@@ -1089,6 +1089,32 @@ namespace Durin
 			FRHIDrawIndexedArguments Arguments;
 		};
 
+		struct FDrawIndirectCommand
+		{
+			FDrawIndirectCommand(FRHIBuffer* InBuffer, uint64 InOffset)
+				: Buffer(InBuffer), Offset(InOffset) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetGraphicsContext("DrawIndirect")
+					.RHIDrawIndirect(Buffer.GetReference(), Offset);
+			}
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint64 Offset = 0;
+		};
+
+		struct FDrawIndexedIndirectCommand
+		{
+			FDrawIndexedIndirectCommand(FRHIBuffer* InBuffer, uint64 InOffset)
+				: Buffer(InBuffer), Offset(InOffset) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetGraphicsContext("DrawIndexedIndirect")
+					.RHIDrawIndexedIndirect(Buffer.GetReference(), Offset);
+			}
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint64 Offset = 0;
+		};
+
 		struct FDispatchCommand
 		{
 			FDispatchCommand(uint32 InX, uint32 InY, uint32 InZ)
@@ -1103,6 +1129,19 @@ namespace Durin
 			uint32 X;
 			uint32 Y;
 			uint32 Z;
+		};
+
+		struct FDispatchIndirectCommand
+		{
+			FDispatchIndirectCommand(FRHIBuffer* InBuffer, uint64 InOffset)
+				: Buffer(InBuffer), Offset(InOffset) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetComputeContext("DispatchIndirect")
+					.RHIDispatchIndirect(Buffer.GetReference(), Offset);
+			}
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint64 Offset = 0;
 		};
 
 		struct FSetViewportCommand
@@ -1730,6 +1769,7 @@ namespace Durin
 		: Storage(std::move(Other.Storage))
 		, RecordingState(Other.RecordingState)
 		, ActivePipeline(Other.ActivePipeline)
+		, bHasActiveGraphicsPipelineState(Other.bHasActiveGraphicsPipelineState)
 		, ActiveComputePipelineState(Other.ActiveComputePipelineState)
 		, ActiveGraphicsRequest(std::move(Other.ActiveGraphicsRequest))
 		, ActiveComputeRequest(std::move(Other.ActiveComputeRequest))
@@ -1745,6 +1785,7 @@ namespace Durin
 	{
 		Other.RecordingState = ERecordingState::MovedFrom;
 		Other.ActivePipeline = ERHIPipeline::None;
+		Other.bHasActiveGraphicsPipelineState = false;
 		Other.ActiveComputePipelineState = nullptr;
 		Other.bInsideRenderPass = false;
 		Other.DiagnosticRegionDepth = 0;
@@ -1766,6 +1807,7 @@ namespace Durin
 			Storage = std::move(Other.Storage);
 			RecordingState = Other.RecordingState;
 			ActivePipeline = Other.ActivePipeline;
+			bHasActiveGraphicsPipelineState = Other.bHasActiveGraphicsPipelineState;
 			ActiveComputePipelineState = Other.ActiveComputePipelineState;
 			ActiveGraphicsRequest = std::move(Other.ActiveGraphicsRequest);
 			ActiveComputeRequest = std::move(Other.ActiveComputeRequest);
@@ -1780,6 +1822,7 @@ namespace Durin
 			NumRecordedDrawCommands = Other.NumRecordedDrawCommands;
 			Other.RecordingState = ERecordingState::MovedFrom;
 			Other.ActivePipeline = ERHIPipeline::None;
+			Other.bHasActiveGraphicsPipelineState = false;
 			Other.ActiveComputePipelineState = nullptr;
 			Other.bInsideRenderPass = false;
 			Other.DiagnosticRegionDepth = 0;
@@ -1958,6 +2001,7 @@ namespace Durin
 		}
 		RecordCommand<FSwitchPipelineCommand>(Pipeline);
 		ActivePipeline = Pipeline;
+		bHasActiveGraphicsPipelineState = false;
 		ActiveComputePipelineState = nullptr;
 		ActiveGraphicsRequest = {};
 		ActiveComputeRequest = {};
@@ -2056,6 +2100,7 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"SetGraphicsPipelineState requires an active graphics pipeline while recording.");
 		RecordCommand<FSetGraphicsPipelineStateCommand>(State);
+		bHasActiveGraphicsPipelineState = true;
 		ActiveGraphicsRequest = {};
 	}
 
@@ -2079,6 +2124,7 @@ namespace Durin
 		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsAccepted() && !Request.IsCompute());
 		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FSetRequestedPipelineCommand>(Request);
+		bHasActiveGraphicsPipelineState = true;
 		ActiveGraphicsRequest = Request;
 	}
 	auto FRHICommandListBase::SetComputePipelineState(const FRHIPipelineCreationRequest& Request) -> void
@@ -2261,6 +2307,52 @@ namespace Durin
 			++NumRecordedDrawCommands;
 	}
 
+	auto FRHICommandListBase::TryDrawIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	{
+		if (ActivePipeline != ERHIPipeline::Graphics)
+			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
+		if (!bInsideRenderPass)
+			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
+		if (!bHasActiveGraphicsPipelineState)
+			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+			sizeof(FRHIDrawIndirectArguments), Capabilities
+				&& Capabilities->bSupportsIndirectDraw); !Result) return Result;
+		if (ActiveGraphicsRequest.IsAccepted()
+			&& !TryAddPipelineDependency(ActiveGraphicsRequest))
+			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+		RecordCommand<FDrawIndirectCommand>(ArgumentBuffer, Offset);
+		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
+			++NumRecordedDrawCommands;
+		return {};
+	}
+
+	auto FRHICommandListBase::TryDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	{
+		if (ActivePipeline != ERHIPipeline::Graphics)
+			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
+		if (!bInsideRenderPass)
+			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
+		if (!bHasActiveGraphicsPipelineState)
+			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+			sizeof(FRHIDrawIndexedIndirectArguments), Capabilities
+				&& Capabilities->bSupportsIndirectDraw); !Result) return Result;
+		if (ActiveGraphicsRequest.IsAccepted()
+			&& !TryAddPipelineDependency(ActiveGraphicsRequest))
+			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+		RecordCommand<FDrawIndexedIndirectCommand>(ArgumentBuffer, Offset);
+		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
+			++NumRecordedDrawCommands;
+		return {};
+	}
+
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount,
 		uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
@@ -2290,6 +2382,27 @@ namespace Durin
 		}
 		if (ActiveComputeRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveComputeRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDispatchCommand>(GroupCountX, GroupCountY, GroupCountZ);
+	}
+
+	auto FRHICommandListBase::TryDispatchIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	{
+		if (ActivePipeline != ERHIPipeline::Compute)
+			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
+		if (bInsideRenderPass)
+			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
+		if (!ActiveComputePipelineState && !ActiveComputeRequest.IsAccepted())
+			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+			sizeof(FRHIDispatchIndirectArguments), Capabilities
+				&& Capabilities->bSupportsIndirectDispatch); !Result) return Result;
+		if (ActiveComputeRequest.IsAccepted()
+			&& !TryAddPipelineDependency(ActiveComputeRequest))
+			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+		RecordCommand<FDispatchIndirectCommand>(ArgumentBuffer, Offset);
+		return {};
 	}
 
 	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void

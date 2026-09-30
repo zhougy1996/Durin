@@ -407,10 +407,20 @@ namespace Durin
 				FeaturePlan.CloudSpatial.Decision = Prepared;
 			}
 			bool FixedPipelinesReady = true;
+			if (FeaturePlan.GBuffer.IsEnabled()
+				&& Context.Logical.Options.bEnableGPUCulling)
+			{
+				const FRHICapabilities* Capabilities = GDynamicRHI
+					? GDynamicRHI->RHIGetCapabilities() : nullptr;
+				if (Capabilities != nullptr && Capabilities->bSupportsIndirectDraw)
+					(void)Service.GBufferRenderer
+						.EnsureGPUCullingResources_RenderThread();
+			}
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
-					ResolvedSceneResources.Receiver.StaticMeshes) && FixedPipelinesReady;
+					ResolvedSceneResources.Receiver.StaticMeshes,
+					Context.Logical.Options.bEnableGPUCulling) && FixedPipelinesReady;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareBindings_RenderThread(
 					CommandList, &Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,

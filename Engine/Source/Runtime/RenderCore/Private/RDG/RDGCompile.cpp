@@ -170,6 +170,7 @@ namespace Durin::RDGPrivate
 			{
 			case ERDGPassType::Graphics:
 				Allowed = ERHIAccess::VertexBufferRead | ERHIAccess::IndexBufferRead
+					| ERHIAccess::IndirectArgumentRead
 					| ERHIAccess::GraphicsUniformRead | ERHIAccess::GraphicsShaderRead
 					| ERHIAccess::ColorAttachmentReadWrite
 					| ERHIAccess::DepthStencilReadWrite
@@ -177,7 +178,8 @@ namespace Durin::RDGPrivate
 				break;
 			case ERDGPassType::Compute:
 				Allowed = ERHIAccess::ComputeUniformRead | ERHIAccess::ComputeShaderRead
-					| ERHIAccess::ComputeShaderReadWrite;
+					| ERHIAccess::ComputeShaderReadWrite
+					| ERHIAccess::IndirectArgumentRead;
 				break;
 			case ERDGPassType::Copy:
 				Allowed = ERHIAccess::TransferRead | ERHIAccess::TransferWrite;
@@ -196,12 +198,14 @@ namespace Durin::RDGPrivate
 				| ERHIAccess::HostRead | ERHIAccess::ColorAttachmentReadWrite
 				| ERHIAccess::DepthStencilReadWrite | ERHIAccess::GraphicsShaderReadWrite
 				| ERHIAccess::ComputeShaderReadWrite | ERHIAccess::TransferWrite
-				| ERHIAccess::HostWrite | ERHIAccess::Present;
+				| ERHIAccess::HostWrite | ERHIAccess::Present
+				| ERHIAccess::IndirectArgumentRead;
 			const ERHIAccess TextureOnly = ERHIAccess::Present
 				| ERHIAccess::ColorAttachmentReadWrite | ERHIAccess::DepthStencilReadWrite;
 			const ERHIAccess BufferOnly = ERHIAccess::VertexBufferRead
 				| ERHIAccess::IndexBufferRead | ERHIAccess::GraphicsUniformRead
-				| ERHIAccess::ComputeUniformRead;
+				| ERHIAccess::ComputeUniformRead
+				| ERHIAccess::IndirectArgumentRead;
 			return Access != ERHIAccess::None && EnumHasAllFlags(Allowed, Access)
 				&& !EnumHasAnyFlags(Access,
 					Kind == ERDGResourceKind::Texture ? BufferOnly : TextureOnly);
@@ -656,15 +660,17 @@ namespace Durin::RDGPrivate
 				Index = Result.Uses.size();
 			}
 			Result.Uses.push_back(Use);
-			Result.DeclarationOffsets.push_back(Use.Kind == ERDGResourceKind::Buffer ? 1 : 0);
+			Result.DeclarationOffsets.push_back(
+				Use.Kind == ERDGResourceKind::Buffer ? 1 : 0);
 		}
-		std::partial_sum(Result.DeclarationOffsets.begin(), Result.DeclarationOffsets.end(),
-			Result.DeclarationOffsets.begin());
+		std::partial_sum(Result.DeclarationOffsets.begin(),
+			Result.DeclarationOffsets.end(), Result.DeclarationOffsets.begin());
 		Result.BufferDeclarations.resize(Result.DeclarationOffsets.back());
 		auto Cursors = Result.DeclarationOffsets;
 		for (const auto& Use : Uses)
 			if (Use.Kind == ERDGResourceKind::Buffer)
-				Result.BufferDeclarations[Cursors[BufferUseIndices[Use.ResourceIndex]]++] = &Use;
+				Result.BufferDeclarations[
+					Cursors[BufferUseIndices[Use.ResourceIndex]]++] = &Use;
 		for (const auto& Use : Result.Uses)
 			if (Use.Kind == ERDGResourceKind::Buffer)
 				BufferUseIndices[Use.ResourceIndex] = SIZE_MAX;
@@ -703,17 +709,48 @@ namespace Durin::RDGPrivate
 			if (ResourceUses[ResourceIndex].empty()) continue;
 			auto& Layout = Result.Resources[ResourceIndex];
 			Layout.Begin = Result.Ranges.size();
-			auto Add = [&](FRHITextureSubresourceRange Range) -> FRDGLimitResult {
+			auto Add = [&](FRHITextureSubresourceRange Range,
+				uint64 BufferOffset = 0, uint64 BufferSize = 0) -> FRDGLimitResult {
 				if (!Work.Visit()) return std::unexpected(Work.Error());
 				if (Result.Ranges.size() >= Work.Budget.MaxRangeCells)
 					return std::unexpected(SafetyLimit(ERDGLimit::RangeCells, Result.Ranges.size() + 1, Work.Budget.MaxRangeCells));
 				if (++Work.Candidates > Work.Budget.MaxRangeCellCandidates)
 					return std::unexpected(SafetyLimit(ERDGLimit::RangeCellCandidates, Work.Candidates, Work.Budget.MaxRangeCellCandidates));
-				Result.Ranges.push_back({Resource.Kind, ResourceIndex, Range, 0,
-					Resource.Kind == ERDGResourceKind::Buffer ? Resource.BufferDesc.Size : 0});
+				Result.Ranges.push_back({Resource.Kind, ResourceIndex, Range,
+					BufferOffset, BufferSize});
+				++Layout.Count;
 				return {};
 			};
-			if (Resource.Kind != ERDGResourceKind::Texture)
+			if (Resource.Kind == ERDGResourceKind::Buffer)
+			{
+				const bool bNeedsExactIndirectRanges = std::ranges::any_of(
+					ResourceUses[ResourceIndex], [](const FGraphUse* Use) {
+						return EnumHasAnyFlags(Use->Access,
+							ERHIAccess::IndirectArgumentRead);
+					});
+				if (!bNeedsExactIndirectRanges)
+				{
+					if (auto Error = Add({}, 0, Resource.BufferDesc.Size); !Error)
+						return std::unexpected(Error.error());
+					continue;
+				}
+				std::vector<uint64> Boundaries{0, Resource.BufferDesc.Size};
+				Boundaries.reserve(ResourceUses[ResourceIndex].size() * 2 + 2);
+				for (const FGraphUse* Use : ResourceUses[ResourceIndex])
+				{
+					Boundaries.push_back(Use->BufferOffset);
+					Boundaries.push_back(Use->BufferOffset + Use->BufferSize);
+				}
+				std::ranges::sort(Boundaries);
+				auto UniqueEnd = std::ranges::unique(Boundaries).begin();
+				Boundaries.erase(UniqueEnd, Boundaries.end());
+				for (size_t Index = 1; Index < Boundaries.size(); ++Index)
+					if (auto Error = Add({}, Boundaries[Index - 1],
+						Boundaries[Index] - Boundaries[Index - 1]); !Error)
+						return std::unexpected(Error.error());
+				continue;
+			}
+			if (Resource.Kind == ERDGResourceKind::Token)
 			{
 				if (auto Error = Add({}); !Error) return std::unexpected(Error.error());
 				continue;

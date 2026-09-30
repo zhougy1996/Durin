@@ -115,8 +115,11 @@ namespace Durin::VulkanRHI
 		auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override;
 
 		auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override;
+		auto RHIDrawIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void override;
+		auto RHIDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void override;
 		auto RHIDispatch(uint32 GroupCountX, uint32 GroupCountY,
 			uint32 GroupCountZ) -> void override;
+		auto RHIDispatchIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void override;
 
 		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 

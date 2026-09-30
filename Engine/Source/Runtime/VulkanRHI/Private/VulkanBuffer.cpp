@@ -28,6 +28,7 @@ namespace Durin::VulkanRHI
 			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::ShaderResource | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer))
 				Access |= ERHIAccess::GraphicsShaderRead;
 			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::SourceCopy)) Access |= ERHIAccess::TransferRead;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::DrawIndirect)) Access |= ERHIAccess::IndirectArgumentRead;
 			return Access;
 		}
 	}

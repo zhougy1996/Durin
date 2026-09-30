@@ -354,6 +354,18 @@ namespace Durin
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 	}
 
+	// Declares the exact fixed-function argument range consumed by one indirect
+	// draw or dispatch. It is deliberately not a reflected shader binding.
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGIndirectArgumentMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGBufferParameter>(Name, Offset, ERDGParameterMemberKind::Buffer,
+			ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes,
+			ERDGUse::Read, ERHIAccess::IndirectArgumentRead);
+	}
+
 	// The pass owns internal transitions; RDG tracks the declared entry and exit.
 	template<typename ParameterStruct, typename MemberType>
 	constexpr auto MakeRDGManagedTextureMetadata(const char* Name, uint32 Offset,

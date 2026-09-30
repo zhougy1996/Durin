@@ -96,9 +96,15 @@ namespace Durin
 		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
 		virtual auto RHIDraw(const FRHIDrawArguments& Arguments) -> void = 0;
 		virtual auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void = 0;
+		virtual auto RHIDrawIndirect(FRHIBuffer*, uint64) -> void
+		{ checkf(false, "This RHI context does not support indirect draw."); }
+		virtual auto RHIDrawIndexedIndirect(FRHIBuffer*, uint64) -> void
+		{ checkf(false, "This RHI context does not support indexed indirect draw."); }
 		virtual auto RHIDispatch(uint32, uint32, uint32) -> void
 		{
 			checkf(false, "This RHI context does not support compute dispatch.");
 		}
+		virtual auto RHIDispatchIndirect(FRHIBuffer*, uint64) -> void
+		{ checkf(false, "This RHI context does not support indirect dispatch."); }
 	};
 }

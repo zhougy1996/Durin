@@ -20,6 +20,11 @@ namespace Durin::RendererPrivate
 		virtual auto Prepare(FRHICommandListImmediate& CommandList,
 			const FRHIUniformBufferRange& Transform,
 			const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> = 0;
+		virtual auto PrepareGPUCulling(
+			const FRHIStorageBufferRange& VisibleInstances,
+			const FRHIStorageBufferRange& InstanceTransforms) const
+			-> std::shared_ptr<const FRHIShaderParameterBatch>
+		{ return {}; }
 	};
 
 	class FMeshVertexFactoryImplementation

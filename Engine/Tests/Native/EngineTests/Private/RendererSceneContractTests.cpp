@@ -710,7 +710,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	ASSERT_NE(Metadata, nullptr);
 	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
 	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
-	ASSERT_EQ(Metadata->Members.size(), 3u);
+	ASSERT_EQ(Metadata->Members.size(), 6u);
 
 	const auto& Completion = Metadata->Members[0];
 	EXPECT_STREQ(Completion.Name, "Completion");
@@ -745,6 +745,132 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_EQ(Depth.StoreAction, Durin::ERHIRenderTargetStoreAction::Store);
 	EXPECT_TRUE(Depth.bPassManagedTransition);
 	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
+
+	const auto& VisibleInstances = Metadata->Members[3];
+	EXPECT_STREQ(VisibleInstances.Name, "VisibleInstances");
+	EXPECT_EQ(VisibleInstances.Kind, Durin::ERDGParameterMemberKind::Buffer);
+	EXPECT_TRUE(VisibleInstances.bOptional);
+	EXPECT_EQ(VisibleInstances.Use, Durin::ERDGUse::Read);
+	EXPECT_EQ(VisibleInstances.Access, Durin::ERHIAccess::GraphicsShaderRead);
+
+	const auto& InstanceTransforms = Metadata->Members[4];
+	EXPECT_STREQ(InstanceTransforms.Name, "InstanceTransforms");
+	EXPECT_EQ(InstanceTransforms.Kind, Durin::ERDGParameterMemberKind::Buffer);
+	EXPECT_TRUE(InstanceTransforms.bOptional);
+	EXPECT_EQ(InstanceTransforms.Use, Durin::ERDGUse::Read);
+	EXPECT_EQ(InstanceTransforms.Access, Durin::ERHIAccess::GraphicsShaderRead);
+
+	const auto& Arguments = Metadata->Members[5];
+	EXPECT_STREQ(Arguments.Name, "Arguments");
+	EXPECT_EQ(Arguments.Kind, Durin::ERDGParameterMemberKind::Buffer);
+	EXPECT_TRUE(Arguments.bOptional);
+	EXPECT_EQ(Arguments.Use, Durin::ERDGUse::Read);
+	EXPECT_EQ(Arguments.Access, Durin::ERHIAccess::IndirectArgumentRead);
+}
+
+TEST(FRendererSceneContractTests, GBufferGPUCullingParametersOwnExactBufferRoles)
+{
+	const Durin::FRDGParametersMetadata* Metadata =
+		Durin::FGBufferGPUCullingPassParameters::GetRDGParametersMetadata();
+	ASSERT_NE(Metadata, nullptr);
+	EXPECT_STREQ(Metadata->StructName, "FGBufferGPUCullingPassParameters");
+	ASSERT_EQ(Metadata->Members.size(), 3u);
+	EXPECT_EQ(Metadata->Members[0].Use, Durin::ERDGUse::ReadWrite);
+	EXPECT_EQ(Metadata->Members[0].Access,
+		Durin::ERHIAccess::ComputeShaderReadWrite);
+	EXPECT_TRUE(Metadata->Members[0].bShaderBinding);
+	for (size_t Index : {1u, 2u})
+	{
+		EXPECT_EQ(Metadata->Members[Index].Use, Durin::ERDGUse::ReadWrite);
+		EXPECT_EQ(Metadata->Members[Index].Access,
+			Durin::ERHIAccess::ComputeShaderReadWrite);
+		EXPECT_TRUE(Metadata->Members[Index].bShaderBinding);
+	}
+	EXPECT_STREQ(Metadata->Members[2].ShaderBindingName,
+		"IndirectArguments");
+}
+
+TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexedArguments)
+{
+	using namespace Durin;
+	FPreparedStaticMeshView Prepared;
+	Prepared.Primitives.push_back({
+		.VertexDomain = EVertexDeformationDomain::Local,
+		.WorldBounds = FBox(FVector3(-2.0), FVector3(2.0)),
+		.BoundsCenter = FVector3(3.0, 4.0, 5.0)});
+	Prepared.Primitives[0].WorldToLocal[0][0] = 2.0f;
+	auto Command = std::make_shared<FStaticMeshDrawCommandTemplate>();
+	Command->bSupportsGBuffer = true;
+	Command->Geometry = {.bIndexed = true, .ElementCount = 36,
+		.FirstElement = 7, .VertexOffset = -2};
+	Prepared.Opaque.push_back({.Command = Command, .ResolvedIndex = 0,
+		.PrimitiveIndex = 0});
+	FResolvedStaticMeshView Resolved;
+	Resolved.Draws.resize(1);
+	Resolved.Draws[0].bReady = true;
+	Resolved.Draws[0].GBufferGPUCullingPipeline =
+		std::shared_ptr<const FGBufferPipeline>(
+			reinterpret_cast<const FGBufferPipeline*>(uintptr_t{1}),
+			[](const FGBufferPipeline*) {});
+	Resolved.Draws[0].GBufferGPUCullingBindings =
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings>(
+			reinterpret_cast<const RendererPrivate::FPreparedSurfaceMaterialBindings*>(
+				uintptr_t{2}),
+			[](const RendererPrivate::FPreparedSurfaceMaterialBindings*) {});
+	Prepared.Primitives[0].CollectedBinding =
+		std::shared_ptr<const FVertexFactoryInputBinding>(
+			reinterpret_cast<const FVertexFactoryInputBinding*>(uintptr_t{3}),
+			[](const FVertexFactoryInputBinding*) {});
+	FSceneView View;
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+		Prepared, Resolved, View, true, true));
+	for (size_t Index = 1;
+		Index < FGBufferGPUCullingPlan::MinimumGroupCandidates; ++Index)
+	{
+		Prepared.Primitives.push_back(Prepared.Primitives[0]);
+		Prepared.Primitives.back().WorldBounds = FBox(
+			FVector3(static_cast<double>(Index * 4), -1.0, -1.0),
+			FVector3(static_cast<double>(Index * 4 + 2), 1.0, 1.0));
+		Prepared.Opaque.push_back({.Command = Command,
+			.ResolvedIndex = static_cast<uint32>(Index),
+			.PrimitiveIndex = static_cast<uint32>(Index)});
+		Resolved.Draws.push_back(Resolved.Draws[0]);
+	}
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+		Prepared, Resolved, View, false, true));
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+		Prepared, Resolved, View, true, false));
+	const auto Plan = BuildGBufferGPUCullingPlan(
+		Prepared, Resolved, View, true, true);
+	ASSERT_TRUE(Plan);
+	ASSERT_EQ(Plan->Candidates.size(),
+		FGBufferGPUCullingPlan::MinimumGroupCandidates);
+	ASSERT_EQ(Plan->Arguments.size(), 1u);
+	ASSERT_EQ(Plan->Transforms.size(),
+		FGBufferGPUCullingPlan::MinimumGroupCandidates);
+	EXPECT_EQ(Plan->Arguments[0].IndexCount, 36u);
+	EXPECT_EQ(Plan->Arguments[0].InstanceCount, 0u);
+	EXPECT_EQ(Plan->Arguments[0].FirstIndex, 7u);
+	EXPECT_EQ(Plan->Arguments[0].VertexOffset, -2);
+	ASSERT_EQ(Plan->ArgumentByResolvedDraw.size(),
+		FGBufferGPUCullingPlan::MinimumGroupCandidates);
+	EXPECT_EQ(Plan->ArgumentByResolvedDraw.front(), 0u);
+	EXPECT_TRUE(std::all_of(Plan->ArgumentByResolvedDraw.begin() + 1,
+		Plan->ArgumentByResolvedDraw.end(), [](uint32 Value) {
+			return Value == FGBufferGPUCullingPlan::GroupedMember;
+		}));
+	EXPECT_FLOAT_EQ(Plan->Candidates[0].BoundsMin.x, -2.0f);
+	EXPECT_EQ(Plan->Candidates[0].ArgumentIndex, 0u);
+	EXPECT_FLOAT_EQ(Plan->Transforms[0].WorldToLocal[0][0], 2.0f);
+	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.x, 3.0f);
+	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.y, 4.0f);
+	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.z, 5.0f);
+	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.w, 1.0f);
+
+	for (auto& Primitive : Prepared.Primitives)
+		Primitive.VertexDomain = EVertexDeformationDomain::Spline;
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(
+		Prepared, Resolved, View, true, true));
 }
 
 TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleResources)

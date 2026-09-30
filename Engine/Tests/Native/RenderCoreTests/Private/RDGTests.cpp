@@ -192,7 +192,24 @@ namespace Durin
 		class FSplitBarrierTestRHI final : public FDynamicRHI
 		{
 		public:
-			FSplitBarrierTestRHI() { Queues.bSplitBarriers = true; }
+			FSplitBarrierTestRHI()
+			{
+				Queues.bSplitBarriers = true;
+				FRHICapabilities Capabilities;
+				Capabilities.SupportedTextureDimensions =
+					ERHITextureDimensionFlags::Texture2D
+					| ERHITextureDimensionFlags::TextureCube;
+				Capabilities.MaxTextureDimension2D = 4096;
+				Capabilities.MaxTextureDimensionCube = 4096;
+				Capabilities.MaxTextureArrayLayers = 256;
+				Capabilities.ColorSampleCounts = ERHISampleCountFlags::Samples1;
+				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+				Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+				Capabilities.bSupportsIndirectDraw = true;
+				Capabilities.bSupportsIndirectDispatch = true;
+				PublishCapabilities(Capabilities);
+			}
+			~FSplitBarrierTestRHI() override { ClearCapabilities(); }
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
 			auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override { return Queues; }
@@ -234,6 +251,33 @@ namespace Durin
 			{
 				Uploads.push_back({Buffer, Offset,
 					FByteBuffer(Data.begin(), Data.end())});
+			}
+		};
+
+		class FIndirectRecordingContext final : public FBarrierRecordingContext
+		{
+		public:
+			std::vector<std::string> Operations;
+			std::vector<std::pair<FRHIBuffer*, uint64>> IndirectOperations;
+			auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState&) -> void override
+			{ Operations.emplace_back("GraphicsPipeline"); }
+			auto RHISetComputePipelineState(FRHIComputePipelineState&) -> void override
+			{ Operations.emplace_back("ComputePipeline"); }
+			auto RHIBeginRenderPass(const FRHIRenderPassInfo&, FName) -> void override
+			{ Operations.emplace_back("BeginRenderPass"); }
+			auto RHIEndRenderPass() -> void override
+			{ Operations.emplace_back("EndRenderPass"); }
+			auto RHIDispatch(uint32, uint32, uint32) -> void override
+			{ Operations.emplace_back("Dispatch"); }
+			auto RHIDrawIndexedIndirect(FRHIBuffer* Buffer, uint64 Offset) -> void override
+			{
+				Operations.emplace_back("DrawIndexedIndirect");
+				IndirectOperations.emplace_back(Buffer, Offset);
+			}
+			auto RHIDispatchIndirect(FRHIBuffer* Buffer, uint64 Offset) -> void override
+			{
+				Operations.emplace_back("DispatchIndirect");
+				IndirectOperations.emplace_back(Buffer, Offset);
 			}
 		};
 
@@ -781,6 +825,49 @@ namespace Durin
 					MakeInlineRDGParametersMetadata<
 						FComposedComputeBufferParameters>(
 							"FComposedComputeBufferParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FIndirectArgumentParameters final
+		{
+			FRDGBufferParameter Arguments;
+
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRDGIndirectArgumentMetadata<FIndirectArgumentParameters,
+						decltype(Arguments)>("Arguments",
+						offsetof(FIndirectArgumentParameters, Arguments)),
+				};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<
+					FIndirectArgumentParameters>("FIndirectArgumentParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FComputeBufferWriteParameters final
+		{
+			FRDGBufferParameter Output;
+
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRDGResourceParameterMemberMetadata<
+						FComputeBufferWriteParameters, decltype(Output),
+						FRDGBufferParameter>("Output",
+							offsetof(FComputeBufferWriteParameters, Output),
+							ERDGParameterMemberKind::Buffer,
+							ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes,
+							ERDGUse::Write,
+							ERHIAccess::ComputeShaderReadWrite, true),
+				};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<
+					FComputeBufferWriteParameters>(
+						"FComputeBufferWriteParameters", Members);
 				return &Metadata;
 			}
 		};
@@ -2925,6 +3012,139 @@ namespace Durin
 		ASSERT_EQ(Backend.BufferBatches.size(), 2u);
 		EXPECT_EQ(Backend.BufferBatches.back()[0].ExpectedBefore, ERHIAccess::ComputeShaderReadWrite);
 		EXPECT_EQ(Backend.BufferBatches.back()[0].RequiredAfter, ERHIAccess::TransferRead);
+	}
+
+	TEST_F(FRDGTests, IndirectArgumentParametersCreateExactComputeToGraphicsDependency)
+	{
+		FRDGBuilder Builder;
+		const auto Arguments = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess
+				| EBufferUsageFlags::DrawIndirect)}, "IndirectArguments");
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder,
+			"WriteArguments", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Producer, Arguments, 0, 64,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		auto Parameters = Builder.AllocParameters<FIndirectArgumentParameters>();
+		Parameters->Arguments = {Arguments, 16,
+			sizeof(FRHIDrawIndexedIndirectArguments)};
+		const auto Consumer = FRDGBuilderTestAccessor::AddPass(Builder,
+			"DrawIndirect", ERDGPassType::Graphics, std::move(Parameters));
+		Builder.MarkPassRoot(Consumer, "indirect draw");
+
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
+		EXPECT_EQ(Builder.GetDependencies()[0].BeforePass, 0u);
+		EXPECT_EQ(Builder.GetDependencies()[0].AfterPass, 1u);
+		const auto Transitions =
+			Builder.GetPasses()[1].Barriers.GetBufferTransitions();
+		ASSERT_EQ(Transitions.size(), 1u);
+		const auto& Transition = Transitions[0];
+		EXPECT_EQ(Transition.Offset, 16u);
+		EXPECT_EQ(Transition.Size,
+			sizeof(FRHIDrawIndexedIndirectArguments));
+		EXPECT_EQ(Transition.ExpectedBefore,
+			ERHIAccess::ComputeShaderReadWrite);
+		EXPECT_EQ(Transition.RequiredAfter,
+			ERHIAccess::IndirectArgumentRead);
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Parameters.size(), 1u);
+		EXPECT_EQ(Capture.Parameters[0].Access,
+			ERHIAccess::IndirectArgumentRead);
+		EXPECT_EQ(Capture.Parameters[0].BufferOffset, 16u);
+		EXPECT_EQ(Capture.Parameters[0].BufferSize,
+			sizeof(FRHIDrawIndexedIndirectArguments));
+	}
+
+	TEST_F(FRDGTests, ExecutesComputeWrittenIndirectDrawAndDispatchChains)
+	{
+		FIndirectRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		FSplitBarrierTestRHI TestRHI;
+		struct FScopedRHI final
+		{
+			FDynamicRHI* Previous = GDynamicRHI;
+			explicit FScopedRHI(FDynamicRHI& Current) { GDynamicRHI = &Current; }
+			~FScopedRHI() { GDynamicRHI = Previous; }
+		} ScopedRHI(TestRHI);
+		FTestRDGAllocator Allocator;
+		auto ComputePipeline = MakeRefCount<FRHIComputePipelineState>();
+		auto GraphicsPipeline = MakeRefCount<FRHIGraphicsPipelineState>();
+
+		FRDGBuilder Builder;
+		const auto DrawArguments = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess
+				| EBufferUsageFlags::DrawIndirect)}, "DrawArguments");
+		const auto DispatchArguments = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess
+				| EBufferUsageFlags::DrawIndirect)}, "DispatchArguments");
+
+		auto DrawWrite = Builder.AllocParameters<FComputeBufferWriteParameters>();
+		DrawWrite->Output = {DrawArguments, 0, 64};
+		(void)Builder.AddPass("WriteDrawArguments", ERDGPassType::Compute,
+			std::move(DrawWrite), [ComputePipeline](FRHICommandListImmediate& Commands,
+				const FComputeBufferWriteParameters&, const FRDGParameterResolver&) {
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*ComputePipeline);
+				Commands.Dispatch(1, 1, 1);
+			});
+		auto Draw = Builder.AllocParameters<FIndirectArgumentParameters>();
+		Draw->Arguments = {DrawArguments, 16,
+			sizeof(FRHIDrawIndexedIndirectArguments)};
+		const auto DrawPass = Builder.AddPass("DrawIndexedIndirect",
+			ERDGPassType::Graphics, std::move(Draw),
+			[GraphicsPipeline](FRHICommandListImmediate& Commands,
+				const FIndirectArgumentParameters& Parameters,
+				const FRDGParameterResolver& Resolver) {
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				Commands.SetGraphicsPipelineState(*GraphicsPipeline);
+				Commands.BeginRenderPass(FRHIRenderPassInfo{}, "RDGIndirectDraw");
+				require(Commands.TryDrawIndexedIndirect(
+					Resolver.GetBuffer(Parameters.Arguments),
+					Parameters.Arguments.Offset));
+				Commands.EndRenderPass();
+			});
+
+		auto DispatchWrite = Builder.AllocParameters<FComputeBufferWriteParameters>();
+		DispatchWrite->Output = {DispatchArguments, 0, 64};
+		(void)Builder.AddPass("WriteDispatchArguments", ERDGPassType::Compute,
+			std::move(DispatchWrite), [ComputePipeline](FRHICommandListImmediate& Commands,
+				const FComputeBufferWriteParameters&, const FRDGParameterResolver&) {
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*ComputePipeline);
+				Commands.Dispatch(1, 1, 1);
+			});
+		auto Dispatch = Builder.AllocParameters<FIndirectArgumentParameters>();
+		Dispatch->Arguments = {DispatchArguments, 4,
+			sizeof(FRHIDispatchIndirectArguments)};
+		const auto DispatchPass = Builder.AddPass("DispatchIndirect",
+			ERDGPassType::Compute, std::move(Dispatch),
+			[ComputePipeline](FRHICommandListImmediate& Commands,
+				const FIndirectArgumentParameters& Parameters,
+				const FRDGParameterResolver& Resolver) {
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*ComputePipeline);
+				require(Commands.TryDispatchIndirect(
+					Resolver.GetBuffer(Parameters.Arguments),
+					Parameters.Arguments.Offset));
+			});
+		Builder.MarkPassRoot(DrawPass, "synthetic indirect draw");
+		Builder.MarkPassRoot(DispatchPass, "synthetic indirect dispatch");
+
+		const auto Result = Builder.Execute(
+			Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Backend.IndirectOperations.size(), 2u);
+		EXPECT_EQ(Backend.IndirectOperations[0].second, 16u);
+		EXPECT_EQ(Backend.IndirectOperations[1].second, 4u);
+		EXPECT_NE(Backend.IndirectOperations[0].first, nullptr);
+		EXPECT_NE(Backend.IndirectOperations[1].first, nullptr);
+		EXPECT_EQ(std::ranges::count(Backend.Operations, "Dispatch"), 2u);
+		EXPECT_EQ(std::ranges::count(Backend.Operations,
+			"DrawIndexedIndirect"), 1u);
+		EXPECT_EQ(std::ranges::count(Backend.Operations,
+			"DispatchIndirect"), 1u);
 	}
 
 	TEST_F(FRDGTests, CompilesStableHazardOrderAndExactTextureTransitions)

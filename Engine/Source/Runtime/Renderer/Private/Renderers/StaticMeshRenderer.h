@@ -32,7 +32,8 @@ namespace Durin
 	{
 	public:
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView) -> bool;
+			FResolvedStaticMeshView& ResolvedView,
+			bool bPrepareGPUCulling = false) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			const FRHIUniformBufferRange& Lighting, bool bShadow = false) -> bool;
@@ -86,7 +87,11 @@ namespace Durin
 			const FSceneView& View,
 			FGBufferRenderer& GBuffer,
 			const FPreparedStaticMeshView& PreparedView,
-			FResolvedStaticMeshView& ResolvedView
+			FResolvedStaticMeshView& ResolvedView,
+			const std::vector<uint32>* IndirectArgumentByResolvedDraw = nullptr,
+			FRHIBuffer* IndirectArguments = nullptr,
+			FRHIBuffer* VisibleInstances = nullptr,
+			FRHIBuffer* InstanceTransforms = nullptr
 		) -> FGeometryExecutionResult;
 		auto ReleaseResources_RenderThread() -> void;
 
@@ -122,7 +127,12 @@ namespace Durin
 			FGBufferRenderer& GBuffer,
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
-			const FResolvedStaticMeshView& ResolvedView, FMeshDrawBindingGroup& BindingGroup
+			const FResolvedStaticMeshView& ResolvedView,
+			FMeshDrawBindingGroup& BindingGroup,
+			FRHIBuffer* IndirectArguments = nullptr,
+			uint64 IndirectArgumentOffset = 0,
+			FRHIBuffer* VisibleInstances = nullptr,
+			FRHIBuffer* InstanceTransforms = nullptr
 		) -> bool;
 		struct FState;
 

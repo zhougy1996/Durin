@@ -199,6 +199,7 @@ namespace Durin
 			Primitive.bPresent = true;
 			Primitive.Id = SceneInfo->GetId();
 			Primitive.bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
+			Primitive.WorldBounds = SceneInfo->GetWorldBounds();
 			const auto& ProjectedSize = ViewFact.Projected;
 			Primitive.bProjectedSizeFallback = ProjectedSize.Status != EProjectedScreenSizeStatus::Valid;
 			FMeshCollectionContext Context;
@@ -479,7 +480,7 @@ namespace Durin
 				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
-				Result.Primitives.push_back({.PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld, .WorldToLocal = WorldToLocal, .BoundsCenter = BoundsCenter});
+				Result.Primitives.push_back({.PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .WorldBounds = Primitive.WorldBounds, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld, .WorldToLocal = WorldToLocal, .BoundsCenter = BoundsCenter});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 

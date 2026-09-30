@@ -129,6 +129,8 @@ namespace Durin::VulkanRHI
 			Limits.maxComputeWorkGroupCount[0],
 			Limits.maxComputeWorkGroupCount[1],
 			Limits.maxComputeWorkGroupCount[2]};
+		CapabilityCandidate.bSupportsIndirectDraw = true;
+		CapabilityCandidate.bSupportsIndirectDispatch = true;
 		const auto Float32 = Device->GetGpu().getFormatProperties(vk::Format::eR32G32B32A32Sfloat).optimalTilingFeatures;
         const auto Float16 = Device->GetGpu().getFormatProperties(vk::Format::eR16G16B16A16Sfloat).optimalTilingFeatures;
         const auto Sampled = vk::FormatFeatureFlagBits::eSampledImage | vk::FormatFeatureFlagBits::eSampledImageFilterLinear;

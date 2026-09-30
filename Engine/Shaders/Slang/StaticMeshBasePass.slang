@@ -39,13 +39,18 @@ struct MaterialPrimitiveUniform
     float4 TransformParams;
 };
 
+#if DURIN_GPU_CULLING
+[[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
+[[vk::binding(29, 1)]] StructuredBuffer<MaterialPrimitiveUniform> InstanceTransforms;
+#else
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialPrimitiveUniform> MaterialPrimitive;
+#endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
 
 [shader("vertex")]
-VSOutput VertexMain(FLocalVertexFactoryInput input)
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
 {
 #if DURIN_SPLINE_MESH
     FLocalVertexFactoryIntermediates vertex =
@@ -55,12 +60,18 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
         GetLocalVertexFactoryIntermediates(input);
 #endif
     VSOutput output;
-    output.pos = mul(MaterialPrimitive.LocalToClip, float4(vertex.localPosition, 1.0));
+#if DURIN_GPU_CULLING
+    const MaterialPrimitiveUniform selectedMaterialPrimitive =
+        InstanceTransforms[VisibleInstances[instanceId]];
+#else
+    const MaterialPrimitiveUniform selectedMaterialPrimitive = MaterialPrimitive;
+#endif
+    output.pos = mul(selectedMaterialPrimitive.LocalToClip, float4(vertex.localPosition, 1.0));
     output.color = vertex.color;
-    output.worldPosition = mul(MaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
-    output.worldNormal = mul(MaterialPrimitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
-    float3 worldTangent = mul(MaterialPrimitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz;
-    output.worldTangent = float4(worldTangent, vertex.localTangent.w * MaterialPrimitive.TransformParams.x);
+    output.worldPosition = mul(selectedMaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
+    output.worldNormal = mul(selectedMaterialPrimitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
+    float3 worldTangent = mul(selectedMaterialPrimitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz;
+    output.worldTangent = float4(worldTangent, vertex.localTangent.w * selectedMaterialPrimitive.TransformParams.x);
     output.uv0 = vertex.texCoords[0];
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];

@@ -21,6 +21,9 @@ Reads require no RHI-thread round trip. The active public fields are:
   limits for exact dynamic storage-range admission; and
 - three positive `MaxComputeWorkGroupCount` values copied from Vulkan device
   limits for direct-dispatch admission; and
+- `bSupportsIndirectDraw` and `bSupportsIndirectDispatch`, true only for a
+  complete executable single-command path; native multi-draw remains false
+  with a zero maximum count in the current contract; and
 - `bSupportsSynchronization2`, true only when the selected device activated the
   core Vulkan 1.3 feature or the Vulkan 1.1/1.2 extension feature chain; and
 - `bSupportsGPUTimestamps` plus `GPUTimestampNanosecondsPerTick`, published only

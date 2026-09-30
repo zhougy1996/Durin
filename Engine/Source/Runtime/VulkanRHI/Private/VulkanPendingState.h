@@ -28,6 +28,8 @@ namespace Durin::VulkanRHI
 			const void* Data) -> void;
 		auto Dispatch(FVulkanCommandListContext& InContext,
 			uint32 GroupCountX, uint32 GroupCountY, uint32 GroupCountZ) -> void;
+		auto DispatchIndirect(FVulkanCommandListContext& InContext,
+			vk::Buffer ArgumentBuffer, uint64 Offset) -> void;
 		auto ClearDescriptorSetCache() -> void;
 		auto NotifyDeletedPipeline(FVulkanComputePipelineState* PipelineState) -> void;
 		auto GetPipelineState() const -> FVulkanComputePipelineState*

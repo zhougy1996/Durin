@@ -32,12 +32,14 @@ A command list records the following sequence outside a render pass:
 1. `SwitchPipeline(ERHIPipeline::Compute)`
 2. `SetComputePipelineState(...)`
 3. compute-stage `SetShaderParameters(...)` and optional compute push constants
-4. `Dispatch(GroupCountX, GroupCountY, GroupCountZ)`
+4. `Dispatch(GroupCountX, GroupCountY, GroupCountZ)` or one validated
+   `TryDispatchIndirect` argument record
 
-All three group counts must be nonzero and no greater than the corresponding
+Direct group counts must be nonzero and no greater than the corresponding
 `FRHICapabilities::MaxComputeWorkGroupCount` value. The recorder retains the
 PSO, shader, views, their parent resources, and push bytes until replay
-completes. Draw commands remain graphics-only and dispatch remains
+completes. Indirect dispatch retains its exact `DrawIndirect` buffer range and
+Vulkan consumes the three 32-bit group counts without CPU readback. Draw commands remain graphics-only and dispatch remains
 compute-only.
 
 Inline and dedicated-thread execution replay the same typed commands. Both

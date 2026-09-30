@@ -2,6 +2,7 @@
 
 #include "RHI.h"
 #include "RHIContext.h"
+#include "DynamicRHI.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
 #include "Backend/RHIDeferredBufferBackend.h"
 #include "RHIThread.h"
@@ -60,6 +61,11 @@ namespace Durin
 					"TestBuffer", Size, 1, EBufferUsageFlags::VertexBuffer))
 			{
 			}
+			FTestBuffer(uint32 Size, EBufferUsageFlags Usage)
+				: FRHIBuffer(FRHIBufferCreateDesc::Create(
+					"TestBuffer", Size, 0, Usage))
+			{
+			}
 		};
 
 		class FTestShader final : public FRHIShader
@@ -75,6 +81,61 @@ namespace Durin
 		{
 		public:
 			~FTestGPUTimingQuery() override = default;
+		};
+
+		class FIndirectTestRHI final : public FDynamicRHI
+		{
+		public:
+			explicit FIndirectTestRHI(bool bSupported = true)
+			{
+				FRHICapabilities Capabilities;
+				Capabilities.SupportedTextureDimensions =
+					ERHITextureDimensionFlags::Texture2D
+					| ERHITextureDimensionFlags::TextureCube;
+				Capabilities.MaxTextureDimension2D = 4096;
+				Capabilities.MaxTextureDimensionCube = 4096;
+				Capabilities.MaxTextureArrayLayers = 256;
+				Capabilities.ColorSampleCounts = ERHISampleCountFlags::Samples1;
+				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+				Capabilities.bSupportsIndirectDraw = bSupported;
+				Capabilities.bSupportsIndirectDispatch = bSupported;
+				Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+				PublishCapabilities(Capabilities);
+			}
+			~FIndirectTestRHI() override { ClearCapabilities(); }
+			auto Init(const FRHIInitializationContext&) -> void override {}
+			auto Shutdown() -> void override { ClearCapabilities(); }
+			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
+			auto RHIEndFrame() -> void override {}
+			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
+			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
+				-> FGraphicsPipelineStateRHIRef override { return {}; }
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&)
+				-> FComputePipelineStateRHIRef override { return {}; }
+			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
+			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
+				-> FVertexDeclarationRHIRef override { return {}; }
+			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
+			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
+				-> std::expected<FTextureRHIRef, FRHICreationError> override
+			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
+			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> std::expected<FBufferRHIRef, FRHICreationError> override
+			{ return std::unexpected(FRHICreationError{}); }
+		};
+
+		class FScopedDynamicRHI final
+		{
+		public:
+			explicit FScopedDynamicRHI(FDynamicRHI& RHI) : Previous(GDynamicRHI)
+			{ GDynamicRHI = &RHI; }
+			~FScopedDynamicRHI() { GDynamicRHI = Previous; }
+		private:
+			FDynamicRHI* Previous = nullptr;
 		};
 
 		class FTestVertexDeclaration final : public FRHIVertexDeclaration
@@ -353,6 +414,24 @@ namespace Durin
 				Operations.emplace_back("Dispatch");
 				ObservedDispatch = {X, Y, Z};
 			}
+			auto RHIDrawIndirect(FRHIBuffer* Buffer, uint64 Offset) -> void override
+			{
+				Operations.emplace_back("DrawIndirect");
+				ObservedIndirectBuffer = Buffer;
+				ObservedIndirectOffset = Offset;
+			}
+			auto RHIDrawIndexedIndirect(FRHIBuffer* Buffer, uint64 Offset) -> void override
+			{
+				Operations.emplace_back("DrawIndexedIndirect");
+				ObservedIndirectBuffer = Buffer;
+				ObservedIndirectOffset = Offset;
+			}
+			auto RHIDispatchIndirect(FRHIBuffer* Buffer, uint64 Offset) -> void override
+			{
+				Operations.emplace_back("DispatchIndirect");
+				ObservedIndirectBuffer = Buffer;
+				ObservedIndirectOffset = Offset;
+			}
 
 			std::vector<std::string> Operations;
 			FRHIGPUTimingQuery* ObservedTimingQuery = nullptr;
@@ -366,6 +445,8 @@ namespace Durin
 			std::optional<FRHIDrawArguments> ObservedDrawArguments;
 			std::optional<FRHIDrawIndexedArguments> ObservedDrawIndexedArguments;
 			std::optional<std::array<uint32, 3>> ObservedDispatch;
+			FRHIBuffer* ObservedIndirectBuffer = nullptr;
+			uint64 ObservedIndirectOffset = 0;
 			FRHIBuffer* ObservedBuffer = nullptr;
 			uint32 ObservedBufferOffset = 0;
 			Durin::FByteBuffer ObservedBufferData;
@@ -3034,5 +3115,92 @@ namespace Durin
 		ASSERT_FALSE(VisitOrderedBindingsResult3);
 		EXPECT_EQ(Visits, 65u);
 		EXPECT_EQ(VisitOrderedBindingsResult3.error().Code, ERHIShaderBindingError::UnexpectedBinding);
+	}
+
+	TEST(FRHICommandListTests, IndirectArgumentABIAndValidationAreExact)
+	{
+		EXPECT_EQ(sizeof(FRHIDrawIndirectArguments), 16u);
+		EXPECT_EQ(sizeof(FRHIDrawIndexedIndirectArguments), 20u);
+		EXPECT_EQ(sizeof(FRHIDispatchIndirectArguments), 12u);
+		FTestBuffer Arguments(64, EBufferUsageFlags::DrawIndirect
+			| EBufferUsageFlags::UnorderedAccess);
+		EXPECT_TRUE(ValidateIndirectArgumentBuffer(&Arguments, 4,
+			sizeof(FRHIDrawIndexedIndirectArguments), true));
+		EXPECT_EQ(ValidateIndirectArgumentBuffer(nullptr, 0, 12, true).error(),
+			ERHIIndirectCommandError::NullBuffer);
+		FTestBuffer WrongUsage(64, EBufferUsageFlags::VertexBuffer);
+		EXPECT_EQ(ValidateIndirectArgumentBuffer(&WrongUsage, 0, 12, true).error(),
+			ERHIIndirectCommandError::MissingIndirectUsage);
+		EXPECT_EQ(ValidateIndirectArgumentBuffer(&Arguments, 2, 12, true).error(),
+			ERHIIndirectCommandError::MisalignedOffset);
+		EXPECT_EQ(ValidateIndirectArgumentBuffer(&Arguments, 48, 20, true).error(),
+			ERHIIndirectCommandError::RangeOutOfBounds);
+		EXPECT_EQ(ValidateIndirectArgumentBuffer(&Arguments, 0, 12, false).error(),
+			ERHIIndirectCommandError::Unsupported);
+		EXPECT_TRUE(ValidateBufferTransition({&Arguments, 0, 20,
+			ERHIAccess::ComputeShaderReadWrite,
+			ERHIAccess::IndirectArgumentRead}));
+	}
+
+	TEST(FRHICommandListTests, IndirectCommandsValidatePlacementCapabilityAndPipelineState)
+	{
+		FIndirectTestRHI SupportedRHI;
+		FScopedDynamicRHI ScopedRHI(SupportedRHI);
+		FTestBuffer Arguments(64, EBufferUsageFlags::DrawIndirect);
+
+		FRHICommandList Commands;
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
+			ERHIIndirectCommandError::WrongRenderPass);
+		Commands.BeginRenderPass(FRHIRenderPassInfo{}, "IndirectValidation");
+		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
+			ERHIIndirectCommandError::MissingPipelineState);
+		Commands.EndRenderPass();
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
+			ERHIIndirectCommandError::WrongPipeline);
+		EXPECT_EQ(Commands.TryDispatchIndirect(&Arguments, 0).error(),
+			ERHIIndirectCommandError::MissingPipelineState);
+
+		FIndirectTestRHI UnsupportedRHI(false);
+		FScopedDynamicRHI UnsupportedScope(UnsupportedRHI);
+		auto ComputePipeline = MakeRefCount<FRHIComputePipelineState>();
+		Commands.SetComputePipelineState(*ComputePipeline);
+		EXPECT_EQ(Commands.TryDispatchIndirect(&Arguments, 0).error(),
+			ERHIIndirectCommandError::Unsupported);
+	}
+
+	TEST(FRHICommandListTests, IndirectCommandsReplayExactBufferAndOffset)
+	{
+		FIndirectTestRHI RHI;
+		FScopedDynamicRHI ScopedRHI(RHI);
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Arguments = MakeRefCount<FTestBuffer>(64,
+			EBufferUsageFlags::DrawIndirect | EBufferUsageFlags::UnorderedAccess);
+		auto GraphicsPipeline = MakeRefCount<FRHIGraphicsPipelineState>();
+		auto ComputePipeline = MakeRefCount<FRHIComputePipelineState>();
+
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		Commands.SetGraphicsPipelineState(*GraphicsPipeline);
+		Commands.BeginRenderPass(FRHIRenderPassInfo{}, "IndirectReplay");
+		ASSERT_TRUE(Commands.TryDrawIndirect(Arguments, 4));
+		ASSERT_TRUE(Commands.TryDrawIndexedIndirect(Arguments, 24));
+		Commands.EndRenderPass();
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		Commands.SetComputePipelineState(*ComputePipeline);
+		ASSERT_TRUE(Commands.TryDispatchIndirect(Arguments, 8));
+		EXPECT_GT(Arguments->GetRefCount(), 1u);
+
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"PipelineState", "BeginRenderPass", "DrawIndirect",
+			"DrawIndexedIndirect", "EndRenderPass", "ComputePipelineState",
+			"DispatchIndirect"}));
+		EXPECT_EQ(Context.ObservedIndirectBuffer, Arguments.GetReference());
+		EXPECT_EQ(Context.ObservedIndirectOffset, 8u);
+		EXPECT_EQ(Arguments->GetRefCount(), 1u);
 	}
 } // namespace Durin

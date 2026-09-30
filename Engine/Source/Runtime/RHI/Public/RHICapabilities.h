@@ -26,6 +26,10 @@ namespace Durin
 		uint32 MaxUniformBufferRange = 0;
 		uint32 MinUniformBufferOffsetAlignment = 0;
 		std::array<uint32, 3> MaxComputeWorkGroupCount = {};
+		bool bSupportsIndirectDraw = false;
+		bool bSupportsIndirectDispatch = false;
+		bool bSupportsNativeMultiDrawIndirect = false;
+		uint32 MaxNativeMultiDrawIndirectCount = 0;
 		// RGBA32F linear sampling, RGBA16F linear sampling/storage and 8x8 compute.
 		bool bSupportsSkyLighting = false;
 		bool bSupportsNonSolidFill = false;

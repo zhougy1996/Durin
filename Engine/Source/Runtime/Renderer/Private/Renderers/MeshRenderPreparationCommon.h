@@ -160,12 +160,14 @@ namespace Durin
 		std::shared_ptr<const FResolvedMeshPipeline> Pipeline;
 		std::shared_ptr<const FResolvedMeshPipeline> HybridPipeline;
 		std::shared_ptr<const FGBufferPipeline> GBufferPipeline;
+		std::shared_ptr<const FGBufferPipeline> GBufferGPUCullingPipeline;
 		std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
 		std::shared_ptr<const FRHIShaderParameterBatch> HybridVertexBindings;
 		std::shared_ptr<const FRHIShaderParameterBatch> GBufferVertexBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> SurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridSurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferGPUCullingBindings;
 		bool bReady = false;
 	};
 

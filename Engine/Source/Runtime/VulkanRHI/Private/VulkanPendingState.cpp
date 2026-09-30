@@ -330,6 +330,15 @@ namespace Durin::VulkanRHI
 			GroupCountX, GroupCountY, GroupCountZ);
 	}
 
+	auto FVulkanPendingComputeState::DispatchIndirect(
+		FVulkanCommandListContext& InContext, vk::Buffer ArgumentBuffer,
+		uint64 Offset) -> void
+	{
+		PrepareDescriptors(InContext);
+		InContext.GetCommandBuffer()->GetHandle().dispatchIndirect(
+			ArgumentBuffer, Offset);
+	}
+
 	FVulkanPendingGraphicsState::FVulkanPendingGraphicsState(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{

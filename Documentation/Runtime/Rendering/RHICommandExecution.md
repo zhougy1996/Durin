@@ -244,7 +244,15 @@ PSO or null. Non-indexed and indexed command records carry exact instance,
 first-location, and base-vertex arguments. See
 [Graphics State and Bindings](GraphicsStateAndBindings.md).
 
-Compute pipeline selection, reflected binding, and direct dispatch use the same
+Single-command indirect operations retain their GPU-authored argument buffer
+and copied byte offset through replay. `TryDrawIndirect`,
+`TryDrawIndexedIndirect`, and `TryDispatchIndirect` reject a null or
+CPU-authored buffer, missing `DrawIndirect` usage, non-four-byte alignment,
+an undersized record range, unsupported capability, wrong pipeline/render-pass
+domain, missing PSO, or dependency-admission failure before recording. No
+argument bytes are mapped or copied and no hidden CPU command loop exists.
+
+Compute pipeline selection, reflected binding, and direct or indirect dispatch use the same
 recorded ownership and executor rules without creating another queue. See
 [Synchronous Compute Pipelines](SynchronousComputePipelines.md).
 

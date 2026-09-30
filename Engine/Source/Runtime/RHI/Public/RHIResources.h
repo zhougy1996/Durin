@@ -856,6 +856,7 @@ namespace Durin
 		TransferWrite = 1u << 12,
 		HostWrite = 1u << 13,
 		Present = 1u << 14,
+		IndirectArgumentRead = 1u << 15,
 		// Legacy expected-state wildcard: discard contents, but retain tracked synchronization.
 		Discard = 1u << 31,
 	};
@@ -1639,6 +1640,68 @@ namespace Durin
 
 		auto operator==(const FRHIDrawIndexedArguments&) const -> bool = default;
 	};
+
+	// Portable GPU-authored records. Layout is frozen to the native Vulkan ABI.
+	struct FRHIDrawIndirectArguments
+	{
+		uint32 VertexCount = 0;
+		uint32 InstanceCount = 0;
+		uint32 FirstVertex = 0;
+		uint32 FirstInstance = 0;
+	};
+
+	struct FRHIDrawIndexedIndirectArguments
+	{
+		uint32 IndexCount = 0;
+		uint32 InstanceCount = 0;
+		uint32 FirstIndex = 0;
+		int32 VertexOffset = 0;
+		uint32 FirstInstance = 0;
+	};
+
+	struct FRHIDispatchIndirectArguments
+	{
+		uint32 GroupCountX = 0;
+		uint32 GroupCountY = 0;
+		uint32 GroupCountZ = 0;
+	};
+
+	static_assert(std::is_standard_layout_v<FRHIDrawIndirectArguments>
+		&& sizeof(FRHIDrawIndirectArguments) == 16
+		&& alignof(FRHIDrawIndirectArguments) == alignof(uint32)
+		&& offsetof(FRHIDrawIndirectArguments, InstanceCount) == 4
+		&& offsetof(FRHIDrawIndirectArguments, FirstVertex) == 8
+		&& offsetof(FRHIDrawIndirectArguments, FirstInstance) == 12);
+	static_assert(std::is_standard_layout_v<FRHIDrawIndexedIndirectArguments>
+		&& sizeof(FRHIDrawIndexedIndirectArguments) == 20
+		&& alignof(FRHIDrawIndexedIndirectArguments) == alignof(uint32)
+		&& std::is_signed_v<decltype(FRHIDrawIndexedIndirectArguments::VertexOffset)>
+		&& offsetof(FRHIDrawIndexedIndirectArguments, InstanceCount) == 4
+		&& offsetof(FRHIDrawIndexedIndirectArguments, FirstIndex) == 8
+		&& offsetof(FRHIDrawIndexedIndirectArguments, VertexOffset) == 12
+		&& offsetof(FRHIDrawIndexedIndirectArguments, FirstInstance) == 16);
+	static_assert(std::is_standard_layout_v<FRHIDispatchIndirectArguments>
+		&& sizeof(FRHIDispatchIndirectArguments) == 12
+		&& alignof(FRHIDispatchIndirectArguments) == alignof(uint32));
+
+	enum class ERHIIndirectCommandError : uint8
+	{
+		NullBuffer,
+		CPUAuthoredBuffer,
+		MissingIndirectUsage,
+		MisalignedOffset,
+		RangeOutOfBounds,
+		Unsupported,
+		WrongPipeline,
+		WrongRenderPass,
+		MissingPipelineState,
+		CommandAdmissionFailed,
+	};
+
+	RHI_API auto ToString(ERHIIndirectCommandError Error) -> std::string_view;
+	RHI_API auto ValidateIndirectArgumentBuffer(const FRHIBuffer* Buffer,
+		uint64 Offset, uint32 RecordSize, bool bSupported)
+		-> std::expected<void, ERHIIndirectCommandError>;
 
 	// Canonical immutable identity used by graphics-pipeline caches.
 	struct FGraphicsPipelineStateKey

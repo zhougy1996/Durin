@@ -7,7 +7,8 @@ namespace Durin::VulkanRHI
 		constexpr ERHIAccess ReadMask = ERHIAccess::VertexBufferRead | ERHIAccess::IndexBufferRead
 			| ERHIAccess::GraphicsUniformRead | ERHIAccess::ComputeUniformRead
 			| ERHIAccess::GraphicsShaderRead | ERHIAccess::ComputeShaderRead
-			| ERHIAccess::TransferRead | ERHIAccess::HostRead;
+			| ERHIAccess::TransferRead | ERHIAccess::HostRead
+			| ERHIAccess::IndirectArgumentRead;
 
 		auto MergeSource(FVulkanResourceStateMapping& Result, ERHIAccess Access) -> void
 		{
@@ -198,6 +199,11 @@ namespace Durin::VulkanRHI
 		if (EnumHasAnyFlags(Access, ERHIAccess::HostRead))
 			Add(vk::PipelineStageFlagBits2::eHost, vk::AccessFlagBits2::eHostRead,
 				vk::PipelineStageFlagBits::eHost, vk::AccessFlagBits::eHostRead);
+		if (EnumHasAnyFlags(Access, ERHIAccess::IndirectArgumentRead))
+			Add(vk::PipelineStageFlagBits2::eDrawIndirect,
+				vk::AccessFlagBits2::eIndirectCommandRead,
+				vk::PipelineStageFlagBits::eDrawIndirect,
+				vk::AccessFlagBits::eIndirectCommandRead);
 
 		if (Access == ERHIAccess::ColorAttachmentReadWrite)
 			Add(vk::PipelineStageFlagBits2::eColorAttachmentOutput,

@@ -70,7 +70,7 @@ namespace Durin
 		ASSERT_TRUE((Error = FreezeShaderRuntimeInventory(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Requests))) << FormatShaderError(Error.error());
 		const size_t FactoryRequests = std::ranges::count_if(Requests,
 			[](const auto& Request) { return Request.Owner == "MeshVertexFactory"; });
-		EXPECT_EQ(FactoryRequests, 6u);
+		EXPECT_EQ(FactoryRequests, 7u);
 		EXPECT_GT(Requests.size(), FactoryRequests);
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Requests, Library))) << FormatShaderError(Error.error());
@@ -113,14 +113,16 @@ namespace Durin
 					.bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.error());
 				EXPECT_TRUE(Map);
 				const size_t Pass = static_cast<size_t>(Request.Name.back() - '0');
-				ASSERT_LT(Pass, 3u);
+				ASSERT_LT(Pass, 4u);
 				const FMaterialProgramIdentity Program{.Digest = {.HashLow = 17, .HashHigh = 23}};
-				const std::array<const FShaderType*, 2> ComposedTypes{RuntimeTypes.front(), FragmentTypes[Pass]};
+				const size_t FragmentPass = Pass == 3 ? 1 : Pass;
+				const std::array<const FShaderType*, 2> ComposedTypes{
+					RuntimeTypes.front(), FragmentTypes[FragmentPass]};
 				ASSERT_TRUE((ShaderResult = FMaterialShaderMap::TryCompile({
 					.Identity = {.ProgramIdentity = Program}, .Target = "vulkan-spirv-1.5",
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
-					.GeneratedStages = MaterialStages[Pass], .CompiledProgramIdentity = Program,
+					.GeneratedStages = MaterialStages[FragmentPass], .CompiledProgramIdentity = Program,
 					.CompiledTarget = "vulkan-spirv-1.5", .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.error());
 				if (Pass == 2)
 				{

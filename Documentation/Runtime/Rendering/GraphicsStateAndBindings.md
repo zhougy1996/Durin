@@ -51,6 +51,13 @@ instance. Regular and immediate command lists retain referenced buffers and
 replay the same typed arguments. Vulkan lowers these records directly to
 `draw` and `drawIndexed` without hidden count or instance defaults.
 
+The stable indirect records freeze the same four-word non-indexed and five-word
+indexed Vulkan-compatible layouts, including signed base vertex. An indirect
+draw is legal only in the graphics domain inside an active render pass with a
+complete PSO and the usual vertex/index/descriptor state. One exact
+`IndirectArgumentRead` range supplies one native command; multi-draw is neither
+published nor emulated.
+
 ## Reflected Binding Snapshots
 
 Vulkan command contexts preserve binding state across native command-buffer

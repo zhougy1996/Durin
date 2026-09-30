@@ -178,7 +178,8 @@ namespace Durin
 			| ERHIAccess::GraphicsShaderRead
 			| ERHIAccess::ComputeShaderRead
 			| ERHIAccess::TransferRead
-			| ERHIAccess::HostRead;
+			| ERHIAccess::HostRead
+			| ERHIAccess::IndirectArgumentRead;
 
 		constexpr ERHIAccess ExclusiveAccessMask = ERHIAccess::ColorAttachmentReadWrite
 			| ERHIAccess::DepthStencilReadWrite
@@ -219,6 +220,8 @@ namespace Durin
 				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::SourceCopy)) return false;
 			if (EnumHasAnyFlags(Access, ERHIAccess::HostRead)
 				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::KeepCPUAccessible)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::IndirectArgumentRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::DrawIndirect)) return false;
 			if (EnumHasAnyFlags(Access, ERHIAccess::GraphicsShaderReadWrite | ERHIAccess::ComputeShaderReadWrite)
 				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::UnorderedAccess)) return false;
 			if (EnumHasAnyFlags(Access, ERHIAccess::TransferWrite)
@@ -272,6 +275,23 @@ namespace Durin
 				&& (Access == ERHIAccess::ColorAttachmentReadWrite || Access == ERHIAccess::Present)) return false;
 			return true;
 		}
+	}
+
+	auto ValidateIndirectArgumentBuffer(const FRHIBuffer* Buffer, uint64 Offset,
+		uint32 RecordSize, bool bSupported)
+		-> std::expected<void, ERHIIndirectCommandError>
+	{
+		if (!Buffer) return std::unexpected(ERHIIndirectCommandError::NullBuffer);
+		if (IsCPUAuthoredBuffer(Buffer))
+			return std::unexpected(ERHIIndirectCommandError::CPUAuthoredBuffer);
+		if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::DrawIndirect))
+			return std::unexpected(ERHIIndirectCommandError::MissingIndirectUsage);
+		if ((Offset & 3u) != 0)
+			return std::unexpected(ERHIIndirectCommandError::MisalignedOffset);
+		if (Offset > Buffer->GetSize() || RecordSize > Buffer->GetSize() - Offset)
+			return std::unexpected(ERHIIndirectCommandError::RangeOutOfBounds);
+		if (!bSupported) return std::unexpected(ERHIIndirectCommandError::Unsupported);
+		return {};
 	}
 
 	auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,

@@ -563,6 +563,7 @@ namespace Durin
 			Record.SurfaceBindings.reset();
 			Record.HybridSurfaceBindings.reset();
 			Record.GBufferBindings.reset();
+			Record.GBufferGPUCullingBindings.reset();
 		}
 		auto Prepare = [&](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
 			const FCompiledSurfaceBindingLayout& Layout, FBindings& Out) -> bool {
@@ -633,6 +634,14 @@ namespace Durin
 			{
 				if (!GBuffer || !Prepare(Draw, 1, GBuffer->GetFragmentShader(*Record.GBufferPipeline),
 					GBuffer->GetSurfaceLayout(*Record.GBufferPipeline), Record.GBufferBindings)) return false;
+			}
+			if (Record.GBufferGPUCullingPipeline)
+			{
+				if (!GBuffer || !Prepare(Draw, 1,
+					GBuffer->GetFragmentShader(*Record.GBufferGPUCullingPipeline),
+					GBuffer->GetSurfaceLayout(*Record.GBufferGPUCullingPipeline),
+					Record.GBufferGPUCullingBindings))
+					Record.GBufferGPUCullingPipeline.reset();
 			}
 		}
 		return true;
@@ -753,7 +762,11 @@ namespace Durin
 		const FSceneView& View,
 		FGBufferRenderer& GBuffer,
 		const FPreparedStaticMeshView& PreparedView,
-		FResolvedStaticMeshView& ResolvedView
+		FResolvedStaticMeshView& ResolvedView,
+		const std::vector<uint32>* IndirectArgumentByResolvedDraw,
+		FRHIBuffer* IndirectArguments,
+		FRHIBuffer* VisibleInstances,
+		FRHIBuffer* InstanceTransforms
 	) -> FGeometryExecutionResult
 	{
 		FMeshDrawBindingGroup BindingGroup;
@@ -775,7 +788,7 @@ namespace Durin
 			++ResolvedView.Observations.GBufferSkippedDraws;
 			RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalSkippedDraws, &FStaticMeshRenderObservations::GBufferSplineSkippedDraws);
 		}
-		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry, &BindingGroup](const auto& Bucket) {
+		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry, &BindingGroup, IndirectArgumentByResolvedDraw, IndirectArguments, VisibleInstances, InstanceTransforms](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				if (!Draw.Command->bSupportsGBuffer || Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel
@@ -789,10 +802,28 @@ namespace Durin
 				RecordFamily(ResolvedView, Draw, &FStaticMeshRenderObservations::GBufferLocalAttemptedDraws, &FStaticMeshRenderObservations::GBufferSplineAttemptedDraws);
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
+				const uint32 IndirectIndex = IndirectArgumentByResolvedDraw
+					&& Draw.ResolvedIndex < IndirectArgumentByResolvedDraw->size()
+					? (*IndirectArgumentByResolvedDraw)[Draw.ResolvedIndex]
+					: UINT32_MAX;
+				if (IndirectArgumentByResolvedDraw
+					&& IndirectIndex == UINT32_MAX - 1)
+				{
+					bRenderedGeometry = true;
+					++ResolvedView.Observations.GBufferSuccessfulDraws;
+					RecordFamily(ResolvedView, Draw,
+						&FStaticMeshRenderObservations::GBufferLocalSuccessfulDraws,
+						&FStaticMeshRenderObservations::GBufferSplineSuccessfulDraws);
+					continue;
+				}
 				if (Primitive != nullptr && ResolvedView.IsReady(Draw)
 					&& DrawGBufferSection_RenderThread(
 						CommandList, View, GBuffer, *Primitive, Draw,
-						ResolvedView, BindingGroup
+						ResolvedView, BindingGroup,
+						IndirectIndex != UINT32_MAX ? IndirectArguments : nullptr,
+						static_cast<uint64>(IndirectIndex)
+							* sizeof(FRHIDrawIndexedIndirectArguments),
+						VisibleInstances, InstanceTransforms
 					))
 				{
 					bRenderedGeometry = true;
@@ -817,9 +848,14 @@ namespace Durin
 	}
 
 	auto FStaticMeshRenderer::PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
-		FResolvedStaticMeshView& ResolvedView) -> bool
+		FResolvedStaticMeshView& ResolvedView,
+		bool bPrepareGPUCulling) -> bool
 	{
-		for (auto& Record : ResolvedView.Draws) Record.GBufferPipeline.reset();
+		for (auto& Record : ResolvedView.Draws)
+		{
+			Record.GBufferPipeline.reset();
+			Record.GBufferGPUCullingPipeline.reset();
+		}
 		bool Ready = true;
 		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
 			for (const auto& Item : Bucket)
@@ -832,6 +868,14 @@ namespace Durin
 				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology});
 				Ready = Pipeline && Ready;
 				ResolvedView.Draws[Item.ResolvedIndex].GBufferPipeline = std::move(Pipeline);
+				if (bPrepareGPUCulling && Primitive->VertexDomain
+					== EVertexDeformationDomain::Local
+					&& Item.Command->Geometry.bIndexed)
+				{
+					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Topology = Item.Command->PipelineKey.Topology});
+					ResolvedView.Draws[Item.ResolvedIndex]
+						.GBufferGPUCullingPipeline = std::move(GPUPipeline);
+				}
 			}
 		});
 		return Ready;
@@ -843,7 +887,12 @@ namespace Durin
 		FGBufferRenderer& GBuffer,
 		const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Item,
-		const FResolvedStaticMeshView& ResolvedView, FMeshDrawBindingGroup& BindingGroup
+		const FResolvedStaticMeshView& ResolvedView,
+		FMeshDrawBindingGroup& BindingGroup,
+		FRHIBuffer* IndirectArguments,
+		uint64 IndirectArgumentOffset,
+		FRHIBuffer* VisibleInstances,
+		FRHIBuffer* InstanceTransforms
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.DrawGBufferSection");
@@ -853,14 +902,36 @@ namespace Durin
 			return false;
 		}
 		const auto& Record = ResolvedView.Draws[Item.ResolvedIndex];
-		const auto& Pipeline = Record.GBufferPipeline;
-		if (!Pipeline || !Record.GBufferBindings) return false;
+		const bool bGPUCulling = IndirectArguments != nullptr;
+		const auto& Pipeline = bGPUCulling
+			? Record.GBufferGPUCullingPipeline : Record.GBufferPipeline;
+		const auto& FragmentBindings = bGPUCulling
+			? Record.GBufferGPUCullingBindings : Record.GBufferBindings;
+		if (!Pipeline || !FragmentBindings) return false;
+		std::shared_ptr<const FRHIShaderParameterBatch> GPUVertexBindings;
+		const auto& VertexBindings = bGPUCulling
+			? GPUVertexBindings : Record.GBufferVertexBindings;
+		if (bGPUCulling)
+		{
+			if (VisibleInstances == nullptr || InstanceTransforms == nullptr)
+				return false;
+			const auto Vertex = GBuffer.GetVertexBinding(
+				*Pipeline, *Primitive.CollectedBinding);
+			if (!Vertex) return false;
+			GPUVertexBindings = Vertex->PrepareGPUCulling(
+				{VisibleInstances, 0, VisibleInstances->GetSize()},
+				{InstanceTransforms, 0, InstanceTransforms->GetSize()});
+			if (!GPUVertexBindings) return false;
+		}
 
-		if (!BindingGroup.Apply(Pipeline.get(), Record.GBufferVertexBindings.get(), Record.GBufferBindings.get(), [&] {
+		if (!BindingGroup.Apply(Pipeline.get(), VertexBindings.get(), FragmentBindings.get(), [&] {
 			return GBuffer.BindPipeline_RenderThread(CommandList, *Pipeline,
-				Record.GBufferVertexBindings, *Record.GBufferBindings);
+				VertexBindings, *FragmentBindings);
 		})) return false;
 		Geometry.Bind(CommandList);
+		if (IndirectArguments != nullptr)
+			return CommandList.TryDrawIndexedIndirect(
+				IndirectArguments, IndirectArgumentOffset).has_value();
 		Geometry.DrawIndexed(CommandList);
 		return true;
 	}

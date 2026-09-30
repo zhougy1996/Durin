@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-09-30
 
 ## Directory Contract
 
@@ -59,6 +59,8 @@ contracts, including:
 - graphics and synchronous-compute pipeline descriptions and creation results;
 - command-list recording, executor admission, RHI-thread dispatch, and fences;
 - exact buffer and texture transitions, copies, uploads, and readbacks;
+- single-command indirect draw, indexed draw, and dispatch argument records,
+  validation, recording, replay, and conservative capability fields;
 - reflected shader parameters, descriptor arrays, and push constants;
 - viewport presentation, initialization, capabilities, diagnostics, and
   renderer-facing pipeline-creation requests; and

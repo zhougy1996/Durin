@@ -34,8 +34,27 @@ namespace Durin::RendererPrivate
 				"VertexMain");
 		};
 
+		class FGBufferGPUCullingVertexShader final : public FMeshMaterialShader
+		{
+		public:
+			static auto ModifyCompilationEnvironment(
+				const FShaderPermutationParameters&, FShaderCompileOptions& Options)
+				-> void
+			{
+				Options.Macros.emplace_back("DURIN_GPU_CULLING", "1");
+			}
+			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferGPUCullingVertexShader)
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(VisibleInstances);
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(InstanceTransforms);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferGPUCullingVertexShader,
+				FMeshMaterialShader, "/Engine/StaticMeshBasePass",
+				EShaderFrequency::Vertex, "VertexMain");
+		};
+
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader);
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferGPUCullingVertexShader);
 
 		template <typename TShader, bool bSpline>
 		class TMeshVertexShaderBinding final : public FMeshVertexShaderBinding
@@ -66,6 +85,33 @@ namespace Durin::RendererPrivate
 			TMaterialShaderRef<TShader> Shader;
 		};
 
+		class FGPUCullingVertexShaderBinding final
+			: public FMeshVertexShaderBinding
+		{
+		public:
+			explicit FGPUCullingVertexShaderBinding(
+				const FMaterialShaderMap& Map) : Shader(Map) {}
+			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
+			{ return Shader.GetRHIShader(bRequired); }
+			auto Prepare(FRHICommandListImmediate&,
+				const FRHIUniformBufferRange&,
+				const FVertexFactoryBinding&) const
+				-> std::shared_ptr<const FRHIShaderParameterBatch> override
+			{ return {}; }
+			auto PrepareGPUCulling(
+				const FRHIStorageBufferRange& VisibleInstances,
+				const FRHIStorageBufferRange& InstanceTransforms) const
+				-> std::shared_ptr<const FRHIShaderParameterBatch> override
+			{
+				FGBufferGPUCullingVertexShader::FParameters Parameters;
+				Parameters.VisibleInstances = VisibleInstances;
+				Parameters.InstanceTransforms = InstanceTransforms;
+				return PrepareShaderParameters(Shader, Parameters);
+			}
+		private:
+			TMaterialShaderRef<FGBufferGPUCullingVertexShader> Shader;
+		};
+
 		template <bool bSpline>
 		class TMeshVertexFactoryImplementation final : public FMeshVertexFactoryImplementation
 		{
@@ -82,7 +128,12 @@ namespace Durin::RendererPrivate
 			}
 			auto GetShaderType(uint32 Pass) const -> FShaderType* override
 			{
-				if (Pass > MaterialMeshPassShadow) return nullptr;
+				if (Pass > MaterialMeshPassGBufferGPUCulling) return nullptr;
+				if (Pass == MaterialMeshPassGBufferGPUCulling)
+				{
+					if constexpr (bSpline) return nullptr;
+					return &FGBufferGPUCullingVertexShader::StaticType();
+				}
 				if constexpr (bSpline)
 					return Pass == MaterialMeshPassGBuffer ? &FGBufferSplineVertexShader::StaticType() : &FSplineMeshVertexShader::StaticType();
 				else
@@ -92,6 +143,8 @@ namespace Durin::RendererPrivate
 				-> std::shared_ptr<const FMeshVertexShaderBinding> override
 			{
 				if (!GetShaderType(Pass)) return {};
+				if (Pass == MaterialMeshPassGBufferGPUCulling)
+					return std::make_shared<FGPUCullingVertexShaderBinding>(Map);
 				if constexpr (bSpline)
 				{
 					if (Pass == MaterialMeshPassGBuffer) return std::make_shared<TMeshVertexShaderBinding<FGBufferSplineVertexShader, true>>(Map);
@@ -121,7 +174,8 @@ namespace Durin::RendererPrivate
 			-> FRegisteredFactory
 		{
 			FRegisteredFactory Result;
-			for (uint32 Pass = MaterialMeshPassForward; Pass <= MaterialMeshPassShadow; ++Pass)
+			for (uint32 Pass = MaterialMeshPassForward;
+				Pass <= MaterialMeshPassGBufferGPUCulling; ++Pass)
 			{
 				const FShaderType* Shader = Implementation->GetShaderType(Pass);
 				if (!Shader) continue;

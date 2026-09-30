@@ -262,13 +262,14 @@ namespace Durin::RDGPrivate
 		{ return SafetyLimit(ERDGLimit::CellVisits, Visits, Budget.MaxCellVisits); }
 	};
 
-	// Fixed texture subresource indices and one tracking cell per buffer or token.
+	// Fixed texture subresource indices, exact buffer intervals when required, and one cell per token.
 	// All phase consumers borrow this layout as const data.
 	struct FTrackingLayout final
 	{
 		struct FResourceLayout final
 		{
 			size_t Begin = 0;
+			size_t Count = 0;
 			uint32 Mips = 0;
 			uint32 Layers = 0;
 			ERHITextureAspect Aspects = ERHITextureAspect::None;
@@ -281,8 +282,23 @@ namespace Durin::RDGPrivate
 			-> std::invoke_result_t<FVisitor&, size_t, const FRangeCell&>
 		{
 			const auto& Layout = Resources[Use.ResourceIndex];
-			if (Use.Kind != ERDGResourceKind::Texture)
+			if (Use.Kind == ERDGResourceKind::Token)
 				return Visitor(Layout.Begin, Ranges[Layout.Begin]);
+			if (Use.Kind == ERDGResourceKind::Buffer)
+			{
+				for (size_t Index = Layout.Begin;
+					Index < Layout.Begin + Layout.Count; ++Index)
+				{
+					const auto& Range = Ranges[Index];
+					if (Range.BufferOffset >= Use.BufferOffset + Use.BufferSize
+						|| Use.BufferOffset >= Range.BufferOffset + Range.BufferSize)
+						continue;
+					if (auto Error = Visitor(Index, Range); !Error) return Error;
+				}
+				if constexpr (std::same_as<std::invoke_result_t<FVisitor&, size_t,
+					const FRangeCell&>, bool>) return true;
+				else return {};
+			}
 			size_t AspectBegin = Layout.Begin;
 			for (ERHITextureAspect Aspect : {ERHITextureAspect::Color,
 				ERHITextureAspect::Depth, ERHITextureAspect::Stencil})
@@ -357,7 +373,9 @@ namespace Durin::RDGPrivate
 						if (auto Error = Emit(Cell.Access, Use.Access,
 							ERDGTransitionKind::RHIBarrier, Use.bDiscard
 								&& (Use.Kind != ERDGResourceKind::Buffer
-									|| (Use.BufferOffset == 0 && Use.BufferSize == Range.BufferSize))); !Error)
+									|| (Use.BufferOffset == 0
+										&& Use.BufferSize == Resources[
+											Use.ResourceIndex].BufferDesc.Size))); !Error)
 							return Error;
 					if (Use.bPassManagedTransition)
 						if (auto Error = Emit(Use.Access, Use.ResultAccess,
@@ -400,7 +418,7 @@ namespace Durin::RDGPrivate
 	auto BuildResourceUseTable(FGraphPassView Passes,
 		uint32 ResourceCount) -> FResourceUseTable;
 
-	// Layout size depends only on resource descriptions, never on use endpoints.
+	// Buffer layout boundaries are derived from frozen exact use endpoints.
 	auto BuildTrackingLayout(std::span<const FGraphResource> Resources,
 		const FResourceUseTable& ResourceUses, FRangeWork& Work)
 		-> std::expected<FTrackingLayout, FRDGLimitError>;

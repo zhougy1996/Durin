@@ -11,6 +11,7 @@ namespace Durin
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
+		std::atomic<FGPUCullingTimingQuerySink> GGPUCullingTimingQuerySink = nullptr;
 		std::atomic<FDeferredDirectionalTimingQuerySink> GDeferredDirectionalTimingQuerySink = nullptr;
 		std::atomic<FRetainedOpaqueTimingQuerySink> GRetainedOpaqueTimingQuerySink = nullptr;
 		std::atomic<FVolumetricCloudTimingQuerySink> GVolumetricCloudTimingQuerySink = nullptr;
@@ -55,6 +56,11 @@ namespace Durin
 	auto SetGBufferTimingQuerySink(FGBufferTimingQuerySink Sink) -> void
 	{
 		GGBufferTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetGPUCullingTimingQuerySink(FGPUCullingTimingQuerySink Sink) -> void
+	{
+		GGPUCullingTimingQuerySink.store(Sink, std::memory_order_release);
 	}
 
 	auto SetDeferredDirectionalTimingQuerySink(
@@ -179,6 +185,8 @@ namespace Durin
 		FPostProcessTimingQuerySink, GPostProcessTimingQuerySink)
 	DURIN_DEFINE_SINK_GETTER(GetGBufferTimingQuerySink,
 		FGBufferTimingQuerySink, GGBufferTimingQuerySink)
+	DURIN_DEFINE_SINK_GETTER(GetGPUCullingTimingQuerySink,
+		FGPUCullingTimingQuerySink, GGPUCullingTimingQuerySink)
 	DURIN_DEFINE_SINK_GETTER(GetDeferredDirectionalTimingQuerySink,
 		FDeferredDirectionalTimingQuerySink, GDeferredDirectionalTimingQuerySink)
 	DURIN_DEFINE_SINK_GETTER(GetRetainedOpaqueTimingQuerySink,

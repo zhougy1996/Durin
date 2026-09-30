@@ -189,6 +189,7 @@ namespace Durin::VulkanRHI
 			ERHIAccess::GraphicsUniformRead, ERHIAccess::ComputeUniformRead,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead,
 			ERHIAccess::TransferRead, ERHIAccess::HostRead,
+			ERHIAccess::IndirectArgumentRead,
 			ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::DepthStencilReadWrite,
 			ERHIAccess::GraphicsShaderReadWrite, ERHIAccess::ComputeShaderReadWrite,
 			ERHIAccess::TransferWrite, ERHIAccess::HostWrite, ERHIAccess::Present};
@@ -207,6 +208,17 @@ namespace Durin::VulkanRHI
 			vk::ImageLayout::eTransferSrcOptimal);
 		EXPECT_EQ(MapVulkanResourceState(ERHIAccess::TransferWrite).Layout,
 			vk::ImageLayout::eTransferDstOptimal);
+		const auto Indirect = MapVulkanResourceState(
+			ERHIAccess::IndirectArgumentRead);
+		EXPECT_EQ(Indirect.StageMask2,
+			vk::PipelineStageFlagBits2::eDrawIndirect);
+		EXPECT_EQ(Indirect.AccessMask2,
+			vk::AccessFlagBits2::eIndirectCommandRead);
+		EXPECT_EQ(Indirect.LegacyStageMask,
+			vk::PipelineStageFlagBits::eDrawIndirect);
+		EXPECT_EQ(Indirect.LegacyAccessMask,
+			vk::AccessFlagBits::eIndirectCommandRead);
+		EXPECT_FALSE(Indirect.bTextureCompatible);
 	}
 
 	TEST(FVulkanResourceTransitionTests, DiscardRetainsAllTrackedSourceScopes)

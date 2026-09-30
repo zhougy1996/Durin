@@ -167,8 +167,11 @@ execution state. Compilation never mutates a command list.
   is a deterministic declaration error.
 - Every use declares one nonempty exact byte range or texture
   aspect/mip/layer range. Texture tracking uses fixed aspect/mip/layer indices;
-  distinct subresources remain independent. Buffers use one resource-wide
-  dependency and barrier state. Byte ranges remain authoritative for bindings
+  distinct subresources remain independent. Ordinary buffers use one
+  resource-wide dependency and barrier state. A buffer with an
+  `IndirectArgumentRead` use is instead split at its frozen use endpoints so
+  the fixed-function argument record receives an exact transition without
+  weakening unrelated bytes. Byte ranges remain authoritative for bindings
   and parameter authorization, but do not establish independent graph resources.
   Buffer initialization is checked separately using coalesced byte intervals.
   Reads require prior stored writes or imported contents covering every declared
@@ -405,6 +408,12 @@ depth/stencil attachment, and managed-texture wrappers; a member may be a fixed 
 store only graph-local handles and exact runtime ranges. Metadata stores the
 invariant use, access, discard, attachment action, managed-transition, and
 result-access intent.
+
+`MakeRDGIndirectArgumentMetadata` fixes one buffer member to read-only
+`IndirectArgumentRead`. It is legal in graphics and compute passes, cannot be
+decorated as a reflected shader binding, and preserves its exact record range
+in dependencies, barriers, captures, dumps, budgets, extraction, and queue
+handoff planning.
 
 The first typed use in each module compiles that constexpr-friendly metadata
 into one function-local immutable `FRDGParameterLayout`. The layout owns

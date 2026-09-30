@@ -59,6 +59,7 @@ namespace
 	constexpr uint32 MeasuredFrames = 120;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GGBufferTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GGPUCullingTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GDeferredTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>*
 		GRetainedOpaqueTimingQueries = nullptr;
@@ -82,6 +83,7 @@ namespace
 	Durin::FByteBuffer* GGroundTruthAmbientOcclusionPixels = nullptr;
 	Durin::FByteBuffer* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
 	Durin::FByteBuffer* GSpecularAASurfacePixels = nullptr;
+	std::array<Durin::FByteBuffer, 4>* GGPUCullingGBufferPixels = nullptr;
 	Durin::FViewRenderTelemetry GLastTelemetry;
 
 	class FGBufferQualificationEnvironment final : public testing::Environment
@@ -218,6 +220,13 @@ namespace
 	{
 		if (GGBufferTimingQueries != nullptr)
 			GGBufferTimingQueries->push_back(Query);
+	}
+
+	auto CaptureGPUCullingTiming(
+		const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GGPUCullingTimingQueries != nullptr)
+			GGPUCullingTimingQueries->push_back(Query);
 	}
 
 	auto CaptureSceneTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
@@ -382,6 +391,21 @@ namespace
 				Durin::ERHIAccess::GraphicsShaderRead}});
 		ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 			CommandList, Readback, 0, 0, *GSpecularAASurfacePixels));
+	}
+
+	auto CaptureGPUCullingGBuffer(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* Material,
+		Durin::FRHITexture* Normals,
+		Durin::FRHITexture* Surface,
+		Durin::FRHITexture* Emissive,
+		Durin::FRHITexture*) -> void
+	{
+		if (GGPUCullingGBufferPixels == nullptr) return;
+		const std::array Textures{Material, Normals, Surface, Emissive};
+		for (size_t Index = 0; Index < Textures.size(); ++Index)
+			ReadColorTexture(CommandList, Textures[Index],
+				(*GGPUCullingGBufferPixels)[Index]);
 	}
 
 	auto MakeStaticQuad() -> std::unique_ptr<Durin::FStaticMeshRenderData>
@@ -2047,6 +2071,88 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(GLastTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSuccessfulDraws, 2u);
+
+	Durin::FSceneTestOwner GPUCullingSceneOwner;
+	Durin::FScene& GPUCullingScene = *GPUCullingSceneOwner;
+	for (uint32 Index = 0; Index < 64; ++Index)
+	{
+		const bool bVisible = Index < 32;
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(GPUCullingScene,
+			Durin::FPrimitiveComponentId(3'000 + Index),
+			std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(),
+				std::vector<Durin::FMaterialRenderProxyRef>{Material}),
+			Translate(bVisible ? -0.5 : 4.0, -0.5));
+	}
+	Durin::FlushRenderingCommands();
+	std::array<Durin::FByteBuffer, 4> DirectGBufferPixels;
+	std::array<Durin::FByteBuffer, 4> IndirectGBufferPixels;
+	Durin::FViewRenderTelemetry DirectGPUCullingTelemetry;
+	Durin::FViewRenderTelemetry IndirectGPUCullingTelemetry;
+	std::vector<Durin::FGPUTimingQueryRHIRef> GPUCullingQueries;
+	GGPUCullingTimingQueries = &GPUCullingQueries;
+	Durin::SetGPUCullingTimingQuerySink(CaptureGPUCullingTiming);
+	Durin::SetGBufferCaptureSink(CaptureGPUCullingGBuffer);
+	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		[&](Durin::FRHICommandListImmediate& CommandList) {
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"GPUCullingQualificationColor", 128, 128,
+				Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Target, nullptr);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 128;
+			View.ViewportHeight = 128;
+			View.Settings.Mode.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.Mode.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			Durin::FScopedRendererQualificationPolicy Qualification({
+				.bEnableGBuffer = true});
+			for (bool bEnableGPUCulling : {false, true})
+			{
+				GGPUCullingGBufferPixels = bEnableGPUCulling
+					? &IndirectGBufferPixels : &DirectGBufferPixels;
+				Durin::FSceneViewRenderOptions Options;
+				Options.bEnableGPUCulling = bEnableGPUCulling;
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &GPUCullingScene,
+					View, Target, false, Options),
+					Durin::ERenderViewResult::Success);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+				(bEnableGPUCulling ? IndirectGPUCullingTelemetry
+					: DirectGPUCullingTelemetry) = GLastTelemetry;
+			}
+		});
+	Durin::FlushRenderingCommands();
+	Durin::SetGBufferCaptureSink(nullptr);
+	Durin::SetGPUCullingTimingQuerySink(nullptr);
+	GGPUCullingGBufferPixels = nullptr;
+	GGPUCullingTimingQueries = nullptr;
+	for (size_t Index = 0; Index < DirectGBufferPixels.size(); ++Index)
+	{
+		EXPECT_FALSE(DirectGBufferPixels[Index].empty());
+		EXPECT_EQ(DirectGBufferPixels[Index], IndirectGBufferPixels[Index])
+			<< "GBuffer attachment " << Index << " differs";
+	}
+	EXPECT_EQ(DirectGPUCullingTelemetry.GBuffer.GPUCullingRequestedViews, 0u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingRequestedViews, 1u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingFallbackViews, 0u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingCandidates, 64u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingGroups, 1u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingCommands, 1u);
+	EXPECT_EQ(IndirectGPUCullingTelemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+	EXPECT_EQ(GPUCullingQueries.size(), 1u);
+	GPUCullingQueries.clear();
+	for (uint32 Index = 0; Index < 64; ++Index)
+		Durin::FSceneInterfaceTestAccess::RemovePrimitiveProxy(GPUCullingScene,
+			Durin::FPrimitiveComponentId(3'000 + Index));
+	Durin::FlushRenderingCommands();
+	GPUCullingSceneOwner.Reset();
 	GBufferQueries.clear();
 	DeferredQueries.clear();
 

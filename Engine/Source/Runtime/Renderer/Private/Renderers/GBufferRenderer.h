@@ -17,6 +17,25 @@ namespace Durin
 	struct FGBufferPipeline;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
+	class FRDGShaderParameterScope;
+	struct FSceneView;
+
+	struct alignas(16) FGBufferGPUCullingCandidate final
+	{
+		FVector3f BoundsMin{};
+		uint32 ArgumentIndex = 0;
+		FVector3f BoundsMax{};
+		uint32 TransformIndex = 0;
+	};
+	static_assert(sizeof(FGBufferGPUCullingCandidate) == 32);
+
+	struct alignas(16) FGBufferGPUCullingUniform final
+	{
+		float ViewProjection[16]{};
+		uint32 CandidateCount = 0;
+		uint32 Padding[3]{};
+	};
+	static_assert(sizeof(FGBufferGPUCullingUniform) == 80);
 
 
 	// Records geometry-buffer work into caller-provided attachments without
@@ -56,6 +75,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
+			bool bGPUCulling = false;
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 		};
 
@@ -79,7 +99,13 @@ namespace Durin
 			const FPipeline& Pipeline,
 			const std::shared_ptr<const FRHIShaderParameterBatch>& VertexBindings,
 			const RendererPrivate::FPreparedSurfaceMaterialBindings& FragmentBindings) -> bool;
-		auto ReleaseResources_RenderThread() -> void;
+			auto ReleaseResources_RenderThread() -> void;
+		auto EnsureGPUCullingResources_RenderThread() -> bool;
+		auto DispatchGPUCulling_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& View,
+			uint32 CandidateCount,
+			const FRDGShaderParameterScope& GraphShaderParameters) -> bool;
 
 	private:
 		struct FState;

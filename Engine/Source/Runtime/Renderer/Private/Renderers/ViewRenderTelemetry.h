@@ -195,6 +195,22 @@ namespace Durin
 		size_t GBufferSplineMeshSuccessfulDraws = 0;
 		size_t GBufferSplineMeshRejectedDraws = 0;
 		size_t GBufferSplineMeshSkippedDraws = 0;
+		size_t GPUCullingRequestedViews = 0;
+		size_t GPUCullingDispatchedViews = 0;
+		size_t GPUCullingFallbackViews = 0;
+		size_t GPUCullingUnsupportedFallbackViews = 0;
+		size_t GPUCullingNoEligibleGroupFallbackViews = 0;
+		size_t GPUCullingDispatchFailureViews = 0;
+		size_t GPUCullingCandidates = 0;
+		size_t GPUCullingGroups = 0;
+		size_t GPUCullingCommands = 0;
+		size_t GPUCullingIndirectDraws = 0;
+		size_t GPUCullingDirectFallbackDraws = 0;
+		size_t GPUCullingVisibleInstances = 0;
+		size_t GPUCullingCulledInstances = 0;
+		size_t GPUCullingOverflowCandidates = 0;
+		size_t GPUCullingBufferBytes = 0;
+		size_t GPUCullingAsyncComputeEligibleViews = 0;
 	};
 
 	struct FDeferredRenderTelemetry

@@ -86,6 +86,8 @@ namespace Durin
 		const FGPUTimingQueryRHIRef& Query);
 	using FGBufferTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
+	using FGPUCullingTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
 	using FDeferredDirectionalTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
 	using FRetainedOpaqueTimingQuerySink = void (*)(
@@ -132,6 +134,8 @@ namespace Durin
 		FPostProcessTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetGBufferTimingQuerySink(
 		FGBufferTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetGPUCullingTimingQuerySink(
+		FGPUCullingTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetDeferredDirectionalTimingQuerySink(
 		FDeferredDirectionalTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetRetainedOpaqueTimingQuerySink(
@@ -170,6 +174,7 @@ namespace Durin
 	auto GetSceneColorTimingQuerySink() -> FSceneColorTimingQuerySink;
 	auto GetPostProcessTimingQuerySink() -> FPostProcessTimingQuerySink;
 	auto GetGBufferTimingQuerySink() -> FGBufferTimingQuerySink;
+	auto GetGPUCullingTimingQuerySink() -> FGPUCullingTimingQuerySink;
 	auto GetDeferredDirectionalTimingQuerySink()
 		-> FDeferredDirectionalTimingQuerySink;
 	auto GetRetainedOpaqueTimingQuerySink() -> FRetainedOpaqueTimingQuerySink;

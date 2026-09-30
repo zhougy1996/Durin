@@ -12,7 +12,7 @@ used next. Callers express portable intent; Vulkan pipeline stages, access
 masks, image layouts, dependency flags, and native handles remain
 backend-private. The vocabulary covers vertex and index reads, graphics and
 compute uniform reads, graphics and compute shader reads or read/write access,
-transfer reads and writes, host reads and writes, color and depth/stencil
+transfer reads and writes, host reads and writes, indirect-argument reads, color and depth/stencil
 attachment access, presentation, and discard.
 
 Compatible read-only intents may be combined. Write intents are exclusive,
@@ -115,6 +115,11 @@ lowering, so each input constructs exactly one native barrier for the active
 path and no record for the inactive representation. Barrier vectors are
 operation-local and reserve only the current batch size; their capacity cannot
 be retained by the command context after either ordinary or burst batches.
+
+`IndirectArgumentRead` is a buffer-only, combinable read intent admitted only
+for `DrawIndirect` resources. Vulkan maps it to draw-indirect stage and
+indirect-command-read access in both synchronization2 and legacy forms; it is
+not a graphics or compute shader read.
 
 A transition batch is validated completely before native recording begins.
 Buffer intervals split around exact writes and merge again when adjacent

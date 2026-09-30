@@ -1091,6 +1091,20 @@ namespace Durin::VulkanRHI
 		PendingComputeState->Dispatch(*this, GroupCountX, GroupCountY, GroupCountZ);
 	}
 
+	auto FVulkanCommandListContext::RHIDispatchIndirect(
+		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
+	{
+		CheckVulkanRHIThread();
+		check(PendingComputeState->GetPipelineState());
+		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
+		ERHIAccess Tracked = ERHIAccess::None;
+		checkf(Buffer->GetStateTracker().Validate(Offset,
+			sizeof(FRHIDispatchIndirectArguments),
+			ERHIAccess::IndirectArgumentRead, Tracked),
+			"Indirect dispatch record is not in IndirectArgumentRead access.");
+		PendingComputeState->DispatchIndirect(*this, Buffer->GetHandle(), Offset);
+	}
+
 	auto FVulkanCommandListContext::ValidateDrawBindings(uint32 VertexCount,
 		uint32 InstanceCount, uint32 FirstVertex, uint32 FirstInstance,
 		bool bIndexed) const -> void
@@ -1186,6 +1200,42 @@ namespace Durin::VulkanRHI
 		GetCommandBuffer()->GetHandle().drawIndexed(Arguments.IndexCount,
 			Arguments.InstanceCount, Arguments.FirstIndex, Arguments.VertexOffset,
 			Arguments.FirstInstance);
+	}
+
+	auto FVulkanCommandListContext::RHIDrawIndirect(
+		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
+	{
+		CheckVulkanRHIThread();
+		checkf(PendingGfxState->GetPipelineState(),
+			"Indirect draw requires an active graphics pipeline.");
+		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
+		ERHIAccess Tracked = ERHIAccess::None;
+		checkf(Buffer->GetStateTracker().Validate(Offset,
+			sizeof(FRHIDrawIndirectArguments),
+			ERHIAccess::IndirectArgumentRead, Tracked),
+			"Indirect draw record is not in IndirectArgumentRead access.");
+		PendingGfxState->PrepareForDraw(*this);
+		GetCommandBuffer()->GetHandle().drawIndirect(Buffer->GetHandle(), Offset,
+			1, sizeof(FRHIDrawIndirectArguments));
+	}
+
+	auto FVulkanCommandListContext::RHIDrawIndexedIndirect(
+		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
+	{
+		CheckVulkanRHIThread();
+		checkf(PendingGfxState->GetPipelineState(),
+			"Indexed indirect draw requires an active graphics pipeline.");
+		checkf(BoundIndexBuffer,
+			"Indexed indirect draw requires a bound index buffer.");
+		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
+		ERHIAccess Tracked = ERHIAccess::None;
+		checkf(Buffer->GetStateTracker().Validate(Offset,
+			sizeof(FRHIDrawIndexedIndirectArguments),
+			ERHIAccess::IndirectArgumentRead, Tracked),
+			"Indexed indirect draw record is not in IndirectArgumentRead access.");
+		PendingGfxState->PrepareForDraw(*this);
+		GetCommandBuffer()->GetHandle().drawIndexedIndirect(Buffer->GetHandle(),
+			Offset, 1, sizeof(FRHIDrawIndexedIndirectArguments));
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
