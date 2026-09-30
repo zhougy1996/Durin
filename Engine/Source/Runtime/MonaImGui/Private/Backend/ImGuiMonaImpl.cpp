@@ -407,8 +407,10 @@ namespace Durin::MonaImGui
 
 		ImGuiViewport* HoveredViewport = nullptr;
 		ImGuiViewport* FocusedViewport = nullptr;
+		const std::shared_ptr<FGenericWindow> MouseWindow = GMonaImGuiMouseState.MouseWindow.lock();
 		for (ImGuiViewport* Viewport : PlatformIO.Viewports)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseViewportScan");
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
 			if (Window == nullptr)
 			{
@@ -416,32 +418,62 @@ namespace Durin::MonaImGui
 			}
 
 			const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow();
-			if (NativeWindow == nullptr || NativeWindow->IsMinimized())
+			if (NativeWindow == nullptr)
 			{
 				continue;
 			}
 
-			if (NativeWindow->IsHovered() && (Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0)
+			bool bMinimized;
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseWindowMinimized");
+				bMinimized = NativeWindow->IsMinimized();
+			}
+			if (bMinimized)
+			{
+				continue;
+			}
+
+			// Cursor-enter/leave events already track the hovered window. Avoid
+			// querying the window server for every viewport on every frame.
+			if (MouseWindow == NativeWindow && !IsMouseCaptured(NativeWindow)
+				&& (Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0)
 			{
 				HoveredViewport = Viewport;
 			}
 
-			if (FocusedViewport == nullptr && NativeWindow->IsFocused())
+			if (FocusedViewport == nullptr)
 			{
-				FocusedViewport = Viewport;
+				bool bFocused;
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseWindowFocused");
+					bFocused = NativeWindow->IsFocused();
+				}
+				if (bFocused)
+				{
+					FocusedViewport = Viewport;
+				}
 			}
 		}
 
 		if (GMonaImGuiMouseState.MouseWindow.expired() && FocusedViewport != nullptr)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MousePositionFallback");
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(FocusedViewport);
 			const std::shared_ptr<FGenericWindow> NativeWindow = Window != nullptr ? Window->GetNativeWindow() : nullptr;
 			if (NativeWindow != nullptr && !IsMouseCaptured(NativeWindow))
 			{
-				FVector2d CursorPos = NativeWindow->GetCursorPosition();
+				FVector2d CursorPos;
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseCursorPosition");
+					CursorPos = NativeWindow->GetCursorPosition();
+				}
 				if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
 				{
-					const FIntPoint WindowPosition = NativeWindow->GetWindowPosition();
+					FIntPoint WindowPosition;
+					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseWindowPosition");
+						WindowPosition = NativeWindow->GetWindowPosition();
+					}
 					CursorPos.x += WindowPosition.x;
 					CursorPos.y += WindowPosition.y;
 				}
@@ -1034,6 +1066,7 @@ namespace Durin::MonaImGui
 	{
 		if (IsMouseCaptured(InPlatformWindow)) return false;
 		auto& IO = GetImGuiIO(InPlatformWindow);
+		GMonaImGuiMouseState.MouseWindow = InPlatformWindow;
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
 		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		UpdateHoveredViewport(IO, InPlatformWindow);
@@ -1051,14 +1084,15 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiEventHandler::OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
 	{
-		if (IsMouseCaptured(InPlatformWindow)) return;
 		if (const std::shared_ptr<FGenericWindow> MouseWindow = GMonaImGuiMouseState.MouseWindow.lock())
 		{
 			if (MouseWindow == InPlatformWindow)
 			{
+				const bool bCaptured = IsMouseCaptured(InPlatformWindow);
+				GMonaImGuiMouseState.MouseWindow.reset();
+				if (bCaptured) return;
 				auto& IO = GetImGuiIO(InPlatformWindow);
 				GMonaImGuiMouseState.LastValidMousePos = IO.MousePos;
-				GMonaImGuiMouseState.MouseWindow.reset();
 				IO.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 			}
 		}
