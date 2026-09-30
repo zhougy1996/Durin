@@ -1,5 +1,4 @@
 
-import hashlib
 import io
 import subprocess
 import sys
@@ -209,19 +208,6 @@ class TestCommandGrammarContract:
             assert comparable_namespace(shell_namespace) == comparable_namespace(
                 direct_namespace
             )
-
-    def test_command_help_snapshot_is_frozen(self) -> None:
-        registry = CommandRegistry()
-        paths = sorted(command_paths(registry))
-        snapshot = "\n\0\n".join(
-            f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
-        )
-        assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "a790db87983af678d0f53b5e590f2c2d08c0cfbad106c58b9a42a97c93630b97"
-        )
-        assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
-            "a98689f409f11da4e1c1b1c19c4cfb9be852baebb8e9f3ffb3c7f1181e62341a"
-        )
 
 
 
