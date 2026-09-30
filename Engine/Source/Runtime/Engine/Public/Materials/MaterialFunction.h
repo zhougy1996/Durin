@@ -53,6 +53,5 @@ namespace Durin
 		FMaterialFunctionPresentation Presentation;
 
 		uint64 Revision = 1;
-		bool bMigrateV1Semantics = false;
 	};
 }

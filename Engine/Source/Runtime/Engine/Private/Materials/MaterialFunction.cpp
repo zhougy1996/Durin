@@ -27,42 +27,6 @@ namespace Durin
 	auto DMaterialFunction::PostLoad() -> void
 	{
 		Super::PostLoad();
-		if (bMigrateV1Semantics
-			&& GetObjectPath() == "/Engine/Materials/Functions/SampleNormal.SampleNormal")
-		{
-			const FGuid NormalInput{0x78e431b9, 0x4afe4982, 2, 4};
-			const FGuid NormalOutput{0x78e431b9, 0x4afe4982, 2, 100};
-			for (const auto& Expression : ExpressionCollection.Expressions)
-			{
-				auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
-				auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
-				auto* Port = Input ? &Input->Port : Output ? &Output->Port : nullptr;
-				if (!Port || (Port->Id != NormalInput && Port->Id != NormalOutput)) continue;
-				Port->Constraint = {.Mode = EMaterialFunctionValueConstraintMode::Exact,
-					.Stages = EMaterialEvaluationStage::Pixel,
-					.Kind = EMaterialSpatialKind::Normal,
-					.Space = EMaterialCoordinateSpace::Tangent};
-			}
-			for (const auto& Expression : ExpressionCollection.Expressions)
-				if (auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get()); Lerp
-					&& !Lerp->A.Connection.ExpressionId.IsValid()
-					&& Lerp->A.Constant == std::vector<float>({0.f, 0.f, 1.f}))
-				{
-					auto* Value = NewObject<DMaterialExpressionVector3Constant>(this, "MigratedNormalDefault");
-					auto* Annotation = NewObject<DMaterialExpressionSwizzle>(this, "MigratedNormalAnnotation");
-					Value->Id = {0x6c6ae941, 0xe6454c95, 0xa8948b8b, 1};
-					Value->Value = {0, 0, 1};
-					Annotation->Id = {0x6c6ae941, 0xe6454c95, 0xa8948b8b, 2};
-					Annotation->Input = {Value->Id}; Annotation->Components = {0, 1, 2};
-					Annotation->OutputSpatialKind = EMaterialSpatialKind::Normal;
-					Annotation->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
-					Lerp->A = {Annotation->Id};
-					ExpressionCollection.Expressions.push_back(Value);
-					ExpressionCollection.Expressions.push_back(Annotation);
-					break;
-				}
-			bMigrateV1Semantics = false;
-		}
 		bSignatureCached = false;
 		GraphChanges.Publish(*this);
 	}
@@ -79,9 +43,6 @@ namespace Durin
 		if (Context.bCooked) return {};
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
 		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
-		if (bMigrateV1Semantics
-			&& GetObjectPath() == "/Engine/Materials/Functions/SampleNormal.SampleNormal")
-			return {};
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
 		auto Validation = MIR::FGraphBuilder::ValidateFunction(Expressions);
@@ -113,10 +74,6 @@ namespace Durin
 	{
 		if (!FMaterialGraphVersion::Serialize(Ar) || !FMaterialFunctionVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
-		if (!Ar.IsError() && Ar.IsLoading())
-			if (const auto* Version = Ar.GetVersionContext().FindCustom(
-				FMaterialFunctionVersion::Guid); Version && Version->Version == 1)
-				bMigrateV1Semantics = true;
 		if (!Ar.IsError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
 			const auto Validation = ValidateLoadedObjectGraph({});

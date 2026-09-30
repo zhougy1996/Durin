@@ -15,7 +15,7 @@ namespace Durin
 			FMaterialInstanceVersion::Guid, FMaterialInstanceVersion::CurrentVersion, "MaterialInstanceParameters"};
 
 		auto SerializePackageVersion(FArchive& Ar, FGuid Guid, int32 CurrentVersion,
-			std::string_view Name, int32 MinimumReadableVersion = -1) -> bool
+			std::string_view Name) -> bool
 		{
 			const auto Purpose = Ar.GetPurpose();
 			if (Purpose != EArchivePurpose::Discovery && Purpose != EArchivePurpose::AuthoredPackage
@@ -24,10 +24,7 @@ namespace Durin
 			if (Ar.IsLoading())
 			{
 				const auto* Version = Ar.GetVersionContext().FindCustom(Guid);
-				const int32 Minimum = MinimumReadableVersion < 0
-					? CurrentVersion : MinimumReadableVersion;
-				if (!Version || Version->Version < Minimum
-					|| Version->Version > CurrentVersion)
+				if (!Version || Version->Version != CurrentVersion)
 					Ar.Fail(EArchiveFailureCode::UnsupportedVersion, std::format(
 						"{} requires custom version {} at {}; file version is {}.", Name,
 						Guid.ToString(), CurrentVersion, Version ? std::to_string(Version->Version) : "missing"));
@@ -43,16 +40,16 @@ namespace Durin
 
 	auto FMaterialGraphVersion::Serialize(FArchive& Ar) -> bool
 	{
-		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialGraph", 4);
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialGraph");
 	}
 
 	auto FMaterialFunctionVersion::Serialize(FArchive& Ar) -> bool
 	{
-		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialFunctionPorts", 1);
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialFunctionPorts");
 	}
 
 	auto FMaterialInstanceVersion::Serialize(FArchive& Ar) -> bool
 	{
-		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialInstanceParameters", 1);
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialInstanceParameters");
 	}
 }

@@ -346,13 +346,13 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	EXPECT_FALSE(ContainsSerializedField(Saved, "Signature"));
 	EXPECT_FALSE(ContainsSerializedField(Saved, "PortId"));
 	ASSERT_TRUE(UnloadPackage(Path));
-	const std::array UnsupportedVersions{
-		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 0, 1, 2, 3, 6}},
-		std::pair{FMaterialInstanceVersion::Guid, std::array{-1, 0, 2, 3, 4, 5}},
-		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 0, 3, 4, 5, 6}},
-		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 0, 1, 2, 4, 5}},
+	const std::array RejectedVersionBoundaries{
+		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 4, 6}},
+		std::pair{FMaterialInstanceVersion::Guid, std::array{-1, 1, 3}},
+		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 1, 3}},
+		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 2, 4}},
 	};
-	for (const auto& [Guid, Versions] : UnsupportedVersions)
+	for (const auto& [Guid, Versions] : RejectedVersionBoundaries)
 		for (const int32 Version : Versions)
 		{
 			auto Candidate = Saved;

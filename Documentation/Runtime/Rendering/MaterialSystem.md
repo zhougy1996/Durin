@@ -905,10 +905,11 @@ pass contract 6, and material Cook contributor 5. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10
 default-relative owned-object serialization, with no material-specific serializer
-or universal old-asset conversion path. Material graphs accept only versions 4-5
-and function ports only versions 1-2; current saves write 5 and 2. The shipped
-`SampleNormal` v1 asset has a narrowly identified semantic migration, while other
-legacy ports remain unconstrained. Unrelated property/package migrations remain intact.
+or universal old-asset conversion path. Material graphs require version 5,
+function ports require version 2, and material instances require version 2. The
+canonically resaved repository corpus is the compatibility baseline; older,
+missing, and future domain versions reject before object publication. Unrelated
+property/package migrations remain intact.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base

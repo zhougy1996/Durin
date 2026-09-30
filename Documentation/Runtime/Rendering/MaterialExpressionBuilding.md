@@ -117,14 +117,11 @@ Canonical inactive storage is finite zero with an appropriate input width; it
 does not define the fallback. Authored fingerprints include the flag and retained
 components, while shader identity still uses the resolved compiler representation.
 
-Authored graph custom versions 4-5 and function-port versions 1-2 are the bounded
-read windows; graph 5 and function 2 are written. Terminal output version 3 is
-unchanged. Older, missing, and future versions reject. Version-4 graphs retain
-generic numeric semantics unless an explicit producer supplies spatial meaning.
-The legacy shipped `SampleNormal` function alone has a path- and GUID-bounded
-version-1 migration to exact Pixel/Tangent/Normal ports and an explicit flat-normal
-producer. The tracked materials and standard functions were canonically resaved;
-arbitrary user ports are never guessed into a spatial contract.
+Authored packages require graph custom version 5 and function-port version 2;
+terminal output version 3 is unchanged. Older, missing, and future versions
+reject. The repository materials and standard functions were canonically resaved
+before the former graph-4/function-1 migration window was retired, so loading
+never guesses spatial semantics for legacy generic numeric values or ports.
 
 ## Traversal and invocation state
 
