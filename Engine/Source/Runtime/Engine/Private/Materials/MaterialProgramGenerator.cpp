@@ -76,6 +76,7 @@ namespace Durin
 			case EMaterialProgramValueType::Texture2D:
 				return "Texture2D<float4>";
 			case EMaterialProgramValueType::Surface: return "FMaterialSurface";
+			case EMaterialProgramValueType::StaticBool: return {};
 			}
 			return {};
 		}
@@ -248,6 +249,10 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::GetSurfaceAttributes:
 			case EMaterialProgramOpcode::SetSurfaceAttributes:
 			case EMaterialProgramOpcode::AppendVector:
+			case EMaterialProgramOpcode::StaticBool:
+			case EMaterialProgramOpcode::StaticSwitch:
+			case EMaterialProgramOpcode::QualitySwitch:
+			case EMaterialProgramOpcode::FeatureLevelSwitch:
 				// Authored operations must be expanded before source generation.
 				break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;

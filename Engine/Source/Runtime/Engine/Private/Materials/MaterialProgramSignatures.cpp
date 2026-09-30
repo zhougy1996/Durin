@@ -507,6 +507,12 @@ namespace Durin
 		case OpcodeType::Splat4:
 		case OpcodeType::AppendVector:
 			return NonSpatial();
+		case OpcodeType::StaticBool:
+		case OpcodeType::StaticSwitch:
+		case OpcodeType::QualitySwitch:
+		case OpcodeType::FeatureLevelSwitch:
+			// Authoring-only operations must be eliminated before IR validation.
+			return std::nullopt;
 		}
 		return std::nullopt;
 	}
