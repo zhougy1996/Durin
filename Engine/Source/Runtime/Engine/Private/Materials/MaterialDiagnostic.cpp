@@ -80,7 +80,6 @@ namespace Durin
 				case EMaterialExpressionError::CollectionCountExceedsBound: return "A material closure may reference at most four parameter collections.";
 				case EMaterialExpressionError::StaticBoolDeclarationInvalidDuplicateExceedsBound: return "Static bool declarations require unique valid GUIDs and names and are bounded to 32 per root.";
 				case EMaterialExpressionError::StaticBoolOverrideOrphan: return "A static bool override does not match a root declaration.";
-				case EMaterialExpressionError::StaticSwitchMissingSelectedBranch: return "The selected static-switch branch is missing.";
 				case EMaterialExpressionError::UnsupportedMaterialFeatureLevel: return "The requested material feature level is unsupported.";
 				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build registered an invalid IR index.";
 				case EMaterialExpressionError::InvalidTextureDefaultConsumer: return "A texture default may only be consumed by sampling or a function texture port.";

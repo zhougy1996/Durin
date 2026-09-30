@@ -207,7 +207,8 @@ namespace Durin
 				EMaterialIRError::InvalidCompilerEnvironment));
 			return Result;
 		}
-		if (Input.Environment.FeatureLevel > ERHIFeatureLevel::SM6
+		if (!IsSupportedMaterialQualityLevel(Input.Environment.Quality)
+			|| !IsSupportedMaterialFeatureLevel(Input.Environment.FeatureLevel)
 			|| Input.Environment.StaticBools.size() > MaterialMaxStaticBoolDeclarations
 			|| !std::ranges::is_sorted(Input.Environment.StaticBools, {},
 				&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId))

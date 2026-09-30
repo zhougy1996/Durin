@@ -202,7 +202,8 @@ namespace Durin
 				|| Program.PassContractVersion
 					!= CurrentMaterialPassContractVersion)
 				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
-			if (Program.FeatureLevel > ERHIFeatureLevel::SM6
+			if (!IsSupportedMaterialQualityLevel(Program.Quality)
+				|| !IsSupportedMaterialFeatureLevel(Program.FeatureLevel)
 				|| Program.StaticBools.size() > MaterialMaxStaticBoolDeclarations
 				|| !std::ranges::is_sorted(Program.StaticBools, {},
 					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId))
@@ -267,7 +268,9 @@ namespace Durin
 		}
 	}
 
-	auto EncodeMaterialCookedProgram(
+	namespace
+	{
+		auto EncodeMaterialCookedProgram(
 		const FMaterialCompilerResult& Program,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
@@ -304,7 +307,7 @@ namespace Durin
 		return {};
 	}
 
-	auto DecodeMaterialCookedProgram(
+		auto DecodeMaterialCookedProgram(
 		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
@@ -344,6 +347,7 @@ namespace Durin
 			std::move(Candidate));
 		return {};
 	}
+	}
 
 	namespace
 	{
@@ -372,8 +376,8 @@ namespace Durin
 
 		auto IsValidConfiguration(const FCookedConfigurationRecord& Record) -> bool
 		{
-			if (Record.Quality > EMaterialQualityLevel::High
-				|| Record.FeatureLevel > ERHIFeatureLevel::SM6
+			if (!IsSupportedMaterialQualityLevel(Record.Quality)
+				|| !IsSupportedMaterialFeatureLevel(Record.FeatureLevel)
 				|| !std::ranges::is_sorted(Record.StaticBools, {},
 					&FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId)) return false;
 			for (size_t Index = 0; Index < Record.StaticBools.size(); ++Index)

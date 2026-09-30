@@ -2,7 +2,6 @@
 
 #include "DObject/Object.h"
 #include "Asset/BulkData.h"
-#include "Materials/MaterialCookedProgram.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"

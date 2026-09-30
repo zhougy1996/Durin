@@ -2,8 +2,8 @@
 
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
+#include "MaterialCookedProgramTestSupport.h"
 #include "MaterialTestSupport.h"
-#include "Materials/MaterialCookedProgram.h"
 
 #include <iostream>
 
@@ -86,13 +86,13 @@ namespace Durin::Testing
 		for (auto* Instance : Instances)
 		{
 			Durin::FByteBuffer Payload;
-			ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(*Instance->GetAcceptedCompiledProgram(),
+			ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Instance->GetAcceptedCompiledProgram(),
 				Instance->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
 				Durin::ECookTargetProfile::Game, Payload))) << Durin::FormatMaterialError(Error.Error);
 			InstancePayloadBytes += Payload.size();
 		}
 		Durin::FByteBuffer Bytes;
-		ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(*Root->GetAcceptedCompiledProgram(),
+		ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(*Root->GetAcceptedCompiledProgram(),
 			Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
 			Durin::ECookTargetProfile::Game, Bytes))) << Durin::FormatMaterialError(Error.Error);
 		std::cout << "Variant baseline: owners=" << Instances.size()

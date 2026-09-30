@@ -102,7 +102,6 @@ namespace Durin
 		CollectionCountExceedsBound,
 		StaticBoolDeclarationInvalidDuplicateExceedsBound,
 		StaticBoolOverrideOrphan,
-		StaticSwitchMissingSelectedBranch,
 		UnsupportedMaterialFeatureLevel,
 	};
 

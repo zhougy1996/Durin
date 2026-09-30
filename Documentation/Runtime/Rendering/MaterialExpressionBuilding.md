@@ -81,7 +81,8 @@ Static selection is resolved by the graph builder before normalized IR and
 resource discovery. `DMaterialExpressionStaticBool` names one root declaration
 by stable GUID; base defaults and the compiling instance's sorted overrides form
 the effective compiler environment. `StaticSwitch` requests only its selected
-branch. `QualitySwitch` selects Low or High and `FeatureLevelSwitch` selects
+branch; a disconnected False or True branch resolves through its retained
+numeric value. `QualitySwitch` selects Low or High and `FeatureLevelSwitch` selects
 ES3_1, SM5, or SM6, with each node's Default input used when its exact input is
 absent. Static bool values never become MIR nodes, uniform fields, or dynamic
 instance values.

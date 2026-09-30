@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "MaterialCookedProgramTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialVariantTestFixture.h"
 #include "MaterialTestSupport.h"
@@ -225,7 +226,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
 	}
 	Durin::FByteBuffer CookedBytes;
-	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(Compiled, {},
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
 	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());

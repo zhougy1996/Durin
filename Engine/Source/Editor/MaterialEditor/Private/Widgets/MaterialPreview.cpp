@@ -5,6 +5,7 @@
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
+#include "Materials/MaterialCompilationConfiguration.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
@@ -209,8 +210,7 @@ namespace Durin::Editor::Material
 			if (ImGui::BeginCombo("Quality", PreviewQuality == EMaterialQualityLevel::Low
 				? "Low" : "High"))
 			{
-				for (const auto Candidate : {EMaterialQualityLevel::Low,
-					EMaterialQualityLevel::High})
+				for (const auto Candidate : SupportedMaterialQualityLevels)
 					if (ImGui::Selectable(Candidate == EMaterialQualityLevel::Low ? "Low" : "High",
 						Candidate == PreviewQuality))
 					{
@@ -224,8 +224,7 @@ namespace Durin::Editor::Material
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(90.0f));
 			if (ImGui::BeginCombo("Feature", FeatureLevelLabel(PreviewFeatureLevel)))
 			{
-				for (const auto Candidate : {ERHIFeatureLevel::ES3_1,
-					ERHIFeatureLevel::SM5, ERHIFeatureLevel::SM6})
+				for (const auto Candidate : SupportedMaterialFeatureLevels)
 				{
 					if (Candidate > Capability) continue;
 					if (ImGui::Selectable(FeatureLevelLabel(Candidate),

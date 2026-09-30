@@ -1,7 +1,7 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
-#include "Materials/MaterialCookedProgram.h"
+#include "MaterialCookedProgramTestSupport.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialExpressions.h"
 #include "Engine/World.h"
@@ -256,14 +256,14 @@ TEST_F(FMaterialParameterCollectionTests,
 
 	FByteBuffer Bytes;
 	FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = EncodeMaterialCookedProgram(*Refreshed,
+	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(*Refreshed,
 		Material->GetStaticProperties(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Bytes))) << FormatMaterialError(Error.Error);
 	FMaterialStaticProperties DecodedProperties;
 	std::shared_ptr<const FMaterialCompilerResult> Decoded;
-	ASSERT_TRUE((Error = DecodeMaterialCookedProgram(Bytes,
+	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-		DecodedProperties, Decoded))) << FormatMaterialError(Error.Error);
+		*Refreshed, DecodedProperties, Decoded))) << FormatMaterialError(Error.Error);
 	ASSERT_TRUE(Decoded);
 	ASSERT_EQ(Decoded->ActiveCollections.size(), 1u);
 	EXPECT_EQ(Decoded->Identity, FirstIdentity);

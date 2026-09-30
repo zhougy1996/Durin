@@ -11,7 +11,6 @@
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include <set>
-#include "Materials/MaterialCookedProgram.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 #include <cstring>

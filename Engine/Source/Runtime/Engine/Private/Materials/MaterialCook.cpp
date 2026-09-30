@@ -28,7 +28,7 @@ namespace Durin
 
 	auto SetMaterialQualityLevel(EMaterialQualityLevel Quality) -> bool
 	{
-		if (Quality > EMaterialQualityLevel::High) return false;
+		if (!IsSupportedMaterialQualityLevel(Quality)) return false;
 		GMaterialQualityLevel.store(Quality, std::memory_order_release);
 		return true;
 	}
@@ -159,13 +159,8 @@ namespace Durin
 			}
 			std::vector<FMaterialCompilerResult> Variants;
 			Variants.reserve(MaterialCookedProgramMaxConfigurations);
-			constexpr std::array Qualities{
-				EMaterialQualityLevel::Low, EMaterialQualityLevel::High};
-			constexpr std::array FeatureLevels{
-				ERHIFeatureLevel::ES3_1, ERHIFeatureLevel::SM5,
-				ERHIFeatureLevel::SM6};
-			for (const auto Quality : Qualities)
-				for (const auto FeatureLevel : FeatureLevels)
+			for (const auto Quality : SupportedMaterialQualityLevels)
+				for (const auto FeatureLevel : SupportedMaterialFeatureLevels)
 				{
 					auto Environment = BaseEnvironment;
 					Environment.Quality = Quality;

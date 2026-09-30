@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
+#include "Materials/MaterialCompilationConfiguration.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialTypes.h"
@@ -9,7 +10,6 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "RHIFeatureLevel.h"
 
 #include <optional>
 #include <span>

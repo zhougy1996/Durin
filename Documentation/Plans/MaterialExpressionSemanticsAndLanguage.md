@@ -30,6 +30,11 @@ complete affected CPU suite, available Apple M4 Vulkan qualification, workspace
 all build, and documentation validators pass; lasting contracts are published in
 the owning Runtime and Editor documents.
 
+A 2026-09-30 maintenance follow-up centralized the supported material quality
+and feature-level inventory, clarified that disconnected Static Switch branches
+use retained numeric values, and narrowed the public cooked-program API to family
+payloads without changing DMAT v9 bytes or runtime selection behavior.
+
 ## Goal
 
 Make every material value carry enough meaning for the compiler to determine its
@@ -363,7 +368,7 @@ Low, and High; Feature Level Switch has Default, ES3_1, SM5, and SM6. All
 authored branches must be structurally valid and type-compatible, but only the
 selected reachable branch is expanded, normalized, dependency-scanned, limited,
 generated, and encoded. A missing exact Quality/Feature branch selects Default;
-a missing selected Static Switch branch is an error. Static Bool never enters a
+an unconnected Static Switch branch uses its retained numeric value. Static Bool never enters a
 uniform layout, parameter collection, dynamic parameter API, or generated code.
 
 Editor preview explicitly requests Low or High and one feature level no greater

@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "ExplicitMaterialProgramTestFixture.h"
+#include "MaterialCookedProgramTestSupport.h"
 #include "MaterialVariantTestFixture.h"
 #include "Threading/TaskComposition.h"
 #include "MaterialTestSupport.h"
@@ -841,11 +842,11 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FByteBuffer FirstBytes;
 	Durin::FByteBuffer SecondBytes;
 	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		*Material->GetAcceptedCompiledProgram(), Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, FirstBytes))) << Durin::FormatMaterialError(Error.Error);
-	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		*Material->GetAcceptedCompiledProgram(), Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, SecondBytes))) << Durin::FormatMaterialError(Error.Error);
@@ -854,10 +855,11 @@ TEST(FMaterialCompileLifecycleTests,
 
 	Durin::FMaterialStaticProperties DecodedProperties;
 	std::shared_ptr<const Durin::FMaterialCompilerResult> DecodedProgram;
-	ASSERT_TRUE((Error = Durin::DecodeMaterialCookedProgram(
+	ASSERT_TRUE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		DecodedProperties, DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
+		*Material->GetAcceptedCompiledProgram(), DecodedProperties,
+		DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
 	ASSERT_TRUE(DecodedProgram);
 	EXPECT_EQ(DecodedProgram->Identity,
 		Material->GetAcceptedCompiledProgram()->Identity);
@@ -924,51 +926,52 @@ TEST(FMaterialCompileLifecycleTests,
 		if (Corruption == 2) Invalid.ActiveParameters.front().Type =
 			static_cast<Durin::EMaterialParameterType>(255);
 		Durin::FByteBuffer InvalidBytes;
-		EXPECT_FALSE((Error = Durin::EncodeMaterialCookedProgram(Invalid, DecodedProperties,
+		EXPECT_FALSE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Invalid, DecodedProperties,
 			Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
 			InvalidBytes)));
 	}
 
-	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgram(
+	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::EditorValidation,
-		DecodedProperties, DecodedProgram)));
+		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
 	Durin::FMaterialCompilerResult WrongEnvironment =
 		*Material->GetAcceptedCompiledProgram();
 	WrongEnvironment.CompilerIdentity = "incompatible-compiler";
 	Durin::FByteBuffer WrongEnvironmentBytes;
-	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		WrongEnvironmentBytes))) << Durin::FormatMaterialError(Error.Error);
-	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgram(
+	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		DecodedProperties, DecodedProgram)));
+		WrongEnvironment, DecodedProperties, DecodedProgram)));
 	WrongEnvironment = *Material->GetAcceptedCompiledProgram();
 	WrongEnvironment.Target = "wrong-target";
-	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(
+	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		WrongEnvironmentBytes))) << Durin::FormatMaterialError(Error.Error);
-	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgram(
+	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		DecodedProperties, DecodedProgram)));
+		WrongEnvironment, DecodedProperties, DecodedProgram)));
 	Durin::FByteBuffer OldSchemaBytes = FirstBytes;
-	OldSchemaBytes[4] = std::byte{2};
-	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgram(
+	ASSERT_TRUE(Durin::Testing::SetMaterialCookedProgramFamilyVersionForTest(
+		OldSchemaBytes, 2));
+	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		OldSchemaBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		DecodedProperties, DecodedProgram)));
+		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
 	Durin::FByteBuffer TrailingBytes = FirstBytes;
 	TrailingBytes.push_back(std::byte{0});
-	EXPECT_FALSE((Error = Durin::DecodeMaterialCookedProgram(
+	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		TrailingBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		DecodedProperties, DecodedProgram)));
+		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
 
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();

@@ -376,7 +376,8 @@ namespace Durin
 	auto DMaterialInterface::RequestPreviewProgramCompile(
 		EMaterialQualityLevel Quality, ERHIFeatureLevel FeatureLevel) -> bool
 	{
-		if (Quality > EMaterialQualityLevel::High || FeatureLevel > ERHIFeatureLevel::SM6
+		if (!IsSupportedMaterialQualityLevel(Quality)
+			|| !IsSupportedMaterialFeatureLevel(FeatureLevel)
 			|| IsDynamicInstance() || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;

@@ -4,7 +4,6 @@
 #include "Asset/BulkData.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCompileLifecycle.h"
-#include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialExpressions.h"
 #include "Texture/Texture2D.h"

@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
+#include "MaterialCookedProgramTestSupport.h"
 #include "MaterialProgramTestFixture.h"
 
 namespace
@@ -450,6 +451,45 @@ TEST(FMaterialProgramSemanticTests, QualityAndFeatureSelectorsUseExactBranchOrDe
 		.GetLiteral().X, .4f);
 }
 
+TEST(FMaterialProgramSemanticTests, StaticSelectorDisconnectedBranchesUseRetainedValues)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	Testing::FTestMaterialExpressionGraph Graph;
+	auto& SelectorNode = Graph.Add(EMaterialProgramOpcode::StaticBool,
+		Type::StaticBool, {}, {}, {});
+	auto* Selector = Cast<DMaterialExpressionStaticBool>(&SelectorNode);
+	ASSERT_NE(Selector, nullptr);
+	auto& SwitchNode = Graph.Add(EMaterialProgramOpcode::StaticSwitch,
+		Type::Float, {}, {}, {});
+	auto* Switch = Cast<DMaterialExpressionStaticSwitch>(&SwitchNode);
+	ASSERT_NE(Switch, nullptr);
+	Switch->Condition = Testing::MakeLink(SelectorNode);
+	Switch->FalseValue.SetConstant({.2f});
+	Switch->TrueValue.SetConstant({.8f});
+	Graph.Outputs.Roughness.Connection = Testing::MakeLink(SwitchNode);
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& Expression : Graph.Expressions)
+		Expressions.push_back(Expression.Get());
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Graph.Outputs));
+	auto Build = [&](bool bSelected) {
+		MIR::FBuildEnvironment Environment;
+		Environment.StaticBools.push_back({Selector->DeclarationId, bSelected});
+		MIR::FGraphBuilder Builder(Expressions, std::move(Environment));
+		return Builder.FinishSurface(Graph.Outputs);
+	};
+	const auto FalseBranch = Build(false);
+	ASSERT_TRUE(FalseBranch);
+	EXPECT_FLOAT_EQ(FalseBranch.IR.Nodes[FalseBranch.IR.SurfaceRoot.Inputs[
+		static_cast<uint32>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex]
+		.GetLiteral().X, .2f);
+	const auto TrueBranch = Build(true);
+	ASSERT_TRUE(TrueBranch);
+	EXPECT_FLOAT_EQ(TrueBranch.IR.Nodes[TrueBranch.IR.SurfaceRoot.Inputs[
+		static_cast<uint32>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex]
+		.GetLiteral().X, .8f);
+}
+
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
 {
 	using namespace Durin;
@@ -499,8 +539,9 @@ TEST(FMaterialDiagnosticTests, FailedCodecsDoNotPublishPartialProducts)
 	const auto Original = Properties;
 	auto Previous = std::make_shared<const FMaterialCompilerResult>();
 	auto Program = Previous;
-	const auto Decoded = DecodeMaterialCookedProgram({}, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Properties, Program);
+	const auto Decoded = DecodeMaterialCookedProgramFamily({},
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
+		EMaterialQualityLevel::High, ERHIFeatureLevel::SM5, {}, Properties, Program);
 	EXPECT_FALSE(Decoded);
 	EXPECT_EQ(Decoded.Error.Code, FMaterialError::FCode(EMaterialCookError::CookedProgramByteExtentInvalid));
 	EXPECT_EQ(Properties, Original);
@@ -1257,19 +1298,20 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	EXPECT_TRUE(ValidateMaterialCompiledStages(Compiled.CompiledShaders, Compiled.Layout));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	FByteBuffer CookedBytes;
-	ASSERT_TRUE((Error = EncodeMaterialCookedProgram(Compiled, Input.StaticProperties,
+	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, Input.StaticProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
 	FMaterialStaticProperties CookedProperties;
 	std::shared_ptr<const FMaterialCompilerResult> Cooked;
-	ASSERT_TRUE((Error = DecodeMaterialCookedProgram(CookedBytes, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, CookedProperties, Cooked))) << Durin::FormatMaterialError(Error.Error);
+	ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(CookedBytes,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+		CookedProperties, Cooked))) << Durin::FormatMaterialError(Error.Error);
 	ASSERT_NE(Cooked, nullptr);
 	EXPECT_EQ(Cooked->Layout, Compiled.Layout);
 	EXPECT_EQ(Cooked->ActiveParameters, Compiled.ActiveParameters);
 	EXPECT_TRUE(Cooked->IR.Nodes.empty());
 	EXPECT_TRUE(Cooked->GeneratedSource.empty());
 	FByteBuffer Reencoded;
-	ASSERT_TRUE((Error = EncodeMaterialCookedProgram(*Cooked, CookedProperties,
+	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(*Cooked, CookedProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	EXPECT_EQ(Reencoded, CookedBytes);
 	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
@@ -1280,20 +1322,24 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		if (Mutation == 2) Invalid.Layout.UniformPayloadSize += 16;
 		if (Mutation == 3) Invalid.ActiveParameters.pop_back();
 		if (Mutation == 4) Invalid.CompiledShaders.front().BinaryEntryPoint.clear();
-		EXPECT_FALSE((Error = EncodeMaterialCookedProgram(Invalid, Input.StaticProperties,
+		EXPECT_FALSE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(Invalid, Input.StaticProperties,
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	}
 	const auto AcceptedCooked = Cooked;
 	for (size_t Position : {size_t{4}, CookedBytes.size() / 2, CookedBytes.size() - 1})
 	{
 		auto Broken = CookedBytes; Broken[Position] ^= std::byte{1};
-		EXPECT_FALSE((Error = DecodeMaterialCookedProgram(Broken, ECookTargetPlatform::Win64,
-			ECookTargetProfile::Game, CookedProperties, Cooked)));
+		EXPECT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Broken,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+			CookedProperties, Cooked)));
 		EXPECT_EQ(Cooked, AcceptedCooked);
 	}
-	auto LegacyCooked = CookedBytes; LegacyCooked[4] = std::byte{3};
-	EXPECT_FALSE((Error = DecodeMaterialCookedProgram(LegacyCooked, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, CookedProperties, Cooked)));
+	auto LegacyCooked = CookedBytes;
+	ASSERT_TRUE(Testing::SetMaterialCookedProgramFamilyVersionForTest(
+		LegacyCooked, 3));
+	EXPECT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(LegacyCooked,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+		CookedProperties, Cooked)));
 	EXPECT_EQ(Error.Error.Code, FMaterialError::FCode(EMaterialCookError::IncompatiblePayloadFormat));
 
 	auto InvalidResult = Compiled;
