@@ -31,7 +31,6 @@ namespace Durin
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
-		FCacheKeyProxy DerivedDataKey;
 		FTexture2DCompilationError Error;
 		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;

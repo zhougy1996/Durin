@@ -182,16 +182,16 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto MakeValidation(const FTextureCubeCanonicalBuildInput& CanonicalInput,
-			const FTextureCubeBuildProduct& Product, bool bHDR)
+			const std::unique_ptr<FTextureCubePlatformData>& Product, bool bHDR)
 			-> FTextureCubeImportValidation
 		{
 			return {.bValid = true, .SourceLayout = CanonicalInput.SourceLayout,
 				.SourceWidth = CanonicalInput.OriginalSourceWidth,
 				.SourceHeight = CanonicalInput.OriginalSourceHeight,
-				.Dimension = Product.PlatformData->Faces[0].Mips[0].Width,
+				.Dimension = Product->Faces[0].Mips[0].Width,
 				.MipCount = static_cast<uint32>(
-					Product.PlatformData->Faces[0].Mips.size()),
-				.PixelFormat = Product.PlatformData->PixelFormat, .bHDR = bHDR};
+					Product->Faces[0].Mips.size()),
+				.PixelFormat = Product->PixelFormat, .bHDR = bHDR};
 		}
 	}
 
@@ -499,11 +499,11 @@ namespace Durin::AssetForge::Builtins
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
 			return {false, std::move(Error)};
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		FTextureCubeBuildProduct Product;
+		std::unique_ptr<FTextureCubePlatformData> Product;
 		auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 		Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 		CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
-		Product = BuildResult ? std::move(BuildResult->Product) : Durin::FTextureCubeBuildProduct{};
+		Product = BuildResult ? std::move(BuildResult->PlatformData) : std::unique_ptr<Durin::FTextureCubePlatformData>{};
 		if (!BuildResult)
 			return {false, std::move(Error)};
 		return MakeValidation(CanonicalInput, Product, false);
@@ -521,7 +521,7 @@ namespace Durin::AssetForge::Builtins
 		FByteBuffer Bytes = std::move(*Loaded);
 		std::string Error;
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		FTextureCubeBuildProduct Product;
+		std::unique_ptr<FTextureCubePlatformData> Product;
 		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
 		FTextureCubePanoramaSourceData Panorama;
@@ -530,7 +530,7 @@ namespace Durin::AssetForge::Builtins
 				   auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Source), .Settings = Settings}});
 				   Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 				   CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
-				   Product = BuildResult ? std::move(BuildResult->Product) : Durin::FTextureCubeBuildProduct{};
+				   Product = BuildResult ? std::move(BuildResult->PlatformData) : std::unique_ptr<Durin::FTextureCubePlatformData>{};
 				   return static_cast<bool>(BuildResult);
 			   },
 						   std::move(Panorama))) return {false, std::move(Error)};

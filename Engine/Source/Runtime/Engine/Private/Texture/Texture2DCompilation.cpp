@@ -101,7 +101,7 @@ struct FAssetState
 		auto ApplyTexture2DBuildResult(DTexture2D& Texture,
 			FXxHash128 SourceIdentity,
 			const FTexture2DBuildSettings& Settings,
-			FTexture2DBuildProduct Product,
+			FTexturePlatformData Product,
 			const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>;
 
 		auto GetTextureCompilingManager() -> std::shared_ptr<FTextureCompilingManager>
@@ -232,9 +232,7 @@ struct FAssetState
 		}
 
 		const FTexture2DBuildSettings& Settings = Result.InputIdentity.Settings;
-		FTexture2DBuildProduct Product{
-			.PlatformData = std::move(*Result.PlatformData),
-			.DerivedDataKey = std::move(Result.DerivedDataKey)};
+		FTexturePlatformData Product = std::move(*Result.PlatformData);
 		if (const auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture), Result.InputIdentity.SourceIdentity, Settings,
 			std::move(Product), ResultApplicationContext); !Applied)
 		{
@@ -611,9 +609,9 @@ struct FAssetState
 
 	auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
 		const FTexture2DBuildExecutionControl* ExecutionControl)
-		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>
+		-> std::expected<FTexturePlatformData, FTextureBuildOperationError>
 	{
-		FTexture2DBuildProduct Product;
+		FTexturePlatformData Product;
 		FTexture2DBuildInputIdentity Identity;
 		const auto Built = BuildTexture2DPlatformData(Request, Product, Identity, ExecutionControl);
 		if (Built) return Product;
@@ -632,7 +630,7 @@ struct FAssetState
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
-		FTexture2DBuildProduct Product;
+		FTexturePlatformData Product;
 		FTexture2DBuildInputIdentity Identity;
 		const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(
 			Request, Product, Identity);
@@ -653,7 +651,7 @@ struct FAssetState
 		DTexture2D& Texture,
 		FXxHash128 SourceIdentity,
 		const FTexture2DBuildSettings& Settings,
-		FTexture2DBuildProduct Product,
+		FTexturePlatformData Product,
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
@@ -662,8 +660,7 @@ struct FAssetState
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
 				.ObjectPath = Texture.GetObjectPath()});
 		}
-		if (!Product.PlatformData.IsValid()
-			|| !Product.DerivedDataKey.IsValid())
+		if (!Product.IsValid())
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidProduct,
 				.ObjectPath = Texture.GetObjectPath()});
@@ -680,7 +677,7 @@ struct FAssetState
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSettings,
 				.InputCause = Validation.error(), .ObjectPath = Texture.GetObjectPath()});
 		auto PlatformData = std::make_unique<FTexturePlatformData>(
-			std::move(Product.PlatformData));
+			std::move(Product));
 		if (Context.SourceReplacement) Texture.SetSource(*Context.SourceReplacement);
 		Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
 				Settings.MaxResolution, Settings.CompressionQuality,

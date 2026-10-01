@@ -12,7 +12,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
+		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, std::unique_ptr<FTextureCubePlatformData> Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
 	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
@@ -77,7 +77,7 @@ namespace Durin
 		CheckGameThread();
 		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
-		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->Product), Context);
+		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->PlatformData), Context);
 		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
 		return {};
 	}
@@ -87,7 +87,7 @@ namespace Durin
 		auto ApplyTextureCubeBuildResult(
 			DTextureCube& Texture,
 			FTextureCubeCanonicalBuildInput CanonicalInput,
-			FTextureCubeBuildProduct Product,
+			std::unique_ptr<FTextureCubePlatformData> Product,
 			const FTextureCubeResultApplicationContext& Context
 		) -> std::expected<void, FTextureBuildError>
 		{
@@ -96,12 +96,11 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Apply,
 				"Texture authoring requires editor-only data."});
 #else
-			require(Product.PlatformData != nullptr);
+			require(Product != nullptr);
 			// The build boundary has already validated these value contracts.
-			check((CanonicalInput.DecodedFaces.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR)
-				&& Product.DerivedDataKey.IsValid());
-			check(Product.PlatformData->IsValid());
-			auto PlatformData = std::move(Product.PlatformData);
+			check(CanonicalInput.DecodedFaces.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR);
+			check(Product->IsValid());
+			auto PlatformData = std::move(Product);
 			if (!Context.bPreserveSource)
 			{
 				auto Source = CanonicalInput.AuthoredPanorama.IsValid()

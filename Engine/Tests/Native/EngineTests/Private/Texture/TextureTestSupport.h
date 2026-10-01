@@ -19,6 +19,7 @@
 #include "AssetForge/Builtins/Texture2DFactory.h"
 #include "Texture/TextureFactoryTestSupport.h"
 #include "TexturePlatformDataTestFixtures.h"
+#include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
 
 #include <bc7decomp.h>
 #include <gtest/gtest.h>
@@ -185,8 +186,6 @@ namespace
 
 	auto GetTextureDerivedDataKey(const Durin::DTexture2D& Texture) -> std::string
 	{
-		Durin::FTexture2DBuildProduct Product;
-		Durin::FTexture2DBuildInputIdentity Identity;
 		auto Request = Texture.CreateBuildRequest({
 				.Usage = Texture.GetUsage(),
 				.CompressionQuality = Texture.GetCompressionQuality(),
@@ -194,10 +193,13 @@ namespace
 				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
 				.MaxResolution = Texture.GetMaxResolution(),
 				.bSRGB = Texture.IsSRGB()}).value();
-		Request.bPersistDerivedData = false;
-		const auto BuildResult = Durin::BuildTexture2DPlatformData(Request, Product, Identity);
-		EXPECT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
-		return Product.DerivedDataKey.ToString();
+		return Durin::BuildTexture2DDerivedDataKey({
+			.SourceIdentity = Request.Source.GetIdentity(), .Usage = Request.Settings.Usage,
+			.bSRGB = Durin::ResolveTexture2DSRGB(Request.Settings),
+			.CompressionQuality = Request.Settings.CompressionQuality,
+			.AlphaMipMode = Request.Settings.AlphaMipMode, .MaximumResolution = Request.Settings.MaxResolution,
+			.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile}).ToString();
 	}
 
 	auto GetTextureCachePath(const Durin::DTexture2D& Texture) -> std::filesystem::path

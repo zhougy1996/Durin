@@ -71,7 +71,6 @@ namespace Durin
 		// Latest-wins serial owned by the compiling manager; unrelated to DDC identity.
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
-		std::string DerivedDataKey;
 		FTexture2DCompilationError Error;
 		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;

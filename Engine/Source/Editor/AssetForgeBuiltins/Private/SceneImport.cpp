@@ -780,7 +780,7 @@ namespace Durin::AssetForge::Builtins
 			OutError = FormatTextureBuildOperationError(BuildResult.error());
 			return false;
 		}
-		OutProduct.Product = std::move(*BuildResult);
+		OutProduct.PlatformData = std::move(*BuildResult);
 		OutProduct.SourceData = std::move(*Translated);
 		OutError.clear();
 		return true;

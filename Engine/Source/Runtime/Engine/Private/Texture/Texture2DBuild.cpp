@@ -117,11 +117,11 @@ namespace Durin
 
 
 	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		FTexture2DBuildProduct& OutProduct,
+		FTexturePlatformData& OutPlatformData,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
 	{
-		OutProduct = {};
+		OutPlatformData = {};
 		OutIdentity = {};
 		if (const auto Validation = ValidateTexture2DBuildSource(Request.Source); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
@@ -165,8 +165,7 @@ namespace Durin
 		}
 		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct, .Description = std::move(Product.error())});
-		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Result.GetCacheKey()),
-			.BuilderVersion = OutIdentity.BuilderVersion};
+		OutPlatformData = std::move(*Product);
 		return {};
 #endif
 	}

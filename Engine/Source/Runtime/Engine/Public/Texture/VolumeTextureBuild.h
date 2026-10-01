@@ -4,7 +4,6 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/VolumeTextureBuildTypes.h"
 #include "Texture/VolumeTexture.h"
@@ -21,13 +20,6 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	// Detached derived-only result; authored source and settings stay in Engine.
-	struct FVolumeTextureBuildProduct
-	{
-		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
-		FCacheKeyProxy DerivedDataKey;
-	};
-
 	// Caller-owned result-application policy used only by Engine on the GameThread.
 	struct FVolumeTextureResultApplicationContext
 	{
@@ -38,7 +30,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<FVolumeTextureBuildProduct, FTextureBuildOperationError>;
+		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildOperationError>;
 	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
 		-> std::expected<void, FTextureBuildOperationError>;
 }

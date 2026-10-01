@@ -4,7 +4,6 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DBuildTypes.h"
 
@@ -46,27 +45,18 @@ namespace Durin
 		std::function<bool()> ShouldCancel;
 	};
 
-	// Detached Engine-owned CPU product. Applying it remains a separate
-	// GameThread operation and does not execute build code.
-	struct FTexture2DBuildProduct
-	{
-		FTexturePlatformData PlatformData;
-		FCacheKeyProxy DerivedDataKey;
-		uint32 BuilderVersion = 0;
-	};
-
 	// Operation boundary for detached consumers such as scene import. Engine records
 	// build diagnostics; callers receive only failure disposition and input reasons.
 	ENGINE_API auto BuildTexture2DDetached(const FTexture2DBuildRequest& Request,
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
-		-> std::expected<FTexture2DBuildProduct, FTextureBuildOperationError>;
+		-> std::expected<FTexturePlatformData, FTextureBuildOperationError>;
 
 	// Diagnostic seam for the Engine compiling manager. Invokes the build module
-	// gate. The returned product and identity contain only Engine-owned values.
-	// Failure clears OutProduct; OutIdentity retains observed input/builder
+	// gate. The returned platform data and identity contain only Engine-owned values.
+	// Failure clears OutPlatformData; OutIdentity retains observed input/builder
 	// identity for compilation diagnostics even when the build fails.
 	ENGINE_API auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		FTexture2DBuildProduct& OutProduct,
+		FTexturePlatformData& OutPlatformData,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;
 }

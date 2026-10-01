@@ -4,7 +4,6 @@
 
 #include "Texture/TextureBuildOperation.h"
 
-#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureCubeBuildTypes.h"
 #include "Texture/TextureCube.h"
@@ -20,13 +19,6 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	// Detached derived-only product. Authored and normalized source stay separate.
-	struct FTextureCubeBuildProduct
-	{
-		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		FCacheKeyProxy DerivedDataKey;
-	};
-
 	struct FTextureCubeResultApplicationContext
 	{
 		bool bMarkPackageDirty = true;
@@ -38,7 +30,7 @@ namespace Durin
 	struct FTextureCubeBuildValue
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		FTextureCubeBuildProduct Product;
+		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 	};
 
 	ENGINE_API auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)

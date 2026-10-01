@@ -353,7 +353,6 @@ namespace Durin
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
-			.Provenance = Compilation.DerivedDataKey,
 			.Diagnostic = FormatTexture2DCompilationError(Compilation.Error)});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());

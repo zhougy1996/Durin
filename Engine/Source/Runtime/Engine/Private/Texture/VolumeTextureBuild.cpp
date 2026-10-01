@@ -15,11 +15,11 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FTextureSource& Source, const FVolumeTextureBuildSettings& Settings, FVolumeTextureBuildProduct Product, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
+		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FTextureSource& Source, const FVolumeTextureBuildSettings& Settings, std::unique_ptr<FVolumeTexturePlatformData> Product, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
 	static auto BuildVolumeTextureWithDiagnostic(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<FVolumeTextureBuildProduct, FTextureBuildError>
+		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "VolumeTexture authored build orchestration is unavailable outside editor builds."});
@@ -74,12 +74,12 @@ namespace Durin
 		}
 		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(*Completion.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
-		return FVolumeTextureBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey())};
+		return std::move(*Product);
 #endif
 	}
 
 	auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)
-		-> std::expected<FVolumeTextureBuildProduct, FTextureBuildOperationError>
+		-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildOperationError>
 	{
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
@@ -102,21 +102,21 @@ namespace Durin
 			DVolumeTexture& Texture,
 			const FTextureSource& Source,
 			const FVolumeTextureBuildSettings& Settings,
-			FVolumeTextureBuildProduct Product,
+			std::unique_ptr<FVolumeTexturePlatformData> Product,
 			const FVolumeTextureResultApplicationContext& Context
 		) -> std::expected<void, FTextureBuildError>
 		{
 			CheckGameThread();
-			require(Product.PlatformData != nullptr);
+			require(Product != nullptr);
 			// The build boundary has already validated these value contracts.
-			check(Source.IsValid() && Product.DerivedDataKey.IsValid());
-			check(Product.PlatformData->IsValid());
+			check(Source.IsValid());
+			check(Product->IsValid());
 			if (!Context.bPreserveSource)
 			{
 				Texture.SetSource(Source.CopyTornOff());
 			}
 			Texture.SetBuildSettings(Settings);
-			Texture.SetPlatformData(std::move(Product.PlatformData));
+			Texture.SetPlatformData(std::move(Product));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 			return {};

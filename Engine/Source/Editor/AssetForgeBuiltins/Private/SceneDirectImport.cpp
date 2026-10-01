@@ -785,9 +785,9 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 					SourceHint = std::move(Hint->Hint);
 				}
 				auto *Texture = Cast<DTexture2D>(Output.Candidate);
-				FTexture2DBuildProduct &Product = Output.Texture.Product;
+				FTexturePlatformData &Product = Output.Texture.PlatformData;
 				const FTexture2DBuildSettings &Settings = Output.Texture.Settings;
-				auto PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
+				auto PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product));
 				if (!PlatformData->IsValid())
 				{
 					co_return AddError(Result, EImportDiagnosticCategory::CandidateFailure,

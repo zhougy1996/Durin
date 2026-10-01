@@ -209,16 +209,16 @@ TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)
 		auto Effective = *Request;
 		Effective.bPersistDerivedData = bWrite;
 		const auto Before = Probe->GetReadStats().RequestCount;
-		FTexture2DBuildProduct Product;
+		FTexturePlatformData Product;
 		FTexture2DBuildInputIdentity Identity;
 		if (!BuildTexture2DPlatformData(Effective, Product, Identity)) return {};
 		FXxHash128Builder Hash;
-		const auto Bytes = HashMips(Product.PlatformData, Hash);
+		const auto Bytes = HashMips(Product, Hash);
 		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;
-		for (const auto& Mip : Product.PlatformData.Mips) Blocks.emplace_back(Mip.Pixels);
+		for (const auto& Mip : Product.Mips) Blocks.emplace_back(Mip.Pixels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
 	}, [&] { Request->Source.ReleaseSourceMemory(); });
 }
@@ -242,9 +242,9 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeColdAndWarmIncludingNormalizat
 		if (!Built) return {};
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
-		for (const auto& Face : Built->Product.PlatformData->Faces) Bytes += HashMips(Face, Hash);
+		for (const auto& Face : Built->PlatformData->Faces) Bytes += HashMips(Face, Hash);
 		std::vector<FByteView> Blocks;
-		for (const auto& Face : Built->Product.PlatformData->Faces)
+		for (const auto& Face : Built->PlatformData->Faces)
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes,
 			Provider->BuildCalls == 0, 0, false, Provider->CountTransferBytes(Blocks)};
@@ -275,7 +275,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedSourceColdAndWarm)
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
 		std::vector<FByteView> Blocks;
-		for (const auto& Face : Built->PlatformData->Faces)
+		for (const auto& Face : (*Built)->Faces)
 		{
 			Bytes += HashMips(Face, Hash);
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
@@ -313,7 +313,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedPanoramaColdAndWarm)
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
 		std::vector<FByteView> Blocks;
-		for (const auto& Face : Built->PlatformData->Faces)
+		for (const auto& Face : (*Built)->Faces)
 		{
 			Bytes += HashMips(Face, Hash);
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
@@ -343,12 +343,12 @@ TEST_F(FDerivedDataTextureQualificationTests, VolumeColdAndWarm)
 		if (!Built) return {};
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
-		for (const auto& Mip : Built->PlatformData->Mips) { Hash.Update(Mip.Voxels); Bytes += Mip.Voxels.size(); }
+		for (const auto& Mip : (*Built)->Mips) { Hash.Update(Mip.Voxels); Bytes += Mip.Voxels.size(); }
 		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;
-		for (const auto& Mip : Built->PlatformData->Mips) Blocks.emplace_back(Mip.Voxels);
+		for (const auto& Mip : (*Built)->Mips) Blocks.emplace_back(Mip.Voxels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
 	}, [&] { Request.Source.ReleaseSourceMemory(); });
 }

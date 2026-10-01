@@ -12,7 +12,7 @@ namespace Durin
 	auto TexturePrivate::BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
 		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
 		const FTextureCubeCanonicalBuildInput* PreparedInput)
-		-> std::expected<FTextureCubeBuildProduct, FTextureBuildError>
+		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
@@ -61,7 +61,7 @@ namespace Durin
 		}
 		auto Product = AssembleTextureCubeSharedOutput(*Completion.GetOutput(), Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
-		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey())};
+		return std::move(*Product);
 #endif
 	}
 

@@ -125,7 +125,7 @@ namespace Durin
 			{
 				auto Built = TexturePrivate::BuildTextureCubeSource(Source, bSRGB, FaceDimension, Exposure,
 					ECookTargetPlatform::Win64, ECookTargetProfile::Game, true);
-				if (Built) Result->Data = std::move(Built->PlatformData);
+				if (Built) Result->Data = std::move(*Built);
 				else Result->Error = Built.error().Diagnostic;
 				return Result;
 			}
@@ -137,7 +137,7 @@ namespace Durin
 				return Result;
 			}
 			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
-			if (Built) Result->Data = std::move(Built->Product.PlatformData);
+			if (Built) Result->Data = std::move(Built->PlatformData);
 			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
 			return Result;
 		}

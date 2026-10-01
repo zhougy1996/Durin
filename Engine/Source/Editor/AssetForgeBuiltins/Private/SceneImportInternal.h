@@ -54,7 +54,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FTextureSource SourceData;
 		FTexture2DBuildSettings Settings;
-		FTexture2DBuildProduct Product;
+		FTexturePlatformData PlatformData;
 		FXxHash128 EncodedSourceHash;
 		std::string SourceFilename;
 		FByteBuffer GeneratedSourceBytes;

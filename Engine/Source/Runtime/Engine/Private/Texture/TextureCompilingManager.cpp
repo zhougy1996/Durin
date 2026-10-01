@@ -300,7 +300,7 @@ namespace Durin
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
 			const FTexture2DBuildExecutionControl Control{
 				.ShouldCancel = Cancel};
-			FTexture2DBuildProduct Product;
+			FTexturePlatformData Product;
 			const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
@@ -311,10 +311,9 @@ namespace Durin
 					: ETexture2DCompilationPhase::Failed;
 				return Result;
 			}
-			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
-			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
+			Result.Metrics.ResultBytes = PlatformDataBytes(Product);
 			Result.bSourceDecoderInvoked = RequestState->Request.bSourceDecoderInvoked;
-			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
+			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product));
 			Result.Error = {};
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
 			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
@@ -341,7 +340,6 @@ namespace Durin
 				RequestState->Diagnostic.Phase = Result.Phase;
 				RequestState->Diagnostic.Error = Result.Error;
 				RequestState->Diagnostic.BuildCause = Result.BuildCause;
-				RequestState->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				RequestState->Diagnostic.Metrics = Result.Metrics;
 				RequestState->Diagnostic.bSourceDecoderInvoked = Result.bSourceDecoderInvoked;
 				RequestState->Diagnostic.QueuedNanoseconds = RequestState->WorkerStartNanoseconds != 0
