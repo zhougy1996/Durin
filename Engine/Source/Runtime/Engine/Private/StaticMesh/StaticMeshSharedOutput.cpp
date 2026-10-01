@@ -160,32 +160,38 @@ namespace Durin::StaticMeshPrivate
 	try { auto Layout = ReadLayout(Output, ShouldCancel); if (!Layout) return std::unexpected(std::move(Layout.error())); return {}; }
 	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
 
-	auto MakeSharedOutputImpl(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+	auto MakeSharedOutputImpl(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
 		const std::function<bool()>& ShouldCancel, bool bValidate) -> std::expected<FBuildOutput, std::string>
 	{
-		if (!IsValidBounds(Product.LocalBounds) || Product.LODs.empty() || Product.LODs.size() > MaximumStaticMeshLODs)
+		if (!Product || !IsValidBounds(Product->LocalBounds) || Product->LODResources.empty() || Product->LODResources.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
 		FBuildOutputBuilder Output("StaticMesh.RenderOutput", 2, {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
 		FBinaryWriter Metadata({.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
 		Metadata.WriteU32(uint32(ECookTargetPlatform::Win64)); Metadata.WriteU32(uint32(ECookTargetProfile::Game));
-		Metadata.WriteU32(MaterialSlotCount); Metadata.WriteU32(uint32(Product.LODs.size())); WriteBounds(Metadata, Product.LocalBounds);
-		for (uint32 Index = 0; Index < Product.LODs.size(); ++Index)
+		Metadata.WriteU32(MaterialSlotCount); Metadata.WriteU32(uint32(Product->LODResources.size())); WriteBounds(Metadata, Product->LocalBounds);
+		for (uint32 Index = 0; Index < Product->LODResources.size(); ++Index)
 		{
 			if (ShouldCancel && ShouldCancel()) return std::unexpected("StaticMesh output construction was cancelled.");
-			auto& LOD = Product.LODs[Index];
-			if (!IsValidBounds(LOD.LocalBounds) || LOD.Positions.size() > MaximumStaticMeshVerticesPerLOD || LOD.Indices.size() > MaximumStaticMeshIndicesPerLOD
+			auto& LOD = Product->LODResources[Index];
+			auto& Buffers = LOD.VertexBuffers;
+			auto& Tangents = Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer;
+			auto& UVs = Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer;
+			if (Buffers.PositionVertexBuffer.IsInitialized() || Tangents.IsInitialized() || UVs.IsInitialized()
+				|| Buffers.ColorVertexBuffer.IsInitialized() || LOD.IndexBuffer.IsInitialized())
+				return std::unexpected("StaticMesh build output contains initialized render resources.");
+			if (!IsValidBounds(LOD.LocalBounds) || Buffers.PositionVertexBuffer.GetPositions().size() > MaximumStaticMeshVerticesPerLOD || LOD.IndexBuffer.GetIndices().size() > MaximumStaticMeshIndicesPerLOD
 				|| LOD.Sections.size() > MaximumStaticMeshSectionsPerLOD || LOD.NumTexCoords > MaxStaticMeshUVChannels)
 				return std::unexpected("StaticMesh recipe counts exceed their bounds.");
 			Metadata.WriteFloat(LOD.ScreenSize); WriteBounds(Metadata, LOD.LocalBounds);
-			Metadata.WriteU32(uint32(LOD.Positions.size())); Metadata.WriteU32(uint32(LOD.Indices.size()));
+			Metadata.WriteU32(uint32(Buffers.PositionVertexBuffer.GetPositions().size())); Metadata.WriteU32(uint32(LOD.IndexBuffer.GetIndices().size()));
 			Metadata.WriteU32(LOD.NumTexCoords); Metadata.WriteU32(LOD.bHasColorVertexData); Metadata.WriteU32(uint32(LOD.Sections.size()));
-			Output.AddValue(StreamId(Index, 0), FSharedByteBuffer::TakeNative(std::move(LOD.Positions)));
-			Output.AddValue(StreamId(Index, 1), FSharedByteBuffer::TakeNative(std::move(LOD.Normals)));
-			Output.AddValue(StreamId(Index, 2), FSharedByteBuffer::TakeNative(std::move(LOD.Tangents)));
-			Output.AddValue(StreamId(Index, 3), FSharedByteBuffer::TakeNative(std::move(LOD.Indices)));
+			Output.AddValue(StreamId(Index, 0), Buffers.PositionVertexBuffer.FreezePositions());
+			Output.AddValue(StreamId(Index, 1), Tangents.FreezeNormals());
+			Output.AddValue(StreamId(Index, 2), Tangents.FreezeTangents());
+			Output.AddValue(StreamId(Index, 3), LOD.IndexBuffer.FreezeIndices());
 			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-				Output.AddValue(StreamId(Index, 4 + Channel), FSharedByteBuffer::TakeNative(std::move(LOD.TexCoords[Channel])));
-			if (LOD.bHasColorVertexData) Output.AddValue(StreamId(Index, 4 + MaxStaticMeshUVChannels), FSharedByteBuffer::TakeNative(std::move(LOD.Colors)));
+				Output.AddValue(StreamId(Index, 4 + Channel), UVs.FreezeTexCoord(Channel));
+			if (LOD.bHasColorVertexData) Output.AddValue(StreamId(Index, 4 + MaxStaticMeshUVChannels), Buffers.ColorVertexBuffer.FreezeColors());
 			FBinaryWriter Sections({.MaximumTotalBytes = MaximumStaticMeshSectionsPerLOD * SectionBytes});
 			for (const auto& Section : LOD.Sections)
 			{
@@ -206,7 +212,7 @@ namespace Durin::StaticMeshPrivate
 			if (auto Valid = ValidateSharedOutput(*Built, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Built;
 	}
-	auto MakeSharedOutput(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+	auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
 		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
 	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, true); }
 

@@ -48,11 +48,4 @@ namespace Durin
 		float NormalizedSize = 1.5f;
 	};
 
-	// Owns complete CPU streams and metadata; Engine assembles runtime resources.
-	struct FStaticMeshRenderBuildProduct
-	{
-		std::vector<FStaticMeshBuildLOD> LODs;
-		FBox LocalBounds;
-	};
-
 }

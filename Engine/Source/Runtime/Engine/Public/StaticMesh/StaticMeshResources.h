@@ -78,6 +78,11 @@ namespace Durin
 			{
 				return MeshStreamPrivate::Read(Tangents, SharedTangents);
 			}
+			auto FreezeNormals() -> FSharedByteBuffer
+			{
+				check(!IsInitialized());
+				return MeshStreamPrivate::Freeze(Normals, SharedNormals);
+			}
 			auto SetSharedNormals(FSharedByteBuffer Value) -> bool
 			{
 				check(!IsInitialized());
@@ -87,6 +92,11 @@ namespace Durin
 			{
 				check(!IsInitialized());
 				return MeshStreamPrivate::Detach(Normals, SharedNormals);
+			}
+			auto FreezeTangents() -> FSharedByteBuffer
+			{
+				check(!IsInitialized());
+				return MeshStreamPrivate::Freeze(Tangents, SharedTangents);
 			}
 			auto SetSharedTangents(FSharedByteBuffer Value) -> bool
 			{
@@ -162,6 +172,11 @@ namespace Durin
 				for (size_t Index = 0; Index < Result.size(); ++Index)
 					Result[Index] = MeshStreamPrivate::Read(TexCoords[Index], SharedTexCoords[Index]);
 				return Result;
+			}
+			auto FreezeTexCoord(uint32 Channel) -> FSharedByteBuffer
+			{
+				check(!IsInitialized() && Channel < MaxStaticMeshUVChannels);
+				return MeshStreamPrivate::Freeze(TexCoords[Channel], SharedTexCoords[Channel]);
 			}
 			auto SetSharedTexCoord(uint32 Channel, FSharedByteBuffer Value) -> bool
 			{
@@ -253,6 +268,11 @@ namespace Durin
 		{
 			return MeshStreamPrivate::Read(Colors, SharedColors);
 		}
+		auto FreezeColors() -> FSharedByteBuffer
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Freeze(Colors, SharedColors);
+		}
 		auto SetSharedColors(FSharedByteBuffer Value) -> bool
 		{
 			check(!IsInitialized());
@@ -325,6 +345,11 @@ namespace Durin
 		auto GetIndices() const -> std::span<const uint32>
 		{
 			return MeshStreamPrivate::Read(Indices, SharedIndices);
+		}
+		auto FreezeIndices() -> FSharedByteBuffer
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Freeze(Indices, SharedIndices);
 		}
 		auto SetSharedIndices(FSharedByteBuffer Value) -> bool
 		{

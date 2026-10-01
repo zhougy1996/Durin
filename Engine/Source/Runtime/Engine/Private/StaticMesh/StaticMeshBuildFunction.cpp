@@ -150,7 +150,7 @@ namespace Durin::StaticMeshPrivate
 				auto Product = Module->BuildRender({.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size},
 					{.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()});
 				if (!Product) return Fail(Product.error().Code == EStaticMeshRenderBuildError::Cancelled ? Cancelled().Description : FormatStaticMeshRenderBuildError(Product.error()));
-				if (Product->LODs.empty() || !Product->LocalBounds.bIsValid)
+				if (!(*Product) || (*Product)->LODResources.empty() || !(*Product)->LocalBounds.bIsValid)
 					return Fail("StaticMesh builder returned invalid render data.");
 				auto Output = MakeSharedOutput(std::move(*Product), *Count, ShouldCancel);
 				if (ShouldCancel()) return Fail(Cancelled().Description);

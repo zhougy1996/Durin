@@ -9,13 +9,13 @@ namespace Durin
 	FPositionVertexBuffer::~FPositionVertexBuffer() = default;
 
 	auto FPositionVertexBuffer::Init(
-		const std::vector<FVector3f>& InPositions,
+		std::vector<FVector3f> InPositions,
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
 		bNeedsCPUAccess = bInNeedsCPUAccess;
 		SharedPositions = {};
-		Positions = InPositions;
+		Positions = std::move(InPositions);
 	}
 
 	auto FPositionVertexBuffer::InitRHI(

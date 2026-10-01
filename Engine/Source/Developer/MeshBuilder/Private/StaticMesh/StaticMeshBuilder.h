@@ -3,6 +3,7 @@
 #include <expected>
 
 #include "StaticMesh/StaticMeshBuildTypes.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -12,6 +13,6 @@ namespace Durin
 	public:
 		static auto Build(
 			const FStaticMeshRenderBuildRequest& Request,
-			const FAssetBuildTaskContext& Control = {}) -> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>;
+			const FAssetBuildTaskContext& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>;
 	};
 }

@@ -59,8 +59,11 @@ Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining 
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
 The module-private Developer `FStaticMeshBuilder::Build` receives an owning decoded handle and build settings.
-`IMeshBuilderModule::BuildRender` returns CPU products as
-`std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>`.
+`IMeshBuilderModule::BuildRender` returns detached render data as
+`std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>`.
+The builder moves CPU streams into uninitialized vertex/index buffers. Engine
+freezes those allocations into shared DDC outputs without copying; GPU resource
+initialization and material object binding remain with Engine.
 Errors own mesh/section identity, rejected indices/values, budget facts and
 cancellation. Physics cooking is independent of the render build module. Failed or canceled builds return no product. Derived-data orchestration translates construction failures once into a bounded pipeline failure, preserving cancellation.
 A warm hit
@@ -209,8 +212,8 @@ LOD0 streams only for source-less procedural/debug meshes. Authored collision us
 and creates normalized positions/indices on the worker without RenderData or RHI.
 Both projections use `GetStaticMeshPositionNormalization` to preserve identical
 coordinates. No public combined render/collision build product exists.
-Render output owns CPU geometry and the section-to-slot mapping. Asset slot
-definitions are inputs, not build outputs. `IMeshBuilderModule` is an Engine-declared
+Shared DDC render output owns CPU geometry and the section-to-slot mapping.
+Asset slot definitions remain inputs and are not persisted in that output. `IMeshBuilderModule` is an Engine-declared
 module interface, implemented by Developer/MeshBuilder without feature registration.
 `MeshBuilder` remains loaded throughout the editor lifetime and does not support
 runtime unloading or reloading. `IMeshBuilderModule::Get` borrows the active module;

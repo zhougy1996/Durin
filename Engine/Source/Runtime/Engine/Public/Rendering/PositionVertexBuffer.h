@@ -18,7 +18,7 @@ namespace Durin
 		ENGINE_API ~FPositionVertexBuffer() override;
 
 		ENGINE_API auto Init(
-			const std::vector<FVector3f>& InPositions,
+			std::vector<FVector3f> InPositions,
 			bool bInNeedsCPUAccess = true) -> void;
 
 		// FRenderResource interface.
@@ -53,6 +53,11 @@ namespace Durin
 			return MeshStreamPrivate::Detach(Positions, SharedPositions);
 		}
 
+		auto FreezePositions() -> FSharedByteBuffer
+		{
+			check(!IsInitialized());
+			return MeshStreamPrivate::Freeze(Positions, SharedPositions);
+		}
 		auto SetSharedPositions(FSharedByteBuffer Value) -> bool
 		{
 			check(!IsInitialized());

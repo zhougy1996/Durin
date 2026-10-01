@@ -797,20 +797,26 @@ TEST(FStaticMeshBuildModuleTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledP
 	const auto Result = Module->BuildRender({.Geometry = Source,
 		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}, .NormalizedSize = 2.0f});
 	ASSERT_TRUE(Result);
-	const auto& Product = *Result;
+	const auto& Product = **Result;
 	Source.reset();
-	ASSERT_EQ(Product.LODs.size(), 1u);
-	const auto& LOD = Product.LODs.front();
-	ASSERT_EQ(LOD.Positions.size(), 3u);
-	EXPECT_EQ(LOD.Positions[0], FVector3f(-1, -1, 0));
-	EXPECT_EQ(LOD.Positions[1], FVector3f(1, -1, 0));
-	EXPECT_EQ(LOD.Positions[2], FVector3f(-1, 1, 0));
-	EXPECT_EQ(LOD.Indices, (std::vector<uint32>{0, 1, 2}));
-	EXPECT_EQ(LOD.Normals.size(), 3u);
-	EXPECT_EQ(LOD.Tangents.size(), 3u);
-	EXPECT_EQ(LOD.Colors, std::vector<FVector4f>(3, FVector4f(1.0f)));
-	for (const auto& Channel : LOD.TexCoords)
-		EXPECT_EQ(Channel, std::vector<FVector2f>(3, FVector2f(0.0f)));
+	ASSERT_EQ(Product.LODResources.size(), 1u);
+	EXPECT_FALSE(Product.LODResources.front().VertexBuffers.PositionVertexBuffer.IsInitialized());
+	EXPECT_TRUE(Product.LODVertexFactories.empty());
+	const auto& LOD = Product.LODResources.front();
+	const auto Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const auto Normals = LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals();
+	const auto Tangents = LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetTangents();
+	const auto Colors = LOD.VertexBuffers.ColorVertexBuffer.GetColors();
+	ASSERT_EQ(Positions.size(), 3u);
+	EXPECT_EQ(Positions[0], FVector3f(-1, -1, 0));
+	EXPECT_EQ(Positions[1], FVector3f(1, -1, 0));
+	EXPECT_EQ(Positions[2], FVector3f(-1, 1, 0));
+	EXPECT_TRUE(std::ranges::equal(LOD.IndexBuffer.GetIndices(), std::vector<uint32>{0, 1, 2}));
+	EXPECT_EQ(Normals.size(), 3u);
+	EXPECT_EQ(Tangents.size(), 3u);
+	EXPECT_TRUE(std::ranges::equal(Colors, std::vector<FVector4f>(3, FVector4f(1.0f))));
+	for (const auto& Channel : LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetTexCoords())
+		EXPECT_TRUE(std::ranges::equal(Channel, std::vector<FVector2f>(3, FVector2f(0.0f))));
 	EXPECT_EQ(LOD.NumTexCoords, 0u);
 	EXPECT_FALSE(LOD.bHasColorVertexData);
 	EXPECT_EQ(LOD.ScreenSize, 0.0f);
@@ -821,7 +827,7 @@ TEST(FStaticMeshBuildModuleTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledP
 	const auto Cancelled = Module->BuildRender({}, {.ShouldCancel = [] { return true; }});
 	ASSERT_FALSE(Cancelled);
 	EXPECT_EQ(Cancelled.error().Code, EStaticMeshRenderBuildError::Cancelled);
-	EXPECT_EQ(Product.LODs.size(), 1u);
+	EXPECT_EQ(Product.LODResources.size(), 1u);
 }
 
 TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
@@ -2514,10 +2520,10 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 			return 777;
 		}
 		auto BuildRender(const FStaticMeshRenderBuildRequest&,
-			const FAssetBuildTaskContext&) -> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> override
+			const FAssetBuildTaskContext&) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> override
 		{
 			if (bCancel) return std::unexpected(FStaticMeshRenderBuildError{.Code = EStaticMeshRenderBuildError::Cancelled});
-			return FStaticMeshRenderBuildProduct{};
+			return std::make_unique<FStaticMeshRenderData>();
 		}
 	};
 	const FScopedDerivedDataCacheRestore CacheRestore;

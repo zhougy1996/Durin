@@ -15,7 +15,7 @@ namespace Durin
 
 		auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
 			const FAssetBuildTaskContext& Control)
-			-> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> override
+			-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> override
 		{
 			return FStaticMeshBuilder::Build(Request, Control);
 		}

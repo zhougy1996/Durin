@@ -26,7 +26,7 @@ namespace Durin
 		FBox LocalBounds;
 	};
 
-	// Owns CPU vertex streams shared by build products and serialized LODs.
+	// Owns CPU vertex streams used by builder scratch and serialized LODs.
 	struct FStaticMeshVertexData
 	{
 		std::vector<FVector3f> Positions;
@@ -35,16 +35,6 @@ namespace Durin
 		std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> TexCoords;
 		std::vector<FVector4f> Colors;
 		std::vector<uint32> Indices;
-	};
-
-	// Detached LOD data; contains no render resources or GPU readiness state.
-	struct FStaticMeshBuildLOD : FStaticMeshVertexData
-	{
-		std::vector<FStaticMeshSection> Sections;
-		FBox LocalBounds;
-		float ScreenSize = 0.0f;
-		uint8 NumTexCoords = 0;
-		bool bHasColorVertexData = false;
 	};
 
 	// Produces the deterministic policy used by builders without authored thresholds.

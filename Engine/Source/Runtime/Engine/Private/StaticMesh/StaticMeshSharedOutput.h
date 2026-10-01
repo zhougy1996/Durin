@@ -6,7 +6,7 @@
 
 namespace Durin::StaticMeshPrivate
 {
-	ENGINE_API auto MakeSharedOutput(FStaticMeshRenderBuildProduct Product, uint32 MaterialSlotCount,
+	ENGINE_API auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
 		const std::function<bool()>& ShouldCancel = {}) -> std::expected<DerivedData::FBuildOutput, std::string>;
 	ENGINE_API auto ValidateSharedOutput(const DerivedData::FBuildOutput& Output,
 		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, std::string>;

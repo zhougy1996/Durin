@@ -33,6 +33,14 @@ namespace Durin::MeshStreamPrivate
 		return true;
 	}
 
+	// Retains existing shared storage or moves the mutable allocation into it.
+	template<typename T>
+	auto Freeze(std::vector<T>& Mutable, FSharedByteBuffer& Shared) -> FSharedByteBuffer
+	{
+		if (!Shared.GetNativeView<T>()) Shared = FSharedByteBuffer::TakeNative(std::move(Mutable));
+		return Shared;
+	}
+
 	template<typename T>
 	auto Capacity(const std::vector<T>& Mutable, const FSharedByteBuffer& Shared) -> size_t
 	{

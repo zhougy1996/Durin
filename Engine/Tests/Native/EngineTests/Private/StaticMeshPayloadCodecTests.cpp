@@ -1302,14 +1302,19 @@ TEST(FStaticMeshPayloadCodecTests, SharedNativeStreamsRetainAllocationsAndDetach
 
 namespace
 {
-	auto MakeRecipeProduct(FStaticMeshPayloadData Payload) -> FStaticMeshRenderBuildProduct
+	auto MakeRecipeRenderData(FStaticMeshPayloadData Payload) -> std::unique_ptr<FStaticMeshRenderData>
 	{
-		FStaticMeshRenderBuildProduct Product;
-		Product.LocalBounds = Payload.LocalBounds;
+		auto Product = std::make_unique<FStaticMeshRenderData>();
+		Product->LocalBounds = Payload.LocalBounds;
 		for (auto& Source : Payload.LODs)
 		{
-			auto& LOD = Product.LODs.emplace_back();
-			static_cast<FStaticMeshVertexData&>(LOD) = std::move(static_cast<FStaticMeshVertexData&>(Source));
+			auto& LOD = Product->LODResources.emplace_back();
+			auto& Buffers = LOD.VertexBuffers;
+			Buffers.PositionVertexBuffer.Init(std::move(Source.Positions));
+			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(std::move(Source.Normals), std::move(Source.Tangents));
+			Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(Source.TexCoords), Buffers.PositionVertexBuffer.GetNumVertices(), Source.NumTexCoords);
+			Buffers.ColorVertexBuffer.Init(std::move(Source.Colors), Buffers.PositionVertexBuffer.GetNumVertices());
+			LOD.IndexBuffer.Init(std::move(Source.Indices));
 			LOD.LocalBounds = Source.LocalBounds; LOD.ScreenSize = Source.ScreenSize;
 			LOD.NumTexCoords = Source.NumTexCoords; LOD.bHasColorVertexData = Source.bHasVertexColors;
 			for (const auto& Section : Source.Sections)
@@ -1355,13 +1360,13 @@ namespace
 
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlivesRecipe)
 {
-	auto Product = MakeRecipeProduct(MakeMultiMaterialFixture());
-	const auto& Source = Product.LODs.front();
-	const auto* Positions = Source.Positions.data(); const auto* Normals = Source.Normals.data();
-	const auto* Tangents = Source.Tangents.data(); const auto* Colors = Source.Colors.data();
-	const auto* Indices = Source.Indices.data();
+	auto Product = MakeRecipeRenderData(MakeMultiMaterialFixture());
+	const auto& Source = Product->LODResources.front();
+	const auto* Positions = Source.VertexBuffers.PositionVertexBuffer.GetPositions().data(); const auto* Normals = Source.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals().data();
+	const auto* Tangents = Source.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetTangents().data(); const auto* Colors = Source.VertexBuffers.ColorVertexBuffer.GetColors().data();
+	const auto* Indices = Source.IndexBuffer.GetIndices().data();
 	std::array<const FVector2f*, MaxStaticMeshUVChannels> UVs;
-	for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel) UVs[Channel] = Source.TexCoords[Channel].data();
+	for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel) UVs[Channel] = Source.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetTexCoords()[Channel].data();
 	auto Output = StaticMeshPrivate::MakeSharedOutput(std::move(Product), 2);
 	ASSERT_TRUE(Output) << Output.error();
 	auto Render = StaticMeshPrivate::AssembleSharedOutput(*Output);
@@ -1376,12 +1381,20 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlives
 	for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 		EXPECT_EQ(Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetTexCoords()[Channel].data(), UVs[Channel]);
 	EXPECT_TRUE(ValidateStaticMeshRenderData(**Render));
+	// Re-export a cache-assembled value without detaching or copying its shared streams.
+	auto Reexported = StaticMeshPrivate::MakeSharedOutput(std::move(*Render), 2);
+	ASSERT_TRUE(Reexported) << Reexported.error();
+	auto Reassembled = StaticMeshPrivate::AssembleSharedOutput(*Reexported);
+	ASSERT_TRUE(Reassembled) << Reassembled.error();
+	const auto& Again = (*Reassembled)->LODResources.front();
+	EXPECT_EQ(Again.VertexBuffers.PositionVertexBuffer.GetPositions().data(), Positions);
+	EXPECT_EQ(Again.IndexBuffer.GetIndices().data(), Indices);
 }
 
 TEST(FStaticMeshPayloadCodecTests, IndependentlyBuiltOutputIsValidatedDuringAssembly)
 {
 	using namespace DerivedData;
-	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(MakeMultiMaterialFixture()), 2);
+	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeRenderData(MakeMultiMaterialFixture()), 2);
 	ASSERT_TRUE(Output) << Output.error();
 	auto Clone = std::move(CopyOutputDescriptors(*Output)).Build();
 	ASSERT_TRUE(Clone) << Clone.error();
@@ -1397,7 +1410,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWi
 		auto Payload = LODCount == 1 ? MakeNoUVFixture() : MakeMultiLODFixture(LODCount);
 		FByteBuffer Expected; std::string Error;
 		ASSERT_TRUE(EncodePayload(Payload, EAssetPayloadTargetPlatform::Win64, Expected, Error)) << Error;
-		auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(Payload), Payload.MaterialSlotCount);
+		auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeRenderData(Payload), Payload.MaterialSlotCount);
 		ASSERT_TRUE(Output) << Output.error();
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("MeshOutputFixture"), FXxHash128::HashBuffer("mesh"));
 		auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
@@ -1419,7 +1432,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWi
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsMalformedDescriptorsAndStreamsBeforeAssembly)
 {
 	using namespace DerivedData;
-	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(MakeMultiMaterialFixture()), 2);
+	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeRenderData(MakeMultiMaterialFixture()), 2);
 	ASSERT_TRUE(Output);
 	for (uint32 Mutation = 0; Mutation < 12; ++Mutation)
 	{
@@ -1461,26 +1474,26 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsMalformedDescriptorsAndStr
 	}
 	EXPECT_FALSE(StaticMeshPrivate::ValidateSharedOutput(*Output, [] { return true; }));
 	EXPECT_FALSE(StaticMeshPrivate::AssembleSharedOutput(*Output, [] { return true; }));
-	auto InvalidBounds = MakeRecipeProduct(MakeSingleSectionFixture());
-	InvalidBounds.LODs[0].Sections[0].LocalBounds.bIsValid = false;
+	auto InvalidBounds = MakeRecipeRenderData(MakeSingleSectionFixture());
+	InvalidBounds->LODResources[0].Sections[0].LocalBounds.bIsValid = false;
 	EXPECT_FALSE(StaticMeshPrivate::MakeSharedOutput(std::move(InvalidBounds), 1));
 }
 
 
 TEST(FStaticMeshPayloadCodecTests, SharedOutputRejectsNonTriangleSectionsAndHonorsMidAssemblyCancellation)
 {
-	auto Product = MakeRecipeProduct(MakeSingleSectionFixture());
-	Product.LODs[0].Indices = {0, 1};
-	Product.LODs[0].Sections[0].IndexCount = 2;
-	Product.LODs[0].Sections[0].MaxVertexIndex = 1;
+	auto Product = MakeRecipeRenderData(MakeSingleSectionFixture());
+	Product->LODResources[0].IndexBuffer.GetMutableIndices() = {0, 1};
+	Product->LODResources[0].Sections[0].IndexCount = 2;
+	Product->LODResources[0].Sections[0].MaxVertexIndex = 1;
 	EXPECT_FALSE(StaticMeshPrivate::MakeSharedOutput(std::move(Product), 1));
-	Product = MakeRecipeProduct(MakeMultiMaterialFixture());
-	Product.LODs[0].Sections[0].IndexCount = 2;
-	Product.LODs[0].Sections[0].MaxVertexIndex = 1;
-	Product.LODs[0].Sections[1].FirstIndex = 2;
-	Product.LODs[0].Sections[1].IndexCount = 4;
+	Product = MakeRecipeRenderData(MakeMultiMaterialFixture());
+	Product->LODResources[0].Sections[0].IndexCount = 2;
+	Product->LODResources[0].Sections[0].MaxVertexIndex = 1;
+	Product->LODResources[0].Sections[1].FirstIndex = 2;
+	Product->LODResources[0].Sections[1].IndexCount = 4;
 	EXPECT_FALSE(StaticMeshPrivate::MakeSharedOutput(std::move(Product), 2));
-	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeProduct(MakeSingleSectionFixture()), 1);
+	auto Output = StaticMeshPrivate::MakeSharedOutput(MakeRecipeRenderData(MakeSingleSectionFixture()), 1);
 	ASSERT_TRUE(Output);
 	// Make every stream byte-backed, exercising typed restoration after validation.
 	auto Data = CopyOutputDescriptors(*Output);
@@ -1597,4 +1610,20 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 	EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Output, Mode, Policy, [] { return true; }));
 	uint32 Checks = 0;
 	EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Output, Mode, Policy, [&] { return ++Checks == 3; }));
+}
+
+TEST(FStaticMeshPayloadCodecTests, PositionBufferMovesRvaluesAndPreservesBorrowedInputs)
+{
+	std::vector<FVector3f> Positions{{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}};
+	const auto* Allocation = Positions.data();
+	FPositionVertexBuffer Borrowed;
+	Borrowed.Init(Positions);
+	EXPECT_EQ(Positions.data(), Allocation);
+	EXPECT_NE(Borrowed.GetPositions().data(), Allocation);
+	FPositionVertexBuffer Owned;
+	Owned.Init(std::move(Positions));
+	EXPECT_EQ(Owned.GetPositions().data(), Allocation);
+	const auto Frozen = Owned.FreezePositions();
+	EXPECT_EQ(Frozen.GetNativeView<FVector3f>()->data(), Allocation);
+	EXPECT_FALSE(Owned.IsInitialized());
 }

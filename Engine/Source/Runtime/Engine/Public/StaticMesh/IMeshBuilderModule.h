@@ -2,6 +2,7 @@
 
 #include "Modules/ModuleManager.h"
 #include "StaticMesh/StaticMeshBuildTypes.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -16,6 +17,6 @@ namespace Durin
 		virtual auto GetRenderBuilderVersion() const -> uint32 = 0;
 		virtual auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
 			const FAssetBuildTaskContext& Control = {})
-			-> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError> = 0;
+			-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> = 0;
 	};
 }

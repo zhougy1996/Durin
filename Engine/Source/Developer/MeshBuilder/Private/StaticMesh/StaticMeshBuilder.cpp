@@ -7,6 +7,16 @@ namespace Durin
 {
 	namespace
 	{
+		// Mutable scratch retained only while building the candidate.
+		struct FBuildLOD : FStaticMeshVertexData
+		{
+			std::vector<FStaticMeshSection> Sections;
+			FBox LocalBounds;
+			float ScreenSize = 0.0f;
+			uint8 NumTexCoords = 0;
+			bool bHasColorVertexData = false;
+		};
+
 		constexpr float VectorTolerance = 1.0e-10f;
 
 		struct FBuildCancelled {};
@@ -174,7 +184,7 @@ namespace Durin
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots,
 		float NormalizedSize,
 		const FStaticMeshDecodedGeometry& ImportedData,
-		std::vector<FStaticMeshBuildLOD>& OutLODs,
+		std::vector<FBuildLOD>& OutLODs,
 		FBox& OutBounds,
 		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
@@ -206,7 +216,7 @@ namespace Durin
 			ImportedToStableSlot.push_back(static_cast<uint32>(Slot - MaterialSlots.begin()));
 		}
 
-		std::vector<FStaticMeshBuildLOD> LODs;
+		std::vector<FBuildLOD> LODs;
 		std::unordered_map<uint32, uint32> ImportedSourceToIndex;
 		for (uint32 ImportedIndex = 0; ImportedIndex < ImportedData.MaterialSlots.size(); ++ImportedIndex)
 		{
@@ -219,7 +229,7 @@ namespace Durin
 			}
 		}
 
-		FStaticMeshBuildLOD& LOD = LODs.emplace_back();
+		FBuildLOD& LOD = LODs.emplace_back();
 		LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
 		auto& Positions = LOD.Positions;
 		auto& Normals = LOD.Normals;
@@ -401,34 +411,49 @@ namespace Durin
 
 	static auto BuildRenderInternal(
 		const FStaticMeshRenderBuildRequest& Request,
-		FStaticMeshRenderBuildProduct& OutProduct,
+		FStaticMeshRenderData& OutData,
 		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
-		OutProduct = {};
 		Control.Check();
 		if (!Request.Geometry)
 		{
 			OutError = {.Code = EStaticMeshRenderBuildError::MissingGeometry};
 			return false;
 		}
-		return BuildRenderDataCandidate(
-			Request.MaterialSlots,
-			Request.NormalizedSize,
-			*Request.Geometry,
-			OutProduct.LODs,
-			OutProduct.LocalBounds,
-			OutError, Control);
+		std::vector<FBuildLOD> LODs;
+		if (!BuildRenderDataCandidate(Request.MaterialSlots, Request.NormalizedSize,
+			*Request.Geometry, LODs, OutData.LocalBounds, OutError, Control)) return false;
+		for (const auto& Slot : Request.MaterialSlots)
+			OutData.MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
+		OutData.LODResources.reserve(LODs.size());
+		for (auto& Source : LODs)
+		{
+			Control.Check();
+			auto& LOD = OutData.LODResources.emplace_back();
+			auto& Buffers = LOD.VertexBuffers;
+			Buffers.PositionVertexBuffer.Init(std::move(Source.Positions));
+			Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(std::move(Source.Normals), std::move(Source.Tangents));
+			const auto Count = Buffers.PositionVertexBuffer.GetNumVertices();
+			Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(Source.TexCoords), Count, Source.NumTexCoords);
+			Buffers.ColorVertexBuffer.Init(std::move(Source.Colors), Count);
+			LOD.IndexBuffer.Init(std::move(Source.Indices));
+			LOD.Sections = std::move(Source.Sections);
+			LOD.LocalBounds = Source.LocalBounds; LOD.ScreenSize = Source.ScreenSize;
+			LOD.NumTexCoords = Source.NumTexCoords; LOD.bHasColorVertexData = Source.bHasColorVertexData;
+			Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);
+		}
+		return true;
 	}
 
 	auto FStaticMeshBuilder::Build(const FStaticMeshRenderBuildRequest& Request,
-		const FAssetBuildTaskContext& Execution) -> std::expected<FStaticMeshRenderBuildProduct, FStaticMeshRenderBuildError>
+		const FAssetBuildTaskContext& Execution) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>
 	{
-		FStaticMeshRenderBuildProduct Product;
+		auto Product = std::make_unique<FStaticMeshRenderData>();
 		FStaticMeshRenderBuildError Error;
 		FBuildControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildRenderInternal(Request, Product, Error, Control);
+			const bool bSucceeded = BuildRenderInternal(Request, *Product, Error, Control);
 			Control.Check();
 			if (bSucceeded) return Product;
 			return std::unexpected(std::move(Error));
