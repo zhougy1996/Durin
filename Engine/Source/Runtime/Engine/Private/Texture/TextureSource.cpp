@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureSource.h"
 
 #include "Hash/XxHash.h"
@@ -492,3 +494,5 @@ namespace Durin
 		InvalidateMipData();
 	}
 } // namespace Durin
+
+#endif

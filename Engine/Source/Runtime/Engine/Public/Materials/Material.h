@@ -94,14 +94,20 @@ namespace Durin
 			const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
+#endif
 
 	private:
 		friend struct FMaterialExpressionEditing;
 		friend class FMaterialReferenceReplacementParticipant;
+#if DURIN_WITH_EDITORONLY_DATA
 		FMaterialGraphChangeSource GraphChanges;
+#endif
 		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
+#if DURIN_WITH_EDITORONLY_DATA
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
+#endif
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
@@ -129,7 +135,6 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialGraphPresentation GraphPresentation;
 #endif
-
 
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.
 		FXxHash128 ObservedExpressionCode;

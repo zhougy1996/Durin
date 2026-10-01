@@ -19,6 +19,7 @@ namespace Durin
 		FXxHash128 SourceIdentity;
 	};
 
+#if DURIN_WITH_EDITORONLY_DATA
 	// Detached Engine request; cache policy is not forwarded to build code.
 	struct FStaticMeshBuildRequest
 	{
@@ -31,10 +32,15 @@ namespace Durin
 	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
 		const FAssetBuildTaskContext& Control = {})
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+#endif
+
 	ENGINE_API auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
 		const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot;
+
+#endif
 
 	// Accept source, slots, provenance and finalized render data as one asset transaction.
 	// Collision invalidation/admission belongs to this boundary, not render publication.
@@ -43,6 +49,7 @@ namespace Durin
 	ENGINE_API auto PublishStaticMeshRenderData(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshRenderData> Render) -> std::expected<void, FStaticMeshBuildFailure>;
 
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto CommitStaticMeshBuild(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshRenderData> Render, FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
@@ -50,4 +57,6 @@ namespace Durin
 		DAssetImportData* PreparedImportData = nullptr,
 		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots = nullptr,
 		bool bPersistCollisionDerivedData = true) -> std::expected<void, FStaticMeshBuildFailure>;
+#endif
+
 }

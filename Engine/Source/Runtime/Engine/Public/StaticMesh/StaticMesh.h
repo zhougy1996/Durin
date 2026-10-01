@@ -19,6 +19,8 @@
 
 namespace Durin
 {
+	struct FStaticMeshSource;
+	class DAssetImportData;
 
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationResult;
@@ -152,6 +154,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DStaticMesh() override;
+#if DURIN_WITH_EDITORONLY_DATA
 		// Owner-thread build and application. Does not submit or wait for compilation.
 		// Cancels older async requests; failure preserves the current mesh data.
 		// Build reads fixed slot definitions. Authoring callers may supply prepared slots
@@ -164,6 +167,8 @@ namespace Durin
 		ENGINE_API auto AsyncBuild(FStaticMeshCompilationRequest Request,
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
 			-> std::expected<void, std::vector<std::string>>;
+#endif
+
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
@@ -238,15 +243,9 @@ namespace Durin
 
 		// Owner-thread observation only; never submits or retries loading.
 		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
-		auto GetSource() const -> const FStaticMeshSource&
-		{
 #if DURIN_WITH_EDITORONLY_DATA
-			return Source;
-#else
-			static const FStaticMeshSource Empty;
-			return Empty;
+		auto GetSource() const -> const FStaticMeshSource& { return Source; }
 #endif
-		}
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }

@@ -19,6 +19,7 @@ namespace Durin
 	class DTexture2D;
 	class FTextureCompilingManager;
 
+#if DURIN_WITH_EDITORONLY_DATA
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
@@ -36,6 +37,8 @@ namespace Durin
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	ENGINE_API auto PrepareTexture2DSourceMipChain(std::span<const Image::FImageView> Mips,
 		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>;
+
+#endif
 
 	// Adds 2D build settings and typed platform data to the shared texture state.
 	DCLASS()

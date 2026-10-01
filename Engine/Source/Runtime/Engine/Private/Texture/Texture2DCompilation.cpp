@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/Texture2DCompilation.h"
 
 #include "Texture/Texture2DBuild.h"
@@ -656,11 +658,6 @@ struct FAssetState
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
-#if !DURIN_WITH_EDITORONLY_DATA
-		return std::unexpected(FTexture2DCompilationError{
-			.Code = ETexture2DCompilationError::ManagerUnavailable,
-			.ObjectPath = Texture.GetObjectPath()});
-#else
 		if (!Texture.GetPackage())
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
@@ -699,7 +696,7 @@ struct FAssetState
 				"Texture source identity metadata was reconciled by an uncooked post-load build.");
 		}
 		return {};
-#endif
+
 	}
 	}
 
@@ -747,3 +744,12 @@ struct FAssetState
 		return Manager->Wait(Texture, TimeoutSeconds);
 	}
 }
+
+#else
+#include "Texture/TexturePlatformCache.h"
+namespace Durin
+{
+	auto HasPendingTextureCompilation(const DTexture&) -> bool { return false; }
+	auto FinishTextureCompilation(DTexture& Texture) -> bool { return Texture.HasPlatformData(); }
+}
+#endif

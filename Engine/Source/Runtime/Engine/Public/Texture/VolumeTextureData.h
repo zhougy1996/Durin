@@ -51,6 +51,7 @@ namespace Durin
 	};
 
 	// Owns a tightly packed normalized voxel source retained by an authored asset.
+#if DURIN_WITH_EDITORONLY_DATA
 	DSTRUCT()
 	struct FVolumeTextureSourceData
 	{
@@ -86,6 +87,8 @@ namespace Durin
 	};
 
 	// Freezes deterministic mip filtering and output format policy.
+#endif
+
 	DSTRUCT()
 	struct FVolumeTextureBuildSettings
 	{

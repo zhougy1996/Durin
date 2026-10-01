@@ -33,7 +33,9 @@ namespace Durin
 		std::array<uint8, TextureCubeFaceCount> SourceChannelCounts{};
 		uint8 TransparencyMask = 0;
 
+#if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto IsValid() const -> bool;
+#endif
 	};
 
 	struct FTextureCubePlatformData

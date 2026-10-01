@@ -88,6 +88,7 @@ namespace Durin
 		}
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto FAssetImportDataState::Validate() const -> FAssetImportDataResult
 	{
 		if (SchemaVersion != AssetImportDataSchemaVersion)
@@ -180,6 +181,8 @@ namespace Durin
 		}
 		return Builder.Finalize();
 	}
+
+#endif
 
 	auto FormatSourceHintError(const FSourceHintError& Error) -> std::string
 	{
@@ -319,6 +322,7 @@ namespace Durin
 		return Resolved;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	DAssetImportData::DAssetImportData(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -378,4 +382,6 @@ namespace Durin
 		}
 		return Info;
 	}
+#endif
+
 }

@@ -27,9 +27,13 @@ namespace Durin
 
 	auto DStaticMesh::ContainsPhysicsTriMeshData() const -> bool
 	{
-		return GetSource().IsValid() || (RenderData && !RenderData->LODResources.empty());
+#if DURIN_WITH_EDITORONLY_DATA
+		if (GetSource().IsValid()) return true;
+#endif
+		return RenderData && !RenderData->LODResources.empty();
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	namespace
 	{
 		class FStaticMeshPhysicsInputTask final : public FPhysicsMeshInputTask
@@ -97,20 +101,27 @@ namespace Durin
 		};
 	}
 
+#endif
+
 	auto DStaticMesh::CreatePhysicsMeshInputTask() const
 		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure>
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto& Source = GetSource();
 		if (!Source.IsValid()) return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
 		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 		if (!Memory.Add(Source.GetGeometryBulk().GetPayloadSize(), 64) || !Memory.Add(Source.GetMeshCount(), 1024))
 			return std::unexpected(FPhysicsCookFailure{"Collision source exceeds its working-set budget.", EPhysicsCookStage::Input});
 		return std::make_unique<FStaticMeshPhysicsInputTask>(Source, NormalizedSize, Memory.Bytes);
+#else
+		return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
+#endif
 	}
 
 	auto DStaticMesh::GetPhysicsTriMeshData() const
 		-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure>
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto& Source = GetSource();
 		if (Source.IsValid())
 		{
@@ -118,6 +129,8 @@ namespace Durin
 			if (!Task) return std::unexpected(Task.error());
 			return (*Task)->Execute({.MaximumWorkingSetBytes = (*Task)->GetWorkingSetBytes()});
 		}
+#endif
+
 		if (RenderData && !RenderData->LODResources.empty())
 		{
 			const auto& LOD = RenderData->LODResources.front();

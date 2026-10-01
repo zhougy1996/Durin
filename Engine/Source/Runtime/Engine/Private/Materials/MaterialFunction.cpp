@@ -30,7 +30,9 @@ namespace Durin
 	{
 		Super::PostLoad();
 		bSignatureCached = false;
+#if DURIN_WITH_EDITORONLY_DATA
 		GraphChanges.Publish(*this);
+#endif
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA

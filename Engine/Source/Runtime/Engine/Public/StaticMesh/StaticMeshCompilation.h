@@ -27,7 +27,10 @@ namespace Durin
 		std::optional<FStaticMeshBuildFailure> Error;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
+#if DURIN_WITH_EDITORONLY_DATA
 	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshBuildFailure>(DStaticMesh&, DAssetImportData*&)>;
+
+#endif
 
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
@@ -37,6 +40,7 @@ namespace Durin
 		uint64 ReservedBytes = 0;
 		bool bAcceptingRequests = false;
 	};
+#if DURIN_WITH_EDITORONLY_DATA
 	struct FStaticMeshCompilationRequest
 	{
 		FStaticMeshSource Source;
@@ -49,6 +53,8 @@ namespace Durin
 		// Application validates it before mutation and installs its pointer within the refresh boundary.
 		FStaticMeshPublicationPreparation PreparePublication;
 	};
+#endif
+
 	// Ordinary completion contains no scheduling, cache or provider diagnostics.
 	struct FStaticMeshCompilationResult
 	{
@@ -59,7 +65,10 @@ namespace Durin
 	};
 	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationResult&)>;
 
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;
+#endif
+
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto GetStaticMeshCompilationDiagnostic(const DStaticMesh& Mesh) -> FStaticMeshCompilationDiagnostic;

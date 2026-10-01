@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
@@ -74,3 +76,5 @@ namespace Durin
 		DObject& Owner;
 	};
 }
+
+#endif

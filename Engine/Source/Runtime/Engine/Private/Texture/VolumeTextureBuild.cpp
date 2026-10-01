@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/VolumeTextureBuild.h"
 #include "Texture/ITextureBuildModule.h"
 
@@ -107,10 +109,6 @@ namespace Durin
 		) -> std::expected<void, FTextureBuildError>
 		{
 			CheckGameThread();
-#if !DURIN_WITH_EDITORONLY_DATA
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Apply,
-				"Texture authoring requires editor-only data."});
-#else
 			require(Product.PlatformData != nullptr);
 			// The build boundary has already validated these value contracts.
 			check(Source.IsValid() && Product.DerivedDataKey.IsValid());
@@ -124,7 +122,9 @@ namespace Durin
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 			return {};
-#endif
+
 	}
 	}
 }
+
+#endif

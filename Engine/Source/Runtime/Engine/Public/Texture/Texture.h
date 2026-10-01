@@ -15,6 +15,8 @@
 
 namespace Durin
 {
+	struct FTextureSource;
+	class DAssetImportData;
 	class FTextureResource;
 	class FTextureReference;
 	class FTextureResourceUpdate;

@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "StaticMesh/StaticMeshSource.h"
 #include "StaticMeshSourceCodec.h"
 
@@ -388,3 +390,5 @@ namespace Durin
 	}
 
 }
+
+#endif

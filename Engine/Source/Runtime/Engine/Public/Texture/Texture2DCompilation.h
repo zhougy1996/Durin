@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 
 #include "Texture/Texture2DCompilationTypes.h"
 #include "Texture/Texture2DBuild.h"
@@ -69,3 +71,5 @@ namespace Durin::AssetPrivate
 	ENGINE_API auto SetTexture2DCompilationPhaseHookForTests(
 		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 }
+
+#endif

@@ -503,6 +503,7 @@ namespace Durin
 			Aggregate.Shutdown();
 			return {std::move(MaterialRegistration.Error)};
 		}
+#if DURIN_WITH_EDITORONLY_DATA
 		auto TextureRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Texture"),
 			.AssetClasses = {DTexture::StaticClass()},
@@ -513,6 +514,8 @@ namespace Durin
 			Aggregate.Shutdown();
 			return {std::move(TextureRegistration.Error)};
 		}
+#endif
+
 		auto StaticMeshRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.StaticMesh"),
 			.AssetClasses = {DStaticMesh::StaticClass()},
@@ -525,7 +528,9 @@ namespace Durin
 		}
 		StaticMeshRegistration.Handle.Generation = 0;
 		MaterialRegistration.Handle.Generation = 0;
+#if DURIN_WITH_EDITORONLY_DATA
 		TextureRegistration.Handle.Generation = 0;
+#endif
 		return {};
 	}
 

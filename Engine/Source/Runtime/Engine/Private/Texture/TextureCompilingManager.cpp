@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCompilingManager.h"
 #include "Texture2DBuildDiagnostics.h"
 
@@ -634,3 +636,5 @@ namespace Durin
 	}
 
 }
+
+#endif

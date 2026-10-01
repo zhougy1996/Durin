@@ -14,10 +14,13 @@ namespace Durin
 {
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Payload-backed input may require a synchronous read.
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto PrepareVolumeTextureSource(
 		const FVolumeTextureSourceData& Value) -> std::expected<FTextureSource, std::string>;
 
 	// Package-backed volume asset with owned updates and last-successful GPU publication.
+#endif
+
 	DCLASS()
 	class DVolumeTexture : public DTexture
 	{

@@ -48,6 +48,7 @@ namespace Durin
 	using FAssetImportDataResult = std::expected<void, FAssetImportDataError>;
 	ENGINE_API auto FormatAssetImportDataError(const FAssetImportDataError& Error) -> std::string;
 
+#if DURIN_WITH_EDITORONLY_DATA
 	DSTRUCT()
 	struct FSourceFile
 	{
@@ -140,4 +141,5 @@ namespace Durin
 
 	[[nodiscard]] ENGINE_API auto InspectAssetImportInfo(
 		const FAssetPackageInspection& Inspection) -> std::expected<FAssetImportInfo, FAssetImportDataError>;
+#endif
 }

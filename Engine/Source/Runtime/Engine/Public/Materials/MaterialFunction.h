@@ -38,11 +38,15 @@ namespace Durin
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
+#if DURIN_WITH_EDITORONLY_DATA
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
+#endif
 
 	private:
 		friend struct FMaterialExpressionEditing;
+#if DURIN_WITH_EDITORONLY_DATA
 		FMaterialGraphChangeSource GraphChanges;
+#endif
 
 		// Read-only projection; never serialized or independently edited.
 		mutable FMaterialFunctionSignature CachedSignature;

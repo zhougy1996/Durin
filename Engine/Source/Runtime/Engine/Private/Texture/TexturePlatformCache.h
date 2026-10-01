@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	// Engine-owned values only. Build executes on a worker; Apply executes on GameThread.
 	struct FTexturePlatformCacheResult
 	{
@@ -21,6 +22,8 @@ namespace Durin
 
 	auto SubmitTexturePlatformCache(DTexture& Texture,
 		std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool;
+#endif
+
 	auto HasPendingTextureCompilation(const DTexture& Texture) -> bool;
 	auto FinishTextureCompilation(DTexture& Texture) -> bool;
 }

@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	struct FVolumeTextureSourceData;
 
 	struct FVolumeTextureBuildInput
 	{

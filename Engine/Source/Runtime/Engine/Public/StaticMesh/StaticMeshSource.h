@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 
 #include <expected>
 
@@ -88,3 +90,5 @@ namespace Durin
 		mutable FXxHash128 ResidentIdentity;
 	};
 }
+
+#endif

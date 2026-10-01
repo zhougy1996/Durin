@@ -560,6 +560,7 @@ namespace Durin
 		return Mesh.CommitPreparedMeshData(std::move(Render), nullptr, nullptr, nullptr, false);
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto CommitStaticMeshBuild(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshRenderData> Render, FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
@@ -568,11 +569,6 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots,
 		bool bPersistCollisionDerivedData) -> std::expected<void, FStaticMeshBuildFailure>
 	{
-#if !DURIN_WITH_EDITORONLY_DATA
-		return std::unexpected(FStaticMeshBuildFailure{
-			"Authored StaticMesh publication requires editor-only data support.",
-			EStaticMeshBuildStage::Application});
-#else
 		CheckStaticMeshUpdateThread();
 		const auto Fail = [](FStaticMeshBuildFailure Error) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(std::move(Error));
@@ -623,8 +619,10 @@ namespace Durin
 			Mesh.ScheduleCollisionData(true, bPersistCollisionDerivedData);
 		if (bMarkPackageDirty) Mesh.MarkPackageDirty();
 		return {};
-#endif
+
 	}
+
+#endif
 
 	auto DStaticMesh::BeginDestroy() -> void
 	{

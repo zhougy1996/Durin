@@ -36,7 +36,9 @@ namespace Durin
 		Image::FImageInfo Base;
 		FTexture2DBuildSettings Settings;
 	};
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
+#endif
 
 	struct FTexture2DBuildTimings
 	{
@@ -76,19 +78,24 @@ namespace Durin
 		std::optional<FArchiveFailure> ArchiveCause;
 		std::string Description; // Already formatted at the generic build boundary.
 	};
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
+#endif
 
 	struct FTexture2DBuildControl
 	{
 		std::function<bool()> ShouldCancel;
 	};
 
+#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto ValidateTexture2DSourceMips(
 		std::span<const Image::FImage> Mips) -> std::expected<void, FTexture2DInputError>;
 
 	ENGINE_API auto ValidateTexture2DBuildSettings(
 		const FTexture2DBuildSettings& Settings) -> std::expected<void, FTexture2DInputError>;
+
 	ENGINE_API auto ResolveTexture2DSRGB(
 		const FTexture2DBuildSettings& Settings) -> bool;
+#endif
 
 }

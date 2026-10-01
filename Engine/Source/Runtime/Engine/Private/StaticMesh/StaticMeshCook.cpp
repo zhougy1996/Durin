@@ -106,6 +106,7 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> DetachedRender;
 			const FStaticMeshRenderData* Projection = RenderData.get();
 			std::string Error;
+#if DURIN_WITH_EDITORONLY_DATA
 			if (GetSource().IsValid())
 			{
 				FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*this), .Source = GetSource()};
@@ -119,6 +120,8 @@ namespace Durin
 				DetachedRender = std::move(*Built);
 				Projection = DetachedRender.get();
 			}
+#endif
+
 			if (!Projection)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
@@ -217,9 +220,15 @@ namespace Durin
 		for (const auto& Slot : MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second)
 				return RejectLoadedObjectGraph(GetObjectPath(), "Material-slot names must be non-None and unique.");
+#if DURIN_WITH_EDITORONLY_DATA
 		const auto* Import = GetAssetImportData();
 		if (!Context.bCooked && !GetSource().IsValid() && Import && Import->GetSourceData().FindByRole("source"))
 			return RejectLoadedObjectGraph(GetObjectPath(), "Canonical imported geometry is missing or invalid.");
+#else
+		if (!Context.bCooked) return RejectLoadedObjectGraph(GetObjectPath(),
+			"Authored StaticMesh packages require editor-only data support.");
+#endif
+
 		return {};
 	}
 
@@ -255,6 +264,7 @@ namespace Durin
 				return;
 			}
 		}
+#if DURIN_WITH_EDITORONLY_DATA
 		const DAssetImportData* ImportData = GetAssetImportData();
 		const FSourceFile* SourceFile = ImportData
 			? ImportData->GetSourceData().FindByRole("source") : nullptr;
@@ -280,6 +290,8 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshBuildMessages(Submitted.error()));
 			return;
 		}
+#endif
+
 	}
 	auto FormatCookedMeshLoadError(const FCookedMeshLoadError& Error) -> std::string
 	{
@@ -505,7 +517,11 @@ namespace Durin
 		};
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
+#if DURIN_WITH_EDITORONLY_DATA
 		if (!RenderData && !GetSource().IsValid()) return Reject(ECookContributionError::RenderData);
+#else
+		if (!RenderData) return Reject(ECookContributionError::RenderData);
+#endif
 		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
 		if (!Added)
 		{

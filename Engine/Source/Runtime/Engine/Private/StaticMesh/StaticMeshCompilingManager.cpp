@@ -31,11 +31,21 @@ namespace Durin
 
 		struct FRenderWork
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshBuildRequest Request;
+#else
+			std::monostate Request;
+#endif
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
 			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ Outcome = BuildStaticMeshRenderData(std::move(Request), Control); }
+			{
+#if DURIN_WITH_EDITORONLY_DATA
+				Outcome = BuildStaticMeshRenderData(std::move(Request), Control);
+#else
+				Outcome = std::unexpected(FStaticMeshBuildFailure{"Authored mesh builds require editor-only data."});
+#endif
+			}
 		};
 		struct FCollisionWork
 		{
@@ -115,12 +125,16 @@ namespace Durin
 			FObjectKey AssetOwner;
 			FObjectKey Package;
 			FObjectKey ImportData;
+#if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshSource RequestedSource;
+#endif
 			bool bRequeue = false;
 			std::optional<FXxHash128> ImportState;
 			FStaticMeshCompilationCompletion Completion;
 			FOnAsyncPhysicsCookFinished PhysicsCompletion;
+#if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshPublicationPreparation PreparePublication;
+#endif
 			std::shared_ptr<FWork> Work;
 			FTaskHandle Task;
 			EStaticMeshCompilationPriority Priority;
@@ -157,6 +171,7 @@ namespace Durin
 			}
 			auto GetNumRemainingAssets() const -> uint64 override { CheckOwnerThread(); return Records.size(); }
 
+#if DURIN_WITH_EDITORONLY_DATA
 			auto Submit(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
 				FStaticMeshCompilationCompletion Completion) -> std::expected<void, std::vector<std::string>>
 			{
@@ -235,6 +250,7 @@ namespace Durin
 				Admit();
 				return {};
 			}
+#endif
 
 			auto CancelCollision(DBodySetup& Body) -> void
 			{
@@ -320,6 +336,7 @@ namespace Durin
 
 			auto Mutated(DStaticMesh& Mesh) -> void
 			{
+#if DURIN_WITH_EDITORONLY_DATA
 				CheckOwnerThread();
 				if (PublishingOwner == FObjectKey(&Mesh)) return;
 				for (const auto& Record : Records)
@@ -329,8 +346,12 @@ namespace Durin
 							&& Record->RequestedSource.GetIdentity() == Record->RenderSnapshot().SourceIdentity;
 						Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
 					}
+#else
+				CheckOwnerThread();
+#endif
 			}
 
+#if DURIN_WITH_EDITORONLY_DATA
 			auto CanJoin(const DStaticMesh& Mesh, const FStaticMeshSource& Source) const -> bool
 			{
 				CheckOwnerThread();
@@ -346,14 +367,19 @@ namespace Durin
 					}
 				return false;
 			}
+#endif
 
 			auto HasSourceMutation(const DStaticMesh& Mesh) const -> bool
 			{
+#if DURIN_WITH_EDITORONLY_DATA
 				for (const auto& Record : Records)
 					if (!Record->Work->IsCollision() && Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
 						&& !Record->bDelivered && !Record->Terminal
 						&& (Record->PreparePublication || Record->PreparedMaterialSlots || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
 				return false;
+#else
+				return false;
+#endif
 			}
 
 			auto HasPending(const DStaticMesh& Mesh) const -> bool
@@ -458,6 +484,7 @@ namespace Durin
 
 				}
 			}
+#if DURIN_WITH_EDITORONLY_DATA
 			static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
 			{
 				const auto Current = CaptureStaticMeshReconciliation(Mesh);
@@ -476,6 +503,7 @@ namespace Durin
 				}
 				return true;
 			}
+#endif
 
 			static auto Selected(const FRecord& Record, std::span<const FObjectKey> Owners, EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> bool
 			{
@@ -519,6 +547,7 @@ namespace Durin
 			auto CompleteRender(const std::shared_ptr<FRecord>& Record, DStaticMesh* Mesh,
 				FAssetCompileProcessResult& Result) -> void
 			{
+#if DURIN_WITH_EDITORONLY_DATA
 				if (!Record->Work->Render().Outcome) Record->Diagnostic.Error = Record->Work->Render().Outcome.error();
 				if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
 					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
@@ -558,12 +587,17 @@ namespace Durin
 						if (Applied) Result.SuccessfullyCompiledAssets.emplace_back(Mesh);
 					}
 				}
+#else
+				Record->Terminal = EStaticMeshCompilationStatus::Failed;
+#endif
 			}
 
 			auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline, EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult
 			{
 				FAssetCompileProcessResult Result;
+#if DURIN_WITH_EDITORONLY_DATA
 				std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
+#endif
 				// Scheduler cancellation may retire a task without entering its body.
 				for (const auto& Record : Records)
 				{
@@ -603,6 +637,7 @@ namespace Durin
 					if (History.size() > MaximumHistory) History.pop_front();
 					auto Completion = std::move(Record->Completion);
 					auto PhysicsCompletion = std::move(Record->PhysicsCompletion);
+#if DURIN_WITH_EDITORONLY_DATA
 					Record->PreparePublication = {};
 					if (Record->bRequeue && Mesh && bAccepting)
 						Requeues.emplace_back(Record->Diagnostic.Owner, FStaticMeshCompilationRequest{
@@ -610,6 +645,8 @@ namespace Durin
 								? Record->RequestedSource : Mesh->GetSource(),
 							.Priority = Record->Priority, .bMarkPackageDirty = Record->bMarkPackageDirty});
 					Record->RequestedSource = {};
+#endif
+
 					Record->Snapshot = {};
 					Record->PreparedMaterialSlots.reset();
 					Record->ImportState.reset();
@@ -645,11 +682,14 @@ namespace Durin
 					ReservedBytes -= Record->Diagnostic.ReservedBytes;
 					return true;
 				});
+#if DURIN_WITH_EDITORONLY_DATA
 				for (auto& [Owner, Request] : Requeues)
 					if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner)); Mesh && !HasPending(*Mesh))
 					{
 						static_cast<void>(Submit(*Mesh, std::move(Request), {}));
 					}
+#endif
+
 				Admit();
 				return Result;
 			}
@@ -726,6 +766,7 @@ namespace Durin
 		return {};
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DStaticMesh::AsyncBuild(FStaticMeshCompilationRequest Request,
 		FStaticMeshCompilationCompletion Completion) -> std::expected<void, std::vector<std::string>>
 	{
@@ -733,12 +774,15 @@ namespace Durin
 		if (auto Manager = GManager.lock()) return Manager->Submit(*this, std::move(Request), std::move(Completion));
 		return std::unexpected(std::vector<std::string>{"The StaticMesh compiling manager is unavailable."});
 	}
+#endif
+#if DURIN_WITH_EDITORONLY_DATA
 	auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool
 	{
 		CheckOwnerThread();
 		const auto Manager = GManager.lock();
 		return Manager && Manager->CanJoin(Mesh, Source);
 	}
+#endif
 	auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool
 	{
 		CheckOwnerThread();

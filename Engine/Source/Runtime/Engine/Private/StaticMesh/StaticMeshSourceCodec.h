@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "StaticMesh/StaticMeshSource.h"
 
 namespace Durin::StaticMeshPrivate
@@ -8,3 +10,5 @@ namespace Durin::StaticMeshPrivate
 		const std::function<bool()>& ShouldCancel = {})
 		-> std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>;
 }
+
+#endif

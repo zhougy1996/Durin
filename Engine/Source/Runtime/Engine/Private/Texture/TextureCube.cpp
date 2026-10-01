@@ -143,6 +143,7 @@ namespace Durin
 		}
 #endif
 
+#if DURIN_WITH_EDITORONLY_DATA
 		auto ValidateCubeSourceData(const FTextureCubeDecodedFaces& SourceData, std::string& OutError) -> bool
 		{
 			if ((SourceData.TransparencyMask & ~0x3fu) != 0
@@ -190,8 +191,10 @@ namespace Durin
 			return true;
 		}
 
+#endif
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto FTextureCubeDecodedFaces::IsValid() const -> bool
 	{
 		std::string Error;
@@ -220,6 +223,8 @@ namespace Durin
 		Result.TransparencyMask = Source.GetTransparencyMask();
 		return Result.IsValid() ? std::move(Result) : FTextureCubeDecodedFaces{};
 	}
+
+#endif
 
 	auto FTextureCubePlatformData::IsValid() const -> bool
 	{
@@ -321,6 +326,7 @@ namespace Durin
 			*this, GetMutableCookedPlatformData(), "TextureCube");
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto PrepareTextureCubeSource(
 		const FTextureCubeDecodedFaces& Value) -> std::expected<FTextureSource, std::string>
 	{
@@ -358,6 +364,8 @@ namespace Durin
 		}
 		return NewSource;
 	}
+
+#endif
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DTextureCube::SetBuildSettings(

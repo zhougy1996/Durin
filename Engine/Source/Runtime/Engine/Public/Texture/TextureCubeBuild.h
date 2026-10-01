@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 
 #include "Texture/TextureBuildOperation.h"
 
@@ -51,3 +53,5 @@ namespace Durin
 	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
 		-> std::expected<void, FTextureBuildOperationError>;
 }
+
+#endif

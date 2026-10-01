@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/ITextureBuildModule.h"
 
@@ -121,3 +123,5 @@ namespace Durin
 	}
 	}
 }
+
+#endif

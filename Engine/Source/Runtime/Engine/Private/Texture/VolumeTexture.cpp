@@ -15,6 +15,7 @@ namespace Durin
 {
 	namespace
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		auto ToTextureSourceFormat(EVolumeTextureFormat Format)
 			-> ETextureSourceFormat
 		{
@@ -62,6 +63,8 @@ namespace Durin
 			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
 		}
 
+#endif
+
 		auto ToPixelFormat(EVolumeTextureFormat Format) -> EPixelFormat
 		{
 			switch (Format)
@@ -76,6 +79,7 @@ namespace Durin
 		}
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto FVolumeTextureSourceData::IsValid() const -> bool
 	{
 		if (PayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
@@ -119,6 +123,8 @@ namespace Durin
 		Builder.UpdateValue(Voxels.GetPayloadId());
 		return Builder.Finalize();
 	}
+
+#endif
 
 	auto FVolumeTextureMipData::IsValid(EPixelFormat PixelFormat) const -> bool
 	{
@@ -219,6 +225,7 @@ namespace Durin
 			*this, GetMutableCookedPlatformData(), "volume texture");
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto PrepareVolumeTextureSource(
 		const FVolumeTextureSourceData& Value) -> std::expected<FTextureSource, std::string>
 	{
@@ -244,6 +251,7 @@ namespace Durin
 		}
 		return NewSource;
 	}
+#endif
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DVolumeTexture::SetBuildSettings(

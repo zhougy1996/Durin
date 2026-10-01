@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
@@ -22,6 +23,8 @@ namespace Durin
 #endif
 		return Snapshot;
 	}
+
+#endif
 
 	auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
 		const FAssetBuildTaskContext& Control) -> std::expected<void, FStaticMeshBuildFailure>
@@ -112,6 +115,7 @@ namespace Durin
 		return Error;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto DStaticMesh::Build(const FStaticMeshSource& InSource,
 		std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots) -> std::expected<void, std::vector<std::string>>
 	{
@@ -144,4 +148,6 @@ namespace Durin
 				FormatStaticMeshSourceError(Initialized.error()).substr(0, MaximumStaticMeshBuildDiagnosticBytes)});
 		return Build(InSource, std::move(PreparedMaterialSlots));
 	}
+#endif
+
 }

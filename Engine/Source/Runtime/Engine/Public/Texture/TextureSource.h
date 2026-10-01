@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include <expected>
 
 #include "Asset/EditorBulkData.h"
@@ -272,3 +274,5 @@ namespace Durin
 		}
 	};
 } // namespace Durin
+
+#endif

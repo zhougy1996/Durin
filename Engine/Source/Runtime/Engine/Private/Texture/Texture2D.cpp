@@ -137,6 +137,7 @@ namespace Durin
 			*this, GetMutableCookedPlatformData(), "Texture2D");
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto PrepareTexture2DSourceMipChain(std::span<const Image::FImageView> Mips,
 		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>
 	{
@@ -180,6 +181,7 @@ namespace Durin
 		}
 		return NewSource;
 	}
+#endif
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DTexture2D::SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,

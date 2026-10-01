@@ -104,6 +104,7 @@ namespace Durin
 
 #endif
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
 		const FAssetBuildTaskContext& Control) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
 	{
@@ -175,5 +176,6 @@ namespace Durin
 		return std::move(*Product);
 #endif
 	}
+#endif
 
 }

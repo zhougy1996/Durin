@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "TextureBuildDiagnostics.h"
 #include "TextureCubeBuildFunction.h"
 #include "TexturePlatformSharedOutput.h"
@@ -66,3 +68,5 @@ namespace Durin
 	}
 
 }
+
+#endif

@@ -197,7 +197,9 @@ namespace Durin
 			EMaterialRenderDirtyFlags::ShaderMap
 				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
 		Context.EndDiscovery();
+#if DURIN_WITH_EDITORONLY_DATA
 		GraphChanges.Publish(*this);
+#endif
 		return {};
 	}
 
@@ -270,7 +272,9 @@ namespace Durin
 		*Entry = std::move(Definition);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+#if DURIN_WITH_EDITORONLY_DATA
 		GraphChanges.Publish(*this);
+#endif
 		return {};
 	}
 

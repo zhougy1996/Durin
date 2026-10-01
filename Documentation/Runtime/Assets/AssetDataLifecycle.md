@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-10-02
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -16,6 +16,15 @@ TextureSource accepts only schema 3 block/layer descriptors, canonical payload
 hashes, and compression metadata; v1/v2 sources are unsupported. Transparency
 comes from the current channel mask. Authored bulk updates use `UpdatePayload`.
 Old Cook outputs must be regenerated from current content.
+
+Source storage types and their codecs (`FTextureSource`, `FStaticMeshSource`,
+and volume source voxels), import provenance objects, source preparation APIs,
+and material/function graph observers compile only with
+`DURIN_WITH_EDITORONLY_DATA`. Source-bound texture compilation and mesh render
+requests use the same boundary. Cooked builds retain texture completion queries
+as idle queries and keep the mesh scheduler's collision path. Runtime payload
+codecs, render-data validation/publication, material parameters, and compiled
+shader reflection remain available independently of source art.
 
 ## Import metadata publication
 

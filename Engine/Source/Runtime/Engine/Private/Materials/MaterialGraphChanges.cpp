@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Materials/MaterialGraphChanges.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
@@ -282,3 +284,5 @@ namespace Durin
 	FScopedMaterialGraphChange::~FScopedMaterialGraphChange()
 		{ GetMaterialGraphChangeSource(Owner).EndBatch(Owner); }
 }
+
+#endif

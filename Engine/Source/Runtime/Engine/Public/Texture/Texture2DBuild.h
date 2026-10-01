@@ -1,4 +1,6 @@
 #pragma once
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 
 #include "Texture/TextureBuildOperation.h"
 
@@ -76,3 +78,5 @@ namespace Durin
 		FTexture2DBuildInputIdentity& OutIdentity,
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;
 }
+
+#endif

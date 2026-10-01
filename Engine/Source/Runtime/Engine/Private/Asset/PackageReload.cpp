@@ -610,7 +610,9 @@ namespace Durin
 						.Reason = Reason::DependencyRelease, .Message = ReleaseResult.Message});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
+#if DURIN_WITH_EDITORONLY_DATA
 				RefreshMaterialGraphObservers();
+#endif
 				for (const auto& Path : Paths)
 					if (auto* Package = FindResidentPackage(Path))
 						for (DObject* Object : Package->GetTopLevelAssets())
