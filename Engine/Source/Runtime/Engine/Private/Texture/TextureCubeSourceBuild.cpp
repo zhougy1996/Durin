@@ -61,9 +61,7 @@ namespace Durin
 		}
 		auto Product = AssembleTextureCubeSharedOutput(*Completion.GetOutput(), Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
-		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey()),
-			.Origin = DerivedData::HasBuildStatus(Completion.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
-				? ETextureCubeBuildProductOrigin::CacheHit : ETextureCubeBuildProductOrigin::Rebuilt};
+		return FTextureCubeBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey())};
 #endif
 	}
 

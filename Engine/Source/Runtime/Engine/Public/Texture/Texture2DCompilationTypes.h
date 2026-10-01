@@ -24,13 +24,6 @@ namespace Durin
 		Interactive,
 	};
 
-	enum class ETexture2DCompilationOrigin : uint8
-	{
-		Unobserved,
-		CacheHit,
-		Rebuilt,
-	};
-
 	// Records worker timing and conservative versus observed retained bytes.
 	struct FTexture2DCompilationMetrics
 	{
@@ -38,7 +31,6 @@ namespace Durin
 		uint64 WorkerNanoseconds = 0;
 		uint64 CompletionNanoseconds = 0;
 		uint64 EstimatedBytes = 0;
-		uint64 DecodedBytes = 0;
 		uint64 ResultBytes = 0;
 	};
 
@@ -85,7 +77,6 @@ namespace Durin
 		FTexture2DCompilationMetrics Metrics;
 		uint64 QueuedNanoseconds = 0;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
-		ETexture2DCompilationOrigin Origin = ETexture2DCompilationOrigin::Unobserved;
 		bool bSourceDecoderInvoked = false;
 	};
 

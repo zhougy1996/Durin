@@ -74,9 +74,7 @@ namespace Durin
 		}
 		auto Product = TexturePrivate::AssembleVolumeTextureSharedOutput(*Completion.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
-		return FVolumeTextureBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey()),
-			.Origin = DerivedData::HasBuildStatus(Completion.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
-				? EVolumeTextureBuildProductOrigin::CacheHit : EVolumeTextureBuildProductOrigin::Rebuilt};
+		return FVolumeTextureBuildProduct{.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Completion.GetCacheKey())};
 #endif
 	}
 

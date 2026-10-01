@@ -166,9 +166,7 @@ namespace Durin
 		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Result.GetOutput(), Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct, .Description = std::move(Product.error())});
 		OutProduct = {.PlatformData = std::move(*Product), .DerivedDataKey = FCacheKeyProxy(*Result.GetCacheKey()),
-			.BuilderVersion = OutIdentity.BuilderVersion,
-			.Origin = DerivedData::HasBuildStatus(Result.GetBuildStatus(), DerivedData::EBuildStatus::CacheQueryHit)
-				? ETexture2DBuildProductOrigin::CacheHit : ETexture2DBuildProductOrigin::Rebuilt};
+			.BuilderVersion = OutIdentity.BuilderVersion};
 		return {};
 #endif
 	}

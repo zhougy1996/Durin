@@ -21,18 +21,11 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	enum class EVolumeTextureBuildProductOrigin : uint8
-	{
-		CacheHit,
-		Rebuilt
-	};
-
 	// Detached derived-only result; authored source and settings stay in Engine.
 	struct FVolumeTextureBuildProduct
 	{
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};
 
 	// Caller-owned result-application policy used only by Engine on the GameThread.

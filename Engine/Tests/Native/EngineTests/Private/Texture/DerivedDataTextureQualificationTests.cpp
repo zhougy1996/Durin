@@ -214,7 +214,7 @@ TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)
 		if (!BuildTexture2DPlatformData(Effective, Product, Identity)) return {};
 		FXxHash128Builder Hash;
 		const auto Bytes = HashMips(Product.PlatformData, Hash);
-		const bool bHit = Product.Origin == ETexture2DBuildProductOrigin::CacheHit;
+		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;
@@ -247,7 +247,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeColdAndWarmIncludingNormalizat
 		for (const auto& Face : Built->Product.PlatformData->Faces)
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes,
-			Built->Product.Origin == ETextureCubeBuildProductOrigin::CacheHit, 0, false, Provider->CountTransferBytes(Blocks)};
+			Provider->BuildCalls == 0, 0, false, Provider->CountTransferBytes(Blocks)};
 	});
 }
 
@@ -280,7 +280,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedSourceColdAndWarm)
 			Bytes += HashMips(Face, Hash);
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
 		}
-		const bool bHit = Built->Origin == ETextureCubeBuildProductOrigin::CacheHit;
+		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
@@ -318,7 +318,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedPanoramaColdAndWarm)
 			Bytes += HashMips(Face, Hash);
 			for (const auto& Mip : Face.Mips) Blocks.emplace_back(Mip.Pixels);
 		}
-		const bool bHit = Built->Origin == ETextureCubeBuildProductOrigin::CacheHit;
+		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
@@ -344,7 +344,7 @@ TEST_F(FDerivedDataTextureQualificationTests, VolumeColdAndWarm)
 		FXxHash128Builder Hash;
 		uint64 Bytes = 0;
 		for (const auto& Mip : Built->PlatformData->Mips) { Hash.Update(Mip.Voxels); Bytes += Mip.Voxels.size(); }
-		const bool bHit = Built->Origin == EVolumeTextureBuildProductOrigin::CacheHit;
+		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;

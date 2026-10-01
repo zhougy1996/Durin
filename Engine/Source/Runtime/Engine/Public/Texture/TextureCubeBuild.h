@@ -20,18 +20,11 @@ namespace Durin
 		bool bPersistDerivedData = true;
 	};
 
-	enum class ETextureCubeBuildProductOrigin : uint8
-	{
-		CacheHit,
-		Rebuilt
-	};
-
 	// Detached derived-only product. Authored and normalized source stay separate.
 	struct FTextureCubeBuildProduct
 	{
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;
 	};
 
 	struct FTextureCubeResultApplicationContext

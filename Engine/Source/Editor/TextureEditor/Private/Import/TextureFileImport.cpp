@@ -162,7 +162,6 @@ namespace Durin::Editor::Texture
 		{
 			if (!Completion || !Completion->has_value()) return;
 			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
-			const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Active);
 			auto* Package = Active->GetPackage();
 			if (Completion->value().Status == ETexture2DCompilationStatus::Canceled
 				|| Completion->value().Status == ETexture2DCompilationStatus::Superseded)
@@ -219,10 +218,9 @@ namespace Durin::Editor::Texture
 				UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
 			TimingDetails += std::format(
-				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms ({}), save {:.1f} ms\n",
+				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms, save {:.1f} ms\n",
 				Filename, PreparationMilliseconds,
 				std::chrono::duration<double, std::milli>(CompilationEnd - CompilationStart).count(),
-				Diagnostic.Origin == ETexture2DCompilationOrigin::CacheHit ? "cache hit" : "build",
 				SaveMilliseconds);
 			Completion.reset();
 			bSaveStarted = false;

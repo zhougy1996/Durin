@@ -234,8 +234,7 @@ struct FAssetState
 		const FTexture2DBuildSettings& Settings = Result.InputIdentity.Settings;
 		FTexture2DBuildProduct Product{
 			.PlatformData = std::move(*Result.PlatformData),
-			.DerivedDataKey = std::move(Result.DerivedDataKey),
-			.Origin = Result.Origin};
+			.DerivedDataKey = std::move(Result.DerivedDataKey)};
 		if (const auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture), Result.InputIdentity.SourceIdentity, Settings,
 			std::move(Product), ResultApplicationContext); !Applied)
 		{

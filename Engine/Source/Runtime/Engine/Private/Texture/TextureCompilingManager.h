@@ -32,7 +32,6 @@ namespace Durin
 		std::string AssetIdentity;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 		FTexture2DCompilationError Error;
 		std::optional<FTexture2DBuildError> BuildCause;
 		FTexture2DCompilationMetrics Metrics;

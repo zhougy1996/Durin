@@ -459,9 +459,8 @@ namespace Durin::Editor::Texture
 		if (Diagnostic.Metrics.WorkerNanoseconds > 0)
 			ImGui::Text("Worker: %.2f ms", Diagnostic.Metrics.WorkerNanoseconds / 1'000'000.0);
 		ImGui::Text(
-			"Estimated: %s  Decoded: %s  Result: %s",
+			"Estimated: %s  Result: %s",
 			StringUtils::FormatByteSize(Diagnostic.Metrics.EstimatedBytes).c_str(),
-			StringUtils::FormatByteSize(Diagnostic.Metrics.DecodedBytes).c_str(),
 			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
 		if (Diagnostic.Error.HasError())
 			ImGui::TextWrapped("%s", FormatTexture2DCompilationError(Diagnostic.Error).c_str());

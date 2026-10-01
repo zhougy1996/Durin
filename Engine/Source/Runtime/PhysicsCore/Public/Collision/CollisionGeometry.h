@@ -94,7 +94,6 @@ namespace Durin
 		uint64 MatchNanoseconds = 0;
 		uint64 SampleCopyNanoseconds = 0;
 		uint64 TreeBuildNanoseconds = 0;
-		bool bCacheHit = false;
 	};
 
 	// Fixed-width array storage, including serialized blocks with no native provenance.

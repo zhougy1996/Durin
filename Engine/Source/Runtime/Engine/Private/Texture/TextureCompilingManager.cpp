@@ -297,7 +297,6 @@ namespace Durin
 			const uint64 PreparationStart = NowNanoseconds();
 			FTexture2DBuildRequest BuildRequest = std::move(RequestState->Request.Build);
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
-			Result.Metrics.DecodedBytes = 0;
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
 			const FTexture2DBuildExecutionControl Control{
 				.ShouldCancel = Cancel};
@@ -314,10 +313,7 @@ namespace Durin
 			}
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
-			Result.Origin = Product.Origin;
 			Result.bSourceDecoderInvoked = RequestState->Request.bSourceDecoderInvoked;
-			if (Product.Origin == ETexture2DBuildProductOrigin::Rebuilt)
-				Result.Metrics.DecodedBytes = BuildRequest.Source.GetDecodedPayloadSize();
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error = {};
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
@@ -347,9 +343,6 @@ namespace Durin
 				RequestState->Diagnostic.BuildCause = Result.BuildCause;
 				RequestState->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				RequestState->Diagnostic.Metrics = Result.Metrics;
-				RequestState->Diagnostic.Origin = Result.Origin == ETexture2DBuildProductOrigin::CacheHit
-					? ETexture2DCompilationOrigin::CacheHit
-					: ETexture2DCompilationOrigin::Rebuilt;
 				RequestState->Diagnostic.bSourceDecoderInvoked = Result.bSourceDecoderInvoked;
 				RequestState->Diagnostic.QueuedNanoseconds = RequestState->WorkerStartNanoseconds != 0
 					? RequestState->WorkerStartNanoseconds - RequestState->EnqueueNanoseconds

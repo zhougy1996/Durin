@@ -575,7 +575,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	CachedCanonical = BuildResult2 ? std::move(BuildResult2->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 	Cached = BuildResult2 ? std::move(BuildResult2->Product) : Durin::FTextureCubeBuildProduct{};
 	ASSERT_TRUE(BuildResult2) << (BuildResult2 ? std::string{} : FormatTextureBuildOperationError(BuildResult2.error()));
-	EXPECT_EQ(Cached.Origin, Durin::ETextureCubeBuildProductOrigin::CacheHit);
+	EXPECT_EQ(Cached.DerivedDataKey, Initial.DerivedDataKey);
 	EXPECT_TRUE(CachedCanonical.DecodedFaces.IsValid());
 	ASSERT_NE(Cached.PlatformData, nullptr);
 	EXPECT_TRUE(Cached.PlatformData->IsValid());

@@ -40,13 +40,6 @@ namespace Durin
 		auto operator==(const FTexture2DBuildInputIdentity&) const -> bool = default;
 	};
 
-	// Identifies whether Engine loaded cached data or ran the local build.
-	enum class ETexture2DBuildProductOrigin : uint8
-	{
-		CacheHit,
-		Rebuilt
-	};
-
 	// This cancellation value is borrowed only for the duration of Build.
 	struct FTexture2DBuildExecutionControl
 	{
@@ -60,7 +53,6 @@ namespace Durin
 		FTexturePlatformData PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		uint32 BuilderVersion = 0;
-		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 	};
 
 	// Operation boundary for detached consumers such as scene import. Engine records
