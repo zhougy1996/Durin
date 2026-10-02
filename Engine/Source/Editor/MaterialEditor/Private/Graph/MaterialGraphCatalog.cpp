@@ -57,178 +57,253 @@ namespace Durin::Editor::Material
 	}
 	namespace
 	{
-		auto GetInputNames(EMaterialProgramOpcode Opcode, size_t Count)
-			-> std::vector<std::string>
+		struct FMaterialGraphOpcodeDescriptor
 		{
-			std::vector<std::string> Names;
-			switch (Opcode)
-			{
-			case EMaterialProgramOpcode::UVChannel: Names = {"Channel"}; break;
-			case EMaterialProgramOpcode::MakeSurface: Names = {"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"}; break;
-			case EMaterialProgramOpcode::GetSurfaceAttributes:
-			case EMaterialProgramOpcode::SetSurfaceAttributes: Names = {"Surface"}; break;
-			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
-			case EMaterialProgramOpcode::TextureSampleParameter2D: Names = {"UV"}; break;
-			case EMaterialProgramOpcode::TextureCoordinates: Names = {"Channel"}; break;
-			case EMaterialProgramOpcode::AppendVector:
-			case EMaterialProgramOpcode::Add:
-			case EMaterialProgramOpcode::Subtract:
-			case EMaterialProgramOpcode::Multiply:
-			case EMaterialProgramOpcode::Divide:
-			case EMaterialProgramOpcode::Minimum:
-			case EMaterialProgramOpcode::Maximum: Names = {"A", "B"}; break;
-			case EMaterialProgramOpcode::Dot:
-			case EMaterialProgramOpcode::Cross:
-			case EMaterialProgramOpcode::Distance: Names = {"A", "B"}; break;
-			case EMaterialProgramOpcode::Pow: Names = {"Base", "Exponent"}; break;
-			case EMaterialProgramOpcode::Fmod: Names = {"A", "B"}; break;
-			case EMaterialProgramOpcode::Step: Names = {"Edge", "Value"}; break;
-			case EMaterialProgramOpcode::SmoothStep: Names = {"Min", "Max", "Value"}; break;
-			case EMaterialProgramOpcode::Reflect: Names = {"Incident", "Normal"}; break;
-			case EMaterialProgramOpcode::TransformPosition:
-			case EMaterialProgramOpcode::TransformDirection:
-			case EMaterialProgramOpcode::TransformNormal: Names = {"Input"}; break;
-			case EMaterialProgramOpcode::StaticSwitch: Names = {"Condition", "False", "True"}; break;
-			case EMaterialProgramOpcode::QualitySwitch: Names = {"Default", "Low", "High"}; break;
-			case EMaterialProgramOpcode::FeatureLevelSwitch: Names = {"Default", "ES3_1", "SM5", "SM6"}; break;
-			case EMaterialProgramOpcode::Clamp: Names = {"Value", "Min", "Max"}; break;
-			case EMaterialProgramOpcode::Lerp: Names = {"A", "B", "Alpha"}; break;
-			case EMaterialProgramOpcode::MakeFloat2: Names = {"X", "Y"}; break;
-			case EMaterialProgramOpcode::MakeFloat3: Names = {"X", "Y", "Z"}; break;
-			case EMaterialProgramOpcode::MakeFloat4: Names = {"X", "Y", "Z", "W"}; break;
-			case EMaterialProgramOpcode::BlendNormalsRNM: Names = {"Base", "Detail"}; break;
-			default: break;
-			}
-			if (Names.size() < Count) Names.resize(Count, "Value");
-			if (Names.size() > Count) Names.resize(Count);
-			return Names;
+			EMaterialProgramOpcode Opcode;
+			const char* Name;
+			const char* Category;
+			const char* Description;
+			DClass* (*ExpressionClass)();
+			std::array<const char*, 8> InputNames;
+		};
+
+		// Editor metadata stays together; runtime signatures still own pin types and semantics.
+		constexpr FMaterialGraphOpcodeDescriptor OpcodeDescriptors[] = {
+			{EMaterialProgramOpcode::Constant, "Constant", "Inputs",
+				"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
+				nullptr, {}},
+			{EMaterialProgramOpcode::Parameter, "Parameter", "Inputs",
+				"A value exposed by the material parameter definition.",
+				nullptr, {}},
+			{EMaterialProgramOpcode::TextureParameter, "Texture Object Parameter", "Inputs",
+				"A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D.",
+				&DMaterialExpressionTextureParameter::StaticClass, {}},
+			{EMaterialProgramOpcode::TextureSampleParameter2D, "Texture Sample Parameter 2D", "Textures",
+				"Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.",
+				&DMaterialExpressionTextureSampleParameter2D::StaticClass, {"UV"}},
+			{EMaterialProgramOpcode::WorldPosition, "World Position", "Inputs",
+				"Surface position relative to the current view origin (Float3).",
+				&DMaterialExpressionWorldPosition::StaticClass, {}},
+			{EMaterialProgramOpcode::Time, "Time", "Inputs",
+				"Elapsed real time in seconds (Float), updated every rendered view.",
+				&DMaterialExpressionTime::StaticClass, {}},
+			{EMaterialProgramOpcode::CollectionParameter, "Collection Parameter", "Math",
+				"Reads a numeric value from a material parameter collection in the current world.",
+				nullptr, {}},
+			{EMaterialProgramOpcode::CameraPosition, "Camera Position", "Inputs",
+				"Active pass camera position in translated world space; zero at the view origin (Float3).",
+				&DMaterialExpressionCameraPosition::StaticClass, {}},
+			{EMaterialProgramOpcode::CameraVector, "Camera Vector", "Inputs",
+				"Direction from the fragment to the active pass camera (Float3).",
+				&DMaterialExpressionCameraVector::StaticClass, {}},
+			{EMaterialProgramOpcode::ObjectPosition, "Object Position", "Inputs",
+				"Render primitive bounds center relative to the current view origin (Float3).",
+				&DMaterialExpressionObjectPosition::StaticClass, {}},
+			{EMaterialProgramOpcode::VertexInterpolator, "Vertex Interpolator", "Math",
+				"Evaluates the input per vertex and interpolates its value to pixel calculations.",
+				&DMaterialExpressionVertexInterpolator::StaticClass, {}},
+			{EMaterialProgramOpcode::VertexNormal, "Vertex Normal", "Inputs",
+				"Post-vertex-factory world normal for vertex offsets or explicit interpolation.",
+				&DMaterialExpressionVertexNormal::StaticClass, {}},
+			{EMaterialProgramOpcode::ScreenPosition, "Screen Position", "Inputs",
+				"Normalized position within the active pass viewport (Float2).",
+				&DMaterialExpressionScreenPosition::StaticClass, {}},
+			{EMaterialProgramOpcode::ViewSize, "View Size", "Inputs",
+				"Active pass viewport size in pixels (Float2).",
+				&DMaterialExpressionViewSize::StaticClass, {}},
+			{EMaterialProgramOpcode::StaticBool, "Static Bool", "Static Selection",
+				"Declares a root-owned compile-time boolean keyed by stable GUID.",
+				&DMaterialExpressionStaticBool::StaticClass, {}},
+			{EMaterialProgramOpcode::StaticSwitch, "Static Switch", "Static Selection",
+				"Selects exactly one branch from a static bool before normalized MIR.",
+				&DMaterialExpressionStaticSwitch::StaticClass, {"Condition", "False", "True"}},
+			{EMaterialProgramOpcode::QualitySwitch, "Quality Switch", "Static Selection",
+				"Selects Low or High, using Default when that branch is unconnected.",
+				&DMaterialExpressionQualitySwitch::StaticClass, {"Default", "Low", "High"}},
+			{EMaterialProgramOpcode::FeatureLevelSwitch, "Feature Level Switch", "Static Selection",
+				"Selects the accepted RHI feature tier, using Default when unconnected.",
+				&DMaterialExpressionFeatureLevelSwitch::StaticClass, {"Default", "ES3_1", "SM5", "SM6"}},
+			{EMaterialProgramOpcode::TransformPosition, "Transform Position", "Transforms",
+				"Transforms a spatial position between explicit coordinate spaces; World is relative to the current view origin.",
+				&DMaterialExpressionTransformPosition::StaticClass, {"Input"}},
+			{EMaterialProgramOpcode::TransformDirection, "Transform Direction", "Transforms",
+				"Transforms a spatial direction between explicit coordinate spaces.",
+				&DMaterialExpressionTransformDirection::StaticClass, {"Input"}},
+			{EMaterialProgramOpcode::TransformNormal, "Transform Normal", "Transforms",
+				"Transforms and normalizes a spatial normal with inverse-transpose semantics.",
+				&DMaterialExpressionTransformNormal::StaticClass, {"Input"}},
+			{EMaterialProgramOpcode::TextureCoordinates, "Texture Coordinates", "Inputs",
+				"Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes.",
+				&DMaterialExpressionTextureCoordinates::StaticClass, {"Channel"}},
+			{EMaterialProgramOpcode::TextureSample2D, "Texture Sample 2D", "Textures",
+				"Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D.",
+				&DMaterialExpressionTextureSample2D::StaticClass, {"Texture", "UV"}},
+			{EMaterialProgramOpcode::Add, "Add", "Math",
+				"Adds two values component by component.",
+				&DMaterialExpressionAdd::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Subtract, "Subtract", "Math",
+				"Subtracts the second value from the first.",
+				&DMaterialExpressionSubtract::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Multiply, "Multiply", "Math",
+				"Multiplies two values component by component.",
+				&DMaterialExpressionMultiply::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Divide, "Divide", "Math",
+				"Divides the first value by the second.",
+				&DMaterialExpressionDivide::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Minimum, "Minimum", "Math",
+				"Returns the component-wise minimum.",
+				&DMaterialExpressionMinimum::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Maximum, "Maximum", "Math",
+				"Returns the component-wise maximum.",
+				&DMaterialExpressionMaximum::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Negate, "Negate", "Math",
+				"Reverses the sign of a value.",
+				&DMaterialExpressionNegate::StaticClass, {}},
+			{EMaterialProgramOpcode::OneMinus, "One Minus", "Math",
+				"Subtracts a value from one.",
+				&DMaterialExpressionOneMinus::StaticClass, {}},
+			{EMaterialProgramOpcode::Absolute, "Absolute", "Math",
+				"Returns the absolute value.",
+				&DMaterialExpressionAbsolute::StaticClass, {}},
+			{EMaterialProgramOpcode::Saturate, "Saturate", "Math",
+				"Clamps a value to the zero-to-one range.",
+				&DMaterialExpressionSaturate::StaticClass, {}},
+			{EMaterialProgramOpcode::Normalize, "Normalize", "Math",
+				"Returns a unit-length vector.",
+				&DMaterialExpressionNormalize::StaticClass, {}},
+			{EMaterialProgramOpcode::Clamp, "Clamp", "Math",
+				"Constrains a value between minimum and maximum inputs.",
+				&DMaterialExpressionClamp::StaticClass, {"Value", "Min", "Max"}},
+			{EMaterialProgramOpcode::Lerp, "Lerp", "Math",
+				"Interpolates between two values.",
+				&DMaterialExpressionLerp::StaticClass, {"A", "B", "Alpha"}},
+			{EMaterialProgramOpcode::MakeFloat2, "Make Vector", "Channels",
+				"Combines scalar inputs into a vector.",
+				&DMaterialExpressionMakeVector2::StaticClass, {"X", "Y"}},
+			{EMaterialProgramOpcode::MakeFloat3, "Make Vector", "Channels",
+				"Combines scalar inputs into a vector.",
+				&DMaterialExpressionMakeVector3::StaticClass, {"X", "Y", "Z"}},
+			{EMaterialProgramOpcode::MakeFloat4, "Make Vector", "Channels",
+				"Combines scalar inputs into a vector.",
+				&DMaterialExpressionMakeVector4::StaticClass, {"X", "Y", "Z", "W"}},
+			{EMaterialProgramOpcode::AppendVector, "Append Vector", "Channels",
+				"Concatenates A and B; output width follows the inputs (up to four components).",
+				&DMaterialExpressionAppendVector::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Swizzle, "Component Mask", "Channels",
+				"Selects, repeats or reorders channels (Component Mask / Truncate).",
+				&DMaterialExpressionSwizzle::StaticClass, {}},
+			{EMaterialProgramOpcode::Splat2, "Splat", "Channels",
+				"Replicates a scalar across vector components.",
+				&DMaterialExpressionSplat2::StaticClass, {}},
+			{EMaterialProgramOpcode::Splat3, "Splat", "Channels",
+				"Replicates a scalar across vector components.",
+				&DMaterialExpressionSplat3::StaticClass, {}},
+			{EMaterialProgramOpcode::Splat4, "Splat", "Channels",
+				"Replicates a scalar across vector components.",
+				&DMaterialExpressionSplat4::StaticClass, {}},
+			{EMaterialProgramOpcode::BlendNormalsRNM, "Blend Normals RNM", "Textures",
+				"Blends two tangent-space normals with RNM.",
+				&DMaterialExpressionBlendNormalsRNM::StaticClass, {"Base", "Detail"}},
+			{EMaterialProgramOpcode::DecodeNormalRG, "Decode Normal RG", "Math",
+				"Decodes a tangent-space normal from its RG channels.",
+				nullptr, {}},
+			{EMaterialProgramOpcode::UVChannel, "UV Channel", "Inputs",
+				"Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped.",
+				&DMaterialExpressionUVChannel::StaticClass, {"Channel"}},
+			{EMaterialProgramOpcode::Sine, "Sine", "Math",
+				"Returns the component-wise sine in radians.",
+				&DMaterialExpressionSine::StaticClass, {}},
+			{EMaterialProgramOpcode::Cosine, "Cosine", "Math",
+				"Returns the component-wise cosine in radians.",
+				&DMaterialExpressionCosine::StaticClass, {}},
+			{EMaterialProgramOpcode::Dot, "Dot Product", "Math",
+				"Returns the scalar dot product of equal-width vectors.",
+				&DMaterialExpressionDot::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Cross, "Cross Product", "Math",
+				"Returns the cross product of two Float3 values.",
+				&DMaterialExpressionCross::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Length, "Length", "Math",
+				"Returns the scalar length of a vector.",
+				&DMaterialExpressionLength::StaticClass, {}},
+			{EMaterialProgramOpcode::Distance, "Distance", "Math",
+				"Returns the scalar distance between equal-width values.",
+				&DMaterialExpressionDistance::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Pow, "Power", "Math",
+				"Raises each base component to its exponent.",
+				&DMaterialExpressionPow::StaticClass, {"Base", "Exponent"}},
+			{EMaterialProgramOpcode::Sqrt, "Square Root", "Math",
+				"Returns the component-wise square root.",
+				&DMaterialExpressionSqrt::StaticClass, {}},
+			{EMaterialProgramOpcode::Exp, "Exponential", "Math",
+				"Returns the component-wise natural exponential.",
+				&DMaterialExpressionExp::StaticClass, {}},
+			{EMaterialProgramOpcode::Log, "Natural Log", "Math",
+				"Returns the component-wise natural logarithm.",
+				&DMaterialExpressionLog::StaticClass, {}},
+			{EMaterialProgramOpcode::Floor, "Floor", "Math",
+				"Rounds each component down.",
+				&DMaterialExpressionFloor::StaticClass, {}},
+			{EMaterialProgramOpcode::Ceil, "Ceil", "Math",
+				"Rounds each component up.",
+				&DMaterialExpressionCeil::StaticClass, {}},
+			{EMaterialProgramOpcode::Round, "Round", "Math",
+				"Rounds each component to the nearest integer.",
+				&DMaterialExpressionRound::StaticClass, {}},
+			{EMaterialProgramOpcode::Frac, "Fraction", "Math",
+				"Returns each component's fractional part.",
+				&DMaterialExpressionFrac::StaticClass, {}},
+			{EMaterialProgramOpcode::Fmod, "Fmod", "Math",
+				"Returns the component-wise floating-point remainder.",
+				&DMaterialExpressionFmod::StaticClass, {"A", "B"}},
+			{EMaterialProgramOpcode::Step, "Step", "Math",
+				"Returns zero below Edge and one otherwise.",
+				&DMaterialExpressionStep::StaticClass, {"Edge", "Value"}},
+			{EMaterialProgramOpcode::SmoothStep, "Smooth Step", "Math",
+				"Returns smooth Hermite interpolation between Min and Max.",
+				&DMaterialExpressionSmoothStep::StaticClass, {"Min", "Max", "Value"}},
+			{EMaterialProgramOpcode::Sign, "Sign", "Math",
+				"Returns the sign of each component.",
+				&DMaterialExpressionSign::StaticClass, {}},
+			{EMaterialProgramOpcode::Reflect, "Reflect", "Math",
+				"Reflects an incident vector around a normal of equal width.",
+				&DMaterialExpressionReflect::StaticClass, {"Incident", "Normal"}},
+			{EMaterialProgramOpcode::MakeSurface, "Make Surface", "Surface",
+				"Combines eight explicit surface properties without hidden parameter access.",
+				&DMaterialExpressionMakeSurface::StaticClass, {"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"}},
+			{EMaterialProgramOpcode::FunctionInput, "Function Input", "Math",
+				"Reads an input from the function signature.",
+				&DMaterialExpressionFunctionInput::StaticClass, {}},
+			{EMaterialProgramOpcode::FunctionOutput, "Function Output", "Math",
+				"Publishes a value through the function signature.",
+				&DMaterialExpressionFunctionOutput::StaticClass, {}},
+			{EMaterialProgramOpcode::FunctionCall, "Function Call", "Math",
+				"Evaluates a material function with its bound inputs.",
+				&DMaterialExpressionFunctionCall::StaticClass, {}},
+			{EMaterialProgramOpcode::GetSurfaceAttributes, "Get Surface Attributes", "Surface",
+				"Reads selected attributes from a Surface.",
+				&DMaterialExpressionGetSurfaceAttributes::StaticClass, {"Surface"}},
+			{EMaterialProgramOpcode::SetSurfaceAttributes, "Set Surface Attributes", "Surface",
+				"Overrides selected attributes while retaining the base Surface.",
+				&DMaterialExpressionSetSurfaceAttributes::StaticClass, {"Surface"}},
+		};
+
+		auto GetOpcodeDescriptor(EMaterialProgramOpcode Opcode)
+			-> const FMaterialGraphOpcodeDescriptor&
+		{
+			const auto Found = std::ranges::find(OpcodeDescriptors, Opcode,
+				&FMaterialGraphOpcodeDescriptor::Opcode);
+			static constexpr FMaterialGraphOpcodeDescriptor Unknown{
+				.Opcode = {}, .Name = "Unknown", .Category = "Math", .Description = "",
+				.ExpressionClass = nullptr, .InputNames = {},
+			};
+			return Found != std::end(OpcodeDescriptors) ? *Found : Unknown;
 		}
 
-		auto GetCategory(EMaterialProgramOpcode Opcode) -> const char*
+		auto GetTypedExpressionClass(EMaterialProgramOpcode Opcode,
+			EMaterialProgramValueType Type) -> DClass*
 		{
-			switch (Opcode)
-			{
-			case EMaterialProgramOpcode::Constant:
-			case EMaterialProgramOpcode::Parameter:
-			case EMaterialProgramOpcode::TextureParameter:
-			case EMaterialProgramOpcode::UVChannel:
-			case EMaterialProgramOpcode::WorldPosition:
-			case EMaterialProgramOpcode::Time:
-			case EMaterialProgramOpcode::CameraPosition:
-			case EMaterialProgramOpcode::CameraVector:
-			case EMaterialProgramOpcode::ObjectPosition:
-			case EMaterialProgramOpcode::VertexNormal:
-			case EMaterialProgramOpcode::ScreenPosition:
-			case EMaterialProgramOpcode::ViewSize:
-			case EMaterialProgramOpcode::TextureCoordinates: return "Inputs";
-			case EMaterialProgramOpcode::StaticBool:
-			case EMaterialProgramOpcode::StaticSwitch:
-			case EMaterialProgramOpcode::QualitySwitch:
-			case EMaterialProgramOpcode::FeatureLevelSwitch: return "Static Selection";
-			case EMaterialProgramOpcode::TransformPosition:
-			case EMaterialProgramOpcode::TransformDirection:
-			case EMaterialProgramOpcode::TransformNormal: return "Transforms";
-			case EMaterialProgramOpcode::TextureSampleParameter2D:
-			case EMaterialProgramOpcode::TextureSample2D:
-			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
-			case EMaterialProgramOpcode::MakeSurface:
-			case EMaterialProgramOpcode::GetSurfaceAttributes:
-			case EMaterialProgramOpcode::SetSurfaceAttributes: return "Surface";
-			case EMaterialProgramOpcode::AppendVector:
-			case EMaterialProgramOpcode::Swizzle:
-			case EMaterialProgramOpcode::MakeFloat2:
-			case EMaterialProgramOpcode::MakeFloat3:
-			case EMaterialProgramOpcode::MakeFloat4:
-			case EMaterialProgramOpcode::Splat2:
-			case EMaterialProgramOpcode::Splat3:
-			case EMaterialProgramOpcode::Splat4: return "Channels";
-			default: return "Math";
-			}
-		}
-
-		auto GetOpcodeName(EMaterialProgramOpcode Opcode) -> const char*
-		{
-			switch (Opcode)
-			{
-			case EMaterialProgramOpcode::Constant: return "Constant";
-			case EMaterialProgramOpcode::Parameter: return "Parameter";
-			case EMaterialProgramOpcode::TextureParameter: return "Texture Object Parameter";
-			case EMaterialProgramOpcode::TextureSampleParameter2D: return "Texture Sample Parameter 2D";
-			case EMaterialProgramOpcode::WorldPosition: return "World Position";
-			case EMaterialProgramOpcode::Time: return "Time";
-			case EMaterialProgramOpcode::CollectionParameter: return "Collection Parameter";
-			case EMaterialProgramOpcode::CameraPosition: return "Camera Position";
-			case EMaterialProgramOpcode::CameraVector: return "Camera Vector";
-			case EMaterialProgramOpcode::ObjectPosition: return "Object Position";
-			case EMaterialProgramOpcode::VertexInterpolator: return "Vertex Interpolator";
-			case EMaterialProgramOpcode::VertexNormal: return "Vertex Normal";
-			case EMaterialProgramOpcode::ScreenPosition: return "Screen Position";
-			case EMaterialProgramOpcode::ViewSize: return "View Size";
-			case EMaterialProgramOpcode::StaticBool: return "Static Bool";
-			case EMaterialProgramOpcode::StaticSwitch: return "Static Switch";
-			case EMaterialProgramOpcode::QualitySwitch: return "Quality Switch";
-			case EMaterialProgramOpcode::FeatureLevelSwitch: return "Feature Level Switch";
-			case EMaterialProgramOpcode::TransformPosition: return "Transform Position";
-			case EMaterialProgramOpcode::TransformDirection: return "Transform Direction";
-			case EMaterialProgramOpcode::TransformNormal: return "Transform Normal";
-			case EMaterialProgramOpcode::TextureCoordinates: return "Texture Coordinates";
-			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
-			case EMaterialProgramOpcode::Add: return "Add";
-			case EMaterialProgramOpcode::Subtract: return "Subtract";
-			case EMaterialProgramOpcode::Multiply: return "Multiply";
-			case EMaterialProgramOpcode::Divide: return "Divide";
-			case EMaterialProgramOpcode::Minimum: return "Minimum";
-			case EMaterialProgramOpcode::Maximum: return "Maximum";
-			case EMaterialProgramOpcode::Negate: return "Negate";
-			case EMaterialProgramOpcode::OneMinus: return "One Minus";
-			case EMaterialProgramOpcode::Absolute: return "Absolute";
-			case EMaterialProgramOpcode::Saturate: return "Saturate";
-			case EMaterialProgramOpcode::Normalize: return "Normalize";
-			case EMaterialProgramOpcode::Clamp: return "Clamp";
-			case EMaterialProgramOpcode::Lerp: return "Lerp";
-			case EMaterialProgramOpcode::MakeFloat2: return "Make Vector";
-			case EMaterialProgramOpcode::MakeFloat3: return "Make Vector";
-			case EMaterialProgramOpcode::MakeFloat4: return "Make Vector";
-			case EMaterialProgramOpcode::AppendVector: return "Append Vector";
-			case EMaterialProgramOpcode::Swizzle: return "Component Mask";
-			case EMaterialProgramOpcode::Splat2: return "Splat";
-			case EMaterialProgramOpcode::Splat3: return "Splat";
-			case EMaterialProgramOpcode::Splat4: return "Splat";
-			case EMaterialProgramOpcode::BlendNormalsRNM: return "Blend Normals RNM";
-			case EMaterialProgramOpcode::DecodeNormalRG: return "Decode Normal RG";
-			case EMaterialProgramOpcode::UVChannel: return "UV Channel";
-			case EMaterialProgramOpcode::Sine: return "Sine";
-			case EMaterialProgramOpcode::Cosine: return "Cosine";
-			case EMaterialProgramOpcode::Dot: return "Dot Product";
-			case EMaterialProgramOpcode::Cross: return "Cross Product";
-			case EMaterialProgramOpcode::Length: return "Length";
-			case EMaterialProgramOpcode::Distance: return "Distance";
-			case EMaterialProgramOpcode::Pow: return "Power";
-			case EMaterialProgramOpcode::Sqrt: return "Square Root";
-			case EMaterialProgramOpcode::Exp: return "Exponential";
-			case EMaterialProgramOpcode::Log: return "Natural Log";
-			case EMaterialProgramOpcode::Floor: return "Floor";
-			case EMaterialProgramOpcode::Ceil: return "Ceil";
-			case EMaterialProgramOpcode::Round: return "Round";
-			case EMaterialProgramOpcode::Frac: return "Fraction";
-			case EMaterialProgramOpcode::Fmod: return "Fmod";
-			case EMaterialProgramOpcode::Step: return "Step";
-			case EMaterialProgramOpcode::SmoothStep: return "Smooth Step";
-			case EMaterialProgramOpcode::Sign: return "Sign";
-			case EMaterialProgramOpcode::Reflect: return "Reflect";
-			case EMaterialProgramOpcode::MakeSurface: return "Make Surface";
-			case EMaterialProgramOpcode::FunctionInput: return "Function Input";
-			case EMaterialProgramOpcode::FunctionOutput: return "Function Output";
-			case EMaterialProgramOpcode::FunctionCall: return "Function Call";
-			case EMaterialProgramOpcode::GetSurfaceAttributes: return "Get Surface Attributes";
-			case EMaterialProgramOpcode::SetSurfaceAttributes: return "Set Surface Attributes";
-			}
-			return "Unknown";
-		}
-
-		auto GetExpressionClass(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type) -> DClass*
-		{
-			if (Opcode == EMaterialProgramOpcode::Constant || Opcode == EMaterialProgramOpcode::Parameter)
+			if (Opcode == EMaterialProgramOpcode::Constant
+				|| Opcode == EMaterialProgramOpcode::Parameter)
 			{
 				const auto Index = static_cast<size_t>(Type);
 				if (Index >= 4) return nullptr;
@@ -237,78 +312,7 @@ namespace Durin::Editor::Material
 						DMaterialExpressionVector3Constant::StaticClass(), DMaterialExpressionVector4Constant::StaticClass()})[Index];
 				return Type == EMaterialProgramValueType::Float ? DMaterialExpressionScalarParameter::StaticClass() : DMaterialExpressionVector4Parameter::StaticClass();
 			}
-			switch (Opcode)
-			{
-			case EMaterialProgramOpcode::TextureParameter: return DMaterialExpressionTextureParameter::StaticClass();
-			case EMaterialProgramOpcode::TextureSampleParameter2D: return DMaterialExpressionTextureSampleParameter2D::StaticClass();
-			case EMaterialProgramOpcode::TextureSample2D: return DMaterialExpressionTextureSample2D::StaticClass();
-			case EMaterialProgramOpcode::Add: return DMaterialExpressionAdd::StaticClass();
-			case EMaterialProgramOpcode::Subtract: return DMaterialExpressionSubtract::StaticClass();
-			case EMaterialProgramOpcode::Multiply: return DMaterialExpressionMultiply::StaticClass();
-			case EMaterialProgramOpcode::Divide: return DMaterialExpressionDivide::StaticClass();
-			case EMaterialProgramOpcode::Minimum: return DMaterialExpressionMinimum::StaticClass();
-			case EMaterialProgramOpcode::Maximum: return DMaterialExpressionMaximum::StaticClass();
-			case EMaterialProgramOpcode::Negate: return DMaterialExpressionNegate::StaticClass();
-			case EMaterialProgramOpcode::OneMinus: return DMaterialExpressionOneMinus::StaticClass();
-			case EMaterialProgramOpcode::Absolute: return DMaterialExpressionAbsolute::StaticClass();
-			case EMaterialProgramOpcode::Saturate: return DMaterialExpressionSaturate::StaticClass();
-			case EMaterialProgramOpcode::Normalize: return DMaterialExpressionNormalize::StaticClass();
-			case EMaterialProgramOpcode::Clamp: return DMaterialExpressionClamp::StaticClass();
-			case EMaterialProgramOpcode::Lerp: return DMaterialExpressionLerp::StaticClass();
-			case EMaterialProgramOpcode::AppendVector: return DMaterialExpressionAppendVector::StaticClass();
-			case EMaterialProgramOpcode::Swizzle: return DMaterialExpressionSwizzle::StaticClass();
-			case EMaterialProgramOpcode::Splat2: return DMaterialExpressionSplat2::StaticClass();
-			case EMaterialProgramOpcode::Splat3: return DMaterialExpressionSplat3::StaticClass();
-			case EMaterialProgramOpcode::Splat4: return DMaterialExpressionSplat4::StaticClass();
-			case EMaterialProgramOpcode::BlendNormalsRNM: return DMaterialExpressionBlendNormalsRNM::StaticClass();
-			case EMaterialProgramOpcode::UVChannel: return DMaterialExpressionUVChannel::StaticClass();
-			case EMaterialProgramOpcode::Sine: return DMaterialExpressionSine::StaticClass();
-			case EMaterialProgramOpcode::Cosine: return DMaterialExpressionCosine::StaticClass();
-			case EMaterialProgramOpcode::Dot: return DMaterialExpressionDot::StaticClass();
-			case EMaterialProgramOpcode::Cross: return DMaterialExpressionCross::StaticClass();
-			case EMaterialProgramOpcode::Length: return DMaterialExpressionLength::StaticClass();
-			case EMaterialProgramOpcode::Distance: return DMaterialExpressionDistance::StaticClass();
-			case EMaterialProgramOpcode::Pow: return DMaterialExpressionPow::StaticClass();
-			case EMaterialProgramOpcode::Sqrt: return DMaterialExpressionSqrt::StaticClass();
-			case EMaterialProgramOpcode::Exp: return DMaterialExpressionExp::StaticClass();
-			case EMaterialProgramOpcode::Log: return DMaterialExpressionLog::StaticClass();
-			case EMaterialProgramOpcode::Floor: return DMaterialExpressionFloor::StaticClass();
-			case EMaterialProgramOpcode::Ceil: return DMaterialExpressionCeil::StaticClass();
-			case EMaterialProgramOpcode::Round: return DMaterialExpressionRound::StaticClass();
-			case EMaterialProgramOpcode::Frac: return DMaterialExpressionFrac::StaticClass();
-			case EMaterialProgramOpcode::Fmod: return DMaterialExpressionFmod::StaticClass();
-			case EMaterialProgramOpcode::Step: return DMaterialExpressionStep::StaticClass();
-			case EMaterialProgramOpcode::SmoothStep: return DMaterialExpressionSmoothStep::StaticClass();
-			case EMaterialProgramOpcode::Sign: return DMaterialExpressionSign::StaticClass();
-			case EMaterialProgramOpcode::Reflect: return DMaterialExpressionReflect::StaticClass();
-			case EMaterialProgramOpcode::CameraPosition: return DMaterialExpressionCameraPosition::StaticClass();
-			case EMaterialProgramOpcode::CameraVector: return DMaterialExpressionCameraVector::StaticClass();
-			case EMaterialProgramOpcode::ObjectPosition: return DMaterialExpressionObjectPosition::StaticClass();
-			case EMaterialProgramOpcode::VertexInterpolator: return DMaterialExpressionVertexInterpolator::StaticClass();
-			case EMaterialProgramOpcode::VertexNormal: return DMaterialExpressionVertexNormal::StaticClass();
-			case EMaterialProgramOpcode::ScreenPosition: return DMaterialExpressionScreenPosition::StaticClass();
-			case EMaterialProgramOpcode::ViewSize: return DMaterialExpressionViewSize::StaticClass();
-			case EMaterialProgramOpcode::StaticBool: return DMaterialExpressionStaticBool::StaticClass();
-			case EMaterialProgramOpcode::StaticSwitch: return DMaterialExpressionStaticSwitch::StaticClass();
-			case EMaterialProgramOpcode::QualitySwitch: return DMaterialExpressionQualitySwitch::StaticClass();
-			case EMaterialProgramOpcode::FeatureLevelSwitch: return DMaterialExpressionFeatureLevelSwitch::StaticClass();
-			case EMaterialProgramOpcode::TransformPosition: return DMaterialExpressionTransformPosition::StaticClass();
-			case EMaterialProgramOpcode::TransformDirection: return DMaterialExpressionTransformDirection::StaticClass();
-			case EMaterialProgramOpcode::TransformNormal: return DMaterialExpressionTransformNormal::StaticClass();
-			case EMaterialProgramOpcode::MakeSurface: return DMaterialExpressionMakeSurface::StaticClass();
-			case EMaterialProgramOpcode::FunctionInput: return DMaterialExpressionFunctionInput::StaticClass();
-			case EMaterialProgramOpcode::FunctionOutput: return DMaterialExpressionFunctionOutput::StaticClass();
-			case EMaterialProgramOpcode::FunctionCall: return DMaterialExpressionFunctionCall::StaticClass();
-			case EMaterialProgramOpcode::GetSurfaceAttributes: return DMaterialExpressionGetSurfaceAttributes::StaticClass();
-			case EMaterialProgramOpcode::SetSurfaceAttributes: return DMaterialExpressionSetSurfaceAttributes::StaticClass();
-			case EMaterialProgramOpcode::WorldPosition: return DMaterialExpressionWorldPosition::StaticClass();
-			case EMaterialProgramOpcode::Time: return DMaterialExpressionTime::StaticClass();
-			case EMaterialProgramOpcode::TextureCoordinates: return DMaterialExpressionTextureCoordinates::StaticClass();
-			case EMaterialProgramOpcode::MakeFloat2: return DMaterialExpressionMakeVector2::StaticClass();
-			case EMaterialProgramOpcode::MakeFloat3: return DMaterialExpressionMakeVector3::StaticClass();
-			case EMaterialProgramOpcode::MakeFloat4: return DMaterialExpressionMakeVector4::StaticClass();
-			default: return nullptr;
-			}
+			return nullptr;
 		}
 
 		auto MakeCatalogEntry(
@@ -318,87 +322,17 @@ namespace Durin::Editor::Material
 			-> FMaterialGraphCatalogEntry
 		{
 			FMaterialGraphCatalogEntry Entry;
-			Entry.OperationName = GetOpcodeName(Opcode);
-			Entry.Category = GetCategory(Opcode);
-			switch (Opcode)
-			{
-			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu."; break;
-			case EMaterialProgramOpcode::Parameter: Entry.Description = "A value exposed by the material parameter definition."; break;
-			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D."; break;
-			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D."; break;
-			case EMaterialProgramOpcode::TextureSampleParameter2D: Entry.Description = "Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch."; break;
-			case EMaterialProgramOpcode::TextureCoordinates: Entry.Description = "Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes."; break;
-			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
-			case EMaterialProgramOpcode::Subtract: Entry.Description = "Subtracts the second value from the first."; break;
-			case EMaterialProgramOpcode::Multiply: Entry.Description = "Multiplies two values component by component."; break;
-			case EMaterialProgramOpcode::Divide: Entry.Description = "Divides the first value by the second."; break;
-			case EMaterialProgramOpcode::Minimum: Entry.Description = "Returns the component-wise minimum."; break;
-			case EMaterialProgramOpcode::Maximum: Entry.Description = "Returns the component-wise maximum."; break;
-			case EMaterialProgramOpcode::Negate: Entry.Description = "Reverses the sign of a value."; break;
-			case EMaterialProgramOpcode::OneMinus: Entry.Description = "Subtracts a value from one."; break;
-			case EMaterialProgramOpcode::Absolute: Entry.Description = "Returns the absolute value."; break;
-			case EMaterialProgramOpcode::Saturate: Entry.Description = "Clamps a value to the zero-to-one range."; break;
-			case EMaterialProgramOpcode::Normalize: Entry.Description = "Returns a unit-length vector."; break;
-			case EMaterialProgramOpcode::Clamp: Entry.Description = "Constrains a value between minimum and maximum inputs."; break;
-			case EMaterialProgramOpcode::Lerp: Entry.Description = "Interpolates between two values."; break;
-			case EMaterialProgramOpcode::MakeFloat2:
-			case EMaterialProgramOpcode::MakeFloat3:
-			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
-			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position relative to the current view origin (Float3)."; break;
-			case EMaterialProgramOpcode::Time: Entry.Description = "Elapsed real time in seconds (Float), updated every rendered view."; break;
-			case EMaterialProgramOpcode::CollectionParameter: Entry.Description = "Reads a numeric value from a material parameter collection in the current world."; break;
-			case EMaterialProgramOpcode::CameraPosition: Entry.Description = "Active pass camera position in translated world space; zero at the view origin (Float3)."; break;
-			case EMaterialProgramOpcode::CameraVector: Entry.Description = "Direction from the fragment to the active pass camera (Float3)."; break;
-			case EMaterialProgramOpcode::ObjectPosition: Entry.Description = "Render primitive bounds center relative to the current view origin (Float3)."; break;
-			case EMaterialProgramOpcode::VertexInterpolator: Entry.Description = "Evaluates the input per vertex and interpolates its value to pixel calculations."; break;
-			case EMaterialProgramOpcode::VertexNormal: Entry.Description = "Post-vertex-factory world normal for vertex offsets or explicit interpolation."; break;
-			case EMaterialProgramOpcode::ScreenPosition: Entry.Description = "Normalized position within the active pass viewport (Float2)."; break;
-			case EMaterialProgramOpcode::ViewSize: Entry.Description = "Active pass viewport size in pixels (Float2)."; break;
-			case EMaterialProgramOpcode::StaticBool: Entry.Description = "Declares a root-owned compile-time boolean keyed by stable GUID."; break;
-			case EMaterialProgramOpcode::StaticSwitch: Entry.Description = "Selects exactly one branch from a static bool before normalized MIR."; break;
-			case EMaterialProgramOpcode::QualitySwitch: Entry.Description = "Selects Low or High, using Default when that branch is unconnected."; break;
-			case EMaterialProgramOpcode::FeatureLevelSwitch: Entry.Description = "Selects the accepted RHI feature tier, using Default when unconnected."; break;
-			case EMaterialProgramOpcode::TransformPosition: Entry.Description = "Transforms a spatial position between explicit coordinate spaces; World is relative to the current view origin."; break;
-			case EMaterialProgramOpcode::TransformDirection: Entry.Description = "Transforms a spatial direction between explicit coordinate spaces."; break;
-			case EMaterialProgramOpcode::TransformNormal: Entry.Description = "Transforms and normalizes a spatial normal with inverse-transpose semantics."; break;
-			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;
-			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
-			case EMaterialProgramOpcode::Splat2:
-			case EMaterialProgramOpcode::Splat3:
-			case EMaterialProgramOpcode::Splat4: Entry.Description = "Replicates a scalar across vector components."; break;
-			case EMaterialProgramOpcode::BlendNormalsRNM: Entry.Description = "Blends two tangent-space normals with RNM."; break;
-			case EMaterialProgramOpcode::DecodeNormalRG: Entry.Description = "Decodes a tangent-space normal from its RG channels."; break;
-			case EMaterialProgramOpcode::UVChannel: Entry.Description = "Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped."; break;
-			case EMaterialProgramOpcode::Sine: Entry.Description = "Returns the component-wise sine in radians."; break;
-			case EMaterialProgramOpcode::Cosine: Entry.Description = "Returns the component-wise cosine in radians."; break;
-			case EMaterialProgramOpcode::Dot: Entry.Description = "Returns the scalar dot product of equal-width vectors."; break;
-			case EMaterialProgramOpcode::Cross: Entry.Description = "Returns the cross product of two Float3 values."; break;
-			case EMaterialProgramOpcode::Length: Entry.Description = "Returns the scalar length of a vector."; break;
-			case EMaterialProgramOpcode::Distance: Entry.Description = "Returns the scalar distance between equal-width values."; break;
-			case EMaterialProgramOpcode::Pow: Entry.Description = "Raises each base component to its exponent."; break;
-			case EMaterialProgramOpcode::Sqrt: Entry.Description = "Returns the component-wise square root."; break;
-			case EMaterialProgramOpcode::Exp: Entry.Description = "Returns the component-wise natural exponential."; break;
-			case EMaterialProgramOpcode::Log: Entry.Description = "Returns the component-wise natural logarithm."; break;
-			case EMaterialProgramOpcode::Floor: Entry.Description = "Rounds each component down."; break;
-			case EMaterialProgramOpcode::Ceil: Entry.Description = "Rounds each component up."; break;
-			case EMaterialProgramOpcode::Round: Entry.Description = "Rounds each component to the nearest integer."; break;
-			case EMaterialProgramOpcode::Frac: Entry.Description = "Returns each component's fractional part."; break;
-			case EMaterialProgramOpcode::Fmod: Entry.Description = "Returns the component-wise floating-point remainder."; break;
-			case EMaterialProgramOpcode::Step: Entry.Description = "Returns zero below Edge and one otherwise."; break;
-			case EMaterialProgramOpcode::SmoothStep: Entry.Description = "Returns smooth Hermite interpolation between Min and Max."; break;
-			case EMaterialProgramOpcode::Sign: Entry.Description = "Returns the sign of each component."; break;
-			case EMaterialProgramOpcode::Reflect: Entry.Description = "Reflects an incident vector around a normal of equal width."; break;
-			case EMaterialProgramOpcode::MakeSurface: Entry.Description = "Combines eight explicit surface properties without hidden parameter access."; break;
-			case EMaterialProgramOpcode::GetSurfaceAttributes: Entry.Description = "Reads selected attributes from a Surface."; break;
-			case EMaterialProgramOpcode::SetSurfaceAttributes: Entry.Description = "Overrides selected attributes while retaining the base Surface."; break;
-			case EMaterialProgramOpcode::FunctionInput: Entry.Description = "Reads an input from the function signature."; break;
-			case EMaterialProgramOpcode::FunctionOutput: Entry.Description = "Publishes a value through the function signature."; break;
-			case EMaterialProgramOpcode::FunctionCall: Entry.Description = "Evaluates a material function with its bound inputs."; break;
-			}
+			const auto& Descriptor = GetOpcodeDescriptor(Opcode);
+			Entry.OperationName = Descriptor.Name;
+			Entry.Category = Descriptor.Category;
+			Entry.Description = Descriptor.Description;
 			Entry.Opcode = Opcode;
 			Entry.ResultType = ResultType;
-			Entry.ExpressionClass = GetExpressionClass(Opcode, ResultType);
-			Entry.InputNames = GetInputNames(Opcode, Signature.InputCount);
+			Entry.ExpressionClass = Descriptor.ExpressionClass
+				? Descriptor.ExpressionClass() : GetTypedExpressionClass(Opcode, ResultType);
+			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
+				Entry.InputNames.emplace_back(Descriptor.InputNames[Index]
+					? Descriptor.InputNames[Index] : "Value");
 			if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Entry.InputNames = {"UV"};
 			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel"};
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
@@ -611,7 +545,7 @@ namespace Durin::Editor::Material
 			const auto ShapeIt = BaseShapes.find(BaseShapeKey(Node.Opcode, Node.ResultType));
 			if (ShapeIt != BaseShapes.end()) Shape = ShapeIt->second;
 			View.PrimaryLabel = Shape
-				? Shape->OperationName : GetOpcodeName(Node.Opcode);
+				? Shape->OperationName : GetOpcodeDescriptor(Node.Opcode).Name;
 			auto* Expression = ExpressionsById.at(Node.Id);
 			if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression))
 			{
