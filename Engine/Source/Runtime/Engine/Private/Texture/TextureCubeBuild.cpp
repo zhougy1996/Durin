@@ -37,7 +37,7 @@ namespace Durin
 		}
 		auto CanonicalInput = std::move(*Normalized);
 		const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
-		if ((!bHDR && !CanonicalInput.DecodedFaces.IsValid())
+		if ((!bHDR && !CanonicalInput.FaceImages.IsValid())
 			|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
 			|| (bHDR && (!CanonicalInput.AuthoredPanorama.IsValid() || CanonicalInput.bSRGB
 				|| CanonicalInput.AuthoredPanorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
@@ -53,7 +53,7 @@ namespace Durin
 		}
 		auto Source = bHDR
 			? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(), 4, 0)
-			: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
+			: PrepareTextureCubeSource(CanonicalInput.FaceImages);
 		if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
 			ETextureBuildStage::Normalize, Source.error()});
 		auto Product = TexturePrivate::BuildTextureCubeSource(*Source, CanonicalInput.bSRGB,
@@ -98,7 +98,7 @@ namespace Durin
 #else
 			require(Product != nullptr);
 			// The build boundary has already validated these value contracts.
-			check(CanonicalInput.DecodedFaces.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR);
+			check(CanonicalInput.FaceImages.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR);
 			check(Product->IsValid());
 			auto PlatformData = std::move(Product);
 			if (!Context.bPreserveSource)
@@ -106,7 +106,7 @@ namespace Durin
 				auto Source = CanonicalInput.AuthoredPanorama.IsValid()
 					? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(),
 						Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
-					: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
+					: PrepareTextureCubeSource(CanonicalInput.FaceImages);
 				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
 					Source.error()});
 				Texture.SetSource(std::move(*Source));

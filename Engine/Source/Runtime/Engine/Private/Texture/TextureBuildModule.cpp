@@ -1,3 +1,5 @@
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/ITextureBuildModule.h"
 #if DURIN_WITH_EDITOR
 #include "TextureBuildSession.h"
@@ -22,3 +24,5 @@ namespace Durin
 		return nullptr;
 	}
 }
+
+#endif

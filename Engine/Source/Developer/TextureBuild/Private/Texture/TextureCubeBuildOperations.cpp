@@ -22,7 +22,7 @@ namespace Durin
 		}
 		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(&Request.Input.get()))
 		{
-			if (!Faces->DecodedFaces.IsValid())
+			if (!Faces->FaceImages.IsValid())
 			{
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
 					"TextureCube decoded faces are invalid."});
@@ -35,7 +35,7 @@ namespace Durin
 				|| Faces->OriginalSourceWidth == 0 || Faces->OriginalSourceHeight == 0)
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 					ETextureBuildStage::Normalize, "TextureCube source layout, dimensions, or exposure are invalid."});
-			CanonicalInput = {.DecodedFaces = Faces->DecodedFaces,
+			CanonicalInput = {.FaceImages = Faces->FaceImages,
 				.SourceLayout = Faces->SourceLayout,
 				.OriginalSourceWidth = Faces->OriginalSourceWidth,
 				.OriginalSourceHeight = Faces->OriginalSourceHeight,
@@ -53,7 +53,7 @@ namespace Durin
 				"TextureCube output range is invalid."});
 		}
 		return std::visit([&](const auto& Image) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> {
-			FTextureCubeDecodedFaces SourceData;
+			FTextureCubeFaceImages SourceData;
 			const bool bHDR = Panorama.Settings.Output == ETextureCubeOutput::HDR;
 			if (bHDR)
 			{
@@ -111,7 +111,7 @@ namespace Durin
 					ImageResult1.error().ToString()});
 			}
 			auto AuthoredPanorama = std::move(*ImageResult1);
-			CanonicalInput = {.DecodedFaces = std::move(SourceData),
+			CanonicalInput = {.FaceImages = std::move(SourceData),
 				.AuthoredPanorama = std::move(AuthoredPanorama),
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
 				.OriginalSourceWidth = Image.Width,
@@ -140,12 +140,12 @@ namespace Durin
 		}
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game
-			|| !Request.DecodedFaces.get().IsValid())
+			|| !Request.FaceImages.get().IsValid())
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"TextureCube canonical build request is invalid."});
 		}
-		const FTextureCubeDecodedFaces& SourceData = Request.DecodedFaces.get();
+		const FTextureCubeFaceImages& SourceData = Request.FaceImages.get();
 		const bool bHasTransparency = SourceData.TransparencyMask != 0;
 		auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)

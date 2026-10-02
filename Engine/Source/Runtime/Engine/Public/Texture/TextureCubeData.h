@@ -25,18 +25,18 @@ namespace Durin
 		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
 	};
 
-	// Immutable shared RGBA8 images used by decoding, projection, and build builds.
+#if DURIN_WITH_EDITORONLY_DATA
+	// Shared immutable RGBA8 pixels used by decoding, projection, and offline builds.
 	// Faces use Unknown gamma; the cube build settings supply color interpretation.
-	struct FTextureCubeDecodedFaces
+	struct FTextureCubeFaceImages
 	{
 		std::array<Image::FImage, TextureCubeFaceCount> Faces;
-		std::array<uint8, TextureCubeFaceCount> SourceChannelCounts{};
+		uint8 SourceChannelCount = 0;
 		uint8 TransparencyMask = 0;
 
-#if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto IsValid() const -> bool;
-#endif
 	};
+#endif
 
 	struct FTextureCubePlatformData
 	{

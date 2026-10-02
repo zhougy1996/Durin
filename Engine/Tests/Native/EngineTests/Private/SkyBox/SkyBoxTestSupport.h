@@ -167,7 +167,7 @@ namespace
 	}
 
 	auto GetSourceColor(
-		const Durin::FTextureCubeDecodedFaces& SourceData,
+		const Durin::FTextureCubeFaceImages& SourceData,
 		Durin::ETextureCubeFace Face,
 		uint32 X,
 		uint32 Y

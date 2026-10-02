@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-03
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -32,7 +32,7 @@ cooked-runtime, render-resource, editor, and material boundaries.
   `FTexture2DBuildSettings`. Images share immutable decoded allocations, but
   retain no texture, source object, mip handle, or package-read handle. There is
   no intermediate imported-data or snapshot type. Cube recipes likewise consume
-  shared decoded images through `FTextureCubeDecodedFaces`; their storage and
+  shared decoded images through `FTextureCubeFaceImages`; their storage and
   identity boundary is described in [Cube Textures](CubeTextures.md). Volume
   adapters retain their family-specific recipe inputs.
 - A Texture2D build request carries source identity separately from its images

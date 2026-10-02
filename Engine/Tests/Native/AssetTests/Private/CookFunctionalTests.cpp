@@ -364,9 +364,9 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	auto* Texture = Make.operator()<DTexture2D>("Texture");
 	Texture->SetSource(std::move(Pixels));
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
-	FTextureCubeDecodedFaces Faces;
+	FTextureCubeFaceImages Faces;
 	for (auto& Face : Faces.Faces) Face = PixelsImage;
-	Faces.SourceChannelCounts.fill(4);
+	Faces.SourceChannelCount = 4;
 	auto* Cube = Make.operator()<DTextureCube>("Cube");
 	auto PreparedCubeSource = Durin::PrepareTextureCubeSource(Faces);
 	ASSERT_TRUE(PreparedCubeSource);

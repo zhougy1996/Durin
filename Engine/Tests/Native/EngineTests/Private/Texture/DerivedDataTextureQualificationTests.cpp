@@ -226,14 +226,14 @@ TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)
 TEST_F(FDerivedDataTextureQualificationTests, CubeColdAndWarmIncludingNormalization)
 {
 	FTextureCubeFacesBuildInput Input{.OriginalSourceWidth = 256, .OriginalSourceHeight = 256};
-	for (auto& Face : Input.DecodedFaces.Faces)
+	for (auto& Face : Input.FaceImages.Faces)
 	{
 		auto Image = Image::FImage::TryCreate({.Width = 256, .Height = 256,
 			.Format = Image::ERawImageFormat::RGBA8}, MakePixels(256 * 256 * 4));
 		ASSERT_TRUE(Image);
 		Face = std::move(*Image);
 	}
-	Input.DecodedFaces.SourceChannelCounts.fill(4);
+	Input.FaceImages.SourceChannelCount = 4;
 	const FTextureCubeBuildRequest Request{.Input = std::move(Input)};
 	Measure("cube-6x256-rgba8", [&](bool bWrite) -> std::optional<FTextureBaselineValue> {
 		auto Effective = Request;
@@ -253,7 +253,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeColdAndWarmIncludingNormalizat
 
 TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedSourceColdAndWarm)
 {
-	FTextureCubeDecodedFaces Faces;
+	FTextureCubeFaceImages Faces;
 	for (auto& Face : Faces.Faces)
 	{
 		auto Image = Image::FImage::TryCreate({.Width = 256, .Height = 256,
@@ -261,7 +261,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCapturedSourceColdAndWarm)
 		ASSERT_TRUE(Image);
 		Face = std::move(*Image);
 	}
-	Faces.SourceChannelCounts.fill(4);
+	Faces.SourceChannelCount = 4;
 	auto Source = PrepareTextureCubeSource(Faces);
 	ASSERT_TRUE(Source);
 	Source->ReleaseSourceMemory();

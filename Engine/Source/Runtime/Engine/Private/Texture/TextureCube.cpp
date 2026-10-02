@@ -58,10 +58,10 @@ namespace Durin
 			const FTextureSource& Source = Input.Source;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube)
 			{
-				FTextureCubeDecodedFaces Faces = ReadTextureCubeFaces(Source);
+				FTextureCubeFaceImages Faces = ReadTextureCubeFaces(Source);
 				if (!Faces.IsValid()) return false;
 				OutRequest.Input = FTextureCubeFacesBuildInput{
-					.DecodedFaces = std::move(Faces),
+					.FaceImages = std::move(Faces),
 					.SourceLayout = ETextureCubeSourceLayout::SixFaces,
 					.OriginalSourceWidth = Input.Width,
 					.OriginalSourceHeight = Input.Height,
@@ -144,10 +144,10 @@ namespace Durin
 #endif
 
 #if DURIN_WITH_EDITORONLY_DATA
-		auto ValidateCubeSourceData(const FTextureCubeDecodedFaces& SourceData, std::string& OutError) -> bool
+		auto ValidateCubeSourceData(const FTextureCubeFaceImages& SourceData, std::string& OutError) -> bool
 		{
 			if ((SourceData.TransparencyMask & ~0x3fu) != 0
-				|| SourceData.SourceChannelCounts[0] == 0 || SourceData.SourceChannelCounts[0] > 4)
+				|| SourceData.SourceChannelCount == 0 || SourceData.SourceChannelCount > 4)
 			{
 				OutError = "Cube face import metadata is invalid.";
 				return false;
@@ -181,12 +181,6 @@ namespace Durin
 						FaceNames[FaceIndex], Face.GetInfo().Width, Face.GetInfo().Height, Reference.GetInfo().Width, Reference.GetInfo().Height);
 					return false;
 				}
-				if (SourceData.SourceChannelCounts[FaceIndex] != SourceData.SourceChannelCounts[0])
-				{
-					OutError = std::format("{} face source channel count {} does not match PositiveX {}; all faces must use an identical source format.",
-						FaceNames[FaceIndex], SourceData.SourceChannelCounts[FaceIndex], SourceData.SourceChannelCounts[0]);
-					return false;
-				}
 			}
 			return true;
 		}
@@ -195,15 +189,15 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
-	auto FTextureCubeDecodedFaces::IsValid() const -> bool
+	auto FTextureCubeFaceImages::IsValid() const -> bool
 	{
 		std::string Error;
 		return ValidateCubeSourceData(*this, Error);
 	}
 
-	auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeDecodedFaces
+	auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeFaceImages
 	{
-		FTextureCubeDecodedFaces Result;
+		FTextureCubeFaceImages Result;
 		if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
 			return Result;
 		const FTextureSource::FMipData Mips = Source.GetMipData();
@@ -219,9 +213,9 @@ namespace Durin
 			if (!ImageResult1) return {};
 			Result.Faces[Index] = std::move(*ImageResult1);
 		}
-		Result.SourceChannelCounts.fill(Source.GetSourceChannelCount());
+		Result.SourceChannelCount = Source.GetSourceChannelCount();
 		Result.TransparencyMask = Source.GetTransparencyMask();
-		return Result.IsValid() ? std::move(Result) : FTextureCubeDecodedFaces{};
+		return Result.IsValid() ? std::move(Result) : FTextureCubeFaceImages{};
 	}
 
 #endif
@@ -328,7 +322,7 @@ namespace Durin
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto PrepareTextureCubeSource(
-		const FTextureCubeDecodedFaces& Value) -> std::expected<FTextureSource, std::string>
+		const FTextureCubeFaceImages& Value) -> std::expected<FTextureSource, std::string>
 	{
 		if (!Value.IsValid())
 		{
@@ -345,7 +339,7 @@ namespace Durin
 		if (!NewSource.InitLayered(ETextureSourceKind::TextureCube,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Unknown, Bytes,
-			Value.SourceChannelCounts[0], Value.TransparencyMask,
+			Value.SourceChannelCount, Value.TransparencyMask,
 			ETextureSourceCompression::Zstd))
 		{
 			return std::unexpected(std::string("TextureCube source data could not be initialized."));

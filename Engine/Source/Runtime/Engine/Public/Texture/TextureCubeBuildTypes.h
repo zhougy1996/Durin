@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "Texture/TextureCubeData.h"
 #include "Texture/TextureBuildOutcome.h"
 
@@ -42,7 +45,7 @@ namespace Durin
 	// Canonical faces may retain panorama authoring metadata when used by PostLoad.
 	struct FTextureCubeFacesBuildInput
 	{
-		FTextureCubeDecodedFaces DecodedFaces;
+		FTextureCubeFaceImages FaceImages;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
 		uint32 OriginalSourceHeight = 0;
@@ -70,7 +73,7 @@ namespace Durin
 	// Engine-owned canonical authoring state produced while normalizing panorama input.
 	struct FTextureCubeCanonicalBuildInput
 	{
-		FTextureCubeDecodedFaces DecodedFaces;
+		FTextureCubeFaceImages FaceImages;
 		Image::FImage AuthoredPanorama;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
@@ -83,7 +86,7 @@ namespace Durin
 
 	struct FTextureCubeBuildInput
 	{
-		std::reference_wrapper<const FTextureCubeDecodedFaces> DecodedFaces;
+		std::reference_wrapper<const FTextureCubeFaceImages> FaceImages;
 		bool bSRGB = true;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
@@ -93,3 +96,5 @@ namespace Durin
 	};
 
 }
+
+#endif

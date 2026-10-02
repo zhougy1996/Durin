@@ -171,10 +171,10 @@ namespace Durin::AssetForge::Builtins
 				}
 				Encoded[Index] = Sources[Index].Snapshot.GetBytes();
 			}
-			FTextureCubeDecodedFaces SourceData;
+			FTextureCubeFaceImages SourceData;
 			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError))
 				return false;
-			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
+			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.FaceImages = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
 			OutError = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 			if (!BuildResult
 				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;
@@ -438,7 +438,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto TranslateTextureCubeFaceSources(
 		const std::array<FByteView, TextureCubeFaceCount>& EncodedFaces,
-		FTextureCubeDecodedFaces& OutSource,
+		FTextureCubeFaceImages& OutSource,
 		std::string& OutError) -> bool
 	{
 		OutSource = {};
@@ -470,7 +470,15 @@ namespace Durin::AssetForge::Builtins
 				OutSource = {};
 				return false;
 			}
-			OutSource.SourceChannelCounts[Index] = DecodeResult->SourceChannelCount;
+			if (Index == 0)
+				OutSource.SourceChannelCount = DecodeResult->SourceChannelCount;
+			else if (DecodeResult->SourceChannelCount != OutSource.SourceChannelCount)
+			{
+				OutError = std::format("{} face source channel count {} does not match PositiveX {}; all faces must use an identical source format.",
+					FaceNames[Index], DecodeResult->SourceChannelCount, OutSource.SourceChannelCount);
+				OutSource = {};
+				return false;
+			}
 			if (DecodeResult->bHasTransparency)
 				OutSource.TransparencyMask |= static_cast<uint8>(1u << Index);
 		}
@@ -481,7 +489,7 @@ namespace Durin::AssetForge::Builtins
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
 	{
-		FTextureCubeDecodedFaces SourceData;
+		FTextureCubeFaceImages SourceData;
 		std::array<FByteBuffer, TextureCubeFaceCount> Bytes;
 		std::array<FByteView, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
@@ -500,7 +508,7 @@ namespace Durin::AssetForge::Builtins
 			return {false, std::move(Error)};
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		std::unique_ptr<FTextureCubePlatformData> Product;
-		auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
+		auto BuildResult = BuildTextureCubeDetached({.Input = FTextureCubeFacesBuildInput{.FaceImages = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 		Error = (BuildResult ? std::string{} : FormatTextureBuildOperationError(BuildResult.error()));
 		CanonicalInput = BuildResult ? std::move(BuildResult->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 		Product = BuildResult ? std::move(BuildResult->PlatformData) : std::unique_ptr<Durin::FTextureCubePlatformData>{};

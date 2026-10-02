@@ -817,13 +817,13 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	using namespace Durin;
 	using namespace Durin::DerivedData;
 	FTextureCubeCanonicalBuildInput Prepared;
-	Prepared.DecodedFaces.SourceChannelCounts.fill(4);
+	Prepared.FaceImages.SourceChannelCount = 4;
 	std::array<Image::FImageView, 6> Views;
 	for (size_t Face = 0; Face < Views.size(); ++Face)
 	{
-		Prepared.DecodedFaces.Faces[Face] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		Prepared.FaceImages.Faces[Face] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
 			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{42})).value();
-		Views[Face] = Prepared.DecodedFaces.Faces[Face].GetView();
+		Views[Face] = Prepared.FaceImages.Faces[Face].GetView();
 	}
 	FTextureSource Source;
 	ASSERT_TRUE(Source.InitCube(Views, 4));
@@ -834,7 +834,7 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	auto Resolved = Valid->Resolve(Identities, {});
 	ASSERT_TRUE(Resolved);
 	EXPECT_TRUE(Resolved->front().Values[0].Data.SharesStorageWith(Views[0].GetBuffer()));
-	Prepared.DecodedFaces.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+	Prepared.FaceImages.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
 		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{43})).value();
 	auto Invalid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
 	ASSERT_TRUE(Invalid->Describe(Definition.GetSources(), {}));

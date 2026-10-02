@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-03
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -23,9 +23,12 @@ and translates physical sources through Engine contracts and has no compile-time
 TextureBuild dependency.
 
 Six-face decoding, LDR panorama projection, and recipe requests use
-`FTextureCubeDecodedFaces`: six shared RGBA8 images plus channel/transparency
-metadata, with a 512 MiB aggregate pixel limit. It has no reflected fields,
-bulk storage, schema, or independent content identity. `ReadTextureCubeFaces`
+`FTextureCubeFaceImages`: six shared RGBA8 images, one common source channel
+count, and a per-face transparency mask, with a 512 MiB aggregate pixel limit.
+Import translation rejects channel-count mismatches before producing this value.
+The image collection and texture-build module interface are available only with
+`DURIN_WITH_EDITORONLY_DATA`; cooked runtime consumes platform data. The collection
+has no reflected fields, bulk storage, schema, or independent content identity. `ReadTextureCubeFaces`
 reads the installed `FTextureSource` and returns images sharing its decoded
 allocation; they remain valid after source-memory release or source destruction.
 Rebuild requests carry the installed Source identity separately from images.

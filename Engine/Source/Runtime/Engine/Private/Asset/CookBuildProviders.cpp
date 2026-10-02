@@ -1,6 +1,8 @@
 #include "CookBuildProviders.h"
 #include "StaticMesh/IMeshBuilderModule.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/ITextureBuildModule.h"
+#endif
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -11,6 +13,7 @@ namespace Durin::AssetPrivate
 		Out.clear();
 		if (Family == "texture2d" || Family == "texture-cube" || Family == "volume-texture")
 		{
+#if DURIN_WITH_EDITORONLY_DATA
 			const auto Module = ITextureBuildModule::Get();
 			if (!Module) return false;
 			const uint32 BuilderVersion = Family == "texture2d" ? Module->GetTexture2DBuilderVersion()
@@ -27,6 +30,9 @@ namespace Durin::AssetPrivate
 			}
 			Out = Writer.TakeBytes();
 			return true;
+#else
+			return false;
+#endif
 		}
 		if (Family == "static-mesh")
 		{

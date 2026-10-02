@@ -13,7 +13,7 @@ namespace Durin::TextureCubeBuilder
 			return (std::filesystem::path(DURIN_TEST_DATA_DIR) / "EquirectangularPanorama" / Name).generic_string();
 		}
 
-		auto FacePixel(const FTextureCubeDecodedFaces& Cube, ETextureCubeFace Face,
+		auto FacePixel(const FTextureCubeFaceImages& Cube, ETextureCubeFace Face,
 			uint32 X = 0, uint32 Y = 0) -> std::array<uint8, 4>
 		{
 			const Image::FImage& Source = Cube.Faces[static_cast<size_t>(Face)];
@@ -42,7 +42,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeDecodedFaces Cube;
+		FTextureCubeFaceImages Cube;
 		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
 		Error = Projection ? std::string{} : Projection.error().Diagnostic;
 		ASSERT_TRUE(Projection) << Error;
@@ -65,7 +65,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeDecodedFaces Cube;
+		FTextureCubeFaceImages Cube;
 		std::string Error;
 		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
 		Error = Projection ? std::string{} : Projection.error().Diagnostic;
@@ -84,7 +84,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeDecodedFaces Cube;
+		FTextureCubeFaceImages Cube;
 		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
 		Error = Projection ? std::string{} : Projection.error().Diagnostic;
 		ASSERT_TRUE(Projection) << Error;
@@ -177,7 +177,7 @@ namespace Durin::TextureCubeBuilder
 		FTexturePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
-		FTextureCubeDecodedFaces Cube;
+		FTextureCubeFaceImages Cube;
 		const auto InvalidLDR = ProjectEquirectangularTextureCube(LDR, {}, Cube);
 		ASSERT_FALSE(InvalidLDR);
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
@@ -201,9 +201,9 @@ namespace Durin::TextureCubeBuilder
 		EXPECT_EQ(InvalidExposure.error().CubeInputCause, ETextureCubeInputError::Exposure);
 	}
 
-	TEST(FEquirectangularTextureCubeTests, DecodedFacesShareSourceStorageAndRetainMetadataAfterOwnerRelease)
+	TEST(FEquirectangularTextureCubeTests, FaceImagesShareSourceStorageAndRetainMetadataAfterOwnerRelease)
 	{
-		FTextureCubeDecodedFaces Faces;
+		FTextureCubeFaceImages Faces;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			auto ImageResult2 = Image::FImage::TryCreate({.Width = 2, .Height = 2,
@@ -211,9 +211,9 @@ namespace Durin::TextureCubeBuilder
 			ASSERT_TRUE(ImageResult2);
 			Faces.Faces[Index] = std::move(*ImageResult2);
 		}
-		Faces.SourceChannelCounts.fill(4);
+		Faces.SourceChannelCount = 4;
 		Faces.TransparencyMask = 0x21;
-		FTextureCubeDecodedFaces Decoded;
+		FTextureCubeFaceImages Decoded;
 		{
 			auto Source = PrepareTextureCubeSource(Faces);
 			ASSERT_TRUE(Source);
@@ -227,14 +227,16 @@ namespace Durin::TextureCubeBuilder
 			ASSERT_TRUE(RoundTrip);
 			EXPECT_EQ(RoundTrip->GetIdentity(), Identity);
 		}
-		EXPECT_EQ(Decoded.SourceChannelCounts, Faces.SourceChannelCounts);
+		EXPECT_EQ(Decoded.SourceChannelCount, Faces.SourceChannelCount);
 		EXPECT_EQ(Decoded.TransparencyMask, 0x21);
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			EXPECT_EQ(Decoded.Faces[Index].GetPixels().size(), 16u);
 			EXPECT_EQ(Decoded.Faces[Index].GetPixels().front(), static_cast<std::byte>(Index + 1));
 		}
-		Decoded.SourceChannelCounts[1] = 3;
+		Decoded.SourceChannelCount = 0;
+		EXPECT_FALSE(Decoded.IsValid());
+		Decoded.SourceChannelCount = 5;
 		EXPECT_FALSE(Decoded.IsValid());
 	}
 
@@ -249,7 +251,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeDecodedFaces Cube;
+		FTextureCubeFaceImages Cube;
 		std::string Error;
 		const auto Projection = ProjectEquirectangularTextureCube(Panorama, Settings, Cube);
 		Error = Projection ? std::string{} : Projection.error().Diagnostic;

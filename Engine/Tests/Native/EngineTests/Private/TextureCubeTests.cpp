@@ -163,7 +163,7 @@ namespace
 	}
 
 	auto WriteSolidTga(const std::filesystem::path& Path, uint16 Width, uint16 Height,
-		uint8 Alpha = 255) -> void
+		uint8 Alpha = 255, uint8 Channels = 4) -> void
 	{
 		std::array<uint8, 18> Header{};
 		Header[2] = 2;
@@ -171,13 +171,13 @@ namespace
 		Header[13] = static_cast<uint8>(Width >> 8);
 		Header[14] = static_cast<uint8>(Height & 0xff);
 		Header[15] = static_cast<uint8>(Height >> 8);
-		Header[16] = 32;
-		Header[17] = 0x28;
+		Header[16] = Channels * 8;
+		Header[17] = Channels == 4 ? 0x28 : 0x20;
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
 		const std::array<uint8, 4> Pixel = {32, 64, 128, Alpha};
 		for (uint32 PixelIndex = 0; PixelIndex < static_cast<uint32>(Width) * Height; ++PixelIndex)
-			Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
+			Stream.write(reinterpret_cast<const char*>(Pixel.data()), Channels);
 	}
 
 	auto InitializeCubeMount() -> std::filesystem::path
@@ -329,6 +329,38 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Nonsquare_px.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Mismatch_px.tga"));
+}
+
+TEST(FTextureCubeTests, RejectsMismatchedSourceChannelsDuringTranslation)
+{
+	const std::filesystem::path Root = InitializeCubeMount();
+	std::array<std::string, Durin::TextureCubeFaceCount> Faces;
+	for (size_t Index = 0; Index < Faces.size(); ++Index)
+	{
+		const auto Path = Durin::Testing::GetTestWorkDirectory() /
+			std::format("CubeChannels_{}.tga", FaceNames[Index]);
+		WriteSolidTga(Path, 2, 2);
+		Faces[Index] = Path.generic_string();
+	}
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ValidateTextureCubeFaces(Faces));
+	WriteSolidTga(Faces.back(), 2, 2, 255, 3);
+	const auto Validation = Durin::AssetForge::Builtins::ValidateTextureCubeFaces(Faces);
+	EXPECT_FALSE(Validation);
+	EXPECT_NE(Validation.Message.find("NegativeZ face source channel count 3 does not match PositiveX 4"),
+		std::string::npos) << Validation.Message;
+	const auto Import = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
+		Faces, "/TextureCubeTests/ChannelMismatch");
+	EXPECT_FALSE(Import);
+	EXPECT_NE(Import.Message.find("NegativeZ face source channel count 3 does not match PositiveX 4"),
+		std::string::npos) << Import.Message;
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ChannelMismatch", AssetPath));
+	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(Root / "ChannelMismatch.dasset"));
+	for (const auto& Face : Faces)
+		WriteSolidTga(Face, 2, 2, 255, 3);
+	EXPECT_TRUE(Durin::AssetForge::Builtins::ValidateTextureCubeFaces(Faces));
 }
 
 TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
@@ -577,7 +609,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	ASSERT_TRUE(BuildResult2) << (BuildResult2 ? std::string{} : FormatTextureBuildOperationError(BuildResult2.error()));
 	ASSERT_NE(Cached, nullptr);
 	EXPECT_TRUE(std::ranges::equal(Cached->Faces[0].Mips[0].Pixels, Initial->Faces[0].Mips[0].Pixels));
-	EXPECT_TRUE(CachedCanonical.DecodedFaces.IsValid());
+	EXPECT_TRUE(CachedCanonical.FaceImages.IsValid());
 	ASSERT_NE(Cached, nullptr);
 	EXPECT_TRUE(Cached->IsValid());
 
@@ -595,8 +627,8 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 {
 	InitializeCubeMount();
-	Durin::FTextureCubeDecodedFaces Faces;
-	Faces.SourceChannelCounts.fill(4);
+	Durin::FTextureCubeFaceImages Faces;
+	Faces.SourceChannelCount = 4;
 	for (auto& Face : Faces.Faces)
 	{
 		auto ImageResult1 = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
@@ -616,7 +648,7 @@ TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 	for (uint32 InvalidField = 0; InvalidField < 4; ++InvalidField)
 	{
 		Durin::FTextureCubeFacesBuildInput Input{
-			.DecodedFaces = Faces, .OriginalSourceWidth = 1, .OriginalSourceHeight = 1};
+			.FaceImages = Faces, .OriginalSourceWidth = 1, .OriginalSourceHeight = 1};
 		if (InvalidField == 0) Input.SourceLayout = static_cast<Durin::ETextureCubeSourceLayout>(255);
 		if (InvalidField == 1) Input.PanoramaExposureEV = std::numeric_limits<float>::infinity();
 		if (InvalidField == 2) Input.OriginalSourceWidth = 0;

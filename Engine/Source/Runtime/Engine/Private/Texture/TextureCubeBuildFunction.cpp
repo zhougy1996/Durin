@@ -42,13 +42,13 @@ namespace Durin::TexturePrivate
 			{
 				if (!Prepared) return;
 				const bool HDR = Source.GetKind() == ETextureSourceKind::LongLatCube;
-				PreparedValid = HDR ? Prepared->AuthoredPanorama.IsValid() : Prepared->DecodedFaces.IsValid();
-				if (!HDR) PreparedValid = PreparedValid && Prepared->DecodedFaces.TransparencyMask == Source.GetTransparencyMask()
-					&& Prepared->DecodedFaces.SourceChannelCounts[0] == Source.GetSourceChannelCount();
+				PreparedValid = HDR ? Prepared->AuthoredPanorama.IsValid() : Prepared->FaceImages.IsValid();
+				if (!HDR) PreparedValid = PreparedValid && Prepared->FaceImages.TransparencyMask == Source.GetTransparencyMask()
+					&& Prepared->FaceImages.SourceChannelCount == Source.GetSourceChannelCount();
 				Captured.emplace();
 				for (uint32 Index = 0; Index < (HDR ? 1u : TextureCubeFaceCount); ++Index)
 				{
-					const auto& Image = HDR ? Prepared->AuthoredPanorama : Prepared->DecodedFaces.Faces[Index];
+					const auto& Image = HDR ? Prepared->AuthoredPanorama : Prepared->FaceImages.Faces[Index];
 					const auto& Info = Image.GetInfo();
 					PreparedValid = PreparedValid && Info.Width == Source.GetWidth() && Info.Height == Source.GetHeight()
 						&& Info.Depth == 1 && Info.SliceCount == 1 && Info.Format == (HDR ? Image::ERawImageFormat::RGBA32F : Image::ERawImageFormat::RGBA8);
@@ -130,7 +130,7 @@ namespace Durin::TexturePrivate
 					|| !Metadata.IsAtEnd() || !Width || !Height || Width > MaximumTextureCubePanoramaDimension || Height > MaximumTextureCubePanoramaDimension
 					|| !Channels || Channels > 4 || Transparency > 63 || (HDR && (Channels != 4 || Transparency != 0)))
 					return Fail("Cube input metadata is invalid.");
-				FTextureCubeDecodedFaces Faces;
+				FTextureCubeFaceImages Faces;
 				Image::FImage Panorama;
 				for (uint32 Index = 0; Index < (HDR ? 1u : TextureCubeFaceCount); ++Index)
 				{
@@ -143,10 +143,10 @@ namespace Durin::TexturePrivate
 					if (!Image) return Fail(Image.error().ToString());
 					if (HDR) Panorama = std::move(*Image); else Faces.Faces[Index] = std::move(*Image);
 				}
-				Faces.SourceChannelCounts.fill(static_cast<uint8>(Channels)); Faces.TransparencyMask = static_cast<uint8>(Transparency);
+				Faces.SourceChannelCount = static_cast<uint8>(Channels); Faces.TransparencyMask = static_cast<uint8>(Transparency);
 				auto* Module = ITextureBuildModule::Get();
 				if (!Module) return Fail("The TextureBuild module is unavailable.");
-				auto Built = Module->BuildTextureCube({.DecodedFaces = std::cref(Faces), .bSRGB = Options->bSRGB,
+				auto Built = Module->BuildTextureCube({.FaceImages = std::cref(Faces), .bSRGB = Options->bSRGB,
 					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile, .HDRPanorama = HDR ? &Panorama : nullptr,
 					.PanoramaSettings = {.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV,
 						.Output = HDR ? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR}});

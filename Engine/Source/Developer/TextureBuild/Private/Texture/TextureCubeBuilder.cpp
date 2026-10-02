@@ -259,7 +259,7 @@ namespace Durin::TextureCubeBuilder
 
 	auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeDecodedFaces& OutSourceData) -> std::expected<void, FTextureBuildError>
+		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -267,7 +267,7 @@ namespace Durin::TextureCubeBuilder
 			Panorama.Width, Panorama.Height, Settings, false, FaceDimension); !Result) return Result;
 		if (auto Result = ValidateLDRPanorama(Panorama); !Result) return Result;
 
-		FTextureCubeDecodedFaces Projected;
+		FTextureCubeFaceImages Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
@@ -311,14 +311,14 @@ namespace Durin::TextureCubeBuilder
 			}
 			Projected.Faces[FaceIndex] = std::move(*ImageResult1);
 		}
-		Projected.SourceChannelCounts.fill(LDRChannelCount);
+		Projected.SourceChannelCount = LDRChannelCount;
 		OutSourceData = std::move(Projected);
 		return {};
 	}
 
 	auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeDecodedFaces& OutSourceData) -> std::expected<void, FTextureBuildError>
+		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -327,7 +327,7 @@ namespace Durin::TextureCubeBuilder
 		if (auto Result = ValidateHDRPanorama(Panorama); !Result) return Result;
 		const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
 
-		FTextureCubeDecodedFaces Projected;
+		FTextureCubeFaceImages Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
@@ -370,7 +370,7 @@ namespace Durin::TextureCubeBuilder
 			}
 			Projected.Faces[FaceIndex] = std::move(*ImageResult2);
 		}
-		Projected.SourceChannelCounts.fill(LDRChannelCount);
+		Projected.SourceChannelCount = LDRChannelCount;
 		OutSourceData = std::move(Projected);
 		return {};
 	}

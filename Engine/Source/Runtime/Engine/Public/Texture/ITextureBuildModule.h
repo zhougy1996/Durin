@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "Modules/ModuleManager.h"
 #include "Texture/Texture2DBuildTypes.h"
 #include "Texture/TextureCubeBuildTypes.h"
@@ -29,3 +32,5 @@ namespace Durin
 			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> = 0;
 	};
 }
+
+#endif

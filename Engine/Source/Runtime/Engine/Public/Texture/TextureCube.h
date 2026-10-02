@@ -15,12 +15,12 @@ namespace Durin
 {
 	// May synchronously load source pixels; returned images retain shared storage independently.
 #if DURIN_WITH_EDITORONLY_DATA
-	ENGINE_API auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeDecodedFaces;
+	ENGINE_API auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeFaceImages;
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Packs the supplied faces into the canonical authored source.
 	ENGINE_API auto PrepareTextureCubeSource(
-		const FTextureCubeDecodedFaces& Value) -> std::expected<FTextureSource, std::string>;
+		const FTextureCubeFaceImages& Value) -> std::expected<FTextureSource, std::string>;
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Converts the supplied in-memory panorama.
