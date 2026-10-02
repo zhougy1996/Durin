@@ -1,5 +1,7 @@
 #include "Materials/ObjectCacheContext.h"
-#include "DObject/DObjectArray.h"
+#include "DObject/Package.h"
+#include "DObject/ObjectGraphReplacement.h"
+#include "MaterialDependencyIndex.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialLoadedQueryDiagnostics.h"
@@ -10,6 +12,70 @@
 
 namespace Durin
 {
+	namespace Private
+	{
+		auto GetMaterialDependencyIndex() -> FMaterialDependencyIndex&
+		{
+			static FMaterialDependencyIndex Index;
+			return Index;
+		}
+		static auto SetEdge(FMaterialDependencyIndex& Index, FObjectKey Child, FObjectKey Parent) -> void
+		{
+			const auto Existing = Index.Parents.find(Child);
+			if (Existing != Index.Parents.end())
+			{
+				if (Existing->second == Parent) return;
+				const auto Children = Index.Children.find(Existing->second);
+				if (Children != Index.Children.end())
+				{
+					Children->second.erase(Child);
+					if (Children->second.empty()) Index.Children.erase(Children);
+				}
+				Index.Parents.erase(Existing);
+			}
+			else if (Parent.IsNull()) return;
+			if (!Parent.IsNull())
+			{
+				Index.Parents.emplace(Child, Parent);
+				Index.Children[Parent].insert(Child);
+			}
+			if (++Index.Revision == 0) ++Index.Revision;
+		}
+		auto RefreshMaterialDependency(DMaterialInterface& Material) -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+			const FObjectKey Key(&Material);
+			if (!Key.IsNull()) SetEdge(GetMaterialDependencyIndex(), Key, FObjectKey(Material.GetParent()));
+		}
+		auto RemoveMaterialDependency(DMaterialInterface& Material) -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+			SetEdge(GetMaterialDependencyIndex(), FObjectKey(&Material), {});
+		}
+		auto PrepareMaterialDependencyReplacement(const FObjectReplacementMap& Map) -> FMaterialDependencyIndex
+		{
+			FMaterialDependencyIndex Candidate;
+			Candidate.Revision = GetMaterialDependencyIndex().Revision + 1;
+			if (Candidate.Revision == 0) ++Candidate.Revision;
+			for (const auto& [Child, Parent] : GetMaterialDependencyIndex().Parents)
+			{
+				auto* Object = Child.ResolveObjectPtr();
+				if (!Object || Map.Find(Object)) continue;
+				auto ParentKey = Parent;
+				if (const auto* Entry = Map.Find(Parent.ResolveObjectPtr())) ParentKey = FObjectKey(Entry->Replacement);
+				SetEdge(Candidate, Child, ParentKey);
+			}
+			for (auto* Object : Map.GetPreparedObjects())
+				if (auto* Material = Cast<DMaterialInterface>(Object))
+				{
+					auto* Parent = Material->GetParent();
+					if (const auto* Entry = Map.Find(Parent)) Parent = Cast<DMaterialInterface>(Entry->Replacement);
+					SetEdge(Candidate, FObjectKey(Material), FObjectKey(Parent));
+				}
+			return Candidate;
+		}
+	}
+
 	struct FObjectCacheContext::FState
 	{
 		FGarbageCollectionDeferralScope Lifetime;
@@ -17,7 +83,7 @@ namespace Durin
 		bool bBuilt = false;
 		bool bDiscoveryOpen = true;
 		std::unordered_set<FObjectKey> Admitted;
-		std::unordered_map<FObjectKey, std::vector<DMaterialInterface*>> Children;
+		std::unordered_map<FObjectKey, std::vector<FObjectKey>> Children;
 
 		auto CheckDiscovery() const -> void
 		{
@@ -28,28 +94,27 @@ namespace Durin
 		auto Build() -> void
 		{
 			if (bBuilt) return;
-			const auto Objects = GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
-			std::vector<DMaterialInterface*> Materials;
-			for (auto* Object : Objects)
-				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
-				{
-					Materials.push_back(Material);
-					Admitted.emplace(Material);
-				}
-			std::unordered_set<FObjectKey> Indexed;
-			for (auto* Material : Materials)
-				for (auto* Node = Material; Node && Indexed.emplace(Node).second; Node = Node->GetParent())
-					if (auto* Parent = Node->GetParent()) Children[FObjectKey(Parent)].push_back(Node);
-			// Ancestors excluded from result admission may still connect live descendants.
-			// Each canonical edge is inserted once, including malformed cycles.
 			bBuilt = true;
 			for (auto* Counts : {&Diagnostics, &Private::GetMutableMaterialLoadedQueryDiagnostics()})
-			{
 				++Counts->SnapshotCount;
-				++Counts->ParentTableBuildCount;
-				Counts->ScannedObjectCount += Objects.size();
-				Counts->ScannedMaterialCount += Materials.size();
+		}
+		auto Capture(FObjectKey Key) -> const std::vector<FObjectKey>&
+		{
+			const auto [It, Inserted] = Children.try_emplace(Key);
+			if (!Inserted) return It->second;
+			const auto& Index = Private::GetMaterialDependencyIndex();
+			if (const auto Found = Index.Children.find(Key); Found != Index.Children.end())
+				It->second.assign(Found->second.begin(), Found->second.end());
+			auto* Material = Cast<DMaterialInterface>(Key.ResolveObjectPtr());
+			if (Material)
+			{
+				for (auto* Counts : {&Diagnostics, &Private::GetMutableMaterialLoadedQueryDiagnostics()})
+					++Counts->ScannedMaterialCount;
+				const auto* Package = Material->GetPackage();
+				if (IsValid(Material) && !Material->IsTemplateObject() && (!Package || !Package->IsGraphPrivate()))
+					Admitted.emplace(Key);
 			}
+			return It->second;
 		}
 
 		auto Result(std::vector<DMaterialInterface*> Objects, EMaterialLoadedQueryOperation Operation)
@@ -78,11 +143,13 @@ namespace Durin
 		if (!IsValid(Parent)) return TObjectCacheIterator<DMaterialInterface>({});
 		State->Build();
 		std::vector<DMaterialInterface*> Result;
-		const auto It = State->Children.find(FObjectKey(Parent));
-		if (It != State->Children.end())
-			for (auto* Child : It->second)
-				if (IsValid(Child) && Cast<DMaterialInstance>(Child) && State->Admitted.contains(FObjectKey(Child)))
-					Result.push_back(Child);
+		for (const auto Key : State->Capture(FObjectKey(Parent)))
+		{
+			State->Capture(Key);
+			if (State->Admitted.contains(Key))
+				if (auto* Child = Cast<DMaterialInstance>(Key.ResolveObjectPtr()); IsValid(Child)) Result.push_back(Child);
+		}
+
 		return State->Result(std::move(Result), EMaterialLoadedQueryOperation::DirectChildren);
 	}
 
@@ -97,21 +164,21 @@ namespace Durin
 		-> TObjectCacheIterator<DMaterialInterface>
 	{
 		State->CheckDiscovery();
-		std::vector<DMaterialInterface*> Pending;
-		for (auto* Material : Materials) if (IsValid(Material)) Pending.push_back(Material);
+		std::vector<FObjectKey> Pending;
+		for (auto* Material : Materials) if (Material) Pending.emplace_back(Material);
 		if (Pending.empty()) return TObjectCacheIterator<DMaterialInterface>({});
 		State->Build();
 		std::unordered_set<FObjectKey> Visited;
 		std::vector<DMaterialInterface*> Result;
 		while (!Pending.empty())
 		{
-			auto* Material = Pending.back();
+			const auto Key = Pending.back();
 			Pending.pop_back();
-			const FObjectKey Key(Material);
 			if (!Visited.insert(Key).second) continue;
-			if (State->Admitted.contains(Key) && IsValid(Material)) Result.push_back(Material);
-			const auto It = State->Children.find(Key);
-			if (It != State->Children.end()) Pending.insert(Pending.end(), It->second.begin(), It->second.end());
+			const auto& Children = State->Capture(Key);
+			if (State->Admitted.contains(Key))
+				if (auto* Material = Cast<DMaterialInterface>(Key.ResolveObjectPtr()); IsValid(Material)) Result.push_back(Material);
+			Pending.insert(Pending.end(), Children.begin(), Children.end());
 		}
 		return State->Result(std::move(Result), EMaterialLoadedQueryOperation::Dependents);
 	}

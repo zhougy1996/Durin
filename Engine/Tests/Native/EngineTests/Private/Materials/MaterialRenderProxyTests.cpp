@@ -557,7 +557,7 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
 	EXPECT_EQ(Diagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::Dependents);
 	EXPECT_EQ(Diagnostics.QueryCount, 1);
 	EXPECT_EQ(Diagnostics.SnapshotCount, 1);
-	EXPECT_GT(Diagnostics.ScannedObjectCount, 0);
+	EXPECT_EQ(Diagnostics.ScannedObjectCount, 0u);
 	EXPECT_GT(Diagnostics.ScannedMaterialCount, 0);
 
 	Durin::MarkAsGarbage(Material);
@@ -986,7 +986,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 		Durin::EMaterialLoadedQueryOperation::Dependents);
 	EXPECT_EQ(QueryDiagnostics.QueryCount, 12);
 	EXPECT_EQ(QueryDiagnostics.SnapshotCount, 12);
-	EXPECT_GT(QueryDiagnostics.ScannedObjectCount, 0);
+	EXPECT_EQ(QueryDiagnostics.ScannedObjectCount, 0u);
 	EXPECT_GT(QueryDiagnostics.ScannedMaterialCount, 0);
 	const Durin::FMaterialRenderProxyCounters ProxyCounters =
 		Durin::GetMaterialRenderProxyCounters();

@@ -1,4 +1,5 @@
 #include "MaterialParameterMutation.h"
+#include "MaterialDependencyIndex.h"
 #include "Components/PropertyEditValidation.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/MaterialInstance.h"
@@ -130,6 +131,7 @@ namespace Durin
 		auto* Instance = NewObject<DMaterialInstance>(Outer, Name, EObjectFlags::Transient);
 		Instance->bDynamicInstance = true;
 		Instance->Parent = InParent;
+		Private::RefreshMaterialDependency(*Instance);
 		Instance->MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
 		return Instance;
 	}
@@ -225,6 +227,7 @@ namespace Durin
 		if (!FMaterialInstanceVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (Ar.IsError()) return;
+		if (Ar.IsLoading()) Private::RefreshMaterialDependency(*this);
 		const auto Validation = ValidateParameterStorage();
 		if (!Validation)
 		{
@@ -250,6 +253,7 @@ namespace Durin
 		const bool bParentChanged = Parent != InParent;
 		if (!bParentChanged && PropertyOverrides == Overrides) return true;
 		Parent = InParent;
+		Private::RefreshMaterialDependency(*this);
 		PropertyOverrides = Overrides;
 		FObjectCacheContext Context;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) AdoptParentRuntimeProgram();
@@ -301,6 +305,7 @@ namespace Durin
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		if (bDynamicInstance) return;
+		Private::RefreshMaterialDependency(*this);
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);
 		auto DirtyFlags = EMaterialRenderDirtyFlags::DynamicParameters;
@@ -788,6 +793,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': material instance parent cycle; clearing parent.", GetObjectPath());
 			Parent = nullptr;
 		}
+		Private::RefreshMaterialDependency(*this);
 		const auto Error = ValidateMaterialStaticProperties(PropertyOverrides.Values);
 		if (!Error)
 		{

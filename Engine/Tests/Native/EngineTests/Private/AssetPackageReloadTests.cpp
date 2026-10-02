@@ -210,11 +210,26 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 	auto* Instance = NewObject<DMaterialInstance>(Material->GetPackage(), "Instance");
 	ASSERT_NE(Instance, nullptr);
 	ASSERT_TRUE(Instance->SetParent(Material));
+	TStrongObjectPtr<DMaterialInstance> External(NewObject<DMaterialInstance>(nullptr, "ExternalMaterialChild"));
+	ASSERT_TRUE(External->SetParent(Material));
 	ASSERT_TRUE(Material->SetStaticProperties({.bTwoSided = true}));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_TRUE(Instance->SetParent(nullptr));
 	ASSERT_TRUE(Material->SetStaticProperties({.bTwoSided = false}));
 	ASSERT_FALSE(Material->GetStaticProperties().bTwoSided);
+	// An aborted replacement must leave the external child's live edge intact.
+	bool ReachedCommit = false;
+	FPackageReloadRequest FailedRequest{.Packages = {Material->GetPackage()}};
+	FailedRequest.ShouldFail = [&](EPackageReloadFaultPoint Point, uint64, uint64) {
+		if (Point != EPackageReloadFaultPoint::BeforeCommit) return false;
+		ReachedCommit = true;
+		return true;
+	};
+	EXPECT_EQ(ReloadPackages(FailedRequest).GetResult().Status, EPackageReloadStatus::Failed);
+	ASSERT_TRUE(ReachedCommit);
+	CollectGarbage();
+	EXPECT_EQ(External->GetParent(), Material);
+	EXPECT_EQ(GetLoadedDirectMaterialChildren(Material), std::vector<FObjectKey>{FObjectKey(External.Get())});
 
 	Editor::FEditableAssetDocumentModel Documents;
 	std::string ReloadError;
@@ -226,8 +241,16 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 		Reloaded->GetPackage()->FindTopLevelAsset("Instance"));
 	ASSERT_NE(ReloadedInstance, nullptr);
 	EXPECT_EQ(ReloadedInstance->GetParent(), Reloaded);
+	EXPECT_EQ(External->GetParent(), Reloaded);
+	const auto Children = GetLoadedDirectMaterialChildren(Reloaded);
+	EXPECT_EQ(Children.size(), 2u);
+	EXPECT_TRUE(std::ranges::contains(Children, FObjectKey(External.Get())));
+	EXPECT_TRUE(std::ranges::contains(Children, FObjectKey(ReloadedInstance)));
 	EXPECT_TRUE(Reloaded->GetStaticProperties().bTwoSided);
 	EXPECT_FALSE(Reloaded->GetPackage()->IsDirty());
+	ASSERT_TRUE(External->SetParent(nullptr));
+	MarkAsGarbage(External.Get());
+	External.Reset();
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 

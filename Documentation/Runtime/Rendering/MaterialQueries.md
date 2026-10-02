@@ -4,29 +4,37 @@ Summary: Define loaded-material discovery, batch cache ownership, raw-pointer re
 
 Modules: Engine, CoreDObject, MaterialEditor
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-10-03
 
 ## Identity and authority
 
-`DMaterialInstance::Parent` is authoritative. `FObjectCacheContext` in Engine
-builds a temporary reverse table for one synchronous update batch; it is not a
-second relationship registry. CoreDObject supplies process-local object keys
-and lifetime primitives, not material dependency semantics. See
-[object identity and lifetime](../Core/GarbageCollection.md#pointer-and-handle-semantics).
+`DMaterialInstance::Parent` is authoritative. Engine maintains a derived,
+non-owning parent-to-direct-children index keyed by generation-bearing object
+keys. Native parent assignment, dynamic construction, loading/duplication,
+reflected edits and history replay refresh the edge before dependent discovery.
+Destruction removes the retiring owner's incoming edge after dependent invalidation.
+Index entries do not retain objects or become GC roots. CoreDObject owns identity
+and lifetime primitives, not material dependency semantics.
 
-The interface follows the public UE
+Package replacement prepares an index candidate with rewritten parent identities,
+validates the source index revision, and swaps it during the same non-failing
+commit as reflected reference replacement. Failed preparation or validation leaves
+live edges unchanged. Isolated package graphs may have indexed edges, but query
+result admission excludes them until publication.
+
+`FObjectCacheContext` keeps batch-local result and adjacency snapshots over this
+index. Its interface follows UE's public
 [FObjectCacheContext](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FObjectCacheContext)
-model: lazy discovery, domain-specific reverse tables and raw-pointer iteration.
-The chosen parent table is a Durin implementation decision. It does not imply
-that UE maintains an identical inheritance index.
+query model; the persistent inheritance index is a Durin implementation decision.
+Direct reflected writes that bypass editing, loading or replacement notifications
+must explicitly refresh bindings before dependency queries.
 
 ## Query and result ownership
 
-Create `FObjectCacheContext` after canonical relationship mutations. Its first
-query snapshots `GDObjectArray` with `LiveOnly` admission, selects valid
-materials, and builds parent-to-direct-children edges. Later queries reuse both.
-There is no persistent class index: the first query still scans unrelated live
-objects. Construction without a query performs no discovery.
+Create `FObjectCacheContext` after canonical relationship mutations. Queries lazily snapshot only indexed nodes reached from the requested roots,
+applying live, non-template and published-package admission. Later queries reuse
+captured nodes. Discovery never snapshots the global object array and does not
+visit unrelated material families. Construction without a query performs no discovery.
 
 - `GetDirectMaterialChildren(Parent)` returns admitted material instances whose
   immediate parent is exactly Parent.
@@ -93,10 +101,12 @@ implicit thread-local cache and does not queue synchronous editor mutations.
 ## Diagnostics and validation
 
 Per-context diagnostics and `GetMaterialLoadedQueryDiagnostics()` expose query,
-snapshot, parent-table build, scanned-object/material and result counts. One
-context builds at most one snapshot/table; separate public edits remain
-separate batches. Dynamic publication already reused its notification snapshot
-before this cache, so it does not gain a second eliminated scan.
+snapshot, inspected-material and result counts. `SnapshotCount` counts contexts
+that begin discovery; `ScannedMaterialCount` counts distinct material nodes
+inspected within each context. The retained `ScannedObjectCount` and
+`ParentTableBuildCount` fields stay zero for indexed inheritance queries. Separate
+public edits remain separate batches; their discovery cost follows the affected
+subtree rather than unrelated live objects.
 
 `FMaterialDependencyTests` checks equivalence against an independent parent-walk
 oracle, cycles, long chains, overlapping roots, reentrant edits and GC requests.

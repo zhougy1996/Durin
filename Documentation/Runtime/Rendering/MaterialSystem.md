@@ -866,8 +866,9 @@ Material mutation publishes explicit render-thread commands. Replacing a
 component material assignment rebuilds its scene proxy; parameter changes
 publish through the stable proxy and dynamic-only changes reuse shader identity.
 
-- Material dependencies are forward-only. `DMaterialInstance::Parent` is the
-  canonical relationship, and dependency tests walk that chain iteratively with
+- `DMaterialInstance::Parent` is the canonical relationship. A non-owning Engine
+  index maintains direct-child edges for loaded dependent discovery; dependency
+  tests walk the canonical chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
   material dependency.
 - Loaded child/dependent discovery, GC-protected result lifetime, shared batch

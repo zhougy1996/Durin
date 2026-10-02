@@ -555,6 +555,7 @@ TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
 		auto* Child = NewObject<DMaterialInstance>(nullptr, FName(std::format("MeasuredQuery{}", I).c_str()));
 		auto* Parent = static_cast<FObjectProperty*>(Child->GetClass()->FindPropertyByName("Parent"));
 		Parent->SetObjectPropertyValue(Child, Materials.back());
+		Child->RefreshReloadedAssetBindings();
 		Materials.push_back(Child);
 	}
 	std::vector<DObject*> Unrelated;
@@ -594,7 +595,7 @@ TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
 			EXPECT_EQ(Consumed, 8 * Materials.size());
 			const auto& Stats = Context.GetDiagnostics();
 			EXPECT_EQ(Stats.SnapshotCount, 1u);
-			EXPECT_EQ(Stats.ParentTableBuildCount, 1u);
+			EXPECT_EQ(Stats.ParentTableBuildCount, 0u);
 			EXPECT_EQ(Stats.QueryCount, 9u);
 			ScannedObjects = Stats.ScannedObjectCount;
 			ScannedMaterials = Stats.ScannedMaterialCount;

@@ -2,6 +2,7 @@
 #include "MaterialCompileRetryQueue.h"
 #include "Materials/ObjectCacheContext.h"
 #include "MaterialLoadedQueryDiagnostics.h"
+#include "MaterialDependencyIndex.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
@@ -612,9 +613,9 @@ namespace Durin
 		FObjectCacheContext Context;
 		std::vector<FWeakObjectPtr> Notifications;
 		// A live child must retire a broken chain even if no compile is pending.
-		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+		for (auto* Material : Context.GetMaterialsAffectedByMaterial(this))
 		{
-			auto* Owner = Cast<DMaterialInstance>(Object);
+			auto* Owner = Cast<DMaterialInstance>(Material);
 			if (!IsValid(Owner)) continue;
 			FResolvedMaterialProperties Resolved;
 			const auto Error = ResolveMaterialProperties(*Owner, Resolved);
@@ -633,6 +634,7 @@ namespace Durin
 		Context.EndDiscovery();
 		for (const auto& Weak : Notifications)
 			if (auto* Owner = Cast<DMaterialInterface>(Weak.Get())) Owner->ParameterChanges.Broadcast();
+		Private::RemoveMaterialDependency(*this);
 		bAcceptingMaterialProxyPublications = false;
 		ReleaseMaterialRenderProxy_GameThread(
 			std::move(MaterialRenderProxy));
@@ -763,6 +765,7 @@ namespace Durin
 
 	auto DMaterialInterface::RefreshReloadedAssetBindings() -> void
 	{
+		Private::RefreshMaterialDependency(*this);
 		PublishMaterialRenderProxyState();
 		ParameterChanges.Broadcast();
 	}

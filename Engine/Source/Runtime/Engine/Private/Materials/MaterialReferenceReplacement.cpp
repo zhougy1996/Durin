@@ -1,4 +1,5 @@
 #include "Materials/Material.h"
+#include "MaterialDependencyIndex.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/StrongObjectPtr.h"
@@ -15,11 +16,15 @@ namespace Durin
 		};
 		std::vector<FSchemaWrite> Writes;
 		bool bCommitted = false;
+		std::optional<Private::FMaterialDependencyIndex> PreparedDependencies;
+		uint64 DependencyRevision = 0;
 	public:
 		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
 		{
 			Writes.clear();
 			bCommitted = false;
+			DependencyRevision = Private::GetMaterialDependencyIndex().Revision;
+			PreparedDependencies = Private::PrepareMaterialDependencyReplacement(Map);
 			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 			{
 				if (!IsValid(Object)) continue;
@@ -45,7 +50,7 @@ namespace Durin
 		}
 		auto Validate() const -> bool override
 		{
-			return std::ranges::all_of(Writes, [](const auto& Write) {
+			return Private::GetMaterialDependencyIndex().Revision == DependencyRevision && std::ranges::all_of(Writes, [](const auto& Write) {
 				return Write.Owner.Get() && Write.Owner->ParameterSchema == Write.Before;
 			});
 		}
@@ -57,9 +62,10 @@ namespace Durin
 		auto Commit() noexcept -> void override
 		{
 			for (auto& Write : Writes) Write.Owner->ParameterSchema.swap(Write.After);
+			std::swap(Private::GetMaterialDependencyIndex(), *PreparedDependencies);
 			bCommitted = true;
 		}
-		auto Abort() noexcept -> void override { Writes.clear(); }
+		auto Abort() noexcept -> void override { Writes.clear(); PreparedDependencies.reset(); }
 		auto CanRetire() const -> bool override { return bCommitted; }
 	};
 

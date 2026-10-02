@@ -335,6 +335,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), .25f));
 	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides").value());
 	ASSERT_NE(Copy, nullptr);
+	EXPECT_TRUE(std::ranges::contains(GetLoadedDirectMaterialChildren(Base), FObjectKey(Copy)));
 	float Opacity = 0;
 	ASSERT_TRUE(Copy->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, .25f);
@@ -383,6 +384,9 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 		Loaded = LoadedValue.value_or(nullptr);
 		ASSERT_TRUE(LoadedValue);
 	}
+	const auto LoadedChildren = GetLoadedDirectMaterialChildren(Loaded);
+	ASSERT_EQ(LoadedChildren.size(), 1u);
+	EXPECT_EQ(LoadedChildren.front().ResolveObjectPtr(), Loaded->GetPackage()->FindTopLevelAsset("Overrides"));
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
