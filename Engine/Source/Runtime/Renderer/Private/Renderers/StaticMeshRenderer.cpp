@@ -938,9 +938,9 @@ namespace Durin
 		})) return false;
 		Geometry.Bind(CommandList);
 		if (IndirectArguments != nullptr)
-			return CommandList.TryDrawIndexedIndirect(
-				IndirectArguments, IndirectArgumentOffset).has_value();
-		Geometry.DrawIndexed(CommandList);
+			CommandList.DrawIndexedIndirect(IndirectArguments, IndirectArgumentOffset);
+		else
+			Geometry.DrawIndexed(CommandList);
 		return true;
 	}
 

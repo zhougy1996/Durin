@@ -2335,9 +2335,9 @@ namespace Durin
 			ERHIBufferUploadError::InvalidUsage);
 		EXPECT_EQ(Commands.TryUpdateBuffer(*Uniform, 0, FByteBuffer(16)).error(),
 			ERHIBufferUploadError::InvalidUsage);
-		EXPECT_EQ(Commands.TryCreateBufferView(Native, {0, 16, ERHIBufferViewType::StructuredStorage}).error(),
+		EXPECT_EQ(FRHIBufferView::TryCreate(Native, {0, 16, ERHIBufferViewType::StructuredStorage}).error(),
 			ERHIBufferUploadError::InvalidUsage);
-		auto View = Commands.TryCreateBufferView(*Storage, {0, 16, ERHIBufferViewType::StructuredStorage});
+		auto View = FRHIBufferView::TryCreate(*Storage, {0, 16, ERHIBufferViewType::StructuredStorage});
 		ASSERT_TRUE(View);
 		std::array<FRHIResource*, 1> Sidecars{View->GetReference()};
 		EXPECT_EQ(Commands.TryUpdateUniformBuffer(*Uniform, FByteBuffer(16), Sidecars).error(),
@@ -2477,13 +2477,13 @@ namespace Durin
 		std::array<FRHIResource*, 1> CyclicReferences{Buffer.GetReference()};
 		EXPECT_EQ(Commands.TryUpdateUniformBuffer(Buffer, Data, CyclicReferences).error(),
 			ERHIBufferUploadError::InvalidUsage);
-		EXPECT_EQ(Commands.TryCreateBufferView(Buffer,
+		EXPECT_EQ(FRHIBufferView::TryCreate(Buffer,
 			{UINT64_MAX, 16, ERHIBufferViewType::Uniform}).error(),
 			ERHIBufferUploadError::InvalidRange);
-		EXPECT_EQ(Commands.TryCreateBufferView(Buffer,
+		EXPECT_EQ(FRHIBufferView::TryCreate(Buffer,
 			{0, 8, ERHIBufferViewType::Uniform}).error(),
 			ERHIBufferUploadError::InvalidDescriptor);
-		auto View = Commands.TryCreateBufferView(Buffer,
+		auto View = FRHIBufferView::TryCreate(Buffer,
 			{0, 16, ERHIBufferViewType::Uniform});
 		ASSERT_TRUE(View);
 		EXPECT_EQ((*View)->GetResourceType(), ERHIResourceType::BufferView);
@@ -3150,24 +3150,20 @@ namespace Durin
 
 		FRHICommandList Commands;
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
-		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
-			ERHIIndirectCommandError::WrongRenderPass);
+		EXPECT_DEATH(Commands.DrawIndirect(&Arguments, 0), "render-pass placement");
 		Commands.BeginRenderPass(FRHIRenderPassInfo{}, "IndirectValidation");
-		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
-			ERHIIndirectCommandError::MissingPipelineState);
+		EXPECT_DEATH(Commands.DrawIndexedIndirect(&Arguments, 0), "active pipeline state");
+		EXPECT_DEATH(Commands.DrawIndirect(&Arguments, 0), "active pipeline state");
 		Commands.EndRenderPass();
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		EXPECT_EQ(Commands.TryDrawIndirect(&Arguments, 0).error(),
-			ERHIIndirectCommandError::WrongPipeline);
-		EXPECT_EQ(Commands.TryDispatchIndirect(&Arguments, 0).error(),
-			ERHIIndirectCommandError::MissingPipelineState);
+		EXPECT_DEATH(Commands.DrawIndirect(&Arguments, 0), "pipeline domain");
+		EXPECT_DEATH(Commands.DispatchIndirect(&Arguments, 0), "active pipeline state");
 
 		FIndirectTestRHI UnsupportedRHI(false);
 		FScopedDynamicRHI UnsupportedScope(UnsupportedRHI);
 		auto ComputePipeline = MakeRefCount<FRHIComputePipelineState>();
 		Commands.SetComputePipelineState(*ComputePipeline);
-		EXPECT_EQ(Commands.TryDispatchIndirect(&Arguments, 0).error(),
-			ERHIIndirectCommandError::Unsupported);
+		EXPECT_DEATH(Commands.DispatchIndirect(&Arguments, 0), "Invalid indirect arguments");
 	}
 
 	TEST(FRHICommandListTests, IndirectCommandsReplayExactBufferAndOffset)
@@ -3185,12 +3181,12 @@ namespace Durin
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
 		Commands.SetGraphicsPipelineState(*GraphicsPipeline);
 		Commands.BeginRenderPass(FRHIRenderPassInfo{}, "IndirectReplay");
-		ASSERT_TRUE(Commands.TryDrawIndirect(Arguments, 4));
-		ASSERT_TRUE(Commands.TryDrawIndexedIndirect(Arguments, 24));
+		Commands.DrawIndirect(Arguments, 4);
+		Commands.DrawIndexedIndirect(Arguments, 24);
 		Commands.EndRenderPass();
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
 		Commands.SetComputePipelineState(*ComputePipeline);
-		ASSERT_TRUE(Commands.TryDispatchIndirect(Arguments, 8));
+		Commands.DispatchIndirect(Arguments, 8);
 		EXPECT_GT(Arguments->GetRefCount(), 1u);
 
 		Executor.Submit({}, ERHISubmitFlags::None);

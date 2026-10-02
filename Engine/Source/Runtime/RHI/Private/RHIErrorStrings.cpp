@@ -14,10 +14,6 @@ namespace Durin
 		case ERHIIndirectCommandError::MisalignedOffset: return "Indirect argument offset must be four-byte aligned.";
 		case ERHIIndirectCommandError::RangeOutOfBounds: return "Indirect argument record exceeds the buffer.";
 		case ERHIIndirectCommandError::Unsupported: return "The active RHI does not support this indirect operation.";
-		case ERHIIndirectCommandError::WrongPipeline: return "Indirect operation uses the wrong pipeline domain.";
-		case ERHIIndirectCommandError::WrongRenderPass: return "Indirect operation has invalid render-pass placement.";
-		case ERHIIndirectCommandError::MissingPipelineState: return "Indirect operation requires an active pipeline state.";
-		case ERHIIndirectCommandError::CommandAdmissionFailed: return "Indirect operation could not retain its pipeline dependency.";
 		}
 		return {};
 	}

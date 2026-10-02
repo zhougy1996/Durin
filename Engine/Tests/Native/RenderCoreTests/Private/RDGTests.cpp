@@ -3099,9 +3099,9 @@ namespace Durin
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				Commands.SetGraphicsPipelineState(*GraphicsPipeline);
 				Commands.BeginRenderPass(FRHIRenderPassInfo{}, "RDGIndirectDraw");
-				require(Commands.TryDrawIndexedIndirect(
+				Commands.DrawIndexedIndirect(
 					Resolver.GetBuffer(Parameters.Arguments),
-					Parameters.Arguments.Offset));
+					Parameters.Arguments.Offset);
 				Commands.EndRenderPass();
 			});
 
@@ -3124,9 +3124,9 @@ namespace Durin
 				const FRDGParameterResolver& Resolver) {
 				Commands.SwitchPipeline(ERHIPipeline::Compute);
 				Commands.SetComputePipelineState(*ComputePipeline);
-				require(Commands.TryDispatchIndirect(
+				Commands.DispatchIndirect(
 					Resolver.GetBuffer(Parameters.Arguments),
-					Parameters.Arguments.Offset));
+					Parameters.Arguments.Offset);
 			});
 		Builder.MarkPassRoot(DrawPass, "synthetic indirect draw");
 		Builder.MarkPassRoot(DispatchPass, "synthetic indirect dispatch");

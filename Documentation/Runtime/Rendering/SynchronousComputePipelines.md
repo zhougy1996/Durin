@@ -33,7 +33,7 @@ A command list records the following sequence outside a render pass:
 2. `SetComputePipelineState(...)`
 3. compute-stage `SetShaderParameters(...)` and optional compute push constants
 4. `Dispatch(GroupCountX, GroupCountY, GroupCountZ)` or one validated
-   `TryDispatchIndirect` argument record
+   `DispatchIndirect` argument record
 
 Direct group counts must be nonzero and no greater than the corresponding
 `FRHICapabilities::MaxComputeWorkGroupCount` value. The recorder retains the

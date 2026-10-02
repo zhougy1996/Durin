@@ -314,14 +314,6 @@ namespace Durin
 		return {};
 	}
 
-	auto FRHICommandListBase::TryCreateBufferView(FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc)
-		-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>
-	{
-		require(IsRecording());
-		return FRHIBufferView::TryCreate(Buffer, Desc);
-	}
-
 	auto FRHIBufferView::TryCreate(FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc)
 		-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>

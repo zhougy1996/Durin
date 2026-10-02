@@ -2307,50 +2307,44 @@ namespace Durin
 			++NumRecordedDrawCommands;
 	}
 
-	auto FRHICommandListBase::TryDrawIndirect(FRHIBuffer* ArgumentBuffer,
-		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	auto FRHICommandListBase::DrawIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> void
 	{
-		if (ActivePipeline != ERHIPipeline::Graphics)
-			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
-		if (!bInsideRenderPass)
-			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
-		if (!bHasActiveGraphicsPipelineState)
-			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		require(IsRecording());
+		requiref(ActivePipeline == ERHIPipeline::Graphics, "DrawIndirect requires the graphics pipeline domain.");
+		requiref(bInsideRenderPass, "DrawIndirect has invalid render-pass placement.");
+		requiref(bHasActiveGraphicsPipelineState, "DrawIndirect requires an active pipeline state.");
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
 			sizeof(FRHIDrawIndirectArguments), Capabilities
-				&& Capabilities->bSupportsIndirectDraw); !Result) return Result;
-		if (ActiveGraphicsRequest.IsAccepted()
-			&& !TryAddPipelineDependency(ActiveGraphicsRequest))
-			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+				&& Capabilities->bSupportsIndirectDraw);
+		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
+		if (ActiveGraphicsRequest.IsAccepted())
+			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDrawIndirectCommand>(ArgumentBuffer, Offset);
 		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
 			++NumRecordedDrawCommands;
-		return {};
 	}
 
-	auto FRHICommandListBase::TryDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
-		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	auto FRHICommandListBase::DrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> void
 	{
-		if (ActivePipeline != ERHIPipeline::Graphics)
-			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
-		if (!bInsideRenderPass)
-			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
-		if (!bHasActiveGraphicsPipelineState)
-			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		require(IsRecording());
+		requiref(ActivePipeline == ERHIPipeline::Graphics, "DrawIndexedIndirect requires the graphics pipeline domain.");
+		requiref(bInsideRenderPass, "DrawIndexedIndirect has invalid render-pass placement.");
+		requiref(bHasActiveGraphicsPipelineState, "DrawIndexedIndirect requires an active pipeline state.");
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
 			sizeof(FRHIDrawIndexedIndirectArguments), Capabilities
-				&& Capabilities->bSupportsIndirectDraw); !Result) return Result;
-		if (ActiveGraphicsRequest.IsAccepted()
-			&& !TryAddPipelineDependency(ActiveGraphicsRequest))
-			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+				&& Capabilities->bSupportsIndirectDraw);
+		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
+		if (ActiveGraphicsRequest.IsAccepted())
+			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDrawIndexedIndirectCommand>(ArgumentBuffer, Offset);
 		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
 			++NumRecordedDrawCommands;
-		return {};
 	}
 
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount,
@@ -2384,25 +2378,22 @@ namespace Durin
 		RecordCommand<FDispatchCommand>(GroupCountX, GroupCountY, GroupCountZ);
 	}
 
-	auto FRHICommandListBase::TryDispatchIndirect(FRHIBuffer* ArgumentBuffer,
-		uint64 Offset) -> std::expected<void, ERHIIndirectCommandError>
+	auto FRHICommandListBase::DispatchIndirect(FRHIBuffer* ArgumentBuffer,
+		uint64 Offset) -> void
 	{
-		if (ActivePipeline != ERHIPipeline::Compute)
-			return std::unexpected(ERHIIndirectCommandError::WrongPipeline);
-		if (bInsideRenderPass)
-			return std::unexpected(ERHIIndirectCommandError::WrongRenderPass);
-		if (!ActiveComputePipelineState && !ActiveComputeRequest.IsAccepted())
-			return std::unexpected(ERHIIndirectCommandError::MissingPipelineState);
+		require(IsRecording());
+		requiref(ActivePipeline == ERHIPipeline::Compute, "DispatchIndirect requires the compute pipeline domain.");
+		requiref(!bInsideRenderPass, "DispatchIndirect has invalid render-pass placement.");
+		requiref(ActiveComputePipelineState || ActiveComputeRequest.IsAccepted(), "DispatchIndirect requires an active pipeline state.");
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		if (auto Result = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
 			sizeof(FRHIDispatchIndirectArguments), Capabilities
-				&& Capabilities->bSupportsIndirectDispatch); !Result) return Result;
-		if (ActiveComputeRequest.IsAccepted()
-			&& !TryAddPipelineDependency(ActiveComputeRequest))
-			return std::unexpected(ERHIIndirectCommandError::CommandAdmissionFailed);
+				&& Capabilities->bSupportsIndirectDispatch);
+		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
+		if (ActiveComputeRequest.IsAccepted())
+			requiref(TryAddPipelineDependency(ActiveComputeRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDispatchIndirectCommand>(ArgumentBuffer, Offset);
-		return {};
 	}
 
 	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void

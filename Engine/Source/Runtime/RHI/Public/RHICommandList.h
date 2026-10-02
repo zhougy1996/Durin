@@ -126,14 +126,14 @@ namespace Durin
 			std::span<const FRHITextureCopyRegion> Regions) -> void;
 		RHI_API auto Draw(const FRHIDrawArguments& Arguments) -> void;
 		RHI_API auto DrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void;
-		RHI_API auto TryDrawIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
-			-> std::expected<void, ERHIIndirectCommandError>;
-		RHI_API auto TryDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
-			-> std::expected<void, ERHIIndirectCommandError>;
+		RHI_API auto DrawIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
+			-> void;
+		RHI_API auto DrawIndexedIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
+			-> void;
 		RHI_API auto Dispatch(uint32 GroupCountX, uint32 GroupCountY,
 			uint32 GroupCountZ) -> void;
-		RHI_API auto TryDispatchIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
-			-> std::expected<void, ERHIIndirectCommandError>;
+		RHI_API auto DispatchIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset)
+			-> void;
 		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation,
 			int32 VertexOffset) -> void;
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
@@ -163,8 +163,6 @@ namespace Durin
 			-> std::expected<void, ERHIBufferUploadError>;
 		RHI_API auto TryUpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
 			-> std::expected<void, ERHIBufferUploadError>;
-		RHI_API auto TryCreateBufferView(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
-			-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,

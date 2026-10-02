@@ -245,12 +245,15 @@ first-location, and base-vertex arguments. See
 [Graphics State and Bindings](GraphicsStateAndBindings.md).
 
 Single-command indirect operations retain their GPU-authored argument buffer
-and copied byte offset through replay. `TryDrawIndirect`,
-`TryDrawIndexedIndirect`, and `TryDispatchIndirect` reject a null or
-CPU-authored buffer, missing `DrawIndirect` usage, non-four-byte alignment,
+and copied byte offset through replay. `DrawIndirect`,
+`DrawIndexedIndirect`, and `DispatchIndirect` return void and reject invalid
+recording through enforced preconditions: a null or CPU-authored buffer,
+missing `DrawIndirect` usage, non-four-byte alignment,
 an undersized record range, unsupported capability, wrong pipeline/render-pass
-domain, missing PSO, or dependency-admission failure before recording. No
-argument bytes are mapped or copied and no hidden CPU command loop exists.
+domain, missing PSO, or dependency-admission failure before recording. Invalid
+usage is an invariant failure; callers select a supported rendering path from
+published capabilities before recording. No argument bytes are mapped or copied
+and no hidden CPU command loop exists.
 
 Compute pipeline selection, reflected binding, and direct or indirect dispatch use the same
 recorded ownership and executor rules without creating another queue. See

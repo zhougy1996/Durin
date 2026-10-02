@@ -1692,10 +1692,6 @@ namespace Durin
 		MisalignedOffset,
 		RangeOutOfBounds,
 		Unsupported,
-		WrongPipeline,
-		WrongRenderPass,
-		MissingPipelineState,
-		CommandAdmissionFailed,
 	};
 
 	RHI_API auto ToString(ERHIIndirectCommandError Error) -> std::string_view;

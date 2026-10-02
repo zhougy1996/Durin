@@ -65,10 +65,11 @@ range/offset limits; dynamic uniform offsets are checked during canonicalization
 Vulkan backing and submission ownership follow
 [the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).
 
-`TryCreateBufferView` (and `FRHIBufferView::TryCreate`) validates CPU-authored
+`FRHIBufferView::TryCreate` validates CPU-authored
 parents and returns a logical view or `ERHIBufferUploadError`. Native parents
-return `InvalidUsage`. Native view factories and their cache paths reject
-CPU-authored parents before backend work. Binding canonicalization selects the
+return `InvalidUsage`. Logical view creation is independent of command-list
+recording and has no command-list forwarding API. Native view factories and
+their cache paths reject CPU-authored parents before backend work. Binding canonicalization selects the
 correct path from the parent's mode. Native write/upload, lock, vertex/index,
 copy, and transition operations reject CPU-authored buffers with enforced
 preconditions; versioned updates use the fallible APIs above. RDG external

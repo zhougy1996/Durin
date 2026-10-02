@@ -225,7 +225,7 @@ auto FRHICommandListBase::TryUpdateUniformBuffer(
 auto FRHICommandListBase::TryUpdateBuffer(
     FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
     -> std::expected<void, ERHIBufferUploadError>;
-auto FRHICommandListBase::TryCreateBufferView(
+auto FRHIBufferView::TryCreate(
     FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
     -> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
 auto FRDGBuilder::QueueBufferUpload(
