@@ -510,17 +510,26 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, NonFiniteTemplateOverrideUsesGenericValidation)
+TEST(FMaterialRenderProxyTests, NonFinitePublicationUsesGenericValidation)
 {
 	FRenderSceneHarness Harness;
 	auto* Base = MakeExpandedMaterial(nullptr, "NonFiniteTemplate");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NonFiniteOverride");
 	ASSERT_TRUE(Instance->SetParent(Base));
-	ASSERT_TRUE(Instance->SetScalarParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
-		std::numeric_limits<float>::quiet_NaN()));
-	Durin::ResetMaterialRenderProxyCounters();
 	auto Proxy = Instance->GetMaterialRenderProxy();
+	const auto Initial = CaptureMaterialProxy(Proxy);
+	// Bypass the setter's validation to exercise the render boundary's final guard.
+	Durin::FMaterialRenderProxyPublication Publication;
+	Publication.LocalVersion = Initial.LocalVersion + 1;
+	Publication.LocalLayer.CompiledProgram = Instance->GetAcceptedCompiledProgram();
+	Publication.LocalLayer.StaticProperties = Instance->GetRenderableStaticProperties();
+	Publication.LocalLayer.Parameters.push_back({
+		.Id = Instance->FindParameterDefinition(
+			Durin::AssetForge::Builtins::MaterialParameters::RoughnessName())->Id,
+		.Value = std::numeric_limits<float>::quiet_NaN(),
+	});
+	Durin::ResetMaterialRenderProxyCounters();
+	ASSERT_TRUE(Proxy->QueuePublication_GameThread(std::move(Publication)));
 	const auto Snapshot = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Durin::GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, 0u);
 	ExpectRenderDataMatches(Snapshot.RenderData, Durin::GetErrorMaterialRenderData());

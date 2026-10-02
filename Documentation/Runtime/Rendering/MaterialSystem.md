@@ -54,14 +54,16 @@ and editor transactions. Existing instance packages retain their schema.
 `DMaterialInstance::CreateDynamic(Parent, Outer, Name)` creates a transient instance
 with a fixed, valid non-dynamic material parent. It returns null for invalid or
 over-depth chains. A parent without an accepted program is allowed; parameter
-updates require both a matching current declaration and the parent's accepted
+Set updates require both a matching current declaration and the parent's accepted
 active parameter contract. `IsDynamicInstance()` exposes this immutable lifecycle.
 The existing typed setters and clear operations, and
 `ApplyDynamicParameterUpdates`, update only local runtime values and render state,
 without package dirtiness or compilation. A batch borrows Set/Clear records for
 one GameThread call, rejects duplicate or invalid GUIDs and invalid values with
-the failing record index, and validates every record against one captured accepted
-parent contract before swapping candidate typed storage. A rejected batch changes
+the failing record index, and validates Set records against one captured accepted
+parent contract before swapping candidate typed storage. Clear records remove local
+values even when declarations are orphaned or the parent has no accepted program;
+clearing a valid absent GUID is a no-op. A rejected batch changes
 nothing. A fully no-op batch succeeds without publication; a changed batch advances
 render state, publishes, and notifies exactly once regardless of record count.
 Static overrides,
@@ -104,6 +106,10 @@ snapshots, and scene publication coalesces superseded snapshots without mutating
 the collection asset, dirtying material packages or publishing material proxies.
 
 ### Parameter values and declarations
+
+Instance numeric overrides must be finite both before and after conversion to
+their stored representation. Native setters, reflected editing, and loaded-object
+validation reject nonfinite values before they can reach render publication.
 
 - `DMaterialInterface` is the common asset/component-facing contract. Persistent
   parameter identity is an `FGuid`; public human/API lookup uses

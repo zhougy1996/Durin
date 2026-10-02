@@ -143,6 +143,11 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	const auto Captured = FSavePackageContext{}.Capture(Instance->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
 	Records->front().ParameterId = Id;
+	const auto FiniteValue = Records->front().Value;
+	Records->front().Value.x = std::numeric_limits<float>::infinity();
+	EXPECT_FALSE(Instance->PreEditChangeProperty(Proposal));
+	EXPECT_FALSE(FSavePackageContext{}.Capture(Instance->GetPackage(), Linker));
+	Records->front().Value = FiniteValue;
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();
@@ -158,6 +163,101 @@ namespace
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
+}
+
+TEST(FMaterialInstanceTests, ParameterWritesRejectNonFiniteValuesWithoutMutation)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedMaterial(nullptr, "FiniteParameterBase");
+	ASSERT_TRUE(Base);
+	auto* Authored = NewObject<DMaterialInstance>(nullptr, "FiniteParameterAuthored");
+	ASSERT_TRUE(Authored->SetParent(Base));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Base, nullptr, "FiniteParameterDynamic");
+	ASSERT_TRUE(Dynamic);
+	const auto ScalarId = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
+	const auto VectorId = Base->FindParameterDefinition(MaterialParameters::BaseColorName())->Id;
+	for (auto* Instance : {Authored, Dynamic})
+	{
+		ASSERT_TRUE(Instance->SetParameterValue(ScalarId, FMaterialParameterValue::MakeScalar(.25f)));
+		const auto Version = Instance->GetRenderStateVersion();
+		uint64 Notifications = 0;
+		const auto Listener = Instance->GetParameterChanges().AddLambda([&] { ++Notifications; });
+		for (const auto Value : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+		{
+			const auto Result = Instance->SetParameterValue(ScalarId, FMaterialParameterValue::MakeScalar(Value));
+			ASSERT_FALSE(Result);
+			EXPECT_EQ(Result.Error.Code, FMaterialError::FCode(EMaterialParameterError::InvalidDefault));
+			EXPECT_FALSE(Instance->SetParameterValue(VectorId, FMaterialParameterValue::MakeVector4({0, Value, 0, 1})));
+		}
+		EXPECT_FALSE(Instance->SetParameterValue(VectorId,
+			FMaterialParameterValue::MakeVector4({std::numeric_limits<double>::max(), 0, 0, 1})));
+		FMaterialParameterValue Stored;
+		ASSERT_TRUE(Instance->GetLocalParameterValue(ScalarId, Stored));
+		EXPECT_FLOAT_EQ(Stored.GetScalar(), .25f);
+		EXPECT_FALSE(Instance->HasLocalParameterValue(VectorId));
+		EXPECT_EQ(Instance->GetRenderStateVersion(), Version);
+		EXPECT_EQ(Notifications, 0u);
+		Instance->GetParameterChanges().Remove(Listener);
+		MarkAsGarbage(Instance);
+	}
+	MarkAsGarbage(Base);
+	CollectGarbage();
+}
+
+TEST(FMaterialInstanceTests, DynamicClearRemovesOrphansWithoutAnAcceptedParentProgram)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedMaterial(nullptr, "DynamicClearBase");
+	ASSERT_TRUE(Base);
+	auto* Parent = NewObject<DMaterialInstance>(nullptr, "DynamicClearParent");
+	ASSERT_TRUE(Parent->SetParent(Base));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Parent, nullptr, "DynamicClearChild");
+	ASSERT_TRUE(Dynamic);
+	const auto Id = Base->FindParameterDefinition(MaterialParameters::RoughnessName())->Id;
+	ASSERT_TRUE(Dynamic->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.25f)));
+	ASSERT_TRUE(Parent->SetParent(nullptr));
+	EXPECT_EQ(Dynamic->GetAcceptedCompiledProgram(), nullptr);
+	EXPECT_TRUE(Dynamic->IsParameterValueOrphan(Id));
+	const auto Version = Dynamic->GetRenderStateVersion();
+	uint64 Notifications = 0;
+	const auto Listener = Dynamic->GetParameterChanges().AddLambda([&] { ++Notifications; });
+	const std::array Rejected{
+		FMaterialDynamicParameterUpdate::Clear(Id),
+		FMaterialDynamicParameterUpdate::Set(FGuid::NewGuid(), FMaterialParameterValue::MakeScalar(.5f)),
+	};
+	EXPECT_FALSE(Dynamic->ApplyDynamicParameterUpdates(Rejected));
+	EXPECT_TRUE(Dynamic->HasLocalParameterValue(Id));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), Version);
+	EXPECT_EQ(Notifications, 0u);
+	EXPECT_TRUE(Dynamic->ClearParameterValue(Id));
+	EXPECT_FALSE(Dynamic->HasLocalParameterValue(Id));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), Version + 1);
+	EXPECT_EQ(Notifications, 1u);
+	const std::array NoOp{FMaterialDynamicParameterUpdate::Clear(FGuid::NewGuid())};
+	EXPECT_TRUE(Dynamic->ApplyDynamicParameterUpdates(NoOp));
+	EXPECT_EQ(Dynamic->GetRenderStateVersion(), Version + 1);
+	EXPECT_EQ(Notifications, 1u);
+	ASSERT_TRUE(Parent->SetParent(Base));
+	float Value = 0;
+	ASSERT_TRUE(Dynamic->GetScalarParameterValue(MaterialParameters::RoughnessName(), Value));
+	EXPECT_NE(Value, .25f);
+	ASSERT_TRUE(Dynamic->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.4f)));
+	ASSERT_TRUE(Base->SetMaterialExpressions({}, {}));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Parent));
+	ASSERT_NE(Dynamic->GetAcceptedCompiledProgram(), nullptr);
+	EXPECT_TRUE(Dynamic->IsParameterValueOrphan(Id));
+	EXPECT_TRUE(Dynamic->ClearParameterValue(Id));
+	EXPECT_FALSE(Dynamic->HasLocalParameterValue(Id));
+	Dynamic->GetParameterChanges().Remove(Listener);
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Parent);
+	MarkAsGarbage(Base);
+	CollectGarbage();
 }
 
 TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwningPackage)
@@ -314,7 +414,8 @@ TEST(FMaterialInstanceTests, DynamicParameterBatchesCommitAtomicallyOnceAndRollb
 	const std::array NoOpUpdates{
 		FMaterialDynamicParameterUpdate::Set(Metallic->Id,
 			FMaterialParameterValue::MakeScalar(0.31f)),
-		FMaterialDynamicParameterUpdate::Clear(FGuid::NewGuid()),
+		FMaterialDynamicParameterUpdate::Set(FGuid::NewGuid(),
+			FMaterialParameterValue::MakeScalar(0.5f)),
 	};
 	const uint64 BeforeNoOpVersion = Dynamic->GetRenderStateVersion();
 	const auto NoOp = Dynamic->ApplyDynamicParameterUpdates(NoOpUpdates);

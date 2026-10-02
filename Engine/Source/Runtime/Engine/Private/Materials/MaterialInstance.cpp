@@ -165,6 +165,7 @@ namespace Durin
 				const auto& Record = (*Records)[Index];
 				if (!Record.ParameterId.IsValid()) Result.Error = EMaterialInstanceError::InvalidParameterId;
 				else if (!Ids.insert(Record.ParameterId).second) Result.Error = EMaterialInstanceError::DuplicateParameterId;
+				else if (!IsFiniteMaterialParameterValue(Record.GetValue())) Result.Error = EMaterialParameterError::InvalidDefault;
 				else if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
 					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback))
 						Result.Error = EMaterialInstanceError::InvalidSamplingPolicy;
@@ -446,6 +447,7 @@ namespace Durin
 		if (!Definition) return Fail(EMaterialParameterError::NotFound);
 		if (Definition->Type != Type) return Fail(EMaterialParameterError::InvalidType, Definition->Type);
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail(EMaterialParameterError::Unreachable);
+		if (!IsFiniteMaterialParameterValue(Value)) return Fail(EMaterialParameterError::InvalidDefault);
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
 			return Fail(EMaterialInstanceError::InvalidSamplingPolicy);
 		FMaterialParameterValue StoredValue = Value;
@@ -455,6 +457,7 @@ namespace Durin
 			Vector.SetValue(Value);
 			StoredValue = Vector.GetValue();
 		}
+		if (!IsFiniteMaterialParameterValue(StoredValue)) return Fail(EMaterialParameterError::InvalidDefault);
 		FMaterialParameterValue Existing;
 		if (GetLocalParameterValue(Id, Existing))
 		{
@@ -500,13 +503,7 @@ namespace Durin
 			return {};
 		}
 		const auto Program = GetAcceptedCompiledProgram();
-		if (!Program)
-			return Reject(FMaterialError(EMaterialParameterError::Unreachable), 0,
-				Updates.empty() ? FGuid{} : Updates.front().ParameterId);
-		const auto Reachability = GetParameterReachability();
-		if (!Reachability || !Reachability->Validation)
-			return Reject(FMaterialError(EMaterialParameterError::Unreachable), 0,
-				Updates.empty() ? FGuid{} : Updates.front().ParameterId);
+		std::shared_ptr<const FMaterialParameterReachability> Reachability;
 
 		auto CandidateScalars = ScalarParameterValues;
 		auto CandidateVectors = VectorParameterValues;
@@ -526,16 +523,6 @@ namespace Durin
 				&& Update.Operation != EMaterialDynamicParameterUpdateOperation::Clear)
 				return Reject(FMaterialError(EMaterialParameterError::InvalidMetadata),
 					Index, Update.ParameterId);
-			const auto* Definition = FindParameterDefinition(Update.ParameterId);
-			if (!Definition)
-				return Reject(FMaterialError(EMaterialParameterError::NotFound),
-					Index, Update.ParameterId);
-			const auto Active = std::ranges::find(Program->ActiveParameters,
-				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->ActiveParameters.end()
-				|| !Reachability->ParameterIds.contains(Update.ParameterId))
-				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
-					Index, Update.ParameterId);
 			if (Update.Operation == EMaterialDynamicParameterUpdateOperation::Clear)
 			{
 				bool bRemoved = false;
@@ -550,6 +537,25 @@ namespace Durin
 				bChanged |= bRemoved;
 				continue;
 			}
+			// Clearing local storage remains valid when the parent contract is unavailable.
+			// Only Set needs a current declaration and an accepted active parameter.
+			if (!Program)
+				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
+					Index, Update.ParameterId);
+			if (!Reachability) Reachability = GetParameterReachability();
+			if (!Reachability || !Reachability->Validation)
+				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
+					Index, Update.ParameterId);
+			const auto* Definition = FindParameterDefinition(Update.ParameterId);
+			if (!Definition)
+				return Reject(FMaterialError(EMaterialParameterError::NotFound),
+					Index, Update.ParameterId);
+			const auto Active = std::ranges::find(Program->ActiveParameters,
+				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
+			if (Active == Program->ActiveParameters.end()
+				|| !Reachability->ParameterIds.contains(Update.ParameterId))
+				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
+					Index, Update.ParameterId);
 			const EMaterialParameterType Type = Update.Value.GetType();
 			if (Definition->Type != Type || Active->Type != Type)
 			{
@@ -574,6 +580,9 @@ namespace Durin
 				Vector.SetValue(Update.Value);
 				StoredValue = Vector.GetValue();
 			}
+			if (!IsFiniteMaterialParameterValue(StoredValue))
+				return Reject(FMaterialError(EMaterialParameterError::InvalidDefault),
+					Index, Update.ParameterId);
 			bool bApplied = false;
 			const auto Apply = [&](auto& Records) {
 				using TRecord = typename std::decay_t<decltype(Records)>::value_type;

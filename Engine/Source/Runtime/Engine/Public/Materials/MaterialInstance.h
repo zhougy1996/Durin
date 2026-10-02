@@ -100,7 +100,8 @@ namespace Durin
 			const FMaterialParameterValue& Value
 			) -> FMaterialOperationResult;
 		// Dynamic instances only. Validates the complete borrowed batch against one
-		// accepted parent contract, then commits and publishes at most once.
+		// accepted parent contract for Set. Clear only needs a valid local GUID,
+		// including orphaned values. Commits and publishes at most once.
 		ENGINE_API auto ApplyDynamicParameterUpdates(
 			std::span<const FMaterialDynamicParameterUpdate> Updates)
 			-> FMaterialOperationResult;
