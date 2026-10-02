@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include <expected>
 
 #include "EngineAPI.h"
@@ -31,8 +34,6 @@ namespace Durin
 
 	ENGINE_API auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string;
 
-	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
-
 	// Fixed slot metadata only; material object bindings remain with the operation owner.
 	struct FStaticMeshBuildMaterialSlot
 	{
@@ -49,3 +50,5 @@ namespace Durin
 	};
 
 }
+
+#endif

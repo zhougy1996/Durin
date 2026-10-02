@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshGeometry.h"
 
 #include "Math/Operations.h"
 #include "CoreGlobals.h"

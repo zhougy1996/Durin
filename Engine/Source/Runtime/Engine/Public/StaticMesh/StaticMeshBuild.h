@@ -3,6 +3,7 @@
 #include <expected>
 
 #include "EngineAPI.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "StaticMesh/StaticMeshBuildFailure.h"
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMesh.h"

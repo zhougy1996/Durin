@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
 	auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string
 	{
 		std::string_view Reason;
@@ -34,6 +35,8 @@ namespace Durin
 			Reason,
 			Error.MeshName, Error.SectionName, Error.Index, Error.Actual, Error.Expected);
 	}
+
+#endif
 
 #if DURIN_WITH_EDITOR
 	namespace

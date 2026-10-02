@@ -16,6 +16,7 @@ namespace Durin
 {
 	namespace
 	{
+#if DURIN_WITH_EDITORONLY_DATA
 		auto InvalidBuildKey(FArchiveFailure* OutFailure,
 			EArchiveFailureCode Code, std::string_view Message) -> bool
 		{
@@ -29,6 +30,8 @@ namespace Durin
 				&& (Profile == ECookTargetProfile::Game
 					|| Profile == ECookTargetProfile::EditorValidation);
 		}
+
+#endif
 
 		auto IsCompleteMipChain(const FTexturePlatformData& PlatformData) -> bool
 		{
@@ -68,6 +71,7 @@ namespace Durin
 
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
 	auto FTexture2DBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
 		if (OutFailure) *OutFailure = {};
@@ -247,6 +251,8 @@ namespace Durin
 		OutError = "Invalid VolumeTexture build definition.";
 		return {};
 	}
+
+#endif
 
 	auto FTexturePlatformData::Serialize(FArchive& Ar) -> void
 	{

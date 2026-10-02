@@ -11,6 +11,10 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
+Texture recipe inputs, settings, errors, compilation diagnostics, and the build
+module interface require `DURIN_WITH_EDITORONLY_DATA`. Runtime retains platform
+data, payload validation, resource publication, and compilation readiness queries.
+
 - `DTexture` stores the one editor-only reflected `FTextureSource` and the one
   editor-only reflected `DAssetImportData` pointer shared by Texture2D,
   TextureCube, and VolumeTexture. The source contains canonical bulk texels plus

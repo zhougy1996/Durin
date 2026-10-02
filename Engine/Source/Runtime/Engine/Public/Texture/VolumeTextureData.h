@@ -87,8 +87,6 @@ namespace Durin
 	};
 
 	// Freezes deterministic mip filtering and output format policy.
-#endif
-
 	DSTRUCT()
 	struct FVolumeTextureBuildSettings
 	{
@@ -102,6 +100,8 @@ namespace Durin
 
 		auto operator==(const FVolumeTextureBuildSettings&) const -> bool = default;
 	};
+
+#endif
 
 	// Owns one exact volume mip with explicit row and depth pitches.
 	struct FVolumeTextureMipData

@@ -225,6 +225,9 @@ coordinates. No public combined render/collision build product exists.
 Shared DDC render output owns CPU geometry and the section-to-slot mapping.
 Asset slot definitions remain inputs and are not persisted in that output. `IMeshBuilderModule` is an Engine-declared
 module interface, implemented by Developer/MeshBuilder without feature registration.
+The interface and source-geometry recipe requests require
+`DURIN_WITH_EDITORONLY_DATA`. Render-data finalization, publication, and their
+failure types remain available for cooked runtime loading.
 `MeshBuilder` remains loaded throughout the editor lifetime and does not support
 runtime unloading or reloading. `IMeshBuilderModule::Get` borrows the active module;
 `BuildStaticMeshRenderData` supports both synchronous and worker callers without a

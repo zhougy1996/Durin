@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "EngineAPI.h"
 #include "Texture/Texture2DBuildTypes.h"
 
@@ -60,9 +63,7 @@ namespace Durin
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }
 	};
-#if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string;
-#endif
 
 	// Provides a thread-safe snapshot suitable for editor diagnostics.
 	struct FTexture2DCompilationDiagnostic
@@ -89,3 +90,5 @@ namespace Durin
 		uint32 PendingCompletionCount = 0;
 	};
 }
+
+#endif

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "Modules/ModuleManager.h"
 #include "StaticMesh/StaticMeshBuildTypes.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -20,3 +23,5 @@ namespace Durin
 			-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> = 0;
 	};
 }
+
+#endif

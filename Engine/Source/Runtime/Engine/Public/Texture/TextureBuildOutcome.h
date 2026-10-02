@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "Serialization/Archive.h"
 
 #include <expected>
@@ -44,3 +47,5 @@ namespace Durin
 	};
 
 } // namespace Durin
+
+#endif

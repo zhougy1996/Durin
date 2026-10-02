@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
+
 	enum class EStaticMeshCompilationProducts : uint8 { Render, Collision, All };
 	ENGINE_API auto FinishStaticMeshCompilation(DStaticMesh& Mesh,
 		EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult;

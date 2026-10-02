@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
@@ -91,3 +94,5 @@ namespace Durin
 	ENGINE_API auto BuildVolumeTextureDerivedDataKey(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy;
 }
+
+#endif
