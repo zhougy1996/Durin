@@ -25,6 +25,15 @@ namespace Durin
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationResult;
 
+	enum class EStaticMeshBuildMode : uint8 { Synchronous, Asynchronous };
+	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
+	struct FStaticMeshBuildOptions
+	{
+		EStaticMeshCompilationPriority Priority = EStaticMeshCompilationPriority::Background;
+		bool bPersistDerivedData = true;
+		bool bMarkPackageDirty = true;
+	};
+
 	// Joins caller-facing messages for display within the StaticMesh diagnostic budget.
 	ENGINE_API auto FormatStaticMeshBuildMessages(std::span<const std::string> Messages) -> std::string;
 
@@ -155,16 +164,14 @@ namespace Durin
 		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DStaticMesh() override;
 #if DURIN_WITH_EDITORONLY_DATA
-		// Owner-thread build and application. Does not submit or wait for compilation.
-		// Cancels older async requests; failure preserves the current mesh data.
-		// Build reads fixed slot definitions. Authoring callers may supply prepared slots
-		// to install atomically with the result; Build never derives or reconciles them.
-		ENGINE_API auto Build(const FStaticMeshSource& InSource,
-			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots = std::nullopt) -> std::expected<void, std::vector<std::string>>;
-		ENGINE_API auto Build(FStaticMeshDecodedGeometry Geometry,
-			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots = std::nullopt) -> std::expected<void, std::vector<std::string>>;
-		// Success means accepted, not built. Completion is delivered by the owner-thread pump.
-		ENGINE_API auto AsyncBuild(FStaticMeshCompilationRequest Request,
+		// Rebuild the current accepted Source. Both modes capture owner-thread snapshots.
+		// Synchronous success means applied; asynchronous success means admitted.
+		// Completion runs on the owner thread, before return for synchronous mode.
+		ENGINE_API auto Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options = {},
+			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
+			-> std::expected<void, std::vector<std::string>>;
+		// Authoring transaction: candidate source/slots/provenance replace live data only on success.
+		ENGINE_API auto BuildFromSource(EStaticMeshBuildMode Mode, FStaticMeshCompilationRequest Request,
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
 			-> std::expected<void, std::vector<std::string>>;
 #endif

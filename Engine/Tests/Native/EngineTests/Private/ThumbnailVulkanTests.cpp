@@ -199,10 +199,10 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		StaticMeshFixturePath, StaticMeshFixture
 	)) << Error;
 	ASSERT_NE(StaticMeshFixture, nullptr);
-	Durin::FStaticMeshDecodedGeometry ImportedMesh;
-	ImportedMesh.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
-	Durin::FStaticMeshImportedMesh& ImportedSection =
-		ImportedMesh.Meshes.emplace_back();
+	Durin::FMeshDescription ImportedMesh;
+	ImportedMesh.PolygonGroups.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	Durin::FMeshDescriptionSection& ImportedSection =
+		ImportedMesh.Sections.emplace_back();
 	ImportedSection.Name = "ThumbnailTetrahedron";
 	ImportedSection.Positions = {
 		Durin::FVector3f(-0.6f, -0.5f, -0.4f),

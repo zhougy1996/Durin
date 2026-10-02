@@ -56,9 +56,9 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, "PendingPreviewMesh");
-	FStaticMeshDecodedGeometry Geometry;
-	Geometry.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
-	auto& Section = Geometry.Meshes.emplace_back();
+	FMeshDescription Geometry;
+	Geometry.PolygonGroups.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Section = Geometry.Sections.emplace_back();
 	Section.Name = "Triangle";
 	Section.Positions = {{-0.5f, -0.5f, 0.0f}, {0.5f, -0.5f, 0.0f}, {0.0f, 0.5f, 0.0f}};
 	Section.Indices = {0, 1, 2};
@@ -67,7 +67,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 	// Initial publication must supply the authored slot table; ordinary builds retain existing slots.
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = std::move(Source),
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = std::move(Source),
 		.PreparedMaterialSlots = std::vector<FMeshMaterialSlotDefinition>{{.Name = FName("Default"), .SourceName = "Default", .SourceMaterialIndex = 0}},
 		.bPersistDerivedData = false, .bMarkPackageDirty = false})) << Error;
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);

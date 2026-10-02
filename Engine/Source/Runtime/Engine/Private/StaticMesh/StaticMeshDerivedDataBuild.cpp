@@ -114,7 +114,7 @@ namespace Durin
 			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh render source or normalization is invalid.", EStaticMeshBuildStage::Source});
 		FAssetBuildMemoryEstimate SourceMemory{Control.MaximumWorkingSetBytes};
 		if (!SourceMemory.Add(Request.Source.GetGeometryBulk().GetPayloadSize(), 8)
-			|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FStaticMeshImportedMesh))
+			|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FMeshDescriptionSection))
 			|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768))
 			return std::unexpected(FStaticMeshBuildFailure{"StaticMesh decoded source exceeds its reservation.", EStaticMeshBuildStage::Validation});
 		if (Request.Reconciliation.MaterialSlots.size() > MaximumMeshMaterialSlots)

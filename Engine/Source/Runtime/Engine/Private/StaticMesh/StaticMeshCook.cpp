@@ -285,7 +285,7 @@ namespace Durin
 			return;
 		}
 		if (CanJoinStaticMeshCompilation(*this, GetSource())) return;
-		if (const auto Submitted = AsyncBuild({.Source = GetSource(), .bMarkPackageDirty = false}); !Submitted)
+		if (const auto Submitted = Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false}); !Submitted)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshBuildMessages(Submitted.error()));
 			return;

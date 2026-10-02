@@ -478,9 +478,9 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
-	Durin::FStaticMeshDecodedGeometry Imported;
-	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
-	Durin::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
+	Durin::FMeshDescription Imported;
+	Imported.PolygonGroups.push_back({"Default", 0, "Default"});
+	Durin::FMeshDescriptionSection& ImportedMesh = Imported.Sections.emplace_back();
 	ImportedMesh.Name = "Tetrahedron";
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
@@ -529,7 +529,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	const auto CollisionRevision = Mesh->GetBodySetup()->GetCollisionBuildRevision();
 	const auto FirstRegistration = First->GetPhysicsRegistrationGeneration();
 	const auto SecondRegistration = Second->GetPhysicsRegistrationGeneration();
-	ASSERT_TRUE(Mesh->Build(Mesh->GetSource()));
+	ASSERT_TRUE(Mesh->Build(Durin::EStaticMeshBuildMode::Synchronous));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetCollisionBuildRevision(), CollisionRevision);
 	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
 	EXPECT_EQ(SecondWorld->GetPhysicsScene().GetBodyCount(), 1u);
@@ -567,7 +567,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
-	const auto SynchronousBuild2 = Mesh->Build(Mesh->GetSource());
+	const auto SynchronousBuild2 = Mesh->Build(Durin::EStaticMeshBuildMode::Synchronous);
 	ASSERT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild2.error());
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_EQ(Durin::FStaticMeshTestAccess::GetRenderDataUpdateError(Mesh).Code, Durin::EStaticMeshReplacementError::None);
@@ -1291,9 +1291,9 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	auto* Component = Actor->GetStaticMeshComponent();
 	Component->SetStaticMesh(Mesh);
 	EXPECT_FALSE(Component->GetPhysicsActorHandle().IsValid());
-	FStaticMeshDecodedGeometry Source;
-	Source.MaterialSlots.push_back({"Default", 0, "Default"});
-	auto& Section = Source.Meshes.emplace_back();
+	FMeshDescription Source;
+	Source.PolygonGroups.push_back({"Default", 0, "Default"});
+	auto& Section = Source.Sections.emplace_back();
 	Section.Name = "Tetrahedron";
 	Section.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	Section.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};

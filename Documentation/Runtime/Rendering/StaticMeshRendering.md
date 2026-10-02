@@ -123,7 +123,7 @@ render data.
 Private `ReplaceRenderDataDestructively`/`ReplaceSourceRenderDataDestructively`
 retain the internal no-rollback CPU replacement behavior and typed last error.
 Focused tests access them through `FStaticMeshTestAccess`; ordinary callers use
-`DStaticMesh::Build` or `AsyncBuild`, which finalize render data before
+`DStaticMesh::Build` or `BuildFromSource`, which finalize render data before
 publication and retain the previous mesh on render failure. Publication clears old
 derived collision and schedules independent collision work. Import follows this
 same completion contract; collision failure does not roll back the new render state. Collision errors remain separate; status checks

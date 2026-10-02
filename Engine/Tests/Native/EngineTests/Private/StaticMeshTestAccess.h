@@ -13,10 +13,10 @@ namespace Durin
 	public:
 		static auto SetMaterialSlots(DStaticMesh* Mesh, std::vector<FMeshMaterialSlotDefinition> Slots) -> void
 		{ Mesh->MaterialSlots = std::move(Slots); }
-		static auto MakeSlots(const FStaticMeshDecodedGeometry& Geometry) -> std::vector<FMeshMaterialSlotDefinition>
+		static auto MakeSlots(const FMeshDescription& Geometry) -> std::vector<FMeshMaterialSlotDefinition>
 		{
 			std::vector<FMeshMaterialSlotDefinition> Slots;
-			for (const auto& Slot : Geometry.MaterialSlots)
+			for (const auto& Slot : Geometry.PolygonGroups)
 				Slots.push_back({.Name = FName(Slot.Name), .SourceName = Slot.SourceName,
 					.SourceMaterialIndex = Slot.SourceMaterialIndex});
 			return Slots;
@@ -26,14 +26,24 @@ namespace Durin
 			const auto Geometry = Source.AcquireGeometry();
 			return Geometry ? MakeSlots(**Geometry) : std::vector<FMeshMaterialSlotDefinition>{};
 		}
-		static auto Build(DStaticMesh* Mesh, FStaticMeshDecodedGeometry Geometry)
+		static auto BuildCandidate(DStaticMesh* Mesh, FMeshDescription Geometry,
+			std::optional<std::vector<FMeshMaterialSlotDefinition>> Slots = std::nullopt)
+			-> std::expected<void, std::vector<std::string>>
+		{
+			FStaticMeshSource Source;
+			if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
+				return std::unexpected(std::vector<std::string>{FormatStaticMeshSourceError(Initialized.error())});
+			return Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous,
+				{.Source = Source, .PreparedMaterialSlots = std::move(Slots)});
+		}
+		static auto Build(DStaticMesh* Mesh, FMeshDescription Geometry)
 		{
 			auto Slots = MakeSlots(Geometry);
-			return Mesh->Build(std::move(Geometry), std::move(Slots));
+			return BuildCandidate(Mesh, std::move(Geometry), std::move(Slots));
 		}
 		static auto Build(DStaticMesh* Mesh, const FStaticMeshSource& Source)
 		{
-			return Mesh->Build(Source);
+			return Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 		}
 
 		static auto ReplaceRenderData(DStaticMesh* Mesh, std::unique_ptr<FStaticMeshRenderData> Data,

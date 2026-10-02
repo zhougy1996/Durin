@@ -56,7 +56,7 @@ namespace Durin
 				FTriMeshCollisionData Data;
 				FAssetBuildMemoryEstimate Budget{Control.MaximumWorkingSetBytes, 1024 * 1024};
 				uint64 VertexCount = 0, IndexCount = 0;
-				for (const auto& Mesh : (*Geometry)->Meshes)
+				for (const auto& Mesh : (*Geometry)->Sections)
 				{
 					if (Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
 					if (Mesh.Positions.empty() || Mesh.Indices.empty()) continue;
@@ -68,7 +68,7 @@ namespace Durin
 				Data.Positions.reserve(VertexCount); Data.Indices.reserve(IndexCount);
 				FBox Bounds;
 				uint64 Work = 0;
-				for (const auto& Mesh : (*Geometry)->Meshes)
+				for (const auto& Mesh : (*Geometry)->Sections)
 				{
 					if (Mesh.Positions.empty() || Mesh.Indices.empty()) continue;
 					const auto Base = static_cast<uint32>(Data.Positions.size());
@@ -80,7 +80,7 @@ namespace Durin
 					for (uint32 Index : Mesh.Indices)
 					{
 						if ((++Work % 256) == 0 && Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
-						Data.Indices.push_back(Base + Index);
+						Data.Indices.push_back(Base + Mesh.GetVertexIndex(Index));
 					}
 				}
 				const auto Normalization = GetStaticMeshPositionNormalization(Bounds, Size);

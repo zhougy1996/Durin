@@ -627,8 +627,8 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				Result = AddError(Result, EImportDiagnosticCategory::InvalidPlan, "asset-build", Error, Descriptor.StableIdentity);
 				return;
 			}
-			auto Geometry = MakeStaticMeshDecodedGeometry(Descriptor.bCombinedMesh ? Data.Scene : Selected);
-			Output.StaticMeshMaterialSlots = ReconcileStaticMeshMaterialSlots({}, Geometry.MaterialSlots);
+			auto Geometry = MakeMeshDescription(Descriptor.bCombinedMesh ? Data.Scene : Selected);
+			Output.StaticMeshMaterialSlots = ReconcileStaticMeshMaterialSlots({}, Geometry.PolygonGroups);
 			if (const auto Initialized =
 			        Output.StaticMeshSource.Initialize(std::move(Geometry));
 			    !Initialized)

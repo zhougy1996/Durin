@@ -12,7 +12,6 @@ namespace Durin
 		EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult;
 
 	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
-	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
 
 	struct FStaticMeshCompilationDiagnostic

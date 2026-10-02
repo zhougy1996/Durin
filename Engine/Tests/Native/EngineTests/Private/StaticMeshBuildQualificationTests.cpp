@@ -8,11 +8,11 @@ using namespace StaticMeshBuildTestSupport;
 
 namespace
 {
-	auto MakeTransferGeometry(uint32 TriangleCount) -> Durin::FStaticMeshDecodedGeometry
+	auto MakeTransferGeometry(uint32 TriangleCount) -> Durin::FMeshDescription
 	{
 		using namespace Durin;
-		FStaticMeshDecodedGeometry Geometry = MakeResidencyGeometry();
-		auto& Mesh = Geometry.Meshes.front();
+		FMeshDescription Geometry = MakeResidencyGeometry();
+		auto& Mesh = Geometry.Sections.front();
 		Mesh.Positions.clear(); Mesh.Indices.clear();
 		Mesh.Positions.reserve(TriangleCount * 3); Mesh.Indices.reserve(TriangleCount * 3);
 		for (uint32 Triangle = 0; Triangle < TriangleCount; ++Triangle)
@@ -104,7 +104,7 @@ TEST(FStaticMeshBuildQualificationTests, ColdAndWarmRenderAndCollision)
 	ASSERT_TRUE(Log.IsStarted());
 	constexpr uint32 TriangleCount = 100000;
 	auto Geometry = MakeTransferGeometry(TriangleCount);
-	auto& Mesh = Geometry.Meshes.front();
+	auto& Mesh = Geometry.Sections.front();
 	// Capture collision independently of render output. Hashing of these arrays
 	// still occurs inside Cook on both paths and is included in its measurement.
 	FCookBodySetupInfo CollisionInput{.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
@@ -182,8 +182,8 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 	FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
 	auto Geometry = MakeTransferGeometry(100000);
 	FCookBodySetupInfo CollisionInput{.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
-	CollisionInput.TriangleMeshDesc.Positions = Geometry.Meshes.front().Positions;
-	CollisionInput.TriangleMeshDesc.Indices = Geometry.Meshes.front().Indices;
+	CollisionInput.TriangleMeshDesc.Positions = Geometry.Sections.front().Positions;
+	CollisionInput.TriangleMeshDesc.Indices = Geometry.Sections.front().Indices;
 	CollisionInput.bPersistDerivedData = false;
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
@@ -195,14 +195,18 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 	auto Product = Module->BuildRender({.Geometry = *Read, .MaterialSlots = Slots});
 	ASSERT_TRUE(Product) << FormatStaticMeshRenderBuildError(Product.error());
 	FTransferAccounting MeshAccounting;
-	for (auto& LOD : Product->LODs)
+	uint64 MeshFixtureSnapshotBytes = 0;
+	for (auto& LOD : (*Product)->LODResources)
 	{
-		MeasureArrayTransfer(std::move(LOD.Positions), MeshAccounting);
-		MeasureArrayTransfer(std::move(LOD.Normals), MeshAccounting);
-		MeasureArrayTransfer(std::move(LOD.Tangents), MeshAccounting);
-		for (auto& Channel : LOD.TexCoords) MeasureArrayTransfer(std::move(Channel), MeshAccounting);
-		MeasureArrayTransfer(std::move(LOD.Colors), MeshAccounting);
-		MeasureArrayTransfer(std::move(LOD.Indices), MeshAccounting);
+		// Position resources expose a borrowed span, so report this fixture copy separately.
+		const auto Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+		MeshFixtureSnapshotBytes += Positions.size_bytes();
+		MeasureArrayTransfer(std::vector<FVector3f>(Positions.begin(), Positions.end()), MeshAccounting);
+		MeasureArrayTransfer(std::move(LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableNormals()), MeshAccounting);
+		MeasureArrayTransfer(std::move(LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableTangents()), MeshAccounting);
+		for (auto& Channel : LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetMutableTexCoords()) MeasureArrayTransfer(std::move(Channel), MeshAccounting);
+		MeasureArrayTransfer(std::move(LOD.VertexBuffers.ColorVertexBuffer.GetMutableColors()), MeshAccounting);
+		MeasureArrayTransfer(std::move(LOD.IndexBuffer.GetMutableIndices()), MeshAccounting);
 	}
 	auto Collision = FPhysicsCookHelper::Cook(CollisionInput);
 	ASSERT_TRUE(Collision) << Collision.error().ToString();
@@ -238,6 +242,7 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 	EXPECT_GT(MeshAccounting.PayloadBytes, 0u);
 	EXPECT_GT(PhysicsAccounting.PayloadBytes, 0u);
 	std::cout << "typed_storage_transfer mesh_payload_bytes=" << MeshAccounting.PayloadBytes
+		<< " mesh_fixture_snapshot_bytes=" << MeshFixtureSnapshotBytes
 		<< " mesh_byte_roundtrip_copied_bytes=" << MeshAccounting.RoundTripCopiedBytes
 		<< " mesh_max_stream_conversion_zone_increase=" << MeshAccounting.MaximumConversionZoneIncrease
 		<< " collision_payload_bytes=" << PhysicsAccounting.PayloadBytes
@@ -255,7 +260,7 @@ TEST(FStaticMeshBuildQualificationTests, CollisionCookedBlocksRetainNativeArrays
 {
 	using namespace Durin;
 	const auto Geometry = MakeTransferGeometry(100000);
-	const auto& Mesh = Geometry.Meshes.front();
+	const auto& Mesh = Geometry.Sections.front();
 	std::vector<FVector3> Positions;
 	Positions.reserve(Mesh.Positions.size());
 	for (const auto& Position : Mesh.Positions) Positions.emplace_back(Position);

@@ -21,7 +21,7 @@ namespace Durin::AssetForge::Builtins
 {
 	auto ReconcileStaticMeshMaterialSlots(
 		std::span<const FMeshMaterialSlotDefinition> PreviousMaterialSlots,
-		std::span<const FStaticMeshImportedMaterialSlot> ImportedSlots) -> std::vector<FMeshMaterialSlotDefinition>
+		std::span<const FMeshPolygonGroup> ImportedSlots) -> std::vector<FMeshMaterialSlotDefinition>
 	{
 		const std::vector<FMeshMaterialSlotDefinition> PreviousSlots(
 			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
@@ -33,12 +33,12 @@ namespace Durin::AssetForge::Builtins
 		std::unordered_map<uint32, uint32> OldSourceIndexCounts;
 		std::unordered_map<uint32, uint32> NewSourceIndexCounts;
 		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
-		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedSlots) ++NewNameCounts[Slot.SourceName];
+		for (const FMeshPolygonGroup& Slot : ImportedSlots) ++NewNameCounts[Slot.SourceName];
 		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
-		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
+		for (const FMeshPolygonGroup& Slot : ImportedSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
 
 		auto PreserveSlot = [&](size_t ImportedIndex, size_t OldIndex) {
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[ImportedIndex];
+			const FMeshPolygonGroup& Imported = ImportedSlots[ImportedIndex];
 			ReconciledSlots[OldIndex].SourceName = Imported.SourceName;
 			ReconciledSlots[OldIndex].SourceMaterialIndex = Imported.SourceMaterialIndex;
 			OldConsumed[OldIndex] = true;
@@ -59,7 +59,7 @@ namespace Durin::AssetForge::Builtins
 		for (size_t NewIndex = 0; NewIndex < ImportedSlots.size(); ++NewIndex)
 		{
 			if (NewMatched[NewIndex]) continue;
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[NewIndex];
+			const FMeshPolygonGroup& Imported = ImportedSlots[NewIndex];
 			if (OldSourceIndexCounts[Imported.SourceMaterialIndex] != 1
 				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
 			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
@@ -72,7 +72,7 @@ namespace Durin::AssetForge::Builtins
 			}
 		}
 
-		auto MakeUniqueSlotName = [&](const FStaticMeshImportedMaterialSlot& Imported) {
+		auto MakeUniqueSlotName = [&](const FMeshPolygonGroup& Imported) {
 			std::string BaseName = Imported.Name.empty() ? Imported.SourceName : Imported.Name;
 			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
 			FName Candidate(BaseName);
@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins
 		for (size_t NewIndex = 0; NewIndex < ImportedSlots.size(); ++NewIndex)
 		{
 			if (NewMatched[NewIndex]) continue;
-			const FStaticMeshImportedMaterialSlot& Imported = ImportedSlots[NewIndex];
+			const FMeshPolygonGroup& Imported = ImportedSlots[NewIndex];
 			FMeshMaterialSlotDefinition& Definition = ReconciledSlots.emplace_back();
 			Definition.Name = MakeUniqueSlotName(Imported);
 			Definition.SourceName = Imported.SourceName;
@@ -107,7 +107,7 @@ namespace Durin::AssetForge::Builtins
 		// source index, and an old unmatched slot can otherwise become ambiguous
 		// after a reorder followed by removal.
 		std::unordered_set<uint32> AssignedSourceIndices;
-		for (const FStaticMeshImportedMaterialSlot& Imported : ImportedSlots)
+		for (const FMeshPolygonGroup& Imported : ImportedSlots)
 			AssignedSourceIndices.insert(Imported.SourceMaterialIndex);
 		uint32 RetiredSourceIndex = 0;
 		for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
@@ -251,8 +251,8 @@ namespace Durin::AssetForge::Builtins
 				Error.DecodeCauses = std::move(Scene.Diagnostics);
 				return Reject(EStaticMeshRebuildError::Decode);
 			}
-			auto Geometry = MakeStaticMeshDecodedGeometry(Scene);
-			auto MaterialSlots = ReconcileStaticMeshMaterialSlots(Mesh.GetMaterialSlots(), Geometry.MaterialSlots);
+			auto Geometry = MakeMeshDescription(Scene);
+			auto MaterialSlots = ReconcileStaticMeshMaterialSlots(Mesh.GetMaterialSlots(), Geometry.PolygonGroups);
 			FStaticMeshSource Source;
 			if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
 			{
@@ -266,7 +266,7 @@ namespace Durin::AssetForge::Builtins
 			{ Error.ImportCause = std::make_shared<FAssetImportDataError>(Validation.error()); return Reject(EStaticMeshRebuildError::ImportValidation); }
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
 			auto Result = std::make_shared<FStaticMeshCompilationResult>();
-			if (const auto Submitted = Mesh.AsyncBuild({
+			if (const auto Submitted = Mesh.BuildFromSource(EStaticMeshBuildMode::Asynchronous, {
 				.Source = Source, .PreparedMaterialSlots = std::move(MaterialSlots), .Priority = EStaticMeshCompilationPriority::Interactive,
 				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> std::expected<void, FStaticMeshBuildFailure> {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.

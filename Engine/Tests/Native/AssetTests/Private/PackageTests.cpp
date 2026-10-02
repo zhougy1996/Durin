@@ -10404,9 +10404,9 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookPrivateMesh", Path));
 	DStaticMesh* Mesh = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Mesh));
-	FStaticMeshDecodedGeometry Geometry;
-	Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
-	auto& Triangle = Geometry.Meshes.emplace_back();
+	FMeshDescription Geometry;
+	Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+	auto& Triangle = Geometry.Sections.emplace_back();
 	Triangle.Name = "Triangle";
 	Triangle.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
 	Triangle.Indices = {0, 1, 2};

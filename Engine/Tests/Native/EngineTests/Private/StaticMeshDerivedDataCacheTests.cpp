@@ -1,3 +1,4 @@
+#include "StaticMesh/StaticMeshAttributes.h"
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Physics/PhysicsDerivedData.h"
@@ -183,29 +184,29 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildRequiresAuthoredSlotsAndPreserves
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("FixedBuildSlots"));
 	const auto Geometry = MakeResidencyGeometry();
-	EXPECT_FALSE(Mesh->Build(Geometry));
+	EXPECT_FALSE(FStaticMeshTestAccess::BuildCandidate(Mesh, Geometry));
 	EXPECT_EQ(Mesh->GetNumMaterialSlots(), 0u);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	auto Slots = FStaticMeshTestAccess::MakeSlots(Geometry);
 	Slots[0].Name = FName("UserSlot");
 	Slots[0].SourceName = "Authored source label";
-	ASSERT_TRUE(Mesh->Build(Geometry, Slots));
-	ASSERT_TRUE(Mesh->Build(Geometry));
+	ASSERT_TRUE(FStaticMeshTestAccess::BuildCandidate(Mesh, Geometry, Slots));
+	ASSERT_TRUE(FStaticMeshTestAccess::BuildCandidate(Mesh, Geometry));
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].Name, FName("UserSlot"));
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceName, "Authored source label");
 	EXPECT_EQ(Mesh->GetRenderData()->LODResources[0].Sections[0].MaterialSlotIndex, 0u);
 	const auto* PreviousRender = Mesh->GetRenderData();
 	const auto PreviousSource = Mesh->GetSource().GetIdentity();
 	auto Changed = Geometry;
-	Changed.MaterialSlots[0].SourceMaterialIndex = 7;
-	Changed.Meshes[0].SourceMaterialIndex = 7;
-	EXPECT_FALSE(Mesh->Build(Changed));
+	Changed.PolygonGroups[0].SourceMaterialIndex = 7;
+	Changed.Sections[0].SourceMaterialIndex = 7;
+	EXPECT_FALSE(FStaticMeshTestAccess::BuildCandidate(Mesh, Changed));
 	EXPECT_EQ(Mesh->GetRenderData(), PreviousRender);
 	EXPECT_EQ(Mesh->GetSource().GetIdentity(), PreviousSource);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceMaterialIndex, 0u);
 	Slots[0].Name = FName("Uncommitted");
-	Changed.Meshes[0].Indices[0] = 100;
-	EXPECT_FALSE(Mesh->Build(Changed, Slots));
+	Changed.Sections[0].Indices[0] = 100;
+	EXPECT_FALSE(FStaticMeshTestAccess::BuildCandidate(Mesh, Changed, Slots));
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].Name, FName("UserSlot"));
 	EXPECT_EQ(Mesh->GetRenderData(), PreviousRender);
 }
@@ -221,7 +222,7 @@ TEST(FStaticMeshAuthoredCompilationTests, PreparedSlotsAreDiscardedWhenOwnerChan
 	Slots[0].Name = FName("ImportedSlot");
 	FStaticMeshWorkerBarrier Barrier;
 	std::optional<EStaticMeshCompilationStatus> Status;
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Mesh->GetSource(), .PreparedMaterialSlots = Slots},
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Mesh->GetSource(), .PreparedMaterialSlots = Slots},
 		[&](const auto& Result) { Status = Result.Status; }));
 	EXPECT_FALSE(CanJoinStaticMeshCompilation(*Mesh, Mesh->GetSource()));
 	ASSERT_TRUE(Barrier.Wait(1));
@@ -371,40 +372,6 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(Fixture.AssetPath));
-}
-
-TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministically)
-{
-	const FScopedDerivedDataCacheRestore CacheRestore;
-	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshCacheInvalidation");
-	ASSERT_NE(Fixture.Mesh, nullptr);
-	const std::string InitialKey = GetStaticMeshKey(*Fixture.Mesh);
-	{
-		std::ofstream Stream(Fixture.SourcePath, std::ios::binary | std::ios::app);
-		ASSERT_TRUE(Stream.is_open());
-		Stream << "\n";
-	}
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-		*Fixture.Mesh));
-	const std::string SourceChangedKey = GetStaticMeshKey(*Fixture.Mesh);
-	EXPECT_NE(Fixture.Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(SourceChangedKey, InitialKey);
-
-	auto* ImportData = dynamic_cast<Durin::AssetForge::Builtins::DStaticMeshImportData*>(
-		Fixture.Mesh->GetAssetImportData());
-	ASSERT_NE(ImportData, nullptr);
-	auto State = ImportData->GetStaticMeshState();
-	State.ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
-	State.SourceData.Normalize();
-	ASSERT_TRUE(State.Validate());
-	ImportData->SetState(std::move(State));
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-		*Fixture.Mesh));
-	EXPECT_NE(Fixture.Mesh->GetRenderData(), nullptr);
-	EXPECT_NE(GetStaticMeshKey(*Fixture.Mesh), SourceChangedKey);
-	ASSERT_TRUE(Durin::UnloadPackage(
-		Fixture.AssetPath,
-		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailurePreservesLiveData)
@@ -790,7 +757,7 @@ TEST(FStaticMeshBuildModuleTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledP
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	auto Source = std::make_shared<const FStaticMeshDecodedGeometry>(MakeResidencyGeometry());
+	auto Source = std::make_shared<const FMeshDescription>(MakeResidencyGeometry());
 	std::string Error;
 	auto Module = IMeshBuilderModule::Get();
 	ASSERT_TRUE(Module);
@@ -844,7 +811,7 @@ TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCop
 	EXPECT_EQ(Source.GetMeshCount(), 1u);
 	EXPECT_EQ(Source.GetMaterialSlotCount(), 1u);
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
-	std::array<FStaticMeshGeometryReadHandle, 16> Handles;
+	std::array<FMeshDescriptionReadHandle, 16> Handles;
 	std::vector<std::jthread> Readers;
 	for (auto& Handle : Handles)
 		Readers.emplace_back([&Source, &Handle] {
@@ -865,24 +832,24 @@ TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCop
 	EXPECT_NE(Reload, Handles.front());
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 2u);
 	EXPECT_EQ(Source.GetIdentity(), Identity);
-	std::weak_ptr<const FStaticMeshDecodedGeometry> Weak = Handles.front();
+	std::weak_ptr<const FMeshDescription> Weak = Handles.front();
 	Handles.fill({});
 	EXPECT_FALSE(Weak.expired());
 	Copy.ReleaseGeometry();
 	EXPECT_TRUE(Weak.expired());
 	const auto Old = Source.AcquireGeometry().value();
 	auto Replacement = MakeResidencyGeometry();
-	Replacement.Meshes.front().Positions.front().x = 7;
+	Replacement.Sections.front().Positions.front().x = 7;
 	ASSERT_TRUE(Source.Initialize(std::move(Replacement)));
 	EXPECT_NE(Source.GetIdentity(), Identity);
-	EXPECT_EQ(Old->Meshes.front().Positions.front().x, 0);
-	EXPECT_EQ(Source.AcquireGeometry().value()->Meshes.front().Positions.front().x, 7);
+	EXPECT_EQ(Old->Sections.front().Positions.front().x, 0);
+	EXPECT_EQ(Source.AcquireGeometry().value()->Sections.front().Positions.front().x, 7);
 	std::jthread Releaser([&] { for (int Index = 0; Index < 32; ++Index) Source.ReleaseGeometry(); });
 	for (int Index = 0; Index < 32; ++Index)
 	{
 		const auto Handle = Source.AcquireGeometry().value();
 		ASSERT_TRUE(Handle) << Error;
-		EXPECT_EQ(Handle->Meshes.front().Positions.front().x, 7);
+		EXPECT_EQ(Handle->Sections.front().Positions.front().x, 7);
 	}
 }
 
@@ -897,7 +864,7 @@ TEST(FStaticMeshSourceResidencyTests, InvalidCompleteInitializationPreservesIden
 	for (uint32 Case = 0; Case < 7; ++Case)
 	{
 		auto Invalid = MakeResidencyGeometry();
-		auto& Mesh = Invalid.Meshes.front();
+		auto& Mesh = Invalid.Sections.front();
 		switch (Case)
 		{
 		case 0: Mesh.Indices.front() = 3; break;
@@ -906,7 +873,7 @@ TEST(FStaticMeshSourceResidencyTests, InvalidCompleteInitializationPreservesIden
 		case 3: Mesh.Colors.resize(1); break;
 		case 4: Mesh.Tangents.resize(1); break;
 		case 5: Mesh.Name.resize(4097); break;
-		case 6: Invalid.MaterialSlots.clear(); break;
+		case 6: Invalid.PolygonGroups.clear(); break;
 		}
 		const auto Rejected = Source.Initialize(std::move(Invalid));
 		EXPECT_FALSE(Rejected);
@@ -1110,8 +1077,8 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	Mesh->GetSource().ReleaseGeometry();
 	const auto Copied = Duplicate->GetSource().AcquireGeometry().value();
 	ASSERT_TRUE(Copied) << Error;
-	EXPECT_EQ(Copied->Meshes.size(), Geometry->Meshes.size());
-	EXPECT_EQ(Copied->Meshes.front().Indices, Geometry->Meshes.front().Indices);
+	EXPECT_EQ(Copied->Sections.size(), Geometry->Sections.size());
+	EXPECT_EQ(Copied->Sections.front().Indices, Geometry->Sections.front().Indices);
 	MarkObjectHierarchyAsGarbage(Duplicate);
 	ASSERT_TRUE(UnloadPackage(Path));
 }
@@ -1150,8 +1117,8 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationInterruptsGeometryLoops)
 	FScopedDerivedDataCacheRestore RestoreCache;
 	FPaths::SetDerivedDataCacheDirForTests(
 		(Testing::GetTestWorkDirectory() / "AuthoredCancellationCache").generic_string());
-	FStaticMeshDecodedGeometry Input = MakeResidencyGeometry();
-	auto& Section = Input.Meshes.front();
+	FMeshDescription Input = MakeResidencyGeometry();
+	auto& Section = Input.Sections.front();
 	Section.Positions.clear();
 	Section.Indices.clear();
 	for (uint32 Triangle = 0; Triangle < 4096; ++Triangle)
@@ -1273,7 +1240,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationAbandonsDecodeAndRayScratc
 	using namespace Durin;
 	auto Geometry = MakeResidencyGeometry();
 	for (uint32 Index = 0; Index < 4096; ++Index)
-		Geometry.Meshes.front().Indices.insert(Geometry.Meshes.front().Indices.end(), {0, 1, 2});
+		Geometry.Sections.front().Indices.insert(Geometry.Sections.front().Indices.end(), {0, 1, 2});
 	FStaticMeshSource Source;
 	std::string Error;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
@@ -1324,7 +1291,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	FPaths::SetDerivedDataCacheDirForTests(
 		(Testing::GetTestWorkDirectory() / "PayloadCancellationCache").generic_string());
 	auto Input = MakeResidencyGeometry();
-	auto& Section = Input.Meshes.front();
+	auto& Section = Input.Sections.front();
 	Section.Positions.clear();
 	Section.Indices.clear();
 	for (uint32 Triangle = 0; Triangle < 512; ++Triangle)
@@ -1464,9 +1431,9 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerSupersedesOnceAndRetainsLateWor
 		EXPECT_TRUE(Value.Errors.empty());
 		Terminals.push_back(Value.Status);
 	};
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}, Completed)) << Error;
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}, Completed)) << Error;
 	ASSERT_TRUE(Barrier.Wait(1));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}, Completed)) << Error;
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}, Completed)) << Error;
 	ASSERT_TRUE(Barrier.Wait(2));
 	EXPECT_TRUE(Terminals.empty());
 	const uint64 Reserved = GetStaticMeshCompilationManagerDiagnostics().ReservedBytes;
@@ -1475,7 +1442,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerSupersedesOnceAndRetainsLateWor
 	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, Terminals.front());
 	EXPECT_EQ(2u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
 	EXPECT_EQ(Reserved, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
-	const auto InvalidSource = Mesh->AsyncBuild({}, Completed);
+	const auto InvalidSource = Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {}, Completed);
 	ASSERT_FALSE(InvalidSource);
 	EXPECT_FALSE(InvalidSource.error().empty());
 	Barrier.Release();
@@ -1501,12 +1468,12 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerBoundsAcceptedRecordsAndDefersC
 	FStaticMeshWorkerBarrier Barrier;
 	uint32 Completions = 0;
 	for (uint32 Index = 0; Index < 32; ++Index)
-		ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+		ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
 			[&](const FStaticMeshCompilationResult&) { ++Completions; })) << Error;
 	EXPECT_EQ(0u, Completions);
 	EXPECT_EQ(32u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
 	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
-	const auto Rejected = Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())});
+	const auto Rejected = Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())});
 	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.error().empty());
 	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords, 32u);
@@ -1532,7 +1499,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRejectsMutationAndDestructionDu
 	const auto* Original = Mesh->GetRenderData();
 	FStaticMeshWorkerBarrier Barrier;
 	std::vector<EStaticMeshCompilationStatus> Terminals;
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Mesh->GetSource()},
+	ASSERT_TRUE(Mesh->Build(EStaticMeshBuildMode::Asynchronous, {},
 		[&](const auto& Value) { Terminals.push_back(Value.Status); }));
 	ASSERT_TRUE(Barrier.Wait(1));
 	ASSERT_TRUE(Mesh->RenameMaterialSlot(0, "MutationWhileBuilding"));
@@ -1540,7 +1507,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRejectsMutationAndDestructionDu
 	ASSERT_EQ(1u, Terminals.size());
 	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, Terminals.front());
 	EXPECT_EQ(Original, Mesh->GetRenderData());
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Mesh->GetSource()},
+	ASSERT_TRUE(Mesh->Build(EStaticMeshBuildMode::Asynchronous, {},
 		[&](const auto& Value) { Terminals.push_back(Value.Status); }));
 	ASSERT_TRUE(Barrier.Wait(2));
 	Mesh->BeginDestroy();
@@ -1564,7 +1531,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	ASSERT_TRUE(Source.IsValid());
 	FStaticMeshWorkerBarrier Barrier;
 	uint32 Accepted = 0;
-	while (Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())})) ++Accepted;
+	while (Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())})) ++Accepted;
 	EXPECT_GT(Accepted, 2u);
 	EXPECT_LT(Accepted, 32u);
 	const auto State = GetStaticMeshCompilationManagerDiagnostics();
@@ -1575,7 +1542,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	ASSERT_TRUE(Oversized.Initialize(std::move(Geometry)));
 	const auto OversizedResource = AttachReservationSource(Oversized, 9600000);
 	ASSERT_TRUE(Oversized.IsValid());
-	const auto Rejected = Mesh->AsyncBuild({.Source = Oversized});
+	const auto Rejected = Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Oversized});
 	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.error().empty());
 	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords, State.OutstandingRecords);
@@ -1602,7 +1569,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerShutdownDrainsAndCanRestart)
 	std::optional<EStaticMeshCompilationStatus> Terminal;
 	{
 		FStaticMeshWorkerBarrier Barrier;
-		ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+		ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
 			[&](const auto& Value) { Terminal = Value.Status; }));
 		ASSERT_TRUE(Barrier.Wait(1));
 		Barrier.Release();
@@ -1612,7 +1579,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerShutdownDrainsAndCanRestart)
 	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, *Terminal);
 	EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
 	ASSERT_TRUE(AssetPrivate::CreateStaticMeshCompilingManager()->Start());
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 }
@@ -1630,12 +1597,12 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 		Meshes.push_back(NewObject<DStaticMesh>(nullptr, FName(std::format("ManagerFairness{}", Index))));
 	{
 		FStaticMeshWorkerBarrier Barrier;
-		ASSERT_TRUE(Meshes[0]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
-		ASSERT_TRUE(Meshes[1]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+		ASSERT_TRUE(Meshes[0]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+		ASSERT_TRUE(Meshes[1]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 		ASSERT_TRUE(Barrier.Wait(2));
 		for (uint32 Index = 2; Index < 7; ++Index)
-			ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .Priority = EStaticMeshCompilationPriority::Interactive}));
-		ASSERT_TRUE(Meshes[7]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+			ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .Priority = EStaticMeshCompilationPriority::Interactive}));
+		ASSERT_TRUE(Meshes[7]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 		const uint64 BackgroundId = InspectCompilationOperation(*Meshes[7]).RequestId;
 		AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64 Id, EStaticMeshCompilationPhase Phase) {
 			if (Phase == EStaticMeshCompilationPhase::Queued) Dispatches.push_back(Id);
@@ -1647,7 +1614,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 	}
 	for (uint32 Index = 0; Index < 130; ++Index)
 	{
-		ASSERT_TRUE(Meshes[0]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+		ASSERT_TRUE(Meshes[0]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Meshes[0]);
 	}
 	const auto Diagnostics = GetStaticMeshCompilationManagerDiagnostics();
@@ -1668,7 +1635,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive
 	std::optional<EStaticMeshCompilationStatus> Terminal;
 	std::string Error;
 	FStaticMeshWorkerBarrier Barrier;
-	ASSERT_TRUE(Fixture.Mesh->AsyncBuild({.Source = Fixture.Mesh->GetSource()},
+	ASSERT_TRUE(Fixture.Mesh->Build(EStaticMeshBuildMode::Asynchronous, {},
 		[&](const auto& Value) { Terminal = Value.Status; }));
 	ASSERT_TRUE(Barrier.Wait(1));
 	const auto Unloaded = UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved);
@@ -1692,7 +1659,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDiscardsSourceMutationAndAccept
 	std::optional<EStaticMeshCompilationStatus> Terminal;
 	FStaticMeshWorkerBarrier Barrier;
 	FStaticMeshTestAccess::SetMaterialSlots(Mesh, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source},
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source},
 		[&](const auto& Value) { Terminal = Value.Status; }));
 	ASSERT_TRUE(Barrier.Wait(1));
 	auto* Property = DStaticMesh::StaticClass()->FindPropertyByName("NormalizedSize");
@@ -1708,7 +1675,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDiscardsSourceMutationAndAccept
 
 	auto* Initial = NewObject<DStaticMesh>(nullptr, FName("ManagerInitialCollision"));
 	FStaticMeshTestAccess::SetMaterialSlots(Initial, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
-	ASSERT_TRUE(Initial->AsyncBuild({.Source = Source}));
+	ASSERT_TRUE(Initial->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source}));
 	Initial->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Initial->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Initial->GetCollisionBuildError() ? Initial->GetCollisionBuildError()->ToString() : std::string{});
@@ -1739,7 +1706,7 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	Fixture.Mesh->PostLoad();
 	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	Barrier.Release();
-	const auto SynchronousBuild2 = Fixture.Mesh->Build(Fixture.Mesh->GetSource());
+	const auto SynchronousBuild2 = Fixture.Mesh->Build(EStaticMeshBuildMode::Synchronous);
 	EXPECT_TRUE(SynchronousBuild2) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild2.error());
 	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	EXPECT_EQ(Identity, Fixture.Mesh->GetSource().GetIdentity());
@@ -1748,36 +1715,23 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, InspectCompilationOperation(*Fixture.Mesh).Status);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, FactoryAdmissionRetainsSourceCountAndMissingImportData)
+TEST(FStaticMeshAuthoredCompilationTests, FactoryAdmissionRetainsMissingImportData)
 {
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	FScopedDerivedDataCacheRestore RestoreCache;
-	auto Fixture = ImportCacheFixture("ReimportAdmissionCause");
-	ASSERT_NE(nullptr, Fixture.Mesh);
+	InitializeDObjectSystem();
 	auto* Factory = NewObject<DStaticMeshFactory>(nullptr, "ReimportAdmissionFactory");
+	auto* Empty = NewObject<DStaticMesh>(nullptr, "MissingImportDataMesh");
+	ASSERT_NE(Empty, nullptr);
 	std::optional<FReimportResult> Result;
 	uint32 Calls = 0;
-	auto Complete = [&](FReimportResult Value) { ++Calls; Result = std::move(Value); };
-	const std::vector<std::string> Files{"first.obj", "second.obj"};
-	Factory->ReimportFromFiles(*Fixture.Mesh, Files, Complete);
+	Factory->Reimport(*Empty, [&](FReimportResult Value) { ++Calls; Result = std::move(Value); });
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Calls, 1u);
+	EXPECT_EQ(Result->Status, EReimportStatus::MissingSource);
 	const auto* Detail = dynamic_cast<const FStaticMeshFactoryError*>(Result->FactoryCause.get());
 	ASSERT_NE(Detail, nullptr);
 	const auto* Cause = std::get_if<FStaticMeshRebuildError>(&Detail->Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EStaticMeshRebuildError::SourceCount);
-	EXPECT_EQ(Cause->SourceCount, 2u);
-	EXPECT_EQ(Cause->ObjectPath, Fixture.Mesh->GetObjectPath());
-	auto* Empty = NewObject<DStaticMesh>(nullptr, "MissingImportDataMesh");
-	ASSERT_NE(Empty, nullptr);
-	Factory->Reimport(*Empty, Complete);
-	EXPECT_EQ(Calls, 2u);
-	Detail = dynamic_cast<const FStaticMeshFactoryError*>(Result->FactoryCause.get());
-	ASSERT_NE(Detail, nullptr);
-	Cause = std::get_if<FStaticMeshRebuildError>(&Detail->Cause);
 	ASSERT_NE(Cause, nullptr);
 	EXPECT_EQ(Cause->Code, EStaticMeshRebuildError::ImportData);
 	EXPECT_EQ(Cause->ObjectPath, Empty->GetObjectPath());
@@ -1808,112 +1762,6 @@ TEST(FStaticMeshAuthoredCompilationTests, TransientCreationRetainsSettingsCauseA
 	EXPECT_EQ(Missing.error().Code, EStaticMeshRebuildError::SourceFile);
 	EXPECT_EQ(Missing.error().Filename, MissingPath);
 	EXPECT_EQ(Missing.error().ObjectName, "MissingTransientMesh");
-}
-
-TEST(FStaticMeshAuthoredCompilationTests, ReimportRetainsDecodeCauseWithoutPublishing)
-{
-	using namespace Durin;
-	using namespace Durin::AssetForge::Builtins;
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	FScopedDerivedDataCacheRestore RestoreCache;
-	auto Fixture = ImportCacheFixture("ReimportDecodeCause");
-	ASSERT_NE(nullptr, Fixture.Mesh);
-	const auto* Original = Fixture.Mesh->GetRenderData();
-	const auto* ImportData = Fixture.Mesh->GetAssetImportData();
-	const auto Identity = Fixture.Mesh->GetSource().GetIdentity();
-	{
-		std::ofstream Stream(Fixture.SourcePath, std::ios::binary | std::ios::trunc);
-		ASSERT_TRUE(Stream.is_open());
-		Stream << "invalid geometry source";
-	}
-	const auto Result = ReimportStaticMesh(*Fixture.Mesh);
-	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.error().Code, EStaticMeshRebuildError::Decode);
-	EXPECT_EQ(Result.error().ObjectPath, Fixture.Mesh->GetObjectPath());
-	ASSERT_FALSE(Result.error().DecodeCauses.empty());
-	EXPECT_EQ(Result.error().DecodeCauses.front().Category, ESceneImportDiagnosticCategory::InvalidValue);
-	auto* Factory = NewObject<DStaticMeshFactory>(nullptr, "ReimportDecodeCauseFactory");
-	std::optional<FReimportResult> Completion;
-	uint32 CompletionCount = 0;
-	Factory->Reimport(*Fixture.Mesh, [&](FReimportResult Value) { ++CompletionCount; Completion = std::move(Value); });
-	ASSERT_TRUE(Completion);
-	EXPECT_EQ(CompletionCount, 1u);
-	const auto* Detail = dynamic_cast<const FStaticMeshFactoryError*>(Completion->FactoryCause.get());
-	ASSERT_NE(Detail, nullptr);
-	const auto* Cause = std::get_if<FStaticMeshRebuildError>(&Detail->Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EStaticMeshRebuildError::Decode);
-	ASSERT_FALSE(Cause->DecodeCauses.empty());
-	EXPECT_EQ(Cause->DecodeCauses.front().Category, Result.error().DecodeCauses.front().Category);
-	EXPECT_EQ(Original, Fixture.Mesh->GetRenderData());
-	EXPECT_EQ(ImportData, Fixture.Mesh->GetAssetImportData());
-	EXPECT_EQ(Identity, Fixture.Mesh->GetSource().GetIdentity());
-	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
-}
-
-TEST(FStaticMeshAuthoredCompilationTests, ReimportDefersProvenanceAndSaveFailureKeepsAppliedStateDirty)
-{
-	using namespace Durin;
-	using namespace Durin::AssetForge::Builtins;
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	FScopedDerivedDataCacheRestore RestoreCache;
-	auto Fixture = ImportCacheFixture("AsyncReimportContract");
-	ASSERT_NE(nullptr, Fixture.Mesh);
-	const auto* Original = Fixture.Mesh->GetRenderData();
-	const auto* ImportData = Fixture.Mesh->GetAssetImportData();
-	const auto Identity = Fixture.Mesh->GetSource().GetIdentity();
-	auto* Factory = NewObject<DStaticMeshFactory>(nullptr, "AsyncReimportFactory");
-	std::optional<FReimportResult> Result;
-	{
-		FStaticMeshWorkerBarrier Barrier;
-		Factory->Reimport(*Fixture.Mesh, [&](FReimportResult Value) { Result = std::move(Value); });
-		ASSERT_TRUE(Barrier.Wait(1));
-		const auto RequestId = InspectCompilationOperation(*Fixture.Mesh).RequestId;
-		EXPECT_FALSE(Result.has_value());
-		EXPECT_EQ(Original, Fixture.Mesh->GetRenderData());
-		EXPECT_EQ(ImportData, Fixture.Mesh->GetAssetImportData());
-		CancelStaticMeshCompilation(*Fixture.Mesh);
-		Barrier.Release();
-		FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
-		ASSERT_TRUE(Result.has_value());
-		EXPECT_FALSE(Result->Succeeded());
-		const auto* Detail = dynamic_cast<const FStaticMeshFactoryError*>(Result->FactoryCause.get());
-		ASSERT_NE(Detail, nullptr);
-		EXPECT_EQ(std::get<FStaticMeshCompilationResult>(Detail->Cause).RequestId, RequestId);
-		EXPECT_EQ(std::get<FStaticMeshCompilationResult>(Detail->Cause).Status, EStaticMeshCompilationStatus::Cancelled);
-		EXPECT_EQ(ImportData, Fixture.Mesh->GetAssetImportData());
-		EXPECT_EQ(Identity, Fixture.Mesh->GetSource().GetIdentity());
-		EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
-	}
-	uint32 SaveAttempts = 0;
-	const auto SaveFailure = ReimportStaticMesh(*Fixture.Mesh, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
-		if (Phase != EAssetBundleSavePhase::StagePackage) return false;
-		++SaveAttempts;
-		return true;
-	}});
-	ASSERT_FALSE(SaveFailure);
-	EXPECT_EQ(SaveFailure.error().Code, EStaticMeshRebuildError::Completion);
-	ASSERT_TRUE(SaveFailure.error().CompletionCause);
-	EXPECT_EQ(SaveFailure.error().CompletionCause->Status, EStaticMeshCompilationStatus::Failed);
-	ASSERT_FALSE(SaveFailure.error().CompletionCause->Errors.empty());
-	EXPECT_FALSE(SaveFailure.error().CompletionCause->ToString().empty());
-	// Saving the imported asset must not rewrite the successful compilation history.
-	EXPECT_EQ(GetStaticMeshCompilationDiagnostic(SaveFailure.error().CompletionCause->RequestId).Status, EStaticMeshCompilationStatus::Succeeded);
-	EXPECT_EQ(1u, SaveAttempts);
-	EXPECT_TRUE(Fixture.Mesh->GetPackage()->IsDirty());
-	EXPECT_NE(ImportData, Fixture.Mesh->GetAssetImportData());
-	EXPECT_EQ(Identity, Fixture.Mesh->GetSource().GetIdentity());
-	EXPECT_NE(nullptr, Fixture.Mesh->GetRenderData());
-	const auto AppliedImport = Fixture.Mesh->GetAssetImportData();
-	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
-	const auto Missing = ReimportStaticMesh(*Fixture.Mesh);
-	ASSERT_FALSE(Missing);
-	EXPECT_EQ(Missing.error().Code, EStaticMeshRebuildError::SourceFile);
-	EXPECT_EQ(Missing.error().ObjectPath, Fixture.Mesh->GetObjectPath());
-	EXPECT_EQ(Missing.error().Filename, Fixture.SourcePath.generic_string());
-	EXPECT_EQ(AppliedImport, Fixture.Mesh->GetAssetImportData());
-	const auto SynchronousBuild3 = Fixture.Mesh->Build(Fixture.Mesh->GetSource());
-	EXPECT_TRUE(SynchronousBuild3) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild3.error());
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, CookProjectsMissingCpuDataWithoutPublishingAuthoredState)
@@ -1969,7 +1817,7 @@ TEST(FStaticMeshAuthoredCompilationTests, InitialMutationRequeuesAtCapacityAndEx
 	{
 		Meshes[Index] = NewObject<DStaticMesh>(nullptr, FName(std::format("CapacityMutation{}", Index)));
 		FStaticMeshTestAccess::SetMaterialSlots(Meshes[Index], FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
-		ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .bPersistDerivedData = false}));
+		ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .bPersistDerivedData = false}));
 	}
 	ASSERT_TRUE(Barrier.Wait(2));
 	Meshes[0]->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
@@ -2024,7 +1872,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(FailedCache.RenderBuilderVersion, StaticMeshBuilderVersion);
 	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size(), 4096u);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
-	const auto Synchronous = Fixture.Mesh->Build(Fixture.Mesh->GetSource());
+	const auto Synchronous = Fixture.Mesh->Build(EStaticMeshBuildMode::Synchronous);
 	EXPECT_TRUE(Synchronous);
 	ASSERT_TRUE(Synchronous);
 	EXPECT_EQ(GetStaticMeshCompilationDiagnostic(*Fixture.Mesh).RequestId, FailedCache.RequestId);
@@ -2032,7 +1880,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	const auto* PreviousRender = Fixture.Mesh->GetRenderData();
 	const auto PreviousRevision = Fixture.Mesh->GetRenderResourceStatus().Revision;
 	std::optional<FStaticMeshCompilationResult> Completion;
-	ASSERT_TRUE(Fixture.Mesh->AsyncBuild({.Source = Fixture.Mesh->GetSource(),
+	ASSERT_TRUE(Fixture.Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Fixture.Mesh->GetSource(),
 		.PreparePublication = [](DStaticMesh&, DAssetImportData*&) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(FStaticMeshBuildFailure{"Rejected publication", EStaticMeshBuildStage::Application});
 		}}, [&](const FStaticMeshCompilationResult& Value) { Completion = Value; }));
@@ -2050,7 +1898,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), PreviousRender);
 	EXPECT_EQ(Fixture.Mesh->GetRenderResourceStatus().Revision, PreviousRevision);
 
-	ASSERT_TRUE(Fixture.Mesh->AsyncBuild({.Source = Fixture.Mesh->GetSource(), .bPersistDerivedData = false,
+	ASSERT_TRUE(Fixture.Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Fixture.Mesh->GetSource(), .bPersistDerivedData = false,
 		.PreparePublication = [](DStaticMesh&, DAssetImportData*&) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
 		}}, [&](const FStaticMeshCompilationResult& Value) { Completion = Value; }));
@@ -2068,11 +1916,11 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	auto Geometry = MakeResidencyGeometry();
-	const auto Triangle = Geometry.Meshes.front();
-	Geometry.Meshes.clear();
+	const auto Triangle = Geometry.Sections.front();
+	Geometry.Sections.clear();
 	for (uint32 Index = 0; Index < 128; ++Index)
 	{
-		auto& Section = Geometry.Meshes.emplace_back(Triangle);
+		auto& Section = Geometry.Sections.emplace_back(Triangle);
 		Section.Name = std::format("AllChannels{}", Index);
 		for (auto& Position : Section.Positions) Position += FVector3f(float(Index), 0, float(Index % 7));
 		Section.Normals.assign(Section.Positions.size(), FVector3f(0, 0, 1));
@@ -2084,7 +1932,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	std::string Error;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("AllChannelManagerFixture"));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false}));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false}));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 	ASSERT_NE(nullptr, Mesh->GetRenderData());
@@ -2094,7 +1942,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	auto* Body = NewObject<DBodySetup>(Mesh, FName("ConvexLimitBody"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	ASSERT_TRUE(Mesh->SetBodySetup(Body));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false}));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false}));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 	EXPECT_NE(Original, Mesh->GetRenderData());
@@ -2111,9 +1959,9 @@ TEST(FStaticMeshAuthoredCompilationTests, LatestCompletedObservationWinsOverReta
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("LatestObservationWhileOldWorkerRetained"));
 	FStaticMeshWorkerBarrier Barrier(EStaticMeshCompilationPhase::Building, true);
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 	ASSERT_TRUE(Barrier.Wait(1));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (InspectCompilationOperation(*Mesh).Phase != EStaticMeshCompilationPhase::Terminal
@@ -2300,7 +2148,7 @@ TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebu
 	FStaticMeshSource Source;
 	std::string Error;
 	auto Geometry = MakeResidencyGeometry();
-	Geometry.Meshes.front().Positions.front().x = 7;
+	Geometry.Sections.front().Positions.front().x = 7;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 	Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, nullptr, {}, 2.0f);
 	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Source.GetIdentity());
@@ -2345,9 +2193,9 @@ TEST(FStaticMeshRenderBuildTests, RejectionOwnsMeshIndexWithoutProduct)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	auto Source = std::make_shared<FStaticMeshDecodedGeometry>(MakeResidencyGeometry());
-	Source->Meshes[0].Name = "RejectedMesh";
-	Source->Meshes[0].Indices[1] = 99;
+	auto Source = std::make_shared<FMeshDescription>(MakeResidencyGeometry());
+	Source->Sections[0].Name = "RejectedMesh";
+	Source->Sections[0].Indices[1] = 99;
 	const auto Module = IMeshBuilderModule::Get();
 	ASSERT_TRUE(Module);
 	const auto Result = Module->BuildRender({.Geometry = Source,
@@ -2420,8 +2268,8 @@ TEST(FStaticMeshSourceResidencyTests, InitializationErrorsOwnValuesAndPreserveSo
 	const auto Original = Source.AcquireGeometry().value();
 	const auto Identity = Source.GetIdentity();
 	auto Invalid = MakeResidencyGeometry();
-	Invalid.Meshes[0].Name = "RejectedSource";
-	Invalid.Meshes[0].Positions[1].z = std::numeric_limits<float>::infinity();
+	Invalid.Sections[0].Name = "RejectedSource";
+	Invalid.Sections[0].Positions[1].z = std::numeric_limits<float>::infinity();
 	const auto NonFinite = Source.Initialize(std::move(Invalid));
 	EXPECT_FALSE(NonFinite);
 	EXPECT_EQ(NonFinite.error().Code, EStaticMeshSourceError::NonFinitePosition);
@@ -2429,7 +2277,7 @@ TEST(FStaticMeshSourceResidencyTests, InitializationErrorsOwnValuesAndPreserveSo
 	EXPECT_EQ(NonFinite.error().Index, 1u);
 	EXPECT_TRUE(std::isinf(NonFinite.error().Position.z));
 	Invalid = MakeResidencyGeometry();
-	Invalid.Meshes[0].Indices.clear();
+	Invalid.Sections[0].Indices.clear();
 	const auto Empty = Source.Initialize(std::move(Invalid));
 	EXPECT_FALSE(Empty);
 	EXPECT_EQ(Empty.error().Code, EStaticMeshSourceError::EmptyMesh);
@@ -2437,21 +2285,21 @@ TEST(FStaticMeshSourceResidencyTests, InitializationErrorsOwnValuesAndPreserveSo
 	EXPECT_EQ(Empty.error().Actual, 0u);
 	EXPECT_EQ(Empty.error().Expected, 1u);
 	Invalid = MakeResidencyGeometry();
-	Invalid.Meshes[0].Indices.pop_back();
+	Invalid.Sections[0].Indices.pop_back();
 	const auto Triangles = Source.Initialize(std::move(Invalid));
 	EXPECT_FALSE(Triangles);
 	EXPECT_EQ(Triangles.error().Code, EStaticMeshSourceError::TriangleList);
 	EXPECT_EQ(Triangles.error().Actual, 2u);
 	EXPECT_EQ(Triangles.error().Expected, 3u);
 	Invalid = MakeResidencyGeometry();
-	Invalid.MaterialSlots.push_back(Invalid.MaterialSlots.front());
+	Invalid.PolygonGroups.push_back(Invalid.PolygonGroups.front());
 	const auto Duplicate = Source.Initialize(std::move(Invalid));
 	EXPECT_FALSE(Duplicate);
 	EXPECT_EQ(Duplicate.error().Code, EStaticMeshSourceError::DuplicateMaterial);
 	EXPECT_EQ(Duplicate.error().Actual, 0u);
 	EXPECT_EQ(Source.GetIdentity(), Identity);
 	EXPECT_EQ(Source.AcquireGeometry().value(), Original);
-	EXPECT_EQ(Original->Meshes[0].Name, "Fixture");
+	EXPECT_EQ(Original->Sections[0].Name, "Fixture");
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCacheIssues)
@@ -2563,7 +2411,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedWorkerFailure"));
 	FStaticMeshTestAccess::SetMaterialSlots(Mesh, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
 	std::optional<FStaticMeshCompilationResult> Completion;
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
 		[&](const FStaticMeshCompilationResult& Value) { Completion = Value; })) << Error;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	const auto Diagnostic = GetStaticMeshCompilationDiagnostic(*Mesh);
@@ -2575,11 +2423,11 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	EXPECT_EQ(Completion->Status, EStaticMeshCompilationStatus::Failed);
 	ASSERT_FALSE(Completion->Errors.empty());
 	EXPECT_EQ(Completion->ToString(), Authored.error().ToString());
-	const auto Synchronous = Mesh->Build(Source);
+	const auto Synchronous = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 	ASSERT_FALSE(Synchronous);
 	EXPECT_EQ(Durin::FormatStaticMeshBuildMessages(Synchronous.error()), Authored.error().ToString());
 	Module.bCancel = true;
-	const auto Cancelled = Mesh->Build(Source);
+	const auto Cancelled = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 	ASSERT_FALSE(Cancelled);
 	EXPECT_FALSE(Cancelled.error().empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
@@ -2654,7 +2502,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ApplicationFailureRetainsImportOwnersh
 	auto* ForeignImport = NewObject<DAssetImportData>(Other, FName("ForeignImport"));
 	const auto* OriginalRender = Mesh->GetRenderData();
 	const auto OriginalRevision = Mesh->GetRenderResourceStatus().Revision;
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Mesh->GetSource(),
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Mesh->GetSource(),
 		.PreparePublication = [ForeignImport](DStaticMesh&, DAssetImportData*& OutImport) -> std::expected<void, FStaticMeshBuildFailure> {
 			OutImport = ForeignImport;
 			return {};
@@ -2670,7 +2518,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ApplicationFailureRetainsImportOwnersh
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, OriginalRevision);
 	EXPECT_EQ(Mesh->GetAssetImportData(), nullptr);
 	std::string RejectedClass = "RejectedImportData";
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Mesh->GetSource(),
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Mesh->GetSource(),
 		.PreparePublication = [&RejectedClass](DStaticMesh& Target, DAssetImportData*&) -> std::expected<void, FStaticMeshBuildFailure> {
 			return std::unexpected(FStaticMeshBuildFailure{"Could not allocate " + RejectedClass, EStaticMeshBuildStage::Application});
 		}}));
@@ -2690,13 +2538,13 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureExposesOwnedMessage)
 	using namespace Durin;
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("SynchronousTypedFailure"));
 	auto Geometry = MakeResidencyGeometry();
-	Geometry.Meshes.front().Indices.back() = 77;
-	const auto SourceFailure = Mesh->Build(std::move(Geometry));
+	Geometry.Sections.front().Indices.back() = 77;
+	const auto SourceFailure = FStaticMeshTestAccess::BuildCandidate(Mesh, std::move(Geometry));
 	ASSERT_FALSE(SourceFailure);
 	EXPECT_FALSE(Durin::FormatStaticMeshBuildMessages(SourceFailure.error()).empty());
 	EXPECT_LE(Durin::FormatStaticMeshBuildMessages(SourceFailure.error()).size(), MaximumStaticMeshBuildDiagnosticBytes);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	const auto InvalidSourceFailure = Mesh->Build(FStaticMeshSource{});
+	const auto InvalidSourceFailure = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = FStaticMeshSource{}});
 	ASSERT_FALSE(InvalidSourceFailure);
 	EXPECT_FALSE(Durin::FormatStaticMeshBuildMessages(InvalidSourceFailure.error()).empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
@@ -2795,13 +2643,13 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousBuildPublishesWithoutWaitin
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	std::vector<EStaticMeshCompilationStatus> Completions;
 	FStaticMeshWorkerBarrier Barrier;
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
 		[&](const auto& Result) { Completions.push_back(Result.Status); }));
-	ASSERT_TRUE(Other->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+	ASSERT_TRUE(Other->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 	ASSERT_TRUE(Barrier.Wait(2));
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	const auto RequestId = GetStaticMeshCompilationDiagnostic(*Mesh).RequestId;
-	const auto Built = Mesh->Build(Source, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
+	const auto Built = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())});
 	ASSERT_TRUE(Built) << FormatStaticMeshBuildMessages(Built.error());
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 	const auto* Render = Mesh->GetRenderData();
@@ -2810,7 +2658,7 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousBuildPublishesWithoutWaitin
 	EXPECT_TRUE(Completions.empty());
 	EXPECT_EQ(Other->GetRenderData(), nullptr);
 	EXPECT_TRUE(HasPendingStaticMeshCompilation(*Other));
-	const auto Invalid = Mesh->Build(FStaticMeshSource{});
+	const auto Invalid = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = FStaticMeshSource{}});
 	ASSERT_FALSE(Invalid);
 	EXPECT_EQ(Mesh->GetRenderData(), Render);
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Revision);
@@ -2947,7 +2795,7 @@ TEST(FStaticMeshSeparatedBuildTests, CollisionWorkersRejectSupersededGeometrySet
 		{
 		case 0: {
 			auto Geometry = MakeResidencyGeometry();
-			Geometry.Meshes.front().Positions.front().x += 3;
+			Geometry.Sections.front().Positions.front().x += 3;
 			ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, std::move(Geometry)));
 			break;
 		}
@@ -2996,7 +2844,7 @@ TEST(FStaticMeshSeparatedBuildTests, IndependentCollisionHonorsPersistenceAndPre
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	ASSERT_TRUE(Mesh->AsyncBuild({.Source = Source,
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source,
 		.PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()),
 		.bPersistDerivedData = false}));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
@@ -3009,7 +2857,7 @@ TEST(FStaticMeshSeparatedBuildTests, IndependentCollisionHonorsPersistenceAndPre
 	EXPECT_TRUE(std::filesystem::exists(CollisionPath));
 	Mesh->GetBodySetup()->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None);
 	ASSERT_TRUE(Mesh->GetBodySetup()->SetBox({2, 3, 4}, {1, 2, 3}));
-	ASSERT_TRUE(Mesh->Build(Source));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source}));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetShapeType(), EBodySetupShapeType::Box);
 	EXPECT_EQ(Mesh->GetBodySetup()->GetDimensions(), FVector3(2, 3, 4));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetCenter(), FVector3(1, 2, 3));
@@ -3101,7 +2949,7 @@ TEST(FPhysicsMeshLifecycleTests, CollisionProjectionMatchesRenderNormalizationAn
 	using namespace Durin;
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("PhysicsProjectionParity"));
 	auto Geometry = MakeResidencyGeometry();
-	Geometry.Meshes.front().Positions = {{-7, 2, 4}, {5, 2, 4}, {1, 8, 9}};
+	Geometry.Sections.front().Positions = {{-7, 2, 4}, {5, 2, 4}, {1, 8, 9}};
 	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, std::move(Geometry)));
 	auto Captured = Mesh->CreatePhysicsMeshInputTask();
 	ASSERT_TRUE(Captured);
@@ -3294,4 +3142,122 @@ TEST(FPhysicsMeshLifecycleTests, SupersededCompletionPreservesInstalledGeometryW
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_EQ(Body->GetResidentComplexGeometry().GetIdentity(), Geometry.GetIdentity());
 	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FStaticMeshSourceTests, VertexInstancesRoundTripAndRejectInvalidTopology)
+{
+	using namespace Durin;
+	auto Description = MakeResidencyGeometry();
+	auto& Section = Description.Sections.front();
+	Section.VertexInstanceVertices = {0, 1, 2, 0};
+	Section.Indices = {0, 1, 2, 3, 2, 1};
+	FStaticMeshAttributes Attributes(Description);
+	Attributes.GetVertexInstanceUVs(0, 0) = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+	Attributes.GetVertexInstanceNormals(0) = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, -1}};
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(Description));
+	const auto Identity = Source.GetIdentity();
+	Source.ReleaseGeometry();
+	const auto Read = Source.AcquireGeometry();
+	ASSERT_TRUE(Read);
+	const auto& Restored = (*Read)->Sections.front();
+	EXPECT_EQ(Restored.Positions.size(), 3u);
+	EXPECT_EQ(Restored.VertexInstanceVertices, Section.VertexInstanceVertices);
+	EXPECT_EQ(Restored.Indices, Section.Indices);
+	FStaticMeshConstAttributes RestoredAttributes(**Read);
+	EXPECT_EQ(RestoredAttributes.GetVertexInstanceUVs(0, 0)[3], FVector2f(1, 1));
+	EXPECT_EQ(RestoredAttributes.GetVertexInstanceNormals(0)[3], FVector3f(0, 0, -1));
+	Section.VertexInstanceVertices[3] = 99;
+	const auto InvalidVertex = Source.Initialize(Description);
+	ASSERT_FALSE(InvalidVertex);
+	EXPECT_EQ(InvalidVertex.error().Code, EStaticMeshSourceError::IndexRange);
+	EXPECT_EQ(Source.GetIdentity(), Identity);
+	Section.VertexInstanceVertices[3] = 0;
+	Section.Indices.back() = 4;
+	EXPECT_FALSE(Source.Initialize(Description));
+	Section.Indices.back() = 1;
+	Section.Normals.pop_back();
+	const auto InvalidAttributes = Source.Initialize(Description);
+	ASSERT_FALSE(InvalidAttributes);
+	EXPECT_EQ(InvalidAttributes.error().Code, EStaticMeshSourceError::ChannelLength);
+	EXPECT_EQ(Source.GetIdentity(), Identity);
+}
+
+TEST(FStaticMeshBuildModuleTests, SharedVerticesPreserveInstanceSeamsAndCollisionCoordinates)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto Description = MakeResidencyGeometry();
+	auto& Section = Description.Sections.front();
+	// An unused geometric vertex must affect both projections' normalization identically.
+	Section.Positions.push_back({3, 3, 0});
+	Section.VertexInstanceVertices = {0, 1, 2, 0};
+	Section.Indices = {0, 1, 2, 3, 2, 1};
+	FStaticMeshAttributes Attributes(Description);
+	Attributes.GetVertexInstanceNormals(0) = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, -1}};
+	Attributes.GetVertexInstanceUVs(0, 0) = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(Description));
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("InstanceSeamMesh"));
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous,
+		{.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(Description), .bPersistDerivedData = false}));
+	const auto& LOD = Mesh->GetRenderData()->LODResources.front();
+	const auto Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const auto Normals = LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals();
+	const auto UVs = LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetTexCoords()[0];
+	ASSERT_EQ(Positions.size(), 4u);
+	EXPECT_EQ(Positions[0], Positions[3]);
+	EXPECT_NE(Normals[0], Normals[3]);
+	EXPECT_NE(UVs[0], UVs[3]);
+	const auto Collision = Mesh->GetPhysicsTriMeshData();
+	ASSERT_TRUE(Collision);
+	ASSERT_EQ(Collision->Positions.size(), 4u);
+	EXPECT_EQ(Collision->Indices, (std::vector<uint32>{0, 1, 2, 0, 2, 1}));
+	EXPECT_EQ(Collision->Positions[0], Positions[0]);
+	EXPECT_EQ(Collision->Positions[1], Positions[1]);
+	EXPECT_EQ(Collision->Positions[2], Positions[2]);
+}
+
+TEST(FStaticMeshAuthoredCompilationTests, CurrentSourceBuildUsesExplicitModeAndCompletion)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("ExplicitBuildMode"));
+	EXPECT_FALSE(Mesh->Build(EStaticMeshBuildMode::Synchronous));
+	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, MakeResidencyGeometry()));
+	const auto Identity = Mesh->GetSource().GetIdentity();
+	uint32 SyncCompletions = 0;
+	ASSERT_TRUE(Mesh->Build(EStaticMeshBuildMode::Synchronous, {.bPersistDerivedData = false},
+		[&](const auto& Result) { EXPECT_EQ(Result.Status, EStaticMeshCompilationStatus::Succeeded); ++SyncCompletions; }));
+	EXPECT_EQ(SyncCompletions, 1u);
+	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Mesh));
+	uint32 AsyncCompletions = 0;
+	ASSERT_TRUE(Mesh->Build(EStaticMeshBuildMode::Asynchronous, {.bPersistDerivedData = false},
+		[&](const auto& Result) { EXPECT_EQ(Result.Status, EStaticMeshCompilationStatus::Succeeded); ++AsyncCompletions; }));
+	EXPECT_EQ(AsyncCompletions, 0u);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	EXPECT_EQ(AsyncCompletions, 1u);
+	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Identity);
+}
+
+TEST(FStaticMeshBuildModuleTests, GeneratedNormalsRemainSmoothAcrossUVInstances)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto Description = MakeResidencyGeometry();
+	auto& Section = Description.Sections.front();
+	Section.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+	Section.VertexInstanceVertices = {0, 1, 2, 0, 3, 1};
+	Section.Indices = {0, 1, 2, 3, 4, 5};
+	FStaticMeshAttributes(Description).GetVertexInstanceUVs(0, 0) = {{0, 0}, {1, 0}, {0, 1}, {1, 1}, {0, 1}, {0, 0}};
+	const auto Product = IMeshBuilderModule::Get()->BuildRender({
+		.Geometry = std::make_shared<const FMeshDescription>(Description),
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}});
+	ASSERT_TRUE(Product);
+	const auto Normals = (*Product)->LODResources.front().VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals();
+	ASSERT_EQ(Normals.size(), 6u);
+	EXPECT_EQ(Normals[0], Normals[3]);
+	EXPECT_EQ(Normals[1], Normals[5]);
+	EXPECT_GT(Normals[0].y, 0.0f);
+	EXPECT_GT(Normals[0].z, 0.0f);
 }

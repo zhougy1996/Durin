@@ -44,10 +44,10 @@ namespace
 		-> DStaticMesh*
 	{
 		auto* Mesh = NewObject<DStaticMesh>(Outer, FName(Name));
-		FStaticMeshDecodedGeometry Imported;
-		Imported.MaterialSlots.push_back({
+		FMeshDescription Imported;
+		Imported.PolygonGroups.push_back({
 			.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
-		FStaticMeshImportedMesh& Section = Imported.Meshes.emplace_back();
+		FMeshDescriptionSection& Section = Imported.Sections.emplace_back();
 		Section.Name = "Triangle";
 		Section.Positions = {
 			FVector3f(-0.5f, -0.5f, 0.0f),
@@ -330,9 +330,9 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	EXPECT_FALSE(Component->IsMeshDirty());
 	EXPECT_EQ(Component->GetDerivedState()->Status, ESplineMeshDerivedStateStatus::SourceDataUnavailable);
 	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
-	FStaticMeshDecodedGeometry Imported;
-	Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
-	auto& Section = Imported.Meshes.emplace_back();
+	FMeshDescription Imported;
+	Imported.PolygonGroups.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Section = Imported.Sections.emplace_back();
 	Section.Positions = {FVector3f(-1, -1, 0), FVector3f(1, -1, 0), FVector3f(0, 1, 0)};
 	Section.Indices = {0, 1, 2};
 	Section.SourceMaterialIndex = 0;

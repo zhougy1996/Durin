@@ -456,12 +456,12 @@ namespace Durin::Tests
 
 		Created = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Created) return Fail(Created.Message);
-		FStaticMeshDecodedGeometry ImportedMesh;
-		ImportedMesh.MaterialSlots.push_back({
+		FMeshDescription ImportedMesh;
+		ImportedMesh.PolygonGroups.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		FMeshDescriptionSection& Mesh = ImportedMesh.Sections.emplace_back();
 		Mesh.Name = "ThumbnailTetrahedron";
 		Mesh.Positions = {
 			FVector3f(-0.6f, -0.5f, -0.4f),

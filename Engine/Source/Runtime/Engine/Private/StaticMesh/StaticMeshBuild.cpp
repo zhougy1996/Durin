@@ -116,38 +116,45 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
-	auto DStaticMesh::Build(const FStaticMeshSource& InSource,
-		std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots) -> std::expected<void, std::vector<std::string>>
+	auto DStaticMesh::Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options,
+		std::function<void(const FStaticMeshCompilationResult&)> Completion)
+		-> std::expected<void, std::vector<std::string>>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!IsValid(this))
-			return std::unexpected(std::vector<std::string>{"StaticMesh build requires a valid owner."});
-		if (!InSource.IsValid())
-			return std::unexpected(std::vector<std::string>{"StaticMesh build requires valid canonical source metadata."});
-		// Retire older work without pumping callbacks or waiting for unrelated compilation.
-		CancelStaticMeshCompilation(*this);
-		const auto Snapshot = CaptureStaticMeshReconciliation(*this);
-		auto Input = Snapshot;
-		if (PreparedMaterialSlots) Input.MaterialSlots = *PreparedMaterialSlots;
+		return BuildFromSource(Mode, {.Source = GetSource(), .Priority = Options.Priority,
+			.bPersistDerivedData = Options.bPersistDerivedData, .bMarkPackageDirty = Options.bMarkPackageDirty},
+			std::move(Completion));
+	}
 
-		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = InSource});
+	// Kept detached from compilation admission: synchronous rebuilds never pump unrelated callbacks.
+	auto BuildStaticMeshSourceSynchronously(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request)
+		-> std::expected<void, std::vector<std::string>>
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!IsValid(&Mesh))
+			return std::unexpected(std::vector<std::string>{"StaticMesh build requires a valid owner."});
+		if (!Request.Source.IsValid())
+			return std::unexpected(std::vector<std::string>{"StaticMesh build requires valid canonical source metadata."});
+		CancelStaticMeshCompilation(Mesh);
+		const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
+		auto Input = Snapshot;
+		if (Request.PreparedMaterialSlots) Input.MaterialSlots = *Request.PreparedMaterialSlots;
+		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = Request.Source,
+			.bPersistDerivedData = Request.bPersistDerivedData});
 		if (!Render) return std::unexpected(std::vector<std::string>{Render.error().ToString()});
-		if (const auto Applied = CommitStaticMeshBuild(*this, std::move(*Render), InSource, Snapshot, true, {}, nullptr,
-			PreparedMaterialSlots ? &*PreparedMaterialSlots : nullptr); !Applied)
+		DAssetImportData* PreparedImportData = nullptr;
+		if (Request.PreparePublication)
+		{
+			const auto Prepared = Request.PreparePublication(Mesh, PreparedImportData);
+			if (!Prepared) return std::unexpected(std::vector<std::string>{Prepared.error().ToString()});
+		}
+		if (const auto Applied = CommitStaticMeshBuild(Mesh, std::move(*Render), Request.Source, Snapshot,
+			Request.bMarkPackageDirty, {}, PreparedImportData,
+			Request.PreparedMaterialSlots ? &*Request.PreparedMaterialSlots : nullptr, Request.bPersistDerivedData); !Applied)
 			return std::unexpected(std::vector<std::string>{Applied.error().ToString()});
 		return {};
 	}
 
-	auto DStaticMesh::Build(FStaticMeshDecodedGeometry Geometry,
-		std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots) -> std::expected<void, std::vector<std::string>>
-	{
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FStaticMeshSource InSource;
-		if (const auto Initialized = InSource.Initialize(std::move(Geometry)); !Initialized)
-			return std::unexpected(std::vector<std::string>{
-				FormatStaticMeshSourceError(Initialized.error()).substr(0, MaximumStaticMeshBuildDiagnosticBytes)});
-		return Build(InSource, std::move(PreparedMaterialSlots));
-	}
 #endif
 
 }

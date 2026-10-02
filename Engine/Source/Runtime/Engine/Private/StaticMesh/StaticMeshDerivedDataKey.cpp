@@ -69,7 +69,7 @@ namespace Durin
 		if (!Request) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
 		FBuildActionBuilder Builder(*Request, GetStaticMeshBuildDescriptor(Input.BuilderVersion, Input.OutputSchemaVersion));
-		Builder.AddInput({"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryPayloadVersion, "StaticMesh.AuthoredGeometry", 1})
+		Builder.AddInput({"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryIdentityVersion, "StaticMesh.AuthoredGeometry", 1})
 			.AddInput({"Reconciliation", Input.ReconciliationHash, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1});
 		auto Definition = std::move(Builder).Build();
 		if (!Definition) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,

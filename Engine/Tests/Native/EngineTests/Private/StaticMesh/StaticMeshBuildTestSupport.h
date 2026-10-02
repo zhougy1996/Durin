@@ -63,11 +63,11 @@ namespace StaticMeshBuildTestSupport
 		std::string PreviousDirectory;
 	};
 
-	inline auto MakeResidencyGeometry() -> Durin::FStaticMeshDecodedGeometry
+	inline auto MakeResidencyGeometry() -> Durin::FMeshDescription
 	{
-		Durin::FStaticMeshDecodedGeometry Geometry;
-		Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
-		auto& Mesh = Geometry.Meshes.emplace_back();
+		Durin::FMeshDescription Geometry;
+		Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+		auto& Mesh = Geometry.Sections.emplace_back();
 		Mesh.Name = "Fixture";
 		Mesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
 		Mesh.Indices = {0, 1, 2};
@@ -130,9 +130,9 @@ namespace StaticMeshBuildTestSupport
 				}
 			});
 #endif
-			FStaticMeshDecodedGeometry Input;
-			Input.MaterialSlots.push_back({"Material", 0, "Material"});
-			auto& Mesh = Input.Meshes.emplace_back();
+			FMeshDescription Input;
+			Input.PolygonGroups.push_back({"Material", 0, "Material"});
+			auto& Mesh = Input.Sections.emplace_back();
 			Mesh.Name = "Fixture";
 			for (uint32 Triangle = 0; Triangle < Triangles; ++Triangle)
 			{
@@ -146,7 +146,7 @@ namespace StaticMeshBuildTestSupport
 			const auto Read = Source.AcquireGeometry();
 			ASSERT_TRUE(Read);
 			auto Decoded = *Read;
-			EXPECT_EQ(Decoded->Meshes.front().Positions.size(), Triangles * 3);
+			EXPECT_EQ(Decoded->Sections.front().Positions.size(), Triangles * 3);
 			EXPECT_EQ(Source.AcquireGeometry().value(), Decoded);
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
@@ -175,9 +175,9 @@ namespace StaticMeshBuildTestSupport
 			(Testing::GetTestWorkDirectory() / "AuthoredBudgetCache").generic_string());
 		for (const uint32 TriangleCount : {1u, bMeasure ? 100000u : 32u})
 		{
-			FStaticMeshDecodedGeometry Geometry;
-			Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
-			auto& Section = Geometry.Meshes.emplace_back();
+			FMeshDescription Geometry;
+			Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+			auto& Section = Geometry.Sections.emplace_back();
 			Section.Name = "BudgetFixture";
 			Section.Positions.reserve(TriangleCount * 3);
 			Section.Indices.reserve(TriangleCount * 3);
@@ -232,8 +232,8 @@ namespace StaticMeshBuildTestSupport
 		FScopedDerivedDataCacheRestore RestoreCache;
 		FPaths::SetDerivedDataCacheDirForTests(
 			(Testing::GetTestWorkDirectory() / "RenderPublicationTimingCache").generic_string());
-		FStaticMeshDecodedGeometry Geometry = MakeResidencyGeometry();
-		auto& Section = Geometry.Meshes.front();
+		FMeshDescription Geometry = MakeResidencyGeometry();
+		auto& Section = Geometry.Sections.front();
 		Section.Positions.clear();
 		Section.Indices.clear();
 		for (uint32 Triangle = 0; Triangle < (bMeasure ? 100000u : 32u); ++Triangle)
@@ -322,7 +322,7 @@ namespace StaticMeshBuildTestSupport
 		FScopedDerivedDataCacheRestore RestoreCache;
 		FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "ConcurrentAuthoredQualification").generic_string());
 		auto Geometry = MakeResidencyGeometry();
-		auto& Section = Geometry.Meshes.front();
+		auto& Section = Geometry.Sections.front();
 		Section.Positions.clear();
 		Section.Indices.clear();
 		for (uint32 Triangle = 0; Triangle < (bMeasure ? 100000u : 32u); ++Triangle)
@@ -357,7 +357,7 @@ namespace StaticMeshBuildTestSupport
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
-			ASSERT_TRUE(Meshes[Index]->AsyncBuild({.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
+			ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
 				[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));

@@ -767,10 +767,22 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
-	auto DStaticMesh::AsyncBuild(FStaticMeshCompilationRequest Request,
+	auto BuildStaticMeshSourceSynchronously(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request)
+		-> std::expected<void, std::vector<std::string>>;
+
+	auto DStaticMesh::BuildFromSource(EStaticMeshBuildMode Mode, FStaticMeshCompilationRequest Request,
 		FStaticMeshCompilationCompletion Completion) -> std::expected<void, std::vector<std::string>>
 	{
 		CheckOwnerThread();
+		if (Mode == EStaticMeshBuildMode::Synchronous)
+		{
+			auto Outcome = BuildStaticMeshSourceSynchronously(*this, std::move(Request));
+			if (Completion) Completion({.Status = Outcome ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed,
+				.Errors = Outcome ? std::vector<std::string>{} : Outcome.error()});
+			return Outcome;
+		}
+		if (Mode != EStaticMeshBuildMode::Asynchronous)
+			return std::unexpected(std::vector<std::string>{"Invalid StaticMesh build mode."});
 		if (auto Manager = GManager.lock()) return Manager->Submit(*this, std::move(Request), std::move(Completion));
 		return std::unexpected(std::vector<std::string>{"The StaticMesh compiling manager is unavailable."});
 	}

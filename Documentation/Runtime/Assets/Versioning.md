@@ -130,9 +130,13 @@ custom-version domain, and cooked runtime loads do not require it. ObjectGraph,
 Duplicate, PropertySnapshot and EditableCopy also do not require package records.
 
 Geometry bulk remains independently self-describing through
-`StaticMeshSourceGeometryPayloadVersion` (1). Changing the authored package domain
+`StaticMeshSourceGeometryPayloadVersion` (2). Readers accept version 1 compact
+geometry and version 2 explicit vertex-instance mappings. Compact saves retain
+version 1 bytes and the version 1 identity envelope; extended topology is
+distinguished by its bulk hash. Changing the authored package domain
 does not implicitly change this bulk codec, source identity, or DDC keys.
-Incompatible changes must advance the owning domain; no legacy load fallback exists.
+Incompatible changes must advance the owning domain; authored package custom
+versions have no legacy load fallback.
 
 ## Authored Package Policy
 

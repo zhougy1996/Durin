@@ -4,7 +4,7 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-10-03
 
 ## Source ownership and publication
 
@@ -20,14 +20,24 @@ boundary exposes only owned diagnostic strings, so callers
 need not understand build stages or the lower-level error tree.
 
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
-`StaticMeshGeometry.h` defines detached decoded sections and material mappings.
+`MeshDescription/MeshDescription.h` defines detached triangle topology and material
+groups. `FStaticMeshAttributes` and `FStaticMeshConstAttributes` are borrowed
+views of the fixed static-mesh attribute schema. Sections own geometric positions,
+optional vertex-instance-to-vertex mappings and triangle instance indices. Normals,
+tangents, UVs and colors are per instance, allowing seams at shared positions.
+An empty mapping is the compact one-instance-per-vertex representation. This
+section-local triangle model does not implement UE edge or arbitrary polygon APIs.
 The reflected `FStaticMeshSource` retains `Geometry: FEditorBulkData`,
 `MaterialSlotCount: uint32` and `MeshCount: uint32`.
 The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
 `FStaticMeshSourceVersion`; see [source versioning](Versioning.md#static-mesh-source-versions).
 The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
-Version 1 canonical bytes,
-XXH3-128 content hashing and source identity are unchanged. Derived keys use the
+Compact descriptions retain version-1 canonical bytes, XXH3-128 hashing and source
+identity. Version 2 appends the explicit instance mapping to each section; readers
+accept both formats. The identity envelope remains version 1, with the bulk hash
+distinguishing the extended topology. Render expands instances into render vertices;
+collision maps triangle instances back to geometric vertices. Both use all source
+positions for identical normalization. Derived keys use the
 [shared build-action schema](DerivedDataBuild.md); render and collision have
 independent identities and separate registered shared-output sessions. Collision
 capture owns prepared arrays and computes identity before metadata-only lookup;
@@ -36,7 +46,7 @@ Reflection legacy names accept the former source type and owner field when
 loading authored packages; new saves use FStaticMeshSource and Source.
 
 `Initialize` validates complete geometry before installing canonical bytes and
-seeding one immutable `FStaticMeshGeometryReadHandle`. It checks source mapping,
+seeding one immutable `FMeshDescriptionReadHandle`. It checks source mapping,
 indices, finite positions, optional channel lengths, bounded names/counts and
 aggregate canonical size before byte allocation. `AcquireGeometry` first uses
 resident geometry; otherwise it reads canonical bulk, validates bounds before
@@ -88,7 +98,7 @@ renames or retires asset slots. Import/reimport owns that policy through
 Ordinary rebuilds retain existing slots. Render failure preserves previous state;
 the private destructive test replacement retains its explicit destructive behavior.
 
-Authored PostLoad, ordinary Build/AsyncBuild, standalone import/reimport and Scene
+Authored PostLoad, ordinary Build/BuildFromSource, standalone import/reimport and Scene
 import complete at asset commit. The transaction schedules missing collision as an
 independent operation, with its own readiness and error. Collision failure never
 rolls back accepted source, slots, provenance or render data and never changes a
@@ -114,7 +124,7 @@ source, and cooked loading uses neither source acquisition nor a build module.
 
 ## Payload results and cancellation
 
-Source acquisition returns `std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
+Source acquisition returns `std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
 counts, mesh/field identity and rejected values. It supports a borrowed cancellation
 predicate under its residency lock; the predicate must not reenter that source. A canceled decode never publishes
 partial residency. Ray construction supports borrowed cancellation through its
@@ -225,17 +235,23 @@ lifetime and contribute to DDC identity. Engine does not link
 back to the Developer implementation. Physics Cook calls the linked PhysicsCore
 geometry builders directly, independently of the render build module. Cache issues
 are logged internally; render results carry no cache-origin, key or timing observation.
-`DStaticMesh::Build` returns `std::expected<void, std::vector<std::string>>`
-after synchronous construction and application. Its render work does not submit, join, wait for or create a render diagnostic
-record in the compiling manager; the asset commit schedules missing collision. Valid source input
-cancels older asynchronous requests for the same mesh without waiting or pumping
-their callbacks. Failed construction/application preserves live mesh data;
-success marks the package dirty. Nonfatal cache failures are logged here.
-Caller-facing errors are plain string arrays; `FormatStaticMeshBuildMessages`
-joins them for display within a 4096-byte budget. The decoded-geometry overload
-first validates and captures canonical source.
-`DStaticMesh::AsyncBuild` returns the same expected/string-array shape for
-admission only. Accepted requests deliver `FStaticMeshCompilationResult` with
+`DStaticMesh::Build(Mode, Options, Completion)` rebuilds the current accepted Source.
+`EStaticMeshBuildMode` explicitly selects Synchronous or Asynchronous execution;
+there is no implicit scheduling default. Both modes support cache persistence and
+package-dirty options. Source and settings are captured on the owner thread.
+The return type is `std::expected<void, std::vector<std::string>>`: synchronous
+success means constructed and applied; asynchronous success means admitted.
+Completion runs on the owner thread, before return for synchronous calls and
+through the mailbox for asynchronous calls. Synchronous completion has request ID 0.
+Synchronous render work neither submits nor pumps compilation records; commit
+still schedules independent missing collision. Valid source input cancels older
+requests without waiting for their callbacks. Failed construction/application
+preserves live data. Errors are bounded owned strings.
+`BuildFromSource(Mode, Request, Completion)` is the separate authoring transaction
+for a candidate Source, prepared slots and provenance, installed only on success.
+Geometry must first pass `FStaticMeshSource::Initialize(FMeshDescription)`;
+`DStaticMesh` has no decoded-geometry Build overload.
+Asynchronous Accepted requests deliver `FStaticMeshCompilationResult` with
 request ID, terminal `Status` and an `Errors` string array. Cancellation and
 supersession are completion states, not public error codes. Detailed diagnostics
 remain a separate query. Import saving updates the import completion result,

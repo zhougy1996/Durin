@@ -2,38 +2,40 @@
 
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshAttributes.h"
 
 namespace Durin::AssetForge::Builtins
 {
-	inline auto MakeStaticMeshDecodedGeometry(
+	inline auto MakeMeshDescription(
 		const FImportedSceneData& Scene)
-		-> FStaticMeshDecodedGeometry
+		-> FMeshDescription
 	{
-		FStaticMeshDecodedGeometry Result;
-		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
+		FMeshDescription Result;
+		FStaticMeshAttributes Attributes(Result);
+		Result.PolygonGroups.reserve(Scene.MaterialSlots.size());
 		for (const FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{
-			Result.MaterialSlots.push_back({
+			Result.PolygonGroups.push_back({
 				.Name = Slot.Name,
 				.SourceMaterialIndex = Slot.SourceMaterialIndex,
 				.SourceName = Slot.SourceName});
 		}
-		Result.Meshes.reserve(Scene.Meshes.size());
+		Result.Sections.reserve(Scene.Meshes.size());
 		for (const FImportedMeshData& Mesh : Scene.Meshes)
 		{
-			FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
+			FMeshDescriptionSection& Output = Result.Sections.emplace_back();
 			Output.Name = Mesh.Name;
-			Output.Positions.assign(Mesh.Positions.begin(), Mesh.Positions.end());
-			Output.Normals.assign(Mesh.Normals.begin(), Mesh.Normals.end());
-			Output.Tangents.assign(Mesh.Tangents.begin(), Mesh.Tangents.end());
+			Attributes.GetVertexPositions(Result.Sections.size() - 1).assign(Mesh.Positions.begin(), Mesh.Positions.end());
+			Attributes.GetVertexInstanceNormals(Result.Sections.size() - 1).assign(Mesh.Normals.begin(), Mesh.Normals.end());
+			Attributes.GetVertexInstanceTangents(Result.Sections.size() - 1).assign(Mesh.Tangents.begin(), Mesh.Tangents.end());
 			for (uint32 Channel = 0;
-				Channel < MaximumStaticMeshImportedUVChannels;
+				Channel < MaximumMeshDescriptionUVChannels;
 				++Channel)
 			{
-				Output.UVChannels[Channel].assign(
+				Attributes.GetVertexInstanceUVs(Result.Sections.size() - 1, Channel).assign(
 					Mesh.UVChannels[Channel].begin(), Mesh.UVChannels[Channel].end());
 			}
-			Output.Colors.assign(Mesh.Colors.begin(), Mesh.Colors.end());
+			Attributes.GetVertexInstanceColors(Result.Sections.size() - 1).assign(Mesh.Colors.begin(), Mesh.Colors.end());
 			Output.Indices = Mesh.Indices;
 			Output.SourceMaterialIndex = Mesh.SourceMaterialIndex;
 		}

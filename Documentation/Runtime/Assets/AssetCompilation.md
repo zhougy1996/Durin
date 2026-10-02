@@ -260,7 +260,7 @@ are known.
 ## StaticMesh Completion
 
 `Durin.StaticMesh` uses one task scope, bounded queue and owner-thread mailbox
-for separate render and collision records. Ordinary Build/AsyncBuild, PostLoad
+for separate render and collision records. Ordinary Build/BuildFromSource, PostLoad
 and import complete at asset commit; collision failure is reported through
 `GetCollisionBuildStatus` and `GetCollisionBuildError`. Pending render work alone
 does not imply pending collision. Render callbacks never wait for collision.

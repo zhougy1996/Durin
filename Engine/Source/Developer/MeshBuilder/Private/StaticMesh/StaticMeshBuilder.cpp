@@ -139,7 +139,7 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
+		auto ValidateImportedMesh(const FMeshDescriptionSection& Mesh, FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 		{
 			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
 			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
@@ -183,19 +183,19 @@ namespace Durin
 		auto BuildRenderDataCandidate(
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots,
 		float NormalizedSize,
-		const FStaticMeshDecodedGeometry& ImportedData,
+		const FMeshDescription& ImportedData,
 		std::vector<FBuildLOD>& OutLODs,
 		FBox& OutBounds,
 		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
 		FAssetBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		bool bFits = Memory.Add(1, 1024 * 1024)
-			&& Memory.Add(ImportedData.Meshes.size(), 1024)
-			&& Memory.Add(std::max(MaterialSlots.size(), ImportedData.MaterialSlots.size()), 32768);
-		for (const auto& Mesh : ImportedData.Meshes)
+			&& Memory.Add(ImportedData.Sections.size(), 1024)
+			&& Memory.Add(std::max(MaterialSlots.size(), ImportedData.PolygonGroups.size()), 32768);
+		for (const auto& Mesh : ImportedData.Sections)
 		{
 			Control.Tick();
-			bFits = bFits && Memory.Add(Mesh.Positions.size(), 512) && Memory.Add(Mesh.Indices.size(), 192);
+			bFits = bFits && Memory.Add(std::max(Mesh.Positions.size(), Mesh.GetVertexInstanceCount()), 512) && Memory.Add(Mesh.Indices.size(), 192);
 		}
 		if (!bFits)
 		{
@@ -203,7 +203,7 @@ namespace Durin
 			return false;
 		}
 		std::vector<uint32> ImportedToStableSlot;
-		for (const auto& Imported : ImportedData.MaterialSlots)
+		for (const auto& Imported : ImportedData.PolygonGroups)
 		{
 			Control.Tick();
 			const auto Slot = std::ranges::find(MaterialSlots, Imported.SourceMaterialIndex,
@@ -218,10 +218,10 @@ namespace Durin
 
 		std::vector<FBuildLOD> LODs;
 		std::unordered_map<uint32, uint32> ImportedSourceToIndex;
-		for (uint32 ImportedIndex = 0; ImportedIndex < ImportedData.MaterialSlots.size(); ++ImportedIndex)
+		for (uint32 ImportedIndex = 0; ImportedIndex < ImportedData.PolygonGroups.size(); ++ImportedIndex)
 		{
 			Control.Tick();
-			const uint32 SourceIndex = ImportedData.MaterialSlots[ImportedIndex].SourceMaterialIndex;
+			const uint32 SourceIndex = ImportedData.PolygonGroups[ImportedIndex].SourceMaterialIndex;
 			if (!ImportedSourceToIndex.emplace(SourceIndex, ImportedIndex).second)
 			{
 				OutError = {.Code = EStaticMeshRenderBuildError::DuplicateMaterial, .Index = ImportedIndex, .Actual = SourceIndex};
@@ -238,9 +238,30 @@ namespace Durin
 		auto& Colors = LOD.Colors;
 		auto& Indices = LOD.Indices;
 		std::unordered_map<std::string, uint32> SectionNameCounts;
-		for (const FStaticMeshImportedMesh& ImportedMesh : ImportedData.Meshes)
+		for (const FMeshDescriptionSection& SourceMesh : ImportedData.Sections)
 		{
 			Control.Tick();
+			// Split source vertices at instance boundaries before generating render streams.
+			std::optional<FMeshDescriptionSection> Expanded;
+			if (!SourceMesh.VertexInstanceVertices.empty())
+			{
+				Expanded = SourceMesh;
+				Expanded->Positions.clear();
+				Expanded->Positions.reserve(SourceMesh.GetVertexInstanceCount());
+				for (uint32 Vertex : SourceMesh.VertexInstanceVertices)
+				{
+					Control.Tick();
+					if (Vertex >= SourceMesh.Positions.size())
+					{
+						OutError = {.Code = EStaticMeshRenderBuildError::IndexRange, .MeshName = SourceMesh.Name,
+							.Actual = Vertex, .Expected = SourceMesh.Positions.size()};
+						return false;
+					}
+					Expanded->Positions.push_back(SourceMesh.Positions[Vertex]);
+				}
+				Expanded->VertexInstanceVertices.clear();
+			}
+			const auto& ImportedMesh = Expanded ? *Expanded : SourceMesh;
 			if (!ValidateImportedMesh(ImportedMesh, OutError, Control))
 			{
 				if (OutError.Code != EStaticMeshRenderBuildError::None) return false;
@@ -261,9 +282,28 @@ namespace Durin
 				ImportedMesh.Positions.begin(),
 				ImportedMesh.Positions.end());
 
-			std::vector<FVector3f> MeshNormals = HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size(), Control)
-				? ImportedMesh.Normals
-				: BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices, Control);
+			std::vector<FVector3f> MeshNormals;
+			if (HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size(), Control))
+				MeshNormals = ImportedMesh.Normals;
+			else if (!SourceMesh.VertexInstanceVertices.empty())
+			{
+				// UV splits alone must not turn a shared geometric vertex into a hard normal seam.
+				std::vector<uint32> VertexIndices;
+				VertexIndices.reserve(SourceMesh.Indices.size());
+				for (uint32 Instance : SourceMesh.Indices)
+				{
+					Control.Tick();
+					VertexIndices.push_back(SourceMesh.GetVertexIndex(Instance));
+				}
+				const auto VertexNormals = BuildNormals(SourceMesh.Positions, VertexIndices, Control);
+				MeshNormals.reserve(SourceMesh.GetVertexInstanceCount());
+				for (uint32 Vertex : SourceMesh.VertexInstanceVertices)
+				{
+					Control.Tick();
+					MeshNormals.push_back(VertexNormals[Vertex]);
+				}
+			}
+			else MeshNormals = BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices, Control);
 			for (FVector3f& Normal : MeshNormals)
 			{
 				Control.Tick();
@@ -369,11 +409,12 @@ namespace Durin
 		}
 
 		FBox SourceBounds;
-		for (const auto& Position : Positions)
-		{
-			Control.Tick();
-			SourceBounds.AddPoint(FVector3(Position));
-		}
+		for (const auto& Section : ImportedData.Sections)
+			for (const auto& Position : Section.Positions)
+			{
+				Control.Tick();
+				SourceBounds.AddPoint(FVector3(Position));
+			}
 		const auto Normalization = GetStaticMeshPositionNormalization(SourceBounds, NormalizedSize);
 		if (!Normalization)
 		{

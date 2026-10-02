@@ -43,7 +43,7 @@ namespace Durin
 
 	struct FStaticMeshRenderBuildRequest
 	{
-		FStaticMeshGeometryReadHandle Geometry;
+		FMeshDescriptionReadHandle Geometry;
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
 	};

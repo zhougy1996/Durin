@@ -5,14 +5,15 @@
 #include <expected>
 
 #include "Asset/EditorBulkData.h"
-#include "StaticMesh/StaticMeshGeometry.h"
+#include "MeshDescription/MeshDescription.h"
 #include "StaticMeshSource.gen.h"
 
 namespace Durin
 {
 	inline constexpr FGuid StaticMeshSourceGeometryPayloadId{
 		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
-	inline constexpr uint32 StaticMeshSourceGeometryPayloadVersion = 1;
+	inline constexpr uint32 StaticMeshSourceGeometryPayloadVersion = 2;
+	inline constexpr uint32 StaticMeshSourceGeometryIdentityVersion = 1;
 	inline constexpr uint64 MaximumStaticMeshSourceBytes =
 		1024ull * 1024ull * 1024ull;
 
@@ -59,11 +60,11 @@ namespace Durin
 		ENGINE_API auto operator=(const FStaticMeshSource& Other) -> FStaticMeshSource&;
 
 		// Validates the complete candidate before replacement and seeds residency without decoding.
-		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value) -> std::expected<void, FStaticMeshSourceError>;
+		ENGINE_API auto Initialize(FMeshDescription Value) -> std::expected<void, FStaticMeshSourceError>;
 		// May read bulk and block. Concurrent callers share one successful decode; failures are not cached.
 		// Cancellation is borrowed under the residency lock and must not reenter this source.
 		ENGINE_API auto AcquireGeometry(
-			const std::function<bool()>& ShouldCancel = {}) const -> std::expected<FStaticMeshGeometryReadHandle, FStaticMeshSourceError>;
+			const std::function<bool()>& ShouldCancel = {}) const -> std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>;
 		// Drops only this value's decoded ownership, never canonical bulk or outstanding readers.
 		ENGINE_API auto ReleaseGeometry() const -> void;
 		ENGINE_API auto IsGeometryResident() const -> bool;
@@ -85,7 +86,7 @@ namespace Durin
 		uint32 MeshCount = 0;
 
 		mutable std::mutex ResidencyMutex;
-		mutable FStaticMeshGeometryReadHandle ResidentGeometry;
+		mutable FMeshDescriptionReadHandle ResidentGeometry;
 		// Reflection can replace persistent fields without invoking assignment.
 		mutable FXxHash128 ResidentIdentity;
 	};
