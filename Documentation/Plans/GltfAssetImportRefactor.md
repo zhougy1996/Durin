@@ -1,25 +1,41 @@
 # glTF Asset Import Refactor Plan
 
-Summary: Introduce a complete GLTFImporter asset workflow over shared format-neutral source data, with multiple mesh outputs, dependency-aware planning, and compatible reimport.
+Summary: Introduce a complete GLTFImporter asset workflow over shared format-neutral source data, with multiple mesh outputs and dependency-aware planning as a one-time import tool.
 
 Last reviewed: 2026-10-02
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-02
 
 ## Current Status
 
-Planning only. No implementation stages have started. The selected direction is
-ordinary asset import for glTF/GLB, sharing normalized data and asset execution
-with FBX where their semantics actually coincide. Scene or Level object creation
-is outside this plan. Existing FBX behavior and saved import records must remain
-usable during migration.
+Stages 0 through 3 are committed as `624a4018f`, `256a0256a`, `e9171670d`
+and `32f2873d4`. Stage 4 completes the user-selected one-time import boundary.
+The uncommitted import-group prototype is removed. glTF/GLB and FBX imports reject
+occupied outputs, while explicit existing-material mapping remains available.
+New and legacy model receipts remain readable; their manager, factory and family
+reimport routes are disabled, including replacement-file reimport. OBJ and
+independent image reimport retain their existing behavior. Source/output update
+matching, material-rebuild controls and existing-output replacement paths are removed.
+
+The ordinary glTF ContentBrowser entry remains independent of LevelEditor. It
+supports split/combine, resource/category/scene selection, source-detached replanning,
+material policies, complete preview, diagnostics, cancellation and per-output results.
+Saved mesh/material/texture outputs reload without their physical source files.
+
+Validation on `macos-xcode-arm64` / `MacOS-arm64-Debug-DurinEditor` passes:
+`all` build; `SceneImportTests` (31 cases); `AssetImportTests` (22 cases); and
+`TextureTests FSingleAssetImportTests.*` (9 cases). Four new one-time import/reload/
+replacement-route cases also pass isolated execution with one test job. Changed
+Editor/Runtime contracts and this completed plan pass documentation validation.
+Native macOS application smoke and GPU qualification were not run; neither is
+required for the selected CPU import scope under the repository's default policy.
 
 ## Goal
 
 Import one glTF or GLB source into independently usable StaticMesh, Material,
 MaterialInstance, and Texture2D assets, with explicit output selection, accurate
-resource relationships, useful diagnostics, and repeatable updates. Users should
+resource relationships and useful diagnostics. Users should
 not need to choose a Scene Source workflow to obtain materials and textures.
 
 ## Scope and Selected Decisions
@@ -27,7 +43,7 @@ not need to choose a Scene Source workflow to obtain materials and textures.
 - GLTFImporter names the format-specific capability; it does not name the shared
   import framework. Internal identifiers follow existing `Gltf` casing.
 - glTF and FBX share normalized resource data, output planning, and execution.
-  They retain separate parsing, format settings, element matching, and material
+  They retain separate parsing, format settings and material
   interpretation. Do not introduce a generic extensible node framework merely
   to support these two formats.
 - Replace the shared `FImportedSceneData` boundary with `FImportedDocument`.
@@ -94,42 +110,134 @@ publication behind the shared session. Keep source work detached and asset
 mutation on its existing owning thread. Report warnings before import and show
 saved, failed, and unexecuted outputs at completion.
 
-### Import records and updates
+### One-time model import boundary
 
-Separate relocatable source file hints, source element identity, and destination
-asset identity. A source filename must not remain the sole authority for matching
-an existing output. glTF element indices and names are not guaranteed stable;
-define matching and ambiguity handling rather than claiming universal stable IDs.
+On 2026-10-02 the user narrowed glTF/GLB to a one-time import tool, then
+explicitly applied the same boundary to FBX and legacy assets. Reimport,
+source relocation, persistent import-group mappings, element matching across
+source revisions and whole-source refresh are outside this plan. The previously
+selected import-group design is superseded; its uncommitted prototype is removed.
 
-Use a Gltf-specific import record derived from existing `DAssetImportData` where
-format settings are needed, plus a common source/output association contract.
-Integrate material provenance with that association. Determine persistence of
-the import-group mapping in Stage 0 before implementing reimport.
+Generated outputs remain independent editable assets. A new import must use
+unoccupied destinations; an occupied output reports a conflict instead of
+implicitly updating geometry, textures or materials. Explicit existing-material
+mapping remains supported and does not modify the mapped asset. After partial
+publication, retry into another destination or explicitly remove unwanted outputs.
+Keep reflected legacy receipts readable without automatic migration.
 
-Support updating an individual output and refreshing the complete source output
-set. Individual updates still decode the source and resolve required dependencies.
-Report added, removed, and unmatched elements. Preserve outputs removed from the
-source by default; do not automatically delete referenced assets.
+## Stage 0 Contracts and Inventory
 
-Maintain compatible reads and explicit migration for `DSceneImportData`, material
-receipts, importer identifiers, existing combined mesh outputs, and old settings.
-Renaming reflected types or changing serialized identity requires a migration,
-not a source-only rename.
+### Ownership and affected targets
+
+`AssetForgeBuiltins` owns `ImportedScene.cpp`, `GltfSceneAdapter.cpp`,
+`AssimpSceneAdapter.cpp`, `AssimpSceneGeometry.cpp`, source snapshots,
+`SceneImport.cpp` planning, `SceneDirectImport.cpp` execution, and the standalone
+StaticMesh/Texture factories and reimport handlers. Keep the new document,
+format adapters, `FAssetImportPlan`, `FAssetImportSession`, and glTF presentation
+in that module. These proposed names have no existing declarations in the
+workspace. ContentBrowser already provides scoped Import extensions with host
+presentation callbacks; add that dependency rather than a new import module.
+
+`LevelEditor` currently registers `level.import-scene` through its workspace and
+owns `SceneImportDialog`. `StaticMeshEditor` registers the geometry-only workflow;
+`TextureEditor` registers the ordinary image workflow. `DurinEd` owns factory and
+reimport dispatch. StaticMesh reimport requires `DStaticMeshImportData` and cannot
+currently update `DSceneImportData`; Texture2D reimport accepts base receipts and
+can incorrectly interpret a scene root as an image. No Scene reimport handler
+exists. Material import provenance lives in Engine's material interface, outside
+`DAssetImportData`.
+
+Searches of every source/test root in `Durin.dworkspace` found normalized-scene
+consumers only in Engine: AssetForgeBuiltins and `AssetImportTests`. Session
+consumers are LevelEditor, `SceneImportTests`, and `SceneImportVulkanTests`.
+Sandbox and RoadWeaver have no direct consumers. Shared Engine receipt changes
+must also build both projects through the `all` gate. Validate AssetForgeBuiltins,
+LevelEditor, ContentBrowser, DurinEd, StaticMeshEditor and TextureEditor through
+that build; run AssetImportDataTests, AssetImportTests, SceneImportTests and the
+standalone import cases in TextureTests. Vulkan qualification owns rendered PBR
+verification when execution access is available.
+
+### Geometry and adapter contract
+
+The canonical engine basis is forward +X, right +Y, up +Z. For new glTF imports,
+use `MakeYUpNegativeZForward`: `(x,y,z) -> (-z,x,y)`. glTF lengths are metres;
+retain numeric lengths (one engine unit per metre), with no implicit factor of
+100. Existing import settings contain axes but no unit multiplier. FBX retains
+Assimp's current numeric/unit interpretation and explicit user-selected axes;
+unit metadata must not silently change legacy outputs.
+
+Local resource geometry receives the basis exactly once. Node transforms use
+`C * T * inverse(C)`; combined expansion applies those canonical transforms to
+canonical geometry. Positions retain source origin, normals use inverse transpose,
+tangents use the linear transform followed by orthogonalization, tangent signs and
+triangle winding track negative determinants. Retain the established UV flip.
+Keep glTF source mesh/primitive correlation in adapter-owned explicit references,
+not Assimp traversal/material order. FBX Assimp meshes are resource primitives;
+retain its node mesh-reference lists, including nodes owning multiple primitives.
+
+The new boundary is `ImportedDocument.h` / `FImportedDocument`, containing mesh
+resources with primitives, transform nodes, source scene root sets, materials,
+images, bindings, dependencies, and diagnostics. `ImportedScene.h` remains an
+explicit legacy flattened adapter while existing standalone/FBX combined callers
+are migrated. It is native, not a reflected serialized type. Do not rename any
+reflected receipt as part of this source-data migration.
+
+### Matching and persistence decision (superseded)
+
+The original Stage 0 decision proposed generated group/output IDs and a full
+mapping snapshot in each output's authored subobject. The user rejected this
+complexity on 2026-10-02 and selected one-time glTF import instead. Do not implement
+this group record or infer stable identity across reordered/renamed source elements.
+Existing receipts remain readable as provenance, not a glTF update contract.
+
+### Compatibility and entrypoint transition
+
+Keep `DSceneImportData`, `Durin.Scene`, `scene:mesh:combined`, surface recipe v1,
+and stored source hint formats readable. Do not migrate stored associations.
+New split or combined glTF imports require unoccupied destinations and never
+replace existing combined outputs or unrelated destination assets.
+
+Register the new glTF/GLB entrypoint with AssetForgeBuiltins independently of a
+LevelEditor workspace. The legacy Scene Source menu then accepts FBX only.
+Geometry-only remains an explicit glTF setting and retained standalone assets
+keep their factory receipt path. Receipt readability does not imply glTF reimport
+support. New and legacy glTF assets reject reimport through the manager, factory
+methods and family helpers.
+OBJ and standalone image formats retain their existing reimport flows; FBX
+reimport is also disabled at the user's subsequent explicit request.
+
+### Fixture and acceptance matrix
+
+| Boundary | Existing or added evidence | Later-stage checks |
+| --- | --- | --- |
+| Multiple meshes/primitives and order | `PrimitiveProjection.gltf`, `MultiSection.gltf` | Split resources, section slots and exact primitive correlation |
+| Instances, hierarchy, origin, mirrored/nonuniform scale, multiple scenes | Added `ResourceInstances.gltf`; `AsymmetricAxes.obj` | Local geometry, canonical transforms, selected roots and combined expansion |
+| Shared images, usage, sampler and UV | Added `SharedImageUsage.gltf`; `MaterialContract.gltf` | Color/data product separation and binding reuse |
+| Embedded/external/data URI source closure | `EmbeddedImage.glb`, `DataUriImage.gltf`, `MaterialContract.gltf` | Missing/unsafe dependency attribution and snapshot changes |
+| One-time persistence | Saved glTF outputs and standalone legacy glTF/FBX receipts | Reload without source files, blocked reimport and occupied-destination preservation |
+| FBX interpretation | `PhongMaterial.fbx`, `UnsupportedDccMaterial.fbx` and existing frozen assertions | Preserve geometry, diffuse/opacity mapping and loss diagnostics |
+| Publication, cancellation, preserved edits | SceneImportTests failure/cancellation cases | Split-output failure states, reload without sources, explicit glTF reimport rejection and collision preservation |
+| Unsupported features | Required/optional extension fixtures and generated skins/animation sources | No implicit skeletal/animation promise |
+
+Selection, disabled categories, mapping conflicts, publication races and saved
+output reload require session/persistence tests;
+source-only fixtures cannot close these acceptance gates.
 
 ## Implementation Stages
 
 ### Stage 0: Confirm ownership and migration contracts
 
-- [ ] Inventory current glTF/FBX adapters, Scene import, standalone geometry import,
+- [x] Inventory current glTF/FBX adapters, Scene import, standalone geometry import,
   import records, reimport handlers, and ContentBrowser registrations.
-- [ ] Search all projects in `Durin.dworkspace` for consumers of shared types and
+- [x] Search all projects in `Durin.dworkspace` for consumers of shared types and
   APIs; record affected owning and consumer targets.
-- [ ] Confirm shared type names, file/module ownership, importer boundaries, and
+- [x] Confirm shared type names, file/module ownership, importer boundaries, and
   canonical coordinate/unit conventions from current runtime contracts.
-- [ ] Decide the source element matching policy and persistent import-group mapping.
-- [ ] Define old-record migration, combined-output preservation, and the transition
+- [x] Decide the source element matching policy and persistent import-group mapping
+  (superseded by the user-selected one-time import scope).
+- [x] Define old-record migration, combined-output preservation, and the transition
   between legacy Scene Source and new glTF asset entrypoints.
-- [ ] Select existing fixtures and add the missing fixture matrix required by the
+- [x] Select existing fixtures and add the missing fixture matrix required by the
   acceptance gates below; characterize FBX behavior before changing shared data.
 
 Completion: contracts and migration choices are recorded here, affected consumers
@@ -139,12 +247,12 @@ are known, and no unresolved identity or geometry semantics block Stage 1.
 
 Depends on Stage 0.
 
-- [ ] Introduce `FImportedDocument` with mesh resources/primitives distinct from nodes.
-- [ ] Adapt glTF decoding with exact primitive/material mapping, local geometry,
+- [x] Introduce `FImportedDocument` with mesh resources/primitives distinct from nodes.
+- [x] Adapt glTF decoding with exact primitive/material mapping, local geometry,
   reusable resources, and retained source transforms.
-- [ ] Adapt FBX and all other existing shared-data consumers, preserving their
+- [x] Adapt FBX and all other existing shared-data consumers, preserving their
   externally visible behavior through explicit compatibility paths where needed.
-- [ ] Verify coordinate conversion, units, winding, normals, tangents, UVs, and
+- [x] Verify coordinate conversion, units, winding, normals, tangents, UVs, and
   mirrored/nonuniform transforms without double conversion.
 
 Completion: repeated instances do not duplicate source resources, primitives
@@ -154,14 +262,14 @@ retain correct materials, and affected consumers pass their selected checks.
 
 Depends on Stage 1.
 
-- [ ] Replace fixed `scene:mesh:combined` planning with per-source-mesh outputs and
+- [x] Replace fixed `scene:mesh:combined` planning with per-source-mesh outputs and
   explicit combined output plans.
-- [ ] Resolve selected resource dependencies, material policies, texture reuse,
+- [x] Resolve selected resource dependencies, material policies, texture reuse,
   destinations, existing output matches, and conflicts before product building.
-- [ ] Extract shared build/materialize/bind/publish responsibilities from the
+- [x] Extract shared build/materialize/bind/publish responsibilities from the
   existing Scene execution while preserving asynchronous and save ownership.
-- [ ] Keep FBX import working and preserve legacy combined-output update semantics.
-- [ ] Provide a complete result with diagnostics and partial publication details.
+- [x] Keep FBX import working and preserve legacy combined-output update semantics.
+- [x] Provide a complete result with diagnostics and partial publication details.
 
 Completion: split and combined glTF imports produce valid independently usable
 assets with correct bindings; conflicts and partial failures are attributable.
@@ -170,34 +278,34 @@ assets with correct bindings; conflicts and partial failures are attributable.
 
 Depends on Stage 2.
 
-- [ ] Register glTF/GLB asset import independently of LevelEditor and route ordinary
+- [x] Register glTF/GLB asset import independently of LevelEditor and route ordinary
   glTF import through one complete workflow; offer geometry-only as a setting.
-- [ ] Provide format-appropriate coordinates, output selection, split/combine,
+- [x] Provide format-appropriate coordinates, output selection, split/combine,
   material creation/instance/mapping options, and dependency-aware asset preview.
-- [ ] Show warnings, planned updates, conflicts, progress, cancellation state,
+- [x] Show warnings, planned updates, conflicts, progress, cancellation state,
   completion results, and links/selections for created assets.
-- [ ] Retire the glTF Scene Source user concept while preserving the FBX path
+- [x] Retire the glTF Scene Source user concept while preserving the FBX path
   until it has an explicitly compatible replacement.
 
 Completion: importing a GLB with materials requires no Scene Source selection
 and no LevelEditor workspace; preview accurately describes resulting assets.
 
-### Stage 4: Complete reimport and compatible persistence
+### Stage 4: Finalize one-time model import boundaries
 
-Depends on Stages 2 and 3 and Stage 0 persistence decisions.
+Depends on Stages 2 and 3. Supersedes the original reimport/persistence stage
+following the user's explicit scope decision on 2026-10-02.
 
-- [ ] Persist source/output associations and import options for all output types.
-- [ ] Dispatch glTF-owned reimport to the glTF source path rather than treating
-  embedded images as standalone image files or meshes as unrelated geometry.
-- [ ] Support source relocation, individual output updates, and whole-source refresh.
-- [ ] Handle reordered, renamed, added, removed, and ambiguous source elements with
-  explicit matching/conflict feedback and preservation of user edits by policy.
-- [ ] Read/migrate legacy receipts and verify existing combined imports remain usable.
-- [ ] Document implemented boundaries in the owning Editor/Runtime contracts,
-  close acceptance gates with evidence, and update plan lifecycle metadata.
+- [x] Remove the uncommitted import-group prototype and avoid new group metadata.
+- [x] Reject glTF/GLB/FBX destination reuse before building or publication; retain explicit
+  existing-material mapping and per-output partial-save reporting.
+- [x] Block glTF/GLB/FBX reimport, including legacy assets and replacement-file
+  routes, through loaded-object capabilities and direct APIs.
+- [x] Verify saved outputs reload and remain usable/editable without source files.
+- [x] Document boundaries in owning contracts, validate retained import consumers,
+  close acceptance gates and update plan lifecycle metadata.
 
-Completion: saved imports remain updateable across reloads and source relocation,
-legacy assets remain usable, and every required acceptance gate is verified.
+Completion: one-time imports produce usable independent assets, repeated imports
+cannot silently replace them, and required acceptance gates are verified.
 
 ## Acceptance and Validation
 
@@ -207,25 +315,29 @@ Follow [native testing guidance](../Agents/Testing.md),
 consumer migration and affected project-target validation; shared Engine API
 migrations require an `all` build before handoff.
 
-- [ ] Multi-mesh and multi-primitive sources produce expected mesh assets,
+- [x] Multi-mesh and multi-primitive sources produce expected mesh assets,
   sections, and material assignments in split and combined modes.
-- [ ] Repeated instances, node transforms, mirrored/nonuniform scaling, origins,
+- [x] Repeated instances, node transforms, mirrored/nonuniform scaling, origins,
   and canonical axes/units remain correct without duplicate resources.
-- [ ] GLB embedded images, glTF external dependencies, and data URIs work; missing
+- [x] GLB embedded images, glTF external dependencies, and data URIs work; missing
   or unsafe dependencies fail with attributable diagnostics.
-- [ ] Shared images with different texture usage, samplers, and material mappings
+- [x] Shared images with different texture usage, samplers, and material mappings
   yield correct outputs and dependency reuse.
-- [ ] Selection, unused resources, disabled output categories, existing mappings,
+- [x] Selection, unused resources, disabled output categories, existing mappings,
   preflight conflicts, and publication-time races have explicit results.
-- [ ] Reimport after reload, relocation, material edits, element reorder/add/remove,
-  and legacy-record migration preserves intended asset references and settings.
-- [ ] Unsupported features/extensions and lossy material conversions are visible;
+- [x] Saved outputs reload without source files; repeat imports reject occupied
+  outputs, preserve existing edits, and glTF/GLB/FBX reimport is explicitly unsupported.
+- [x] Unsupported features/extensions and lossy material conversions are visible;
   skeletal/animation support is not implied by this static-asset scope.
-- [ ] Cancellation and injected build/save failures report all committed outputs
+- [x] Cancellation and injected build/save failures report all committed outputs
   and clean up unpublished candidates according to existing operation contracts.
-- [ ] FBX and standalone import consumers retain validated behavior throughout migration.
+- [x] FBX first import and standalone import consumers retain validated behavior;
+  OBJ and independent image reimport remain supported.
 
 ## Non-goals
+
+glTF/GLB/FBX reimport, source relocation, import-group records, whole-source refresh,
+automatic source-element matching and legacy-record migration;
 
 Creating Actors, Levels, or runtime scene hierarchies; complete skeletal/animation
 import; expanding every glTF extension; replacing the underlying mesh/texture build

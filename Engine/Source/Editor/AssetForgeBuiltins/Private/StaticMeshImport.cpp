@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
 
@@ -316,6 +317,7 @@ namespace Durin::AssetForge::Builtins
 		switch (Error.Code)
 		{
 		case EStaticMeshRebuildError::None: return {};
+		case EStaticMeshRebuildError::UnsupportedReimport: return std::string(ModelOneTimeImportDiagnostic);
 		case EStaticMeshRebuildError::ObjectType: return "Reimport requires a StaticMesh object.";
 		case EStaticMeshRebuildError::SourceCount: return std::format("StaticMesh reimport requires one source file; received {}.", Error.SourceCount);
 		case EStaticMeshRebuildError::Path: return "Cannot resolve StaticMesh source path: " + Error.Filename + ": " + Error.SystemError.message();
@@ -409,13 +411,14 @@ namespace Durin::AssetForge::Builtins
 	auto DStaticMeshFactory::GetSourceFileDialogs(const DObject& Object) const
 		-> std::vector<FReimportSourceFileDialog>
 	{
-		if (!Cast<DStaticMesh>(&Object)) return {};
-		return {{"Reimport StaticMesh From File", "Supported Geometry", "*.fbx;*.gltf;*.glb;*.obj;*.dae;*.3ds;*.ply;*.stl"}};
+		if (!Cast<DStaticMesh>(&Object) || IsOneTimeModelImportedAsset(Object)) return {};
+		return {{"Reimport StaticMesh From File", "Supported Geometry", "*.obj;*.dae;*.3ds;*.ply;*.stl"}};
 	}
 
 	auto DStaticMeshFactory::GetReimportCapabilities(
 		const DObject& Object) const -> FReimportCapabilities
 	{
+		if (IsOneTimeModelImportedAsset(Object)) return {.Diagnostic = std::string(ModelOneTimeImportDiagnostic)};
 		const auto* Mesh = Cast<DStaticMesh>(&Object);
 		const auto* Data = Mesh ? dynamic_cast<const DStaticMeshImportData*>(
 			Mesh->GetAssetImportData()) : nullptr;
@@ -432,6 +435,11 @@ namespace Durin::AssetForge::Builtins
 	auto DStaticMeshFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
+		if (IsOneTimeModelImportedAsset(Object))
+		{
+			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			return;
+		}
 		auto* Mesh = Cast<DStaticMesh>(&Object);
 		const auto* Data = Mesh ? dynamic_cast<const DStaticMeshImportData*>(
 			Mesh->GetAssetImportData()) : nullptr;
@@ -463,6 +471,11 @@ namespace Durin::AssetForge::Builtins
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{
+		if (IsOneTimeModelImportedAsset(Object))
+		{
+			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			return;
+		}
 		auto* Mesh = Cast<DStaticMesh>(&Object);
 		const auto* Data = Mesh ? dynamic_cast<const DStaticMeshImportData*>(
 			Mesh->GetAssetImportData()) : nullptr;
@@ -474,6 +487,11 @@ namespace Durin::AssetForge::Builtins
 				.ObjectPath = Object.GetObjectPath(), .SourceCount = Filenames.size()};
 			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
 				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
+			return;
+		}
+		if (IsOneTimeModelSource(Filenames.front()))
+		{
+			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
 			return;
 		}
 		std::error_code SystemError;
@@ -502,6 +520,8 @@ namespace Durin::AssetForge::Builtins
 	auto ReimportStaticMesh(DStaticMesh& Mesh,
 		const FAssetBundleSaveOptions& SaveOptions) -> FStaticMeshRebuildResult
 	{
+		if (IsOneTimeModelImportedAsset(Mesh)) return std::unexpected(FStaticMeshRebuildError{
+			.Code = EStaticMeshRebuildError::UnsupportedReimport, .ObjectPath = Mesh.GetObjectPath()});
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());
 		if (!Data)
@@ -522,12 +542,16 @@ namespace Durin::AssetForge::Builtins
 	auto ReimportStaticMeshFromFile(DStaticMesh& Mesh, std::string_view FilePath,
 		const FAssetBundleSaveOptions& SaveOptions) -> FStaticMeshRebuildResult
 	{
+		if (IsOneTimeModelImportedAsset(Mesh)) return std::unexpected(FStaticMeshRebuildError{
+			.Code = EStaticMeshRebuildError::UnsupportedReimport, .ObjectPath = Mesh.GetObjectPath()});
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());
 		if (!Data)
 		{
 			return std::unexpected(FStaticMeshRebuildError{.Code = EStaticMeshRebuildError::ImportData, .ObjectPath = Mesh.GetObjectPath()});
 		}
+		if (IsOneTimeModelSource(FilePath)) return std::unexpected(FStaticMeshRebuildError{
+			.Code = EStaticMeshRebuildError::UnsupportedReimport, .ObjectPath = Mesh.GetObjectPath()});
 		std::error_code SystemError;
 		const std::filesystem::path Requested =
 			std::filesystem::absolute(FilePath, SystemError).lexically_normal();

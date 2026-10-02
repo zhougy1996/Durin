@@ -211,4 +211,101 @@ namespace Durin::AssetForge::Builtins::Private
 			OutScene,
 			OutError);
 	}
+	auto ImportAssimpDocumentGeometry(const aiScene& Scene,
+		const FMeshImportOptions& Options, bool bGltf,
+		FImportedDocument& Document, std::string& OutError) -> bool
+	{
+		if (Scene.mNumMeshes > MaxImportedSourceMeshes)
+		{
+			OutError = "Decoded mesh resource limit exceeded.";
+			return false;
+		}
+		const auto Basis = ToAssimpMatrix(Options.SourceToEngine);
+		std::unordered_map<std::string, FImportedMeshData*> PrimitiveByToken;
+		if (bGltf)
+			for (auto& Resource : Document.Meshes)
+				for (auto& Primitive : Resource.Primitives)
+					PrimitiveByToken.emplace(Primitive.Name, &Primitive);
+		else Document.Meshes.resize(Scene.mNumMeshes);
+		for (uint32 Index = 0; Index < Scene.mNumMeshes; ++Index)
+		{
+			FImportedSceneData Decoded;
+			if (!ImportMeshInstance(Scene, *Scene.mRootNode, Index, {}, Basis, Decoded, OutError)) return false;
+			auto Primitive = std::move(Decoded.Meshes.front());
+			if (bGltf)
+			{
+				const auto Found = PrimitiveByToken.find(Primitive.Name);
+				if (Found == PrimitiveByToken.end())
+				{
+					OutError = "Decoder returned an unknown or duplicated glTF primitive token.";
+					return false;
+				}
+				Primitive.SourceMaterialIndex = Found->second->SourceMaterialIndex;
+				*Found->second = std::move(Primitive);
+				PrimitiveByToken.erase(Found);
+			}
+			else
+			{
+				auto& Resource = Document.Meshes[Index];
+				Resource.SourceMeshIndex = Index;
+				Resource.SourceName = Primitive.Name;
+				Resource.Primitives.push_back(std::move(Primitive));
+			}
+		}
+		if (bGltf && !PrimitiveByToken.empty())
+		{
+			OutError = "Decoder omitted a glTF source primitive.";
+			return false;
+		}
+		for (const auto& Resource : Document.Meshes)
+			for (const auto& Primitive : Resource.Primitives)
+				if (std::ranges::none_of(Document.Materials, [&](const auto& Material) {
+					return Material.SourceMaterialIndex == Primitive.SourceMaterialIndex;
+				}))
+				{
+					OutError = "Source primitive references a missing material.";
+					return false;
+				}
+		if (bGltf) return true;
+
+		auto ToMatrix = [](const aiMatrix4x4& M) {
+			FMatrix4f Result(1);
+			for (uint32 Row = 0; Row < 4; ++Row)
+				for (uint32 Column = 0; Column < 4; ++Column) Result[Column][Row] = M[Row][Column];
+			return Result;
+		};
+		const auto InverseBasis = glm::inverse(Options.SourceToEngine);
+		std::vector<std::pair<const aiNode*, int32>> Pending{{Scene.mRootNode, -1}};
+		while (!Pending.empty())
+		{
+			if (IsSceneImportCancellationRequested() || Document.Nodes.size() >= MaxImportedSceneNodes)
+			{
+				OutError = "Source node decoding canceled or exceeded its resource limit.";
+				return false;
+			}
+			const auto [Source, Parent] = Pending.back(); Pending.pop_back();
+			const auto Index = static_cast<uint32>(Document.Nodes.size());
+			auto& Node = Document.Nodes.emplace_back();
+			Node.SourceNodeIndex = Index;
+			Node.ParentNodeIndex = Parent;
+			Node.SourceName = Source->mName.C_Str();
+			Node.LocalTransform = Options.SourceToEngine * ToMatrix(Source->mTransformation) * InverseBasis;
+			Node.GlobalTransform = Parent < 0 ? Node.LocalTransform
+				: Document.Nodes[Parent].GlobalTransform * Node.LocalTransform;
+			for (uint32 Mesh = 0; Mesh < Source->mNumMeshes; ++Mesh)
+			{
+				if (Source->mMeshes[Mesh] >= Document.Meshes.size())
+				{
+					OutError = "Source node references a missing mesh resource.";
+					return false;
+				}
+				Node.MeshIndices.push_back(Source->mMeshes[Mesh]);
+			}
+			for (uint32 Child = Source->mNumChildren; Child > 0; --Child)
+				if (Source->mChildren[Child - 1]) Pending.emplace_back(Source->mChildren[Child - 1], Index);
+		}
+		Document.Scenes.push_back({.SourceName = Scene.mRootNode->mName.C_Str(), .RootNodeIndices = {0}});
+		return true;
+	}
+
 }

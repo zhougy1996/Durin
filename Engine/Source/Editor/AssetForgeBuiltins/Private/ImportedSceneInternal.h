@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForge/Builtins/ImportedScene.h"
+#include "AssetForge/Builtins/ImportedDocument.h"
 
 struct aiScene;
 
@@ -10,6 +10,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		bool bSucceeded = false;
 		FImportedSceneData Scene;
+		FImportedDocument Document;
 		std::string ErrorMessage;
 		std::optional<uint32> DefaultGltfMaterialIndex;
 	};
@@ -41,6 +42,7 @@ namespace Durin::AssetForge::Builtins::Private
 		FByteView RootBytes;
 		const FMeshImportOptions& Options;
 		FSceneDecodeResult& Result;
+		bool bDocumentDecode = false;
 	};
 
 	auto AddDiagnostic(
@@ -105,6 +107,10 @@ namespace Durin::AssetForge::Builtins::Private
 	auto ImportAssimpFormat(
 		const aiScene& Scene,
 		const FImportedSceneContext& Context) -> bool;
+	auto ImportAssimpDocumentGeometry(const aiScene& Scene,
+		const FMeshImportOptions& Options, bool bGltf,
+		FImportedDocument& Document, std::string& OutError) -> bool;
+
 	auto ImportAssimpGeometry(
 		const aiScene& Scene,
 		const FMeshImportOptions& Options,

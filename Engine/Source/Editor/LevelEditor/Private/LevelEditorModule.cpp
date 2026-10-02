@@ -227,7 +227,7 @@ namespace Durin
 			return true;
 		};
 		if (!RegisterImport(
-				"level.import-scene", "Scene Source (FBX/glTF)...", 300,
+				"level.import-scene", "Scene Source (FBX)...", 300,
 				Editor::Level::EImportDialogType::Scene))
 		{
 			UnregisterLevelEditorWorkspace();

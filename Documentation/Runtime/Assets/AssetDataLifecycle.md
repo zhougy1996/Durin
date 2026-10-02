@@ -48,6 +48,12 @@ assignment and report missing or ambiguous mappings as import diagnostics.
 `DStaticMesh::SetMaterialSlotDefaultMaterial` requires an existing slot index on
 the owner thread; it updates the default and invalidates dependent render state.
 
+Persisted import metadata is provenance, not a guarantee that the editor supports
+source reimport. New and legacy glTF/GLB/FBX outputs remain readable and editable,
+but their source reimport routes are disabled. Authored source and bulk data still
+support loading and rebuilding derived data without the physical source files.
+The editor policy is owned by [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+
 ## Texture source storage compression
 
 `FTextureSource` owns lossless storage: Raw (0), byte-run RunLength (1) and

@@ -1013,6 +1013,210 @@ namespace Durin::AssetForge::Builtins::Private
 		return true;
 	}
 
+	auto BuildGltfDocumentProjection(FJsonNodeView Root, const FGltfSource& Source,
+		const FMeshImportOptions& Options, FSceneDecodeResult& Result,
+		FByteBuffer& OutProjection) -> bool
+	{
+		const auto Meshes = Root.GetView("meshes");
+		const auto Nodes = Root.GetView("nodes");
+		const auto Scenes = Root.GetView("scenes");
+		if (!Meshes.IsArray() || Meshes.Num() > MaxImportedSourceMeshes
+			|| (Nodes.IsValid() && !Nodes.IsArray()) || Nodes.Num() > MaxImportedSceneNodes
+			|| (Scenes.IsValid() && !Scenes.IsArray()))
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+				"root", "Invalid glTF resource tables or resource limits.");
+		const auto Accessors = Root.GetView("accessors");
+		for (size_t Index = 0; Index < Accessors.Num(); ++Index)
+			if (Accessors.GetView(Index).Contains("sparse"))
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedFeature,
+					std::format("accessor:{}", Index), "Sparse accessors are unsupported by static asset import.");
+		const auto& C = Options.SourceToEngine;
+		const float Determinant = glm::determinant(C);
+		if (!std::isfinite(Determinant) || std::abs(Determinant) <= 1.0e-8f)
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+				"coordinates", "Source basis must be finite and nonsingular.");
+		const auto InverseC = glm::inverse(C);
+		auto& Document = Result.Document;
+		Document.Meshes.resize(Meshes.Num());
+		FJsonDocument Projection;
+		if (!CopyProjectionJson(Root, Projection.GetMutableRoot(), {})) return false;
+		auto PRoot = Projection.GetMutableRoot();
+		auto PMeshes = PRoot.AddArray("meshes");
+		auto PNodes = PRoot.AddArray("nodes");
+		auto PScene = PRoot.AddArray("scenes").AppendObject().AddArray("nodes");
+		PRoot.SetChildValue("scene", uint32(0));
+		uint32 ProjectionIndex = 0;
+		for (uint32 MeshIndex = 0; MeshIndex < Meshes.Num(); ++MeshIndex)
+		{
+			if (CheckSceneDecodeCancellation(Result, "mesh-resources")) return false;
+			auto& Resource = Document.Meshes[MeshIndex];
+			Resource.SourceMeshIndex = MeshIndex;
+			Resource.SourceName = Meshes.GetView(MeshIndex).GetView("name").GetString();
+			const auto Primitives = Meshes.GetView(MeshIndex).GetView("primitives");
+			if (!Primitives.IsArray() || Primitives.Num() == 0 || Primitives.Num() > MaxImportedPrimitivesPerMesh)
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+					std::format("mesh:{}", MeshIndex), "Invalid glTF primitive table.");
+			std::vector<uint32> MaterialIndices;
+			if (!AppendGltfMeshProjection(Meshes, MeshIndex, Result, MaterialIndices)) return false;
+			for (uint32 PrimitiveIndex = 0; PrimitiveIndex < Primitives.Num(); ++PrimitiveIndex)
+			{
+				const auto Primitive = Primitives.GetView(PrimitiveIndex);
+				const auto Subject = std::format("mesh:{}:primitive:{}", MeshIndex, PrimitiveIndex);
+				const auto Attributes = Primitive.GetView("attributes");
+				uint64 ExplicitMaterial = 0;
+				if (Primitive.Contains("material") && (!Primitive.GetView("material").GetValue(ExplicitMaterial)
+					|| ExplicitMaterial >= Root.GetView("materials").Num()))
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+						Subject, "Primitive material is outside the source material table.");
+				if (ProjectionIndex >= MaxImportedSourceMeshes)
+					return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
+						Subject, "Total decoded primitive count exceeds the geometry resource limit.");
+
+				if (Primitive.Contains("targets") || Primitive.GetView("mode").GetUInt(4) != 4
+					|| Attributes.Contains("JOINTS_0") || Attributes.Contains("WEIGHTS_0"))
+					return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedFeature,
+						Subject, "Only static triangle primitives are supported.");
+				// Give every source primitive its own decoder mesh and synthetic root.
+				// Correlation uses this explicit token, never decoder traversal order.
+				auto PMesh = PMeshes.AppendObject();
+				PMesh.SetChildValue("name", Subject);
+				if (!CopyProjectionJson(Primitive, PMesh.AddArray("primitives").AppendObject(), {})) return false;
+				auto PNode = PNodes.AppendObject();
+				PNode.SetChildValue("name", Subject);
+				PNode.SetChildValue("mesh", ProjectionIndex);
+				PScene.AppendValue(ProjectionIndex++);
+				Resource.Primitives.push_back({.Name = Subject,
+					.SourceMaterialIndex = MaterialIndices[PrimitiveIndex]});
+			}
+		}
+		Document.Nodes.resize(Nodes.Num());
+		for (uint32 Index = 0; Index < Nodes.Num(); ++Index)
+		{
+			if (CheckSceneDecodeCancellation(Result, "transform-nodes")) return false;
+			const auto SourceNode = Nodes.GetView(Index);
+			auto& Node = Document.Nodes[Index];
+			Node.SourceNodeIndex = Index;
+			Node.SourceName = SourceNode.GetView("name").GetString();
+			FMatrix4f Local(1.0f);
+			const auto Matrix = SourceNode.GetView("matrix");
+			if (!SourceNode.IsObject())
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+					std::format("node:{}", Index), "glTF node must be an object.");
+			if (Matrix.IsValid())
+			{
+				if (!Matrix.IsArray() || Matrix.Num() != 16 || SourceNode.Contains("translation")
+					|| SourceNode.Contains("rotation") || SourceNode.Contains("scale"))
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+						std::format("node:{}", Index), "Invalid or conflicting glTF node matrix.");
+				for (uint32 Element = 0; Element < 16; ++Element)
+				{
+					const auto Value = Matrix.GetView(Element);
+					if (!Value.IsNumber() || !std::isfinite(Value.GetDouble())
+						|| std::abs(Value.GetDouble()) > std::numeric_limits<float>::max())
+						return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+							std::format("node:{}", Index), "Node matrix must contain finite floats.");
+					Local[Element / 4][Element % 4] = static_cast<float>(Value.GetDouble());
+				}
+				if (Local[0][3] != 0 || Local[1][3] != 0 || Local[2][3] != 0 || Local[3][3] != 1)
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+						std::format("node:{}", Index), "Node matrix must be affine.");
+			}
+			else
+			{
+				FVector3f Translation(0), Scale(1);
+				FVector4f Rotation(0, 0, 0, 1);
+				if (!ReadFiniteVector(SourceNode, "translation", Translation)
+					|| !ReadFiniteVector(SourceNode, "scale", Scale)
+					|| !ReadFiniteVector(SourceNode, "rotation", Rotation)
+					|| std::abs(glm::dot(Rotation, Rotation) - 1.0f) > 1.0e-4f)
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+						std::format("node:{}", Index), "Invalid glTF node TRS values.");
+				Local = glm::translate(FMatrix4f(1), Translation)
+					* glm::mat4_cast(FQuatf(Rotation.w, Rotation.x, Rotation.y, Rotation.z))
+					* glm::scale(FMatrix4f(1), Scale);
+			}
+			Node.LocalTransform = C * Local * InverseC;
+			if (SourceNode.Contains("mesh"))
+			{
+				uint64 Mesh = 0;
+				if (!SourceNode.GetView("mesh").GetValue(Mesh) || Mesh >= Document.Meshes.size())
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+						std::format("node:{}", Index), "Invalid glTF mesh reference.");
+				Node.MeshIndices.push_back(static_cast<uint32>(Mesh));
+			}
+			const auto Children = SourceNode.GetView("children");
+			if (Children.IsValid() && !Children.IsArray())
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+					std::format("node:{}", Index), "Node children must be an array.");
+			for (size_t ChildIndex = 0; ChildIndex < Children.Num(); ++ChildIndex)
+			{
+				uint64 Child = 0;
+				if (!Children.GetView(ChildIndex).GetValue(Child) || Child >= Nodes.Num()
+					|| Child == Index || Document.Nodes[Child].ParentNodeIndex != -1)
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+						std::format("node:{}", Index), "Invalid or multiply parented glTF child.");
+				Document.Nodes[Child].ParentNodeIndex = static_cast<int32>(Index);
+			}
+		}
+		// Resolve all forests iteratively, including nodes outside the default scene.
+		std::vector<std::vector<uint32>> Children(Document.Nodes.size());
+		std::vector<uint32> Pending;
+		for (uint32 Index = 0; Index < Document.Nodes.size(); ++Index)
+			if (Document.Nodes[Index].ParentNodeIndex < 0) Pending.push_back(Index);
+			else Children[Document.Nodes[Index].ParentNodeIndex].push_back(Index);
+		size_t Resolved = 0;
+		while (!Pending.empty())
+		{
+			const auto Index = Pending.back(); Pending.pop_back();
+			auto& Node = Document.Nodes[Index];
+			Node.GlobalTransform = Node.ParentNodeIndex < 0 ? Node.LocalTransform
+				: Document.Nodes[Node.ParentNodeIndex].GlobalTransform * Node.LocalTransform;
+			++Resolved;
+			Pending.insert(Pending.end(), Children[Index].begin(), Children[Index].end());
+		}
+		if (Resolved != Document.Nodes.size())
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+				"nodes", "glTF node hierarchy contains a cycle.");
+		for (uint32 Index = 0; Index < Scenes.Num(); ++Index)
+		{
+			const auto SourceScene = Scenes.GetView(Index);
+			const auto Roots = SourceScene.GetView("nodes");
+			if (!SourceScene.IsObject() || (Roots.IsValid() && !Roots.IsArray()))
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
+					"scenes", "Invalid glTF scene roots.");
+			auto& Scene = Document.Scenes.emplace_back();
+			Scene.SourceName = SourceScene.GetView("name").GetString();
+			std::unordered_set<uint32> Seen;
+			for (size_t RootIndex = 0; RootIndex < Roots.Num(); ++RootIndex)
+			{
+				uint64 Node = 0;
+				if (!Roots.GetView(RootIndex).GetValue(Node) || Node >= Nodes.Num()
+					|| Document.Nodes[Node].ParentNodeIndex >= 0 || !Seen.insert(static_cast<uint32>(Node)).second)
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+						"scenes", "Invalid or duplicate glTF scene root.");
+				Scene.RootNodeIndices.push_back(static_cast<uint32>(Node));
+			}
+		}
+		const auto DefaultScene = Root.GetView("scene");
+		uint64 DefaultIndex = 0;
+		if (DefaultScene.IsValid() && (!DefaultScene.GetValue(DefaultIndex) || DefaultIndex >= Scenes.Num()))
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
+				"scene", "Invalid glTF default scene.");
+		Document.DefaultSceneIndex = static_cast<uint32>(DefaultIndex);
+		auto PBuffers = PRoot.GetRef("buffers");
+		for (size_t Index = 0; Index < Source.Buffers.size(); ++Index)
+		{
+			auto Buffer = PBuffers.GetRef(Index);
+			Buffer.SetChildValue("byteLength", static_cast<uint64>(Source.Buffers[Index].size()));
+			Buffer.SetChildValue("uri", std::format("data:application/octet-stream;base64,{}",
+				EncodeBase64(Source.Buffers[Index])));
+		}
+		const auto Json = Projection.ToString();
+		const auto Bytes = std::as_bytes(std::span{Json});
+		OutProjection.assign(Bytes.begin(), Bytes.end());
+		return true;
+	}
+
 	auto ImportGltfMetadata(
 		const std::filesystem::path& RootPath,
 		std::string_view RootSourcePath,
@@ -1020,7 +1224,8 @@ namespace Durin::AssetForge::Builtins::Private
 		bool bGlb,
 		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices,
-		FByteBuffer& OutAssimpProjection) -> bool
+		FByteBuffer& OutAssimpProjection,
+		const FMeshImportOptions& Options, bool bDocumentDecode) -> bool
 	{
 		FGltfSource Source;
 		std::string Error;
@@ -1036,8 +1241,10 @@ namespace Durin::AssetForge::Builtins::Private
 			LoadGltfBuffers(Root, RootPath, RootSourcePath, Source, Result) &&
 			ImportGltfImages(Root, RootPath, RootSourcePath, Source, Result) &&
 			ImportGltfMaterials(Root, Source.ImageIndices, Result) &&
-			BuildGltfAssimpMeshProjection(Root, Result, OutMeshMaterialIndices) &&
-			BuildAssimpProjection(Root, Source.Buffers, OutAssimpProjection)))
+			(bDocumentDecode
+				? BuildGltfDocumentProjection(Root, Source, Options, Result, OutAssimpProjection)
+				: (BuildGltfAssimpMeshProjection(Root, Result, OutMeshMaterialIndices) &&
+					BuildAssimpProjection(Root, Source.Buffers, OutAssimpProjection)))))
 		{
 			return false;
 		}
@@ -1057,6 +1264,6 @@ namespace Durin::AssetForge::Builtins::Private
 			bGlb,
 			Context.Result,
 			OutSourcePrimitiveMaterialIndices,
-			OutAssimpProjection);
+			OutAssimpProjection, Context.Options, Context.bDocumentDecode);
 	}
 }

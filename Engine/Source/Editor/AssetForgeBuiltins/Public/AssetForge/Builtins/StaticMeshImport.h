@@ -22,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 	enum class EStaticMeshRebuildError : uint8
 	{
 		None, Settings, Package, Mount, SourceHint, SourceFile, Capture, Decode,
-		Source, ImportValidation, Submission, Completion, ImportData, MissingSource, Path, ObjectCreation, ObjectType, SourceCount
+		Source, ImportValidation, Submission, Completion, ImportData, MissingSource, Path, ObjectCreation, ObjectType, SourceCount, UnsupportedReimport
 	};
 	struct FStaticMeshRebuildError
 	{

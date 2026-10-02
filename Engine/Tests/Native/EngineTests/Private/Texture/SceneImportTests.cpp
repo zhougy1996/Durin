@@ -14,6 +14,11 @@
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/SceneImportData.h"
+#include "AssetForge/Builtins/StaticMeshFactory.h"
+#include "AssetForge/Builtins/Texture2DFactory.h"
+#include "AssetForge/Builtins/Texture2DImport.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
@@ -151,18 +156,209 @@ namespace
 	}
 }
 
-TEST(FSceneImportTests, AsyncSessionPublishesAndReimports)
+TEST(FSceneImportTests, GltfImportExtensionDoesNotRequireLevelEditorWorkspace)
+{
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	const auto Extensions = Durin::Editor::ContentBrowser::CaptureExtensions(Durin::Editor::ContentBrowser::EExtensionCategory::Import);
+	const auto Extension = std::ranges::find(Extensions, std::string("gltf.import-assets"),
+		&Durin::Editor::ContentBrowser::FExtensionDescriptor::Id);
+	ASSERT_NE(Extension, Extensions.end());
+	EXPECT_TRUE(Extension->Invoke);
+	EXPECT_TRUE(Extension->DrawHostPresentation);
+	EXPECT_EQ(Extension->Mutation, Durin::Editor::ContentBrowser::EContentMutation::MutatesContent);
+}
+
+TEST(FSceneImportTests, OutputSelectionReplansCapturedDocumentWithoutReopeningSource)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("Replan", "StaticModelMaterials/PrimitiveProjection.gltf");
+	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
+		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
+	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	ASSERT_EQ(Session.GetSourceMeshes().size(), 2u);
+	ASSERT_EQ(Session.GetSourceScenes().size(), 1u);
+	const auto OriginalPath = std::filesystem::path(Fixture.Source);
+	const auto BackupPath = OriginalPath.string() + ".backup";
+	std::filesystem::rename(OriginalPath, BackupPath);
+	ASSERT_TRUE(Session.SetOptions({.SelectedMeshes = {1}, .bCreateMaterials = false}));
+	EXPECT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	const auto Preview = Session.PreviewOutputs(Fixture.DestinationDirectory);
+	std::filesystem::rename(BackupPath, OriginalPath);
+	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
+	ASSERT_EQ(Preview.Outputs.size(), 1u);
+	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	ASSERT_TRUE(Session.GetResult()) << Session.GetResult().Message;
+	EXPECT_EQ(Session.GetResult().Outputs[0].AssetPath, Preview.Outputs[0].AssetPath);
+}
+
+TEST(FSceneImportTests, SplitOutputsReuseInstancesAndBindOnlyTheirOwnMaterials)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("Split", "StaticModelMaterials/ResourceInstances.gltf");
+	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
+		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
+	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Result.Outputs.size(), 3u); // One shared source mesh and its two materials.
+	EXPECT_EQ(Result.SavedPackages.size(), 3u);
+	const auto MeshRow = std::ranges::find(Result.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
+	ASSERT_NE(MeshRow, Result.Outputs.end());
+	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath)).value_or(nullptr);
+	ASSERT_NE(Mesh, nullptr);
+	ASSERT_EQ(Mesh->GetNumMaterialSlots(), 2u);
+	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceMaterialIndex, 0u);
+	EXPECT_EQ(Mesh->GetMaterialSlots()[1].SourceMaterialIndex, 2u);
+	for (const auto& Slot : Mesh->GetMaterialSlots()) EXPECT_NE(Slot.DefaultMaterial.Get(), nullptr);
+	EXPECT_TRUE(std::ranges::all_of(Result.Outputs, [](const auto& Row) { return Row.State == EImportOutputState::Saved; }));
+	const auto All = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/AllResources"),
+		FStaticMeshImportSettings::MakeYUpNegativeZForward(), {.bIncludeUnusedResources = true});
+	ASSERT_TRUE(All) << All.Message;
+	EXPECT_EQ(std::ranges::count(All.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role), 2);
+	EXPECT_EQ(All.Outputs.size(), 6u);
+	EXPECT_EQ(Mesh->GetSource().GetMeshCount(), 2u);
+	const auto Combined = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/CombinedInstances"),
+		FStaticMeshImportSettings::MakeDurin(), {.MeshMode = EAssetImportMeshMode::Combined});
+	ASSERT_TRUE(Combined) << Combined.Message;
+	const auto CombinedRow = std::ranges::find(Combined.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
+	ASSERT_NE(CombinedRow, Combined.Outputs.end());
+	auto* CombinedMesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(CombinedRow->AssetPath)).value_or(nullptr);
+	ASSERT_NE(CombinedMesh, nullptr);
+	EXPECT_EQ(CombinedMesh->GetSource().GetMeshCount(), 4u);
+
+}
+
+TEST(FSceneImportTests, ExplicitSelectionAndGeometryOnlyHaveClosedDependencies)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("Selection", "StaticModelMaterials/PrimitiveProjection.gltf");
+	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
+		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
+	const auto Selected = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {.SelectedMeshes = {1}});
+	ASSERT_TRUE(Selected) << Selected.Message;
+	EXPECT_EQ(Selected.Outputs.size(), 2u);
+	const auto Geometry = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/GeometryOnly"),
+		FStaticMeshImportSettings::MakeDurin(), {.bCreateMaterials = false, .bCreateTextures = false});
+	ASSERT_TRUE(Geometry) << Geometry.Message;
+	EXPECT_EQ(Geometry.Outputs.size(), 2u);
+	for (const auto& Row : Geometry.Outputs)
+	{
+		auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Row.AssetPath)).value_or(nullptr);
+		ASSERT_NE(Mesh, nullptr);
+		for (const auto& Slot : Mesh->GetMaterialSlots()) EXPECT_EQ(Slot.DefaultMaterial.Get(), nullptr);
+	}
+}
+
+TEST(FSceneImportTests, SharedImageUsageAndDisabledTexturesProduceExplicitProducts)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("SharedUsage", "StaticModelMaterials/SharedImageUsage.gltf");
+	for (const auto File : {"Triangle.bin", "Red.png"})
+		std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials" / File,
+			std::filesystem::path(Fixture.Source).parent_path() / File);
+	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(std::ranges::count_if(Result.Outputs, [](const auto& Output) { return Output.Role.starts_with("Texture2D."); }), 2);
+	const auto Fallback = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/WithoutTextures"),
+		FStaticMeshImportSettings::MakeDurin(), {.bCreateTextures = false});
+	ASSERT_TRUE(Fallback) << Fallback.Message;
+	EXPECT_TRUE(std::ranges::none_of(Fallback.Outputs, [](const auto& Output) { return Output.Role.starts_with("Texture2D."); }));
+	EXPECT_TRUE(std::ranges::any_of(Fallback.Diagnostics, [](const auto& Diagnostic) { return Diagnostic.Severity == EImportDiagnosticSeverity::Warning; }));
+}
+
+TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMappedAsset)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("MaterialMapping");
+	const auto Original = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {.bCreateMeshes = false});
+	ASSERT_TRUE(Original) << Original.Message;
+	const auto Row = std::ranges::find(Original.Outputs, std::string("Material"), &FImportOutputSummary::Role);
+	ASSERT_NE(Row, Original.Outputs.end());
+	auto* Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Row->AssetPath)).value_or(nullptr);
+	ASSERT_NE(Material, nullptr);
+	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const auto Result = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/MappedMesh"),
+		FStaticMeshImportSettings::MakeDurin(), {}, {.Default = {.Mode = ESceneMaterialImportMode::UseExisting,
+			.ExistingMaterialPath = Material->GetObjectPath()}});
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Result.SavedPackages.size(), 1u);
+	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Preserved, &FImportOutputSummary::State), 1);
+	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
+	const auto MeshRow = std::ranges::find(Result.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
+	ASSERT_NE(MeshRow, Result.Outputs.end());
+	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath)).value_or(nullptr);
+	ASSERT_NE(Mesh, nullptr);
+	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Material);
+}
+
+TEST(FSceneImportTests, PreviewAndExecutionRejectDestinationChanges)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("PreviewRace");
+	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeYUpNegativeZForward(), {});
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready));
+	const auto Preview = Session.PreviewOutputs(Fixture.DestinationDirectory);
+	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
+	ASSERT_FALSE(Preview.Outputs.empty());
+	// Another completed import occupies the previewed outputs before this session executes.
+	const auto Other = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	ASSERT_TRUE(Other) << Other.Message;
+	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+	ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Completed));
+	EXPECT_FALSE(Session.GetResult());
+	EXPECT_TRUE(Session.GetResult().SavedPackages.empty());
+	EXPECT_TRUE(std::ranges::any_of(Session.GetResult().Diagnostics, [](const auto& Diagnostic) {
+		return Diagnostic.Category == EImportDiagnosticCategory::Collision;
+	}));
+}
+
+TEST(FSceneImportTests, SplitPublicationReportsSavedFailedAndUnexecutedOutputs)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("SplitPartial", "StaticModelMaterials/PrimitiveProjection.gltf");
+	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
+		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
+	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), {}, {}, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t Index) {
+			return Phase == EAssetBundleSavePhase::StagePackage && Index == 1;
+		}});
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.SavedPackages.size(), 1u);
+	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Saved, &FImportOutputSummary::State), 1);
+	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Failed, &FImportOutputSummary::State), 1);
+	EXPECT_EQ(std::ranges::count(Result.Outputs, EImportOutputState::Unexecuted, &FImportOutputSummary::State), 3);
+}
+
+TEST(FSceneImportTests, AsyncSessionPublishesIndependentImports)
 {
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("AsyncSession");
 	for (int Pass = 0; Pass != 2; ++Pass)
 	{
-		FSceneImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+		const auto Destination = MakeAssetPath(Fixture.DestinationDirectory.ToString() + std::format("/Pass{}", Pass));
+		FSceneImportSession Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin());
 		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Ready)) << Session.GetResult().Message;
-		ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
-		ASSERT_TRUE(Session.PreviewMaterials(Fixture.DestinationDirectory, {}).bSucceeded);
-		ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
+		ASSERT_TRUE(Session.PreviewMaterials(Destination, {}).bSucceeded);
+		ASSERT_TRUE(Session.PreviewMaterials(Destination, {}).bSucceeded);
+		ASSERT_TRUE(Session.BeginImport(Destination, {}));
 		ASSERT_TRUE(AdvanceSceneSession(Session, ESceneImportPhase::Saving)) << Session.GetResult().Message;
 		// Normal editor frames may create unrelated objects while disk staging runs.
 		TStrongObjectPtr<DStaticMeshComponent> Unrelated(NewObject<DStaticMeshComponent>(nullptr,
@@ -317,138 +513,145 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*ReimportMesh.Asset, {}, [&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReimportMesh.Asset);
-	ASSERT_TRUE(Reimported) << Reimported.Message;
+	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::Unsupported);
 	EXPECT_TRUE(std::ranges::equal(ReimportMesh.Asset->GetMaterialSlots(), Slots));
 
 }
 
-TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
+TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimportRoute)
 {
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
-	const auto Fixture = InitializeFixture("StructuralReimport");
-	const auto Initial = RunScene(Fixture);
+	const auto Fixture = InitializeFixture("OneTimeReload");
+	const auto Initial = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
 	ASSERT_TRUE(Initial) << Initial.Message;
 	for (const std::string_view Class : {"Durin::DStaticMesh", "Durin::DMaterial", "Durin::DTexture2D"})
 		for (const auto& Output : Initial.Outputs)
 			if (Output.AssetClassName == Class) ASSERT_TRUE(UnloadPackage(Output.AssetPath));
 	CollectGarbage();
-	DMaterial* Previous = nullptr;
-	DStaticMesh* PreviousMesh = nullptr;
-	FPackagePath MaterialPath;
-	std::vector<std::pair<FPackagePath, std::string>> SavedBytes;
-	const auto Read = [](const std::filesystem::path& Path) {
-		std::ifstream Input(Path, std::ios::binary);
-		return std::string(std::istreambuf_iterator<char>(Input), {});
-	};
+	ASSERT_TRUE(std::filesystem::remove(Fixture.Source));
+	auto* MeshFactory = Cast<DStaticMeshFactory>(DStaticMeshFactory::StaticClass()->GetDefaultObject());
+	auto* TextureFactory = Cast<DTexture2DFactory>(DTexture2DFactory::StaticClass()->GetDefaultObject());
 	for (const auto& Output : Initial.Outputs)
 	{
-		DObject* Object = nullptr;
-		const auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
-		Object = Loaded.value_or(nullptr);
-		ASSERT_TRUE(Loaded) << Output.AssetPath.ToString() << ": " << (Loaded ? std::string{} : Loaded.error().Message);
-		if (auto* Material = Cast<DMaterial>(Object)) { Previous = Material; MaterialPath = Output.AssetPath; }
-		if (auto* Mesh = Cast<DStaticMesh>(Object)) PreviousMesh = Mesh;
-		SavedBytes.push_back({Output.AssetPath, Read(FindAssetExact(Output.AssetPath)->PhysicalPath)});
+		auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+		ASSERT_TRUE(Loaded) << Loaded.error().Message;
+		auto* Object = *Loaded;
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(*Object));
+		const auto Capabilities = FReimportManager::GetCapabilities(*Object);
+		EXPECT_FALSE(Capabilities.bCanReimport);
+		EXPECT_FALSE(Capabilities.bCanReimportFromFile);
+		FReimportResult Reimported;
+		FReimportManager::Reimport(*Object, {}, [&](auto Result) { Reimported = std::move(Result); });
+		EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+		const std::array Files{Fixture.Source};
+		FReimportManager::ReimportFromFiles(*Object, Files, {}, [&](auto Result) { Reimported = std::move(Result); });
+		EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+		if (auto* Mesh = Cast<DStaticMesh>(Object))
+		{
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+			EXPECT_NE(Mesh->GetRenderData(), nullptr);
+			EXPECT_FALSE(MeshFactory->GetReimportCapabilities(*Mesh).bCanReimportFromFile);
+			MeshFactory->ReimportFromFiles(*Mesh, Files, [&](auto Result) { Reimported = std::move(Result); });
+			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+			EXPECT_EQ(ReimportStaticMesh(*Mesh).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+			EXPECT_EQ(ReimportStaticMeshFromFile(*Mesh, "Triangle.obj").error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+		}
+		if (auto* Texture = Cast<DTexture2D>(Object))
+		{
+			EXPECT_TRUE(Texture->GetSource().IsValid());
+			EXPECT_FALSE(TextureFactory->GetReimportCapabilities(*Texture).bCanReimportFromFile);
+			TextureFactory->Reimport(*Texture, [&](auto Result) { Reimported = std::move(Result); });
+			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+			TextureFactory->ReimportFromFiles(*Texture, Files, [&](auto Result) { Reimported = std::move(Result); });
+			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+			EXPECT_EQ(ReimportTexture2D(*Texture).error().Code, ETexture2DSubmissionError::UnsupportedReimport);
+			EXPECT_EQ(ReimportTexture2DFromFile(*Texture, "Red.png").error().Code, ETexture2DSubmissionError::UnsupportedReimport);
+		}
+		if (auto* Material = Cast<DMaterial>(Object))
+		{
+			const auto Revision = Material->GetPackage()->GetEditRevision();
+			auto Properties = Material->GetStaticProperties();
+			Properties.bTwoSided = !Properties.bTwoSided;
+			ASSERT_TRUE(Material->SetStaticProperties(Properties));
+			EXPECT_GT(Material->GetPackage()->GetEditRevision(), Revision);
+		}
 	}
-	ASSERT_NE(Previous, nullptr);
-	ASSERT_NE(PreviousMesh, nullptr);
-	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
-	const auto Color = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
-	ASSERT_TRUE(Previous->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({0.2, 0.3, 0.4, 0})));
-	auto Properties = Previous->GetStaticProperties();
-	Properties.ShadingModel = EMaterialShadingModel::Unlit;
-	ASSERT_TRUE(Previous->SetStaticProperties(Properties));
-	auto* Consumer = NewObject<DStaticMeshComponent>(nullptr, "ReimportConsumer");
-	Consumer->SetStaticMesh(PreviousMesh);
-	auto* Dependent = NewObject<DMaterialInstance>(nullptr, "ReimportDependent");
-	ASSERT_TRUE(Dependent->SetParent(Previous));
-	auto* Independent = NewObject<DMaterialInstance>(nullptr, "IndependentMaterial");
-	ASSERT_TRUE(Independent->SetParent(Previous));
-	ASSERT_TRUE(Independent->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({0.1, 0.2, 0.3, 0})));
-	const auto PreviousKey = Previous->GetImportProvenance().StructuralKey;
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	const std::string OriginalSource = Read(Fixture.Source);
-	std::string ChangedSource = OriginalSource;
-	const std::string Factor = "\"baseColorFactor\": [0.5, 0.75, 0.25, 1.0]";
-	const auto Position = ChangedSource.find(Factor);
-	ASSERT_NE(Position, std::string::npos);
-	ChangedSource.replace(Position, Factor.size(), "\"baseColorFactor\": [1,1,1,1]");
-	const auto MaterialPosition = ChangedSource.find("\"pbrMetallicRoughness\"");
-	ASSERT_NE(MaterialPosition, std::string::npos);
-	ChangedSource.insert(MaterialPosition, "\"normalTexture\": {\"index\":0}, \"doubleSided\":true, ");
-	std::ofstream(Fixture.Source, std::ios::trunc) << ChangedSource;
-	for (const auto Failure : {EAssetBundleSavePhase::StagePackage,
-		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
+}
+
+TEST(FSceneImportTests, FbxSceneImportRejectsImplicitUpdates)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("OneTimeFbx", "StaticModelMaterials/PhongMaterial.fbx");
+	const auto Imported = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	ASSERT_TRUE(Imported) << Imported.Message;
+	EXPECT_FALSE(Imported.SavedPackages.empty());
+	const auto Repeated = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Repeated);
+	EXPECT_TRUE(Repeated.SavedPackages.empty());
+	for (const auto& Output : Imported.Outputs)
 	{
-		bool bReached = false;
-		auto Failed = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-			FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
-				EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
-				EXPECT_EQ(Dependent->GetParent(), Previous);
-				if (Phase != Failure) return false;
-				bReached = true;
-				return true;
-			}}, {.bRebuildExistingMaterials = true});
-		EXPECT_FALSE(Failed) << Failed.Message;
-		ASSERT_TRUE(bReached) << Failed.Message;
-		EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
-		EXPECT_EQ(Dependent->GetParent(), Previous);
-		for (const auto& [Path, Bytes] : SavedBytes) EXPECT_EQ(Read(FindAssetExact(Path)->PhysicalPath), Bytes);
+		auto Loaded = LoadObject<DObject>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+		ASSERT_TRUE(Loaded);
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(**Loaded));
+		EXPECT_FALSE(FReimportManager::GetCapabilities(**Loaded).bCanReimport);
 	}
-	auto Partial = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin(), {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
-			return Phase == EAssetBundleSavePhase::PublishRootPackage;
-		}}, {.bRebuildExistingMaterials = true});
-	ASSERT_FALSE(Partial);
-	ASSERT_FALSE(Partial.SavedPackages.empty());
-	EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
-	EXPECT_NE(Dependent->GetParent(), Previous);
-	EXPECT_EQ(Consumer->GetMaterial(), Dependent->GetParent());
-	EXPECT_TRUE(Dependent->GetMaterialCompileStatus().IsCurrent());
-	const auto Changed = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {}, {}, {.bRebuildExistingMaterials = true});
-	ASSERT_TRUE(Changed) << Changed.Message;
-	DMaterial* Material = nullptr;
+}
+
+TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimport)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	for (const bool bFbx : {false, true})
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Material = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		const auto Fixture = InitializeFixture(bFbx ? "LegacyFbx" : "LegacyGltf", bFbx
+				? "StaticModelMaterials/PhongMaterial.fbx" : "StaticModelMaterials/RenderedOpaqueDataUri.gltf");
+		const auto Imported = ImportStaticMeshForTest(Fixture.Source, bFbx ? "/SceneImportTests/LegacyFbxGeometry" : "/SceneImportTests/LegacyGltfGeometry");
+		ASSERT_TRUE(Imported) << Imported.Message;
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(*Imported.Asset));
+		auto* Factory = Cast<DStaticMeshFactory>(DStaticMeshFactory::StaticClass()->GetDefaultObject());
+		EXPECT_FALSE(Factory->GetReimportCapabilities(*Imported.Asset).bCanReimport);
+		const std::array Files{std::string("Triangle.obj")};
+		FReimportResult Result;
+		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
+		EXPECT_EQ(Result.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(ReimportStaticMesh(*Imported.Asset).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+		EXPECT_TRUE(Imported.Asset->GetAssetImportData()->Validate());
+		const auto Path = Imported.Asset->GetPackage()->GetPackagePathIdentity();
+		ASSERT_TRUE(UnloadPackage(Path));
+		CollectGarbage();
+		ASSERT_TRUE(std::filesystem::remove(Fixture.Source));
+		auto Reloaded = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		ASSERT_TRUE(Reloaded);
+		FAssetCompilingManager::Get().FinishCompilationForObject(**Reloaded);
+		EXPECT_NE((*Reloaded)->GetRenderData(), nullptr);
+		EXPECT_TRUE(IsOneTimeModelImportedAsset(**Reloaded));
+
 	}
-	ASSERT_NE(Material, Previous);
-	EXPECT_EQ(Dependent->GetParent(), Material);
-	EXPECT_TRUE(Dependent->GetMaterialCompileStatus().IsCurrent());
-	ASSERT_TRUE(Dependent->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Dependent->GetAcceptedCompiledProgram()->ActiveParameters.size(), Material->GetAcceptedCompiledProgram()->ActiveParameters.size());
-	EXPECT_NE(Consumer->GetStaticMesh(), PreviousMesh);
-	EXPECT_EQ(Consumer->GetMaterial(), Material);
-	EXPECT_EQ(Material->FindParameterDefinition(Color), nullptr);
-	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
-	EXPECT_TRUE(Material->GetStaticProperties().bTwoSided);
-	EXPECT_NE(Material->GetImportProvenance().StructuralKey, PreviousKey);
-	std::ofstream(Fixture.Source, std::ios::trunc) << OriginalSource;
-	const auto Restored = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {}, {}, {.bRebuildExistingMaterials = true});
-	ASSERT_TRUE(Restored) << Restored.Message;
+}
+
+TEST(FSceneImportTests, StandaloneMeshReplacementCannotIntroduceGltfOrFbxSources)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("ReplacementFormats");
+	const auto Imported = ImportStaticMeshForTest((std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj").generic_string(), "/SceneImportTests/ObjReplacement");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	auto* Factory = Cast<DStaticMeshFactory>(DStaticMeshFactory::StaticClass()->GetDefaultObject());
+	EXPECT_TRUE(Factory->GetReimportCapabilities(*Imported.Asset).bCanReimport);
+	for (const auto* Source : {"replacement.GLTF", "replacement.GLB", "replacement.FBX"})
 	{
-		auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
-		Material = LoadedValue.value_or(nullptr);
-		ASSERT_TRUE(LoadedValue);
+		const std::array Files{std::string(Source)};
+		FReimportResult Result;
+		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
+		EXPECT_EQ(Result.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(ReimportStaticMeshFromFile(*Imported.Asset, Source).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
 	}
-	FResolvedMaterialParameter Value;
-	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0.5, 0.75, 0.25));
-	EXPECT_FALSE(Material->GetStaticProperties().bTwoSided);
-	ASSERT_TRUE(Independent->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0.1f, 0.2f, 0.3f));
-	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
-	const auto OtherSource = std::filesystem::path(Fixture.Source).parent_path() / "OtherSource" /
-		std::filesystem::path(Fixture.Source).filename();
-	std::filesystem::create_directories(OtherSource.parent_path());
-	std::ofstream(OtherSource) << OriginalSource;
-	auto Collision = ImportSceneAssets(OtherSource.generic_string(), Fixture.DestinationDirectory,
-		FStaticMeshImportSettings::MakeDurin());
-	EXPECT_FALSE(Collision);
-	EXPECT_FALSE(Collision.bPersisted);
-	EXPECT_EQ(Consumer->GetMaterial(), Material);
+	const auto Dialogs = Factory->GetSourceFileDialogs(*Imported.Asset);
+	ASSERT_EQ(Dialogs.size(), 1u);
+	EXPECT_EQ(Dialogs.front().Pattern.find("*.fbx"), std::string::npos);
+	EXPECT_EQ(Dialogs.front().Pattern.find("*.gltf"), std::string::npos);
 }
 
 TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
@@ -523,11 +726,15 @@ TEST(FSceneImportTests, FailedPublicationDiscardsLocalMaterialAndRetrySucceeds)
 			EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
 		}
 	EXPECT_TRUE(bFoundUnsaved);
-	const auto Retried = RunScene(Fixture);
+	const auto Rejected = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Rejected);
+	EXPECT_TRUE(Rejected.SavedPackages.empty());
+	const auto Retried = ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/PublicationRetry"), FStaticMeshImportSettings::MakeDurin());
 	ASSERT_TRUE(Retried) << Retried.Message;
 	EXPECT_TRUE(Retried.bPersisted);
-	EXPECT_TRUE(FindAssetExact(ParentPath));
-	auto* Parent = Cast<DMaterial>(FindResidentPackage(ParentPath)->FindTopLevelAsset(FName(ParentPath.GetPackageName())));
+	const auto NewMaterial = std::ranges::find(Retried.Outputs, "Material", &Durin::AssetForge::FImportOutputSummary::Role);
+	ASSERT_NE(NewMaterial, Retried.Outputs.end());
+	auto* Parent = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(NewMaterial->AssetPath)).value_or(nullptr);
 	ASSERT_NE(Parent, nullptr);
 	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), 2u);
 	EXPECT_NE(Parent->GetOutputNode(), nullptr);
@@ -696,7 +903,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	ASSERT_TRUE(ApplyOutputs(Original));
 }
 
-TEST(FSceneImportTests, ReimportPreservesEditedMaterialBindingsAndRebindsTextureCache)
+TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdits)
 {
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
@@ -732,29 +939,18 @@ TEST(FSceneImportTests, ReimportPreservesEditedMaterialBindingsAndRebindsTexture
 	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), PreviousTexture));
 	const auto MaterialPath = Material->GetPackage()->GetPackagePathIdentity();
 	const auto MeshPath = Mesh->GetPackage()->GetPackagePathIdentity();
-	const auto Preview = PreviewSceneMaterials(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
-	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
-	ASSERT_EQ(Preview.Materials.size(), 1u);
-	EXPECT_TRUE(Preview.Materials.front().bPreserved);
-	const auto Reimport = RunScene(Fixture);
-	ASSERT_TRUE(Reimport) << Reimport.Message;
-	EXPECT_EQ(std::ranges::find(Reimport.SavedPackages, MaterialPath), Reimport.SavedPackages.end());
+	const auto Revision = Material->GetPackage()->GetEditRevision();
+	const auto Reimport = ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Reimport);
+	EXPECT_TRUE(Reimport.SavedPackages.empty());
+	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_EQ(LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)).value_or(nullptr), Material);
-	FResolvedMaterialParameter Value;
-	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(.2, .3, .4));
+	EXPECT_EQ(LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr), Mesh);
+	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Custom);
+	DTexture2D* CurrentTexture = nullptr;
+	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), CurrentTexture));
+	EXPECT_EQ(CurrentTexture, PreviousTexture);
 	EXPECT_TRUE(Material->GetStaticProperties().bTwoSided);
-	auto* UpdatedMesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr);
-	ASSERT_NE(UpdatedMesh, nullptr);
-	EXPECT_EQ(UpdatedMesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Custom);
-	DTexture2D* UpdatedTexture = nullptr;
-	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), UpdatedTexture));
-	ASSERT_NE(UpdatedTexture, nullptr);
-	EXPECT_NE(UpdatedTexture, PreviousTexture);
-	const auto* TextureNode = std::ranges::find_if(Material->GetExpressionCollection().Expressions, [](const auto& Node) {
-		return Cast<DMaterialExpressionTextureParameter>(Node.Get()) != nullptr;
-	})->Get();
-	EXPECT_EQ(Cast<DMaterialExpressionTextureParameter>(TextureNode)->DefaultValue.Texture.Get(), UpdatedTexture);
 }
 
 TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExplicit)
@@ -787,32 +983,15 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 	ASSERT_TRUE(Imported) << Imported.Message;
 	EXPECT_EQ(std::ranges::count(Imported.Outputs, "Material", &Durin::AssetForge::FImportOutputSummary::Role), 1);
 	EXPECT_EQ(std::ranges::count(Imported.Outputs, "MaterialInstance", &Durin::AssetForge::FImportOutputSummary::Role), 1);
-	// Stored class and parent are authoritative on ordinary reimport, even with default options.
-	const auto Preserved = PreviewSceneMaterials(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin());
-	ASSERT_TRUE(Preserved.bSucceeded) << Preserved.Message;
-	EXPECT_TRUE(Preserved.Materials[1].bPreserved);
-	EXPECT_EQ(Preserved.Materials[1].Selection.ParentMaterialPath, Parent->GetObjectPath());
-	EXPECT_EQ(Preserved.Materials[1].Selection.Mode, ESceneMaterialImportMode::CreateInstances);
-	const auto Reimported = ImportSceneAssets(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin());
-	ASSERT_TRUE(Reimported) << Reimported.Message;
-	// A parent replaced by this same operation would leave the new instance pinned to an old generation.
-	FSceneMaterialImportOptions SelfParent = Options;
-	SelfParent.bRebuildExistingMaterials = true;
-	SelfParent.Default.ParentMaterialPath = Testing::MakePackageLeafAssetObjectPathForTests(Preview.Materials[0].AssetPath).ToString();
-	const auto SelfRejected = ImportSceneAssets(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), {}, {}, SelfParent);
-	EXPECT_FALSE(SelfRejected);
-	EXPECT_TRUE(SelfRejected.SavedPackages.empty());
-	EXPECT_NE(SelfRejected.Message.find("parent is an output"), std::string::npos);
-	const auto Conversion = ImportSceneAssets(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), {}, {}, {.bRebuildExistingMaterials = true});
-	EXPECT_FALSE(Conversion);
-	EXPECT_TRUE(Conversion.SavedPackages.empty());
-	EXPECT_NE(Conversion.Message.find("asset type"), std::string::npos);
+	const auto Repeated = ImportSceneAssets(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Repeated);
+	EXPECT_TRUE(Repeated.SavedPackages.empty());
 	Options.Overrides.push_back(Options.Overrides.front());
 	const auto Duplicate = PreviewSceneMaterials(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), Options);
 	EXPECT_FALSE(Duplicate.bSucceeded);
 }
 
-TEST(FSceneImportTests, DuplicateSourceNamesPreserveDistinctSlotBindings)
+TEST(FSceneImportTests, DuplicateSourceNamesDoNotPermitImplicitGltfUpdates)
 {
 	using namespace Durin;
 	const auto Fixture = InitializeFixture("DuplicateSlotNames", "MultiSection.gltf");
@@ -839,8 +1018,9 @@ TEST(FSceneImportTests, DuplicateSourceNamesPreserveDistinctSlotBindings)
 	ASSERT_NE(FirstMaterial, SecondMaterial);
 	Mesh->SetMaterialSlotDefaultMaterial(0, SecondMaterial);
 	Mesh->SetMaterialSlotDefaultMaterial(1, FirstMaterial);
-	const auto Reimport = RunScene(Fixture);
-	ASSERT_TRUE(Reimport) << Reimport.Message;
+	const auto Reimport = Durin::AssetForge::Builtins::ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin());
+	EXPECT_FALSE(Reimport);
+	EXPECT_TRUE(Reimport.SavedPackages.empty());
 	Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)).value_or(nullptr);
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), SecondMaterial);

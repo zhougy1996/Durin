@@ -13,10 +13,6 @@
 #include "Asset/AssetImportData.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
-#include "Components/SkyLightComponent.h"
-#include "Components/StaticMeshComponent.h"
-#include "Components/VolumetricCloudComponent.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/ObjectLifecycle.h"
@@ -25,8 +21,8 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
-#include "RenderingThread.h"
 #include "SceneImportInternal.h"
+#include "Import/AssetDestinationValidation.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshImportAdapter.h"
@@ -70,33 +66,15 @@ struct FPreparedSceneOutput
 	FSceneTextureBuildProduct Texture;
 	DObject *Candidate = nullptr;
 	DPackage *Package = nullptr;
-	DObject *Previous = nullptr;
 	TStrongObjectPtr<DObject> CandidatePin;
-	TStrongObjectPtr<DObject> PreviousPin;
-	uint64 PreviousRevision = 0;
 };
-
-auto GetSceneOutputIdentity(DObject *Object, std::string_view Source) -> std::string
-{
-	if (const auto *Material = Cast<DMaterialInterface>(Object))
-	{
-		const auto &Receipt = Material->GetImportProvenance();
-		if (Receipt.RecipeId == "Durin.ImportedSurface" && Receipt.RecipeVersion == 1 &&
-		    Receipt.SourceIdentity == Source)
-			return Receipt.OutputIdentity;
-	}
-	const DAssetImportData *Data = nullptr;
-	if (const auto *Texture = Cast<DTexture2D>(Object))
-		Data = Texture->GetAssetImportData();
-	if (const auto *Mesh = Cast<DStaticMesh>(Object))
-		Data = Mesh->GetAssetImportData();
-	const auto *Receipt = Cast<DSceneImportData>(Data);
-	return Receipt && Receipt->SourceIdentity == Source ? Receipt->OutputIdentity : std::string{};
-}
 
 auto AddError(FSceneImportResult &Result, EImportDiagnosticCategory Category, std::string Phase,
               std::string Message, std::string OutputIdentity = {}) -> FSceneImportResult
 {
+	if (!OutputIdentity.empty())
+		if (auto Output = std::ranges::find(Result.Outputs, OutputIdentity, &FImportOutputSummary::StableIdentity);
+			Output != Result.Outputs.end()) Output->State = EImportOutputState::Failed;
 	Result.Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 	                              .Category = Category,
 	                              .Phase = std::move(Phase),
@@ -111,7 +89,7 @@ auto IsCanceled(const std::function<bool()> &Predicate) -> bool
 	return Predicate && Predicate();
 }
 
-auto MakeStableOutputOrder(const FSceneImportPlan &Data, std::vector<size_t> &OutOrder, std::string &OutError)
+auto MakeStableOutputOrder(const FAssetImportPlan &Data, std::vector<size_t> &OutOrder, std::string &OutError)
     -> bool
 {
 	std::unordered_map<std::string, size_t> Indices;
@@ -123,19 +101,10 @@ auto MakeStableOutputOrder(const FSceneImportPlan &Data, std::vector<size_t> &Ou
 		}
 	std::vector<std::vector<size_t>> Dependents(Data.Outputs.size());
 	std::vector<size_t> RemainingDependencies(Data.Outputs.size(), 0);
-	std::vector<std::string> MaterialIdentities;
-	for (const FSceneOutputData &Output : Data.Outputs)
-		if (IsSceneMaterial(Output.Kind))
-			MaterialIdentities.push_back(Output.StableIdentity);
 	for (size_t Index = 0; Index < Data.Outputs.size(); ++Index)
 	{
 		const FSceneOutputData &Output = Data.Outputs[Index];
-		std::vector<std::string> Dependencies;
-		if (IsSceneMaterial(Output.Kind))
-			for (const FSceneMaterialTextureBinding &Binding : Output.TextureBindings)
-				Dependencies.push_back(Binding.TextureIdentity);
-		if (Output.Kind == ESceneOutputKind::StaticMesh)
-			Dependencies.insert(Dependencies.end(), MaterialIdentities.begin(), MaterialIdentities.end());
+		std::vector<std::string> Dependencies = Output.Dependencies;
 		std::ranges::sort(Dependencies);
 		Dependencies.erase(std::unique(Dependencies.begin(), Dependencies.end()), Dependencies.end());
 		for (const std::string &Identity : Dependencies)
@@ -356,23 +325,30 @@ auto MaterialWorkPending(std::span<DObject *const> Objects) -> bool
 }
 } // namespace
 
-struct FSceneImportSession::FImpl
+struct FAssetImportSession::FImpl
 {
 	std::string SourceFile;
 	std::string RootFilename;
 	FPackagePath DestinationDirectory;
 	FStaticMeshImportSettings Settings;
 	FSceneMaterialImportOptions MaterialOptions;
+	FAssetImportOptions ImportOptions;
 	FSceneImportPublicationOptions PublicationOptions;
 	bool bAsync = true;
 	bool bImportRequested = false;
+	bool bReplanRequested = false;
 	std::atomic<bool> Canceled = false;
 	std::function<bool()> IsCancellationRequested;
 	FSceneImportProgress Progress;
 	FSceneImportResult Result;
 	std::shared_ptr<const FSourceSnapshot> Snapshot;
-	FSceneImportPlan Data;
+	FAssetImportPlan Data;
 	std::vector<FImportOutputSummary> BaseOutputs;
+	std::vector<FSceneOutputData> PreviewDescriptors;
+	std::vector<FImportOutputSummary> PreviewSummaries;
+	FSceneMaterialImportOptions PreviewOptions;
+	FPackagePath PreviewDestination;
+	bool bPlanResolved = false;
 	std::vector<FPreparedSceneOutput> Prepared;
 	std::function<bool()> ReadyToResume;
 	Tasks::FTask Worker;
@@ -459,13 +435,82 @@ struct FSceneImportSession::FImpl
 		DestinationDirectory = Destination;
 		return true;
 	}
+	auto ValidateSources(FSceneImportResult& Result) -> bool;
+	auto ResolveOutputs(FSceneImportResult& Result, std::vector<FSceneMaterialPreview>& Materials) -> bool;
+
 	auto Tick() -> void;
 	auto Run() -> FSceneRoutine;
 	auto PrepareSource(FSceneImportResult &Result) -> void;
 	auto BuildProducts(FSceneImportResult &Result) -> void;
 };
 
-auto FSceneImportSession::FImpl::PrepareSource(FSceneImportResult &Result) -> void
+auto FAssetImportSession::FImpl::ResolveOutputs(FSceneImportResult& Result,
+	std::vector<FSceneMaterialPreview>& Materials) -> bool
+{
+	const auto Directory = Editor::InspectContentDirectory(DestinationDirectory.ToString());
+	if (!Directory) { Result.Message = Editor::FormatContentDirectoryValidation(Directory); return false; }
+	if (!ConfigureSceneMaterials(Data, Result.Outputs, DestinationDirectory,
+		MaterialOptions, Materials, Result.Message))
+	{
+		for (const auto& Row : Materials)
+			if (!Row.bCompatible)
+			{
+				if (auto Summary = std::ranges::find(Result.Outputs, Row.StableIdentity, &FImportOutputSummary::StableIdentity);
+					Summary != Result.Outputs.end()) Summary->Disposition = EImportOutputDisposition::Conflict;
+				Result.Diagnostics.push_back({.Category = EImportDiagnosticCategory::InvalidPlan,
+					.Phase = "asset-preflight", .OutputIdentity = Row.StableIdentity, .Message = Row.Message});
+			}
+		return false;
+	}
+	if (!ImportOptions.bIncludeUnusedResources)
+	{
+		std::unordered_set<std::string> RequiredTextures;
+		for (const auto& Output : Data.Outputs)
+			if (IsSceneMaterial(Output.Kind))
+				for (const auto& Identity : Output.Dependencies) RequiredTextures.insert(Identity);
+		std::unordered_set<std::string> Omitted;
+		std::erase_if(Data.Outputs, [&](const auto& Output) {
+			const bool bOmit = Output.Kind == ESceneOutputKind::Texture2D && !RequiredTextures.contains(Output.StableIdentity);
+			if (bOmit) Omitted.insert(Output.StableIdentity);
+			return bOmit;
+		});
+		std::erase_if(Result.Outputs, [&](const auto& Output) { return Omitted.contains(Output.StableIdentity); });
+	}
+	if (Result.Outputs.empty()) { Result.Message = "No asset outputs are selected."; return false; }
+	bool bValid = true;
+	std::unordered_set<std::string> Destinations;
+	for (auto& Summary : Result.Outputs)
+	{
+		auto Descriptor = std::ranges::find(Data.Outputs, Summary.StableIdentity, &FSceneOutputData::StableIdentity);
+		std::string Error;
+		if (Descriptor->bExistingMaterialMapping)
+		{
+			auto* Material = Descriptor->PreservedMaterial.Get();
+			Summary.Disposition = EImportOutputDisposition::Preserve;
+			Descriptor->PreviousRevision = Material->GetPackage()->GetEditRevision();
+			continue;
+		}
+		if (FindAssetExact(Summary.AssetPath) || FindResidentPackage(Summary.AssetPath))
+			Error = "Output destination is occupied. One-time model imports require a new destination.";
+		if (Error.empty())
+		{
+			const auto Destination = Editor::InspectAssetDestination(Summary.AssetPath.ToString());
+			if (!Destination) Error = Editor::FormatAssetDestinationValidation(Destination);
+		}
+		if (!Destinations.insert(Summary.AssetPath.ToString()).second) Error = "Two outputs resolve to the same destination.";
+		if (!Error.empty())
+		{
+			bValid = false;
+			Summary.Disposition = EImportOutputDisposition::Conflict;
+			Result.Diagnostics.push_back({.Category = EImportDiagnosticCategory::Collision, .Phase = "asset-preflight",
+				.SourceIdentity = "root", .OutputIdentity = Summary.StableIdentity, .Message = Error});
+			if (Result.Message.empty()) Result.Message = Error;
+		}
+	}
+	return bValid;
+}
+
+auto FAssetImportSession::FImpl::PrepareSource(FSceneImportResult &Result) -> void
 {
 	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
 	RootFilename = std::filesystem::absolute(SourceFile).lexically_normal().generic_string();
@@ -496,34 +541,39 @@ auto FSceneImportSession::FImpl::PrepareSource(FSceneImportResult &Result) -> vo
 	}
 
 	if (!BuildScenePlan(*Snapshot, DestinationDirectory, Settings, Data, Result.Outputs, Result.Diagnostics,
-	                    Result.Message))
+	                    Result.Message, ImportOptions))
 	{
-		if (!Result.Diagnostics.empty() && !Result.Diagnostics.back().Message.empty())
+		if (Result.Message.empty() && !Result.Diagnostics.empty() && !Result.Diagnostics.back().Message.empty())
 			Result.Message = Result.Diagnostics.back().Message;
 		return;
 	}
 }
 
-auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> void
+auto FAssetImportSession::FImpl::ValidateSources(FSceneImportResult& Result) -> bool
 {
-	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
 	// Validate the captured closure without parsing the source a second time.
-	if (bAsync)
-		for (const auto &Source : Snapshot->GetSources())
+	for (const auto &Source : Snapshot->GetSources())
 		{
 			if (IsCanceled(IsCancellationRequested))
 			{
-				Result.Message = "Scene import canceled.";
-				return;
+				Result = AddError(Result, EImportDiagnosticCategory::Canceled, "source-validation", "Asset import canceled.");
+				return false;
 			}
 			const auto Hash = FFileHelper::HashFileXx128(Source.Filename);
 			if (!Hash || *Hash != Source.ContentHash)
 			{
-				Result.Message =
-				    "Scene source changed after preparation. Select the source again to refresh.";
-				return;
+				Result = AddError(Result, EImportDiagnosticCategory::InvalidSource, "source-validation",
+					"Source changed after preparation; refresh the plan.");
+				return false;
 			}
 		}
+	return true;
+}
+
+auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> void
+{
+	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
+	if (!ValidateSources(Result)) return;
 	std::vector<size_t> OutputOrder;
 	if (!MakeStableOutputOrder(Data, OutputOrder, Result.Message))
 	{
@@ -571,7 +621,13 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 		}
 		else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 		{
-			auto Geometry = MakeStaticMeshDecodedGeometry(Data.Scene);
+			FImportedSceneData Selected;
+			if (!Descriptor.bCombinedMesh && !SelectImportedMeshResource(Data.Document, Descriptor.SourceIndex, Selected, Error))
+			{
+				Result = AddError(Result, EImportDiagnosticCategory::InvalidPlan, "asset-build", Error, Descriptor.StableIdentity);
+				return;
+			}
+			auto Geometry = MakeStaticMeshDecodedGeometry(Descriptor.bCombinedMesh ? Data.Scene : Selected);
 			Output.StaticMeshMaterialSlots = ReconcileStaticMeshMaterialSlots({}, Geometry.MaterialSlots);
 			if (const auto Initialized =
 			        Output.StaticMeshSource.Initialize(std::move(Geometry));
@@ -601,7 +657,7 @@ auto FSceneImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 	}
 }
 
-auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
+auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 {
 	FSceneImportResult Result;
 	try
@@ -620,27 +676,38 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 		if (!Result.Message.empty() || !Snapshot)
 			co_return std::move(Result);
 		BaseOutputs = Result.Outputs;
-		if (bAsync)
+		while (bAsync && !bImportRequested)
 		{
-			Progress = {ESceneImportPhase::Ready, "Configure materials"};
-			co_await Step([this] { return bImportRequested || Canceled.load(); });
+			Progress = {ESceneImportPhase::Ready, "Configure asset outputs"};
+			co_await Step([this] { return bImportRequested || bReplanRequested || Canceled.load(); });
 			if (Canceled.load())
-				co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-preview",
-				                   "Scene import canceled.");
+				co_return AddError(Result, EImportDiagnosticCategory::Canceled, "asset-preview", "Asset import canceled.");
+			if (std::exchange(bReplanRequested, false))
+			{
+				Progress = {ESceneImportPhase::Reading, "Resolving selected resources"};
+				co_await Work([&] {
+					auto Document = std::move(Data.Document);
+					Result.Diagnostics.clear();
+					Result.Message.clear();
+					if (!BuildScenePlan(*Snapshot, DestinationDirectory, Settings, Data, Result.Outputs,
+						Result.Diagnostics, Result.Message, ImportOptions, &Document)) return;
+				});
+				if (!Result.Message.empty()) co_return std::move(Result);
+				BaseOutputs = Result.Outputs;
+			}
 		}
 		Result.Outputs = BaseOutputs;
-		Progress = {ESceneImportPhase::Building, "Building textures and mesh", 0, Data.Outputs.size()};
+		std::vector<FSceneMaterialPreview> MaterialPreview;
+		if (!bPlanResolved && !ResolveOutputs(Result, MaterialPreview))
+			co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure, "scene-material-policy",
+			                   Result.Message);		Progress = {ESceneImportPhase::Building, "Building textures and mesh", 0, Data.Outputs.size()};
 		co_await Work([&] { BuildProducts(Result); });
 		if (IsCanceled(IsCancellationRequested))
 			co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-build",
 			                   "Scene import canceled.");
 		if (!Result.Message.empty())
 			co_return std::move(Result);
-		std::vector<FSceneMaterialPreview> MaterialPreview;
-		if (!ConfigureSceneMaterials(Data, Result.Outputs, RootFilename, DestinationDirectory,
-		                             MaterialOptions, MaterialPreview, Result.Message))
-			co_return AddError(Result, EImportDiagnosticCategory::ValidationFailure, "scene-material-policy",
-			                   Result.Message);
+
 		for (auto &Output : Prepared)
 			Output.AssetPath = std::ranges::find(Result.Outputs, Output.Descriptor->StableIdentity,
 			                                     &FImportOutputSummary::StableIdentity)
@@ -653,35 +720,6 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			co_return AddError(Result, EImportDiagnosticCategory::InvalidRequest, "scene-publication",
 			                   "Another scene import is publishing assets.");
 		Progress = {ESceneImportPhase::Preparing, "Preparing assets", 0, Prepared.size()};
-		// Match receipts in the destination before considering generated filenames.
-		// An unrelated asset at a requested path is never replacement authority.
-		std::unordered_map<std::string, DObject *> ExistingOutputs;
-		std::vector<TStrongObjectPtr<DObject>> ExistingPins;
-		std::vector<FPackagePath> ExistingPaths;
-		const std::string Prefix = DestinationDirectory.ToString() + "/";
-		for (const auto &[Path, Entry] : CaptureAssetCatalogSnapshot().Assets)
-			if (Path.GetView().starts_with(Prefix))
-				ExistingPaths.push_back(Path);
-		for (auto *Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-			if (auto *Package = Cast<DPackage>(Object);
-			    Package && Package->GetPackagePath().starts_with(Prefix) &&
-			    !std::ranges::contains(ExistingPaths, Package->GetPackagePathIdentity()))
-				ExistingPaths.push_back(Package->GetPackagePathIdentity());
-		for (const auto &Path : ExistingPaths)
-		{
-			co_await Step();
-			DObject *Object = nullptr;
-			FObjectPath ObjectPath;
-			if (!FObjectPath::TryCreate(Path.ToString() + "." + std::string(Path.GetPackageName()),
-			                            ObjectPath) ||
-			    !(Object = LoadObject<DObject>(ObjectPath).value_or(nullptr)))
-				continue;
-			ExistingPins.emplace_back(Object);
-			const auto Identity = GetSceneOutputIdentity(Object, RootFilename);
-			if (!Identity.empty() && !ExistingOutputs.emplace(Identity, Object).second)
-				co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
-				                   "Multiple saved outputs claim the same scene identity.", Identity);
-		}
 		for (FPreparedSceneOutput &Output : Prepared)
 		{
 			Progress.Activity = Output.AssetPath.ToString();
@@ -690,44 +728,17 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			if (IsCanceled(IsCancellationRequested))
 				co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-prepare",
 				                   "Scene import canceled.");
-			const auto Existing = ExistingOutputs.find(Output.Descriptor->StableIdentity);
-			if (Existing != ExistingOutputs.end())
+			if (Output.Descriptor->bExistingMaterialMapping)
 			{
-				Output.Previous = Existing->second;
-				Output.PreviousPin = TStrongObjectPtr<DObject>(Output.Previous);
-				Output.PreviousRevision = Output.Previous->GetPackage()->GetEditRevision();
-				Output.AssetPath = Output.Previous->GetPackage()->GetPackagePathIdentity();
-				const bool bTypeMatches = Output.Descriptor->Kind == ESceneOutputKind::MaterialInstance
-				                              ? Cast<DMaterialInstance>(Output.Previous) != nullptr
-				                          : Output.Descriptor->Kind == ESceneOutputKind::Material
-				                              ? Cast<DMaterial>(Output.Previous) != nullptr
-				                          : Output.Descriptor->Kind == ESceneOutputKind::StaticMesh
-				                              ? Cast<DStaticMesh>(Output.Previous) != nullptr
-				                              : Cast<DTexture2D>(Output.Previous) != nullptr;
-				if (!bTypeMatches || Output.Previous->GetPackage()->GetTopLevelAssets().size() != 1)
-					co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
-					                   "The previous scene output has an incompatible package shape.",
-					                   Output.Descriptor->StableIdentity);
+				auto* Mapped = Output.Descriptor->PreservedMaterial.Get();
+				if (!Mapped || Mapped->GetPackage()->GetEditRevision() != Output.Descriptor->PreviousRevision)
+					co_return AddError(Result, EImportDiagnosticCategory::Collision, "asset-mapping", "Mapped material changed after preflight.", Output.Descriptor->StableIdentity);
+				continue;
 			}
-			else if (FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
+			if (FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
 			{
-				// A changed derivation gets a distinct output; keep the old asset for
-				// existing references instead of overwriting its identity.
-				const auto Occupant = std::ranges::find_if(
-				    ExistingOutputs, [&](const auto &Entry)
-				    { return Entry.second->GetPackage()->GetPackagePathIdentity() == Output.AssetPath; });
-				if (Occupant == ExistingOutputs.end() ||
-				    Output.Descriptor->Kind != ESceneOutputKind::Texture2D ||
-				    !FPackagePath::TryCreate(
-				        Output.AssetPath.ToString() + "_" +
-				            FXxHash128::HashBuffer(
-				                std::as_bytes(std::span(Output.Descriptor->StableIdentity)))
-				                .ToString(),
-				        Output.AssetPath) ||
-				    FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
-					co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
-					                   "Scene output path is occupied by an unrelated output.",
-					                   Output.Descriptor->StableIdentity);
+				co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
+					"Output destination changed after preflight.", Output.Descriptor->StableIdentity);
 			}
 			std::ranges::find(Result.Outputs, Output.Descriptor->StableIdentity,
 			                  &FImportOutputSummary::StableIdentity)
@@ -745,8 +756,10 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			std::string Error;
 			if (Output.Descriptor->PreservedMaterial.Get())
 			{
-				Output.Candidate = Output.Previous;
-				Output.Package = Output.Previous->GetPackage();
+				Output.Candidate = Output.Descriptor->PreservedMaterial.Get();
+				Output.Package = Output.Candidate->GetPackage();
+				std::ranges::find(Result.Outputs, Output.Descriptor->StableIdentity,
+					&FImportOutputSummary::StableIdentity)->State = EImportOutputState::Preserved;
 				continue;
 			}
 			if (!CreateCandidate(Output, Error))
@@ -1003,7 +1016,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			{
 				auto *Mesh = Cast<DStaticMesh>(Output.Candidate);
 				for (const FSceneOutputData &Candidate : Data.Outputs)
-					if (IsSceneMaterial(Candidate.Kind))
+					if (IsSceneMaterial(Candidate.Kind) && std::ranges::contains(Descriptor.Dependencies, Candidate.StableIdentity))
 					{
 						FPreparedSceneOutput *Material = FindOutput(Candidate.StableIdentity);
 						uint32 SlotIndex = 0;
@@ -1018,29 +1031,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 						}
 						Mesh->SetMaterialSlotDefaultMaterial(SlotIndex,
 						                                     Cast<DMaterialInterface>(Material->Candidate));
-						if (!MaterialOptions.bRebuildExistingMaterials)
-							if (auto *PreviousMesh = Cast<DStaticMesh>(Output.Previous))
-							{
-								const auto &Slot = Mesh->GetMaterialSlots()[SlotIndex];
-								const auto Slots = PreviousMesh->GetMaterialSlots();
-								const bool bUniqueName =
-								    !Slot.SourceName.empty() &&
-								    std::ranges::count(Slots, Slot.SourceName,
-								                       &FMeshMaterialSlotDefinition::SourceName) == 1 &&
-								    std::ranges::count(Mesh->GetMaterialSlots(), Slot.SourceName,
-								                       &FMeshMaterialSlotDefinition::SourceName) == 1;
-								const auto PreviousSlot = std::ranges::find_if(
-								    Slots,
-								    [&](const auto &Old)
-								    {
-									    return Old.SourceName == Slot.SourceName &&
-									           (bUniqueName ||
-									            Old.SourceMaterialIndex == Slot.SourceMaterialIndex);
-								    });
-								if (PreviousSlot != Slots.end())
-									Mesh->SetMaterialSlotDefaultMaterial(SlotIndex,
-									                                     PreviousSlot->DefaultMaterial.Get());
-							}
+
 					}
 			}
 			Output.Candidate->MarkPackageDirty();
@@ -1097,36 +1088,16 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			co_return AddError(Result, EImportDiagnosticCategory::Canceled, "scene-publication",
 			                   "Scene import was canceled before persistence.");
 		}
-		ExistingPins.clear();
+		co_await Work([&] { (void)ValidateSources(Result); });
+		if (!Result.Message.empty()) co_return std::move(Result);
+
 		std::vector<FObjectReplacementPackagePair> Pairs;
 		for (const auto &Output : Prepared)
 			if (!Output.Descriptor->PreservedMaterial.Get())
-				Pairs.push_back({Output.Previous ? Output.Previous->GetPackage() : nullptr, Output.Package});
+				Pairs.push_back({nullptr, Output.Package});
 		for (size_t Index = 0; Index < Pairs.size(); ++Index)
 		{
 			const auto &Pair = Pairs[Index];
-			std::vector<DObject *> ExternalConsumers;
-			std::vector<TStrongObjectPtr<DObject>> ConsumerPins;
-			std::vector<DObject *> DependentMaterials;
-			for (auto *Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-				if (Object->GetPackage() != Pair.Current)
-				{
-					ExternalConsumers.push_back(Object);
-					ConsumerPins.emplace_back(Object);
-					if (auto *Material = Cast<DMaterialInstance>(Object))
-						for (auto *Parent = Material->GetParent(); Parent; Parent = Parent->GetParent())
-							if (Pair.Current && Parent->GetPackage() == Pair.Current)
-							{
-								DependentMaterials.push_back(Material);
-								break;
-							}
-				}
-			auto PreviousCompilations = DependentMaterials;
-			for (const auto &Output : Prepared)
-				if (Output.Previous && Output.Previous->GetPackage() == Pair.Current)
-					PreviousCompilations.push_back(Output.Previous);
-			co_await Compilation(PreviousCompilations);
-
 			FObjectGraphReplacement Publication;
 			FAssetWriteResult PersistenceResult;
 			FAssetBundleSaveOptions SaveOptions{
@@ -1150,15 +1121,6 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 			}
 			// Staging yields before graph preparation: unrelated object creation during
 			// disk I/O must not invalidate a reference-replacement snapshot.
-			for (auto &Output : Prepared)
-				if (Output.Package == Pair.Prepared && Output.Previous)
-				{
-					if (Output.Previous->GetPackage()->GetEditRevision() != Output.PreviousRevision ||
-					    FindResidentPackage(Output.AssetPath) != Output.Previous->GetPackage())
-						co_return AddError(Result, EImportDiagnosticCategory::Collision, "scene-publication",
-						                   "An existing output changed during import; retry.");
-					Output.PreviousPin.Reset();
-				}
 			const std::array Participants{MakeMaterialReferenceReplacementParticipant()};
 			auto Published = Publication.Prepare(std::span(&Pair, 1), Participants);
 			if (Published)
@@ -1185,36 +1147,13 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 				                   std::format("Saved {} of {} packages; {}: {}", Result.SavedPackages.size(),
 				                               Pairs.size(), Pair.Prepared->GetPackagePath(),
 				                               !PersistenceResult ? PersistenceResult.Message
-				                                                  : ToString(Published.error())));
+				                                                  : ToString(Published.error())),
+				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(), &FImportOutputSummary::AssetPath)->StableIdentity);
 			}
 			Pair.Prepared->MarkAsPublished();
 			Result.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
-			if (Pair.Current)
-			{
-				// Refresh consumers after each publication, including on partial imports.
-				for (auto *Object : DependentMaterials)
-					RequestMaterialRecompile(*Cast<DMaterialInterface>(Object));
-				co_await Compilation(DependentMaterials);
-				for (auto *Object : ExternalConsumers)
-				{
-					if (auto *Material = Cast<DMaterialInterface>(Object))
-						Material->RefreshReloadedAssetBindings();
-					if (auto *Cloud = Cast<DVolumetricCloudComponent>(Object))
-						Cloud->RefreshReloadedAssetBindings();
-					if (auto *Sky = Cast<DSkyLightComponent>(Object))
-						Sky->RefreshReloadedAssetBindings();
-					if (auto *Mesh = Cast<DStaticMeshComponent>(Object))
-						Mesh->RefreshReloadedAssetBindings();
-					else if (auto *Primitive = Cast<DPrimitiveComponent>(Object))
-						Primitive->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
-				}
-				FRenderCommandFence Fence;
-				Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
-				if (bAsync)
-					co_await Step([&] { return Fence.IsFenceComplete(); });
-				else
-					Fence.Wait();
-			}
+			std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),
+				&FImportOutputSummary::AssetPath)->State = EImportOutputState::Saved;
 			if (bAsync)
 				co_await Step([&] { return Publication.Retire(); });
 			else
@@ -1237,7 +1176,7 @@ auto FSceneImportSession::FImpl::Run() -> FSceneRoutine
 	}
 }
 
-auto FSceneImportSession::FImpl::Tick() -> void
+auto FAssetImportSession::FImpl::Tick() -> void
 {
 	Progress.bCancellationRequested = Canceled.load();
 	if (Progress.Phase == ESceneImportPhase::Building)
@@ -1280,16 +1219,17 @@ auto FSceneImportSession::FImpl::Tick() -> void
 	Progress = {ESceneImportPhase::Completed, Result.bSucceeded ? "Import complete" : Result.Message};
 }
 
-FSceneImportSession::FSceneImportSession(std::string SourceFile, FPackagePath Destination,
-                                         FStaticMeshImportSettings Settings)
+FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath Destination,
+                                         FStaticMeshImportSettings Settings, FAssetImportOptions Options)
     : Impl(std::make_unique<FImpl>())
 {
 	Impl->SourceFile = std::move(SourceFile);
 	Impl->DestinationDirectory = std::move(Destination);
 	Impl->Settings = std::move(Settings);
+	Impl->ImportOptions = std::move(Options);
 	Impl->IsCancellationRequested = [State = Impl.get()] { return State->Canceled.load(); };
 }
-FSceneImportSession::~FSceneImportSession()
+FAssetImportSession::~FAssetImportSession()
 {
 	Cancel();
 	// Only host teardown drains synchronously; normal UI cancellation keeps ticking.
@@ -1302,24 +1242,93 @@ FSceneImportSession::~FSceneImportSession()
 			std::this_thread::yield();
 	}
 }
-auto FSceneImportSession::Tick() -> void
+auto FAssetImportSession::Tick() -> void
 {
 	Impl->Tick();
 }
-auto FSceneImportSession::Cancel() -> void
+auto FAssetImportSession::Cancel() -> void
 {
 	Impl->Canceled.store(true);
 	Impl->Progress.bCancellationRequested = true;
 }
-auto FSceneImportSession::GetProgress() const -> const FSceneImportProgress &
+auto FAssetImportSession::GetProgress() const -> const FSceneImportProgress &
 {
 	return Impl->Progress;
 }
-auto FSceneImportSession::GetResult() const -> const FSceneImportResult &
+auto FAssetImportSession::GetResult() const -> const FSceneImportResult &
 {
 	return Impl->Result;
 }
-auto FSceneImportSession::PreviewMaterials(const FPackagePath &Destination,
+auto FAssetImportSession::GetSourceMeshes() const -> std::vector<FAssetImportSourceMesh>
+{
+	std::vector<FAssetImportSourceMesh> Result;
+	if (Impl->Progress.Phase == ESceneImportPhase::Ready)
+		for (uint32 Index = 0; Index < Impl->Data.Document.Meshes.size(); ++Index)
+		{
+			const auto& Mesh = Impl->Data.Document.Meshes[Index];
+			Result.push_back({Index, Mesh.SourceName, static_cast<uint32>(Mesh.Primitives.size()),
+				std::ranges::contains(Impl->Data.SelectedMeshes, Index)});
+		}
+	return Result;
+}
+auto FAssetImportSession::GetSourceScenes() const -> std::vector<FAssetImportSourceScene>
+{
+	std::vector<FAssetImportSourceScene> Result;
+	if (Impl->Progress.Phase == ESceneImportPhase::Ready)
+		for (uint32 Index = 0; Index < Impl->Data.Document.Scenes.size(); ++Index)
+			Result.push_back({Index, Impl->Data.Document.Scenes[Index].SourceName,
+				Index == Impl->Data.Document.DefaultSceneIndex});
+	return Result;
+}
+auto FAssetImportSession::SetOptions(FAssetImportOptions Options) -> bool
+{
+	if (Impl->Progress.Phase != ESceneImportPhase::Ready || Impl->bImportRequested || Impl->bReplanRequested) return false;
+	Impl->ImportOptions = std::move(Options);
+	Impl->PreviewDescriptors.clear();
+	Impl->PreviewSummaries.clear();
+	Impl->bPlanResolved = false;
+	Impl->bReplanRequested = true;
+	Impl->Progress = {ESceneImportPhase::Reading, "Resolving selected resources"};
+	return true;
+}
+
+auto FAssetImportSession::PreviewOutputs(const FPackagePath& Destination,
+	const FSceneMaterialImportOptions& Options) -> FAssetImportPreview
+{
+	FAssetImportPreview Preview;
+	if (Impl->Progress.Phase != ESceneImportPhase::Ready || !Impl->Rebase(Destination))
+	{
+		Preview.Message = "Import preparation is not ready or destination is invalid.";
+		return Preview;
+	}
+	auto Original = Impl->Data.Outputs;
+	auto OriginalOptions = Impl->MaterialOptions;
+	Impl->MaterialOptions = Options;
+	FSceneImportResult Result;
+	Result.Outputs = Impl->BaseOutputs;
+	Preview.bSucceeded = Impl->ResolveOutputs(Result, Preview.Materials);
+	Preview.Outputs = std::move(Result.Outputs);
+	Preview.Diagnostics = std::move(Result.Diagnostics);
+	for (const auto& Warning : Impl->Data.Warnings)
+		Preview.Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Warning,
+			.Category = EImportDiagnosticCategory::TranslationFailure, .Phase = "source", .SourceIdentity = "root", .Message = Warning});
+	Preview.Message = std::move(Result.Message);
+	Impl->PreviewDescriptors.clear();
+	Impl->PreviewSummaries.clear();
+	if (Preview.bSucceeded)
+	{
+		Impl->PreviewDescriptors = Impl->Data.Outputs;
+		Impl->PreviewSummaries = Preview.Outputs;
+		Impl->PreviewOptions = Options;
+		Impl->PreviewDestination = Destination;
+	}
+
+	Impl->Data.Outputs = std::move(Original);
+	Impl->MaterialOptions = std::move(OriginalOptions);
+	return Preview;
+}
+
+auto FAssetImportSession::PreviewMaterials(const FPackagePath &Destination,
                                            const FSceneMaterialImportOptions &Options)
     -> FSceneMaterialPreviewResult
 {
@@ -1336,22 +1345,44 @@ auto FSceneImportSession::PreviewMaterials(const FPackagePath &Destination,
 	}
 	auto Original = Impl->Data.Outputs;
 	auto Outputs = Impl->BaseOutputs;
-	Result.bSucceeded = ConfigureSceneMaterials(Impl->Data, Outputs, Impl->RootFilename, Destination, Options,
+	Result.bSucceeded = ConfigureSceneMaterials(Impl->Data, Outputs, Destination, Options,
 	                                            Result.Materials, Result.Message);
 	Impl->Data.Outputs = std::move(Original);
 	return Result;
 }
-auto FSceneImportSession::BeginImport(const FPackagePath &Destination, FSceneMaterialImportOptions Options,
+auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMaterialImportOptions Options,
                                       FSceneImportPublicationOptions PublicationOptions) -> bool
 {
 	if (Impl->Progress.Phase != ESceneImportPhase::Ready || Impl->bImportRequested || !Destination.IsValid())
 		return false;
 	if (!Impl->Rebase(Destination))
 		return false;
+	if (Impl->PreviewDescriptors.empty() || Impl->PreviewDestination != Destination || Impl->PreviewOptions != Options)
+		if (!PreviewOutputs(Destination, Options).bSucceeded) return false;
+	Impl->Data.Outputs = Impl->PreviewDescriptors;
+	Impl->BaseOutputs = Impl->PreviewSummaries;
+	Impl->PreviewDescriptors.clear();
+	Impl->PreviewSummaries.clear();
+	Impl->bPlanResolved = true;
 	Impl->MaterialOptions = std::move(Options);
 	Impl->PublicationOptions = std::move(PublicationOptions);
 	Impl->bImportRequested = true;
 	return true;
+}
+
+auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& DestinationDirectory,
+	const FStaticMeshImportSettings& Settings, const FAssetImportOptions& Options,
+	const FSceneMaterialImportOptions& Materials, const std::function<bool()>& Cancellation,
+	const FSceneImportPublicationOptions& Publication) -> FSceneImportResult
+{
+	FAssetImportSession Session(std::string(SourceFile), DestinationDirectory, Settings, Options);
+	Session.Impl->bAsync = false;
+	Session.Impl->bImportRequested = true;
+	Session.Impl->MaterialOptions = Materials;
+	Session.Impl->PublicationOptions = Publication;
+	Session.Impl->IsCancellationRequested = Cancellation;
+	Session.Tick();
+	return Session.GetResult();
 }
 
 auto ImportSceneAssets(std::string_view SourceFile, const FPackagePath &DestinationDirectory,

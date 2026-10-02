@@ -4,6 +4,7 @@
     "PCH": "SharedPCH_DObject",
 	"PrivateDependencies": [
 		"AssetTools",
+		"ContentBrowser",
 		"MeshBuilder"
 	],
     "PublicDependencies": [

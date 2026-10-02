@@ -70,7 +70,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto ImportMeshesFromFile(
 			std::string_view FilePath,
-			const FMeshImportOptions& Options) -> FSceneDecodeResult
+			const FMeshImportOptions& Options, bool bDocumentDecode = false) -> FSceneDecodeResult
 		{
 			FSceneDecodeResult Result;
 			const std::filesystem::path RootPath = std::filesystem::path(std::string(FilePath));
@@ -117,7 +117,7 @@ namespace Durin::AssetForge::Builtins
 			const bool bGltf = Extension == ".gltf";
 			const bool bGlb = Extension == ".glb";
 			const Private::FImportedSceneContext Context{
-				RootPath, Options.RootSourcePath, RootBytes, Options, Result};
+				RootPath, Options.RootSourcePath, RootBytes, Options, Result, bDocumentDecode};
 			std::vector<uint32> SourcePrimitiveMaterialIndices;
 			FByteBuffer AssimpProjection;
 			if ((bGltf || bGlb)
@@ -170,10 +170,26 @@ namespace Durin::AssetForge::Builtins
 			{
 				Result.Scene.Materials.push_back({.SourceMaterialIndex = 0, .SourceName = {}});
 			}
-			if ((bGltf || bGlb)
+			if (!bDocumentDecode && (bGltf || bGlb)
 				&& !ValidateGltfMaterialProjection(
 					*Scene, SourcePrimitiveMaterialIndices, Result))
 			{
+				return Result;
+			}
+
+			if (bDocumentDecode)
+			{
+				Result.Document.Materials = std::move(Result.Scene.Materials);
+				Result.Document.Images = std::move(Result.Scene.Images);
+				Result.Document.Dependencies = std::move(Result.Scene.Dependencies);
+				if (!Private::ImportAssimpDocumentGeometry(*Scene, Options, bGltf || bGlb,
+					Result.Document, Result.ErrorMessage))
+				{
+					const auto Error = Result.ErrorMessage;
+					Private::FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference, "meshes", Error);
+					return Result;
+				}
+				Result.bSucceeded = true;
 				return Result;
 			}
 
@@ -244,6 +260,15 @@ namespace Durin::AssetForge::Builtins
 			Result.bSucceeded = true;
 			return Result;
 		}
+	}
+
+	auto ImportDocumentFromFile(std::string_view FilePath, FImportedDocument& OutDocument,
+		const FMeshImportOptions& Options) -> bool
+	{
+		auto Result = ImportMeshesFromFile(FilePath, Options, true);
+		Result.Document.Diagnostics = std::move(Result.Scene.Diagnostics);
+		OutDocument = std::move(Result.Document);
+		return Result.bSucceeded;
 	}
 
 	auto ImportFromFile(

@@ -276,22 +276,30 @@ namespace Durin::AssetForge::Builtins
 			const FSourceSnapshot& Snapshot,
 			const FStaticMeshImportSettings& Settings,
 			FImportedSceneData& OutScene,
-			std::string& OutError) -> bool
+			std::string& OutError, FImportedDocument* OutDocument = nullptr) -> bool
 		{
 			FTemporarySceneFiles Files;
 			if (!Files.Stage(Snapshot, OutError)) return false;
 			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
-			if (!ImportFromFile(Files.GetRoot().generic_string(), OutScene,
+			FImportedDocument Document;
+			if (!Root || !ImportDocumentFromFile(Files.GetRoot().generic_string(), Document,
 				MakeMeshImportOptions(Settings, Root->Filename)))
 			{
+				OutScene.Diagnostics = std::move(Document.Diagnostics);
 				OutError = "Captured Scene sources could not be decoded.";
 				return false;
 			}
+			if (!OutDocument && !ExpandImportedDocument(Document, OutScene, OutError)) return false;
+			OutScene.Materials = Document.Materials;
+			OutScene.Images = Document.Images;
+			OutScene.Dependencies = Document.Dependencies;
+			OutScene.Diagnostics = Document.Diagnostics;
+			if (OutDocument) *OutDocument = std::move(Document);
 			return true;
 		}
 	}
 
-	auto MakeSceneSurfaceRoles(const FSceneImportPlan& Plan, const FSceneOutputData& Output)
+	auto MakeSceneSurfaceRoles(const FAssetImportPlan& Plan, const FSceneOutputData& Output)
 		-> std::array<FImportedSurfaceRole, 8>
 	{
 		const auto Source = std::ranges::find(Plan.Scene.Materials, Output.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
@@ -330,10 +338,10 @@ namespace Durin::AssetForge::Builtins
 		const FSourceSnapshot& Snapshot,
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		FSceneImportPlan& OutPlan,
+		FAssetImportPlan& OutPlan,
 		std::vector<FImportOutputSummary>& OutOutputs,
 		std::vector<FImportDiagnostic>& OutDiagnostics,
-		std::string& OutError) -> bool
+		std::string& OutError, const FAssetImportOptions& Options, FImportedDocument* PreparedDocument) -> bool
 	{
 		OutError = "Scene translation failed.";
 		auto CheckCanceled = [&]() -> bool {
@@ -356,7 +364,15 @@ namespace Durin::AssetForge::Builtins
 		OutPlan = {};
 		OutOutputs.clear();
 		OutPlan.MeshSettings = Settings;
-		if (!DecodeSceneSnapshot(Snapshot, Settings, OutPlan.Scene, Error))
+		if (PreparedDocument)
+		{
+			OutPlan.Document = std::move(*PreparedDocument);
+			OutPlan.Scene.Materials = OutPlan.Document.Materials;
+			OutPlan.Scene.Images = OutPlan.Document.Images;
+			OutPlan.Scene.Dependencies = OutPlan.Document.Dependencies;
+			OutPlan.Scene.Diagnostics = OutPlan.Document.Diagnostics;
+		}
+		else if (!DecodeSceneSnapshot(Snapshot, Settings, OutPlan.Scene, Error, &OutPlan.Document))
 		{
 			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::TranslationFailure,
 				"scene-parse", Error, "root");
@@ -373,30 +389,118 @@ namespace Durin::AssetForge::Builtins
 		const std::string SceneName = SanitizeAssetName(
 			std::filesystem::path(RootSource->Filename)
 				.stem().generic_string(), "Scene");
-		FPackagePath MeshPath;
-		if (!MakeSceneOutputPath(DestinationDirectory, "Meshes",
-			SceneName, MeshPath, Error)) return false;
-			OutOutputs.push_back({
-			.StableIdentity = "scene:mesh:combined",
-			.Role = "StaticMesh",
-			.AssetPath = MeshPath,
-			.AssetClassName = "Durin::DStaticMesh"});
-		OutPlan.Outputs.push_back({
-			.StableIdentity = "scene:mesh:combined",
-			.Kind = ESceneOutputKind::StaticMesh});
+		if (Options.MeshMode != EAssetImportMeshMode::Split && Options.MeshMode != EAssetImportMeshMode::Combined)
+		{
+			OutError = "Unknown mesh output mode.";
+			return false;
+		}
+		std::vector<uint32> SelectedMeshes = Options.SelectedMeshes;
+		std::vector<uint32> Scenes = Options.SelectedScenes;
+		if (Scenes.empty() && !OutPlan.Document.Scenes.empty()) Scenes.push_back(OutPlan.Document.DefaultSceneIndex);
+		std::unordered_set<uint32> SeenMeshes;
+		for (const auto Index : SelectedMeshes)
+			if (Index >= OutPlan.Document.Meshes.size() || !SeenMeshes.insert(Index).second)
+			{
+				OutError = "Selected mesh indices are invalid or duplicated.";
+				return false;
+			}
+		std::unordered_set<uint32> SeenScenes;
+		for (const auto Index : Scenes)
+			if (Index >= OutPlan.Document.Scenes.size() || !SeenScenes.insert(Index).second)
+			{
+				OutError = "Selected scene indices are invalid or duplicated.";
+				return false;
+			}
+		if (SelectedMeshes.empty() && Options.bIncludeUnusedResources)
+			for (uint32 Index = 0; Index < OutPlan.Document.Meshes.size(); ++Index) SelectedMeshes.push_back(Index);
+		if (SelectedMeshes.empty())
+		{
+			std::vector<uint32> Pending;
+			for (const auto Index : Scenes)
+			{
+				if (Index >= OutPlan.Document.Scenes.size()) { OutError = "Selected scene index is invalid."; return false; }
+				const auto& Roots = OutPlan.Document.Scenes[Index].RootNodeIndices;
+				Pending.insert(Pending.end(), Roots.begin(), Roots.end());
+			}
+			std::vector<std::vector<uint32>> Children(OutPlan.Document.Nodes.size());
+			for (uint32 Index = 0; Index < OutPlan.Document.Nodes.size(); ++Index)
+				if (const auto Parent = OutPlan.Document.Nodes[Index].ParentNodeIndex; Parent >= 0) Children[Parent].push_back(Index);
+			std::unordered_set<uint32> SeenNodes;
+			while (!Pending.empty())
+			{
+				const auto Index = Pending.back(); Pending.pop_back();
+				if (!SeenNodes.insert(Index).second) continue;
+				for (const auto Mesh : OutPlan.Document.Nodes[Index].MeshIndices)
+					if (SeenMeshes.insert(Mesh).second) SelectedMeshes.push_back(Mesh);
+				Pending.insert(Pending.end(), Children[Index].begin(), Children[Index].end());
+			}
+		}
+		if (SelectedMeshes.empty()) { OutError = "The selection has no mesh resources."; return false; }
+		std::ranges::sort(SelectedMeshes);
+		OutPlan.SelectedMeshes = SelectedMeshes;
+		if (!Options.bCreateTextures)
+			for (auto& Material : OutPlan.Scene.Materials)
+			{
+				if (!Material.TextureBindings.empty()) OutPlan.Warnings.push_back("Texture outputs disabled; material factors use untextured fallbacks: " + Material.SourceName);
+				Material.TextureBindings.clear();
+			}
+		std::unordered_map<std::string, uint32> MeshNameCounts;
+		for (const auto& Mesh : OutPlan.Document.Meshes) ++MeshNameCounts[Mesh.SourceName];
+		std::unordered_set<std::string> MeshNames;
+		const bool bCombined = Options.MeshMode == EAssetImportMeshMode::Combined;
+		FImportedSceneData SelectedGeometry;
+		if (bCombined && !ExpandImportedDocument(OutPlan.Document, SelectedGeometry, Error, Scenes, SelectedMeshes))
+		{
+			OutError = Error;
+			return false;
+		}
+		if (bCombined && SelectedGeometry.Meshes.empty()) { OutError = "Selected scenes contain no selected mesh instances."; return false; }
+		if (bCombined && Options.bIncludeUnusedResources)
+			OutPlan.Warnings.push_back("Combined geometry expands source scene instances; uninstanced mesh resources require split outputs.");
+		for (size_t Index = 0; Index < (bCombined ? size_t(1) : SelectedMeshes.size()); ++Index)
+		{
+			const auto MeshIndex = SelectedMeshes[Index];
+			const auto& Resource = OutPlan.Document.Meshes[MeshIndex];
+			FImportedSceneData Geometry;
+			if (bCombined) Geometry = SelectedGeometry;
+			else if (!SelectImportedMeshResource(OutPlan.Document, MeshIndex, Geometry, Error)) { OutError = Error; return false; }
+			const auto Identity = bCombined ? std::string("scene:mesh:combined")
+				: "asset:mesh:" + StableSuffix(!Resource.SourceName.empty() && MeshNameCounts[Resource.SourceName] == 1
+					? "name:" + Resource.SourceName : std::format("index:{}", MeshIndex));
+			FPackagePath MeshPath;
+			if (!MakeSceneOutputPath(DestinationDirectory, "Meshes", bCombined ? SceneName
+				: MakeUniqueName(Resource.SourceName, std::format("Mesh_{}", MeshIndex), MeshNames), MeshPath, Error)) return false;
+			if (Options.bCreateMeshes)
+			{
+			OutOutputs.push_back({.StableIdentity = Identity, .Role = "StaticMesh", .AssetPath = MeshPath,
+				.AssetClassName = "Durin::DStaticMesh"});
+			OutPlan.Outputs.push_back({.StableIdentity = Identity, .Kind = ESceneOutputKind::StaticMesh,
+				.SourceIndex = MeshIndex, .bCombinedMesh = bCombined});
+			}
+			OutPlan.Scene.Meshes.insert(OutPlan.Scene.Meshes.end(), Geometry.Meshes.begin(), Geometry.Meshes.end());
+			for (const auto& Slot : Geometry.MaterialSlots)
+				if (std::ranges::none_of(OutPlan.Scene.MaterialSlots, [&](const auto& Existing) {
+					return Existing.SourceMaterialIndex == Slot.SourceMaterialIndex; })) OutPlan.Scene.MaterialSlots.push_back(Slot);
+		}
 
 		std::unordered_set<uint32> UsedMaterialIndices;
 		std::vector<uint32> MaterialIndices;
 		for (const FImportedMaterialSlot& Slot : OutPlan.Scene.MaterialSlots)
 			if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 				MaterialIndices.push_back(Slot.SourceMaterialIndex);
+		if (Options.bIncludeUnusedResources)
+			for (const auto& Material : OutPlan.Scene.Materials)
+				if (UsedMaterialIndices.insert(Material.SourceMaterialIndex).second) MaterialIndices.push_back(Material.SourceMaterialIndex);
+		if (!Options.bCreateMaterials)
+			OutPlan.Warnings.push_back("Material outputs disabled; mesh material slots use the unassigned default fallback.");
+
 		std::unordered_map<std::string, uint32> MaterialNameCounts;
 		for (const FImportedMaterial& Material : OutPlan.Scene.Materials)
 			++MaterialNameCounts[StringUtils::FoldAscii(Material.SourceName)];
 		std::unordered_set<std::string> MaterialNames;
 		std::unordered_set<std::string> TextureNames;
 		std::unordered_map<std::string, std::string> TextureByKey;
-		for (const uint32 MaterialIndex : MaterialIndices)
+		for (const uint32 MaterialIndex : Options.bCreateMaterials ? MaterialIndices : std::vector<uint32>{})
 		{
 			if (CheckCanceled()) return false;
 			const auto Material = std::ranges::find(
@@ -503,6 +607,45 @@ namespace Durin::AssetForge::Builtins
 				.AssetClassName = "Durin::DMaterialInstance"});
 			OutPlan.Outputs.push_back(std::move(MaterialOutput));
 		}
+
+		if (Options.bIncludeUnusedResources && Options.bCreateTextures)
+			for (uint32 Index = 0; Index < OutPlan.Scene.Images.size(); ++Index)
+			{
+				if (std::ranges::any_of(OutPlan.Outputs, [&](const auto& Output) {
+					return Output.Kind == ESceneOutputKind::Texture2D && Output.SourceIndex == Index; })) continue;
+				const auto& Image = OutPlan.Scene.Images[Index];
+				const auto Key = std::format("{}:{}:{}:{}:{}:{}:{}", Image.StableIdentity,
+					static_cast<uint32>(ETextureUsage::Color), static_cast<uint32>(ESceneTextureDerivation::None),
+					std::bit_cast<uint32>(1.0f), std::bit_cast<uint32>(1.0f), std::bit_cast<uint32>(1.0f), std::bit_cast<uint32>(1.0f));
+				const auto Identity = "scene:texture:" + StableSuffix(Key);
+				FPackagePath Path;
+				if (!MakeSceneOutputPath(DestinationDirectory, "Textures", MakeUniqueName(Image.SuggestedName,
+					std::format("Image_{}", Index), TextureNames), Path, Error)) return false;
+				OutOutputs.push_back({.StableIdentity = Identity, .Role = "Texture2D.Color", .AssetPath = Path, .AssetClassName = "Durin::DTexture2D"});
+				OutPlan.Outputs.push_back({.StableIdentity = Identity, .Kind = ESceneOutputKind::Texture2D,
+					.SourceIndex = Index, .TextureUsage = ETextureUsage::Color});
+			}
+
+		for (auto& Output : OutPlan.Outputs)
+		{
+			if (IsSceneMaterial(Output.Kind))
+				for (const auto& Binding : Output.TextureBindings) Output.Dependencies.push_back(Binding.TextureIdentity);
+			if (Output.Kind == ESceneOutputKind::StaticMesh)
+			{
+				FImportedSceneData Geometry;
+				if (Output.bCombinedMesh) Geometry = SelectedGeometry;
+				else if (!SelectImportedMeshResource(OutPlan.Document, Output.SourceIndex, Geometry, Error)) return false;
+				for (const auto& Material : OutPlan.Outputs)
+					if (IsSceneMaterial(Material.Kind) && std::ranges::any_of(Geometry.MaterialSlots, [&](const auto& Slot) {
+						return Slot.SourceMaterialIndex == Material.SourceIndex; })) Output.Dependencies.push_back(Material.StableIdentity);
+			}
+			std::ranges::sort(Output.Dependencies);
+			Output.Dependencies.erase(std::unique(Output.Dependencies.begin(), Output.Dependencies.end()), Output.Dependencies.end());
+		}
+		for (const auto& Warning : OutPlan.Warnings)
+			OutDiagnostics.push_back({.Severity = EImportDiagnosticSeverity::Warning,
+				.Category = EImportDiagnosticCategory::TranslationFailure, .Phase = "asset-plan",
+				.SourceIdentity = "root", .Message = Warning});
 
 		for (const FSceneImportDiagnostic& Diagnostic : OutPlan.Scene.Diagnostics)
 		{
@@ -719,7 +862,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto BuildSceneImportTextureProduct(
 		const FSourceSnapshot& Snapshot,
-		const FSceneImportPlan& Data,
+		const FAssetImportPlan& Data,
 		const FSceneOutputData& Descriptor,
 		const std::function<bool()>& IsCancellationRequested,
 		FSceneTextureBuildProduct& OutProduct,

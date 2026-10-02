@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
 #include "Asset/AssetImportData.h"
 #include "DObject/Package.h"
@@ -236,6 +237,7 @@ namespace Durin::AssetForge::Builtins
 		switch (Error.Code)
 		{
 		case ETexture2DSubmissionError::None: return {};
+		case ETexture2DSubmissionError::UnsupportedReimport: return std::string(ModelOneTimeImportDiagnostic);
 		case ETexture2DSubmissionError::Package: return "Texture2D source capture requires an owning package.";
 		case ETexture2DSubmissionError::Mount: return "Texture2D package path could not be resolved: " + Error.PackagePath;
 		case ETexture2DSubmissionError::SourceHint: return Error.SourceHintCause ? FormatSourceHintError(*Error.SourceHintCause) : "Invalid Texture2D source hint.";
@@ -413,13 +415,14 @@ namespace Durin::AssetForge::Builtins
 	auto DTexture2DFactory::GetSourceFileDialogs(const DObject& Object) const
 		-> std::vector<FReimportSourceFileDialog>
 	{
-		if (!Cast<DTexture2D>(&Object)) return {};
+		if (!Cast<DTexture2D>(&Object) || IsOneTimeModelImportedAsset(Object)) return {};
 		return {{"Reimport Texture2D From File", "Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}};
 	}
 
 	auto DTexture2DFactory::GetReimportCapabilities(const DObject& Object) const
 		-> FReimportCapabilities
 	{
+		if (IsOneTimeModelImportedAsset(Object)) return {.Diagnostic = std::string(ModelOneTimeImportDiagnostic)};
 		const auto* Texture = Cast<DTexture2D>(&Object);
 		if (!Texture || !Texture->GetPackage())
 			return {.Diagnostic = "Only packaged Texture2D assets can be reimported."};
@@ -437,6 +440,11 @@ namespace Durin::AssetForge::Builtins
 	auto DTexture2DFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
+		if (IsOneTimeModelImportedAsset(Object))
+		{
+			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			return;
+		}
 		auto* Texture = Cast<DTexture2D>(&Object);
 		const DAssetImportData* ImportData = Texture ? Texture->GetAssetImportData() : nullptr;
 		const FSourceFile* Source = ImportData
@@ -469,6 +477,11 @@ namespace Durin::AssetForge::Builtins
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{
+		if (IsOneTimeModelImportedAsset(Object))
+		{
+			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			return;
+		}
 		auto* Texture = Cast<DTexture2D>(&Object);
 		if (!Texture || Filenames.size() != 1 || Filenames.front().empty())
 		{
@@ -578,6 +591,8 @@ namespace Durin::AssetForge::Builtins
 		DTexture2D& Texture,
 		FTexture2DCompilationCompletion Completion) -> FTexture2DSubmissionResult
 	{
+		if (IsOneTimeModelImportedAsset(Texture)) return std::unexpected(FTexture2DSubmissionError{
+			.Code = ETexture2DSubmissionError::UnsupportedReimport, .ObjectPath = Texture.GetObjectPath()});
 		const DAssetImportData* ImportData = Texture.GetAssetImportData();
 		const FSourceFile* Source = ImportData
 			? ImportData->GetSourceData().FindByRole("source") : nullptr;
@@ -597,6 +612,8 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		FTexture2DCompilationCompletion Completion) -> FTexture2DSubmissionResult
 	{
+		if (IsOneTimeModelImportedAsset(Texture)) return std::unexpected(FTexture2DSubmissionError{
+			.Code = ETexture2DSubmissionError::UnsupportedReimport, .ObjectPath = Texture.GetObjectPath()});
 		if (FilePath.empty())
 		{
 			return std::unexpected(FTexture2DSubmissionError{.Code = ETexture2DSubmissionError::SourceFile, .ObjectPath = Texture.GetObjectPath(), .Filename = std::string(FilePath)});

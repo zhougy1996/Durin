@@ -61,12 +61,12 @@ durin_add_native_test(SceneImportTests
 		"Texture processing and scene import require TextureBuild and AssetForgeBuiltins editor services."
 	KIND integration
 	DOMAINS asset-import
-	MODULES engine texture-build asset-forge-builtins
+	MODULES engine texture-build asset-forge-builtins content-browser
 	STACKS editor
 	TIMEOUT 600
 	SOURCES Private/Texture/SceneImportTests.cpp
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
-	LIBRARIES ShaderBuild ${_durin_texture_test_libraries} TextureBuild bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ShaderBuild ${_durin_texture_test_libraries} TextureBuild ContentBrowser bc7enc_rdo::bc7enc_rdo
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises editor scene-import publication and rollback across runtime asset families."
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"

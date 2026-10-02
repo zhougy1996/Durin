@@ -1,7 +1,6 @@
 #include "SceneImportInternal.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #include "Asset/Asset.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "Materials/MaterialInstance.h"
 
@@ -32,34 +31,11 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
-	auto ConfigureSceneMaterials(FSceneImportPlan& Plan,
-		std::vector<FImportOutputSummary>& Outputs, std::string_view Source,
+	auto ConfigureSceneMaterials(FAssetImportPlan& Plan,
+		std::vector<FImportOutputSummary>& Outputs,
 		const FPackagePath& Destination, const FSceneMaterialImportOptions& Options,
 		std::vector<FSceneMaterialPreview>& Preview, std::string& Error) -> bool
 	{
-		std::unordered_map<std::string, DMaterialInterface*> Existing;
-		std::vector<FPackagePath> Paths;
-		const auto Prefix = Destination.ToString() + "/";
-		for (const auto& [Path, Entry] : CaptureAssetCatalogSnapshot().Assets)
-			if (Path.GetView().starts_with(Prefix)) Paths.push_back(Path);
-		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-			if (auto* Package = Cast<DPackage>(Object); Package && Package->GetPackagePath().starts_with(Prefix)
-				&& !std::ranges::contains(Paths, Package->GetPackagePathIdentity()))
-				Paths.push_back(Package->GetPackagePathIdentity());
-		for (const auto& Path : Paths)
-		{
-			FObjectPath ObjectPath;
-			if (!FObjectPath::TryCreate(Path.ToString() + "." + std::string(Path.GetPackageName()), ObjectPath)) continue;
-			auto* Material = LoadObject<DMaterialInterface>(ObjectPath).value_or(nullptr);
-			if (!Material) continue;
-			const auto& Receipt = Material->GetImportProvenance();
-			if (Receipt.RecipeId != "Durin.ImportedSurface" || Receipt.RecipeVersion != 1 || Receipt.SourceIdentity != Source) continue;
-			if (!Existing.emplace(Receipt.OutputIdentity, Material).second)
-			{
-				Error = "Multiple materials claim the same scene source/output identity.";
-				return false;
-			}
-		}
 		std::unordered_set<std::string> OverrideIds;
 		for (const auto& Override : Options.Overrides)
 			if (!OverrideIds.insert(Override.StableIdentity).second ||
@@ -82,41 +58,50 @@ namespace Durin::AssetForge::Builtins
 			if (const auto Override = std::ranges::find(Options.Overrides, Output.StableIdentity,
 				&FSceneMaterialOverride::StableIdentity); Override != Options.Overrides.end()) Row.Selection = Override->Selection;
 			if (Row.Selection.Mode != ESceneMaterialImportMode::CreateMaterials &&
-				Row.Selection.Mode != ESceneMaterialImportMode::CreateInstances)
+				Row.Selection.Mode != ESceneMaterialImportMode::CreateInstances &&
+				Row.Selection.Mode != ESceneMaterialImportMode::UseExisting)
 			{
 				Error = "Unknown scene material import mode.";
 				return false;
 			}
 			auto Summary = std::ranges::find(Outputs, Output.StableIdentity, &FImportOutputSummary::StableIdentity);
-			const auto Previous = Existing.find(Output.StableIdentity);
-			if (Previous != Existing.end() && !Options.bRebuildExistingMaterials)
+			Output.bExistingMaterialMapping = false;
+			if (Row.Selection.Mode == ESceneMaterialImportMode::UseExisting)
 			{
-				Output.PreservedMaterial = TStrongObjectPtr<DMaterialInterface>(Previous->second);
-				Row.bPreserved = true;
-				Row.Selection.Mode = Cast<DMaterial>(Previous->second)
-					? ESceneMaterialImportMode::CreateMaterials : ESceneMaterialImportMode::CreateInstances;
-				Row.Selection.ParentMaterialPath = Previous->second->GetParent()
-					? Previous->second->GetParent()->GetObjectPath() : std::string{};
-				Row.Message = "Preserve existing material, parent and edits";
+				FObjectPath Path;
+				auto* Material = FObjectPath::TryCreate(Row.Selection.ExistingMaterialPath, Path)
+					? LoadObject<DMaterialInterface>(Path).value_or(nullptr) : nullptr;
+				if (!Material || !Material->GetPackage())
+				{
+					Row.Message = "Select a packaged existing material or material instance.";
+					bValid = false;
+				}
+				else
+				{
+					Output.bExistingMaterialMapping = true;
+					Output.PreservedMaterial = TStrongObjectPtr<DMaterialInterface>(Material);
+					Output.Kind = Cast<DMaterialInstance>(Material) ? ESceneOutputKind::MaterialInstance : ESceneOutputKind::Material;
+					Output.TextureBindings.clear();
+					Output.Dependencies.clear();
+					Summary->AssetPath = Material->GetPackage()->GetPackagePathIdentity();
+					Summary->Role = Output.Kind == ESceneOutputKind::Material ? "Material" : "MaterialInstance";
+					Summary->AssetClassName = Material->GetClass()->GetQualifiedName().ToString();
+					Row.AssetPath = Summary->AssetPath;
+					Row.bPreserved = Row.bCompatible = true;
+					Row.Message = "Use existing material without modifying it";
+				}
+				continue;
 			}
+
 			const bool bInstance = Row.Selection.Mode == ESceneMaterialImportMode::CreateInstances;
 			Output.Kind = bInstance ? ESceneOutputKind::MaterialInstance : ESceneOutputKind::Material;
 			Summary->Role = bInstance ? "MaterialInstance" : "Material";
 			Summary->AssetClassName = bInstance ? "Durin::DMaterialInstance" : "Durin::DMaterial";
-			if (Previous != Existing.end())
-			{
-				Summary->AssetPath = Previous->second->GetPackage()->GetPackagePathIdentity();
-				if (bInstance != (Cast<DMaterialInstance>(Previous->second) != nullptr))
-					Row.Message = "Changing an existing material's asset type requires a separate destination.";
-			}
-			else
-			{
-				if (!FPackagePath::TryCreate(Destination.ToString() + "/Materials/" + (bInstance ? "MI_" : "M_")
-					+ std::string(Summary->AssetPath.GetPackageName()), Summary->AssetPath))
-					Row.Message = "The generated material path is invalid.";
-				else if (FindAssetExact(Summary->AssetPath) || FindResidentPackage(Summary->AssetPath))
-					Row.Message = "The material output path is occupied by an unrelated asset.";
-			}
+			if (!FPackagePath::TryCreate(Destination.ToString() + "/Materials/" + (bInstance ? "MI_" : "M_")
+				+ std::string(Summary->AssetPath.GetPackageName()), Summary->AssetPath))
+				Row.Message = "The generated material path is invalid.";
+			else if (FindAssetExact(Summary->AssetPath) || FindResidentPackage(Summary->AssetPath))
+				Row.Message = "The material output path is occupied by an unrelated asset.";
 			Row.AssetPath = Summary->AssetPath;
 			Row.bCompatible = Row.bPreserved || Row.Message.empty();
 			if (bInstance && !Row.bPreserved && Row.bCompatible)
@@ -125,9 +110,7 @@ namespace Durin::AssetForge::Builtins
 				if (FObjectPath::TryCreate(Row.Selection.ParentMaterialPath, ParentPath))
 					Output.Parent = TStrongObjectPtr<DMaterial>(LoadObject<DMaterial>(ParentPath).value_or(nullptr));
 				if (!Output.Parent.Get()) Row.Message = "Select an existing parent Material to create instances.";
-				else if (std::ranges::any_of(Existing, [&](const auto& Entry) {
-					return Entry.second == Output.Parent.Get();
-				}) || std::ranges::any_of(Outputs, [&](const auto& Other) {
+				else if (std::ranges::any_of(Outputs, [&](const auto& Other) {
 					return Other.AssetPath == Output.Parent->GetPackage()->GetPackagePathIdentity();
 				})) Row.Message = "The selected parent is an output of this import. Select a parent outside the output set.";
 				else
@@ -151,6 +134,9 @@ namespace Durin::AssetForge::Builtins
 				? (Output.bStandardPBRParent ? "Compatible standard PBR mapping" : "Compatible imported PBR mapping")
 				: "Create editable local material";
 		}
+		if (!bValid)
+			if (const auto Row = std::ranges::find(Preview, false, &FSceneMaterialPreview::bCompatible); Row != Preview.end()) Error = Row->Message;
+
 		return bValid;
 	}
 
@@ -174,14 +160,14 @@ namespace Durin::AssetForge::Builtins
 			return Result;
 		}
 		auto Snapshot = Builder.Freeze(Diagnostics);
-		FSceneImportPlan Plan;
+		FAssetImportPlan Plan;
 		std::vector<FImportOutputSummary> Outputs;
 		if (!Snapshot || !BuildScenePlan(*Snapshot, DestinationDirectory, Settings, Plan, Outputs, Diagnostics, Result.Message))
 		{
 			if (Result.Message.empty()) Result.Message = "Scene preview could not be built.";
 			return Result;
 		}
-		Result.bSucceeded = ConfigureSceneMaterials(Plan, Outputs, Source, DestinationDirectory,
+		Result.bSucceeded = ConfigureSceneMaterials(Plan, Outputs, DestinationDirectory,
 			MaterialOptions, Result.Materials, Result.Message);
 		return Result;
 	}

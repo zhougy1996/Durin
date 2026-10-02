@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-02
 
 ## Ownership Layers
 
@@ -18,8 +18,8 @@ Asynchronous asset work crosses three independent concerns:
 Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
 preparation and explicit setter application or delegates only build work to its typed family
-domain. Scene uses a family-specific `FSceneImportSession` around private captured
-values. It does not introduce a generic import job framework.
+domain. Shared asset import uses `FAssetImportSession` around private captured
+values; `FSceneImportSession` remains a compatibility alias. It does not introduce a generic import job framework.
 
 Texture2D adapters consume the GameThread terminal result defined by
 [Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
@@ -40,7 +40,8 @@ current serials alone may publish an upload.
 
 ## Scene Import Sessions
 
-LevelEditor owns a `FSceneImportSession` and advances it each frame. Selecting a
+AssetForgeBuiltins owns the ordinary glTF form and its `FAssetImportSession`;
+LevelEditor retains a legacy FBX `FSceneImportSession`. Both advance each frame. Selecting a
 source starts detached capture, dependency discovery and scene decoding. The Ready
 phase exposes material configuration using the retained source snapshot and parsed
 scene; destination and material changes do not decode geometry again. Coordinate

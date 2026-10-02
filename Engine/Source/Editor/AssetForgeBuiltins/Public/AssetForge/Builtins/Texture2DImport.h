@@ -66,7 +66,7 @@ namespace Durin::AssetForge::Builtins
 
 	enum class ETexture2DSubmissionError : uint8
 	{
-		None, Package, Mount, SourceHint, SourceFile, Capture, Translation, Compilation, MissingSource
+		None, Package, Mount, SourceHint, SourceFile, Capture, Translation, Compilation, MissingSource, UnsupportedReimport
 	};
 	struct FTexture2DSubmissionError
 	{

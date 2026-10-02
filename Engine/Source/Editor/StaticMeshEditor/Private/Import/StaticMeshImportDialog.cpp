@@ -21,8 +21,8 @@ namespace Durin::Editor::StaticMesh
 		auto IsSupportedModelExtension(std::string_view Extension) -> bool
 		{
 			const std::string Folded = StringUtils::FoldAscii(Extension);
-			return Folded == ".obj" || Folded == ".fbx" || Folded == ".gltf"
-				|| Folded == ".glb" || Folded == ".dae" || Folded == ".3ds"
+			return Folded == ".obj" || Folded == ".fbx"
+				|| Folded == ".dae" || Folded == ".3ds"
 				|| Folded == ".ply" || Folded == ".stl";
 		}
 
@@ -174,9 +174,9 @@ namespace Durin::Editor::StaticMesh
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Select a Static Mesh Source File";
 		Request.Filters = {
-			{"All Supported Models", "*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.ply;*.stl"},
+			{"All Supported Models", "*.obj;*.fbx;*.dae;*.3ds;*.ply;*.stl"},
 			{"Wavefront OBJ", "*.obj"}, {"Autodesk FBX", "*.fbx"},
-			{"glTF", "*.gltf;*.glb"}, {"COLLADA", "*.dae"},
+			{"COLLADA", "*.dae"},
 			{"PLY", "*.ply"}, {"STL", "*.stl"}, {"All Files", "*.*"}
 		};
 		if (const FProjectInfo* Project = GetCurrentProject())

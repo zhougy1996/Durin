@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetForge/Builtins/ImportedScene.h"
+#include "AssetForge/Builtins/ImportedDocument.h"
 #include "Json/Json.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
@@ -452,6 +453,188 @@ namespace Durin::AssetForge::Builtins
 		EXPECT_TRUE(std::ranges::none_of(
 			Scene.MaterialSlots,
 			[](const FImportedMaterialSlot& Slot) { return Slot.SourceName == "Unused"; }));
+	}
+
+	TEST(FAssetImportTests, DocumentSeparatesSourceResourcesFromInstances)
+	{
+		FImportedDocument Document;
+		ASSERT_TRUE(ImportDocumentFromFile(TestDataPath("StaticModelMaterials/ResourceInstances.gltf"), Document));
+		ASSERT_EQ(Document.Meshes.size(), 2u);
+		ASSERT_EQ(Document.Meshes[0].Primitives.size(), 2u);
+		ASSERT_EQ(Document.Meshes[1].Primitives.size(), 1u);
+		EXPECT_EQ(Document.Meshes[0].SourceName, "TwoThenZero");
+		EXPECT_EQ(Document.Meshes[0].Primitives[0].SourceMaterialIndex, 2u);
+		EXPECT_EQ(Document.Meshes[0].Primitives[1].SourceMaterialIndex, 0u);
+		EXPECT_EQ(Document.Meshes[1].Primitives[0].SourceMaterialIndex, 1u);
+		const auto& Primitive = Document.Meshes[0].Primitives[0];
+		ExpectVec3Eq({0, 0, 0}, Primitive.Positions[0]);
+		ExpectVec3Eq({1, 0, 0}, Primitive.Positions[1]);
+		ExpectVec3Eq({0, 1, 0}, Primitive.Positions[2]);
+		ExpectVec2Eq({0, 0}, Primitive.UVChannels[0][0]);
+		ExpectVec2Eq({1, 0}, Primitive.UVChannels[0][1]);
+		ExpectVec2Eq({0, 1}, Primitive.UVChannels[0][2]);
+		ASSERT_EQ(Document.Nodes.size(), 4u);
+		EXPECT_EQ(Document.Nodes[1].MeshIndices, (std::vector<uint32>{0}));
+		EXPECT_EQ(Document.Nodes[2].MeshIndices, Document.Nodes[1].MeshIndices);
+		EXPECT_EQ(Document.Nodes[1].ParentNodeIndex, 0);
+		ExpectVec3Eq({11, 22, 33}, FVector3f(Document.Nodes[1].GlobalTransform[3]));
+		ExpectVec3Eq({1, 2, 3}, FVector3f(Document.Nodes[1].LocalTransform[3]));
+		ASSERT_EQ(Document.Scenes.size(), 2u);
+		EXPECT_EQ(Document.Scenes[0].RootNodeIndices, (std::vector<uint32>{0}));
+		EXPECT_EQ(Document.Scenes[1].RootNodeIndices, (std::vector<uint32>{3}));
+	}
+
+	TEST(FAssetImportTests, DocumentConjugatesTransformsAndConvertsLocalGeometryOnce)
+	{
+		FImportedDocument Document;
+		const auto Options = MakeYUpNegativeZForwardOptions();
+		ASSERT_TRUE(ImportDocumentFromFile(TestDataPath("StaticModelMaterials/ResourceInstances.gltf"), Document, Options));
+		const auto& Primitive = Document.Meshes[0].Primitives[0];
+		ExpectVec3Eq({0, 0, 0}, Primitive.Positions[0]);
+		ExpectVec3Eq({0, 1, 0}, Primitive.Positions[1]);
+		ExpectVec3Eq({0, 0, 1}, Primitive.Positions[2]);
+		ExpectVec3Eq({-1, 0, 0}, Primitive.Normals[0]);
+		EXPECT_EQ(Primitive.Indices, (std::vector<uint32>{0, 2, 1}));
+		const auto& Transform = Document.Nodes[1].GlobalTransform;
+		ExpectVec3Eq({-33, 11, 22}, FVector3f(Transform * FVector4f(Primitive.Positions[0], 1)));
+		ExpectVec3Eq({-33, 9, 22}, FVector3f(Transform * FVector4f(Primitive.Positions[1], 1)));
+		ExpectVec3Eq({-33, 11, 25}, FVector3f(Transform * FVector4f(Primitive.Positions[2], 1)));
+	}
+
+	TEST(FAssetImportTests, DocumentRejectsMalformedHierarchyAndUnsupportedPrimitives)
+	{
+		const auto Directory = Durin::Testing::CreateTestFixtureDirectory("DocumentFailures");
+		for (const auto Case : {"cycle", "multiple-parent", "sparse", "morph", "line", "matrix-trs", "bad-material"})
+		{
+			SCOPED_TRACE(Case);
+			FJsonDocument Source;
+			ASSERT_TRUE(Source.LoadFromFile(TestDataPath("StaticModelMaterials/ResourceInstances.gltf")));
+			auto Root = Source.GetMutableRoot();
+			Root.GetRef("buffers").GetRef(size_t(0)).SetChildValue("uri", "Triangle.bin");
+			std::filesystem::copy_file(TestDataPath("StaticModelMaterials/Triangle.bin"),
+				Directory / "Triangle.bin", std::filesystem::copy_options::overwrite_existing);
+			const std::string_view Name(Case);
+			if (Name == "cycle") Root.GetRef("nodes").GetRef(size_t(1)).AddArray("children").AppendValue(uint32(0));
+			if (Name == "multiple-parent") Root.GetRef("nodes").GetRef(size_t(2)).AddArray("children").AppendValue(uint32(1));
+			if (Name == "sparse") Root.GetRef("accessors").GetRef(size_t(0)).AddObject("sparse");
+			if (Name == "morph") Root.GetRef("meshes").GetRef(size_t(0)).GetRef("primitives").GetRef(size_t(0)).AddArray("targets");
+			if (Name == "line") Root.GetRef("meshes").GetRef(size_t(0)).GetRef("primitives").GetRef(size_t(0)).SetChildValue("mode", uint32(1));
+			if (Name == "bad-material") Root.GetRef("meshes").GetRef(size_t(0)).GetRef("primitives").GetRef(size_t(0)).SetChildValue("material", uint32(99));
+			if (Name == "matrix-trs") Root.GetRef("nodes").GetRef(size_t(0)).AddArray("matrix").AppendValue(1);
+			const auto Path = Directory / (std::string(Name) + ".gltf");
+			{ std::ofstream Stream(Path); Stream << Source.ToString(); }
+			FImportedDocument Document;
+			EXPECT_FALSE(ImportDocumentFromFile(Path.generic_string(), Document));
+			ASSERT_FALSE(Document.Diagnostics.empty());
+			EXPECT_EQ(Document.Diagnostics.back().Severity, EImportDiagnosticSeverity::Error);
+		}
+	}
+
+	TEST(FAssetImportTests, DocumentExpansionMatchesLegacyCombinedGeometry)
+	{
+		for (const auto File : {"StaticModelMaterials/ResourceInstances.gltf", "StaticModelMaterials/PhongMaterial.fbx"})
+		{
+			SCOPED_TRACE(File);
+			for (const auto& Options : {FMeshImportOptions{}, MakeYUpNegativeZForwardOptions()})
+			{
+				FImportedDocument Document;
+				FImportedSceneData Legacy, Combined;
+				std::string Error;
+				ASSERT_TRUE(ImportDocumentFromFile(TestDataPath(File), Document, Options));
+				ASSERT_TRUE(ImportFromFile(TestDataPath(File), Legacy, Options));
+				ASSERT_TRUE(ExpandImportedDocument(Document, Combined, Error)) << Error;
+				ASSERT_EQ(Combined.Meshes.size(), Legacy.Meshes.size());
+				for (size_t Index = 0; Index < Legacy.Meshes.size(); ++Index)
+				{
+					const auto& Expected = Legacy.Meshes[Index];
+					const auto& Actual = Combined.Meshes[Index];
+					EXPECT_EQ(Actual.SourceMaterialIndex, Expected.SourceMaterialIndex);
+					EXPECT_EQ(Actual.Indices, Expected.Indices);
+					ASSERT_EQ(Actual.Positions.size(), Expected.Positions.size());
+					for (size_t Vertex = 0; Vertex < Actual.Positions.size(); ++Vertex)
+					{
+						ExpectVec3Eq(Expected.Positions[Vertex], Actual.Positions[Vertex]);
+						ExpectVec3Eq(Expected.Normals[Vertex], Actual.Normals[Vertex]);
+						ExpectVec4Eq(Expected.Tangents[Vertex], Actual.Tangents[Vertex]);
+						ExpectVec2Eq(Expected.UVChannels[0][Vertex], Actual.UVChannels[0][Vertex]);
+					}
+				}
+			}
+		}
+	}
+
+	TEST(FAssetImportTests, DocumentSelectionUsesLocalResourcesAndExplicitSceneRoots)
+	{
+		FImportedDocument Document;
+		ASSERT_TRUE(ImportDocumentFromFile(TestDataPath("StaticModelMaterials/ResourceInstances.gltf"), Document));
+		FImportedSceneData Geometry;
+		std::string Error;
+		ASSERT_TRUE(SelectImportedMeshResource(Document, 0, Geometry, Error)) << Error;
+		EXPECT_EQ(Geometry.Meshes.size(), 2u);
+		EXPECT_EQ(Geometry.MaterialSlots.size(), 2u);
+		ExpectVec3Eq({0, 0, 0}, Geometry.Meshes[0].Positions[0]);
+		const std::array<uint32, 1> OtherScene{1};
+		ASSERT_TRUE(ExpandImportedDocument(Document, Geometry, Error, OtherScene)) << Error;
+		ASSERT_EQ(Geometry.Meshes.size(), 1u);
+		EXPECT_EQ(Geometry.Meshes[0].SourceMaterialIndex, 1u);
+		EXPECT_FALSE(SelectImportedMeshResource(Document, 99, Geometry, Error));
+		EXPECT_TRUE(Geometry.Meshes.empty());
+	}
+
+	TEST(FAssetImportTests, FbxDocumentRetainsLegacyMaterialInterpretation)
+	{
+		FImportedDocument Document;
+		FImportedSceneData Legacy;
+		const auto Path = TestDataPath("StaticModelMaterials/PhongMaterial.fbx");
+		ASSERT_TRUE(ImportFromFile(Path, Legacy));
+		ASSERT_TRUE(ImportDocumentFromFile(Path, Document));
+		ASSERT_EQ(Document.Meshes.size(), 1u);
+		ASSERT_EQ(Document.Meshes[0].Primitives.size(), 1u);
+		ASSERT_EQ(Document.Materials.size(), Legacy.Materials.size());
+		for (size_t Index = 0; Index < Legacy.Materials.size(); ++Index)
+			ExpectVec4Eq(Legacy.Materials[Index].BaseColorFactor, Document.Materials[Index].BaseColorFactor);
+		ASSERT_FALSE(Document.Nodes.empty());
+		EXPECT_EQ(Document.Dependencies.size(), Legacy.Dependencies.size());
+		EXPECT_EQ(Document.Diagnostics.size(), Legacy.Diagnostics.size());
+	}
+
+	TEST(FAssetImportTests, LegacyCombinedGeometryRetainsInstanceTransformsAndOrigin)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(TestDataPath("StaticModelMaterials/ResourceInstances.gltf"), Scene));
+		ASSERT_EQ(Scene.Meshes.size(), 4u);
+		const auto& Mirrored = Scene.Meshes[0];
+		ASSERT_EQ(Mirrored.Positions.size(), 3u);
+		ExpectVec3Eq({11, 22, 33}, Mirrored.Positions[0]);
+		ExpectVec3Eq({9, 22, 33}, Mirrored.Positions[1]);
+		ExpectVec3Eq({11, 25, 33}, Mirrored.Positions[2]);
+		EXPECT_EQ(Mirrored.Indices, (std::vector<uint32>{0, 2, 1}));
+		ExpectVec3Eq({0, 0, 1}, Mirrored.Normals[0]);
+		EXPECT_FLOAT_EQ(Mirrored.Tangents[0].w, -Scene.Meshes[2].Tangents[0].w);
+		ExpectVec3Eq({9, 20, 32}, Scene.Meshes[2].Positions[0]);
+		EXPECT_EQ(Scene.Meshes[0].SourceMaterialIndex, 2u);
+		EXPECT_EQ(Scene.Meshes[1].SourceMaterialIndex, 0u);
+		EXPECT_EQ(Scene.MaterialSlots.size(), 2u);
+	}
+
+	TEST(FAssetImportTests, SharedImageKeepsIndependentUsageUvAndSamplerBindings)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(TestDataPath("StaticModelMaterials/SharedImageUsage.gltf"), Scene));
+		ASSERT_EQ(Scene.Images.size(), 1u);
+		ASSERT_EQ(Scene.Materials[0].TextureBindings.size(), 2u);
+		const auto& Color = Scene.Materials[0].TextureBindings[0];
+		const auto& Data = Scene.Materials[0].TextureBindings[1];
+		EXPECT_EQ(Color.ImageIndex, Data.ImageIndex);
+		EXPECT_EQ(Color.Semantic, EImportedTextureSemantic::BaseColor);
+		EXPECT_EQ(Data.Semantic, EImportedTextureSemantic::MetallicRoughness);
+		EXPECT_EQ(Color.UVChannel, 0u);
+		EXPECT_EQ(Data.UVChannel, 1u);
+		EXPECT_EQ(Color.Sampler.WrapU, EImportedSamplerWrap::ClampToEdge);
+		EXPECT_EQ(Color.Sampler.WrapV, EImportedSamplerWrap::MirroredRepeat);
+		EXPECT_EQ(Data.Sampler.WrapU, EImportedSamplerWrap::Repeat);
+		EXPECT_EQ(Color.Sampler.MagFilter, EImportedSamplerFilter::Nearest);
+		EXPECT_EQ(Data.Sampler.MagFilter, EImportedSamplerFilter::Linear);
 	}
 
 	TEST(FAssetImportTests, SceneGoldenSnapshotFreezesRequiredAndOptionalCases)

@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-02
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -272,10 +272,89 @@ save retry and presentation. The batch performs no automatic save, publication,
 peer rollback, naming policy, or Scene orchestration. Existing dialogs continue
 to use their single-asset workflows.
 
+## Normalized Source Documents
+
+`AssetForgeBuiltins::FImportedDocument` separates source mesh resources (each
+owning primitive streams and material indices) from transform nodes that refer
+to those resources. Multiple glTF instances share a resource; an FBX node can
+reference several Assimp mesh resources. The document retains all source scenes,
+the default scene, unused resources, materials, images, dependencies and diagnostics.
+These source nodes do not construct Actors, Levels or runtime scene objects.
+
+`ImportDocumentFromFile` applies the caller's source basis to local geometry once
+and conjugates local/global transforms by that basis. Numeric lengths and source
+origins remain intact. glTF's engine-basis setting is
+`FStaticMeshImportSettings::MakeYUpNegativeZForward`, mapping `(x,y,z)` to
+`(-z,x,y)`; neither this path nor the legacy path introduces an implicit unit
+scale. FBX retains its existing Assimp interpretation. UV orientation matches the
+existing format decoder path. Triangle winding and tangent handedness follow
+basis and instance determinants; normals use inverse transpose.
+
+The glTF adapter constructs one explicitly named decoder mesh per source
+primitive. Synthetic source tokens map decoded geometry back to its original
+resource/primitive/material independently of decoder traversal or material order.
+The new document path rejects morph/skin attributes, non-triangle primitives,
+sparse accessors and animation/skin tables with source-attributable diagnostics.
+Malformed transforms, invalid parents, cycles and scene roots fail decoding.
+
+`SelectImportedMeshResource` returns local primitive geometry and its used material
+slots. `ExpandImportedDocument` explicitly expands the default or requested source
+scenes, applying each node's canonical global transform once. It preserves origin,
+uses each selected node once when scene roots overlap, and rejects singular mesh
+instance transforms. The Scene session uses this document boundary and expands a
+combined compatibility projection. `ImportedScene.h`, `ImportFromFile` and
+`ImportGeometryFromMemory` remain explicit legacy/standalone flattened boundaries;
+reflected receipt names and existing output identities are unchanged.
+
+## Shared Asset Output Planning
+
+`AssetImport.h` exposes `FAssetImportSession`, `FAssetImportOptions`, and the
+headless `ImportAssetOutputs` entrypoint. New imports default to one output per
+selected source mesh; primitives remain sections/material slots and node instances
+reuse that output. Combined mode expands the selected source scenes explicitly.
+Empty mesh selection resolves resources reachable from those scenes. Explicit
+mesh selection can include uninstanced resources. Include-unused adds otherwise
+unused meshes, materials and images; combined geometry still expands instances
+and reports that uninstanced geometry requires split mode.
+
+The private `FAssetImportPlan` carries source resource references, destination
+summaries, family build policy and each output's actual dependency identities.
+Mesh dependencies include only its used materials; material dependencies include
+its texture products. Texture reuse includes source image identity, usage and
+color/data interpretation, channel derivation and factor scaling. Sampler/UV
+semantics remain on each binding.
+
+Output categories can be disabled explicitly. Disabled materials leave mesh slots
+unassigned and report that fallback. Disabled textures retain untextured source
+factors and warn for affected materials. `UseExisting` maps a material slot to a
+selected packaged material/interface without modifying, compiling or saving it;
+its source texture products are omitted unless another output needs them or unused
+resources were explicitly requested.
+
+`PreviewOutputs` resolves paths, create/preserve/conflict dispositions, material
+policy and destination occupancy before
+building. `BeginImport` consumes that resolved preview for unchanged selections.
+Source closure hashes are checked before product construction and again before
+publication. Publication rejects destination occupancy and mapped-material revision changes
+rather than accepting a different occupant. Existing standalone ownership,
+compilation and protected per-package save boundaries remain in force.
+
+Output summaries report `Unexecuted`, `Saved`, `Preserved` or `Failed` state in
+addition to disposition. `SavedPackages` retains every committed package on later
+failure or cancellation. Preserved/material-mapped assets are never represented
+as newly saved packages. A failure stops publication and retires unpublished
+candidates; it does not roll back earlier committed packages.
+
+`SceneImport.h` and `SceneImportTypes.h` remain compatibility includes.
+`FSceneImportSession` aliases the shared session, whose constructor retains the
+legacy combined default when no explicit options are passed. `ImportSceneAssets`
+retains that combined policy and saved `scene:mesh:combined` identity.
+
 ## Scene Import
 
-Scene import is the one supported multi-output importer. It owns a private transient dependency model for textures, materials, and static
-meshes. Sources with skins or animation channels fail before staging outputs. The private model is not
+Scene import is the legacy combined-output entrypoint to the shared asset
+session. It owns a private transient dependency model for textures, materials,
+and static meshes. Sources with skins or animation channels fail before staging outputs. The private model is not
 a public AssetForge graph and is never persisted for replay.
 
 The importer:
@@ -310,22 +389,28 @@ Instances override source blend mode, cutoff and two-sided properties; shading
 and depth policy remain inherited. Every parameter application is checked.
 Prepared material candidates must finish compilation before publication.
 
-Matching source/output receipts identify reimport outputs independently of
-filenames. Ordinary reimport updates geometry and textures but retains complete
-existing materials, including graph edits, parent references, values and asset
-types. Mesh bindings are preserved by unique source slot name (unnamed or duplicate
-slots fall back to matching name and source index). Stored materials are not included in `SavedPackages`.
-`bRebuildExistingMaterials` explicitly replaces material edits and mesh bindings
-from the current source and selections. Asset-type changes are rejected and
-require another destination. Legacy imported instances and their existing
-parents remain supported. This conservative policy does not attempt a three-way
-parameter merge without a source/edit baseline.
+The glTF/GLB and FBX workflows are one-time import tools. They require unoccupied
+output destinations and reject occupied paths before building or publishing, even when
+legacy receipts claim the same source/output identity. Explicit `UseExisting`
+material mapping remains supported. Repeat imports use another destination;
+after partial publication, use another destination or explicitly remove unwanted
+outputs. There is no import-group record, source relocation, source-element
+matching across revisions, whole-source refresh or automatic legacy migration.
+
+New and legacy glTF/GLB/FBX assets cannot be reimported through the manager, standalone
+factory methods or public family reimport helpers. Detection uses the retained
+scene-root provenance (including embedded/external image products) or standalone
+family source hint. StaticMesh replacement-file reimport also rejects glTF/GLB/FBX
+sources for otherwise supported assets. Other source formats retain their existing
+reimport behavior. Class-only menu queries are candidates; loaded-object capability
+checks determine availability. Legacy reflected receipts remain readable, and saved
+assets remain loadable and editable without the original source files.
 
 Base-material parameter schemas contain native texture references in addition
 to reflected graph defaults. Scene publication and package reload include
 `MakeMaterialReferenceReplacementParticipant` to prepare, validate, and commit
-those references together. Failed publication leaves the old schema intact;
-successful publication refreshes material render bindings before retirement.
+those references together. Failed publication does not modify existing assets;
+package reload refreshes affected material render bindings before retirement.
 
 Scene constructs private candidate packages from CoreDObject package/object
 primitives. It does not call single-object `IAssetTools`: doing so would assign
@@ -342,13 +427,12 @@ are planned identities, not proof that their packages were saved.
 A persistence failure stops publication and discards only unpublished candidates.
 `FSceneImportResult::SavedPackages` identifies committed outputs even on failure;
 `bPersisted` is true only when the requested scene import finishes successfully.
-A retry preserves existing materials by default and replaces matching geometry
-and texture outputs.
+Model retries require unoccupied outputs; they do not replace committed assets.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation
-tombstone, or repair action. Matching source/output identities allow reimport
-and retry after partial persistence; unrelated destination collisions still fail.
+tombstone, or repair action. Model outputs reject destination reuse. Unrelated
+collisions fail, including outputs carrying matching legacy source receipts.
 
 FBX remains static-only. The selected glTF 2.0 subset supports contained
 external buffers, data URIs, GLB BIN data, static geometry, materials and
@@ -374,12 +458,26 @@ Occupancy facts and redirect targets remain independently inspectable.
 `FormatAssetDestinationValidation` is used by creation/import presentation adapters.
 
 Content Browser Import workflows are feature-owned scoped extensions.
-TextureEditor registers From File, LevelEditor registers Scene, and StaticMeshEditor
-registers standalone Static Mesh. Stable IDs and
+TextureEditor registers From File, AssetForgeBuiltins registers glTF / GLB
+Assets independently of a workspace, LevelEditor registers FBX Scene Source, and
+StaticMeshEditor registers standalone Static Mesh for the other supported formats. Stable IDs and
 explicit order values preserve the visible menu independently of module load
 order. ContentBrowser invokes applicable entries directly. Owners unregister extensions
 and finish dispatch before unloading their code; MainFrame has no import-family
 enum, descriptor table, or feature switch.
+
+The glTF and FBX forms declare one-time import and direct later imports to a new
+destination. It defaults to Y-up/-Z-forward and split mesh assets. It exposes source
+scene and mesh-resource selection, split/combine, output categories, include-unused,
+material creation/instances/existing mappings, per-material overrides, complete
+resolved destinations/dispositions and source warnings. Selection changes use
+`FAssetImportSession::SetOptions` to replan the retained document on a worker;
+source geometry is not decoded again. Coordinate changes create another session.
+The host presentation polls progress, keeps cancellation ticking to completion,
+reports every saved/preserved/failed/unexecuted output, and offers Show asset after
+publication. Existing Scene and standalone factory entrypoints remain available
+for legacy programmatic callers and receipts; their ordinary file pickers no
+longer offer glTF as a second user workflow.
 
 Reimport has no extension entry, family enum, or host switch: Content Browser asks
 `FReimportManager` for loaded-object capabilities and sends Reimport or the
