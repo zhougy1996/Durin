@@ -251,8 +251,8 @@ namespace Durin
 			auto Owner = std::make_shared<FIdentityOwner>(Key, std::move(Lease));
 			return {std::move(Owner), Key.get()};
 		}
-		template<typename T>
-		auto Request(const T& Initializer, std::string_view Name) -> FRHIPipelineCreationRequest
+		template<typename T, typename TKeyFactory>
+		auto Request(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey) -> FRHIPipelineCreationRequest
 		{
 			std::lock_guard Lock(Mutex);
 			if (Lifetime->Closed.load() || Lifetime->Failed.load()) return Reject(ERHIPipelineRequestRejection::Closed);
@@ -265,10 +265,7 @@ namespace Durin
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			try
 			{
-				auto Valid = [&] {
-					if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, &Capabilities);
-					else return BuildComputePipelineStateKey(Initializer, &Capabilities);
-				}();
+				auto Valid = MakeKey();
 				if (!Valid) return Reject(ERHIPipelineRequestRejection::InvalidDescription);
 				auto& NativeKey = *Valid;
 				FRHIPipelineCreationResult Ready;
@@ -448,9 +445,29 @@ namespace Durin
 		return Result;
 	}
 	auto FRHIPipelineCreationService::RequestGraphics(const FGraphicsPipelineStateInitializer& Initializer,
-		std::string_view Name) -> FRHIPipelineCreationRequest { return State->Request(Initializer, Name); }
+		std::string_view Name) -> FRHIPipelineCreationRequest
+	{
+		return State->Request(Initializer, Name, [&] {
+			return BuildGraphicsPipelineStateKey(Initializer, &State->Capabilities);
+		});
+	}
 	auto FRHIPipelineCreationService::RequestCompute(const FComputePipelineStateInitializer& Initializer,
-		std::string_view Name) -> FRHIPipelineCreationRequest { return State->Request(Initializer, Name); }
+		std::string_view Name) -> FRHIPipelineCreationRequest
+	{
+		return State->Request(Initializer, Name, [&] {
+			return BuildComputePipelineStateKey(Initializer, &State->Capabilities);
+		});
+	}
+	auto FRHIPipelineCreationService::RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
+		std::string_view Name, const FGraphicsPipelineStateKey& Key) -> FRHIPipelineCreationRequest
+	{
+		return State->Request(Initializer, Name, [&] { return std::optional{Key}; });
+	}
+	auto FRHIPipelineCreationService::RequestValidated(const FComputePipelineStateInitializer& Initializer,
+		std::string_view Name, const FComputePipelineStateKey& Key) -> FRHIPipelineCreationRequest
+	{
+		return State->Request(Initializer, Name, [&] { return std::optional{Key}; });
+	}
 	auto FRHIPipelineCreationService::GetStatistics() const -> FRHIPipelineCreationStatistics
 	{
 		std::lock_guard Lock(State->Mutex);

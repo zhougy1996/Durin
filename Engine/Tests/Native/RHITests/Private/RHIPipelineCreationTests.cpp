@@ -199,6 +199,13 @@ namespace Durin
 		}));
 		FComputePipelineStateInitializer Initializer;
 		EXPECT_EQ(Service.GetPipelineStateCache().GetCompute(Initializer, "invalid").error(), ERHIPipelineRequestRejection::InvalidDescription);
+		EXPECT_EQ(Service.RequestCompute(Initializer, "invalid direct request").GetRejection(),
+			ERHIPipelineRequestRejection::InvalidDescription);
+		FGraphicsPipelineStateInitializer GraphicsInitializer;
+		EXPECT_EQ(Service.GetPipelineStateCache().GetGraphics(GraphicsInitializer, "invalid graphics").error(),
+			ERHIPipelineRequestRejection::InvalidDescription);
+		EXPECT_EQ(Service.RequestGraphics(GraphicsInitializer, "invalid direct graphics request").GetRejection(),
+			ERHIPipelineRequestRejection::InvalidDescription);
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		Initializer.ComputeShader = Shader;
 		auto Task = Tasks::LaunchIndependentTask("cache leaf rejection", [&] {

@@ -29,11 +29,11 @@ namespace Durin
 			: Capabilities(InCapabilities), Service(InService) {}
 
 		template<typename T>
-		auto Request(const T& Initializer, std::string_view Name) -> FRHIPipelineCreationRequest
+		auto Request(const T& Initializer, std::string_view Name, const FKey& Key) -> FRHIPipelineCreationRequest
 		{
 			auto Submit = [&] {
-				if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) return Service.RequestGraphics(Initializer, Name);
-				else return Service.RequestCompute(Initializer, Name);
+				if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) return Service.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
+				else return Service.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
 			};
 			if (!Private::FTaskRuntimeAccess::GetCurrentTaskId()) return Submit();
 			// Get holds Mutex, so at most one bounded admission handoff is live.
@@ -116,7 +116,7 @@ namespace Durin
 						return Service.ReserveCacheMetadata(Bytes);
 					}
 				}();
-				auto Observation = Request(Initializer, Name);
+				auto Observation = Request(Initializer, Name, Key);
 				if (!Observation.IsAccepted()) return TResult(std::unexpected(Observation.GetRejection()));
 				auto Pipeline = std::shared_ptr<TPipeline>(new TPipeline(std::move(Observation), Metadata));
 				Entries.emplace(std::move(Key), FEntry{Pipeline, std::move(Metadata)});

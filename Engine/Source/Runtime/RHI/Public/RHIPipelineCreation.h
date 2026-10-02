@@ -138,6 +138,11 @@ namespace Durin
 		auto IsClosed() const -> bool;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
+		// Cache keys were validated against this service's capability snapshot.
+		auto RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
+			std::string_view DebugName, const FGraphicsPipelineStateKey& Key) -> FRHIPipelineCreationRequest;
+		auto RequestValidated(const FComputePipelineStateInitializer& Initializer,
+			std::string_view DebugName, const FComputePipelineStateKey& Key) -> FRHIPipelineCreationRequest;
 		auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
 		friend class FRHIPipelineStateCache;
 		struct FState;
