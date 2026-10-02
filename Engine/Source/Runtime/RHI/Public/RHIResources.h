@@ -1896,14 +1896,13 @@ namespace Durin
 	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
 	enum class ERHIBufferUploadError : uint8
 	{
-		InvalidDescriptor, InvalidRange, InvalidUsage, PayloadBudgetExceeded
+		InvalidDescriptor, InvalidRange, InvalidUsage
 	};
 	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
 	struct FRHIBufferUploadStats
 	{
 		uint64 LiveBytes = 0;
 		uint64 PeakBytes = 0;
-		uint64 RejectedCount = 0;
 		uint64 BackingLiveBytes = 0;
 		uint64 BackingPeakBytes = 0;
 		uint64 BackingReservedCapacity = 0;

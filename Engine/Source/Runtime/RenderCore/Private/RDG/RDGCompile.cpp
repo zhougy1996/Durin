@@ -1033,6 +1033,7 @@ namespace Durin
 				const bool bJoin = UploadBytes != 0 && UploadBatchBytes != 0
 					&& Execution.Batches.back().Queue == Queue
 					&& Execution.Batches.back().NumPasses < MaxUploadBatchCount
+					&& UploadBatchBytes <= MaxUploadBatchBytes
 					&& UploadBytes <= MaxUploadBatchBytes - UploadBatchBytes;
 				if (bJoin)
 				{

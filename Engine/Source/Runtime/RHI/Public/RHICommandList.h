@@ -140,29 +140,25 @@ namespace Durin
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 		RHI_API auto SetDepthBias(float ConstantFactor, float Clamp,
 			float SlopeFactor) -> void;
-		RHI_API auto TryWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-			-> std::expected<void, ERHIBufferUploadError>;
+		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
-		RHI_API auto TryUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-			-> std::expected<void, ERHIBufferUploadError>;
 		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			std::shared_ptr<const FRHIBufferUploadData> Data) -> void;
 		// Owning logical range safe across preparation and recording lists.
-		// Throws on admission failure; use TryCreateUniformBuffer for recovery.
 		RHI_API auto CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
-		RHI_API auto TryCreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
+		RHI_API auto CreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References = {})
-			-> std::expected<TRefCountPtr<FRHIUniformBuffer>, ERHIBufferUploadError>;
-		RHI_API auto TryCreateStorageBuffer(const FRHIBufferDesc& Desc,
+			-> TRefCountPtr<FRHIUniformBuffer>;
+		RHI_API auto CreateStorageBuffer(const FRHIBufferDesc& Desc,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-			-> std::expected<TRefCountPtr<FRHIBuffer>, ERHIBufferUploadError>;
-		RHI_API auto TryUpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
+			-> TRefCountPtr<FRHIBuffer>;
+		RHI_API auto UpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
 			std::span<FRHIResource* const> References = {})
-			-> std::expected<void, ERHIBufferUploadError>;
-		RHI_API auto TryUpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-			-> std::expected<void, ERHIBufferUploadError>;
+			-> void;
+		RHI_API auto UpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
+			-> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
@@ -179,9 +175,9 @@ namespace Durin
 		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
-		auto TryUpdateCPUAuthoredBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data,
+		auto UpdateCPUAuthoredBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data,
 			std::span<FRHIResource* const> References)
-			-> std::expected<void, ERHIBufferUploadError>;
+			-> void;
 
 		enum class ERecordingState : uint8
 		{

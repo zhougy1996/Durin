@@ -235,9 +235,9 @@ namespace Durin
 		RHI_API virtual auto RHIWaitForCompletion(const FRHIGPUSyncPointRef& SyncPoint,
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
-		// CPU-only backend admission, before a version becomes visible to recording.
+		// CPU-only backend placement reservation, before a version becomes visible to recording.
 		virtual auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
-			-> std::expected<std::shared_ptr<void>, ERHIBufferUploadError> { return std::shared_ptr<void>{}; }
+			-> std::shared_ptr<void> { return std::shared_ptr<void>{}; }
 		// Counters accumulate for the device lifetime until explicitly reset.
 		RHI_API virtual auto RHIGetPipelineCacheStatistics() const
 			-> FRHIPipelineCacheStatistics;

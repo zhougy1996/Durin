@@ -2,12 +2,20 @@
 
 Summary: Decouple uniform and storage uploads from render-thread frame-slot waits through purpose-based RHI resources with internal deferred backing, and remove unconditional frame-start RHI synchronization while preserving completion-based reclamation.
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-10-03
 
 Status: Archived
 Completed: 2026-09-29
 
 ## Current Status
+
+Post-completion API simplification (2026-10-03): CPU payloads and Vulkan
+binding pages now allocate on demand without fixed upload admission quotas.
+Ordinary create/update/write/upload APIs enforce preconditions and return
+resources or void; memory counters remain observational. The dated admission
+checkpoints below describe the original implementation. Current semantics are
+owned by [resource views](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+and [Vulkan memory](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md).
 
 Completion decision (2026-09-29): the operator accepted the delivered
 implementation and local correctness qualification without the Windows-only
@@ -207,24 +215,24 @@ Native resources do not participate in CPU snapshot versioning.
 enum class ERHIBufferContentMode : uint8 { Native, CPUAuthored };
 enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
 enum class ERHIBufferUploadError : uint8 {
-    InvalidDescriptor, InvalidRange, InvalidUsage, PayloadBudgetExceeded
+    InvalidDescriptor, InvalidRange, InvalidUsage
 };
 struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
 
-auto FRHICommandListBase::TryCreateUniformBuffer(
+auto FRHICommandListBase::CreateUniformBuffer(
     const FRHIUniformBufferLayout& Layout, ERHIBufferLifetimeUsage Usage,
     FByteView InitialData, std::span<FRHIResource* const> References = {})
-    -> std::expected<TRefCountPtr<FRHIUniformBuffer>, ERHIBufferUploadError>;
-auto FRHICommandListBase::TryCreateStorageBuffer(
+    -> TRefCountPtr<FRHIUniformBuffer>;
+auto FRHICommandListBase::CreateStorageBuffer(
     const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-    -> std::expected<TRefCountPtr<FRHIBuffer>, ERHIBufferUploadError>;
-auto FRHICommandListBase::TryUpdateUniformBuffer(
+    -> TRefCountPtr<FRHIBuffer>;
+auto FRHICommandListBase::UpdateUniformBuffer(
     FRHIUniformBuffer* Buffer, FByteView Data,
     std::span<FRHIResource* const> References = {})
-    -> std::expected<void, ERHIBufferUploadError>;
-auto FRHICommandListBase::TryUpdateBuffer(
+    -> void;
+auto FRHICommandListBase::UpdateBuffer(
     FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-    -> std::expected<void, ERHIBufferUploadError>;
+    -> void;
 auto FRHIBufferView::TryCreate(
     FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
     -> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;

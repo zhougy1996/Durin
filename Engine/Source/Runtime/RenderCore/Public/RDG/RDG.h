@@ -136,8 +136,7 @@ namespace Durin
 
 	private:
 		auto QueueBufferUploadData(FRDGBufferHandle Buffer, uint32 Offset,
-			std::expected<std::shared_ptr<const FRHIBufferUploadData>, ERHIBufferUploadError> Data,
-			uint64 RequestedBytes) -> FRDGPassHandle;
+			std::shared_ptr<const FRHIBufferUploadData> Data) -> FRDGPassHandle;
 		// Raw declaration injection is restricted to native compiler fixtures.
 		RENDERCORE_API auto AddTestPass(std::string_view Name, ERDGPassType Type,
 			FRDGPassExecute Execute = {}) -> FRDGPassHandle;

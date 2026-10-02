@@ -53,10 +53,10 @@ namespace Durin
 				ExecutorStats.RejectedSubmissionCount);
 			const auto UploadStats = GetBufferUploadStats();
 			DURIN_DEBUG("RHI upload/frame bounds: peak queued frames={}, frame-pressure waits={} ({} ns), "
-				"CPU upload live/peak={}/{}, admission rejections={}, backing reserved live/peak/capacity={}/{}/{}.",
+				"CPU upload live/peak={}/{}, backing reserved live/peak/capacity={}/{}/{}.",
 				ExecutorStats.PeakQueueFrameCount, ExecutorStats.FramePressureWaitCount,
 				ExecutorStats.FramePressureWaitNanoseconds, UploadStats.LiveBytes, UploadStats.PeakBytes,
-				UploadStats.RejectedCount, UploadStats.BackingLiveBytes, UploadStats.BackingPeakBytes,
+				UploadStats.BackingLiveBytes, UploadStats.BackingPeakBytes,
 				UploadStats.BackingReservedCapacity);
 			const size_t PendingRHIDeletes =
 				FRHIResource::GetNumPendingDeletes();

@@ -111,13 +111,13 @@ deletion and queue-qualified retirement.
 Native buffer/view downcasts enforce native content mode; logical views must
 first resolve to the selected version's native backing and descriptor.
 
-Uniform and storage binding pools use 4 MiB normal pages with respective
-64 MiB and 128 MiB total capacity limits, including retained oversize pages.
-Each snapshot reserves aligned intervals on every provisioned physical queue
-before create/update succeeds. Admission is CPU-only and thread-safe; it neither
-creates a native resource nor waits for RHI replay. Capacity, fragmentation, or
-incompatible retained page geometry returns `PayloadBudgetExceeded` before
-recording. Queue copies are reserved conservatively even if never consumed.
+Uniform and storage binding pools use 4 MiB normal pages and grow on demand,
+including larger dedicated pages. Each snapshot reserves aligned intervals on
+every provisioned physical queue before create/update returns. Reservations
+are CPU-only and thread-safe; they neither create native resources nor wait
+for RHI replay. When retained ranges or fragmentation leave no suitable
+interval, the pool adds a page without exposing a capacity failure to callers.
+Queue copies are reserved conservatively even if never consumed.
 
 Replay lazily materializes each reserved page and uses its predetermined offset.
 Both offset and padded size respect native binding and noncoherent atom alignment.
@@ -136,7 +136,7 @@ interval. Logical view offsets never expose native page placement.
 
 `DynamicUpload` arena gauges include materialized binding pages and backing
 ranges. CPU snapshots, graph sources, native buffer writes/uploads, and packed
-texture command arrays share the CPU budget described in
+texture command arrays share the observational CPU byte accounting described in
 [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
 The old mapped uniform/storage producer APIs and frame-slot allocators have
 been removed; ordinary consumers use admitted CPU-authored resources.

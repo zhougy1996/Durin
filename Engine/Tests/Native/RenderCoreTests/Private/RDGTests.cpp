@@ -1205,7 +1205,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
 	}
 
-	TEST_F(FRDGTests, QueuedUploadsShareSnapshotBudgetAndTransferSourceOwnership)
+	TEST_F(FRDGTests, QueuedUploadsGrowAlongsideSnapshotsAndTransferSourceOwnership)
 	{
 		for (int Index = 0; Index < 3; ++Index)
 		{
@@ -1218,7 +1218,7 @@ namespace Durin
 		FUploadRecordingContext Context;
 		FRHICommandListExecutor Executor(Context);
 		FRHICommandList Factory;
-		auto Logical = Factory.TryCreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
+		auto Logical = Factory.CreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
 			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(Size));
 		ASSERT_TRUE(Logical);
 		FTestRDGAllocator Allocator;
@@ -1227,23 +1227,17 @@ namespace Durin
 			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(Size, 4, EBufferUsageFlags::DestinationCopy)};
 			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "SharedBudget"), 0, FByteBuffer(Size));
 			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
-			FRDGBuilder Rejected;
-			Rejected.QueueBufferUploadOwned(Rejected.CreateBuffer(Desc, "Rejected"), 0, FByteBuffer(4));
-			const auto Failure = Rejected.Execute(Executor.GetImmediateCommandList(), &Allocator);
-			ASSERT_FALSE(Failure);
-			const auto* Limit = FindRDGTestDetail<FRDGLimitError>(Failure.error());
-			ASSERT_NE(Limit, nullptr);
-			EXPECT_EQ(Limit->Dimension, ERDGLimit::UploadPayloadBytes);
-			EXPECT_EQ(Executor.GetStats().PendingBatchCount, 0u);
+			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "AdditionalUpload"), 0, FByteBuffer(4));
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
 			ASSERT_TRUE(Graph.Execute(Executor.GetImmediateCommandList(), &Allocator));
-			// Recording retains the existing source allocation, so a full budget can execute.
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+			// Recording transfers the source owners without copying their bytes.
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
 		}
-		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		Executor.CreateFence().Wait();
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size);
-		*Logical = nullptr;
+		Logical = nullptr;
 		std::vector<FRHIResource*> Pending;
 		FRHIResource::GatherResourcesToDelete(Pending);
 		FRHIResource::DeleteResources(Pending);
@@ -1381,20 +1375,22 @@ namespace Durin
 			ERDGUseError::BufferRangeInvalid));
 	}
 
-	TEST_F(FRDGTests, QueuedBufferUploadRejectsOversizeSourceBeforeRecording)
+	TEST_F(FRDGTests, QueuedBufferUploadAcceptsSourceBeyondFormerSingleLimit)
 	{
-		constexpr size_t Size = 16 * 1024 * 1024 + 1;
+		constexpr uint32 Size = 17 * 1024 * 1024;
+		FUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
 		FRDGBuilder Builder;
 		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
-			static_cast<uint32>(Size), 1, EBufferUsageFlags::DestinationCopy)},
-			"UploadTarget");
-		const FByteBuffer Source(Size);
-		Builder.QueueBufferUpload(Buffer, 0, Source);
-		const auto Result = Builder.Execute(GetCommandList());
-		ASSERT_FALSE(Result.has_value());
-		const auto* Error = FindRDGTestDetail<FRDGLimitError>(Result.error());
-		ASSERT_NE(Error, nullptr);
-		EXPECT_EQ(Error->Dimension, ERDGLimit::UploadPayloadBytes);
+			Size, 1, EBufferUsageFlags::DestinationCopy)}, "UploadTarget");
+		Builder.QueueBufferUpload(Buffer, 0, FByteBuffer(Size, std::byte{9}));
+		ASSERT_TRUE(Builder.Execute(Executor.GetImmediateCommandList(), &Allocator));
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Executor.CreateFence().Wait();
+		ASSERT_EQ(Context.Uploads.size(), 1u);
+		EXPECT_EQ(Context.Uploads.front().Data.size(), Size);
+		EXPECT_EQ(Context.Uploads.front().Data.back(), std::byte{9});
 	}
 
 	TEST_F(FRDGTests, StructuredBufferHelperCopiesAndUploadsInitialContents)
@@ -3986,11 +3982,11 @@ namespace Durin
 	TEST_F(FRDGTests, RejectsCPUAuthoredExternalBuffersBeforeRecording)
 	{
 		FRHICommandList Commands;
-		auto Buffer = Commands.TryCreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
+		auto Buffer = Commands.CreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
 			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16));
 		ASSERT_TRUE(Buffer);
 		FRDGBuilder Builder;
-		Builder.RegisterExternalBuffer(*Buffer, "CPUAuthored", ERHIAccess::ComputeShaderRead,
+		Builder.RegisterExternalBuffer(Buffer, "CPUAuthored", ERHIAccess::ComputeShaderRead,
 			ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_FALSE(Result);

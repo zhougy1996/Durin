@@ -237,11 +237,7 @@ namespace Durin::VulkanRHI
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{
-			if (!RHICmdList.TryWriteBuffer(CreatedBuffer, 0,
-				{static_cast<const std::byte*>(InitialData.Data), InitialData.Size}))
-				return std::unexpected(FRHICreationError{
-					.Failure = ERHIResourceCreationFailure::ResourceExhausted,
-					.Source = ERHICreationFailureSource::RequestNotAdmitted});
+			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;

@@ -20,15 +20,15 @@ namespace Durin::VulkanRHI
 			std::vector<FSlot> Slots;
 			~FReservation();
 		};
-		FVulkanBindingAdmission(uint64 InAlignment, uint64 InCapacity, std::vector<FRHIQueueId> InQueues)
-			: Alignment(InAlignment), MaxCapacity(InCapacity), Queues(std::move(InQueues)) {}
+		FVulkanBindingAdmission(uint64 InAlignment, std::vector<FRHIQueueId> InQueues)
+			: Alignment(InAlignment), Queues(std::move(InQueues)) {}
 		~FVulkanBindingAdmission();
 		auto Reserve(uint64 Size) -> std::shared_ptr<FReservation>;
 	private:
 		struct FPage { uint64 Size; FRHIQueueId Queue; std::map<uint64, uint64> Used; };
 		auto Release(const std::vector<FSlot>& Slots) -> void;
 		std::mutex Mutex;
-		uint64 Alignment, MaxCapacity;
+		uint64 Alignment;
 		uint64 Capacity = 0;
 		std::vector<FRHIQueueId> Queues;
 		std::vector<FPage> Pages;

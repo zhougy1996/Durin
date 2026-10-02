@@ -172,27 +172,22 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Result.bTimingDiscarded);
 	}
 
-	TEST(FVulkanCompletionIntegrationTests, BindingAdmissionRejectsBeforeRecordingAndReusesCanceledReservations)
+	TEST(FVulkanCompletionIntegrationTests, BindingReservationsGrowAndReuseReleasedIntervals)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		EXPECT_TRUE(TestVulkanBindingAdmission());
 		std::vector<std::shared_ptr<void>> Reservations;
-		const FRHIBufferDesc Desc{16u * 1024 * 1024, 0, EBufferUsageFlags::UniformBuffer};
-		while (auto Reservation = GDynamicRHI->RHIReserveBufferBacking(Desc))
-			Reservations.push_back(std::move(*Reservation));
-		ASSERT_FALSE(Reservations.empty());
+		const FRHIBufferDesc Desc{17u * 1024 * 1024, 0, EBufferUsageFlags::UniformBuffer};
+		for (int Index = 0; Index < 8; ++Index)
+			Reservations.push_back(GDynamicRHI->RHIReserveBufferBacking(Desc));
+		EXPECT_GE(GetBufferUploadStats().BackingLiveBytes, 8ull * Desc.Size);
 		FRHICommandList Commands;
-		const auto Before = Commands.GetNumRecordedCommands();
 		const std::array<std::byte, 16> Bytes{};
-		auto Rejected = Commands.TryCreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
-		ASSERT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
-		EXPECT_EQ(Commands.GetNumRecordedCommands(), Before);
+		auto Buffer = Commands.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
+		ASSERT_TRUE(Buffer);
+		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 		Reservations.clear();
-		auto Accepted = Commands.TryCreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
-		ASSERT_TRUE(Accepted);
-		// Scope shutdown drains resources through the normal RHI lifecycle.
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, SealedPressureSubmitsOnlyEligibleAllocationDependencies)
@@ -610,7 +605,6 @@ namespace Durin::VulkanRHI
 		constexpr uint32 PageSize = 8 * 1024 * 1024;
 		Durin::FByteBuffer Bytes(PageSize, std::byte{0x5a});
 		std::vector<FBufferRHIRef> Destinations;
-		const auto RejectionsBefore = GetBufferUploadStats().RejectedCount;
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
 			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
@@ -618,13 +612,7 @@ namespace Durin::VulkanRHI
 					EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
 			ASSERT_TRUE(Buffer);
 			Destinations.push_back(Buffer);
-			if (const auto Uploaded = Commands.TryWriteBuffer(Buffer, 0, Bytes); !Uploaded)
-			{
-				EXPECT_EQ(Uploaded.error(), ERHIBufferUploadError::PayloadBudgetExceeded);
-				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-				WaitForAllVulkanSubmissionsForTesting();
-				ASSERT_TRUE(Commands.TryWriteBuffer(Buffer, 0, Bytes));
-			}
+			Commands.WriteBuffer(Buffer, 0, Bytes);
 		}
 		FBufferRHIRef OversizeDestination = GDynamicRHI->RHICreateBuffer(Commands,
 			FRHIBufferCreateDesc::Create("ArenaOversizeDestination", PageSize + 256,
@@ -646,7 +634,6 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Upload.ArenaLiveBytes, 0u);
 		EXPECT_GE(Upload.ArenaHighWaterBytes, 32ull * 1024 * 1024);
 		EXPECT_GE(Upload.ArenaReuseCount, 1u);
-		EXPECT_GT(GetBufferUploadStats().RejectedCount, RejectionsBefore);
 		EXPECT_GE(Upload.ArenaOversizeCount, 1u);
 		EXPECT_EQ(Upload.ArenaWaitCount, 0u);
 		GDynamicRHI->RHIResetMemoryStatistics();

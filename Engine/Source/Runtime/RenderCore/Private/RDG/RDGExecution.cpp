@@ -490,7 +490,9 @@ namespace Durin
 					while (End < Batch.FirstPass + Batch.NumPasses && End - Index < MaxUploadBatchCount)
 					{
 						const auto& Runtime = Compiled->RuntimePasses[End];
-						if (Runtime.BufferUploadBytes == 0 || Runtime.BufferUploadBytes > MaxUploadBatchBytes - Bytes) break;
+						if (Runtime.BufferUploadBytes == 0 || (End != Index
+							&& (Bytes > MaxUploadBatchBytes
+								|| Runtime.BufferUploadBytes > MaxUploadBatchBytes - Bytes))) break;
 						require(Runtime.RecordingPolicy == ERDGRecordingPolicy::Serial
 							&& Runtime.RecordingExecute && *Runtime.RecordingExecute);
 						const auto& Pass = Compiled->Passes[End];

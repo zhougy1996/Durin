@@ -38,7 +38,7 @@ namespace Durin::VulkanRHI
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
 		auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
-			-> std::expected<std::shared_ptr<void>, ERHIBufferUploadError> override;
+			-> std::shared_ptr<void> override;
 		auto Init(const FRHIInitializationContext& Context) -> void override;
 		auto Shutdown() -> void override;
 		auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override;

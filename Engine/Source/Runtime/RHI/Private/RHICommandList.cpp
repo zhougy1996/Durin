@@ -1399,13 +1399,11 @@ namespace Durin
 			uint32 SourcePitch = 0;
 			auto ReserveData() -> void
 			{
-				auto Reserved = FRHIBufferUploadReservation::TryReserve(DataSize);
-				if (!Reserved) throw std::runtime_error("Texture upload exceeds the shared CPU upload budget.");
-				Reservation = std::move(*Reserved);
+				Reservation = FRHIBufferUploadAccounting::Track(DataSize);
 				Data = std::make_unique<std::byte[]>(DataSize);
 			}
 			size_t DataSize = 0;
-			std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+			std::shared_ptr<const FRHIBufferUploadAccounting> Reservation;
 			std::unique_ptr<std::byte[]> Data;
 		};
 
@@ -1494,13 +1492,11 @@ namespace Durin
 			uint32 SourceDepthPitch = 0;
 			auto ReserveData() -> void
 			{
-				auto Reserved = FRHIBufferUploadReservation::TryReserve(DataSize);
-				if (!Reserved) throw std::runtime_error("Texture upload exceeds the shared CPU upload budget.");
-				Reservation = std::move(*Reserved);
+				Reservation = FRHIBufferUploadAccounting::Track(DataSize);
 				Data = std::make_unique<std::byte[]>(DataSize);
 			}
 			size_t DataSize = 0;
-			std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+			std::shared_ptr<const FRHIBufferUploadAccounting> Reservation;
 			std::unique_ptr<std::byte[]> Data;
 		};
 
@@ -2421,45 +2417,28 @@ namespace Durin
 		RecordCommand<FSetDepthBiasCommand>(ConstantFactor, Clamp, SlopeFactor);
 	}
 
-	auto FRHICommandListBase::WriteBuffer(
-		FRHIBuffer* Buffer,
-		const void* Data,
-		uint32 Size,
-		uint32 OffsetBytes) -> void
+	auto FRHICommandListBase::WriteBuffer(FRHIBuffer* Buffer, const void* Data,
+		uint32 Size, uint32 OffsetBytes) -> void
 	{
-		require(Data && TryWriteBuffer(Buffer, OffsetBytes, {static_cast<const std::byte*>(Data), Size}).has_value());
+		require(Data);
+		WriteBuffer(Buffer, OffsetBytes, {static_cast<const std::byte*>(Data), Size});
 	}
 
-	auto FRHICommandListBase::TryWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-		-> std::expected<void, ERHIBufferUploadError>
+	auto FRHICommandListBase::WriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
 		require(IsRecording());
-		if (!Buffer || IsCPUAuthoredBuffer(Buffer)) return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		if (Data.empty() || Offset > Buffer->GetSize() || Data.size() > Buffer->GetSize() - Offset)
-			return std::unexpected(ERHIBufferUploadError::InvalidRange);
-		auto Owned = FRHIBufferUploadData::TryCopy(Data);
-		if (!Owned) return std::unexpected(Owned.error());
-		RecordCommand<FWriteBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(*Owned));
-		return {};
+		require(Buffer && !IsCPUAuthoredBuffer(Buffer));
+		require(!Data.empty() && Offset <= Buffer->GetSize() && Data.size() <= Buffer->GetSize() - Offset);
+		auto Owned = FRHIBufferUploadData::Copy(Data);
+		RecordCommand<FWriteBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Owned));
 	}
 
-	auto FRHICommandListBase::UploadBuffer(
-		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
-	{
-		require(TryUploadBuffer(Buffer, Offset, Data).has_value());
-	}
-
-	auto FRHICommandListBase::TryUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-		-> std::expected<void, ERHIBufferUploadError>
+	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
 		require(IsRecording());
-		if (!Buffer || IsCPUAuthoredBuffer(Buffer)) return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		if (Data.empty() || Offset > Buffer->GetSize() || Data.size() > Buffer->GetSize() - Offset)
-			return std::unexpected(ERHIBufferUploadError::InvalidRange);
-		auto Owned = FRHIBufferUploadData::TryCopy(Data);
-		if (!Owned) return std::unexpected(Owned.error());
-		UploadBuffer(Buffer, Offset, std::move(*Owned));
-		return {};
+		require(Buffer && !IsCPUAuthoredBuffer(Buffer));
+		require(!Data.empty() && Offset <= Buffer->GetSize() && Data.size() <= Buffer->GetSize() - Offset);
+		UploadBuffer(Buffer, Offset, FRHIBufferUploadData::Copy(Data));
 	}
 
 	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,

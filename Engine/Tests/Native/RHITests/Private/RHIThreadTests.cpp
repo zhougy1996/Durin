@@ -207,6 +207,62 @@ namespace Durin
 		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 64u);
 	}
 
+	TEST(FRHIThreadTests, OversizedPayloadRunsAloneAndBlocksLaterWork)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		FRHIThreadQueueLimits Limits;
+		Limits.MaxEntries = 2;
+		Limits.MaxBatches = 2;
+		Limits.MaxPayloadBytes = 64;
+		ASSERT_TRUE(Thread.Start(Limits));
+		FThreadEvent FirstStarted;
+		FThreadEvent ReleaseFirst;
+
+		FRHIThreadWork First;
+		First.BatchCount = 1;
+		First.PayloadBytes = 128;
+		First.Execute = [&]() {
+			FirstStarted.Trigger();
+			ReleaseFirst.Wait();
+			return FRHIThreadWorkResult::Success();
+		};
+		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
+		if (!FirstStarted.WaitFor(1.0))
+		{
+			ReleaseFirst.Trigger();
+			FAIL() << "first work item did not start";
+		}
+
+		std::atomic<bool> bSecondAccepted = false;
+		FRHIThreadWork Second;
+		Second.BatchCount = 1;
+		Second.PayloadBytes = 64;
+		Second.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		std::thread Producer([&]() {
+			bSecondAccepted.store(
+				Thread.Enqueue(Second).IsAccepted(), std::memory_order::release);
+		});
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (Thread.GetStats().BackpressureWaitCount == 0
+			&& std::chrono::steady_clock::now() < Deadline)
+		{
+			std::this_thread::yield();
+		}
+		EXPECT_EQ(1u, Thread.GetStats().BackpressureWaitCount);
+		EXPECT_FALSE(bSecondAccepted.load(std::memory_order::acquire));
+
+		ReleaseFirst.Trigger();
+		Producer.join();
+		EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
+		EXPECT_EQ(ERHIThreadWaitResult::Completed, Thread.Flush());
+		const FRHIThreadStats Stats = Thread.GetStats();
+		EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
+		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
+		EXPECT_EQ(Stats.PeakOutstandingBatchCount, 1u);
+		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 128u);
+	}
+
 	TEST(FRHIThreadTests, DrainRejectsLateAndOversizedWorkWithoutMovingPayload)
 	{
 		FRHIThread Thread;
@@ -216,7 +272,7 @@ namespace Durin
 		ASSERT_TRUE(Thread.Start(Limits));
 
 		FRHIThreadWork Oversized;
-		Oversized.PayloadBytes = 9;
+		Oversized.BatchCount = Limits.MaxBatches + 1;
 		Oversized.Execute = []() { return FRHIThreadWorkResult::Success(); };
 		EXPECT_EQ(ERHIThreadEnqueueResult::Oversized,
 			Thread.Enqueue(Oversized).Result);
@@ -325,7 +381,7 @@ namespace Durin
 		EXPECT_EQ(1u, AcceptedDestroyedCount.load(std::memory_order::acquire));
 
 		FRHIThreadWork Rejected;
-		Rejected.PayloadBytes = 9;
+		Rejected.BatchCount = Limits.MaxBatches + 1;
 		Rejected.Execute = [Tracked = std::make_shared<FTrackedCapture>(RejectedDestroyedCount)]() {
 			return FRHIThreadWorkResult::Success();
 		};

@@ -96,7 +96,9 @@ same serial and completion behavior locally. Empty work without an ordered
 event does not manufacture a serial or backend submission.
 
 The queue admits at most 8 queued-or-active entries, 16 batches, 3 frame-end
-boundaries, and 32 MiB of owned payload. Each submission carrying `EndFrame`
+boundaries, with a 32 MiB owned-payload backpressure threshold. A single
+submission above that byte threshold waits for an empty queue and runs alone;
+later work waits for its completion. Each submission carrying `EndFrame`
 charges one frame until replay finishes or rejects the work. This is a CPU
 queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
 that would cross a bound waits for capacity and wakes
@@ -184,8 +186,8 @@ Buffer and texture uploads are recorded and own their source bytes.
 the written range in `TransferWrite` for a graph-managed next barrier.
 `WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
 locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. CPU-authored buffers use `TryUpdateUniformBuffer` or
-`TryUpdateBuffer` instead of the native write/upload/lock surfaces. Operations
+provide native mappings. CPU-authored buffers use `UpdateUniformBuffer` or
+`UpdateBuffer` instead of the native write/upload/lock surfaces. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
@@ -228,12 +230,11 @@ Partially built native candidates clean up immediately on the RHI thread, and a
 later caller-defined or Renderer-generation retry may create a fresh candidate.
 
 These readiness postconditions apply to native factories. The ordinary
-`TryCreateUniformBuffer` and `TryCreateStorageBuffer` command-list APIs instead
-return admitted CPU-authored resource identities with owned initial contents;
-their native backing is resolved during consuming replay. They report input
-or payload-admission errors before recording. Native allocation failure after
-admission follows terminal replay failure, not a recoverable native-factory
-result. See [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
+`CreateUniformBuffer` and `CreateStorageBuffer` command-list APIs instead
+return CPU-authored resource identities with owned initial contents;
+their native backing is resolved during consuming replay. They enforce input preconditions and allocate CPU contents and
+backend placement on demand. Native allocation failure during consuming replay
+follows terminal replay failure rather than a recoverable native-factory result. See [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
 
 Graphics-pipeline initialization owns complete portable rasterizer,
 multisample, depth/stencil, per-active-attachment blend/write-mask, structural
@@ -283,8 +284,8 @@ update overload have been removed.
 `CreateUniformBufferRange` is a convenience for recording-only consumers. It
 creates a typed uniform resource and returns a logical range with counted
 ownership, so preparation state can outlive the creating list. Callers needing
-a separately typed resource use `TryCreateUniformBuffer`. The convenience reports admission failure by
-exception before recording; fallible factories remain available for recovery.
+a separately typed resource use `CreateUniformBuffer`. Both require valid
+input and allocate contents on demand without caller-managed upload quotas.
 Shader recording retains logical resources, and backend bindings retain exact
 versions through GPU completion. CPU-authored ranges must not enter explicit
 native-buffer state transitions. See

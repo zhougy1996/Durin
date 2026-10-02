@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-03
 
 ## Reading and Calling the Graph
 
@@ -262,23 +262,24 @@ callback with a pass-scoped resource view, and then records final batches.
 `QueueBufferUpload` copies a byte span; `QueueBufferUploadOwned` moves a byte
 buffer. Each creates a Copy recording pass with an exact `TransferWrite` byte
 use and an RHI `UploadBuffer` command. The destination must declare
-`DestinationCopy`. A single upload owns at most 16 MiB and a builder admits at
-most 32 MiB of queued CPU payload capacity. Sources also share the process-wide
-32 MiB buffer-upload budget with CPU-authored snapshots and native upload
-commands. Invalid ranges, missing copy usage,
-or excess payload fail compilation before any upload command is recorded.
+`DestinationCopy`. Upload sources allocate on demand and share observational
+CPU byte accounting with CPU-authored snapshots and native upload commands.
+There is no per-upload, per-builder, or global fixed CPU payload quota.
+Invalid ranges or missing copy usage fail compilation before any upload
+command is recorded.
 `CreateStructuredBuffer` and `CreateStructuredBufferOwned` create a buffer
 with structured, shader-resource, and copy-destination usage, then queue its
 complete initial contents through the same path. Their byte size must be a
 nonzero multiple of the element stride.
 After culling and scheduling, consecutive upload helpers on the same logical
 queue form one execution-plan submission and owned RHI command list, with
-at most 64 uploads and 16 MiB of source bytes per list. Pass handles, exact
+at most 64 uploads and a 16 MiB grouping threshold. An upload larger than
+that threshold occupies its own list. Pass handles, exact
 uses, dependencies, and barriers between overlapping writes remain distinct.
 Batching stops at other callbacks, queue changes, and either limit. It reduces RHI
 command-list batches without merging destination ranges or GPU copy commands.
 The graph and recorded RHI command share one immutable source allocation.
-Recording at a full admitted budget does not require another source copy.
+Recording does not require another source copy.
 Graph destruction or cancellation releases its ownership; bytes remain charged
 until the final graph or command owner releases them.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the

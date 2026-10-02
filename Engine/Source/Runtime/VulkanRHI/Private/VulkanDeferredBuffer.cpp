@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBindingAdmission::Reserve(uint64 Size) -> std::shared_ptr<FReservation>
 	{
-		if (!Size || Size > 16ull * 1024 * 1024) return {};
+		require(Size != 0 && Size <= UINT32_MAX - (Alignment - 1));
 		Size = (Size + Alignment - 1) / Alignment * Alignment;
 		auto Result = std::make_shared<FReservation>();
 		Result->Owner = shared_from_this();
@@ -60,7 +60,6 @@ namespace Durin::VulkanRHI
 			}
 			if (bFound) continue;
 			const uint64 PageSize = std::max<uint64>(4ull * 1024 * 1024, Size);
-			if (PageSize > MaxCapacity - Capacity) return {};
 			Pages.push_back({PageSize, Queue, {{0, Size}}});
 			Capacity += PageSize;
 			Result->Slots.push_back({static_cast<uint32>(Pages.size() - 1), PageSize, Queue, 0, Size});
@@ -75,16 +74,16 @@ namespace Durin::VulkanRHI
 		const auto& QueueInfos = FVulkanDynamicRHI::Get().GetDeviceForTesting()->GetQueueCapabilities().Queues;
 		std::vector<FRHIQueueId> Queues;
 		for (const auto& Queue : QueueInfos) Queues.push_back(Queue.Id);
-		auto Admission = std::make_shared<FVulkanBindingAdmission>(256, PageSize * Queues.size(), Queues);
+		auto Admission = std::make_shared<FVulkanBindingAdmission>(256, Queues);
 		auto A = Admission->Reserve(1), B = Admission->Reserve(1), Tail = Admission->Reserve(PageSize - 512);
-		if (!A || !B || !Tail || A->Slots.size() != Queues.size() || Admission->Reserve(1)) return false;
+		if (!A || !B || !Tail || A->Slots.size() != Queues.size()) return false;
 		for (size_t Index = 0; Index < Queues.size(); ++Index)
 			if (A->Slots[Index].Queue != Queues[Index] || A->Slots[Index].Offset != 0
 				|| B->Slots[Index].Offset != 256 || Tail->Slots[Index].Offset != 512) return false;
-		// Fragmentation rejects before recording; releasing both adjacent intervals
-		// makes a larger contiguous reservation possible without native work.
+		// Fragmented pages grow without waiting; released adjacent intervals are reused.
 		B.reset();
-		if (Admission->Reserve(512)) return false;
+		auto Grown = Admission->Reserve(512);
+		if (!Grown || Grown->Slots.front().Page == A->Slots.front().Page) return false;
 		A.reset();
 		auto Reused = Admission->Reserve(512);
 		if (!Reused || Reused->Slots.front().Offset != 0) return false;
@@ -94,7 +93,7 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < Concurrent.size(); ++Index)
 			Threads.emplace_back([&, Index] { Concurrent[Index] = Admission->Reserve(PageSize / 8); });
 		for (auto& Thread : Threads) Thread.join();
-		return std::ranges::count_if(Concurrent, [](const auto& Item) { return bool(Item); }) == 8;
+		return std::ranges::count_if(Concurrent, [](const auto& Item) { return bool(Item); }) == 16;
 	}
 
 	FVulkanBindingPool::FVulkanBindingPool(FVulkanDevice& InDevice, bool bInUniform)
@@ -105,7 +104,7 @@ namespace Durin::VulkanRHI
 		for (const auto& Queue : Device.GetQueueCapabilities().Queues) Queues.push_back(Queue.Id);
 		Admission = std::make_shared<FVulkanBindingAdmission>(std::max<uint64>({16, Limits.nonCoherentAtomSize,
 			bUniform ? Limits.minUniformBufferOffsetAlignment : Limits.minStorageBufferOffsetAlignment}),
-			(bUniform ? 64ull : 128ull) * 1024 * 1024, std::move(Queues));
+			std::move(Queues));
 	}
 
 	FVulkanBindingPool::~FVulkanBindingPool()
@@ -136,11 +135,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanDynamicRHI::RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
-		-> std::expected<std::shared_ptr<void>, ERHIBufferUploadError>
+		-> std::shared_ptr<void>
 	{
-		auto Reservation = Device->GetBindingPool(EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)).Reserve(Desc.Size);
-		if (!Reservation) return std::unexpected(ERHIBufferUploadError::PayloadBudgetExceeded);
-		return Reservation;
+		return Device->GetBindingPool(EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)).Reserve(Desc.Size);
 	}
 
 	namespace

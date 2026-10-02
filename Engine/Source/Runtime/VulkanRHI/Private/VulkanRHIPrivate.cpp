@@ -519,10 +519,11 @@ namespace Durin::VulkanRHI
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
 		constexpr uint64 AdmissionPage = 4ull * 1024 * 1024;
-		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256, AdmissionPage * 2,
+		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256,
 			std::vector<FRHIQueueId>{Graphics.GetId(), Compute.GetId()});
 		auto UniformOwner = TestUniforms->Reserve(AdmissionPage);
 		require(UniformOwner);
+		const auto UniformSlots = UniformOwner->Slots;
 		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSyncPointRef& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
 			auto& Tracker = Queue.GetCompletionTracker();
 			std::unique_ptr<FVulkanPayload> Payload;
@@ -588,7 +589,9 @@ namespace Durin::VulkanRHI
 			Result.bTimingBlocked = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Pending;
 			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
 			UniformOwner.reset();
-			Result.bUniformReuseBlocked = !TestUniforms->Reserve(AdmissionPage);
+			const auto ConcurrentUniform = TestUniforms->Reserve(AdmissionPage);
+			Result.bUniformReuseBlocked = ConcurrentUniform->Slots[0].Page != UniformSlots[0].Page
+				&& ConcurrentUniform->Slots[1].Page != UniformSlots[1].Page;
 			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
@@ -610,6 +613,8 @@ namespace Durin::VulkanRHI
 				&& Uses.IsRetirementEligible();
 			auto ReusedUniform = TestUniforms->Reserve(AdmissionPage);
 			Result.bUniformReusedAfterCompletion = ReusedUniform && ReusedUniform->Slots.size() == 2
+				&& ReusedUniform->Slots[0].Page == UniformSlots[0].Page
+				&& ReusedUniform->Slots[1].Page == UniformSlots[1].Page
 				&& ReusedUniform->Slots[0].Offset == 0 && ReusedUniform->Slots[1].Offset == 0;
 			TestPools.PrepareForUse();
 			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;

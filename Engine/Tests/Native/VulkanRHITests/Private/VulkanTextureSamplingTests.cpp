@@ -935,18 +935,18 @@ namespace Durin
 			std::array<uint32, 4> UniformData{10, 0, 0, 0};
 			std::array<uint32, 4> StorageData{0, 30, 50, 0};
 			const uint64 Before = GCommandListExecutor.GetStats().SynchronousOperationCount;
-			auto Uniform = Commands.TryCreateUniformBuffer({16},
+			auto Uniform = Commands.CreateUniformBuffer({16},
 				ERHIBufferLifetimeUsage::MultiFrame, std::as_bytes(std::span{UniformData}));
-			auto Storage = Commands.TryCreateStorageBuffer({16, 16, EBufferUsageFlags::StructuredBuffer},
+			auto Storage = Commands.CreateStorageBuffer({16, 16, EBufferUsageFlags::StructuredBuffer},
 				ERHIBufferLifetimeUsage::MultiFrame, std::as_bytes(std::span{StorageData}));
 			ASSERT_TRUE(Uniform && Storage);
 			const FRHIBufferViewDesc StorageView{0, 16, ERHIBufferViewType::StructuredStorage};
-			EXPECT_FALSE(GDynamicRHI->RHICreateBufferView(*Storage, StorageView));
-			EXPECT_FALSE(GDynamicRHI->RHIGetOrCreateBufferView(*Storage, StorageView));
+			EXPECT_FALSE(GDynamicRHI->RHICreateBufferView(Storage, StorageView));
+			EXPECT_FALSE(GDynamicRHI->RHIGetOrCreateBufferView(Storage, StorageView));
 			const std::array Parameters{
-				FRHIShaderParameterResource{.Resource = Uniform->GetReference(), .BindingIndex = 0,
+				FRHIShaderParameterResource{.Resource = Uniform.GetReference(), .BindingIndex = 0,
 					.Type = bCompute ? ERHIBindingType::UniformBuffer : ERHIBindingType::UniformBufferDynamic, .Size = 16},
-				FRHIShaderParameterResource{.Resource = Storage->GetReference(), .BindingIndex = 1,
+				FRHIShaderParameterResource{.Resource = Storage.GetReference(), .BindingIndex = 1,
 					.Type = ERHIBindingType::StorageBuffer, .Size = 16}};
 			auto Batch = FRHIShaderParameterBatch::Create(Shaders[bCompute ? 0 : 2], Parameters);
 			ASSERT_TRUE(Batch);
@@ -976,9 +976,9 @@ namespace Durin
 				if (Pixel == 1)
 				{
 					UniformData[0] = 20;
-					ASSERT_TRUE(Commands.TryUpdateUniformBuffer(*Uniform, std::as_bytes(std::span{UniformData})));
+					Commands.UpdateUniformBuffer(Uniform, std::as_bytes(std::span{UniformData}));
 					const uint32 Green = 40;
-					ASSERT_TRUE(Commands.TryUpdateBuffer(*Storage, 4, std::as_bytes(std::span{&Green, 1})));
+					Commands.UpdateBuffer(Storage, 4, std::as_bytes(std::span{&Green, 1}));
 				}
 				// No rebind: the second draw/dispatch must notice the changed version.
 				if (bCompute)
@@ -989,7 +989,7 @@ namespace Durin
 				else { Commands.SetScissor(static_cast<float>(Pixel), 0, 1, 1); Commands.Draw({.VertexCount = 3}); }
 			}
 			if (!bCompute) Commands.EndRenderPass();
-			Batch.reset(); *Uniform = nullptr; *Storage = nullptr;
+			Batch.reset(); Uniform = nullptr; Storage = nullptr;
 			FByteBuffer Pixels;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));
 			EXPECT_EQ(Pixels, (FByteBuffer{std::byte{10}, std::byte{30}, std::byte{50}, std::byte{255},

@@ -33,8 +33,8 @@ texture description. Native view destruction uses the deferred deletion path.
 
 ## Logical CPU-Authored Buffers
 
-`TryCreateUniformBuffer` returns `FRHIUniformBuffer`, a final `FRHIBuffer`
-subclass with an immutable constant-size layout. `TryCreateStorageBuffer`
+`CreateUniformBuffer` returns `FRHIUniformBuffer`, a final `FRHIBuffer`
+subclass with an immutable constant-size layout. `CreateStorageBuffer`
 returns an ordinary `FRHIBuffer`. Both own complete initial bytes without
 recording a creation command or allocating native storage. Their immutable
 content mode is `CPUAuthored`; backend buffers retain `Native` mode. Resolving
@@ -45,7 +45,7 @@ dividing size) or byte-address (stride four, size multiple of four), optionally
 with `ShaderResource`. Other storage flags are rejected. Lifetime usage hints
 never authorize frame-age reuse or limit lifetime.
 
-`TryUpdateUniformBuffer` and `TryUpdateBuffer` copy input before returning and
+`UpdateUniformBuffer` and `UpdateBuffer` copy input before returning and
 publish a new immutable snapshot during ordered RHI replay. The former
 replaces all uniform bytes and native-resource sidecars; the latter accepts
 only CPU-authored storage and preserves the preceding version's untouched
@@ -72,31 +72,28 @@ recording and has no command-list forwarding API. Native view factories and
 their cache paths reject CPU-authored parents before backend work. Binding canonicalization selects the
 correct path from the parent's mode. Native write/upload, lock, vertex/index,
 copy, and transition operations reject CPU-authored buffers with enforced
-preconditions; versioned updates use the fallible APIs above. RDG external
+preconditions; versioned updates use the CPU-authored APIs above. RDG external
 buffer imports reject CPU-authored parents as declaration errors because
 their backing changes independently of graph access tracking. Graph-owned
 upload helpers continue to allocate native graph resources.
 
 CPU-authored snapshots, RDG sources, native buffer write/upload payloads,
-and packed texture command arrays
-share a process-wide 32 MiB admission budget, with a 16 MiB
-maximum buffer size. Each update reserves its full destination snapshot plus
-reference-array storage before recording, including partial storage updates.
-Budget is released when the last data owner releases it; logical resource
-destruction follows ordinary RHI deferred deletion. Diagnostics expose live
-bytes, peak bytes, and admission rejections, plus live/peak aligned backing
-reservations and reserved virtual page capacity. `FRHIBufferUploadData` owns immutable
-CPU bytes, not resource identity: copying a span reserves and owns exact bytes;
-taking a vector charges its capacity. Graph callbacks and upload commands may
-share this allocation without double charging it. `TryUploadBuffer` rejects
-invalid input or exhausted admission before recording. Its void counterpart
-requires successful admission. `TryWriteBuffer` provides the same fallible
-admission for legacy native writes; `WriteBuffer` requires success. Texture
-commands reserve exact packed array sizes before recording or copying, and
-report exhaustion with an exception before allocating a command node. Texture
-arrays use the shared 32 MiB cap without the buffer-specific 16 MiB single limit.
-Explicit native creation and caller-owned source memory retain their existing
-contracts.
+and packed texture command arrays allocate CPU storage on demand. There is no
+fixed per-upload size or process-wide CPU payload budget. Diagnostics track
+live and peak owned bytes, plus aligned backing ranges and retained page
+capacity. Copying a span owns its exact bytes; taking a vector tracks its
+capacity. Shared graph and command owners count one source allocation until
+its last owner releases it. Each logical update owns its complete destination
+snapshot plus reference-array storage, including partial storage updates.
+
+`CreateUniformBuffer` and `CreateStorageBuffer` return counted resources;
+`UpdateUniformBuffer`, `UpdateBuffer`, `WriteBuffer`, and `UploadBuffer` return
+void. Invalid descriptors, ranges, content modes, or sidecar ownership violate
+enforced preconditions. Allocation failures follow ordinary allocation or
+terminal replay failure handling rather than a caller-managed budget result.
+Texture commands likewise own their exact packed bytes before recording.
+Executor queue and frame backpressure remains at the submission boundary;
+a single payload beyond the queue byte threshold runs alone.
 
 ## Binding and Attachment Ownership
 

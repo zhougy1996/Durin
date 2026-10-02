@@ -21,8 +21,8 @@ namespace Durin
 		friend class FRHICommandListBase;
 		friend class FRHIBuffer;
 		friend class FRHIDeferredBufferBackend;
-		static auto TryAllocate(const FRHIBufferDesc& Desc, std::span<FRHIResource* const> References)
-			-> std::expected<std::shared_ptr<FRHIDeferredBufferSnapshot>, ERHIBufferUploadError>;
+		static auto Allocate(const FRHIBufferDesc& Desc, std::span<FRHIResource* const> References)
+			-> std::shared_ptr<FRHIDeferredBufferSnapshot>;
 		FRHIDeferredBufferSnapshot(uint32 InSize, size_t InReferenceCount);
 		std::unique_ptr<std::byte[]> Data;
 		std::unique_ptr<TRefCountPtr<FRHIResource>[]> References;
@@ -30,7 +30,7 @@ namespace Durin
 		size_t ReferenceCount;
 		uint64 Version = 0;
 		uint64 OwnedBytes = 0;
-		std::shared_ptr<const FRHIBufferUploadReservation> Reservation;
+		std::shared_ptr<const FRHIBufferUploadAccounting> Accounting;
 		std::shared_ptr<void> BackingAdmission;
 		mutable std::unordered_map<const void*, std::weak_ptr<void>> Backings;
 	};

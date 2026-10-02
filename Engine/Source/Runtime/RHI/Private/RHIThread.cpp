@@ -327,8 +327,7 @@ namespace Durin
 
 		std::unique_lock Lock(State->Mutex);
 		if (Work.FrameCount > State->Limits.MaxFrames
-			|| Work.BatchCount > State->Limits.MaxBatches
-			|| Work.PayloadBytes > State->Limits.MaxPayloadBytes)
+			|| Work.BatchCount > State->Limits.MaxBatches)
 		{
 			++State->RejectedWorkCount;
 			return {.Result = ERHIThreadEnqueueResult::Oversized};
@@ -354,8 +353,9 @@ namespace Durin
 				&& State->OutstandingEntryCount < State->Limits.MaxEntries
 				&& State->OutstandingBatchCount + Work.BatchCount
 					<= State->Limits.MaxBatches
-				&& State->OutstandingPayloadBytes + Work.PayloadBytes
-					<= State->Limits.MaxPayloadBytes;
+				&& (State->OutstandingEntryCount == 0
+					|| (State->OutstandingPayloadBytes <= State->Limits.MaxPayloadBytes
+						&& Work.PayloadBytes <= State->Limits.MaxPayloadBytes - State->OutstandingPayloadBytes));
 		};
 		if (!HasCapacity())
 		{
