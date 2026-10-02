@@ -1,3 +1,4 @@
+#include "MaterialParameterValidation.h"
 #include "Materials/MaterialTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialRenderTypes.h"
@@ -122,29 +123,7 @@ namespace Durin
 			if (Definition.Type == EMaterialParameterType::Texture
 				&& !IsValidMaterialSampling(Definition.Value.GetTexture().SamplerState, Definition.Value.GetTexture().TextureFallback))
 				return {EMaterialParameterError::InvalidMetadata, Definition.Id};
-			bool bFinite = false;
-			switch (Definition.Type)
-			{
-			case EMaterialParameterType::Scalar:
-				bFinite = std::isfinite(Definition.Value.GetScalar()); break;
-			case EMaterialParameterType::Vector2:
-				bFinite = std::isfinite(Definition.Value.GetVector2().x)
-					&& std::isfinite(Definition.Value.GetVector2().y); break;
-			case EMaterialParameterType::Vector:
-				bFinite = std::isfinite(Definition.Value.GetVector().x)
-					&& std::isfinite(Definition.Value.GetVector().y)
-					&& std::isfinite(Definition.Value.GetVector().z); break;
-			case EMaterialParameterType::Texture:
-				bFinite = true; break;
-			case EMaterialParameterType::Vector4:
-				bFinite = std::isfinite(Definition.Value.GetVector4().x)
-					&& std::isfinite(Definition.Value.GetVector4().y)
-					&& std::isfinite(Definition.Value.GetVector4().z)
-					&& std::isfinite(Definition.Value.GetVector4().w); break;
-			default:
-				return {EMaterialParameterError::InvalidType, Definition.Id};
-			}
-			if (!bFinite)
+			if (!Private::IsFiniteMaterialParameterValue(Definition.Value))
 				return {EMaterialParameterError::InvalidDefault, Definition.Id};
 			if (Definition.Presentation > EMaterialParameterPresentation::AssetPicker
 				|| Definition.TextureUsage > ETextureUsage::DataMask

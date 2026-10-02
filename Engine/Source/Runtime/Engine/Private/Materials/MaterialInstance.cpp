@@ -1,3 +1,4 @@
+#include "MaterialParameterValidation.h"
 #include "MaterialParameterMutation.h"
 #include "MaterialDependencyIndex.h"
 #include "Components/PropertyEditValidation.h"
@@ -26,30 +27,6 @@ namespace Durin
 		};
 
 		FMaterialDynamicParameterAtomicCounters GMaterialDynamicParameterCounters;
-
-		auto IsFiniteMaterialParameterValue(const FMaterialParameterValue& Value) -> bool
-		{
-			switch (Value.GetType())
-			{
-			case EMaterialParameterType::Scalar:
-				return std::isfinite(Value.GetScalar());
-			case EMaterialParameterType::Vector2:
-				return std::isfinite(Value.GetVector2().x)
-					&& std::isfinite(Value.GetVector2().y);
-			case EMaterialParameterType::Vector:
-				return std::isfinite(Value.GetVector().x)
-					&& std::isfinite(Value.GetVector().y)
-					&& std::isfinite(Value.GetVector().z);
-			case EMaterialParameterType::Vector4:
-				return std::isfinite(Value.GetVector4().x)
-					&& std::isfinite(Value.GetVector4().y)
-					&& std::isfinite(Value.GetVector4().z)
-					&& std::isfinite(Value.GetVector4().w);
-			case EMaterialParameterType::Texture:
-				return true;
-			}
-			return false;
-		}
 
 		template <typename TValue, typename TReadValue>
 		auto GetTypedParameterValue(
@@ -167,7 +144,7 @@ namespace Durin
 				const auto& Record = (*Records)[Index];
 				if (!Record.ParameterId.IsValid()) Result.Error = EMaterialInstanceError::InvalidParameterId;
 				else if (!Ids.insert(Record.ParameterId).second) Result.Error = EMaterialInstanceError::DuplicateParameterId;
-				else if (!IsFiniteMaterialParameterValue(Record.GetValue())) Result.Error = EMaterialParameterError::InvalidDefault;
+				else if (!Private::IsFiniteMaterialParameterValue(Record.GetValue())) Result.Error = EMaterialParameterError::InvalidDefault;
 				else if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
 					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback))
 						Result.Error = EMaterialInstanceError::InvalidSamplingPolicy;
@@ -452,7 +429,7 @@ namespace Durin
 		if (!Definition) return Fail(EMaterialParameterError::NotFound);
 		if (Definition->Type != Type) return Fail(EMaterialParameterError::InvalidType, Definition->Type);
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail(EMaterialParameterError::Unreachable);
-		if (!IsFiniteMaterialParameterValue(Value)) return Fail(EMaterialParameterError::InvalidDefault);
+		if (!Private::IsFiniteMaterialParameterValue(Value)) return Fail(EMaterialParameterError::InvalidDefault);
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
 			return Fail(EMaterialInstanceError::InvalidSamplingPolicy);
 		FMaterialParameterValue StoredValue = Value;
@@ -462,7 +439,7 @@ namespace Durin
 			Vector.SetValue(Value);
 			StoredValue = Vector.GetValue();
 		}
-		if (!IsFiniteMaterialParameterValue(StoredValue)) return Fail(EMaterialParameterError::InvalidDefault);
+		if (!Private::IsFiniteMaterialParameterValue(StoredValue)) return Fail(EMaterialParameterError::InvalidDefault);
 		FMaterialParameterValue Existing;
 		if (GetLocalParameterValue(Id, Existing))
 		{
@@ -569,7 +546,7 @@ namespace Durin
 				Error.ActualParameterType = Type;
 				return Reject(std::move(Error), Index, Update.ParameterId);
 			}
-			if (!IsFiniteMaterialParameterValue(Update.Value))
+			if (!Private::IsFiniteMaterialParameterValue(Update.Value))
 				return Reject(FMaterialError(EMaterialParameterError::InvalidDefault),
 					Index, Update.ParameterId);
 			if (Type == EMaterialParameterType::Texture
@@ -585,7 +562,7 @@ namespace Durin
 				Vector.SetValue(Update.Value);
 				StoredValue = Vector.GetValue();
 			}
-			if (!IsFiniteMaterialParameterValue(StoredValue))
+			if (!Private::IsFiniteMaterialParameterValue(StoredValue))
 				return Reject(FMaterialError(EMaterialParameterError::InvalidDefault),
 					Index, Update.ParameterId);
 			bool bApplied = false;

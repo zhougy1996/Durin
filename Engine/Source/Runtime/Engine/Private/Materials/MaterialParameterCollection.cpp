@@ -1,3 +1,4 @@
+#include "MaterialParameterValidation.h"
 #include "Materials/MaterialParameterCollection.h"
 
 #include "Engine/World.h"
@@ -38,10 +39,8 @@ namespace Durin
 		auto IsFinite(const FVector4& Value, EMaterialParameterType Type) -> bool
 		{
 			const std::array Components{Value.x, Value.y, Value.z, Value.w};
-			return std::ranges::all_of(Components.begin(),
-				Components.begin() + ComponentCount(Type), [](double ValueComponent) {
-					return std::isfinite(ValueComponent);
-				});
+			return Private::IsFiniteMaterialComponents(
+				std::span(Components).first(ComponentCount(Type)));
 		}
 
 		auto CanonicalValue(const FVector4& Value, EMaterialParameterType Type)
