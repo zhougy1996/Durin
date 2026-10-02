@@ -7,20 +7,6 @@
 
 namespace Durin
 {
-	auto FormatPhysicsCookKeyError(const FPhysicsCookKeyError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EPhysicsCookKeyError::None: return {};
-		case EPhysicsCookKeyError::UnsupportedTarget:
-			return std::format("Physics derived-data target {} is unsupported.", static_cast<uint32>(Error.TargetPlatform));
-		case EPhysicsCookKeyError::Archive:
-			return std::format("Physics derived-data key encoding failed (Archive code {}, path '{}').",
-				Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
-		}
-		return {};
-	}
-
 	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
 		uint32 WeldToleranceBits) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
@@ -53,17 +39,5 @@ namespace Durin
 		return std::move(*Definition);
 	}
 
-	auto BuildPhysicsCookDerivedDataKeyBytes(const FPhysicsCookKeyInput& Input) -> std::expected<FByteBuffer, FPhysicsCookKeyError>
-	{
-		auto Definition = MakePhysicsCookBuildAction(Input);
-		if (!Definition) return std::unexpected(Definition.error());
-		return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
-	}
-	auto BuildPhysicsCookDerivedDataKey(const FPhysicsCookKeyInput& Input) -> std::expected<FCacheKeyProxy, FPhysicsCookKeyError>
-	{
-		auto Definition = MakePhysicsCookBuildAction(Input);
-		if (!Definition) return std::unexpected(Definition.error());
-		return FCacheKeyProxy(Definition->GetKey());
-	}
 }
 #endif

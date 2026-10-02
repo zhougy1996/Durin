@@ -72,9 +72,9 @@ namespace
 		const auto& Indices = LOD.IndexBuffer.GetIndices();
 		Bytes.WriteU64(Indices.size());
 		for (auto Index : Indices) Bytes.WriteU32(Index);
-		return BuildPhysicsCookDerivedDataKey({.GeometryHash = FXxHash128::HashBuffer(Bytes.GetBytes()),
+		return MakePhysicsCookBuildAction({.GeometryHash = FXxHash128::HashBuffer(Bytes.GetBytes()),
 			.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, .QueryPolicy = Policy,
-			.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
+			.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().GetKey();
 	}
 
 	auto InspectCompilationOperation(const Durin::DStaticMesh& Mesh) -> Durin::FStaticMeshCompilationDiagnostic
@@ -2342,7 +2342,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	const auto Path = Fixture.CacheRoot / "StaticMeshCollision"
 		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
-	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*Key.AsCacheKey(), Invalid, MaximumPhysicsCollisionPayloadBytes}));
+	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({Key, Invalid, MaximumPhysicsCollisionPayloadBytes}));
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,

@@ -2,7 +2,6 @@
 
 #if DURIN_WITH_EDITOR
 #include "Physics/PhysicsDerivedData.h"
-#include "Asset/DerivedDataCacheKeyProxy.h"
 #include "DerivedDataBuildDefinition.h"
 
 namespace Durin
@@ -43,8 +42,5 @@ namespace Durin
 
 	ENGINE_API auto MakePhysicsCookBuildAction(const FPhysicsCookKeyInput& Input)
 		-> std::expected<DerivedData::FBuildAction, FPhysicsCookKeyError>;
-	ENGINE_API auto FormatPhysicsCookKeyError(const FPhysicsCookKeyError& Error) -> std::string;
-	ENGINE_API auto BuildPhysicsCookDerivedDataKeyBytes(const FPhysicsCookKeyInput& Input) -> std::expected<FByteBuffer, FPhysicsCookKeyError>;
-	ENGINE_API auto BuildPhysicsCookDerivedDataKey(const FPhysicsCookKeyInput& Input) -> std::expected<FCacheKeyProxy, FPhysicsCookKeyError>;
 }
 #endif

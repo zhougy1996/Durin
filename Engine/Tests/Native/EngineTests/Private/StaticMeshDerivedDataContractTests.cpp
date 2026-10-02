@@ -81,29 +81,31 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 {
 	const Durin::FPhysicsCookKeyInput Baseline =
 		MakeCollisionKeyInput();
-	const Durin::FByteBuffer Bytes =
-		Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value();
+	const auto Action = Durin::MakePhysicsCookBuildAction(Baseline);
+	ASSERT_TRUE(Action);
+	const auto Bytes = Action->GetCanonicalBytes();
 	ASSERT_FALSE(Bytes.empty());
 
-	EXPECT_EQ(Bytes, Durin::BuildPhysicsCookDerivedDataKeyBytes(Baseline).value());
-	const Durin::FCacheKeyProxy BaselineKey =
-		Durin::BuildPhysicsCookDerivedDataKey(Baseline).value();
+	const auto Repeated = Durin::MakePhysicsCookBuildAction(Baseline);
+	ASSERT_TRUE(Repeated);
+	EXPECT_TRUE(std::ranges::equal(Bytes, Repeated->GetCanonicalBytes()));
+	const auto BaselineKey = Action->GetKey();
 	EXPECT_EQ(BaselineKey.ToString(), "0c1836c76d6968f748cc33a0d91f5ead");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
 		Durin::FPhysicsCookKeyInput Changed = Baseline;
 		Mutate(Changed);
-		const auto Key = Durin::BuildPhysicsCookDerivedDataKey(Changed);
+		const auto Action = Durin::MakePhysicsCookBuildAction(Changed);
 		if (Changed.TargetPlatform == Durin::EAssetPayloadTargetPlatform::Unknown)
 		{
-			ASSERT_FALSE(Key);
-			EXPECT_EQ(Key.error().Code, Durin::EPhysicsCookKeyError::UnsupportedTarget);
+			ASSERT_FALSE(Action);
+			EXPECT_EQ(Action.error().Code, Durin::EPhysicsCookKeyError::UnsupportedTarget);
 		}
 		else
 		{
-			ASSERT_TRUE(Key);
-			EXPECT_NE(*Key, BaselineKey);
+			ASSERT_TRUE(Action);
+			EXPECT_NE(Action->GetKey(), BaselineKey);
 		}
 	};
 	ExpectChanged([](auto& Value) { ++Value.GeometryHash.HashLow; });
@@ -146,14 +148,12 @@ TEST(FStaticMeshDerivedDataContractTests, KeyRejectionOwnsTargetAndHasNoPartialO
 	EXPECT_EQ(RenderKey.error().TargetPlatform, static_cast<EAssetPayloadTargetPlatform>(99));
 	auto Collision = MakeCollisionKeyInput();
 	Collision.TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
-	const auto CollisionBytes = BuildPhysicsCookDerivedDataKeyBytes(Collision);
-	const auto CollisionKey = BuildPhysicsCookDerivedDataKey(Collision);
+	const auto CollisionAction = MakePhysicsCookBuildAction(Collision);
 	Collision = MakeCollisionKeyInput();
-	ASSERT_FALSE(CollisionBytes);
-	ASSERT_FALSE(CollisionKey);
-	EXPECT_EQ(CollisionBytes.error().Code, EPhysicsCookKeyError::UnsupportedTarget);
-	EXPECT_EQ(CollisionKey.error().TargetPlatform, EAssetPayloadTargetPlatform::Unknown);
-	const auto Valid = BuildPhysicsCookDerivedDataKey(Collision);
+	ASSERT_FALSE(CollisionAction);
+	EXPECT_EQ(CollisionAction.error().Code, EPhysicsCookKeyError::UnsupportedTarget);
+	EXPECT_EQ(CollisionAction.error().TargetPlatform, EAssetPayloadTargetPlatform::Unknown);
+	const auto Valid = MakePhysicsCookBuildAction(Collision);
 	ASSERT_TRUE(Valid);
-	EXPECT_TRUE(Valid->IsValid());
+	EXPECT_TRUE(Valid->GetKey().IsValid());
 }

@@ -975,11 +975,12 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64};
 	std::string Error;
-	const Durin::FByteBuffer KeyBytes =
-		BuildPhysicsCookDerivedDataKeyBytes(KeyInput).value();
+	const auto Action = MakePhysicsCookBuildAction(KeyInput);
+	ASSERT_TRUE(Action);
+	const auto KeyBytes = Action->GetCanonicalBytes();
 	EXPECT_EQ(KeyBytes.size(), 372u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "2be640ab5144a5170dfe1aea9d80d2df");
-	EXPECT_EQ(BuildPhysicsCookDerivedDataKey(KeyInput).value().ToString(),
+	EXPECT_EQ(Action->GetKey().ToString(),
 		"2be640ab5144a5170dfe1aea9d80d2df");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();

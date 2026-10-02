@@ -42,8 +42,9 @@ positions for identical normalization. Derived keys use the
 independent identities and separate registered shared-output sessions. Collision
 capture owns prepared arrays and computes identity before metadata-only lookup;
 PhysicsCore cooking completes immutable arrays before geometry publication.
-Reflection legacy names accept the former source type and owner field when
-loading authored packages; new saves use FStaticMeshSource and Source.
+Authored packages use the reflected identities `FStaticMeshSource` and `Source`.
+The former source type and owner-field aliases have been retired after corpus
+canonicalization.
 
 `Initialize` validates complete geometry before installing canonical bytes and
 seeding one immutable `FMeshDescriptionReadHandle`. It checks source mapping,
@@ -270,9 +271,9 @@ indices, and skip only optional unknown chunks. Cook strips source/import
 metadata and uses the independent lazy bulk fields described above.
 
 Cooked render/collision payloads each own one bidirectional Archive schema.
-Their input regions are borrowed from BulkData leases; the legacy collision DDC
-path also borrows its cache buffer for synchronous decode;
-the caller checks complete consumption before publication. Render chunk sizes
+Their input regions are borrowed from BulkData leases; the caller checks
+complete consumption before publication. Render and collision DDC sessions use
+their family-owned shared-output schemas and typed assembly. Render chunk sizes
 and cumulative native vector storage are bounded before stream allocation.
 DCOL validates disjoint ranges, checked element counts and native storage before
 resizing. Offset tables and body hashes retain bounded output staging; collision
@@ -284,9 +285,9 @@ the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
 position. Schema 4 and older payloads are incompatible, and builder version 4
-invalidates prior derived data. The render session action encodes shared-output schema 1 independently of cooked
-payload schema 5. The legacy collision key encodes its applicable builder and
-payload versions. Source-backed assets and stale
+invalidates prior derived data. The render and collision session actions encode shared-output schema 2
+independently of their cooked payload schemas, together with their applicable
+builder versions. Source-backed assets and stale
 DDC entries rebuild; cooked/runtime-only schema-4-or-older content must be recooked and
 is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,
