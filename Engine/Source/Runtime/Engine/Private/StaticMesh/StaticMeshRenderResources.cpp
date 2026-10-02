@@ -322,8 +322,11 @@ namespace Durin
 			const auto& Colors =
 				LOD.VertexBuffers.ColorVertexBuffer.GetColors();
 			const auto& Indices = LOD.IndexBuffer.GetIndices();
-			const size_t NumVertices = Positions.size();
-			const bool bValidStreams = NumVertices > 0
+			const auto& PositionBuffer = LOD.VertexBuffers.PositionVertexBuffer;
+			const size_t NumVertices = PositionBuffer.GetNumVertices();
+			const bool bValidPositions = Positions.size() == NumVertices
+				|| (Positions.empty() && !PositionBuffer.GetAllowCPUAccess() && PositionBuffer.IsReady());
+			const bool bValidStreams = bValidPositions && NumVertices > 0
 				&& Normals.size() == NumVertices
 				&& Tangents.size() == NumVertices
 				&& Colors.size() == NumVertices
@@ -344,7 +347,7 @@ namespace Durin
 				!LOD.Sections.empty()
 				&& std::ranges::all_of(
 					LOD.Sections,
-					[&Indices, &Positions, MaterialSlotCount](
+					[&Indices, NumVertices, MaterialSlotCount](
 						const FStaticMeshSection& Section) {
 						return Section.IndexCount > 0
 							&& Section.IndexCount % 3 == 0
@@ -354,7 +357,7 @@ namespace Durin
 							&& Section.MinVertexIndex
 								<= Section.MaxVertexIndex
 							&& Section.MaxVertexIndex
-								< Positions.size()
+								< NumVertices
 							&& Section.MaterialSlotIndex
 								< MaterialSlotCount;
 					});

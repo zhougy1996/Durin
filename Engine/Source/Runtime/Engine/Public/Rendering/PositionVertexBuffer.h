@@ -35,7 +35,7 @@ namespace Durin
 
 		auto GetNumVertices() const -> uint32
 		{
-			return static_cast<uint32>(GetPositions().size());
+			return NumVertices;
 		}
 		auto GetStride() const -> uint32 { return sizeof(FVector3f); }
 		auto GetAllowCPUAccess() const -> bool { return bNeedsCPUAccess; }
@@ -54,7 +54,7 @@ namespace Durin
 		}
 		auto VertexPosition(uint32 VertexIndex) -> FVector3f&
 		{
-			check(VertexIndex < GetNumVertices());
+			check(VertexIndex < GetPositions().size());
 			return static_cast<FVector3f*>(GetVertexData())[VertexIndex];
 		}
 		auto GetVertexData() const -> const void*
@@ -72,16 +72,20 @@ namespace Durin
 			check(!IsInitialized());
 			return MeshStreamPrivate::Freeze(Positions, SharedPositions);
 		}
-		auto SetSharedPositions(FSharedByteBuffer Value) -> bool
+		auto SetSharedPositions(FSharedByteBuffer Value, bool bInNeedsCPUAccess = true) -> bool
 		{
 			check(!IsInitialized());
-			return MeshStreamPrivate::Retain(Positions, SharedPositions, std::move(Value));
+			if (!MeshStreamPrivate::Retain(Positions, SharedPositions, std::move(Value))) return false;
+			NumVertices = static_cast<uint32>(GetPositions().size());
+			bNeedsCPUAccess = bInNeedsCPUAccess;
+			return true;
 		}
 		auto GetPositionCapacity() const -> size_t { return MeshStreamPrivate::Capacity(Positions, SharedPositions); }
 
 	private:
 		std::vector<FVector3f> Positions;
 		FSharedByteBuffer SharedPositions;
+		uint32 NumVertices = 0;
 		bool bNeedsCPUAccess = true;
 	};
 }

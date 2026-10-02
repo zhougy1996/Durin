@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
+#include "DynamicRHI.h"
+#include "RHICommandList.h"
 #include "Asset/CookedMeshProducts.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
@@ -1648,4 +1650,145 @@ TEST(FStaticMeshPayloadCodecTests, PositionBufferSupportsUEAccessAndDetachesShar
 	static_cast<FVector3f*>(Buffer.GetVertexData())[1].z = 8;
 	EXPECT_EQ(ReadOnly.VertexPosition(1).z, 8);
 	EXPECT_FALSE(Buffer.IsInitialized());
+}
+
+namespace
+{
+	DECLARE_RENDER_COMMAND_TAG(FPositionBufferLifetimeCommand, PositionBufferLifetimeCommand);
+
+	auto RunPositionBufferCommand(std::function<void(FRHICommandListImmediate&)> Operation) -> void
+	{
+		EnqueueRenderCommand<FPositionBufferLifetimeCommand>(std::move(Operation));
+		FlushRenderingCommands();
+	}
+
+	class FPositionBufferTestDeclaration final : public FRHIVertexDeclaration
+	{
+	public:
+		explicit FPositionBufferTestDeclaration(const FVertexDeclarationElementList& InElements) : Elements(InElements) {}
+		auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
+	private:
+		FVertexDeclarationElementList Elements;
+	};
+
+	// CPU backend snapshots creation bytes so lifetime policy can be tested without a GPU.
+	class FPositionBufferTestRHI final : public FDynamicRHI
+	{
+	public:
+		FPositionBufferTestRHI() : Previous(GDynamicRHI) { GDynamicRHI = this; }
+		~FPositionBufferTestRHI() override { RHIFlushDeferredResources(); GDynamicRHI = Previous; }
+		bool bFailCreation = false;
+		uint32 Creates = 0;
+		std::vector<std::byte> Uploaded;
+		auto Init(const FRHIInitializationContext&) -> void override {}
+		auto Shutdown() -> void override {}
+		auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
+		auto RHIEndFrame() -> void override {}
+		auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
+		auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
+		auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&) -> FGraphicsPipelineStateRHIRef override { return {}; }
+		auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
+		auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
+		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> FVertexDeclarationRHIRef override
+		{
+			return MakeRefCount<FPositionBufferTestDeclaration>(Elements);
+		}
+		auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
+		auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> std::expected<FTextureRHIRef, FRHICreationError> override
+		{
+			return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+		}
+		auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
+		auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
+		auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> std::expected<FBufferRHIRef, FRHICreationError> override
+		{
+			++Creates;
+			if (bFailCreation)
+				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend});
+			const auto* Bytes = static_cast<const std::byte*>(Desc.InitialData.Data);
+			Uploaded.assign(Bytes, Bytes + Desc.InitialData.Size);
+			return MakeRefCount<FRHIBuffer>(Desc);
+		}
+	private:
+		FDynamicRHI* Previous;
+	};
+}
+
+TEST(FStaticMeshPayloadCodecTests, PositionBufferDiscardsCPUStorageOnlyAfterSuccessfulUpload)
+{
+	FPositionBufferTestRHI RHI;
+	FPositionVertexBuffer Buffer;
+	std::vector<FVector3f> Positions{{1, 2, 3}, {4, 5, 6}};
+	const auto Expected = std::as_bytes(std::span(Positions));
+	const std::vector<std::byte> ExpectedBytes(Expected.begin(), Expected.end());
+	Buffer.Init(std::move(Positions), false);
+	RHI.bFailCreation = true;
+	RunPositionBufferCommand([&](auto& Cmd) { Buffer.InitRHI(Cmd); });
+	EXPECT_FALSE(Buffer.IsReady());
+	EXPECT_EQ(Buffer.GetPositions().size(), 2u);
+	EXPECT_GT(Buffer.GetPositionCapacity(), 0u);
+	RHI.bFailCreation = false;
+	RunPositionBufferCommand([&](auto& Cmd) { Buffer.InitRHI(Cmd); });
+	EXPECT_EQ(RHI.Uploaded, ExpectedBytes);
+	EXPECT_TRUE(Buffer.IsReady());
+	EXPECT_EQ(Buffer.GetNumVertices(), 2u);
+	EXPECT_EQ(Buffer.GetStride(), sizeof(FVector3f));
+	EXPECT_TRUE(Buffer.GetPositions().empty());
+	EXPECT_EQ(Buffer.GetPositionCapacity(), 0u);
+	EXPECT_EQ(std::as_const(Buffer).GetVertexData(), nullptr);
+	RunPositionBufferCommand([&](auto& Cmd) { Buffer.InitRHI(Cmd); });
+	EXPECT_EQ(RHI.Creates, 2u);
+	RunPositionBufferCommand([&](auto&) { Buffer.ReleaseRHI(); });
+	Buffer.Init(std::vector<FVector3f>{{7, 8, 9}}, true);
+	EXPECT_EQ(Buffer.GetNumVertices(), 1u);
+	RunPositionBufferCommand([&](auto& Cmd) { Buffer.InitRHI(Cmd); });
+	EXPECT_EQ(Buffer.GetPositions().size(), 1u);
+	EXPECT_EQ(std::as_const(Buffer).VertexPosition(0).x, 7);
+}
+
+TEST(FStaticMeshPayloadCodecTests, PositionBufferReleasesSharedOwnerAndPreservesCPUAccessData)
+{
+	FPositionBufferTestRHI RHI;
+	const auto Shared = FSharedByteBuffer::TakeNative(std::vector<FVector3f>{{1, 2, 3}});
+	FPositionVertexBuffer Discarded;
+	ASSERT_TRUE(Discarded.SetSharedPositions(Shared, false));
+	EXPECT_EQ(Discarded.GetNumVertices(), 1u);
+	EXPECT_FALSE(Discarded.SetSharedPositions(FSharedByteBuffer::Copy(Shared.GetBytes()), true));
+	EXPECT_FALSE(Discarded.GetAllowCPUAccess());
+	EXPECT_EQ(Discarded.GetNumVertices(), 1u);
+	RunPositionBufferCommand([&](auto& Cmd) { Discarded.InitRHI(Cmd); });
+	EXPECT_TRUE(Discarded.GetPositions().empty());
+	EXPECT_EQ(Discarded.GetPositionCapacity(), 0u);
+	EXPECT_EQ(Discarded.GetNumVertices(), 1u);
+	EXPECT_EQ((*Shared.GetNativeView<FVector3f>())[0].x, 1);
+	FPositionVertexBuffer Retained;
+	ASSERT_TRUE(Retained.SetSharedPositions(Shared));
+	RunPositionBufferCommand([&](auto& Cmd) { Retained.InitRHI(Cmd); });
+	EXPECT_EQ(Retained.GetPositions().data(), Shared.GetNativeView<FVector3f>()->data());
+	EXPECT_TRUE(Retained.GetAllowCPUAccess());
+	RunPositionBufferCommand([&](auto&) { Retained.ReleaseRHI(); });
+	RunPositionBufferCommand([&](auto& Cmd) { Retained.InitRHI(Cmd); });
+	EXPECT_TRUE(Retained.IsReady());
+	EXPECT_EQ(Retained.GetNumVertices(), 1u);
+}
+
+TEST(FStaticMeshPayloadCodecTests, RenderDataInitializationRemainsValidAfterPositionDiscard)
+{
+	FPositionBufferTestRHI RHI;
+	std::unique_ptr<FStaticMeshRenderData> Data;
+	ASSERT_TRUE(MakeStaticMeshRenderData(MakeSingleSectionFixture(), Data));
+	auto& Position = Data->LODResources[0].VertexBuffers.PositionVertexBuffer;
+	Position.Init(std::vector<FVector3f>(Position.GetPositions().begin(), Position.GetPositions().end()), false);
+	bool FirstInit = false, RepeatedInit = false, Ready = false;
+	RunPositionBufferCommand([&](auto& Cmd) {
+		FirstInit = Data->InitResources(Cmd);
+		RepeatedInit = Data->InitResources(Cmd);
+		Ready = Data->IsReadyForRendering();
+		Data->ReleaseResources();
+	});
+	EXPECT_TRUE(FirstInit);
+	EXPECT_TRUE(RepeatedInit);
+	EXPECT_TRUE(Ready);
+	EXPECT_EQ(Position.GetNumVertices(), 3u);
+	EXPECT_TRUE(Position.GetPositions().empty());
 }

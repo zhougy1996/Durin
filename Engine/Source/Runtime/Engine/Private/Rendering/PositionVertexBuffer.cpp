@@ -28,6 +28,7 @@ namespace Durin
 		bNeedsCPUAccess = bInNeedsCPUAccess;
 		SharedPositions = {};
 		Positions = std::move(InPositions);
+		NumVertices = static_cast<uint32>(Positions.size());
 	}
 
 	auto FPositionVertexBuffer::InitRHI(
@@ -45,5 +46,12 @@ namespace Durin
 		SetRHI(GDynamicRHI->RHICreateBuffer(
 			static_cast<FRHICommandListImmediate&>(RHICmdList),
 			Desc));
+		// Buffer creation snapshots InitialData before returning, including deferred uploads.
+		// Keep the source on failure so creation can be retried.
+		if (GetRHI() != nullptr && !bNeedsCPUAccess)
+		{
+			std::vector<FVector3f>().swap(this->Positions);
+			SharedPositions = {};
+		}
 	}
 }

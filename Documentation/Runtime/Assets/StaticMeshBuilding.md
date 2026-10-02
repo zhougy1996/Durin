@@ -280,7 +280,13 @@ CPU storage is retained while editor and test consumers inspect LOD data.
 initialization copies; Durin also retains a moving `Init(positions&&)` overload
 and shared-storage helpers for allocation-preserving build/DDC handoff. Mutable
 position access detaches shared storage and requires an uninitialized resource.
-The CPU-access flag records intent; uploading does not currently discard CPU storage.
+Position buffers default to retaining CPU data. With `bNeedsCPUAccess=false`,
+successful RHI creation releases both mutable and shared CPU storage after the
+upload bytes have been snapshotted; failed creation retains them for retry.
+Vertex count and stride remain available after discard. Shared initialization
+accepts the same CPU-access policy, and releasing one owner does not invalidate
+other holders. Recreating a discarded buffer requires supplying positions again;
+CPU queries, deformation, bounds recalculation and payload encoding require retained data.
 Position, normal, tangent, UV, color and index getters return borrowed read-only
 spans. Render resources can retain validated native `FSharedByteBuffer` arrays;
 these arrays preserve the recipe allocation rather than copying its contents.
@@ -296,8 +302,9 @@ including capacity outside a subview, rather than just its visible element count
 Finalization validates borrowed stream views through the same semantic checks as
 the archive model, without copying a complete payload. Package payload conversion
 remains an explicit copy into the archive model.
-`NeedsCPUAccess` is the explicit policy for a future discard path; upload
-currently retains these arrays.
+Tangent, UV, color and index buffers still retain CPU storage after upload;
+position buffers apply the policy described above. Existing mesh construction
+retains CPU positions by default for CPU consumers and resource recreation.
 
 ## Related documentation
 
