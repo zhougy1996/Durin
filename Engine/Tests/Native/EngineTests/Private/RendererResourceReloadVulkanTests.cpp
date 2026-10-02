@@ -239,7 +239,7 @@ float4 FragmentMain() : SV_Target
 	}
 
 	TEST(FRendererResourceReloadVulkanTests,
-		BrokenRefreshRetainsPipelineAndChangedReloadRecoversInProcess)
+		BrokenRefreshExposesNoPipelineAndChangedReloadRecoversInProcess)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -594,7 +594,7 @@ float4 FragmentMain() : SV_Target
 			<< InitialResolveMicroseconds << '\n';
 		ASSERT_NE(Initial->Payload, nullptr);
 		ASSERT_NE(Initial->Payload->PipelineState, nullptr);
-		FRHIGraphicsPipelineState* InitialPipeline =
+		FGraphicsPipelineStateRHIRef InitialPipeline =
 			Initial->Payload->PipelineState;
 		EXPECT_EQ(Attempts, 1);
 		EXPECT_TRUE(Diagnostics.empty());
@@ -612,27 +612,14 @@ float4 FragmentMain() : SV_Target
 		ASSERT_TRUE(BrokenChanged.bSuccess) << BrokenChanged.Message;
 		FlushRenderingCommands();
 		const auto FailedRefresh = Resolve();
-		ASSERT_NE(FailedRefresh->Payload, nullptr);
-		EXPECT_EQ(
-			FailedRefresh->Payload->PipelineState.GetReference(),
-			InitialPipeline);
-		EXPECT_EQ(
-			FailedRefresh->Availability,
-			ERenderResourceAvailability::StaleReady);
+		EXPECT_EQ(FailedRefresh->Payload, nullptr);
+		EXPECT_EQ(FailedRefresh->Availability, ERenderResourceAvailability::Failed);
 		EXPECT_EQ(Attempts, 2);
 		ASSERT_EQ(Diagnostics.size(), 1);
 		ASSERT_TRUE(Diagnostics.front().Error.has_value());
-		EXPECT_TRUE(Diagnostics.front().Error->bRetainedFallback);
-		ExpectReloadColor(
-			*RenderPipeline(FailedRefresh->Payload->PipelineState),
-			255,
-			0);
 
 		const auto SuppressedRefresh = Resolve();
-		ASSERT_NE(SuppressedRefresh->Payload, nullptr);
-		EXPECT_EQ(
-			SuppressedRefresh->Payload->PipelineState.GetReference(),
-			InitialPipeline);
+		EXPECT_EQ(SuppressedRefresh->Payload, nullptr);
 		EXPECT_EQ(Attempts, 2);
 		EXPECT_EQ(Diagnostics.size(), 1);
 
@@ -651,7 +638,7 @@ float4 FragmentMain() : SV_Target
 		ASSERT_NE(Recovered->Payload, nullptr);
 		EXPECT_NE(
 			Recovered->Payload->PipelineState.GetReference(),
-			InitialPipeline);
+			InitialPipeline.GetReference());
 		EXPECT_EQ(
 			Recovered->Availability,
 			ERenderResourceAvailability::Ready);
@@ -664,6 +651,7 @@ float4 FragmentMain() : SV_Target
 			*RenderPipeline(Recovered->Payload->PipelineState),
 			0,
 			255);
+		FGraphicsPipelineStateRHIRef RecoveredPipeline = Recovered->Payload->PipelineState;
 		const FRHIPipelineCacheStatistics CacheBeforeForcedReload =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
 
@@ -676,7 +664,7 @@ float4 FragmentMain() : SV_Target
 		ASSERT_NE(Forced->Payload, nullptr);
 		EXPECT_TRUE(Forced->Snapshot.bForceShaderRecompile);
 		EXPECT_EQ(Forced->Payload->PipelineState.GetReference(),
-			Recovered->Payload->PipelineState.GetReference());
+			RecoveredPipeline.GetReference());
 		EXPECT_EQ(Attempts, 4);
 		ASSERT_EQ(ForceFlags.size(), 4);
 		EXPECT_TRUE(ForceFlags.back());
@@ -737,6 +725,8 @@ float4 FragmentMain() : SV_Target
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 		FlushRenderingCommands();
+		InitialPipeline = nullptr;
+		RecoveredPipeline = nullptr;
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(

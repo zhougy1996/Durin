@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-10-03
 
 ## Scope and Ownership
 
@@ -103,8 +103,8 @@ redrawing and potentially duplicating geometry. Async-compute eligibility is a
 graph policy hint; the established graphics-queue fallback remains valid.
 
 Target publication is transactional. A partially created extent is not
-published. Shader or pipeline refresh retains a same-device last-known-good
-payload when permitted by the renderer resource coordinator. Device
+published. Shader or pipeline refresh exposes no payload until the requested
+generation is Ready, following the renderer resource slot contract. Device
 invalidation, explicit release, and shutdown clear dependent resources before
 retry. A failed isolated qualification pass increments its per-family
 attempted/skipped counters and leaves the selected result authoritative. A

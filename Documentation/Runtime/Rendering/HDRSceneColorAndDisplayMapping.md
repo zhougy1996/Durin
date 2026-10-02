@@ -4,7 +4,7 @@ Summary: Define the scene-linear HDR intermediate and the single deterministic t
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-10-03
 
 ## Color Domains and Formats
 
@@ -59,8 +59,8 @@ not color processing.
 
 `FPostProcessRenderer` publishes copy and FXAA shader/pipeline payloads
 transactionally. A missing payload reports renderer resources unavailable;
-there is no raw HDR-to-SDR fallback. Same-device last-known-good shader/manual
-payloads follow the renderer resource coordinator contract, while device
+there is no raw HDR-to-SDR fallback. Pending or failed shader/manual replacements
+expose no payload, following the renderer resource slot contract. Device
 invalidation clears dependent resources before retry.
 
 Scene Color and depth cost 12 bytes per pixel (8 + 4), or `24,883,200` bytes

@@ -90,8 +90,8 @@ namespace Durin
 	auto FRenderPipelineRequests::Reset() -> void { State.reset(); }
 	static thread_local FRenderPipelineRequestScope* Current = nullptr;
 	FRenderPipelineRequestScope::FRenderPipelineRequestScope(FRenderPipelineRequests& InRequests,
-		const FRenderResourceGeneration& InGeneration, bool RequiresFirstUse)
-		: Requests(InRequests), Previous(Current), Generation(InGeneration), bRequiresFirstUse(RequiresFirstUse)
+		const FRenderResourceGeneration& InGeneration)
+		: Requests(InRequests), Previous(Current), Generation(InGeneration)
 	{
 		if (Requests.State && Requests.State->Generation != Generation) Requests.Reset();
 		Current = this;
@@ -115,7 +115,7 @@ namespace Durin
 		if (Status == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
-			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Pipeline);
+			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
 		const auto Error = Pipeline->GetCreationError();
 		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;
@@ -139,7 +139,7 @@ namespace Durin
 		if (Status == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
-			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Pipeline);
+			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
 		const auto Error = Pipeline->GetCreationError();
 		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;

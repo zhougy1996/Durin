@@ -259,12 +259,11 @@ namespace Durin::Editor::Texture
 						return;
 					}
 					DURIN_ERROR(
-						"Texture Editor preview resource creation failed: category={}, generation={}/{}/{}, retained={}, message={}",
+						"Texture Editor preview resource creation failed: category={}, generation={}/{}/{}, message={}",
 						static_cast<uint8>(Diagnostic.Error->Category),
 						Diagnostic.Error->AttemptedGeneration.Shader,
 						Diagnostic.Error->AttemptedGeneration.Device,
 						Diagnostic.Error->AttemptedGeneration.Manual,
-						Diagnostic.Error->bRetainedFallback,
 						FormatRenderResourceCreateError(*Diagnostic.Error));
 				});
 			if (Payload == nullptr)

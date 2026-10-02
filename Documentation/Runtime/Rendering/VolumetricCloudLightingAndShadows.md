@@ -4,7 +4,7 @@ Summary: Defines production cloud single scattering, self-transmittance, ambient
 
 Modules: Renderer
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-10-03
 
 ## Selected light and cloud radiance
 
@@ -75,7 +75,7 @@ A full-resolution `R8_UNORM` visibility target costs one byte per pixel,
 8,294,400 bytes at 4K. The selected route declares a transient graph target;
 [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes)
 own allocation and retention. Feature shader/pipeline payloads follow Renderer
-resource generations and compatible last-known-good publication. Invalidation
+resource generations and complete-or-null publication for the requested generation. Invalidation
 and shutdown release feature payloads and views without a device-idle wait.
 
 ## Qualification

@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-10-03
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -197,9 +197,10 @@ retries. Unexpected recipe exceptions become generic failure completions; direct
 pre-session exceptions still use the existing flight exception path.
 Reload generation invalidates memoized source fingerprints.
 
-Global and Material Shader owners continue to publish complete
-last-known-good typed sets atomically; this storage migration does not change
-their generation or RHI-resource contract.
+Global and Material Shader owners publish complete typed sets atomically.
+Renderer resource slots expose only the requested Ready generation; pending
+or failed replacements do not return a previous set. Accepted Material program
+installation remains a separate owner transaction.
 
 DurinEditor and Cook-capable tools select ShaderBuild. Its resident
 `IShaderBuildModule` is the only live-build path; module absence is an explicit

@@ -1,6 +1,6 @@
 # Renderer Resource Recovery
 
-Summary: Define complete-or-null Renderer resource publication, generation-scoped retries, fallback retention, and device invalidation.
+Summary: Define complete-or-null Renderer resource publication, explicit readiness, generation-scoped retries, and device invalidation.
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
@@ -207,27 +207,21 @@ and drawing share the same cache; resetting a slot releases its observation
 without canceling creation retained by another slot or command. Pending and
 global admission pressure retry on later preparation without a failure
 diagnostic or a synchronous wait in the factory. Bare preparation callers see
-unavailable on a first-use miss; a same-device refresh retains the prior complete
-payload. Scene submission provides an explicit first-consumer boundary: it
+unavailable on every Pending request, including same-device replacement. Scene submission provides an explicit first-consumer boundary: it
 collects required Pending observations within each resource phase and joins them
 at `ResolvePipelineStage_RenderThread`. Only that phase is revisited to publish
 completed slot candidates; scene collection and logical preparation are retained.
 The batch returns Empty, Ready, Failed, WaitUnavailable or CapacityExceeded, rather
 than a boolean that conflates an empty batch with a failed wait. All admitted
 requests are joined even if one fails. Terminal failures are resolved through the
-owning slots so their diagnostics and optional fallback policy remain authoritative.
+owning slots so their diagnostics and retry policy remain authoritative.
 Each phase admits at most 4,096 joined observations, including dependent request
-waves; overflow is explicit. A consumed graph is never replayed. Compatible
-refreshes keep the previous complete payload and do not join the first-use batch.
-Multi-PSO groups publish only when all members are
-Ready. Slot owners must make the retained payload a coherent shader/PSO/binding
-version and separate incompatible render-target, vertex-layout, and resource
-identities or explicitly reset the slot. The generic slot invalidates device
-changes but does not prove compatibility with a new draw contract; retaining a
-payload alone is not permission to combine an old PSO with new shader bindings.
-Generation changes release obsolete cache identities, and device changes discard
-the old payload. Late results may populate the backend cache but cannot
-replace the current slot. Startup without Core keeps explicit synchronous
+waves; overflow is explicit. A consumed graph is never replayed. Replacements join the same consumption batch
+as initial creation. Multi-PSO groups publish only when all members are Ready.
+A slot invalidates its previous payload before attempting the requested generation;
+neither Pending nor Failed returns an earlier shader/PSO/binding version.
+Generation changes release obsolete cache identities. Late results may populate
+the backend cache but cannot replace the current slot. Startup without Core keeps explicit synchronous
 compatibility. Shader preparation itself is not made asynchronous by this helper.
 
 Recorded command lists retain typed cache identities and their internal creation
@@ -256,8 +250,10 @@ Fixed Renderer resources, static-mesh shader and pipeline identities, editor
 assistance, shared fullscreen geometry, and Texture Editor previews use
 `TRenderResourceCreationSlot`. A slot constructs a complete candidate in local
 ownership and publishes only after every binding, RHI resource, and pipeline
-succeeds. Callers observe the prior complete payload, a newly committed payload,
-or no payload; partially initialized aggregates are never visible.
+succeeds. Callers observe a complete payload only in Ready; Pending and Failed return null.
+Uninitialized denotes a slot that has not been requested. The availability query
+distinguishes deferred creation from terminal failure; partially initialized
+aggregates are never visible.
 
 Fixed non-Material shader compilation and typed lookup are centralized in
 RenderCore's [Global Shader](GlobalShaders.md) map. Each bounded exact shader
@@ -280,7 +276,7 @@ shutdown performs the same ordered release.
 
 Each owner tracks independent shader, device, and manual generations. A failed
 attempt records its generation, error category/reason, owned context and identity, typed cause,
-retry dependencies, and fallback state. Repeated lookup in the same relevant
+and retry dependencies. Repeated lookup in the same relevant
 generation neither calls the factory nor logs the same failure again. A later
 relevant generation permits one new lazy attempt.
 
@@ -293,16 +289,22 @@ it to the failed pipeline slot before publication. Material binding validation
 formats its own typed Material error directly at its immediate logging boundary.
 
 Failure fingerprints include category, reason, owner/identity, selected nested
-semantic context, retry dependencies, and retained-fallback state. They exclude
+semantic context and retry dependencies. They exclude
 attempt generations and opaque external diagnostics, so changing compiler prose
 does not change failure identity. Shader paths, native codes, limits, binding
 locations, and numeric conflict ranges remain owned through producer teardown.
 
-Same-device shader or manual refresh may retain a complete last-known-good
-payload as stale-ready. Device-generation changes always discard dependent RHI
-payloads before replacement, so fallback never crosses a device generation.
-This seam coordinates reconstruction; it does not recover a lost Vulkan device
-or a failed RHI executor.
+Fallback belongs to the consuming owner, not the creation slot. Material-data
+validation selects the complete ErrorMaterial representation before draw planning;
+Renderer resource failure does not combine an earlier PSO with current material
+bindings. Unavailable draw resources prevent that draw from becoming Ready;
+optional effects follow their explicit skip or neutral-resource policy, and required
+frame resources keep their failure boundary. Pending replacements participate in
+preparation waits without turning deferred creation into a failure diagnostic.
+Editor installation may retain an accepted version only through its own explicit
+transaction, such as the texture update protocol above. The generic slot supplies
+no installed-version fallback. Device-generation changes always discard dependent
+RHI payloads. This seam does not recover a lost Vulkan device or a failed RHI executor.
 
 Compiled materials retain one immutable accepted `FMaterialCompilerResult` in
 Engine render data. The Renderer adapter verifies its identity, target, pass
@@ -311,8 +313,8 @@ fixed mesh stages in one exact typed candidate. RenderCore validates reflection,
 bindings, set identity, and merged layout. Shader reload may refresh a fixed
 mesh stage; device invalidation discards combined RHI shaders and PSOs. Both
 reconstruct lazily without rereading graph state or recompiling generated
-Material IR. Failed same-device candidates retain the compatible complete map
-and pipeline; device-generation changes permit no RHI fallback.
+Material IR. Failed candidates expose no map or pipeline for the requested
+generation; previously recorded consumers retain their own resource references.
 
 Frame-transient targets use the Renderer-private RDG allocator described by
 [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md).
@@ -374,8 +376,8 @@ Console callbacks enqueue one render command. Views submitted before that
 command retain the old generation; later views observe the new one. Resource
 preparation remains demand-driven on the rendering thread; pipeline requests
 finish asynchronously and are consumed on a later preparation attempt.
-New failures and changed fingerprints produce one diagnostic, retained fallback
-is identified explicitly, and successful retry reports one recovery transition.
+New failures and changed fingerprints produce one diagnostic, and successful
+retry reports one recovery transition.
 
 `FRendererResourceCoordinator` owns command admission and the shader, device,
 and manual generation counters. It explicitly supplies accepted generations

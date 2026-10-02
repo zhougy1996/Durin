@@ -9,7 +9,7 @@ namespace Durin
 			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
 		};
 		Add(Category); Add(Reason); Add(Context); Add(Identity);
-		Add(RetryDependencies); Add(bRetainedFallback); Add(Cause.index());
+		Add(RetryDependencies); Add(Cause.index());
 		if (const auto* Shader = std::get_if<FShaderError>(&Cause))
 			Add(Shader->GetSemanticFingerprint());
 		else if (const auto* RHI = std::get_if<FRHICreationError>(&Cause))

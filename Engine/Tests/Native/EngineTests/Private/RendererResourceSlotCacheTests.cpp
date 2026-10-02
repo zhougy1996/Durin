@@ -193,7 +193,7 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			LateAggregateFailureRetainsOldCompletePayload)
+			LateAggregateFailureExposesNeitherOldNorPartialPayload)
 		{
 			struct FPipelineAggregate
 			{
@@ -217,7 +217,7 @@ namespace Durin
 					Reporter),
 				nullptr);
 			Generation.Advance(EDependency::Shader);
-			ASSERT_NE(
+			EXPECT_EQ(
 				Entry.Slot.Resolve(
 					Generation,
 					[]() {
@@ -226,12 +226,10 @@ namespace Durin
 					},
 					Reporter),
 				nullptr);
-			ASSERT_NE(Entry.Slot.GetPayload(), nullptr);
-			EXPECT_EQ(Entry.Slot.GetPayload()->Solid, 1);
-			EXPECT_EQ(Entry.Slot.GetPayload()->Wire, 2);
+			EXPECT_EQ(Entry.Slot.GetPayload(), nullptr);
 			EXPECT_EQ(
 				Entry.Slot.GetAvailability(),
-				ERenderResourceAvailability::StaleReady);
+				ERenderResourceAvailability::Failed);
 		}
 
 		TEST(

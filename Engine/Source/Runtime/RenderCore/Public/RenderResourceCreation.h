@@ -143,7 +143,6 @@ namespace Durin
 		ERenderResourceGenerationDependency RetryDependencies =
 			ERenderResourceGenerationDependency::Manual;
 		FRenderResourceGeneration AttemptedGeneration;
-		bool bRetainedFallback = false;
 
 		RENDERCORE_API auto GetFingerprint() const -> size_t;
 	};
@@ -153,11 +152,9 @@ namespace Durin
 	enum class ERenderResourceAvailability : uint8
 	{
 		Uninitialized,
-		Creating,
+		Pending,
 		Ready,
-		Refreshing,
 		Failed,
-		StaleReady,
 	};
 
 	enum class ERenderResourceCreateDiagnosticKind : uint8
@@ -205,8 +202,8 @@ namespace Durin
 	};
 
 	// Owns one complete renderer payload and its generation-scoped attempt state.
-	// Pipeline requests may defer an attempt; only a complete candidate replaces
-	// the live payload, which remains available during a compatible refresh.
+	// Pipeline requests may defer an attempt. Only Ready exposes a payload;
+	// a new attempt invalidates the previous generation before invoking its factory.
 	template <typename PayloadType>
 	class TRenderResourceCreationSlot
 	{
@@ -226,27 +223,27 @@ namespace Durin
 		{
 			if (bResolving)
 			{
-				return Payload ? &*Payload : nullptr;
+				return GetPayload();
 			}
 
 			ApplyDeviceGeneration(Generation);
 			if (ShouldSuppressAttempt(Generation))
 			{
-				return Payload ? &*Payload : nullptr;
+				return GetPayload();
 			}
 
 			bResolving = true;
 			struct FResolveGuard { bool& Flag; ~FResolveGuard() { Flag = false; } } ResolveGuard{bResolving};
-			Availability = Payload
-				? ERenderResourceAvailability::Refreshing
-				: ERenderResourceAvailability::Creating;
-			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation, !Payload.has_value());
+			Payload.reset();
+			PayloadGeneration = {};
+			Availability = ERenderResourceAvailability::Pending;
+			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation);
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
 			if (PipelineScope.HasPending())
 			{
 				bHasAttempt = false;
-				return Payload ? &*Payload : nullptr;
+				return nullptr;
 			}
 			PipelineRequests.Reset();
 			bHasAttempt = true;
@@ -281,28 +278,25 @@ namespace Durin
 				&& PipelineScope.GetFailure().HasError())
 				Failure->Cause = PipelineScope.GetFailure();
 			Failure->AttemptedGeneration = Generation;
-			Failure->bRetainedFallback = Payload.has_value();
 			FailureFingerprint = Failure->GetFingerprint();
-			Availability = Payload
-				? ERenderResourceAvailability::StaleReady
-				: ERenderResourceAvailability::Failed;
+			Availability = ERenderResourceAvailability::Failed;
 			std::forward<DiagnosticReporterType>(ReportDiagnostic)(
 				FRenderResourceCreateDiagnostic{
 					.Kind = ERenderResourceCreateDiagnosticKind::Failure,
 					.Error = Failure,
 				});
 			bFailureReported = true;
-			return Payload ? &*Payload : nullptr;
+			return nullptr;
 		}
 
 		auto GetPayload() -> PayloadType*
 		{
-			return Payload ? &*Payload : nullptr;
+			return Availability == ERenderResourceAvailability::Ready && Payload ? &*Payload : nullptr;
 		}
 
 		auto GetPayload() const -> const PayloadType*
 		{
-			return Payload ? &*Payload : nullptr;
+			return Availability == ERenderResourceAvailability::Ready && Payload ? &*Payload : nullptr;
 		}
 
 		auto GetFailure() const -> const FRenderResourceCreateError*

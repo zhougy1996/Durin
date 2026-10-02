@@ -12,8 +12,8 @@ namespace Durin
 		Empty, Ready, Failed, WaitUnavailable, CapacityExceeded
 	};
 
-	// A consuming preparation boundary can join required first-use candidates in
-	// batches before authoring a graph. Compatible refreshes do not join this batch.
+	// A consuming preparation boundary joins required Pending candidates, including
+	// replacements, in batches before authoring a graph.
 	class RENDERCORE_API FRenderPipelinePreparationBatch
 	{
 	public:
@@ -47,11 +47,11 @@ namespace Durin
 	};
 
 	// Nested resource slots each capture their own requests. A Pending candidate
-	// leaves the old complete payload available and does not consume a failure retry.
+	// exposes no payload and does not consume a failure retry.
 	class RENDERCORE_API FRenderPipelineRequestScope
 	{
 	public:
-		FRenderPipelineRequestScope(FRenderPipelineRequests& Requests, const FRenderResourceGeneration& Generation, bool RequiresFirstUse = true);
+		FRenderPipelineRequestScope(FRenderPipelineRequests& Requests, const FRenderResourceGeneration& Generation);
 		~FRenderPipelineRequestScope();
 		FRenderPipelineRequestScope(const FRenderPipelineRequestScope&) = delete;
 		auto HasPending() const -> bool { return bPending; }
@@ -65,7 +65,6 @@ namespace Durin
 		const FRenderResourceGeneration& Generation;
 		FRHICreationError Failure;
 		bool bPending = false;
-		bool bRequiresFirstUse;
 
 	};
 }

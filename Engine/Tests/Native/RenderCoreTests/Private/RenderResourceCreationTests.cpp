@@ -280,7 +280,7 @@ namespace Durin
 			EXPECT_EQ(Resolve(), nullptr);
 			EXPECT_TRUE(Entered.WaitFor(5.0));
 			EXPECT_EQ(Resolve(), nullptr);
-			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Creating);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
 			EXPECT_EQ(RHI.RHIGetPipelineCreationStatistics().ActiveObservers, 1u);
 			++Generation.Shader;
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
@@ -292,15 +292,19 @@ namespace Durin
 			EXPECT_EQ(*Slot.GetPayload(), Current.GetResult().Compute);
 			EXPECT_EQ(RHI.Creations.load(), 2u);
 			const auto Old = *Slot.GetPayload();
+			FRenderPipelinePreparationBatch RefreshBatch;
 			++Generation.Manual;
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 2;
-			EXPECT_EQ(*Resolve(), Old);
+			EXPECT_EQ(Resolve(), nullptr);
+			EXPECT_EQ(Slot.GetPayload(), nullptr);
 			EXPECT_TRUE(RefreshEntered.WaitFor(5.0));
-			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Refreshing);
+			EXPECT_EQ(RefreshBatch.GetRequestCount(), 1u);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
 			++Generation.Device;
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 3;
 			EXPECT_EQ(Resolve(), nullptr);
 			RefreshRelease.Trigger();
+			EXPECT_EQ(RefreshBatch.Wait(), ERenderPipelinePreparationWait::Ready);
 			auto Latest = RHI.RHIRequestComputePipelineState(Initializer, "wait latest");
 			EXPECT_TRUE(Latest.Wait());
 			ASSERT_NE(Resolve(), nullptr);
@@ -379,7 +383,7 @@ namespace Durin
 
 		TEST(
 			FRenderResourceCreationTests,
-			FailedShaderRefreshRetainsLastKnownGoodPayload)
+			FailedShaderRefreshExposesNoPayload)
 		{
 			FSlot Slot(EDependency::Shader | EDependency::Device);
 			FRenderResourceGeneration Generation;
@@ -391,8 +395,8 @@ namespace Durin
 				{
 					EXPECT_EQ(
 						Slot.GetAvailability(),
-						ERenderResourceAvailability::Refreshing);
-					EXPECT_EQ(*Slot.GetPayload(), 11);
+						ERenderResourceAvailability::Pending);
+					EXPECT_EQ(Slot.GetPayload(), nullptr);
 				}
 				return Attempts == 1
 					? FResult::Success(11)
@@ -401,13 +405,13 @@ namespace Durin
 
 			ASSERT_NE(Slot.Resolve(Generation, Factory, Reporter), nullptr);
 			++Generation.Shader;
-			ASSERT_NE(Slot.Resolve(Generation, Factory, Reporter), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), 11);
+			EXPECT_EQ(Slot.Resolve(Generation, Factory, Reporter), nullptr);
+			EXPECT_EQ(Slot.Resolve(Generation, Factory, Reporter), nullptr);
+			EXPECT_EQ(Slot.GetPayload(), nullptr);
 			EXPECT_EQ(
 				Slot.GetAvailability(),
-				ERenderResourceAvailability::StaleReady);
+				ERenderResourceAvailability::Failed);
 			ASSERT_NE(Slot.GetFailure(), nullptr);
-			EXPECT_TRUE(Slot.GetFailure()->bRetainedFallback);
 			EXPECT_EQ(Attempts, 2);
 		}
 
@@ -425,8 +429,8 @@ namespace Durin
 				{
 					EXPECT_EQ(
 						Slot.GetAvailability(),
-						ERenderResourceAvailability::Refreshing);
-					EXPECT_EQ(*Slot.GetPayload(), 4);
+						ERenderResourceAvailability::Pending);
+					EXPECT_EQ(Slot.GetPayload(), nullptr);
 				}
 				return FResult::Success(Attempts == 1 ? 4 : 8);
 			};
@@ -446,7 +450,7 @@ namespace Durin
 
 		TEST(
 			FRenderResourceCreationTests,
-			DeviceGenerationClearsFallbackBeforeRetry)
+			DeviceGenerationClearsPayloadBeforeRetry)
 		{
 			FSlot Slot(EDependency::Shader | EDependency::Device);
 			FRenderResourceGeneration Generation;
@@ -467,7 +471,6 @@ namespace Durin
 				Slot.GetAvailability(),
 				ERenderResourceAvailability::Failed);
 			ASSERT_NE(Slot.GetFailure(), nullptr);
-			EXPECT_FALSE(Slot.GetFailure()->bRetainedFallback);
 		}
 
 		TEST(
@@ -482,7 +485,7 @@ namespace Durin
 				++Attempts;
 				EXPECT_EQ(
 					Slot.GetAvailability(),
-					ERenderResourceAvailability::Creating);
+					ERenderResourceAvailability::Pending);
 				EXPECT_EQ(Slot.GetPayload(), nullptr);
 				EXPECT_EQ(
 					Slot.Resolve(
@@ -500,7 +503,7 @@ namespace Durin
 
 		TEST(
 			FRenderResourceCreationTests,
-			ReentrantRefreshReturnsOnlyLastKnownGoodPayload)
+			ReentrantRefreshExposesNoPayload)
 		{
 			FSlot Slot(EDependency::Shader);
 			FRenderResourceGeneration Generation;
@@ -520,7 +523,7 @@ namespace Durin
 					[&]() {
 						EXPECT_EQ(
 							Slot.GetAvailability(),
-							ERenderResourceAvailability::Refreshing);
+							ERenderResourceAvailability::Pending);
 						int* Fallback = Slot.Resolve(
 							Generation,
 							[&]() {
@@ -528,11 +531,7 @@ namespace Durin
 								return FResult::Success(99);
 							},
 							Reporter);
-						EXPECT_NE(Fallback, nullptr);
-						if (Fallback != nullptr)
-						{
-							EXPECT_EQ(*Fallback, 6);
-						}
+						EXPECT_EQ(Fallback, nullptr);
 						return FResult::Success(7);
 					},
 					Reporter),

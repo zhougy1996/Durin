@@ -50,14 +50,13 @@ namespace Durin
 
 		DURIN_ERROR(
 			"Renderer resource creation failed: category={}, context={}, "
-			"identity={}, generation={}/{}/{}, retained={}, message={}",
+			"identity={}, generation={}/{}/{}, message={}",
 			static_cast<uint8>(Error.Category),
 			Error.Context,
 			Error.Identity,
 			Error.AttemptedGeneration.Shader,
 			Error.AttemptedGeneration.Device,
 			Error.AttemptedGeneration.Manual,
-			Error.bRetainedFallback,
 			FormatRenderResourceCreateError(Error));
 	}
 

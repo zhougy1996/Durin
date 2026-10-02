@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: RenderCore, Renderer
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-10-03
 
 ## Category and Ownership
 
@@ -61,7 +61,7 @@ EditorGrid, Gizmo, and both SimpleElement sets are Editor-only. In Authored mode
 set construction asks ShaderBuild for a complete output. In Cooked mode the
 same typed construction consumes the exact `DSHD` output from the qualified
 `DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
-coupling, and last-known-good publication are shared after that data selection.
+coupling, and complete-or-null publication are shared after that data selection.
 
 ## Generations and Failure Recovery
 
@@ -74,15 +74,14 @@ and manual generations to RenderCore. Demand remains lazy:
 - manual retry permits one new attempt for failed entries;
 - repeated demand in the same relevant generation is suppressed.
 
-A failed same-device refresh retains a complete last-known-good set and reports
-the attempted generation and retained fallback. A successful later candidate
-publishes atomically and reports one recovery transition. Pipeline slots use
-the published set generation, so a stale shader fallback keeps a compatible
-pipeline and a recovered set makes one new pipeline attempt eligible.
+A failed refresh returns no set for the requested generation and reports the
+attempted generation. A successful later candidate publishes atomically and
+reports one recovery transition. Pipeline slots use the published set generation;
+unavailable shaders prevent a new pipeline candidate from becoming Ready.
 
 Device invalidation first releases Renderer consumers, then resets every
 global section and the weak shader-map resource cache before the device
-generation advances. No global RHI fallback crosses a device generation.
+generation advances. No previous global set substitutes for a failed replacement.
 The global set owns the detailed shader failure diagnostic; a containing
 feature slot mirrors the unavailable state for retry purposes without emitting
 a second wrapper failure or recovery transition.

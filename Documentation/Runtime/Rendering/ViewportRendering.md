@@ -346,8 +346,7 @@ boundary without exposing intermediate scene targets.
 
 ## Recoverable Renderer Resources
 
-Complete-or-null publication, generation-scoped retry, last-known-good
-retention, device invalidation, development commands, and shutdown ownership
+Complete-or-null publication, explicit readiness, generation-scoped retry, device invalidation, development commands, and shutdown ownership
 are defined by [Renderer Resource Recovery](RendererResourceRecovery.md).
 
 ## Interface Boundary
