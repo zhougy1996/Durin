@@ -2,25 +2,16 @@
 
 #include "DerivedDataCacheStorage.h"
 #include "FileSystemCacheBackend.h"
+#include <unordered_set>
 
 namespace Durin::DerivedData
 {
 	namespace
 	{
-		struct FCacheBucketEntry
-		{
-			explicit FCacheBucketEntry(std::string InName)
-				: Name(std::move(InName))
-			{
-			}
-
-			std::string Name;
-		};
-
 		struct FCacheBucketRegistry
 		{
 			std::mutex Mutex;
-			std::unordered_map<std::string, std::unique_ptr<FCacheBucketEntry>> Entries;
+			std::unordered_set<std::string> Entries;
 		};
 
 		// Bucket identities remain valid until process exit, including while other
@@ -35,13 +26,9 @@ namespace Durin::DerivedData
 		{
 			FCacheBucketRegistry& Registry = GetCacheBucketRegistry();
 			std::lock_guard Lock(Registry.Mutex);
-			if (const auto Found = Registry.Entries.find(Name);
-				Found != Registry.Entries.end()) return Found->second->Name.c_str();
-			auto Entry = std::make_unique<FCacheBucketEntry>(std::move(Name));
-			const char* Identity = Entry->Name.c_str();
-			const std::string LookupKey = Entry->Name;
-			Registry.Entries.emplace(LookupKey, std::move(Entry));
-			return Identity;
+			// Entries are never modified or erased; rehash preserves element addresses.
+			const auto Entry = Registry.Entries.emplace(std::move(Name)).first;
+			return Entry->c_str();
 		}
 
 		FCacheStorage GCacheStorage;

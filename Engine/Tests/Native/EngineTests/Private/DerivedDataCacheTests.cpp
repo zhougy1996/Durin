@@ -222,6 +222,20 @@ TEST(FCacheStorageTests, InternsBucketNamesAcrossThreads)
 	}
 }
 
+TEST(FCacheStorageTests, BucketIdentityRemainsStableAsRegistryGrows)
+{
+	const FCacheBucket Original = FCacheBucket::FromString("Stable/GrowingRegistry");
+	ASSERT_TRUE(Original.IsValid());
+	const char* Identity = Original.ToString().data();
+	for (uint32 Index = 0; Index < 512; ++Index)
+		ASSERT_TRUE(FCacheBucket::FromString(std::format("Stable/GrowingRegistry{}", Index)).IsValid());
+	const FCacheBucket Repeated = FCacheBucket::FromString("Stable/GrowingRegistry");
+	EXPECT_EQ(Original.ToString(), "Stable/GrowingRegistry");
+	EXPECT_EQ(Original.ToString().data(), Identity);
+	EXPECT_EQ(Repeated, Original);
+	EXPECT_EQ(Repeated.ToString().data(), Identity);
+}
+
 TEST(FCacheTests, RejectsDamagedRawAndCompressedRecordsWithoutAStorageEnvelope)
 {
 	FScopedCacheDirectory Directory("CacheContentValidation");
