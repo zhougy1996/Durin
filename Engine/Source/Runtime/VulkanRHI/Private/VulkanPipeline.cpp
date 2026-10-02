@@ -1193,91 +1193,83 @@ namespace Durin::VulkanRHI
 		Backend.ReserveMetadata = [this](uint64 Bytes) { return Device->ReserveCacheMetadata(Bytes); };
 		return Backend;
 	}
-	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName,
-		const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef
+	namespace
 	{
-		if (RHIIsPipelineCreationClosed() || !IsPipelineCreationPayloadBounded(Initializer, DebugName.ToString())) return nullptr;
+		template<typename TInitializer>
+		auto CreatePipelineState(FVulkanDynamicRHI& RHI, FVulkanDevice* Device,
+			FName DebugName, const TInitializer& Initializer)
+			-> std::conditional_t<std::same_as<TInitializer, FGraphicsPipelineStateInitializer>,
+				FGraphicsPipelineStateRHIRef, FComputePipelineStateRHIRef>
+		{
+			constexpr bool Graphics = std::same_as<TInitializer, FGraphicsPipelineStateInitializer>;
+			using TResult = std::conditional_t<Graphics, FGraphicsPipelineStateRHIRef, FComputePipelineStateRHIRef>;
+			constexpr std::string_view Kind = Graphics ? "graphics pipeline" : "compute pipeline";
+			if (RHI.RHIIsPipelineCreationClosed()) return nullptr;
+			const auto Name = DebugName.ToString();
+			if (!IsPipelineCreationPayloadBounded(Initializer, Name)) return nullptr;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		FVulkanCreationTimingScope TimingScope(false);
+			FVulkanCreationTimingScope TimingScope(!Graphics);
 #endif
-		auto ValidationResult = BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities());
-		if (!ValidationResult)
-		{
-			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), ToString(ValidationResult.error()));
-			return nullptr;
-		}
-		auto& Key = *ValidationResult;
-		if (auto Ready = Device->GetPipelineManager().FindGraphicsPipelineState(Key))
-		{
+			auto ValidationResult = [&] {
+				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, RHI.RHIGetCapabilities());
+				else return BuildComputePipelineStateKey(Initializer, RHI.RHIGetCapabilities());
+			}();
+			if (!ValidationResult)
+			{
+				DURIN_ERROR("Invalid {} '{}': {}", Kind, Name, ToString(ValidationResult.error()));
+				return nullptr;
+			}
+			auto& Key = *ValidationResult;
+			auto& Manager = Device->GetPipelineManager();
+			auto Ready = [&] {
+				if constexpr (Graphics) return Manager.FindGraphicsPipelineState(Key);
+				else return Manager.FindComputePipelineState(Key);
+			}();
+			if (Ready)
+			{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
+				if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
 #endif
-			return Ready;
-		}
-		if (IsTaskSchedulerRunning())
-		{
-			auto Request = RHIRequestGraphicsPipelineState(Initializer, DebugName.ToString());
-			if (!Request.IsAccepted()) return nullptr;
-			Request.Wait();
-			// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
-			auto Result = Request.GetResult().Graphics;
+				return Ready;
+			}
+			TResult Result;
+			if (IsTaskSchedulerRunning())
+			{
+				auto Request = [&] {
+					if constexpr (Graphics) return RHI.RHIRequestGraphicsPipelineState(Initializer, Name);
+					else return RHI.RHIRequestComputePipelineState(Initializer, Name);
+				}();
+				if (!Request.IsAccepted()) return nullptr;
+				Request.Wait();
+				// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
+				const auto Publication = Request.GetResult();
+				if constexpr (Graphics) Result = Publication.Graphics;
+				else Result = Publication.Compute;
+			}
+			else
+			{
+				// Explicit startup compatibility: async admission still requires Core startup.
+				Result = CreateVulkanResource([&]() -> TResult {
+					if constexpr (Graphics) return Manager.GetOrCreateGraphicsPipelineState(Initializer, std::move(Key), Name);
+					else return Manager.GetOrCreateComputePipelineState(Initializer, std::move(Key), Name);
+				}, Kind, Name);
+			}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
 			return Result;
 		}
-		// Explicit startup compatibility: async admission still requires Core startup.
-		auto Result = CreateVulkanResource([&] {
-			return Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
-				Initializer, std::move(Key), DebugName.ToString());
-		}, "graphics pipeline", DebugName.ToString());
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
-		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName,
+		const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef
+	{
+		return CreatePipelineState(*this, Device, DebugName, Initializer);
 	}
 	auto FVulkanDynamicRHI::RHICreateComputePipelineState(FName DebugName,
 		const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef
 	{
-		if (RHIIsPipelineCreationClosed() || !IsPipelineCreationPayloadBounded(Initializer, DebugName.ToString())) return nullptr;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		FVulkanCreationTimingScope TimingScope(true);
-#endif
-		auto ValidationResult = BuildComputePipelineStateKey(Initializer, RHIGetCapabilities());
-		if (!ValidationResult)
-		{
-			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), ToString(ValidationResult.error()));
-			return nullptr;
-		}
-		auto& Key = *ValidationResult;
-		if (auto Ready = Device->GetPipelineManager().FindComputePipelineState(Key))
-		{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
-#endif
-			return Ready;
-		}
-		if (IsTaskSchedulerRunning())
-		{
-			auto Request = RHIRequestComputePipelineState(Initializer, DebugName.ToString());
-			if (!Request.IsAccepted()) return nullptr;
-			Request.Wait();
-			// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
-			auto Result = Request.GetResult().Compute;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
-			return Result;
-		}
-		// Explicit startup compatibility: async admission still requires Core startup.
-		auto Result = CreateVulkanResource([&] {
-			return Device->GetPipelineManager().GetOrCreateComputePipelineState(
-				Initializer, std::move(Key), DebugName.ToString());
-		}, "compute pipeline", DebugName.ToString());
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
-		return Result;
+		return CreatePipelineState(*this, Device, DebugName, Initializer);
 	}
 
 	auto FVulkanDynamicRHI::RHIGetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics

@@ -2293,8 +2293,7 @@ namespace Durin
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
 		if (ActiveGraphicsRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDrawCommand>(Arguments);
-		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
-			++NumRecordedDrawCommands;
+		CountRecordedDrawCommand();
 	}
 
 	auto FRHICommandListBase::DrawIndexed(
@@ -2305,6 +2304,27 @@ namespace Durin
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
 		if (ActiveGraphicsRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
 		RecordCommand<FDrawIndexedCommand>(Arguments);
+		CountRecordedDrawCommand();
+	}
+
+	auto FRHICommandListBase::ValidateIndirectDrawRecording(const char* OperationName,
+		FRHIBuffer* ArgumentBuffer, uint64 Offset, size_t ArgumentSize) -> void
+	{
+		require(IsRecording());
+		requiref(ActivePipeline == ERHIPipeline::Graphics, "{} requires the graphics pipeline domain.", OperationName);
+		requiref(bInsideRenderPass, "{} has invalid render-pass placement.", OperationName);
+		requiref(bHasActiveGraphicsPipelineState, "{} requires an active pipeline state.", OperationName);
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
+			ArgumentSize, Capabilities && Capabilities->bSupportsIndirectDraw);
+		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
+		if (ActiveGraphicsRequest.IsAccepted())
+			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+	}
+
+	auto FRHICommandListBase::CountRecordedDrawCommand() -> void
+	{
 		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
 			++NumRecordedDrawCommands;
 	}
@@ -2312,41 +2332,17 @@ namespace Durin
 	auto FRHICommandListBase::DrawIndirect(FRHIBuffer* ArgumentBuffer,
 		uint64 Offset) -> void
 	{
-		require(IsRecording());
-		requiref(ActivePipeline == ERHIPipeline::Graphics, "DrawIndirect requires the graphics pipeline domain.");
-		requiref(bInsideRenderPass, "DrawIndirect has invalid render-pass placement.");
-		requiref(bHasActiveGraphicsPipelineState, "DrawIndirect requires an active pipeline state.");
-		const FRHICapabilities* Capabilities = GDynamicRHI
-			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
-			sizeof(FRHIDrawIndirectArguments), Capabilities
-				&& Capabilities->bSupportsIndirectDraw);
-		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
-		if (ActiveGraphicsRequest.IsAccepted())
-			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+		ValidateIndirectDrawRecording("DrawIndirect", ArgumentBuffer, Offset, sizeof(FRHIDrawIndirectArguments));
 		RecordCommand<FDrawIndirectCommand>(ArgumentBuffer, Offset);
-		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
-			++NumRecordedDrawCommands;
+		CountRecordedDrawCommand();
 	}
 
 	auto FRHICommandListBase::DrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
 		uint64 Offset) -> void
 	{
-		require(IsRecording());
-		requiref(ActivePipeline == ERHIPipeline::Graphics, "DrawIndexedIndirect requires the graphics pipeline domain.");
-		requiref(bInsideRenderPass, "DrawIndexedIndirect has invalid render-pass placement.");
-		requiref(bHasActiveGraphicsPipelineState, "DrawIndexedIndirect requires an active pipeline state.");
-		const FRHICapabilities* Capabilities = GDynamicRHI
-			? GDynamicRHI->RHIGetCapabilities() : nullptr;
-		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
-			sizeof(FRHIDrawIndexedIndirectArguments), Capabilities
-				&& Capabilities->bSupportsIndirectDraw);
-		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
-		if (ActiveGraphicsRequest.IsAccepted())
-			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+		ValidateIndirectDrawRecording("DrawIndexedIndirect", ArgumentBuffer, Offset, sizeof(FRHIDrawIndexedIndirectArguments));
 		RecordCommand<FDrawIndexedIndirectCommand>(ArgumentBuffer, Offset);
-		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
-			++NumRecordedDrawCommands;
+		CountRecordedDrawCommand();
 	}
 
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount,
@@ -3137,68 +3133,21 @@ namespace Durin
 		std::function<void()> Operation,
 		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> FRHICreationError
 	{
-		if (Timing) *Timing = {};
-		checkf(!CommandListImmediate.HasOpenBufferLocks(),
-			"A synchronous RHI operation requires every buffer lock to be unlocked.");
 		check(Operation);
-		State->SynchronousOperationCount.fetch_add(1, std::memory_order_relaxed);
-		if (bFlushRecordedCommands)
-		{
-			Submit({}, ERHISubmitFlags::None);
-		}
-
 		auto Result = std::make_shared<FRHICreationError>();
-		auto ExecuteOperation =
-			[Operation = std::move(Operation), Result]() mutable {
+		ExecuteSynchronousContextOperation(bFlushRecordedCommands,
+			[Operation = std::move(Operation), Result](IRHICommandContext&) {
 				*Result = ExecuteFallibleRHICreationOperation(Operation);
-			};
-
-		if (!State->RHIThread)
-		{
-			State->ReplayContext.GetOperationContext(
-				"Fallible synchronous RHI operation");
-			ExecuteOperation();
-			return std::move(*Result);
-		}
-
-		FRHIThreadWork Work;
-		Work.AdmissionNanoseconds = Timing ? &Timing->Admitted : nullptr;
-		Work.PayloadBytes = static_cast<uint64>(OwnedPayloadBytes);
-		Work.Execute = [this, ExecuteOperation = std::move(ExecuteOperation)]() mutable {
-			CheckRHIThread();
-			State->ReplayContext.GetOperationContext(
-				"Fallible synchronous RHI operation");
-			ExecuteOperation();
-			return FRHIThreadWorkResult::Success();
-		};
-		const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
-		if (!Submission.IsAccepted())
-		{
-			DURIN_FATAL(
-				"RHI thread rejected fallible synchronous operation ({}).",
-				static_cast<uint32>(Submission.Result));
-			std::terminate();
-		}
-		auto Timestamp = []() -> uint64 {
-			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count());
-		};
-		if (Timing) Timing->WaitBegin = Timestamp();
-		try { WaitForSerial(Submission.Serial); }
-		catch (...)
-		{
-			if (Timing) Timing->WaitEnd = Timestamp();
-			throw;
-		}
-		if (Timing) Timing->WaitEnd = Timestamp();
+			}, OwnedPayloadBytes, Timing);
 		return std::move(*Result);
 	}
 
 	auto FRHICommandListExecutor::ExecuteSynchronousContextOperation(
 		bool bFlushRecordedCommands,
 		std::function<void(IRHICommandContext&)> Operation,
-		size_t OwnedPayloadBytes) -> void
+		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> void
 	{
+		if (Timing) *Timing = {};
 		checkf(!CommandListImmediate.HasOpenBufferLocks(),
 			"A synchronous RHI operation requires every buffer lock to be unlocked.");
 		check(Operation);
@@ -3215,6 +3164,7 @@ namespace Durin
 		}
 
 		FRHIThreadWork Work;
+		Work.AdmissionNanoseconds = Timing ? &Timing->Admitted : nullptr;
 		Work.PayloadBytes = static_cast<uint64>(OwnedPayloadBytes);
 		Work.Execute = [this, Operation = std::move(Operation)]() mutable {
 			CheckRHIThread();
@@ -3230,7 +3180,18 @@ namespace Durin
 				static_cast<uint32>(Submission.Result));
 			std::terminate();
 		}
-		WaitForSerial(Submission.Serial);
+		auto Timestamp = []() -> uint64 {
+			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count());
+		};
+		if (Timing) Timing->WaitBegin = Timestamp();
+		try { WaitForSerial(Submission.Serial); }
+		catch (...)
+		{
+			if (Timing) Timing->WaitEnd = Timestamp();
+			throw;
+		}
+		if (Timing) Timing->WaitEnd = Timestamp();
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence

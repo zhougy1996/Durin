@@ -175,6 +175,9 @@ namespace Durin
 		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
+		auto ValidateIndirectDrawRecording(const char* OperationName, FRHIBuffer* ArgumentBuffer,
+			uint64 Offset, size_t ArgumentSize) -> void;
+		auto CountRecordedDrawCommand() -> void;
 		auto UpdateCPUAuthoredBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data,
 			std::span<FRHIResource* const> References)
 			-> void;
@@ -464,7 +467,8 @@ namespace Durin
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,
-			size_t OwnedPayloadBytes = 0) -> void;
+			size_t OwnedPayloadBytes = 0,
+			FRHISynchronousOperationTiming* Timing = nullptr) -> void;
 		std::unique_ptr<FState> State;
 		FRHICommandListImmediate CommandListImmediate;
 
