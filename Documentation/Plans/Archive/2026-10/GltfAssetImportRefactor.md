@@ -4,7 +4,7 @@ Summary: Introduce a complete GLTFImporter asset workflow over shared format-neu
 
 Last reviewed: 2026-10-02
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-02
 
 ## Current Status
@@ -309,9 +309,9 @@ cannot silently replace them, and required acceptance gates are verified.
 
 ## Acceptance and Validation
 
-Follow [native testing guidance](../Agents/Testing.md),
-[build guidance](../Agents/BuildAndRun.md), and
-[documentation guidance](../Agents/Documentation.md). Shared API changes require
+Follow [native testing guidance](../../../Agents/Testing.md),
+[build guidance](../../../Agents/BuildAndRun.md), and
+[documentation guidance](../../../Agents/Documentation.md). Shared API changes require
 consumer migration and affected project-target validation; shared Engine API
 migrations require an `all` build before handoff.
 
@@ -346,8 +346,8 @@ obsolete outputs; and all-or-nothing rollback of already committed package saves
 
 ## Required Contract References
 
-- [Module ownership](../Workspace/CodeModules.md)
-- [Async asset operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Static mesh building](../Runtime/Assets/StaticMeshBuilding.md)
-- [Asset packages](../Runtime/Assets/AssetPackages.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Module ownership](../../../Workspace/CodeModules.md)
+- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Static mesh building](../../../Runtime/Assets/StaticMeshBuilding.md)
+- [Asset packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)

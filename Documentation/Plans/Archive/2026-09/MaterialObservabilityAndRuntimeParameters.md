@@ -4,7 +4,7 @@ Summary: Measure material compilation and runtime update costs, add atomic dynam
 
 Last reviewed: 2026-09-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-29
 
 ## Current Status
@@ -35,7 +35,7 @@ Final validation receipts are recorded in Stage 4. The implementation is complet
 only the named unavailable Windows performance comparison is dispositioned, without
 a pass or performance claim.
 
-The completed [Runtime Dynamic Material Instances plan](Archive/2026-09/RuntimeDynamicMaterialInstances.md)
+The completed [Runtime Dynamic Material Instances plan](RuntimeDynamicMaterialInstances.md)
 provides transient instances with typed scalar, vector and Texture2D overrides,
 accepted-program reuse, stable render proxies, and no package dirtiness or
 runtime compilation. Each successful setter currently rebuilds and publishes
@@ -296,20 +296,20 @@ Out of scope:
 
 ## Required References and Coordination
 
-- [Material system roadmap](../Roadmaps/MaterialSystem.md) owns milestone ordering
+- [Material system roadmap](../../../Roadmaps/MaterialSystem.md) owns milestone ordering
   and the boundary with later expression/stage/shading work.
-- [Material system](../Runtime/Rendering/MaterialSystem.md),
-  [material expression building](../Runtime/Rendering/MaterialExpressionBuilding.md),
-  and [Material Editor lifecycle](../Editor/Architecture/MaterialEditorLifecycle.md)
+- [Material system](../../../Runtime/Rendering/MaterialSystem.md),
+  [material expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md),
+  and [Material Editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
   own the implemented contracts after completion.
-- Follow [Build and run](../Agents/BuildAndRun.md), [Testing](../Agents/Testing.md)
-  and [Documentation](../Agents/Documentation.md). Timing qualification additionally
+- Follow [Build and run](../../../Agents/BuildAndRun.md), [Testing](../../../Agents/Testing.md)
+  and [Documentation](../../../Agents/Documentation.md). Timing qualification additionally
   follows the linked performance-qualification guidance from Testing.
-- The active [Geometry Submission Refactor](GeometrySubmissionRefactor.md) owns
+- The active [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md) owns
   generic mesh/factory execution and final performance qualification. Preserve its
   shared material execution boundary and do not add geometry-family collection paths.
 - The active [RHI Asynchronous Buffer Upload Refactor](RhiAsyncBufferUploadRefactor.md)
-  and [RDG/RHI Multi-Queue Execution](RdgRhiMultiQueueExecution.md) own upload storage,
+  and [RDG/RHI Multi-Queue Execution](../../RdgRhiMultiQueueExecution.md) own upload storage,
   GPU readiness and retirement. Reconcile their current stages before Stage 3
   changes uniform preparation or retained resource lifetime.
 - Start source inspection in `Engine/Source/Runtime/Engine/Public/Materials`,

@@ -4,7 +4,7 @@ Summary: Introduce immutable build definitions, snapshot-backed input resolution
 
 Last reviewed: 2026-09-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-27
 
 ## Current Status
@@ -271,16 +271,16 @@ continues to expose opaque storage without asset or recipe knowledge.
 It preserves the prohibition on recipe-owned DDC and on a typeless compiling
 manager. Update these authorities only with the corresponding implementation:
 
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md#serialization-and-production-ownership)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md#serialization-and-production-ownership)
   and its derived-data identity/storage rules.
-- [Asset compilation](../Runtime/Assets/AssetCompilation.md#proven-reuse-boundary)
+- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md#proven-reuse-boundary)
   for typed manager, freshness, scheduling and module lifetime boundaries.
-- [Static mesh building](../Runtime/Assets/StaticMeshBuilding.md),
-  [Volume textures](../Runtime/Assets/VolumeTextures.md), and
-  [Shader cache](../Runtime/Rendering/ShaderCache.md) for family behavior.
-- [Async asset operations](../Editor/Architecture/AsyncAssetOperations.md) and
-  [Cooking](../Runtime/Assets/Cooking.md) for transactions and publication.
-- [Code modules](../Workspace/CodeModules.md) for the expanded `DerivedDataCache`
+- [Static mesh building](../../../Runtime/Assets/StaticMeshBuilding.md),
+  [Volume textures](../../../Runtime/Assets/VolumeTextures.md), and
+  [Shader cache](../../../Runtime/Rendering/ShaderCache.md) for family behavior.
+- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md) and
+  [Cooking](../../../Runtime/Assets/Cooking.md) for transactions and publication.
+- [Code modules](../../../Workspace/CodeModules.md) for the expanded `DerivedDataCache`
   responsibility and preserved dependency direction.
 
 ## Implementation Stages
@@ -633,7 +633,7 @@ private key inspection helpers project the canonical definition; direct Get/Put
 in migrated-family tests only seeds corrupt entries or exercises diagnostics.
 Volume import releases translation pixels after canonical source ownership is
 established. The authoritative contract is now
-[Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md), linked from
+[Derived Data Build Protocol](../../../Runtime/Assets/DerivedDataBuild.md), linked from
 asset lifecycle, mesh, volume, shader, module ownership and routing documents.
 
 Final cleanup checks use `MacOS-arm64-Debug-DurinEditor` and command-local
@@ -725,9 +725,9 @@ unperformed and deferred.
 
 ## Validation and Handoff
 
-Follow [agent build guidance](../Agents/BuildAndRun.md) and
-[agent test guidance](../Agents/Testing.md) before selecting/running builds and
-native tests. Use [documentation validation](../Agents/Documentation.md) for
+Follow [agent build guidance](../../../Agents/BuildAndRun.md) and
+[agent test guidance](../../../Agents/Testing.md) before selecting/running builds and
+native tests. Use [documentation validation](../../../Agents/Documentation.md) for
 plan/contract changes. Each implementation handoff records exact fixtures,
 target/configuration, checks run, measured deltas and any unsupported host path.
 Deferred platform gaps remain recorded rather than implied cross-platform success.

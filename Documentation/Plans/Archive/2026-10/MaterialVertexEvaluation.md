@@ -4,7 +4,7 @@ Summary: Execute authored World Position Offset and explicit vertex-to-pixel int
 
 Last reviewed: 2026-10-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-01
 
 ## Current Status
@@ -31,7 +31,7 @@ fixed shader entry called another shader entry. All fixed entries now call an
 ordinary shared geometry function; subsequent full material Cook and shader
 Cook integration passed. Visual GPU execution remains unverified as recorded
 below. Lasting contracts live in
-[Material Vertex Evaluation](../Runtime/Rendering/MaterialVertexEvaluation.md).
+[Material Vertex Evaluation](../../../Runtime/Rendering/MaterialVertexEvaluation.md).
 
 ## Goal
 
@@ -91,9 +91,9 @@ Depends on Stage 1.
 
 ### Stage 3: Validate and publish
 
-Depends on Stage 2. Follow [build guidance](../Agents/BuildAndRun.md),
-[test guidance](../Agents/Testing.md) and
-[documentation guidance](../Agents/Documentation.md).
+Depends on Stage 2. Follow [build guidance](../../../Agents/BuildAndRun.md),
+[test guidance](../../../Agents/Testing.md) and
+[documentation guidance](../../../Agents/Documentation.md).
 
 - [x] Publish lasting runtime and editor contracts.
 - [x] Run relevant material/compiler/editor/runtime/Cook native coverage.

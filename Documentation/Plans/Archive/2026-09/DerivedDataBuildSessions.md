@@ -4,7 +4,7 @@ Summary: Replace template-adapter execution with UE-inspired build sessions, reg
 
 Last reviewed: 2026-09-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-27
 
 ## Current Status
@@ -44,7 +44,7 @@ rules remain useful. The earlier plan also records the deferred Windows Game
 build/startup validation; neither plan claims completion evidence for it. Its
 restrictions against a function registry and separate definition/action
 identities have been superseded by the implemented stages.
-[Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md) records the
+[Derived Data Build Protocol](../../../Runtime/Assets/DerivedDataBuild.md) records the
 implemented contract.
 
 ## Goal
@@ -1535,9 +1535,9 @@ owner's 2026-09-27 decision; it is no longer a plan completion gate.
 
 ## Validation and Handoff
 
-Follow [Build and Run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md) and
-[Documentation](../Agents/Documentation.md). Select targets from the registry
+Follow [Build and Run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md) and
+[Documentation](../../../Agents/Documentation.md). Select targets from the registry
 and affected analysis at implementation time. Required coverage includes build
 protocol/DDC tests; TextureTests and texture import workflows; StaticMeshTests
 and physics; Shader contract/cache/builder/cooked-library tests; asset compilation,

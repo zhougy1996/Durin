@@ -4,7 +4,7 @@ Summary: Move GPU spatial calculations to per-view translated world space while 
 
 Last reviewed: 2026-10-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-01
 
 ## Current Status
@@ -27,7 +27,7 @@ Validation receipts on the macOS arm64 Debug DurinEditor profile:
 The first affected CPU run exposed that sky rendering accepts standalone
 ViewProjectionMatrix inputs. Its existing double-precision translation removal
 was retained; the final affected run passed. The permanent contract is
-[Camera relative rendering](../Runtime/Rendering/CameraRelativeRendering.md).
+[Camera relative rendering](../../../Runtime/Rendering/CameraRelativeRendering.md).
 
 ## Goal
 
@@ -91,8 +91,8 @@ history reprojection remain consistent when view origins move.
 
 ### Stage 4: Integration and handoff
 
-Depends on Stages 1–3. Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md).
+Depends on Stages 1–3. Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md).
 
 - [x] Document lasting coordinate and material contracts in Runtime documentation.
 - [x] Review all remaining absolute-to-float spatial upload sites.

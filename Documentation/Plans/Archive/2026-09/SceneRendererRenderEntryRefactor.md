@@ -4,7 +4,7 @@ Summary: Make FSceneRenderer::Render(FRDGBuilder&) the scene graph authoring ent
 
 Last reviewed: 2026-09-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-23
 
 ## Current Status
@@ -76,16 +76,16 @@ retain Durin's existing rendering behavior and failure contracts. Do not introdu
 
 ## Required References and Coordination
 
-- [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md):
+- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md):
   ownership, frame schedule, typed results, transaction publication, and capture.
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-  and [Render Graph](../Runtime/Rendering/RenderGraph.md): failure/retry,
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+  and [Render Graph](../../../Runtime/Rendering/RenderGraph.md): failure/retry,
   execution lifetime, extraction, and recording boundaries.
-- [Build workflow](../Agents/BuildAndRun.md),
-  [test workflow](../Agents/Testing.md), and
-  [documentation workflow](../Agents/Documentation.md).
-- [Geometry submission refactor](GeometrySubmissionRefactor.md) and
-  [RDG/RHI multi-queue execution](RdgRhiMultiQueueExecution.md) share renderer
+- [Build workflow](../../../Agents/BuildAndRun.md),
+  [test workflow](../../../Agents/Testing.md), and
+  [documentation workflow](../../../Agents/Documentation.md).
+- [Geometry submission refactor](../../GeometrySubmissionRefactor.md) and
+  [RDG/RHI multi-queue execution](../../RdgRhiMultiQueueExecution.md) share renderer
   consumers. Reconcile their current stages before editing shared files; do not
   roll back geometry contracts, queue ownership, or retirement behavior.
 - Start code inspection in

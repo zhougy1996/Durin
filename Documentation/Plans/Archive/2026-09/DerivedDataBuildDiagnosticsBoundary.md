@@ -4,7 +4,7 @@ Summary: Align Durin's build diagnostics boundary with UE by separating determin
 
 Last reviewed: 2026-09-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-30
 
 ## Current Status
@@ -12,7 +12,7 @@ Completed: 2026-09-30
 This migration established status-only completion and separated deterministic
 messages from transient logs. Its temporary request-observation compatibility
 path was subsequently removed by
-`Documentation/Plans/DerivedDataObservabilityOwnership.md`; the implemented
+`Documentation/Plans/Archive/2026-09/DerivedDataObservabilityOwnership.md`; the implemented
 contract no longer exposes request metrics, persistence timing, cache failures,
 or coarse failure sources.
 

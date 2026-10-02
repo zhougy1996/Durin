@@ -4,7 +4,7 @@ Summary: Replace Durin's returned-output and typed-failure build-function contra
 
 Last reviewed: 2026-09-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-29
 
 ## Current Status

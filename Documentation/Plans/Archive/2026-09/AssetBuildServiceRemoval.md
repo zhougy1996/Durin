@@ -4,7 +4,7 @@ Summary: Align asset derived-data build ownership with UE by moving the producti
 
 Last reviewed: 2026-09-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-30
 
 ## Current Status

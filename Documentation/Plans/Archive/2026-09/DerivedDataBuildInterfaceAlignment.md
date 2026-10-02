@@ -4,7 +4,7 @@ Summary: Align Durin's derived-data build interfaces and responsibilities with U
 
 Last reviewed: 2026-09-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-29
 
 ## Current Status
@@ -78,7 +78,7 @@ platform compilation remain deferred platform coverage; no result is inferred
 for those hosts.
 
 The implemented contract remains the
-[Derived Data Build Protocol](../Runtime/Assets/DerivedDataBuild.md) until each
+[Derived Data Build Protocol](../../../Runtime/Assets/DerivedDataBuild.md) until each
 stage migrates its consumers. This plan supersedes the unimplemented Derived
 Data Outcome and Diagnostics plan and follows the completed
 [Unified Derived Data Build Architecture](UnifiedDerivedDataBuildArchitecture.md)
@@ -451,9 +451,9 @@ evidence proves the intended validation reduction.
 - [x] Commit isolated changes with exact `Plan` and `Stage` trailers and mark the
   plan complete only after all gates pass.
 
-Depends on Stage 6. Follow [build guidance](../Agents/BuildAndRun.md),
-[native testing guidance](../Agents/Testing.md) and
-[documentation guidance](../Agents/Documentation.md). Do not overlap native
+Depends on Stage 6. Follow [build guidance](../../../Agents/BuildAndRun.md),
+[native testing guidance](../../../Agents/Testing.md) and
+[documentation guidance](../../../Agents/Documentation.md). Do not overlap native
 build process trees or infer untested platform behavior.
 
 ## Behavioral Acceptance Matrix

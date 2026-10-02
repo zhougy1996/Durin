@@ -4,7 +4,7 @@ Summary: Add stage- and space-aware material values, complete the bounded math a
 
 Last reviewed: 2026-09-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-30
 
 ## Current Status
@@ -714,15 +714,15 @@ all-plan, and all-roadmap validation pass.
 
 ## Coordination and References
 
-- Follow [Build and Run](../Agents/BuildAndRun.md), [Testing](../Agents/Testing.md),
-  and [Documentation](../Agents/Documentation.md) workflows.
-- [Material System](../Runtime/Rendering/MaterialSystem.md) owns lasting asset,
+- Follow [Build and Run](../../../Agents/BuildAndRun.md), [Testing](../../../Agents/Testing.md),
+  and [Documentation](../../../Agents/Documentation.md) workflows.
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md) owns lasting asset,
   compiler, variant, Cook, and renderer contracts.
-- [Material Expression Building](../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material Expression Building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
   owns lasting emitter, MIR, function, and semantic rules.
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-  and [Material Editor Lifecycle](../Editor/Architecture/MaterialEditorLifecycle.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+  and [Material Editor Lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
   own editor behavior.
 - Coordinate vertex-factory/pass bindings with
-  [Geometry Submission Refactor](GeometrySubmissionRefactor.md); do not add a
+  [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md); do not add a
   second geometry submission or shader-binding path.

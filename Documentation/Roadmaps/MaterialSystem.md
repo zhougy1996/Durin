@@ -10,14 +10,14 @@ Completed:
 ## Current Status
 
 On 2026-10-01 the
-[Material Vertex Evaluation plan](../Plans/MaterialVertexEvaluation.md) completed
+[Material Vertex Evaluation plan](../Plans/Archive/2026-10/MaterialVertexEvaluation.md) completed
 WPO and explicit vertex-to-pixel interpolation through the existing Surface
 passes. Material, renderer and Cook coverage and the shared API all build passed;
 visual GPU execution remains unverified. The lasting contracts are documented in
 [Material Vertex Evaluation](../Runtime/Rendering/MaterialVertexEvaluation.md).
 
 On 2026-09-30 M12 completed through the
-[Material Expression Semantics and Language plan](../Plans/MaterialExpressionSemanticsAndLanguage.md).
+[Material Expression Semantics and Language plan](../Plans/Archive/2026-09/MaterialExpressionSemanticsAndLanguage.md).
 It adds stage- and space-aware values, the bounded general math and spatial/view
 expression set, and compile-time static/quality/feature selectors through the
 existing Surface passes. The implementation retains one semantic checker,
@@ -26,7 +26,7 @@ source-free exact runtime lookup without adding WPO, SceneDepth, a Surface outpu
 material domain, or render pass.
 
 On 2026-09-29 the
-[Material Observability and Runtime Parameters plan](../Plans/MaterialObservabilityAndRuntimeParameters.md)
+[Material Observability and Runtime Parameters plan](../Plans/Archive/2026-09/MaterialObservabilityAndRuntimeParameters.md)
 completed the remaining selected M8 implementation: detached cost/variant
 observability, atomic dynamic-instance batches, and bounded world-scoped numeric
 parameter collections across authoring, Cook and Forward/GBuffer/masked-shadow
@@ -299,9 +299,9 @@ M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | [Material Instance Shader Variants](../Plans/Archive/2026-09/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Complete; remaining qualification waived by user |
-| [Runtime Dynamic Material Instances](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md) and [Material Observability and Runtime Parameters](../Plans/MaterialObservabilityAndRuntimeParameters.md) | M8 | Transient lifecycle/API followed by observability, atomic batching and world-scoped numeric collections | Complete; unavailable Windows performance comparison dispositioned without pass |
+| [Runtime Dynamic Material Instances](../Plans/Archive/2026-09/RuntimeDynamicMaterialInstances.md) and [Material Observability and Runtime Parameters](../Plans/Archive/2026-09/MaterialObservabilityAndRuntimeParameters.md) | M8 | Transient lifecycle/API followed by observability, atomic batching and world-scoped numeric collections | Complete; unavailable Windows performance comparison dispositioned without pass |
 | [Reusable Material Functions](../Plans/Archive/2026-09/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
-| [Material Expression Semantics and Language](../Plans/MaterialExpressionSemanticsAndLanguage.md) | M12 | Stage/space semantics, bounded math/context language and compile-time selectors; no WPO, depth, new Surface output/domain/pass | Complete; lasting Runtime and Editor contracts published |
+| [Material Expression Semantics and Language](../Plans/Archive/2026-09/MaterialExpressionSemanticsAndLanguage.md) | M12 | Stage/space semantics, bounded math/context language and compile-time selectors; no WPO, depth, new Surface output/domain/pass | Complete; lasting Runtime and Editor contracts published |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
 
 M5 locked the smallest useful expression/output domain, serialized ownership,

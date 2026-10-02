@@ -4,7 +4,7 @@ Summary: Replace StaticMesh render feature discovery with an explicit module con
 
 Last reviewed: 2026-09-23
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-23
 
 ## Current Status
@@ -35,7 +35,7 @@ Completion requires no production references to the old provider or operations c
 ### Stage 1: Validate and document the contract
 
 - [x] Adapt regression tests for module absence, retained sessions, cancellation, CPU products, and cache behavior.
-- [x] Run relevant CPU native targets (StaticMeshTests, SceneImportTests, AssetCookTests, CookedMeshLoadingTests, PhysicsSceneTests, SplineTests, and ViewportTests) and the required all build, following [testing](../Agents/Testing.md) and [build guidance](../Agents/BuildAndRun.md).
+- [x] Run relevant CPU native targets (StaticMeshTests, SceneImportTests, AssetCookTests, CookedMeshLoadingTests, PhysicsSceneTests, SplineTests, and ViewportTests) and the required all build, following [testing](../../../Agents/Testing.md) and [build guidance](../../../Agents/BuildAndRun.md).
 - [x] Update owning runtime/module documentation and pass changed-document and all-plan validation.
 - [x] Review the diff and commit the completed migration with plan provenance.
 

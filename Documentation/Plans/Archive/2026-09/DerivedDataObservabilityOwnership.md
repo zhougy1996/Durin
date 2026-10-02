@@ -4,7 +4,7 @@ Summary: Remove the DDC request observer compatibility layer and stop returning 
 
 Last reviewed: 2026-09-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-30
 
 ## Current Status
