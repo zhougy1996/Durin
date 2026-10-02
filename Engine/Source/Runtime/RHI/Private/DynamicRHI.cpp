@@ -82,6 +82,11 @@ namespace Durin
 		}
 		return PipelineCreation.get();
 	}
+	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
+	{
+		if (auto* Service = GetPipelineCreationService()) return &Service->GetPipelineStateCache();
+		return nullptr;
+	}
 	auto FDynamicRHI::RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
 		std::string_view Name) -> FRHIPipelineCreationRequest
 	{

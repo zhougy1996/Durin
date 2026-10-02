@@ -8,55 +8,57 @@ namespace Durin
 	FRenderPipelinePreparationBatch::FRenderPipelinePreparationBatch() : Previous(Preparation) { Preparation = this; }
 	FRenderPipelinePreparationBatch::~FRenderPipelinePreparationBatch() { Preparation = Previous; }
 	auto FRenderPipelinePreparationBatch::HasPending() -> bool { return Preparation && !Preparation->Requests.empty(); }
-	auto FRenderPipelinePreparationBatch::Add(const FRHIPipelineCreationRequest& Request) -> void
+	auto FRenderPipelinePreparationBatch::Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void
 	{
-		if (!Preparation || std::ranges::contains(Preparation->Requests, Request)) return;
+		if (!Preparation || std::ranges::contains(Preparation->Requests, Pipeline)) return;
 		if (Preparation->Requests.size() == MaximumRequests)
 		{
 			Preparation->bCapacityExceeded = true;
 			return;
 		}
-		Preparation->Requests.push_back(Request);
+		Preparation->Requests.push_back(Pipeline);
 	}
 	auto FRenderPipelinePreparationBatch::Wait() -> ERenderPipelinePreparationWait
 	{
 		if (bCapacityExceeded) return ERenderPipelinePreparationWait::CapacityExceeded;
 		if (Requests.empty()) return ERenderPipelinePreparationWait::Empty;
 		for (const auto& Request : Requests)
-			if (!Request.CanWait()) return ERenderPipelinePreparationWait::WaitUnavailable;
+			if (!Request->CanWait()) return ERenderPipelinePreparationWait::WaitUnavailable;
 		bool bReady = true;
 		for (const auto& Request : Requests)
 		{
-			(void)Request.Wait();
-			if (Request.GetState() == ERHIPipelineRequestState::Pending)
+			(void)Request->Wait();
+			if (Request->GetState() == ERHIPipelineRequestState::Pending)
 				return ERenderPipelinePreparationWait::WaitUnavailable;
-			bReady = Request.GetResult().State == ERHIPipelineRequestState::Ready && bReady;
+			(void)Request->GetCreationError(); // Preserve terminal creator exceptions.
+			bReady = Request->GetState() == ERHIPipelineRequestState::Ready && bReady;
 		}
 		return bReady ? ERenderPipelinePreparationWait::Ready : ERenderPipelinePreparationWait::Failed;
 	}
 	struct FRenderPipelineRequests::FState
 	{
 		using FKey = std::variant<FGraphicsPipelineStateKey, FComputePipelineStateKey>;
-		struct FEntry { FKey Key; FRHIPipelineCreationRequest Request; };
+		struct FEntry { FKey Key; std::shared_ptr<FPipelineState> Pipeline; };
 		FRenderResourceGeneration Generation;
 		std::vector<FEntry> Entries;
 		uint64 KeyBytes = 0;
 
-		~FState() { for (const auto& Entry : Entries) Entry.Request.Cancel(); }
-		template<typename T> auto Request(const T& Initializer, FName Name, bool& RetryAdmission) -> FRHIPipelineCreationRequest
+		template<typename T> auto Request(const T& Initializer, FName Name, bool& RetryAdmission)
 		{
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
+			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
+			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name.ToString()))
-				return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::CapacityExceeded);
+				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 			auto Valid = [&] {
 				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
 				else return BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
 			}();
-			if (!Valid) return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::InvalidDescription);
+			if (!Valid) return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
 			auto& Key = *Valid;
 			for (const auto& Entry : Entries)
-				if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return Entry.Request;
+				if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return TResult(std::static_pointer_cast<TPipeline>(Entry.Pipeline));
 			uint64 Bytes = sizeof(FEntry);
 			Bytes += Key.PipelineLayout.BindingLayouts.capacity() * sizeof(FBindingLayout);
 			Bytes += Key.PipelineLayout.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
@@ -67,14 +69,14 @@ namespace Durin
 				Bytes += Key.ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
 			}
 			if (Entries.size() >= 256 || Bytes > 1024 * 1024 - KeyBytes)
-				return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::CapacityExceeded);
-			FRHIPipelineCreationRequest Result;
-			if constexpr (Graphics) Result = GDynamicRHI->RHIRequestGraphicsPipelineState(Initializer, Name.ToString());
-			else Result = GDynamicRHI->RHIRequestComputePipelineState(Initializer, Name.ToString());
-			RetryAdmission = !Result.IsAccepted() && Result.GetRejection() == ERHIPipelineRequestRejection::CapacityExceeded;
-			if (Result.IsAccepted())
+				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+			TResult Result;
+			if constexpr (Graphics) Result = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, Name);
+			else Result = PipelineStateCache::PrecacheComputePipelineState(Initializer, Name);
+			RetryAdmission = !Result && Result.error() == ERHIPipelineRequestRejection::CapacityExceeded;
+			if (Result)
 			{
-				Entries.push_back({std::move(Key), Result});
+				Entries.push_back({std::move(Key), *Result});
 				KeyBytes += Bytes;
 			}
 			return Result;
@@ -107,15 +109,17 @@ namespace Durin
 		bool RetryAdmission = false;
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
 		if (RetryAdmission) Current->MarkPending();
-		if (!Request.IsAccepted()) return nullptr;
-		auto Result = Request.GetResult();
-		if (Result.State == ERHIPipelineRequestState::Pending)
+		if (!Request) return nullptr;
+		const auto& Pipeline = *Request;
+		const auto Status = Pipeline->GetState();
+		if (Status == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
-			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
+			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
-		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
-		return Result.Graphics;
+		const auto Error = Pipeline->GetCreationError();
+		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;
+		return Pipeline->GetRHIPipeline();
 	}
 	auto FRenderPipelineRequestScope::Compute(FName Name, const FComputePipelineStateInitializer& Initializer)
 		-> FComputePipelineStateRHIRef
@@ -129,14 +133,16 @@ namespace Durin
 		bool RetryAdmission = false;
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
 		if (RetryAdmission) Current->MarkPending();
-		if (!Request.IsAccepted()) return nullptr;
-		auto Result = Request.GetResult();
-		if (Result.State == ERHIPipelineRequestState::Pending)
+		if (!Request) return nullptr;
+		const auto& Pipeline = *Request;
+		const auto Status = Pipeline->GetState();
+		if (Status == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
-			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
+			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
-		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
-		return Result.Compute;
+		const auto Error = Pipeline->GetCreationError();
+		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;
+		return Pipeline->GetRHIPipeline();
 	}
 }

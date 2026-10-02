@@ -3663,6 +3663,7 @@ namespace Durin
 
 		auto FTaskRuntimeAccess::GetAttribution(const FTaskHandle& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
+		auto FTaskRuntimeAccess::IsExecutingIndependentCPU() -> bool { return GCurrentTaskState && GCurrentTaskState->IsIndependentCPU(); }
 		auto FTaskRuntimeAccess::GetCurrentTaskId() -> uint64 { return GCurrentTaskState && GCurrentTaskState->IsRunningBody() ? GCurrentTaskState->GetTaskId() : 0; }
 
 		auto FTaskRuntimeAccess::GroupState(const FTaskScopeToken& Scope) -> ETaskState

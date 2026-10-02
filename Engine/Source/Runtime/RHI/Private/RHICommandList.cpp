@@ -850,9 +850,10 @@ namespace Durin
 
 			TRefCountPtr<FRHIComputePipelineState> State;
 		};
-		struct FSetRequestedPipelineCommand
+		struct FSetCachedPipelineStateCommand
 		{
-			explicit FSetRequestedPipelineCommand(FRHIPipelineCreationRequest InRequest) : Request(std::move(InRequest)) {}
+			explicit FSetCachedPipelineStateCommand(FRHIPipelineCreationRequest InRequest, std::shared_ptr<FPipelineState> InPipeline)
+				: Request(std::move(InRequest)), Pipeline(std::move(InPipeline)) {}
 			auto Execute(void* Context) -> void
 			{
 				const auto Result = Request.GetResult();
@@ -861,6 +862,7 @@ namespace Durin
 				else GetReplayContext(Context).GetGraphicsContext("SetGraphicsPipelineState").RHISetGraphicsPipelineState(*Result.Graphics);
 			}
 			FRHIPipelineCreationRequest Request;
+			std::shared_ptr<FPipelineState> Pipeline;
 		};
 
 		struct FBindVertexBufferCommand
@@ -2115,20 +2117,24 @@ namespace Durin
 	{
 		return IsRecording() && Request.IsAccepted() && Storage->AddDependency(Request);
 	}
-	auto FRHICommandListBase::SetGraphicsPipelineState(const FRHIPipelineCreationRequest& Request) -> void
+	auto FRHICommandListBase::SetGraphicsPipelineState(const FGraphicsPipelineStateRef& Pipeline) -> void
 	{
+		check(Pipeline);
+		const auto& Request = Pipeline->Request;
 		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsAccepted() && !Request.IsCompute());
 		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
-		RecordCommand<FSetRequestedPipelineCommand>(Request);
+		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		bHasActiveGraphicsPipelineState = true;
 		ActiveGraphicsRequest = Request;
 	}
-	auto FRHICommandListBase::SetComputePipelineState(const FRHIPipelineCreationRequest& Request) -> void
+	auto FRHICommandListBase::SetComputePipelineState(const FComputePipelineStateRef& Pipeline) -> void
 	{
+		check(Pipeline);
+		const auto& Request = Pipeline->Request;
 		check(ActivePipeline == ERHIPipeline::Compute && !bInsideRenderPass && Request.IsCompute());
 		check(Request.GetPipelineLayout());
 		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
-		RecordCommand<FSetRequestedPipelineCommand>(Request);
+		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		ActiveComputePipelineState = nullptr;
 		ActiveComputeRequest = Request;
 	}

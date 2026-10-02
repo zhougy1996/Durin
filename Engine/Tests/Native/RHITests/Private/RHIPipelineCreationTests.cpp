@@ -43,6 +43,172 @@ namespace Durin
 		}
 	};
 
+	TEST_F(FRHIPipelineCreationTests, CacheSharesPendingIdentityWithoutSharingCancellationAuthority)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
+		std::promise<void> Release;
+		auto Released = Release.get_future().share();
+		std::atomic<uint32> Calls = 0;
+		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+			++Calls;
+			Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto& Cache = Service.GetPipelineStateCache();
+		auto First = Cache.GetCompute(Initializer, "precache");
+		auto Second = Cache.GetCompute(Initializer, "draw");
+		EXPECT_TRUE(First);
+		EXPECT_TRUE(Second);
+		if (First && Second)
+		{
+			EXPECT_EQ(*First, *Second);
+			EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Pending);
+			EXPECT_EQ((*First)->GetPipelineLayout()->PushConstantRanges.size(), 1u);
+			EXPECT_FALSE((*First)->GetRHIPipeline());
+			EXPECT_EQ(Service.GetStatistics().ActiveObservers, 1u);
+			auto Independent = Service.RequestCompute(Initializer, "cancelable observation");
+			EXPECT_TRUE(Independent.Cancel());
+			First = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
+			EXPECT_EQ((*Second)->GetState(), ERHIPipelineRequestState::Pending);
+		}
+		Release.set_value();
+		if (Second) EXPECT_TRUE((*Second)->Wait());
+		EXPECT_EQ(Calls, 1u);
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CacheColdMissFromForeignScopeDoesNotWaitForNativeCreation)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		std::promise<void> Release;
+		auto Released = Release.get_future().share();
+		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+			Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Scope = CreateTaskScope();
+		Tasks::FTaskGroup Group(Scope.GetToken());
+		std::promise<FComputePipelineStateRef> Submitted;
+		auto SubmittedFuture = Submitted.get_future();
+		auto Producer = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
+			auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "parallel draw");
+			EXPECT_TRUE(Cached);
+			if (Cached)
+			{
+				EXPECT_EQ((*Cached)->GetState(), ERHIPipelineRequestState::Pending);
+				EXPECT_FALSE((*Cached)->CanWait());
+				EXPECT_FALSE((*Cached)->Wait());
+				Submitted.set_value(*Cached);
+			}
+			else Submitted.set_value({});
+		});
+		const auto Admission = SubmittedFuture.wait_for(std::chrono::seconds(5));
+		EXPECT_EQ(Admission, std::future_status::ready);
+		// Always release the creator before asserting or joining scopes.
+		Release.set_value();
+		auto Pipeline = SubmittedFuture.get();
+		if (Pipeline)
+		{
+			EXPECT_TRUE(Pipeline->Wait());
+			auto Hit = Service.GetPipelineStateCache().GetCompute(Initializer, "owner hit");
+			EXPECT_TRUE(Hit);
+			if (Hit) EXPECT_EQ(*Hit, Pipeline);
+		}
+		Group.Close();
+		EXPECT_EQ(Scope.Wait(), ETaskScopeWaitResult::Quiescent);
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CacheFailedIdentityRetriesAndDeviceRetirementInvalidatesSurvivingHandles)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		std::atomic<uint32> Calls = 0;
+		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+			if (++Calls == 1) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -7});
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto& Cache = Service.GetPipelineStateCache();
+		auto Failed = Cache.GetCompute(Initializer, "failure");
+		ASSERT_TRUE(Failed);
+		EXPECT_FALSE((*Failed)->Wait());
+		EXPECT_EQ((*Failed)->GetCreationError().NativeCode, -7);
+		auto Retried = Cache.GetCompute(Initializer, "retry");
+		ASSERT_TRUE(Retried);
+		EXPECT_NE(*Failed, *Retried);
+		EXPECT_TRUE((*Retried)->Wait());
+		EXPECT_TRUE((*Retried)->GetRHIPipeline());
+		EXPECT_EQ(Calls, 2u);
+		Service.CloseAndJoin(false);
+		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Ready);
+		EXPECT_EQ(Cache.GetCompute(Initializer, "closed").error(), ERHIPipelineRequestRejection::Closed);
+		Service.CloseAndJoin();
+		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Canceled);
+		EXPECT_FALSE((*Retried)->GetRHIPipeline());
+		EXPECT_TRUE((*Retried)->IsComplete());
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CacheReclaimsExpiredKeysUnderMetadataPressureBeforeEntryCapacity)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
+		std::atomic<uint64> CacheEntryBytes = 0;
+		std::atomic<uint32> CacheLeases = 0;
+		auto Callbacks = Backend([](const auto&, const auto&) { return MakeRefCount<FRHIComputePipelineState>(); });
+		Callbacks.ReserveMetadata = [&](uint64 Bytes) -> std::shared_ptr<void> {
+			uint64 Expected = 0;
+			CacheEntryBytes.compare_exchange_strong(Expected, Bytes);
+			if (Bytes != CacheEntryBytes.load()) return {};
+			if (CacheLeases.fetch_add(1) != 0)
+			{
+				CacheLeases.fetch_sub(1);
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+			}
+			return {nullptr, [&](void*) { CacheLeases.fetch_sub(1); }};
+		};
+		FRHIPipelineCreationService Service(Capabilities(), std::move(Callbacks));
+		auto& Cache = Service.GetPipelineStateCache();
+		{
+			auto First = Cache.GetCompute(Initializer, "first");
+			ASSERT_TRUE(First);
+			EXPECT_TRUE((*First)->Wait());
+		}
+		EXPECT_EQ(CacheLeases, 1u);
+		Initializer.PipelineLayout.PushConstantRanges[0].Offset = 4;
+		auto Second = Cache.GetCompute(Initializer, "second");
+		ASSERT_TRUE(Second);
+		EXPECT_TRUE((*Second)->Wait());
+		EXPECT_EQ(CacheLeases, 1u);
+		Service.CloseAndJoin();
+		Second = std::unexpected(ERHIPipelineRequestRejection::Closed);
+		EXPECT_EQ(CacheLeases, 0u);
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptionsAndIndependentCpuTasks)
+	{
+		std::atomic<uint32> Calls = 0;
+		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+			++Calls;
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		FComputePipelineStateInitializer Initializer;
+		EXPECT_EQ(Service.GetPipelineStateCache().GetCompute(Initializer, "invalid").error(), ERHIPipelineRequestRejection::InvalidDescription);
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		Initializer.ComputeShader = Shader;
+		auto Task = Tasks::LaunchIndependentTask("cache leaf rejection", [&] {
+			return Service.GetPipelineStateCache().GetCompute(Initializer, "cpu leaf").error();
+		});
+		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_EQ(Calls, 0u);
+		EXPECT_EQ(Service.GetStatistics().ActiveObservers, 0u);
+	}
+
 	TEST_F(FRHIPipelineCreationTests, SharesWorkAndOwnsInputsWhileObserversCancelIndependently)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));

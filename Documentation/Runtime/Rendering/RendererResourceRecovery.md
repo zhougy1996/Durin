@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-10-03
 
 ## Complete-Or-Null Construction
 
@@ -161,14 +161,51 @@ Callers must still release explicit RHI references copied out of a Ready result
 before device destruction. The owning shutdown thread performs close/join;
 creation callbacks must never attempt to close their own service.
 
+## Pipeline Cache And Binding
+
+`PipelineStateCache.h` separates typed `FGraphicsPipelineState` and
+`FComputePipelineState` cache identities from complete native RHI PSOs.
+`PipelineStateCache::GetAndOrCreate*PipelineState` and `Precache*PipelineState`
+return the same shared identity for an equal normalized key while an owner or
+recorded command retains it. Names are diagnostic only. Admission returns an
+`expected` identity or an explicit request rejection; accepted identities expose
+Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
+permitted waits, and native failure details. Raw Core completion handles remain
+internal because they carry cancellation authority. A failed identity can be
+retried by a later cache acquisition without changing an existing owner's result.
+
+The device creation service owns a weak cache capped at 4,096 entries. Keys and
+identity metadata are charged against the existing shared 64 MiB metadata budget;
+individual cache metadata payloads are capped at 1 MiB. Expired identities are
+reclaimed at entry capacity or metadata pressure. The Vulkan cache continues to own complete native reuse.
+Cache acquisition rejects independent CPU leaves. Ordinary foreign-scope tasks
+can acquire cold identities: one lazily started admission thread per device
+performs a serialized metadata handoff outside the caller's Core scope. The
+caller waits only for admission, never native compilation. The admission thread
+queues existing Core creator work and never waits for replay, GPU work, or PSO
+completion. Closing cache admission joins this thread before closing the creation
+scope; native results retire through the existing two-phase shutdown boundary.
+
+Drawing uses `SetGraphicsPipelineState(Commands, Initializer, Name)` or its compute
+counterpart. These helpers acquire the cache identity and record its binding and
+completion dependency automatically. Admission rejection is a contract error;
+resource preparation should use the `expected` cache/precache API to apply
+retry or fallback policy. Without Core, binding helpers use the complete-or-null
+synchronous native factories, while cache/precache acquisition returns
+Unsupported. Command-list overloads accept typed cache references or complete
+native RHI objects, never creation requests. A Pending identity is not an
+unfinished native resource. Recording never waits for native compilation.
+
 ## Transactional Resource Slots
 
 With Core running, production fixed graphics/compute and static-mesh PSO
 factories use `FRenderPipelineRequestScope` inside their owning slot. Logical
 resource preparation before consuming passes is the prewarm trigger. A slot
-retains normalized request identities across attempts (at most 256 keys and
-1 MiB of key storage), instead of creating a new observer every frame. Pending
-and global admission pressure retry on later preparation without a failure
+retains normalized shared cache identities across attempts (at most 256 keys and
+1 MiB of key storage), instead of creating a new observer every frame. Precache
+and drawing share the same cache; resetting a slot releases its observation
+without canceling creation retained by another slot or command. Pending and
+global admission pressure retry on later preparation without a failure
 diagnostic or a synchronous wait in the factory. Bare preparation callers see
 unavailable on a first-use miss; a same-device refresh retains the prior complete
 payload. Scene submission provides an explicit first-consumer boundary: it
@@ -183,13 +220,19 @@ Each phase admits at most 4,096 joined observations, including dependent request
 waves; overflow is explicit. A consumed graph is never replayed. Compatible
 refreshes keep the previous complete payload and do not join the first-use batch.
 Multi-PSO groups publish only when all members are
-Ready. Generation changes cancel obsolete observations, and device changes
-discard the old payload. Late results may populate the backend cache but cannot
+Ready. Slot owners must make the retained payload a coherent shader/PSO/binding
+version and separate incompatible render-target, vertex-layout, and resource
+identities or explicitly reset the slot. The generic slot invalidates device
+changes but does not prove compatibility with a new draw contract; retaining a
+payload alone is not permission to combine an old PSO with new shader bindings.
+Generation changes release obsolete cache identities, and device changes discard
+the old payload. Late results may populate the backend cache but cannot
 replace the current slot. Startup without Core keeps explicit synchronous
 compatibility. Shader preparation itself is not made asynchronous by this helper.
 
-Recorded command lists can also retain pipeline requests directly. Pending
-requests expose immutable layout metadata, never unfinished native handles.
+Recorded command lists retain typed cache identities and their internal creation
+dependencies. Pending identities expose immutable layout metadata, never
+unfinished native handles.
 Submission retains up to 256 distinct observer dependencies per group. The
 threaded queue preserves FIFO serial order and wakes from Core completion; its
 replay thread does not wait inside a command. A failed or canceled dependency

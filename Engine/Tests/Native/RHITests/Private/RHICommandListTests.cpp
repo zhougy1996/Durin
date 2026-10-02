@@ -83,7 +83,7 @@ namespace Durin
 			~FTestGPUTimingQuery() override = default;
 		};
 
-		class FIndirectTestRHI final : public FDynamicRHI
+		class FIndirectTestRHI : public FDynamicRHI
 		{
 		public:
 			explicit FIndirectTestRHI(bool bSupported = true)
@@ -95,6 +95,7 @@ namespace Durin
 				Capabilities.MaxTextureDimension2D = 4096;
 				Capabilities.MaxTextureDimensionCube = 4096;
 				Capabilities.MaxTextureArrayLayers = 256;
+				Capabilities.MaxColorAttachments = 8;
 				Capabilities.ColorSampleCounts = ERHISampleCountFlags::Samples1;
 				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
 				Capabilities.bSupportsIndirectDraw = bSupported;
@@ -126,6 +127,36 @@ namespace Durin
 			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
 				-> std::expected<FBufferRHIRef, FRHICreationError> override
 			{ return std::unexpected(FRHICreationError{}); }
+		};
+
+		class FPipelineCacheTestRHI final : public FIndirectTestRHI
+		{
+		public:
+			std::atomic<uint32> GraphicsCreations = 0, ComputeCreations = 0;
+			std::function<void()> BeforeCreate;
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
+				-> FGraphicsPipelineStateRHIRef override
+			{ ++GraphicsCreations; return MakeRefCount<FRHIGraphicsPipelineState>(); }
+			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&)
+				-> FComputePipelineStateRHIRef override
+			{ ++ComputeCreations; return MakeRefCount<FRHIComputePipelineState>(); }
+		protected:
+			auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override
+			{
+				return {
+					.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+					.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
+					.CreateGraphics = [this](const auto&, const auto&) {
+						if (BeforeCreate) BeforeCreate();
+						return RHICreateGraphicsPipelineState({}, {});
+					},
+					.CreateCompute = [this](const auto&, const auto&) {
+						if (BeforeCreate) BeforeCreate();
+						return RHICreateComputePipelineState({}, {});
+					},
+					.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); }
+				};
+			}
 		};
 
 		class FScopedDynamicRHI final
@@ -1321,6 +1352,73 @@ namespace Durin
 		}), int);
 	}
 
+	TEST(FRHICommandListTests, DescriptorPipelineHelpersRetainPrecacheIdentityAndResolveBeforeReplay)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		FPipelineCacheTestRHI RHI;
+		FScopedDynamicRHI DynamicRHI(RHI);
+		FThreadEvent Entered, Release;
+		RHI.BeforeCreate = [&] { Entered.Trigger(); Release.Wait(); };
+		auto VertexShader = MakeRefCount<FTestShader>(EShaderFrequency::Vertex, 1);
+		auto FragmentShader = MakeRefCount<FTestShader>(EShaderFrequency::Fragment, 2);
+		auto Declaration = MakeRefCount<FTestVertexDeclaration>();
+		FGraphicsPipelineStateInitializer Graphics;
+		Graphics.BoundShaders = {VertexShader, FragmentShader};
+		Graphics.VertexDeclaration = Declaration;
+		Graphics.RenderTargetLayout.NumColorRenderTargets = 1;
+		Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+		auto Shader = MakeRefCount<FTestShader>(EShaderFrequency::Compute, 3);
+		FComputePipelineStateInitializer Compute;
+		Compute.ComputeShader = Shader;
+		auto Precached = PipelineStateCache::PrecacheGraphicsPipelineState(Graphics, "prewarm");
+		EXPECT_TRUE(Precached);
+		EXPECT_TRUE(Entered.WaitFor(5.0));
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		SetGraphicsPipelineState(Commands, Graphics, "draw");
+		std::weak_ptr<FGraphicsPipelineState> Identity;
+		if (Precached) Identity = *Precached;
+		Precached = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Identity.expired());
+		auto Hit = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Graphics, "different name");
+		EXPECT_TRUE(Hit);
+		if (Hit) EXPECT_EQ(*Hit, Identity.lock());
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		SetComputePipelineState(Commands, Compute, "dispatch");
+		Commands.Dispatch(1, 1, 1);
+		EXPECT_TRUE(Context.Operations.empty());
+		Release.Trigger();
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"PipelineState", "ComputePipelineState", "Dispatch"}));
+		EXPECT_EQ(RHI.GraphicsCreations, 1u);
+		EXPECT_EQ(RHI.ComputeCreations, 1u);
+	}
+
+	TEST(FRHICommandListTests, DescriptorPipelineHelpersUseCompleteNativeFactoriesWithoutCore)
+	{
+		ASSERT_FALSE(IsTaskSchedulerRunning());
+		struct FResourceGuard { ~FResourceGuard() { RHIFlushDeferredResources(); } } ResourceGuard;
+		FPipelineCacheTestRHI RHI;
+		FScopedDynamicRHI DynamicRHI(RHI);
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		SetGraphicsPipelineState(Commands, {}, "startup graphics");
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		SetComputePipelineState(Commands, {}, "startup compute");
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"PipelineState", "ComputePipelineState"}));
+		EXPECT_EQ(RHI.GraphicsCreations, 1u);
+		EXPECT_EQ(RHI.ComputeCreations, 1u);
+		EXPECT_EQ(PipelineStateCache::PrecacheComputePipelineState({}, "unsupported").error(), ERHIPipelineRequestRejection::Unsupported);
+	}
+
 	TEST(FRHICommandListTests, PendingPipelineBatchesKeepFifoAndExposeCanceledFences)
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -1350,21 +1448,22 @@ namespace Durin
 			FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader;
 			Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
-			auto Request = Service.RequestCompute(Initializer, "dependency");
+			auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "dependency");
+			ASSERT_TRUE(Cached);
+			auto Pipeline = *Cached;
 			EXPECT_TRUE(Entered.WaitFor(5.0));
-			EXPECT_TRUE(Request.IsCompute());
-			EXPECT_EQ(Request.GetPipelineLayout()->PushConstantRanges.size(), 1u);
+			EXPECT_EQ(Pipeline->GetPipelineLayout()->PushConstantRanges.size(), 1u);
 			{
 				FRHICommandListExecutor InlineExecutor(Context);
 				InlineExecutor.GetImmediateCommandList().EnqueueLambda([&] {
-					EXPECT_FALSE(Request.CanWait());
-					EXPECT_FALSE(Request.Wait());
+					EXPECT_FALSE(Pipeline->CanWait());
+					EXPECT_FALSE(Pipeline->Wait());
 				}, 0);
 				InlineExecutor.Submit({}, ERHISubmitFlags::None);
 			}
 			auto& Commands = Executor.GetImmediateCommandList();
 			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(Request);
+			Commands.SetComputePipelineState(Pipeline);
 			Commands.Dispatch(1, 1, 1);
 			std::vector<int> Order;
 			Commands.EnqueueLambda([&] { Order.push_back(1); });
@@ -1380,12 +1479,13 @@ namespace Durin
 			EXPECT_FALSE(SecondFence.IsComplete());
 			if (Outcome == 1)
 			{
-				EXPECT_TRUE(Request.Cancel());
+				auto Closing = std::async(std::launch::async, [&] { Service.CloseAndJoin(false); });
 				EXPECT_FALSE(FirstFence.TryWait());
 				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
 				EXPECT_TRUE(SecondFence.TryWait());
 				EXPECT_EQ(Order, std::vector<int>({2}));
 				Release.Trigger();
+				Closing.get();
 			}
 			else
 			{
@@ -1419,11 +1519,14 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		auto Request = Service.RequestCompute(Initializer, "failed");
+		auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "failed");
+		ASSERT_TRUE(Cached);
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
-		EXPECT_TRUE(Commands.TryAddPipelineDependency(Request));
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		Commands.SetComputePipelineState(*Cached);
+		Commands.SwitchPipeline(ERHIPipeline::None);
 		bool Replayed = false;
 		Commands.EnqueueLambda([&] { Replayed = true; });
 		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());

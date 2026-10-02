@@ -335,6 +335,7 @@ namespace Durin
 	protected:
 		virtual auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend { return {}; }
 	public:
+		RHI_API auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache*;
 		RHI_API auto RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
 			std::string_view DebugName) -> FRHIPipelineCreationRequest;
 		RHI_API auto RHIRequestComputePipelineState(const FComputePipelineStateInitializer& Initializer,

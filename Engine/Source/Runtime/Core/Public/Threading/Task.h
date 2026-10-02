@@ -595,6 +595,7 @@ namespace Durin
 		struct FTaskRuntimeAccess
 		{
 			CORE_API static auto GetCurrentTaskId() -> uint64;
+			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto GroupState(const FTaskScopeToken& Scope) -> ETaskState;
 			CORE_API static auto CloseGroup(const FTaskScopeToken& Scope, ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
 			CORE_API static auto WaitGroupFor(const FTaskScopeToken& Scope, double Seconds) -> ETaskScopeWaitResult;

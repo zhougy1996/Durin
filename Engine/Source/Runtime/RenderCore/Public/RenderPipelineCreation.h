@@ -2,7 +2,7 @@
 
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
-#include "RHIPipelineCreation.h"
+#include "PipelineStateCache.h"
 
 namespace Durin
 {
@@ -24,14 +24,14 @@ namespace Durin
 		auto GetRequestCount() const -> size_t { return Requests.size(); }
 		static constexpr size_t MaximumRequests = 4096;
 		static auto HasPending() -> bool;
-		static auto Add(const FRHIPipelineCreationRequest& Request) -> void;
+		static auto Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
 	private:
 		FRenderPipelinePreparationBatch* Previous;
 		bool bCapacityExceeded = false;
-		std::vector<FRHIPipelineCreationRequest> Requests;
+		std::vector<std::shared_ptr<FPipelineState>> Requests;
 	};
 
-	// Retains independently cancelable PSO observations for one transactional slot.
+	// Retains shared cache identities for one transactional slot.
 	class RENDERCORE_API FRenderPipelineRequests
 	{
 	public:

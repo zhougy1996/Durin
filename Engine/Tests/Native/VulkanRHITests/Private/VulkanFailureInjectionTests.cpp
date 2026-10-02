@@ -2011,7 +2011,9 @@ namespace Durin::VulkanRHI
 				{
 					EXPECT_EQ(Requests[1].GetPipelineLayout()->PushConstantRanges.size(), 1u);
 					Immediate.SwitchPipeline(ERHIPipeline::Compute);
-					Immediate.SetComputePipelineState(Requests[1]);
+					auto Cached = PipelineStateCache::GetAndOrCreateComputePipelineState(Compute, "async draw");
+					ASSERT_TRUE(Cached);
+					Immediate.SetComputePipelineState(*Cached);
 					Immediate.Dispatch(1, 1, 1);
 					Immediate.SwitchPipeline(ERHIPipeline::None);
 					Immediate.EnqueueLambda([&] { Dispatched = true; });

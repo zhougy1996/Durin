@@ -177,25 +177,25 @@ namespace Durin
 			Initializer.ComputeShader = Shader;
 			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
 				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-			auto Failed = RHI.RHIRequestComputePipelineState(Initializer, "failed");
+			auto Failed = PipelineStateCache::PrecacheComputePipelineState(Initializer, "failed");
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
-			auto Ready = RHI.RHIRequestComputePipelineState(Initializer, "ready");
-			ASSERT_TRUE(Failed.IsAccepted());
-			ASSERT_TRUE(Ready.IsAccepted());
+			auto Ready = PipelineStateCache::PrecacheComputePipelineState(Initializer, "ready");
+			ASSERT_TRUE(Failed);
+			ASSERT_TRUE(Ready);
 			{
 				FRenderPipelinePreparationBatch Batch;
 				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Empty);
-				FRenderPipelinePreparationBatch::Add(Failed);
-				FRenderPipelinePreparationBatch::Add(Ready);
-				FRenderPipelinePreparationBatch::Add(Ready);
+				FRenderPipelinePreparationBatch::Add(*Failed);
+				FRenderPipelinePreparationBatch::Add(*Ready);
+				FRenderPipelinePreparationBatch::Add(*Ready);
 				EXPECT_EQ(Batch.GetRequestCount(), 2u);
 				EXPECT_EQ(Batch.Wait(), ERenderPipelinePreparationWait::Failed);
-				EXPECT_EQ(Failed.GetResult().State, ERHIPipelineRequestState::Failed);
-				EXPECT_EQ(Ready.GetResult().State, ERHIPipelineRequestState::Ready);
+				EXPECT_EQ((*Failed)->GetState(), ERHIPipelineRequestState::Failed);
+				EXPECT_EQ((*Ready)->GetState(), ERHIPipelineRequestState::Ready);
 				{
 					FRenderPipelinePreparationBatch Nested;
 					EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
-					FRenderPipelinePreparationBatch::Add(Ready);
+					FRenderPipelinePreparationBatch::Add(*Ready);
 					EXPECT_EQ(Nested.Wait(), ERenderPipelinePreparationWait::Ready);
 				}
 				EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());

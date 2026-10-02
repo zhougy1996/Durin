@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIAPI.h"
+#include "PipelineStateCache.h"
 #include "DynamicRHI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
@@ -107,9 +108,8 @@ namespace Durin
 		RHI_API auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
 		RHI_API auto SetComputePipelineState(FRHIComputePipelineState& State) -> void;
-		RHI_API auto SetGraphicsPipelineState(const FRHIPipelineCreationRequest& Request) -> void;
-		RHI_API auto SetComputePipelineState(const FRHIPipelineCreationRequest& Request) -> void;
-		RHI_API auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
+		RHI_API auto SetGraphicsPipelineState(const FGraphicsPipelineStateRef& Pipeline) -> void;
+		RHI_API auto SetComputePipelineState(const FComputePipelineStateRef& Pipeline) -> void;
 		RHI_API auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
 		RHI_API auto TransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void;
@@ -230,6 +230,7 @@ namespace Durin
 		}
 		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
 		static auto RecordInvalidDiagnosticRegion() -> void;
+		auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;

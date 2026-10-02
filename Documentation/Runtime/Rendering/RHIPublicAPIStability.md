@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-03
 
 ## Directory Contract
 
@@ -63,7 +63,8 @@ contracts, including:
   validation, recording, replay, and conservative capability fields;
 - reflected shader parameters, descriptor arrays, and push constants;
 - viewport presentation, initialization, capabilities, diagnostics, and
-  renderer-facing pipeline-creation requests; and
+  typed pipeline-cache identities, descriptor-based binding helpers, and explicit
+  pipeline-creation requests for preparation and backend qualification; and
 - queue-qualified GPU completion, explicit queue ownership transfer, and the
   related `FDynamicRHI`, command-context, RDG allocation, and submission
   recording operations.

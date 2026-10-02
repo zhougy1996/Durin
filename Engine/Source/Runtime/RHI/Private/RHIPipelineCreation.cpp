@@ -1,4 +1,5 @@
 #include "RHIPipelineCreation.h"
+#include "PipelineStateCache.h"
 
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
@@ -414,10 +415,15 @@ namespace Durin
 		bool DrainActive = false;
 		bool CloseStarted = false;
 		std::mutex CloseMutex;
+		std::unique_ptr<FRHIPipelineStateCache> Cache;
 	};
 
 	FRHIPipelineCreationService::FRHIPipelineCreationService(const FRHICapabilities& Capabilities, FBackend Backend)
-		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
+		: State(std::make_unique<FState>(Capabilities, std::move(Backend)))
+	{ State->Cache = std::make_unique<FRHIPipelineStateCache>(Capabilities, *this); }
+	auto FRHIPipelineCreationService::GetPipelineStateCache() -> FRHIPipelineStateCache& { return *State->Cache; }
+	auto FRHIPipelineCreationService::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
+	{ return State->Backend.ReserveMetadata ? State->Backend.ReserveMetadata(Bytes) : State->Lifetime->Metadata.Reserve(Bytes); }
 	FRHIPipelineCreationService::~FRHIPipelineCreationService() { CloseAndJoin(); }
 	auto FRHIPipelineCreationService::IsClosed() const -> bool
 	{
@@ -455,6 +461,7 @@ namespace Durin
 	auto FRHIPipelineCreationService::CloseAndJoin(bool RetireResults) -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);
+		State->Cache->Close();
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->CloseStarted)

@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	class FRHIPipelineStateCache;
 	// Budget control blocks are owned by RHI, so backend unload does not invalidate
 	// metadata-only request/layout handles retained after device shutdown.
 	class RHI_API FRHIPipelineMetadataBudget
@@ -132,10 +133,13 @@ namespace Durin
 			std::string_view DebugName) -> FRHIPipelineCreationRequest;
 		auto RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
 		auto RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
+		auto GetPipelineStateCache() -> FRHIPipelineStateCache&;
 		auto CloseAndJoin(bool RetireResults = true) -> void;
 		auto IsClosed() const -> bool;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
+		auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
+		friend class FRHIPipelineStateCache;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
