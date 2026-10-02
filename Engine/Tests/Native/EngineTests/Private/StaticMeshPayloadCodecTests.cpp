@@ -1281,7 +1281,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedNativeStreamsRetainAllocationsAndDetach
 	EXPECT_EQ(LOD.IndexBuffer.GetIndices().data(), Indices.GetNativeView<uint32>()->data());
 	EXPECT_FALSE(UVs.SetSharedTexCoord(MaxStaticMeshUVChannels, TexCoords));
 
-	Buffers.PositionVertexBuffer.GetMutablePositions()[0].x = 99;
+	Buffers.PositionVertexBuffer.VertexPosition(0).x = 99;
 	Frames.GetMutableNormals()[0].z = -1;
 	Frames.GetMutableTangents()[0].w = -1;
 	UVs.GetMutableTexCoord(0)[0].x = 0.25f;
@@ -1296,7 +1296,7 @@ TEST(FStaticMeshPayloadCodecTests, SharedNativeStreamsRetainAllocationsAndDetach
 	EXPECT_NE(Buffers.PositionVertexBuffer.GetPositions().data(), Positions.GetNativeView<FVector3f>()->data());
 	ASSERT_TRUE(Buffers.PositionVertexBuffer.SetSharedPositions(Positions));
 	Positions = {};
-	EXPECT_EQ(Buffers.PositionVertexBuffer.GetVertexPosition(1).z, 6);
+	EXPECT_EQ(Buffers.PositionVertexBuffer.VertexPosition(1).z, 6);
 }
 
 
@@ -1516,7 +1516,7 @@ TEST(FStaticMeshPayloadCodecTests, RenderViewValidationMatchesArchiveValidationW
 		ASSERT_TRUE(MakeStaticMeshRenderData(MakeSingleSectionFixture(), Render));
 		auto& LOD = Render->LODResources.front();
 		if (Mutation == 1) LOD.IndexBuffer.GetMutableIndices()[0] = 100;
-		if (Mutation == 2) LOD.VertexBuffers.PositionVertexBuffer.GetMutablePositions()[0].x = std::numeric_limits<float>::quiet_NaN();
+		if (Mutation == 2) LOD.VertexBuffers.PositionVertexBuffer.VertexPosition(0).x = std::numeric_limits<float>::quiet_NaN();
 		if (Mutation == 3) LOD.Sections[0].MaterialSlotIndex = 100;
 		if (Mutation == 4) LOD.NumTexCoords = 5;
 		const auto* Address = LOD.VertexBuffers.PositionVertexBuffer.GetPositions().data();
@@ -1626,4 +1626,26 @@ TEST(FStaticMeshPayloadCodecTests, PositionBufferMovesRvaluesAndPreservesBorrowe
 	const auto Frozen = Owned.FreezePositions();
 	EXPECT_EQ(Frozen.GetNativeView<FVector3f>()->data(), Allocation);
 	EXPECT_FALSE(Owned.IsInitialized());
+}
+
+TEST(FStaticMeshPayloadCodecTests, PositionBufferSupportsUEAccessAndDetachesSharedWrites)
+{
+	FPositionVertexBuffer Buffer;
+	Buffer.Init(uint32(2), false);
+	EXPECT_EQ(Buffer.GetNumVertices(), 2u);
+	EXPECT_EQ(Buffer.GetStride(), sizeof(FVector3f));
+	EXPECT_FALSE(Buffer.GetAllowCPUAccess());
+	Buffer.VertexPosition(0) = FVector3f(1, 2, 3);
+	Buffer.VertexPosition(1) = FVector3f(4, 5, 6);
+	const auto Frozen = Buffer.FreezePositions();
+	const auto& ReadOnly = Buffer;
+	EXPECT_EQ(ReadOnly.GetVertexData(), Frozen.GetNativeView<FVector3f>()->data());
+	EXPECT_EQ(ReadOnly.VertexPosition(0).x, 1);
+	Buffer.VertexPosition(0).x = 9;
+	EXPECT_EQ(ReadOnly.VertexPosition(0).x, 9);
+	EXPECT_EQ((*Frozen.GetNativeView<FVector3f>())[0].x, 1);
+	EXPECT_NE(ReadOnly.GetVertexData(), Frozen.GetNativeView<FVector3f>()->data());
+	static_cast<FVector3f*>(Buffer.GetVertexData())[1].z = 8;
+	EXPECT_EQ(ReadOnly.VertexPosition(1).z, 8);
+	EXPECT_FALSE(Buffer.IsInitialized());
 }

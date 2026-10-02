@@ -275,6 +275,12 @@ color, index, and LOD-policy data. Decode and render-data reconstruction publish
 only after the complete policy and geometry validate.
 
 CPU storage is retained while editor and test consumers inspect LOD data.
+`FPositionVertexBuffer` exposes UE-style `Init(vertex count)`, `Init(const positions&)`,
+`VertexPosition`, `GetVertexData`, and `GetAllowCPUAccess` interfaces. Borrowed
+initialization copies; Durin also retains a moving `Init(positions&&)` overload
+and shared-storage helpers for allocation-preserving build/DDC handoff. Mutable
+position access detaches shared storage and requires an uninitialized resource.
+The CPU-access flag records intent; uploading does not currently discard CPU storage.
 Position, normal, tangent, UV, color and index getters return borrowed read-only
 spans. Render resources can retain validated native `FSharedByteBuffer` arrays;
 these arrays preserve the recipe allocation rather than copying its contents.

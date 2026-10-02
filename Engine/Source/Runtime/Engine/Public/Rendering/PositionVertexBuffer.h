@@ -18,8 +18,13 @@ namespace Durin
 		ENGINE_API ~FPositionVertexBuffer() override;
 
 		ENGINE_API auto Init(
-			std::vector<FVector3f> InPositions,
+			const std::vector<FVector3f>& InPositions,
 			bool bInNeedsCPUAccess = true) -> void;
+
+		ENGINE_API auto Init(uint32 NumVertices, bool bInNeedsCPUAccess = true) -> void;
+
+		// Durin ownership-transfer overload; borrowed input uses the const-reference overload.
+		ENGINE_API auto Init(std::vector<FVector3f>&& InPositions, bool bInNeedsCPUAccess = true) -> void;
 
 		// FRenderResource interface.
 		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;
@@ -33,12 +38,12 @@ namespace Durin
 			return static_cast<uint32>(GetPositions().size());
 		}
 		auto GetStride() const -> uint32 { return sizeof(FVector3f); }
-		auto NeedsCPUAccess() const -> bool { return bNeedsCPUAccess; }
+		auto GetAllowCPUAccess() const -> bool { return bNeedsCPUAccess; }
 		auto IsReady() const -> bool
 		{
 			return GetNumVertices() > 0 && GetRHI() != nullptr;
 		}
-		auto GetVertexPosition(uint32 VertexIndex) const -> const FVector3f&
+		auto VertexPosition(uint32 VertexIndex) const -> const FVector3f&
 		{
 			check(VertexIndex < GetPositions().size());
 			return GetPositions()[VertexIndex];
@@ -47,10 +52,19 @@ namespace Durin
 		{
 			return MeshStreamPrivate::Read(Positions, SharedPositions);
 		}
-		auto GetMutablePositions() -> std::vector<FVector3f>&
+		auto VertexPosition(uint32 VertexIndex) -> FVector3f&
+		{
+			check(VertexIndex < GetNumVertices());
+			return static_cast<FVector3f*>(GetVertexData())[VertexIndex];
+		}
+		auto GetVertexData() const -> const void*
+		{
+			return GetPositions().data();
+		}
+		auto GetVertexData() -> void*
 		{
 			check(!IsInitialized());
-			return MeshStreamPrivate::Detach(Positions, SharedPositions);
+			return MeshStreamPrivate::Detach(Positions, SharedPositions).data();
 		}
 
 		auto FreezePositions() -> FSharedByteBuffer

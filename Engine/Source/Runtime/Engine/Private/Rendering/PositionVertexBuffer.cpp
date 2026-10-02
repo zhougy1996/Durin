@@ -8,8 +8,20 @@ namespace Durin
 	FPositionVertexBuffer::FPositionVertexBuffer() = default;
 	FPositionVertexBuffer::~FPositionVertexBuffer() = default;
 
+	auto FPositionVertexBuffer::Init(uint32 NumVertices, bool bInNeedsCPUAccess) -> void
+	{
+		Init(std::vector<FVector3f>(NumVertices), bInNeedsCPUAccess);
+	}
+
 	auto FPositionVertexBuffer::Init(
-		std::vector<FVector3f> InPositions,
+		const std::vector<FVector3f>& InPositions,
+		bool bInNeedsCPUAccess) -> void
+	{
+		Init(std::vector<FVector3f>(InPositions), bInNeedsCPUAccess);
+	}
+
+	auto FPositionVertexBuffer::Init(
+		std::vector<FVector3f>&& InPositions,
 		bool bInNeedsCPUAccess) -> void
 	{
 		check(!IsInitialized());
