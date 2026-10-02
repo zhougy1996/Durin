@@ -200,12 +200,13 @@ namespace Durin::Editor::Material
 	public:
 		FMaterialParameterRowScope(
 			MMaterialEditor& InEditor,
-			const FMaterialParameterPanelModel& Model,
+			const FMaterialParameterPanelModel& InModel,
 			const FMaterialParameterPanelEntry& InEntry
 		)
 			: Editor(InEditor)
+			, Model(InModel)
 			, Entry(InEntry)
-			, Instance(Model.GetInstance())
+			, Instance(InModel.GetInstance())
 			, bOverrideEnabled(!Instance || Entry.bHasLocalOverride)
 		{
 			const FMaterialParameterDefinition& Definition = *Entry.Definition;
@@ -239,8 +240,18 @@ namespace Durin::Editor::Material
 			ImGui::PopID();
 		}
 
-		auto IsOverrideEnabled() const -> bool { return bOverrideEnabled; }
+		auto SubmitContinuousEdit(bool bChanged, const FMaterialParameterValue& Value,
+			bool bDeactivatedAfterEdit, bool bActive) -> void
+		{
+			if (bChanged && bOverrideEnabled
+				&& !Model.SubmitValueEdit(Editor.PropertyView,
+					Editor.MakePropertyViewContext(), Entry, Value, true))
+				Editor.SetError(std::format("The reflected {} parameter is unavailable.",
+					Entry.Definition->DisplayName));
+			HandleContinuousEdit(bDeactivatedAfterEdit, bActive);
+		}
 
+	private:
 		auto HandleContinuousEdit(bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
 			if ((bActive || bDeactivatedAfterEdit) && ImGui::IsKeyPressed(ImGuiKey_Escape)
@@ -250,8 +261,8 @@ namespace Durin::Editor::Material
 				Editor.FinishActivePropertyEdit(false);
 		}
 
-	private:
 		MMaterialEditor& Editor;
+		const FMaterialParameterPanelModel& Model;
 		const FMaterialParameterPanelEntry& Entry;
 		DMaterialInstance* Instance = nullptr;
 		bool bOverrideEnabled = false;
@@ -1350,14 +1361,10 @@ namespace Durin::Editor::Material
 			.Format = "%.3f",
 		};
 		FMaterialParameterValue Edited = Entry.Value;
-		bool bChanged = false;
-		FVector4 Value = Entry.Value.GetVector4();
-		bChanged = MonaImGui::PropertyEdit::EditVectorValue("##Value", Value, 0.01, &WidgetState, WidgetConfig);
-		Edited.GetVector4() = Value;
-		if (bChanged && Row.IsOverrideEnabled()
-			&& !Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
-			SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
-		Row.HandleContinuousEdit(WidgetState.bDeactivatedAfterEdit, WidgetState.bActive);
+		FVector4& Value = Edited.GetVector4();
+		const bool bChanged = MonaImGui::PropertyEdit::EditVectorValue("##Value", Value, 0.01, &WidgetState, WidgetConfig);
+		Row.SubmitContinuousEdit(bChanged, Edited,
+			WidgetState.bDeactivatedAfterEdit, WidgetState.bActive);
 	}
 
 	auto MMaterialEditor::DrawColorParameter(
@@ -1365,20 +1372,16 @@ namespace Durin::Editor::Material
 		const FMaterialParameterPanelEntry& Entry
 	) -> void
 	{
-		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FVector4 Value = Entry.Value.GetVector4();
+		FMaterialParameterValue Edited = Entry.Value;
+		FVector4& Value = Edited.GetVector4();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		float Color[4] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z), static_cast<float>(Value.w)};
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::ColorEdit4("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB)
-			&& Row.IsOverrideEnabled())
-		{
-			FMaterialParameterValue Edited = Entry.Value;
-			Edited.GetVector4() = FVector4(Color[0], Color[1], Color[2], Color[3]);
-			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
-				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
-		}
-		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
+		const bool bChanged = ImGui::ColorEdit4("##Value", Color,
+			ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB);
+		if (bChanged) Value = FVector4(Color[0], Color[1], Color[2], Color[3]);
+		Row.SubmitContinuousEdit(bChanged, Edited,
+			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawScalarParameter(
@@ -1387,21 +1390,17 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		float Value = Entry.Value.GetScalar();
+		FMaterialParameterValue Edited = Entry.Value;
+		float& Value = Edited.GetScalar();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
 		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
 		const ImGuiSliderFlags Flags = Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		if (ImGui::DragFloat("##Value", &Value, 0.01f, Minimum, Maximum, "%.3f", Flags)
-			&& Row.IsOverrideEnabled())
-		{
-			FMaterialParameterValue Edited = Entry.Value;
-			Edited.GetScalar() = Value;
-			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
-				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
-		}
-		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
+		const bool bChanged = ImGui::DragFloat("##Value", &Value, 0.01f,
+			Minimum, Maximum, "%.3f", Flags);
+		Row.SubmitContinuousEdit(bChanged, Edited,
+			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawIntegerParameter(
@@ -1424,15 +1423,12 @@ namespace Durin::Editor::Material
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const ImGuiSliderFlags Flags = Definition.bHasRange
 			? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		if (ImGui::DragInt("##Value", &Value, 1.0f, Minimum, Maximum, "%d", Flags)
-			&& Row.IsOverrideEnabled())
-		{
-			FMaterialParameterValue Edited = Entry.Value;
-			Edited.GetScalar() = static_cast<float>(Value);
-			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
-				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
-		}
-		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
+		const bool bChanged = ImGui::DragInt("##Value", &Value, 1.0f,
+			Minimum, Maximum, "%d", Flags);
+		FMaterialParameterValue Edited = Entry.Value;
+		if (bChanged) Edited.GetScalar() = static_cast<float>(Value);
+		Row.SubmitContinuousEdit(bChanged, Edited,
+			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawTextureParameter(
