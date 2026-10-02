@@ -141,11 +141,20 @@ namespace Durin::TexturePrivate
 		-> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
 		const auto& S = Request.Settings;
+		return MakeTexture2DSessionDefinition(FTexture2DBuildKeyInput{
+			.Usage = S.Usage, .bSRGB = ResolveTexture2DSRGB(S),
+			.CompressionQuality = S.CompressionQuality, .AlphaMipMode = S.AlphaMipMode,
+			.MaximumResolution = S.MaxResolution, .AlphaCoverageThreshold = S.AlphaCoverageThreshold,
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+	}
+	auto MakeTexture2DSessionDefinition(const FTexture2DBuildKeyInput& Input)
+		-> std::expected<FBuildDefinition, FBuildDefinitionError>
+	{
 		FBuildDefinitionBuilder Builder("Durin.Texture2D");
-		Builder.AddConstant("Usage", uint64(S.Usage)).AddConstant("SRGB", ResolveTexture2DSRGB(S))
-			.AddConstant("Quality", uint64(S.CompressionQuality)).AddConstant("AlphaMode", uint64(S.AlphaMipMode))
-			.AddConstant("MaximumResolution", uint64(S.MaxResolution)).AddConstant("AlphaThreshold", S.AlphaCoverageThreshold)
-			.AddConstant("TargetPlatform", uint64(Request.TargetPlatform)).AddConstant("TargetProfile", uint64(Request.TargetProfile))
+		Builder.AddConstant("Usage", uint64(Input.Usage)).AddConstant("SRGB", Input.bSRGB)
+			.AddConstant("Quality", uint64(Input.CompressionQuality)).AddConstant("AlphaMode", uint64(Input.AlphaMipMode))
+			.AddConstant("MaximumResolution", uint64(Input.MaximumResolution)).AddConstant("AlphaThreshold", Input.AlphaCoverageThreshold)
+			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))
 			.AddInput("Source", "CapturedSource");
 		return std::move(Builder).Build();
 	}

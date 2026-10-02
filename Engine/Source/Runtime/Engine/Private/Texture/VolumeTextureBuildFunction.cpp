@@ -106,11 +106,19 @@ namespace Durin::TexturePrivate
 	{ return std::make_shared<FVolumeResolver>(Source); }
 	auto MakeVolumeTextureSessionDefinition(const FVolumeTextureBuildRequest& Request) -> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
+		return MakeVolumeTextureSessionDefinition(FVolumeTextureBuildKeyInput{
+			.Width = Request.Source.GetWidth(), .Height = Request.Source.GetHeight(),
+			.Depth = Request.Source.GetDepth(), .Settings = Request.Settings,
+			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+	}
+	auto MakeVolumeTextureSessionDefinition(const FVolumeTextureBuildKeyInput& Input)
+		-> std::expected<FBuildDefinition, FBuildDefinitionError>
+	{
 		FBuildDefinitionBuilder Builder("Durin.VolumeTexture");
-		Builder.AddConstant("Width", uint64(Request.Source.GetWidth())).AddConstant("Height", uint64(Request.Source.GetHeight()))
-			.AddConstant("Depth", uint64(Request.Source.GetDepth())).AddConstant("Format", uint64(Request.Settings.OutputFormat))
-			.AddConstant("MipFilter", uint64(Request.Settings.MipFilter)).AddConstant("SourceSchema", uint64(VolumeTextureSourcePayloadSchemaVersion))
-			.AddConstant("TargetPlatform", uint64(Request.TargetPlatform)).AddConstant("TargetProfile", uint64(Request.TargetProfile))
+		Builder.AddConstant("Width", uint64(Input.Width)).AddConstant("Height", uint64(Input.Height))
+			.AddConstant("Depth", uint64(Input.Depth)).AddConstant("Format", uint64(Input.Settings.OutputFormat))
+			.AddConstant("MipFilter", uint64(Input.Settings.MipFilter)).AddConstant("SourceSchema", uint64(Input.SourcePayloadSchemaVersion))
+			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))
 			.AddInput("Source", "CapturedSource");
 		return std::move(Builder).Build();
 	}
