@@ -2,7 +2,7 @@
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 #include "DObject/Package.h"
-#include "MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionBuild.h"
 
 namespace Durin::Editor::Material::GraphEditInternals

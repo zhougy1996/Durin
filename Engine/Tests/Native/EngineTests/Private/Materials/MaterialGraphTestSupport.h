@@ -2,7 +2,7 @@
 #include "FunctionPortTestFixture.h"
 #include "Graph/MaterialGraphNodeDisplay.h"
 #include "TypedMaterialGraphTestFixture.h"
-#include "Graph/MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Misc/MountPathTestSupport.h"

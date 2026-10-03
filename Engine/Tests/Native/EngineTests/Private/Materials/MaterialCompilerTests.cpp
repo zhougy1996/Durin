@@ -1711,3 +1711,45 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 			EXPECT_EQ(BytesA, BytesB);
 		}
 }
+
+TEST(FMaterialProgramCompilerTests, NormalizedValidationRejectsAuthoredOnlyOperationsIncludingDeadSelectors)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	MIR::FCompilerInput Base;
+	Base.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+	InitializeSurfaceRootSemantics(Base.IR);
+	Base.IR.Nodes.push_back({.Opcode = Op::Constant, .ResultType = Type::Float,
+		.Payload = FMaterialProgramLiteral{.5f}});
+	Base.IR.SurfaceRoot.Inputs[static_cast<uint8>(EMaterialSurfaceOutput::Roughness)].bExpression = true;
+	Base.IR.SurfaceRoot.Inputs[static_cast<uint8>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex = 0;
+	ASSERT_TRUE(MIR::Validate(Base.IR, Base.Parameters));
+	for (const auto Opcode : {Op::FunctionInput, Op::FunctionOutput, Op::FunctionCall,
+		Op::TextureSampleParameter2D, Op::TextureCoordinates, Op::GetSurfaceAttributes,
+		Op::SetSurfaceAttributes, Op::AppendVector, Op::StaticBool, Op::StaticSwitch,
+		Op::QualitySwitch, Op::FeatureLevelSwitch})
+	{
+		SCOPED_TRACE(static_cast<uint32>(Opcode));
+		for (const bool Reachable : {false, true})
+		{
+			SCOPED_TRACE(Reachable);
+			auto Input = Base;
+			const auto ResultType = Opcode == Op::StaticBool ? Type::StaticBool : Type::Float;
+			MIR::FNode Node{.Opcode = Opcode, .ResultType = ResultType};
+			if (const auto Signature = GetMaterialProgramNodeSignature(Opcode, ResultType))
+				Node.Inputs.assign(Signature->InputCount, 0);
+			Input.IR.Nodes.push_back(std::move(Node));
+			if (Reachable)
+				Input.IR.SurfaceRoot.Inputs[static_cast<uint8>(EMaterialSurfaceOutput::Roughness)].ExpressionIndex = 1;
+			const auto Validated = MIR::Validate(Input.IR, Input.Parameters);
+			EXPECT_FALSE(Validated);
+			EXPECT_FALSE(Validated.Diagnostics.empty());
+			EXPECT_FALSE(GenerateMaterialProgramSlang(Input.IR));
+			const auto Normalized = MIR::Normalize(Input);
+			EXPECT_FALSE(Normalized);
+			EXPECT_TRUE(Normalized.IR.Nodes.empty());
+			EXPECT_TRUE(Normalized.CanonicalBytes.empty());
+		}
+	}
+}

@@ -99,7 +99,8 @@ namespace Durin::Editor::Material
 		bool bMissing = false;
 	};
 
-	// Describes a material-independent node shape; creation search selects exposed variants.
+	// Class plus result type identifies an authored shape; Opcode carries operation semantics.
+	// Creation search selects exposed variants without treating MIR opcodes as registry keys.
 	struct FMaterialGraphCatalogEntry
 	{
 		std::string OperationName;

@@ -1,9 +1,10 @@
 #include "DObject/PackagePersistence.h"
 #include "Materials/MaterialObjectValidation.h"
 #include "FunctionPortTestFixture.h"
-#include "Graph/MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "MaterialTestSupport.h"
 #include "Materials/MaterialExpressions.h"
+#include "Materials/MaterialExpressionDescription.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialFunction.h"
 #include "Asset/OfflinePreparation.h"
@@ -1173,11 +1174,11 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
 			Call->Inputs.push_back({Function->GetFunctionSignature().Inputs[0].Id, EMaterialProgramValueType::Surface, {}});
 		uint32 Visited = 0;
-		Durin::Editor::Material::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
+		Durin::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
 			Input = {{11, 12, Index, Pin + 1}}; ++Visited;
 		});
 		EXPECT_EQ(Visited, Expression->GetAuthoredInputCount());
-		Durin::Editor::Material::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
+		Durin::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
 			EXPECT_EQ(Input.ExpressionId, (FGuid{11, 12, Index, Pin + 1}));
 		});
 		Covered.insert(Entry.Opcode);
@@ -1425,4 +1426,53 @@ TEST(FMaterialExpressionTests, GroupedConstantsPreserveConnectionPrecedenceAndRe
 	EXPECT_FALSE(Build());
 	Product->B.Constant.clear();
 	EXPECT_FALSE(Build());
+}
+
+TEST(FMaterialExpressionTests, ClassDescriptionsPreserveAuthoredShapesWithoutOwningExpressions)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Descriptions = GetMaterialExpressionDescriptions();
+	EXPECT_EQ(Descriptions.data(), GetMaterialExpressionDescriptions().data());
+	std::set<const DClass*> Classes;
+	for (const auto& Description : Descriptions)
+	{
+		ASSERT_NE(Description.ExpressionClass, nullptr);
+		EXPECT_TRUE(Classes.insert(Description.ExpressionClass).second);
+		EXPECT_EQ(FindMaterialExpressionDescription(Description.ExpressionClass), &Description);
+		EXPECT_FALSE(Description.Name.empty());
+		EXPECT_FALSE(Description.Description.empty());
+		EXPECT_NE(Description.SemanticOpcode, EMaterialProgramOpcode::UVChannel);
+		EXPECT_NE(Description.SemanticOpcode, EMaterialProgramOpcode::DecodeNormalRG);
+		TStrongObjectPtr<DMaterialExpression> Expression(NewObject<DMaterialExpression>(Description.ExpressionClass, nullptr, NAME_None));
+		ASSERT_TRUE(Expression);
+		for (const auto& Shape : Description.Shapes)
+		{
+			EXPECT_EQ(Shape.InputNames.size(), Shape.AcceptedInputTypes.size());
+			if (Description.OutputBehavior != EMaterialExpressionOutputBehavior::Instance)
+				EXPECT_EQ(Shape.InputNames.size(), Expression->GetAuthoredInputCount());
+		}
+	}
+	EXPECT_EQ(FindMaterialExpressionDescription(DMaterialExpression::StaticClass()), nullptr);
+	EXPECT_EQ(FindMaterialExpressionDescription(nullptr), nullptr);
+	const auto* UV = FindMaterialExpressionDescription(DMaterialExpressionTextureCoordinates::StaticClass());
+	ASSERT_NE(UV, nullptr);
+	ASSERT_EQ(UV->Shapes.size(), 1);
+	EXPECT_EQ(UV->Shapes.front().ResultType, EMaterialProgramValueType::Float2);
+	EXPECT_EQ(UV->Shapes.front().InputNames, (std::vector<std::string>{"Channel"}));
+	EXPECT_EQ(UV->SearchKeywords, "UV Channel UVChannel");
+	const auto* Scalar = FindMaterialExpressionDescription(DMaterialExpressionScalarConstant::StaticClass());
+	const auto* Vector = FindMaterialExpressionDescription(DMaterialExpressionVector3Constant::StaticClass());
+	ASSERT_NE(Scalar, nullptr); ASSERT_NE(Vector, nullptr);
+	EXPECT_NE(Scalar, Vector);
+	ASSERT_EQ(Scalar->Shapes.size(), 1); ASSERT_EQ(Vector->Shapes.size(), 1);
+	EXPECT_EQ(Scalar->Shapes.front().ResultType, EMaterialProgramValueType::Float);
+	EXPECT_EQ(Vector->Shapes.front().ResultType, EMaterialProgramValueType::Float3);
+	const auto* Add = FindMaterialExpressionDescription(DMaterialExpressionAdd::StaticClass());
+	ASSERT_NE(Add, nullptr);
+	EXPECT_EQ(Add->OutputBehavior, EMaterialExpressionOutputBehavior::AdaptiveNumeric);
+	const auto Shape = std::ranges::find(Add->Shapes, EMaterialProgramValueType::Float3, &FMaterialExpressionAuthoringShape::ResultType);
+	ASSERT_NE(Shape, Add->Shapes.end());
+	EXPECT_EQ(Shape->InputNames, (std::vector<std::string>{"A", "B"}));
+	EXPECT_TRUE(std::ranges::contains(Shape->AcceptedInputTypes.front(), EMaterialProgramValueType::Float));
 }

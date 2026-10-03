@@ -100,6 +100,32 @@ quality, feature level, and sorted effective static-bool set are explicit
 snapshot inputs; equivalent selected normalized programs may reuse the same
 compiled result.
 
+## Class-associated authoring descriptions
+
+`MaterialExpressionDescription.h` exposes immutable Engine class adapters through
+`GetMaterialExpressionDescriptions()` and `FindMaterialExpressionDescription()`.
+Each concrete reflected class has one description with its name, aliases,
+semantic operation (absent for the material terminal), authored input labels,
+supported shapes, and fixed/adaptive/instance output behavior. The adapters and
+class lookup are initialized once after reflection initialization, borrow class
+pointers, and construct no expression or asset objects. Descriptions are runtime,
+nonserialized metadata; they contain no MaterialEditor policy and never enter
+compiler worker inputs.
+
+Authored shapes reuse shared value/type rules during initialization, then apply
+numeric broadcast and exact-normal authoring constraints. They are separate from
+normalized MIR signatures: samples expose multiple indexed outputs, collections
+resolve declaration types, functions use live GUID ports, and Surface masks and
+bindings control instance pins. Instance-dependent output behavior must be read
+from authored state rather than inferred from palette availability.
+
+`MaterialExpressionInputs.h` owns reflected connection traversal and retained
+numeric-default lookup. Fixed members retain declaration order; function calls
+visit binding order, material terminals use stable output indices, and Surface
+overrides use stable attribute indices. Visitors borrow live inputs for the
+current owning-thread operation. Editor commands, clipboard, and layout share
+this contract without putting expression references into detached compilation.
+
 ## Numeric input ownership
 
 `FMaterialExpressionInput` contains only upstream identity. Reflected
@@ -155,6 +181,13 @@ consumed as expression sources. Builds run on the owning thread and must finish
 before a graph edit or asynchronous dispatch.
 
 ## Validation and publication
+
+Normalized `MIR::Validate` rejects authored-only function, coordinate, sample
+parameter, Surface accessor/override, AppendVector, and static-selection
+operations before source generation, even when those nodes are unreachable.
+Build must expand or prune them before detached input publication. UVChannel and
+DecodeNormalRG remain legal internal operations with no authoring class.
+
 
 Local `ValidateSurface` and `ValidateFunction` use the same node emission contract
 with private opaque function values, allowing unavailable callee bodies during

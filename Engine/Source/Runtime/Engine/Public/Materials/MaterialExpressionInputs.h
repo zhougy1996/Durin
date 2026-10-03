@@ -3,7 +3,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 
-namespace Durin::Editor::Material
+namespace Durin
 {
 	inline auto FindMaterialNumericInput(DMaterialExpression& Expression,
 		const FMaterialExpressionInput& Input) -> FMaterialNumericInput*

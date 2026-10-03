@@ -2,6 +2,7 @@
 #include "MaterialGraphTestSupport.h"
 #include "Graph/MaterialExpressionParameters.h"
 #include "Graph/MaterialGraphEditInternals.h"
+#include "Graph/MaterialGraphExpressionRegistry.h"
 
 TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithoutMutatingGraph)
 {
@@ -4042,4 +4043,67 @@ TEST(FMaterialGraphOperationsTests, ResetAndReenableConstantsRetainValuesAndUndo
 	ASSERT_TRUE(Document.SetInputConstantEnabled(Id, Pin, true));
 	EXPECT_TRUE(Material->GetExpressionOutputs().Roughness.UseConstant);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Constant, (std::vector<float>{.5f}));
+}
+
+TEST(FMaterialGraphOperationsTests, ClassRegistrySeparatesCreationIdentityFromSharedOperationSemantics)
+{
+	InitializeDObjectSystem();
+	std::set<const DClass*> Classes;
+	for (const auto& Registration : GetMaterialGraphExpressionRegistrations())
+	{
+		const auto* Description = Registration.Description;
+		ASSERT_NE(Description, nullptr);
+		EXPECT_TRUE(Classes.insert(Description->ExpressionClass).second);
+		EXPECT_EQ(FindMaterialGraphExpressionRegistration(Description->ExpressionClass), &Registration);
+		if (Registration.CreationKind == EMaterialGraphCreationKind::Direct)
+			EXPECT_FALSE(Description->Shapes.empty());
+	}
+	EXPECT_EQ(NewRegisteredMaterialExpression(DMaterialExpression::StaticClass()), nullptr);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Scalar = std::ranges::find(Catalog, DMaterialExpressionScalarConstant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+	const auto Vector = std::ranges::find(Catalog, DMaterialExpressionVector3Constant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+	ASSERT_NE(Scalar, Catalog.end()); ASSERT_NE(Vector, Catalog.end());
+	EXPECT_EQ(Scalar->Opcode, Vector->Opcode);
+	EXPECT_NE(MakeCreationAction(*Scalar).Id, MakeCreationAction(*Vector).Id);
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	auto Forged = *Vector;
+	Forged.ExpressionClass = Scalar->ExpressionClass;
+	const auto Before = CaptureExpressions(*Material);
+	EXPECT_FALSE(Document.CreateCatalogNode(Forged));
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Document.CreateCatalogNode(*Vector));
+	const auto* Collection = FindMaterialGraphExpressionRegistration(DMaterialExpressionCollectionParameter::StaticClass());
+	ASSERT_NE(Collection, nullptr);
+	EXPECT_EQ(Collection->CreationKind, EMaterialGraphCreationKind::AssetBound);
+	Forged.ExpressionClass = DMaterialExpressionCollectionParameter::StaticClass();
+	const auto Created = CaptureExpressions(*Material);
+	EXPECT_FALSE(Document.CreateCatalogNode(Forged));
+	EXPECT_EQ(CaptureExpressions(*Material), Created);
+}
+
+TEST(FMaterialGraphOperationsTests, InspectionFallsBackByActualClassWhenCatalogContainsAnotherClassShape)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Vector = std::ranges::find(Catalog, DMaterialExpressionVector3Constant::StaticClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+	ASSERT_NE(Vector, Catalog.end());
+	const auto Created = Document.CreateCatalogNode(*Vector);
+	ASSERT_TRUE(Created);
+	auto OtherClass = *Vector;
+	OtherClass.ExpressionClass = DMaterialExpressionScalarConstant::StaticClass();
+	OtherClass.OperationName = "Wrong class shape";
+	const auto ObjectRevision = GDObjectArray.GetRevision();
+	const auto View = Document.Inspect(std::span(&OtherClass, 1));
+	EXPECT_EQ(GDObjectArray.GetRevision(), ObjectRevision);
+	const auto* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
+	ASSERT_NE(Node, nullptr);
+	EXPECT_EQ(Node->PrimaryLabel, "Constant");
+	EXPECT_EQ(Node->Node.ResultType, EMaterialProgramValueType::Float3);
+	ASSERT_EQ(Node->Outputs.size(), 1);
+	EXPECT_EQ(Node->Outputs.front().Type, EMaterialProgramValueType::Float3);
 }

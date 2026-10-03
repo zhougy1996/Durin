@@ -393,6 +393,15 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	ASSERT_NE(CollectionExpression, nullptr);
 	EXPECT_EQ(CollectionExpression->Collection.Get(), Collection);
 	EXPECT_EQ(CollectionExpression->ParameterId, Tint.Id);
+	const auto View = FMaterialGraphDocument(*AuthoringMaterial).Inspect();
+	const auto Read = std::ranges::find(View.Nodes, Created.GeneratedNodeIds.front(), [](const auto& Node) { return Node.Node.Id; });
+	ASSERT_NE(Read, View.Nodes.end());
+	EXPECT_EQ(Read->Node.Opcode, EMaterialProgramOpcode::CollectionParameter);
+	EXPECT_EQ(Read->Node.ResultType, EMaterialProgramValueType::Float3);
+	EXPECT_EQ(Read->PrimaryLabel, "Collection Parameter");
+	ASSERT_EQ(Read->Outputs.size(), 1);
+	EXPECT_EQ(Read->Outputs.front().Type, EMaterialProgramValueType::Float3);
+
 	MarkObjectHierarchyAsGarbage(AuthoringMaterial);
 	ASSERT_TRUE(UnloadPackage(Path));
 

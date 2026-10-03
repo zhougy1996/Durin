@@ -235,7 +235,28 @@ and Surface defaults; parameter entries receive unique metadata. `MakeSurface` e
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
-Editor opcode descriptors own category, authoring purpose, and palette shape policy.
+Engine class-associated descriptions own names, search aliases, input labels and
+authored shapes; see [expression descriptions](../../Runtime/Rendering/MaterialExpressionBuilding.md#class-associated-authoring-descriptions).
+`MaterialGraphExpressionRegistry` binds those descriptions to editor category,
+creation kind and palette policy by reflected class. Initialization validates
+unique registrations and complete direct-creation shapes once; class and
+description pointers are borrowed for process lifetime. Catalog enumeration
+visits registered class shapes, and inspection identifies existing expressions
+by their actual class even when the caller supplies a filtered catalog. It does
+not construct probe expressions. Collection output types come from their live
+declarations; function ports/calls and Surface pins retain instance/GUID behavior.
+
+Class plus result type identifies a creation shape. Opcode remains operation
+semantics for numeric rules and stale-payload validation. Creation action IDs use
+class names and shape widths (adaptive palette shapes share a class action).
+Ordinary and context-aware creation use the registered class factory inside graph
+commands; typed function/port/collection payloads still supply required context,
+and validation precedes transaction publication. Constants have separate concrete
+class registrations; narrow parameter shapes still create their typed swizzle
+projection. Internal MIR operations have no registration. Adding an ordinary
+expression requires its Engine class adapter, editor policy and Build method,
+with no opcode switch in catalog construction, inspection or creation.
+
 `TextureCoordinates` is the single authored mesh-UV expression and always returns
 Float2. Both "Texture Coordinates" and "UV Channel" palette searches find it;
 compiler capture emits the internal `UVChannel` operation. The duplicate
@@ -245,7 +266,7 @@ rebuilding and have no automatic class migration.
 
 Asset-bound collection reads use their asset-aware creation action; internal MIR
 operations are not expression catalog entries. Parameters, Functions, and Vertex
-have dedicated creation-menu categories. Palette search applies descriptor policies
+have dedicated creation-menu categories. Palette search applies class registration policies
 rather than maintaining a separate opcode list.
 
 The catalog retains concrete numeric shapes for inspection and structured callers;

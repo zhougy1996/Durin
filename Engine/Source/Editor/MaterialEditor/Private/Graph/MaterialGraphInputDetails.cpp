@@ -3,7 +3,7 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditSession.h"
 #include "MaterialExpressionParameters.h"
-#include "MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"
 #include "Texture/Texture2D.h"

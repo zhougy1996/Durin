@@ -1,7 +1,7 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphEditSession.h"
-#include "MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
 
 namespace Durin::Editor::Material
 {

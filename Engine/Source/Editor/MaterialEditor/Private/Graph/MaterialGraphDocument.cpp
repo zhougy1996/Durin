@@ -3,7 +3,8 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionInputs.h"
+#include "MaterialGraphExpressionRegistry.h"
 #include "MaterialGraphEditSession.h"
 #include "DObject/Package.h"
 #include "MaterialGraphValueTypes.h"
@@ -392,11 +393,14 @@ namespace Durin::Editor::Material
 		FMaterialExpressionInput FirstInput, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
-		if (std::ranges::none_of(Catalog, [&](const auto& Expected) {
-			return Entry.Opcode == Expected.Opcode && Entry.ResultType == Expected.ResultType
-				&& Entry.ExpressionClass == Expected.ExpressionClass && Entry.AcceptedInputTypes == Expected.AcceptedInputTypes;
-		})) return RejectCommand("The catalog expression shape is stale.");
+		const auto* Registration = FindMaterialGraphExpressionRegistration(Entry.ExpressionClass);
+		if (!Registration || Registration->CreationKind != EMaterialGraphCreationKind::Direct)
+			return RejectCommand("The catalog expression class is unavailable for direct creation.");
+		const auto& Description = *Registration->Description;
+		const auto Shape = std::ranges::find(Description.Shapes, Entry.ResultType, &FMaterialExpressionAuthoringShape::ResultType);
+		if (Shape == Description.Shapes.end() || Entry.AcceptedInputTypes != Shape->AcceptedInputTypes
+			|| Description.SemanticOpcode != Entry.Opcode)
+			return RejectCommand("The catalog expression shape is stale.");
 		if (FirstInput.ExpressionId.IsValid() && Entry.AcceptedInputTypes.empty())
 			return RejectCommand("This catalog expression has no input pin.");
 		FGraphEditSession State(*Owner.Get());
@@ -423,7 +427,7 @@ namespace Durin::Editor::Material
 			State.Presentation.Nodes.push_back({Condition->Id, X - 220, Y, "StaticBool"});
 			State.Expressions.emplace_back(Condition.Get());
 		}
-		TStrongObjectPtr<DMaterialExpression> Expression(NewObject<DMaterialExpression>(Entry.ExpressionClass, nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpression> Expression(NewRegisteredMaterialExpression(Entry.ExpressionClass));
 		if (!Expression) return RejectCommand("The catalog expression class is unavailable.");
 		Expression->Id = FGuid::NewGuid();
 		if (auto* Declaration = Cast<DMaterialExpressionStaticBool>(Expression.Get()))
