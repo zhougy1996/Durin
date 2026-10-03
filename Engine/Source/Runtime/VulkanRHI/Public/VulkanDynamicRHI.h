@@ -131,8 +131,13 @@ namespace Durin::VulkanRHI
 			std::shared_ptr<FRHITextureReadback> AsyncRequest = {}
 		) -> bool;
 
+		auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override;
+		auto RHIStopPipelineCreation() -> void override;
+		auto RHIRetirePipelineCreationResults() -> void override;
+		auto RHIIsPipelineCreationClosed() const -> bool override;
+		auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override;
+
 	protected:
-		auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override;
 		auto CreateInstance(
 			std::span<const std::string> SurfaceProviderRequiredExtensions) -> void;
 		auto CreateDebugMessenger() -> void;

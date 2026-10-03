@@ -55,8 +55,27 @@ namespace Durin
 			{
 				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
 			}
+			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
+			{
+				std::lock_guard Lock(DeviceState.Mutex);
+				if (DeviceState.Closed || !IsTaskSchedulerRunning() || !RHIGetCapabilities()) return nullptr;
+				if (!DeviceState.PipelineCache) DeviceState.PipelineCache = std::make_unique<FRHIPipelineStateCache>(*RHIGetCapabilities(), CreatePipelineCompileBackend());
+				return DeviceState.PipelineCache.get();
+			}
+			void RHIStopPipelineCreation() override
+			{
+				FRHIPipelineStateCache* Cache;
+				{ std::lock_guard Lock(DeviceState.Mutex); DeviceState.Closed = true; Cache = DeviceState.PipelineCache.get(); }
+				if (Cache) Cache->CloseAndJoin(false);
+			}
+			void RHIRetirePipelineCreationResults() override
+			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->CloseAndJoin(); }
+			bool RHIIsPipelineCreationClosed() const override
+			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.Closed || (DeviceState.PipelineCache && DeviceState.PipelineCache->IsClosed()); }
+			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
+			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.PipelineCache ? DeviceState.PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{}; }
 		protected:
-			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override
+			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 			{
 				return {
 					.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
@@ -80,6 +99,12 @@ namespace Durin
 		private:
 			std::mutex Mutex;
 			std::unordered_map<FComputePipelineStateKey, FComputePipelineStateRHIRef, FComputePipelineStateKeyHasher> Cache;
+			struct FTestDeviceState
+			{
+				mutable std::mutex Mutex;
+				std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
+				bool Closed = false;
+			} DeviceState;
 		};
 
 		auto MakeError(

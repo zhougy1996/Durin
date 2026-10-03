@@ -162,9 +162,22 @@ namespace Durin::VulkanRHI
 		});
 	}
 
+	auto FVulkanDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
+	{ return Device ? Device->GetPipelineStateCache() : nullptr; }
+	auto FVulkanDynamicRHI::RHIStopPipelineCreation() -> void
+	{ if (Device) Device->StopPipelineCreation(); }
+	auto FVulkanDynamicRHI::RHIRetirePipelineCreationResults() -> void
+	{ if (Device) Device->RetirePipelineCreationResults(); }
+	auto FVulkanDynamicRHI::RHIIsPipelineCreationClosed() const -> bool
+	{ return !Device || Device->IsPipelineCreationClosed(); }
+	auto FVulkanDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
+	{ return Device ? Device->GetPipelineCreationStatistics() : FRHIPipelineCreationStatistics{}; }
+
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
 		CheckVulkanRHIThread();
+		RHIStopPipelineCreation();
+		RHIRetirePipelineCreationResults();
 		ClearCapabilities();
 		ViewCache->Clear();
 		if (const char* CaptureBaseline =

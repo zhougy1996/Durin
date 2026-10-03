@@ -1147,11 +1147,11 @@ namespace Durin::VulkanRHI
 		}
 		return nullptr;
 	}
-	auto FVulkanDynamicRHI::CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
+	auto FVulkanDevice::CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 	{
 		FRHIPipelineCompileBackend Backend;
 		Backend.FindGraphics = [this](const FGraphicsPipelineStateKey& Key) {
-			return Device->GetPipelineManager().FindGraphicsPipelineState(Key);
+			return GetPipelineManager().FindGraphicsPipelineState(Key);
 		};
 		Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
 			const FGraphicsPipelineStateKey& Key) -> FGraphicsPipelineStateRHIRef {
@@ -1161,7 +1161,7 @@ namespace Durin::VulkanRHI
 #endif
 			FGraphicsPipelineStateRHIRef Result;
 			MakeVulkanCreationOperation([&] {
-				Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
+				Result = GetPipelineManager().GetOrCreateGraphicsPipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
 			})();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -1170,7 +1170,7 @@ namespace Durin::VulkanRHI
 			return Result;
 		};
 		Backend.FindCompute = [this](const FComputePipelineStateKey& Key) {
-			return Device->GetPipelineManager().FindComputePipelineState(Key);
+			return GetPipelineManager().FindComputePipelineState(Key);
 		};
 		Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs,
 			const FComputePipelineStateKey& Key) -> FComputePipelineStateRHIRef {
@@ -1180,7 +1180,7 @@ namespace Durin::VulkanRHI
 #endif
 			FComputePipelineStateRHIRef Result;
 			MakeVulkanCreationOperation([&] {
-				Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(
+				Result = GetPipelineManager().GetOrCreateComputePipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
 			})();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -1191,7 +1191,7 @@ namespace Durin::VulkanRHI
 		Backend.PublishTerminalFailure = [](std::exception_ptr Failure) {
 			GCommandListExecutor.ReportExternalFailure(Failure);
 		};
-		Backend.ReserveMetadata = [this](uint64 Bytes) { return Device->ReserveCacheMetadata(Bytes); };
+		Backend.ReserveMetadata = [this](uint64 Bytes) { return ReserveCacheMetadata(Bytes); };
 		return Backend;
 	}
 	namespace

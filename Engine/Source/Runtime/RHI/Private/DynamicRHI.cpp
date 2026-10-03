@@ -73,48 +73,12 @@ namespace Durin
 		return ERHIGPUWaitResult::Invalid;
 	}
 
-	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
-	{
-		std::lock_guard Lock(PipelineCreationMutex);
-		if (PipelineCreationClosed || !IsTaskSchedulerRunning() || !Capabilities) return nullptr;
-		if (!PipelineCache)
-		{
-			auto Backend = CreatePipelineCompileBackend();
-			if (!Backend.FindGraphics || !Backend.FindCompute || !Backend.CreateGraphics
-				|| !Backend.CreateCompute || !Backend.PublishTerminalFailure) return nullptr;
-			PipelineCache = std::make_unique<FRHIPipelineStateCache>(*Capabilities, std::move(Backend));
-		}
-		return PipelineCache.get();
-	}
-	auto FDynamicRHI::RHIStopPipelineCreation() -> void
-	{
-		FRHIPipelineStateCache* Cache;
-		{
-			std::lock_guard Lock(PipelineCreationMutex);
-			PipelineCreationClosed = true;
-			Cache = PipelineCache.get();
-		}
-		if (Cache) Cache->CloseAndJoin(false);
-	}
-	auto FDynamicRHI::RHIRetirePipelineCreationResults() -> void
-	{
-		FRHIPipelineStateCache* Cache;
-		{
-			std::lock_guard Lock(PipelineCreationMutex);
-			Cache = PipelineCache.get();
-		}
-		if (Cache) Cache->CloseAndJoin();
-	}
-	auto FDynamicRHI::RHIIsPipelineCreationClosed() const -> bool
-	{
-		std::lock_guard Lock(PipelineCreationMutex);
-		return PipelineCreationClosed || (PipelineCache && PipelineCache->IsClosed());
-	}
-	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
-	{
-		std::lock_guard Lock(PipelineCreationMutex);
-		return PipelineCache ? PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{};
-	}
+	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache* { return nullptr; }
+	// Backends forward lifecycle operations to their logical-device cache owner.
+	auto FDynamicRHI::RHIStopPipelineCreation() -> void {}
+	auto FDynamicRHI::RHIRetirePipelineCreationResults() -> void {}
+	auto FDynamicRHI::RHIIsPipelineCreationClosed() const -> bool { return false; }
+	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics { return {}; }
 
 	auto FDynamicRHI::RHICollectCompletedResources() -> void
 	{

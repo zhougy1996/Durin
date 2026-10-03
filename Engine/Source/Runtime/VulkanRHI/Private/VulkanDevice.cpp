@@ -1,5 +1,6 @@
 #include "VulkanDeferredBuffer.h"
 #include "VulkanDevice.h"
+#include "PipelineStateCache.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
@@ -649,9 +650,53 @@ namespace Durin::VulkanRHI
 		return GraphicsQueue->GetCompletionTracker();
 	}
 
+	auto FVulkanDevice::GetPipelineStateCache() -> FRHIPipelineStateCache*
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		if (PipelineCreationClosed || !Device || !IsTaskSchedulerRunning()) return nullptr;
+		const auto* Capabilities = RHI->RHIGetCapabilities();
+		if (!Capabilities) return nullptr;
+		if (!PipelineStateCache)
+			PipelineStateCache = std::make_unique<FRHIPipelineStateCache>(*Capabilities, CreatePipelineCompileBackend());
+		return PipelineStateCache.get();
+	}
+	auto FVulkanDevice::StopPipelineCreation() -> void
+	{
+		FRHIPipelineStateCache* Cache;
+		{
+			std::lock_guard Lock(PipelineCreationMutex);
+			PipelineCreationClosed = true;
+			Cache = PipelineStateCache.get();
+		}
+		if (Cache) Cache->CloseAndJoin(false);
+	}
+	auto FVulkanDevice::RetirePipelineCreationResults() -> void
+	{
+		FRHIPipelineStateCache* Cache;
+		{
+			std::lock_guard Lock(PipelineCreationMutex);
+			Cache = PipelineStateCache.get();
+		}
+		if (Cache) Cache->CloseAndJoin();
+	}
+	auto FVulkanDevice::IsPipelineCreationClosed() const -> bool
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		return PipelineCreationClosed || (PipelineStateCache && PipelineStateCache->IsClosed());
+	}
+	auto FVulkanDevice::GetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		return PipelineStateCache ? PipelineStateCache->GetStatistics() : FRHIPipelineCreationStatistics{};
+	}
+
 	auto FVulkanDevice::Destroy() -> void
 	{
 		CheckVulkanRHIThread();
+		// Creator work and published PSOs must retire while native managers live.
+		StopPipelineCreation();
+		RetirePipelineCreationResults();
+		{ std::lock_guard Lock(PipelineCreationMutex); PipelineStateCache.reset(); }
 		if (!Device)
 		{
 			return;

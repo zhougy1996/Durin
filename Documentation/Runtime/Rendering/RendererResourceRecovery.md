@@ -105,12 +105,20 @@ universal create-and-wait wrapper remains removed.
 
 ## Internal Pipeline Compilation
 
-`FDynamicRHI` owns one `FRHIPipelineStateCache`. Cache acquisition and precaching
+Each logical device owns one `FRHIPipelineStateCache`; `FDynamicRHI` exposes only
+backend forwarding hooks. Vulkan stores the cache in `FVulkanDevice` alongside
+its native pipeline manager and driver cache. Cache acquisition and precaching
 copy immutable descriptions, names, and strong shader/declaration references
 before returning. Public drawing and preparation do not submit raw creation
 requests. Backend hooks supply native lookup and creation callbacks through
 `FRHIPipelineCompileBackend`; creation callbacks call the native manager directly,
 never the public cache or a synchronous compatibility factory.
+
+The device stops cache admission even when no cache has been demanded. It joins
+compilation before native managers are destroyed and retires published results
+through the two-phase RHI shutdown boundary. Device destruction resets the cache;
+a replacement device starts with fresh admission state and a new capability
+snapshot. Surviving old identities expose terminal metadata without native PSOs.
 
 The cache owns a private `FPipelineCompileQueue`, with one worker-only Core scope,
 a bounded queue, and one active native creator. Limits across graphics and compute

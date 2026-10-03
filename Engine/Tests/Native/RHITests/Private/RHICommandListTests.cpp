@@ -140,8 +140,35 @@ namespace Durin
 			auto RHICreateComputePipelineState(FName, const FComputePipelineStateInitializer&)
 				-> FComputePipelineStateRHIRef override
 			{ ++ComputeCreations; return MakeRefCount<FRHIComputePipelineState>(); }
+			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
+			{
+				std::lock_guard Lock(DeviceState.Mutex);
+				if (DeviceState.Closed || !IsTaskSchedulerRunning() || !RHIGetCapabilities()) return nullptr;
+				if (!DeviceState.PipelineCache) DeviceState.PipelineCache = std::make_unique<FRHIPipelineStateCache>(*RHIGetCapabilities(), CreatePipelineCompileBackend());
+				return DeviceState.PipelineCache.get();
+			}
+			void RHIStopPipelineCreation() override
+			{
+				FRHIPipelineStateCache* Cache;
+				{ std::lock_guard Lock(DeviceState.Mutex); DeviceState.Closed = true; Cache = DeviceState.PipelineCache.get(); }
+				if (Cache) Cache->CloseAndJoin(false);
+			}
+			void RHIRetirePipelineCreationResults() override
+			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->CloseAndJoin(); }
+			bool RHIIsPipelineCreationClosed() const override
+			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.Closed || (DeviceState.PipelineCache && DeviceState.PipelineCache->IsClosed()); }
+			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
+			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.PipelineCache ? DeviceState.PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{}; }
+			void ReplaceDeviceForTest()
+			{
+				RHIStopPipelineCreation();
+				RHIRetirePipelineCreationResults();
+				std::lock_guard Lock(DeviceState.Mutex);
+				DeviceState.PipelineCache.reset();
+				DeviceState.Closed = false;
+			}
 		protected:
-			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override
+			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 			{
 				return {
 					.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
@@ -157,6 +184,13 @@ namespace Durin
 					.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); }
 				};
 			}
+		private:
+			struct FTestDeviceState
+			{
+				mutable std::mutex Mutex;
+				std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
+				bool Closed = false;
+			} DeviceState;
 		};
 
 		class FScopedDynamicRHI final
@@ -1350,6 +1384,36 @@ namespace Durin
 		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
 			throw 7;
 		}), int);
+	}
+
+	TEST(FRHICommandListTests, DeviceCacheClosureAndReplacementDoNotReuseRetiredIdentities)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		FPipelineCacheTestRHI RHI;
+		FScopedDynamicRHI Active(RHI);
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		// Stopping an unrequested device must not lazily create a cache.
+		RHI.RHIStopPipelineCreation();
+		EXPECT_TRUE(RHI.RHIIsPipelineCreationClosed());
+		EXPECT_EQ(PipelineStateCache::PrecacheComputePipelineState(Initializer).error(), ERHIPipelineRequestRejection::Closed);
+		EXPECT_EQ(RHI.ComputeCreations, 0u);
+		RHI.ReplaceDeviceForTest();
+		auto First = PipelineStateCache::PrecacheComputePipelineState(Initializer);
+		ASSERT_TRUE(First);
+		EXPECT_TRUE((*First)->Wait());
+		RHI.ReplaceDeviceForTest();
+		EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Canceled);
+		EXPECT_FALSE((*First)->GetRHIPipeline());
+		auto Replacement = PipelineStateCache::PrecacheComputePipelineState(Initializer);
+		ASSERT_TRUE(Replacement);
+		EXPECT_NE(*First, *Replacement);
+		EXPECT_TRUE((*Replacement)->Wait());
+		EXPECT_EQ(RHI.ComputeCreations, 2u);
 	}
 
 	TEST(FRHICommandListTests, DescriptorPipelineHelpersRetainPrecacheIdentityAndResolveBeforeReplay)
