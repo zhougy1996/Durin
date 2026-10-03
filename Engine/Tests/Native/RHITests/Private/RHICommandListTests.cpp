@@ -2488,11 +2488,12 @@ namespace Durin
 		EXPECT_EQ(Uniform->GetLifetimeUsage(), ERHIBufferLifetimeUsage::SingleDraw);
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Native, 0, FByteBuffer(16)), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Uniform, 0, FByteBuffer(16)), "");
-		EXPECT_EQ(FRHIBufferView::TryCreate(Native, {0, 16, ERHIBufferViewType::StructuredStorage}).error(),
-			ERHIBufferUploadError::InvalidUsage);
-		auto View = FRHIBufferView::TryCreate(Storage, {0, 16, ERHIBufferViewType::StructuredStorage});
+		EXPECT_FALSE(FRHIBufferView::CanCreate(nullptr, {0, 16, ERHIBufferViewType::StructuredStorage}));
+		EXPECT_FALSE(FRHIBufferView::CanCreate(Native, {0, 16, ERHIBufferViewType::StructuredStorage}));
+		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Native, {0, 16, ERHIBufferViewType::StructuredStorage}), "");
+		auto View = FRHIBufferView::Create(Storage, {0, 16, ERHIBufferViewType::StructuredStorage});
 		ASSERT_TRUE(View);
-		std::array<FRHIResource*, 1> Sidecars{View->GetReference()};
+		std::array<FRHIResource*, 1> Sidecars{View.GetReference()};
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateUniformBuffer(Uniform, FByteBuffer(16), Sidecars), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.WriteBuffer(Storage, "data", 4, 0), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UploadBuffer(Storage, 0, FByteBuffer(16)), "");
@@ -2622,18 +2623,15 @@ namespace Durin
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Buffer, UINT32_MAX, Data), "");
 		std::array<FRHIResource*, 1> CyclicReferences{Buffer.GetReference()};
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateUniformBuffer(Buffer, Data, CyclicReferences), "");
-		EXPECT_EQ(FRHIBufferView::TryCreate(Buffer,
-			{UINT64_MAX, 16, ERHIBufferViewType::Uniform}).error(),
-			ERHIBufferUploadError::InvalidRange);
-		EXPECT_EQ(FRHIBufferView::TryCreate(Buffer,
-			{0, 8, ERHIBufferViewType::Uniform}).error(),
-			ERHIBufferUploadError::InvalidDescriptor);
-		auto View = FRHIBufferView::TryCreate(Buffer,
-			{0, 16, ERHIBufferViewType::Uniform});
+		EXPECT_FALSE(FRHIBufferView::CanCreate(Buffer, {UINT64_MAX, 16, ERHIBufferViewType::Uniform}));
+		EXPECT_FALSE(FRHIBufferView::CanCreate(Buffer, {0, 8, ERHIBufferViewType::Uniform}));
+		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Buffer, {UINT64_MAX, 16, ERHIBufferViewType::Uniform}), "");
+		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Buffer, {0, 8, ERHIBufferViewType::Uniform}), "");
+		auto View = FRHIBufferView::Create(Buffer, {0, 16, ERHIBufferViewType::Uniform});
 		ASSERT_TRUE(View);
-		EXPECT_EQ((*View)->GetResourceType(), ERHIResourceType::BufferView);
+		EXPECT_EQ(View->GetResourceType(), ERHIResourceType::BufferView);
 		Buffer = nullptr;
-		EXPECT_EQ((*View)->GetBuffer()->GetDesc().Size, 16u);
+		EXPECT_EQ(View->GetBuffer()->GetDesc().Size, 16u);
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 
@@ -3185,13 +3183,12 @@ namespace Durin
 
 		uint64 Visits = 0;
 		std::vector<uint32> VisitedElements;
-		const auto VisitOrderedBindingsResult = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+		RHIShaderParameterValidationInternal::VisitOrderedBindingsChecked(
 			Layout, Resources,
 			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
 				const FRHIShaderParameterResource&) {
 					VisitedElements.push_back(Element.ArrayElement);
 				}, &Visits);
-		EXPECT_TRUE(VisitOrderedBindingsResult) << ToString(VisitOrderedBindingsResult.error());
 		EXPECT_EQ(Visits, 64u);
 		EXPECT_EQ(VisitedElements.size(), 64u);
 		EXPECT_EQ(VisitedElements.front(), 0u);
@@ -3199,18 +3196,20 @@ namespace Durin
 
 		Resources[31].Resource = nullptr;
 		Visits = 0;
-		const auto VisitOrderedBindingsResult2 = RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, &Visits);
+		const auto VisitOrderedBindingsResult2 = RHIShaderParameterValidationInternal::ValidateOrderedBindings(
+			Layout, Resources, &Visits);
 		ASSERT_FALSE(VisitOrderedBindingsResult2);
 		EXPECT_EQ(Visits, 32u);
 		EXPECT_EQ(VisitOrderedBindingsResult2.error().Code, ERHIShaderBindingError::NullResource);
+		EXPECT_DEATH_IF_SUPPORTED(RHIShaderParameterValidationInternal::VisitOrderedBindingsChecked(
+			Layout, Resources, [](const auto&, const auto&) {}), "Invalid shader binding snapshot");
 
 		Resources[31].Resource = reinterpret_cast<FRHIResource*>(uintptr_t{32});
 		Resources.push_back(Resources.back());
 		Resources.back().ArrayElement = 64;
 		Visits = 0;
-		const auto VisitOrderedBindingsResult3 = RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, &Visits);
+		const auto VisitOrderedBindingsResult3 = RHIShaderParameterValidationInternal::ValidateOrderedBindings(
+			Layout, Resources, &Visits);
 		ASSERT_FALSE(VisitOrderedBindingsResult3);
 		EXPECT_EQ(Visits, 65u);
 		EXPECT_EQ(VisitOrderedBindingsResult3.error().Code, ERHIShaderBindingError::UnexpectedBinding);

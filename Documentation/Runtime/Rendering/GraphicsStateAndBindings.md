@@ -113,6 +113,11 @@ reuse.
 `FRHIBindingSet` is not part of the public model. Graphics and future compute
 work share this reflected location and snapshot vocabulary.
 
+Binding completeness diagnostic validation is pure and returns typed location
+errors. Internal descriptor processing uses a checked single-pass traversal:
+invalid input is an invariant failure, and visitors cannot receive a recoverable
+result after updating descriptor state.
+
 ## Bounded Vulkan Caches
 
 Graphics descriptor snapshots contain one set and are scoped to one command

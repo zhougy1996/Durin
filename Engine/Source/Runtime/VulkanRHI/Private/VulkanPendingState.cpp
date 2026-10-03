@@ -601,7 +601,7 @@ namespace Durin::VulkanRHI
 			}
 			DrawValidationResourceIndices.clear();
 			uint64 BindingValidationVisits = 0;
-			const auto CompletenessResult = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			RHIShaderParameterValidationInternal::VisitOrderedBindingsChecked(
 				PipelineState.GetKey().PipelineLayout, PendingShaderResources,
 				[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
 					const FRHIShaderParameterResource& ResourceRecord) {
@@ -643,7 +643,6 @@ namespace Durin::VulkanRHI
 			GVulkanBindingValidationVisitCount.fetch_add(
 				BindingValidationVisits, std::memory_order_relaxed);
 #endif
-			checkf(CompletenessResult, "Invalid shader binding snapshot: {}", ToString(CompletenessResult.error()));
 			bStructureValidated = true;
 		}
 		std::vector<uint32> DynamicOffsets;

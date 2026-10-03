@@ -121,10 +121,13 @@ namespace Durin
 							const auto Type = bUniform ? ERHIBufferViewType::Uniform
 								: EnumHasAnyFlags(BufferDesc.Usage, EBufferUsageFlags::ByteAddressBuffer)
 									? ERHIBufferViewType::ByteAddressStorage : ERHIBufferViewType::StructuredStorage;
-							const auto Result = FRHIBufferView::TryCreate(Buffer,
-								{bDynamic ? 0 : Parameter.Offset, Size, Type});
-							if (!Result) return Fail("Invalid deferred shader buffer view.");
-							View = *Result;
+							const FRHIBufferViewDesc Desc{bDynamic ? 0 : Parameter.Offset, Size, Type};
+							if (bFallible)
+							{
+								if (!FRHIBufferView::CanCreate(Buffer, Desc)) return false;
+								View = new FRHIBufferView(Buffer, Desc);
+							}
+							else View = FRHIBufferView::Create(Buffer, Desc);
 							if (!bDynamic) Parameter.Offset = 0;
 							Parameter.Size = 0;
 						}

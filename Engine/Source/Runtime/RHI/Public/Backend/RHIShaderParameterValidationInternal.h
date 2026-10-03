@@ -25,60 +25,86 @@ namespace Durin::RHIShaderParameterValidationInternal
 		return 0;
 	}
 
-	// Walks canonical layout elements and sorted resources in lockstep. The
-	// visitor receives each validated correspondence exactly once.
-	template <typename FVisitor>
-	auto VisitOrderedBindings(const FPipelineLayoutDesc& Layout,
-		std::span<const FRHIShaderParameterResource> Resources,
-		FVisitor&& Visitor,
-		uint64* ValidationVisits = nullptr) -> std::expected<void, FRHIShaderBindingError>
+	namespace Detail
 	{
-		size_t ResourceIndex = 0;
-		for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
+		// Shared linear walk; the caller selects diagnostic or invariant failure handling.
+		template <typename FVisitor, typename FFailure>
+		auto WalkOrderedBindings(const FPipelineLayoutDesc& Layout,
+			std::span<const FRHIShaderParameterResource> Resources,
+			FVisitor&& Visitor, FFailure&& Failure,
+			uint64* ValidationVisits) -> void
 		{
-			for (const FBindingLayoutItem& Binding :
-				Layout.BindingLayouts[SetIndex].BindingLayouts)
+			size_t ResourceIndex = 0;
+			for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
 			{
-				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
-					++ArrayElement)
+				for (const FBindingLayoutItem& Binding :
+					Layout.BindingLayouts[SetIndex].BindingLayouts)
 				{
-					if (ValidationVisits) ++*ValidationVisits;
-					const FBindingElement Expected{SetIndex, &Binding, ArrayElement};
-					if (ResourceIndex >= Resources.size()
-						|| CompareLocation(Resources[ResourceIndex], Expected) != 0
-						|| !Resources[ResourceIndex].Resource
-						|| Resources[ResourceIndex].Type != Binding.Type)
+					for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
+						++ArrayElement)
 					{
-						const auto Code = ResourceIndex >= Resources.size()
+						if (ValidationVisits) ++*ValidationVisits;
+						const FBindingElement Expected{SetIndex, &Binding, ArrayElement};
+						if (ResourceIndex >= Resources.size()
 							|| CompareLocation(Resources[ResourceIndex], Expected) != 0
-							? ERHIShaderBindingError::MissingBinding
-							: !Resources[ResourceIndex].Resource ? ERHIShaderBindingError::NullResource
-							: ERHIShaderBindingError::TypeMismatch;
-						FRHIShaderBindingError Error{Code, static_cast<uint32>(ResourceIndex)};
-						Error.SetIndex = SetIndex;
-						Error.BindingIndex = Binding.Slot;
-						Error.ArrayElement = ArrayElement;
-						if (Code == ERHIShaderBindingError::TypeMismatch)
+							|| !Resources[ResourceIndex].Resource
+							|| Resources[ResourceIndex].Type != Binding.Type)
 						{
-							Error.ExpectedBindingType = Binding.Type;
-							Error.ActualBindingType = Resources[ResourceIndex].Type;
+							const auto Code = ResourceIndex >= Resources.size()
+								|| CompareLocation(Resources[ResourceIndex], Expected) != 0
+								? ERHIShaderBindingError::MissingBinding
+								: !Resources[ResourceIndex].Resource ? ERHIShaderBindingError::NullResource
+								: ERHIShaderBindingError::TypeMismatch;
+							FRHIShaderBindingError Error{Code, static_cast<uint32>(ResourceIndex)};
+							Error.SetIndex = SetIndex;
+							Error.BindingIndex = Binding.Slot;
+							Error.ArrayElement = ArrayElement;
+							if (Code == ERHIShaderBindingError::TypeMismatch)
+							{
+								Error.ExpectedBindingType = Binding.Type;
+								Error.ActualBindingType = Resources[ResourceIndex].Type;
+							}
+							Failure(Error);
+							return;
 						}
-						return std::unexpected(std::move(Error));
+						Visitor(Expected, Resources[ResourceIndex]);
+						++ResourceIndex;
 					}
-					Visitor(Expected, Resources[ResourceIndex]);
-					++ResourceIndex;
 				}
 			}
+			if (ResourceIndex != Resources.size())
+			{
+				if (ValidationVisits) ++*ValidationVisits;
+				FRHIShaderBindingError Error{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
+				Error.SetIndex = Resources[ResourceIndex].SetIndex;
+				Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
+				Error.ArrayElement = Resources[ResourceIndex].ArrayElement;
+				Failure(Error);
+			}
 		}
-		if (ResourceIndex != Resources.size())
-		{
-			if (ValidationVisits) ++*ValidationVisits;
-			FRHIShaderBindingError Error{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
-			Error.SetIndex = Resources[ResourceIndex].SetIndex;
-			Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
-			Error.ArrayElement = Resources[ResourceIndex].ArrayElement;
-			return std::unexpected(std::move(Error));
-		}
-		return {};
+	} // namespace Detail
+
+	// Pure diagnostic validation; no visitor observes partially validated input.
+	inline auto ValidateOrderedBindings(const FPipelineLayoutDesc& Layout,
+		std::span<const FRHIShaderParameterResource> Resources,
+		uint64* ValidationVisits = nullptr) -> std::expected<void, FRHIShaderBindingError>
+	{
+		std::expected<void, FRHIShaderBindingError> Result;
+		Detail::WalkOrderedBindings(Layout, Resources, [](const auto&, const auto&) {},
+			[&](const FRHIShaderBindingError& Error) { Result = std::unexpected(Error); }, ValidationVisits);
+		return Result;
+	}
+
+	// Internal single-pass processing. Invalid input terminates the operation;
+	// visitors may update state and are never offered a recoverable failure result.
+	template <typename FVisitor>
+	auto VisitOrderedBindingsChecked(const FPipelineLayoutDesc& Layout,
+		std::span<const FRHIShaderParameterResource> Resources, FVisitor&& Visitor,
+		uint64* ValidationVisits = nullptr) -> void
+	{
+		Detail::WalkOrderedBindings(Layout, Resources, std::forward<FVisitor>(Visitor),
+			[](const FRHIShaderBindingError& Error) {
+				requiref(false, "Invalid shader binding snapshot: {}", ToString(Error));
+			}, ValidationVisits);
 	}
 } // namespace Durin::RHIShaderParameterValidationInternal

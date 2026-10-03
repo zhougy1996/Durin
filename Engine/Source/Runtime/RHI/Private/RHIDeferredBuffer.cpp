@@ -264,29 +264,23 @@ namespace Durin
 		}, OwnedBytes);
 	}
 
-	auto FRHIBufferView::TryCreate(FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc)
-		-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>
+	auto FRHIBufferView::CanCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) -> bool
 	{
-		if (!Buffer) return std::unexpected(ERHIBufferUploadError::InvalidDescriptor);
-		if (Buffer->GetContentMode() != ERHIBufferContentMode::CPUAuthored)
-			return std::unexpected(ERHIBufferUploadError::InvalidUsage);
-		const auto Valid = ValidateBufferViewDesc(Buffer->GetDesc(), Desc);
-		if (!Valid)
-		{
-			const auto Error = Valid.error();
-			return std::unexpected(Error == ERHIBufferViewError::EmptyRange
-				|| Error == ERHIBufferViewError::RangeOutOfBounds
-				? ERHIBufferUploadError::InvalidRange : ERHIBufferUploadError::InvalidDescriptor);
-		}
+		if (!IsCPUAuthoredBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
 		if (const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			const bool bUniform = Desc.Type == ERHIBufferViewType::Uniform;
 			const uint32 Alignment = bUniform ? Caps->MinUniformBufferOffsetAlignment : Caps->MinStorageBufferOffsetAlignment;
 			const uint32 Limit = bUniform ? Caps->MaxUniformBufferRange : Caps->MaxStorageBufferRange;
-			if ((Alignment && Desc.Offset % Alignment != 0) || (Limit && Desc.Size > Limit))
-				return std::unexpected(ERHIBufferUploadError::InvalidRange);
+			if ((Alignment && Desc.Offset % Alignment != 0) || (Limit && Desc.Size > Limit)) return false;
 		}
+		return true;
+	}
+
+	auto FRHIBufferView::Create(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
+		-> TRefCountPtr<FRHIBufferView>
+	{
+		requiref(CanCreate(Buffer, Desc), "Invalid CPU-authored buffer view description or parent.");
 		return TRefCountPtr<FRHIBufferView>(new FRHIBufferView(Buffer, Desc));
 	}
 }

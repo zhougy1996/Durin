@@ -1888,10 +1888,6 @@ namespace Durin
 	// CPU-authored resources expose immutable content versions, never native handles.
 	enum class ERHIBufferContentMode : uint8 { Native, CPUAuthored };
 	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
-	enum class ERHIBufferUploadError : uint8
-	{
-		InvalidDescriptor, InvalidRange, InvalidUsage
-	};
 	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
 	struct FRHIBufferUploadStats
 	{
@@ -2014,8 +2010,10 @@ namespace Durin
 	class FRHIBufferView : public FRHIResource
 	{
 	public:
-		RHI_API static auto TryCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
-			-> std::expected<TRefCountPtr<FRHIBufferView>, ERHIBufferUploadError>;
+		// Logical CPU-authored views: invalid inputs violate creation preconditions.
+		RHI_API static auto CanCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) -> bool;
+		RHI_API static auto Create(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
+			-> TRefCountPtr<FRHIBufferView>;
 		FRHIBufferView(FRHIBuffer* InBuffer, const FRHIBufferViewDesc& InDesc)
 			: FRHIResource(ERHIResourceType::BufferView), Buffer(InBuffer), Desc(InDesc)
 		{
@@ -2212,7 +2210,6 @@ namespace Durin
 		LayoutTooSmall,
 		BlockAlignment,
 		OffsetAlignment,
-		RowPitchOverflow,
 		ImagePitchOverflow,
 		FootprintOverflow,
 		EmptyFootprint,

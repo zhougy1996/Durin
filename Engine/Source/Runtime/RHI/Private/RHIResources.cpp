@@ -334,8 +334,7 @@ namespace Durin
 	auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
 		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>
 	{
-		return RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {});
+		return RHIShaderParameterValidationInternal::ValidateOrderedBindings(Layout, Resources);
 	}
 
 	static auto ValidateGraphicsPipelineInitializer(
@@ -1162,8 +1161,6 @@ namespace Durin
 				return std::unexpected(ERHICopyFootprintError::OffsetAlignment);
 			const uint64 BlocksPerRow = (static_cast<uint64>(RowLength) + Format.BlockSize - 1) / Format.BlockSize;
 			const uint64 BlockRows = (static_cast<uint64>(ImageHeight) + Format.BlockSize - 1) / Format.BlockSize;
-			if (BlocksPerRow > std::numeric_limits<uint64>::max() / Format.BytesPerBlock)
-				return std::unexpected(ERHICopyFootprintError::RowPitchOverflow);
 			const uint64 RowPitch = BlocksPerRow * Format.BytesPerBlock;
 			if (BlockRows > std::numeric_limits<uint64>::max() / RowPitch)
 				return std::unexpected(ERHICopyFootprintError::ImagePitchOverflow);
