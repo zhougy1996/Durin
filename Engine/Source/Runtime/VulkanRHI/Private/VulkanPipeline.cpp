@@ -1,3 +1,4 @@
+#include "PipelineStateCache.h"
 #include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
@@ -1146,9 +1147,9 @@ namespace Durin::VulkanRHI
 		}
 		return nullptr;
 	}
-	auto FVulkanDynamicRHI::CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend
+	auto FVulkanDynamicRHI::CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 	{
-		FRHIPipelineCreationService::FBackend Backend;
+		FRHIPipelineCompileBackend Backend;
 		Backend.FindGraphics = [this](const FGraphicsPipelineStateKey& Key) {
 			return Device->GetPipelineManager().FindGraphicsPipelineState(Key);
 		};
@@ -1235,16 +1236,16 @@ namespace Durin::VulkanRHI
 			TResult Result;
 			if (IsTaskSchedulerRunning())
 			{
-				auto Request = [&] {
-					if constexpr (Graphics) return RHI.RHIRequestGraphicsPipelineState(Initializer, Name);
-					else return RHI.RHIRequestComputePipelineState(Initializer, Name);
+				auto* Cache = RHI.RHIGetPipelineStateCache();
+				if (!Cache) return nullptr;
+				auto Pipeline = [&] {
+					if constexpr (Graphics) return Cache->GetGraphics(Initializer, Name);
+					else return Cache->GetCompute(Initializer, Name);
 				}();
-				if (!Request.IsAccepted()) return nullptr;
-				Request.Wait();
-				// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
-				const auto Publication = Request.GetResult();
-				if constexpr (Graphics) Result = Publication.Graphics;
-				else Result = Publication.Compute;
+				if (!Pipeline) return nullptr;
+				(*Pipeline)->Wait();
+				// Native publication preserves fatal exceptions; cyclic waits return null.
+				Result = (*Pipeline)->GetRHIPipeline();
 			}
 			else
 			{

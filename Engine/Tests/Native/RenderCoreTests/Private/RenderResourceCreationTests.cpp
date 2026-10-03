@@ -56,7 +56,7 @@ namespace Durin
 				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
 			}
 		protected:
-			auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override
+			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override
 			{
 				return {
 					.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
@@ -286,10 +286,11 @@ namespace Durin
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
 			EXPECT_EQ(Resolve(), nullptr);
 			Release.Trigger();
-			auto Current = RHI.RHIRequestComputePipelineState(Initializer, "wait current");
-			EXPECT_TRUE(Current.Wait());
+			auto Current = PipelineStateCache::PrecacheComputePipelineState(Initializer, "wait current");
+			ASSERT_TRUE(Current);
+			EXPECT_TRUE((*Current)->Wait());
 			ASSERT_NE(Resolve(), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), Current.GetResult().Compute);
+			EXPECT_EQ(*Slot.GetPayload(), (*Current)->GetRHIPipeline());
 			EXPECT_EQ(RHI.Creations.load(), 2u);
 			const auto Old = *Slot.GetPayload();
 			FRenderPipelinePreparationBatch RefreshBatch;
@@ -305,10 +306,11 @@ namespace Durin
 			EXPECT_EQ(Resolve(), nullptr);
 			RefreshRelease.Trigger();
 			EXPECT_EQ(RefreshBatch.Wait(), ERenderPipelinePreparationWait::Ready);
-			auto Latest = RHI.RHIRequestComputePipelineState(Initializer, "wait latest");
-			EXPECT_TRUE(Latest.Wait());
+			auto Latest = PipelineStateCache::PrecacheComputePipelineState(Initializer, "wait latest");
+			ASSERT_TRUE(Latest);
+			EXPECT_TRUE((*Latest)->Wait());
 			ASSERT_NE(Resolve(), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), Latest.GetResult().Compute);
+			EXPECT_EQ(*Slot.GetPayload(), (*Latest)->GetRHIPipeline());
 			EXPECT_NE(*Slot.GetPayload(), Old);
 			EXPECT_EQ(Diagnostics, 0u);
 			Slot.Reset();

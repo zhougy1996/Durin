@@ -1,5 +1,5 @@
 #include "RHIPipelineCreation.h"
-#include "PipelineStateCache.h"
+#include "PipelineCompileQueue.h"
 
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
@@ -136,7 +136,7 @@ namespace Durin
 		Tasks::TCompletionSource<void> Source;
 		Tasks::TSharedTask<void> Task;
 		TAtomicSharedPtr<FPipelinePublication> Published;
-		// Accessed only under the service mutex, and cleared at publication.
+		// Accessed only under the compile queue mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
 		std::shared_ptr<const FKey> Identity;
 	};
@@ -202,7 +202,7 @@ namespace Durin
 		return GetState() == ERHIPipelineRequestState::Ready;
 	}
 
-	struct FRHIPipelineCreationService::FState
+	struct FPipelineCompileQueue::FState
 	{
 		using FObserver = FRHIPipelineCreationRequest::FState;
 		struct FEntry
@@ -412,21 +412,19 @@ namespace Durin
 		bool DrainActive = false;
 		bool CloseStarted = false;
 		std::mutex CloseMutex;
-		std::unique_ptr<FRHIPipelineStateCache> Cache;
 	};
 
-	FRHIPipelineCreationService::FRHIPipelineCreationService(const FRHICapabilities& Capabilities, FBackend Backend)
+	FPipelineCompileQueue::FPipelineCompileQueue(const FRHICapabilities& Capabilities, FBackend Backend)
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend)))
-	{ State->Cache = std::make_unique<FRHIPipelineStateCache>(Capabilities, *this); }
-	auto FRHIPipelineCreationService::GetPipelineStateCache() -> FRHIPipelineStateCache& { return *State->Cache; }
-	auto FRHIPipelineCreationService::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
+	{}
+	auto FPipelineCompileQueue::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
 	{ return State->Backend.ReserveMetadata ? State->Backend.ReserveMetadata(Bytes) : State->Lifetime->Metadata.Reserve(Bytes); }
-	FRHIPipelineCreationService::~FRHIPipelineCreationService() { CloseAndJoin(); }
-	auto FRHIPipelineCreationService::IsClosed() const -> bool
+	FPipelineCompileQueue::~FPipelineCompileQueue() { CloseAndJoin(); }
+	auto FPipelineCompileQueue::IsClosed() const -> bool
 	{
 		return State->Lifetime->Closed.load() || State->Lifetime->Failed.load();
 	}
-	auto FRHIPipelineCreationService::RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
+	auto FPipelineCompileQueue::RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
 		-> FRHIPipelineCreationBatch
 	{
 		if (Items.size() > MaxRequests) return {.Rejection = ERHIPipelineRequestRejection::CapacityExceeded};
@@ -435,7 +433,7 @@ namespace Durin
 		for (const auto& Item : Items) Result.Items.push_back(RequestGraphics(Item.Initializer, Item.DebugName));
 		return Result;
 	}
-	auto FRHIPipelineCreationService::RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items)
+	auto FPipelineCompileQueue::RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items)
 		-> FRHIPipelineCreationBatch
 	{
 		if (Items.size() > MaxRequests) return {.Rejection = ERHIPipelineRequestRejection::CapacityExceeded};
@@ -444,41 +442,40 @@ namespace Durin
 		for (const auto& Item : Items) Result.Items.push_back(RequestCompute(Item.Initializer, Item.DebugName));
 		return Result;
 	}
-	auto FRHIPipelineCreationService::RequestGraphics(const FGraphicsPipelineStateInitializer& Initializer,
+	auto FPipelineCompileQueue::RequestGraphics(const FGraphicsPipelineStateInitializer& Initializer,
 		std::string_view Name) -> FRHIPipelineCreationRequest
 	{
 		return State->Request(Initializer, Name, [&] {
 			return BuildGraphicsPipelineStateKey(Initializer, &State->Capabilities);
 		});
 	}
-	auto FRHIPipelineCreationService::RequestCompute(const FComputePipelineStateInitializer& Initializer,
+	auto FPipelineCompileQueue::RequestCompute(const FComputePipelineStateInitializer& Initializer,
 		std::string_view Name) -> FRHIPipelineCreationRequest
 	{
 		return State->Request(Initializer, Name, [&] {
 			return BuildComputePipelineStateKey(Initializer, &State->Capabilities);
 		});
 	}
-	auto FRHIPipelineCreationService::RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
+	auto FPipelineCompileQueue::RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
 		std::string_view Name, const FGraphicsPipelineStateKey& Key) -> FRHIPipelineCreationRequest
 	{
 		return State->Request(Initializer, Name, [&] { return std::optional{Key}; });
 	}
-	auto FRHIPipelineCreationService::RequestValidated(const FComputePipelineStateInitializer& Initializer,
+	auto FPipelineCompileQueue::RequestValidated(const FComputePipelineStateInitializer& Initializer,
 		std::string_view Name, const FComputePipelineStateKey& Key) -> FRHIPipelineCreationRequest
 	{
 		return State->Request(Initializer, Name, [&] { return std::optional{Key}; });
 	}
-	auto FRHIPipelineCreationService::GetStatistics() const -> FRHIPipelineCreationStatistics
+	auto FPipelineCompileQueue::GetStatistics() const -> FRHIPipelineCreationStatistics
 	{
 		std::lock_guard Lock(State->Mutex);
 		auto Result = State->Statistics;
 		Result.ActiveObservers = State->Lifetime->Observers.load();
 		return Result;
 	}
-	auto FRHIPipelineCreationService::CloseAndJoin(bool RetireResults) -> void
+	auto FPipelineCompileQueue::CloseAndJoin(bool RetireResults) -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);
-		State->Cache->Close();
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->CloseStarted)

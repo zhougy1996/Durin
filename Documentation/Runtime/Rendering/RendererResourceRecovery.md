@@ -103,41 +103,35 @@ through the owner; native command-buffer integration, reads and idle waits need
 ordered context access. These entries are not arbitrary-thread factories. The
 universal create-and-wait wrapper remains removed.
 
-## Asynchronous Pipeline Requests
+## Internal Pipeline Compilation
 
-`RHIRequestGraphicsPipelineState` and `RHIRequestComputePipelineState` copy
-immutable descriptions, names, and strong shader/declaration references before
-returning. Requests distinguish rejection from accepted Pending, Ready, Failed,
-and Canceled states. Ready/Failed publications are shared by observers of one
-normalized key. An ordinary candidate failure is retryable by a later request;
-no Failed cache entry permanently suppresses that key. Batch calls admit at most
-256 items and preserve per-item results in input order, including mixed outcomes.
-The caller retains raw-pointer inputs until the call has copied them.
+`FDynamicRHI` owns one `FRHIPipelineStateCache`. Cache acquisition and precaching
+copy immutable descriptions, names, and strong shader/declaration references
+before returning. Public drawing and preparation do not submit raw creation
+requests. Backend hooks supply native lookup and creation callbacks through
+`FRHIPipelineCompileBackend`; creation callbacks call the native manager directly,
+never the public cache or a synchronous compatibility factory.
 
-Each device owns one worker-only Core scope, bounded queue, and active native
-creator. Limits across graphics and compute are 256 unfinished unique requests,
-4,096 live observers, 16 MiB of conservatively charged unfinished descriptions,
-and 1 MiB per description. A same-key observer has independent cancellation;
-canceling it does not cancel creation needed by other observers or release a
-still-live observer's budget. No per-item semaphore-waiting worker is launched.
+The cache owns a private `FPipelineCompileQueue`, with one worker-only Core scope,
+a bounded queue, and one active native creator. Limits across graphics and compute
+are 256 unfinished unique requests, 4,096 live internal observations, 16 MiB of
+conservatively charged unfinished descriptions, and 1 MiB per description.
+The queue retains shared in-flight work and independently cancelable observations
+as an implementation detail. No public request/batch admission bypasses the cache,
+and no per-item semaphore-waiting worker is launched.
 
-Current Core scope rules forbid creating roots/completion sources into a foreign
-scope from an executing task. Such request calls return Unsupported before Core
-construction; this also applies to deferred tasks running on the game thread.
-Issue requests from the resource owner's ordinary thread before scoped work.
-Core workers can consume already-issued handles. A pending synchronous wait
-rejects Core workers, RHI replay, and the creator itself; it does not occupy the
-only worker needed to complete creation. Other caller threads use the service's
-completion notification because this device scope admits no deferred/game-thread
-or replay dependencies. Core is never started implicitly by a request.
+Core scope rules forbid constructing completion sources into a foreign scope
+from an executing task. Cache acquisition handles ordinary scoped callers through
+its admission handoff below; the private queue itself rejects foreign-scope
+admission before Core construction. Pending native waits reject Core workers,
+RHI replay, and the creator itself. Core is never started implicitly.
 
-`GetCompletion()` observes terminal notification only, and carries no native
+Internal completion edges observe terminal notification and carry no native
 resource references. Candidate Failed is an ordinary completed notification;
-consumers must inspect the request's domain state before drawing or dispatching.
-`GetResult()` returns complete RHI references only for Ready. Device/invariant
-exceptions first publish executor failure and wake serial waiters, then fail the
-Core creator; `GetResult()` rethrows the original terminal exception instead of
-turning it into a recoverable null result.
+consumers inspect the cached pipeline state before drawing or dispatching.
+Native access returns complete RHI references only for Ready. Device/invariant
+exceptions publish executor failure and wake serial waiters before failing the
+Core creator; native/error access preserves the original terminal exception.
 
 The Vulkan CPU metadata budget is 64 MiB shared by PSO keys/results, structural
 layouts, descriptor-set layouts, and render passes. Reservations charge dynamic
@@ -159,7 +153,7 @@ Immutable request layout aliases remain valid after backend module unload;
 their metadata budget and deleter are owned by RHI, not the Vulkan module.
 Callers must still release explicit RHI references copied out of a Ready result
 before device destruction. The owning shutdown thread performs close/join;
-creation callbacks must never attempt to close their own service.
+creation callbacks must never attempt to close their own compile queue.
 
 ## Pipeline Cache And Binding
 
@@ -174,7 +168,7 @@ permitted waits, and native failure details. Raw Core completion handles remain
 internal because they carry cancellation authority. A failed identity can be
 retried by a later cache acquisition without changing an existing owner's result.
 
-The device creation service owns a weak cache capped at 4,096 entries. Keys and
+The device-owned PipelineStateCache has a weak table capped at 4,096 entries. Keys and
 identity metadata are charged against the existing shared 64 MiB metadata budget;
 individual cache metadata payloads are capped at 1 MiB. Expired identities are
 reclaimed at entry capacity or metadata pressure. The Vulkan cache continues to own complete native reuse.
@@ -184,7 +178,8 @@ performs a serialized metadata handoff outside the caller's Core scope. The
 caller waits only for admission, never native compilation. The admission thread
 queues existing Core creator work and never waits for replay, GPU work, or PSO
 completion. Closing cache admission joins this thread before closing the creation
-scope; native results retire through the existing two-phase shutdown boundary.
+scope. Cache closure then joins its private queue; native results retire through
+the existing two-phase shutdown boundary.
 
 Drawing uses `SetGraphicsPipelineState(Commands, Initializer, Name)` or its compute
 counterpart. These helpers acquire the cache identity and record its binding and
@@ -411,7 +406,7 @@ own thread; it never borrows a caller's TLS record across asynchronous work.
 Ready synchronous cache hits have a caller body and no scheduling interval.
 Async observer admission, creator work, first-consumer waits, and an independent
 replay marker have separate measurements. Sequential caller observation of Ready
-is not the publication timestamp. Creator duration excludes the service queue;
+is not the publication timestamp. Creator duration excludes the compile queue;
 zero creator queue fields do not establish zero observer queue latency.
 
 The selected background configuration has one native creator. Concurrent

@@ -1,3 +1,4 @@
+#include "VulkanPipelinePrecacheTestSupport.h"
 #include <gtest/gtest.h>
 #include <barrier>
 #include <fstream>
@@ -390,7 +391,7 @@ namespace Durin::VulkanRHI
 			FComputePipelineStateInitializer Compute;
 			Compute.ComputeShader = Shaders[2];
 			const uint32 Count = Scenario == "cold" ? 1 : Scenario == "hot" ? 100 : Scenario == "batch64" ? 64 : 16;
-			struct FObservation { FRHIPipelineCreationRequest Request; uint64 Key = 0, Entry = 0, Returned = 0, Ready = 0, Wait = 0; };
+			struct FObservation { FPipelinePrecacheTestObservation Request; uint64 Key = 0, Entry = 0, Returned = 0, Ready = 0, Wait = 0; };
 			std::vector<FObservation> Records(Count);
 			auto Request = [&](uint32 Index) {
 				auto G = Graphics; auto C = Compute;
@@ -402,7 +403,7 @@ namespace Durin::VulkanRHI
 				if (ComputeKind) { auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities()); ASSERT_TRUE(Key) << ToString(Key.error()); Records[Index].Key = FComputePipelineStateKeyHasher{}(*Key); }
 				else { auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities()); ASSERT_TRUE(Key) << ToString(Key.error()); Records[Index].Key = FGraphicsPipelineStateKeyHasher{}(*Key); }
 				Records[Index].Entry = VulkanCreationTimestamp();
-				Records[Index].Request = ComputeKind ? GDynamicRHI->RHIRequestComputePipelineState(C, "AsyncMeasured") : GDynamicRHI->RHIRequestGraphicsPipelineState(G, "AsyncMeasured");
+				Records[Index].Request = ComputeKind ? PrecachePipelineForTest(C, "AsyncMeasured") : PrecachePipelineForTest(G, "AsyncMeasured");
 				Records[Index].Returned = VulkanCreationTimestamp();
 				EXPECT_TRUE(Records[Index].Request.IsAccepted());
 			};

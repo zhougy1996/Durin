@@ -141,7 +141,7 @@ namespace Durin
 				-> FComputePipelineStateRHIRef override
 			{ ++ComputeCreations; return MakeRefCount<FRHIComputePipelineState>(); }
 		protected:
-			auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override
+			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override
 			{
 				return {
 					.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
@@ -1431,7 +1431,7 @@ namespace Durin
 			FThreadEvent Entered, Release;
 			FRHICapabilities Capabilities;
 			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-			FRHIPipelineCreationService::FBackend Backend;
+			FRHIPipelineCompileBackend Backend;
 			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 			Backend.CreateCompute = [&](const auto&, const auto&) {
 				Entered.Trigger(); Release.Wait();
@@ -1439,7 +1439,7 @@ namespace Durin
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
 			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
-			FRHIPipelineCreationService Service(Capabilities, std::move(Backend));
+			FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
 			FRHIThread Thread;
 			ASSERT_TRUE(Thread.Start());
 			FRecordingCommandContext Context;
@@ -1448,7 +1448,7 @@ namespace Durin
 			FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader;
 			Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
-			auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "dependency");
+			auto Cached = Cache.GetCompute(Initializer, "dependency");
 			ASSERT_TRUE(Cached);
 			auto Pipeline = *Cached;
 			EXPECT_TRUE(Entered.WaitFor(5.0));
@@ -1479,7 +1479,7 @@ namespace Durin
 			EXPECT_FALSE(SecondFence.IsComplete());
 			if (Outcome == 1)
 			{
-				auto Closing = std::async(std::launch::async, [&] { Service.CloseAndJoin(false); });
+				auto Closing = std::async(std::launch::async, [&] { Cache.CloseAndJoin(false); });
 				EXPECT_FALSE(FirstFence.TryWait());
 				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
 				EXPECT_TRUE(SecondFence.TryWait());
@@ -1495,7 +1495,7 @@ namespace Durin
 				EXPECT_EQ(FirstFence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Failed);
 				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2}) : std::vector<int>({2}));
 			}
-			Service.CloseAndJoin();
+			Cache.CloseAndJoin();
 			Thread.Stop();
 			Executor.SetInlineMode();
 		}
@@ -1509,17 +1509,17 @@ namespace Durin
 		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 		FRHICapabilities Capabilities;
 		Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-		FRHIPipelineCreationService::FBackend Backend;
+		FRHIPipelineCompileBackend Backend;
 		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 		Backend.CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef {
 			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 		};
 		Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
-		FRHIPipelineCreationService Service(Capabilities, std::move(Backend));
+		FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "failed");
+		auto Cached = Cache.GetCompute(Initializer, "failed");
 		ASSERT_TRUE(Cached);
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);

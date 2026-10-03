@@ -55,14 +55,16 @@ namespace Durin
 	class RHI_API FRHIPipelineStateCache
 	{
 	public:
-		FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCreationService& Service);
+		FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend);
 		~FRHIPipelineStateCache();
 		auto GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
 			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>;
 		auto GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
 			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
-		// Stop admission before the creation service closes its Core scope.
-		auto Close() -> void;
+		// Stop admission and join private compilation work before backend teardown.
+		auto CloseAndJoin(bool RetireResults = true) -> void;
+		auto IsClosed() const -> bool;
+		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

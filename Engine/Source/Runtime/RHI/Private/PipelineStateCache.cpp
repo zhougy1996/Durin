@@ -1,4 +1,5 @@
 #include "PipelineStateCache.h"
+#include "PipelineCompileQueue.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include <future>
@@ -25,15 +26,15 @@ namespace Durin
 			std::weak_ptr<FPipelineState> Pipeline;
 			std::shared_ptr<void> Metadata;
 		};
-		FState(const FRHICapabilities& InCapabilities, FRHIPipelineCreationService& InService)
-			: Capabilities(InCapabilities), Service(InService) {}
+		FState(const FRHICapabilities& InCapabilities, FRHIPipelineCompileBackend Backend)
+			: Capabilities(InCapabilities), Queue(InCapabilities, std::move(Backend)) {}
 
 		template<typename T>
 		auto Request(const T& Initializer, std::string_view Name, const FKey& Key) -> FRHIPipelineCreationRequest
 		{
 			auto Submit = [&] {
-				if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) return Service.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
-				else return Service.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
+				if constexpr (std::same_as<T, FGraphicsPipelineStateInitializer>) return Queue.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
+				else return Queue.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
 			};
 			if (!Private::FTaskRuntimeAccess::GetCurrentTaskId()) return Submit();
 			// Get holds Mutex, so at most one bounded admission handoff is live.
@@ -67,7 +68,7 @@ namespace Durin
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
 			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
 			std::lock_guard Lock(Mutex);
-			if (Closed || Service.IsClosed()) return TResult(std::unexpected(ERHIPipelineRequestRejection::Closed));
+			if (Closed || Queue.IsClosed()) return TResult(std::unexpected(ERHIPipelineRequestRejection::Closed));
 			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
 				return TResult(std::unexpected(ERHIPipelineRequestRejection::Unsupported));
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name))
@@ -107,13 +108,13 @@ namespace Durin
 				}, Key);
 				if (Bytes > 1024 * 1024) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 				auto Metadata = [&] {
-					try { return Service.ReserveCacheMetadata(Bytes); }
+					try { return Queue.ReserveCacheMetadata(Bytes); }
 					catch (const FRHIRecoverableCreationError&)
 					{
 						// Weak keys must not consume the device budget indefinitely
 						// when owners have released their identities below entry capacity.
 						std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
-						return Service.ReserveCacheMetadata(Bytes);
+						return Queue.ReserveCacheMetadata(Bytes);
 					}
 				}();
 				auto Observation = Request(Initializer, Name, Key);
@@ -127,10 +128,11 @@ namespace Durin
 		}
 
 		FRHICapabilities Capabilities;
-		FRHIPipelineCreationService& Service;
+		FPipelineCompileQueue Queue;
 		std::mutex Mutex;
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
 		bool Closed = false;
+		std::mutex CloseMutex;
 		std::thread AdmissionThread;
 		std::mutex AdmissionMutex;
 		std::condition_variable AdmissionChanged;
@@ -138,25 +140,36 @@ namespace Durin
 		bool StopAdmission = false;
 	};
 
-	FRHIPipelineStateCache::FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCreationService& Service)
-		: State(std::make_unique<FState>(Capabilities, Service)) {}
-	FRHIPipelineStateCache::~FRHIPipelineStateCache() { Close(); }
+	FRHIPipelineStateCache::FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend)
+		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
+	FRHIPipelineStateCache::~FRHIPipelineStateCache() { CloseAndJoin(); }
 	auto FRHIPipelineStateCache::GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
 		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
 	auto FRHIPipelineStateCache::GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
 		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
-	auto FRHIPipelineStateCache::Close() -> void
+	auto FRHIPipelineStateCache::CloseAndJoin(bool RetireResults) -> void
+	{
+		std::lock_guard CloseLock(State->CloseMutex);
+		{
+			std::lock_guard Lock(State->Mutex);
+			State->Closed = true;
+			{
+				std::lock_guard AdmissionLock(State->AdmissionMutex);
+				State->StopAdmission = true;
+			}
+			State->AdmissionChanged.notify_one();
+			if (State->AdmissionThread.joinable()) State->AdmissionThread.join();
+			State->Entries.clear();
+		}
+		State->Queue.CloseAndJoin(RetireResults);
+	}
+	auto FRHIPipelineStateCache::IsClosed() const -> bool
 	{
 		std::lock_guard Lock(State->Mutex);
-		State->Closed = true;
-		{
-			std::lock_guard AdmissionLock(State->AdmissionMutex);
-			State->StopAdmission = true;
-		}
-		State->AdmissionChanged.notify_one();
-		if (State->AdmissionThread.joinable()) State->AdmissionThread.join();
-		State->Entries.clear();
+		return State->Closed || State->Queue.IsClosed();
 	}
+	auto FRHIPipelineStateCache::GetStatistics() const -> FRHIPipelineCreationStatistics
+	{ return State->Queue.GetStatistics(); }
 
 	namespace PipelineStateCache
 	{

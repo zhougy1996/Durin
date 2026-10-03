@@ -132,7 +132,7 @@ namespace Durin::VulkanRHI
 		) -> bool;
 
 	protected:
-		auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override;
+		auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend override;
 		auto CreateInstance(
 			std::span<const std::string> SurfaceProviderRequiredExtensions) -> void;
 		auto CreateDebugMessenger() -> void;

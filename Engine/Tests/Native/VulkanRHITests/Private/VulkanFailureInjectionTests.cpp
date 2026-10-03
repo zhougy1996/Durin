@@ -1,3 +1,4 @@
+#include "VulkanPipelinePrecacheTestSupport.h"
 #include <gtest/gtest.h>
 
 #include "Modules/ModuleManager.h"
@@ -1968,13 +1969,13 @@ namespace Durin::VulkanRHI
 			Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
 			FComputePipelineStateInitializer Compute;
 			Compute.ComputeShader = Shaders[2];
-			FRHIPipelineCreationRequest SurvivingRequest;
+			FPipelinePrecacheTestObservation SurvivingRequest;
 			for (bool IsCompute : {false, true})
 			{
 				SCOPED_TRACE(IsCompute);
 				const auto Request = [&] { return IsCompute
-					? GDynamicRHI->RHIRequestComputePipelineState(Compute, "async")
-					: GDynamicRHI->RHIRequestGraphicsPipelineState(Graphics, "async"); };
+					? PrecachePipelineForTest(Compute, "async")
+					: PrecachePipelineForTest(Graphics, "async"); };
 				auto Warm = Request();
 				ASSERT_TRUE(Warm.Wait());
 				const auto WarmResult = Warm.GetResult();
@@ -1986,14 +1987,14 @@ namespace Durin::VulkanRHI
 				auto Released = Release.get_future().share();
 				SetVulkanPipelineCompilationHookForTest([&] { Entered.set_value(); Released.wait(); });
 				const auto Before = GDynamicRHI->RHIGetPipelineCacheStatistics();
-				std::vector<FRHIPipelineCreationRequest> Requests;
+				std::vector<FPipelinePrecacheTestObservation> Requests;
 				Requests.push_back(Request());
 				EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-				std::vector<std::future<FRHIPipelineCreationRequest>> Producers;
+				std::vector<std::future<FPipelinePrecacheTestObservation>> Producers;
 				for (uint32 Index = 1; Index < 16; ++Index)
 					Producers.push_back(std::async(std::launch::async, Request));
 				for (auto& Producer : Producers) Requests.push_back(Producer.get());
-				EXPECT_TRUE(Requests[0].Cancel());
+				Requests[0] = {}; // Releasing one precache owner does not cancel shared compilation.
 				std::promise<void> Marker;
 				auto MarkerFuture = Marker.get_future();
 				auto& Immediate = FRHICommandListImmediate::Get();
@@ -2053,7 +2054,7 @@ namespace Durin::VulkanRHI
 			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineRequestState::Ready);
 			RHIExit();
 			EXPECT_EQ(SurvivingLayout->PushConstantRanges.size(), 1u);
-			EXPECT_TRUE(SurvivingRequest.GetCompletion().IsReady());
+			EXPECT_TRUE(SurvivingRequest.IsComplete());
 			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineRequestState::Canceled);
 			EXPECT_FALSE(SurvivingRequest.GetResult().Graphics);
 			EXPECT_FALSE(SurvivingRequest.GetResult().Compute);

@@ -2,6 +2,8 @@
 #include <future>
 
 #include "RHIPipelineCreation.h"
+#include "PipelineStateCache.h"
+#include "PipelineCompileQueue.h"
 #include "RHICapabilities.h"
 #include "RHICommandList.h"
 #include "CoreGlobals.h"
@@ -31,7 +33,7 @@ namespace Durin
 		}
 		static auto Backend(std::function<FComputePipelineStateRHIRef(
 			const FRHIComputePipelineCreationInputs&, const FComputePipelineStateKey&)> Create)
-			-> FRHIPipelineCreationService::FBackend
+			-> FRHIPipelineCompileBackend
 		{
 			return {
 				.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
@@ -52,12 +54,12 @@ namespace Durin
 		std::promise<void> Release;
 		auto Released = Release.get_future().share();
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			++Calls;
 			Released.wait();
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
-		auto& Cache = Service.GetPipelineStateCache();
+		auto& Cache = Owner;
 		auto First = Cache.GetCompute(Initializer, "precache");
 		auto Second = Cache.GetCompute(Initializer, "draw");
 		EXPECT_TRUE(First);
@@ -68,9 +70,7 @@ namespace Durin
 			EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Pending);
 			EXPECT_EQ((*First)->GetPipelineLayout()->PushConstantRanges.size(), 1u);
 			EXPECT_FALSE((*First)->GetRHIPipeline());
-			EXPECT_EQ(Service.GetStatistics().ActiveObservers, 1u);
-			auto Independent = Service.RequestCompute(Initializer, "cancelable observation");
-			EXPECT_TRUE(Independent.Cancel());
+			EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 1u);
 			First = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
 			EXPECT_EQ((*Second)->GetState(), ERHIPipelineRequestState::Pending);
 		}
@@ -86,7 +86,7 @@ namespace Durin
 		Initializer.ComputeShader = Shader;
 		std::promise<void> Release;
 		auto Released = Release.get_future().share();
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			Released.wait();
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
@@ -95,7 +95,7 @@ namespace Durin
 		std::promise<FComputePipelineStateRef> Submitted;
 		auto SubmittedFuture = Submitted.get_future();
 		auto Producer = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
-			auto Cached = Service.GetPipelineStateCache().GetCompute(Initializer, "parallel draw");
+			auto Cached = Owner.GetCompute(Initializer, "parallel draw");
 			EXPECT_TRUE(Cached);
 			if (Cached)
 			{
@@ -114,7 +114,7 @@ namespace Durin
 		if (Pipeline)
 		{
 			EXPECT_TRUE(Pipeline->Wait());
-			auto Hit = Service.GetPipelineStateCache().GetCompute(Initializer, "owner hit");
+			auto Hit = Owner.GetCompute(Initializer, "owner hit");
 			EXPECT_TRUE(Hit);
 			if (Hit) EXPECT_EQ(*Hit, Pipeline);
 		}
@@ -128,11 +128,11 @@ namespace Durin
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			if (++Calls == 1) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -7});
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
-		auto& Cache = Service.GetPipelineStateCache();
+		auto& Cache = Owner;
 		auto Failed = Cache.GetCompute(Initializer, "failure");
 		ASSERT_TRUE(Failed);
 		EXPECT_FALSE((*Failed)->Wait());
@@ -143,10 +143,10 @@ namespace Durin
 		EXPECT_TRUE((*Retried)->Wait());
 		EXPECT_TRUE((*Retried)->GetRHIPipeline());
 		EXPECT_EQ(Calls, 2u);
-		Service.CloseAndJoin(false);
+		Owner.CloseAndJoin(false);
 		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Ready);
 		EXPECT_EQ(Cache.GetCompute(Initializer, "closed").error(), ERHIPipelineRequestRejection::Closed);
-		Service.CloseAndJoin();
+		Owner.CloseAndJoin();
 		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_FALSE((*Retried)->GetRHIPipeline());
 		EXPECT_TRUE((*Retried)->IsComplete());
@@ -172,8 +172,8 @@ namespace Durin
 			}
 			return {nullptr, [&](void*) { CacheLeases.fetch_sub(1); }};
 		};
-		FRHIPipelineCreationService Service(Capabilities(), std::move(Callbacks));
-		auto& Cache = Service.GetPipelineStateCache();
+		FRHIPipelineStateCache Owner(Capabilities(), std::move(Callbacks));
+		auto& Cache = Owner;
 		{
 			auto First = Cache.GetCompute(Initializer, "first");
 			ASSERT_TRUE(First);
@@ -185,7 +185,7 @@ namespace Durin
 		ASSERT_TRUE(Second);
 		EXPECT_TRUE((*Second)->Wait());
 		EXPECT_EQ(CacheLeases, 1u);
-		Service.CloseAndJoin();
+		Owner.CloseAndJoin();
 		Second = std::unexpected(ERHIPipelineRequestRejection::Closed);
 		EXPECT_EQ(CacheLeases, 0u);
 	}
@@ -193,27 +193,23 @@ namespace Durin
 	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptionsAndIndependentCpuTasks)
 	{
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			++Calls;
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		FComputePipelineStateInitializer Initializer;
-		EXPECT_EQ(Service.GetPipelineStateCache().GetCompute(Initializer, "invalid").error(), ERHIPipelineRequestRejection::InvalidDescription);
-		EXPECT_EQ(Service.RequestCompute(Initializer, "invalid direct request").GetRejection(),
-			ERHIPipelineRequestRejection::InvalidDescription);
+		EXPECT_EQ(Owner.GetCompute(Initializer, "invalid").error(), ERHIPipelineRequestRejection::InvalidDescription);
 		FGraphicsPipelineStateInitializer GraphicsInitializer;
-		EXPECT_EQ(Service.GetPipelineStateCache().GetGraphics(GraphicsInitializer, "invalid graphics").error(),
-			ERHIPipelineRequestRejection::InvalidDescription);
-		EXPECT_EQ(Service.RequestGraphics(GraphicsInitializer, "invalid direct graphics request").GetRejection(),
+		EXPECT_EQ(Owner.GetGraphics(GraphicsInitializer, "invalid graphics").error(),
 			ERHIPipelineRequestRejection::InvalidDescription);
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		Initializer.ComputeShader = Shader;
 		auto Task = Tasks::LaunchIndependentTask("cache leaf rejection", [&] {
-			return Service.GetPipelineStateCache().GetCompute(Initializer, "cpu leaf").error();
+			return Owner.GetCompute(Initializer, "cpu leaf").error();
 		});
 		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
 		EXPECT_EQ(Calls, 0u);
-		EXPECT_EQ(Service.GetStatistics().ActiveObservers, 0u);
+		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, SharesWorkAndOwnsInputsWhileObserversCancelIndependently)
@@ -229,7 +225,7 @@ namespace Durin
 		auto EnteredFuture = Entered.get_future();
 		auto Released = Release.get_future().share();
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto& Inputs, const auto& Key) {
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto& Inputs, const auto& Key) {
 			++Calls;
 			Entered.set_value();
 			Released.wait();
@@ -240,8 +236,8 @@ namespace Durin
 			EXPECT_EQ(Key.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot, 3u);
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
-		auto First = Service.RequestCompute(Initializer, Name);
-		auto Second = Service.RequestCompute(Initializer, "different diagnostic name");
+		auto First = Owner.RequestCompute(Initializer, Name);
+		auto Second = Owner.RequestCompute(Initializer, "different diagnostic name");
 		EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
 		Initializer.PipelineLayout.BindingLayouts.clear();
 		Initializer.ComputeShader = nullptr;
@@ -255,8 +251,8 @@ namespace Durin
 		EXPECT_TRUE(Second.GetResult().Compute);
 		EXPECT_FALSE(Second.Cancel());
 		EXPECT_EQ(Calls, 1u);
-		EXPECT_EQ(Service.GetStatistics().SharedPendingHits, 1u);
-		Service.CloseAndJoin();
+		EXPECT_EQ(Owner.GetStatistics().SharedPendingHits, 1u);
+		Owner.CloseAndJoin();
 		EXPECT_EQ(Second.GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_FALSE(Second.GetResult().Compute);
 	}
@@ -272,36 +268,36 @@ namespace Durin
 		auto EnteredFuture = Entered.get_future();
 		auto Released = Release.get_future().share();
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			if (++Calls == 1) { Entered.set_value(); Released.wait(); }
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		std::vector<FRHIPipelineCreationRequest> Requests;
-		Requests.push_back(Service.RequestCompute(Initializer, "first"));
+		Requests.push_back(Owner.RequestCompute(Initializer, "first"));
 		EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
 		for (uint32 Index = 1; Index < 256; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
-			Requests.push_back(Service.RequestCompute(Initializer, "queued"));
+			Requests.push_back(Owner.RequestCompute(Initializer, "queued"));
 			EXPECT_TRUE(Requests.back().IsAccepted());
 		}
 		Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 256;
-		EXPECT_EQ(Service.RequestCompute(Initializer, "overflow").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
+		EXPECT_EQ(Owner.RequestCompute(Initializer, "overflow").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
 		Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 0;
-		while (Requests.size() < 4096) Requests.push_back(Service.RequestCompute(Initializer, "shared"));
+		while (Requests.size() < 4096) Requests.push_back(Owner.RequestCompute(Initializer, "shared"));
 		EXPECT_TRUE(Requests.back().IsAccepted());
-		EXPECT_EQ(Service.GetStatistics().ActiveObservers, 4096u);
+		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 4096u);
 		EXPECT_TRUE(Requests.back().Cancel());
-		EXPECT_EQ(Service.RequestCompute(Initializer, "still full").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
+		EXPECT_EQ(Owner.RequestCompute(Initializer, "still full").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
 		Requests.pop_back();
-		Requests.push_back(Service.RequestCompute(Initializer, "reused observer slot"));
+		Requests.push_back(Owner.RequestCompute(Initializer, "reused observer slot"));
 		EXPECT_TRUE(Requests.back().IsAccepted());
 		Release.set_value();
 		for (auto& Request : Requests) EXPECT_TRUE(Request.Wait());
 		EXPECT_EQ(Calls, 256u);
-		Service.CloseAndJoin();
-		EXPECT_EQ(Service.GetStatistics().UnfinishedRequests, 0u);
-		EXPECT_EQ(Service.GetStatistics().UnfinishedDescriptionBytes, 0u);
+		Owner.CloseAndJoin();
+		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
+		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, UnfinishedPayloadBudgetRejectsBeforeRequestCountLimit)
@@ -313,7 +309,7 @@ namespace Durin
 			EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
 		std::promise<void> Release;
 		auto Released = Release.get_future().share();
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 			Released.wait();
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
@@ -322,7 +318,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < 16; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
-			auto Request = Service.RequestCompute(Initializer, Name);
+			auto Request = Owner.RequestCompute(Initializer, Name);
 			if (!Request.IsAccepted())
 			{
 				EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
@@ -332,11 +328,11 @@ namespace Durin
 		}
 		EXPECT_GT(Requests.size(), 0u);
 		EXPECT_LT(Requests.size(), 16u);
-		EXPECT_LE(Service.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
+		EXPECT_LE(Owner.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
 		Release.set_value();
 		for (const auto& Request : Requests) EXPECT_TRUE(Request.Wait());
-		Service.CloseAndJoin();
-		EXPECT_EQ(Service.GetStatistics().UnfinishedDescriptionBytes, 0u);
+		Owner.CloseAndJoin();
+		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, ForeignTaskScopesRejectBeforeCoreConstructionWithoutStarvingWorker)
@@ -344,7 +340,7 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([](const auto&, const auto&) {
+		FPipelineCompileQueue Owner(Capabilities(), Backend([](const auto&, const auto&) {
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		std::promise<FRHIPipelineCreationRequest> Submitted;
@@ -352,7 +348,7 @@ namespace Durin
 		auto Scope = CreateTaskScope();
 		Tasks::FTaskGroup Group(Scope.GetToken());
 		auto Producer = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
-			auto Request = Service.RequestCompute(Initializer, "single worker caller");
+			auto Request = Owner.RequestCompute(Initializer, "single worker caller");
 			EXPECT_FALSE(Request.Wait());
 			EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::Unsupported);
 			Submitted.set_value(Request);
@@ -360,12 +356,12 @@ namespace Durin
 		EXPECT_EQ(SubmittedFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
 		auto Request = SubmittedFuture.get();
 		EXPECT_FALSE(Request.IsAccepted());
-		Request = Service.RequestCompute(Initializer, "owning caller");
+		Request = Owner.RequestCompute(Initializer, "owning caller");
 		EXPECT_TRUE(Request.Wait());
 		auto Completion = Request.GetCompletion();
 		Request = {};
-		Service.CloseAndJoin();
-		EXPECT_EQ(Service.GetStatistics().ActiveObservers, 0u);
+		Owner.CloseAndJoin();
+		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
 		EXPECT_TRUE(Completion.IsReady());
 		Group.Close();
 		EXPECT_EQ(Scope.Wait(), ETaskScopeWaitResult::Quiescent);
@@ -375,7 +371,7 @@ namespace Durin
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		std::atomic<bool> Fail = true;
-		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto& Inputs, const auto&) {
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto& Inputs, const auto&) {
 			if (Inputs.DebugName == "fail" && Fail.exchange(false)) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
@@ -388,17 +384,17 @@ namespace Durin
 		}
 		Items[1].DebugName = "fail";
 		Items[2].Initializer.ComputeShader = nullptr;
-		auto Batch = Service.RequestComputeBatch(Items);
+		auto Batch = Owner.RequestComputeBatch(Items);
 		ASSERT_EQ(Batch.Items.size(), 3u);
 		EXPECT_TRUE(Batch.Items[0].Wait());
 		EXPECT_FALSE(Batch.Items[1].Wait());
 		EXPECT_EQ(Batch.Items[1].GetResult().Error.Failure, ERHIResourceCreationFailure::ResourceExhausted);
 		EXPECT_EQ(Batch.Items[1].GetResult().Error.Source, ERHICreationFailureSource::MetadataBudget);
 		EXPECT_EQ(Batch.Items[2].GetRejection(), ERHIPipelineRequestRejection::InvalidDescription);
-		EXPECT_TRUE(Service.RequestCompute(Items[1].Initializer, "retry").Wait());
+		EXPECT_TRUE(Owner.RequestCompute(Items[1].Initializer, "retry").Wait());
 		Items.resize(257);
-		EXPECT_EQ(Service.RequestComputeBatch(Items).Rejection, ERHIPipelineRequestRejection::CapacityExceeded);
-		EXPECT_EQ(Service.RequestCompute(Items[0].Initializer, std::string(1024 * 1024, 'x')).GetRejection(),
+		EXPECT_EQ(Owner.RequestComputeBatch(Items).Rejection, ERHIPipelineRequestRejection::CapacityExceeded);
+		EXPECT_EQ(Owner.RequestCompute(Items[0].Initializer, std::string(1024 * 1024, 'x')).GetRejection(),
 			ERHIPipelineRequestRejection::CapacityExceeded);
 	}
 
@@ -415,14 +411,14 @@ namespace Durin
 			EXPECT_THROW(std::rethrow_exception(Error), std::logic_error);
 			Published = true;
 		};
-		FRHIPipelineCreationService Service(Capabilities(), std::move(Callbacks));
-		auto Request = Service.RequestCompute(Initializer, "terminal");
+		FPipelineCompileQueue Owner(Capabilities(), std::move(Callbacks));
+		auto Request = Owner.RequestCompute(Initializer, "terminal");
 		EXPECT_FALSE(Request.Wait());
 		EXPECT_TRUE(Published.load());
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Failed);
 		EXPECT_THROW(Request.GetResult(), std::logic_error);
-		EXPECT_EQ(Service.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
-		Service.CloseAndJoin();
+		EXPECT_EQ(Owner.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
+		Owner.CloseAndJoin();
 		EXPECT_TRUE(Request.GetCompletion().IsReady());
 	}
 
@@ -437,23 +433,23 @@ namespace Durin
 		std::atomic<bool> Exited = false;
 		FRHIPipelineCreationRequest Request;
 		{
-			FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto&, const auto&) {
+			FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 				Entered.set_value();
 				Released.wait();
 				Exited = true;
 				return MakeRefCount<FRHIComputePipelineState>();
 			}));
-			Request = Service.RequestCompute(Initializer, "close in flight");
+			Request = Owner.RequestCompute(Initializer, "close in flight");
 			EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
 			auto ReleaseAfterCancel = std::async(std::launch::async, [&] {
 				EXPECT_FALSE(Request.Wait());
 				EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
 				Release.set_value();
 			});
-			Service.CloseAndJoin();
+			Owner.CloseAndJoin();
 			ReleaseAfterCancel.get();
 			EXPECT_TRUE(Exited.load());
-			EXPECT_EQ(Service.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);
+			EXPECT_EQ(Owner.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);
 		}
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_TRUE(Request.GetCompletion().IsReady());

@@ -1,4 +1,5 @@
 #include "DynamicRHI.h"
+#include "PipelineStateCache.h"
 #include "Backend/RHICompletionBackend.h"
 
 #include "RHICommandList.h"
@@ -6,6 +7,9 @@
 
 namespace Durin
 {
+	FDynamicRHI::FDynamicRHI() = default;
+	FDynamicRHI::~FDynamicRHI() = default;
+
 	auto FDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,
 		const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef
 	{
@@ -69,78 +73,47 @@ namespace Durin
 		return ERHIGPUWaitResult::Invalid;
 	}
 
-	auto FDynamicRHI::GetPipelineCreationService() -> FRHIPipelineCreationService*
+	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
 	{
 		std::lock_guard Lock(PipelineCreationMutex);
 		if (PipelineCreationClosed || !IsTaskSchedulerRunning() || !Capabilities) return nullptr;
-		if (!PipelineCreation)
+		if (!PipelineCache)
 		{
-			auto Backend = CreatePipelineCreationBackend();
+			auto Backend = CreatePipelineCompileBackend();
 			if (!Backend.FindGraphics || !Backend.FindCompute || !Backend.CreateGraphics
 				|| !Backend.CreateCompute || !Backend.PublishTerminalFailure) return nullptr;
-			PipelineCreation = std::make_unique<FRHIPipelineCreationService>(*Capabilities, std::move(Backend));
+			PipelineCache = std::make_unique<FRHIPipelineStateCache>(*Capabilities, std::move(Backend));
 		}
-		return PipelineCreation.get();
-	}
-	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
-	{
-		if (auto* Service = GetPipelineCreationService()) return &Service->GetPipelineStateCache();
-		return nullptr;
-	}
-	auto FDynamicRHI::RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
-		std::string_view Name) -> FRHIPipelineCreationRequest
-	{
-		if (auto* Service = GetPipelineCreationService()) return Service->RequestGraphics(Initializer, Name);
-		return FRHIPipelineCreationRequest::Rejected(RHIIsPipelineCreationClosed()
-			? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
-	}
-	auto FDynamicRHI::RHIRequestComputePipelineState(const FComputePipelineStateInitializer& Initializer,
-		std::string_view Name) -> FRHIPipelineCreationRequest
-	{
-		if (auto* Service = GetPipelineCreationService()) return Service->RequestCompute(Initializer, Name);
-		return FRHIPipelineCreationRequest::Rejected(RHIIsPipelineCreationClosed()
-			? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
-	}
-	auto FDynamicRHI::RHIRequestGraphicsPipelineBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
-		-> FRHIPipelineCreationBatch
-	{
-		if (auto* Service = GetPipelineCreationService()) return Service->RequestGraphicsBatch(Items);
-		return {.Rejection = RHIIsPipelineCreationClosed() ? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported};
-	}
-	auto FDynamicRHI::RHIRequestComputePipelineBatch(std::span<const FRHIComputePipelineBatchItem> Items)
-		-> FRHIPipelineCreationBatch
-	{
-		if (auto* Service = GetPipelineCreationService()) return Service->RequestComputeBatch(Items);
-		return {.Rejection = RHIIsPipelineCreationClosed() ? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported};
+		return PipelineCache.get();
 	}
 	auto FDynamicRHI::RHIStopPipelineCreation() -> void
 	{
-		FRHIPipelineCreationService* Service;
+		FRHIPipelineStateCache* Cache;
 		{
 			std::lock_guard Lock(PipelineCreationMutex);
 			PipelineCreationClosed = true;
-			Service = PipelineCreation.get();
+			Cache = PipelineCache.get();
 		}
-		if (Service) Service->CloseAndJoin(false);
+		if (Cache) Cache->CloseAndJoin(false);
 	}
 	auto FDynamicRHI::RHIRetirePipelineCreationResults() -> void
 	{
-		FRHIPipelineCreationService* Service;
+		FRHIPipelineStateCache* Cache;
 		{
 			std::lock_guard Lock(PipelineCreationMutex);
-			Service = PipelineCreation.get();
+			Cache = PipelineCache.get();
 		}
-		if (Service) Service->CloseAndJoin();
+		if (Cache) Cache->CloseAndJoin();
 	}
 	auto FDynamicRHI::RHIIsPipelineCreationClosed() const -> bool
 	{
 		std::lock_guard Lock(PipelineCreationMutex);
-		return PipelineCreationClosed || (PipelineCreation && PipelineCreation->IsClosed());
+		return PipelineCreationClosed || (PipelineCache && PipelineCache->IsClosed());
 	}
 	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
 	{
 		std::lock_guard Lock(PipelineCreationMutex);
-		return PipelineCreation ? PipelineCreation->GetStatistics() : FRHIPipelineCreationStatistics{};
+		return PipelineCache ? PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{};
 	}
 
 	auto FDynamicRHI::RHICollectCompletedResources() -> void

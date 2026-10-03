@@ -212,9 +212,9 @@ namespace Durin
 	class FDynamicRHI
 	{
 	public:
-		FDynamicRHI() = default;
+		RHI_API FDynamicRHI();
 
-		virtual ~FDynamicRHI() = default;
+		RHI_API virtual ~FDynamicRHI();
 
 		// Initializes the backend from one complete context on the RHI execution thread.
 		virtual auto Init(const FRHIInitializationContext& Context) -> void = 0;
@@ -333,15 +333,9 @@ namespace Durin
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;
 
 	protected:
-		virtual auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend { return {}; }
+		virtual auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend { return {}; }
 	public:
 		RHI_API auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache*;
-		RHI_API auto RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
-		RHI_API auto RHIRequestComputePipelineState(const FComputePipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
-		RHI_API auto RHIRequestGraphicsPipelineBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
-		RHI_API auto RHIRequestComputePipelineBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
 		RHI_API auto RHIStopPipelineCreation() -> void;
 		RHI_API auto RHIRetirePipelineCreationResults() -> void;
 		RHI_API auto RHIIsPipelineCreationClosed() const -> bool;
@@ -351,9 +345,8 @@ namespace Durin
 		RHI_API auto ClearCapabilities() -> void;
 
 	private:
-		auto GetPipelineCreationService() -> FRHIPipelineCreationService*;
 		mutable std::mutex PipelineCreationMutex;
-		std::unique_ptr<FRHIPipelineCreationService> PipelineCreation;
+		std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
 		bool PipelineCreationClosed = false;
 		std::optional<FRHICapabilities> Capabilities;
 	};

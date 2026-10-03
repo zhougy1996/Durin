@@ -83,7 +83,7 @@ namespace Durin
 		struct FState;
 		std::shared_ptr<FState> State;
 		ERHIPipelineRequestRejection Rejection = ERHIPipelineRequestRejection::Unsupported;
-		friend class FRHIPipelineCreationService;
+		friend class FPipelineCompileQueue;
 	};
 
 	struct FRHIPipelineCreationStatistics
@@ -96,56 +96,15 @@ namespace Durin
 		uint64 NativeRequests = 0;
 	};
 
-	template<typename T> struct TRHIPipelineBatchItem
+	struct FRHIPipelineCompileBackend
 	{
-		T Initializer;
-		std::string DebugName;
-	};
-	using FRHIGraphicsPipelineBatchItem = TRHIPipelineBatchItem<FGraphicsPipelineStateInitializer>;
-	using FRHIComputePipelineBatchItem = TRHIPipelineBatchItem<FComputePipelineStateInitializer>;
-	struct FRHIPipelineCreationBatch
-	{
-		ERHIPipelineRequestRejection Rejection = ERHIPipelineRequestRejection::None;
-		std::vector<FRHIPipelineCreationRequest> Items;
-	};
-
-	// Owns a bounded device queue and one counted Core drain task. Native callbacks
-	// must never schedule replay or wait for a consuming command batch.
-	class RHI_API FRHIPipelineCreationService
-	{
-	public:
-		struct FBackend
-		{
-			std::function<FGraphicsPipelineStateRHIRef(const FGraphicsPipelineStateKey&)> FindGraphics;
-			std::function<FComputePipelineStateRHIRef(const FComputePipelineStateKey&)> FindCompute;
-			std::function<FGraphicsPipelineStateRHIRef(const FRHIGraphicsPipelineCreationInputs&,
-				const FGraphicsPipelineStateKey&)> CreateGraphics;
-			std::function<FComputePipelineStateRHIRef(const FRHIComputePipelineCreationInputs&,
-				const FComputePipelineStateKey&)> CreateCompute;
-			std::function<void(std::exception_ptr)> PublishTerminalFailure;
-			std::function<std::shared_ptr<void>(uint64)> ReserveMetadata;
-		};
-		FRHIPipelineCreationService(const FRHICapabilities& Capabilities, FBackend Backend);
-		~FRHIPipelineCreationService();
-		auto RequestGraphics(const FGraphicsPipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
-		auto RequestCompute(const FComputePipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
-		auto RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
-		auto RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
-		auto GetPipelineStateCache() -> FRHIPipelineStateCache&;
-		auto CloseAndJoin(bool RetireResults = true) -> void;
-		auto IsClosed() const -> bool;
-		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
-	private:
-		// Cache keys were validated against this service's capability snapshot.
-		auto RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
-			std::string_view DebugName, const FGraphicsPipelineStateKey& Key) -> FRHIPipelineCreationRequest;
-		auto RequestValidated(const FComputePipelineStateInitializer& Initializer,
-			std::string_view DebugName, const FComputePipelineStateKey& Key) -> FRHIPipelineCreationRequest;
-		auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
-		friend class FRHIPipelineStateCache;
-		struct FState;
-		std::unique_ptr<FState> State;
+		std::function<FGraphicsPipelineStateRHIRef(const FGraphicsPipelineStateKey&)> FindGraphics;
+		std::function<FComputePipelineStateRHIRef(const FComputePipelineStateKey&)> FindCompute;
+		std::function<FGraphicsPipelineStateRHIRef(const FRHIGraphicsPipelineCreationInputs&,
+			const FGraphicsPipelineStateKey&)> CreateGraphics;
+		std::function<FComputePipelineStateRHIRef(const FRHIComputePipelineCreationInputs&,
+			const FComputePipelineStateKey&)> CreateCompute;
+		std::function<void(std::exception_ptr)> PublishTerminalFailure;
+		std::function<std::shared_ptr<void>(uint64)> ReserveMetadata;
 	};
 }

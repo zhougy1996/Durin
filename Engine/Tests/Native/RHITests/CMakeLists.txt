@@ -3,6 +3,7 @@ durin_add_native_test(RHIPipelineCreationTests
 	DOMAINS renderer
 	MODULES rhi
 	SOURCES Private/RHIPipelineCreationTests.cpp
+	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/RHI/Private
 	LIBRARIES Core RHI
 )
 
