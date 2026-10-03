@@ -112,6 +112,7 @@ namespace Durin::VulkanRHI
 		, NativeWindowHandle(InWindowHandle)
 	 	, PixelFormat(InPreferredPixelFormat)
 		, PresentationPolicy(InPresentationPolicy)
+		, RequestedPresentationPolicy(InPresentationPolicy)
 	{
 		CheckVulkanRHIThread();
 		Surface = InPresentationSurface
@@ -181,6 +182,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::BeginDrawing() -> void
 	{
 		CheckVulkanRHIThread();
+		const auto RequestedPolicy = RequestedPresentationPolicy.load(std::memory_order_relaxed);
+		if (PresentationPolicy != RequestedPolicy)
+		{
+			PresentationPolicy = RequestedPolicy;
+			MarkSwapchainNeedsRecreate();
+		}
 		CollectRetiredSwapchains(false);
 		PrepareSwapchain();
 	}
@@ -468,7 +475,8 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_ERROR("Failed to build Vulkan viewport output candidate: result={}, extent={}x{}, policy={}, nativeSwapchainCreated={}, error={}",
 					vk::to_string(Result), TargetSizeX, TargetSizeY,
-					PresentationPolicy == EViewportPresentationPolicy::BestEffort ? "BestEffort" : "FramePaced",
+					PresentationPolicy == EViewportPresentationPolicy::BestEffort ? "BestEffort"
+						: PresentationPolicy == EViewportPresentationPolicy::Unsynchronized ? "Unsynchronized" : "FramePaced",
 					bNativeSwapchainCreated, Error.what());
 				bSwapchainFailureReported = true;
 			}
@@ -499,6 +507,12 @@ namespace Durin::VulkanRHI
 			DestroySwapchain();
 		}
 		Swapchain = CandidateSwapchain.release();
+		switch (Swapchain->GetPresentMode())
+		{
+		case vk::PresentModeKHR::eImmediate: PublishedPresentMode.store(EViewportPresentMode::Immediate, std::memory_order_relaxed); break;
+		case vk::PresentModeKHR::eMailbox: PublishedPresentMode.store(EViewportPresentMode::Mailbox, std::memory_order_relaxed); break;
+		default: PublishedPresentMode.store(EViewportPresentMode::Fifo, std::memory_order_relaxed); break;
+		}
 		BackBufferImages = std::move(CandidateImages);
 		TextureViews = std::move(CandidateViews);
 		FrameResources = std::move(CandidateFrameResources);
@@ -524,6 +538,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
+		PublishedPresentMode.store(EViewportPresentMode::Unavailable, std::memory_order_relaxed);
 		CheckVulkanRHIThread();
 		for (const FVulkanView& View : TextureViews)
 		{

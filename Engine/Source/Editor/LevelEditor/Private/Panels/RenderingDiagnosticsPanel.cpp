@@ -9,6 +9,9 @@
 #include "Viewport/ViewportPresentation.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
+#include "Application/MonaApplication.h"
+#include "Rendering/MonaRenderer.h"
+#include "Widgets/MWindow.h"
 
 namespace Durin::Editor::Level
 {
@@ -199,6 +202,41 @@ namespace Durin::Editor::Level
 		const FSceneViewportStatisticsSnapshot& Snapshot,
 		const FRDGCapture* Capture) -> void
 	{
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Display and Frame Rate");
+		auto& Application = Mona::FMonaApplication::Get();
+		if (auto* Renderer = Application.GetRenderer())
+		{
+			bool bVSync = Renderer->GetPresentationPolicyOverride()
+				.value_or(EViewportPresentationPolicy::FramePaced) != EViewportPresentationPolicy::Unsynchronized;
+			if (ImGui::Checkbox("Vertical sync", &bVSync))
+				Renderer->SetPresentationPolicyOverride(bVSync
+					? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Applies to all editor windows and is saved in editor preferences. "
+					"Disabling requests immediate presentation; the actual mode depends on platform support.");
+			if (DrawMetricTableBegin("OverviewPresentation"))
+			{
+				for (const auto& Window : Application.GetWindows())
+				{
+					const auto Mode = Renderer->GetViewportPresentMode(*Window);
+					const char* Label = "Unavailable / pending";
+					switch (Mode)
+					{
+					case EViewportPresentMode::Immediate: Label = "Immediate"; break;
+					case EViewportPresentMode::Mailbox: Label = "Mailbox"; break;
+					case EViewportPresentMode::Fifo: Label = "FIFO"; break;
+					default: break;
+					}
+					const std::string Title = Window->GetTitle();
+					DrawValueRow(Title.c_str(), !bVSync && Mode != EViewportPresentMode::Immediate
+						&& Mode != EViewportPresentMode::Unavailable
+						? std::format("{} (synchronized fallback)", Label) : std::string(Label),
+						"Actual presentation mode of this window's swapchain. Updates after the next window draw.");
+				}
+				ImGui::EndTable();
+			}
+		}
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Frame");
 		if (!Snapshot.bAvailable)

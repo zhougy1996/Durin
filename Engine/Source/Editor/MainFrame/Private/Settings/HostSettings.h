@@ -18,6 +18,8 @@ namespace Durin::Editor::MainFrame
 		auto GetUIScale() const -> float { return UIScale; }
 		auto GetColorTheme() const -> MonaImGui::EColorTheme { return ColorTheme; }
 		auto IsWindowMaximized() const -> bool { return bWindowMaximized; }
+		auto IsVSyncEnabled() const -> bool { return bVSyncEnabled; }
+		auto SetVSyncEnabled(bool bEnabled) -> void { bVSyncEnabled = bEnabled; }
 
 		auto SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto SetColorTheme(MonaImGui::EColorTheme Theme) -> void { ColorTheme = Theme; }
@@ -25,6 +27,7 @@ namespace Durin::Editor::MainFrame
 
 	private:
 		bool bWindowMaximized = true;
+		bool bVSyncEnabled = true;
 		int32 WindowWidth = 1280;
 		int32 WindowHeight = 800;
 		float UIScale = 1.0f;

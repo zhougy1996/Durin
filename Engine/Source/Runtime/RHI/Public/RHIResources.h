@@ -5,6 +5,7 @@
 #include "RHIAPI.h"
 #include "RHIDefinitions.h"
 #include "PixelFormat.h"
+#include "RHIPresentation.h"
 
 #include "Math/MathFwd.h"
 
@@ -801,6 +802,11 @@ namespace Durin
 		RHI_API virtual auto Tick(float DeltaTime) -> void {};
 		RHI_API virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
+		// Thread-safe request, applied at the next window drawing boundary.
+		// Backends without runtime policy support retain their creation policy.
+		RHI_API virtual auto RequestPresentationPolicy(EViewportPresentationPolicy Policy) -> void {}
+		// Thread-safe snapshot; unavailable includes unsupported diagnostics.
+		RHI_API virtual auto GetPresentMode() const -> EViewportPresentMode { return EViewportPresentMode::Unavailable; }
 	};
 
 	// Defines how an attachment's previous contents are treated at pass start.

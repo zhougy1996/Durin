@@ -49,6 +49,15 @@ Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
 it defaults to collapsed and never dirties level or asset packages.
 
 Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
+Overview's Display and Frame Rate section controls vertical synchronization for
+all editor-host windows, including newly created detached windows. The setting
+defaults on and persists as `Display.VSyncEnabled` in `EditorHostSettings.yaml`.
+Turning it off requests immediate presentation; unsupported platforms fall back
+to Mailbox or FIFO. A per-window actual-mode readout exposes synchronized fallback
+instead of implying that the requested mode was selected. Changes apply at the
+next window drawing boundary by recreating its swapchain, without replacing the
+RHI viewport object or changing scene settings.
+
 Overview reports the smoothed wall-clock frame interval and directly measured
 main-thread elapsed times for four non-overlapping call ranges:
 

@@ -37,6 +37,7 @@ namespace Durin::Mona
 		FIntPoint SubmittedExtent = {};
 		std::optional<FIntPoint> PendingExtent;
 		bool bFullScreen = false;
+		EViewportPresentationPolicy PresentationPolicy = EViewportPresentationPolicy::FramePaced;
 	};
 
 
@@ -53,6 +54,7 @@ namespace Durin::Mona
 		MONA_API auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
 		MONA_API auto PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport> override;
+		MONA_API auto GetViewportPresentMode(const MWindow& Window) const -> EViewportPresentMode override;
 
 		// Window keys are non-owning; this renderer owns every mapped viewport record.
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;

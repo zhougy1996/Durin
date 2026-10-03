@@ -65,6 +65,18 @@ GPU coordinate ownership is defined by [Camera relative rendering](CameraRelativ
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.
 
+`EViewportPresentationPolicy::FramePaced` selects FIFO; `BestEffort` prefers
+Mailbox, then Immediate, then FIFO and bounds acquisition waits. `Unsynchronized`
+prefers Immediate, then Mailbox, then FIFO while retaining blocking acquisition.
+`FRHIViewport::RequestPresentationPolicy()` accepts a thread-safe request which
+Vulkan applies at the next window drawing boundary using normal swapchain
+recreation. `GetPresentMode()` publishes a thread-safe snapshot of the actual
+selected mode, or Unavailable when no output exists. Unsupported backends retain
+their creation policy and report Unavailable. Mona's optional application-thread
+policy override covers existing and future windows; it leaves per-window defaults
+in effect when unset. The editor control is defined by
+[Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+
 Window resize follows a request/prepare boundary. Platform framebuffer callbacks
 overwrite the window's latest pending extent without enqueueing RHI work. Immediately
 before a scene or ImGui window submits its draw, `PrepareViewportForDraw()` consumes

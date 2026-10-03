@@ -27,5 +27,13 @@ namespace Durin::Mona
 		// Consumes the latest resize request before returning the viewport used by
 		// this draw. Callers must invoke this immediately before enqueueing work.
 		MONA_API virtual auto PrepareViewportForDraw(const MWindow& Window) -> TRefCountPtr<FRHIViewport> = 0;
+
+		// Application-thread override for all existing and future window viewports.
+		auto SetPresentationPolicyOverride(EViewportPresentationPolicy Policy) -> void { PresentationPolicyOverride = Policy; }
+		auto GetPresentationPolicyOverride() const -> std::optional<EViewportPresentationPolicy> { return PresentationPolicyOverride; }
+		virtual auto GetViewportPresentMode(const MWindow& Window) const -> EViewportPresentMode { return EViewportPresentMode::Unavailable; }
+
+	private:
+		std::optional<EViewportPresentationPolicy> PresentationPolicyOverride;
 	};
 }

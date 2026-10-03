@@ -87,6 +87,14 @@ namespace Durin::VulkanRHI
 			bool bInIsFullScreen) -> void;
 
 		VULKANRHI_API auto BeginDrawing() -> void;
+		auto RequestPresentationPolicy(EViewportPresentationPolicy Policy) -> void override
+		{
+			RequestedPresentationPolicy.store(Policy, std::memory_order_relaxed);
+		}
+		auto GetPresentMode() const -> EViewportPresentMode override
+		{
+			return PublishedPresentMode.load(std::memory_order_relaxed);
+		}
 
 		VULKANRHI_API auto RecreateSwapchain() -> void;
 
@@ -151,6 +159,8 @@ namespace Durin::VulkanRHI
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
 		EViewportPresentationPolicy PresentationPolicy = EViewportPresentationPolicy::FramePaced;
+		std::atomic<EViewportPresentationPolicy> RequestedPresentationPolicy{EViewportPresentationPolicy::FramePaced};
+		std::atomic<EViewportPresentMode> PublishedPresentMode{EViewportPresentMode::Unavailable};
 
 		std::vector<vk::Image> BackBufferImages;
 

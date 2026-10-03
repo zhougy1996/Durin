@@ -16,6 +16,8 @@ namespace Durin::VulkanRHI
 			{
 			case EViewportPresentationPolicy::BestEffort:
 				return {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
+			case EViewportPresentationPolicy::Unsynchronized:
+				return {vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifo};
 			case EViewportPresentationPolicy::FramePaced:
 			default:
 				return {vk::PresentModeKHR::eFifo};
@@ -54,7 +56,12 @@ namespace Durin::VulkanRHI
 
 		auto PresentationPolicyName(const EViewportPresentationPolicy Policy) -> const char*
 		{
-			return Policy == EViewportPresentationPolicy::BestEffort ? "BestEffort" : "FramePaced";
+			switch (Policy)
+			{
+			case EViewportPresentationPolicy::BestEffort: return "BestEffort";
+			case EViewportPresentationPolicy::Unsynchronized: return "Unsynchronized";
+			default: return "FramePaced";
+			}
 		}
 	}
 
@@ -208,6 +215,7 @@ namespace Durin::VulkanRHI
 		const auto& Configuration = *Selection;
 		Extent = Configuration.Extent;
 		ImageFormat = Configuration.SurfaceFormat.format;
+		PresentMode = Configuration.PresentMode;
 
 		vk::SwapchainCreateInfoKHR SwapchainInfo;
 		SwapchainInfo

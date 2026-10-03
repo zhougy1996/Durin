@@ -45,6 +45,25 @@ namespace Durin::VulkanRHI
 			vk::CompositeAlphaFlagBitsKHR::eOpaque);
 	}
 
+	TEST(FVulkanSwapchainSelectionTests, UnsynchronizedPrefersImmediateAndReportsSupportedFallback)
+	{
+		auto Input = MakeInput();
+		Input.PresentationPolicy = EViewportPresentationPolicy::Unsynchronized;
+		Input.PresentModes = {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate};
+		auto Result = SelectVulkanSwapchainConfiguration(Input);
+		ASSERT_TRUE(Result) << Result.error();
+		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eImmediate);
+		Input.PresentModes = {vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
+		Result = SelectVulkanSwapchainConfiguration(Input);
+		ASSERT_TRUE(Result) << Result.error();
+		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eMailbox);
+		Input.PresentModes = {vk::PresentModeKHR::eFifo};
+		Result = SelectVulkanSwapchainConfiguration(Input);
+		ASSERT_TRUE(Result) << Result.error();
+		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eFifo);
+		EXPECT_EQ(GetSwapchainAcquireTimeout(EViewportPresentationPolicy::Unsynchronized), UINT64_MAX);
+	}
+
 	TEST(FVulkanSwapchainSelectionTests, HonorsFixedExtentAndClampsImageCount)
 	{
 		auto Input = MakeInput();

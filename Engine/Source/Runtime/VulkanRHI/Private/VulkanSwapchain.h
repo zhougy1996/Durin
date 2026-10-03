@@ -81,6 +81,7 @@ namespace Durin::VulkanRHI
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
 		auto GetExtent() const -> vk::Extent2D { return Extent; }
+		auto GetPresentMode() const -> vk::PresentModeKHR { return PresentMode; }
 
 		auto Destroy() -> void;
 
@@ -107,6 +108,7 @@ namespace Durin::VulkanRHI
 		vk::SurfaceKHR Surface;
 
 		EViewportPresentationPolicy PresentationPolicy = EViewportPresentationPolicy::FramePaced;
+		vk::PresentModeKHR PresentMode = vk::PresentModeKHR::eFifo;
 
 		int32 CurrentImageIndex = -1;
 

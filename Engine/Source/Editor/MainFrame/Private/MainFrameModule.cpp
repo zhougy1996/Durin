@@ -36,6 +36,7 @@
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
+#include "Rendering/MonaRenderer.h"
 
 namespace Durin::Editor::MainFrame
 {
@@ -598,8 +599,12 @@ namespace Durin::Editor::MainFrame
 		auto ObserveHostWindowState(FHostSettings& Settings, const MWindow& RootWindow) -> void
 		{
 			const bool bMaximized = RootWindow.IsMaximized();
-			if (bMaximized == Settings.IsWindowMaximized()) return;
+			const auto* Renderer = Mona::FMonaApplication::Get().GetRenderer();
+			const bool bVSync = !Renderer || Renderer->GetPresentationPolicyOverride()
+				.value_or(EViewportPresentationPolicy::FramePaced) != EViewportPresentationPolicy::Unsynchronized;
+			if (bMaximized == Settings.IsWindowMaximized() && bVSync == Settings.IsVSyncEnabled()) return;
 			Settings.SetWindowMaximized(bMaximized);
+			Settings.SetVSyncEnabled(bVSync);
 			Settings.Save();
 		}
 
@@ -1291,6 +1296,9 @@ namespace Durin
 		Context.bHasProject = HasCurrentProject();
 		Context.HostSettings = std::make_shared<FHostSettings>();
 		Context.HostSettings->Load();
+		if (auto* Renderer = Mona::FMonaApplication::Get().GetRenderer())
+			Renderer->SetPresentationPolicyOverride(Context.HostSettings->IsVSyncEnabled()
+				? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
 		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
 		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
 		Context.RootWindow = std::move(StartupWindow);

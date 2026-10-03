@@ -74,7 +74,7 @@ namespace Durin::Mona
 			.SizeY = static_cast<uint32>(Height),
 			.bIsFullscreen = bFullScreen,
 			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
-			.PresentationPolicy = Window->GetViewportPresentationPolicy(),
+			.PresentationPolicy = GetPresentationPolicyOverride().value_or(Window->GetViewportPresentationPolicy()),
 			.bAdoptInitializationPresentationCandidate =
 				bAdoptInitializationPresentationCandidate};
 		ViewportInfo->ViewportRHI =
@@ -85,6 +85,7 @@ namespace Durin::Mona
 			bAdoptInitializationPresentationCandidate = false;
 		}
 		ViewportInfo->bFullScreen = bFullScreen;
+		ViewportInfo->PresentationPolicy = CreateInfo.PresentationPolicy;
 		ViewportInfo->SubmittedExtent = {Width, Height};
 		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
 	}
@@ -125,6 +126,12 @@ namespace Durin::Mona
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())
 		{
 			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
+			const auto Policy = GetPresentationPolicyOverride().value_or(Window.GetViewportPresentationPolicy());
+			if (ViewportInfo->ViewportRHI && ViewportInfo->PresentationPolicy != Policy)
+			{
+				ViewportInfo->ViewportRHI->RequestPresentationPolicy(Policy);
+				ViewportInfo->PresentationPolicy = Policy;
+			}
 			if (const std::optional<FIntPoint> PendingExtent = ViewportInfo->TakePendingResize())
 			{
 				GDynamicRHI->RHIResizeViewport(
@@ -138,6 +145,13 @@ namespace Durin::Mona
 			return ViewportInfo->ViewportRHI;
 		}
 		return nullptr;
+	}
+
+	auto FMonaRHIRenderer::GetViewportPresentMode(const MWindow& Window) const -> EViewportPresentMode
+	{
+		const auto It = WindowToViewportInfoMap.find(&Window);
+		return It != WindowToViewportInfoMap.end() && It->second->ViewportRHI
+			? It->second->ViewportRHI->GetPresentMode() : EViewportPresentMode::Unavailable;
 	}
 
 } // namespace Durin::Mona

@@ -7,6 +7,7 @@
 #include "Rendering/MonaRHIRenderer.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MViewport.h"
+#include "Widgets/MWindow.h"
 
 namespace
 {
@@ -14,6 +15,22 @@ namespace
 	{
 	public:
 		~FTestTexture() override = default;
+	};
+
+	class FTestPresentationViewport final : public Durin::FRHIViewport
+	{
+	public:
+		auto GetBackBuffer(Durin::FRHICommandListImmediate&) -> Durin::FTextureRHIRef override { return nullptr; }
+		auto GetFormat() const -> Durin::EPixelFormat override { return Durin::EPixelFormat::SRGBA8_UNORM; }
+		auto RequestPresentationPolicy(Durin::EViewportPresentationPolicy Policy) -> void override
+		{
+			RequestedPolicy = Policy;
+			++RequestCount;
+		}
+		auto GetPresentMode() const -> Durin::EViewportPresentMode override { return ActualMode; }
+		Durin::EViewportPresentationPolicy RequestedPolicy = Durin::EViewportPresentationPolicy::FramePaced;
+		Durin::EViewportPresentMode ActualMode = Durin::EViewportPresentMode::Fifo;
+		uint32 RequestCount = 0;
 	};
 
 	class FTestDisplaySource final : public Durin::IViewportDisplaySource
@@ -96,6 +113,31 @@ TEST(FViewportDisplaySourceTests, BackendAbsentFramesAreNoOpsAndInstalledFramesF
 	EXPECT_EQ(Backend.NewFrameCount, 1u);
 	EXPECT_EQ(Backend.RenderCount, 1u);
 	EXPECT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
+}
+
+TEST(FViewportDisplaySourceTests, AppliesGlobalPresentationOverrideWithoutReportingRequestedModeAsActual)
+{
+	Durin::MWindow Window;
+	Window.SetViewportPresentationPolicy(Durin::EViewportPresentationPolicy::BestEffort);
+	Durin::Mona::FMonaRHIRenderer Renderer(false);
+	auto Viewport = Durin::MakeRefCount<FTestPresentationViewport>();
+	auto* Info = new Durin::Mona::FMonaViewportInfo();
+	Info->ViewportRHI = Viewport;
+	Info->PresentationPolicy = Durin::EViewportPresentationPolicy::BestEffort;
+	Renderer.WindowToViewportInfoMap.emplace(&Window, Info);
+	EXPECT_FALSE(Renderer.GetPresentationPolicyOverride());
+	Renderer.SetPresentationPolicyOverride(Durin::EViewportPresentationPolicy::Unsynchronized);
+	EXPECT_EQ(Renderer.PrepareViewportForDraw(Window).GetReference(), Viewport.GetReference());
+	EXPECT_EQ(Viewport->RequestedPolicy, Durin::EViewportPresentationPolicy::Unsynchronized);
+	EXPECT_EQ(Renderer.GetViewportPresentMode(Window), Durin::EViewportPresentMode::Fifo);
+	Renderer.PrepareViewportForDraw(Window);
+	EXPECT_EQ(Viewport->RequestCount, 1u);
+	Viewport->ActualMode = Durin::EViewportPresentMode::Immediate;
+	EXPECT_EQ(Renderer.GetViewportPresentMode(Window), Durin::EViewportPresentMode::Immediate);
+	Renderer.SetPresentationPolicyOverride(Durin::EViewportPresentationPolicy::FramePaced);
+	Renderer.PrepareViewportForDraw(Window);
+	EXPECT_EQ(Viewport->RequestedPolicy, Durin::EViewportPresentationPolicy::FramePaced);
+	EXPECT_EQ(Viewport->RequestCount, 2u);
 }
 
 TEST(FViewportDisplaySourceTests, CoalescesWindowResizeRequestsUntilPrepared)
