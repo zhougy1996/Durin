@@ -1,6 +1,47 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphTestSupport.h"
 
+TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefaultAcrossPackageRoundTrip)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "TextureCoordinatesRoundTrip";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/TextureCoordinatesRoundTrip/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TextureCoordinatesRoundTrip/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	auto Channel = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+	Channel->Value = 1.f;
+	auto Coordinates = Testing::MakeGraphExpression<DMaterialExpressionTextureCoordinates>();
+	Coordinates->Channel.Constant = {2.f};
+	Coordinates->Channel.Connection = {Channel->Id};
+	ASSERT_TRUE(Material->SetMaterialExpressions(
+		std::array<DMaterialExpression*, 2>{Channel.Get(), Coordinates.Get()}, {}));
+	const auto Expected = CaptureExpressions(*Material);
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCoordinates").value());
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(CaptureExpressions(*Duplicate), Expected);
+	MarkObjectHierarchyAsGarbage(Duplicate);
+	// Release transient source expressions before unloading their duplicated package graph.
+	Channel.Reset();
+	Coordinates.Reset();
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = nullptr;
+	{
+		const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		ASSERT_TRUE(Loaded);
+		Material = Loaded.value();
+	}
+	ASSERT_NE(Material, nullptr);
+	EXPECT_EQ(CaptureExpressions(*Material), Expected);
+	EXPECT_FALSE(Material->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirIdentity)
 {
 	InitializeDObjectSystem();

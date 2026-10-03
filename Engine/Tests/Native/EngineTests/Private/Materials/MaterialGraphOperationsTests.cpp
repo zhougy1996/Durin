@@ -333,6 +333,32 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, UVSearchAliasesCreateOneFixedWidthExpression)
+{
+	InitializeDObjectSystem();
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	EXPECT_EQ(std::ranges::count(Catalog, EMaterialProgramOpcode::UVChannel,
+		&FMaterialGraphCatalogEntry::Opcode), 0);
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	for (const auto Query : {"texture coordinates", "UV Channel", "UVChannel"})
+	{
+		const auto Matches = FMaterialGraphOperations::SearchCatalog(Catalog, Query);
+		ASSERT_EQ(Matches.size(), 1u) << Query;
+		EXPECT_EQ(Matches.front().Opcode, EMaterialProgramOpcode::TextureCoordinates);
+		EXPECT_EQ(Matches.front().ResultType, EMaterialProgramValueType::Float2);
+		const auto Created = Document.CreateCatalogNode(Matches.front());
+		ASSERT_TRUE(Created);
+		const auto View = Document.Inspect();
+		const auto* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
+		ASSERT_NE(Node, nullptr);
+		ASSERT_EQ(Node->Outputs.size(), 1u);
+		EXPECT_EQ(Node->Outputs.front().Type, EMaterialProgramValueType::Float2);
+		EXPECT_EQ(Matches.front().ExpressionClass, DMaterialExpressionTextureCoordinates::StaticClass());
+	}
+}
+
 TEST(FMaterialGraphOperationsTests, CatalogAndSearchCoverTheClosedOpcodeDomain)
 {
 	InitializeDObjectSystem();

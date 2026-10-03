@@ -257,12 +257,6 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs));
 	}
 
-	auto DMaterialExpressionUVChannel::Build(MIR::FEmitter& Emitter) const -> void
-	{
-		const std::array Inputs{&Channel};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs));
-	}
-
 	auto DMaterialExpressionMakeSurface::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&BaseColor, &Normal, &Metallic, &Roughness, &AmbientOcclusion, &Emissive, &Opacity, &OpacityMask};

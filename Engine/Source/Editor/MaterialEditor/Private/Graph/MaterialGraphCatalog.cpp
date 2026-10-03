@@ -70,6 +70,7 @@ namespace Durin::Editor::Material
 			std::array<const char*, 8> InputNames;
 			EMaterialGraphOpcodePurpose Purpose = EMaterialGraphOpcodePurpose::Authored;
 			EMaterialGraphPaletteShape PaletteShape = EMaterialGraphPaletteShape::All;
+			const char* SearchKeywords = "";
 		};
 
 		// Editor metadata stays together; runtime signatures still own pin types and semantics.
@@ -139,7 +140,8 @@ namespace Durin::Editor::Material
 				&DMaterialExpressionTransformNormal::StaticClass, {"Input"}},
 			{EMaterialProgramOpcode::TextureCoordinates, "Texture Coordinates", "Inputs",
 				"Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes.",
-				&DMaterialExpressionTextureCoordinates::StaticClass, {"Channel"}},
+				&DMaterialExpressionTextureCoordinates::StaticClass, {"Channel"},
+				EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::All, "UV Channel UVChannel"},
 			{EMaterialProgramOpcode::TextureSample2D, "Texture Sample 2D", "Textures",
 				"Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D.",
 				&DMaterialExpressionTextureSample2D::StaticClass, {"Texture", "UV"}},
@@ -214,7 +216,7 @@ namespace Durin::Editor::Material
 				nullptr, {}, EMaterialGraphOpcodePurpose::Internal, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::UVChannel, "UV Channel", "Inputs",
 				"Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped.",
-				&DMaterialExpressionUVChannel::StaticClass, {"Channel"}},
+				nullptr, {"Channel"}, EMaterialGraphOpcodePurpose::Internal, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::Sine, "Sine", "Math",
 				"Returns the component-wise sine in radians.",
 				&DMaterialExpressionSine::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
@@ -361,12 +363,18 @@ namespace Durin::Editor::Material
 			return StringUtils::FoldAscii(Value);
 		}
 
+		auto GetDescriptionSearchField(const FMaterialGraphCatalogEntry& Entry) -> std::string
+		{
+			const auto* Keywords = GetOpcodeDescriptor(Entry.Opcode).SearchKeywords;
+			return NormalizeSearchText(*Keywords ? Entry.Description + " " + Keywords : Entry.Description);
+		}
+
 		auto PrepareSearchFields(FMaterialGraphCatalogEntry& Entry) -> void
 		{
 			Entry.NormalizedSearchFields = {
 				NormalizeSearchText(Entry.OperationName),
 				NormalizeSearchText(Entry.Category),
-				NormalizeSearchText(Entry.Description),
+				GetDescriptionSearchField(Entry),
 				NormalizeSearchText(GetProgramTypeName(Entry.ResultType)),
 			};
 		}
@@ -818,7 +826,7 @@ namespace Durin::Editor::Material
 				FallbackSearchFields = {
 					NormalizeSearchText(Entry.OperationName),
 					NormalizeSearchText(Entry.Category),
-					NormalizeSearchText(Entry.Description),
+					GetDescriptionSearchField(Entry),
 					NormalizeSearchText(GetProgramTypeName(Entry.ResultType)),
 				};
 				SearchFields = &FallbackSearchFields;

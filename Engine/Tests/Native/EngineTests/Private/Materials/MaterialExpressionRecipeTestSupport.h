@@ -143,7 +143,7 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::TransformDirection: Expression = NewObject<DMaterialExpressionTransformDirection>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TransformNormal: Expression = NewObject<DMaterialExpressionTransformNormal>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TextureSample2D: Expression = NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None); break;
-			case EMaterialProgramOpcode::UVChannel: Expression = NewObject<DMaterialExpressionUVChannel>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::UVChannel: Expression = NewObject<DMaterialExpressionTextureCoordinates>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Splat3: Expression = NewObject<DMaterialExpressionSplat3>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Subtract: Expression = NewObject<DMaterialExpressionSubtract>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::MakeSurface: Expression = NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None); break;

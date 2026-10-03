@@ -1120,7 +1120,6 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionMakeVector4::StaticClass(), EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4},
 		FEntry{DMaterialExpressionSplat4::StaticClass(), EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4},
 		FEntry{DMaterialExpressionBlendNormalsRNM::StaticClass(), EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3},
-		FEntry{DMaterialExpressionUVChannel::StaticClass(), EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2},
 		FEntry{DMaterialExpressionSwizzle::StaticClass(), EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionTextureSample2D::StaticClass(), EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4},
 		FEntry{DMaterialExpressionTextureSampleParameter2D::StaticClass(), EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4},
@@ -1183,9 +1182,13 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		});
 		Covered.insert(Entry.Opcode);
 	}
-	// Unassigned opcodes and compiler-only normal decoding have no authored class.
+	// Unassigned opcodes and compiler-only normal decoding/UV reads have no authored class.
 	for (uint32 Opcode = 0; Opcode <= static_cast<uint32>(EMaterialProgramOpcode::TextureCoordinates); ++Opcode)
-		if (Opcode != 3 && Opcode != 30 && Opcode != static_cast<uint32>(EMaterialProgramOpcode::DecodeNormalRG) && !(Opcode >= 25 && Opcode <= 27)) EXPECT_TRUE(Covered.contains(static_cast<EMaterialProgramOpcode>(Opcode))) << Opcode;
+		if (Opcode != 3 && Opcode != 30
+			&& Opcode != static_cast<uint32>(EMaterialProgramOpcode::DecodeNormalRG)
+			&& Opcode != static_cast<uint32>(EMaterialProgramOpcode::UVChannel)
+			&& !(Opcode >= 25 && Opcode <= 27))
+			EXPECT_TRUE(Covered.contains(static_cast<EMaterialProgramOpcode>(Opcode))) << Opcode;
 }
 
 TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenciesAndRejectsInvalidLinks)

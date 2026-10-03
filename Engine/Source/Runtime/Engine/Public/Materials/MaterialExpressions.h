@@ -1094,23 +1094,6 @@ namespace Durin
 
 	};
 
-	// Owns only the inputs and width required by UVChannel.
-	DCLASS()
-	class DMaterialExpressionUVChannel : public DMaterialExpressionNumeric
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionUVChannel(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FMaterialNumericInput Channel;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
-
-		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
-
-	};
-
 	// Concatenates numeric inputs; the output width follows their combined widths.
 	DCLASS()
 	class DMaterialExpressionAppendVector : public DMaterialExpressionNumeric

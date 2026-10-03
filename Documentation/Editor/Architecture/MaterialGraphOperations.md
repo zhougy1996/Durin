@@ -236,6 +236,13 @@ legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
 Editor opcode descriptors own category, authoring purpose, and palette shape policy.
+`TextureCoordinates` is the single authored mesh-UV expression and always returns
+Float2. Both "Texture Coordinates" and "UV Channel" palette searches find it;
+compiler capture emits the internal `UVChannel` operation. The duplicate
+`DMaterialExpressionUVChannel` class is removed. Repository assets contain no
+references to that class; packages outside the canonical corpus using it require
+rebuilding and have no automatic class migration.
+
 Asset-bound collection reads use their asset-aware creation action; internal MIR
 operations are not expression catalog entries. Parameters, Functions, and Vertex
 have dedicated creation-menu categories. Palette search applies descriptor policies
