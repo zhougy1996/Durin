@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Hash/XxHash.h"
+#include "CoreMinimal.h"
+
 
 namespace Durin
 {

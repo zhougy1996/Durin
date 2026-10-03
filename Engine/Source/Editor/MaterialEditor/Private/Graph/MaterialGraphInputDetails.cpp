@@ -7,7 +7,6 @@
 #include "MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"
 #include "Texture/Texture2D.h"
-#include <cmath>
 
 namespace Durin::Editor::Material
 {

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <type_traits>
+#include "Misc/CoreStd.h"
 
 namespace Durin
 {

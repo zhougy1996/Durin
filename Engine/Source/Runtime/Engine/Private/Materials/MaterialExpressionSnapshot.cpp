@@ -5,8 +5,6 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialInstance.h"
 #include "Threading/RunnableThread.h"
-#include <cmath>
-#include <unordered_set>
 
 namespace Durin
 {

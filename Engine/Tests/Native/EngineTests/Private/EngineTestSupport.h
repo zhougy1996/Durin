@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "NativeAssetTestSupport.h"
 
 #include "Asset/PackageSerialization.h"

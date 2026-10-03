@@ -2,9 +2,7 @@
 #include "Threading/ThreadEvent.h"
 #include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
-#include <atomic>
 #include <barrier>
-#include <thread>
 
 namespace
 {

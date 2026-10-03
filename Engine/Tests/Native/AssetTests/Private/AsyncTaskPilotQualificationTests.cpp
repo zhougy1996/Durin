@@ -1,9 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
 #include <gtest/gtest.h>
-#include <cstdlib>
-#include <cstddef>
-#include <iostream>
-#include <new>
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageResource.h"

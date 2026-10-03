@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "GeometrySubmission.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"

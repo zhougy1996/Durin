@@ -1,6 +1,6 @@
 #pragma once
 
-#include <optional>
+#include "CoreMinimal.h"
 #include "EngineAPI.h"
 #include "Physics/PhysicsCookFailure.h"
 #include "DObject/DObjectFwd.h"

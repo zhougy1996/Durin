@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Workspace/WorkspaceTypes.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "Workspace/WorkspaceUI.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
 #include "Delegates/Delegate.h"
 #include "Materials/MaterialFunctionTypes.h"

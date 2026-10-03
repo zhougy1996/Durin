@@ -1,7 +1,5 @@
 #include "Collision/CollisionGeometry.h"
 #include "Physics/PhysicsTypes.h"
-#include <bit>
-#include <cstring>
 
 namespace Durin
 {

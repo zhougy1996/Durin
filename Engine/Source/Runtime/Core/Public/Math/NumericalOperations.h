@@ -1,6 +1,8 @@
 #pragma once
 
-#include <cmath>
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
 
 #include "HAL/Platform.h"
 

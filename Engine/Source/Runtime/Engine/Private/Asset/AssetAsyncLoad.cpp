@@ -11,9 +11,6 @@
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
 
-#include <chrono>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

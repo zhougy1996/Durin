@@ -17,10 +17,6 @@
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 
-#include <functional>
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

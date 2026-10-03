@@ -1,13 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderCoreAPI.h"
-#include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 #include "RHIResources.h"
-
-#include <compare>
-#include <string>
-#include <type_traits>
 
 namespace Durin
 {

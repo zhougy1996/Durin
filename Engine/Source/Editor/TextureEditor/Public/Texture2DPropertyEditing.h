@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "TextureEditorAPI.h"
 #include "DObject/ObjectValidation.h"
 #include "Texture/Texture2DCompilationTypes.h"

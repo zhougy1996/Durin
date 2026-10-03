@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistryAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/AssetPath.h"
-#include "Hash/XxHash.h"
 
 namespace Durin
 {

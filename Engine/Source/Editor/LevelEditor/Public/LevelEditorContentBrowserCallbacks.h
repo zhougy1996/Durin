@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "LevelEditorAPI.h"
 
 namespace Durin::Editor::Level

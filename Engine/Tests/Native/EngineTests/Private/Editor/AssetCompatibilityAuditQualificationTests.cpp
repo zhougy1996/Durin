@@ -1,6 +1,5 @@
 #include "AssetCompatibilityAuditTestSupport.h"
 
-#include <iostream>
 
 using FAssetCompatibilityAuditQualificationTests = FAssetCompatibilityAuditFixture;
 

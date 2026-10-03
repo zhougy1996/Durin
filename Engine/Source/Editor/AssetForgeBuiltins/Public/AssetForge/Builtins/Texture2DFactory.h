@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "Import/EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
-#include <variant>
 
 #include "Texture2DFactory.gen.h"
 

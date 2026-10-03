@@ -32,7 +32,6 @@
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
-#include <unordered_set>
 
 TEST(FTextureCubeFactoryTests, ClassLookupDisambiguatesOverlappingExtensions)
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Physics/CollisionDataProvider.h"
 #include "Physics/BodySetupTypes.h"
 

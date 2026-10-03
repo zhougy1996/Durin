@@ -1,10 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "MeshDescription/MeshDescription.h"
 #include "Math/Box.h"
-
-#include <optional>
 
 namespace Durin
 {

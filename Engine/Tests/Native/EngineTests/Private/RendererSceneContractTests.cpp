@@ -50,14 +50,6 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
-#include <condition_variable>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <mutex>
-#include <thread>
-#include <type_traits>
 
 #if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
 namespace

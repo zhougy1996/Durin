@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RHIAPI.h"
 #include "PipelineStateCache.h"
 #include "DynamicRHI.h"

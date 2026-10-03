@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "Misc/Guid.h"
@@ -8,10 +10,6 @@
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialProgramTypes.gen.h"
-
-#include <span>
-#include <string>
-#include <vector>
 
 namespace Durin
 {

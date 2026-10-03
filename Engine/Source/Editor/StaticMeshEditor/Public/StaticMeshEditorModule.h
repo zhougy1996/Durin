@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Modules/ModuleManager.h"
 #include "StaticMeshEditorAPI.h"
 #include "Import/ImportDialogSupport.h"

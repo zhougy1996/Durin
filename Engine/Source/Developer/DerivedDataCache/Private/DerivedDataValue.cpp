@@ -1,7 +1,5 @@
 #include "DerivedDataValue.h"
 
-#include <cstring>
-
 namespace Durin::DerivedData
 {
 	FValueId::FValueId(std::string_view Name) : FValueId(FromName(Name)) {}

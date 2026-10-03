@@ -1,9 +1,8 @@
 #pragma once
 
-#include "DObject/DObjectGlobals.h"
+#include "CoreMinimal.h"
 
-#include <array>
-#include <cstddef>
+#include "DObject/DObjectGlobals.h"
 
 namespace Durin::DurinCodeGen
 {

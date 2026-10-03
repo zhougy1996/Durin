@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
 #include "AssetRegistryOperationsInternal.h"

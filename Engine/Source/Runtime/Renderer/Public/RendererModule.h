@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "RendererAPI.h"
 #include "IRendererModule.h"
 

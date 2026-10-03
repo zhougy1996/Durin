@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Components/ActorComponent.h"
 #include "DObject/ObjectPtr.h"

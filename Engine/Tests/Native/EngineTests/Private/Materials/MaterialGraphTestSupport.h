@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "FunctionPortTestFixture.h"
 #include "Graph/MaterialGraphNodeDisplay.h"
 #include "TypedMaterialGraphTestFixture.h"
@@ -33,7 +35,6 @@
 #include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
-#include <chrono>
 
 #include "NativeDObjectTestSupport.h"
 

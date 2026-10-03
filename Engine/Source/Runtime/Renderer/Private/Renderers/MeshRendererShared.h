@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Renderers/MeshVertexFactory.h"
 
 #include "Renderers/MeshRenderingCommon.h"

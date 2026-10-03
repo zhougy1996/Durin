@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::Editor::Level
 {
 	// Selects the default docking arrangement for the level editor.

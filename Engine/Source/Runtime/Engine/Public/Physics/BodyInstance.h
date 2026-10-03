@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Collision/CollisionTypes.h"
 #include "DObject/StructOps.h"

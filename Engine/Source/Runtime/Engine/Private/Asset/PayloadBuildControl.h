@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include "CoreMinimal.h"
 #include "Misc/CoreTypes.h"
 
 namespace Durin::AssetPrivate

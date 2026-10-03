@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialDiagnostic.h"
 
 #include "DObject/DObjectFwd.h"
@@ -10,13 +12,6 @@
 #include "Texture/Texture2D.h"
 
 #include "MaterialTypes.gen.h"
-
-#include <variant>
-#include <array>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 namespace Durin
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/StaticMeshRenderPreparation.h"
 
 #include "Renderers/ContactShadowRenderer.h"

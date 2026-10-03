@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ObjectKey.h"
 
 namespace Durin

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetTools/AssetDeletion.h"
 #include "AssetTools/AssetDuplicate.h"
 #include "AssetTools/AssetSave.h"

@@ -3,6 +3,8 @@
 #include "AssetTools/MutationTesting.h"
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"

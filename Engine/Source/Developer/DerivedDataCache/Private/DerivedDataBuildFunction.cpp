@@ -1,5 +1,4 @@
 #include "DerivedDataBuildExecutionPrivate.h"
-#include <mutex>
 
 namespace Durin::DerivedData
 {

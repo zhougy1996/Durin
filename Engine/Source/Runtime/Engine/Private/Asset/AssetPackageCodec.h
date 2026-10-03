@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
 #include "AssetPackageDependencyLoadPolicy.h"

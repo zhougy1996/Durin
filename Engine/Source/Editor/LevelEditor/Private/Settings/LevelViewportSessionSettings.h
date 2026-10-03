@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Viewport/ViewportCameraTransform.h"
 
 namespace Durin

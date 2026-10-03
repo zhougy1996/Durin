@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetForge/Builtins/ImportedScene.h"

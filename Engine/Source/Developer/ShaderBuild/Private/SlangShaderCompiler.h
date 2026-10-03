@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ShaderCompiler.h"
 
 #include "SlangGlobalSessionPool.h"

@@ -30,7 +30,6 @@
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
-#include <condition_variable>
 #include <vulkan/vulkan.hpp>
 #include "VulkanRHIPrivate.h"
 

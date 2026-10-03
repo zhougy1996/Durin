@@ -2,8 +2,6 @@
 
 #include "Misc/Time.h"
 
-#include <algorithm>
-
 namespace Durin
 {
 	namespace

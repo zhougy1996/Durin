@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDGInternal.h"
 
 // The builder owns declarations, immutable compiled records, and lazy diagnostics.

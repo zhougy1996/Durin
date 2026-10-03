@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "AssetForge/Builtins/MaterialExpressionRecipe.h"
 
 namespace Durin::AssetForge::Builtins::Private

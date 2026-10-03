@@ -1,8 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphSchema.h"
-#include <unordered_set>
 #include "Materials/MaterialFunction.h"
 
 namespace Durin::Editor::Material

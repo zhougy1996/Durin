@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/PackageInspection.h"
 #include "Misc/Guid.h"
 #include "TextureEditorAPI.h"

@@ -11,8 +11,6 @@
 #include "VulkanView.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
 
-#include <cstdlib>
-
 namespace Durin::VulkanRHI
 {
 	static auto UpdateDescriptorSets(FVulkanDevice& Device,

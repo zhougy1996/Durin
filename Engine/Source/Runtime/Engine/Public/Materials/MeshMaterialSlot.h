@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "DObject/ObjectPtr.h"

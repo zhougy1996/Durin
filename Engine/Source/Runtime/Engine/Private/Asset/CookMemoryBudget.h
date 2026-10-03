@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::AssetPrivate
 {
 	// Account retained payloads before accepting them; rejection leaves the total intact.

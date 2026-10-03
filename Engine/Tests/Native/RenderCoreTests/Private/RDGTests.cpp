@@ -12,10 +12,6 @@
 #include <gtest/gtest.h>
 #include "RHIThread.h"
 
-#include <chrono>
-#include <bit>
-#include <cstdio>
-#include <thread>
 
 namespace Durin
 {

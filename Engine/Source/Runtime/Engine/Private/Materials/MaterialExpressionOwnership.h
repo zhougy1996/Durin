@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialExpressions.h"
 
 namespace Durin::Private

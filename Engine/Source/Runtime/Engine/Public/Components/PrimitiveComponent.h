@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"

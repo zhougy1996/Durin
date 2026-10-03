@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Materials/MaterialTypes.h"
 
 namespace Durin

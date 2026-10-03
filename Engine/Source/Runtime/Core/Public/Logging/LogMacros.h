@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "Logging/Logger.h"
 
 #define DURIN_LOG(LogLevel, ...) FLogger::Get().Log(LogLevel, std::source_location::current(), MODULE_NAME, __VA_ARGS__)

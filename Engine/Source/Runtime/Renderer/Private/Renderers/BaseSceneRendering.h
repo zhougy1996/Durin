@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/DeferredDirectionalLightingRendering.h"
 #include "RDG/RDGParameters.h"
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ObjectPtr.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Panels/DetailsComponentTree.h"

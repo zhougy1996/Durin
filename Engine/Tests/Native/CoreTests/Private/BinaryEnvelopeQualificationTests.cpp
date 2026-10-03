@@ -1,6 +1,5 @@
 #include "BinaryEnvelopeTestSupport.h"
 
-#include <chrono>
 
 TEST(FBinaryEnvelopeQualificationTests, HeaderValidationCostIsBoundedForSmallAndMaximumPolicySamples)
 {

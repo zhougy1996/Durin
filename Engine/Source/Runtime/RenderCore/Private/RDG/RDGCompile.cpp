@@ -1,4 +1,3 @@
-#include <format>
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
 #include "Profiling/Profiling.h"

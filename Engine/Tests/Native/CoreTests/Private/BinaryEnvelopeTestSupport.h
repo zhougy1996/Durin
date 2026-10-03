@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Serialization/BinaryEnvelope.h"
 
 #include <gtest/gtest.h>

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCookedLibrary.h"

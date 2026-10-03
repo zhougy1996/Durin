@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
 #include "Asset/BulkData.h"
 #include "EngineAPI.h"
@@ -7,7 +9,6 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialFunctionInterface.h"
-#include <chrono>
 #include "Delegates/Delegate.h"
 
 #include "MaterialInterface.gen.h"

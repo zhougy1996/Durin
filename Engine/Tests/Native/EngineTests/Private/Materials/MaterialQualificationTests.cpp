@@ -13,7 +13,6 @@
 #include "NativeQualificationSupport.h"
 #include "RenderingThread.h"
 
-#include <iostream>
 
 namespace
 {

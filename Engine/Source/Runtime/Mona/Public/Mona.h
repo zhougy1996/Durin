@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaCore.h"
 #include "MonaGlobals.h"
 #include "Application/MonaApplication.h"

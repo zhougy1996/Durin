@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "Import/EditorReimportHandler.h"
 #include "Factories/Factory.h"
-#include <variant>
 
 #include "VolumeTextureFactory.gen.h"
 

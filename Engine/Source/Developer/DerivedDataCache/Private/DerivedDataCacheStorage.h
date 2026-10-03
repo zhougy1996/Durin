@@ -1,9 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DerivedDataCache/DerivedDataCacheTypes.h"
-#include "Serialization/SharedByteBuffer.h"
-#include <expected>
-#include <optional>
 
 namespace Durin::DerivedData
 {

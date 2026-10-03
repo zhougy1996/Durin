@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "SceneView.h"
 #include "RendererAPI.h"
 

@@ -1,13 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "slang.h"
 #include "slang-com-ptr.h"
-
-#include <array>
-#include <cstddef>
-#include <utility>
-#include <mutex>
-#include <stdexcept>
 
 namespace Durin
 {

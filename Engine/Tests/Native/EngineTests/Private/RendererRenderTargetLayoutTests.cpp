@@ -9,7 +9,6 @@
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 
-#include <limits>
 
 namespace Durin
 {

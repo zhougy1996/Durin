@@ -6,8 +6,6 @@
 #include "NativeTestSupport.h"
 #include "NativeQualificationSupport.h"
 #include <gtest/gtest.h>
-#include <fstream>
-#include <iostream>
 
 namespace Durin
 {

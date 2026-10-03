@@ -1,10 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/CoreTypes.h"
 #include "RendererAPI.h"
 #include "Renderers/MeshRendererExecution.h"
-
-#include <memory>
 
 namespace Durin
 {

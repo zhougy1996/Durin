@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 #include "Misc/FileError.h"
 #include "CoreDObjectAPI.h"
 #include "DObject/PackageFormat.h"

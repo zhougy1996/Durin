@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
 #include "RHIShaderParameters.h"
 #include "Backend/RHIDeferredBufferBackend.h"
 

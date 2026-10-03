@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;

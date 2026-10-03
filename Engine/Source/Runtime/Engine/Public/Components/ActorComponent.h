@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "DObject/Object.h"
 #include "Engine/TickFunction.h"

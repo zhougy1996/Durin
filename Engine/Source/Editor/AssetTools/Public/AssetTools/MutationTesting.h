@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetTools/Relocation.h"
 #include "AssetTools/RedirectorFixup.h"
 

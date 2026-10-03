@@ -1,8 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Collision/CollisionShape.h"
 #include "Math/Transform.h"
-#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
 {

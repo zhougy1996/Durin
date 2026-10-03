@@ -1,7 +1,10 @@
 #pragma once
 
-#include <string>
-#include <expected>
+#include "CoreMinimal.h"
+
+#include "VulkanPlatform.h"
+
+#include "RHIPresentation.h"
 
 #include "VulkanRHIAPI.h"
 

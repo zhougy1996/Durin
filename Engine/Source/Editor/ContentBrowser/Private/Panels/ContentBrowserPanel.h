@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserSelection.h"
 
 #include "ContentBrowser/ContentBrowserTool.h"
@@ -8,9 +10,6 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/Task.h"
-
-#include <array>
-#include <unordered_set>
 
 namespace Durin::Editor::ContentBrowser::Private
 {

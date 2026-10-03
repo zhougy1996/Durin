@@ -26,7 +26,6 @@
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
-#include <cstddef>
 
 namespace StructOpsTest
 {

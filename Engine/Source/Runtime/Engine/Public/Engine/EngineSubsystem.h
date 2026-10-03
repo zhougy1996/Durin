@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Engine/Subsystem.h"
 #include "EngineAPI.h"
 #include "EngineSubsystem.gen.h"

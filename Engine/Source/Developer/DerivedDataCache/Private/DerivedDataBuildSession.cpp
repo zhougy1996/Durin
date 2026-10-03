@@ -1,10 +1,5 @@
 #include "DerivedDataBuildSession.h"
 #include "DerivedDataBuildExecutionPrivate.h"
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <unordered_map>
-#include <thread>
 
 namespace Durin::DerivedData
 {

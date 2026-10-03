@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Import/AssetDestinationValidation.h"
 #include "DurinEdAPI.h"
 

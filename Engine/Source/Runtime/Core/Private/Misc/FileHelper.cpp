@@ -1,6 +1,4 @@
 #include "Misc/FileHelper.h"
-#include <cerrno>
-#include <cstdio>
 #if defined(_WIN32)
 #include "Windows/WindowsPlatform.h"
 #else

@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "DObject/PackageValueCodec.h"
 
 #include "Asset/Mutation.h"

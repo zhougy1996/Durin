@@ -1,10 +1,8 @@
 #pragma once
 
-#include "CoreAPI.h"
+#include "Misc/CoreStd.h"
 
-#include <chrono>
-#include <condition_variable>
-#include <mutex>
+#include "CoreAPI.h"
 
 namespace Durin
 {

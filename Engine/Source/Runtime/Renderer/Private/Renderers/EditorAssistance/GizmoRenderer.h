@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 
 namespace Durin

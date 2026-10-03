@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/References.h"
 
 namespace Durin::AssetPrivate

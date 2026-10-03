@@ -1,8 +1,6 @@
 #pragma once
 
-#include <cstddef>
-#include <span>
-#include <vector>
+#include "Misc/CoreStd.h"
 
 namespace Durin
 {

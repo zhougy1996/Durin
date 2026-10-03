@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Rendering/VolumetricCloudSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"

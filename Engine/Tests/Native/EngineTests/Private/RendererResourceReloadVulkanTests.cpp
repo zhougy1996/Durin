@@ -22,7 +22,6 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
 
-#include <iostream>
 
 namespace Durin
 {

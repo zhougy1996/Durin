@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistryCacheInternal.h"
 

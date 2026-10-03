@@ -1,10 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 
-#include <cstddef>
-#include <unordered_set>
 
 namespace Durin::Tests
 {

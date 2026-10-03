@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Asset/AssetCompilingManager.h"

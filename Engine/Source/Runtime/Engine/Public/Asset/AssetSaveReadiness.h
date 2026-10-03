@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Asset/AssetWriteResult.h"
 #include "Modules/ModularFeature.h"

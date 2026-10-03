@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include "CoreMinimal.h"
 
 namespace Durin
 {

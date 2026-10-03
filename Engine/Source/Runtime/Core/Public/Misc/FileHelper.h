@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
+
+#include "Misc/CoreStd.h"
+
 #include "Misc/FileHandle.h"
 #include "Hash/XxHash.h"
-#include <limits>
-#include <optional>
 
 namespace Durin::FFileHelper
 {

@@ -1,7 +1,6 @@
 #include "EngineTestSupport.h"
 #include <gtest/gtest.h>
 #include "Texture/TextureBuilder.h"
-#include <iostream>
 
 // Explicit CPU qualification only; no latency assertions in correctness suites.
 TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)

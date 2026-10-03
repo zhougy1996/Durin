@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RoadNet/RoadNet.h"
 #include "Math/Transform.h"
 #include "Spline/SplineMeshDeformer.h"

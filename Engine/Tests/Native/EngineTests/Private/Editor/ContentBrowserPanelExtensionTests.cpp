@@ -9,7 +9,6 @@
 #include "Asset/AssetDragDrop.h"
 
 #include <gtest/gtest.h>
-#include <fstream>
 
 namespace Durin::Editor::ContentBrowser::Private
 {

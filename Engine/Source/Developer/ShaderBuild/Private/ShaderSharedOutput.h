@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "ShaderBuildAPI.h"
 #include "DerivedDataBuildFunction.h"
 #include "Shader/ShaderCompilerCore.h"

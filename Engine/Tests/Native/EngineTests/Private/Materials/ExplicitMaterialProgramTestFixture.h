@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialExpressionRecipeTestSupport.h"
 #include "EngineTestSupport.h"

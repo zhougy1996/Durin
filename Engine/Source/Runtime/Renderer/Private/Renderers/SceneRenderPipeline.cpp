@@ -14,8 +14,6 @@
 #include "Scene.h"
 #include "SceneView.h"
 
-#include <limits>
-
 namespace Durin
 {
 	namespace

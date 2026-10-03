@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialEditorAPI.h"
 
 namespace Durin { class DMaterialInterface; }

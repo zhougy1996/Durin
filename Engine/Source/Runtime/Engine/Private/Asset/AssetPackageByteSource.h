@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/PackageSchema.h"
 #include "Misc/FileHandle.h"
 

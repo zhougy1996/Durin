@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetCompatibilityAudit.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -10,7 +12,6 @@
 
 #include <gtest/gtest.h>
 
-#include <chrono>
 
 namespace
 {

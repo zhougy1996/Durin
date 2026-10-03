@@ -1,10 +1,10 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
+
 #include "CoreAPI.h"
-#include <cstring>
-#include <format>
-#include <limits>
-#include <span>
 
 struct FClangKeepDebugInfo
 {

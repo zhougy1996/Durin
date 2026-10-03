@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Rendering/MeshBatch.h"
 #include "Rendering/MeshGeometryRecord.h"
 #include "Rendering/StaticMeshBatchBinding.h"

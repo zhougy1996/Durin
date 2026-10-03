@@ -6,7 +6,6 @@
 #include "Misc/FileHelper.h"
 #include "Threading/TaskComposition.h"
 #include <coroutine>
-#include <thread>
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"

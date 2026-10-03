@@ -1,8 +1,8 @@
 #pragma once
 
-#include "DurinEdAPI.h"
+#include "CoreMinimal.h"
 
-#include <array>
+#include "DurinEdAPI.h"
 
 namespace Durin::Editor
 {

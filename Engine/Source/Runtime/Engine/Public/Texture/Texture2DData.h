@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/CookedAsset.h"
 #include "EngineAPI.h"
 #include "DObject/DObjectFwd.h"
@@ -7,7 +9,6 @@
 #include "PixelFormat.h"
 #include "Texture/TextureSourceFormat.h"
 #include "Image/Image.h"
-#include "Serialization/SharedByteBuffer.h"
 
 #include "Texture2DData.gen.h"
 

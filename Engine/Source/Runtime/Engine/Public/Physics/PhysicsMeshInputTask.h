@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/AssetBuildTaskContext.h"
 #include "Physics/CollisionDataProvider.h"
 

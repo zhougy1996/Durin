@@ -1,17 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDG/RDGAllocator.h"
 #include "RDG/RDGParameters.h"
-#include <array>
-#include <concepts>
-#include <expected>
-#include <limits>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 namespace Durin::RDGPrivate { struct FBarrierBatchAccess; }
 

@@ -7,7 +7,6 @@
 #include "StaticMeshSharedOutput.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
-#include <mutex>
 
 namespace Durin
 {

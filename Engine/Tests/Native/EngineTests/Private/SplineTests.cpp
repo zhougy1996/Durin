@@ -28,7 +28,6 @@
 
 #include "NativeDObjectTestSupport.h"
 
-#include <future>
 
 namespace
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/CoreTypes.h"
 #include "VolumetricCloudView.h"
 

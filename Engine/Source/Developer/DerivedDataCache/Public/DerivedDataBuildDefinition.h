@@ -1,12 +1,8 @@
 #pragma once
 
-#include "DerivedDataCache/DerivedDataCacheTypes.h"
+#include "CoreMinimal.h"
 
-#include <expected>
-#include <span>
-#include <string>
-#include <variant>
-#include <vector>
+#include "DerivedDataCache/DerivedDataCacheTypes.h"
 
 namespace Durin::DerivedData
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/ImportedDocument.h"
 
 struct aiScene;

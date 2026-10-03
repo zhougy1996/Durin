@@ -1,8 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
+#include "VulkanPlatform.h"
+
 #include "RHIResources.h"
 #include "VulkanRHIAPI.h"
-#include <vulkan/vulkan.hpp>
 
 namespace Durin::VulkanRHI
 {

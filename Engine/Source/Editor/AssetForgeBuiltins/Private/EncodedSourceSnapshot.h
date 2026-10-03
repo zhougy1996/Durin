@@ -1,10 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "SceneSourceSnapshot.h"
 #include "AssetForgeBuiltinsAPI.h"
-#include "Hash/XxHash.h"
 #include "Misc/FileError.h"
-#include <expected>
 
 namespace Durin::AssetForge::Builtins
 {

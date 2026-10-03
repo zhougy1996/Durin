@@ -1,18 +1,11 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectValidation.h"
 #include "Misc/EnumClassFlags.h"
 #include "Misc/Name.h"
-
-#include <algorithm>
-#include <concepts>
-#include <memory>
-#include <span>
-#include <string>
-#include <string_view>
-#include <type_traits>
 
 namespace Durin
 {

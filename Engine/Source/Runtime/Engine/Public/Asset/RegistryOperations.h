@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Asset/AssetReadResult.h"
 #include "AssetRegistry/References.h"

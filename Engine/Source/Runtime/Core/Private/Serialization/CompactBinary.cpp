@@ -1,11 +1,6 @@
 #include "Serialization/CompactBinary.h"
 #include "Serialization/BinaryEncoding.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-#include <cstring>
-
 namespace Durin
 {
 	namespace

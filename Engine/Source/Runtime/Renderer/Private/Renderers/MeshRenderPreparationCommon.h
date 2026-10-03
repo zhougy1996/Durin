@@ -1,16 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
-
-#include <array>
-#include <algorithm>
-#include <compare>
-#include <cstddef>
-#include <optional>
-#include <memory>
-#include <tuple>
-#include <vector>
 
 namespace Durin
 {

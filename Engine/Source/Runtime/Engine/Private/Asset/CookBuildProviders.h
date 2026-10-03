@@ -1,5 +1,6 @@
 #pragma once
-#include "Serialization/SharedByteBuffer.h"
+
+#include "CoreMinimal.h"
 namespace Durin::AssetPrivate
 {
 	// Reads the native recipe identity before cache lookup. Host owns provider lifetime.

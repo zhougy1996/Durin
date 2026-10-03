@@ -8,7 +8,6 @@
 #include "RenderingThread.h"
 #include "SceneViewProjection.h"
 #include "LevelEditorCustomizations.h"
-#include <cstring>
 
 namespace Durin::Editor::Level
 {

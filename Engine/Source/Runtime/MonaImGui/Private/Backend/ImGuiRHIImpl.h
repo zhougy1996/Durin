@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "ImGui/ImGuiCommon.h"
+
 #include "RHIResources.h"
 
 struct ImDrawData;

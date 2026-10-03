@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Editor/EditorSubsystem.h"
 #include "Notifications/Notification.h"
 #include "EditorNotificationSubsystem.gen.h"

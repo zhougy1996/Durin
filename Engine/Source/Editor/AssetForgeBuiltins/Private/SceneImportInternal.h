@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "SceneSourceSnapshot.h"
 #include "AssetForge/Builtins/AssetImport.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"

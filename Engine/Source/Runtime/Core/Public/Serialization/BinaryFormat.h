@@ -1,5 +1,9 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
+
 #include "CoreAPI.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BinaryEncoding.h"

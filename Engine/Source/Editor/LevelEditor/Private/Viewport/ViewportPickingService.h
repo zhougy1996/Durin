@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "LevelEditorViewportPicking.h"
 #include "HitProxy.h"
 

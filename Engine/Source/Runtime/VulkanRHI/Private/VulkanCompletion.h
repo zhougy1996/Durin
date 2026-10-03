@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
 #include "VulkanRHIAPI.h"
 #include "Backend/RHICompletionBackend.h"
 #include "RHICompletion.h"

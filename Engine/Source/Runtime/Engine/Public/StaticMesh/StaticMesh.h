@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Asset/CookedMeshLoading.h"
 
@@ -8,7 +9,6 @@
 #include "Asset/Cook.h"
 #include "StaticMesh/StaticMeshSource.h"
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "Materials/MeshMaterialSlot.h"
 #include "Physics/BodySetupTypes.h"

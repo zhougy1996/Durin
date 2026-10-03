@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "DObject/DObjectFwd.h"
+
 #include "DurinEdAPI.h"
 #include "Workspace/WorkspaceTypes.h"
 #include "MonaImGui.h"

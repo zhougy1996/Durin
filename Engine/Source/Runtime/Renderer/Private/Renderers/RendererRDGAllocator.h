@@ -1,13 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 #include "RDG/RDGAllocator.h"
-
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <span>
-#include <vector>
 
 namespace Durin
 {

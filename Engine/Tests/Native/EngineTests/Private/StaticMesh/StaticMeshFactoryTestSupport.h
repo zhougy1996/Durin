@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/PackageSerialization.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
 #include "AssetTools/IAssetTools.h"

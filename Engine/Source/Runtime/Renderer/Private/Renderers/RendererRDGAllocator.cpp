@@ -6,15 +6,6 @@
 #include "RenderingThread.h"
 #include "Profiling/Profiling.h"
 
-#include <algorithm>
-#include <array>
-#include <chrono>
-#include <cstring>
-#include <limits>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

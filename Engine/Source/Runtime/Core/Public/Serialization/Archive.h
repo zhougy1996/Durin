@@ -1,21 +1,16 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
+
+#include "Misc/CoreStd.h"
+
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 #include "Misc/Name.h"
 #include "Serialization/SharedByteBuffer.h"
 #include "Serialization/CustomVersion.h"
-
-#include <bit>
-#include <concepts>
-#include <limits>
-#include <memory>
-#include <span>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <vector>
 
 namespace Durin
 {

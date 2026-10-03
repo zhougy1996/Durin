@@ -1,12 +1,8 @@
 #pragma once
 
-#include "RenderResourceCreation.h"
+#include "CoreMinimal.h"
 
-#include <algorithm>
-#include <cstddef>
-#include <limits>
-#include <utility>
-#include <vector>
+#include "RenderResourceCreation.h"
 
 namespace Durin
 {

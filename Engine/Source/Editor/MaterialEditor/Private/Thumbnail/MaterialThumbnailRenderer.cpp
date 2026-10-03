@@ -13,8 +13,6 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2D.h"
 
-#include <unordered_set>
-
 namespace Durin::Editor::Material
 {
 	namespace

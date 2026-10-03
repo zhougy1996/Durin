@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Rendering/PrimitiveSceneProxy.h"
 
 namespace Durin

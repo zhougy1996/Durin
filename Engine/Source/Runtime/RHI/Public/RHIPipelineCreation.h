@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RHIResources.h"
 #include "Threading/TaskComposition.h"
 

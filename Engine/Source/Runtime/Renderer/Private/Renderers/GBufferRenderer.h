@@ -1,15 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialRenderProxy.h"
 #include "RendererAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
 #include "VertexFactory.h"
-
-#include <array>
-#include <limits>
-#include <memory>
-#include <optional>
 
 namespace Durin
 {

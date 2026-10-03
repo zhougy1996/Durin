@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Console/ConsoleCommand.h"
 #include "Logging/Logger.h"
 

@@ -35,7 +35,6 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "Threading/TaskComposition.h"
-#include <thread>
 
 namespace
 {

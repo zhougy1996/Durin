@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Serialization/SharedByteBuffer.h"
+#include "CoreMinimal.h"
+
 
 namespace Durin::MeshStreamPrivate
 {

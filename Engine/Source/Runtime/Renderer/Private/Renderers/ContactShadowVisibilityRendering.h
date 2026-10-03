@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/GBufferRendering.h"
 #include "RDG/RDGParameters.h"

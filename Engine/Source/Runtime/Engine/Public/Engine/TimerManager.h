@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Templates/MoveOnlyFunction.h"
+#include "CoreMinimal.h"
+
 
 #include "EngineAPI.h"
 #include "DObject/ObjectKey.h"

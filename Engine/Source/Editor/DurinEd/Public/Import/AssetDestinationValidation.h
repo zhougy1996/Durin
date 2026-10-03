@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/Load.h"
 #include "DurinEdAPI.h"
 #include "Misc/Paths.h"

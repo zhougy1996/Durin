@@ -15,7 +15,6 @@
 #include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
-#include <iostream>
 
 auto QualifyMaterialEditingSessionAsync() -> void;
 auto QualifyMaterialFunctionCompilationAsync() -> void;

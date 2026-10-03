@@ -1,7 +1,5 @@
 #include "Rendering/VolumetricCloudSceneProxy.h"
 
-#include <cmath>
-
 namespace Durin
 {
 	namespace

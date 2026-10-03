@@ -6,8 +6,6 @@
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 
-#include <algorithm>
-
 namespace Durin::AssetForge::Builtins
 {
 	namespace

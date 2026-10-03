@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PipelineStateCache.h"
 
 // Backend implementation seam. Do not include from renderer or feature code.

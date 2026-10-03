@@ -1,8 +1,5 @@
 #include "Misc/Assertion.h"
 
-#include <cstdio>
-#include <cstdlib>
-
 #include "HAL/Platform.h"
 
 namespace Durin::Private

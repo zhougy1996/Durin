@@ -1,7 +1,6 @@
 #include "Misc/Time.h"
 
 #include <gtest/gtest.h>
-#include <thread>
 
 namespace Durin
 {

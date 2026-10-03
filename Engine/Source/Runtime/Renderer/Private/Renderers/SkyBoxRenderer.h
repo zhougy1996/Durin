@@ -1,8 +1,8 @@
 #pragma once
 
-#include "RHIResources.h"
+#include "CoreMinimal.h"
 
-#include <memory>
+#include "RHIResources.h"
 
 namespace Durin
 {

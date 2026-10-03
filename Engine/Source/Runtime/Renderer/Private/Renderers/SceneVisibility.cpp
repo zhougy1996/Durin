@@ -7,7 +7,6 @@
 #include "SceneInfo.h"
 #include "Profiling/Profiling.h"
 #include "Threading/TaskComposition.h"
-#include <deque>
 
 namespace Durin
 {

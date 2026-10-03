@@ -11,11 +11,6 @@
 #include "Texture/TextureCompilingManager.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
-#include <algorithm>
-#include <limits>
-#include <mutex>
-#include <unordered_map>
-
 namespace Durin
 {
 	namespace

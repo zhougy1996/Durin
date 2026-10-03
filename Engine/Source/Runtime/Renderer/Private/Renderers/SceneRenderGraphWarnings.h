@@ -1,8 +1,8 @@
 #pragma once
 
-#include "RDG/RDGDiagnostics.h"
+#include "CoreMinimal.h"
 
-#include <array>
+#include "RDG/RDGDiagnostics.h"
 
 namespace Durin
 {

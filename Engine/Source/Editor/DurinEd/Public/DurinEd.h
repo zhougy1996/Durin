@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Import/EditorReimportHandler.h"
 #include "Notifications/Notification.h"
 #include "PropertyEditor/PropertyEditing.h"

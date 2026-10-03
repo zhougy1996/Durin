@@ -1,5 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
+#include "VulkanPlatform.h"
+
 #include "RHIQueueTransfer.h"
 
 namespace Durin::VulkanRHI

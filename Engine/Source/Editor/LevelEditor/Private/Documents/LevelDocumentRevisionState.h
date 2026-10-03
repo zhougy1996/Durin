@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Package.h"
 #include "Transactions/Transactor.h"
 

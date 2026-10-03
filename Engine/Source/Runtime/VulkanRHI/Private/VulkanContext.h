@@ -1,5 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
+#include "VulkanPlatform.h"
+
 #include "RHIContext.h"
 #include "VulkanMemory.h"
 #include "VulkanTransferArena.h"

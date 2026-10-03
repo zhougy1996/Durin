@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "VulkanCreationTiming.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanExtensions.h"
-#include <fstream>
 #ifdef _WIN32
 #include "Windows/WindowsPlatform.h"
 #include <dxgi1_4.h>

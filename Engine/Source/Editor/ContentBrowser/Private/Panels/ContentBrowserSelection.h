@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserChanges.h"
 #include "Panels/ContentBrowserQuery.h"
 

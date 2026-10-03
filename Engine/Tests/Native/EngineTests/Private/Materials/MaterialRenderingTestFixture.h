@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Misc/MountPathTestSupport.h"
@@ -23,12 +25,6 @@
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
-#include <array>
-#include <chrono>
-#include <cmath>
-#include <condition_variable>
-#include <limits>
-#include <thread>
 
 namespace
 {

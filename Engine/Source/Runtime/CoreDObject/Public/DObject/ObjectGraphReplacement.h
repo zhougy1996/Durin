@@ -1,11 +1,11 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
 #include "DObject/PropertyDiagnostic.h"
 #include "DObject/ContainerOps.h"
-#include <functional>
 
 namespace Durin
 {

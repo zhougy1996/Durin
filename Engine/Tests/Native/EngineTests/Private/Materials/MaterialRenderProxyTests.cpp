@@ -4,9 +4,6 @@
 
 #include "Materials/MaterialRenderProxy.h"
 
-#include <algorithm>
-#include <future>
-#include <limits>
 
 namespace
 {

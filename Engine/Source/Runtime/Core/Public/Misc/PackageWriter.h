@@ -1,4 +1,8 @@
 #pragma once
+
+#include "Misc/CoreStd.h"
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
 #include "Misc/FilePublication.h"
 #include "Misc/FileError.h"
 

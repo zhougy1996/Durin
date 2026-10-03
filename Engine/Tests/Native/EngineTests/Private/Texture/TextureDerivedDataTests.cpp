@@ -4,7 +4,6 @@
 #include "Runtime/Engine/Private/Texture/Texture2DBuildFunction.h"
 #include "DerivedDataBuildSession.h"
 #include "Texture/ITextureBuildModule.h"
-#include <expected>
 #include "Texture/Texture2DBuildTypes.h"
 #include "TextureTestSupport.h"
 

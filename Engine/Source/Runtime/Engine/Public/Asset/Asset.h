@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/Scan.h"
 #include "Asset/CookedAsset.h"

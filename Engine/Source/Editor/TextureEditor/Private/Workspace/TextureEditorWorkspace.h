@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Workspace/WorkspaceTypes.h"
 
 namespace Durin::Editor::Texture::Workspace

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Actors/CameraActor.h"
 #include "Actors/Controller.h"
 #include "Actors/DirectionalLightActor.h"

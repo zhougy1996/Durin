@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Physics/BodySetupTypes.h"
 #include "Physics/CookBodySetupInfo.h"

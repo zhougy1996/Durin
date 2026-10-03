@@ -1,10 +1,8 @@
 #pragma once
 
-#include "EngineAPI.h"
+#include "CoreMinimal.h"
 
-#include <cstddef>
-#include <iterator>
-#include <memory>
+#include "EngineAPI.h"
 
 namespace Durin
 {

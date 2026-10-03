@@ -3,8 +3,6 @@
 #include "StaticMeshPayloadValidation.h"
 #include "Asset/CookedAsset.h"
 #include "Serialization/BinaryFormat.h"
-#include <bit>
-#include <cstring>
 
 namespace Durin::StaticMeshPrivate
 {

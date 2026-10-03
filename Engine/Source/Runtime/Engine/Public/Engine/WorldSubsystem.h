@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Engine/Subsystem.h"
 #include "DObject/ObjectPtr.h"

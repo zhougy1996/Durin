@@ -1,8 +1,8 @@
 #pragma once
 
-#define PLATFORM_HEADER_NAME Windows
+#include "Misc/CoreStd.h"
 
-#include <string>
+#define PLATFORM_HEADER_NAME Windows
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN

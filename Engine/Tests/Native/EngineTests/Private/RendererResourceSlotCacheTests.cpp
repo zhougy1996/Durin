@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "RendererResourceSlotCache.h"
-#include <memory>
 
 namespace Durin
 {

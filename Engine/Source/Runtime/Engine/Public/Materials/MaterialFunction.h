@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Materials/MaterialFunctionInterface.h"
 #include "Materials/MaterialExpressions.h"

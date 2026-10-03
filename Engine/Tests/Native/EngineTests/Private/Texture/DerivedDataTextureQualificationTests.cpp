@@ -13,7 +13,6 @@
 #include "Texture/TextureDerivedData.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildDiagnostics.h"
 #include <gtest/gtest.h>
-#include <iostream>
 
 namespace
 {

@@ -1,12 +1,11 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
 #include "Misc/FileError.h"
-#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
 {

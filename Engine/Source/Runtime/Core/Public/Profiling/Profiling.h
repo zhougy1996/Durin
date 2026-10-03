@@ -1,10 +1,10 @@
 #pragma once
 
-#include "CoreAPI.h"
+#include "Misc/CoreTypes.h"
 
-#include <array>
-#include <string>
-#include <string_view>
+#include "Misc/CoreStd.h"
+
+#include "CoreAPI.h"
 
 #ifndef DURIN_WITH_TRACY
 	#define DURIN_WITH_TRACY 0
@@ -71,10 +71,6 @@ namespace Durin::Profiling
 }
 
 #if DURIN_WITH_TRACY
-	#include <algorithm>
-	#include <array>
-	#include <cstdio>
-	#include <mutex>
 
 	#include <tracy/Tracy.hpp>
 

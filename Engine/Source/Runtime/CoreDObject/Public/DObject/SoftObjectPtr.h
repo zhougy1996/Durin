@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/WeakObjectPtr.h"

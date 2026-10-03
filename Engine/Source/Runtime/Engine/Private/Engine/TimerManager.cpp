@@ -4,7 +4,6 @@
 #include "Components/ActorComponent.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
-#include <deque>
 
 namespace Durin
 {

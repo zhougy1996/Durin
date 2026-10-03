@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/Publication.h"
 
 namespace Durin::AssetPrivate

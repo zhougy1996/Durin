@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Physics/PhysicsMeshInputTask.h"
 #include "Physics/BodySetupTypes.h"
 

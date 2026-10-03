@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreDObjectAPI.h"
 #include "Misc/Name.h"
 

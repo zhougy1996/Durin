@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "Windows/WindowsPlatform.h"
 
 #include "GenericPlatform/GenericPlatformMisc.h"

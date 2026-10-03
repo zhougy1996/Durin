@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RHIShaderParameters.h"
 
 namespace Durin::RHIShaderParameterValidationInternal

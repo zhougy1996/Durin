@@ -1,7 +1,6 @@
 #include "MaterialGraphExpressionRegistry.h"
 #include "DObject/Class.h"
 #include "Misc/AssertionMacros.h"
-#include <unordered_map>
 
 namespace Durin::Editor::Material
 {

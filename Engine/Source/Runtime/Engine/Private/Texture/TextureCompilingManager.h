@@ -1,9 +1,10 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Asset/AssetCompilingManager.h"
-#include "Hash/XxHash.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"

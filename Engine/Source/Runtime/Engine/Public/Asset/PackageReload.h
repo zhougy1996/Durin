@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/AssetReadResult.h"
 #include "Asset/PackageGraphPreparationError.h"
 #include "Materials/MaterialCompileLifecycle.h"

@@ -5,7 +5,6 @@
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsBuildFunction.h"
 #include "PhysicsSharedOutput.h"
-#include <mutex>
 #endif
 
 namespace Durin

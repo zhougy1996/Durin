@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildOutput.h"
 #include "Serialization/BinaryFormat.h"

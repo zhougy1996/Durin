@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin
 {
 	// Groups proven portable rendering baselines into coarse feature tiers.

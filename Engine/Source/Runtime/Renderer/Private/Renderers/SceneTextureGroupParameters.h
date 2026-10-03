@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"

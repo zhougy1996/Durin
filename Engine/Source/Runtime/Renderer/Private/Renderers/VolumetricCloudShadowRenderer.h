@@ -1,10 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "RHIResources.h"
-
-#include <memory>
-#include <optional>
 
 namespace Durin
 {

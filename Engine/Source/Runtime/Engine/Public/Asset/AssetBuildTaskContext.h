@@ -1,7 +1,6 @@
 #pragma once
 
-#include <functional>
-#include <limits>
+#include "CoreMinimal.h"
 #include "Misc/CoreTypes.h"
 
 namespace Durin

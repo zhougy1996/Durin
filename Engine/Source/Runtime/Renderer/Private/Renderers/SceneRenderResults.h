@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "IRendererModule.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"

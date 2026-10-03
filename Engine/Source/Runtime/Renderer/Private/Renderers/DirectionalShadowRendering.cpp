@@ -8,7 +8,6 @@
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
-#include <cstdlib>
 
 namespace Durin
 {

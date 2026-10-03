@@ -1,12 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDG/RDG.h"
 #include "RHICommandList.h"
 #include "RHIQueueTransfer.h"
-
-#include <map>
-#include <unordered_map>
-#include <unordered_set>
 
 // Private vocabulary shared by graph authoring, compilation, and execution.
 namespace Durin::RDGPrivate

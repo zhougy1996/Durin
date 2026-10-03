@@ -4,8 +4,30 @@ These conventions apply to repository-owned C++ source. Generated code and third
 
 ## Includes
 
-`CoreStd.h` supplies common STL headers. Add another standard-library header
-only when the translation unit requires it.
+Ordinary Engine and project module headers include `CoreMinimal.h` before
+module-specific dependencies. Public and private headers must compile without
+PCH or forced includes; PCH is a build optimization, not an implicit dependency
+contract. Include the declaring header for bases, members, and inline operations
+that `CoreMinimal.h` does not provide. Keep reflection-generated `.gen.h`
+includes last.
+
+Core foundation headers and minimal export/configuration headers use their
+lower-level dependencies directly. Built-in-type-only ABI entrypoints such as
+Launch's `ApplicationProcess.h` remain independent of Core so the launcher does
+not acquire an unnecessary Core dependency. Do not introduce `CoreMinimal.h` into its
+own dependency graph. Use `Misc/CoreStd.h` for common standard-library facilities
+and the required Core type, platform, or template headers explicitly.
+
+`CoreMinimal.h` supplies the common standard-library headers through `CoreFwd.h`
+and `Misc/CoreStd.h`, including `<expected>`. Do not repeat headers already
+supplied by `CoreStd.h` in consumers. Keep direct includes for standard-library
+facilities outside that set, platform SDKs, and third-party libraries.
+
+The common foundation also exposes `FXxHash64`/`FXxHash128`,
+`FSharedByteBuffer`, and `TMoveOnlyFunction` through `CoreMinimal.h`. Keep
+specialized Core services and all DObject, rendering, editor, and backend
+dependencies in their declaring headers; add no upward module dependencies
+to `CoreMinimal.h`.
 
 ## Byte Data
 

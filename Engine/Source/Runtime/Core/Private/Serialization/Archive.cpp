@@ -1,7 +1,5 @@
 #include "Serialization/Archive.h"
 
-#include <mutex>
-
 namespace Durin
 {
 	namespace

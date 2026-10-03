@@ -1,10 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
 #include "EngineAPI.h"
-#include <memory>
-#include <span>
-#include <vector>
 
 namespace Durin
 {

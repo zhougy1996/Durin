@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
 #include "HAL/Platform.h"
 
 namespace Durin

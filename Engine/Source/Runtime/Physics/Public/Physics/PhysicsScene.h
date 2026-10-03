@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PhysicsAPI.h"
 #include "Physics/PhysicsTypes.h"
 

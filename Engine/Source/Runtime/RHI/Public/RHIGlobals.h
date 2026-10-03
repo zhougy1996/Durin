@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Delegates/Delegate.h"
 #include "RHIAPI.h"
 #include "RHIInitialization.h"

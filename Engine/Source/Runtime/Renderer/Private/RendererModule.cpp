@@ -10,8 +10,6 @@
 #include "RenderingThread.h"
 #include "Scene.h"
 
-#include <mutex>
-
 namespace Durin
 {
 	namespace

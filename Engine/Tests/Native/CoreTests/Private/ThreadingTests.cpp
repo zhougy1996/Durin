@@ -1,7 +1,6 @@
 #include "TaskKernelTestSupport.h"
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <barrier>
 
 #include "Profiling/Profiling.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Actors/PlayerController.h"
 #include "SandboxAPI.h"
 

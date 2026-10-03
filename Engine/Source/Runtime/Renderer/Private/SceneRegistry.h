@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "SceneInfo.h"
 #include "Rendering/SkyBoxSceneProxy.h"
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "DObject/Object.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/EditorBulkData.h"
 #include "Asset/CookedAsset.h"
 #include "EngineAPI.h"

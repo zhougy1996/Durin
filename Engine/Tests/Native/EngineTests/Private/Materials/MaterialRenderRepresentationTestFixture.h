@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -11,8 +13,6 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 
-#include <cstring>
-#include <limits>
 
 namespace
 {

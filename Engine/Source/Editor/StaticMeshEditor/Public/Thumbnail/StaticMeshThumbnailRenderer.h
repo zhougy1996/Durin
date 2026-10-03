@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "Math/Box.h"
 #include "Math/Transform.h"

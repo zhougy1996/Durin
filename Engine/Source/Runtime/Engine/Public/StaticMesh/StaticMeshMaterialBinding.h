@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"

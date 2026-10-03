@@ -1,16 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "DObject/Archive.h"
+
 #include "Asset/BulkData.h"
 #include "Logging/LogMacros.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
-
-#include <format>
-#include <memory>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
 
 namespace Durin::TexturePrivate
 {

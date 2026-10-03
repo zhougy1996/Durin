@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Editor/EditorHost.h"
 
 namespace Durin::Editor::MainFrame

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/Guid.h"
 
 namespace Durin::Editor::Level

@@ -1,15 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialRenderProxy.h"
 #include "DefaultTextures.h"
 #include "RenderResourceCreation.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
 #include "Shader/MaterialShader.h"
-
-#include <array>
-#include <cstddef>
-#include <memory>
 
 namespace Durin
 {

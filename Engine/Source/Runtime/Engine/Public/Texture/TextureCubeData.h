@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
 #include "Texture/Texture2DData.h"

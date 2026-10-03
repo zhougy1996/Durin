@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Materials/MaterialFunction.h"
@@ -7,15 +9,10 @@
 
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/MathStructs.h"
-#include "Hash/XxHash.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialExpressionBuild.h"
-#include <set>
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-#include <cstring>
-#include <limits>
-#include <unordered_set>
 
 namespace
 {

@@ -1,9 +1,8 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
 
 namespace Durin
 {

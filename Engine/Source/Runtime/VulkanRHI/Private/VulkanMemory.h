@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
+#include "VulkanPlatform.h"
+
 #include "VulkanRHIAPI.h"
 #include "VulkanQueue.h"
 

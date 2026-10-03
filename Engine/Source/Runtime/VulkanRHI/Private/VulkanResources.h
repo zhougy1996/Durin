@@ -1,5 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
 #include "RHIResources.h"
 
 namespace Durin::VulkanRHI

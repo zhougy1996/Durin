@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "MaterialEditorAPI.h"
 #include "Thumbnail/ThumbnailRenderer.h"

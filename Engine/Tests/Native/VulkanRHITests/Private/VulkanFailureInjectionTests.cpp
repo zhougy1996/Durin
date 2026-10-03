@@ -10,7 +10,6 @@
 #include "HAL/PlatformLTS.h"
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
-#include <future>
 #include "RenderingThread.h"
 #include "SlangShaderCompiler.h"
 #include "VulkanRHIPrivate.h"

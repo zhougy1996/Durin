@@ -1,8 +1,5 @@
 #include "Renderers/VolumetricCloudScenePreparation.h"
 
-#include <algorithm>
-#include <bit>
-
 namespace Durin
 {
 	auto BuildVolumetricCloudParameters(

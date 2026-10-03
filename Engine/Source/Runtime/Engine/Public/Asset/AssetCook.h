@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/Asset.h"
 #include "Asset/Cook.h"
 #include "Asset/PackageSerialization.h"

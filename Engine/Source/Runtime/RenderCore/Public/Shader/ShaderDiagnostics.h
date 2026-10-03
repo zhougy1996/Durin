@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderCoreAPI.h"
 #include "RHIDefinitions.h"
 #include "Misc/FileError.h"
-#include <expected>
 
 namespace Durin
 {

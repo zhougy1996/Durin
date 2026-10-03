@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreGlobals.h"
 #include "DObject/AssetPath.h"
 #include "DurinEdAPI.h"

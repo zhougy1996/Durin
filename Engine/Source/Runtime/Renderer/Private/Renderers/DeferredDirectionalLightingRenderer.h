@@ -1,13 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/DurinMath.h"
 #include "RendererAPI.h"
 #include "RHIResources.h"
-
-#include <array>
-#include <limits>
-#include <memory>
-#include <optional>
 
 namespace Durin
 {

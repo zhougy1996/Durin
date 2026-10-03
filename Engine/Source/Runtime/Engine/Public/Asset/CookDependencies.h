@@ -1,11 +1,12 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Asset/CookInputResult.h"
 
 #include "EngineAPI.h"
 #include "Asset/AssetReadResult.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/AssetPath.h"
-#include "Hash/XxHash.h"
 
 namespace Durin
 {

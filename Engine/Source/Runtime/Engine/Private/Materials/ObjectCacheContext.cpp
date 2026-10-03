@@ -7,8 +7,6 @@
 #include "Materials/MaterialLoadedQueryDiagnostics.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
-#include <unordered_map>
-#include <unordered_set>
 
 namespace Durin
 {

@@ -1,6 +1,7 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "DerivedDataBuildScheduler.h"
-#include <thread>
 
 namespace Durin::DerivedData
 {

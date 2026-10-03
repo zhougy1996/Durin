@@ -1,12 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "Materials/MaterialTypes.h"
 #include "Templates/RefCounting.h"
-
-#include <mutex>
-#include <optional>
 
 namespace Durin
 {

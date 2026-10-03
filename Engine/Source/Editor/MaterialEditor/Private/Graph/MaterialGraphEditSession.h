@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
 #include "Materials/MaterialExpressionEditing.h"

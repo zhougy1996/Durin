@@ -1,8 +1,8 @@
 #pragma once
 
-#include "MeshDescription/MeshDescription.h"
+#include "CoreMinimal.h"
 
-#include <span>
+#include "MeshDescription/MeshDescription.h"
 
 namespace Durin
 {

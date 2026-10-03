@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
+
 #include "HAL/Platform.h"
-#include <variant>
 
 namespace Durin::Tasks
 {

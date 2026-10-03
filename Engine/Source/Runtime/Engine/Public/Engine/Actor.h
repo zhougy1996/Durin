@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
 #include "Components/SceneComponent.h"

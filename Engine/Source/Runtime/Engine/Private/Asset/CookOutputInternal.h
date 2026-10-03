@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Asset/Cook.h"
 namespace Durin::AssetPrivate
 {

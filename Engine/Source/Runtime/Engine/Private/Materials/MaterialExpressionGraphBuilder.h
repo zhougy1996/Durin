@@ -1,9 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialExpressionBuild.h"
-#include <map>
-#include <set>
-#include <tuple>
 
 namespace Durin::MIR
 {

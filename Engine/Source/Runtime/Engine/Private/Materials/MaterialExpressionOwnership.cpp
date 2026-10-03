@@ -10,7 +10,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
-#include <unordered_set>
 
 #if DURIN_WITH_EDITORONLY_DATA
 namespace Durin

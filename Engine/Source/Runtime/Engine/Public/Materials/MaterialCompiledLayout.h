@@ -1,11 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Materials/MaterialTypes.h"
 #include "Shader/MaterialShaderIdentity.h"
-
-#include <span>
-#include <vector>
 
 namespace Durin
 {

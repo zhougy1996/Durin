@@ -1,7 +1,6 @@
 #include "TaskKernelTestSupport.h"
 #include <gtest/gtest.h>
 
-#include <iostream>
 
 #include "Threading/TaskComposition.h"
 #include "Threading/RunnableThread.h"

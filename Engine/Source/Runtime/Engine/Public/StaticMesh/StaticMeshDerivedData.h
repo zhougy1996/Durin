@@ -1,10 +1,9 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "EngineAPI.h"
 #include "Asset/PayloadTargetPlatform.h"
-#include "Hash/XxHash.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildVersion.h"
 #include "StaticMesh/StaticMeshResources.h"

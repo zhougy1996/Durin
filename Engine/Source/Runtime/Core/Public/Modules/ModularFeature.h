@@ -1,17 +1,11 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
+
 #include "CoreAPI.h"
 #include "Misc/Name.h"
-
-#include <chrono>
-#include <concepts>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
 
 namespace Durin
 {

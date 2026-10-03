@@ -1,12 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "Import/EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
-#include <variant>
 
 #include "StaticMeshFactory.gen.h"
 

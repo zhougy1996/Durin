@@ -1,8 +1,5 @@
 #include "Materials/MaterialProgramTypes.h"
 
-#include <format>
-#include <unordered_set>
-
 namespace Durin
 {
 	auto IsValidMaterialValueSemantics(const FMaterialValueSemantics& Value) -> bool

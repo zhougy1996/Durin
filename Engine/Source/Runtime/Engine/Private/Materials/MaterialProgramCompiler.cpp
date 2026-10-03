@@ -4,16 +4,6 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "DynamicRHI.h"
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <bit>
-#include <functional>
-#include <numeric>
-#include <tuple>
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

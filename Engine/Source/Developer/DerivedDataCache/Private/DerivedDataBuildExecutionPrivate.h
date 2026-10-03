@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "DerivedDataBuildSession.h"
 
 namespace Durin::DerivedData::Private

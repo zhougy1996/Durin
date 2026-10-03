@@ -10,7 +10,6 @@
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include <future>
 
 namespace Durin
 {

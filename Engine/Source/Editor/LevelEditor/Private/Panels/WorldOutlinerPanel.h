@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"

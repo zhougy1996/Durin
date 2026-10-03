@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ShaderDependencyManifestStore.h"
 #include "Shader/ShaderCompilerCore.h"
 

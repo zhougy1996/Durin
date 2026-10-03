@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Serialization/CustomVersion.h"
 #include "DObject/PackageBulkStorage.h"

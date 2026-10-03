@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
 #include "CoreGlobals.h"

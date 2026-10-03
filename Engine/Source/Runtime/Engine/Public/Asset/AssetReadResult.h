@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Asset/PackageResourceError.h"
 #include "Asset/EditorBulkDataStorageError.h"
@@ -7,8 +9,6 @@
 #include "AssetRegistry/RegistryResult.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/SoftObjectPtr.h"
-
-#include <expected>
 
 namespace Durin
 {

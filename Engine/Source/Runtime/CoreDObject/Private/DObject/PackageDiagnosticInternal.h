@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::ObjectPackage

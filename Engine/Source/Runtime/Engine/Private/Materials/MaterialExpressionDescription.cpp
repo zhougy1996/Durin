@@ -1,11 +1,7 @@
 #include "Materials/MaterialExpressionDescription.h"
 #include "Materials/MaterialExpressions.h"
 #include "DObject/Class.h"
-#include <algorithm>
-#include <array>
 #include "Misc/AssertionMacros.h"
-#include <unordered_map>
-#include <type_traits>
 
 namespace Durin
 {

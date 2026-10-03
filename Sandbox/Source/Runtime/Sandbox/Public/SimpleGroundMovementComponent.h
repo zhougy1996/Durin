@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Components/PawnMovementComponent.h"
 #include "SandboxAPI.h"
 

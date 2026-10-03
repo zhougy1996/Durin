@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Documents/DocumentDialogPresenters.h"
 #include "DObject/SoftObjectPtr.h"
 

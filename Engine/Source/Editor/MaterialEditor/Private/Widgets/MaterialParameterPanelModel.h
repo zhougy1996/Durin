@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PropertyEditor/PropertyView.h"
 #include "Materials/MaterialTypes.h"
 #include "DObject/WeakObjectPtr.h"

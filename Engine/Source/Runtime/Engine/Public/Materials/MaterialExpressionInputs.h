@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Materials/MaterialExpressions.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

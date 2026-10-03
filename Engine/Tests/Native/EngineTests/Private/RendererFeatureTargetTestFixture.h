@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DynamicRHI.h"
 #include "RHI.h"
 #include "Renderers/ContactShadowRenderer.h"

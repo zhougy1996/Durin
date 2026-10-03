@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Asset/CookInputResult.h"
 #include "Asset/AssetWriteResult.h"
 
@@ -10,7 +12,6 @@
 #include "Asset/PackageBulkData.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
-#include "Hash/XxHash.h"
 #include "Misc/FileError.h"
 
 namespace Durin

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistryAPI.h"
 #include "DObject/PackageFormat.h"
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/Box.h"
 #include "Spline/SplineTypes.h"
 

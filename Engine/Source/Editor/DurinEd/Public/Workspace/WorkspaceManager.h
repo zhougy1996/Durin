@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DurinEdAPI.h"
 #include "Workspace/Workspace.h"
 #include "Asset/MutationExtensions.h"

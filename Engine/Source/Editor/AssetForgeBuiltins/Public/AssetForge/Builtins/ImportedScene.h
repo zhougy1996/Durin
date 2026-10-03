@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/SceneImportTypes.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "CoreFwd.h"
-#include "Hash/XxHash.h"
 #include "Math/Vector.h"
 
 namespace Durin::AssetForge::Builtins

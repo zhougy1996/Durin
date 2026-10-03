@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/PackageInspection.h"
 #include "AssetTools/MutationTypes.h"
 #include "AssetTools/MutationTesting.h"

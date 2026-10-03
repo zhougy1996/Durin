@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "GeometrySubmission.h"
 #include "VertexFactory.h"
-#include <expected>
 
 namespace Durin
 {

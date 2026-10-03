@@ -1,10 +1,6 @@
 #include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialExpressions.h"
 
-#include <cmath>
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin
 {
 	auto IsValidMaterialFunctionValueConstraint(EMaterialProgramValueType Type,

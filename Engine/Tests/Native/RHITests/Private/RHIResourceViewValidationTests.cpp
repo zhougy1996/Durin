@@ -1,7 +1,6 @@
 #include "RHIResources.h"
 
 #include <gtest/gtest.h>
-#include <thread>
 
 namespace Durin
 {

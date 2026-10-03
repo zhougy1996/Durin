@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::AssetPrivate
 {
 	// Capture may retain validated authored bytes before retiring a loose resource.

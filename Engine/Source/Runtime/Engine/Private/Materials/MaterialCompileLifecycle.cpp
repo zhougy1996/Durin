@@ -17,11 +17,6 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
 
-#include <atomic>
-#include <deque>
-#include <mutex>
-#include <unordered_map>
-
 namespace Durin
 {
 	namespace

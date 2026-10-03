@@ -6,12 +6,6 @@
 #include "Rendering/SceneInterface.h"
 #include "Threading/RunnableThread.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-#include <cstring>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

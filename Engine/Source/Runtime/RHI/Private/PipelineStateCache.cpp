@@ -3,8 +3,6 @@
 #include "PipelineCompileQueue.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
-#include <future>
-#include <thread>
 
 namespace Durin
 {

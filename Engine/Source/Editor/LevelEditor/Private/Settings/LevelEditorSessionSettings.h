@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Settings/LevelViewportSessionSettings.h"
 
 namespace Durin

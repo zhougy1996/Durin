@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <future>
 
 #include "RHIPipelineCreation.h"
 #include "PipelineStateCache.h"

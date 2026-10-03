@@ -1,8 +1,6 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "MaterialExpressionGraphBuilder.h"
-#include <cmath>
-#include <unordered_set>
 
 #include "Threading/RunnableThread.h"
 #include "Materials/MaterialFunctionInterface.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::Editor::Level
 {
 	// Builds a deterministic actor hierarchy projection without owning world or UI state.

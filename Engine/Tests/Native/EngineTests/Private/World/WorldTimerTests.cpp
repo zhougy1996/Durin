@@ -1,6 +1,5 @@
 #include "WorldTestSupport.h"
 #include "DObject/DObjectArray.h"
-#include <stdexcept>
 
 namespace Durin
 {

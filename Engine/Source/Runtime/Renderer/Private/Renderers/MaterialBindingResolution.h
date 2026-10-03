@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Materials/MaterialRenderTypes.h"
+#include "CoreMinimal.h"
 
-#include <string_view>
+#include "Materials/MaterialRenderTypes.h"
 
 namespace Durin::RendererPrivate
 {

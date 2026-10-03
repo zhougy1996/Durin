@@ -1,9 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaImGuiAPI.h"
 #include "Window/GenericWindow.h"
-
-#include <memory>
 
 struct ImGuiContext;
 struct ImGuiViewport;

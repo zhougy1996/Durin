@@ -1,11 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialTestSupport.h"
 
-#include <iostream>
 
 namespace Durin::Testing
 {

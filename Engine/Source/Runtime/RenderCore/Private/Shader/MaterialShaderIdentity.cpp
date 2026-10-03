@@ -1,7 +1,5 @@
 #include "Shader/MaterialShaderIdentity.h"
 
-#include <tuple>
-
 namespace Durin
 {
 	namespace

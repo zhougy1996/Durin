@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Engine/EngineGlobals.h"
 #include "SceneView.h"
 #include "MonaImGui.h"

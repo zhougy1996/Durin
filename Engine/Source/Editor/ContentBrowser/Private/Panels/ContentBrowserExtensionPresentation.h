@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserModel.h"
 

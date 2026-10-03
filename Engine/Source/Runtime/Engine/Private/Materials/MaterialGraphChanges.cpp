@@ -6,7 +6,6 @@
 #include "DObject/Archive.h"
 #include "DObject/Property.h"
 #include "Threading/RunnableThread.h"
-#include <unordered_map>
 
 namespace Durin
 {

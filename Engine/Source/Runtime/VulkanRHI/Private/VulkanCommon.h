@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PixelFormat.h"
 
 namespace Durin::VulkanRHI

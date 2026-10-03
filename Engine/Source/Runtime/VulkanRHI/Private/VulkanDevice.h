@@ -1,6 +1,11 @@
 #pragma once
 
-#include <string>
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
+#include "VulkanPlatform.h"
+
 #include "RHICompletion.h"
 #include "Backend/RHICompletionBackend.h"
 

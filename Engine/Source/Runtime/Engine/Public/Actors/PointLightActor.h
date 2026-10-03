@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Engine/Actor.h"
 
 #include "PointLightActor.gen.h"

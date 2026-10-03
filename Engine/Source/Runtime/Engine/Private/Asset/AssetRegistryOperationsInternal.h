@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/Publication.h"
 
 #define DURIN_ENGINE_ASSET_INTERNAL 1

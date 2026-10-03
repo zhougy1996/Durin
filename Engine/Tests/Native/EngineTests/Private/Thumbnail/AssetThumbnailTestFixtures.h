@@ -5,7 +5,8 @@
 #include "Asset/AssetCompilingManager.h"
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
+
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"

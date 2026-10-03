@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "MaterialGraphOperations.h"
 #include "Materials/MaterialExpressions.h"
 #include "DObject/StrongObjectPtr.h"

@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
 #include "Materials/MaterialCompilationConfiguration.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialFunctionTypes.h"
@@ -10,13 +11,6 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
-
-#include <optional>
-#include <span>
-#include <array>
-#include <string>
-#include <vector>
-#include <variant>
 
 namespace Durin
 {

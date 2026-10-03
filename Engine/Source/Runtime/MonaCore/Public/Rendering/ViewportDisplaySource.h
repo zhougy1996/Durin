@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/MathFwd.h"
 #include "RHIResources.h"
 

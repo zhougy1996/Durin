@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "CoreStd.h"
 #include "Misc/CoreTypes.h"
 

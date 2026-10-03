@@ -8,9 +8,6 @@
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
 
-#include <algorithm>
-#include <cmath>
-
 namespace Durin
 {
 	namespace

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/ContactShadowVisibilityRendering.h"
 #include "Renderers/DirectionalShadowRendering.h"

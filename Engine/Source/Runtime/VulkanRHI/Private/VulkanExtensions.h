@@ -1,7 +1,6 @@
 #pragma once
 
-#include <string>
-#include <vector>
+#include "CoreMinimal.h"
 
 #include "VulkanRHIAPI.h"
 

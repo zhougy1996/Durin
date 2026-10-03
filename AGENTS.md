@@ -29,6 +29,9 @@ when it changes or needed context is unavailable.
   for example `git -c safe.directory=<absolute-checkout-path> status`; do not
   modify the user's global `safe.directory` configuration.
 - Configure, build, run, or recovery: read `Documentation/Agents/BuildAndRun.md` first.
+- C++ header dependencies: follow the
+  [include contract](Documentation/Development/Standards/CodingStandards.md#includes);
+  do not rely on PCH or repeat the standard-library headers supplied by `CoreStd.h`.
 - Native-test selection or execution: read `Documentation/Agents/Testing.md` first.
 - Documentation maintenance: read `Documentation/Agents/Documentation.md` first.
 - Do not start another build while an earlier CMake, Ninja, compiler, or linker

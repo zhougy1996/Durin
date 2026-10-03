@@ -1,9 +1,6 @@
 #pragma once
 
-#include <format>
-#include <source_location>
-#include <string_view>
-#include <utility>
+#include "Misc/CoreStd.h"
 
 #if defined(_WIN32)
 	#if defined(CORE_EXPORTS)

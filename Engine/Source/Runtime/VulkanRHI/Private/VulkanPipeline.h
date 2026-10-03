@@ -1,5 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
+#include "VulkanPlatform.h"
+
+#include "VulkanRHIAPI.h"
+
 #include "VulkanCommon.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanShader.h"

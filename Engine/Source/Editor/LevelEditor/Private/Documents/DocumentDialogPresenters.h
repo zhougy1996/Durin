@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::Editor::Level
 {
 	// Identifies the user decision returned by the unsaved-level modal.

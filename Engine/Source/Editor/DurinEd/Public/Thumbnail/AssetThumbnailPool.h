@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/ThumbnailManager.h"
 

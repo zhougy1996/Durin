@@ -1,7 +1,8 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
-#include <bit>
 
 namespace Durin::PhysicsPrivate
 {

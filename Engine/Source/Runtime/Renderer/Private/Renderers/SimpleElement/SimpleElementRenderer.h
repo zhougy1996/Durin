@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/SimpleElement/SimpleElementCollector.h"
 #include "Shader/GlobalShader.h"
 

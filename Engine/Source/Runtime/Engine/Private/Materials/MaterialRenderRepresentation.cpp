@@ -1,6 +1,5 @@
 #include "Materials/MaterialRenderTypes.h"
 #include "Hash/XxHash.h"
-#include <atomic>
 
 namespace Durin
 {

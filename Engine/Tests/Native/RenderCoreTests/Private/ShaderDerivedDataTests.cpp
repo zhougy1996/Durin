@@ -14,7 +14,6 @@
 
 #include "gtest/gtest.h"
 
-#include <fstream>
 
 namespace Durin
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuild.h"

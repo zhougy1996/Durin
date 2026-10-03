@@ -1,11 +1,9 @@
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
 #include "Profiling/Profiling.h"
-#include <format>
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 #include "Threading/TaskComposition.h"
-#include <deque>
 
 namespace Durin::RDGPrivate
 {

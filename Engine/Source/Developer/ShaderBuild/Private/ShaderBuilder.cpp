@@ -14,8 +14,6 @@
 #include "Misc/Paths.h"
 #include "ShaderBuild/ShaderPaths.h"
 
-#include <tuple>
-
 namespace Durin
 {
 	namespace

@@ -12,11 +12,6 @@
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 
-#include <deque>
-#include <cmath>
-#include <condition_variable>
-#include <variant>
-
 namespace Durin
 {
 	namespace

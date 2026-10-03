@@ -1,11 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/MathFwd.h"
 #include "RendererAPI.h"
 #include "RHIResources.h"
-
-#include <memory>
-#include <optional>
 
 namespace Durin
 {

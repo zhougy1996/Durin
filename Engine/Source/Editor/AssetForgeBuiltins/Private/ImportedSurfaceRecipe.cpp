@@ -1,7 +1,5 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
-
-#include <algorithm>
 #include "MaterialExpressionRecipeBuilder.h"
 
 namespace Durin::AssetForge::Builtins

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Components/PrimitiveComponent.h"
 
 #include "ShapeComponent.gen.h"

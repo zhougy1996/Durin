@@ -8,7 +8,6 @@
 #include "MaterialGraphEditSession.h"
 #include "DObject/Package.h"
 #include "MaterialGraphValueTypes.h"
-#include <cmath>
 #include "Asset/Asset.h"
 
 namespace Durin::Editor::Material

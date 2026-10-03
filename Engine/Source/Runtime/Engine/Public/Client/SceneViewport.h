@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Client/Viewport.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "RDG/RDGDiagnostics.h"
@@ -7,9 +9,6 @@
 #include "SceneViewState.h"
 
 #include "MonaCoreFwd.h"
-
-#include <atomic>
-#include <mutex>
 
 namespace Durin
 {

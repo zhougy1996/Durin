@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/SceneImportTypes.h"
-#include "Hash/XxHash.h"
 
 namespace Durin::AssetForge
 {

@@ -1,13 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <string>
 
 namespace
 {

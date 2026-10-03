@@ -1,14 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Asset/PackageResourceError.h"
 #include "Misc/Guid.h"
-#include <cstdint>
-#include <optional>
-#include <memory>
-#include <string>
-#include <variant>
-#include <type_traits>
 
 namespace Durin
 {

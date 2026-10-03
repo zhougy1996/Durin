@@ -1,16 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompiledLayout.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Misc/EnumClassFlags.h"
 #include "Shader/MaterialShaderIdentity.h"
-
-#include <array>
-#include <cstddef>
-#include <span>
-#include <string>
-#include <vector>
 
 namespace Durin
 {

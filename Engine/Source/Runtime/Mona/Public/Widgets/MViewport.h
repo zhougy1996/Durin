@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaAPI.h"
 #include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MWidget.h"

@@ -1,5 +1,8 @@
 #pragma once
-#include <expected>
+
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
 
 #include "CoreAPI.h"
 

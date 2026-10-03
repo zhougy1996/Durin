@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Thumbnail/ThumbnailStorage.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "AssetThumbnailRequestQueue.h"

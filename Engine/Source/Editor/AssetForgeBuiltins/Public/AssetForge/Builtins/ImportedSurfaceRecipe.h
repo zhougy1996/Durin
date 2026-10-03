@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetForge/Builtins/MaterialExpressionRecipe.h"

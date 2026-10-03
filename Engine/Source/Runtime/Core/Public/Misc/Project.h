@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "CoreAPI.h"
 #include "Misc/ProjectError.h"
 

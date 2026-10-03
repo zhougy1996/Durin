@@ -5,8 +5,6 @@
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 
-#include <fstream>
-
 namespace Durin
 {
 	namespace

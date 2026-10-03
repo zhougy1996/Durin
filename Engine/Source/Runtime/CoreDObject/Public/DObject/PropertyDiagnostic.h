@@ -1,8 +1,9 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "CoreDObjectAPI.h"
 #include "DObject/DObjectGlobals.h"
 #include "Serialization/Archive.h"
-#include <variant>
 #include "DObject/ContainerOps.h"
 #include "DObject/ObjectValidation.h"
 #include "DObject/AssetPath.h"

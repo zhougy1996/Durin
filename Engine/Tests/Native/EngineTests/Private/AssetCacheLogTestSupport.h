@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Logging/Logger.h"
 #include "NativeTestSupport.h"
 

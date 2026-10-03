@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetTools/AssetSave.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/StrongObjectPtr.h"
-#include <future>
 #include "Import/ImportDialogSupport.h"
 
 namespace Durin::Editor::Texture

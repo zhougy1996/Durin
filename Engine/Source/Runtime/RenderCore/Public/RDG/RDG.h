@@ -1,18 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDG/RDGAllocator.h"
 #include "RDG/RDGDiagnostics.h"
 #include "RDG/RDGExecution.h"
 #include "RDG/RDGParameters.h"
-#include <concepts>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <utility>
 
 namespace Durin
 {

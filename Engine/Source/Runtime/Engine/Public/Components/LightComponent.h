@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Components/SceneComponent.h"
 #include "Rendering/LightComponentId.h"
 

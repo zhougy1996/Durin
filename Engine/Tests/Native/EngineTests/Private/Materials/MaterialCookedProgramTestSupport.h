@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Hash/XxHash.h"
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialCookedProgram.h"
 #include "Serialization/Archive.h"
 

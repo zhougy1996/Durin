@@ -1,8 +1,6 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "RDG/RDG.h"
 
-#include <utility>
-
 namespace Durin
 {
 	namespace

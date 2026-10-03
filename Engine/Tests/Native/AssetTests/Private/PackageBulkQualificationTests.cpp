@@ -11,8 +11,6 @@
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 #include <gtest/gtest.h>
-#include <chrono>
-#include <iostream>
 
 namespace
 {

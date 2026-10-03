@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Texture/Texture2DCompilationTypes.h"
 
 namespace Durin::TexturePrivate

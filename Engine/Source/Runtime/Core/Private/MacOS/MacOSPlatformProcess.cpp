@@ -1,14 +1,9 @@
 #include "MacOS/MacOSPlatformProcess.h"
-
-#include <cctype>
-#include <cerrno>
 #include <climits>
-#include <cstdlib>
 #include <mach-o/dyld.h>
 #include <spawn.h>
 #include <sys/event.h>
 #include <sys/wait.h>
-#include <system_error>
 #include <unistd.h>
 
 extern char** environ;

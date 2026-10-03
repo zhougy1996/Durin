@@ -6,7 +6,6 @@
 #include "Texture/TextureDerivedData.h"
 #include "TextureBuildSession.h"
 #include "Texture2DBuildFunction.h"
-#include <chrono>
 #include "TextureDerivedDataKey.h"
 #include "Texture2DSharedOutput.h"
 

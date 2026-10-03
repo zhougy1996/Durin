@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "SceneOwnership.h"
 #include "HitProxy.h"
 #include "SceneView.h"

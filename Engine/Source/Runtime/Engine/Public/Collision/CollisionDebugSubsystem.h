@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Engine/WorldSubsystem.h"
 #include "Collision/CollisionTypes.h"
 #include "CollisionDebugSubsystem.gen.h"

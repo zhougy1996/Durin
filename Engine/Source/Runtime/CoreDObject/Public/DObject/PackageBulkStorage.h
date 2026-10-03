@@ -1,9 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreDObjectAPI.h"
-#include "Hash/XxHash.h"
 #include "Misc/Guid.h"
-#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin
 {

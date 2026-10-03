@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserModel.h"
 #include "Thumbnail/ThumbnailManager.h"
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Input/InputCoreTypes.h"
 #include "Math/Vector.h"

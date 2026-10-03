@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "MaterialGraphDocument.h"
 
 namespace Durin::Editor::Material

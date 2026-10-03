@@ -1,5 +1,9 @@
 #pragma once
-#include <expected>
+
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
+
+#include "Misc/CoreStd.h"
 
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"

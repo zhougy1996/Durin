@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Scene.h"
 #include "SceneOwnership.h"
 #include "Math/Operations.h"

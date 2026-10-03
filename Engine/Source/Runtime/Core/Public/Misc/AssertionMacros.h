@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "Misc/Assertion.h"
 #include "Misc/Build.h"
 

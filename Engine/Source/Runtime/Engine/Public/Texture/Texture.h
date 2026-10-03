@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "EngineAPI.h"
 #include "Asset/AssetImportData.h"

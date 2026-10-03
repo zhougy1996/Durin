@@ -30,9 +30,6 @@
 #include "Window/GenericWindow.h"
 #include "Window/GenericWindowDefinition.h"
 
-#include <array>
-#include <memory>
-#include <vector>
 
 namespace Durin
 {

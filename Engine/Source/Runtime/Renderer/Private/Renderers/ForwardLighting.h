@@ -1,12 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Rendering/LightSceneProxy.h"
 #include "RHIResources.h"
 #include "RendererAPI.h"
 #include "Rendering/LightComponentId.h"
-
-#include <array>
-#include <vector>
 
 namespace Durin
 {

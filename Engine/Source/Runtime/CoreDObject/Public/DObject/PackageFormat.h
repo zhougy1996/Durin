@@ -1,9 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreDObjectAPI.h"
 #include "DObject/CanonicalMapKey.h"
 #include "Serialization/BinaryEnvelope.h"
-#include "Hash/XxHash.h"
 
 namespace Durin::ObjectPackage
 {

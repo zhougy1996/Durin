@@ -1,19 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDG/RDGDefinitions.h"
-#include <array>
-#include <concepts>
-#include <expected>
-#include <functional>
-#include <limits>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <utility>
-#include <vector>
 
 namespace Durin
 {

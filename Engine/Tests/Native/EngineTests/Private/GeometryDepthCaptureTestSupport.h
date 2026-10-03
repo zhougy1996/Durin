@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Shader/GlobalShader.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "DynamicRHI.h"

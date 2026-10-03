@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::Editor::Host
 {
 	// Describes the game-thread-owned, forward-only editor host bootstrap.

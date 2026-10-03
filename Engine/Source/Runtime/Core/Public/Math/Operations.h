@@ -1,14 +1,12 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
+
 #include "HAL/Platform.h"
 #include "Math/Constants.h"
 #include "Math/Vector.h"
-
-#include <cmath>
-#include <concepts>
-#include <numbers>
-#include <type_traits>
-#include <utility>
 
 namespace Durin::Math
 {

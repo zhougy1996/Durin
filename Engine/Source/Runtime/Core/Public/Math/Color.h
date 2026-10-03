@@ -1,5 +1,10 @@
 #pragma once
 
+#include "Math/Constants.h"
+#include "Math/NumericalOperations.h"
+
+#include "Misc/CoreTypes.h"
+
 #include "CoreAPI.h"
 
 #include "Math/Vector.h"

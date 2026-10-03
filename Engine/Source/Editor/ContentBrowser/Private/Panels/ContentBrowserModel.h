@@ -1,14 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Threading/TaskComposition.h"
 
 #include "Panels/ContentBrowserDataSource.h"
 #include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
-
-#include <filesystem>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace Durin::Editor::ContentBrowser::Private
 {

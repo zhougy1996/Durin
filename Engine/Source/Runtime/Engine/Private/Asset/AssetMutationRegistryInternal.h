@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #define DURIN_ENGINE_ASSET_INTERNAL 1
 #include "Asset/Mutation.h"
 #undef DURIN_ENGINE_ASSET_INTERNAL

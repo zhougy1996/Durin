@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include <gtest/gtest.h>
 
 #include "Rendering/MeshBatch.h"

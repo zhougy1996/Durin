@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "NativeAssetBuildTestSupport.h"
 #include "Actors/SkyBoxActor.h"
 #include "Asset/AssetCompilingManager.h"
@@ -38,8 +40,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <algorithm>
-#include <cmath>
 
 namespace
 {

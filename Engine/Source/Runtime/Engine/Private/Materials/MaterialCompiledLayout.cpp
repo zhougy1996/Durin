@@ -1,8 +1,5 @@
 #include "Materials/MaterialCompiledLayout.h"
 
-#include <algorithm>
-#include <unordered_set>
-
 namespace Durin
 {
 	namespace

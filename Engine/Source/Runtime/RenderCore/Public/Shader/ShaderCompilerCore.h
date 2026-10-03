@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Shader/ShaderDiagnostics.h"
-#include "Serialization/SharedByteBuffer.h"
 
 #include "RHIDefinitions.h"
 #include "RHIResources.h"

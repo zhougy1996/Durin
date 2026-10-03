@@ -1,6 +1,8 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
+
+#include "RHI.h"
 
 #include "RHICommandList.h"
 #include "VulkanRHIPrivate.h"

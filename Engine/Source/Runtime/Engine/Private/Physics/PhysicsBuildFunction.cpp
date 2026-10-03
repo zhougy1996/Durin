@@ -3,7 +3,6 @@
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsCookInputPrivate.h"
 #include "PhysicsSharedOutput.h"
-#include <cstring>
 
 namespace Durin::PhysicsPrivate
 {

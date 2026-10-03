@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "MaterialGraphDocument.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"

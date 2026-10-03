@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "RDG/RDGParameters.h"

@@ -1,8 +1,12 @@
 #pragma once
+
+#include "CoreMinimal.h"
+
+#include "DObject/ObjectMacros.h"
+#include "DObject/DObjectFwd.h"
+
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
-
-#include <expected>
 
 #include "Asset/EditorBulkData.h"
 #include "MeshDescription/MeshDescription.h"

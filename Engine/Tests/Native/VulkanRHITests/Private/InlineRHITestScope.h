@@ -1,8 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "DynamicRHI.h"
 #include "RHIGlobals.h"
 
-#include <cstdlib>
 
 namespace Durin::VulkanRHI
 {

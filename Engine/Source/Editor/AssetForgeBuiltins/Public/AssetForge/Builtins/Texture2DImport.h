@@ -1,10 +1,9 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/Texture2D.h"
-#include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Asset/SourceHint.h"
 #include "Misc/MountPaths.h"

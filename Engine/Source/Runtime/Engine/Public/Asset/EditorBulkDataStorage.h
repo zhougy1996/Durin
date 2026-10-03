@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Misc/FilePath.h"
 #include "Asset/EditorBulkDataStorageError.h"

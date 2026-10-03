@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include "CoreMinimal.h"
 #include "EngineAPI.h"
 
 namespace Durin

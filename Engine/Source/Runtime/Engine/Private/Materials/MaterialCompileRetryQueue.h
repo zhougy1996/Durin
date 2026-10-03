@@ -1,10 +1,8 @@
 #pragma once
 
-#include "DObject/WeakObjectPtr.h"
+#include "CoreMinimal.h"
 
-#include <algorithm>
-#include <list>
-#include <unordered_map>
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin::Private
 {

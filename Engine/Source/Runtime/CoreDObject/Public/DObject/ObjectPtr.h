@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
 #include "DObject/ObjectHandle.h"
 #include "DObject/ObjectKey.h"

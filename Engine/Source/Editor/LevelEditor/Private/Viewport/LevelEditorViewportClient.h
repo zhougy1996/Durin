@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Client/ViewportClient.h"
 #include "SceneViewProjection.h"
 #include "Viewport/TransformGizmo.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/Vector.h"
 
 namespace Durin::Sandbox::GameplayTuning

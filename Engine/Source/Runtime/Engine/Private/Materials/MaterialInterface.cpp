@@ -19,8 +19,6 @@
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 #include "RenderingThread.h"
-#include <unordered_set>
-#include <unordered_map>
 
 namespace Durin
 {

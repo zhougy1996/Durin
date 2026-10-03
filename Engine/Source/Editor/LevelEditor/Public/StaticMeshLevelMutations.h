@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ObjectPtr.h"
 #include "LevelEditorAPI.h"
 #include "Math/Transform.h"

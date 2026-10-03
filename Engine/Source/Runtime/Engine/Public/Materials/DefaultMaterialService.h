@@ -1,10 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
-
-#include <span>
-#include <string_view>
 
 namespace Durin
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/SceneRenderGraphTypes.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/MeshRendererShared.h"

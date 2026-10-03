@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialEditorAPI.h"
 #include "Modules/ModuleManager.h"
 

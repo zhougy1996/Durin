@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderCoreAPI.h"
 #include "Threading/RunnableThread.h"
 

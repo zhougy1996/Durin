@@ -1,6 +1,8 @@
 #include "FunctionPortTestFixture.h"
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "TypedMaterialGraphTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"

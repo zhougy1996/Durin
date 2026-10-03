@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserQuery.h"
 
 namespace Durin::Editor::ContentBrowser::Private

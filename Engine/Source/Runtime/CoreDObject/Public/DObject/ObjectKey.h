@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
-#include <compare>
 
 namespace Durin
 {

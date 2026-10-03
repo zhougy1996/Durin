@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderResourceCreation.h"
 #include "RHIResources.h"
 #include "Rendering/SkyLightSceneProxy.h"

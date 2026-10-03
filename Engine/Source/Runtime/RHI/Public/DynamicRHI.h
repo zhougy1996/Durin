@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "RHIAPI.h"
 #include "RHICompletion.h"

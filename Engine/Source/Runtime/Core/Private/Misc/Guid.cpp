@@ -1,7 +1,5 @@
 #include "Misc/Guid.h"
 
-#include <random>
-
 namespace Durin
 {
 	namespace

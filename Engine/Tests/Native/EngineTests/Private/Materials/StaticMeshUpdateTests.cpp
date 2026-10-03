@@ -6,8 +6,6 @@
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 #include "Asset/AssetCompilingManager.h"
 
-#include <chrono>
-#include <iostream>
 
 namespace
 {

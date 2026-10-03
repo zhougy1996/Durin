@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DerivedDataValue.h"
 #include "Serialization/CompactBinary.h"
 

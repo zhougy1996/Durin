@@ -1,6 +1,6 @@
 #pragma once
 
-#include <optional>
+#include "CoreMinimal.h"
 
 namespace Durin::Profiling { struct FConnectionState; }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetPackageCodec.h"
 
 namespace Durin::AssetPrivate::TaggedPackage

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/MeshRendererShared.h"
 
 namespace Durin::RendererPrivate

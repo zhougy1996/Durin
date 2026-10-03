@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "Asset/PayloadBuildControl.h"
 

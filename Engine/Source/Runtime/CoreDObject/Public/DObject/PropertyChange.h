@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "DObjectGlobals.h"
 #include "DObject/ObjectValidation.h"

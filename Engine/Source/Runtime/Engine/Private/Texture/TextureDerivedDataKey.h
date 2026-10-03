@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
-#include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"
 

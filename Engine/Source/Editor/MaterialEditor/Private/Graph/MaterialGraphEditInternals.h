@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialGraphOperations.h"
 #include "Materials/MaterialFunction.h"
 #include "DObject/ObjectLifecycle.h"

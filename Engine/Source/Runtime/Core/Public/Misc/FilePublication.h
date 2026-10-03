@@ -1,4 +1,6 @@
 #pragma once
+
+#include "Misc/CoreStd.h"
 #include "CoreAPI.h"
 #include "Misc/FilePath.h"
 #include "Hash/XxHash.h"

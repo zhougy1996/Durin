@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+#include "Misc/CoreTypes.h"
+
 #include "Threading/Task.h"
 
 namespace Durin::Tasks

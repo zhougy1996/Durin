@@ -3,9 +3,6 @@
 #include "Shader/Shader.h"
 #include "SlangShaderCompiler.h"
 
-#include <cstring>
-#include <set>
-#include <unordered_map>
 
 namespace Durin
 {

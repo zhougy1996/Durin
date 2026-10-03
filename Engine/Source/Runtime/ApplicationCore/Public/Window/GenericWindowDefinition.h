@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin
 {
 	// Selects which layer owns a window's visible frame and title bar.

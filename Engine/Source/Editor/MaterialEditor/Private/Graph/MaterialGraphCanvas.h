@@ -1,11 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphReadModel.h"
 #include "MaterialGraphDocument.h"
 #include "MonaImGui.h"
-
-#include <variant>
 
 namespace Durin
 {

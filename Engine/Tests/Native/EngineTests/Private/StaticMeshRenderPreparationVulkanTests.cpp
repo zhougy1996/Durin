@@ -55,13 +55,6 @@
 
 #include "NativeDObjectTestSupport.h"
 
-#include <chrono>
-#include <thread>
-#include <condition_variable>
-#include <format>
-#include <iostream>
-#include <mutex>
-#include <thread>
 
 namespace
 {

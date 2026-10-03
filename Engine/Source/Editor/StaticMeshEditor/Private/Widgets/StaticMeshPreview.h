@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "StaticMeshEditorAPI.h"
 
 namespace Durin { class DStaticMesh; }

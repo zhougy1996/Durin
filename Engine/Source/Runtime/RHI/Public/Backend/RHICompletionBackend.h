@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "RHICompletion.h"
 
 // Backend implementation seam. Do not include from RHI/renderer consumer APIs.

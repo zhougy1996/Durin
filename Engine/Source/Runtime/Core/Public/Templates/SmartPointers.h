@@ -1,6 +1,8 @@
 #pragma once
 
-#include <memory>
+#include "HAL/Platform.h"
+
+#include "Misc/CoreStd.h"
 
 namespace Durin
 {

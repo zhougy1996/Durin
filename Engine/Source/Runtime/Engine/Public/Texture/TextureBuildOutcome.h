@@ -1,14 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Serialization/Archive.h"
-
-#include <expected>
-#include <optional>
-#include <string>
-#include <utility>
 
 namespace Durin
 {

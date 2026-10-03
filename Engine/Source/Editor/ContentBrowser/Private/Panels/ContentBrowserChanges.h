@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetRegistry/ContentChanges.h"
 #include "Misc/Paths.h"
 

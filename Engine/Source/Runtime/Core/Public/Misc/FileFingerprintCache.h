@@ -1,10 +1,13 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+
+#include "Misc/CoreStd.h"
+
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"
 #include "Misc/CoreMiscDefines.h"
 #include "Misc/FileError.h"
-#include <expected>
 
 namespace Durin
 {

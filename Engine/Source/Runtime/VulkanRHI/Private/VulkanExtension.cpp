@@ -1,7 +1,5 @@
 #include "VulkanExtensions.h"
 
-#include <string_view>
-
 namespace Durin::VulkanRHI
 {
 	namespace

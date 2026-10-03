@@ -4,13 +4,6 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialRenderTypes.h"
 
-#include <array>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <set>
-#include <functional>
-
 namespace Durin
 {
 	namespace

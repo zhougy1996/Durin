@@ -1,13 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/Object.h"
 #include "Engine/WorldSubsystem.h"
 #include "Materials/MaterialCompiledLayout.h"
 
 #include "MaterialParameterCollection.gen.h"
-
-#include <span>
-#include <unordered_map>
 
 namespace Durin
 {

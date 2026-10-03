@@ -10,7 +10,6 @@
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
-#include <unordered_set>
 
 namespace Durin
 {

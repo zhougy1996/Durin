@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Components/MeshComponent.h"
 #include "Collision/CollisionGeometry.h"

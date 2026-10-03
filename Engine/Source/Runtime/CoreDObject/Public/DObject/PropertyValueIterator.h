@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ContainerOps.h"
 #include "DObject/Property.h"
 

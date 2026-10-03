@@ -1,8 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
+#include "RHI.h"
+
 #include <exception>
 
-#include "CoreMinimal.h"
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIAPI.h"

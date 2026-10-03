@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/AssetPath.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "Threading/Task.h"

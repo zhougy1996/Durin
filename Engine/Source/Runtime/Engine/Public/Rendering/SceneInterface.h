@@ -1,10 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Misc/Guid.h"
 #include "Rendering/PrimitiveComponentId.h"
-
-#include <memory>
 
 namespace Durin
 {

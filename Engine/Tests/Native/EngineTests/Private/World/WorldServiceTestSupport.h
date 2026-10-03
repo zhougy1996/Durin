@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Collision/CollisionDebugSubsystem.h"
 
 inline auto RegisterWorldServicesForTests() -> void

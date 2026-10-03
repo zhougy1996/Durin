@@ -1,10 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderCoreAPI.h"
 #include "SceneView.h"
-
-#include <algorithm>
-#include <cmath>
 
 namespace Durin::SceneViewProjection
 {

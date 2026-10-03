@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transactor.h"

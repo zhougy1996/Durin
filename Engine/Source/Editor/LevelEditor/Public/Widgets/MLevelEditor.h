@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "LevelEditorAPI.h"
 #include "LevelEditorContentBrowserCallbacks.h"
 #include "DObject/SoftObjectPtr.h"

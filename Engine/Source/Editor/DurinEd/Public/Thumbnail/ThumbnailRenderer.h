@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "SceneView.h"
 #include "Thumbnail/ThumbnailManager.h"

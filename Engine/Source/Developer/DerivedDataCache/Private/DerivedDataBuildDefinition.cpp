@@ -1,10 +1,6 @@
 #include "DerivedDataBuildDefinition.h"
 #include "Serialization/BinaryEncoding.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-
 namespace Durin::DerivedData
 {
 	namespace

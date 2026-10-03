@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/AssetReadResult.h"
 #include "DObject/AssetPath.h"
 #include "DObject/PackageFormat.h"

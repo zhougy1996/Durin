@@ -1,7 +1,6 @@
 #pragma once
 
-#include <expected>
-#include <optional>
+#include "CoreMinimal.h"
 
 #include "Math/DurinMath.h"
 #include "Thumbnail/AssetThumbnailTypes.h"

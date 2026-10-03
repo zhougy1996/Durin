@@ -1,10 +1,8 @@
 #pragma once
 
-#include "Materials/MaterialTypes.h"
+#include "CoreMinimal.h"
 
-#include <algorithm>
-#include <array>
-#include <cmath>
+#include "Materials/MaterialTypes.h"
 
 namespace Durin::Private
 {

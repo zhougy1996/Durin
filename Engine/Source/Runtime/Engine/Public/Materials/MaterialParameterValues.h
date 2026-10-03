@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialParameterValues.gen.h"

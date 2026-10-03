@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/MountPaths.h"
 #include "Panels/ContentBrowserFilesystem.h"
 

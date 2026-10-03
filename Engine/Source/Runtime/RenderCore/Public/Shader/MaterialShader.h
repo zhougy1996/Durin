@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderResourceCreation.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/Shader.h"

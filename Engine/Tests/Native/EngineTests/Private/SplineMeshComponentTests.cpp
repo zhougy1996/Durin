@@ -32,7 +32,6 @@
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 
 #include <gtest/gtest.h>
-#include <cmath>
 
 #include "NativeDObjectTestSupport.h"
 

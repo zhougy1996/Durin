@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneViewState.h"
@@ -10,12 +12,6 @@
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
 #include "SceneView.h"
-
-#include <algorithm>
-#include <cstddef>
-#include <optional>
-#include <ranges>
-#include <vector>
 
 namespace Durin
 {

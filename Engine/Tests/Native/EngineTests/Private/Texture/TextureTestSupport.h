@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "NativeAssetBuildTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Asset/AssetCompilingManager.h"
@@ -24,7 +26,6 @@
 #include <bc7decomp.h>
 #include <gtest/gtest.h>
 #include <rgbcx.h>
-#include <unordered_set>
 
 inline auto InitializeTextureImportMount() -> void
 {

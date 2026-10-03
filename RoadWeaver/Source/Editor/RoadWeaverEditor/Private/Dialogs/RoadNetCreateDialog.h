@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Import/ImportDialogSupport.h"
 
 namespace Durin::RoadNet::Editor

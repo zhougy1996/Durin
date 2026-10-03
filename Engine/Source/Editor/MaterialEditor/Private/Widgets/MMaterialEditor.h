@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/MutationExtensions.h"
 #include "Workspace/Workspace.h"
 #include "Workspace/WorkspaceRootWindow.h"

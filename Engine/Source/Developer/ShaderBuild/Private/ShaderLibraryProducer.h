@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Shader/ShaderCookedLibrary.h"
 
 namespace Durin

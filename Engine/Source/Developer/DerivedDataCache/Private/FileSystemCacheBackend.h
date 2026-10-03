@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DerivedDataCacheStorage.h"
 #include "Misc/FilePath.h"
 

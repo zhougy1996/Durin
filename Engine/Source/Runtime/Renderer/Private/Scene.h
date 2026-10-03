@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 #include "Resources/EnvironmentLightingResources.h"
 

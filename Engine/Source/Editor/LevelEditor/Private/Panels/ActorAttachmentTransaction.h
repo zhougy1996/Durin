@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Transactions/Transaction.h"
 #include "Math/Transform.h"
 #include "Components/SceneComponent.h"

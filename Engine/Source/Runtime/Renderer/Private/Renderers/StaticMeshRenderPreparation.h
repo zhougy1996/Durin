@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 
 #include "Renderers/MeshRenderPreparationCommon.h"
@@ -11,11 +13,6 @@
 #include "SceneView.h"
 #include "Threading/TaskComposition.h"
 #include "Renderers/ViewPreparationMath.h"
-
-#include <vector>
-#include <deque>
-#include <map>
-#include <unordered_map>
 
 namespace Durin
 {

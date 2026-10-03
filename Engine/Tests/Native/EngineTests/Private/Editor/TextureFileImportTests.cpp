@@ -16,7 +16,6 @@
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
-#include <future>
 
 namespace
 {

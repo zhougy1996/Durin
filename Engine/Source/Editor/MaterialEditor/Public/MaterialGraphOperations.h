@@ -1,15 +1,12 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Materials/MaterialExpressions.h"
 
 #include "MaterialEditorAPI.h"
 #include "Materials/Material.h"
 #include "DObject/WeakObjectPtr.h"
-
-#include <array>
-#include <span>
-#include <string>
-#include <vector>
 
 namespace Durin
 {

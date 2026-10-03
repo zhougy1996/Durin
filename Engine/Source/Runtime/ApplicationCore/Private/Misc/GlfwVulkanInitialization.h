@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin
 {
 	// Owns the result of one GLFW Vulkan-extension discovery attempt.

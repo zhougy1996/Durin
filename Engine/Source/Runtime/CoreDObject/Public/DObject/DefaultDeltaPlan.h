@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreDObjectAPI.h"
 #include "DObject/Archive.h"
 #include "DObject/AuthoredOverrideLedger.h"

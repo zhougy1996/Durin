@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #include "DObject/DObjectGlobals.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Actors/Pawn.h"
 #include "SandboxAPI.h"
 

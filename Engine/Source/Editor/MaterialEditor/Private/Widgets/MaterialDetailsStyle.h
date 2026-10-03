@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin::Editor::Material::DetailsStyle

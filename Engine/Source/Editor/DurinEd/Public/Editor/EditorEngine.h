@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
 #include "Editor/EditorSubsystem.h"

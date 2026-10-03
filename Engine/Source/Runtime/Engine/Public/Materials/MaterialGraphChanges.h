@@ -1,10 +1,10 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
-#include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include <memory>
 
 namespace Durin
 {

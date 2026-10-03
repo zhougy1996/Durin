@@ -3,9 +3,6 @@
 #include "Materials/MaterialExpressionEditing.h"
 #include "Threading/RunnableThread.h"
 
-#include <unordered_map>
-#include <unordered_set>
-
 namespace Durin
 {
 	auto ValidateMaterialFunctionCallSignature(const DMaterialExpressionFunctionCall& Call,

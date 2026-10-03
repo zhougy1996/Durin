@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "RHIInitialization.h"

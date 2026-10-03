@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 // Mirror export types
 // For use in generating code for other modules that need to reference core DObject types
 #ifdef _DHT_EXPORTS_PARSER

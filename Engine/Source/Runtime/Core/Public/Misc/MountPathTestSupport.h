@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "Misc/MountPaths.h"
 
 namespace Durin::Testing

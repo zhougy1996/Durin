@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Viewport/ViewportPickingService.h"
 
 #include "Actors/CameraActor.h"

@@ -1,8 +1,6 @@
 #pragma once
 
-#include <filesystem>
-#include <string>
-#include <string_view>
+#include "CoreMinimal.h"
 
 namespace Durin::Editor::ContentBrowser::Private::ContentBrowserFilesystem
 {

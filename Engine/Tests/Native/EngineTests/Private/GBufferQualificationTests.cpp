@@ -41,14 +41,6 @@
 #include <vulkan/vulkan.hpp>
 #include "VulkanDynamicRHI.h"
 
-#include <array>
-#include <chrono>
-#include <cstdlib>
-#include <fstream>
-#include <iostream>
-#include <ranges>
-#include <thread>
-#include <vector>
 
 #include <gtest/gtest.h>
 namespace

@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"
-#include <expected>
 
 #include "Texture2D.gen.h"
 

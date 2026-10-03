@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/PropertyDiagnostic.h"
@@ -9,14 +10,6 @@
 #include "DObject/ObjectKey.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Serialization/Archive.h"
-
-#include <memory>
-#include <span>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <unordered_set>
-#include <vector>
 
 namespace Durin
 {

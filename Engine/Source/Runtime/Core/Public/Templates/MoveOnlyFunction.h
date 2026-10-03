@@ -1,13 +1,8 @@
 #pragma once
 
-#include "Misc/AssertionMacros.h"
+#include "Misc/CoreStd.h"
 
-#include <concepts>
-#include <cstddef>
-#include <functional>
-#include <new>
-#include <type_traits>
-#include <utility>
+#include "Misc/AssertionMacros.h"
 
 namespace Durin
 {

@@ -11,8 +11,6 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "DynamicRHI.h"
 
-#include <atomic>
-
 namespace Durin
 {
 	namespace

@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "DerivedDataBuildFunction.h"
 #include "DerivedDataCache/DerivedDataCache.h"
 

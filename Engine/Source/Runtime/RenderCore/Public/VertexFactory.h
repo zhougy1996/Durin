@@ -1,8 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RenderCoreAPI.h"
 
-#include "Hash/XxHash.h"
 #include "RHI.h"
 #include "RenderResource.h"
 

@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "../AssetCacheLogTestSupport.h"
 #include "Physics/PhysicsCookHelper.h"
 
@@ -12,8 +14,6 @@
 #include "Physics/BodySetup.h"
 #include "Threading/RunnableThread.h"
 #include <gtest/gtest.h>
-#include <condition_variable>
-#include <thread>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
 #include <sys/resource.h>

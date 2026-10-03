@@ -1,9 +1,8 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+
 #include "Misc/CoreTypes.h"
-#include <array>
-#include <cstddef>
-#include <type_traits>
 
 namespace Durin
 {

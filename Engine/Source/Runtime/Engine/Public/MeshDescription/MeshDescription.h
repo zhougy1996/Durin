@@ -1,13 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/CoreTypes.h"
 #include "Math/Vector.h"
-
-#include <array>
-#include <cstddef>
-#include <memory>
-#include <string>
-#include <vector>
 
 namespace Durin
 {

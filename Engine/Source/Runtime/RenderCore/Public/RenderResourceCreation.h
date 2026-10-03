@@ -1,17 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Misc/CoreTypes.h"
 #include "Misc/AssertionMacros.h"
 #include "RenderPipelineCreation.h"
 #include "Shader/ShaderDiagnostics.h"
-#include <variant>
-
-#include <cstddef>
-#include <functional>
-#include <limits>
-#include <optional>
-#include <string>
-#include <utility>
 
 namespace Durin
 {

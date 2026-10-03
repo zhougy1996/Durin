@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::Editor::Level
 {
 	// Reports whether a rename dialog is idle, accepted, or cancelled.

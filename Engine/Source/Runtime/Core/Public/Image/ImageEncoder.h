@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/CoreTypes.h"
+#include "Containers/ContainersFwd.h"
+
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
 #include "Image/Image.h"

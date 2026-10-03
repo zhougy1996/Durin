@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Misc/CoreStd.h"
+#include "Containers/ContainersFwd.h"
+
 #include "CoreAPI.h"
 #include "Misc/CoreMiscDefines.h"
 #include "Misc/CoreTypes.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Misc/EnumClassFlags.h"
+
 #include "Misc/CoreTypes.h"
 
 namespace Durin

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "ImGuiMonaImpl.h"
 #include "MonaImGui.h"
 #include "MonaUIBackend.h"

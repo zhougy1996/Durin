@@ -4,7 +4,6 @@
 #include "TextureCubeBuildFunction.h"
 #include "VolumeTextureBuildFunction.h"
 #include "Logging/LogMacros.h"
-#include <mutex>
 
 namespace Durin::TexturePrivate
 {

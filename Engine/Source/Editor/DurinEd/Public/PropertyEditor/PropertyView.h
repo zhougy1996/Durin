@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/AssetPath.h"
 #include "PropertyEditor/PropertyEditing.h"
 

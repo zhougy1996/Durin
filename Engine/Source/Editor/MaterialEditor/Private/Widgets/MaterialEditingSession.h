@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/Archive.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/AssetWriteResult.h"
 #include "AssetRegistry/Catalog.h"
 #include "EngineAPI.h"

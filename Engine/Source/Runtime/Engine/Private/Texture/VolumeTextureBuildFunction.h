@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildFunction.h"
 #include "Texture/VolumeTextureBuild.h"

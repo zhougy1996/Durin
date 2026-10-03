@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 namespace Durin::Editor::Level::Testing
 {

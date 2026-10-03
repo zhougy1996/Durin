@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/Cook.h"
 #include "Asset/MutationExtensions.h"
 #include "Asset/PackageInspection.h"

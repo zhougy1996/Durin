@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Templates/MoveOnlyFunction.h"
+#include "CoreMinimal.h"
+
 
 #include "Asset/BulkData.h"
 #include "Asset/CookedMeshLoading.h"

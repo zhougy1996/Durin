@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Thumbnail/ThumbnailManager.h"
 
 namespace Durin::Editor

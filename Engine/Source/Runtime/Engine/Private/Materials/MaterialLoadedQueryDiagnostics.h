@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "Materials/MaterialInterface.h"
 
 namespace Durin::Private

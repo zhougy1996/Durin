@@ -1,5 +1,4 @@
 #include "MaterialGraphReadModel.h"
-#include <unordered_map>
 
 namespace Durin::Editor::Material
 {

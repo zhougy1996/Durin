@@ -1,15 +1,13 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
-
-#include <array>
-#include <cstddef>
-#include <vector>
 
 namespace Durin
 {

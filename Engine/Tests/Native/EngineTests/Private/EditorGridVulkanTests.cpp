@@ -37,7 +37,6 @@
 #include "Window/GenericWindow.h"
 #include "Window/GenericWindowDefinition.h"
 
-#include <algorithm>
 
 namespace Durin
 {

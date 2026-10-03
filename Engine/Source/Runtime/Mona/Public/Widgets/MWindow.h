@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaAPI.h"
 #include "RHIPresentation.h"
 #include "Window/GenericWindow.h"

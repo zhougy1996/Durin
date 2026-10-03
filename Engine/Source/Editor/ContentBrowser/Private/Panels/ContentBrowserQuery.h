@@ -1,8 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserDataTypes.h"
-#include <iterator>
-#include <unordered_set>
 
 namespace Durin::Editor::ContentBrowser::Private
 {

@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <array>
-#include <cstring>
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"

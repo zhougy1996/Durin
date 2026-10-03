@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 // Font Awesome Free 7.2.0 (Solid). The complete icon catalog and license live in
 // Engine/Content/Fonts/FontAwesome. Add commonly used editor glyphs here.
 namespace Durin::Icons

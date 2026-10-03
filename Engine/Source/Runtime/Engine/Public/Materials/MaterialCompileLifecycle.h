@@ -1,13 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/WeakObjectPtr.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Threading/Task.h"
-
-#include <span>
-#include <string>
-#include <vector>
 
 namespace Durin
 {

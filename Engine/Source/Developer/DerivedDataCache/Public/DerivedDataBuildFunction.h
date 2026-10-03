@@ -1,9 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DerivedDataBuildDefinition.h"
 #include "DerivedDataBuildOutput.h"
-#include <functional>
-#include <limits>
 
 namespace Durin::DerivedData
 {

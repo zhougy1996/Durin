@@ -1,8 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/ObjectKey.h"
-#include <unordered_map>
-#include <unordered_set>
 
 namespace Durin
 {

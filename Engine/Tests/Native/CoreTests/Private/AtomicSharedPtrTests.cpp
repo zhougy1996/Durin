@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "Templates/AtomicSharedPtr.h"
-#include <thread>
-#include <vector>
 
 namespace Durin
 {

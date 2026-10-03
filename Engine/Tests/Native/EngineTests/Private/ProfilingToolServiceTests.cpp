@@ -6,7 +6,6 @@
 #include "ProfilingToolService.h"
 #include "Profiling/Profiling.h"
 
-#include <fstream>
 
 namespace Durin::Editor::MainFrame
 {

@@ -1,15 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "CoreDObjectAPI.h"
 #include "Misc/EnumClassFlags.h"
-
-#include <limits>
-#include <memory>
-#include <new>
-#include <type_traits>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 namespace Durin
 {

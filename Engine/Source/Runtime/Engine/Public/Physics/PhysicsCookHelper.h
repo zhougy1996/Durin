@@ -1,10 +1,11 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/AssetBuildTaskContext.h"
 #include "Physics/PhysicsCookVersion.h"
 #include "Physics/CookBodySetupInfo.h"
 #include "Collision/CollisionGeometry.h"
-#include "Hash/XxHash.h"
 
 namespace Durin
 {

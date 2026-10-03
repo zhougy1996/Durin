@@ -1,9 +1,9 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "CoreDObjectAPI.h"
 #include "DObject/AssetPath.h"
-#include "Hash/XxHash.h"
 #include "Serialization/CustomVersion.h"
 #include "Serialization/Archive.h"
 

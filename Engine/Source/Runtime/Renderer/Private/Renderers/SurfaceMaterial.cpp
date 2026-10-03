@@ -10,10 +10,6 @@
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 
-#include <bit>
-#include <cstring>
-#include <format>
-
 namespace Durin::RendererPrivate
 {
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);

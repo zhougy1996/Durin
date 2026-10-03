@@ -1,17 +1,11 @@
 #pragma once
 
-#include <expected>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
+#include "CoreMinimal.h"
 
 #include "RHIAPI.h"
 #include "RHIDefinitions.h"
 #include "PixelFormat.h"
 
-#include "Hash/XxHash.h"
 #include "Math/MathFwd.h"
 
 namespace Durin

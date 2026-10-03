@@ -19,6 +19,9 @@
 #include "Delegates/Delegate.h"
 #include "Templates/SmartPointers.h"
 #include "Templates/RefCounting.h"
+#include "Templates/MoveOnlyFunction.h"
+#include "Hash/XxHash.h"
+#include "Serialization/SharedByteBuffer.h"
 #include "Math/DurinMath.h"
 
 #include "CoreGlobals.h"

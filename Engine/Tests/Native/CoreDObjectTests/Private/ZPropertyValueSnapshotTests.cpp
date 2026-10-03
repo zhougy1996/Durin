@@ -14,7 +14,6 @@
 
 #include <gtest/gtest.h>
 
-#include <bit>
 
 namespace StructConsumerTest
 {

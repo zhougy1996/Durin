@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 #include "VertexFactory.h"
 #include "GeometrySubmission.h"

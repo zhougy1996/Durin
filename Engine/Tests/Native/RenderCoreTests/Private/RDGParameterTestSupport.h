@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RDG/RDGParameters.h"
 
 namespace Durin

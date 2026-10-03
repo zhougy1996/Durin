@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Asset/EditorBulkData.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Window/GenericWindow.h"
 
 // The forward declaration of GLFWwindow in the glfw library.

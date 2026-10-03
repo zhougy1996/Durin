@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <iostream>
 #include <semaphore>
 
 #include "Asset/CookedMeshLoadManager.h"

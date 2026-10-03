@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #define DHT_DEBUG_BEGIN()
 #define DHT_DEBUG_END()
 

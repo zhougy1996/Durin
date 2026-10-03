@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "DObject/Object.h"
 #include "RoadNet/RoadNetTypes.h"

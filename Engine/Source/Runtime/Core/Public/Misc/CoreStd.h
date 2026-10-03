@@ -20,6 +20,7 @@
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>

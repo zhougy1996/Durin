@@ -2,7 +2,6 @@
 
 #include "DerivedDataCacheStorage.h"
 #include "FileSystemCacheBackend.h"
-#include <unordered_set>
 
 namespace Durin::DerivedData
 {

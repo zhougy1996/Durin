@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PhysicsCoreAPI.h"
 #include "Collision/CollisionGeometry.h"
 #include "Math/Transform.h"

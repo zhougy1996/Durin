@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreMinimal.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressions.h"
@@ -6,8 +8,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Class.h"
-#include <functional>
-#include <unordered_map>
 
 namespace Durin::Testing
 {

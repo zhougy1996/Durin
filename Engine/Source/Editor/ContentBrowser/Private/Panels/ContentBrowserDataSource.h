@@ -1,8 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Panels/ContentBrowserDataTypes.h"
 #include "AssetRegistry/Catalog.h"
-#include <unordered_map>
 #include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private

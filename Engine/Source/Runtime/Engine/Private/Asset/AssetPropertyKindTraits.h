@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DObject/DObjectGlobals.h"
 
 namespace Durin::AssetPrivate

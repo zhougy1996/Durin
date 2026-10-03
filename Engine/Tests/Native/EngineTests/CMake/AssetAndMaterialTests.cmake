@@ -114,6 +114,7 @@ durin_add_native_test(EditorAssetWorkflowTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/ContentBrowser/TextureCubeDetails.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source
 		${_durin_main_frame_private}
 		${_durin_content_browser_public}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private

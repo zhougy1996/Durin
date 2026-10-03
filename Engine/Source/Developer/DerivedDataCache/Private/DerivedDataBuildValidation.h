@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 namespace Durin::DerivedData::Private
 {
 	inline auto IsBuildValueIdentifier(std::string_view Id) -> bool

@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "DerivedDataCacheAPI.h"
-#include "Hash/XxHash.h"
 
 namespace Durin::DerivedData
 {

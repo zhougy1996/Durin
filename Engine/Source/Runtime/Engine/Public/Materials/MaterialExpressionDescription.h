@@ -1,12 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Materials/MaterialProgramTypes.h"
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 namespace Durin
 {

@@ -1,9 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Materials/MaterialTypes.h"
 #include "RHIFeatureLevel.h"
-
-#include <array>
 
 namespace Durin
 {

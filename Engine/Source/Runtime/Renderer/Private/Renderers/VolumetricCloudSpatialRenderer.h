@@ -1,11 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/Vector.h"
 #include "RendererAPI.h"
 #include "VolumetricCloudView.h"
-
-#include <functional>
-#include <limits>
 
 namespace Durin
 {

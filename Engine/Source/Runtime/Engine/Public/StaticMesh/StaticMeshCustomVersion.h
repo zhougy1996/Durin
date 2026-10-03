@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Serialization/CustomVersion.h"
 #include "EngineAPI.h"
 

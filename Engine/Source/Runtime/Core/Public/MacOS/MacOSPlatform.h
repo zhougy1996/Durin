@@ -1,10 +1,8 @@
 #pragma once
 
-#define PLATFORM_HEADER_NAME MacOS
+#include "Misc/CoreStd.h"
 
-#include <cassert>
-#include <cerrno>
-#include <cstdlib>
+#define PLATFORM_HEADER_NAME MacOS
 #include <malloc/malloc.h>
 #include <dlfcn.h>
 

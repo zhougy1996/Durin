@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "VertexFactory.h"
 

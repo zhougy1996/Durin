@@ -1,7 +1,10 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 
+#include "Rendering/PrimitiveComponentId.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"

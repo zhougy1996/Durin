@@ -1,13 +1,10 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Components/PrimitiveComponent.h"
 #include "DObject/ObjectPtr.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
-
-#include <optional>
-#include <span>
-#include <vector>
 
 #include "MeshComponent.gen.h"
 

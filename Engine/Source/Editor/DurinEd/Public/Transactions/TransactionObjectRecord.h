@@ -1,6 +1,6 @@
 #pragma once
 
-#include <expected>
+#include "CoreMinimal.h"
 
 #include "DObject/PropertyChange.h"
 #include "Transactions/TransactionRecord.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "PhysicsCoreAPI.h"
 #include "Math/Operations.h"
 

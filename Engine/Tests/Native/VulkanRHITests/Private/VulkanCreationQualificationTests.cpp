@@ -1,8 +1,6 @@
 #include "VulkanPipelinePrecacheTestSupport.h"
 #include <gtest/gtest.h>
 #include <barrier>
-#include <fstream>
-#include <future>
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 

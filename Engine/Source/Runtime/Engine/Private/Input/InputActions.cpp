@@ -3,7 +3,6 @@
 #include "Input/GameInputState.h"
 #include "Misc/FileHelper.h"
 #include <iomanip>
-#include <sstream>
 
 namespace Durin
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Math/DurinMath.h"
 #include "RHIResources.h"
 #include "SceneViewState.h"

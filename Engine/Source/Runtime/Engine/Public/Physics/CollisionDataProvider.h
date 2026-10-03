@@ -1,9 +1,9 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "EngineAPI.h"
 #include "Physics/PhysicsCookFailure.h"
-#include <expected>
-#include <memory>
 
 namespace Durin
 {

@@ -1,12 +1,12 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "RendererAPI.h"
 #include "Renderers/ViewRenderTelemetry.h"
 
 #include "SceneView.h"
 #include "Math/Box.h"
-
-#include <vector>
 
 namespace Durin
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "MonaImGuiAPI.h"
 #include "Style/MonaImGuiStyle.h"
 #include "Widgets/MonaImGuiBottomDrawer.h"

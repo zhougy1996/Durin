@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "TextureBuildAPI.h"
 #include "Texture/TextureBuildOutcome.h"
 #include "Texture/VolumeTextureData.h"

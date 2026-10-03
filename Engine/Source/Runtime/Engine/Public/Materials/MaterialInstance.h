@@ -1,5 +1,6 @@
 #pragma once
-#include <expected>
+
+#include "CoreMinimal.h"
 
 #include "Materials/MaterialInterface.h"
 #include "Texture/Texture2D.h"

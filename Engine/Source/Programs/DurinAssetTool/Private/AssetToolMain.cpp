@@ -41,8 +41,6 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-
-#include <chrono>
 #include <csignal>
 
 namespace

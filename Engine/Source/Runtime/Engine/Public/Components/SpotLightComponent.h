@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreMinimal.h"
+
 #include "Components/LightComponent.h"
 
 #include "SpotLightComponent.gen.h"
