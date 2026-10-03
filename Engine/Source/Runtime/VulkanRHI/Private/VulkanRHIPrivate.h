@@ -60,7 +60,8 @@ namespace Durin::VulkanRHI
 		Count
 	};
 
-	VULKANRHI_API auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void;
+	VULKANRHI_API auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint,
+		vk::Result Result = vk::Result::eErrorOutOfDeviceMemory) -> void;
 	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
 	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
 	// Installed only by controlled tests; copied before invocation on the creator.

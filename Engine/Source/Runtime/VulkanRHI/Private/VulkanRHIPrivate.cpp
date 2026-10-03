@@ -327,27 +327,28 @@ namespace Durin::VulkanRHI
 
 	namespace
 	{
-		std::array<std::atomic<bool>, static_cast<size_t>(EVulkanCreateFailurePoint::Count)>
+		std::array<std::atomic<vk::Result>, static_cast<size_t>(EVulkanCreateFailurePoint::Count)>
 			GArmedVulkanCreateFailures{};
 		std::atomic<bool> GArmedVulkanSwapchainAcquireTimeout{};
 	}
 
-	auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void
+	auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint, vk::Result Result) -> void
 	{
-		GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].store(true, std::memory_order_release);
+		require(Result != vk::Result::eSuccess);
+		GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].store(Result, std::memory_order_release);
 	}
 
 	auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool
 	{
 		return GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].exchange(
-			false, std::memory_order_acq_rel);
+			vk::Result::eSuccess, std::memory_order_acq_rel) != vk::Result::eSuccess;
 	}
 
 	auto ResetVulkanCreateFailures() -> void
 	{
-		for (std::atomic<bool>& Failure : GArmedVulkanCreateFailures)
+		for (auto& Failure : GArmedVulkanCreateFailures)
 		{
-			Failure.store(false, std::memory_order_release);
+			Failure.store(vk::Result::eSuccess, std::memory_order_release);
 		}
 		GArmedVulkanSwapchainAcquireTimeout.store(false, std::memory_order_release);
 	}
@@ -365,10 +366,12 @@ namespace Durin::VulkanRHI
 
 	auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void
 	{
-		if (ConsumeVulkanCreateFailure(FailurePoint))
+		const auto Result = GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].exchange(
+			vk::Result::eSuccess, std::memory_order_acq_rel);
+		if (Result != vk::Result::eSuccess)
 		{
 			throw vk::SystemError(
-				vk::make_error_code(vk::Result::eErrorOutOfDeviceMemory),
+				vk::make_error_code(Result),
 				"Injected Vulkan native creation failure");
 		}
 	}

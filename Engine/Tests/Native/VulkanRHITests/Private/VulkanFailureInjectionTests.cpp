@@ -23,6 +23,7 @@
 #include "VulkanBuffer.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanGPUTiming.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanContext.h"
 #include "VulkanSwapchain.h"
 #include "VulkanViewport.h"
@@ -977,6 +978,28 @@ namespace Durin::VulkanRHI
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::QueryPool);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
 		auto Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
+		EXPECT_EQ(Statistics.AllocatedPages, 0u);
+		EXPECT_EQ(Statistics.LiveIntervals, 0u);
+		EXPECT_EQ(Statistics.AllocationFailureCount, 1u);
+
+		// Terminal errors are not optional-timing allocation failures. Run on the
+		// owning thread so the test observes propagation before executor handling.
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			for (auto Result : {vk::Result::eErrorDeviceLost, vk::Result::eErrorUnknown})
+			{
+				ArmVulkanCreateFailure(EVulkanCreateFailurePoint::QueryPool, Result);
+				try
+				{
+					(void)VulkanRHI->GetDeviceForTesting()->GetGPUTimingManager().CreateQuery();
+					FAIL() << "Terminal query-pool failures must propagate.";
+				}
+				catch (const vk::SystemError& Error)
+				{
+					EXPECT_EQ(Error.code().value(), static_cast<int>(Result));
+				}
+			}
+		});
+		Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
 		EXPECT_EQ(Statistics.AllocatedPages, 0u);
 		EXPECT_EQ(Statistics.LiveIntervals, 0u);
 		EXPECT_EQ(Statistics.AllocationFailureCount, 1u);

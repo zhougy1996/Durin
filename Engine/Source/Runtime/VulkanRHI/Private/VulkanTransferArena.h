@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exception>
+
 #include "CoreMinimal.h"
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
@@ -69,6 +71,8 @@ namespace Durin::VulkanRHI
 		FRHIGPUSyncPointRef WaitSyncPoint;
 		std::weak_ptr<void> WaitOwner;
 		bool bAllocationFailed = false;
+		// Recoverable native failures retain their original type and diagnostic.
+		std::exception_ptr AllocationFailure;
 	};
 
 	// Owns bounded mapped pages; range reuse follows CPU and payload lease release.

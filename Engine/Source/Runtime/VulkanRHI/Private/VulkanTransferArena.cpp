@@ -158,11 +158,10 @@ namespace Durin::VulkanRHI
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
-			catch (const std::exception& Error)
+			catch (const vk::SystemError& Error)
 			{
-				DURIN_ERROR("Vulkan transfer oversize allocation failed: class={}, bytes={}, error={}.",
-					static_cast<uint32>(Config.AllocationClass), Size, Error.what());
-				return {.bAllocationFailed = true};
+				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
+				return {.bAllocationFailed = true, .AllocationFailure = std::current_exception()};
 			}
 		}
 
@@ -190,12 +189,10 @@ namespace Durin::VulkanRHI
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
-			catch (const std::exception& Error)
+			catch (const vk::SystemError& Error)
 			{
-				DURIN_ERROR("Vulkan transfer page allocation failed: class={}, bytes={}, error={}.",
-					static_cast<uint32>(Config.AllocationClass),
-					Config.PageSize, Error.what());
-				return {.bAllocationFailed = true};
+				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
+				return {.bAllocationFailed = true, .AllocationFailure = std::current_exception()};
 			}
 		}
 

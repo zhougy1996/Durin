@@ -117,7 +117,12 @@ namespace Durin::VulkanRHI
 #endif
 			Page.Handle = Device.GetHandle().createQueryPool(Info);
 		}
-		catch (...) { ++Statistics.AllocationFailureCount; return false; }
+		catch (const vk::SystemError& Error)
+		{
+			if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
+			++Statistics.AllocationFailureCount;
+			return false;
+		}
 		Device.GetRHI().GetDebugUtils().NameObject(Page.Handle,
 			std::format("Durin.TimestampQueryPool.{}", Pages.size()));
 		Pages.push_back(std::move(Page));

@@ -594,10 +594,41 @@ namespace Durin::VulkanRHI
 				.PageSize = 128,
 				.MaxPageCount = 1,
 				.DebugName = "TransferArenaFailure"});
-			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
-			auto Failed = FailingArena.Acquire(64, 16, SyncPoint);
-			EXPECT_TRUE(Failed.bAllocationFailed);
-			EXPECT_FALSE(Failed.Range);
+			// Both ordinary and oversize pages preserve recoverable native failures,
+			// but device loss and unknown native failures must escape the arena.
+			for (uint64 Size : {64ull, 256ull})
+			{
+				ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
+				auto Failed = FailingArena.Acquire(Size, 16, SyncPoint);
+				EXPECT_TRUE(Failed.bAllocationFailed);
+				EXPECT_FALSE(Failed.Range);
+				ASSERT_TRUE(Failed.AllocationFailure);
+				try
+				{
+					std::rethrow_exception(Failed.AllocationFailure);
+					FAIL() << "Expected the original native allocation exception.";
+				}
+				catch (const vk::SystemError& Error)
+				{
+					EXPECT_EQ(Error.code().value(), static_cast<int>(vk::Result::eErrorOutOfDeviceMemory));
+					EXPECT_NE(std::string_view(Error.what()).find("Injected Vulkan native creation failure"), std::string_view::npos);
+				}
+				for (auto Result : {vk::Result::eErrorDeviceLost, vk::Result::eErrorUnknown})
+				{
+					ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer, Result);
+					try
+					{
+						(void)FailingArena.Acquire(Size, 16, SyncPoint);
+						FAIL() << "Terminal native failures must propagate.";
+					}
+					catch (const vk::SystemError& Error)
+					{
+						EXPECT_EQ(Error.code().value(), static_cast<int>(Result));
+					}
+				}
+				EXPECT_EQ(FailingArena.GetPageCount(), 0u);
+				EXPECT_EQ(FailingArena.GetCapacity(), 0u);
+			}
 		}
 
 		GDynamicRHI->RHIResetMemoryStatistics();

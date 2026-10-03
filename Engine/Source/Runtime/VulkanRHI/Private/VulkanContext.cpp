@@ -988,6 +988,14 @@ namespace Durin::VulkanRHI
 		if (Size > MaximumReadbackBytes - LiveBytes) return {};
 		auto& Payload = GetPayload();
 		auto Result = Device.GetReadbackArena().Acquire(Size, Alignment, Payload.GetSyncPoint());
+		if (Result.AllocationFailure)
+		{
+			try { std::rethrow_exception(Result.AllocationFailure); }
+			catch (const vk::SystemError& Error)
+			{
+				DURIN_ERROR("Vulkan readback allocation failed: bytes={}, error={}.", Size, Error.what());
+			}
+		}
 		if (Result.Range) Payload.RetainAllocation(Result.Range.GetAllocationOwner());
 		return std::move(Result.Range);
 	}
@@ -1344,6 +1352,7 @@ namespace Durin::VulkanRHI
 			}
 			if (Result.bAllocationFailed)
 			{
+				if (Result.AllocationFailure) std::rethrow_exception(Result.AllocationFailure);
 				throw std::runtime_error(std::format(
 					"Vulkan transfer arena allocation failed: class={}, bytes={}.",
 					static_cast<uint32>(AllocationClass), Size));
