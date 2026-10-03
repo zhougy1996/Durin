@@ -49,7 +49,11 @@ namespace Durin
 			return;
 		}
 
-		DisplaySourcePtr->PrepareDisplay(DesiredSize);
+		const Mona::IMonaUIBackend* Backend = Mona::GetActiveUIBackend();
+		const FVector2f FramebufferScale = Backend != nullptr
+			? Backend->GetFramebufferScale() : FVector2f(1.0f, 1.0f);
+		DisplaySourcePtr->PrepareDisplay({
+			DesiredSize.x * FramebufferScale.x, DesiredSize.y * FramebufferScale.y});
 		const FTextureRHIRef& DisplayTexture = DisplaySourcePtr->GetDisplayTexture();
 		SynchronizeRegisteredTexture(DisplayTexture);
 		if (DisplayTexture == nullptr || RegisteredBackend == nullptr)

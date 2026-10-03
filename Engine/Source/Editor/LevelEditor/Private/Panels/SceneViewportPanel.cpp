@@ -192,10 +192,10 @@ namespace Durin::Editor::Level
 
 	auto FSceneViewportPanel::FinalizeViewportFrame(FLevelEditorContext& Context) -> void
 	{
-		if (!IsOpen() || ViewportClient == nullptr || ViewportWidget == nullptr || Context.Level == nullptr || Context.bReadOnly) return;
+		if (!IsOpen() || ViewportClient == nullptr || ViewportWidget == nullptr || SceneViewport == nullptr || Context.Level == nullptr || Context.bReadOnly) return;
 		uint32 Width = 0;
 		uint32 Height = 0;
-		if (!FLevelEditorViewportClient::ResolveViewportExtent(ViewportWidget->GetDesiredSize(), Width, Height)) return;
+		if (!FLevelEditorViewportClient::ResolveViewportExtent(SceneViewport->GetDesiredSize(), Width, Height)) return;
 		if (ViewportClient->GetCurrentLevel() != Context.Level && SceneViewport)
 			SceneViewport->RequestHistoryReset();
 		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());

@@ -43,6 +43,7 @@ namespace
 		auto Shutdown() -> void override {}
 		auto NewFrame() -> void override { ++NewFrameCount; }
 		auto Render() -> void override { ++RenderCount; }
+		auto GetFramebufferScale() const -> Durin::FVector2f override { return FramebufferScale; }
 
 		auto RegisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
 		{
@@ -71,6 +72,7 @@ namespace
 		std::vector<const Durin::FRHITexture*> Unregistered;
 		std::vector<const Durin::FRHITexture*> Drawn;
 		Durin::FVector2f LastDrawSize = {};
+		Durin::FVector2f FramebufferScale = {1.0f, 1.0f};
 		bool bDrawSucceeds = true;
 		uint32 NewFrameCount = 0;
 		uint32 RenderCount = 0;
@@ -140,6 +142,35 @@ TEST(FViewportDisplaySourceTests, PublishesSizeBeforeReadingTextureAndDoesNotRet
 	EXPECT_EQ(Widget.GetDisplaySource(), nullptr);
 	Widget.Draw();
 	EXPECT_FALSE(Widget.WasTextureDrawn());
+}
+
+TEST(FViewportDisplaySourceTests, UsesCurrentWindowPixelDensityWithoutChangingLayoutSize)
+{
+	FTestUIBackend Backend;
+	Durin::Tests::FScopedActiveUIBackend BackendScope(Backend);
+	auto Source = std::make_shared<FTestDisplaySource>();
+	Source->Texture = new FTestTexture();
+	Durin::MViewport Widget;
+	Widget.SetDesiredSize({320.25f, 180.5f});
+	Widget.SetDisplaySource(Source);
+
+	Backend.FramebufferScale = {2.0f, 2.0f};
+	Widget.Draw();
+	EXPECT_EQ(Source->LastDesiredSize, Durin::FVector2f(640.5f, 361.0f));
+	EXPECT_EQ(Backend.LastDrawSize, Durin::FVector2f(320.25f, 180.5f));
+	EXPECT_EQ(Widget.GetDesiredSize(), Backend.LastDrawSize);
+
+	// Moving the panel to another window must update the producer without a layout resize.
+	Backend.FramebufferScale = {1.0f, 1.0f};
+	Widget.Draw();
+	EXPECT_EQ(Source->LastDesiredSize, Durin::FVector2f(320.25f, 180.5f));
+	EXPECT_EQ(Backend.LastDrawSize, Widget.GetDesiredSize());
+
+	Backend.FramebufferScale = {1.5f, 2.0f};
+	Widget.Draw();
+	EXPECT_EQ(Source->LastDesiredSize, Durin::FVector2f(480.375f, 361.0f));
+	EXPECT_EQ(Backend.LastDrawSize, Widget.GetDesiredSize());
+	EXPECT_EQ(Backend.Registered.size(), 1u);
 }
 
 TEST(FViewportDisplaySourceTests, RegistersStableTextureOnceAndReplacesItExactly)

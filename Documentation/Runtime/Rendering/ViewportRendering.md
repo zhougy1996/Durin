@@ -251,13 +251,15 @@ DEngine::RedrawViewports()
   renders each valid auxiliary view into its own offscreen target
 
 MViewport::Draw()
-  publishes the latest logical desired size
+  converts the logical desired size using the current UI window's framebuffer scale
+  publishes the resulting physical pixel size
   prepares and obtains the matching display texture
   updates UI-backend registration when texture identity changes
   draws the registered texture
 ```
 
-For editor render-target viewports, `PrepareDisplay()` sanitizes each dimension
+For editor render-target viewports, `PrepareDisplay()` receives physical pixel
+dimensions and sanitizes each dimension
 to `max(8, ceil(value))`, retains that exact extent in `FSceneViewport`, and
 synchronously creates or replaces the offscreen texture. `GetDisplayTexture()`
 then exposes it. The UI frame is built before scene rendering commands are
@@ -379,10 +381,16 @@ pointer; its own shutdown owns any backend-internal cleanup.
 
 `MViewport::SetDesiredSize()` records the size requested by the widget layout.
 
-For editor render-target viewports, `MViewport::Draw()` passes that size to
-`FSceneViewport::PrepareDisplay()`. Engine is the sole normalization owner and
-stores the quantized extent used by both view construction and texture
-allocation.
+For editor render-target viewports, `MViewport::Draw()` multiplies that size by
+the active UI backend's current-window framebuffer scale before calling
+`FSceneViewport::PrepareDisplay()`. `IMonaUIBackend::GetFramebufferScale()`
+reports physical pixels per logical unit on each axis; MonaImGui reads the
+current ImGui window's viewport density, including detached panels. Without
+an active backend the widget uses a scale of one. Image layout and mouse
+coordinates stay logical. Engine is the sole normalization owner and stores
+the quantized pixel extent used by both view construction and texture allocation.
+The Level Editor finalizes its render snapshot using this retained scene
+viewport extent, while interaction matrices continue to use logical dimensions.
 
 For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRenderer` for the RHI viewport associated with the `MWindow`. Native window resize events are handled by `FMonaApplication` and the renderer.
 

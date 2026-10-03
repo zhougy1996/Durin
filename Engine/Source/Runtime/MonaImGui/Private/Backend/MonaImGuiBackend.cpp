@@ -105,6 +105,12 @@ namespace Durin::MonaImGui
 		return ImGuiRHIImpl_GetTextureID(InTexture) != ImTextureID_Invalid;
 	}
 
+	auto FMonaImGuiBackend::GetFramebufferScale() const -> FVector2f
+	{
+		const ImVec2 Scale = ImGui::GetWindowViewport()->FramebufferScale;
+		return {Scale.x, Scale.y};
+	}
+
 	auto FMonaImGuiBackend::DrawImage(const FRHITexture* InTexture, const FVector2f& Size) -> bool
 	{
 		if (InTexture == nullptr)

@@ -57,6 +57,8 @@ namespace Durin::Tests
 			return IsTextureRegistered(Texture);
 		}
 
+		auto GetFramebufferScale() const -> FVector2f override { return {1.0f, 1.0f}; }
+
 		auto NumRegistered() const -> size_t { return Registered.size(); }
 
 	private:

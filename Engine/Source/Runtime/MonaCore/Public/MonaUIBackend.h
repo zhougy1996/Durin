@@ -20,6 +20,9 @@ namespace Durin::Mona
 		virtual auto UnregisterTexture(const FTextureRHIRef& Texture) -> void = 0;
 		virtual auto IsTextureRegistered(const FRHITexture* InTexture) -> bool = 0;
 
+		// Physical pixels per logical unit in the current UI window (positive on both axes).
+		virtual auto GetFramebufferScale() const -> FVector2f = 0;
+
 		// Returns true if the image was successfully drawn, false otherwise (e.g. if the texture was not registered or if the backend does not support direct image drawing).
 		virtual auto DrawImage(const FRHITexture*, const FVector2f& Size) -> bool = 0;
 	};

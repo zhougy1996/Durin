@@ -13,6 +13,7 @@ namespace
 		auto Shutdown() -> void override {}
 		auto NewFrame() -> void override {}
 		auto Render() -> void override {}
+		auto GetFramebufferScale() const -> Durin::FVector2f override { return {1.0f, 1.0f}; }
 		auto RegisterTexture(const Durin::FTextureRHIRef&) -> void override {}
 		auto UnregisterTexture(const Durin::FTextureRHIRef&) -> void override {}
 		auto IsTextureRegistered(const Durin::FRHITexture*) -> bool override
