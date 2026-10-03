@@ -8,6 +8,7 @@
 #include "VulkanQueue.h"
 #include "VulkanGPUTiming.h"
 #include "VulkanRHIPrivate.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -63,6 +64,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::BuildSubmissionOrder(const std::vector<FVulkanPayload*>& Payloads)
 		-> std::vector<size_t>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.BuildOrder");
 		// Build the entire dependency order before accepting any native work.
 		// Queue-local reservations also impose edges, even without explicit waits.
 		std::vector<std::vector<size_t>> Dependencies(Payloads.size());
@@ -173,6 +175,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitNative");
 		CheckVulkanRHIThread();
 		require(Payload && Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Queue) == &Payload->Queue);
 		std::vector<FVulkanPayload*> NativePayloads{Payload.get()};
@@ -196,6 +199,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.EnqueueContext");
 		CheckVulkanRHIThread();
 		auto Payload = Context.Finalize();
 		const auto SyncPoint = Payload->GetSyncPoint();
@@ -211,6 +215,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::SubmitPendingContexts(FVulkanCommandListContext* CallingContext) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitPendingContexts");
 		CheckVulkanRHIThread();
 		std::vector<std::unique_ptr<FVulkanPayload>> Batch;
 		if (CallingContext && CallingContext->HasPendingCommands()) Batch.push_back(CallingContext->Finalize());

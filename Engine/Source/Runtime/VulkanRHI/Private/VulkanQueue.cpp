@@ -7,6 +7,7 @@
 #include "VulkanMemory.h"
 #include "VulkanSubmission.h"
 #include "VulkanRHIPrivate.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -48,6 +49,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*>& Payloads)
 		-> FVulkanCompletionToken
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitPayloads");
 		CheckVulkanRHIThread();
 		check(!Payloads.empty());
 		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
@@ -110,11 +112,15 @@ namespace Durin::VulkanRHI
 			SubmitInfos.push_back(SubmitInfo);
 		}
 
-		FVulkanFence* Fence = Device->GetFenceManager().AllocateFence(false);
+		FVulkanFence* Fence = [&] {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.AllocateFence");
+			return Device->GetFenceManager().AllocateFence(false);
+		}();
 		auto& Tracker = GetCompletionTracker();
 		check(Payloads.size() == 1);
 		try
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.PrepareSubmission");
 			Tracker.PrepareSubmission(Fence, Payloads);
 		}
 		catch (...)
@@ -128,7 +134,10 @@ namespace Durin::VulkanRHI
 			if (const auto Failure = ConsumeVulkanSubmitFailureForTesting())
 				throw vk::SystemError(vk::make_error_code(*Failure), "Injected native submit failure");
 #endif
-			Queue.submit(SubmitInfos, Fence->GetHandle());
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.QueueSubmit");
+				Queue.submit(SubmitInfos, Fence->GetHandle());
+			}
 		}
 		catch (const vk::SystemError& Error)
 		{
