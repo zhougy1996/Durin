@@ -68,6 +68,7 @@ namespace Durin
 		auto IsClosed() const -> bool;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
+		friend class FRHIPipelineStateCacheBackend;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};

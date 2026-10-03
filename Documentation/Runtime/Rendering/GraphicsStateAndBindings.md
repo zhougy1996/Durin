@@ -15,6 +15,11 @@ state before backend creation. Disabled features and inactive attachments are
 reduced to canonical defaults, so equivalent behavior has equal identity and
 different behavior cannot alias.
 
+The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key
+already validated against the same device's capabilities. They preserve the
+ordinary cache's lifecycle, payload-budget, and task-admission checks. Renderer
+and feature callers use the validating `GetGraphics`/`GetCompute` APIs.
+
 Accepted floating-point key fields use ordinary finite numeric equality.
 Key construction therefore canonicalizes either signed-zero representation to
 positive zero after inactive-state reduction; equal keys always have equal

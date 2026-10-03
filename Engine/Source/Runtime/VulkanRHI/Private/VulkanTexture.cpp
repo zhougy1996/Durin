@@ -261,7 +261,7 @@ namespace Durin::VulkanRHI
 			"Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
 #endif
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
-		if (!RHIIsTextureSupported(NormalizedDesc))
+		if (!IsNormalizedTextureSupported(NormalizedDesc))
 		{
 			return std::unexpected(FRHICreationError{
 				.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor,
@@ -304,6 +304,11 @@ namespace Durin::VulkanRHI
 		checkf(ValidationResult,
 			"Invalid RHI texture create description: {}", ToString(ValidationResult.error()));
 #endif
+		return IsNormalizedTextureSupported(NormalizeTextureCreateDesc(CreateDesc));
+	}
+
+	auto FVulkanDynamicRHI::IsNormalizedTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
+	{
 		const FRHICapabilities* Capabilities = RHIGetCapabilities();
 		if (Capabilities == nullptr) return false;
 		const bool bTexture2D = CreateDesc.Dimension == ETextureDimension::Texture2D;
@@ -336,8 +341,7 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 
-		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(
-			NormalizeTextureCreateDesc(CreateDesc));
+		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(CreateDesc);
 		try
 		{
 			const vk::ImageFormatProperties Properties = Device->GetGpu().getImageFormatProperties(

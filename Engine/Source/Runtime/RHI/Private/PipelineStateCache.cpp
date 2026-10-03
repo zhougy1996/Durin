@@ -1,4 +1,5 @@
 #include "PipelineStateCache.h"
+#include "Backend/RHIPipelineStateCacheBackend.h"
 #include "PipelineCompileQueue.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
@@ -61,8 +62,8 @@ namespace Durin
 			return Result.get();
 		}
 
-		template<typename T>
-		auto Get(const T& Initializer, std::string_view Name)
+		template<typename T, typename TKeyFactory>
+		auto Get(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey)
 		{
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
@@ -75,10 +76,7 @@ namespace Durin
 				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 			try
 			{
-				auto Valid = [&] {
-					if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, &Capabilities);
-					else return BuildComputePipelineStateKey(Initializer, &Capabilities);
-				}();
+				auto Valid = MakeKey();
 				if (!Valid) return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
 				FKey Key(std::move(*Valid));
 				if (auto Existing = Entries.find(Key); Existing != Entries.end())
@@ -145,9 +143,32 @@ namespace Durin
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
 	FRHIPipelineStateCache::~FRHIPipelineStateCache() { ReleaseResources(); }
 	auto FRHIPipelineStateCache::GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
-		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
+		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
+	{
+		return State->Get(Initializer, Name, [&] {
+			return BuildGraphicsPipelineStateKey(Initializer, &State->Capabilities);
+		});
+	}
 	auto FRHIPipelineStateCache::GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
-		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
+		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
+	{
+		return State->Get(Initializer, Name, [&] {
+			return BuildComputePipelineStateKey(Initializer, &State->Capabilities);
+		});
+	}
+	auto FRHIPipelineStateCacheBackend::GetGraphicsValidated(FRHIPipelineStateCache& Cache,
+		const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name, FGraphicsPipelineStateKey Key)
+		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
+	{
+		return Cache.State->Get(Initializer, Name, [&] { return std::optional{std::move(Key)}; });
+	}
+	auto FRHIPipelineStateCacheBackend::GetComputeValidated(FRHIPipelineStateCache& Cache,
+		const FComputePipelineStateInitializer& Initializer, std::string_view Name, FComputePipelineStateKey Key)
+		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
+	{
+		return Cache.State->Get(Initializer, Name, [&] { return std::optional{std::move(Key)}; });
+	}
+
 	auto FRHIPipelineStateCache::StopAndWait() -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);

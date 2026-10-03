@@ -1,4 +1,4 @@
-#include "PipelineStateCache.h"
+#include "Backend/RHIPipelineStateCacheBackend.h"
 #include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
@@ -1239,8 +1239,8 @@ namespace Durin::VulkanRHI
 				auto* Cache = RHI.RHIGetPipelineStateCache();
 				if (!Cache) return nullptr;
 				auto Pipeline = [&] {
-					if constexpr (Graphics) return Cache->GetGraphics(Initializer, Name);
-					else return Cache->GetCompute(Initializer, Name);
+					if constexpr (Graphics) return FRHIPipelineStateCacheBackend::GetGraphicsValidated(*Cache, Initializer, Name, std::move(Key));
+					else return FRHIPipelineStateCacheBackend::GetComputeValidated(*Cache, Initializer, Name, std::move(Key));
 				}();
 				if (!Pipeline) return nullptr;
 				(*Pipeline)->Wait();

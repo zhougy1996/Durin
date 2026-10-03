@@ -47,7 +47,9 @@ Structural validity is not device support. `RHIIsTextureSupported` requires a
 valid complete description and answers device support without allocation.
 Vulkan maps the exact format, image type, optimal tiling, usage, flags, extent,
 mips, layers, and samples into `vkGetPhysicalDeviceImageFormatProperties`.
-Creation uses the same `vk::ImageCreateInfo`. A valid unsupported description
+Creation uses the same `vk::ImageCreateInfo`. The public support-query and
+creation boundaries each validate and normalize their input once, then share
+an internal support query over the normalized description. A valid unsupported description
 returns false and `RHICreateTexture` logs one owned diagnostic and returns null
 before image allocation. Invalid programmer descriptions assert at the public
 boundary.

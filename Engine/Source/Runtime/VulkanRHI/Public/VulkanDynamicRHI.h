@@ -147,6 +147,9 @@ namespace Durin::VulkanRHI
 			bool bRequirePresentation) -> void;
 
 	private:
+		// Internal support query for structurally validated, normalized descriptions.
+		auto IsNormalizedTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool;
+
 		vk::Instance Instance;
 		vk::DebugUtilsMessengerEXT DebugMessenger;
 		std::vector<std::string> InstanceExtensions;

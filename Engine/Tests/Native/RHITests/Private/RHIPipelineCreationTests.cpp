@@ -3,6 +3,7 @@
 
 #include "RHIPipelineCreation.h"
 #include "PipelineStateCache.h"
+#include "Backend/RHIPipelineStateCacheBackend.h"
 #include "PipelineCompileQueue.h"
 #include "RHICapabilities.h"
 #include "RHICommandList.h"
@@ -60,8 +61,11 @@ namespace Durin
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		auto& Cache = Owner;
+		auto Caps = Capabilities();
+		auto Key = BuildComputePipelineStateKey(Initializer, &Caps);
+		ASSERT_TRUE(Key);
 		auto First = Cache.GetCompute(Initializer, "precache");
-		auto Second = Cache.GetCompute(Initializer, "draw");
+		auto Second = FRHIPipelineStateCacheBackend::GetComputeValidated(Cache, Initializer, "draw", *Key);
 		EXPECT_TRUE(First);
 		EXPECT_TRUE(Second);
 		if (First && Second)
@@ -210,6 +214,32 @@ namespace Durin
 			return Owner.GetCompute(Initializer, "cpu leaf").error();
 		});
 		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_EQ(Calls, 0u);
+		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
+	}
+
+	TEST_F(FRHIPipelineCreationTests, ValidatedCacheEntryPreservesAdmissionGates)
+	{
+		std::atomic<uint32> Calls = 0;
+		auto Caps = Capabilities();
+		FRHIPipelineStateCache Owner(Caps, Backend([&](const auto&, const auto&) {
+			++Calls;
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		auto Key = BuildComputePipelineStateKey(Initializer, &Caps);
+		ASSERT_TRUE(Key);
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
+			std::string(1024 * 1024, 'x'), *Key).error(), ERHIPipelineRequestRejection::CapacityExceeded);
+		auto Task = Tasks::LaunchIndependentTask("validated cache leaf rejection", [&] {
+			return FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer, "cpu leaf", *Key).error();
+		});
+		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		Owner.StopAndWait();
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
+			"closed", *Key).error(), ERHIPipelineRequestRejection::Closed);
 		EXPECT_EQ(Calls, 0u);
 		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
 	}
