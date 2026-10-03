@@ -20,12 +20,6 @@ namespace Durin::AssetPrivate
 		return Entry;
 	}
 
-	inline auto CookFail(std::string Message, std::string* OutError) -> bool
-	{
-		if (OutError) *OutError = std::move(Message);
-		return false;
-	}
-
 	inline auto RelativePackagePath(std::string_view VirtualPath) -> std::string
 	{
 		return std::format("{}.dasset", VirtualPath.substr(1));

@@ -465,31 +465,6 @@ namespace Durin
 				};
 			}
 
-			auto MakeTerminalResult(
-				const FMaterialCompileRequest& Request,
-				EMaterialCompileState State,
-				EMaterialCompileResultCategory Category,
-				FMaterialError Error) -> FMaterialCompileResult
-			{
-				FMaterialCompileResult Result{
-					.Owner = Request.Owner,
-					.AuthoredRevision = Request.AuthoredRevision,
-					.Generation = Request.Generation,
-					.DependencyRevision = Request.DependencyRevision,
-					.ParentChainRevision = Request.ParentChainRevision,
-					.ProgramIdentity = Request.ProgramIdentity,
-					.StaticProperties = Request.PreparedProgram->StaticProperties,
-					.Target = Request.Target,
-					.State = State,
-					.Category = Category,
-				};
-				Result.Diagnostics.push_back(MakeDiagnostic(
-					Request, Category,
-					{.Category = EMaterialProgramDiagnosticCategory::Compile,
-					 .Error = std::move(Error)}));
-				return Result;
-			}
-
 			auto CompleteFlight(
 				const std::shared_ptr<FMaterialCompileFlight>& Flight,
 				FMaterialCompilerResult Compiled,

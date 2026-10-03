@@ -248,12 +248,6 @@ namespace Durin
 
 	namespace
 	{
-		auto IsNumeric(EMaterialProgramValueType Type) -> bool
-		{
-			return Type >= EMaterialProgramValueType::Float
-				&& Type <= EMaterialProgramValueType::Float4;
-		}
-
 		auto IsSpatial(const FMaterialValueSemantics& Value) -> bool
 		{
 			return Value.Kind != EMaterialSpatialKind::None;

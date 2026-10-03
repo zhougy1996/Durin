@@ -156,7 +156,7 @@ namespace Durin::Editor::Material
 			{
 			case Op::Parameter: case Op::TextureParameter: case Op::TextureSampleParameter2D:
 				return IM_COL32(48, 100, 66, 255);
-			case Op::Constant: case Op::UVChannel: case Op::TextureCoordinates: case Op::WorldPosition: case Op::Time:
+			case Op::Constant: case Op::TextureCoordinates: case Op::WorldPosition: case Op::Time:
 			case Op::CameraPosition: case Op::CameraVector: case Op::ObjectPosition:
 			case Op::VertexNormal: case Op::ScreenPosition: case Op::ViewSize:
 				return IM_COL32(44, 83, 126, 255);

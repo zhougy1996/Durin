@@ -21,6 +21,4 @@ namespace Durin
 	class FRHIBuffer;
 	class FRHITextureView;
 	class FRHIBufferView;
-	class FVertexShader;
-	class FFragmentShader;
 }

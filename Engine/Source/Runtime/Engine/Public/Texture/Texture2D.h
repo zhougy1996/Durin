@@ -11,7 +11,6 @@
 namespace Durin
 {
 	class FArchive;
-	struct FTextureBuildOperations;
 	struct FTexture2DBuildRequest;
 	struct FTexture2DBuildSettings;
 	struct FTexture2DInputError;
