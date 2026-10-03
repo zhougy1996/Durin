@@ -133,6 +133,7 @@ namespace Durin
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
 		bool Closed = false;
 		std::mutex CloseMutex;
+		bool Stopped = false;
 		std::thread AdmissionThread;
 		std::mutex AdmissionMutex;
 		std::condition_variable AdmissionChanged;
@@ -142,14 +143,15 @@ namespace Durin
 
 	FRHIPipelineStateCache::FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend)
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
-	FRHIPipelineStateCache::~FRHIPipelineStateCache() { CloseAndJoin(); }
+	FRHIPipelineStateCache::~FRHIPipelineStateCache() { ReleaseResources(); }
 	auto FRHIPipelineStateCache::GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
 		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
 	auto FRHIPipelineStateCache::GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
 		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection> { return State->Get(Initializer, Name); }
-	auto FRHIPipelineStateCache::CloseAndJoin(bool RetireResults) -> void
+	auto FRHIPipelineStateCache::StopAndWait() -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);
+		if (State->Stopped) return;
 		{
 			std::lock_guard Lock(State->Mutex);
 			State->Closed = true;
@@ -158,10 +160,16 @@ namespace Durin
 				State->StopAdmission = true;
 			}
 			State->AdmissionChanged.notify_one();
-			if (State->AdmissionThread.joinable()) State->AdmissionThread.join();
 			State->Entries.clear();
 		}
-		State->Queue.CloseAndJoin(RetireResults);
+		if (State->AdmissionThread.joinable()) State->AdmissionThread.join();
+		State->Queue.StopAndWait();
+		State->Stopped = true;
+	}
+	auto FRHIPipelineStateCache::ReleaseResources() -> void
+	{
+		StopAndWait();
+		State->Queue.ReleaseResources();
 	}
 	auto FRHIPipelineStateCache::IsClosed() const -> bool
 	{

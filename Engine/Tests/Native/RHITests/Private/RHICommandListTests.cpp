@@ -151,10 +151,10 @@ namespace Durin
 			{
 				FRHIPipelineStateCache* Cache;
 				{ std::lock_guard Lock(DeviceState.Mutex); DeviceState.Closed = true; Cache = DeviceState.PipelineCache.get(); }
-				if (Cache) Cache->CloseAndJoin(false);
+				if (Cache) Cache->StopAndWait();
 			}
 			void RHIRetirePipelineCreationResults() override
-			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->CloseAndJoin(); }
+			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->ReleaseResources(); }
 			bool RHIIsPipelineCreationClosed() const override
 			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.Closed || (DeviceState.PipelineCache && DeviceState.PipelineCache->IsClosed()); }
 			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
@@ -1543,7 +1543,7 @@ namespace Durin
 			EXPECT_FALSE(SecondFence.IsComplete());
 			if (Outcome == 1)
 			{
-				auto Closing = std::async(std::launch::async, [&] { Cache.CloseAndJoin(false); });
+				auto Closing = std::async(std::launch::async, [&] { Cache.StopAndWait(); });
 				EXPECT_FALSE(FirstFence.TryWait());
 				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
 				EXPECT_TRUE(SecondFence.TryWait());
@@ -1559,7 +1559,7 @@ namespace Durin
 				EXPECT_EQ(FirstFence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Failed);
 				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2}) : std::vector<int>({2}));
 			}
-			Cache.CloseAndJoin();
+			Cache.ReleaseResources();
 			Thread.Stop();
 			Executor.SetInlineMode();
 		}

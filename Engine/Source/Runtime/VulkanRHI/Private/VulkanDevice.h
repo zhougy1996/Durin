@@ -284,6 +284,7 @@ namespace Durin::VulkanRHI
 
 	private:
 		auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend;
+		auto ShutdownPipelineStateCache() -> void;
 		mutable std::mutex PipelineCreationMutex;
 		std::unique_ptr<FRHIPipelineStateCache> PipelineStateCache;
 		bool PipelineCreationClosed = false;

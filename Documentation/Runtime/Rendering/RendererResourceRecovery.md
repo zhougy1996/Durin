@@ -116,7 +116,12 @@ never the public cache or a synchronous compatibility factory.
 
 The device stops cache admission even when no cache has been demanded. It joins
 compilation before native managers are destroyed and retires published results
-through the two-phase RHI shutdown boundary. Device destruction resets the cache;
+through the two-phase RHI shutdown boundary. `StopAndWait()` closes admission and
+joins compilation while preserving Ready results; `ReleaseResources()` ensures
+compilation has stopped and invalidates native results in surviving identities.
+Both operations are idempotent; a completed stop does not wait on Core again.
+Device destruction moves the cache out under its ownership mutex and releases
+and destroys it outside that mutex, before native managers are destroyed;
 a replacement device starts with fresh admission state and a new capability
 snapshot. Surviving old identities expose terminal metadata without native PSOs.
 
@@ -154,13 +159,13 @@ descriptor-set layouts. A full budget rejects recoverably.
 release delegates, replay shutdown, or native cache persistence/destruction.
 Queued observations cancel; in-flight native creation is joined and cannot
 publish into a closed device generation. Old request/completion handles may
-survive shutdown. Close/join first preserves Ready publications for already
-accepted command consumers; after replay drains, result retirement releases
+survive shutdown. `StopAndWait()` first preserves Ready publications for already
+accepted command consumers; after replay drains, `ReleaseResources()` releases
 those RHI references and a second retirement flush precedes native teardown.
 Immutable request layout aliases remain valid after backend module unload;
 their metadata budget and deleter are owned by RHI, not the Vulkan module.
 Callers must still release explicit RHI references copied out of a Ready result
-before device destruction. The owning shutdown thread performs close/join;
+before device destruction. The owning shutdown thread performs stop and release;
 creation callbacks must never attempt to close their own compile queue.
 
 ## Pipeline Cache And Binding

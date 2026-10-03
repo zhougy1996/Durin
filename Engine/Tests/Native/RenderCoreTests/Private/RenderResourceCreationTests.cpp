@@ -66,10 +66,10 @@ namespace Durin
 			{
 				FRHIPipelineStateCache* Cache;
 				{ std::lock_guard Lock(DeviceState.Mutex); DeviceState.Closed = true; Cache = DeviceState.PipelineCache.get(); }
-				if (Cache) Cache->CloseAndJoin(false);
+				if (Cache) Cache->StopAndWait();
 			}
 			void RHIRetirePipelineCreationResults() override
-			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->CloseAndJoin(); }
+			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->ReleaseResources(); }
 			bool RHIIsPipelineCreationClosed() const override
 			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.Closed || (DeviceState.PipelineCache && DeviceState.PipelineCache->IsClosed()); }
 			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override

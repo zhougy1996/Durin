@@ -32,7 +32,8 @@ namespace Durin
 			std::string_view DebugName) -> FRHIPipelineCreationRequest;
 		auto RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
 		auto RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
-		auto CloseAndJoin(bool RetireResults = true) -> void;
+		auto StopAndWait() -> void;
+		auto ReleaseResources() -> void;
 		auto IsClosed() const -> bool;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:

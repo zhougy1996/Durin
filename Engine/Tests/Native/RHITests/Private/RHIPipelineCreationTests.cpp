@@ -143,10 +143,12 @@ namespace Durin
 		EXPECT_TRUE((*Retried)->Wait());
 		EXPECT_TRUE((*Retried)->GetRHIPipeline());
 		EXPECT_EQ(Calls, 2u);
-		Owner.CloseAndJoin(false);
+		Owner.StopAndWait();
+		Owner.StopAndWait();
 		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Ready);
 		EXPECT_EQ(Cache.GetCompute(Initializer, "closed").error(), ERHIPipelineRequestRejection::Closed);
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
+		Owner.ReleaseResources();
 		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_FALSE((*Retried)->GetRHIPipeline());
 		EXPECT_TRUE((*Retried)->IsComplete());
@@ -185,7 +187,7 @@ namespace Durin
 		ASSERT_TRUE(Second);
 		EXPECT_TRUE((*Second)->Wait());
 		EXPECT_EQ(CacheLeases, 1u);
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		Second = std::unexpected(ERHIPipelineRequestRejection::Closed);
 		EXPECT_EQ(CacheLeases, 0u);
 	}
@@ -252,7 +254,7 @@ namespace Durin
 		EXPECT_FALSE(Second.Cancel());
 		EXPECT_EQ(Calls, 1u);
 		EXPECT_EQ(Owner.GetStatistics().SharedPendingHits, 1u);
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		EXPECT_EQ(Second.GetState(), ERHIPipelineRequestState::Canceled);
 		EXPECT_FALSE(Second.GetResult().Compute);
 	}
@@ -295,7 +297,7 @@ namespace Durin
 		Release.set_value();
 		for (auto& Request : Requests) EXPECT_TRUE(Request.Wait());
 		EXPECT_EQ(Calls, 256u);
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
@@ -331,7 +333,7 @@ namespace Durin
 		EXPECT_LE(Owner.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
 		Release.set_value();
 		for (const auto& Request : Requests) EXPECT_TRUE(Request.Wait());
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
@@ -360,7 +362,7 @@ namespace Durin
 		EXPECT_TRUE(Request.Wait());
 		auto Completion = Request.GetCompletion();
 		Request = {};
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
 		EXPECT_TRUE(Completion.IsReady());
 		Group.Close();
@@ -418,7 +420,7 @@ namespace Durin
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Failed);
 		EXPECT_THROW(Request.GetResult(), std::logic_error);
 		EXPECT_EQ(Owner.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
-		Owner.CloseAndJoin();
+		Owner.ReleaseResources();
 		EXPECT_TRUE(Request.GetCompletion().IsReady());
 	}
 
@@ -446,7 +448,12 @@ namespace Durin
 				EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
 				Release.set_value();
 			});
-			Owner.CloseAndJoin();
+			auto ConcurrentStop = std::async(std::launch::async, [&] {
+				Owner.StopAndWait();
+				EXPECT_TRUE(Exited.load());
+			});
+			Owner.ReleaseResources();
+			ConcurrentStop.get();
 			ReleaseAfterCancel.get();
 			EXPECT_TRUE(Exited.load());
 			EXPECT_EQ(Owner.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);

@@ -668,7 +668,7 @@ namespace Durin::VulkanRHI
 			PipelineCreationClosed = true;
 			Cache = PipelineStateCache.get();
 		}
-		if (Cache) Cache->CloseAndJoin(false);
+		if (Cache) Cache->StopAndWait();
 	}
 	auto FVulkanDevice::RetirePipelineCreationResults() -> void
 	{
@@ -677,7 +677,7 @@ namespace Durin::VulkanRHI
 			std::lock_guard Lock(PipelineCreationMutex);
 			Cache = PipelineStateCache.get();
 		}
-		if (Cache) Cache->CloseAndJoin();
+		if (Cache) Cache->ReleaseResources();
 	}
 	auto FVulkanDevice::IsPipelineCreationClosed() const -> bool
 	{
@@ -690,13 +690,23 @@ namespace Durin::VulkanRHI
 		return PipelineStateCache ? PipelineStateCache->GetStatistics() : FRHIPipelineCreationStatistics{};
 	}
 
+	auto FVulkanDevice::ShutdownPipelineStateCache() -> void
+	{
+		std::unique_ptr<FRHIPipelineStateCache> Cache;
+		{
+			std::lock_guard Lock(PipelineCreationMutex);
+			PipelineCreationClosed = true;
+			Cache = std::move(PipelineStateCache);
+		}
+		// Waiting and native result destruction must not hold the ownership mutex.
+		if (Cache) Cache->ReleaseResources();
+	}
+
 	auto FVulkanDevice::Destroy() -> void
 	{
 		CheckVulkanRHIThread();
 		// Creator work and published PSOs must retire while native managers live.
-		StopPipelineCreation();
-		RetirePipelineCreationResults();
-		{ std::lock_guard Lock(PipelineCreationMutex); PipelineStateCache.reset(); }
+		ShutdownPipelineStateCache();
 		if (!Device)
 		{
 			return;

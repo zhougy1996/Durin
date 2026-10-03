@@ -411,6 +411,7 @@ namespace Durin
 		FRHIPipelineCreationStatistics Statistics;
 		bool DrainActive = false;
 		bool CloseStarted = false;
+		bool WorkJoined = false;
 		std::mutex CloseMutex;
 	};
 
@@ -419,7 +420,7 @@ namespace Durin
 	{}
 	auto FPipelineCompileQueue::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
 	{ return State->Backend.ReserveMetadata ? State->Backend.ReserveMetadata(Bytes) : State->Lifetime->Metadata.Reserve(Bytes); }
-	FPipelineCompileQueue::~FPipelineCompileQueue() { CloseAndJoin(); }
+	FPipelineCompileQueue::~FPipelineCompileQueue() { ReleaseResources(); }
 	auto FPipelineCompileQueue::IsClosed() const -> bool
 	{
 		return State->Lifetime->Closed.load() || State->Lifetime->Failed.load();
@@ -473,9 +474,10 @@ namespace Durin
 		Result.ActiveObservers = State->Lifetime->Observers.load();
 		return Result;
 	}
-	auto FPipelineCompileQueue::CloseAndJoin(bool RetireResults) -> void
+	auto FPipelineCompileQueue::StopAndWait() -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);
+		if (State->WorkJoined) return;
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (!State->CloseStarted)
@@ -499,7 +501,13 @@ namespace Durin
 		}
 		const auto Joined = State->ScopeOwner.Wait();
 		checkf(Joined == ETaskScopeWaitResult::Quiescent, "Pipeline creation scope could not join.");
-		if (RetireResults && !State->Lifetime->Retired.exchange(true))
+		State->WorkJoined = true;
+	}
+	auto FPipelineCompileQueue::ReleaseResources() -> void
+	{
+		StopAndWait();
+		std::lock_guard CloseLock(State->CloseMutex);
+		if (!State->Lifetime->Retired.exchange(true))
 		{
 			for (auto& Weak : State->Observers) if (auto Observer = Weak.lock()) Observer->Retire();
 		}

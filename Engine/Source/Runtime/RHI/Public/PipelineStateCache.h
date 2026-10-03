@@ -61,8 +61,10 @@ namespace Durin
 			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>;
 		auto GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
 			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
-		// Stop admission and join private compilation work before backend teardown.
-		auto CloseAndJoin(bool RetireResults = true) -> void;
+		// Reject new requests and join compilation, preserving already Ready native PSOs.
+		auto StopAndWait() -> void;
+		// Stop compilation first, then invalidate native results in surviving handles.
+		auto ReleaseResources() -> void;
 		auto IsClosed() const -> bool;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
