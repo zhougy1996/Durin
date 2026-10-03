@@ -21,6 +21,7 @@
 #include "VulkanView.h"
 #include "VulkanQueueTransfer.h"
 #include "VulkanTransition.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -582,6 +583,15 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
 		CheckVulkanRHIThread();
+#ifdef __APPLE__
+		// MoltenVK obtains the Metal drawable while encoding the window render
+		// pass at native submission. Submit offscreen work first so drawable
+		// availability cannot delay that work or its GPU completion signals.
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.SubmitBeforeViewport");
+			Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
+		}
+#endif
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 		VulkanViewport->BeginDrawing();
 	}
