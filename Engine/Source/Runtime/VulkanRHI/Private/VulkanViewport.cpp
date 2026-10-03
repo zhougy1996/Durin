@@ -304,12 +304,18 @@ namespace Durin::VulkanRHI
 
 		FVulkanViewportFrameResources& FrameResource = FrameResources[AcquiredBackBufferIndex];
 		check(RHIBackBuffer);
-		RHIBackBuffer->CommitPresentedImageState();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.Present.CommitImageState");
+			RHIBackBuffer->CommitPresentedImageState();
+		}
 		WaitForFrameResource(FrameResource);
 		FVulkanSemaphore* RenderingDoneSemaphore = FrameResource.RenderingDoneSemaphore;
 		check(RenderingDoneSemaphore != nullptr);
 		InContext.AddSignalSemaphore(RenderingDoneSemaphore);
-		Device.GetSubmissionCoordinator().SubmitContext(InContext);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.Present.SubmitContext");
+			Device.GetSubmissionCoordinator().SubmitContext(InContext);
+		}
 		const bool bTrackPresent = Device.SupportsSwapchainMaintenance1();
 		const FVulkanPresentOutcome PresentOutcome =
 			Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore, bTrackPresent ? FrameResource.PresentFence : VK_NULL_HANDLE);
@@ -668,6 +674,7 @@ namespace Durin::VulkanRHI
 		}
 		check(FrameResource.State == EVulkanPresentResourceState::PresentPending);
 
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.WaitPresentFence");
 		const vk::Result Result = Device.GetHandle().waitForFences(FrameResource.PresentFence, vk::True, UINT64_MAX);
 		check(Result == vk::Result::eSuccess);
 		Device.GetHandle().resetFences(FrameResource.PresentFence);
