@@ -28,7 +28,7 @@ namespace Durin::Editor::Material
 	{
 		return {.Id = "function:" + Path,
 			.Name = AssetPicker::GetAssetPathDisplayName(Path, EAssetPathDisplayMode::AssetName),
-			.Category = "Material Functions",
+			.Category = "Functions",
 			.Keywords = "function call " + Path, .Payload = std::move(Path)};
 	}
 	auto MakeCollectionParameterCreationAction(std::string Path,
@@ -40,7 +40,7 @@ namespace Durin::Editor::Material
 		return {
 			.Id = std::format("collection:{}:{}", Path, ParameterId.ToString()),
 			.Name = ParameterName,
-			.Category = "Collection Parameters",
+			.Category = "Parameters",
 			.Keywords = "collection parameter " + CollectionName + " "
 				+ ParameterName,
 			.Description = "Reads " + ParameterName + " from " + CollectionName
@@ -52,11 +52,14 @@ namespace Durin::Editor::Material
 	auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction
 	{
 		return {.Id = std::format("port:{}:{}", bOutput ? "output" : "input", static_cast<uint32>(Type)), .Name = bOutput ? "Function Output" : "Function Input",
-			.Category = "Material Functions", .Keywords = "function port", .bMaterial = false,
+			.Category = "Functions", .Keywords = "function port", .bMaterial = false,
 			.Payload = FMaterialGraphPortCreation{bOutput, Type}};
 	}
 	namespace
 	{
+		enum class EMaterialGraphOpcodePurpose { Authored, AssetBound, Internal };
+		enum class EMaterialGraphPaletteShape { All, InspectOnly, Scalar, ScalarOrVector4, Float2, Adaptive, AdaptiveVector };
+
 		struct FMaterialGraphOpcodeDescriptor
 		{
 			EMaterialProgramOpcode Opcode;
@@ -65,20 +68,22 @@ namespace Durin::Editor::Material
 			const char* Description;
 			DClass* (*ExpressionClass)();
 			std::array<const char*, 8> InputNames;
+			EMaterialGraphOpcodePurpose Purpose = EMaterialGraphOpcodePurpose::Authored;
+			EMaterialGraphPaletteShape PaletteShape = EMaterialGraphPaletteShape::All;
 		};
 
 		// Editor metadata stays together; runtime signatures still own pin types and semantics.
 		constexpr FMaterialGraphOpcodeDescriptor OpcodeDescriptors[] = {
 			{EMaterialProgramOpcode::Constant, "Constant", "Inputs",
 				"A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu.",
-				nullptr, {}},
-			{EMaterialProgramOpcode::Parameter, "Parameter", "Inputs",
+				nullptr, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Scalar},
+			{EMaterialProgramOpcode::Parameter, "Parameter", "Parameters",
 				"A value exposed by the material parameter definition.",
-				nullptr, {}},
-			{EMaterialProgramOpcode::TextureParameter, "Texture Object Parameter", "Inputs",
+				nullptr, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::ScalarOrVector4},
+			{EMaterialProgramOpcode::TextureParameter, "Texture Object Parameter", "Parameters",
 				"A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D.",
 				&DMaterialExpressionTextureParameter::StaticClass, {}},
-			{EMaterialProgramOpcode::TextureSampleParameter2D, "Texture Sample Parameter 2D", "Textures",
+			{EMaterialProgramOpcode::TextureSampleParameter2D, "Texture Sample Parameter 2D", "Parameters",
 				"Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.",
 				&DMaterialExpressionTextureSampleParameter2D::StaticClass, {"UV"}},
 			{EMaterialProgramOpcode::WorldPosition, "World Position", "Inputs",
@@ -87,9 +92,9 @@ namespace Durin::Editor::Material
 			{EMaterialProgramOpcode::Time, "Time", "Inputs",
 				"Elapsed real time in seconds (Float), updated every rendered view.",
 				&DMaterialExpressionTime::StaticClass, {}},
-			{EMaterialProgramOpcode::CollectionParameter, "Collection Parameter", "Math",
+			{EMaterialProgramOpcode::CollectionParameter, "Collection Parameter", "Parameters",
 				"Reads a numeric value from a material parameter collection in the current world.",
-				nullptr, {}},
+				nullptr, {}, EMaterialGraphOpcodePurpose::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::CameraPosition, "Camera Position", "Inputs",
 				"Active pass camera position in translated world space; zero at the view origin (Float3).",
 				&DMaterialExpressionCameraPosition::StaticClass, {}},
@@ -99,9 +104,9 @@ namespace Durin::Editor::Material
 			{EMaterialProgramOpcode::ObjectPosition, "Object Position", "Inputs",
 				"Render primitive bounds center relative to the current view origin (Float3).",
 				&DMaterialExpressionObjectPosition::StaticClass, {}},
-			{EMaterialProgramOpcode::VertexInterpolator, "Vertex Interpolator", "Math",
+			{EMaterialProgramOpcode::VertexInterpolator, "Vertex Interpolator", "Vertex",
 				"Evaluates the input per vertex and interpolates its value to pixel calculations.",
-				&DMaterialExpressionVertexInterpolator::StaticClass, {}},
+				&DMaterialExpressionVertexInterpolator::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::VertexNormal, "Vertex Normal", "Inputs",
 				"Post-vertex-factory world normal for vertex offsets or explicit interpolation.",
 				&DMaterialExpressionVertexNormal::StaticClass, {}},
@@ -140,82 +145,82 @@ namespace Durin::Editor::Material
 				&DMaterialExpressionTextureSample2D::StaticClass, {"Texture", "UV"}},
 			{EMaterialProgramOpcode::Add, "Add", "Math",
 				"Adds two values component by component.",
-				&DMaterialExpressionAdd::StaticClass, {"A", "B"}},
+				&DMaterialExpressionAdd::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Subtract, "Subtract", "Math",
 				"Subtracts the second value from the first.",
-				&DMaterialExpressionSubtract::StaticClass, {"A", "B"}},
+				&DMaterialExpressionSubtract::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Multiply, "Multiply", "Math",
 				"Multiplies two values component by component.",
-				&DMaterialExpressionMultiply::StaticClass, {"A", "B"}},
+				&DMaterialExpressionMultiply::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Divide, "Divide", "Math",
 				"Divides the first value by the second.",
-				&DMaterialExpressionDivide::StaticClass, {"A", "B"}},
+				&DMaterialExpressionDivide::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Minimum, "Minimum", "Math",
 				"Returns the component-wise minimum.",
-				&DMaterialExpressionMinimum::StaticClass, {"A", "B"}},
+				&DMaterialExpressionMinimum::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Maximum, "Maximum", "Math",
 				"Returns the component-wise maximum.",
-				&DMaterialExpressionMaximum::StaticClass, {"A", "B"}},
+				&DMaterialExpressionMaximum::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Negate, "Negate", "Math",
 				"Reverses the sign of a value.",
-				&DMaterialExpressionNegate::StaticClass, {}},
+				&DMaterialExpressionNegate::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::OneMinus, "One Minus", "Math",
 				"Subtracts a value from one.",
-				&DMaterialExpressionOneMinus::StaticClass, {}},
+				&DMaterialExpressionOneMinus::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Absolute, "Absolute", "Math",
 				"Returns the absolute value.",
-				&DMaterialExpressionAbsolute::StaticClass, {}},
+				&DMaterialExpressionAbsolute::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Saturate, "Saturate", "Math",
 				"Clamps a value to the zero-to-one range.",
-				&DMaterialExpressionSaturate::StaticClass, {}},
+				&DMaterialExpressionSaturate::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Normalize, "Normalize", "Math",
 				"Returns a unit-length vector.",
-				&DMaterialExpressionNormalize::StaticClass, {}},
+				&DMaterialExpressionNormalize::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::AdaptiveVector},
 			{EMaterialProgramOpcode::Clamp, "Clamp", "Math",
 				"Constrains a value between minimum and maximum inputs.",
-				&DMaterialExpressionClamp::StaticClass, {"Value", "Min", "Max"}},
+				&DMaterialExpressionClamp::StaticClass, {"Value", "Min", "Max"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Lerp, "Lerp", "Math",
 				"Interpolates between two values.",
-				&DMaterialExpressionLerp::StaticClass, {"A", "B", "Alpha"}},
+				&DMaterialExpressionLerp::StaticClass, {"A", "B", "Alpha"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::MakeFloat2, "Make Vector", "Channels",
 				"Combines scalar inputs into a vector.",
-				&DMaterialExpressionMakeVector2::StaticClass, {"X", "Y"}},
+				&DMaterialExpressionMakeVector2::StaticClass, {"X", "Y"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::MakeFloat3, "Make Vector", "Channels",
 				"Combines scalar inputs into a vector.",
-				&DMaterialExpressionMakeVector3::StaticClass, {"X", "Y", "Z"}},
+				&DMaterialExpressionMakeVector3::StaticClass, {"X", "Y", "Z"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::MakeFloat4, "Make Vector", "Channels",
 				"Combines scalar inputs into a vector.",
-				&DMaterialExpressionMakeVector4::StaticClass, {"X", "Y", "Z", "W"}},
+				&DMaterialExpressionMakeVector4::StaticClass, {"X", "Y", "Z", "W"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::AppendVector, "Append Vector", "Channels",
 				"Concatenates A and B; output width follows the inputs (up to four components).",
-				&DMaterialExpressionAppendVector::StaticClass, {"A", "B"}},
+				&DMaterialExpressionAppendVector::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Float2},
 			{EMaterialProgramOpcode::Swizzle, "Component Mask", "Channels",
 				"Selects, repeats or reorders channels (Component Mask / Truncate).",
-				&DMaterialExpressionSwizzle::StaticClass, {}},
+				&DMaterialExpressionSwizzle::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Scalar},
 			{EMaterialProgramOpcode::Splat2, "Splat", "Channels",
 				"Replicates a scalar across vector components.",
-				&DMaterialExpressionSplat2::StaticClass, {}},
+				&DMaterialExpressionSplat2::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::Splat3, "Splat", "Channels",
 				"Replicates a scalar across vector components.",
-				&DMaterialExpressionSplat3::StaticClass, {}},
+				&DMaterialExpressionSplat3::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::Splat4, "Splat", "Channels",
 				"Replicates a scalar across vector components.",
-				&DMaterialExpressionSplat4::StaticClass, {}},
+				&DMaterialExpressionSplat4::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::BlendNormalsRNM, "Blend Normals RNM", "Textures",
 				"Blends two tangent-space normals with RNM.",
 				&DMaterialExpressionBlendNormalsRNM::StaticClass, {"Base", "Detail"}},
 			{EMaterialProgramOpcode::DecodeNormalRG, "Decode Normal RG", "Math",
 				"Decodes a tangent-space normal from its RG channels.",
-				nullptr, {}},
+				nullptr, {}, EMaterialGraphOpcodePurpose::Internal, EMaterialGraphPaletteShape::InspectOnly},
 			{EMaterialProgramOpcode::UVChannel, "UV Channel", "Inputs",
 				"Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped.",
 				&DMaterialExpressionUVChannel::StaticClass, {"Channel"}},
 			{EMaterialProgramOpcode::Sine, "Sine", "Math",
 				"Returns the component-wise sine in radians.",
-				&DMaterialExpressionSine::StaticClass, {}},
+				&DMaterialExpressionSine::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Cosine, "Cosine", "Math",
 				"Returns the component-wise cosine in radians.",
-				&DMaterialExpressionCosine::StaticClass, {}},
+				&DMaterialExpressionCosine::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Dot, "Dot Product", "Math",
 				"Returns the scalar dot product of equal-width vectors.",
 				&DMaterialExpressionDot::StaticClass, {"A", "B"}},
@@ -230,53 +235,53 @@ namespace Durin::Editor::Material
 				&DMaterialExpressionDistance::StaticClass, {"A", "B"}},
 			{EMaterialProgramOpcode::Pow, "Power", "Math",
 				"Raises each base component to its exponent.",
-				&DMaterialExpressionPow::StaticClass, {"Base", "Exponent"}},
+				&DMaterialExpressionPow::StaticClass, {"Base", "Exponent"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Sqrt, "Square Root", "Math",
 				"Returns the component-wise square root.",
-				&DMaterialExpressionSqrt::StaticClass, {}},
+				&DMaterialExpressionSqrt::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Exp, "Exponential", "Math",
 				"Returns the component-wise natural exponential.",
-				&DMaterialExpressionExp::StaticClass, {}},
+				&DMaterialExpressionExp::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Log, "Natural Log", "Math",
 				"Returns the component-wise natural logarithm.",
-				&DMaterialExpressionLog::StaticClass, {}},
+				&DMaterialExpressionLog::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Floor, "Floor", "Math",
 				"Rounds each component down.",
-				&DMaterialExpressionFloor::StaticClass, {}},
+				&DMaterialExpressionFloor::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Ceil, "Ceil", "Math",
 				"Rounds each component up.",
-				&DMaterialExpressionCeil::StaticClass, {}},
+				&DMaterialExpressionCeil::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Round, "Round", "Math",
 				"Rounds each component to the nearest integer.",
-				&DMaterialExpressionRound::StaticClass, {}},
+				&DMaterialExpressionRound::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Frac, "Fraction", "Math",
 				"Returns each component's fractional part.",
-				&DMaterialExpressionFrac::StaticClass, {}},
+				&DMaterialExpressionFrac::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Fmod, "Fmod", "Math",
 				"Returns the component-wise floating-point remainder.",
-				&DMaterialExpressionFmod::StaticClass, {"A", "B"}},
+				&DMaterialExpressionFmod::StaticClass, {"A", "B"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Step, "Step", "Math",
 				"Returns zero below Edge and one otherwise.",
-				&DMaterialExpressionStep::StaticClass, {"Edge", "Value"}},
+				&DMaterialExpressionStep::StaticClass, {"Edge", "Value"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::SmoothStep, "Smooth Step", "Math",
 				"Returns smooth Hermite interpolation between Min and Max.",
-				&DMaterialExpressionSmoothStep::StaticClass, {"Min", "Max", "Value"}},
+				&DMaterialExpressionSmoothStep::StaticClass, {"Min", "Max", "Value"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Sign, "Sign", "Math",
 				"Returns the sign of each component.",
-				&DMaterialExpressionSign::StaticClass, {}},
+				&DMaterialExpressionSign::StaticClass, {}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::Adaptive},
 			{EMaterialProgramOpcode::Reflect, "Reflect", "Math",
 				"Reflects an incident vector around a normal of equal width.",
-				&DMaterialExpressionReflect::StaticClass, {"Incident", "Normal"}},
+				&DMaterialExpressionReflect::StaticClass, {"Incident", "Normal"}, EMaterialGraphOpcodePurpose::Authored, EMaterialGraphPaletteShape::AdaptiveVector},
 			{EMaterialProgramOpcode::MakeSurface, "Make Surface", "Surface",
 				"Combines eight explicit surface properties without hidden parameter access.",
 				&DMaterialExpressionMakeSurface::StaticClass, {"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"}},
-			{EMaterialProgramOpcode::FunctionInput, "Function Input", "Math",
+			{EMaterialProgramOpcode::FunctionInput, "Function Input", "Functions",
 				"Reads an input from the function signature.",
 				&DMaterialExpressionFunctionInput::StaticClass, {}},
-			{EMaterialProgramOpcode::FunctionOutput, "Function Output", "Math",
+			{EMaterialProgramOpcode::FunctionOutput, "Function Output", "Functions",
 				"Publishes a value through the function signature.",
 				&DMaterialExpressionFunctionOutput::StaticClass, {}},
-			{EMaterialProgramOpcode::FunctionCall, "Function Call", "Math",
+			{EMaterialProgramOpcode::FunctionCall, "Function Call", "Functions",
 				"Evaluates a material function with its bound inputs.",
 				&DMaterialExpressionFunctionCall::StaticClass, {}},
 			{EMaterialProgramOpcode::GetSurfaceAttributes, "Get Surface Attributes", "Surface",
@@ -713,6 +718,7 @@ namespace Durin::Editor::Material
 			{
 				const auto Opcode = static_cast<EMaterialProgramOpcode>(OpcodeValue);
 				const auto Type = static_cast<EMaterialProgramValueType>(TypeValue);
+				if (GetOpcodeDescriptor(Opcode).Purpose != EMaterialGraphOpcodePurpose::Authored) continue;
 				const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 				if (!Signature) continue;
 				auto Entry = MakeCatalogEntry(Opcode, Type, *Signature);
@@ -774,24 +780,28 @@ namespace Durin::Editor::Material
 		for (size_t Ordinal = 0; Ordinal < Catalog.size(); ++Ordinal)
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
-			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
-			if (Entry.Opcode == EMaterialProgramOpcode::Constant
-				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
-			if (Entry.Opcode >= EMaterialProgramOpcode::MakeFloat2 && Entry.Opcode <= EMaterialProgramOpcode::MakeFloat4) continue;
-			if (Entry.Opcode >= EMaterialProgramOpcode::Splat2 && Entry.Opcode <= EMaterialProgramOpcode::Splat4) continue;
-			if (Entry.Opcode == EMaterialProgramOpcode::AppendVector && Entry.ResultType != EMaterialProgramValueType::Float2) continue;
-			if (Entry.Opcode == EMaterialProgramOpcode::Parameter
-				&& Entry.ResultType != EMaterialProgramValueType::Float
-				&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;
-			if (Entry.Opcode == EMaterialProgramOpcode::Swizzle
-				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
-			if (IsMaterialAdaptiveNumeric(Entry.Opcode))
+			const auto& Descriptor = GetOpcodeDescriptor(Entry.Opcode);
+			if (Descriptor.Purpose != EMaterialGraphOpcodePurpose::Authored) continue;
+			switch (Descriptor.PaletteShape)
 			{
-				const auto Type = SourceType.value_or(
-					Entry.Opcode == EMaterialProgramOpcode::Normalize
-						|| Entry.Opcode == EMaterialProgramOpcode::Reflect
-					? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float);
-				if (Entry.ResultType != Type) continue;
+			case EMaterialGraphPaletteShape::InspectOnly: continue;
+			case EMaterialGraphPaletteShape::Scalar:
+				if (Entry.ResultType != EMaterialProgramValueType::Float) continue;
+				break;
+			case EMaterialGraphPaletteShape::ScalarOrVector4:
+				if (Entry.ResultType != EMaterialProgramValueType::Float
+					&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;
+				break;
+			case EMaterialGraphPaletteShape::Float2:
+				if (Entry.ResultType != EMaterialProgramValueType::Float2) continue;
+				break;
+			case EMaterialGraphPaletteShape::Adaptive:
+			case EMaterialGraphPaletteShape::AdaptiveVector:
+				if (Entry.ResultType != SourceType.value_or(
+					Descriptor.PaletteShape == EMaterialGraphPaletteShape::AdaptiveVector
+						? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float)) continue;
+				break;
+			case EMaterialGraphPaletteShape::All: break;
 			}
 			if (SourceType)
 			{

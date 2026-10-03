@@ -235,6 +235,12 @@ and Surface defaults; parameter entries receive unique metadata. `MakeSurface` e
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
+Editor opcode descriptors own category, authoring purpose, and palette shape policy.
+Asset-bound collection reads use their asset-aware creation action; internal MIR
+operations are not expression catalog entries. Parameters, Functions, and Vertex
+have dedicated creation-menu categories. Palette search applies descriptor policies
+rather than maintaining a separate opcode list.
+
 The catalog retains concrete numeric shapes for inspection and structured callers;
 palette search selects one shape per math operation. Before publication, editing
 commands infer math result widths only in the downstream closure of changed nodes,
