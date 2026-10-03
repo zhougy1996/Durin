@@ -10,13 +10,12 @@ namespace Durin
 	struct FShaderSessionRequest
 	{
 		DerivedData::FBuildDefinition Definition;
-		DerivedData::FBuildInputs Inputs;
+		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver;
 	};
 	SHADERBUILD_API auto MakeShaderSessionRequest(const FShaderCompileOptions& Options,
 		const FShaderVariantKey& Variant, std::vector<FShaderPortableDependency> Dependencies,
 		std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
 		-> std::expected<FShaderSessionRequest, FShaderError>;
-	SHADERBUILD_API auto ShaderSessionError(const DerivedData::FBuildInputError& Error) -> FShaderError;
 	// Explicitly constructed before the builder. Close drains all admitted sessions
 	// before the module releases compiler services and registration.
 	class SHADERBUILD_API FShaderBuildService

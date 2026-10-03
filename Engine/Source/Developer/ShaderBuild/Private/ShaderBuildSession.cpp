@@ -260,15 +260,9 @@ namespace Durin
 		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Variant);
 		Resolver->Dependencies = std::move(Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Resolve);
-		auto Inputs = std::move(FBuildInputsBuilder(Definition->GetSources(), std::move(Resolver))).Build();
-		if (!Inputs) return std::unexpected(ShaderSessionError(Inputs.error()));
-		return FShaderSessionRequest{std::move(*Definition), std::move(*Inputs)};
+		return FShaderSessionRequest{std::move(*Definition), std::move(Resolver)};
 	}
 
-	auto ShaderSessionError(const FBuildInputError& Error) -> FShaderError
-	{
-		return FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Error.Description, 0);
-	}
 	struct FShaderBuildService::FState
 	{
 		std::shared_ptr<FCompilerService> Compiler = std::make_shared<FCompilerService>();
@@ -297,11 +291,15 @@ namespace Durin
 				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None);
 			Persistent = State->Session;
 		}
+		FBuildRequestOwner Owner;
+		Options.InputResolver = std::move(Request.Resolver);
 		std::optional<FBuildCompleteParams> Completion;
-		auto Admitted = Persistent->Build(std::move(Request.Definition), [&](auto Result) {
+		auto Admitted = Persistent->Build(std::move(Request.Definition), Owner, [&](auto Result) {
 			Completion = std::move(Result);
-		}, std::move(Request.Inputs), std::move(Options));
-		if (!Admitted || !Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
+		}, {}, std::move(Options));
+		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
+		require(Owner.Wait() == EBuildWaitResult::Completed);
+		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
 		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void

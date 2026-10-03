@@ -4,16 +4,27 @@
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
+#include <thread>
 
 namespace Durin::DerivedData
 {
 	namespace Private
 	{
+		struct FBuildRequestOwnerState
+		{
+			std::mutex Mutex;
+			std::condition_variable Changed;
+			bool Canceled = false;
+			EBuildPriority Priority = EBuildPriority::Normal;
+			uint64 Barriers = 0;
+			std::unordered_map<std::thread::id, uint64> BarrierThreads;
+			std::unordered_map<FBuildRequestState*, std::shared_ptr<FBuildRequestState>> Requests;
+		};
 		struct FSessionResources
 		{
 			FBuildRegistrySnapshot Registry;
 			std::shared_ptr<const IBuildInputResolver> Resolver;
-			FBuildDispatcher Dispatcher;
+			std::shared_ptr<IBuildScheduler> Scheduler;
 			FBuildServiceOptions Service;
 		};
 		struct FExecutionScope;
@@ -21,8 +32,11 @@ namespace Durin::DerivedData
 		struct FExecutionScope
 		{
 			FBuildSessionState* Owner;
+			FBuildRequestState* Request = nullptr;
+			FBuildRequestOwnerState* Group = nullptr;
 			FExecutionScope* Previous = CurrentScope;
-			explicit FExecutionScope(FBuildSessionState* Owner) : Owner(Owner) { CurrentScope = this; }
+			explicit FExecutionScope(FBuildSessionState* Owner, FBuildRequestState* Request = nullptr, FBuildRequestOwnerState* Group = nullptr)
+				: Owner(Owner), Request(Request), Group(Group) { CurrentScope = this; }
 			~FExecutionScope() { CurrentScope = Previous; }
 		};
 		struct FBuildSessionState
@@ -67,12 +81,59 @@ namespace Durin::DerivedData
 		{
 			std::mutex Mutex;
 			std::atomic<bool> Canceled = false;
+			std::condition_variable Changed;
 			ERequestState State = ERequestState::PendingDispatch;
-			bool Abandoned = false;
+			bool Dispatching = true, CompletionReleased = false, OwnerReleased = false;
+			std::shared_ptr<FBuildRequestOwnerState> Group;
+			std::shared_ptr<IBuildScheduledWork> Scheduled;
+			EBuildPriority Priority = EBuildPriority::Normal;
 			uint64 Id = 0;
 			std::weak_ptr<FBuildSessionState> Owner;
 			std::shared_ptr<FRequestData> Data;
 			FBuildCompletionCallback Callback;
+
+			auto ReleaseOwner() -> void
+			{
+				std::shared_ptr<FBuildRequestOwnerState> Retired;
+				{
+					std::lock_guard Lock(Mutex);
+					if (Dispatching || !CompletionReleased || OwnerReleased) return;
+					OwnerReleased = true;
+					Retired = Group;
+				}
+				if (Retired)
+				{
+					{ std::lock_guard Lock(Retired->Mutex); Retired->Requests.erase(this); }
+					Retired->Changed.notify_all();
+				}
+				Changed.notify_all();
+			}
+			auto DispatchReturned() -> void
+			{
+				{ std::lock_guard Lock(Mutex); Dispatching = false; }
+				ReleaseOwner();
+				Changed.notify_all();
+			}
+			auto Wait() -> EBuildWaitResult
+			{
+				for (auto* Scope = CurrentScope; Scope; Scope = Scope->Previous)
+					if (Scope->Request == this) return EBuildWaitResult::WouldBlock;
+				std::shared_ptr<IBuildScheduledWork> Work;
+				{
+					std::unique_lock Lock(Mutex);
+					Changed.wait(Lock, [&] { return !Dispatching; });
+					if (CompletionReleased) return EBuildWaitResult::Completed;
+					Work = Scheduled;
+				}
+				if (Work)
+				{
+					const auto Result = Work->Wait();
+					if (Result != EBuildWaitResult::Completed) return Result;
+				}
+				std::unique_lock Lock(Mutex);
+				Changed.wait(Lock, [&] { return CompletionReleased; });
+				return EBuildWaitResult::Completed;
+			}
 
 			auto Finish(FBuildCompleteParams Completion) -> void
 			{
@@ -88,11 +149,13 @@ namespace Durin::DerivedData
 					Retired = std::move(Data);
 				}
 				Retired.reset();
-				FExecutionScope Scope(Session.get());
+				FExecutionScope Scope(Session.get(), this, Group.get());
 				try { if (Notify) Notify(std::move(Completion)); } catch (...) {}
 				Notify = {};
 				{ std::lock_guard Lock(Mutex); State = ERequestState::Done; }
 				if (Session) Session->Remove(Id);
+				{ std::lock_guard Lock(Mutex); CompletionReleased = true; }
+				ReleaseOwner();
 			}
 			auto Cancel() -> bool
 			{
@@ -116,7 +179,7 @@ namespace Durin::DerivedData
 					State = ERequestState::Running;
 					Work = std::move(Data);
 				}
-				FExecutionScope Scope(Session.get());
+				FExecutionScope Scope(Session.get(), this, Group.get());
 				FBuildCompleteParams Completion = FBuildCompleteParams::Canceled(
 					std::nullopt, EBuildStatus::None);
 				try
@@ -127,7 +190,7 @@ namespace Durin::DerivedData
 					});
 					Work->Options.Cancellation = std::move(Token);
 					Completion = ExecuteBuild(Work->Request, Work->Resources->Registry,
-						Work->Resources->Resolver, Work->Inputs, Work->Options,
+						Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options,
 						Work->Resources->Service);
 				}
 				catch (...)
@@ -137,11 +200,6 @@ namespace Durin::DerivedData
 				Work.reset();
 				Finish(std::move(Completion));
 			}
-			auto Drop() -> void
-			{
-				{ std::lock_guard Lock(Mutex); Abandoned = true; }
-				Cancel();
-			}
 			auto AcceptDispatch() -> void
 			{
 				bool Complete = false;
@@ -150,7 +208,7 @@ namespace Durin::DerivedData
 					if (State == ERequestState::PendingDispatch)
 					{
 						State = ERequestState::Queued;
-						Complete = Abandoned || Canceled.load();
+						Complete = Canceled.load();
 					}
 				}
 				if (Complete) Cancel();
@@ -168,6 +226,8 @@ namespace Durin::DerivedData
 				}
 				Retired.reset(); RetiredCallback = {};
 				if (auto Session = Owner.lock()) Session->Remove(Id);
+				{ std::lock_guard Lock(Mutex); CompletionReleased = true; }
+				ReleaseOwner();
 				return true;
 			}
 		};
@@ -205,7 +265,12 @@ namespace Durin::DerivedData
 		struct FDispatchTicket
 		{
 			std::shared_ptr<FBuildRequestState> Request;
-			~FDispatchTicket() { Request->Drop(); }
+			~FDispatchTicket() { Request->Cancel(); }
+		};
+		struct FDispatchReturnScope
+		{
+			std::shared_ptr<FBuildRequestState> Request;
+			~FDispatchReturnScope() { if (Request) Request->DispatchReturned(); }
 		};
 		struct FBuildServiceState
 		{
@@ -236,7 +301,7 @@ namespace Durin::DerivedData
 			return {};
 		}
 		auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver,
-			FBuildDispatcher Dispatcher) -> std::expected<std::shared_ptr<FBuildSession>, FBuildAdmissionError> override
+			std::shared_ptr<IBuildScheduler> Scheduler) -> std::expected<std::shared_ptr<FBuildSession>, FBuildAdmissionError> override
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
@@ -244,7 +309,7 @@ namespace Durin::DerivedData
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
-				std::move(*Snapshot), std::move(Resolver), std::move(Dispatcher), State->Options);
+				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), State->Options);
 			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
 			if (State->Sessions.size() >= 4096)
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build service session capacity is exhausted."});
@@ -289,6 +354,63 @@ namespace Durin::DerivedData
 	FBuildSession::FBuildSession(std::shared_ptr<Private::FBuildSessionState> InState) : State(std::move(InState)) {}
 	FBuildSession::~FBuildSession() { Close(); Drain(); }
 	auto FBuildRequest::Cancel() const -> bool { return State && State->Cancel(); }
+	auto FBuildRequest::Wait() const -> EBuildWaitResult
+	{ return State ? State->Wait() : EBuildWaitResult::InvalidRequest; }
+
+	FBuildRequestOwner::FBuildRequestOwner(EBuildPriority Priority) : State(std::make_shared<Private::FBuildRequestOwnerState>())
+	{ State->Priority = Priority; }
+	FBuildRequestOwner::~FBuildRequestOwner() { Cancel(); Wait(); }
+	auto FBuildRequestOwner::Cancel() -> void
+	{
+		std::vector<std::shared_ptr<Private::FBuildRequestState>> Requests;
+		{
+			std::lock_guard Lock(State->Mutex);
+			State->Canceled = true;
+			for (const auto& [Id, Request] : State->Requests) Requests.push_back(Request);
+		}
+		for (const auto& Request : Requests) Request->Cancel();
+	}
+	auto FBuildRequestOwner::IsCanceled() const -> bool
+	{ std::lock_guard Lock(State->Mutex); return State->Canceled; }
+	auto FBuildRequestOwner::GetPriority() const -> EBuildPriority
+	{ return State->Priority; }
+	auto FBuildRequestOwner::Poll() const -> bool
+	{ std::lock_guard Lock(State->Mutex); return State->Requests.empty() && State->Barriers == 0; }
+	auto FBuildRequestOwner::Wait() const -> EBuildWaitResult
+	{
+		for (auto* Scope = Private::CurrentScope; Scope; Scope = Scope->Previous)
+			if (Scope->Group == State.get()) return EBuildWaitResult::WouldBlock;
+		for (;;)
+		{
+			std::shared_ptr<Private::FBuildRequestState> Request;
+			{
+				std::unique_lock Lock(State->Mutex);
+				if (State->BarrierThreads.contains(std::this_thread::get_id())) return EBuildWaitResult::WouldBlock;
+				if (State->Requests.empty() && State->Barriers == 0) return EBuildWaitResult::Completed;
+				if (!State->Requests.empty()) Request = State->Requests.begin()->second;
+				else { State->Changed.wait(Lock); continue; }
+			}
+			const auto Result = Request->Wait();
+			if (Result != EBuildWaitResult::Completed) return Result;
+		}
+	}
+	FBuildRequestBarrier::FBuildRequestBarrier(FBuildRequestOwner& Owner)
+		: State(Owner.State), Thread(std::this_thread::get_id())
+	{
+		std::lock_guard Lock(State->Mutex);
+		++State->BarrierThreads[Thread];
+		++State->Barriers;
+	}
+	FBuildRequestBarrier::~FBuildRequestBarrier()
+	{
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (--State->BarrierThreads.at(Thread) == 0)
+				State->BarrierThreads.erase(Thread);
+			--State->Barriers;
+		}
+		State->Changed.notify_all();
+	}
 	auto FBuildRequest::IsComplete() const -> bool
 	{
 		if (!State) return false;
@@ -301,21 +423,33 @@ namespace Durin::DerivedData
 	auto FBuildSession::Build(FBuildAction Action, FBuildCompletionCallback Completion,
 		FBuildInputs Inputs, FBuildRequestOptions Options) -> std::expected<FBuildRequest, FBuildAdmissionError>
 	{ return BuildImpl(std::move(Action), std::move(Completion), std::move(Inputs), std::move(Options)); }
-	auto FBuildSession::BuildImpl(std::variant<FBuildDefinition, FBuildAction> BuildRequest,
+	auto FBuildSession::Build(FBuildDefinition Definition, FBuildRequestOwner& Owner,
 		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options)
+		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	{ return BuildImpl(std::move(Definition), std::move(Completion), std::move(Inputs), std::move(Options), Owner.State); }
+	auto FBuildSession::Build(FBuildAction Action, FBuildRequestOwner& Owner,
+		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options)
+		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	{ return BuildImpl(std::move(Action), std::move(Completion), std::move(Inputs), std::move(Options), Owner.State); }
+	auto FBuildSession::BuildImpl(std::variant<FBuildDefinition, FBuildAction> BuildRequest,
+		FBuildCompletionCallback Completion, FBuildInputs Inputs, FBuildRequestOptions Options,
+		std::shared_ptr<Private::FBuildRequestOwnerState> RequestOwner)
 		-> std::expected<FBuildRequest, FBuildAdmissionError>
 	{
 		auto Owner = State;
 		Private::FSubmissionScope Submission{Owner};
+		Private::FDispatchReturnScope DispatchReturn;
 		Private::FExecutionScope Execution(Owner.get());
 		std::shared_ptr<Private::FBuildRequestState> Request;
 		try
 		{
-			FBuildDispatcher Dispatch;
+			std::shared_ptr<IBuildScheduler> Scheduler;
 			{
 				std::lock_guard Lock(Owner->Mutex);
 				if (Owner->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build session is closed."});
 				if (!Completion) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build completion callback is missing."});
+				if (Inputs.IsValid() && Options.InputResolver)
+					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build inputs and a request resolver are mutually exclusive."});
 				if (Owner->Active >= 4096) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build session is full."});
 				const std::string_view Name = std::holds_alternative<FBuildDefinition>(BuildRequest)
 					? std::get<FBuildDefinition>(BuildRequest).GetFunctionName() : std::get<FBuildAction>(BuildRequest).GetFunction().Name;
@@ -332,14 +466,30 @@ namespace Durin::DerivedData
 				Request->Data = std::make_shared<Private::FRequestData>(
 					std::move(BuildRequest), std::move(Inputs), std::move(Options), Owner->Resources);
 				Request->Callback = std::move(Completion);
-				Dispatch = Owner->Resources->Dispatcher;
+				Scheduler = Owner->Resources->Scheduler;
 				Owner->Requests.emplace(Request->Id, Request); ++Owner->Active;
 				++Owner->Submitting; Submission.Counted = true;
+				DispatchReturn.Request = Request;
+				if (RequestOwner)
+				{
+					std::lock_guard GroupLock(RequestOwner->Mutex);
+					RequestOwner->Requests.emplace(Request.get(), Request);
+					Request->Group = RequestOwner;
+					Request->Canceled = RequestOwner->Canceled;
+					Request->Priority = RequestOwner->Priority;
+					Execution.Group = RequestOwner.get();
+				}
+				Execution.Request = Request.get();
 			}
 			FBuildRequest Handle; Handle.State = Request;
-			if (!Dispatch) { Request->Run(); return Handle; }
+			if (!Scheduler || Request->Canceled.load()) { Request->Run(); return Handle; }
 			auto Ticket = std::make_shared<Private::FDispatchTicket>(); Ticket->Request = Request;
-			auto Accepted = Dispatch([Ticket] { Ticket->Request->Run(); });
+			const auto& Data = *Request->Data;
+			const std::string FunctionName(std::holds_alternative<FBuildDefinition>(Data.Request)
+				? std::get<FBuildDefinition>(Data.Request).GetFunctionName() : std::get<FBuildAction>(Data.Request).GetFunction().Name);
+			auto Accepted = Scheduler->Schedule({FunctionName, Request->Priority, Data.Options.Policy.MaximumWorkingSetBytes},
+				[Ticket] { Ticket->Request->Run(); });
+			if (Accepted) { std::lock_guard Lock(Request->Mutex); Request->Scheduled = std::move(*Accepted); }
 			Ticket.reset();
 			if (!Accepted && Request->RejectDispatch())
 			{

@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-01
+Last reviewed: 2026-10-03
 
 ## Ownership
 
@@ -14,8 +14,9 @@ and the backend-neutral structured-record cache. The cache boundary accepts and
 returns `FCacheRecord`; serialization, compression, integrity validation, and
 private byte storage remain below it. The module depends only on Core. The
 service adds no worker pool, remote execution, transitive graph, generic
-single-flight, or publication policy. A session dispatches through its
-caller-supplied adapter or completes inline.
+single-flight, or publication policy. Sessions accept an `IBuildScheduler`;
+the inline adapter executes on the caller, while the task adapter borrows
+the running Core task system. Neither adapter acquires asset memory reservations.
 
 Engine owns the Texture2D, TextureCube, VolumeTexture, StaticMesh render, and
 physics collision function implementations. TextureBuild and MeshBuilder
@@ -73,13 +74,18 @@ unchanged.
 `IBuildInputResolver::Describe` and retains the immutable resolver/captured
 generation for possible payload materialization. The resulting request value is
 immutable. `FBuildSession::Build` accepts it beside a definition or action.
+Alternatively, request options may retain a captured `InputResolver`; its
+`Describe` runs inside admitted execution and failures complete through the
+normal status-only completion. The resolver must already own immutable captured
+state when submitted.
 
 `Describe` may inspect captured metadata only. `Resolve` runs only after a miss
 when local build is allowed; it materializes named immutable blocks and verifies
 them against the frozen identity. It must never substitute a current live asset
 or import file for captured state. A session-level resolver is available for
 truly shared inputs, but Engine and ShaderBuild production requests supply their
-own `FBuildInputs` and reuse persistent sessions.
+own captured request resolvers and reuse persistent sessions. Explicit frozen
+`FBuildInputs` remain supported and are mutually exclusive with a request resolver.
 
 Before producer invocation, DDC sorts input/value tables, rejects invalid or
 duplicate identifiers, verifies exact identities, and enforces metadata, value,
@@ -197,14 +203,38 @@ when it is created; later registration affects later sessions without mutating
 existing sessions. Registered functions and required services remain owned
 through drain.
 `FBuildSession::Build` accepts a definition or action, optional request inputs,
-policy, cancellation, and completion callback. It creates no scheduler. An empty
-dispatcher completes inline; an owner dispatcher may run accepted work on its
-existing workers.
+policy, cancellation, and completion callback. An omitted scheduler or
+`CreateInlineBuildScheduler` executes inline. `CreateTaskBuildScheduler` schedules
+on Core workers and inherits the submitting task scope. Its wait handle uses
+Core cooperative waiting, including single-worker nested builds. A stopped
+Core scheduler rejects admission without completion; the adapter does not start
+or stop Core. Core scope closure remains a caller lifetime responsibility.
 
-A dispatcher rejects without invoking or retaining its thunk, or accepts it for
+A scheduler rejects without invoking or retaining its thunk, or accepts it for
 at-most-once execution. Dropping accepted work completes it as canceled. Request
-handles can cancel pending/running work. Callbacks execute without session locks;
+handles can cancel pending/running work. `FBuildRequest::Wait` waits for callback
+completion, request resource release, and dispatch return without closing the
+session. While execution is pending it first uses the scheduler wait handle,
+allowing Core worker helping. Unsupported task-thread waits return `WouldBlock`;
+an empty request handle returns `InvalidRequest`. Schedulers without wait handles
+require external progress. Completed or canceled
+requests do not wait for retained stale thunks, which own no producer/resolver
+resources. Callbacks execute without session locks;
 callback exceptions cannot break accounting.
+
+`FBuildRequestOwner` groups requests across sessions. Cancel affects existing
+and future requests; destruction cancels and waits. Owner priority is immutable
+and inherited at submission; the task adapter maps it to Core launch priority.
+Schedule parameters expose the function name and existing working-set budget
+without transferring reservation authority. Schedulers must copy the function
+name if retaining it after `Schedule` returns. Owner wait includes request
+callbacks, request resource release, dispatch return, and open submission
+barriers. `FBuildRequestBarrier` keeps an owner non-idle while a submitting
+thread may add requests. Wait from the same request execution/completion stack,
+the same owner stack, or a thread that created an open owner barrier returns
+`WouldBlock`. Reentrant owner destruction still cancels; shared accounting
+survives until the active stack finishes. A completed owner can be reused until
+canceled. Single requests may be submitted without an owner and waited directly.
 
 `Close` stops admission and cancels accepted work. `Drain` waits for execution,
 callbacks, dispatch return, and callable-owner release. Calling drain from the
@@ -213,8 +243,11 @@ and stale thunks retain no producer/resolver owners.
 
 Engine asset families submit directly through their own synchronous, inline
 sessions because their callers are already admitted owner workers. ShaderBuild
-does the same through its isolated session. There is no cross-family submission
-bridge, second public executor, or compatibility submission API.
+does the same through its isolated session. Each synchronous caller owns a
+request group and waits explicitly before typed assembly; it never assumes
+that completion happened before `Build` returned. Captured input description
+runs inside the accepted request. There is no cross-family submission bridge
+or second public executor.
 
 ## Family boundaries
 
@@ -236,8 +269,7 @@ one persistent service session, and keeps its compiler single-flight, LRU,
 waiter cancellation, filesystem bounds, and dependency-content verification.
 Its schema-3 output binds fixed entry IDs and Compact Binary metadata to the
 virtual shader path; schema 2 was an implementation-only intermediate and is
-cold-invalidated. Shader counters derive from completion status/report rather
-than callbacks.
+cold-invalidated. Shader counters derive from completion status and build-status facts.
 
 Cache success never means an asset is current, applied, GPU-ready, or
 physics-ready. Family generation/latest-wins and object application checks remain

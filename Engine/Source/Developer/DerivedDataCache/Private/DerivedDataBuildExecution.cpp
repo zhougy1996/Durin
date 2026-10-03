@@ -62,7 +62,7 @@ namespace Durin::DerivedData::Private
 			{
 				const auto& Definition = std::get<FBuildDefinition>(Request); std::vector<FBuildInputReference> Identities;
 				if (RequestInputs.IsValid()) Identities.assign(RequestInputs.GetIdentities().begin(), RequestInputs.GetIdentities().end());
-				else if (!Definition.GetSources().empty()) { if (!SessionResolver) return Failed("No build input resolver is available."); auto Described = SessionResolver->Describe(Definition.GetSources(), Cancel); if (!Described) return Failed(Described.error().Description); Identities = std::move(*Described); }
+				else if (!Definition.GetSources().empty()) { if (!SessionResolver) return Failed("No build input resolver is available."); auto Described = SessionResolver->Describe(Definition.GetSources(), Cancel); if (Cancel.IsCancelled()) return Canceled(); if (!Described) return Failed(Described.error().Description); Identities = std::move(*Described); }
 				FBuildActionBuilder ActionBuilder(Definition, Entry->Descriptor); for (auto& Identity : Identities) ActionBuilder.AddInput(std::move(Identity)); auto Created = std::move(ActionBuilder).Build(); if (!Created) return Failed("Resolved metadata does not match the build definition."); ActionStorage = std::move(*Created);
 			}
 			const FBuildAction& Action = *ActionStorage; CacheKey = Action.GetKey();

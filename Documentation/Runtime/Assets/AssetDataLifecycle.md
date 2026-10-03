@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-03
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -115,13 +115,14 @@ their readiness and publication remain independent. AssetForgeBuiltins adapts ex
 canonical inputs and owns editor transactions.
 
 The [Derived Data Build Protocol](DerivedDataBuild.md) defines the shared
-identity and execution contract. DerivedDataCache contains a build subsystem and a separate backend-neutral
-`bucket + key -> opaque immutable bytes` cache subsystem with a private local
-backend. `FBuildDefinition` owns normalized constants and opaque captured-source
+identity and execution contract. DerivedDataCache owns the build service and a
+backend-neutral structured-record cache. Record encoding, compression, integrity
+validation, and byte-oriented filesystem storage remain private.
+`FBuildDefinition` owns normalized constants and opaque captured-source
 references; `FBuildAction` freezes registered versions and resolved identities.
 Shared-output sessions execute all six producer families through the same
-resolve/build/validate/cache protocol. The cache backend does not depend on build
-APIs, and the module owns no new scheduler or asset recipe policy.
+resolve/build/validate/cache protocol. Sessions use inline or Core task scheduler
+adapters; the module adds no worker pool or asset recipe policy.
 Texture2D request capture validates metadata and retains a torn-off source with
 no payload I/O. A warm hit does not resolve mips; a miss prepares owned mip views
 from that snapshot. Invalid capture returns a typed input error. Managers inspect
@@ -344,102 +345,59 @@ changing authored bytes, source residency, render revision or dirty state. Only
 pending source mutations require a selected wait before cook capture. See
 [Asset Compilation](AssetCompilation.md#staticmesh-completion) for bounds,
 publication and observational diagnostics. StaticMesh keys are editor-only
-Engine-private values; operation
-results carry key, origin, descriptor, timings, payload bytes, and persistence
-diagnostics without copying them onto assets. Source acquisition, warm-hit reuse,
+Engine-private values. Render results return validated render data or
+`FStaticMeshBuildFailure`, without cache-origin, key, timing, or persistence
+observations. Source acquisition, warm-hit reuse,
 and detached application follow [Static mesh building](StaticMeshBuilding.md).
 
-Direct `ReplaceSourceRenderData` and `ReplaceRenderData`
-operations cancel superseded work and invalidate old render/collision data before
-validation. They log CPU replacement failures and expose `GetRenderDataUpdateError`;
-CPU residency and GPU readiness remain separate. Valid source settings are retained
-even when replacement fails. Collision rebuild failure leaves the new render data
-usable with no derived collision. Engine application separately decides dirtying
-and material-slot upgrade notification; requested dirtying also applies when a
-direct build fails after accepting source settings. The async authored-candidate path retains
-its separate preparation/commit contract for import and reimport.
-Cook reports existing payload capture rather than inferring an old build origin
-from the asset.
+`DStaticMesh::Build` rebuilds accepted source; `BuildFromSource` prepares and
+commits candidate source, slots, and provenance only on success. Both explicitly
+select synchronous or asynchronous execution. Detached consumers use
+`BuildStaticMeshRenderData`; publication and collision scheduling follow the
+[Static Mesh build contract](StaticMeshBuilding.md).
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an
-importer dependency. Module code leases reject unload while build sessions remain;
-consumers stop admission and drain work before releasing them.
+importer dependency. MeshBuilder and TextureBuild remain resident throughout the
+editor lifetime; consumers stop admission and drain work before module shutdown.
 
 ## Derived Data Cache Objects
 
-Generic content-addressed DDC entries are opaque `.bin` values.
-`DerivedDataCache` validates logical buckets and canonical lowercase 128-bit
-keys, returns immutable `FSharedByteBuffer` values, and distinguishes hit, miss,
-invalid request, excessive value, and storage failure. Its filesystem paths and
-backend type remain private. The caller selects the owner-defined decoder;
-the cache does not identify a type from the bytes. That owner validates its schema,
-producer, bounds, structure, and checksums. Native artifacts such as shader
-SPIR-V and reflection sidecars may retain their own strict file grammar beneath
-a namespaced subtree. Every DDC entry remains disposable and its authored inputs
-remain authoritative.
+DDC persists disposable content-addressed `.bin` records; authored inputs remain
+authoritative. The public `ICache` boundary accepts and returns `FCacheRecord`.
+Serialization, compression, integrity checks, filesystem paths, and byte storage
+remain private. Family assemblers validate output metadata and values before use.
+The [Derived Data Build Protocol](DerivedDataBuild.md#policy-and-cache-behavior)
+owns cache API results, record schemas, compatibility, and negative-result caching.
 
-`FCacheGetResult` and `FCachePutResult` are `std::expected` aliases with a shared
-`FCacheError` carrying a backend-neutral code and diagnostic. Successful lookup
-returns immutable `FSharedByteBuffer` bytes; successful put returns `void`.
-Lookup failures distinguish a normal `Miss` from invalid input, size rejection,
-corruption and storage failure. Put reports rejection or storage failure.
-Internal build observations retain the original error object. A `Miss` remains a
-normal rebuild trigger and creates no error observation or warning. Cache failures
-can accompany a successful asset build and do not become asset operation failures.
+Build actions canonically identify every output-affecting source, setting,
+producer version, schema, and target. Source hints, timestamps, and physical paths
+do not enter build keys; `.dasset` never stores DDC paths. Requests retain
+immutable source snapshots. A validated hit performs no source-range reads;
+a miss resolves payload bytes during execution. See
+[build identity](DerivedDataBuild.md#definitions-actions-and-identity).
 
-A DDC key must be built from a canonical byte encoding of every input that can
-change the output, including:
+A normal miss emits no warning. When policy permits local execution, missing or
+rejected records and cache infrastructure failures fall through to build.
+Storage failures remain infrastructure errors rather than corruption. A successful
+product remains usable when best-effort cache storage fails. DDC uses Core's
+[atomic byte publication](../Core/FileIO.md#atomic-byte-publication) for persistence.
 
-- canonical imported-data identity and payload fingerprint;
-- normalized build and import settings;
-- payload schema and builder versions;
-- target platform and any relevant feature profile.
+DDC logs cache read/write failures during execution; infrastructure causes do not
+cross the completion boundary. Deterministic producer errors use output messages;
+cancellation remains a distinct terminal status. Completion exposes status,
+optional output/key, and cache-hit/local-build facts, without cache warning lists
+or execution metrics. See the
+[completion contract](DerivedDataBuild.md#completion-and-failure).
+Recipe timings stay producer-local; compiling managers retain their own queue,
+worker, and memory observations.
 
-Source hints, timestamps, and physical paths do not enter build keys. DDC paths
-are derived from keys and must never be serialized into `.dasset`. Missing,
-incompatible, truncated, or corrupt objects are safe cache misses because the
-authored package closure retains every local rebuild input.
-
-Family build keys use editor payload identity before requesting bytes, so a
-validated DDC hit performs zero source-range reads. A miss captures one owned
-immutable payload snapshot before worker execution.
-
-DDC writes use Core's shared atomic byte-publication API: a fixed-length
-same-directory temporary file is flushed and closed before replacement. The
-temporary name is independent of the destination name, and DDC round trips are
-supported beyond the traditional Windows `MAX_PATH` boundary under the
-[physical file I/O contract](../Core/FileIO.md).
-Owners validate reserved fields, versions, sizes, allocation limits, structure,
-and checksums before publication. Texture families use the canonical PlatformData
-serializer; other families use their registered functions. Invalid cache bytes are
-rebuildable misses. A successful build remains usable when best-effort storage
-fails; cache failure is independent of compilation disposition.
-
-Engine reports cache issues once immediately after execution, before checking the
-build outcome or applying a product. The existing logger receives the function,
-logical key, operation and original cause with detail bounded to 1600 bytes.
-Texture codec errors retain their Archive cause until this reporting boundary;
-StaticMesh and collision codecs retain their family-owned errors. Encode failures
-are reported separately from storage failures. Read/decode failures still report
-when a later source build fails.
-
-Public build products, physics cook results, worker records and terminal callbacks
-carry no cache warning lists or diagnostic wrappers. Callers handle the actual
-build/application error or completion state. Internal timings, byte counts and
-cache-origin observations remain available to their existing metrics owners.
-
-TextureCube uses Engine-owned bucket `TextureCube`. Explicit import or
-reimport decodes and projects a panorama into six canonical authored RGBA8
-faces before the cache lookup. Engine derives the key from those faces and the
-builder descriptor; only a miss invokes TextureBuild platform construction.
-Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical source.
-Texture producers validate complete platform data before calling the void
-`SetPlatformData` ownership-transfer setter; the setter neither validates nor
-updates render resources. `PostLoad()` logs initialization failures without
-returning a result. Explicit `RebuildPlatformData()` reports success as a Bool
-and logs its own errors; lower-level build and Cook APIs return actual build failures
-to operation callers and report recoverable cache issues internally. Failed builds preserve previously accepted data, while
-an asset without accepted data remains safely unavailable to resource consumers.
+Ordinary build, PostLoad, DDC recovery, and Cook use accepted canonical inputs
+without recapturing a physical source. Failed builds preserve previously accepted
+data; an asset without accepted data remains unavailable to resource consumers.
+Family-specific construction and publication follow
+[Static Mesh Building](StaticMeshBuilding.md),
+[Texture System](../Rendering/TextureSystem.md),
+[Cube Textures](../Rendering/CubeTextures.md), and [Volume Textures](VolumeTextures.md).
 
 ## Cooked Packages and Bulk Fields
 

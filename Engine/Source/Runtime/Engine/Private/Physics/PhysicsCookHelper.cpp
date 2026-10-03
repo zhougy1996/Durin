@@ -42,17 +42,15 @@ namespace Durin
 				std::nullopt, DerivedData::EBuildStatus::None);
 			auto Session = GetPhysicsBuildSession();
 			if (!Session) return std::nullopt;
-			DerivedData::FBuildInputsBuilder InputBuilder(Definition.GetSources(), std::move(Resolver));
-			InputBuilder.SetCancellation(Options.Cancellation);
-			auto Inputs = std::move(InputBuilder).Build();
-			if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-				std::nullopt, DerivedData::EBuildStatus::None);
-			if (!Inputs) return std::nullopt;
+			Options.InputResolver = std::move(Resolver);
+			DerivedData::FBuildRequestOwner Owner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			auto Admitted = Session->Build(std::move(Definition), [&](auto Value) {
+			auto Admitted = Session->Build(std::move(Definition), Owner, [&](auto Value) {
 				Completion = std::move(Value);
-			}, std::move(*Inputs), std::move(Options));
-			if (!Admitted || !Completion) return std::nullopt;
+			}, {}, std::move(Options));
+			if (!Admitted) return std::nullopt;
+			require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
+			if (!Completion) return std::nullopt;
 			return std::move(*Completion);
 		}
 	}

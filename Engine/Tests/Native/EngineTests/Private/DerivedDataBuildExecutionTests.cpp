@@ -10,7 +10,8 @@ namespace
 	struct FResolver final : IBuildInputResolver
 	{
 		mutable uint32 Describes = 0, Resolves = 0;
-		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const -> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override { ++Describes; return std::vector{Ref()}; }
+		bool FailDescribe = false;
+		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const -> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override { ++Describes; if (FailDescribe) return std::unexpected(FBuildInputError{"description failed"}); return std::vector{Ref()}; }
 		auto Resolve(std::span<const FBuildInputReference>, const FBuildCancellation&) const -> std::expected<std::vector<FBuildInput>, FBuildInputError> override { ++Resolves; return std::vector<FBuildInput>{{.Identity = Ref(), .Values = {{"Data", FSharedByteBuffer::Take(FByteBuffer(32, std::byte{3}))}}}}; }
 	};
 	struct FFunction final : IBuildFunction
@@ -52,8 +53,9 @@ namespace
 		}
 		auto Run(FBuildRequestOptions O = {}) -> FBuildCompleteParams
 		{
-			auto DefinitionValue = Definition(); auto Inputs = std::move(FBuildInputsBuilder(DefinitionValue.GetSources(), Resolver)).Build().value(); std::optional<FBuildCompleteParams> Result;
-			Session->Build(std::move(DefinitionValue), [&](auto V) { Result = std::move(V); }, std::move(Inputs), std::move(O)).value(); return std::move(*Result);
+			O.InputResolver = Resolver; FBuildRequestOwner Owner; std::optional<FBuildCompleteParams> Result;
+			Session->Build(Definition(), Owner, [&](auto V) { Result = std::move(V); }, {}, std::move(O)).value();
+			require(Owner.Wait() == EBuildWaitResult::Completed); return std::move(*Result);
 		}
 	};
 }
@@ -88,4 +90,59 @@ TEST(FBuildExecutionTests, CancellationRemainsDistinct)
 TEST(FBuildExecutionTests, ProducerExceptionIsInfrastructureFailureAndIsNotCached)
 {
 	FHarness H; H.Function->Throw = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_EQ(Result.GetOutput(), nullptr); EXPECT_EQ(H.Cache->Puts, 0u);
+}
+
+TEST(FBuildExecutionTests, RequestDescriptionFailureCompletesWithoutProducerOrCacheQuery)
+{
+	FHarness H; H.Resolver->FailDescribe = true;
+	auto Result = H.Run();
+	EXPECT_EQ(Result.GetStatus(), EStatus::Error);
+	EXPECT_EQ(Result.GetOutput(), nullptr);
+	EXPECT_EQ(H.Resolver->Describes, 1u);
+	EXPECT_EQ(H.Resolver->Resolves, 0u);
+	EXPECT_EQ(H.Function->Builds, 0u);
+	EXPECT_EQ(H.Cache->Gets, 0u);
+}
+
+TEST(FBuildExecutionTests, RequestResolverOverridesSessionResolverAndWarmHitSkipsPayload)
+{
+	FHarness H;
+	auto Shared = std::make_shared<FResolver>(); Shared->FailDescribe = true;
+	H.Session = H.Service->CreateSession(Shared).value();
+	EXPECT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	EXPECT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	EXPECT_EQ(Shared->Describes, 0u);
+	EXPECT_EQ(H.Resolver->Describes, 2u);
+	EXPECT_EQ(H.Resolver->Resolves, 1u);
+}
+
+TEST(FBuildExecutionTests, AdmissionRejectsAmbiguousInputsWithoutCompletion)
+{
+	FHarness H;
+	auto D = Definition();
+	auto Inputs = std::move(FBuildInputsBuilder(D.GetSources(), H.Resolver)).Build().value();
+	FBuildRequestOwner Owner;
+	FBuildRequestOptions Options; Options.InputResolver = H.Resolver;
+	uint32 Calls = 0;
+	auto Request = H.Session->Build(std::move(D), Owner, [&](auto) { ++Calls; },
+		std::move(Inputs), std::move(Options));
+	ASSERT_FALSE(Request);
+	EXPECT_EQ(Request.error().Reason, EBuildAdmissionReason::InvalidRequest);
+	EXPECT_EQ(Calls, 0u);
+	EXPECT_TRUE(Owner.Poll());
+}
+
+TEST(FBuildExecutionTests, CompletionAndRetainedHandleDoNotPinCapturedResolver)
+{
+	FHarness H;
+	std::weak_ptr<const IBuildInputResolver> Captured = H.Resolver;
+	FBuildRequestOptions Options; Options.InputResolver = std::move(H.Resolver);
+	FBuildRequestOwner Owner;
+	auto Request = H.Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
+		EXPECT_TRUE(Captured.expired());
+	}, {}, std::move(Options));
+	ASSERT_TRUE(Request);
+	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_TRUE(Captured.expired());
 }

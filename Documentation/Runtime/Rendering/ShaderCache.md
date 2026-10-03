@@ -10,10 +10,13 @@ ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
 RenderCore owns source-independent request/value types, `DSHD` encoding, the
 `DSLB` cooked-library schema/reader, Shader maps, and RHI publication.
-DerivedDataCache owns immutable build definitions and the shared synchronous
-lookup/resolve/build/validate/cache protocol, plus an independent opaque
-`bucket + key -> immutable bytes` storage API. ShaderBuild registers its compiler function under the
-[shared protocol](../Assets/DerivedDataBuild.md); the shared module owns neither Shader policy nor scheduling.
+DerivedDataCache owns immutable build definitions, persistent sessions, and the
+shared lookup/resolve/build/validate/cache protocol. Its public cache boundary
+uses structured `FCacheRecord` values; encoding, compression, validation, and byte
+storage remain private. Sessions accept inline or Core task scheduler adapters.
+ShaderBuild registers its compiler function under the
+[shared protocol](../Assets/DerivedDataBuild.md) and retains Shader policy,
+compiler scheduling, and single-flight ownership.
 
 ## Results and diagnostics
 
@@ -23,9 +26,8 @@ its error code, defaults to `CompilationNotStarted`, and never accepts partial
 stages on failure. `FormatShaderError` formats only at presentation or required
 string-adapter boundaries; bounded compiler text never determines classification.
 Filesystem failures retain their owned path and native cause.
-`FShaderError::FromBuildDiagnostic` retains a bounded preformatted description
-and the original in-process semantic fingerprint at a generic build boundary.
-It does not reconstruct discarded structured causes or classify diagnostic text.
+Generic build failures retain a bounded diagnostic description; they do not
+reconstruct discarded structured causes or classify diagnostic text.
 
 Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
 publish only complete candidates, and failed ShaderMap initialization resets
@@ -184,7 +186,10 @@ idle instead of blocking a worker behind another compilation. Shutdown requires
 all calls and their leases to drain before destroying the builder. Module startup
 constructs the compiler service and freezes registration before constructing the
 builder. Shutdown closes service admission, cancels and drains sessions, and
-waits for inline execution to retire before releasing the builder/service.
+waits for accepted execution to retire before releasing the builder/service.
+Requests retain captured resolvers; their input description runs in the build
+session. Synchronous callers use a DDC request owner and wait before reading
+completion, independently of whether the session executes inline.
 
 Filesystem-backed generated requests validate dependencies and imports before
 single-flight admission using the complete output identity. Captured-source requests

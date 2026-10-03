@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, MeshBuilder
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-10-03
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -129,9 +129,12 @@ VolumeTexture remains synchronous. TextureBuild stays resident throughout the ed
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
 shutdown. Texture2D and TextureCube execute shared-output build sessions inline within
-those workers; Volume uses the same protocol synchronously. Explicit Engine build-service initialization follows provider loading;
-shutdown closes asset compilation, drains build sessions, then releases providers
-and task services. See [Derived Data Build Protocol](DerivedDataBuild.md#engine-texture2d-execution).
+those workers; Volume uses the same protocol synchronously. TextureBuild registers
+the Engine function adapters during module startup. Engine lazily creates the
+texture-family session from the process-wide production `GetBuild()` service;
+there is no explicit Engine asset-build service initialization. Consumers stop
+admission and drain compilation before producer modules unload and Core task
+services stop. See [Derived Data Build Protocol](DerivedDataBuild.md#ownership).
 
 ## Initial Compiling Managers
 

@@ -166,14 +166,17 @@ fallback.
 ## Asynchronous Editor Build Coordination
 
 `ValidateTexture2DBuildSettings` and `ValidateTexture2DSourceMips` return
-`FTexture2DInputResult` without diagnostic outputs. Errors own rejected settings,
-mip index, image descriptors and accumulated bytes with distinct failure reasons.
-`FTexture2DBuildResult` separates terminal status from `FTexture2DBuildError`,
-retains input causes and compression task state, and has no diagnostic string.
-Provider feature version 5 requires this contract. Cube and import adapters
-use `FormatTexture2DBuildError` explicitly. Compilation submission and synchronous
-build return `FTexture2DCompilationOperationResult`, retaining input/build causes,
-object identity and expected/actual source identities. Rejected submission has no
+`std::expected<void, FTexture2DInputError>` without diagnostic outputs. Errors own
+rejected settings, mip index, image descriptors and accumulated bytes with distinct
+failure reasons.
+`ITextureBuildModule::BuildTexture2D` returns
+`std::expected<FTexture2DBuildOutput, FTexture2DBuildError>` with typed input
+causes and compression task state. The module owns pure synchronous construction;
+Engine adapters own derived-data policy and diagnostic translation.
+Compilation submission and synchronous build return
+`std::expected<void, FTexture2DCompilationError>`, retaining actionable input
+reasons, input causes, object identity, and expected/actual source identities.
+Internal build causes remain in diagnostics. Rejected submission has no
 completion callback; result application validates before publishing source,
 settings or platform data. Completion results also retain typed Error separately
 from lifecycle status, including full expected/actual build identities and import
@@ -182,9 +185,13 @@ Pending edit/import contracts format with `FormatTexture2DCompilationError`.
 
 Engine registers `DTexture` to the `Durin.Texture` manager in its
 [asset-compilation aggregate](../Assets/AssetCompilation.md). Editor-enabled
-Engine computes Texture keys, validates DDC Get results, invokes TextureBuild's
-pure synchronous provider only on a miss, and performs best-effort Put. The
-typed modular-feature registry retires admitted provider calls before provider code unloads.
+Engine captures definitions and immutable inputs, then executes the texture-family
+shared-output session. DDC owns record lookup, integrity validation, fallback,
+and best-effort persistence; Engine owns typed output assembly and application.
+Registered Engine functions invoke TextureBuild's pure synchronous module on a
+cache miss. TextureBuild stays resident until editor shutdown; consumers drain
+work before module unload. See the
+[shared build protocol](../Assets/DerivedDataBuild.md#family-boundaries).
 `FTextureCompilingManager` directly owns two
 worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
@@ -199,9 +206,10 @@ and a manager-owned monotonic request serial. Key computation and a warm DDC
 lookup use source metadata and content identity only. Explicit edit requests can
 carry decoded images; authored PostLoad defers payload recovery until a worker
 cache miss. Workers consume those images to generate mips, compress,
-validate, and atomically persist DDC data before placing a move-only result in
-the manager mailbox. Worker results and diagnostic snapshots retain
-`FTexture2DCompilationError`, including nested build/input causes and task state;
+validate, and request best-effort DDC persistence before placing a move-only result
+in the manager mailbox. Worker results retain `FTexture2DCompilationError` with
+input causes and task state; diagnostic snapshots separately retain the internal
+`BuildCause`. Public completion errors do not carry that internal cause;
 UI and pending edit/import adapters call `FormatTexture2DCompilationError`.
 The Texture compiling manager commits on the GameThread
 only when request id, serial, weak object identity, and complete captured input
@@ -230,12 +238,14 @@ completion history are manager-owned and bounded to 256 records; source image
 buffers are released as soon as worker use ends.
 
 CPU readiness is the presence of valid installed platform data. Compilation
-phase and terminal build/DDC diagnostics belong to the manager's active or
+phase and terminal build diagnostics belong to the manager's active or
 bounded recent operation record; GPU readiness and failure belong to
 `DTexture` resource availability, pending operation, and latest consumed result. These owners are
 queried separately. Operation diagnostics retain request identity, timings,
-byte metrics, DDC key, cache-hit/rebuild origin, source-decoder invocation, and
-the matching failure phase; idle textures do not persist those facts.
+byte metrics, source-decoder invocation, internal build cause, and the matching
+failure phase. They contain no DDC key or cache-hit/rebuild origin. Cache
+infrastructure failures are logged by DDC rather than retained in manager
+snapshots; idle textures do not persist operation diagnostics.
 
 Normal-frame completion drains retain the 64-item cap; callback duration is
 diagnostic rather than a separate time limit. A 16K source has a 1 GiB decoded

@@ -53,18 +53,15 @@ namespace Durin::TexturePrivate
 			std::nullopt, DerivedData::EBuildStatus::None);
 		auto Persistent = GetSession();
 		if (!Persistent) return Reject("Texture build session is unavailable.");
-		DerivedData::FBuildInputsBuilder InputBuilder(Definition.GetSources(), std::move(Resolver));
-		InputBuilder.SetCancellation(Options.Cancellation);
-		auto Inputs = std::move(InputBuilder).Build();
-		if (!Inputs && Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-			std::nullopt, DerivedData::EBuildStatus::None);
-		if (!Inputs) return Reject(Inputs.error().Description);
+		Options.InputResolver = std::move(Resolver);
+		DerivedData::FBuildRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
-		auto Admitted = Persistent->Build(std::move(Definition), [&](auto Value) {
+		auto Admitted = Persistent->Build(std::move(Definition), Owner, [&](auto Value) {
 			Completion = std::move(Value);
-		}, std::move(*Inputs), std::move(Options));
+		}, {}, std::move(Options));
 		if (!Admitted) return Reject(Admitted.error().Description);
-		if (!Completion) return Reject("Texture build did not complete inline.");
+		require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
+		if (!Completion) return Reject("Texture build completion is unavailable.");
 		return std::move(*Completion);
 	}
 }
