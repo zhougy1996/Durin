@@ -1,4 +1,5 @@
 #include "ImGuiMonaImpl.h"
+#include "ImGuiModifierRecovery.h"
 
 #include "Profiling/Profiling.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -1214,6 +1215,11 @@ namespace Durin::MonaImGui
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.DeltaTime = static_cast<float>(CurrentTime - LastTime);
 		LastTime = CurrentTime;
+
+#if defined(__APPLE__)
+		// Screenshot overlays can consume key-up events without a focus change.
+		RecoverReleasedModifiers(IO, GetMacOSPhysicalModifiers());
+#endif
 
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.SyncViewportStates");

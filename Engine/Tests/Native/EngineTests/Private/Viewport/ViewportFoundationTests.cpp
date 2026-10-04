@@ -7,6 +7,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiMonaImpl.h"
+#include "Runtime/MonaImGui/Private/Backend/ImGuiModifierRecovery.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Window/GenericWindow.h"
 
@@ -911,4 +912,56 @@ TEST(FLevelViewportSessionSettingsTests, RoundTripsProjectsAndLevelsAndSkipsInva
 	EXPECT_FLOAT_EQ(LegacyState.FarClip, Defaults.FarClip);
 	EXPECT_FLOAT_EQ(LegacyState.ViewFadeStart, Defaults.ViewFadeStart);
 	EXPECT_FLOAT_EQ(LegacyState.ViewRenderDistance, Defaults.ViewRenderDistance);
+}
+
+TEST(FMonaImGuiInputTests, RecoversScreenshotModifiersWithoutFocusOrKeyUp)
+{
+	for (bool bMacOS : {false, true})
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.ConfigMacOSXBehaviors = bMacOS;
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(800.0f, 600.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		auto Frame = [&]() { ImGui::NewFrame(); ImGui::EndFrame(); };
+
+		// Command+Shift screenshot: the system swallows both release events.
+		IO.AddKeyEvent(ImGuiKey_LeftSuper, true);
+		IO.AddKeyEvent(ImGuiMod_Super, true);
+		IO.AddKeyEvent(ImGuiKey_RightShift, true);
+		IO.AddKeyEvent(ImGuiMod_Shift, true);
+		Frame();
+		EXPECT_TRUE(IO.KeyShift);
+		EXPECT_TRUE(bMacOS ? IO.KeyCtrl : IO.KeySuper);
+		Durin::MonaImGui::RecoverReleasedModifiers(IO, Durin::EKeyModFlags::None);
+		Frame();
+		EXPECT_FALSE(IO.KeyShift);
+		EXPECT_FALSE(IO.KeyCtrl);
+		EXPECT_FALSE(IO.KeySuper);
+		EXPECT_FALSE(ImGui::IsKeyDown(bMacOS ? ImGuiKey_LeftCtrl : ImGuiKey_LeftSuper));
+		EXPECT_FALSE(ImGui::IsKeyDown(ImGuiKey_RightShift));
+
+		// A modifier still held in the OS must retain its normal input state.
+		IO.AddKeyEvent(ImGuiKey_RightCtrl, true);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, true);
+		Frame();
+		Durin::MonaImGui::RecoverReleasedModifiers(IO, Durin::EKeyModFlags::Control);
+		Frame();
+		EXPECT_TRUE(bMacOS ? IO.KeySuper : IO.KeyCtrl);
+		EXPECT_TRUE(ImGui::IsKeyDown(bMacOS ? ImGuiKey_RightSuper : ImGuiKey_RightCtrl));
+		Durin::MonaImGui::RecoverReleasedModifiers(IO, Durin::EKeyModFlags::None);
+		Frame();
+		EXPECT_FALSE(IO.KeyCtrl);
+		EXPECT_FALSE(IO.KeySuper);
+
+		// Global state alone must not inject a press from another application.
+		Durin::MonaImGui::RecoverReleasedModifiers(IO, Durin::EKeyModFlags::Super);
+		Frame();
+		EXPECT_FALSE(IO.KeyCtrl);
+		EXPECT_FALSE(IO.KeySuper);
+		ImGui::DestroyContext(Context);
+	}
 }
