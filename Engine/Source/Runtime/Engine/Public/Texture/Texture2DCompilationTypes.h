@@ -82,15 +82,6 @@ namespace Durin
 		bool bSourceDecoderInvoked = false;
 	};
 
-	struct FTexture2DCompilationManagerDiagnostics
-	{
-		uint64 ActiveRecordCount = 0;
-		uint64 RetainedWorkCount = 0;
-		uint64 InFlightEstimatedBytes = 0;
-		uint32 QueuedWorkCount = 0;
-		uint32 RunningWorkCount = 0;
-		uint32 PendingCompletionCount = 0;
-	};
 }
 
 #endif

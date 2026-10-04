@@ -56,8 +56,6 @@ namespace Durin
 		FTexture2DCompilationCompletion Completion = {}) -> std::expected<void, FTexture2DCompilationError>;
 	ENGINE_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic;
-	ENGINE_API auto GetTexture2DCompilationManagerDiagnostics()
-		-> FTexture2DCompilationManagerDiagnostics;
 	ENGINE_API auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool;
 	ENGINE_API auto WaitForTexture2DCompilation(
 		DTexture2D& Texture,

@@ -82,7 +82,6 @@ namespace Durin
 			FTexture2DCompilationCompletion Completion) -> std::expected<void, FTexture2DCompilationError>;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
-		auto GetManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
 		auto HasPending(const DTexture& Texture) const -> bool;
 		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;
 		auto SubmitPlatformCache(DTexture& Texture,
@@ -101,7 +100,6 @@ namespace Durin
 		auto GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic;
 		auto GetQueuedWorkCount() const -> uint32;
 		auto GetRunningWorkCount() const -> uint32;
-		auto GetWorkManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
 		auto PumpWorkCompletions(uint32 MaximumCount,
 			std::optional<std::chrono::steady_clock::time_point> Deadline = {}, uint64 OnlyRequest = 0) -> uint32;
 		auto WaitForWork(uint64 RequestId, double TimeoutSeconds) -> bool;

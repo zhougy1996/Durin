@@ -57,7 +57,7 @@ namespace
 		EXPECT_EQ(1u, LargeCompleted);
 		EXPECT_GT(GetTexture2DCompilationDiagnostic(*Texture).Metrics.ResultBytes, 64u);
 		EXPECT_FALSE(Deferred.IsComplete());
-		EXPECT_EQ(0u, GetTexture2DCompilationManagerDiagnostics().ActiveRecordCount);
+		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		CancelTask(Deferred);
 		WaitTask(Deferred);
 

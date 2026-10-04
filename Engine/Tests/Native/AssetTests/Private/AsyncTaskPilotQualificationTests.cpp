@@ -311,8 +311,16 @@ namespace
 				ASSERT_TRUE(SubmitTexture2DCompilation(*Textures[Index], std::move(Requests[Index]),
 					[&](FTexture2DCompilationResult Result) { ++Completions; Success &= Result.Succeeded(); }));
 			}
-			Texture.PeakDeclaredInFlightBytes = std::max(Texture.PeakDeclaredInFlightBytes,
-				GetTexture2DCompilationManagerDiagnostics().InFlightEstimatedBytes);
+			uint64 DeclaredInFlightBytes = 0;
+			for (auto* Object : Textures)
+			{
+				const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Object);
+				if (Diagnostic.Phase == ETexture2DCompilationPhase::Preparing
+					|| Diagnostic.Phase == ETexture2DCompilationPhase::Building)
+					DeclaredInFlightBytes += Diagnostic.Metrics.EstimatedBytes;
+			}
+			Texture.PeakDeclaredInFlightBytes = std::max(
+				Texture.PeakDeclaredInFlightBytes, DeclaredInFlightBytes);
 			for (auto* Object : Textures) ASSERT_TRUE(WaitForTexture2DCompilation(*Object, 10.0));
 			FinishMeasurement(Texture, Start, Batch >= WarmupBatches);
 			ASSERT_EQ(Completions, BatchSize);
@@ -326,7 +334,7 @@ namespace
 				ASSERT_NE(Object->GetPlatformData(), nullptr);
 			}
 			Texture.RetainedResultBytes = std::max(Texture.RetainedResultBytes, ResultBytes);
-			ASSERT_EQ(GetTexture2DCompilationManagerDiagnostics().ActiveRecordCount, 0u);
+			ASSERT_EQ(FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
 		}
 		Texture.Print("texture_64_rgba8_commit");
 	}

@@ -468,19 +468,6 @@ struct FAssetState
 		return RequestId != 0 ? GetWorkDiagnostic(RequestId) : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto FTextureCompilingManager::GetManagerDiagnostics() const
-		-> FTexture2DCompilationManagerDiagnostics
-	{
-		FTexture2DCompilationManagerDiagnostics Result = GetWorkManagerDiagnostics();
-		if (!CompilationState) return Result;
-		std::lock_guard Lock(CompilationState->Mutex);
-		Result.ActiveRecordCount = std::ranges::count_if(
-			CompilationState->Assets, [](const auto& Pair) {
-				return Pair.second.ActiveRequestId != 0;
-			});
-		return Result;
-	}
-
 	auto FTextureCompilingManager::SubmitPlatformCache(DTexture& Texture,
 		std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool
 	{
@@ -716,14 +703,6 @@ struct FAssetState
 	{
 		const auto Manager = GetTextureCompilingManager();
 		return Manager ? Manager->GetDiagnostic(Texture) : FTexture2DCompilationDiagnostic{};
-	}
-
-	auto GetTexture2DCompilationManagerDiagnostics()
-		-> FTexture2DCompilationManagerDiagnostics
-	{
-		const auto Manager = GetTextureCompilingManager();
-		return Manager ? Manager->GetManagerDiagnostics()
-			: FTexture2DCompilationManagerDiagnostics{};
 	}
 
 	auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool

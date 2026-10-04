@@ -575,22 +575,6 @@ namespace Durin
 		return QueueState->RunningCount;
 	}
 
-	auto FTextureCompilingManager::GetWorkManagerDiagnostics() const
-		-> FTexture2DCompilationManagerDiagnostics
-	{
-		FTexture2DCompilationManagerDiagnostics Result;
-		if (!QueueState) return Result;
-		std::lock_guard Lock(QueueState->Mutex);
-		Result.RetainedWorkCount = QueueState->Requests.size();
-		Result.InFlightEstimatedBytes = QueueState->InFlightEstimatedBytes;
-		Result.QueuedWorkCount = static_cast<uint32>(
-			QueueState->InteractiveQueue.size() + QueueState->BackgroundQueue.size());
-		Result.RunningWorkCount = QueueState->RunningCount;
-		Result.PendingCompletionCount = static_cast<uint32>(std::ranges::count_if(QueueState->Requests,
-			[](const auto& Entry) { return !Entry.second->bDelivered && FQueueState::IsReady(*Entry.second); }));
-		return Result;
-	}
-
 	auto FTextureCompilingManager::SetPhaseHookForTests(
 		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void
 	{
