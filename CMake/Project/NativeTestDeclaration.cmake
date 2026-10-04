@@ -80,7 +80,7 @@ function(durin_add_native_test target_name)
 		durin_test_deploy_directory_to_data(${target_name} "${_directory}")
 	endforeach()
 	if(TEST_DATA_FILES)
-		durin_test_deploy_files_to_data(${target_name} ${TEST_DATA_FILES})
+		durin_test_deploy_files_to_data(${target_name} "${TEST_DATA_FILES}")
 	endif()
 	set(_registration)
 	foreach(_keyword IN ITEMS KIND TIMEOUT PROCESSORS EXECUTION_HOST

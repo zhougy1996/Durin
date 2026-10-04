@@ -81,7 +81,9 @@ durin_add_native_test(VulkanRHIIntegrationTests
 		TextureBuild
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 	HEAVY_RUNTIME_RATIONALE "Failure-injection tests must share the test-only state compiled into VulkanRHI."
-	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	DATA_DIRECTORIES
+		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
+		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/MetalShaderQualification"
 )
 
 durin_add_native_test(VulkanCreationQualificationTests
@@ -113,5 +115,7 @@ durin_add_native_test(VulkanCreationQualificationTests
 		${_durin_vulkan_platform_libraries}
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 	HEAVY_RUNTIME_RATIONALE "Measures real Vulkan creation with the opt-in backend timing seam."
-	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	DATA_DIRECTORIES
+		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
+		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/MetalShaderQualification"
 )

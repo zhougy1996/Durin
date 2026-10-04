@@ -23,6 +23,7 @@ else()
 	)
 endif()
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/VulkanRHITests)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/MetalShaderQualificationTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/EngineTests)
 
 add_test(
