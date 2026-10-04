@@ -199,6 +199,7 @@ namespace Durin
 	struct FRHIViewportCreateInfo
 	{
 		void* NativeWindowHandle = nullptr;
+		void* NativeMetalLayer = nullptr;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
 		bool bIsFullscreen = false;

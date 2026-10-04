@@ -16,6 +16,16 @@ namespace Durin
 		Threaded
 	};
 
+	enum class ERHIBackend
+	{
+		Vulkan,
+		Metal
+	};
+
+	// Vulkan remains the default. An invalid explicit backend fails startup.
+	RHI_API auto ResolveRHIBackend(const char* ConfiguredBackend)
+		-> std::optional<ERHIBackend>;
+
 	// Resolves DURIN_RHI_EXECUTION semantics. Threaded execution is the normal
 	// path; "inline" remains an explicit diagnostic override. Invalid configured
 	// values are diagnosed and use the normal threaded path.

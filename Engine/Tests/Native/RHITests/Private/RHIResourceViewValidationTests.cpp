@@ -146,6 +146,23 @@ namespace Durin
 		Face.Range.NumArrayLayers = 1;
 		const auto TextureViewDescResult6 = ValidateTextureViewDesc(&Cube, Face);
 		EXPECT_TRUE(TextureViewDescResult6) << ToString(TextureViewDescResult6.error());
+
+		FRHITexture CubeArray(FRHITextureCreateDesc::CreateCubeArray("CubeArray")
+			.SetExtent(16).SetArraySize(12).SetFormat(EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::SourceCopy));
+		FRHITextureViewDesc Cubes = MakeDefaultTextureViewDesc(
+			CubeArray, ERHITextureViewUsage::TransferSource);
+		EXPECT_EQ(Cubes.Dimension, ERHITextureViewDimension::TextureCubeArray);
+		EXPECT_TRUE(ValidateTextureViewDesc(&CubeArray, Cubes));
+		Cubes.Range.FirstArrayLayer = 6;
+		Cubes.Range.NumArrayLayers = 6;
+		EXPECT_TRUE(ValidateTextureViewDesc(&CubeArray, Cubes));
+		Cubes.Range.FirstArrayLayer = 5;
+		EXPECT_EQ(ValidateTextureViewDesc(&CubeArray, Cubes).error(),
+			ERHITextureViewError::InvalidCubeRange);
+		Cubes.Dimension = ERHITextureViewDimension::Texture2D;
+		Cubes.Range.NumArrayLayers = 1;
+		EXPECT_TRUE(ValidateTextureViewDesc(&CubeArray, Cubes));
 	}
 
 	TEST(FRHIResourceViewValidationTests, RetainsParentResources)

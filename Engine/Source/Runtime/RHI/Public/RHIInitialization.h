@@ -10,6 +10,8 @@ namespace Durin
 	struct FRHIPresentationTarget
 	{
 		void* NativeWindowHandle = nullptr;
+		// The Cocoa window owns this CAMetalLayer; MetalRHI retains it while in use.
+		void* NativeMetalLayer = nullptr;
 
 		auto IsValid() const -> bool
 		{

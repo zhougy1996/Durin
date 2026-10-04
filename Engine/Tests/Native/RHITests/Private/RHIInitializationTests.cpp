@@ -163,8 +163,10 @@ namespace Durin
 		FInitializationObservation Observation;
 		auto* Backend = new FFailingDynamicRHI(Observation);
 		void* const WindowHandle = reinterpret_cast<void*>(uintptr_t{0x1234});
+		void* const MetalLayer = reinterpret_cast<void*>(uintptr_t{0x5678});
 		const FRHIPresentationTarget Target{
-			.NativeWindowHandle = WindowHandle};
+			.NativeWindowHandle = WindowHandle,
+			.NativeMetalLayer = MetalLayer};
 		EXPECT_FALSE(RHIInitWithBackendForTests(
 			Backend, false, false,
 			FRHIInitializationContext::Presentation(Target)));
@@ -172,6 +174,8 @@ namespace Durin
 		ASSERT_TRUE(Observation.InitializationContext.GetPresentationTarget());
 		EXPECT_EQ(Observation.InitializationContext.GetPresentationTarget()
 			->NativeWindowHandle, WindowHandle);
+		EXPECT_EQ(Observation.InitializationContext.GetPresentationTarget()
+			->NativeMetalLayer, MetalLayer);
 		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 
@@ -181,6 +185,16 @@ namespace Durin
 		EXPECT_EQ(ResolveRHIExecutionMode("inline"), ERHIExecutionMode::Inline);
 		EXPECT_EQ(ResolveRHIExecutionMode("threaded"),
 			ERHIExecutionMode::Threaded);
+	}
+
+	TEST(FRHIInitializationTests, BackendSelectionDefaultsVulkanAndRequiresExactOptIn)
+	{
+		EXPECT_EQ(ResolveRHIBackend(nullptr), ERHIBackend::Vulkan);
+		EXPECT_EQ(ResolveRHIBackend("vulkan"), ERHIBackend::Vulkan);
+		EXPECT_EQ(ResolveRHIBackend("metal"), ERHIBackend::Metal);
+		EXPECT_FALSE(ResolveRHIBackend(""));
+		EXPECT_FALSE(ResolveRHIBackend("Metal"));
+		EXPECT_FALSE(ResolveRHIBackend("unknown"));
 	}
 
 	TEST(FRHIInitializationTests, CapabilitySnapshotPublishesOnlyAfterSuccessfulInit)

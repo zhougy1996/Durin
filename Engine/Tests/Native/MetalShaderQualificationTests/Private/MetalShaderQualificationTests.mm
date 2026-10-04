@@ -342,6 +342,8 @@ namespace
 				MTLPixelFormat Format;
 				NSString* FragmentName;
 			} Cases[] = {
+				{MTLPixelFormatRGBA8Unorm_sRGB, @"floatMain"},
+				{MTLPixelFormatBGRA8Unorm_sRGB, @"floatMain"},
 				{MTLPixelFormatRGBA16Float, @"floatMain"},
 				{MTLPixelFormatRG11B10Float, @"floatMain"},
 				{MTLPixelFormatRG32Uint, @"integerMain"},
@@ -378,7 +380,19 @@ namespace
 				[Command waitUntilCompleted];
 				ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
 					<< [[Command.error description] UTF8String];
-				if (Case.Format == MTLPixelFormatRGBA16Float)
+				if (Case.Format == MTLPixelFormatRGBA8Unorm_sRGB
+					|| Case.Format == MTLPixelFormatBGRA8Unorm_sRGB)
+				{
+				uint8_t Pixel[4] = {};
+				[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
+					fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+				const bool bBGRA = Case.Format == MTLPixelFormatBGRA8Unorm_sRGB;
+				EXPECT_NEAR(Pixel[0], bBGRA ? 255 : 188, 1);
+				EXPECT_NEAR(Pixel[1], 137, 1);
+				EXPECT_NEAR(Pixel[2], bBGRA ? 188 : 255, 1);
+				EXPECT_EQ(Pixel[3], 0);
+				}
+				else if (Case.Format == MTLPixelFormatRGBA16Float)
 				{
 				uint16_t Pixel[4] = {};
 				[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
@@ -406,6 +420,334 @@ namespace
 				EXPECT_EQ(Pixel[1], 0x9abcdef0u);
 				}
 			}
+		}
+	}
+
+	TEST(FMetalShaderQualificationTests, SRGBTextureSamplingDecodesToLinearColor)
+	{
+		@autoreleasepool
+		{
+			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
+			ASSERT_NE(Device, nil);
+			NSString* Source = @"#include <metal_stdlib>\n"
+				"using namespace metal;\n"
+				"vertex float4 vertexMain(uint index [[vertex_id]]) {\n"
+				"  float2 positions[3] = {float2(-1,-1), float2(3,-1), float2(-1,3)};\n"
+				"  return float4(positions[index], 0, 1);\n"
+				"}\n"
+				"fragment float4 fragmentMain(texture2d<float> source [[texture(0)]]) {\n"
+				"  constexpr sampler nearest(coord::normalized, filter::nearest);\n"
+				"  return source.sample(nearest, float2(0.5, 0.5));\n"
+				"}\n";
+			NSError* Error = nil;
+			id<MTLLibrary> Library = [Device newLibraryWithSource:Source options:nil error:&Error];
+			ASSERT_NE(Library, nil) << [[Error description] UTF8String];
+			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
+			PipelineDesc.vertexFunction = [Library newFunctionWithName:@"vertexMain"];
+			PipelineDesc.fragmentFunction = [Library newFunctionWithName:@"fragmentMain"];
+			PipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+			ASSERT_NE(PipelineDesc.vertexFunction, nil);
+			ASSERT_NE(PipelineDesc.fragmentFunction, nil);
+			id<MTLRenderPipelineState> Pipeline = [Device
+				newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
+			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
+			MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
+				width:1 height:1 mipmapped:NO];
+			TargetDesc.storageMode = MTLStorageModeShared;
+			TargetDesc.usage = MTLTextureUsageRenderTarget;
+			id<MTLTexture> Target = [Device newTextureWithDescriptor:TargetDesc];
+			ASSERT_NE(Target, nil);
+			id<MTLCommandQueue> Queue = [Device newCommandQueue];
+			ASSERT_NE(Queue, nil);
+			for (const bool bBGRA : {false, true})
+			{
+				SCOPED_TRACE(bBGRA ? "BGRA sRGB" : "RGBA sRGB");
+				MTLTextureDescriptor* SampleDesc = [MTLTextureDescriptor
+					texture2DDescriptorWithPixelFormat:bBGRA
+						? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatRGBA8Unorm_sRGB
+					width:1 height:1 mipmapped:NO];
+				SampleDesc.storageMode = MTLStorageModeShared;
+				SampleDesc.usage = MTLTextureUsageShaderRead;
+				id<MTLTexture> Sample = [Device newTextureWithDescriptor:SampleDesc];
+				ASSERT_NE(Sample, nil);
+				const uint8_t Texel[4] = {static_cast<uint8_t>(bBGRA ? 255 : 128),
+					64, static_cast<uint8_t>(bBGRA ? 128 : 255), 255};
+				[Sample replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0
+					withBytes:Texel bytesPerRow:sizeof(Texel)];
+				MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+				Pass.colorAttachments[0].texture = Target;
+				Pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+				Pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+				id<MTLCommandBuffer> Command = [Queue commandBuffer];
+				id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+				ASSERT_NE(Encoder, nil);
+				[Encoder setRenderPipelineState:Pipeline];
+				[Encoder setFragmentTexture:Sample atIndex:0];
+				[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+				[Encoder endEncoding];
+				[Command commit];
+				[Command waitUntilCompleted];
+				ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+					<< [[Command.error description] UTF8String];
+				float Pixel[4] = {};
+				[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
+					fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+				EXPECT_NEAR(Pixel[0], 0.21586f, 0.0002f);
+				EXPECT_NEAR(Pixel[1], 0.05127f, 0.0002f);
+				EXPECT_NEAR(Pixel[2], 1.0f, 0.0002f);
+				EXPECT_NEAR(Pixel[3], 1.0f, 0.0002f);
+			}
+		}
+	}
+
+	TEST(FMetalShaderQualificationTests, DepthArrayComparisonSamplesCorrectLayer)
+	{
+		@autoreleasepool
+		{
+			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
+			ASSERT_NE(Device, nil);
+			MTLTextureDescriptor* DepthDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+				width:1 height:1 mipmapped:NO];
+			DepthDesc.textureType = MTLTextureType2DArray;
+			DepthDesc.arrayLength = 3;
+			DepthDesc.storageMode = MTLStorageModePrivate;
+			DepthDesc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+			id<MTLTexture> Depth = [Device newTextureWithDescriptor:DepthDesc];
+			ASSERT_NE(Depth, nil);
+			id<MTLCommandQueue> Queue = [Device newCommandQueue];
+			ASSERT_NE(Queue, nil);
+			for (NSUInteger Layer = 0; Layer < 3; ++Layer)
+			{
+				MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+				Pass.depthAttachment.texture = Depth;
+				Pass.depthAttachment.slice = Layer;
+				Pass.depthAttachment.loadAction = MTLLoadActionClear;
+				Pass.depthAttachment.storeAction = MTLStoreActionStore;
+				Pass.depthAttachment.clearDepth = 0.25 * (Layer + 1);
+				id<MTLCommandBuffer> Command = [Queue commandBuffer];
+				id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+				ASSERT_NE(Encoder, nil);
+				[Encoder endEncoding];
+				[Command commit];
+				[Command waitUntilCompleted];
+				ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+					<< [[Command.error description] UTF8String];
+			}
+			NSString* Source = @"#include <metal_stdlib>\n"
+				"using namespace metal;\n"
+				"vertex float4 vertexMain(uint index [[vertex_id]]) {\n"
+				"  float2 positions[3] = {float2(-1,-1), float2(3,-1), float2(-1,3)};\n"
+				"  return float4(positions[index], 0, 1);\n"
+				"}\n"
+				"fragment float4 sampleMain(depth2d_array<float> depth [[texture(0)]],\n"
+				"  sampler compareSampler [[sampler(0)]], constant uint& layer [[buffer(0)]]) {\n"
+				"  float value = depth.sample_compare(compareSampler, float2(0.5), layer, 0.6);\n"
+				"  return float4(value, value, value, 1);\n"
+				"}\n";
+			NSError* Error = nil;
+			id<MTLLibrary> Library = [Device newLibraryWithSource:Source options:nil error:&Error];
+			ASSERT_NE(Library, nil) << [[Error description] UTF8String];
+			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
+			PipelineDesc.vertexFunction = [Library newFunctionWithName:@"vertexMain"];
+			PipelineDesc.fragmentFunction = [Library newFunctionWithName:@"sampleMain"];
+			PipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+			id<MTLRenderPipelineState> Pipeline = [Device
+				newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
+			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
+			MTLSamplerDescriptor* SamplerDesc = [MTLSamplerDescriptor new];
+			SamplerDesc.minFilter = MTLSamplerMinMagFilterNearest;
+			SamplerDesc.magFilter = MTLSamplerMinMagFilterNearest;
+			SamplerDesc.compareFunction = MTLCompareFunctionLessEqual;
+			id<MTLSamplerState> Sampler = [Device newSamplerStateWithDescriptor:SamplerDesc];
+			ASSERT_NE(Sampler, nil);
+			MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+				width:1 height:1 mipmapped:NO];
+			TargetDesc.storageMode = MTLStorageModeShared;
+			TargetDesc.usage = MTLTextureUsageRenderTarget;
+			id<MTLTexture> Target = [Device newTextureWithDescriptor:TargetDesc];
+			ASSERT_NE(Target, nil);
+			for (uint32_t Layer = 0; Layer < 3; ++Layer)
+			{
+				SCOPED_TRACE(Layer);
+				MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+				Pass.colorAttachments[0].texture = Target;
+				Pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+				Pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+				id<MTLCommandBuffer> Command = [Queue commandBuffer];
+				id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+				ASSERT_NE(Encoder, nil);
+				[Encoder setRenderPipelineState:Pipeline];
+				[Encoder setFragmentTexture:Depth atIndex:0];
+				[Encoder setFragmentSamplerState:Sampler atIndex:0];
+				[Encoder setFragmentBytes:&Layer length:sizeof(Layer) atIndex:0];
+				[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+				[Encoder endEncoding];
+				[Command commit];
+				[Command waitUntilCompleted];
+				ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+					<< [[Command.error description] UTF8String];
+				uint8_t Pixel[4] = {};
+				[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
+					fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+				EXPECT_EQ(Pixel[0], Layer == 2 ? 255 : 0);
+				EXPECT_EQ(Pixel[1], Pixel[0]);
+				EXPECT_EQ(Pixel[2], Pixel[0]);
+				EXPECT_EQ(Pixel[3], 255);
+			}
+		}
+	}
+
+	TEST(FMetalShaderQualificationTests, RGBA16CubeSamplingSelectsExpectedFace)
+	{
+		@autoreleasepool
+		{
+			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
+			ASSERT_NE(Device, nil);
+			MTLTextureDescriptor* CubeDesc = [MTLTextureDescriptor
+				textureCubeDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+				size:1 mipmapped:NO];
+			CubeDesc.storageMode = MTLStorageModeShared;
+			CubeDesc.usage = MTLTextureUsageShaderRead;
+			id<MTLTexture> Cube = [Device newTextureWithDescriptor:CubeDesc];
+			ASSERT_NE(Cube, nil);
+			for (NSUInteger Face = 0; Face < 6; ++Face)
+			{
+				const uint16_t Texel[4] = {static_cast<uint16_t>(Face == 0 ? 0x3800 :
+					Face == 1 ? 0x3400 : 0), 0, 0, 0x3c00};
+				[Cube replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0
+					slice:Face withBytes:Texel bytesPerRow:sizeof(Texel)
+					bytesPerImage:sizeof(Texel)];
+			}
+			NSString* Source = @"#include <metal_stdlib>\n"
+				"using namespace metal;\n"
+				"vertex float4 vertexMain(uint index [[vertex_id]]) {\n"
+				"  float2 positions[3] = {float2(-1,-1), float2(3,-1), float2(-1,3)};\n"
+				"  return float4(positions[index], 0, 1);\n"
+				"}\n"
+				"fragment float4 sampleMain(texturecube<float> cube [[texture(0)]],\n"
+				"  constant uint& face [[buffer(0)]]) {\n"
+				"  constexpr sampler nearest(coord::normalized, filter::nearest);\n"
+				"  float3 direction = face == 0 ? float3(1, 0, 0) : float3(-1, 0, 0);\n"
+				"  return cube.sample(nearest, direction);\n"
+				"}\n";
+			NSError* Error = nil;
+			id<MTLLibrary> Library = [Device newLibraryWithSource:Source options:nil error:&Error];
+			ASSERT_NE(Library, nil) << [[Error description] UTF8String];
+			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
+			PipelineDesc.vertexFunction = [Library newFunctionWithName:@"vertexMain"];
+			PipelineDesc.fragmentFunction = [Library newFunctionWithName:@"sampleMain"];
+			PipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+			id<MTLRenderPipelineState> Pipeline = [Device
+				newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
+			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
+			MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
+				width:1 height:1 mipmapped:NO];
+			TargetDesc.storageMode = MTLStorageModeShared;
+			TargetDesc.usage = MTLTextureUsageRenderTarget;
+			id<MTLTexture> Target = [Device newTextureWithDescriptor:TargetDesc];
+			ASSERT_NE(Target, nil);
+			id<MTLCommandQueue> Queue = [Device newCommandQueue];
+			ASSERT_NE(Queue, nil);
+			for (uint32_t Face = 0; Face < 2; ++Face)
+			{
+				SCOPED_TRACE(Face);
+				MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+				Pass.colorAttachments[0].texture = Target;
+				Pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+				Pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+				id<MTLCommandBuffer> Command = [Queue commandBuffer];
+				id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+				ASSERT_NE(Encoder, nil);
+				[Encoder setRenderPipelineState:Pipeline];
+				[Encoder setFragmentTexture:Cube atIndex:0];
+				[Encoder setFragmentBytes:&Face length:sizeof(Face) atIndex:0];
+				[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+				[Encoder endEncoding];
+				[Command commit];
+				[Command waitUntilCompleted];
+				ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+					<< [[Command.error description] UTF8String];
+				float Pixel[4] = {};
+				[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
+					fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+				EXPECT_NEAR(Pixel[0], Face == 0 ? 0.5f : 0.25f, 0.0001f);
+				EXPECT_NEAR(Pixel[1], 0.0f, 0.0001f);
+				EXPECT_NEAR(Pixel[2], 0.0f, 0.0001f);
+				EXPECT_NEAR(Pixel[3], 1.0f, 0.0001f);
+			}
+		}
+	}
+
+	TEST(FMetalShaderQualificationTests, RGBA32FloatTextureSamplesWithLinearFilter)
+	{
+		@autoreleasepool
+		{
+			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
+			ASSERT_NE(Device, nil);
+			NSString* Source = @"#include <metal_stdlib>\n"
+				"using namespace metal;\n"
+				"vertex float4 vertexMain(uint index [[vertex_id]]) {\n"
+				"  float2 positions[3] = {float2(-1,-1), float2(3,-1), float2(-1,3)};\n"
+				"  return float4(positions[index], 0, 1);\n"
+				"}\n"
+				"fragment float4 sampleMain(texture2d<float> source [[texture(0)]]) {\n"
+				"  constexpr sampler linearFilter(coord::normalized, filter::linear);\n"
+				"  return source.sample(linearFilter, float2(0.5, 0.5));\n"
+				"}\n";
+			NSError* Error = nil;
+			id<MTLLibrary> Library = [Device newLibraryWithSource:Source options:nil error:&Error];
+			ASSERT_NE(Library, nil) << [[Error description] UTF8String];
+			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
+			PipelineDesc.vertexFunction = [Library newFunctionWithName:@"vertexMain"];
+			PipelineDesc.fragmentFunction = [Library newFunctionWithName:@"sampleMain"];
+			PipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+			id<MTLRenderPipelineState> Pipeline = [Device
+				newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
+			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
+			MTLTextureDescriptor* SampleDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
+				width:2 height:1 mipmapped:NO];
+			SampleDesc.storageMode = MTLStorageModeShared;
+			SampleDesc.usage = MTLTextureUsageShaderRead;
+			id<MTLTexture> Sample = [Device newTextureWithDescriptor:SampleDesc];
+			ASSERT_NE(Sample, nil);
+			const float Texels[8] = {0, 0, 0, 1, 1, 0.5f, 0.25f, 1};
+			[Sample replaceRegion:MTLRegionMake2D(0, 0, 2, 1) mipmapLevel:0
+				withBytes:Texels bytesPerRow:sizeof(Texels)];
+			MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float
+				width:1 height:1 mipmapped:NO];
+			TargetDesc.storageMode = MTLStorageModeShared;
+			TargetDesc.usage = MTLTextureUsageRenderTarget;
+			id<MTLTexture> Target = [Device newTextureWithDescriptor:TargetDesc];
+			ASSERT_NE(Target, nil);
+			MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+			Pass.colorAttachments[0].texture = Target;
+			Pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+			Pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+			id<MTLCommandQueue> Queue = [Device newCommandQueue];
+			id<MTLCommandBuffer> Command = [Queue commandBuffer];
+			id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+			ASSERT_NE(Encoder, nil);
+			[Encoder setRenderPipelineState:Pipeline];
+			[Encoder setFragmentTexture:Sample atIndex:0];
+			[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+			[Encoder endEncoding];
+			[Command commit];
+			[Command waitUntilCompleted];
+			ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+				<< [[Command.error description] UTF8String];
+			float Pixel[4] = {};
+			[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
+				fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+			EXPECT_NEAR(Pixel[0], 0.5f, 0.0001f);
+			EXPECT_NEAR(Pixel[1], 0.25f, 0.0001f);
+			EXPECT_NEAR(Pixel[2], 0.125f, 0.0001f);
+			EXPECT_NEAR(Pixel[3], 1.0f, 0.0001f);
 		}
 	}
 

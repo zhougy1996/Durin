@@ -896,16 +896,21 @@ namespace Durin
 	{
 		const bool bAttachment = Usage == ERHITextureViewUsage::ColorAttachment
 			|| Usage == ERHITextureViewUsage::DepthStencilAttachment;
+		ERHITextureViewDimension Dimension = ERHITextureViewDimension::Texture2D;
+		if (!bAttachment)
+		{
+			switch (Texture.GetDimension())
+			{
+			case ETextureDimension::Texture2DArray: Dimension = ERHITextureViewDimension::Texture2DArray; break;
+			case ETextureDimension::Texture3D: Dimension = ERHITextureViewDimension::Texture3D; break;
+			case ETextureDimension::TextureCube: Dimension = ERHITextureViewDimension::TextureCube; break;
+			case ETextureDimension::TextureCubeArray: Dimension = ERHITextureViewDimension::TextureCubeArray; break;
+			default: break;
+			}
+		}
 		return {
 			.Usage = Usage,
-			.Dimension = !bAttachment && Texture.GetDimension() == ETextureDimension::Texture3D
-				? ERHITextureViewDimension::Texture3D
-				: (!bAttachment && Texture.GetDimension() == ETextureDimension::TextureCube
-				? ERHITextureViewDimension::TextureCube
-				: (!bAttachment
-						&& Texture.GetDimension() == ETextureDimension::Texture2DArray
-					? ERHITextureViewDimension::Texture2DArray
-					: ERHITextureViewDimension::Texture2D)),
+			.Dimension = Dimension,
 			.Format = Texture.GetFormat(),
 			.Range = {
 				.Aspects = GetTextureAspects(Texture.GetFormat()),
@@ -1005,6 +1010,13 @@ namespace Durin
 				|| Desc.Range.NumArrayLayers != TextureCubeFaceCount)
 				return std::unexpected(ERHITextureViewError::InvalidCubeRange);
 		}
+		else if (Desc.Dimension == ERHITextureViewDimension::TextureCubeArray)
+		{
+			if (Texture->GetDimension() != ETextureDimension::TextureCubeArray
+				|| Desc.Range.FirstArrayLayer % TextureCubeFaceCount != 0
+				|| Desc.Range.NumArrayLayers % TextureCubeFaceCount != 0)
+				return std::unexpected(ERHITextureViewError::InvalidCubeRange);
+		}
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture3D)
 		{
 			if (Texture->GetDimension() != ETextureDimension::Texture3D
@@ -1016,7 +1028,8 @@ namespace Durin
 		{
 			if ((Texture->GetDimension() != ETextureDimension::Texture2D
 				&& Texture->GetDimension() != ETextureDimension::Texture2DArray
-				&& Texture->GetDimension() != ETextureDimension::TextureCube)
+				&& Texture->GetDimension() != ETextureDimension::TextureCube
+				&& Texture->GetDimension() != ETextureDimension::TextureCubeArray)
 				|| Desc.Range.NumArrayLayers != 1)
 				return std::unexpected(ERHITextureViewError::Invalid2DRange);
 		}
@@ -1108,7 +1121,9 @@ namespace Durin
 			if (Extent.Width == 0 || Extent.Height == 0 || Extent.Depth == 0)
 				return std::unexpected(ERHITextureCopyRegionError::EmptyExtent);
 			if (Texture.GetDimension() != ETextureDimension::Texture2D
+				&& Texture.GetDimension() != ETextureDimension::Texture2DArray
 				&& Texture.GetDimension() != ETextureDimension::TextureCube
+				&& Texture.GetDimension() != ETextureDimension::TextureCubeArray
 				&& !bTexture3D)
 				return std::unexpected(ERHITextureCopyRegionError::UnsupportedDimension);
 			if (bTexture3D)

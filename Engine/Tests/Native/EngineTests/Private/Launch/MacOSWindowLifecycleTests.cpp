@@ -86,6 +86,10 @@ TEST(FMacOSWindowLifecycleTests, RepeatedHiddenCocoaWindowsExposeRetinaAndEventS
 {
 	ASSERT_TRUE(Durin::InitializeApplicationCore());
 	ASSERT_TRUE(Durin::InitializeApplicationCore());
+	const Durin::FVulkanSurfaceRequirementsResult VulkanRequirements =
+		Durin::GetVulkanSurfaceRequirements();
+	ASSERT_TRUE(VulkanRequirements.Succeeded()) << VulkanRequirements.Diagnostic;
+	EXPECT_FALSE(VulkanRequirements.RequiredInstanceExtensions.empty());
 	Durin::ShutdownApplicationCore();
 	ASSERT_TRUE(Durin::IsApplicationCoreInitialized());
 

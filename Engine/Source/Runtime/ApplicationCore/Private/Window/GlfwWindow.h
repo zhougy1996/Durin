@@ -59,6 +59,7 @@ namespace Durin
 		APPLICATIONCORE_API auto ShouldClose() const -> bool override;
 
 		APPLICATIONCORE_API auto GetViewportSize() const -> FIntPoint override;
+		APPLICATIONCORE_API auto GetNativeMetalLayer() const -> void* override;
 
 		APPLICATIONCORE_API auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 

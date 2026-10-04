@@ -10,7 +10,6 @@ namespace Durin
 	namespace
 	{
 		uint32 GApplicationCoreInitializationCount = 0;
-		std::vector<std::string> VulkanSurfaceRequiredInstanceExtensions;
 
 		auto ConfigureConsoleOutputEncoding() -> void
 		{
@@ -55,17 +54,6 @@ namespace Durin
 			return false;
 		}
 		InitGlfwCursors();
-		FVulkanSurfaceRequirementsResult SurfaceRequirements =
-			DiscoverVulkanSurfaceRequirements();
-		if (!SurfaceRequirements.Succeeded())
-		{
-			DURIN_ERROR("{}", SurfaceRequirements.Diagnostic);
-			DestroyGlfwCursors();
-			glfwTerminate();
-			return false;
-		}
-		VulkanSurfaceRequiredInstanceExtensions = std::move(
-			SurfaceRequirements.RequiredInstanceExtensions);
 		GApplicationCoreInitializationCount = 1;
 		return true;
 	}
@@ -85,9 +73,7 @@ namespace Durin
 					"Vulkan surface requirements were queried before ApplicationCore initialization."};
 		}
 
-		return {
-			.RequiredInstanceExtensions =
-				VulkanSurfaceRequiredInstanceExtensions};
+		return DiscoverVulkanSurfaceRequirements();
 	}
 
 	auto ShutdownApplicationCore() -> void
@@ -96,6 +82,5 @@ namespace Durin
 		if (--GApplicationCoreInitializationCount > 0) return;
 		DestroyGlfwCursors();
 		glfwTerminate();
-		VulkanSurfaceRequiredInstanceExtensions.clear();
 	}
 }

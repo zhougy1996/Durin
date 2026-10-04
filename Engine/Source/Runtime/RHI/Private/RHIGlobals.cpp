@@ -7,7 +7,7 @@
 namespace Durin
 {
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
-	static bool GOwnsBackendModule = false;
+	static const char* GOwnedBackendModuleName = nullptr;
 	static FRHIReleaseResourcesDelegate RHIReleaseResourcesDelegate;
 
 	namespace
@@ -20,13 +20,26 @@ namespace Durin
 
 		auto CreateDynamicRHI() -> FDynamicRHI*
 		{
-			IDynamicRHIModule* DynamicRHIModule =
-				FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");
-			if (!DynamicRHIModule)
+			const std::optional<ERHIBackend> Backend =
+				ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"));
+			if (!Backend) return nullptr;
+#if !defined(__APPLE__)
+			if (*Backend == ERHIBackend::Metal)
 			{
-				DURIN_ERROR("Failed to load VulkanRHI module");
+				DURIN_ERROR("MetalRHI requires macOS on Apple Silicon.");
 				return nullptr;
 			}
+#endif
+			const char* ModuleName = *Backend == ERHIBackend::Metal
+				? "MetalRHI" : "VulkanRHI";
+			IDynamicRHIModule* DynamicRHIModule =
+				FModuleManager::LoadModule<IDynamicRHIModule>(ModuleName);
+			if (!DynamicRHIModule)
+			{
+				DURIN_ERROR("Failed to load selected RHI module '{}'.", ModuleName);
+				return nullptr;
+			}
+			GOwnedBackendModuleName = ModuleName;
 			return DynamicRHIModule->CreateRHI();
 		}
 
@@ -75,12 +88,13 @@ namespace Durin
 			}
 			delete GDynamicRHI;
 			GDynamicRHI = nullptr;
-			if (bUnloadBackendModule)
+			if (bUnloadBackendModule && GOwnedBackendModuleName)
 			{
-				if (!FModuleManager::Get().UnloadModule("VulkanRHI"))
-					DURIN_ERROR("Failed to unload VulkanRHI after initialization failure.");
+				if (!FModuleManager::Get().UnloadModule(GOwnedBackendModuleName))
+					DURIN_ERROR("Failed to unload {} after initialization failure.",
+						GOwnedBackendModuleName);
 			}
-			GOwnsBackendModule = false;
+			GOwnedBackendModuleName = nullptr;
 		}
 
 		auto InitializeRHI(
@@ -93,10 +107,12 @@ namespace Durin
 			if (!Backend)
 			{
 				DURIN_ERROR("Failed to create dynamic RHI");
-				if (bOwnsBackendModule)
+				if (bOwnsBackendModule && GOwnedBackendModuleName)
 				{
-					if (!FModuleManager::Get().UnloadModule("VulkanRHI"))
-						DURIN_ERROR("Failed to unload VulkanRHI after backend creation failure.");
+					if (!FModuleManager::Get().UnloadModule(GOwnedBackendModuleName))
+						DURIN_ERROR("Failed to unload {} after backend creation failure.",
+							GOwnedBackendModuleName);
+					GOwnedBackendModuleName = nullptr;
 				}
 				return false;
 			}
@@ -108,7 +124,6 @@ namespace Durin
 			}
 
 			GDynamicRHI = Backend;
-			GOwnsBackendModule = bOwnsBackendModule;
 			if (bThreaded)
 			{
 				RHIThreadOwner = std::make_unique<FRHIThread>();
@@ -180,10 +195,31 @@ namespace Durin
 		return ERHIExecutionMode::Threaded;
 	}
 
+	auto ResolveRHIBackend(const char* ConfiguredBackend)
+		-> std::optional<ERHIBackend>
+	{
+		if (!ConfiguredBackend) return ERHIBackend::Vulkan;
+		const std::string_view Name(ConfiguredBackend);
+		if (Name == "vulkan") return ERHIBackend::Vulkan;
+		if (Name == "metal") return ERHIBackend::Metal;
+		DURIN_ERROR(
+			"Invalid DURIN_RHI_BACKEND value '{}'; expected 'vulkan' or 'metal'.",
+			Name);
+		return std::nullopt;
+	}
+
 	auto RHIInit(FRHIInitializationContext Context) -> bool
 	{
+		if (GDynamicRHI || RHIThreadOwner)
+		{
+			DURIN_ERROR("Cannot initialize RHI more than once.");
+			return false;
+		}
+		FDynamicRHI* Backend = CreateDynamicRHI();
+		if (!Backend && !GOwnedBackendModuleName) return false;
 		return InitializeRHI(
-			CreateDynamicRHI(), UseThreadedRHIExecution(), false, true,
+			Backend, UseThreadedRHIExecution(), false,
+			GOwnedBackendModuleName != nullptr,
 			std::move(Context));
 	}
 
@@ -259,10 +295,11 @@ namespace Durin
 		}
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;
-		if (std::exchange(GOwnsBackendModule, false))
+		if (const char* ModuleName =
+			std::exchange(GOwnedBackendModuleName, nullptr))
 		{
-			checkf(FModuleManager::Get().UnloadModule("VulkanRHI"),
-				"VulkanRHI must unload after its backend and RHI thread are destroyed.");
+			checkf(FModuleManager::Get().UnloadModule(ModuleName),
+				"The selected RHI module must unload after its backend and RHI thread are destroyed.");
 		}
 	}
 }

@@ -1998,7 +1998,8 @@ namespace Durin
 		Texture2D,
 		Texture2DArray,
 		Texture3D,
-		TextureCube
+		TextureCube,
+		TextureCubeArray
 	};
 
 	// Names one exact immutable texture subresource interpretation.

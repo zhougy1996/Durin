@@ -4,7 +4,7 @@ Summary: Define the immutable public capability snapshot, exact texture support,
 Vulkan startup negotiation, presentation-aware queue/WSI topology, and complete
 structural candidate rules.
 
-Modules: RHI, VulkanRHI, ApplicationCore
+Modules: RHI, VulkanRHI, MetalRHI, ApplicationCore
 
 ## Public Capability Contract
 
@@ -133,11 +133,49 @@ never published in the immutable `FRHICapabilities` snapshot.
 
 ## Startup Presentation Ownership
 
+`DURIN_RHI_BACKEND` selects `vulkan` or `metal` explicitly. An unset value
+selects Vulkan; an invalid value fails RHI initialization with a diagnostic.
+MetalRHI is registered and currently admits only headless startup on macOS 27+
+with Apple GPU Family 9+. It creates a native device and one queue. The Cocoa
+window passes its installed `CAMetalLayer` handle through RHI startup
+and viewport creation, but Metal presentation remains unavailable until drawable
+and frame ownership are implemented. Empty logical submissions publish a
+single-queue topology, stay pending through CPU
+replay, and complete after native Metal command-buffer completion; shutdown
+cancels replayed work that was never submitted. Resource capabilities are not
+published until the required native resource operations are implemented.
+Shared Metal buffers support initial data, staged writes/uploads, and
+buffer-to-buffer copies on that queue; source and staging storage remain owned
+through GPU completion. Immutable Metal samplers can be created for normalized
+coordinates, with supported filtering, addressing, comparison, border,
+anisotropy, and LOD state. Unsupported sampler descriptors return null.
+Validated uniform, structured, and byte-address buffer views retain their
+parent allocation; formatted buffer views are unsupported. Single-sample 2D
+textures in R8_UNORM, RG8_UNORM, R16_FLOAT, RGBA8_UNORM,
+BGRA8_UNORM, SRGBA8_UNORM, SBGRA8_UNORM, R11G11B10_FLOAT, RGBA16_FLOAT,
+RGBA32_FLOAT, and RG32_UINT support transfer and CPU readback flags,
+recorded buffer/texture and texture/texture copies with padded row layouts,
+pitched 2D uploads, synchronous and asynchronous readback, and validated
+transfer views. RGBA8_UNORM and RGBA16_FLOAT cube textures, and RGBA8_UNORM 3D
+textures, support mip-aware transfer,
+including cube-face readback and pitched 3D uploads. RGBA8_UNORM 2D arrays and
+cube arrays support layer-wise copies, uploads, readback, and transfer views;
+cube-array layers are numbered by face across cubes. A 2D texture can copy into
+an array layer. Other array/cube/volume formats are not admitted. Metal retains
+upload and readback storage through GPU
+completion; an unsubmitted readback is canceled at shutdown. Shader and render
+usage and non-transfer views are unsupported. Presentation
+requests fail during initialization.
+The selected module is unloaded after its backend and RHI execution thread.
+
 Windowed startup supplies an explicit `FRHIInitializationContext` with the
 primary native handle. On macOS ApplicationCore installs the `CAMetalLayer` on
 the AppKit main thread before RHI initialization; surface creation remains an
 RHI-thread operation on both platforms. `FVulkanPresentationCandidate` owns the
 surface across instance creation, device admission, and logical-device setup.
+ApplicationCore discovers GLFW Vulkan instance extensions only when the Vulkan
+presentation device requests them; ApplicationCore startup and headless RHI
+initialization do not depend on that query.
 If initialization or shutdown occurs before adoption, that RAII owner destroys
 the surface before the instance.
 

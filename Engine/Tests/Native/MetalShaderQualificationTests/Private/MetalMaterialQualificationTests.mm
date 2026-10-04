@@ -274,130 +274,162 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 	}
 }
 
-TEST(FMetalMaterialQualificationTests, ProductionUnlitMaterialDrawProducesCheckedPixel)
+TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceCheckedPixels)
 {
 	@autoreleasepool
 	{
-		auto Input = MakeMaterialInput(false);
-		const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
-		ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
-		const auto Compiled = Durin::MIR::Compile(Input);
-		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
-			: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-		id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
-		ASSERT_NE(Device, nil);
-		id<MTLFunction> VertexFunction = nil;
-		id<MTLFunction> FragmentFunction = nil;
-		for (const int Index : {0, 4})
+		for (const bool bLit : {false, true})
 		{
-			const auto& Shader = Compiled.CompiledShaders[Index];
-			std::string CrossError;
-			const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
-			ASSERT_FALSE(MetalCode.empty()) << CrossError;
-			NSString* Source = [[NSString alloc] initWithBytes:MetalCode.data()
-				length:MetalCode.size() encoding:NSUTF8StringEncoding];
-			ASSERT_NE(Source, nil);
+			SCOPED_TRACE(bLit ? "lit GBuffer" : "unlit color");
+			auto Input = MakeMaterialInput(false);
+			if (bLit) Input.StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Lit;
+			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
+			const auto Compiled = Durin::MIR::Compile(Input);
+			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
+				: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
+			id<MTLDevice> Device = MTLCreateSystemDefaultDevice();
+			ASSERT_NE(Device, nil);
+			id<MTLFunction> VertexFunction = nil;
+			id<MTLFunction> FragmentFunction = nil;
+			for (const int Index : {bLit ? 1 : 0, 4})
+			{
+				const auto& Shader = Compiled.CompiledShaders[Index];
+				std::string CrossError;
+				const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
+				ASSERT_FALSE(MetalCode.empty()) << CrossError;
+				NSString* Source = [[NSString alloc] initWithBytes:MetalCode.data()
+					length:MetalCode.size() encoding:NSUTF8StringEncoding];
+				ASSERT_NE(Source, nil);
+				NSError* Error = nil;
+				id<MTLLibrary> Library = [Device newLibraryWithSource:Source
+					options:nil error:&Error];
+				ASSERT_NE(Library, nil) << [[Error description] UTF8String];
+				if (Index == 4) VertexFunction = [Library newFunctionWithName:@"main0"];
+				else FragmentFunction = [Library newFunctionWithName:@"main0"];
+			}
+			ASSERT_NE(VertexFunction, nil);
+			ASSERT_NE(FragmentFunction, nil);
+
+			MTLVertexDescriptor* VertexDesc = [MTLVertexDescriptor vertexDescriptor];
+			const NSUInteger Offsets[8] = {0, 16, 32, 48, 56, 64, 72, 80};
+			const MTLVertexFormat Formats[8] = {MTLVertexFormatFloat3,
+				MTLVertexFormatFloat4, MTLVertexFormatFloat4,
+				MTLVertexFormatFloat2, MTLVertexFormatFloat2,
+				MTLVertexFormatFloat2, MTLVertexFormatFloat2,
+				MTLVertexFormatFloat4};
+			for (NSUInteger Index = 0; Index < 8; ++Index)
+			{
+				VertexDesc.attributes[Index].format = Formats[Index];
+				VertexDesc.attributes[Index].offset = Offsets[Index];
+				VertexDesc.attributes[Index].bufferIndex = 1;
+			}
+			VertexDesc.layouts[1].stride = 96;
+			VertexDesc.layouts[1].stepFunction = MTLVertexStepFunctionPerVertex;
+			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
+			PipelineDesc.vertexFunction = VertexFunction;
+			PipelineDesc.fragmentFunction = FragmentFunction;
+			PipelineDesc.vertexDescriptor = VertexDesc;
+			for (NSUInteger Index = 0; Index < (bLit ? 4u : 1u); ++Index)
+				PipelineDesc.colorAttachments[Index].pixelFormat = MTLPixelFormatRGBA8Unorm;
 			NSError* Error = nil;
-			id<MTLLibrary> Library = [Device newLibraryWithSource:Source
-				options:nil error:&Error];
-			ASSERT_NE(Library, nil) << [[Error description] UTF8String];
-			if (Index == 0) FragmentFunction = [Library newFunctionWithName:@"main0"];
-			else VertexFunction = [Library newFunctionWithName:@"main0"];
-		}
-		ASSERT_NE(VertexFunction, nil);
-		ASSERT_NE(FragmentFunction, nil);
+			id<MTLRenderPipelineState> Pipeline = [Device
+				newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
+			ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
 
-		MTLVertexDescriptor* VertexDesc = [MTLVertexDescriptor vertexDescriptor];
-		const NSUInteger Offsets[8] = {0, 16, 32, 48, 56, 64, 72, 80};
-		const MTLVertexFormat Formats[8] = {MTLVertexFormatFloat3,
-			MTLVertexFormatFloat4, MTLVertexFormatFloat4,
-			MTLVertexFormatFloat2, MTLVertexFormatFloat2,
-			MTLVertexFormatFloat2, MTLVertexFormatFloat2,
-			MTLVertexFormatFloat4};
-		for (NSUInteger Index = 0; Index < 8; ++Index)
-		{
-			VertexDesc.attributes[Index].format = Formats[Index];
-			VertexDesc.attributes[Index].offset = Offsets[Index];
-			VertexDesc.attributes[Index].bufferIndex = 1;
+			struct FVertex
+			{
+				float Position[3], Padding;
+				float Normal[4], Tangent[4], UV[4][2], Color[4];
+			};
+			static_assert(sizeof(FVertex) == 96);
+			FVertex Vertices[3] = {};
+			Vertices[0].Position[0] = -1; Vertices[0].Position[1] = -1;
+			Vertices[1].Position[0] = 3; Vertices[1].Position[1] = -1;
+			Vertices[2].Position[0] = -1; Vertices[2].Position[1] = 3;
+			for (auto& Vertex : Vertices)
+			{
+				Vertex.Normal[2] = 1;
+				Vertex.Tangent[0] = 1;
+				Vertex.Tangent[3] = 1;
+				Vertex.Color[0] = Vertex.Color[1] = Vertex.Color[2] = Vertex.Color[3] = 1;
+			}
+			struct FPrimitive
+			{
+				float Matrices[4][16];
+				float Bounds[4], Transform[4];
+			};
+			static_assert(sizeof(FPrimitive) == 288);
+			FPrimitive Primitive = {};
+			for (auto& Matrix : Primitive.Matrices)
+				for (int Index = 0; Index < 4; ++Index) Matrix[Index * 5] = 1;
+			Primitive.Transform[0] = 1;
+			id<MTLBuffer> VertexBuffer = [Device newBufferWithBytes:Vertices
+				length:sizeof(Vertices) options:MTLResourceStorageModeShared];
+			id<MTLBuffer> PrimitiveBuffer = [Device newBufferWithBytes:&Primitive
+				length:sizeof(Primitive) options:MTLResourceStorageModeShared];
+			ASSERT_NE(VertexBuffer, nil);
+			ASSERT_NE(PrimitiveBuffer, nil);
+			MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
+				texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+				width:1 height:1 mipmapped:NO];
+			TargetDesc.storageMode = MTLStorageModeShared;
+			TargetDesc.usage = MTLTextureUsageRenderTarget;
+			std::array<id<MTLTexture>, 4> Targets{};
+			for (NSUInteger Index = 0; Index < (bLit ? 4u : 1u); ++Index)
+			{
+				Targets[Index] = [Device newTextureWithDescriptor:TargetDesc];
+				ASSERT_NE(Targets[Index], nil);
+			}
+			MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
+			for (NSUInteger Index = 0; Index < (bLit ? 4u : 1u); ++Index)
+			{
+				Pass.colorAttachments[Index].texture = Targets[Index];
+				Pass.colorAttachments[Index].loadAction = MTLLoadActionClear;
+				Pass.colorAttachments[Index].storeAction = MTLStoreActionStore;
+				Pass.colorAttachments[Index].clearColor = MTLClearColorMake(0, 0, 0, 0);
+			}
+			std::array<float, 48> ViewUniform{};
+			id<MTLBuffer> ViewBuffer = bLit ? [Device newBufferWithBytes:ViewUniform.data()
+				length:sizeof(ViewUniform) options:MTLResourceStorageModeShared] : nil;
+			if (bLit) ASSERT_NE(ViewBuffer, nil);
+			id<MTLCommandQueue> Queue = [Device newCommandQueue];
+			ASSERT_NE(Queue, nil);
+			id<MTLCommandBuffer> Command = [Queue commandBuffer];
+			id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
+			ASSERT_NE(Encoder, nil);
+			[Encoder setRenderPipelineState:Pipeline];
+			[Encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+			[Encoder setVertexBuffer:PrimitiveBuffer offset:0 atIndex:0];
+			[Encoder setVertexBuffer:VertexBuffer offset:0 atIndex:1];
+			if (bLit) [Encoder setFragmentBuffer:ViewBuffer offset:0 atIndex:0];
+			[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+			[Encoder endEncoding];
+			[Command commit];
+			[Command waitUntilCompleted];
+			ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
+				<< [[Command.error description] UTF8String];
+			uint8_t Pixel[4] = {};
+			[Targets[0] getBytes:Pixel bytesPerRow:sizeof(Pixel)
+				fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+			EXPECT_NEAR(Pixel[0], 128, 1);
+			EXPECT_NEAR(Pixel[1], 128, 1);
+			EXPECT_NEAR(Pixel[2], 128, 1);
+			EXPECT_EQ(Pixel[3], bLit ? 0 : 255);
+			if (bLit)
+			{
+				const std::array<std::array<int, 4>, 3> Expected{{
+					{{128, 128, 128, 128}}, {{128, 255, 255, 1}}, {{0, 0, 0, 0}}}};
+				for (NSUInteger TargetIndex = 1; TargetIndex < 4; ++TargetIndex)
+				{
+					[Targets[TargetIndex] getBytes:Pixel bytesPerRow:sizeof(Pixel)
+						fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+					for (int Channel = 0; Channel < 4; ++Channel)
+						EXPECT_NEAR(Pixel[Channel], Expected[TargetIndex - 1][Channel], 1)
+							<< "GBuffer target " << TargetIndex << " channel " << Channel;
+				}
+			}
 		}
-		VertexDesc.layouts[1].stride = 96;
-		VertexDesc.layouts[1].stepFunction = MTLVertexStepFunctionPerVertex;
-		MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
-		PipelineDesc.vertexFunction = VertexFunction;
-		PipelineDesc.fragmentFunction = FragmentFunction;
-		PipelineDesc.vertexDescriptor = VertexDesc;
-		PipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-		NSError* Error = nil;
-		id<MTLRenderPipelineState> Pipeline = [Device
-			newRenderPipelineStateWithDescriptor:PipelineDesc error:&Error];
-		ASSERT_NE(Pipeline, nil) << [[Error description] UTF8String];
-
-		struct FVertex
-		{
-			float Position[3], Padding;
-			float Normal[4], Tangent[4], UV[4][2], Color[4];
-		};
-		static_assert(sizeof(FVertex) == 96);
-		FVertex Vertices[3] = {};
-		Vertices[0].Position[0] = -1; Vertices[0].Position[1] = -1;
-		Vertices[1].Position[0] = 3; Vertices[1].Position[1] = -1;
-		Vertices[2].Position[0] = -1; Vertices[2].Position[1] = 3;
-		for (auto& Vertex : Vertices)
-		{
-			Vertex.Normal[2] = 1;
-			Vertex.Tangent[0] = 1;
-			Vertex.Tangent[3] = 1;
-			Vertex.Color[0] = Vertex.Color[1] = Vertex.Color[2] = Vertex.Color[3] = 1;
-		}
-		struct FPrimitive
-		{
-			float Matrices[4][16];
-			float Bounds[4], Transform[4];
-		};
-		static_assert(sizeof(FPrimitive) == 288);
-		FPrimitive Primitive = {};
-		for (auto& Matrix : Primitive.Matrices)
-			for (int Index = 0; Index < 4; ++Index) Matrix[Index * 5] = 1;
-		Primitive.Transform[0] = 1;
-		id<MTLBuffer> VertexBuffer = [Device newBufferWithBytes:Vertices
-			length:sizeof(Vertices) options:MTLResourceStorageModeShared];
-		id<MTLBuffer> PrimitiveBuffer = [Device newBufferWithBytes:&Primitive
-			length:sizeof(Primitive) options:MTLResourceStorageModeShared];
-		ASSERT_NE(VertexBuffer, nil);
-		ASSERT_NE(PrimitiveBuffer, nil);
-		MTLTextureDescriptor* TargetDesc = [MTLTextureDescriptor
-			texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-			width:1 height:1 mipmapped:NO];
-		TargetDesc.storageMode = MTLStorageModeShared;
-		TargetDesc.usage = MTLTextureUsageRenderTarget;
-		id<MTLTexture> Target = [Device newTextureWithDescriptor:TargetDesc];
-		ASSERT_NE(Target, nil);
-		MTLRenderPassDescriptor* Pass = [MTLRenderPassDescriptor renderPassDescriptor];
-		Pass.colorAttachments[0].texture = Target;
-		Pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-		Pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-		Pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
-		id<MTLCommandQueue> Queue = [Device newCommandQueue];
-		ASSERT_NE(Queue, nil);
-		id<MTLCommandBuffer> Command = [Queue commandBuffer];
-		id<MTLRenderCommandEncoder> Encoder = [Command renderCommandEncoderWithDescriptor:Pass];
-		ASSERT_NE(Encoder, nil);
-		[Encoder setRenderPipelineState:Pipeline];
-		[Encoder setVertexBuffer:PrimitiveBuffer offset:0 atIndex:0];
-		[Encoder setVertexBuffer:VertexBuffer offset:0 atIndex:1];
-		[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-		[Encoder endEncoding];
-		[Command commit];
-		[Command waitUntilCompleted];
-		ASSERT_EQ(Command.status, MTLCommandBufferStatusCompleted)
-			<< [[Command.error description] UTF8String];
-		uint8_t Pixel[4] = {};
-		[Target getBytes:Pixel bytesPerRow:sizeof(Pixel)
-			fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
-		EXPECT_NEAR(Pixel[0], 128, 1);
-		EXPECT_NEAR(Pixel[1], 128, 1);
-		EXPECT_NEAR(Pixel[2], 128, 1);
-		EXPECT_EQ(Pixel[3], 255);
 	}
 }
 

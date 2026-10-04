@@ -11,6 +11,7 @@
         "Engine": "Source/Runtime/Engine",
         "RHI": "Source/Runtime/RHI",
         "VulkanRHI": "Source/Runtime/VulkanRHI",
+        "MetalRHI": "Source/Runtime/MetalRHI",
         "RenderCore": "Source/Runtime/RenderCore",
         "Renderer": "Source/Runtime/Renderer",
         "MonaCore": "Source/Runtime/MonaCore",
@@ -36,7 +37,8 @@
     "BaseModules": [
         "DurinLauncher",
         "Renderer",
-        "VulkanRHI"
+        "VulkanRHI",
+        "MetalRHI"
     ],
     "ExtraModules": {
         "DurinEditor": {

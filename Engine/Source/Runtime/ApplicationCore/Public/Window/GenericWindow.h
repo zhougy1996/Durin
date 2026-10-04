@@ -125,6 +125,7 @@ namespace Durin
 		APPLICATIONCORE_API virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
 
 		APPLICATIONCORE_API virtual auto GetOSNativeWindowHandle() const -> void*;
+		APPLICATIONCORE_API virtual auto GetNativeMetalLayer() const -> void*;
 
 		APPLICATIONCORE_API virtual auto ShouldClose() const -> bool;
 

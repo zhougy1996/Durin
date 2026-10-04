@@ -23,7 +23,8 @@ namespace Durin
 
 	APPLICATIONCORE_API auto IsApplicationCoreInitialized() -> bool;
 
-	// Returns an owned snapshot while ApplicationCore holds an active lifecycle lease.
+	// Discovers an owned Vulkan extension snapshot only when a Vulkan presentation
+	// device requests it during an active ApplicationCore lifecycle lease.
 	APPLICATIONCORE_API auto GetVulkanSurfaceRequirements()
 		-> FVulkanSurfaceRequirementsResult;
 

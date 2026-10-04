@@ -156,4 +156,39 @@ namespace Durin
 			std::span<const FRHIBufferCopyRegion>{});
 		ASSERT_FALSE(BufferCopiesResult);
 	}
+
+	TEST(FRHITransferValidationTests, AcceptsArrayTextureCopiesWithinLayerBounds)
+	{
+		for (const bool bCubeArray : {false, true})
+		{
+			auto Desc = bCubeArray
+				? FRHITextureCreateDesc::CreateCubeArray("Array")
+				: FRHITextureCreateDesc::Create2DArray("Array");
+			Desc.SetExtent(8, 8).SetArraySize(bCubeArray ? 12 : 4)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy);
+			FRHITexture Source(Desc);
+			FRHITexture Destination(Desc);
+			FRHIBuffer Buffer(FRHIBufferCreateDesc::Create("Transfer", 128, 1,
+				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+			const uint32 Layer = bCubeArray ? 5 : 1;
+			FRHIBufferTextureCopyRegion BufferRegion{
+				.TextureFirstArrayLayer = Layer, .TextureNumArrayLayers = 2,
+				.TextureExtent = {4, 4, 1}};
+			EXPECT_TRUE(ValidateBufferToTextureCopies(&Buffer, &Source,
+				std::span(&BufferRegion, 1)));
+			EXPECT_TRUE(ValidateTextureToBufferCopies(&Source, &Buffer,
+				std::span(&BufferRegion, 1)));
+			FRHITextureCopyRegion TextureRegion{
+				.SourceFirstArrayLayer = Layer,
+				.DestinationFirstArrayLayer = Layer + 1,
+				.NumArrayLayers = 2,
+				.Extent = {4, 4, 1}};
+			EXPECT_TRUE(ValidateTextureCopies(&Source, &Destination,
+				std::span(&TextureRegion, 1)));
+			BufferRegion.TextureFirstArrayLayer = Desc.ArraySize - 1;
+			EXPECT_FALSE(ValidateBufferToTextureCopies(&Buffer, &Source,
+				std::span(&BufferRegion, 1)));
+		}
+	}
 } // namespace Durin

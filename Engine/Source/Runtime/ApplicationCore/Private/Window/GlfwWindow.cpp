@@ -1006,6 +1006,15 @@ namespace Durin
 		return {Width, Height};
 	}
 
+	auto FGlfwWindow::GetNativeMetalLayer() const -> void*
+	{
+#if defined(__APPLE__)
+		return VulkanSurfaceLayer;
+#else
+		return nullptr;
+#endif
+	}
+
 	auto FGlfwWindow::PrepareVulkanSurfaceLayer() -> bool
 	{
 #if defined(__APPLE__)
