@@ -75,7 +75,7 @@ namespace Durin
 			float InverseViewProjection[16]{};
 			float ViewProjection[16]{};
 			float ToLightMaxDistance[4]{0.0f, 0.0f, 0.0f, 0.20f};
-			float SurfaceStepsMinBiasReversedZ[4]{1.5f, 16.0f, 0.0005f, 0.0f};
+			float SurfaceBiasReversedZ[4]{1.5f, 0.0005f, 0.0f, 0.0f};
 			float Viewport[4]{1.0f, 1.0f, 0.0f, 0.0f};
 			float Trace[4]{48.0f, 0.0f, 0.0f, 0.0f};
 		};
@@ -357,7 +357,7 @@ namespace Durin
 		Uniform.ToLightMaxDistance[0] = static_cast<float>(ToLight.x);
 		Uniform.ToLightMaxDistance[1] = static_cast<float>(ToLight.y);
 		Uniform.ToLightMaxDistance[2] = static_cast<float>(ToLight.z);
-		Uniform.SurfaceStepsMinBiasReversedZ[3] =
+		Uniform.SurfaceBiasReversedZ[2] =
 			View.DepthConvention == ESceneDepthConvention::ReversedZ ? 1.0f : 0.0f;
 		Uniform.Viewport[0] = 1.0f / static_cast<float>(View.ViewportWidth);
 		Uniform.Viewport[1] = 1.0f / static_cast<float>(View.ViewportHeight);

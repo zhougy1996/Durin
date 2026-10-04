@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-05
 
 ## Ownership and selection
 
@@ -144,42 +144,45 @@ and translucent surfaces, and already-shadowed contributions are unchanged.
 
 The pass is an opt-in detail trace rather than a default shadow tier. It
 decodes GBuffer material flags and geometric normals, reconstructs receiver
-positions from D32 scene depth, and marches exactly 16 bounded line segments
-toward the selected light. Each sampled depth texel represents a finite,
-oriented surface element derived from its geometric normal and projected pixel
-footprint. A hit requires the current ray segment to cross that surface plane
-inside its footprint; spatial proximity to a depth point alone is not a hit.
-The trace ends at 0.20 world units and stops at 48 screen pixels. Contribution
-fades with world distance and across the final 25% of the screen-distance
-budget, so crossing the screen bound does not introduce a full-strength hard
-cut. A ray that leaves the viewport terminates without attempting to represent
-off-screen geometry.
+positions from D32 scene depth, and traces toward the selected light. The ray
+ends at 0.20 world units. Its projected path is bounded to 48 pixels from the
+biased ray origin and clipped to the owning viewport and homogeneous depth
+range before division. Contribution fades with the actual intersection's world
+distance and across the final 25% of the screen-distance budget. Off-screen
+geometry is not represented.
 
-Each line segment selects the visible depth surfel at its projected endpoint.
-The surfel's finite tangent-plane coverage includes both its dilated pixel
-footprint and that segment's tangent-plane sweep, so a crossing near the start
-of a step is not lost when the endpoint enters the blocker silhouette. This
-does not add surface-normal thickness: the segment must still cross the
-oriented plane. Only `GBufferStandardLitFlag` pixels participate. Backfacing
-receivers resolve fully visible. Front-facing receivers do not apply a second
-grazing-angle fade because the directional BRDF already contains its `N·L`
-response; contact visibility therefore remains meaningful at shallow light
-angles after self-intersection is rejected geometrically. The ray origin moves
-along the receiver geometric
-normal by half its dilated pixel footprint, with a 0.0005 minimum and a bound
-of 5% of the trace distance. Parallel surfels are classified as the receiver
-only when their plane separation is within the greater of the minimum bias or
-5% of the smaller pixel footprint; close but independently separated parallel
-surfaces remain valid blockers. The 1.5 footprint dilation
-covers texel-center quantization without introducing a fixed world-space
-thickness. Depth and normals are fetched with exact texel loads. Linear depth
-filtering and one-sided unbounded device-depth tests are forbidden because
-they create intermediate silhouette depths and detached false occlusion. The
-pass does not reconstruct a receiver plane from neighboring depth, adaptively
-increase its step count,
-contract its world extent from endpoint projection, apply a viewport-edge mask,
-or refine hits with extra binary searches. This keeps the worst-case depth
-query budget explicit and avoids view-dependent classification heuristics.
+A screen-space grid traversal visits every depth texel intersected by a
+positive-length portion of the projected ray. Each cell owns precisely that
+ray interval; perspective-correct interpolation maps its entry and exit back
+to world positions. Simultaneous grid-corner crossings advance both axes,
+without adding zero-length corner blockers. A ray with no projected displacement
+still tests its full world interval in the owning cell. The loop has a
+conservative `2 * ceil(screen budget) + 3` bound (99 iterations at 48 pixels);
+it does not stop after 16 world steps. This prevents thin visible edges from
+being missed between fixed sample endpoints.
+
+A sampled depth texel represents its geometric-normal plane restricted to that
+pixel's projected footprint. A hit requires the current cell interval to cross
+the plane. The interval itself enforces finite coverage, including foreshortened
+walls; no constant-depth world-space disk or tangent-sweep dilation approximates
+that footprint. First-hit attenuation uses the plane intersection rather than
+an arbitrary march endpoint. Only `GBufferStandardLitFlag` receivers
+participate. Backfacing receivers resolve fully visible. Front-facing receivers
+do not apply a second grazing-angle fade because the directional BRDF already
+contains its `N·L` response.
+
+The ray origin moves along the receiver geometric normal by half its 1.5-scaled
+constant-depth pixel radius, with a 0.0005 minimum and a bound of 5% of the trace
+distance. This radius controls receiver bias only; it does not constrain blocker
+coverage. Parallel sampled planes are classified as the receiver only when their
+plane separation is within the greater of the minimum bias or 5% of the receiver
+radius; close but independently separated parallel surfaces remain valid
+blockers. Depth and normals are fetched with exact texel loads. Linear depth
+filtering and one-sided unbounded device-depth tests are forbidden because they
+create intermediate silhouette depths and detached false occlusion. The pass
+does not add temporal history, spatial blur, surface-normal thickness, or binary
+hit refinement. Rasterized depth and normal precision remain screen-space
+limitations, but skipped visible texels are not an accepted quality tradeoff.
 
 Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
 by the viewport control or a caller-owned view setting. The compute route
@@ -278,7 +281,12 @@ it. Zero reuse is therefore meaningful and does not imply a missing sample.
 
 `DirectionalShadowBaselineVulkanTests` owns disabled/Unlit parity,
 Masked/Opaque controls, motion, filter diagnostics, contact visibility, and
-caster-preparation observations. Captures and image hashes remain diagnostic
+caster-preparation observations. Contact qualification includes an almost
+edge-on wall with continuous receiver coverage under subpixel camera movement,
+for orthographic/perspective cameras, forward/reversed depth, and
+compute/fragment route parity. Interior shadow samples must stay continuous and
+change by at most four 8-bit display levels between the subpixel camera frames.
+Captures and image hashes remain diagnostic
 artifacts; fixed historical image hashes are not acceptance gates for lighting
 tuning. CPU contracts own split ordering, overlap,
 selection, and degenerate inputs; RHI/Vulkan coverage owns array/layer views,

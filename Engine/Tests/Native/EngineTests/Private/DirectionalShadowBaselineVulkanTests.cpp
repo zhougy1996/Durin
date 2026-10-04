@@ -1460,7 +1460,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 							 Durin::EDirectionalShadowDiagnosticMode ShadowDiagnostic =
 								 Durin::EDirectionalShadowDiagnosticMode::Lit,
 								 float AspectRatioConstraint = 0.0f,
-								 bool bForceFragmentContactVisibility = false)
+								 bool bForceFragmentContactVisibility = false,
+							 float CameraTranslationX = 0.0f,
+							 bool bReversedZ = false)
 		-> Durin::FViewRenderTelemetry {
 		auto Pixels = std::make_shared<Durin::FByteBuffer>();
 		GHDRSceneColorPixels = HDRSceneColorPixels;
@@ -1481,7 +1483,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			 bEnableGBufferQualification, GBufferDebugMode, RenderMode,
 			 bEnableDeferredDirectional, DeferredDebugMode, ShadowCandidate,
 			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint,
-			 bForceFragmentContactVisibility, Pixels](
+			 bForceFragmentContactVisibility, CameraTranslationX, bReversedZ, Pixels](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				Durin::GRenderFrameCounterRenderThread++;
@@ -1524,6 +1526,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 					View.ProjectionMatrix[2][2] = -1.0;
 					View.ProjectionMatrix[3][2] = 0.0;
 				}
+				if (bReversedZ)
+				{
+					View.DepthConvention = Durin::ESceneDepthConvention::ReversedZ;
+					for (uint32 Column = 0; Column < 4; ++Column)
+						View.ProjectionMatrix[Column][2] =
+							View.ProjectionMatrix[Column][3] - View.ProjectionMatrix[Column][2];
+				}
+				View.ViewLocation.x = CameraTranslationX;
+				View.ViewMatrix[3][bPerspective ? 1 : 0] = -CameraTranslationX;
 				View.ViewProjectionMatrix =
 					View.ProjectionMatrix * View.ViewMatrix;
 				View.ViewportWidth = CaptureWidth;
@@ -2317,6 +2328,14 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			.Scale = {0.22, 0.18, 1.0}})
 	);
 	Durin::FlushRenderingCommands();
+	// At a 0.015 separation the original near-normal light projects less than
+	// one texel of shadow. Use a grazing light so valid near-contact coverage
+	// is resolvable without dilating the blocker beyond its depth texel.
+	Directional.Direction = {-0.9, 0.0, -0.3};
+	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightComponentId(100), Directional);
+	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer CloseContactDebug;
 	RenderCapture(true, true, CloseContactDebug);
 	size_t CloseContactContributionPixels = 0;
@@ -2391,6 +2410,78 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			  << StatsOff.MidPixels << "/" << StatsOff.BrightPixels
 			  << ", on " << StatsOn.DarkPixels << "/" << StatsOn.MidPixels << "/"
 			  << StatsOn.BrightPixels << ")\n";
+
+	// A wall seen almost edge-on occupies about one depth column, but casts a
+	// continuous near-field shadow across many receiver columns. Fixed world
+	// steps skip it, and a constant-depth world disk rejects its foreshortened
+	// footprint. Verify coverage while the camera moves within a texel.
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
+		Durin::FPrimitiveComponentId(1),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
+		MakeTransform({.Translation = {0.0, 0.0, -0.5},
+			.Scale = {0.82, 0.82, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
+		Durin::FPrimitiveComponentId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
+		MakeTransform({.Translation = {0.0, 0.0, -0.4},
+			.Scale = {0.30, 0.30, 1.0}, .RotationYDegrees = 89.0}));
+	Directional.Direction = {-0.98, 0.0, -0.20};
+	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightComponentId(100), Directional);
+	Durin::FlushRenderingCommands();
+	auto CaptureThinWall = [&](bool bPerspective, bool bFragment, float CameraX,
+		bool bReversedZ, Durin::FByteBuffer& Pixels) {
+		return RenderCapture(true, true, Pixels, bPerspective,
+			nullptr, nullptr, false, nullptr, nullptr,
+			Durin::EGBufferDebugMode::Disabled, nullptr, nullptr,
+			Durin::ERenderMode::Lit, false,
+			Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
+			Durin::EDirectionalShadowCandidate::SingleMap,
+			Durin::EDirectionalShadowFilterQuality::Low,
+			Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f,
+			bFragment, CameraX, bReversedZ);
+	};
+	for (bool bPerspective : {false, true})
+	{
+		for (bool bReversedZ : {false, true})
+		{
+			Durin::FByteBuffer PreviousPixels;
+			for (float CameraX : {-0.0015f, 0.0f, 0.0015f})
+			{
+				SCOPED_TRACE(std::format("thin-wall perspective={} reversedZ={} cameraX={}",
+					bPerspective, bReversedZ, CameraX));
+				Durin::FByteBuffer ComputePixels;
+				Durin::FByteBuffer FragmentPixels;
+				const auto ComputeTelemetry = CaptureThinWall(
+					bPerspective, false, CameraX, bReversedZ, ComputePixels);
+				const auto FragmentTelemetry = CaptureThinWall(
+					bPerspective, true, CameraX, bReversedZ, FragmentPixels);
+				EXPECT_EQ(ComputeTelemetry.ContactShadow.ContactShadowPassFailures, 0u);
+				EXPECT_EQ(ComputeTelemetry.ContactShadow.ContactShadowComputeViews, 1u);
+				EXPECT_EQ(FragmentTelemetry.ContactShadow.ContactShadowFragmentViews, 1u);
+				EXPECT_EQ(ComputePixels, FragmentPixels);
+				ASSERT_EQ(ComputePixels.size(), CaptureWidth * CaptureHeight * 4u);
+				// These columns project well inside the analytic wall shadow for
+				// both cameras. Any bright gap is a missing blocker, not its edge.
+				for (uint32 X = 117; X <= 123; ++X)
+				{
+					const size_t Offset = ((CaptureHeight / 2) * CaptureWidth + X) * 4u;
+					EXPECT_GT(ByteValue(ComputePixels[Offset]), 8u) << "column=" << X;
+					if (!PreviousPixels.empty())
+						EXPECT_LE(std::abs(static_cast<int>(ByteValue(ComputePixels[Offset]))
+							- static_cast<int>(ByteValue(PreviousPixels[Offset]))), 4)
+							<< "camera movement changed column=" << X;
+				}
+				WritePpm(OutputDirectory / std::format("thin-wall-{}-{}-{}.ppm",
+					bPerspective ? "perspective" : "ortho",
+					bReversedZ ? "reversed" : "forward", CameraX), ComputePixels);
+				PreviousPixels = ComputePixels;
+			}
+		}
+	}
 
 	// A production Unlit material with authored emissive radiance above one
 	// must remain unclipped in Scene Color before the display transform.

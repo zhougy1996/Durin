@@ -10,7 +10,7 @@ struct ContactShadowUniform
     float4x4 InverseViewProjection;
     float4x4 ViewProjection;
     float4 ToLightMaxDistance;
-    float4 SurfaceStepsMinBiasReversedZ;
+    float4 SurfaceBiasReversedZ; // x = footprint dilation, y = min bias, z = reversed Z
     float4 Viewport; // xy = inverse local extent, zw = absolute origin
     float4 Trace;    // x = max screen displacement in pixels
 };
@@ -55,14 +55,12 @@ float PixelWorldRadius(float2 localUV, float deviceDepth, float3 worldPosition,
 }
 
 bool IsContactHit(float3 segmentStart, float3 segmentEnd,
-    float2 rayLocalUV, int2 targetSize, int2 viewportSize,
-    float3 receiverPosition, float3 receiverNormal, float receiverRadius)
+    int2 rayPixel, float3 receiverPosition, float3 receiverNormal,
+    float receiverRadius, out float hitFraction)
 {
-    int2 rayPixel = clamp(int2(Params.Viewport.zw)
-        + int2(rayLocalUV * float2(viewportSize)), int2(0),
-        targetSize - int2(1));
+    hitFraction = 0.0;
     float sceneDepth = SceneDepth.Load(int3(rayPixel, 0));
-    bool reversedZ = Params.SurfaceStepsMinBiasReversedZ.w > 0.5;
+    bool reversedZ = Params.SurfaceBiasReversedZ.z > 0.5;
     bool sceneValid = reversedZ ? sceneDepth > 0.001 : sceneDepth < 0.999;
     if (!sceneValid)
         return false;
@@ -71,27 +69,21 @@ bool IsContactHit(float3 segmentStart, float3 segmentEnd,
     float3 surfacePosition = ReconstructWorld(sceneLocalUV, sceneDepth);
     float3 surfaceNormal = DecodeOctahedralNormal(
         GBufferNormals.Load(int3(rayPixel, 0)).ba);
-    float surfaceRadius = PixelWorldRadius(sceneLocalUV, sceneDepth,
-        surfacePosition, surfaceNormal)
-        * Params.SurfaceStepsMinBiasReversedZ.x;
-    float3 surfaceTangentStep = segmentEnd - segmentStart;
-    surfaceTangentStep -= surfaceNormal
-        * dot(surfaceTangentStep, surfaceNormal);
-    surfaceRadius += length(surfaceTangentStep);
 
     // A parallel, near-coplanar sample is the receiver surface represented by
     // another depth texel, not an independent blocker.
     float receiverAlignment = abs(dot(surfaceNormal, receiverNormal));
     float receiverPlaneDistance = abs(dot(
         surfacePosition - receiverPosition, receiverNormal));
-    float coplanarTolerance = max(Params.SurfaceStepsMinBiasReversedZ.z,
-        min(receiverRadius, surfaceRadius) * 0.05);
+    float coplanarTolerance = max(Params.SurfaceBiasReversedZ.y,
+        receiverRadius * 0.05);
     if (receiverAlignment >= 0.98
         && receiverPlaneDistance <= coplanarTolerance)
         return false;
 
-    // Treat the depth texel as a finite oriented surfel. A blocker exists only
-    // when this march segment crosses its plane inside the pixel footprint.
+    // This segment projects entirely inside rayPixel. Crossing the sampled
+    // plane therefore intersects its finite pixel footprint, including a
+    // foreshortened wall. A world-space disk underestimates that coverage.
     float startDistance = dot(segmentStart - surfacePosition, surfaceNormal);
     float endDistance = dot(segmentEnd - surfacePosition, surfaceNormal);
     float distanceDelta = startDistance - endDistance;
@@ -100,10 +92,8 @@ bool IsContactHit(float3 segmentStart, float3 segmentEnd,
     float segmentT = startDistance / distanceDelta;
     if (segmentT < 0.0 || segmentT > 1.0)
         return false;
-    float3 intersection = lerp(segmentStart, segmentEnd, segmentT);
-    float3 footprintDelta = intersection - surfacePosition;
-    footprintDelta -= surfaceNormal * dot(footprintDelta, surfaceNormal);
-    return dot(footprintDelta, footprintDelta) <= surfaceRadius * surfaceRadius;
+    hitFraction = segmentT;
+    return true;
 }
 
 float CalculateContactVisibility(int2 pixel)
@@ -116,7 +106,7 @@ float CalculateContactVisibility(int2 pixel)
     if ((receiver.flags & GBufferStandardLitFlag) == 0u)
         return 1.0;
     float centerDepth = SceneDepth.Load(int3(pixel, 0));
-    bool reversedZ = Params.SurfaceStepsMinBiasReversedZ.w > 0.5;
+    bool reversedZ = Params.SurfaceBiasReversedZ.z > 0.5;
     if (reversedZ ? centerDepth <= 0.001 : centerDepth >= 0.999)
         return 1.0;
 
@@ -131,50 +121,120 @@ float CalculateContactVisibility(int2 pixel)
     float maxDistance = Params.ToLightMaxDistance.w;
     float receiverRadius = PixelWorldRadius(localUV, centerDepth,
         worldPosition, receiver.geometricNormal)
-        * Params.SurfaceStepsMinBiasReversedZ.x;
-    int stepCount = max(1, (int)Params.SurfaceStepsMinBiasReversedZ.y);
-    float normalBias = max(Params.SurfaceStepsMinBiasReversedZ.z,
+        * Params.SurfaceBiasReversedZ.x;
+    float normalBias = max(Params.SurfaceBiasReversedZ.y,
         receiverRadius * 0.5);
     normalBias = min(normalBias, maxDistance * 0.05);
     int2 viewportSize = max(int2(round(rcp(Params.Viewport.xy))), int2(1));
-    uint targetWidth;
-    uint targetHeight;
-    SceneDepth.GetDimensions(targetWidth, targetHeight);
-    int2 targetSize = int2(targetWidth, targetHeight);
-    float stepDistance = max(maxDistance, 1.0e-4) / (float)stepCount;
-    float rayDistance = stepDistance;
-    float3 segmentStart = worldPosition + receiver.geometricNormal * normalBias;
-    float3 rayPosition = segmentStart + toLight * stepDistance;
-    float occlusion = 0.0;
-    for (int stepIndex = 0; stepIndex < stepCount; ++stepIndex)
+    float3 rayStart = worldPosition + receiver.geometricNormal * normalBias;
+    float3 rayEnd = rayStart + toLight * maxDistance;
+    float4 clipStart = mul(Params.ViewProjection, float4(rayStart, 1.0));
+    float4 clipEnd = mul(Params.ViewProjection, float4(rayEnd, 1.0));
+    if (!all(isfinite(clipStart)) || !all(isfinite(clipEnd)))
+        return 1.0;
+
+    // Clip in homogeneous space before division, including a ray towards the
+    // camera. All subsequent pixel intervals then have positive reciprocal W.
+    float3 startPlanes = float3(clipStart.w - 1.0e-6,
+        clipStart.z, clipStart.w - clipStart.z);
+    float3 endPlanes = float3(clipEnd.w - 1.0e-6,
+        clipEnd.z, clipEnd.w - clipEnd.z);
+    if (any(startPlanes < 0.0))
+        return 1.0;
+    float worldEndFraction = 1.0;
+    for (int plane = 0; plane < 3; ++plane)
+        if (endPlanes[plane] < 0.0)
+            worldEndFraction = min(worldEndFraction,
+                startPlanes[plane] / (startPlanes[plane] - endPlanes[plane]));
+    rayEnd = lerp(rayStart, rayEnd, worldEndFraction);
+    clipEnd = lerp(clipStart, clipEnd, worldEndFraction);
+    float2 startPixel = (clipStart.xy / clipStart.w * 0.5 + 0.5)
+        * float2(viewportSize);
+    float2 endPixel = (clipEnd.xy / clipEnd.w * 0.5 + 0.5)
+        * float2(viewportSize);
+    float2 screenDelta = endPixel - startPixel;
+    if (any(startPixel < 0.0) || any(startPixel >= float2(viewportSize)))
+        return 1.0;
+
+    // Bound the swept screen length, rather than skipping a long world step
+    // after it has already jumped across a thin blocker.
+    float screenLength = length(screenDelta);
+    float endFraction = screenLength > 1.0e-6
+        ? min(1.0, Params.Trace.x / screenLength) : 1.0;
+    for (int axis = 0; axis < 2; ++axis)
     {
-        float4 clip = mul(Params.ViewProjection, float4(rayPosition, 1.0));
-        if (clip.w <= 1.0e-6)
-            break;
-        float3 ndc = clip.xyz / clip.w;
-        float2 rayLocalUV = ndc.xy * 0.5 + 0.5;
-        if (any(rayLocalUV < 0.0) || any(rayLocalUV > 1.0))
-            break;
-        float2 screenDeltaPixels = (rayLocalUV - localUV) / Params.Viewport.xy;
-        float screenDistanceSquared = dot(screenDeltaPixels, screenDeltaPixels);
-        if (screenDistanceSquared > Params.Trace.x * Params.Trace.x)
-            break;
-        if (IsContactHit(segmentStart, rayPosition, rayLocalUV,
-                targetSize, viewportSize, worldPosition,
-                receiver.geometricNormal, receiverRadius))
-        {
-            float distanceFade = 1.0 - smoothstep(
-                0.0, maxDistance, rayDistance);
-            float screenFade = 1.0 - smoothstep(Params.Trace.x * 0.75,
-                Params.Trace.x, sqrt(screenDistanceSquared));
-            occlusion = distanceFade * screenFade;
-            break;
-        }
-        rayDistance += stepDistance;
-        segmentStart = rayPosition;
-        rayPosition += toLight * stepDistance;
+        if (screenDelta[axis] > 1.0e-6)
+            endFraction = min(endFraction,
+                (float(viewportSize[axis]) - startPixel[axis]) / screenDelta[axis]);
+        else if (screenDelta[axis] < -1.0e-6)
+            endFraction = min(endFraction, -startPixel[axis] / screenDelta[axis]);
     }
-    return 1.0 - saturate(occlusion);
+
+    int2 cell = int2(floor(startPixel));
+    int2 cellStep = int2(screenDelta.x >= 0.0 ? 1 : -1,
+        screenDelta.y >= 0.0 ? 1 : -1);
+    float2 nextBoundary = float2(1.0e30);
+    float2 boundaryStride = float2(1.0e30);
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        if (abs(screenDelta[axis]) > 1.0e-6)
+        {
+            float boundary = float(cell[axis] + (cellStep[axis] > 0 ? 1 : 0));
+            nextBoundary[axis] = (boundary - startPixel[axis]) / screenDelta[axis];
+            boundaryStride[axis] = rcp(abs(screenDelta[axis]));
+        }
+    }
+
+    float screenFraction = 0.0;
+    float3 segmentStart = rayStart;
+    // A 48-pixel line crosses at most ceil(|dx|)+ceil(|dy|)+1 cells.
+    // 2*ceil(budget)+3 also covers a start exactly on a pixel boundary.
+    int maxCells = int(ceil(Params.Trace.x)) * 2 + 3;
+    for (int cellIndex = 0; cellIndex < maxCells; ++cellIndex)
+    {
+        if (any(cell < 0) || any(cell >= viewportSize))
+            break;
+        float nextFraction = min(endFraction,
+            min(nextBoundary.x, nextBoundary.y));
+        // Projected fractions are not world-distance fractions in perspective.
+        float worldFraction = nextFraction * clipStart.w
+            / lerp(clipEnd.w, clipStart.w, nextFraction);
+        float3 segmentEnd = lerp(rayStart, rayEnd, worldFraction);
+        float hitFraction;
+        if (nextFraction > screenFraction && IsContactHit(segmentStart,
+                segmentEnd, int2(Params.Viewport.zw) + cell, worldPosition,
+                receiver.geometricNormal, receiverRadius, hitFraction))
+        {
+            float3 hitPosition = lerp(segmentStart, segmentEnd, hitFraction);
+            float rayDistance = dot(hitPosition - rayStart, toLight);
+            float4 hitClip = mul(Params.ViewProjection, float4(hitPosition, 1.0));
+            float2 hitPixel = (hitClip.xy / hitClip.w * 0.5 + 0.5)
+                * float2(viewportSize);
+            float screenDistance = length(hitPixel - startPixel);
+            float distanceFade = 1.0 - smoothstep(0.0, maxDistance, rayDistance);
+            float screenFade = 1.0 - smoothstep(Params.Trace.x * 0.75,
+                Params.Trace.x, screenDistance);
+            return 1.0 - saturate(distanceFade * screenFade);
+        }
+        if (nextFraction >= endFraction)
+            break;
+        // Advance both axes at a corner; zero-length corner touches do not
+        // cover a depth texel and must not manufacture an occluder.
+        bool2 crossed = nextBoundary <= nextFraction;
+        if (crossed.x)
+        {
+            cell.x += cellStep.x;
+            nextBoundary.x += boundaryStride.x;
+        }
+        if (crossed.y)
+        {
+            cell.y += cellStep.y;
+            nextBoundary.y += boundaryStride.y;
+        }
+        screenFraction = nextFraction;
+        segmentStart = segmentEnd;
+    }
+    return 1.0;
 }
 
 [shader("fragment")]
