@@ -93,10 +93,14 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 				float UV[2];
 				float Color[4];
 			};
-			const FImGuiVertex Vertices[3] = {
-				{{-1, -1}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
-				{{3, -1}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
-				{{-1, 3}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}}};
+			// Top-half UI rectangle: asymmetric coverage exposes clip-space Y inversion.
+			const FImGuiVertex Vertices[6] = {
+				{{0, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{4, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{0, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{4, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{4, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{0, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}}};
 			auto VertexDesc = Durin::FRHIBufferCreateDesc::Create(
 				"Authored ImGui vertices", sizeof(Vertices), sizeof(FImGuiVertex),
 				Durin::EBufferUsageFlags::VertexBuffer);
@@ -131,7 +135,7 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 				Durin::FRHISamplerDesc::PointClamp());
 			ASSERT_TRUE(FontView);
 			ASSERT_TRUE(Sampler);
-			const float Projection[4] = {1, 1, 0, 0};
+			const float Projection[4] = {0.5f, 0.5f, -1, -1};
 			auto UniformDesc = Durin::FRHIBufferCreateDesc::Create(
 				"Authored ImGui projection", sizeof(Projection), sizeof(Projection),
 				Durin::EBufferUsageFlags::UniformBuffer);
@@ -184,11 +188,11 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			Commands.BeginRenderPass(Pass, "AuthoredImGui");
 			Commands.SetGraphicsPipelineState(*Pipeline);
 			Commands.SetViewport(0, 0, 0, 4, 4, 1);
-			Commands.SetScissor(1, 1, 2, 2);
+			Commands.SetScissor(1, 0, 2, 3);
 			Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
 			Commands.SetShaderParameters(Vertex.GetReference(), VertexParameters);
 			Commands.SetShaderParameters(Fragment.GetReference(), FragmentParameters);
-			Commands.Draw({.VertexCount = 3});
+			Commands.Draw({.VertexCount = 6});
 			Commands.EndRenderPass();
 			Commands.EndGPUSubmission();
 			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
@@ -203,7 +207,7 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			for (size_t X = 0; X < 4; ++X)
 			{
 				const size_t Index = (Y * 4 + X) * 4;
-				const bool bClipped = X < 1 || X >= 3 || Y < 1 || Y >= 3;
+				const bool bClipped = X < 1 || X >= 3 || Y >= 2;
 				const int Expected = bClipped ? 0 : 32;
 				EXPECT_LE(std::abs(int(Pixels[Index]) - Expected), 1);
 				EXPECT_LE(std::abs(int(Pixels[Index + 1]) - Expected), 1);

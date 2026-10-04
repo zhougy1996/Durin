@@ -15,6 +15,7 @@
 #include "MetalTexture.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#include "Profiling/Profiling.h"
 
 #include <gtest/gtest.h>
 
@@ -1046,6 +1047,51 @@ TEST(FMetalRHITextureTests, RecordedColorClearIsReadableAfterGPUCompletion)
 			Texture = nullptr;
 			Durin::RHIExit();
 		}
+	}
+}
+
+TEST(FMetalRHIViewportTests, FirstPresentUnblocksEditorOnlyAfterDrawableSubmission)
+{
+	@autoreleasepool
+	{
+		FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+		FMetalQualificationLayer* Layer = [FMetalQualificationLayer layer];
+		void* Handle = (__bridge void*)Layer;
+		const Durin::FRHIPresentationTarget Target{.PlatformTarget =
+			std::make_shared<Durin::FMacOSPresentationTarget>(Handle,
+				reinterpret_cast<CA::MetalLayer*>(Handle))};
+		ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Presentation(Target)));
+		FScopedRHIExit Exit;
+		Durin::FRHIViewportCreateInfo Info;
+		Info.PresentationTarget = Target;
+		Info.SizeX = 8;
+		Info.SizeY = 8;
+		Info.bAdoptInitializationPresentationCandidate = true;
+		auto Viewport = Durin::GDynamicRHI->RHICreateViewport(Info);
+		ASSERT_TRUE(Viewport);
+		using Durin::Profiling::EStartupMilestone;
+		ASSERT_LT(Durin::Profiling::GetStartupMilestoneMilliseconds(
+			EStartupMilestone::FirstPresent), 0.0);
+		Durin::Profiling::ArmEditorShellFirstPresent();
+		auto& Commands = Durin::FRHICommandListImmediate::Get();
+		auto Present = [&](bool bPresent) {
+			Commands.BeginDrawingViewport(Viewport.GetReference(), nullptr);
+			Commands.EndDrawingViewport(Viewport.GetReference(), bPresent, false);
+			Commands.BlockUntilGPUIdle();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+		};
+		Present(false);
+		EXPECT_LT(Durin::Profiling::GetStartupMilestoneMilliseconds(
+			EStartupMilestone::FirstPresent), 0.0);
+		Layer.FailNextDrawable = YES;
+		Present(true);
+		EXPECT_EQ(Layer.SuccessfulAcquisitionCount, 0u);
+		EXPECT_LT(Durin::Profiling::GetStartupMilestoneMilliseconds(
+			EStartupMilestone::FirstPresent), 0.0);
+		Present(true);
+		EXPECT_EQ(Layer.SuccessfulAcquisitionCount, 1u);
+		EXPECT_GE(Durin::Profiling::GetStartupMilestoneMilliseconds(
+			EStartupMilestone::FirstPresent), 0.0);
 	}
 }
 

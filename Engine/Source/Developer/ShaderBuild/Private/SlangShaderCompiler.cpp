@@ -753,7 +753,7 @@ namespace Durin
 		return std::format(
 			"{}:{};target={};profile={};reflection=3"
 		#if defined(__APPLE__)
-			";spirv-cross=6c09849fe88c48eaed08413aa022aaa136a3a057"
+			";spirv-cross=6c09849fe88c48eaed08413aa022aaa136a3a057;metal-clip-y=1"
 		#endif
 			,
 			FSlangSessionEnvironment::BackendName,

@@ -12,6 +12,7 @@
 #include "MetalResourceDescriptors.h"
 #include "MetalResourceState.h"
 #include "RHIShaderParameters.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -350,6 +351,8 @@ namespace Durin
 					++State->PendingCallbacks;
 				}
 				Command->commit();
+				if (Profiling::RecordEditorShellFirstPresent())
+					DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 			}
 			auto RHISetViewport(float MinX, float MinY, float MinZ,
 				float MaxX, float MaxY, float MaxZ) -> void override

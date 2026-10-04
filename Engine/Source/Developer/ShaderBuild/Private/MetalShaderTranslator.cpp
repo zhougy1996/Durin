@@ -98,6 +98,10 @@ namespace Durin
 			|| spvc_compiler_create_compiler_options(Compiler, &Options) != SPVC_SUCCESS
 			|| spvc_compiler_options_set_uint(Options, SPVC_COMPILER_OPTION_MSL_VERSION,
 				SPVC_MAKE_MSL_VERSION(2, 0, 0)) != SPVC_SUCCESS
+			// Common RHI uses Vulkan's positive-height viewport: clip Y=-1 is top.
+			// Metal maps clip Y=+1 to top, so adapt vertex output before rasterization.
+			|| spvc_compiler_options_set_bool(Options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y,
+				Shader.Frequency == EShaderFrequency::Vertex ? SPVC_TRUE : SPVC_FALSE) != SPVC_SUCCESS
 			|| spvc_compiler_install_compiler_options(Compiler, Options) != SPVC_SUCCESS)
 			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
 		if (Shader.Frequency == EShaderFrequency::Compute)
