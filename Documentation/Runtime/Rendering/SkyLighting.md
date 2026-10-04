@@ -2,9 +2,9 @@
 
 Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded procedural sky and generate transient diffuse/specular lighting on the GPU.
 
-Modules: Engine, Renderer, RenderCore, VulkanRHI, TextureBuild, DurinEd, Launch
+Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureBuild, DurinEd, Launch
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-10-05
 
 ## Authoring and source selection
 
@@ -73,9 +73,13 @@ retired active sets stay strongly owned through an ordered GPU retirement
 marker. Admission reserves a conservative 4 MiB for the fixed output envelope
 and waits if lighting images would exceed 16 MiB or retained sources plus
 lighting would exceed 64 MiB. RDG pool counters exclude exports and are not
-used as this budget. Backpressure is a distinct Details diagnostic. A nonblocking GPU timing query gates
-the next job. RDG declares every face/mip access and extracts the complete
-irradiance/prefilter set together. Publication means all commands were recorded
+used as this budget. Backpressure is a distinct Details diagnostic. An ordered
+GPU completion marker gates the next job. GPU timing queries are optional
+diagnostics on backends that support timestamps. RDG declares every face/mip
+access and extracts the complete irradiance/prefilter set together. Each filter
+pass batches all faces of one mip and binds exact writable 2D face views. Each
+complete job dispatches an asynchronous GPU submission before another scene is
+admitted, bounding unsubmitted Metal command-buffer use. Publication means all commands were recorded
 on the ordered RHI timeline, not that CPU code observed GPU completion.
 Normal runtime updates perform no synchronous CPU readback.
 World-driven scenes admit once at frame start; later views in that frame
@@ -88,9 +92,14 @@ its resources through execution. Renderer device invalidation clears all
 registered scene generations, including inactive scenes, and the shared LUT.
 See [Renderer Resource Recovery](RendererResourceRecovery.md).
 
-The supported path requires Vulkan linear filtering of RGBA32F/RGBA16F,
-RGBA16F storage images, 8x8 compute groups, 512-face cubes, and GPU timestamps.
-An unsupported device contributes neutral black with a diagnostic.
+The supported path requires linear filtering of RGBA32F/RGBA16F,
+RGBA16F storage images, 8x8 compute groups, and 512-face cubes. Vulkan and
+Metal expose this through `bSupportsSkyLighting`; Metal additionally probes
+`supports32BitFloatFiltering` on the admitted device. GPU timestamps are not
+required for filtering, publication, refresh, or retirement. On Metal without
+timestamps, the GPU update-time diagnostic remains unmeasured (zero), while
+completed-update counts use actual GPU completion. An unsupported device
+contributes neutral black with a diagnostic.
 
 ## Studio content
 
@@ -105,6 +114,12 @@ The one-time level migration command has been removed after content migration
 completed. No legacy environment asset loader or bake program remains.
 
 ## Qualification
+
+`DevTool test MetalSkyLightingTests --mode qualification --report` validates
+scene-owned captured and specified HDR sources on Metal and Vulkan in inline
+and threaded execution, including all six faces and eight filtering mips,
+nonuniform cube orientation, manual refresh, and retirement. Metal runs without
+timestamps; Vulkan retains its GPU timing diagnostics.
 
 `DevTool test SkyBoxVulkanIntegrationTests --timeout 600` exercises real GPU
 capture/filter readback alongside HDR cube face/mip and display sampling.

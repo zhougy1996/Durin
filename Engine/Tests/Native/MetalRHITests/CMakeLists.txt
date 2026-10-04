@@ -1,7 +1,7 @@
 if(NOT APPLE)
 	durin_exclude_native_test_sources(
 		RATIONALE "Native Metal device admission requires macOS."
-		SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm)
+		SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm Private/MetalSkyLightingTests.cpp)
 	return()
 endif()
 
@@ -32,4 +32,24 @@ durin_add_native_test(MetalRHIHeadlessTests
 		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private/MacOS"
 		"${CMAKE_SOURCE_DIR}/Engine/External/Source/metal-cpp"
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+)
+
+# Scene-owned environment filtering exercises the complete renderer lifecycle.
+durin_add_native_test(MetalSkyLightingTests
+    KIND qualification
+    DOMAINS renderer sky-box
+    MODULES renderer engine texture-build
+    BACKENDS metal vulkan
+    STACKS editor renderer
+    SOURCES Private/MetalSkyLightingTests.cpp
+    LIBRARIES Core CoreDObject Engine RenderCore Renderer TextureBuild AssetTools MetalRHI VulkanRHI
+    INCLUDE_DIRECTORIES
+        "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
+        "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Builds authored HDR cubes and production sky-light shaders."
+    ENVIRONMENTS authored-shaders
+    RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+    HEAVY_RUNTIME_RATIONALE "Exercises headless Metal scene-owned environment filtering and GPU readback."
+    TIMEOUT 600
 )

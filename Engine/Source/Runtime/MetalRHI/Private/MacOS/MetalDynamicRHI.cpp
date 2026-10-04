@@ -62,9 +62,9 @@ namespace Durin
 				CommandContext->Configure(State);
 				FRHICapabilities Supported;
 				Supported.SupportedTextureDimensions =
-					ERHITextureDimensionFlags::Texture2D;
+					ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube;
 				Supported.MaxTextureDimension2D = 8192;
-				Supported.MaxTextureDimensionCube = 8;
+				Supported.MaxTextureDimensionCube = 16384;
 				Supported.MaxTextureArrayLayers = TextureCubeFaceCount;
 				Supported.ColorSampleCounts = ERHISampleCountFlags::Samples1;
 				Supported.DepthSampleCounts = ERHISampleCountFlags::Samples1;
@@ -80,6 +80,7 @@ namespace Durin
 				Supported.MaxComputeWorkGroupCount = {65535, 65535, 65535};
 				Supported.bSupportsIndirectDraw = true;
 				Supported.bSupportsIndirectDispatch = true;
+				Supported.bSupportsSkyLighting = Device->supports32BitFloatFiltering();
 				PublishCapabilities(std::move(Supported));
 				PipelineCreationClosed = false;
 			}

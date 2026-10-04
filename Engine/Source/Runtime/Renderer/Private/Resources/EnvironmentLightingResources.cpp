@@ -43,12 +43,10 @@ namespace Durin
             static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
             {
                 static const std::array Members{
-                    WithRDGShaderBinding(
-                        MakeRDGTextureReadMetadata<FPassParameters, FRDGTextureParameter, ERDGPassType::Compute>(
-                            "Source", offsetof(FPassParameters, Source)), ERHIBindingType::Texture),
-                    WithRDGShaderBinding(
-                        MakeRDGComputeTextureWriteMetadata<FPassParameters, FRDGTextureParameter>(
-                            "Output", offsetof(FPassParameters, Output)), ERHIBindingType::StorageImage)};
+                    MakeRDGTextureReadMetadata<FPassParameters, FRDGTextureParameter, ERDGPassType::Compute>(
+                        "Source", offsetof(FPassParameters, Source)),
+                    MakeRDGComputeTextureWriteMetadata<FPassParameters, FRDGTextureParameter>(
+                        "Output", offsetof(FPassParameters, Output))};
                 static const auto Metadata = MakeInlineRDGParametersMetadata<FPassParameters>("SkyLightingPass", Members);
                 return &Metadata;
             }
@@ -79,7 +77,7 @@ namespace Durin
         if (State->Pipeline && State->Sampler) return true;
         if (!GDynamicRHI) return false;
         const auto* Caps=GDynamicRHI->RHIGetCapabilities();
-        if (!Caps || !Caps->bSupportsSkyLighting || !Caps->bSupportsGPUTimestamps) return false;
+        if (!Caps || !Caps->bSupportsSkyLighting) return false;
         const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
         State->ShaderSet=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
         if (!State->ShaderSet) return false;
@@ -118,20 +116,38 @@ namespace Durin
             S.Retiring.push_back(std::move(S.Active));
             S.LastAttempt=-60;
         }
-        if (S.Query)
+        const auto RecordCompletion = [&]() {
+            // All sky passes use the ordered graphics queue. This marker also
+            // covers earlier views when a removed authority needs retirement.
+            S.Completion = Commands.BeginGPUSubmission(
+                {.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+            Commands.EndGPUSubmission();
+        };
+        if (S.Completion)
         {
-            if (S.InFlight && S.InFlight->Resources.Device!=Generation.Device) { S.Query=nullptr; S.InFlight.reset(); }
+            if (S.InFlight && S.InFlight->Resources.Device != Generation.Device)
+            {
+                S.Query = nullptr; S.Completion = nullptr; S.InFlight.reset();
+            }
             else
             {
-                const auto Result=GDynamicRHI->RHIGetGPUTimingResult(S.Query);
-                if (Result.State==ERHIGPUTimingResultState::Pending) return;
-                if (Result.State==ERHIGPUTimingResultState::Ready && Light && S.InFlight && HasAuthority(*S.InFlight))
-                    {
-                    Light->UpdateStatus->UpdateMilliseconds.store(double(Result.DurationNanoseconds)/1.e6);
+                const auto Completion = S.Completion.GetState();
+                if (Completion == ERHIGPUSubmissionState::Pending
+                    || Completion == ERHIGPUSubmissionState::Submitted) return;
+                const auto Result = S.Query ? GDynamicRHI->RHIGetGPUTimingResult(S.Query) : FRHIGPUTimingResult{};
+                if (Completion == ERHIGPUSubmissionState::Complete
+                    && Result.State == ERHIGPUTimingResultState::Pending) return;
+                if (Completion == ERHIGPUSubmissionState::Complete
+                    && Light && S.InFlight && HasAuthority(*S.InFlight))
+                {
+                    if (Result.State == ERHIGPUTimingResultState::Ready)
+                        Light->UpdateStatus->UpdateMilliseconds.store(double(Result.DurationNanoseconds)/1.e6);
                     Light->UpdateStatus->CompletedUpdates.fetch_add(1, std::memory_order_release);
                 }
-                S.Query=nullptr;
-                if (!S.InFlight || HasAuthority(*S.InFlight)) S.Retiring.clear();
+                S.Query = nullptr;
+                if (S.Completion.IsRetirementEligible()
+                    && (!S.InFlight || HasAuthority(*S.InFlight))) S.Retiring.clear();
+                S.Completion = nullptr;
                 S.InFlight.reset();
             }
         }
@@ -155,10 +171,9 @@ namespace Durin
         {
             // A source removal still needs an ordered retirement marker after
             // the last view which could have sampled the removed generation.
-            if (!S.Retiring.empty() && !S.Query)
+            if (!S.Retiring.empty() && !S.Completion)
             {
-                S.Query=GDynamicRHI->RHICreateGPUTimingQuery();
-                if (S.Query) { Commands.BeginGPUTimingQuery(S.Query); Commands.EndGPUTimingQuery(S.Query); }
+                RecordCompletion();
             }
             return;
         }
@@ -194,8 +209,7 @@ namespace Durin
             Light->UpdateStatus->State.store(ESkyLightUpdateState::Backpressure);
             if (!S.Active && !S.Retiring.empty())
             {
-                S.Query=GDynamicRHI->RHICreateGPUTimingQuery();
-                if(S.Query) { Commands.BeginGPUTimingQuery(S.Query); Commands.EndGPUTimingQuery(S.Query); }
+                RecordCompletion();
             }
             return;
         }
@@ -203,7 +217,7 @@ namespace Durin
         if (!EnsureResources_RenderThread(Commands) || !FallbackCube)
         {
             const auto* Caps=GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
-            Light->UpdateStatus->State.store(Caps && Caps->bSupportsSkyLighting && Caps->bSupportsGPUTimestamps
+            Light->UpdateStatus->State.store(Caps && Caps->bSupportsSkyLighting
                 ? ESkyLightUpdateState::Pending : ESkyLightUpdateState::Unsupported);
             return;
         }
@@ -212,8 +226,9 @@ namespace Durin
         Candidate->SourceEpoch=Light->SourceEpoch; Candidate->Provider=Provider;
         Candidate->Revision=Captured ? Sky->Revision : 0; Candidate->Request=Light->RequestSerial;
         Candidate->Source=Captured ? nullptr : Source; Candidate->CaptureTime=Time;
-        auto Query=GDynamicRHI->RHICreateGPUTimingQuery();
-        if (!Query) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
+        const bool bTiming = GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps;
+        auto Query = bTiming ? GDynamicRHI->RHICreateGPUTimingQuery() : FGPUTimingQueryRHIRef{};
+        if (bTiming && !Query) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
         FRDGBuilder Graph;
         auto Input=Graph.RegisterExternalTexture(FTextureRHIRef(Captured ? FallbackCube : Source),"Sky.Source",
             ERHIAccess::GraphicsShaderRead,ERHIAccess::GraphicsShaderRead);
@@ -224,24 +239,53 @@ namespace Durin
                 .SetNumMips(Mips).SetFormat(EPixelFormat::RGBA16_FLOAT)
                 .SetFlags(ETextureCreateFlags::ShaderResource|ETextureCreateFlags::Storage|ETextureCreateFlags::SourceCopy|ETextureCreateFlags::CPUReadback)},Name);
         };
-        const auto AddPass=[&](FRDGTextureHandle Output,uint32 Op,uint32 Face,uint32 Mip,uint32 Dimension,uint32 Samples,float Roughness) {
+        const auto AddPass=[&](FRDGTextureHandle Output,uint32 Op,uint32 Mip,uint32 Dimension,uint32 Samples,float Roughness,uint32 Faces) {
             auto P=Graph.AllocParameters<FPassParameters>();
             P->Source={Input,{ERHITextureAspect::Color,0,SourceMips,0,6}};
-            P->Output={Output,{ERHITextureAspect::Color,Mip,1,Face,1}};
+            // Declare the entire mip, then bind one writable 2D face at a time.
+            // Batching the faces avoids exhausting Metal's unsubmitted buffers.
+            P->Output={Output,{ERHITextureAspect::Color,Mip,1,0,Faces}};
             FSkyLightingUniform Uniform;
             if (Captured) Uniform.Sky=MakeProceduralSkyUniform(Sky->Parameters);
-            Uniform.Dispatch={Op,Face,Dimension,Samples};
+            Uniform.Dispatch={Op,0,Dimension,Samples};
             Uniform.Filter={Roughness,float(SourceDimension),float(SourceMips),0};
-            Graph.AddPass(std::format("Sky.{}.Face{}.Mip{}",Op,Face,Mip),ERDGPassType::Compute,std::move(P),
-                [this,Uniform,Dimension](FRHICommandListImmediate& Cmd,const FPassParameters& P,const FRDGParameterResolver& Resolver) {
-                    const auto Buffer=Cmd.CreateUniformBufferRange(&Uniform,sizeof(Uniform));
+            Graph.AddPass(std::format("Sky.{}.Mip{}",Op,Mip),ERDGPassType::Compute,std::move(P),
+                [this,Uniform,Dimension,Faces,Mip](FRHICommandListImmediate& Cmd,const FPassParameters& P,const FRDGParameterResolver& Resolver) mutable {
                     Cmd.SwitchPipeline(ERHIPipeline::Compute);
                     Cmd.SetComputePipelineState(*State->Pipeline);
-                    FSkyLightingShader::FParameters Ordinary;
-                    Ordinary.SourceSampler=State->Sampler; Ordinary.Params=Buffer;
-                    const auto Bindings=Resolver.GetShaderParameters(P);
-                    SetShaderParameters(Cmd,State->Shader,Bindings,Ordinary);
-                    Cmd.Dispatch((Dimension+7)/8,(Dimension+7)/8,1);
+                    auto* Texture=Resolver.GetTexture(P.Output);
+                    auto* SourceTexture=Resolver.GetTexture(P.Source);
+                    auto SourceDesc=MakeDefaultTextureViewDesc(*SourceTexture,ERHITextureViewUsage::Sampled);
+                    SourceDesc.Range=P.Source.Range;
+                    auto SourceView=GDynamicRHI->RHIGetOrCreateTextureView(SourceTexture,SourceDesc);
+                    requiref(SourceView,"Sky lighting source view is unavailable.");
+                    const auto& Reflection=State->Shader.GetShader()->GetReflection();
+                    const auto Bind=[&](std::string_view Name,FRHIResource* Resource,uint32 Offset=0,uint32 Size=0) {
+                        const auto Binding=std::ranges::find_if(Reflection.ResourceBindings,
+                            [Name](const auto& Candidate) { return Candidate.Name==Name; });
+                        requiref(Binding!=Reflection.ResourceBindings.end(), "Sky lighting binding is missing.");
+                        return FRHIShaderParameterResource{.Resource=Resource,.SetIndex=Binding->SetIndex,
+                            .BindingIndex=Binding->BindingIndex,.Type=Binding->Type,.Offset=Offset,.Size=Size};
+                    };
+                    for(uint32 Face=0;Face<Faces;++Face)
+                    {
+                        auto Desc=MakeDefaultTextureViewDesc(*Texture,ERHITextureViewUsage::Storage);
+                        Desc.Dimension=ERHITextureViewDimension::Texture2D;
+                        Desc.Range={ERHITextureAspect::Color,Mip,1,Face,1};
+                        auto View=GDynamicRHI->RHICreateTextureView(Texture,Desc);
+                        requiref(View, "Sky lighting could not create a writable face view.");
+                        Uniform.Dispatch[1]=Face;
+                        const auto Buffer=Cmd.CreateUniformBufferRange(&Uniform,sizeof(Uniform));
+                        // A complete update keeps prior bindings alive until replacement,
+                        // including Vulkan's pending descriptor resource owners.
+                        const std::array Parameters{
+                            Bind("Source",SourceView.GetReference()),
+                            Bind("SourceSampler",State->Sampler.GetReference()),
+                            Bind("Params",Buffer.Buffer,Buffer.Offset,Buffer.Size),
+                            Bind("Output",View.GetReference())};
+                        Cmd.SetShaderParameters(State->Shader.GetRHIShader(),Parameters);
+                        Cmd.Dispatch((Dimension+7)/8,(Dimension+7)/8,1);
+                    }
                 });
         };
         FTextureRHIRef Lut;
@@ -249,30 +293,34 @@ namespace Durin
         {
             const auto Output=Graph.CreateTexture({.Texture=FRHITextureCreateDesc::Create2D("Sky.BrdfLut",128,128,EPixelFormat::RGBA16_FLOAT)
                 .SetFlags(ETextureCreateFlags::ShaderResource|ETextureCreateFlags::Storage|ETextureCreateFlags::SourceCopy|ETextureCreateFlags::CPUReadback)},"Sky.BrdfLut");
-            AddPass(Output,3,0,0,128,1024,0);
+            AddPass(Output,3,0,128,1024,0,1);
             Graph.QueueTextureExtraction(Output,&Lut,ERHIAccess::GraphicsShaderRead);
         }
         if (Captured)
         {
             const auto Radiance=CreateCube("Sky.Radiance",128,8);
-            for (uint32 Mip=0;Mip<8;++Mip) for(uint32 Face=0;Face<6;++Face)
-                AddPass(Radiance,0,Face,Mip,std::max(128u>>Mip,1u),16,0);
+            for (uint32 Mip=0;Mip<8;++Mip)
+                AddPass(Radiance,0,Mip,std::max(128u>>Mip,1u),16,0,6);
             Graph.QueueTextureExtraction(Radiance,&Candidate->Radiance,ERHIAccess::GraphicsShaderRead);
             Input=Radiance; SourceDimension=128; SourceMips=8;
         }
         const auto Irradiance=CreateCube("Sky.Irradiance",16,1);
         const auto Prefiltered=CreateCube("Sky.Prefiltered",128,8);
-        for(uint32 Face=0;Face<6;++Face) AddPass(Irradiance,1,Face,0,16,256,0);
-        for(uint32 Mip=0;Mip<8;++Mip) for(uint32 Face=0;Face<6;++Face)
-            AddPass(Prefiltered,2,Face,Mip,std::max(128u>>Mip,1u),128,float(Mip)/7);
+        AddPass(Irradiance,1,0,16,256,0,6);
+        for(uint32 Mip=0;Mip<8;++Mip)
+            AddPass(Prefiltered,2,Mip,std::max(128u>>Mip,1u),128,float(Mip)/7,6);
         Graph.QueueTextureExtraction(Irradiance,&Candidate->Irradiance,ERHIAccess::GraphicsShaderRead);
         Graph.QueueTextureExtraction(Prefiltered,&Candidate->Prefiltered,ERHIAccess::GraphicsShaderRead);
 
-        Commands.BeginGPUTimingQuery(Query);
+        if (Query) Commands.BeginGPUTimingQuery(Query);
         const auto Result=Graph.Execute(Commands,&Allocator);
-        Commands.EndGPUTimingQuery(Query);
+        if (Query) Commands.EndGPUTimingQuery(Query);
         Commands.SwitchPipeline(ERHIPipeline::Graphics);
         if (!Result.has_value()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
+        RecordCompletion();
+        // Submit this bounded job before admitting another scene's filtering.
+        // This dispatches replay without waiting for GPU completion.
+        Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
         if (Lut) State->Lut=std::move(Lut);
         // RDG guarantees every face and mip was recorded. Subsequent consumers use
         // the same ordered RHI timeline; this is not a CPU claim of GPU completion.

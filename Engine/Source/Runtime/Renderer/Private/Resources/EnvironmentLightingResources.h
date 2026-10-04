@@ -4,6 +4,7 @@
 
 #include "RenderResourceCreation.h"
 #include "RHIResources.h"
+#include "RHICompletion.h"
 #include "Rendering/SkyLightSceneProxy.h"
 
 namespace Durin
@@ -28,6 +29,7 @@ namespace Durin
         std::shared_ptr<const FSkyLightingGeneration> Active;
         std::shared_ptr<const FSkyLightingGeneration> InFlight;
         TRefCountPtr<FRHIGPUTimingQuery> Query;
+        FRHIGPUSyncPointRef Completion;
         double LastAttempt = -60;
         uint64 AttemptOwner=0, AttemptEpoch=0, AttemptProvider=0, AttemptRequest=0;
         uint64 WorldUpdateFrame=std::numeric_limits<uint64>::max();
