@@ -17,6 +17,7 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 namespace Durin::Editor
 {
@@ -768,9 +769,9 @@ namespace Durin::Editor
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			std::array<std::byte, sizeof(uint64)> Value{};
-			std::array<std::byte, sizeof(uint64)> MinimumStorage{};
-			std::array<std::byte, sizeof(uint64)> MaximumStorage{};
+			alignas(uint64) std::array<std::byte, sizeof(uint64)> Value{};
+			alignas(uint64) std::array<std::byte, sizeof(uint64)> MinimumStorage{};
+			alignas(uint64) std::array<std::byte, sizeof(uint64)> MaximumStorage{};
 			check(Property->GetElementSize() <= Value.size());
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
 			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
@@ -797,15 +798,24 @@ namespace Durin::Editor
 				default: return nullptr;
 				}
 			};
-			const void* Minimum = StoreLimit(Metadata.UIMin, MinimumStorage);
-			const void* Maximum = StoreLimit(Metadata.UIMax, MaximumStorage);
+			const void* Minimum = StoreLimit(Metadata.UIMin.Kind != EPropertyMetadataNumericKind::None
+				? Metadata.UIMin : Metadata.ClampMin, MinimumStorage);
+			const void* Maximum = StoreLimit(Metadata.UIMax.Kind != EPropertyMetadataNumericKind::None
+				? Metadata.UIMax : Metadata.ClampMax, MaximumStorage);
 			const std::string Format = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double
 				? PropertyDecimalFormat(Metadata, 3) : std::string{};
 			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Speed, Minimum, Maximum,
-				Format.empty() ? nullptr : Format.c_str());
+				Format.empty() ? nullptr : Format.c_str(), ImGuiSliderFlags_ClampZeroRange);
 			const MonaImGui::PropertyEdit::FWidgetState State{
 				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 			};
+			if (bChanged)
+			{
+				// UI bounds guide dragging; hard bounds also apply to manual input and one-sided ranges.
+				Minimum = StoreLimit(Metadata.ClampMin, MinimumStorage);
+				Maximum = StoreLimit(Metadata.ClampMax, MaximumStorage);
+				ImGui::DataTypeClamp(DataType, Value.data(), Minimum, Maximum);
+			}
 			const std::string_view Unit = PropertyUnitLabel(Metadata.Units);
 			if (!Unit.empty())
 			{

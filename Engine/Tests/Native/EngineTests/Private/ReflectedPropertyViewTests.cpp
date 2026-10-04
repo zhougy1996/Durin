@@ -752,6 +752,109 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetPath(), Fourth);
 }
 
+TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)
+{
+	using namespace Durin;
+	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
+	const FPropertyMetadata Original = Reflection.Property->GetTypedMetadata();
+	const FPropertyMetadataParams OriginalParams{
+		.DisplayName = Original.DisplayName.c_str(), .ToolTip = Original.ToolTip.c_str(),
+		.Category = Original.Category.c_str(), .Units = Original.Units, .Step = Original.Step,
+		.Precision = Original.Precision, .ClampMin = Original.ClampMin, .ClampMax = Original.ClampMax,
+		.UIMin = Original.UIMin, .UIMax = Original.UIMax,
+	};
+	struct FCase
+	{
+		FPropertyMetadataNumber Minimum;
+		FPropertyMetadataNumber Maximum;
+		bool bUIRange;
+		int32 ExpectedMinimum;
+		int32 ExpectedMaximum;
+	};
+	for (const FCase& Case : {
+		FCase{FPropertyMetadataNumber::FromSigned(0), FPropertyMetadataNumber::FromSigned(10), false, 0, 10},
+		FCase{FPropertyMetadataNumber::FromSigned(0), {}, false, 0, 105},
+		FCase{{}, FPropertyMetadataNumber::FromSigned(10), false, -95, 10},
+		FCase{FPropertyMetadataNumber::FromSigned(0), FPropertyMetadataNumber::FromSigned(0), false, 0, 0},
+		FCase{FPropertyMetadataNumber::FromSigned(0), FPropertyMetadataNumber::FromSigned(10), true, 2, 8},
+	})
+	{
+		FPropertyMetadataParams Metadata = OriginalParams;
+		Metadata.ClampMin = Case.Minimum;
+		Metadata.ClampMax = Case.Maximum;
+		Metadata.UIMin = Case.bUIRange ? Original.UIMin : FPropertyMetadataNumber{};
+		Metadata.UIMax = Case.bUIRange ? Original.UIMax : FPropertyMetadataNumber{};
+		Reflection.Property->SetTypedMetadata(&Metadata);
+		auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "NumericWidgetBounds");
+		TStrongObjectPtr<DObject> ObjectRoot(Object);
+		Editor::FPropertyView View;
+		uint32 ErrorReports = 0;
+		const Editor::FPropertyViewContext Context{
+			.ReportError = [&](std::string) { ++ErrorReports; },
+		};
+		ImGuiContext* ImContext = ImGui::CreateContext();
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.ConfigInputTrickleEventQueue = false;
+		IO.ConfigMacOSXBehaviors = false;
+		IO.DisplaySize = {800.0f, 600.0f};
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault();
+		IO.Fonts->Build();
+		ImVec2 WidgetPosition;
+		const auto DrawFrame = [&] {
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0.0f, 0.0f});
+			ImGui::SetNextWindowSize({600.0f, 300.0f});
+			ImGui::Begin("Numeric Widget Bounds", nullptr, ImGuiWindowFlags_NoTitleBar);
+			if (MonaImGui::PropertyEdit::BeginTable("NumericRows"))
+			{
+				View.EditProperty(Context, Object, Reflection.Property);
+				const ImVec2 Minimum = ImGui::GetItemRectMin();
+				const ImVec2 Maximum = ImGui::GetItemRectMax();
+				WidgetPosition = {(Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f};
+				MonaImGui::PropertyEdit::EndTable();
+			}
+			ImGui::End();
+			ImGui::Render();
+		};
+		DrawFrame();
+		DrawFrame();
+		for (const float Delta : {100.0f, -100.0f})
+		{
+			Object->Value = Case.ExpectedMinimum == Case.ExpectedMaximum ? 0 : 5;
+			IO.AddMousePosEvent(WidgetPosition.x, WidgetPosition.y);
+			// Separate clicks so ImGui does not interpret the next drag as double-click text input.
+			for (int Frame = 0; Frame < 25; ++Frame) DrawFrame();
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+			DrawFrame();
+			IO.AddMousePosEvent(WidgetPosition.x + Delta, WidgetPosition.y);
+			DrawFrame();
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+			DrawFrame();
+			EXPECT_EQ(Object->Value, Delta > 0.0f ? Case.ExpectedMaximum : Case.ExpectedMinimum);
+		}
+		// Ctrl-click input may exceed the softer UI range, but never the hard bounds.
+		IO.AddMousePosEvent(WidgetPosition.x, WidgetPosition.y);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, true);
+		DrawFrame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		DrawFrame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, false);
+		DrawFrame();
+		IO.AddInputCharactersUTF8("999");
+		DrawFrame();
+		IO.AddKeyEvent(ImGuiKey_Enter, true);
+		DrawFrame();
+		EXPECT_EQ(Object->Value, Case.Maximum.Kind == EPropertyMetadataNumericKind::None ? 999 : Case.Maximum.Signed);
+		EXPECT_EQ(ErrorReports, 0u);
+		EXPECT_TRUE(View.FinishActiveEdit(&Context, false));
+		ImGui::DestroyContext(ImContext);
+	}
+	Reflection.Property->SetTypedMetadata(&OriginalParams);
+}
+
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
