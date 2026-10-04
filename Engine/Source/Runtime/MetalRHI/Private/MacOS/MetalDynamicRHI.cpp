@@ -341,12 +341,16 @@ namespace Durin
 				const bool bCube = Desc.Dimension == ETextureDimension::TextureCube;
 				const bool bCubeArray = Desc.Dimension == ETextureDimension::TextureCubeArray;
 				const bool b3D = Desc.Dimension == ETextureDimension::Texture3D;
-				const bool bBC1 = Desc.Format == EPixelFormat::BC1_UNORM
-					|| Desc.Format == EPixelFormat::BC1_UNORM_SRGB;
+				const bool bBC = Desc.Format == EPixelFormat::BC1_UNORM
+					|| Desc.Format == EPixelFormat::BC1_UNORM_SRGB
+					|| Desc.Format == EPixelFormat::BC5_UNORM
+					|| Desc.Format == EPixelFormat::BC5_SNORM
+					|| Desc.Format == EPixelFormat::BC7_UNORM
+					|| Desc.Format == EPixelFormat::BC7_UNORM_SRGB;
 				return Device && ValidateTextureCreateDesc(Desc)
 					&& (b2D || b2DArray || bCube || bCubeArray || b3D)
 					&& ToMetalPixelFormat(Desc.Format) != MTL::PixelFormatInvalid
-					&& (!bBC1 || (Device->supportsBCTextureCompression()
+					&& (!bBC || (Device->supportsBCTextureCompression()
 						&& (static_cast<uint64>(Desc.Flags)
 							& ~static_cast<uint64>(ETextureCreateFlags::ShaderResource
 								| ETextureCreateFlags::CPUReadback)) == 0))
@@ -355,8 +359,7 @@ namespace Durin
 						|| (b2DArray && Desc.Format == EPixelFormat::D32)
 						|| (bCube && (Desc.Format == EPixelFormat::RGBA16_FLOAT
 						|| Desc.Format == EPixelFormat::RGBA32_FLOAT
-						|| Desc.Format == EPixelFormat::BC1_UNORM
-						|| Desc.Format == EPixelFormat::BC1_UNORM_SRGB)))
+						|| bBC)))
 					&& Desc.NumSamples == 1
 					&& Desc.Extent.x <= (b3D ? 2048 : 16384)
 					&& Desc.Extent.y <= (b3D ? 2048 : 16384)

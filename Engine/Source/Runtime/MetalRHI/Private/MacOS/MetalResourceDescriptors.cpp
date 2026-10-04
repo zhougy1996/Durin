@@ -66,6 +66,10 @@ namespace Durin
 		case EPixelFormat::D32: return MTL::PixelFormatDepth32Float;
 		case EPixelFormat::BC1_UNORM: return MTL::PixelFormatBC1_RGBA;
 		case EPixelFormat::BC1_UNORM_SRGB: return MTL::PixelFormatBC1_RGBA_sRGB;
+		case EPixelFormat::BC5_UNORM: return MTL::PixelFormatBC5_RGUnorm;
+		case EPixelFormat::BC5_SNORM: return MTL::PixelFormatBC5_RGSnorm;
+		case EPixelFormat::BC7_UNORM: return MTL::PixelFormatBC7_RGBAUnorm;
+		case EPixelFormat::BC7_UNORM_SRGB: return MTL::PixelFormatBC7_RGBAUnorm_sRGB;
 		default: return MTL::PixelFormatInvalid;
 		}
 	}

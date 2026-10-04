@@ -7,6 +7,7 @@
 #include "MetalBuffer.h"
 #include "MetalCppDevice.h"
 #include "MetalPipeline.h"
+#include "MetalResourceDescriptors.h"
 #include "MetalSubmission.h"
 #include "Threading/Task.h"
 #include "CoreGlobals.h"
@@ -1528,6 +1529,119 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 			EXPECT_NEAR(Color[1], 0.2233f, 0.01f);
 			EXPECT_NEAR(Color[2], 0.2307f, 0.01f);
 			EXPECT_FLOAT_EQ(Color[3], 1.0f);
+			Durin::RHIExit();
+		}
+	}
+}
+
+TEST(FMetalRHITextureTests, BC5AndBC7UploadPitchedBlockRowsAndMipTails)
+{
+	@autoreleasepool
+	{
+		FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+		const auto Candidate = Durin::CreateMetalCppDeviceAndQueue();
+		ASSERT_TRUE(Candidate.Device);
+		const bool bSupportsBC = Candidate.Device->supportsBCTextureCompression();
+		const std::array Formats{
+			std::pair{Durin::EPixelFormat::BC5_UNORM, MTL::PixelFormatBC5_RGUnorm},
+			std::pair{Durin::EPixelFormat::BC5_SNORM, MTL::PixelFormatBC5_RGSnorm},
+			std::pair{Durin::EPixelFormat::BC7_UNORM, MTL::PixelFormatBC7_RGBAUnorm},
+			std::pair{Durin::EPixelFormat::BC7_UNORM_SRGB, MTL::PixelFormatBC7_RGBAUnorm_sRGB}};
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+			FScopedRHIExit Exit;
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			for (const auto& [Format, NativeFormat] : Formats)
+			{
+				SCOPED_TRACE(static_cast<uint32_t>(Format));
+				EXPECT_EQ(Durin::ToMetalPixelFormat(Format), NativeFormat);
+				for (bool bCube : {false, true})
+				{
+					SCOPED_TRACE(bCube);
+					const auto Desc = (bCube
+						? Durin::FRHITextureCreateDesc::CreateCube("Metal BC cube")
+						: Durin::FRHITextureCreateDesc::Create2D("Metal BC material"))
+						.SetExtent(8).SetFormat(Format).SetNumMips(4)
+						.SetFlags(Durin::ETextureCreateFlags::ShaderResource
+							| Durin::ETextureCreateFlags::CPUReadback);
+					EXPECT_EQ(Durin::GDynamicRHI->RHIIsTextureSupported(Desc), bSupportsBC);
+					for (auto Flag : {Durin::ETextureCreateFlags::Storage,
+						Durin::ETextureCreateFlags::RenderTargetable,
+						Durin::ETextureCreateFlags::DepthStencilTargetable,
+						Durin::ETextureCreateFlags::SourceCopy,
+						Durin::ETextureCreateFlags::DestinationCopy})
+					{
+						auto Unsupported = Desc;
+						Unsupported.SetFlags(Desc.Flags | Flag);
+						EXPECT_FALSE(Durin::GDynamicRHI->RHIIsTextureSupported(Unsupported));
+						EXPECT_FALSE(Durin::GDynamicRHI->RHITryCreateTexture(Commands,
+							Unsupported).has_value());
+					}
+					auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
+					if (!bSupportsBC)
+					{
+						EXPECT_FALSE(Created.has_value());
+						continue;
+					}
+					ASSERT_TRUE(Created.has_value());
+					auto Texture = std::move(*Created);
+					EXPECT_EQ(static_cast<Durin::FMetalTexture*>(Texture.GetReference())
+						->GetHandle()->pixelFormat(), NativeFormat);
+					auto View = Durin::GDynamicRHI->RHICreateTextureView(Texture.GetReference(),
+						Durin::MakeDefaultTextureViewDesc(*Texture, Durin::ERHITextureViewUsage::Sampled));
+					ASSERT_TRUE(View);
+					// Sixteen bytes per 4x4 block, with one skipped block and row in the source.
+					constexpr uint32_t SourcePitch = 64;
+					const uint32_t NumLayers = bCube ? Durin::TextureCubeFaceCount : 1;
+					for (bool bExplicitSubmission : {false, true})
+					{
+						SCOPED_TRACE(bExplicitSubmission);
+						Durin::FRHIGPUSyncPointRef Signal;
+						if (bExplicitSubmission)
+							Signal = Commands.BeginGPUSubmission(
+								{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+						std::array<std::array<Durin::FByteBuffer, 4>, Durin::TextureCubeFaceCount> Expected;
+						for (uint32_t Layer = 0; Layer < NumLayers; ++Layer)
+							for (uint32_t Mip = 0; Mip < 4; ++Mip)
+							{
+								const uint32_t Extent = 8u >> Mip;
+								const auto Layout = Durin::GetPixelFormatLayout(Format, Extent, Extent);
+								std::array<std::byte, SourcePitch * 3> Source;
+								for (size_t Index = 0; Index < Source.size(); ++Index)
+									Source[Index] = std::byte((Index * 3 + Layer * 17 + Mip * 11
+										+ (bExplicitSubmission ? 5 : 0)) & 0xff);
+								auto& Bytes = Expected[Layer][Mip];
+								Bytes.resize(Layout.DataSize);
+								for (uint32_t Row = 0; Row < Layout.BlocksHigh; ++Row)
+									std::memcpy(Bytes.data() + Row * Layout.RowPitch,
+										Source.data() + (Row + 1) * SourcePitch + 16, Layout.RowPitch);
+								Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
+									Mip, Layer, {0, 0, 4, 4, Extent, Extent}, SourcePitch, std::span(Source));
+							}
+						if (bExplicitSubmission)
+						{
+							Commands.EndGPUSubmission();
+							Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+								Durin::ERHISubmitFlags::SubmitToGPU);
+							ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+								Durin::ERHIGPUWaitResult::Complete);
+						}
+						for (uint32_t Layer = 0; Layer < NumLayers; ++Layer)
+							for (uint32_t Mip = 0; Mip < 4; ++Mip)
+							{
+								SCOPED_TRACE(Layer);
+								SCOPED_TRACE(Mip);
+								Durin::FByteBuffer Actual;
+								ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+									Commands, Texture.GetReference(), Mip, Layer, Actual));
+								EXPECT_EQ(Actual, Expected[Layer][Mip]);
+							}
+					}
+				}
+			}
 			Durin::RHIExit();
 		}
 	}
