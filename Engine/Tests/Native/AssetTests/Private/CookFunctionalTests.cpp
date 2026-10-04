@@ -1,3 +1,4 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
 #include "Asset/Cook.h"
 #include "Asset/AssetCompilingManager.h"
@@ -340,6 +341,7 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 
 TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookFamilies");
 	const auto Source = Fixture / "Project";
 	std::filesystem::create_directories(Source / "Content");

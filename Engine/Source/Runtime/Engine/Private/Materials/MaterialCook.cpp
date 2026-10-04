@@ -53,7 +53,8 @@ namespace Durin
 			: ERHIFeatureLevel::SM5;
 		const auto Decoded = DecodeMaterialCookedProgramFamily(
 			Bytes,
-			ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")) == ERHIBackend::Metal
+			GetActiveRHIBackend().value_or(
+				ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")).value_or(ERHIBackend::Vulkan)) == ERHIBackend::Metal
 				? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
 			ECookTargetProfile::Game,
 			GetMaterialQualityLevel(), FeatureLevel, {},

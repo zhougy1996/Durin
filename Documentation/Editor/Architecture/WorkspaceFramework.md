@@ -89,7 +89,9 @@ only ownership introduced by that request.
 
 `MainFrame` owns the stable application menu structure. The shell keeps File,
 Edit, Window, and Help as the compact top-level surface, including
-application-owned commands such as About.
+application-owned commands such as About. The Help → About Durin window
+shows the engine version and the active RHI backend reported by RHI, including
+Vulkan after an automatic Metal startup fallback.
 
 Registered workspaces may contribute File, Edit, and Window subcommands but
 cannot add or replace top-level menus. Activating a document changes only the

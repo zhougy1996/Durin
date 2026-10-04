@@ -43,6 +43,7 @@ namespace Durin
 		auto MakeOptions() -> FShaderCompileOptions
 		{
 			FShaderCompileOptions Options;
+			Options.Target = VulkanShaderTarget;
 			Options.VirtualShaderPath = "/ShaderDerivedDataTests/Test";
 			Options.EntryPoints = {"VertexMain", "FragmentMain"};
 			Options.Frequencies = {

@@ -76,6 +76,7 @@ namespace Durin
 					FRHIShaderDesc Desc(Frequency, FXxHash128{Hash, 0});
 					Desc.Target = Target;
 					Desc.CodeFormat = Target.OutputFormat;
+					if (Frequency == EShaderFrequency::Compute) Desc.ComputeThreadGroupSize = {1, 1, 1};
 					return Desc;
 				}())
 			{

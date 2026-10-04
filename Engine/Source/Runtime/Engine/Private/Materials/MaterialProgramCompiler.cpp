@@ -142,7 +142,7 @@ namespace Durin
 		FShaderCompileOptions Options;
 		const bool bMetal = Target
 			? *Target == MetalShaderTarget
-			: ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")) == ERHIBackend::Metal;
+			: Options.Target == MetalShaderTarget;
 		Options.Target = bMetal ? MetalShaderTarget : VulkanShaderTarget;
 		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
 		Options.Frequencies.assign(4, EShaderFrequency::Fragment);

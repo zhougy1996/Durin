@@ -1,3 +1,4 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
 
 #include "Modules/ModuleManager.h"
@@ -18,6 +19,7 @@ namespace Durin
 	TEST(FShaderCookIntegrationTests,
 		ProducesDeterministicCompleteGameLibraryThroughModule)
 	{
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		FShaderOperationResult Error;

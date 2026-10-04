@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "NativeRHIBackendTestSupport.h"
 
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
@@ -243,7 +244,13 @@ namespace Durin
 
 	}
 
-	TEST(FShaderFoundationTests, MaterialShaderTypesRegisterInTheirOwnCategory)
+	class FShaderFoundationTests : public ::testing::Test
+	{
+	protected:
+		Testing::FScopedRHIBackendOverride Backend{"vulkan"};
+	};
+
+	TEST_F(FShaderFoundationTests, MaterialShaderTypesRegisterInTheirOwnCategory)
 	{
 		const auto& Types = FMaterialShaderType::GetTypeList();
 		EXPECT_NE(std::ranges::find(
@@ -263,7 +270,7 @@ namespace Durin
 			GlobalTypes.end());
 	}
 
-	TEST(FShaderFoundationTests, MaterialShaderIdentityIsDeterministicAndOrdered)
+	TEST_F(FShaderFoundationTests, MaterialShaderIdentityIsDeterministicAndOrdered)
 	{
 		FMaterialShaderPermutationIdentity First{
 			.Material = {
@@ -286,7 +293,7 @@ namespace Durin
 		EXPECT_FALSE(GetMaterialShaderIdentityText(First).empty());
 	}
 
-	TEST(FShaderFoundationTests, MaterialShaderMapRetainsTypedRefsAndStableSetIdentity)
+	TEST_F(FShaderFoundationTests, MaterialShaderMapRetainsTypedRefsAndStableSetIdentity)
 	{
 		FShaderType& VertexType = FMaterialFixtureVertexShader::StaticType();
 		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
@@ -349,7 +356,7 @@ namespace Durin
 		EXPECT_EQ(Fragment.GetShader()->GetType(), &FragmentType);
 	}
 
-	TEST(FShaderFoundationTests, MaterialShaderMapRejectsWrongProgramAndEntryPoint)
+	TEST_F(FShaderFoundationTests, MaterialShaderMapRejectsWrongProgramAndEntryPoint)
 	{
 		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
 		const std::array<const FShaderType*, 1> Types{&FragmentType};
@@ -385,7 +392,7 @@ namespace Durin
 		EXPECT_EQ(Error.error().Code, EShaderError::CompiledEntryPointMismatch);
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)
+	TEST_F(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
 		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
@@ -416,7 +423,7 @@ namespace Durin
 		EXPECT_EQ(FragmentShaderRef.GetShader()->GetType(), &FragmentShaderType);
 	}
 
-	TEST(FShaderFoundationTests,
+	TEST_F(FShaderFoundationTests,
 		ComputeShaderTypePublishesTypedStorageAndInputParameters)
 	{
 		FShaderType& Type = FComputePipelineFixtureShader::StaticType();
@@ -435,7 +442,7 @@ namespace Durin
 			ERHIBindingType::UniformBuffer);
 	}
 
-	TEST(FShaderFoundationTests,
+	TEST_F(FShaderFoundationTests,
 		GraphShaderMacrosMarkOnlyReflectedGraphResourceBindings)
 	{
 		const auto* Metadata =
@@ -470,7 +477,7 @@ namespace Durin
 		EXPECT_FALSE(Bindings[3].bGraphResource);
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)
+	TEST_F(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
 		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
@@ -502,7 +509,7 @@ namespace Durin
 		ASSERT_EQ(ShaderMapA.GetMergedPipelineLayout().PushConstantRanges.size(), ShaderMapB.GetMergedPipelineLayout().PushConstantRanges.size());
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapResourceCacheReleasesExpiredEntries)
+	TEST_F(FShaderFoundationTests, ShaderMapResourceCacheReleasesExpiredEntries)
 	{
 		ClearShaderMapResourceCache();
 		FShaderType ShaderType("ReclaimableShader", "/Unit/ReclaimableShader", EShaderFrequency::Vertex, "vertexMain");
@@ -529,7 +536,7 @@ namespace Durin
 		EXPECT_EQ(ReleasedStats.LiveEntryCount, 0u);
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapInitializeSeparatesCachedResourcesForMacroOrBytecodeChanges)
+	TEST_F(FShaderFoundationTests, ShaderMapInitializeSeparatesCachedResourcesForMacroOrBytecodeChanges)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
 		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
@@ -567,7 +574,7 @@ namespace Durin
 		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapBytecodeVariant.GetResource());
 	}
 
-	TEST(FShaderFoundationTests, ShaderMacroDefinitionPreservesPresenceOnlyAndExplicitValueSemantics)
+	TEST_F(FShaderFoundationTests, ShaderMacroDefinitionPreservesPresenceOnlyAndExplicitValueSemantics)
 	{
 		const FShaderMacroDefinition PresenceOnlyMacro("USE_VARIANT");
 		EXPECT_EQ(PresenceOnlyMacro.Name, "USE_VARIANT");
@@ -584,7 +591,7 @@ namespace Durin
 		EXPECT_EQ(MacroValue, "2");
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapCacheKeyDistinguishesPresenceOnlyMacroFromExplicitValue)
+	TEST_F(FShaderFoundationTests, ShaderMapCacheKeyDistinguishesPresenceOnlyMacroFromExplicitValue)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
 		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
@@ -614,7 +621,7 @@ namespace Durin
 		EXPECT_NE(PresenceOnlyShaderMap.GetCacheKey(), ExplicitValueShaderMap.GetCacheKey());
 	}
 
-	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
+	TEST_F(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
 	{
 		auto CompiledShader = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 7);
 		CompiledShader.Target = MetalShaderTarget;
@@ -638,7 +645,7 @@ namespace Durin
 		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code->data(), CreateDesc.Code.size_bytes()), 0);
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapRejectsWrongTargetAndSeparatesIdenticalCode)
+	TEST_F(FShaderFoundationTests, ShaderMapRejectsWrongTargetAndSeparatesIdenticalCode)
 	{
 		FShaderType Type("TargetVertexShader", "/Unit/TargetShader",
 			EShaderFrequency::Vertex, "vertexMain");
@@ -669,7 +676,7 @@ namespace Durin
 		EXPECT_NE(VulkanMap.GetCacheKey(), MetalMap.GetCacheKey());
 	}
 
-	TEST(FShaderFoundationTests, BuildPipelineLayoutFromShadersMergesBindingsAndPushConstants)
+	TEST_F(FShaderFoundationTests, BuildPipelineLayoutFromShadersMergesBindingsAndPushConstants)
 	{
 		FShaderReflectionData VertexReflection;
 		VertexReflection.ResourceBindings.push_back({
@@ -741,7 +748,7 @@ namespace Durin
 		EXPECT_EQ(PipelineLayout.PushConstantRanges[0].StageFlags, EShaderStageFlags::Vertex);
 	}
 
-	TEST(FShaderFoundationTests, BuildPipelineLayoutFromShadersRejectsConflictingBindings)
+	TEST_F(FShaderFoundationTests, BuildPipelineLayoutFromShadersRejectsConflictingBindings)
 	{
 		FShaderReflectionData VertexReflection;
 		VertexReflection.ResourceBindings.push_back({
@@ -774,7 +781,7 @@ namespace Durin
 		EXPECT_EQ(ErrorMessage.error().Code, EShaderError::BindingTypeConflict);
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesReflectionSlots)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsResolvesReflectionSlots)
 	{
 		struct FParameters
 		{
@@ -821,7 +828,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
 	}
 
-	TEST(FShaderFoundationTests, FixedResourceArraysPreserveMetadataAndReflectionCount)
+	TEST_F(FShaderFoundationTests, FixedResourceArraysPreserveMetadataAndReflectionCount)
 	{
 		const FShaderParametersMetadata* Metadata =
 			FArrayFragmentShader::GetOwnParametersMetadata();
@@ -848,7 +855,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].ArraySize, 2u);
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesStorageResources)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsResolvesStorageResources)
 	{
 		struct FParameters
 		{
@@ -892,7 +899,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].BindingIndex, 3u);
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsAllowsDynamicUniformMetadataForConstantBufferReflection)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsAllowsDynamicUniformMetadataForConstantBufferReflection)
 	{
 		struct FParameters
 		{
@@ -924,7 +931,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, SceneUniform));
 	}
 
-	TEST(FShaderFoundationTests, PreparedTypedDeferredRangesKeepLogicalViews)
+	TEST_F(FShaderFoundationTests, PreparedTypedDeferredRangesKeepLogicalViews)
 	{
 		struct FParameters
 		{
@@ -972,7 +979,7 @@ namespace Durin
 		EXPECT_FALSE(PrepareShaderParametersImpl(Shader, ParametersMetadata, Bindings, &Parameters));
 	}
 
-	TEST(FShaderFoundationTests, PreparedTypedParametersSnapshotDynamicUniformArrays)
+	TEST_F(FShaderFoundationTests, PreparedTypedParametersSnapshotDynamicUniformArrays)
 	{
 		struct FParameters { std::array<FRHIUniformBufferRange, 2> Transforms; };
 		const std::array Metadata = {
@@ -1007,7 +1014,7 @@ namespace Durin
 		EXPECT_FALSE(PrepareShaderParametersImpl(Shader.GetReference(), ParametersMetadata, Bindings, &Parameters));
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapInitializeUsesDynamicUniformMetadataInPipelineLayout)
+	TEST_F(FShaderFoundationTests, ShaderMapInitializeUsesDynamicUniformMetadataInPipelineLayout)
 	{
 		struct FParameters
 		{
@@ -1055,7 +1062,7 @@ namespace Durin
 		EXPECT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts[0].BindingLayouts[0].Type, ERHIBindingType::UniformBufferDynamic);
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsMissingReflectionBinding)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsRejectsMissingReflectionBinding)
 	{
 		struct FParameters
 		{
@@ -1076,7 +1083,7 @@ namespace Durin
 		EXPECT_TRUE(Bindings.empty());
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsAllowsMissingOptionalReflectionBinding)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsAllowsMissingOptionalReflectionBinding)
 	{
 		struct FParameters
 		{
@@ -1112,7 +1119,7 @@ namespace Durin
 		EXPECT_EQ(Bindings.front().BindingIndex, 2u);
 	}
 
-	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsTypeMismatch)
+	TEST_F(FShaderFoundationTests, BuildShaderParameterBindingsRejectsTypeMismatch)
 	{
 		struct FParameters
 		{
@@ -1144,7 +1151,7 @@ namespace Durin
 		EXPECT_TRUE(Bindings.empty());
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapInitializeCachesParameterBindingsOnShaderInstance)
+	TEST_F(FShaderFoundationTests, ShaderMapInitializeCachesParameterBindingsOnShaderInstance)
 	{
 		struct FParameters
 		{
@@ -1198,7 +1205,7 @@ namespace Durin
 		EXPECT_EQ(FirstBindings[0].Offset, offsetof(FParameters, FontTexture));
 	}
 
-	TEST(FShaderFoundationTests, ShaderDeclarationMacrosCreateStaticTypesAndParameterMetadata)
+	TEST_F(FShaderFoundationTests, ShaderDeclarationMacrosCreateStaticTypesAndParameterMetadata)
 	{
 		FShaderType& VertexShaderType = FStaticVertexShader::StaticType();
 		FShaderType& FragmentShaderType = FStaticFragmentShader::StaticType();
@@ -1245,7 +1252,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FStaticFragmentShader::FParameters, FontTexture));
 	}
 
-	TEST(FShaderFoundationTests, GlobalShaderDeclarationRegistersExactlyOneTypedImplementation)
+	TEST_F(FShaderFoundationTests, GlobalShaderDeclarationRegistersExactlyOneTypedImplementation)
 	{
 		FGlobalShaderType& VertexType = FGlobalFixtureVertexShader::StaticType();
 		EXPECT_EQ(&VertexType, &FGlobalFixtureVertexShader::StaticType());
@@ -1257,7 +1264,7 @@ namespace Durin
 			FGlobalShaderType::GetTypeList().end());
 	}
 
-	TEST(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
+	TEST_F(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1302,7 +1309,7 @@ namespace Durin
 		EXPECT_TRUE(Fragment);
 	}
 
-	TEST(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)
+	TEST_F(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)
 	{
 		FShaderType& ShaderType = FStorageFragmentShader::StaticType();
 		const auto ParameterMetadata = ShaderType.GetParameterMetadata();
@@ -1315,7 +1322,7 @@ namespace Durin
 		EXPECT_EQ(ParameterMetadata[1].Size, sizeof(FRHITexture*));
 	}
 
-	TEST(FShaderFoundationTests, ShaderDeclarationMacrosUseDefaultAndExplicitTypeNames)
+	TEST_F(FShaderFoundationTests, ShaderDeclarationMacrosUseDefaultAndExplicitTypeNames)
 	{
 		FShaderType& DefaultNamedShaderType = FStaticVertexShader::StaticType();
 		FShaderType& ExplicitNamedShaderType = FNamedShaderAlias::StaticType();
@@ -1324,7 +1331,7 @@ namespace Durin
 		EXPECT_EQ(ExplicitNamedShaderType.GetName(), "ExplicitNamedShader");
 	}
 
-	TEST(FShaderFoundationTests, DerivedShaderDeclarationUsesExplicitSuperAndDoesNotImplicitlyInheritParameters)
+	TEST_F(FShaderFoundationTests, DerivedShaderDeclarationUsesExplicitSuperAndDoesNotImplicitlyInheritParameters)
 	{
 		FShaderType& BaseShaderType = FIntermediateShader::StaticType();
 		FShaderType& DerivedNoParametersType = FDerivedShaderNoParameters::StaticType();
@@ -1375,7 +1382,7 @@ namespace Durin
 		EXPECT_EQ(DerivedWithParametersShader->GetParameterBindings()[0].Offset, offsetof(FDerivedShaderWithParameters::FParameters, FontTexture));
 	}
 
-	TEST(FShaderFoundationTests, ExplicitIncludedParametersAreFlattenedBeforeOwnParameters)
+	TEST_F(FShaderFoundationTests, ExplicitIncludedParametersAreFlattenedBeforeOwnParameters)
 	{
 		FShaderType& IncludedParametersType = FIncludedParametersShader::StaticType();
 		FShaderType& IncludeOnlyType = FExplicitIncludeOnlyShader::StaticType();
@@ -1432,7 +1439,7 @@ namespace Durin
 		EXPECT_EQ(IncludeWithOwnShader->GetParameterBindings()[1].BindingIndex, 5u);
 	}
 
-	TEST(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)
+	TEST_F(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
 		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
@@ -1449,7 +1456,7 @@ namespace Durin
 		EXPECT_EQ(ErrorMessage.error().Code, EShaderError::CompiledEntryPointMismatch);
 	}
 
-	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderDerivedDataCache)
+	TEST_F(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderDerivedDataCache)
 	{
 		const std::string MetaPath = FShaderPaths::MetaPath("/Unit/TestShader", "00112233445566778899aabbccddeeff");
 		const std::string OtherMetaPath = FShaderPaths::MetaPath("/Other/TestShader", "00112233445566778899aabbccddeeff");
@@ -1459,7 +1466,7 @@ namespace Durin
 	}
 
 
-	TEST(FShaderFoundationTests, ShaderLayoutErrorsRetainBindingAndRangeContext)
+	TEST_F(FShaderFoundationTests, ShaderLayoutErrorsRetainBindingAndRangeContext)
 	{
 		std::array<FShaderReflectionData, 2> Reflections;
 		Reflections[0].ResourceBindings.push_back({
@@ -1489,7 +1496,7 @@ namespace Durin
 		EXPECT_TRUE(Layout.PushConstantRanges.empty());
 	}
 
-	TEST(FShaderFoundationTests, ShaderFailureFactoriesOwnContext)
+	TEST_F(FShaderFoundationTests, ShaderFailureFactoriesOwnContext)
 	{
 		const FShaderOperationResult Cancelled = std::unexpected(FShaderError{.Code = EShaderError::Cancelled});
 		ASSERT_FALSE(Cancelled);
@@ -1505,7 +1512,7 @@ namespace Durin
 		EXPECT_EQ(Result.error().FileError->NativeError, NativeError);
 	}
 
-	TEST(FShaderFoundationTests, CaptureLimitFormattingExposesKindPathAndBounds)
+	TEST_F(FShaderFoundationTests, CaptureLimitFormattingExposesKindPathAndBounds)
 	{
 		const FShaderError Error{.Code = EShaderError::CaptureInputLimit,
 			.ActualIdentity = "/Test/large.slang",
@@ -1514,7 +1521,7 @@ namespace Durin
 			"Shader capture file bytes limit exceeded for '/Test/large.slang': maximum 64, actual 65.");
 	}
 
-	TEST(FShaderFoundationTests, ShaderDiagnosticFormattingAndExternalBounds)
+	TEST_F(FShaderFoundationTests, ShaderDiagnosticFormattingAndExternalBounds)
 	{
 		EXPECT_TRUE(FormatShaderError({}).empty());
 		const FShaderError Error{.Code = EShaderError::MissingParameter, .Parameter = "Texture"};
@@ -1526,7 +1533,7 @@ namespace Durin
 		EXPECT_EQ(External.ExternalDiagnostic.size(), 4096u);
 	}
 
-	TEST(FShaderFoundationTests, GenericBuildDiagnosticRetainsSemanticIdentityWithoutParsingText)
+	TEST_F(FShaderFoundationTests, GenericBuildDiagnosticRetainsSemanticIdentityWithoutParsingText)
 	{
 		const auto Original = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -7);
 		const auto Reworded = FShaderError::FromSlang(ESlangShaderError::Code, "changed diagnostic", -7);
@@ -1544,7 +1551,7 @@ namespace Durin
 		EXPECT_EQ(Long.GetSemanticFingerprint(), 0u);
 	}
 
-	TEST(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)
+	TEST_F(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)
 	{
 		const char* Previous = std::getenv("DURIN_RHI_BACKEND");
 		const std::optional<std::string> Saved = Previous
@@ -1557,6 +1564,12 @@ namespace Durin
 			else unsetenv("DURIN_RHI_BACKEND");
 #endif
 		};
+		SetBackend(nullptr);
+#if defined(__APPLE__)
+		EXPECT_EQ(FShaderCompileOptions{}.Target, MetalShaderTarget);
+#else
+		EXPECT_EQ(FShaderCompileOptions{}.Target, VulkanShaderTarget);
+#endif
 		SetBackend("metal");
 		EXPECT_EQ(FShaderCompileOptions{}.Target, MetalShaderTarget);
 		SetBackend("vulkan");

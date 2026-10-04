@@ -1,9 +1,11 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
 
 TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	using namespace Durin;
 	FPackageResourceReadResult Read = std::unexpected(FPackageResourceReadError{
 		.Status = EPackageResourceReadStatus::IoError, .Reason = EPackageResourceReadReason::ShortRead,
@@ -27,6 +29,7 @@ TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
 
 TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -132,6 +135,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 
 TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -334,6 +338,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 
 TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGraphStripping)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	using namespace Durin;
 	InitializeDObjectSystem();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());

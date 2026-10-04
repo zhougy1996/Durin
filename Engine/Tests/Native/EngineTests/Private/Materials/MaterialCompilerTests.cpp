@@ -1440,7 +1440,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	MIR::FCompilerInput Input;
 	Input.IR = MakeDefaultMaterialCompilerIR();
 	Durin::FMaterialOperationResult Error;
-	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget))) << Durin::FormatMaterialError(Error.Error);
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const FGuid Tint{0, 0, 1, 1}, UV{0, 0, 1, 2}, Texture{0, 0, 1, 3}, Amount{0, 0, 1, 4};
 	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector4},

@@ -1,3 +1,4 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "ExplicitMaterialProgramTestFixture.h"
@@ -830,6 +831,7 @@ TEST(FMaterialCompileLifecycleTests,
 TEST(FMaterialCompileLifecycleTests,
 	CookedProgramRoundTripIsDeterministicBoundedAndTargetQualified)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	auto* Material = Durin::NewObject<Durin::DMaterial>(

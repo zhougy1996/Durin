@@ -25,6 +25,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
+#include "RHIGlobals.h"
 #include "Profiling/Profiling.h"
 #include "Settings/HostSettings.h"
 #include "Panels/ConsolePanel.h"
@@ -524,7 +525,7 @@ namespace Durin::Editor::MainFrame
 		{
 			if (!bOpen) return;
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(420.0f), MonaImGui::ScaleUI(170.0f)), ImGuiCond_Appearing);
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(420.0f), MonaImGui::ScaleUI(200.0f)), ImGuiCond_Appearing);
 			const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
 				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 			if (!ImGui::Begin("About Durin###Durin.About", &bOpen, Flags))
@@ -538,6 +539,11 @@ namespace Durin::Editor::MainFrame
 			ImGui::TextDisabled("Version");
 			ImGui::SameLine(MonaImGui::ScaleUI(90.0f));
 			ImGui::Text("%s", GetEngineVersionString().data());
+			ImGui::TextDisabled("RHI Backend");
+			ImGui::SameLine(MonaImGui::ScaleUI(90.0f));
+			const auto Backend = GetActiveRHIBackend();
+			ImGui::TextUnformatted(Backend == ERHIBackend::Metal ? "Metal"
+				: Backend == ERHIBackend::Vulkan ? "Vulkan" : "Unavailable");
 			ImGui::Spacing();
 			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
 			if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bOpen = false;

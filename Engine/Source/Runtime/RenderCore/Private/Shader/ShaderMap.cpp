@@ -8,7 +8,8 @@
 namespace Durin
 {
 	FShaderCompileOptions::FShaderCompileOptions()
-		: Target(ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"))
+		: Target(GetActiveRHIBackend().value_or(
+			ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")).value_or(ERHIBackend::Vulkan))
 			== ERHIBackend::Metal ? MetalShaderTarget : VulkanShaderTarget)
 	{
 	}

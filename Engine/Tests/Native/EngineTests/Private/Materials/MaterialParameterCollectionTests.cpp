@@ -1,3 +1,4 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
@@ -220,6 +221,7 @@ TEST_F(FMaterialParameterCollectionTests,
 TEST_F(FMaterialParameterCollectionTests,
 	DefaultEditReusesShaderIdentityAndCookedProgramRetainsFallbackLayout)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	auto* Collection = Make<DMaterialParameterCollection>("CollectionCook");
 	auto Value = MakeDeclaration("Color", EMaterialParameterType::Vector,
 		FVector4(1.0, 0.0, 0.0, 0.0));

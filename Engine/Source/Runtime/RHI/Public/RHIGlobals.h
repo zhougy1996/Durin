@@ -22,9 +22,13 @@ namespace Durin
 		Metal
 	};
 
-	// Vulkan remains the default. An invalid explicit backend fails startup.
+	// macOS prefers Metal; other platforms prefer Vulkan. Explicit values are strict.
 	RHI_API auto ResolveRHIBackend(const char* ConfiguredBackend)
 		-> std::optional<ERHIBackend>;
+
+	// The successfully initialized production backend, independent of configuration.
+	// Uninitialized RHI and injected test backends have no production identity.
+	RHI_API auto GetActiveRHIBackend() -> std::optional<ERHIBackend>;
 
 	// Resolves DURIN_RHI_EXECUTION semantics. Threaded execution is the normal
 	// path; "inline" remains an explicit diagnostic override. Invalid configured

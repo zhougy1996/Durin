@@ -134,7 +134,13 @@ never published in the immutable `FRHICapabilities` snapshot.
 ## Startup Presentation Ownership
 
 `DURIN_RHI_BACKEND` selects `vulkan` or `metal` explicitly. An unset value
-selects Vulkan; an invalid value fails RHI initialization with a diagnostic.
+prefers Metal on macOS and selects Vulkan on other platforms. In editor builds,
+failed automatic Metal initialization rolls back before retrying Vulkan; an
+explicit selection never falls back. Cooked runtimes keep the selected backend's
+platform/library contract and fail rather than silently changing it. An invalid
+value fails RHI initialization with a diagnostic. `GetActiveRHIBackend` reports
+the successfully initialized production backend; shader compile defaults and
+material targets follow that identity after an editor fallback.
 MetalRHI admits headless or `CAMetalLayer` presentation startup on macOS 27+
 with Apple GPU Family 9+. It creates a native device and one physical queue.
 The Cocoa window installs the layer before RHI startup; Metal retains it during

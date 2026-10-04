@@ -50,6 +50,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		auto MakeCompileOptions() -> FShaderCompileOptions
 		{
 			FShaderCompileOptions Options;
+			Options.Target = VulkanShaderTarget;
 			Options.EntryPoints = {"VertexMain"};
 			Options.Frequencies = {EShaderFrequency::Vertex};
 			return Options;

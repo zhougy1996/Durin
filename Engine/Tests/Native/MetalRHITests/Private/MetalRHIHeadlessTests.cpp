@@ -1,6 +1,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#include "Modules/ModuleTestSupport.h"
 #if DURIN_WITH_EDITOR
 #include "Shader/Shader.h"
 #include "Shader/IShaderBuildModule.h"
@@ -20,7 +21,8 @@ namespace
 			: Name(InName)
 		{
 			if (const char* Previous = std::getenv(InName)) Original = Previous;
-			setenv(InName, Value, 1);
+			if (Value) setenv(InName, Value, 1);
+			else unsetenv(InName);
 		}
 
 		~FScopedEnvironmentVariable()
@@ -1401,3 +1403,63 @@ TEST(FMetalRHIHeadlessTests, GPUTimingAcrossSubmissionsIsReusableAndCancelsAtShu
 		EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Invalid);
 	}
 }
+
+TEST(FMetalRHIHeadlessTests, UnsetBackendDefaultsToMetalInBothExecutionModes)
+{
+	using namespace Durin;
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", nullptr);
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		EXPECT_EQ(GetActiveRHIBackend(), ERHIBackend::Metal);
+#if DURIN_WITH_EDITOR
+		EXPECT_EQ(FShaderCompileOptions{}.Target, MetalShaderTarget);
+#endif
+		RHIExit();
+		EXPECT_FALSE(GetActiveRHIBackend());
+	}
+}
+
+#if DURIN_WITH_EDITOR
+TEST(FMetalRHIHeadlessTests, AutomaticMetalFailureFallsBackAndExplicitMetalRemainsStrict)
+{
+	using namespace Durin;
+	class FUnavailableMetalModule final : public IDynamicRHIModule
+	{
+	public:
+		auto CreateRHI() -> FDynamicRHI* override { return nullptr; }
+		auto SupportsDynamicReloading() const -> bool override { return true; }
+	};
+	for (const char* Mode : {"inline", "threaded"})
+	for (const char* Selection : {static_cast<const char*>(nullptr), "metal"})
+	{
+		SCOPED_TRACE(Mode);
+		SCOPED_TRACE(Selection ? Selection : "automatic");
+		FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", Selection);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_NE(FModuleTestHarness::InstallStartedModule("MetalRHI",
+			std::make_unique<FUnavailableMetalModule>()), nullptr);
+		FScopedRHIExit Exit;
+		if (Selection)
+		{
+			EXPECT_FALSE(RHIInit(FRHIInitializationContext::Headless()));
+			EXPECT_FALSE(GetActiveRHIBackend());
+		}
+		else
+		{
+			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+			EXPECT_EQ(GetActiveRHIBackend(), ERHIBackend::Vulkan);
+			EXPECT_EQ(FShaderCompileOptions{}.Target, VulkanShaderTarget);
+			// Live backend identity wins over a later configuration change.
+			FScopedEnvironmentVariable Override("DURIN_RHI_BACKEND", "metal");
+			EXPECT_EQ(FShaderCompileOptions{}.Target, VulkanShaderTarget);
+			RHIExit();
+			EXPECT_FALSE(GetActiveRHIBackend());
+		}
+		EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("MetalRHI"));
+	}
+}
+#endif

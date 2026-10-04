@@ -186,9 +186,14 @@ namespace Durin
 			ERHIExecutionMode::Threaded);
 	}
 
-	TEST(FRHIInitializationTests, BackendSelectionDefaultsVulkanAndRequiresExactOptIn)
+	TEST(FRHIInitializationTests, BackendSelectionUsesPlatformDefaultAndRequiresExactOverride)
 	{
+#if defined(__APPLE__)
+		EXPECT_EQ(ResolveRHIBackend(nullptr), ERHIBackend::Metal);
+#else
 		EXPECT_EQ(ResolveRHIBackend(nullptr), ERHIBackend::Vulkan);
+#endif
+		EXPECT_FALSE(GetActiveRHIBackend());
 		EXPECT_EQ(ResolveRHIBackend("vulkan"), ERHIBackend::Vulkan);
 		EXPECT_EQ(ResolveRHIBackend("metal"), ERHIBackend::Metal);
 		EXPECT_FALSE(ResolveRHIBackend(""));

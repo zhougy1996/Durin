@@ -1,3 +1,4 @@
+#include "NativeRHIBackendTestSupport.h"
 #include "MaterialFunctionTestSupport.h"
 
 namespace
@@ -29,6 +30,7 @@ namespace
 
 TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProducingRuntimeFunctionPackages)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
@@ -123,6 +125,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 
 TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAndCooksWithoutGraph)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	InitializeDObjectSystem();
@@ -207,6 +210,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 
 TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthoredFunctionAssets)
 {
+	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;

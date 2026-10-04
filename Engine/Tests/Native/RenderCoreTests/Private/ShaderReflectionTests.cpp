@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "NativeRHIBackendTestSupport.h"
 
 #include "Shader/Shader.h"
 #include "SlangShaderCompiler.h"
@@ -202,7 +203,13 @@ namespace Durin
 		}
 	} // namespace
 
-	TEST(FShaderReflectionTests, ReflectsStorageBuffersAndImages)
+	class FShaderReflectionTests : public ::testing::Test
+	{
+	protected:
+		Testing::FScopedRHIBackendOverride Backend{"vulkan"};
+	};
+
+	TEST_F(FShaderReflectionTests, ReflectsStorageBuffersAndImages)
 	{
 		const std::filesystem::path ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "StorageResources.slang";
 		FShaderCompileOptions Options;
@@ -224,7 +231,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[2].Type, ERHIBindingType::StorageImage);
 	}
 
-	TEST(FShaderReflectionTests, TexturePreviewCompilesWithMaterialNormalDecoder)
+	TEST_F(FShaderReflectionTests, TexturePreviewCompilesWithMaterialNormalDecoder)
 	{
 		const auto ShaderPath = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
 			/ "TexturePreview.slang";
@@ -245,7 +252,7 @@ namespace Durin
 	}
 
 #if defined(__APPLE__)
-	TEST(FShaderReflectionTests, MetalTexturePreviewCarriesCheckedNativeBindings)
+	TEST_F(FShaderReflectionTests, MetalTexturePreviewCarriesCheckedNativeBindings)
 	{
 		const auto ShaderPath = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
 			/ "TexturePreview.slang";
@@ -276,7 +283,7 @@ namespace Durin
 		EXPECT_EQ(Fragment.MetalPushConstantBufferSlot, UINT32_MAX);
 	}
 
-	TEST(FShaderReflectionTests, MetalComputeReservesArrayAndPushConstantSlots)
+	TEST_F(FShaderReflectionTests, MetalComputeReservesArrayAndPushConstantSlots)
 	{
 		constexpr std::string_view Source = R"(
 [[vk::binding(0, 0)]] Texture2D<float4> Inputs[2];
@@ -311,7 +318,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 	}
 #endif
 
-	TEST(FShaderReflectionTests, VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
+	TEST_F(FShaderReflectionTests, VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -350,7 +357,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		));
 	}
 
-	TEST(FShaderReflectionTests, VolumetricCloudShadowPublishesMatchedR8VisibilityBindings)
+	TEST_F(FShaderReflectionTests, VolumetricCloudShadowPublishesMatchedR8VisibilityBindings)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -383,7 +390,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Compute, "CloudVisibilityOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
 	}
 
-	TEST(FShaderReflectionTests, VolumetricCloudCompositePublishesDepthAwareReconstructionBindings)
+	TEST_F(FShaderReflectionTests, VolumetricCloudCompositePublishesDepthAwareReconstructionBindings)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -408,7 +415,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "Params", 4, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests, VolumetricCloudTemporalPublishesTypedHistoryBindings)
+	TEST_F(FShaderReflectionTests, VolumetricCloudTemporalPublishesTypedHistoryBindings)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -432,7 +439,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "Params", 3, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests, FragmentDepthOutputCompilesWithoutPipelineBindings)
+	TEST_F(FShaderReflectionTests, FragmentDepthOutputCompilesWithoutPipelineBindings)
 	{
 		const std::filesystem::path ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "FragmentDepth.slang";
 		FShaderCompileOptions Options;
@@ -457,7 +464,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 
-	TEST(FShaderReflectionTests, ErrorTerminalPreservesVertexAbiWithoutFragmentDescriptors)
+	TEST_F(FShaderReflectionTests, ErrorTerminalPreservesVertexAbiWithoutFragmentDescriptors)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -515,7 +522,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		EXPECT_EQ(SetLayout[0].StageFlags, EShaderStageFlags::Vertex);
 	}
 
-	TEST(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
+	TEST_F(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -562,7 +569,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		}
 	}
 
-	TEST(FShaderReflectionTests, GBufferDebugDecodesAllAttachmentsAndDepth)
+	TEST_F(FShaderReflectionTests, GBufferDebugDecodesAllAttachmentsAndDepth)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -589,7 +596,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests, ContactVisibilityFreezesGBufferInputAbi)
+	TEST_F(FShaderReflectionTests, ContactVisibilityFreezesGBufferInputAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -619,7 +626,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Fragment, "Params", 5, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
-	TEST(FShaderReflectionTests, ContactVisibilityComputeFreezesR8StorageAbi)
+	TEST_F(FShaderReflectionTests, ContactVisibilityComputeFreezesR8StorageAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -646,7 +653,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ExpectBinding(Compute, "ContactVisibilityOutput", 6, ERHIBindingType::StorageImage, EShaderStageFlags::Compute);
 	}
 
-	TEST(FShaderReflectionTests, DeferredDirectionalLightingFreezesPublishedInputAbi)
+	TEST_F(FShaderReflectionTests, DeferredDirectionalLightingFreezesPublishedInputAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)

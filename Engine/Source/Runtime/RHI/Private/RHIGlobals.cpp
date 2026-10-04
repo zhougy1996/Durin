@@ -18,19 +18,16 @@ namespace Durin
 				== ERHIExecutionMode::Threaded;
 		}
 
-		auto CreateDynamicRHI() -> FDynamicRHI*
+		auto CreateDynamicRHI(ERHIBackend Backend) -> FDynamicRHI*
 		{
-			const std::optional<ERHIBackend> Backend =
-				ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"));
-			if (!Backend) return nullptr;
 #if !defined(__APPLE__)
-			if (*Backend == ERHIBackend::Metal)
+			if (Backend == ERHIBackend::Metal)
 			{
 				DURIN_ERROR("MetalRHI requires macOS on Apple Silicon.");
 				return nullptr;
 			}
 #endif
-			const char* ModuleName = *Backend == ERHIBackend::Metal
+			const char* ModuleName = Backend == ERHIBackend::Metal
 				? "MetalRHI" : "VulkanRHI";
 			IDynamicRHIModule* DynamicRHIModule =
 				FModuleManager::LoadModule<IDynamicRHIModule>(ModuleName);
@@ -198,7 +195,14 @@ namespace Durin
 	auto ResolveRHIBackend(const char* ConfiguredBackend)
 		-> std::optional<ERHIBackend>
 	{
-		if (!ConfiguredBackend) return ERHIBackend::Vulkan;
+		if (!ConfiguredBackend)
+		{
+#if defined(__APPLE__)
+			return ERHIBackend::Metal;
+#else
+			return ERHIBackend::Vulkan;
+#endif
+		}
 		const std::string_view Name(ConfiguredBackend);
 		if (Name == "vulkan") return ERHIBackend::Vulkan;
 		if (Name == "metal") return ERHIBackend::Metal;
@@ -208,6 +212,14 @@ namespace Durin
 		return std::nullopt;
 	}
 
+	auto GetActiveRHIBackend() -> std::optional<ERHIBackend>
+	{
+		if (!GDynamicRHI || !GDynamicRHI->RHIGetCapabilities() || !GOwnedBackendModuleName)
+			return std::nullopt;
+		return std::string_view(GOwnedBackendModuleName) == "MetalRHI"
+			? ERHIBackend::Metal : ERHIBackend::Vulkan;
+	}
+
 	auto RHIInit(FRHIInitializationContext Context) -> bool
 	{
 		if (GDynamicRHI || RHIThreadOwner)
@@ -215,12 +227,26 @@ namespace Durin
 			DURIN_ERROR("Cannot initialize RHI more than once.");
 			return false;
 		}
-		FDynamicRHI* Backend = CreateDynamicRHI();
-		if (!Backend && !GOwnedBackendModuleName) return false;
-		return InitializeRHI(
-			Backend, UseThreadedRHIExecution(), false,
-			GOwnedBackendModuleName != nullptr,
-			std::move(Context));
+		const char* ConfiguredBackend = std::getenv("DURIN_RHI_BACKEND");
+		const auto SelectedBackend = ResolveRHIBackend(ConfiguredBackend);
+		if (!SelectedBackend) return false;
+		const auto TryInitialize = [&](ERHIBackend Selection) {
+			FDynamicRHI* Backend = CreateDynamicRHI(Selection);
+			if (!Backend && !GOwnedBackendModuleName) return false;
+			return InitializeRHI(Backend, UseThreadedRHIExecution(), false,
+				GOwnedBackendModuleName != nullptr, Context);
+		};
+		if (TryInitialize(*SelectedBackend)) return true;
+#if defined(__APPLE__) && DURIN_WITH_EDITOR
+		// Authored editor shaders can follow the actual backend after rollback.
+		// Cooked runtimes retain their explicit platform/library contract.
+		if (!ConfiguredBackend && *SelectedBackend == ERHIBackend::Metal)
+		{
+			DURIN_WARN("Default MetalRHI initialization failed; retrying with VulkanRHI.");
+			return TryInitialize(ERHIBackend::Vulkan);
+		}
+#endif
+		return false;
 	}
 
 	auto GetRHIReleaseResourcesDelegate()
