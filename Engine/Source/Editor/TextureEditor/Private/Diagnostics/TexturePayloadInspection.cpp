@@ -336,8 +336,7 @@ namespace Durin
 			.Diagnostic = bImportedDataValid
 				? "Canonical imported pixels are authored; the optional source hint was not probed."
 				: "Canonical imported pixels are missing or invalid."});
-		const FTexture2DCompilationDiagnostic Compilation =
-			GetTexture2DCompilationDiagnostic(Texture);
+		const FTexture2DBuildStatus Compilation = GetTexture2DBuildStatus(Texture);
 		const FTexturePlatformData* PlatformData =
 			Texture.GetPlatformData();
 		const bool bPlatformReady = PlatformData && PlatformData->IsValid();
@@ -353,7 +352,7 @@ namespace Durin
 			.DomainSchemaVersion = TexturePayloadSchemaVersion,
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
-			.Diagnostic = FormatTexture2DCompilationError(Compilation.Error)});
+			.Diagnostic = Compilation.FailureMessage});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent

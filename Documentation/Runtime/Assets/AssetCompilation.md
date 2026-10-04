@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, MeshBuilder
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-05
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -213,6 +213,12 @@ are ready.
 accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
 GameThread. Rejection before acceptance is returned synchronously without
 invoking completion.
+
+`GetTexture2DBuildStatus` supplies the editor with the current phase, pending
+state and a user-facing failure message. Terminal status reflects GameThread
+result application as well as worker execution; a new request clears the old
+failure. The detailed compilation diagnostic remains available for tests and
+investigation. `Ready` means CPU platform data was applied, not GPU readiness.
 
 A new request for an object with active work cancels the old worker and
 completes the old observer as `Superseded`. A late worker result for that

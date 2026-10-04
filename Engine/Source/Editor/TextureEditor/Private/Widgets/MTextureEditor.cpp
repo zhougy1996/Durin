@@ -361,17 +361,15 @@ namespace Durin::Editor::Texture
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
 
-		const FTexture2DCompilationDiagnostic Diagnostic =
-			GetTexture2DCompilationDiagnostic(*Texture);
-		const bool bPending = HasPendingTexture2DCompilation(*Texture);
+		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
 		const bool bReady = Texture->HasPlatformData();
-		const std::string StatusName = bPending ? DescribeBuildPhase(Diagnostic.Phase)
-			: bReady ? "CPU Ready" : "Not Built";
-		const ImVec4 StatusColor = bReady
-			? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
-			: (!bPending
-				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
-				: ImVec4(1.0f, 0.48f, 0.35f, 1.0f));
+		const bool bFailed = Status.Phase == ETexture2DCompilationPhase::Failed;
+		const std::string StatusName = Status.bPending ? DescribeBuildPhase(Status.Phase)
+			: bFailed ? "Build Failed" : bReady ? "CPU Ready" : "Not Built";
+		const ImVec4 StatusColor = bFailed
+			? ImVec4(1.0f, 0.48f, 0.35f, 1.0f)
+			: bReady ? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
+			: ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
 		const float StatusWidth = ImGui::CalcTextSize(StatusName.c_str()).x;
 		const float RightX = ImGui::GetWindowContentRegionMax().x - StatusWidth;
 		if (ImGui::GetCursorPosX() < RightX)
@@ -434,14 +432,11 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawBuildReadiness(DTexture2D* Texture) -> void
 	{
-		const FTexture2DCompilationDiagnostic Diagnostic =
-			GetTexture2DCompilationDiagnostic(*Texture);
-		if (Diagnostic.Phase == ETexture2DCompilationPhase::None
-			|| Diagnostic.Phase == ETexture2DCompilationPhase::Ready) return;
-		const bool bPending = HasPendingTexture2DCompilation(*Texture);
-		const ImVec4 PhaseColor = Diagnostic.Phase == ETexture2DCompilationPhase::Failed
+		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
+		if (!Status.bPending) return;
+		const ImVec4 PhaseColor = Status.Phase == ETexture2DCompilationPhase::Failed
 			? ImVec4(1.0f, 0.42f, 0.32f, 1.0f)
-			: Diagnostic.Phase == ETexture2DCompilationPhase::Cancelled
+			: Status.Phase == ETexture2DCompilationPhase::Cancelled
 				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
 				: ImVec4(0.42f, 0.72f, 1.0f, 1.0f);
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.11f, 0.16f, 0.65f));
@@ -449,35 +444,19 @@ namespace Durin::Editor::Texture
 			"TextureBuildReadiness",
 			ImVec2(0, 0),
 			ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
-		ImGui::TextColored(PhaseColor, "%s", DescribeBuildPhase(Diagnostic.Phase));
-		ImGui::TextDisabled(
-			"Request %llu  Request Serial %llu",
-			static_cast<unsigned long long>(Diagnostic.RequestId),
-			static_cast<unsigned long long>(Diagnostic.RequestSerial));
-		if (Diagnostic.QueuedNanoseconds > 0)
-			ImGui::Text("Queue: %.2f ms", Diagnostic.QueuedNanoseconds / 1'000'000.0);
-		if (Diagnostic.Metrics.WorkerNanoseconds > 0)
-			ImGui::Text("Worker: %.2f ms", Diagnostic.Metrics.WorkerNanoseconds / 1'000'000.0);
-		ImGui::Text(
-			"Estimated: %s  Result: %s",
-			StringUtils::FormatByteSize(Diagnostic.Metrics.EstimatedBytes).c_str(),
-			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
-		if (Diagnostic.Error.HasError())
-			ImGui::TextWrapped("%s", FormatTexture2DCompilationError(Diagnostic.Error).c_str());
-		if (bPending)
+		ImGui::TextColored(PhaseColor, "%s", DescribeBuildPhase(Status.Phase));
+		if (!Status.FailureMessage.empty())
+			ImGui::TextWrapped("%s", Status.FailureMessage.c_str());
+		if (ImGui::Button("Cancel Build"))
+			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+		ImGui::SameLine();
+		if (ImGui::Button("Wait for Build"))
 		{
-			if (ImGui::Button("Cancel Build"))
-				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
-			ImGui::SameLine();
-			if (ImGui::Button("Wait for Build"))
+			if (!WaitForTexture2DCompilation(*Texture))
 			{
-				if (!WaitForTexture2DCompilation(*Texture))
-				{
-					const FTexture2DCompilationDiagnostic Completed =
-						GetTexture2DCompilationDiagnostic(*Texture);
-					SetError(!Completed.Error.HasError()
-						? "The texture build did not complete." : FormatTexture2DCompilationError(Completed.Error));
-				}
+				const FTexture2DBuildStatus Completed = GetTexture2DBuildStatus(*Texture);
+				SetError(Completed.FailureMessage.empty()
+					? "The texture build did not complete." : Completed.FailureMessage);
 			}
 		}
 		ImGui::EndChild();
@@ -503,14 +482,13 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
-		const FTexture2DCompilationDiagnostic Diagnostic =
-			GetTexture2DCompilationDiagnostic(*Texture);
+		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
 		const bool bResourceFailed = Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed;
-		if (Diagnostic.Phase != ETexture2DCompilationPhase::Failed
+		if (Status.Phase != ETexture2DCompilationPhase::Failed
 			&& !bResourceFailed) return;
 		const char* Title = "Build Error";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
-		std::string Message = FormatTexture2DCompilationError(Diagnostic.Error);
+		std::string Message = Status.FailureMessage;
 		if (bResourceFailed)
 		{
 			Title = "GPU Texture Update Failed";

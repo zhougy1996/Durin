@@ -595,6 +595,49 @@ TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
 	}), 256);
 }
 
+TEST(FTexture2DTests, BuildStatusReportsApplicationFailureAndClearsOnRetry)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/BuildStatusRetry", Path));
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+		Durin::CreatePackage(Path), Durin::FName("BuildStatusRetry"));
+	ASSERT_NE(Texture, nullptr);
+	auto Image = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4));
+	ASSERT_TRUE(Image);
+	Durin::FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image->GetView(), 4));
+	const auto Submit = [&] {
+		auto Build = Durin::MakeTexture2DBuildRequest(Source).value();
+		Build.bPersistDerivedData = false;
+		return Durin::SubmitTexture2DCompilation(*Texture, {.Build = std::move(Build)});
+	};
+	ASSERT_TRUE(Submit());
+	EXPECT_TRUE(Durin::GetTexture2DBuildStatus(*Texture).bPending);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	const auto Failed = Durin::GetTexture2DBuildStatus(*Texture);
+	EXPECT_FALSE(Failed.bPending);
+	EXPECT_EQ(Failed.Phase, Durin::ETexture2DCompilationPhase::Failed);
+	EXPECT_EQ(Failed.FailureMessage,
+		"Texture2D build result does not match the source selected for commit.");
+	EXPECT_EQ(Durin::GetTexture2DCompilationDiagnostic(*Texture).Error.Code,
+		Durin::ETexture2DCompilationError::SourceMismatch);
+
+	Texture->SetSource(Source.CopyTornOff());
+	ASSERT_TRUE(Submit());
+	const auto Retrying = Durin::GetTexture2DBuildStatus(*Texture);
+	EXPECT_TRUE(Retrying.bPending);
+	EXPECT_TRUE(Retrying.FailureMessage.empty());
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	const auto Ready = Durin::GetTexture2DBuildStatus(*Texture);
+	EXPECT_FALSE(Ready.bPending);
+	EXPECT_EQ(Ready.Phase, Durin::ETexture2DCompilationPhase::Ready);
+	EXPECT_TRUE(Ready.FailureMessage.empty());
+}
+
 TEST(FTexture2DTests, PlatformCacheIsDeferredIdempotentAndFinishesOnlySelectedTexture)
 {
 	InitializeDObjectSystem();

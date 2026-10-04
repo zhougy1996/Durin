@@ -50,12 +50,22 @@ namespace Durin
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 	};
 
+	// Small object-level snapshot for editor progress and failure presentation.
+	struct FTexture2DBuildStatus
+	{
+		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
+		bool bPending = false;
+		std::string FailureMessage;
+	};
+
 	ENGINE_API auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
 		FTexture2DCompilationCompletion Completion = {}) -> std::expected<void, FTexture2DCompilationError>;
 	ENGINE_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic;
+	ENGINE_API auto GetTexture2DBuildStatus(const DTexture2D& Texture)
+		-> FTexture2DBuildStatus;
 	ENGINE_API auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool;
 	ENGINE_API auto WaitForTexture2DCompilation(
 		DTexture2D& Texture,
