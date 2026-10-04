@@ -28,9 +28,15 @@ static_assert(std::is_constructible_v<Durin::FMacOSPresentationTarget, void*, CA
 @property(nonatomic) BOOL FailNextDrawable;
 @property(nonatomic) NSUInteger AcquisitionCount;
 @property(nonatomic) NSUInteger SuccessfulAcquisitionCount;
+@property(nonatomic) NSUInteger SyncChangeCount;
 @end
 
 @implementation FMetalQualificationLayer
+- (void)setDisplaySyncEnabled:(BOOL)Enabled
+{
+	++self.SyncChangeCount;
+	[super setDisplaySyncEnabled:Enabled];
+}
 - (id<CAMetalDrawable>)nextDrawable
 {
 	++self.AcquisitionCount;
@@ -1093,6 +1099,68 @@ TEST(FMetalRHIViewportTests, FirstPresentUnblocksEditorOnlyAfterDrawableSubmissi
 		EXPECT_EQ(Layer.SuccessfulAcquisitionCount, 1u);
 		EXPECT_GE(Durin::Profiling::GetStartupMilestoneMilliseconds(
 			EStartupMilestone::FirstPresent), 0.0);
+	}
+}
+
+TEST(FMetalRHIViewportTests, PresentationPolicyAppliesAtDrawingBoundariesInBothExecutionModes)
+{
+	using namespace Durin;
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	for (const auto InitialPolicy : {EViewportPresentationPolicy::FramePaced,
+		EViewportPresentationPolicy::Unsynchronized, EViewportPresentationPolicy::BestEffort})
+	{
+		SCOPED_TRACE(Mode);
+		SCOPED_TRACE(static_cast<int>(InitialPolicy));
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		@autoreleasepool
+		{
+			FMetalQualificationLayer* Layer = [FMetalQualificationLayer layer];
+			void* Handle = (__bridge void*)Layer;
+			const FRHIPresentationTarget Target{.PlatformTarget =
+				std::make_shared<FMacOSPresentationTarget>(Handle,
+					reinterpret_cast<CA::MetalLayer*>(Handle))};
+			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Presentation(Target)));
+			FScopedRHIExit Exit;
+			FRHIViewportCreateInfo Info;
+			Info.PresentationTarget = Target;
+			Info.SizeX = 8;
+			Info.SizeY = 8;
+			Info.PresentationPolicy = InitialPolicy;
+			auto Viewport = GDynamicRHI->RHICreateViewport(Info);
+			ASSERT_TRUE(Viewport);
+			const bool bInitialSync = InitialPolicy == EViewportPresentationPolicy::FramePaced;
+			EXPECT_EQ(bool(Layer.displaySyncEnabled), bInitialSync);
+			const auto InitialMode = bInitialSync ? EViewportPresentMode::Fifo : EViewportPresentMode::Immediate;
+			EXPECT_EQ(Viewport->GetPresentMode(), InitialMode);
+			const auto NextPolicy = bInitialSync ? EViewportPresentationPolicy::Unsynchronized
+				: EViewportPresentationPolicy::FramePaced;
+			Viewport->RequestPresentationPolicy(NextPolicy);
+			EXPECT_EQ(Viewport->GetPresentMode(), InitialMode);
+			EXPECT_EQ(bool(Layer.displaySyncEnabled), bInitialSync);
+			auto& Commands = FRHICommandListImmediate::Get();
+			Commands.BeginDrawingViewport(Viewport.GetReference(), nullptr);
+			Commands.EndDrawingViewport(Viewport.GetReference(), false, bInitialSync);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(bool(Layer.displaySyncEnabled), !bInitialSync);
+			EXPECT_EQ(Viewport->GetPresentMode(), bInitialSync ? EViewportPresentMode::Immediate : EViewportPresentMode::Fifo);
+			const NSUInteger SyncChanges = Layer.SyncChangeCount;
+			Viewport->RequestPresentationPolicy(NextPolicy);
+			Commands.BeginDrawingViewport(Viewport.GetReference(), nullptr);
+			Commands.EndDrawingViewport(Viewport.GetReference(), false, bInitialSync);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(Layer.SyncChangeCount, SyncChanges);
+			// Present-only commands must apply requests too, without the legacy bool overriding policy.
+			Viewport->RequestPresentationPolicy(InitialPolicy);
+			Layer.FailNextDrawable = YES;
+			Commands.EndDrawingViewport(Viewport.GetReference(), true, !bInitialSync);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(bool(Layer.displaySyncEnabled), bInitialSync);
+			EXPECT_EQ(Viewport->GetPresentMode(), InitialMode);
+			EXPECT_EQ(Layer.SyncChangeCount, SyncChanges + 1);
+			Viewport = nullptr;
+			RHIExit();
+		}
 	}
 }
 

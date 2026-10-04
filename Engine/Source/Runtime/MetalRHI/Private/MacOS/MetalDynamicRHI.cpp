@@ -275,7 +275,7 @@ namespace Durin
 						? EPixelFormat::BGRA8_UNORM
 						: EPixelFormat::SBGRA8_UNORM;
 				auto Viewport = MakeRefCount<FMetalViewport>(
-					Device, std::move(Layer), Info.SizeX, Info.SizeY, Format);
+					Device, std::move(Layer), Info.SizeX, Info.SizeY, Format, Info.PresentationPolicy);
 				if (!Viewport->SnapshotBackBuffer()) return nullptr;
 				if (Info.bAdoptInitializationPresentationCandidate)
 				{

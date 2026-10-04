@@ -320,12 +320,13 @@ namespace Durin
 			auto RHIBeginDrawingViewport(FRHIViewport* Viewport,
 				FRHITexture*) -> void override
 			{
-				requiref(State && dynamic_cast<FMetalViewport*>(Viewport)
-					&& !Active && !RenderEncoder,
+				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
+				requiref(State && MetalViewport && !Active && !RenderEncoder,
 					"Metal viewport drawing requires an idle context and viewport.");
+				MetalViewport->ApplyRequestedPresentationPolicy();
 			}
 			auto RHIEndDrawingViewport(FRHIViewport* Viewport,
-				bool bPresent, bool bLockToVsync) -> void override
+				bool bPresent, bool) -> void override
 			{
 				const FMetalAutoreleasePool Pool;
 				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
@@ -336,7 +337,7 @@ namespace Durin
 				auto BackBuffer = MetalViewport->SnapshotBackBuffer();
 				if (!BackBuffer) return;
 				auto* Layer = MetalViewport->GetLayer();
-				Layer->setDisplaySyncEnabled(bLockToVsync);
+				MetalViewport->ApplyRequestedPresentationPolicy();
 				auto Drawable = [&]() {
 					DURIN_PROFILE_CPU_ZONE_NAMED("Metal.Present.AcquireDrawable");
 					return NS::RetainPtr(Layer->nextDrawable());

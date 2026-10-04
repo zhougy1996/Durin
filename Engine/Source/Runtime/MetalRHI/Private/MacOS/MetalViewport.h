@@ -5,6 +5,7 @@
 #include "MetalTexture.h"
 #include "MetalResourceDescriptors.h"
 #include "RHIResources.h"
+#include "RHIPresentation.h"
 #include <QuartzCore/QuartzCore.hpp>
 
 namespace Durin
@@ -13,13 +14,15 @@ namespace Durin
 	{
 	public:
 		FMetalViewport(NS::SharedPtr<MTL::Device> InDevice, NS::SharedPtr<CA::MetalLayer> InLayer,
-			uint32 Width, uint32 Height, EPixelFormat InFormat)
-			: Device(std::move(InDevice)), Layer(std::move(InLayer)), Format(InFormat)
+			uint32 Width, uint32 Height, EPixelFormat InFormat, EViewportPresentationPolicy InPolicy)
+			: Device(std::move(InDevice)), Layer(std::move(InLayer)), Format(InFormat),
+			  RequestedPresentationPolicy(InPolicy)
 		{
 			Layer->setDevice(Device.get());
 			Layer->setPixelFormat(ToMetalPixelFormat(Format));
 			Layer->setFramebufferOnly(false);
 			Resize(Width, Height);
+			ApplyRequestedPresentationPolicy();
 		}
 		~FMetalViewport() override
 		{
@@ -56,6 +59,29 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			return BackBuffer;
 		}
+		auto RequestPresentationPolicy(EViewportPresentationPolicy Policy) -> void override
+		{ RequestedPresentationPolicy.store(Policy, std::memory_order_relaxed); }
+		auto GetPresentMode() const -> EViewportPresentMode override
+		{ return PublishedPresentMode.load(std::memory_order_relaxed); }
+		// Apply on the native drawing boundary, never on the application-thread request.
+		auto ApplyRequestedPresentationPolicy() -> void
+		{
+			const auto Policy = RequestedPresentationPolicy.load(std::memory_order_relaxed);
+			std::lock_guard Lock(Mutex);
+			if (AppliedPresentationPolicy == Policy) return;
+			const FMetalAutoreleasePool Pool;
+			const bool bSync = Policy == EViewportPresentationPolicy::FramePaced;
+			Layer->setDisplaySyncEnabled(bSync);
+			const bool bActualSync = Layer->displaySyncEnabled();
+			PublishedPresentMode.store(BackBuffer
+				? (bActualSync ? EViewportPresentMode::Fifo : EViewportPresentMode::Immediate)
+				: EViewportPresentMode::Unavailable, std::memory_order_relaxed);
+			AppliedPresentationPolicy = Policy;
+			DURIN_INFO("Metal viewport presentation: policy={}, requestedSync={}, displaySyncEnabled={}, maximumDrawableCount={}.",
+				Policy == EViewportPresentationPolicy::FramePaced ? "FramePaced"
+					: Policy == EViewportPresentationPolicy::Unsynchronized ? "Unsynchronized" : "BestEffort",
+				bSync, bActualSync, Layer->maximumDrawableCount());
+		}
 		auto GetLayer() const -> CA::MetalLayer* { return Layer.get(); }
 		auto GetFormat() const -> EPixelFormat override { return Format; }
 	private:
@@ -64,6 +90,9 @@ namespace Durin
 		EPixelFormat Format;
 		mutable std::mutex Mutex;
 		FTextureRHIRef BackBuffer;
+		std::atomic<EViewportPresentationPolicy> RequestedPresentationPolicy;
+		std::optional<EViewportPresentationPolicy> AppliedPresentationPolicy;
+		std::atomic<EViewportPresentMode> PublishedPresentMode{EViewportPresentMode::Unavailable};
 	};
 
 }
