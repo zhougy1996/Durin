@@ -66,7 +66,7 @@ for `GraphicsShaderRead` before Scene Color. They force filled
 rasterization even for Wireframe camera views. For shadow texel world size
 `t = max(texel.x, texel.y)`, raster constant/slope/clamp bias is
 `clamp(1+2t,1,1.5)`, `clamp(1.25+t,1.25,2)`, and
-`clamp(2+8t,2,4)` respectively. Non-finite input retains the bounded
+`clamp(2+8t,2,4)` respectively before light-specific strength multipliers. Non-finite input retains the bounded
 1.25/1.75/4.0 fallback. Vulkan enables `depthBiasClamp` when the physical
 device exposes it. Opaque casters use a no-output depth fragment entry point,
 while Masked casters use a depth-only fragment entry point that performs
@@ -108,11 +108,23 @@ packing.
 
 One shared Slang helper consumes production world position and the geometric
 normal; the mapped shading normal remains exclusive to BRDF evaluation.
-Receiver-world and receiver-normal displacement are explicitly disabled
-(`R=0`, `N=0`) while each policy is qualified independently against contact
-and motion gates. The helper applies a normalized-depth `0.00005` comparison
-bias with forward-depth `LessOrEqual`; invalid or outside projection
-remains fully lit. Only the
+The directional-light component exposes serialized `Depth Bias`, `Slope Bias`,
+and `Normal Bias` properties in its `Shadows` category. Depth and slope are
+strength multipliers with defaults of `1`; normal bias defaults to `0`.
+Each strength is clamped to `[0,4]`, and non-finite values restore its default.
+Edits publish a detached light snapshot through the ordinary render-state update.
+Depth scales both raster constant bias and the normalized-depth `0.00005`
+receiver comparison bias; slope scales raster slope bias. Raster clamp remains
+automatic. Receiver-world displacement stays disabled (`R=0`). Normal strength
+requests `t * strength` world units, bounded by `min(0.75*t, 0.08)` per cascade.
+The shared shader further scales this offset by `sqrt(1-cosine*cosine)` using
+the absolute geometric-normal/light cosine, projects the displaced receiver,
+and then applies comparison bias. Normal maps do not affect this displacement.
+The existing cascade `TexelBias` vector stores texel world size in XY,
+normalized comparison bias in Z, and bounded normal world offset in W;
+uniform sizes and descriptor layouts remain unchanged. Default settings retain
+the previous production bias and disable normal displacement. With forward-depth
+`LessOrEqual`, invalid or outside projection remains fully lit. Only the
 selected directional direct-light term is attenuated. Local lights,
 environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
 

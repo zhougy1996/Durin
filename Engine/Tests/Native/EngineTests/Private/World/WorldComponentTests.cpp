@@ -45,6 +45,9 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 	EXPECT_FLOAT_EQ(SceneData.Intensity, 0.0f);
 	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.0f);
 	EXPECT_TRUE(SceneData.bCastShadows);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Depth, 1.0f);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Slope, 1.0f);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Normal, 0.0f);
 
 	Durin::DWorld* World = CreateWorld();
 	Durin::ADirectionalLightActor* Light = World->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
@@ -94,6 +97,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	ASSERT_NE(ColorProperty, nullptr);
 	*ColorProperty->ContainerPtrToValuePtr<Durin::FLinearColor>(Light->GetLightComponent()) = Durin::FLinearColor(0.1f, 0.35f, 0.8f, 1.0f);
 	Light->GetLightComponent()->SetCastShadows(false);
+	Light->GetLightComponent()->SetShadowBias(0.5f, 0.75f, 0.25f);
 
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
@@ -111,7 +115,42 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	EXPECT_NEAR(SceneData.Color.g, 0.35f, 1.e-6f);
 	EXPECT_NEAR(SceneData.Color.b, 0.8f, 1.e-6f);
 	EXPECT_FALSE(SceneData.bCastShadows);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Depth, 0.5f);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Slope, 0.75f);
+	EXPECT_FLOAT_EQ(SceneData.ShadowBias.Normal, 0.25f);
 	EXPECT_TRUE(Durin::UnloadPackage(Path));
+}
+
+TEST(FDirectionalLightTests, ShadowBiasPropertiesValidateAuthoredValues)
+{
+	using namespace Durin;
+	DWorld* World = CreateWorld();
+	auto* Actor = World->SpawnActor<ADirectionalLightActor>("BiasedLight");
+	ASSERT_NE(Actor, nullptr);
+	auto* Light = Actor->GetLightComponent();
+	Light->SetShadowBias(-1.0f, 9.0f, std::numeric_limits<float>::infinity());
+	const auto SetterData = Light->GetSceneData();
+	EXPECT_FLOAT_EQ(SetterData.ShadowBias.Depth, 0.0f);
+	EXPECT_FLOAT_EQ(SetterData.ShadowBias.Slope, 4.0f);
+	EXPECT_FLOAT_EQ(SetterData.ShadowBias.Normal, 0.0f);
+	for (const char* Name : {"ShadowDepthBias", "ShadowSlopeBias", "ShadowNormalBias"})
+	{
+		auto* Property = DDirectionalLightComponent::StaticClass()->FindPropertyByName(Name);
+		ASSERT_NE(Property, nullptr);
+		const auto& Metadata = Property->GetTypedMetadata();
+		EXPECT_EQ(Metadata.Category, "Shadows");
+		EXPECT_FALSE(Metadata.DisplayName.empty());
+		EXPECT_FLOAT_EQ(Metadata.ClampMin.Float, 0.0f);
+		EXPECT_FLOAT_EQ(Metadata.ClampMax.Float, 4.0f);
+		*Property->ContainerPtrToValuePtr<float>(Light) =
+			std::numeric_limits<float>::quiet_NaN();
+	}
+	const auto EditedData = Light->GetSceneData();
+	EXPECT_FLOAT_EQ(EditedData.ShadowBias.Depth, 1.0f);
+	EXPECT_FLOAT_EQ(EditedData.ShadowBias.Slope, 1.0f);
+	EXPECT_FLOAT_EQ(EditedData.ShadowBias.Normal, 0.0f);
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage();
 }
 
 TEST(FLocalLightTests, PointAndSpotActorsNormalizeAuthoredValues)

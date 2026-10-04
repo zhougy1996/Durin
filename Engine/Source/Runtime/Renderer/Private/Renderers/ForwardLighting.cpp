@@ -210,7 +210,7 @@ namespace Durin
 				Packed.TexelBias = {
 					static_cast<float>(Cascade.TexelWorldSize.x),
 					static_cast<float>(Cascade.TexelWorldSize.y),
-					Cascade.Bias.ReceiverWorld, Cascade.Bias.NormalWorld};
+					Cascade.Bias.ComparisonDepth, Cascade.Bias.NormalWorld};
 				Packed.RasterBias = {
 					Cascade.Bias.RasterConstant, Cascade.Bias.RasterSlope,
 					Cascade.Bias.RasterClamp,

@@ -31,7 +31,8 @@ namespace Durin
 	inline constexpr float DirectionalShadowDepthBiasClamp = 4.0f;
 	inline constexpr float DirectionalShadowReceiverBias = 0.0005f;
 	inline constexpr float DirectionalShadowMaximumReceiverWorldBias = 0.0f;
-	inline constexpr float DirectionalShadowMaximumNormalOffset = 0.0f;
+	inline constexpr float DirectionalShadowMaximumNormalOffset = 0.08f;
+	inline constexpr float DirectionalShadowComparisonDepthBias = 0.00005f;
 	inline constexpr float DirectionalShadowMaximumTotalWorldBias = 0.08f;
 
 	struct FDirectionalShadowBias
@@ -41,6 +42,7 @@ namespace Durin
 		float RasterClamp = DirectionalShadowDepthBiasClamp;
 		float ReceiverWorld = 0.0f;
 		float NormalWorld = 0.0f;
+		float ComparisonDepth = DirectionalShadowComparisonDepthBias;
 		float NormalizedRasterSeparation = 0.0f;
 		bool bUsedFallback = false;
 		bool bTotalClamped = false;
@@ -171,5 +173,6 @@ namespace Durin
 		EDirectionalShadowFilterQuality Quality) -> FDirectionalShadowFilter;
 	RENDERER_API auto CalculateDirectionalShadowBias(
 		const FVector2& TexelWorldSize,
-		double SurfaceLightCosine = 1.0) -> FDirectionalShadowBias;
+		double SurfaceLightCosine = 1.0,
+		const FDirectionalLightShadowBiasSettings& Settings = {}) -> FDirectionalShadowBias;
 }

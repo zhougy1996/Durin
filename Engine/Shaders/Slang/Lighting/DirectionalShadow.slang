@@ -116,15 +116,23 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
         int2(0), int2(int(width) - 1, int(height) - 1));
     float storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
     bool covered = storedDepth < 0.999999;
-	// control.z stores the active cascade count. Receiver-world and
-	// receiver-normal displacement stay disabled until they qualify as
-	// independent policies. Keep the normalized-depth comparison bias small
-	// enough to reduce separation at wall and floor contacts.
-	float receiverWorld = 0.0;
+	// Comparison bias and normal displacement have independent light controls.
+	// Normal displacement uses geometry rather than the material's mapped normal.
 	float normalWorld = 0.0;
 	bool totalClamped = false;
-	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.00005);
+	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, texelBias.z);
 	float3 finalCoordinate = receiverCoordinate;
+	if (texelBias.w > 0.0 && all(isfinite(geometricNormal))
+		&& dot(geometricNormal, geometricNormal) > 1.0e-8)
+	{
+		float3 normal = normalize(geometricNormal);
+		float cosine = saturate(abs(dot(normal, -normalize(lightDirection))));
+		normalWorld = texelBias.w * sqrt(max(0.0, 1.0 - cosine * cosine));
+		float normalLimit = min(0.75 * max(texelBias.x, texelBias.y), 0.08);
+		totalClamped = texelBias.w >= normalLimit;
+		finalCoordinate = ProjectShadow(worldPosition + normal * normalWorld,
+			worldToShadow) - float3(0.0, 0.0, texelBias.z);
+	}
 	float validTapWeight = 0.0;
 	float finalComparison = SampleDirectionalShadowKernel(
 		finalCoordinate, filter, validRegion, layer,
@@ -180,7 +188,8 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     }
     else if (mode == 6u)
 		result.diagnosticColor = totalClamped ? float3(1.0)
-			: float3(saturate(rasterBias.w), 0.0, 0.0);
+			: float3(saturate(rasterBias.w), saturate((texelBias.z - 0.00005) / 0.00015),
+				saturate(normalWorld / 0.08));
 	else if (mode == 7u)
 	{
 		bool displaced = IsValidShadowCoordinate(finalCoordinate)

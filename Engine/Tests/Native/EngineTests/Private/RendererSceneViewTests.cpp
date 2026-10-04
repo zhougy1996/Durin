@@ -840,7 +840,7 @@ namespace Durin
 			Lights, View, &Shadow);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Control.x, 1.0f);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].TexelBias.z,
-			Shadow.Cascades[0].Bias.ReceiverWorld);
+			Shadow.Cascades[0].Bias.ComparisonDepth);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.x,
 			1.0f / static_cast<float>(DirectionalShadowResolution));
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.y,
@@ -858,6 +858,56 @@ namespace Durin
 		const FForwardLightingUniform Disabled = BuildForwardLightingUniform(
 			Lights, View, nullptr);
 		EXPECT_FLOAT_EQ(Disabled.DirectionalShadow.Control.x, 0.0f);
+	}
+
+	TEST(FRendererSceneViewTests, DirectionalLightBiasReachesEveryCascadeAndUniform)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 11.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 64;
+		View.ViewportHeight = 64;
+		FPreparedLightView Lights;
+		FPreparedDirectionalLight Light;
+		Light.Id = FLightComponentId(4);
+		Light.Data.Intensity = 1.0f;
+		Light.Data.Direction = {0.0, 0.0, -1.0};
+		FPreparedDirectionalShadowView Baseline;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Baseline));
+		Light.Data.ShadowBias = {0.5f, 0.25f, 0.5f};
+		Lights.Directional.push_back(Light);
+		FPreparedDirectionalShadowView Tuned;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Tuned));
+		const auto Uniform = BuildForwardLightingUniform(Lights, View, &Tuned);
+		for (uint32 Index = 0; Index < Tuned.CascadeCount; ++Index)
+		{
+			const auto& Bias = Tuned.Cascades[Index].Bias;
+			EXPECT_FLOAT_EQ(Bias.RasterConstant, Baseline.Cascades[Index].Bias.RasterConstant * 0.5f);
+			EXPECT_FLOAT_EQ(Bias.RasterSlope, Baseline.Cascades[Index].Bias.RasterSlope * 0.25f);
+			EXPECT_FLOAT_EQ(Bias.ComparisonDepth, DirectionalShadowComparisonDepthBias * 0.5f);
+			EXPECT_GT(Bias.NormalWorld, 0.0f);
+			EXPECT_LE(Bias.NormalWorld, DirectionalShadowMaximumNormalOffset);
+			EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].TexelBias.z, Bias.ComparisonDepth);
+			EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].TexelBias.w, Bias.NormalWorld);
+			EXPECT_FLOAT_EQ(Baseline.Cascades[Index].Bias.NormalWorld, 0.0f);
+		}
+		const auto Disabled = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0, {0.0f, 0.0f, 0.0f});
+		EXPECT_FLOAT_EQ(Disabled.RasterConstant, 0.0f);
+		EXPECT_FLOAT_EQ(Disabled.RasterSlope, 0.0f);
+		EXPECT_FLOAT_EQ(Disabled.ComparisonDepth, 0.0f);
+		const auto Bounded = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0, {9.0f, -1.0f, 9.0f});
+		EXPECT_FLOAT_EQ(Bounded.RasterConstant, 5.0f);
+		EXPECT_FLOAT_EQ(Bounded.RasterSlope, 0.0f);
+		EXPECT_FLOAT_EQ(Bounded.NormalWorld, DirectionalShadowMaximumNormalOffset);
+		EXPECT_TRUE(Bounded.bTotalClamped);
+		const auto Fallback = CalculateDirectionalShadowBias({0.125, 0.125}, 1.0,
+			{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+				std::numeric_limits<float>::quiet_NaN()});
+		EXPECT_TRUE(Fallback.bUsedFallback);
+		EXPECT_FLOAT_EQ(Fallback.RasterConstant, 1.25f);
+		EXPECT_FLOAT_EQ(Fallback.RasterSlope, 1.375f);
+		EXPECT_FLOAT_EQ(Fallback.ComparisonDepth, DirectionalShadowComparisonDepthBias);
+		EXPECT_FLOAT_EQ(Fallback.NormalWorld, 0.0f);
 	}
 
 	TEST(FRendererSceneViewTests,

@@ -5,6 +5,14 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto NormalizeShadowBias(float Value, float Default) -> float
+		{
+			return std::isfinite(Value) ? std::clamp(Value, 0.0f, 4.0f) : Default;
+		}
+	}
+
 	auto DDirectionalLightComponent::GetSceneData() const -> FDirectionalLightSceneData
 	{
 		FDirectionalLightSceneData Result;
@@ -14,6 +22,10 @@ namespace Durin
 		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
 		Result.RimLightIntensity = FMath::Max(0.0f, RimLightIntensity);
 		Result.bCastShadows = bCastShadows;
+		Result.ShadowBias = {
+			NormalizeShadowBias(ShadowDepthBias, 1.0f),
+			NormalizeShadowBias(ShadowSlopeBias, 1.0f),
+			NormalizeShadowBias(ShadowNormalBias, 0.0f)};
 		return Result;
 	}
 
@@ -38,6 +50,15 @@ namespace Durin
 	auto DDirectionalLightComponent::SetCastShadows(bool bInCastShadows) -> void
 	{
 		bCastShadows = bInCastShadows;
+		MarkRenderStateDirty();
+	}
+
+	auto DDirectionalLightComponent::SetShadowBias(
+		float InDepthBias, float InSlopeBias, float InNormalBias) -> void
+	{
+		ShadowDepthBias = NormalizeShadowBias(InDepthBias, 1.0f);
+		ShadowSlopeBias = NormalizeShadowBias(InSlopeBias, 1.0f);
+		ShadowNormalBias = NormalizeShadowBias(InNormalBias, 0.0f);
 		MarkRenderStateDirty();
 	}
 

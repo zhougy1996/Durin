@@ -61,7 +61,7 @@ namespace Durin
 	struct alignas(16) FForwardDirectionalShadowCascadeUniform
 	{
 		FMatrix4f WorldToShadow{1.0f};
-		// xy = texel world size, z = receiver world bias, w = normal offset.
+		// xy = texel world size, z = normalized comparison bias, w = normal world offset.
 		FVector4f TexelBias{0.0f};
 		// xyz = raster terms, w = normalized raster separation.
 		FVector4f RasterBias{0.0f};

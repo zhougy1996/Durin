@@ -37,7 +37,8 @@ namespace Durin
 
 	auto CalculateDirectionalShadowBias(
 		const FVector2& TexelWorldSize,
-		double SurfaceLightCosine) -> FDirectionalShadowBias
+		double SurfaceLightCosine,
+		const FDirectionalLightShadowBiasSettings& Settings) -> FDirectionalShadowBias
 	{
 		FDirectionalShadowBias Result;
 		const double Texel = std::max(TexelWorldSize.x, TexelWorldSize.y);
@@ -53,8 +54,20 @@ namespace Durin
 			std::clamp(1.25 + Texel, 1.25, 2.0));
 		Result.RasterClamp = static_cast<float>(
 			std::clamp(2.0 + 8.0 * Texel, 2.0, 4.0));
-		Result.ReceiverWorld = 0.0f;
-		Result.NormalWorld = 0.0f;
+		const auto Strength = [&Result](float Value, float Default) {
+			if (std::isfinite(Value)) return std::clamp(Value, 0.0f, 4.0f);
+			Result.bUsedFallback = true;
+			return Default;
+		};
+		const float Depth = Strength(Settings.Depth, 1.0f);
+		Result.RasterConstant *= Depth;
+		Result.RasterSlope *= Strength(Settings.Slope, 1.0f);
+		Result.ComparisonDepth = DirectionalShadowComparisonDepthBias * Depth;
+		const double RequestedNormal = Texel * Strength(Settings.Normal, 0.0f);
+		const double NormalLimit = std::min(0.75 * Texel,
+			static_cast<double>(DirectionalShadowMaximumNormalOffset));
+		Result.NormalWorld = static_cast<float>(std::min(RequestedNormal, NormalLimit));
+		Result.bTotalClamped = RequestedNormal > NormalLimit;
 		Result.NormalizedRasterSeparation = std::clamp(
 			(Result.RasterConstant + Result.RasterSlope) / 8.0f, 0.0f, 1.0f);
 		return Result;
@@ -277,6 +290,7 @@ namespace Durin
 		auto TryFitCascade(
 			const std::array<FVector3, 8>& ReceiverCorners,
 			const FDirectionalShadowFilter& Filter,
+			const FDirectionalLightShadowBiasSettings& BiasSettings,
 			const FVector3& Right,
 			const FVector3& Up,
 			const FVector3& Forward,
@@ -322,7 +336,7 @@ namespace Durin
 				2.0 * HalfX / DirectionalShadowResolution,
 				2.0 * HalfY / DirectionalShadowResolution};
 			Candidate.Bias = CalculateDirectionalShadowBias(
-				Candidate.TexelWorldSize);
+				Candidate.TexelWorldSize, 1.0, BiasSettings);
 			double CenterX = (Minimum.x + Maximum.x) * 0.5;
 			double CenterY = (Minimum.y + Maximum.y) * 0.5;
 			CenterX = std::round(CenterX / Candidate.TexelWorldSize.x)
@@ -449,7 +463,7 @@ namespace Durin
 			const double TransitionStart = CascadeIndex == 0 ? NearDepth
 				: NearDepth - DirectionalShadowTransitionFraction
 					* (FarDepth - NearDepth);
-			if (!TryFitCascade(SliceCorners, Filter, Right, Up, Forward,
+			if (!TryFitCascade(SliceCorners, Filter, Light.ShadowBias, Right, Up, Forward,
 					CascadeIndex, NearDepth, FarDepth, TransitionStart,
 					Candidate.Cascades[CascadeIndex])) return false;
 			Candidate.Cascades[CascadeIndex].CasterView.MaterialTimeSeconds = View.MaterialTimeSeconds;

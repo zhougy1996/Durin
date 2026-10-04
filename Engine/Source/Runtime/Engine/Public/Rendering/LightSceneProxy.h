@@ -17,6 +17,14 @@ namespace Durin
 		auto IsValid() const -> bool { return Id != InvalidLightComponentId; }
 	};
 
+	// Scales the automatic raster/comparison policy and receiver-normal offset in texels.
+	struct FDirectionalLightShadowBiasSettings
+	{
+		float Depth = 1.0f;
+		float Slope = 1.0f;
+		float Normal = 0.0f;
+	};
+
 	// Captures the renderer-facing directional-light state without retaining a component.
 	struct FDirectionalLightSceneData
 	{
@@ -26,6 +34,7 @@ namespace Durin
 		float AmbientIntensity = 0.0f;
 		float RimLightIntensity = 0.0f;
 		bool bCastShadows = true;
+		FDirectionalLightShadowBiasSettings ShadowBias;
 	};
 
 	// Captures renderer-facing point-light state in world space.
