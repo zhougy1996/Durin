@@ -58,8 +58,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         FMetalSkyEnvironment Environment(BackendName,Mode);
         ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
         ASSERT_TRUE(GDynamicRHI->RHIGetCapabilities()->bSupportsSkyLighting);
-        EXPECT_EQ(GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps,
-            std::string_view(BackendName)=="vulkan");
+        EXPECT_TRUE(GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps);
         InitRenderingThread();
         FRendererModule Renderer;
         FModuleTestHarness Lifecycle("MetalSkyRenderer");
@@ -135,7 +134,18 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         };
         WaitForReady();
         if (Ready) CheckEnergy({2,4,8}, true);
-        // Completion metadata, without timestamps, must allow manual refresh.
+        // Exhaust optional diagnostics; completion must still allow manual refresh.
+        std::vector<FGPUTimingQueryRHIRef> HeldQueries;
+        EnqueueRenderCommand("ExhaustSkyTimingPool", [&](FRHICommandListImmediate&) {
+            for (uint32 Index = 0; Index < 1500; ++Index)
+            {
+                auto Query = GDynamicRHI->RHICreateGPUTimingQuery();
+                if (!Query) break;
+                HeldQueries.push_back(std::move(Query));
+            }
+            ASSERT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
+        });
+        FlushRenderingCommands();
         const auto FirstRequest = Request;
         Sky->SetRadianceColors({1,3,5}, {1,3,5}, {1,3,5}, {0,0,0});
         Light->Recapture();
@@ -146,7 +156,21 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
         }
         EXPECT_NE(Request, FirstRequest);
         EXPECT_GT(Light->GetUpdateStatus()->CompletedUpdates.load(), 0u);
+        EXPECT_GT(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
         if (Ready) CheckEnergy({1,3,5}, true);
+        const auto BeforeUntimedCompletion = Light->GetUpdateStatus()->CompletedUpdates.load();
+        for (int Poll = 0; Poll < 200 && Light->GetUpdateStatus()->CompletedUpdates.load() == BeforeUntimedCompletion; ++Poll)
+        {
+            Pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        EXPECT_GT(Light->GetUpdateStatus()->CompletedUpdates.load(), BeforeUntimedCompletion);
+        EXPECT_EQ(Light->GetUpdateStatus()->UpdateMilliseconds.load(), 0.0);
+        HeldQueries.clear();
+        EnqueueRenderCommand("ReleaseSkyTimingSlots", [](FRHICommandListImmediate& Cmd) {
+            Cmd.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+        });
+        FlushRenderingCommands();
 
         // A nonuniform sky catches wrong face indices or cube orientation.
         const auto ConstantRequest=Request;

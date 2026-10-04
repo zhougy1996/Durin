@@ -18,6 +18,11 @@ namespace Durin
 			if (!Bytes) Readback.Request->Fail();
 			else Readback.Request->Complete(FByteBuffer(Bytes, Bytes + Readback.ByteCount));
 		}
+		for (const auto& Sample : Owners.TimingSamples)
+		{
+			if (Status != MTL::CommandBufferStatusCompleted) Sample.Query->Invalidate();
+			else if (Sample.bEnd) Sample.Query->Resolve();
+		}
 		// Release GPU dependencies before publishing completion/allowing shutdown to return.
 		Owners.Release();
 		std::lock_guard Lock(State.Mutex);

@@ -136,6 +136,23 @@ namespace Durin
 				RHISubmitCommands();
 				bFrameOpen = false;
 			}
+			auto RHIBeginGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
+			{
+				auto* Timing = dynamic_cast<FMetalGPUTimingQuery*>(Query);
+				requiref(Timing && State && Timing->Pool == State->TimingPool && !RenderEncoder,
+					"Metal timing requires a live device query outside a render pass.");
+				OpenTimingQueries.emplace_back(Timing);
+				RecordTimingSample(*Timing, false);
+			}
+			auto RHIEndGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
+			{
+				auto* Timing = dynamic_cast<FMetalGPUTimingQuery*>(Query);
+				requiref(Timing && !OpenTimingQueries.empty() && OpenTimingQueries.back() == Timing,
+					"Metal timing intervals must end in nesting order.");
+				require(Timing->CommitRecording());
+				RecordTimingSample(*Timing, true);
+				OpenTimingQueries.pop_back();
+			}
 			// Public recording validates region scope; unavailable native labels are harmless.
 			auto RHIBeginDiagnosticRegion(std::string_view) -> void override {}
 			auto RHIEndDiagnosticRegion() -> void override {}
@@ -1315,6 +1332,38 @@ namespace Durin
 				Active->ResourceOwners.emplace_back(ArgumentBuffer);
 			}
 		private:
+			auto RecordTimingSample(FMetalGPUTimingQuery& Query, bool bEnd) -> void
+			{
+				const FMetalAutoreleasePool Pool;
+				requiref(State && !RenderEncoder, "Metal timing samples require a closed encoder.");
+				const bool bStandalone = !Active;
+				if (bStandalone)
+				{
+					FMetalPendingSubmission Submission;
+					Submission.Command = NS::RetainPtr(State->Queue->commandBuffer());
+					require(Submission.Command);
+					Active.emplace(std::move(Submission));
+				}
+				auto Desc = NS::TransferPtr(MTL::BlitPassDescriptor::alloc()->init());
+				auto* Attachment = Desc->sampleBufferAttachments()->object(0);
+				Attachment->setSampleBuffer(Query.Pool->Buffer.get());
+				Attachment->setStartOfEncoderSampleIndex(Query.Slot * 2 + (bEnd ? 1 : 0));
+				Attachment->setEndOfEncoderSampleIndex(MTL::CounterDontSample);
+				auto Encoder = NS::RetainPtr(Active->Command->blitCommandEncoder(Desc.get()));
+				require(Encoder);
+				// Metal elides empty encoders, including their timestamp attachments.
+				Encoder->fillBuffer(Query.Pool->Marker.get(), NS::Range::Make(0, 4), bEnd ? 1 : 0);
+				Encoder->endEncoding();
+				Active->TimingSamples.push_back({TRefCountPtr<FMetalGPUTimingQuery>(&Query), bEnd});
+				if (bStandalone)
+				{
+					std::lock_guard Lock(State->Mutex);
+					Active->Producer = State->Timeline->Reserve();
+					require(Active->Producer);
+					Pending.push_back(std::move(*Active));
+					Active.reset();
+				}
+			}
 			struct FBufferBinding
 			{
 				MTL::Buffer* Handle;
@@ -1495,13 +1544,18 @@ namespace Durin
 				{
 					for (const auto& Readback : Submission.Readbacks)
 						Readback.Request->Cancel();
+					for (const auto& Sample : Submission.TimingSamples) Sample.Query->Invalidate();
 					State->Timeline->Cancel(Submission.Producer);
 				}
 				Pending.clear();
 				if (Active)
 					for (const auto& Readback : Active->Readbacks)
 						Readback.Request->Cancel();
-			Active.reset();
+				if (Active)
+					for (const auto& Sample : Active->TimingSamples) Sample.Query->Invalidate();
+				for (const auto& Query : OpenTimingQueries) Query->Invalidate();
+				OpenTimingQueries.clear();
+				Active.reset();
 				bImplicitRenderSubmission = false;
 				RenderEncoder.reset();
 				ComputePipeline = nullptr;
@@ -1548,6 +1602,7 @@ namespace Durin
 			std::vector<std::byte> ComputePushConstants;
 			std::vector<uint8> ComputePushConstantWritten;
 			std::vector<FMetalPendingSubmission> Pending;
+			std::vector<TRefCountPtr<FMetalGPUTimingQuery>> OpenTimingQueries;
 		};
 
 	}

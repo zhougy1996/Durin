@@ -1346,3 +1346,58 @@ TEST(FMetalRHIHeadlessTests, D32DepthRejectsFarDrawInBothExecutionModes)
 		Durin::RHIExit();
 	}
 }
+
+TEST(FMetalRHIHeadlessTests, GPUTimingAcrossSubmissionsIsReusableAndCancelsAtShutdown)
+{
+	using namespace Durin;
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		ASSERT_TRUE(GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps);
+		EXPECT_GT(GDynamicRHI->RHIGetCapabilities()->GPUTimestampNanosecondsPerTick, 0.0);
+		auto Query = GDynamicRHI->RHICreateGPUTimingQuery();
+		auto Nested = GDynamicRHI->RHICreateGPUTimingQuery();
+		ASSERT_TRUE(Query); ASSERT_TRUE(Nested);
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics;
+		for (uint32 Iteration = 0; Iteration < 3; ++Iteration)
+		{
+			Commands.BeginGPUTimingQuery(Query);
+			Commands.BeginGPUSubmission({.Queue=Queue});
+			Commands.BeginGPUTimingQuery(Nested);
+			Commands.EndGPUTimingQuery(Nested);
+			Commands.EndGPUSubmission();
+			Commands.EndGPUTimingQuery(Query);
+			const auto Signal = Commands.BeginGPUSubmission({.Queue=Queue});
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State, ERHIGPUTimingResultState::Pending);
+			EXPECT_FALSE(Query->TryReserveRecording());
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			const auto Result = GDynamicRHI->RHIGetGPUTimingResult(Query);
+			EXPECT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
+			EXPECT_GT(Result.DurationNanoseconds, 0u);
+			const auto Inner = GDynamicRHI->RHIGetGPUTimingResult(Nested);
+			EXPECT_EQ(Inner.State, ERHIGPUTimingResultState::Ready);
+			EXPECT_LE(Inner.DurationNanoseconds, Result.DurationNanoseconds);
+		}
+		std::vector<FGPUTimingQueryRHIRef> Slots;
+		for (uint32 Index = 0; Index < 254; ++Index)
+		{
+			auto Slot = GDynamicRHI->RHICreateGPUTimingQuery();
+			ASSERT_TRUE(Slot);
+			Slots.push_back(std::move(Slot));
+		}
+		EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
+		Commands.BeginGPUTimingQuery(Query);
+		Commands.EndGPUTimingQuery(Query);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		RHIExit();
+		EXPECT_EQ(Query->GetResult().State, ERHIGPUTimingResultState::Invalid);
+	}
+}

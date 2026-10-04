@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "MetalAutoreleasePool.h"
+#include "MetalGPUTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "RHIResources.h"
 #include "RHITextureReadback.h"
@@ -20,6 +21,7 @@ namespace Durin
 			Queue.reset();
 		}
 		uint64 Generation = 0;
+		std::shared_ptr<FMetalGPUTimingPool> TimingPool;
 		std::mutex Mutex;
 		std::condition_variable Completion;
 		std::unique_ptr<FRHIGPUQueueTimeline> Timeline;
@@ -30,6 +32,11 @@ namespace Durin
 	// It deliberately contains no command buffer, avoiding a handler ownership cycle.
 	struct FMetalSubmissionOwners
 	{
+		struct FTimingSample
+		{
+			TRefCountPtr<FMetalGPUTimingQuery> Query;
+			bool bEnd = false;
+		};
 		struct FReadback
 		{
 			NS::SharedPtr<MTL::Buffer> Buffer;
@@ -45,6 +52,7 @@ namespace Durin
 			const FMetalAutoreleasePool Pool;
 			Drawable.reset();
 			Readbacks.clear();
+			TimingSamples.clear();
 			NativeResources.clear();
 			ResourceOwners.clear();
 			StorageOwners.clear();
@@ -53,6 +61,7 @@ namespace Durin
 		std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
 		std::vector<NS::SharedPtr<MTL::Resource>> NativeResources;
 		std::vector<FReadback> Readbacks;
+		std::vector<FTimingSample> TimingSamples;
 		NS::SharedPtr<CA::MetalDrawable> Drawable;
 	};
 

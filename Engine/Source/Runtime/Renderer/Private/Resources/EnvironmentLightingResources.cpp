@@ -136,12 +136,10 @@ namespace Durin
                     || Completion == ERHIGPUSubmissionState::Submitted) return;
                 const auto Result = S.Query ? GDynamicRHI->RHIGetGPUTimingResult(S.Query) : FRHIGPUTimingResult{};
                 if (Completion == ERHIGPUSubmissionState::Complete
-                    && Result.State == ERHIGPUTimingResultState::Pending) return;
-                if (Completion == ERHIGPUSubmissionState::Complete
                     && Light && S.InFlight && HasAuthority(*S.InFlight))
                 {
-                    if (Result.State == ERHIGPUTimingResultState::Ready)
-                        Light->UpdateStatus->UpdateMilliseconds.store(double(Result.DurationNanoseconds)/1.e6);
+                    Light->UpdateStatus->UpdateMilliseconds.store(
+                        Result.State == ERHIGPUTimingResultState::Ready ? double(Result.DurationNanoseconds)/1.e6 : 0.0);
                     Light->UpdateStatus->CompletedUpdates.fetch_add(1, std::memory_order_release);
                 }
                 S.Query = nullptr;
@@ -228,7 +226,7 @@ namespace Durin
         Candidate->Source=Captured ? nullptr : Source; Candidate->CaptureTime=Time;
         const bool bTiming = GDynamicRHI->RHIGetCapabilities()->bSupportsGPUTimestamps;
         auto Query = bTiming ? GDynamicRHI->RHICreateGPUTimingQuery() : FGPUTimingQueryRHIRef{};
-        if (bTiming && !Query) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }
+        // Timing pool exhaustion must not prevent a lighting update.
         FRDGBuilder Graph;
         auto Input=Graph.RegisterExternalTexture(FTextureRHIRef(Captured ? FallbackCube : Source),"Sky.Source",
             ERHIAccess::GraphicsShaderRead,ERHIAccess::GraphicsShaderRead);

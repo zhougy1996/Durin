@@ -96,7 +96,8 @@ The supported path requires linear filtering of RGBA32F/RGBA16F,
 RGBA16F storage images, 8x8 compute groups, and 512-face cubes. Vulkan and
 Metal expose this through `bSupportsSkyLighting`; Metal additionally probes
 `supports32BitFloatFiltering` on the admitted device. GPU timestamps are not
-required for filtering, publication, refresh, or retirement. On Metal without
+required for filtering, publication, refresh, or retirement. Exhausting the
+optional timing pool also leaves lighting updates enabled. On Metal without
 timestamps, the GPU update-time diagnostic remains unmeasured (zero), while
 completed-update counts use actual GPU completion. An unsupported device
 contributes neutral black with a diagnostic.
@@ -118,8 +119,8 @@ completed. No legacy environment asset loader or bake program remains.
 `DevTool test MetalSkyLightingTests --mode qualification --report` validates
 scene-owned captured and specified HDR sources on Metal and Vulkan in inline
 and threaded execution, including all six faces and eight filtering mips,
-nonuniform cube orientation, manual refresh, and retirement. Metal runs without
-timestamps; Vulkan retains its GPU timing diagnostics.
+nonuniform cube orientation, manual refresh, and retirement. Both backends
+report GPU timing diagnostics when timestamp sampling is available.
 
 `DevTool test SkyBoxVulkanIntegrationTests --timeout 600` exercises real GPU
 capture/filter readback alongside HDR cube face/mip and display sampling.

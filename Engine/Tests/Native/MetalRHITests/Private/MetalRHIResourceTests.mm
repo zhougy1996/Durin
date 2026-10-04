@@ -2585,6 +2585,11 @@ TEST(FMetalRHISubmissionTests, SimulatedNativeErrorFailsReadbackAndReleasesPaylo
 	ASSERT_TRUE(State.Timeline->MarkSubmitted(Signal));
 	State.PendingCallbacks = 1;
 	auto Request = std::make_shared<Durin::FRHITextureReadback>();
+	auto TimingPool = std::make_shared<Durin::FMetalGPUTimingPool>();
+	TimingPool->Used[0] = true;
+	Durin::TRefCountPtr<Durin::FMetalGPUTimingQuery> Timing = new Durin::FMetalGPUTimingQuery(TimingPool, 0);
+	ASSERT_TRUE(Timing->TryReserveRecording());
+	ASSERT_TRUE(Timing->CommitRecording());
 	std::weak_ptr<int> WeakStorage;
 	__weak id<MTLBuffer> WeakBuffer;
 	@autoreleasepool
@@ -2598,6 +2603,7 @@ TEST(FMetalRHISubmissionTests, SimulatedNativeErrorFailsReadbackAndReleasesPaylo
 		Owners->StorageOwners.push_back(Storage);
 		Owners->NativeResources.push_back(Buffer);
 		Owners->Readbacks.push_back({Buffer, 4, Request});
+		Owners->TimingSamples.push_back({Timing, true});
 		Buffer.reset();
 		Storage.reset();
 		// Inject status into the production completion routine, without inducing a GPU fault.
@@ -2605,6 +2611,12 @@ TEST(FMetalRHISubmissionTests, SimulatedNativeErrorFailsReadbackAndReleasesPaylo
 		EXPECT_EQ(Request->GetState(), Durin::ERHITextureReadbackState::Failed);
 		EXPECT_EQ(Signal.GetState(), Durin::ERHIGPUSubmissionState::Failed);
 		EXPECT_EQ(State.PendingCallbacks, 0u);
+		EXPECT_EQ(Timing->GetResult().State, Durin::ERHIGPUTimingResultState::Invalid);
+		// A later successful callback cannot overwrite a previously failed interval.
+		Timing->Resolve();
+		EXPECT_EQ(Timing->GetResult().State, Durin::ERHIGPUTimingResultState::Invalid);
+		EXPECT_TRUE(Timing->TryReserveRecording());
+		Timing->CancelRecording();
 		EXPECT_TRUE(WeakStorage.expired());
 		Owners.reset();
 	}

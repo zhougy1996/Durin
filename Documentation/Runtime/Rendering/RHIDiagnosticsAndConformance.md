@@ -4,9 +4,9 @@ Summary: Define optional Vulkan diagnostics, native naming and command regions,
 backend-neutral GPU timing and aggregate statistics, public-RHI conformance,
 and diagnostic shutdown ownership.
 
-Modules: RHI, VulkanRHI, RenderCore, ApplicationCore
+Modules: RHI, VulkanRHI, MetalRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-10-05
 
 ## Diagnostic Configuration and Lifetime
 
@@ -67,8 +67,9 @@ the actual close/reopen operations.
 
 The immutable capability snapshot publishes `bSupportsGPUTimestamps` and
 `GPUTimestampNanosecondsPerTick` for the selected immediate graphics queue.
-Support requires nonzero queue `timestampValidBits` and a finite positive
-timestamp period. Unsupported backends publish `false` and `0.0`.
+Vulkan support requires nonzero queue `timestampValidBits` and a finite positive
+timestamp period. Metal probes stage-boundary counter sampling and allocates
+a shared timestamp sample buffer before publishing support. Unsupported backends publish `false` and `0.0`.
 
 `RHICreateGPUTimingQuery` returns one counted interval or null when unsupported
 or the bounded pool is exhausted. Recorded begin/end commands retain it through
@@ -103,6 +104,17 @@ that width and uses
 modular unsigned subtraction. Conversion multiplies once in extended precision,
 rounds to the nearest nanosecond, and saturates on overflow. Native ticks,
 query-pool handles, and queue properties remain backend-private.
+
+Metal owns one bounded buffer with 256 interval pairs. Queries retain their pool
+and slots, including across backend shutdown. Begin/end use timestamp attachments
+at the start of short nonempty blit encoders outside render passes, allowing intervals to span logical submissions on the
+single ordered graphics queue. Native completion resolves the end sample before
+publishing its submission's completion. Unsubmitted cancellation and native
+failure invalidate affected intervals. Successful intervals may be recorded
+again; pending queries cannot be reused. On admitted Apple GPUs, counter ticks
+use `mach_absolute_time`; conversion uses `mach_timebase_info` to produce
+nanoseconds. Exhaustion returns null without waiting. Timing results do not
+replace completion markers for renderer update admission or resource retirement.
 
 ## Aggregate Snapshot and Reset
 

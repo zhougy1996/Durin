@@ -12,6 +12,7 @@
 #include "MetalViewport.h"
 #include "MetalResourceDescriptors.h"
 #include "MetalResourceState.h"
+#include <mach/mach_time.h>
 #include "RHICommandList.h"
 #include "PipelineStateCache.h"
 #include "Threading/Task.h"
@@ -81,8 +82,48 @@ namespace Durin
 				Supported.bSupportsIndirectDraw = true;
 				Supported.bSupportsIndirectDispatch = true;
 				Supported.bSupportsSkyLighting = Device->supports32BitFloatFiltering();
+				if (Device->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary))
+				{
+					auto* Sets = Device->counterSets();
+					for (NS::UInteger Index = 0; Sets && Index < Sets->count(); ++Index)
+					{
+						auto* Set = Sets->object<MTL::CounterSet>(Index);
+						if (!Set->name()->isEqualToString(MTL::CommonCounterSetTimestamp)) continue;
+						auto Desc = NS::TransferPtr(MTL::CounterSampleBufferDescriptor::alloc()->init());
+						Desc->setCounterSet(Set);
+						Desc->setSampleCount(FMetalGPUTimingPool::Capacity * 2);
+						Desc->setStorageMode(MTL::StorageModeShared);
+						NS::Error* Error = nullptr;
+						auto Buffer = NS::TransferPtr(Device->newCounterSampleBuffer(Desc.get(), &Error));
+						auto Marker = NS::TransferPtr(Device->newBuffer(4, MTL::ResourceStorageModeShared));
+						mach_timebase_info_data_t Timebase{};
+						if (!Buffer || !Marker || mach_timebase_info(&Timebase) != KERN_SUCCESS || !Timebase.denom) break;
+						State->TimingPool = std::make_shared<FMetalGPUTimingPool>();
+						State->TimingPool->Buffer = std::move(Buffer);
+						State->TimingPool->Marker = std::move(Marker);
+						State->TimingPool->Generation = State->Generation;
+						// The admitted Apple GPUs use the mach_absolute_time clock for counters.
+						State->TimingPool->NanosecondsPerTick = double(Timebase.numer) / Timebase.denom;
+						Supported.bSupportsGPUTimestamps = true;
+						Supported.GPUTimestampNanosecondsPerTick = State->TimingPool->NanosecondsPerTick;
+						break;
+					}
+				}
 				PublishCapabilities(std::move(Supported));
 				PipelineCreationClosed = false;
+			}
+			auto RHICreateGPUTimingQuery() -> FGPUTimingQueryRHIRef override
+			{
+				if (!State || !State->TimingPool) return nullptr;
+				auto Pool = State->TimingPool;
+				std::lock_guard Lock(Pool->Mutex);
+				for (uint32 Slot = 0; Slot < FMetalGPUTimingPool::Capacity; ++Slot)
+					if (!Pool->Used[Slot])
+					{
+						Pool->Used[Slot] = true;
+						return new FMetalGPUTimingQuery(Pool, Slot);
+					}
+				return nullptr;
 			}
 			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
 			{
