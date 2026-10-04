@@ -175,6 +175,49 @@ and supported graphics/compute execution are available through the production
 RHI path.
 The selected module is unloaded after its backend and RHI execution thread.
 
+### Metal Native Ownership and Cocoa Boundary
+
+MetalRHI core code compiles as C++ against the prepared, pinned Metal-cpp headers.
+`MetalCppDevice.cpp` is the only translation unit defining the Foundation, Metal,
+and QuartzCore private implementation macros. Native implementation headers stay backend-private. Shared presentation interfaces
+use `FNativeMetalLayerHandle`, which forward-declares `CA::MetalLayer` without
+requiring Apple SDK or Metal-cpp headers. Capability checks remain unchanged.
+
+Owned native references use `NS::SharedPtr<T>`. Adopt `new`, `alloc/init`, and
+`Create` results exactly once with `NS::TransferPtr`; acquire a separate reference
+to borrowed/autoreleased objects with `NS::RetainPtr`. Native getters and descriptor
+array entries are borrows. Keep their owner alive through every use. Do not put
+native objects into default-deleting `std::shared_ptr`.
+
+Use `FMetalAutoreleasePool` in native creation, replay/encoding, asynchronous
+pipeline, completion and native-owner destruction scopes. Copy native error text
+before draining its pool. Shader/pipeline factories hold RAII candidates and
+publish a complete wrapper or failure; pipeline wrappers retain their RHI shader
+and vertex-declaration dependencies.
+
+A command completion payload independently owns replay storage, RHI resources,
+native resources, deferred backing snapshots and readback buffers through actual
+GPU completion. It does not own the command buffer whose handler captures it.
+Handlers capture shared submission state and payloads rather than a raw backend.
+Readback publication and dependency release precede timeline completion and callback
+notification. Shutdown cancels unsubmitted work, joins pipeline creation, drains
+native callbacks and flushes resulting RHI deferred deletions before releasing the
+queue/device. Pool drainage and CPU replay completion do not indicate GPU completion.
+
+`FGenericWindow::GetNativeMetalLayer`, RHI startup and viewport creation pass a
+borrowed `FNativeMetalLayerHandle`. Its explicit constructor accepts only a
+`CA::MetalLayer*`, rejecting untyped `void*` and unrelated pointers. The native
+producer must supply a live Metal layer; ApplicationCore obtains the typed pointer
+from `CAMetalLayer` allocation and initialization. Deliberate casts at native
+boundaries remain the producer's responsibility. MetalRHI acquires its own
+`NS::RetainPtr` reference directly; it has no Objective-C++ adapter or runtime
+class check. RHI startup and viewports each own their required layer reference;
+the platform continues to own the window.
+Layer configuration, drawable acquisition, resize and present use QuartzCore/Metal
+C++ wrappers. A missing drawable returns without committing presentation work;
+the next present attempt can recover. The MetalRHI module compiles entirely as C++.
+
+
 Windowed startup supplies an explicit `FRHIInitializationContext` with the
 primary native handle. On macOS ApplicationCore installs the `CAMetalLayer` on
 the AppKit main thread before RHI initialization; surface creation remains an
@@ -253,3 +296,11 @@ the current native-test framework and are not part of this contract.
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanFramebuffer.cpp`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanDescriptorSets.cpp`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanPipeline.cpp`
+
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalDynamicRHI.cpp`
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalCommandContext.cpp`
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalSubmission.h`
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalPipeline.cpp`
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalResourceDescriptors.cpp`
+- `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalViewport.h`
+- `Engine/Source/Runtime/Core/Public/HAL/NativeMetalLayerHandle.h`

@@ -29,6 +29,7 @@ durin_add_native_test(MetalRHIHeadlessTests
 	SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm
 	LIBRARIES ${_metal_rhi_test_libraries}
 	INCLUDE_DIRECTORIES
-		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private"
+		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private/MacOS"
+		"${CMAKE_SOURCE_DIR}/Engine/External/Source/metal-cpp"
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 )

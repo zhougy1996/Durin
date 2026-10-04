@@ -1006,12 +1006,12 @@ namespace Durin
 		return {Width, Height};
 	}
 
-	auto FGlfwWindow::GetNativeMetalLayer() const -> void*
+	auto FGlfwWindow::GetNativeMetalLayer() const -> FNativeMetalLayerHandle
 	{
 #if defined(__APPLE__)
-		return VulkanSurfaceLayer;
+		return FNativeMetalLayerHandle{VulkanSurfaceLayer};
 #else
-		return nullptr;
+		return {};
 #endif
 	}
 
@@ -1037,8 +1037,8 @@ namespace Durin
 			return false;
 		}
 
-		void* Layer = SendObjectiveCMessage<void*>(MetalLayerClass, "alloc");
-		Layer = SendObjectiveCMessage<void*>(Layer, "init");
+		auto* Layer = SendObjectiveCMessage<CA::MetalLayer*>(MetalLayerClass, "alloc");
+		Layer = SendObjectiveCMessage<CA::MetalLayer*>(Layer, "init");
 		if (Layer == nullptr)
 		{
 			return false;

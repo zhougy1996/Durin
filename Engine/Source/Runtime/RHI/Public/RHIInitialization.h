@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RHIAPI.h"
+#include "HAL/NativeMetalLayerHandle.h"
 
 namespace Durin
 {
@@ -11,7 +12,7 @@ namespace Durin
 	{
 		void* NativeWindowHandle = nullptr;
 		// The Cocoa window owns this CAMetalLayer; MetalRHI retains it while in use.
-		void* NativeMetalLayer = nullptr;
+		FNativeMetalLayerHandle NativeMetalLayer;
 
 		auto IsValid() const -> bool
 		{

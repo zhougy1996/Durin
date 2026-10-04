@@ -503,6 +503,11 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateComputePipelineState(
 				"MetalComputeBadLayout", Pipeline));
 		}
+		// Native function stage mismatch must reject the candidate library/function.
+		Desc.SetEntryPoint(Frequency == Durin::EShaderFrequency::Vertex
+			? "fragmentMain" : "vertexMain");
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		Desc.SetEntryPoint(Entry);
 		Desc.BindingRemapIdentity.HashLow ^= 1;
 		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
 		Desc.BindingRemapIdentity.HashLow ^= 1;
@@ -525,6 +530,18 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 		Desc.SetEntryPoint("missingEntry");
 		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
 	}
+	const std::string InvalidSource = "#include <metal_stdlib>\nusing namespace metal;\nkernel void broken() { invalid_msl; }\n";
+	Durin::FByteBuffer InvalidCode;
+	for (char Character : InvalidSource) InvalidCode.push_back(std::byte(Character));
+	auto Invalid = Durin::FRHIShaderCreateDesc::Create("compiler failure",
+		Durin::EShaderFrequency::Compute, InvalidCode, Durin::FXxHash128::HashBuffer(InvalidCode));
+	Invalid.Target = Durin::MetalShaderTarget;
+	Invalid.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+	Invalid.ComputeThreadGroupSize = {1, 1, 1};
+	Invalid.SetEntryPoint("broken");
+	Invalid.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+		Invalid.Frequency, Invalid.MetalBindings, Invalid.MetalPushConstantBufferSlot);
+	EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Invalid));
 	Durin::RHIExit();
 }
 
@@ -707,7 +724,9 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 				EXPECT_EQ(Pixels[Offset + 2], std::byte{0});
 				EXPECT_EQ(Pixels[Offset + 3], std::byte{255});
 			}
-		const uint16_t Indices[4] = {9, 0, 1, 2};
+		// Direct draws skip both sentinels with the binding offset; indirect draws
+		// combine a one-index binding offset with FirstIndex = 1.
+		const uint16_t Indices[5] = {9, 9, 0, 1, 2};
 		auto IndexDesc = Durin::FRHIBufferCreateDesc::Create(
 			"Metal triangle indices", sizeof(Indices), sizeof(uint16_t),
 			Durin::EBufferUsageFlags::IndexBuffer);
@@ -721,7 +740,7 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 		Commands.BeginRenderPass(Pass, "MetalIndexedTriangle");
 		Commands.SetGraphicsPipelineState(*Pipeline);
 		Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
-		Commands.BindIndexBuffer(IndexBuffer.GetReference(), sizeof(uint16_t));
+		Commands.BindIndexBuffer(IndexBuffer.GetReference(), 2 * sizeof(uint16_t));
 		Commands.DrawIndexed({.IndexCount = 3});
 		Commands.EndRenderPass();
 		Commands.EndGPUSubmission();

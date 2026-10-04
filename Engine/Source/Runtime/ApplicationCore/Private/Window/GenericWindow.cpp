@@ -95,9 +95,9 @@ namespace Durin
 		return OSNativeWindowHandle;
 	}
 
-	auto FGenericWindow::GetNativeMetalLayer() const -> void*
+	auto FGenericWindow::GetNativeMetalLayer() const -> FNativeMetalLayerHandle
 	{
-		return nullptr;
+		return {};
 	}
 
 	auto FGenericWindow::ShouldClose() const -> bool

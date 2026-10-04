@@ -1,3 +1,5 @@
+#if defined(__APPLE__)
+
 #define NS_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -7,13 +9,13 @@
 #include <QuartzCore/QuartzCore.hpp>
 
 #include "MetalCppDevice.h"
-
-#include <stdexcept>
+#include "MetalAutoreleasePool.h"
 
 namespace Durin
 {
 	auto CreateMetalCppDeviceAndQueue() -> FMetalCppDeviceAndQueue
 	{
+		const FMetalAutoreleasePool Pool;
 		if (NS::ProcessInfo::processInfo()->operatingSystemVersion().majorVersion < 27)
 			throw std::runtime_error("MetalRHI requires macOS 27 or newer.");
 		NS::SharedPtr<MTL::Device> Device =
@@ -26,10 +28,8 @@ namespace Durin
 			NS::TransferPtr(Device->newCommandQueue());
 		if (!Queue)
 			throw std::runtime_error("MetalRHI could not create its command queue.");
-		const FMetalCppDeviceAndQueue Result{
-			.Device = Device.get(), .Queue = Queue.get()};
-		Device.detach();
-		Queue.detach();
-		return Result;
+		return {.Device = std::move(Device), .Queue = std::move(Queue)};
 	}
 }
+
+#endif

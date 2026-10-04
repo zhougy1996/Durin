@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RHIAPI.h"
+#include "HAL/NativeMetalLayerHandle.h"
 #include "RHICompletion.h"
 #include "RHIQueueTransfer.h"
 #include "Experimental/RHITransition.h"
@@ -199,7 +200,7 @@ namespace Durin
 	struct FRHIViewportCreateInfo
 	{
 		void* NativeWindowHandle = nullptr;
-		void* NativeMetalLayer = nullptr;
+		FNativeMetalLayerHandle NativeMetalLayer;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
 		bool bIsFullscreen = false;

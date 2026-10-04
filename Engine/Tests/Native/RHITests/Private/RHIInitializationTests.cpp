@@ -6,6 +6,10 @@
 
 namespace Durin
 {
+	static_assert(!std::is_constructible_v<FNativeMetalLayerHandle, void*>);
+	static_assert(!std::is_constructible_v<FNativeMetalLayerHandle, int*>);
+	static_assert(std::is_constructible_v<FNativeMetalLayerHandle, CA::MetalLayer*>);
+
 	namespace
 	{
 		struct FInitializationObservation
@@ -163,7 +167,8 @@ namespace Durin
 		FInitializationObservation Observation;
 		auto* Backend = new FFailingDynamicRHI(Observation);
 		void* const WindowHandle = reinterpret_cast<void*>(uintptr_t{0x1234});
-		void* const MetalLayer = reinterpret_cast<void*>(uintptr_t{0x5678});
+		const FNativeMetalLayerHandle MetalLayer{
+			reinterpret_cast<CA::MetalLayer*>(uintptr_t{0x5678})};
 		const FRHIPresentationTarget Target{
 			.NativeWindowHandle = WindowHandle,
 			.NativeMetalLayer = MetalLayer};

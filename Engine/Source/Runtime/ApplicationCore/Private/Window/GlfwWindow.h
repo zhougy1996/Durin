@@ -59,7 +59,7 @@ namespace Durin
 		APPLICATIONCORE_API auto ShouldClose() const -> bool override;
 
 		APPLICATIONCORE_API auto GetViewportSize() const -> FIntPoint override;
-		APPLICATIONCORE_API auto GetNativeMetalLayer() const -> void* override;
+		APPLICATIONCORE_API auto GetNativeMetalLayer() const -> FNativeMetalLayerHandle override;
 
 		APPLICATIONCORE_API auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 
@@ -148,7 +148,7 @@ namespace Durin
 
 		// Non-owning. The Cocoa content view retains the layer for the lifetime of
 		// the native window; Vulkan surface creation only consumes the pointer.
-		void* VulkanSurfaceLayer = nullptr;
+		CA::MetalLayer* VulkanSurfaceLayer = nullptr;
 #endif
 	};
 

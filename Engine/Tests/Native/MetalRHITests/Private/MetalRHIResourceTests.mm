@@ -1,14 +1,43 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/CATransaction.h>
 
 #include "DynamicRHI.h"
 #include "MetalBuffer.h"
+#include "MetalCppDevice.h"
+#include "MetalPipeline.h"
+#include "MetalSubmission.h"
+#include "Threading/Task.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "MetalSampler.h"
 #include "MetalTexture.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 
 #include <gtest/gtest.h>
+
+// Fault injection affects only drawable acquisition; subsequent calls use real Metal.
+@interface FMetalQualificationLayer : CAMetalLayer
+@property(nonatomic) BOOL FailNextDrawable;
+@property(nonatomic) NSUInteger AcquisitionCount;
+@property(nonatomic) NSUInteger SuccessfulAcquisitionCount;
+@end
+
+@implementation FMetalQualificationLayer
+- (id<CAMetalDrawable>)nextDrawable
+{
+	++self.AcquisitionCount;
+	if (self.FailNextDrawable)
+	{
+		self.FailNextDrawable = NO;
+		return nil;
+	}
+	id<CAMetalDrawable> Drawable = [super nextDrawable];
+	if (Drawable) ++self.SuccessfulAcquisitionCount;
+	return Drawable;
+}
+@end
 
 namespace
 {
@@ -66,7 +95,7 @@ TEST(FMetalRHIBufferTests, UploadThenCopyRetainsBuffersUntilGPUCompletion)
 			auto Source = std::move(*SourceResult);
 			auto Destination = std::move(*DestinationResult);
 			const auto* InitialBytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Source.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Source.GetReference())->GetHandle()->contents());
 			ASSERT_NE(InitialBytes, nullptr);
 			EXPECT_EQ(std::memcmp(InitialBytes, Initial, Size), 0);
 			const uint8_t Pattern[Size] = {1, 3, 5, 7, 9, 11, 13, 15,
@@ -86,11 +115,102 @@ TEST(FMetalRHIBufferTests, UploadThenCopyRetainsBuffersUntilGPUCompletion)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Bytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern, Size), 0);
 			Destination = nullptr;
 			Durin::RHIExit();
+		}
+	}
+}
+
+TEST(FMetalRHIBufferTests, CppCandidatesReleaseQueueWhenInitializationUnwinds)
+{
+	for (uint32_t Round = 0; Round < 16; ++Round)
+	{
+		SCOPED_TRACE(Round);
+		__weak id<MTLCommandQueue> Queue = nil;
+		bool bCreatedCandidate = false;
+		@autoreleasepool
+		{
+			try
+			{
+				auto Candidate = Durin::CreateMetalCppDeviceAndQueue();
+				ASSERT_TRUE(Candidate.Device);
+				ASSERT_TRUE(Candidate.Queue);
+				bCreatedCandidate = true;
+				Queue = (__bridge id<MTLCommandQueue>)static_cast<void*>(Candidate.Queue.get());
+				throw std::runtime_error("Simulated initialization failure after native creation");
+			}
+			catch (const std::runtime_error&) {}
+		}
+		EXPECT_TRUE(bCreatedCandidate);
+		EXPECT_EQ(Queue, nil);
+	}
+}
+
+TEST(FMetalRHIBufferTests, RepeatedCppOwnersSurvivePoolDrainAndReleaseAtShutdown)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		for (uint32_t Round = 0; Round < 16; ++Round)
+		{
+			SCOPED_TRACE(Round);
+			__weak id<MTLBuffer> SourceNative = nil;
+			__weak id<MTLBuffer> DestinationNative = nil;
+			@autoreleasepool
+			{
+				ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+				FScopedRHIExit Exit;
+				auto& Commands = Durin::FRHICommandListImmediate::Get();
+				const std::array<uint32_t, 4> Pattern{Round, 17, 29, 43};
+				Durin::FBufferRHIRef Destination;
+				Durin::FRHIGPUSyncPointRef Signal;
+				@autoreleasepool
+				{
+					const auto Desc = Durin::FRHIBufferCreateDesc::Create(
+						"Metal pool lifetime", sizeof(Pattern), sizeof(uint32_t),
+						Durin::EBufferUsageFlags::SourceCopy
+							| Durin::EBufferUsageFlags::DestinationCopy
+							| Durin::EBufferUsageFlags::KeepCPUAccessible);
+					auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Desc);
+					auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Desc);
+					ASSERT_TRUE(SourceResult);
+					ASSERT_TRUE(DestinationResult);
+					auto Source = std::move(*SourceResult);
+					Destination = std::move(*DestinationResult);
+					SourceNative = (__bridge id<MTLBuffer>)static_cast<void*>(
+						static_cast<Durin::FMetalBuffer*>(Source.GetReference())->GetHandle());
+					DestinationNative = (__bridge id<MTLBuffer>)static_cast<void*>(
+						static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle());
+					Signal = Commands.BeginGPUSubmission(
+						{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+					Commands.WriteBuffer(Source.GetReference(), Pattern.data(), sizeof(Pattern), 0);
+					const Durin::FRHIBufferCopyRegion Copy{.Size = sizeof(Pattern)};
+					Commands.CopyBuffer(Source.GetReference(), Destination.GetReference(), {&Copy, 1});
+					Commands.EndGPUSubmission();
+					Source = nullptr;
+					Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+				}
+				// Pending replay has outlived its pool and caller's source reference.
+				EXPECT_NE(SourceNative, nil);
+				EXPECT_EQ(Signal.GetState(), Durin::ERHIGPUSubmissionState::Pending);
+				Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+					Durin::ERHISubmitFlags::SubmitToGPU);
+				ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+					Durin::ERHIGPUWaitResult::Complete);
+				const auto* Bytes = static_cast<const uint32_t*>(
+					static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
+				ASSERT_NE(Bytes, nullptr);
+				EXPECT_EQ(std::memcmp(Bytes, Pattern.data(), sizeof(Pattern)), 0);
+				Destination = nullptr;
+				Durin::RHIExit();
+			}
+			EXPECT_EQ(SourceNative, nil);
+			EXPECT_EQ(DestinationNative, nil);
 		}
 	}
 }
@@ -179,7 +299,7 @@ TEST(FMetalRHIBufferTests, DeferredUniformVersionsReachSeparateDispatches)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Output = static_cast<const uint32_t*>(
-				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle().contents);
+				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle()->contents());
 			ASSERT_NE(Output, nullptr);
 			EXPECT_EQ(Output[0], 7u);
 			EXPECT_EQ(Output[1], 13u);
@@ -220,7 +340,7 @@ TEST(FMetalRHIBufferTests, SamplersCreateWithSupportedState)
 			auto Sampler = Durin::GDynamicRHI->RHICreateSampler(Desc);
 			ASSERT_NE(Sampler.GetReference(), nullptr);
 			EXPECT_TRUE(Sampler->IsImmutable());
-			EXPECT_NE(static_cast<Durin::FMetalSampler*>(Sampler.GetReference())->GetHandle(), nil);
+			EXPECT_NE(static_cast<Durin::FMetalSampler*>(Sampler.GetReference())->GetHandle(), nullptr);
 		}
 		auto CompareDesc = Durin::FRHISamplerDesc::PointClamp();
 		CompareDesc.bEnableCompare = true;
@@ -258,7 +378,7 @@ TEST(FMetalRHIBufferTests, BufferViewsValidateRangesAndRetainParent)
 			.GetReference(), nullptr);
 		Buffer = nullptr;
 		ASSERT_NE(View->GetBuffer(), nullptr);
-		EXPECT_NE(static_cast<Durin::FMetalBuffer*>(View->GetBuffer())->GetHandle(), nil);
+		EXPECT_NE(static_cast<Durin::FMetalBuffer*>(View->GetBuffer())->GetHandle(), nullptr);
 		View = nullptr;
 		Durin::RHIExit();
 	}
@@ -343,7 +463,7 @@ TEST(FMetalRHIComputeTests, RecordedDispatchWritesStructuredBufferInBothExecutio
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Values = static_cast<const uint32_t*>(
 				static_cast<Durin::FMetalBuffer*>(Buffer.GetReference())
-					->GetHandle().contents);
+					->GetHandle()->contents());
 			ASSERT_NE(Values, nullptr);
 			for (uint32_t Index = 0; Index < 8; ++Index)
 				EXPECT_EQ(Values[4 + Index], Index * 7 + 3);
@@ -515,7 +635,7 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Value = static_cast<const uint32_t*>(
 				static_cast<Durin::FMetalBuffer*>(Buffer.GetReference())
-					->GetHandle().contents);
+					->GetHandle()->contents());
 			ASSERT_NE(Value, nullptr);
 			EXPECT_EQ(*Value, 255u);
 			Durin::FByteBuffer Pixels;
@@ -662,6 +782,107 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 	}
 }
 
+TEST(FMetalRHITextureTests, CppViewAndSourceSurvivePoolDrainWithDelayedNativeWork)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		for (uint32_t Round = 0; Round < 8; ++Round)
+		{
+			SCOPED_TRACE(Round);
+			__weak id<MTLTexture> SourceNative = nil;
+			__weak id<MTLTexture> ViewNative = nil;
+			@autoreleasepool
+			{
+				ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+				FScopedRHIExit Exit;
+				auto& Commands = Durin::FRHICommandListImmediate::Get();
+				Durin::TRefCountPtr<Durin::FRHITextureView> View;
+				NS::SharedPtr<MTL::CommandQueue> Queue;
+				NS::SharedPtr<MTL::CommandBuffer> Command;
+				NS::SharedPtr<MTL::SharedEvent> Event;
+				NS::SharedPtr<MTL::Buffer> Readback;
+				std::array<uint8_t, 64> Pattern;
+				for (size_t Index = 0; Index < Pattern.size(); ++Index)
+					Pattern[Index] = static_cast<uint8_t>(Index * 7 + Round);
+				@autoreleasepool
+				{
+					auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+						"Metal retained source", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
+					Desc.SetFlags(Durin::ETextureCreateFlags::ShaderResource
+						| Durin::ETextureCreateFlags::CPUReadback);
+					auto Result = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
+					ASSERT_TRUE(Result);
+					auto Texture = std::move(*Result);
+					const Durin::FRHITextureViewDesc ViewDesc{
+						.Usage = Durin::ERHITextureViewUsage::Sampled,
+						.Dimension = Durin::ERHITextureViewDimension::Texture2D,
+						.Format = Durin::EPixelFormat::RGBA8_UNORM,
+						.Range = {Durin::ERHITextureAspect::Color, 0, 1, 0, 1}};
+					View = Durin::GDynamicRHI->RHICreateTextureView(Texture.GetReference(), ViewDesc);
+					ASSERT_TRUE(View);
+					SourceNative = (__bridge id<MTLTexture>)static_cast<void*>(
+						static_cast<Durin::FMetalTexture*>(Texture.GetReference())->GetHandle());
+					auto* NativeView = static_cast<Durin::FMetalTextureView*>(View.GetReference())->GetHandle();
+					ViewNative = (__bridge id<MTLTexture>)static_cast<void*>(NativeView);
+					Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
+						0, 0, {0, 0, 0, 0, 4, 4}, 16, std::as_bytes(std::span{Pattern}));
+					// Finish the public upload before using a separate native qualification queue.
+					Commands.BlockUntilGPUIdle();
+					Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+					auto* Device = NativeView->device();
+					Queue = NS::TransferPtr(Device->newCommandQueue());
+					Event = NS::TransferPtr(Device->newSharedEvent());
+					Readback = NS::TransferPtr(Device->newBuffer(64, MTL::ResourceStorageModeShared));
+					ASSERT_TRUE(Queue);
+					ASSERT_TRUE(Event);
+					ASSERT_TRUE(Readback);
+					Command = NS::RetainPtr(Queue->commandBuffer());
+					ASSERT_TRUE(Command);
+					Command->encodeWait(Event.get(), 1);
+					auto Encoder = NS::RetainPtr(Command->blitCommandEncoder());
+					ASSERT_TRUE(Encoder);
+					Encoder->copyFromTexture(NativeView, 0, 0, MTL::Origin::Make(0, 0, 0),
+						MTL::Size::Make(4, 4, 1), Readback.get(), 0, 16, 64);
+					Encoder->endEncoding();
+					Texture = nullptr;
+				}
+				ASSERT_TRUE(View->GetTexture());
+				EXPECT_NE(SourceNative, nil);
+				EXPECT_NE(ViewNative, nil);
+				struct FSignalOnExit
+				{
+					MTL::SharedEvent* Event;
+					~FSignalOnExit() { Event->setSignaledValue(1); }
+				} SignalOnExit{Event.get()};
+				Command->commit();
+				@autoreleasepool
+				{
+					View = nullptr;
+					Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+						Durin::ERHISubmitFlags::DeleteResources);
+				}
+				// The real GPU wait keeps work outstanding across both caller and pool release.
+				EXPECT_NE(Command->status(), MTL::CommandBufferStatusCompleted);
+				EXPECT_NE(SourceNative, nil);
+				EXPECT_NE(ViewNative, nil);
+				Event->setSignaledValue(1);
+				Command->waitUntilCompleted();
+				ASSERT_EQ(Command->status(), MTL::CommandBufferStatusCompleted);
+				ASSERT_NE(Readback->contents(), nullptr);
+				EXPECT_EQ(std::memcmp(Readback->contents(), Pattern.data(), Pattern.size()), 0);
+				Command.reset();
+				Queue.reset();
+				Durin::RHIExit();
+			}
+			EXPECT_EQ(SourceNative, nil);
+			EXPECT_EQ(ViewNative, nil);
+		}
+	}
+}
+
 TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 {
 	@autoreleasepool
@@ -753,7 +974,7 @@ TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 			ASSERT_EQ(AsyncPixels.size(), ByteCount);
 			EXPECT_EQ(std::memcmp(AsyncPixels.data(), Pattern, ByteCount), 0);
 			const auto* Bytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern, ByteCount), 0);
 			Durin::FByteBuffer Readback;
@@ -834,20 +1055,25 @@ TEST(FMetalRHIViewportTests, LayerViewportClearsAndPresentsInBothExecutionModes)
 			SCOPED_TRACE(Mode);
 			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
 			CAMetalLayer* Layer = [CAMetalLayer layer];
-			const void* LayerHandle = (__bridge void*)Layer;
+			void* LayerHandle = (__bridge void*)Layer;
+			const Durin::FNativeMetalLayerHandle MetalLayer{
+				reinterpret_cast<CA::MetalLayer*>(LayerHandle)};
 			const auto Target = Durin::FRHIPresentationTarget{
-				.NativeWindowHandle = const_cast<void*>(LayerHandle),
-				.NativeMetalLayer = const_cast<void*>(LayerHandle)};
+				.NativeWindowHandle = LayerHandle,
+				.NativeMetalLayer = MetalLayer};
 			ASSERT_TRUE(Durin::RHIInit(
 				Durin::FRHIInitializationContext::Presentation(Target)));
 			FScopedRHIExit Exit;
 			Durin::FRHIViewportCreateInfo Info;
-			Info.NativeWindowHandle = const_cast<void*>(LayerHandle);
-			Info.NativeMetalLayer = const_cast<void*>(LayerHandle);
+			Info.NativeWindowHandle = LayerHandle;
+			Info.NativeMetalLayer = MetalLayer;
 			Info.SizeX = 8;
 			Info.SizeY = 8;
 			Info.PreferredPixelFormat = Durin::EPixelFormat::SBGRA8_UNORM;
 			Info.bAdoptInitializationPresentationCandidate = true;
+			auto MissingLayerInfo = Info;
+			MissingLayerInfo.NativeMetalLayer = {};
+			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateViewport(MissingLayerInfo));
 			auto Viewport = Durin::GDynamicRHI->RHICreateViewport(Info);
 			ASSERT_TRUE(Viewport);
 			id<CAMetalDrawable> Probe = [Layer nextDrawable];
@@ -949,7 +1175,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 				*Cube, Durin::ERHITextureViewUsage::Sampled));
 		ASSERT_TRUE(CubeView);
 		EXPECT_EQ(static_cast<Durin::FMetalTextureView*>(CubeView.GetReference())
-			->GetHandle().textureType, MTLTextureTypeCube);
+			->GetHandle()->textureType(), MTL::TextureTypeCube);
 		const std::array<uint8_t, 4> Red{255, 0, 0, 255};
 		const Durin::FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
 		Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
@@ -970,7 +1196,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 				*Shadow, Durin::ERHITextureViewUsage::Sampled));
 		ASSERT_TRUE(ShadowView);
 		EXPECT_EQ(static_cast<Durin::FMetalTextureView*>(ShadowView.GetReference())
-			->GetHandle().textureType, MTLTextureType2DArray);
+			->GetHandle()->textureType(), MTL::TextureType2DArray);
 		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
 			"kernel void sampleCube(texturecube<float, access::sample> cube [[texture(0)]], "
 			"device float4* result [[buffer(0)]]) { "
@@ -1037,7 +1263,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
 		const auto* Result = static_cast<const float*>(
 			static_cast<Durin::FMetalBuffer*>(ResultBuffer->GetReference())
-				->GetHandle().contents);
+				->GetHandle()->contents());
 		ASSERT_NE(Result, nullptr);
 		EXPECT_FLOAT_EQ(Result[0], 1.0f);
 		EXPECT_FLOAT_EQ(Result[1], 0.0f);
@@ -1063,7 +1289,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			Radiance.GetReference(), FaceDesc);
 		ASSERT_TRUE(FaceView);
 		EXPECT_EQ(static_cast<Durin::FMetalTextureView*>(FaceView.GetReference())
-			->GetHandle().textureType, MTLTextureType2D);
+			->GetHandle()->textureType(), MTL::TextureType2D);
 		auto WriteDesc = Durin::FRHIShaderCreateDesc::Create("MetalCubeFaceWrite",
 			Durin::EShaderFrequency::Compute, Code,
 			Durin::FXxHash128::HashBuffer(Code));
@@ -1244,7 +1470,7 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(SampleSignal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Color = static_cast<const float*>(
-				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle().contents);
+				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle()->contents());
 			ASSERT_NE(Color, nullptr);
 			// BC1 expands 0x8410 to (16/31, 32/63, 16/31) in sRGB space.
 			EXPECT_NEAR(Color[0], 0.2307f, 0.01f);
@@ -1506,7 +1732,7 @@ TEST(FMetalRHITextureTests, BufferTextureCopiesRespectOffsetAndRowPitch)
 		ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 			Durin::ERHIGPUWaitResult::Complete);
 		const auto* Output = static_cast<const uint8_t*>(
-			[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+			static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 		ASSERT_NE(Output, nullptr);
 		for (uint32_t Row = 0; Row < 3; ++Row)
 			EXPECT_EQ(std::memcmp(Output + 4 + Row * RowPitch,
@@ -1586,7 +1812,7 @@ TEST(FMetalRHITextureTests, RequiredColorFormatsPreserveTransferBytes)
 				ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 					Durin::ERHIGPUWaitResult::Complete);
 				const auto* Bytes = static_cast<const uint8_t*>(
-					[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+					static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 				ASSERT_NE(Bytes, nullptr);
 				EXPECT_EQ(std::memcmp(Bytes, Pattern.data(), ByteCount), 0);
 				Durin::FByteBuffer Readback;
@@ -1680,7 +1906,7 @@ TEST(FMetalRHITextureTests, CubeFaceMipCopiesPreserveTwoLayers)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Bytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern.data(), Pattern.size()), 0);
 			for (uint32_t Face = 0; Face < 2; ++Face)
@@ -1775,7 +2001,7 @@ TEST(FMetalRHITextureTests, ArrayLayersCopyAcrossCubeBoundary)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Bytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern, sizeof(Pattern)), 0);
 			for (uint32_t Layer = 0; Layer < 2; ++Layer)
@@ -1859,7 +2085,7 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 				First.GetReference(), SampledViewDesc);
 			ASSERT_TRUE(SampledView);
 			EXPECT_EQ(static_cast<Durin::FMetalTextureView*>(SampledView.GetReference())
-				->GetHandle().textureType, MTLTextureType3D);
+				->GetHandle()->textureType(), MTL::TextureType3D);
 			constexpr uint32_t ByteCount = 2 * 2 * 2 * 4;
 			uint8_t Pattern[ByteCount];
 			for (uint32_t Index = 0; Index < ByteCount; ++Index)
@@ -1953,12 +2179,12 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Bytes = static_cast<const uint8_t*>(
-				[static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle() contents]);
+				static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern, ByteCount), 0);
 			const auto* SampledValue = static_cast<const uint32_t*>(
 				static_cast<Durin::FMetalBuffer*>(ResultBuffer->GetReference())
-					->GetHandle().contents);
+					->GetHandle()->contents());
 			ASSERT_NE(SampledValue, nullptr);
 			EXPECT_EQ(*SampledValue, 4u);
 			Destination = nullptr;
@@ -2030,7 +2256,7 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 				ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 					Durin::ERHIGPUWaitResult::Complete);
 				const auto* Output = static_cast<const uint8_t*>(
-					[static_cast<Durin::FMetalBuffer*>(Buffer.GetReference())->GetHandle() contents]);
+					static_cast<Durin::FMetalBuffer*>(Buffer.GetReference())->GetHandle()->contents());
 				ASSERT_NE(Output, nullptr);
 				EXPECT_EQ(std::memcmp(Output, Expected, OutputSize), 0);
 				Buffer = nullptr;
@@ -2038,5 +2264,360 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 			Texture = nullptr;
 			Durin::RHIExit();
 		}
+	}
+}
+
+TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+	Durin::GIsGameThreadIdInitialized = true;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	struct FStopScheduler { ~FStopScheduler() { Durin::ShutdownTaskScheduler(); } } Stop;
+	for (const char* Mode : {"inline", "threaded"})
+	for (int Round = 0; Round < 8; ++Round)
+	{
+		SCOPED_TRACE(Mode);
+		SCOPED_TRACE(Round);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		__weak id<MTLFunction> WeakFunction;
+		__weak id<MTLComputePipelineState> WeakPipeline;
+		Durin::FComputePipelineStateRef First;
+		Durin::FComputePipelineStateRef Replacement;
+		@autoreleasepool
+		{
+			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nkernel void mainA() {}\nkernel void mainB() {}\nkernel void mainC() {}\n";
+			Durin::FByteBuffer Code;
+			for (char Character : Source) Code.push_back(std::byte(Character));
+			auto Desc = Durin::FRHIShaderCreateDesc::Create("pool pipeline",
+				Durin::EShaderFrequency::Compute, Code, Durin::FXxHash128::HashBuffer(Code));
+			Desc.Target = Durin::MetalShaderTarget;
+			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+			Desc.ComputeThreadGroupSize = {1, 1, 1};
+			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Desc.Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
+			Desc.SetEntryPoint("mainA");
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			ASSERT_TRUE(Shader);
+			WeakFunction = (__bridge id<MTLFunction>)static_cast<void*>(
+				static_cast<Durin::FMetalShader*>(Shader.GetReference())->GetFunction());
+			Durin::FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader.GetReference();
+			auto* Cache = Durin::GDynamicRHI->RHIGetPipelineStateCache();
+			ASSERT_NE(Cache, nullptr);
+			auto Requested = Cache->GetCompute(Initializer, "first");
+			ASSERT_TRUE(Requested);
+			First = *Requested;
+			Desc.SetEntryPoint("mainB");
+			auto OtherShader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			ASSERT_TRUE(OtherShader);
+			Initializer.ComputeShader = OtherShader.GetReference();
+			auto Other = Cache->GetCompute(Initializer, "replacement");
+			ASSERT_TRUE(Other);
+			Replacement = *Other;
+			Shader = nullptr;
+			OtherShader = nullptr;
+			ASSERT_TRUE(First->Wait());
+			ASSERT_TRUE(Replacement->Wait());
+			Desc.SetEntryPoint("mainC");
+			auto LateShader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			ASSERT_TRUE(LateShader);
+			Initializer.ComputeShader = LateShader.GetReference();
+			auto Late = Cache->GetCompute(Initializer, "close outstanding");
+			ASSERT_TRUE(Late);
+			LateShader = nullptr;
+			Cache->StopAndWait();
+			EXPECT_TRUE((*Late)->IsComplete());
+			EXPECT_TRUE((*Late)->GetState() == Durin::ERHIPipelineRequestState::Ready
+				|| (*Late)->GetState() == Durin::ERHIPipelineRequestState::Canceled);
+			if ((*Late)->GetState() == Durin::ERHIPipelineRequestState::Canceled)
+				EXPECT_FALSE((*Late)->GetRHIPipeline());
+			auto Native = First->GetRHIPipeline();
+			ASSERT_TRUE(Native);
+			EXPECT_NE(Native.GetReference(), Replacement->GetRHIPipeline().GetReference());
+			WeakPipeline = (__bridge id<MTLComputePipelineState>)static_cast<void*>(
+				static_cast<Durin::FMetalComputePipelineState*>(Native.GetReference())->GetPipeline());
+		}
+		EXPECT_NE(WeakFunction, nil);
+		EXPECT_NE(WeakPipeline, nil);
+		@autoreleasepool
+		{
+			Durin::RHIExit();
+			EXPECT_FALSE(First->GetRHIPipeline());
+			EXPECT_FALSE(Replacement->GetRHIPipeline());
+			First.reset();
+			Replacement.reset();
+		}
+		EXPECT_EQ(WeakFunction, nil);
+		EXPECT_EQ(WeakPipeline, nil);
+	}
+}
+
+TEST(FMetalRHISubmissionTests, DelayedGPUCompletionRetainsPayloadAndShutdownDrainsCallbacks)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	for (bool bShutdownWhilePending : {false, true})
+	{
+		SCOPED_TRACE(Mode);
+		SCOPED_TRACE(bShutdownWhilePending);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		auto& Commands = Durin::FRHICommandListImmediate::Get();
+		__weak id<MTLBuffer> WeakOutput;
+		__weak id<MTLComputePipelineState> WeakPipeline;
+		auto Queue = NS::RetainPtr(Durin::GetMetalSubmissionQueue(*Durin::GDynamicRHI));
+		ASSERT_TRUE(Queue);
+		auto Event = NS::TransferPtr(Queue->device()->newSharedEvent());
+		ASSERT_TRUE(Event);
+		auto WaitCommand = NS::RetainPtr(Queue->commandBuffer());
+		ASSERT_TRUE(WaitCommand);
+		struct FOpenGate
+		{
+			MTL::SharedEvent* Event;
+			auto Open() const -> void { if (Event) Event->setSignaledValue(1); }
+			~FOpenGate() { Open(); }
+		} OpenGate{Event.get()};
+		Durin::FBufferRHIRef Destination;
+		Durin::FRHIGPUSyncPointRef Signal;
+		std::shared_ptr<Durin::FRHITextureReadback> Readback;
+		@autoreleasepool
+		{
+			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
+				"kernel void delayed("
+				"device uint* result [[buffer(0)]]) { "
+				"result[0] = 0x12345678u; }\n";
+			Durin::FByteBuffer Code;
+			for (char Character : Source) Code.push_back(std::byte(Character));
+			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("delayed payload",
+				Durin::EShaderFrequency::Compute, Code, Durin::FXxHash128::HashBuffer(Code));
+			ShaderDesc.Target = Durin::MetalShaderTarget;
+			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+			ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
+			ShaderDesc.SetEntryPoint("delayed");
+			ShaderDesc.MetalBindings = {{0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
+			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				ShaderDesc.Frequency, ShaderDesc.MetalBindings, ShaderDesc.MetalPushConstantBufferSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ASSERT_TRUE(Shader);
+			Durin::FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader.GetReference();
+			Initializer.PipelineLayout.BindingLayouts.resize(1);
+			for (uint32_t Slot = 0; Slot < 1; ++Slot)
+				Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts.emplace_back(
+					Durin::EShaderStageFlags::Compute, Slot, Durin::ERHIBindingType::StorageBuffer);
+			auto Pipeline = Durin::GDynamicRHI->RHICreateComputePipelineState("delayed", Initializer);
+			ASSERT_TRUE(Pipeline);
+			WeakPipeline = (__bridge id<MTLComputePipelineState>)static_cast<void*>(
+				static_cast<Durin::FMetalComputePipelineState*>(Pipeline.GetReference())->GetPipeline());
+			const uint32_t Zero = 0;
+			auto BufferDesc = Durin::FRHIBufferCreateDesc::Create("gate", 4, 4,
+				Durin::EBufferUsageFlags::StructuredBuffer | Durin::EBufferUsageFlags::UnorderedAccess
+					| Durin::EBufferUsageFlags::KeepCPUAccessible | Durin::EBufferUsageFlags::SourceCopy);
+			BufferDesc.InitialData = {.Data = &Zero, .Size = sizeof(Zero)};
+			auto OutputResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, BufferDesc);
+			ASSERT_TRUE(OutputResult);
+			auto Output = std::move(*OutputResult);
+			WeakOutput = (__bridge id<MTLBuffer>)static_cast<void*>(
+				static_cast<Durin::FMetalBuffer*>(Output.GetReference())->GetHandle());
+			const auto DestinationDesc = Durin::FRHIBufferCreateDesc::Create("delayed result", 4, 4,
+				Durin::EBufferUsageFlags::DestinationCopy | Durin::EBufferUsageFlags::KeepCPUAccessible);
+			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(DestinationResult);
+			Destination = std::move(*DestinationResult);
+			const Durin::FRHIBufferViewDesc ViewDesc{.Offset = 0, .Size = 4,
+				.Type = Durin::ERHIBufferViewType::StructuredStorage};
+			auto OutputView = Durin::GDynamicRHI->RHICreateBufferView(Output.GetReference(), ViewDesc);
+			ASSERT_TRUE(OutputView);
+			const Durin::FRHIShaderParameterResource Parameter{
+				.Resource = OutputView.GetReference(), .SetIndex = 0, .BindingIndex = 0,
+				.Type = Durin::ERHIBindingType::StorageBuffer};
+			auto TextureDesc = Durin::FRHITextureCreateDesc::Create2D("delayed readback", 1, 1,
+				Durin::EPixelFormat::RGBA8_UNORM);
+			TextureDesc.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+				| Durin::ETextureCreateFlags::CPUReadback);
+			auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
+			ASSERT_TRUE(TextureResult);
+			auto Texture = std::move(*TextureResult);
+			const Durin::FByteBuffer Pixels{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+			Commands.UpdateTexture2D(Texture.GetReference(), 0, 0, {0, 0, 0, 0, 1, 1}, 4, Pixels);
+			Commands.BlockUntilGPUIdle();
+			WaitCommand->encodeWait(Event.get(), 1);
+			WaitCommand->commit();
+			Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Compute});
+			Commands.SwitchPipeline(Durin::ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*Pipeline);
+			Commands.SetShaderParameters(Shader.GetReference(), {&Parameter, 1});
+			Commands.Dispatch(1, 1, 1);
+			const Durin::FRHIBufferCopyRegion Copy{.Size = 4};
+			Commands.CopyBuffer(Output.GetReference(), Destination.GetReference(), {&Copy, 1});
+			Readback = Commands.EnqueueTextureReadback(Texture.GetReference());
+			Commands.EndGPUSubmission();
+			Shader = nullptr;
+			Pipeline = nullptr;
+			OutputView = nullptr;
+			Output = nullptr;
+			Texture = nullptr;
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU | Durin::ERHISubmitFlags::DeleteResources);
+		}
+		EXPECT_NE(WeakOutput, nil);
+		EXPECT_NE(WeakPipeline, nil);
+		EXPECT_EQ(Readback->GetState(), Durin::ERHITextureReadbackState::Pending);
+		EXPECT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000),
+			Durin::ERHIGPUWaitResult::Timeout);
+		if (bShutdownWhilePending)
+		{
+			std::jthread Release([&] {
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				OpenGate.Open();
+			});
+			Durin::RHIExit();
+		}
+		else
+		{
+			OpenGate.Open();
+			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+				Durin::ERHIGPUWaitResult::Complete);
+			Durin::RHIExit();
+		}
+		EXPECT_EQ(Readback->GetState(), Durin::ERHITextureReadbackState::Ready);
+		Durin::FByteBuffer Actual;
+		ASSERT_TRUE(Readback->TakePixels(Actual));
+		EXPECT_EQ(Actual, (Durin::FByteBuffer{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}}));
+		EXPECT_EQ(*static_cast<const uint32_t*>(
+			static_cast<Durin::FMetalBuffer*>(Destination.GetReference())->GetHandle()->contents()), 0x12345678u);
+		OpenGate.Event = nullptr;
+		@autoreleasepool { WaitCommand.reset(); Queue.reset(); Event.reset(); Destination = nullptr; }
+		EXPECT_EQ(WeakOutput, nil);
+		EXPECT_EQ(WeakPipeline, nil);
+	}
+}
+
+TEST(FMetalRHISubmissionTests, EmptySubmissionsCompleteInBothExecutionModes)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		auto& Commands = Durin::FRHICommandListImmediate::Get();
+		for (int Round = 0; Round < 16; ++Round)
+		{
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU);
+			EXPECT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+				Durin::ERHIGPUWaitResult::Complete);
+		}
+		Durin::RHIExit();
+	}
+}
+
+TEST(FMetalRHISubmissionTests, SimulatedNativeErrorFailsReadbackAndReleasesPayload)
+{
+	const Durin::FMetalAutoreleasePool Pool;
+	auto Native = Durin::CreateMetalCppDeviceAndQueue();
+	Durin::FMetalSubmissionState State;
+	State.Generation = Durin::AllocateRHIDeviceGeneration();
+	State.Timeline = std::make_unique<Durin::FRHIGPUQueueTimeline>(State.Generation,
+		Durin::FRHIQueueId{0});
+	const auto Signal = State.Timeline->Reserve();
+	ASSERT_TRUE(State.Timeline->MarkSubmitted(Signal));
+	State.PendingCallbacks = 1;
+	auto Request = std::make_shared<Durin::FRHITextureReadback>();
+	std::weak_ptr<int> WeakStorage;
+	__weak id<MTLBuffer> WeakBuffer;
+	@autoreleasepool
+	{
+		auto Owners = std::make_shared<Durin::FMetalSubmissionOwners>();
+		auto Buffer = NS::TransferPtr(Native.Device->newBuffer(4, MTL::ResourceStorageModeShared));
+		ASSERT_TRUE(Buffer);
+		WeakBuffer = (__bridge id<MTLBuffer>)static_cast<void*>(Buffer.get());
+		auto Storage = std::make_shared<int>(7);
+		WeakStorage = Storage;
+		Owners->StorageOwners.push_back(Storage);
+		Owners->NativeResources.push_back(Buffer);
+		Owners->Readbacks.push_back({Buffer, 4, Request});
+		Buffer.reset();
+		Storage.reset();
+		// Inject status into the production completion routine, without inducing a GPU fault.
+		Durin::CompleteMetalSubmission(State, Signal, *Owners, MTL::CommandBufferStatusError);
+		EXPECT_EQ(Request->GetState(), Durin::ERHITextureReadbackState::Failed);
+		EXPECT_EQ(Signal.GetState(), Durin::ERHIGPUSubmissionState::Failed);
+		EXPECT_EQ(State.PendingCallbacks, 0u);
+		EXPECT_TRUE(WeakStorage.expired());
+		Owners.reset();
+	}
+	EXPECT_TRUE(WeakStorage.expired());
+	EXPECT_EQ(WeakBuffer, nil);
+}
+
+TEST(FMetalRHIViewportTests, CppLayerOwnershipAndDrawableFailureRecoverAcrossTeardown)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	for (int Round = 0; Round < 4; ++Round)
+	{
+		SCOPED_TRACE(Mode);
+		SCOPED_TRACE(Round);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		__weak FMetalQualificationLayer* WeakLayer;
+		@autoreleasepool
+		{
+			FMetalQualificationLayer* Layer = [FMetalQualificationLayer layer];
+			WeakLayer = Layer;
+			void* Handle = (__bridge void*)Layer;
+			const Durin::FNativeMetalLayerHandle MetalLayer{
+				reinterpret_cast<CA::MetalLayer*>(Handle)};
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Presentation(
+				{.NativeWindowHandle = Handle, .NativeMetalLayer = MetalLayer})));
+			FScopedRHIExit Exit;
+			Durin::FRHIViewportCreateInfo Info;
+			Info.NativeWindowHandle = Handle;
+			Info.NativeMetalLayer = MetalLayer;
+			Info.SizeX = 8;
+			Info.SizeY = 8;
+			Info.bAdoptInitializationPresentationCandidate = true;
+			auto Viewport = Durin::GDynamicRHI->RHICreateViewport(Info);
+			ASSERT_TRUE(Viewport);
+			Layer.FailNextDrawable = YES;
+			Layer = nil;
+			// The platform handle is borrowed; the viewport owns a separate layer reference.
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			Commands.BeginDrawingViewport(Viewport.GetReference(), nullptr);
+			Commands.EndDrawingViewport(Viewport.GetReference(), true, false);
+			Commands.BlockUntilGPUIdle();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+			ASSERT_NE(WeakLayer, nil);
+			EXPECT_EQ(WeakLayer.AcquisitionCount, 1u);
+			Commands.BeginDrawingViewport(Viewport.GetReference(), nullptr);
+			Commands.EndDrawingViewport(Viewport.GetReference(), true, true);
+			Commands.BlockUntilGPUIdle();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(WeakLayer.AcquisitionCount, 2u);
+			EXPECT_EQ(WeakLayer.SuccessfulAcquisitionCount, 1u);
+			EXPECT_TRUE(WeakLayer.displaySyncEnabled);
+			Viewport = nullptr;
+			Durin::RHIExit();
+			[CATransaction flush];
+		}
+		for (int Attempt = 0; WeakLayer && Attempt < 20; ++Attempt)
+		{
+			@autoreleasepool
+			{
+				[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+				[CATransaction flush];
+			}
+		}
+		EXPECT_EQ(WeakLayer, nil);
 	}
 }
