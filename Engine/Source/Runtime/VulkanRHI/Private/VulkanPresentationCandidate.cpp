@@ -54,7 +54,7 @@ namespace Durin::VulkanRHI
 		void* NativeWindowHandle) -> vk::SurfaceKHR
 	{
 		if (State != EState::Available
-			|| Target.NativeWindowHandle != NativeWindowHandle)
+			|| Target.GetNativeWindowHandle() != NativeWindowHandle)
 		{
 			return VK_NULL_HANDLE;
 		}

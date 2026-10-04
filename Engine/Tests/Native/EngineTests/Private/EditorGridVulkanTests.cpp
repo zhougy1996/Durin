@@ -1423,7 +1423,7 @@ namespace Durin
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(FRHIInitializationContext::Presentation({
-			.NativeWindowHandle = Window->GetOSNativeWindowHandle()}));
+			.PlatformTarget = Window->GetPresentationTarget()}));
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
@@ -1434,7 +1434,7 @@ namespace Durin
 		const FSceneViewStateId ViewStateId = ViewStateOwner.GetId();
 
 		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({
-			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
+			.PresentationTarget = {.PlatformTarget = Window->GetPresentationTarget()},
 			.SizeX = 96,
 			.SizeY = 64,
 			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,

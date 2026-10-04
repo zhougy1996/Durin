@@ -80,7 +80,7 @@ namespace Durin::VulkanRHI
 				if (!Handle || !Window)
 					return FRHIInitializationContext::Headless();
 				return FRHIInitializationContext::Presentation({
-					.NativeWindowHandle = Handle});
+					.PlatformTarget = Window->GetPresentationTarget()});
 			}
 
 		private:

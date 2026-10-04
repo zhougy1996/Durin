@@ -6,9 +6,6 @@
 
 namespace Durin
 {
-	static_assert(!std::is_constructible_v<FNativeMetalLayerHandle, void*>);
-	static_assert(!std::is_constructible_v<FNativeMetalLayerHandle, int*>);
-	static_assert(std::is_constructible_v<FNativeMetalLayerHandle, CA::MetalLayer*>);
 
 	namespace
 	{
@@ -167,20 +164,17 @@ namespace Durin
 		FInitializationObservation Observation;
 		auto* Backend = new FFailingDynamicRHI(Observation);
 		void* const WindowHandle = reinterpret_cast<void*>(uintptr_t{0x1234});
-		const FNativeMetalLayerHandle MetalLayer{
-			reinterpret_cast<CA::MetalLayer*>(uintptr_t{0x5678})};
-		const FRHIPresentationTarget Target{
-			.NativeWindowHandle = WindowHandle,
-			.NativeMetalLayer = MetalLayer};
+		const auto PlatformTarget = std::make_shared<FNativePresentationTarget>(WindowHandle);
+		const FRHIPresentationTarget Target{.PlatformTarget = PlatformTarget};
 		EXPECT_FALSE(RHIInitWithBackendForTests(
 			Backend, false, false,
 			FRHIInitializationContext::Presentation(Target)));
 
 		ASSERT_TRUE(Observation.InitializationContext.GetPresentationTarget());
 		EXPECT_EQ(Observation.InitializationContext.GetPresentationTarget()
-			->NativeWindowHandle, WindowHandle);
+			->GetNativeWindowHandle(), WindowHandle);
 		EXPECT_EQ(Observation.InitializationContext.GetPresentationTarget()
-			->NativeMetalLayer, MetalLayer);
+			->PlatformTarget, PlatformTarget);
 		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 

@@ -235,9 +235,7 @@ namespace Durin
 			return false;
 		}
 		const FRHIPresentationTarget PresentationTarget{
-			.NativeWindowHandle =
-				StartupNativeWindow->GetOSNativeWindowHandle(),
-			.NativeMetalLayer = StartupNativeWindow->GetNativeMetalLayer()};
+			.PlatformTarget = StartupNativeWindow->GetPresentationTarget()};
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
 			if (!RHIInit(FRHIInitializationContext::Presentation(

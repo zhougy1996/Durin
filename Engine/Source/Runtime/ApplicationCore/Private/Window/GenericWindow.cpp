@@ -95,9 +95,9 @@ namespace Durin
 		return OSNativeWindowHandle;
 	}
 
-	auto FGenericWindow::GetNativeMetalLayer() const -> FNativeMetalLayerHandle
+	auto FGenericWindow::GetPresentationTarget() const -> std::shared_ptr<const FNativePresentationTarget>
 	{
-		return {};
+		return OSNativeWindowHandle ? std::make_shared<FNativePresentationTarget>(OSNativeWindowHandle) : nullptr;
 	}
 
 	auto FGenericWindow::ShouldClose() const -> bool

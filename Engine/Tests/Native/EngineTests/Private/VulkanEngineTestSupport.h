@@ -76,7 +76,7 @@ namespace Durin::Tests
 				GApp = Application;
 			}
 			return FRHIInitializationContext::Presentation({
-				.NativeWindowHandle = NativeWindowHandle});
+				.PlatformTarget = Window->GetPresentationTarget()});
 		}
 
 	private:

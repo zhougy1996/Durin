@@ -179,9 +179,11 @@ The selected module is unloaded after its backend and RHI execution thread.
 
 MetalRHI core code compiles as C++ against the prepared, pinned Metal-cpp headers.
 `MetalCppDevice.cpp` is the only translation unit defining the Foundation, Metal,
-and QuartzCore private implementation macros. Native implementation headers stay backend-private. Shared presentation interfaces
-use `FNativeMetalLayerHandle`, which forward-declares `CA::MetalLayer` without
-requiring Apple SDK or Metal-cpp headers. Capability checks remain unchanged.
+and QuartzCore private implementation macros. Native implementation headers stay
+backend-private. Shared presentation interfaces use `FRHIPresentationTarget`,
+which retains platform-neutral `FNativePresentationTarget` metadata. Common Core,
+RHI and window interfaces do not declare Metal layer types. Capability checks
+remain unchanged.
 
 Owned native references use `NS::SharedPtr<T>`. Adopt `new`, `alloc/init`, and
 `Create` results exactly once with `NS::TransferPtr`; acquire a separate reference
@@ -204,22 +206,32 @@ notification. Shutdown cancels unsubmitted work, joins pipeline creation, drains
 native callbacks and flushes resulting RHI deferred deletions before releasing the
 queue/device. Pool drainage and CPU replay completion do not indicate GPU completion.
 
-`FGenericWindow::GetNativeMetalLayer`, RHI startup and viewport creation pass a
-borrowed `FNativeMetalLayerHandle`. Its explicit constructor accepts only a
-`CA::MetalLayer*`, rejecting untyped `void*` and unrelated pointers. The native
-producer must supply a live Metal layer; ApplicationCore obtains the typed pointer
-from `CAMetalLayer` allocation and initialization. Deliberate casts at native
-boundaries remain the producer's responsibility. MetalRHI acquires its own
-`NS::RetainPtr` reference directly; it has no Objective-C++ adapter or runtime
-class check. RHI startup and viewports each own their required layer reference;
-the platform continues to own the window.
+`FGenericWindow::GetPresentationTarget` returns an immutable platform target.
+Both RHI initialization and viewport creation consume the same
+`FRHIPresentationTarget`; Launch and Mona forward it without extracting backend
+handles. The generic target exposes only native window identity. Its shared
+ownership retains metadata, not the window; the platform must keep the native
+window alive through viewport use and RHI teardown.
+
+The macOS-only `MacOS/MacOSPresentationTarget.h` defines
+`FMacOSPresentationTarget`, with a typed borrowed `CA::MetalLayer*`. Only platform
+producers, backend implementations and native conformance fixtures include this
+header. ApplicationCore constructs it from its known `CAMetalLayer` allocation;
+untyped layer pointers cannot be passed directly to its constructor. MetalRHI
+checks the platform target type and acquires its own `NS::RetainPtr` reference.
+A missing or incompatible platform target is rejected before layer access.
+Native boundary casts remain the producer's responsibility. Vulkan uses the same
+presentation target's window identity to create and adopt its native surface.
+RHI startup and viewports own their required backend references; the platform
+continues to own the window. MetalRHI has no Objective-C++ adapter or runtime
+Cocoa class check.
 Layer configuration, drawable acquisition, resize and present use QuartzCore/Metal
 C++ wrappers. A missing drawable returns without committing presentation work;
 the next present attempt can recover. The MetalRHI module compiles entirely as C++.
 
 
 Windowed startup supplies an explicit `FRHIInitializationContext` with the
-primary native handle. On macOS ApplicationCore installs the `CAMetalLayer` on
+primary platform presentation target. On macOS ApplicationCore installs the `CAMetalLayer` on
 the AppKit main thread before RHI initialization; surface creation remains an
 RHI-thread operation on both platforms. `FVulkanPresentationCandidate` owns the
 surface across instance creation, device admission, and logical-device setup.
@@ -303,4 +315,5 @@ the current native-test framework and are not part of this contract.
 - `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalPipeline.cpp`
 - `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalResourceDescriptors.cpp`
 - `Engine/Source/Runtime/MetalRHI/Private/MacOS/MetalViewport.h`
-- `Engine/Source/Runtime/Core/Public/HAL/NativeMetalLayerHandle.h`
+- `Engine/Source/Runtime/Core/Public/HAL/NativePresentationTarget.h`
+- `Engine/Source/Runtime/Core/Public/MacOS/MacOSPresentationTarget.h`

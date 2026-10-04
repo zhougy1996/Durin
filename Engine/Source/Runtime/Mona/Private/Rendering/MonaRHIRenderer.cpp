@@ -69,8 +69,7 @@ namespace Durin::Mona
 
 		auto* ViewportInfo = new FMonaViewportInfo();
 		FRHIViewportCreateInfo CreateInfo{
-			.NativeWindowHandle = PlatformWindow->GetOSNativeWindowHandle(),
-			.NativeMetalLayer = PlatformWindow->GetNativeMetalLayer(),
+			.PresentationTarget = {.PlatformTarget = PlatformWindow->GetPresentationTarget()},
 			.SizeX = static_cast<uint32>(Width),
 			.SizeY = static_cast<uint32>(Height),
 			.bIsFullscreen = bFullScreen,

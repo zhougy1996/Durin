@@ -745,7 +745,7 @@ namespace Durin::VulkanRHI
 		const FRHIViewportCreateInfo& CreateInfo) -> TRefCountPtr<FRHIViewport>
 	{
 		check(IsInGameThread());
-		if (!CreateInfo.NativeWindowHandle
+		if (!CreateInfo.PresentationTarget.IsValid()
 			|| CreateInfo.SizeX == 0 || CreateInfo.SizeY == 0)
 		{
 			DURIN_ERROR("Cannot create a Vulkan viewport from an invalid presentation target or zero extent.");
@@ -761,7 +761,7 @@ namespace Durin::VulkanRHI
 			}
 			PresentationSurface =
 				InitializationPresentationCandidate->TakeForNativeWindow(
-					CreateInfo.NativeWindowHandle);
+					CreateInfo.PresentationTarget.GetNativeWindowHandle());
 			if (!PresentationSurface)
 			{
 				DURIN_ERROR("Vulkan startup presentation candidate is mismatched or already consumed.");
@@ -775,7 +775,7 @@ namespace Durin::VulkanRHI
 				[this, CreateInfo,
 					 PresentationSurface, &Result]() {
 					Result = MakeRefCount<FVulkanViewport>(
-						*Device, CreateInfo.NativeWindowHandle,
+						*Device, CreateInfo.PresentationTarget.GetNativeWindowHandle(),
 						CreateInfo.SizeX, CreateInfo.SizeY,
 						CreateInfo.bIsFullscreen,
 						CreateInfo.PreferredPixelFormat,
@@ -785,7 +785,7 @@ namespace Durin::VulkanRHI
 			return Result;
 		}
 		return MakeRefCount<FVulkanViewport>(*Device,
-			CreateInfo.NativeWindowHandle,
+			CreateInfo.PresentationTarget.GetNativeWindowHandle(),
 			CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
 			CreateInfo.PreferredPixelFormat, CreateInfo.PresentationPolicy,
 			PresentationSurface);

@@ -7,6 +7,10 @@
 // The forward declaration of GLFWwindow in the glfw library.
 struct GLFWwindow;
 
+#if defined(__APPLE__)
+#include "MacOS/MacOSPresentationTarget.h"
+#endif
+
 namespace Durin
 {
 	struct FWindowsModalLoopBridge;
@@ -59,7 +63,7 @@ namespace Durin
 		APPLICATIONCORE_API auto ShouldClose() const -> bool override;
 
 		APPLICATIONCORE_API auto GetViewportSize() const -> FIntPoint override;
-		APPLICATIONCORE_API auto GetNativeMetalLayer() const -> FNativeMetalLayerHandle override;
+		APPLICATIONCORE_API auto GetPresentationTarget() const -> std::shared_ptr<const FNativePresentationTarget> override;
 
 		APPLICATIONCORE_API auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 

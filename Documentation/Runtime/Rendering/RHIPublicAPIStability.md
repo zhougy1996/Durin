@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-04
+Last reviewed: 2026-10-05
 
 ## Directory Contract
 
@@ -81,6 +81,13 @@ are not admission requirements. Empty code, hash/target/format mismatches, inval
 binding metadata and incompatible native function stages remain rejected.
 Pipeline creation retains complete-or-
 failure publication when a required shader or binding contract is incompatible.
+
+Presentation initialization and viewport creation share `FRHIPresentationTarget`,
+which retains an immutable platform-neutral target. Backend-specific native
+extensions live in platform headers and are consumed only by the matching
+backend and native fixtures. Common RHI consumers forward the target without
+interpreting its platform payload. Retaining target metadata does not extend the
+native window's lifetime.
 
 ## Current Experimental Families
 

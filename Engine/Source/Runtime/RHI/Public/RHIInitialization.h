@@ -3,20 +3,21 @@
 #include "CoreMinimal.h"
 
 #include "RHIAPI.h"
-#include "HAL/NativeMetalLayerHandle.h"
+#include "HAL/NativePresentationTarget.h"
 
 namespace Durin
 {
 	// Describes a live non-owning platform target used for presentation admission.
 	struct FRHIPresentationTarget
 	{
-		void* NativeWindowHandle = nullptr;
-		// The Cocoa window owns this CAMetalLayer; MetalRHI retains it while in use.
-		FNativeMetalLayerHandle NativeMetalLayer;
+		std::shared_ptr<const FNativePresentationTarget> PlatformTarget;
+
+		auto GetNativeWindowHandle() const -> void*
+		{ return PlatformTarget ? PlatformTarget->GetNativeWindowHandle() : nullptr; }
 
 		auto IsValid() const -> bool
 		{
-			return NativeWindowHandle != nullptr;
+			return GetNativeWindowHandle() != nullptr;
 		}
 	};
 

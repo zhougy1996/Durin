@@ -71,7 +71,7 @@ namespace Durin::VulkanRHI
 			Context.GetPresentationTarget())
 		{
 			const vk::SurfaceKHR Surface = FVulkanGenericPlatform::CreateSurface(
-				Target->NativeWindowHandle, Instance);
+				Target->GetNativeWindowHandle(), Instance);
 			if (!Surface)
 				throw std::runtime_error(
 					"Vulkan initialization failed to create the startup presentation surface.");

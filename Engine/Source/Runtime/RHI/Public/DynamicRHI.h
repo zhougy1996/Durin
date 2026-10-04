@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "RHIAPI.h"
-#include "HAL/NativeMetalLayerHandle.h"
 #include "RHICompletion.h"
 #include "RHIQueueTransfer.h"
 #include "Experimental/RHITransition.h"
@@ -199,8 +198,7 @@ namespace Durin
 	// Describes one window-backed viewport and an optional startup-surface adoption.
 	struct FRHIViewportCreateInfo
 	{
-		void* NativeWindowHandle = nullptr;
-		FNativeMetalLayerHandle NativeMetalLayer;
+		FRHIPresentationTarget PresentationTarget;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
 		bool bIsFullscreen = false;

@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "ApplicationCoreAPI.h"
-#include "HAL/NativeMetalLayerHandle.h"
+#include "HAL/NativePresentationTarget.h"
 #include "Window/GenericWindowDefinition.h"
 #include "Input/InputCoreTypes.h"
 
@@ -126,7 +126,7 @@ namespace Durin
 		APPLICATIONCORE_API virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
 
 		APPLICATIONCORE_API virtual auto GetOSNativeWindowHandle() const -> void*;
-		APPLICATIONCORE_API virtual auto GetNativeMetalLayer() const -> FNativeMetalLayerHandle;
+		APPLICATIONCORE_API virtual auto GetPresentationTarget() const -> std::shared_ptr<const FNativePresentationTarget>;
 
 		APPLICATIONCORE_API virtual auto ShouldClose() const -> bool;
 

@@ -1,4 +1,5 @@
 #include "DynamicRHI.h"
+#include "MacOS/MacOSPresentationTarget.h"
 #include "Backend/RHICompletionBackend.h"
 #include "MetalAutoreleasePool.h"
 #include "MetalBuffer.h"
@@ -39,10 +40,11 @@ namespace Durin
 				const FMetalAutoreleasePool Pool;
 				if (const auto& Target = Context.GetPresentationTarget())
 				{
-					StartupLayer = NS::RetainPtr(Target->NativeMetalLayer.Get());
+					const auto* NativeTarget = dynamic_cast<const FMacOSPresentationTarget*>(Target->PlatformTarget.get());
+					StartupLayer = NativeTarget ? NS::RetainPtr(NativeTarget->GetMetalLayer()) : nullptr;
 					if (!StartupLayer)
 						throw std::runtime_error("Metal presentation requires a CAMetalLayer.");
-					StartupWindow = Target->NativeWindowHandle;
+					StartupWindow = Target->GetNativeWindowHandle();
 				}
 				auto Native = CreateMetalCppDeviceAndQueue();
 				Device = std::move(Native.Device);
@@ -213,14 +215,15 @@ namespace Durin
 			-> TRefCountPtr<FRHIViewport> override
 			{
 				const FMetalAutoreleasePool Pool;
-				if (!Device || !Info.NativeWindowHandle || !Info.NativeMetalLayer
-					|| !Info.SizeX || !Info.SizeY) return nullptr;
-				auto Layer = NS::RetainPtr(Info.NativeMetalLayer.Get());
+				if (!Device || !Info.PresentationTarget.IsValid() || !Info.SizeX || !Info.SizeY) return nullptr;
+				const auto* NativeTarget = dynamic_cast<const FMacOSPresentationTarget*>(Info.PresentationTarget.PlatformTarget.get());
+				if (!NativeTarget) return nullptr;
+				auto Layer = NS::RetainPtr(NativeTarget->GetMetalLayer());
 				if (!Layer) return nullptr;
 				if (Info.bAdoptInitializationPresentationCandidate)
 				{
 					if (!StartupLayer || Layer.get() != StartupLayer.get()
-						|| Info.NativeWindowHandle != StartupWindow) return nullptr;
+						|| Info.PresentationTarget.GetNativeWindowHandle() != StartupWindow) return nullptr;
 				}
 				const auto Format = Info.PreferredPixelFormat
 					== EPixelFormat::RGBA16_FLOAT

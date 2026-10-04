@@ -13,12 +13,14 @@ Stages 0–5 are accepted and the migration is complete. Native resources,
 shaders, pipelines, command encoding, completion and viewport operations compile
 as C++ with explicit RAII. Stage 5 originally retained a small Objective-C++
 adapter for untyped Cocoa layer handles. The 2026-10-05 follow-up replaces those
-handles with `FNativeMetalLayerHandle` across ApplicationCore and RHI and removes
-the adapter. MetalRHI now compiles entirely as C++; stage receipts below retain
+handles with a typed native layer boundary and removes the adapter. The later
+platform-boundary follow-up moves that typed layer into the macOS-specific
+presentation target; common interfaces now carry `FRHIPresentationTarget`.
+MetalRHI compiles entirely as C++; stage receipts below retain
 the original migration evidence. Capabilities, shader routes/identity and expected
 GPU output remain unchanged.
 
-Final qualification passes 37 headless cases (Metal API validation enabled),
+Original migration qualification passed 37 headless cases (Metal API validation enabled),
 17 production shader/material cases in their baseline environment, and the
 workspace `all` build across Engine, Sandbox and RoadWeaver. Lasting rules are in
 [RHI implementation documentation](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
@@ -607,3 +609,33 @@ pinned dependency, macOS/M4 host, SDK/compiler, profile and preset as Stage 0.
 - Final workspace `all` build passes across Engine, Sandbox and RoadWeaver:
   `Build/.agent-state/logs/20261005-010239-061548-28278-cmake.log`. Changed-document
   validation and diff checks pass. Existing qualification limits above remain.
+
+
+### 2026-10-05 platform-neutral presentation follow-up
+
+- Replaced the shared Metal layer field/getter with `FRHIPresentationTarget` and
+  `FGenericWindow::GetPresentationTarget`. Common Core/HAL and RHI interfaces
+  expose only immutable platform target metadata and native window identity.
+  Typed layer access lives in `Core/Public/MacOS/MacOSPresentationTarget.h` and
+  is consumed only by platform producers, MetalRHI and native fixtures. Core owns
+  exported target construction, destruction and RTTI; no Apple SDK dependency
+  is introduced into common headers. Metadata ownership does not retain the
+  native window; native backend references retain their previous ownership.
+- Launch, Mona, MetalRHI, VulkanRHI and native fixtures use the same target across
+  initialization and viewport creation. Vulkan still creates/adopts the surface
+  by native window identity; Metal validates the macOS target extension before
+  retaining its typed layer. The former `FNativeMetalLayerHandle` is removed.
+- `RHIInitializationTests` passes 8 cases:
+  `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/NeutralPresentationInitialization.xml`;
+  command log `Build/.agent-state/logs/20261005-015906-170538-31124-RHIInitializationTests.log`.
+- `MetalRHIHeadlessTests` passes 38 cases with `MTL_DEBUG_LAYER=1` on the same
+  Apple M4 host, including missing-layer and incompatible-platform viewport
+  rejection and retained native lifetime:
+  `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/NeutralPresentationMetal.xml`;
+  command log `Build/.agent-state/logs/20261005-015957-382917-31305-ctest.log`.
+- Application-hosted Vulkan/window fixtures are migrated but remain disabled
+  under the default macOS profile. Native window smoke and Windows execution
+  are not claimed as tested by this follow-up.
+- Final workspace `all` build passes for Engine, Sandbox and RoadWeaver:
+  `Build/.agent-state/logs/20261005-020034-890755-31429-cmake.log`. Changed contract
+  documentation, plan validation and diff checks pass.

@@ -2824,7 +2824,7 @@ namespace Durin::VulkanRHI
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		const FRHIInitializationContext InitializationContext =
 			FRHIInitializationContext::Presentation({
-			.NativeWindowHandle = Window->GetOSNativeWindowHandle()});
+			.PlatformTarget = Window->GetPresentationTarget()});
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Surface);
 		EXPECT_FALSE(RHIInit(InitializationContext));
 		EXPECT_EQ(GDynamicRHI, nullptr);
@@ -2844,15 +2844,14 @@ namespace Durin::VulkanRHI
 		} RenderingThreadScope;
 
 		FRHIViewportCreateInfo MainCreateInfo{
-			.NativeWindowHandle = Window->GetOSNativeWindowHandle(),
+			.PresentationTarget = {.PlatformTarget = Window->GetPresentationTarget()},
 			.SizeX = 64,
 			.SizeY = 64,
 			.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,
 			.PresentationPolicy = EViewportPresentationPolicy::FramePaced,
 			.bAdoptInitializationPresentationCandidate = true};
 		FRHIViewportCreateInfo MismatchedCreateInfo = MainCreateInfo;
-		MismatchedCreateInfo.NativeWindowHandle =
-			DetachedWindow->GetOSNativeWindowHandle();
+		MismatchedCreateInfo.PresentationTarget.PlatformTarget = DetachedWindow->GetPresentationTarget();
 		EXPECT_FALSE(GDynamicRHI->RHICreateViewport(MismatchedCreateInfo));
 
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Swapchain);
@@ -3020,8 +3019,7 @@ namespace Durin::VulkanRHI
 
 		TRefCountPtr<FRHIViewport> DetachedViewport =
 			GDynamicRHI->RHICreateViewport({
-				.NativeWindowHandle =
-					DetachedWindow->GetOSNativeWindowHandle(),
+				.PresentationTarget = {.PlatformTarget = DetachedWindow->GetPresentationTarget()},
 				.SizeX = 64,
 				.SizeY = 64,
 				.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,

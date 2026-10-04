@@ -9,6 +9,7 @@
 
 #if defined(__APPLE__)
 #include "MacOS/MacOSCustomTitleBarBridge.h"
+#include "MacOS/MacOSPresentationTarget.h"
 #endif
 
 #if defined(_WIN32)
@@ -1006,12 +1007,14 @@ namespace Durin
 		return {Width, Height};
 	}
 
-	auto FGlfwWindow::GetNativeMetalLayer() const -> FNativeMetalLayerHandle
+	auto FGlfwWindow::GetPresentationTarget() const -> std::shared_ptr<const FNativePresentationTarget>
 	{
 #if defined(__APPLE__)
-		return FNativeMetalLayerHandle{VulkanSurfaceLayer};
+		if (!OSNativeWindowHandle || !VulkanSurfaceLayer) return {};
+		return std::make_shared<FMacOSPresentationTarget>(OSNativeWindowHandle,
+			VulkanSurfaceLayer);
 #else
-		return {};
+		return FGenericWindow::GetPresentationTarget();
 #endif
 	}
 

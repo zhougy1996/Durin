@@ -3,6 +3,7 @@
 #import <QuartzCore/CATransaction.h>
 
 #include "DynamicRHI.h"
+#include "MacOS/MacOSPresentationTarget.h"
 #include "MetalBuffer.h"
 #include "MetalCppDevice.h"
 #include "MetalPipeline.h"
@@ -16,6 +17,9 @@
 #include "RHIGlobals.h"
 
 #include <gtest/gtest.h>
+
+static_assert(!std::is_constructible_v<Durin::FMacOSPresentationTarget, void*, void*>);
+static_assert(std::is_constructible_v<Durin::FMacOSPresentationTarget, void*, CA::MetalLayer*>);
 
 // Fault injection affects only drawable acquisition; subsequent calls use real Metal.
 @interface FMetalQualificationLayer : CAMetalLayer
@@ -1056,23 +1060,24 @@ TEST(FMetalRHIViewportTests, LayerViewportClearsAndPresentsInBothExecutionModes)
 			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
 			CAMetalLayer* Layer = [CAMetalLayer layer];
 			void* LayerHandle = (__bridge void*)Layer;
-			const Durin::FNativeMetalLayerHandle MetalLayer{
-				reinterpret_cast<CA::MetalLayer*>(LayerHandle)};
-			const auto Target = Durin::FRHIPresentationTarget{
-				.NativeWindowHandle = LayerHandle,
-				.NativeMetalLayer = MetalLayer};
+			const auto Target = Durin::FRHIPresentationTarget{.PlatformTarget =
+				std::make_shared<Durin::FMacOSPresentationTarget>(LayerHandle,
+					reinterpret_cast<CA::MetalLayer*>(LayerHandle))};
 			ASSERT_TRUE(Durin::RHIInit(
 				Durin::FRHIInitializationContext::Presentation(Target)));
 			FScopedRHIExit Exit;
 			Durin::FRHIViewportCreateInfo Info;
-			Info.NativeWindowHandle = LayerHandle;
-			Info.NativeMetalLayer = MetalLayer;
+			Info.PresentationTarget = Target;
 			Info.SizeX = 8;
 			Info.SizeY = 8;
 			Info.PreferredPixelFormat = Durin::EPixelFormat::SBGRA8_UNORM;
 			Info.bAdoptInitializationPresentationCandidate = true;
 			auto MissingLayerInfo = Info;
-			MissingLayerInfo.NativeMetalLayer = {};
+			MissingLayerInfo.PresentationTarget.PlatformTarget =
+				std::make_shared<Durin::FMacOSPresentationTarget>(LayerHandle, nullptr);
+			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateViewport(MissingLayerInfo));
+			MissingLayerInfo.PresentationTarget.PlatformTarget =
+				std::make_shared<Durin::FNativePresentationTarget>(LayerHandle);
 			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateViewport(MissingLayerInfo));
 			auto Viewport = Durin::GDynamicRHI->RHICreateViewport(Info);
 			ASSERT_TRUE(Viewport);
@@ -2576,14 +2581,14 @@ TEST(FMetalRHIViewportTests, CppLayerOwnershipAndDrawableFailureRecoverAcrossTea
 			FMetalQualificationLayer* Layer = [FMetalQualificationLayer layer];
 			WeakLayer = Layer;
 			void* Handle = (__bridge void*)Layer;
-			const Durin::FNativeMetalLayerHandle MetalLayer{
-				reinterpret_cast<CA::MetalLayer*>(Handle)};
+			const Durin::FRHIPresentationTarget Target{.PlatformTarget =
+				std::make_shared<Durin::FMacOSPresentationTarget>(Handle,
+					reinterpret_cast<CA::MetalLayer*>(Handle))};
 			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Presentation(
-				{.NativeWindowHandle = Handle, .NativeMetalLayer = MetalLayer})));
+				Target)));
 			FScopedRHIExit Exit;
 			Durin::FRHIViewportCreateInfo Info;
-			Info.NativeWindowHandle = Handle;
-			Info.NativeMetalLayer = MetalLayer;
+			Info.PresentationTarget = Target;
 			Info.SizeX = 8;
 			Info.SizeY = 8;
 			Info.bAdoptInitializationPresentationCandidate = true;
