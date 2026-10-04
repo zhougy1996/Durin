@@ -99,6 +99,7 @@ namespace Durin
 			}
 			auto RHISubmitCommands() -> void override
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Metal.SubmitCommands");
 				const FMetalAutoreleasePool Pool;
 				requiref(State && !Active,
 					"Metal submission requires closed logical GPU recordings.");
@@ -122,7 +123,10 @@ namespace Durin
 							CompleteMetalSubmission(*SharedState, Producer, *Owners, Completed->status());
 						}));
 						++State->PendingCallbacks;
-						Submission.Command->commit();
+						{
+							DURIN_PROFILE_CPU_ZONE_NAMED("Metal.CommandBuffer.Commit");
+							Submission.Command->commit();
+						}
 						requiref(State->Timeline->MarkSubmitted(Producer),
 							"Metal queue lost an accepted GPU reservation.");
 					}
@@ -333,7 +337,10 @@ namespace Durin
 				if (!BackBuffer) return;
 				auto* Layer = MetalViewport->GetLayer();
 				Layer->setDisplaySyncEnabled(bLockToVsync);
-				auto Drawable = NS::RetainPtr(Layer->nextDrawable());
+				auto Drawable = [&]() {
+					DURIN_PROFILE_CPU_ZONE_NAMED("Metal.Present.AcquireDrawable");
+					return NS::RetainPtr(Layer->nextDrawable());
+				}();
 				if (!Drawable) return;
 				auto* Source = static_cast<FMetalTexture*>(BackBuffer.GetReference())->GetHandle();
 				auto* Destination = Drawable->texture();
@@ -367,7 +374,10 @@ namespace Durin
 					std::lock_guard Lock(State->Mutex);
 					++State->PendingCallbacks;
 				}
-				Command->commit();
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("Metal.Present.Commit");
+					Command->commit();
+				}
 				if (Profiling::RecordEditorShellFirstPresent())
 					DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 			}

@@ -2925,7 +2925,10 @@ namespace Durin
 				StorageOwnerScope.Context = &State->ReplayContext;
 				StorageOwnerScope.Context->SetStorageOwner(Group.GetStorageOwner());
 			}
-			Group.Replay(State->ReplayContext);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Commands.Replay");
+				Group.Replay(State->ReplayContext);
+			}
 			const auto ReplayEnd = std::chrono::steady_clock::now();
 			State->ReplayDurationNanoseconds.fetch_add(
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -2939,6 +2942,7 @@ namespace Durin
 			}
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::EndFrame))
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.EndFrame.Replay");
 				if (State->ReplayContext.HasGraphicsContextOverride())
 				{
 					State->ReplayContext.GetOperationContext("EndFrame").RHIEndFrame();
@@ -2963,6 +2967,7 @@ namespace Durin
 			Group.ReleaseBatches();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::DeleteResources))
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.DeleteDeferredResources");
 				DeleteDeferredResources();
 			}
 		};

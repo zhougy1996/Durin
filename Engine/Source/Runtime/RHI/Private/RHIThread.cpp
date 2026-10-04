@@ -1,6 +1,7 @@
 #include "RHIThread.h"
 
 #include "CoreGlobals.h"
+#include "Profiling/Profiling.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 
@@ -64,10 +65,23 @@ namespace Durin
 				FRHIThreadQueueEntry Entry;
 				{
 					std::unique_lock Lock(State.Mutex);
-					State.WorkCV.wait(Lock, [this]() {
+					const auto CanConsume = [this]() {
 						return (!State.Queue.empty() && (!State.Queue.front().Work.IsReady || State.Queue.front().Work.IsReady()))
 							|| State.AdmissionState != ERHIThreadAdmissionState::Running;
-					});
+					};
+					while (!CanConsume())
+					{
+						if (State.Queue.empty())
+						{
+							DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.IdleWait");
+							State.WorkCV.wait(Lock);
+						}
+						else
+						{
+							DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.DependencyWait");
+							State.WorkCV.wait(Lock);
+						}
+					}
 					if (State.Queue.empty())
 					{
 						break;
@@ -79,6 +93,7 @@ namespace Durin
 				FRHIThreadWorkResult Result;
 				try
 				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.Execute");
 					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Result = Entry.Work.Execute();
 				}
 				catch (const std::exception& Exception)
@@ -93,7 +108,10 @@ namespace Durin
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
 				const uint64 CompletedPayloadBytes = Entry.Work.PayloadBytes;
-				Entry.Work = {};
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.ReleaseWork");
+					Entry.Work = {};
+				}
 				std::deque<FRHIThreadQueueEntry> RejectedEntries;
 				{
 					std::lock_guard Lock(State.Mutex);
@@ -363,10 +381,13 @@ namespace Durin
 			const bool bFramePressure = Work.FrameCount > State->Limits.MaxFrames - State->OutstandingFrameCount;
 			if (bFramePressure) ++State->FramePressureWaitCount;
 			++State->BackpressureWaitCount;
-			State->CompletionCV.wait(Lock, [this, &HasCapacity]() {
-				return HasCapacity()
-					|| State->AdmissionState != ERHIThreadAdmissionState::Running;
-			});
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.BackpressureWait");
+				State->CompletionCV.wait(Lock, [this, &HasCapacity]() {
+					return HasCapacity()
+						|| State->AdmissionState != ERHIThreadAdmissionState::Running;
+				});
+			}
 			const auto WaitNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - WaitStart).count());
 			State->BackpressureWaitNanoseconds += WaitNanoseconds;
