@@ -13,6 +13,11 @@ Stage 0 is in progress. The Metal backend has device admission, headless
 frame begin/end and queue submission, initial shared-buffer and color 2D/2D-array/cube/cube-array/3D texture transfers, transfer
 views, sampler creation, and a recorded single-color RGBA8 offscreen clear pass
 whose output is checked after native GPU completion in inline and threaded modes.
+Apple's Metal-cpp is now pinned as a source dependency, and device admission and
+command-queue creation use its C++ API. The remaining resource, command, and
+presentation implementation still uses Objective-C++ under ARC; migration of
+those calls and ownership is open. `MetalRHI` builds and its headless GPU
+qualification target passes after this first boundary change on the M4 host.
 Production shader integration, full presentation qualification, full
 runtime qualification, and performance results remain open. The repeatable
 `Tools/ShaderQualification/metal_routes.py` probe generated MSL for 11 authored
@@ -96,7 +101,8 @@ allocation. The `spirv-cross` dependency manifest now pins Khronos'
 `6c09849fe88c48eaed08413aa022aaa136a3a057`). The native Metal shader
 qualification target builds and links its C API and MSL backend from that
 source; it no longer depends on a host Vulkan SDK dynamic library. Production
-ShaderBuild integration remains open. Slang 2026.5.2 needed no upgrade; the host
+ShaderBuild integration was subsequently added through the selected SPIR-V-to-
+MSL route. Slang 2026.5.2 needed no upgrade; the host
 required installation
 of Xcode Metal Toolchain 17F109. Receipt:
 `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalShaderQualificationTests.xml`
@@ -120,8 +126,8 @@ The production shader route remains subject to those Stage 0
 acceptance checks. The material cases run under the authored shader environment
 and GPU resource lock. The unlit vertex draw reserves Metal buffer slot 0 for
 the primitive uniform and uses slot 1 for the vertex stream; the masked fragment
-uses buffer/texture/sampler slot 0. Production binding allocation must
-generalize and validate those per-stage mappings.
+uses buffer/texture/sampler slot 0. Production binding allocation now validates
+canonical per-stage maps; broader authored-material output parity remains open.
 
 The separate synthetic resource-array fixture also generates and compiles
 direct MSL with pinned Slang, but that compile result does not resolve the
@@ -131,18 +137,24 @@ binding behavior at runtime.
 The current shader session selects `SLANG_SPIRV` and `spirv_1_5` in
 `Engine/Source/Developer/ShaderBuild/Private/SlangSessionEnvironment.h`.
 Public shader reflection carries set/binding coordinates and push-constant
-ranges. ApplicationCore initialization discovers Vulkan surface requirements
-and fails when that discovery fails. These are concrete integration boundaries
-to address, beyond adding native resource and command wrappers.
+ranges. ApplicationCore now discovers Vulkan surface requirements only when the
+Vulkan presentation device requests them; eager discovery was removed during
+Metal startup integration.
 
 Direct MSL output retains requested entry-point names (the SPIR-V path records
 `main`). In the compute fixture, Slang mapped the storage buffer to Metal
 `buffer(0)`, push constants to `buffer(1)`, and storage texture to `texture(0)`.
 This is an observed example, not a general binding contract. Shader variant
-keys include compiler environment and the fixed SPIR-V target name; cooked
-shader admission currently accepts only Win64, and authored shader data selects
-Win64 editor validation. Backend target identity must be explicit in each of
-these paths before Metal artifacts are admitted.
+keys include compiler environment and target identity. Cooked shader admission
+now accepts MacOS Metal artifacts separately from Win64 Vulkan artifacts;
+runtime loading rejects a mismatched target.
+The current RenderShaderCookedLibraryTests (6), RenderShaderCacheTests (13),
+RenderShaderBuilderTests (24), and native MetalShaderQualificationTests pass on
+the M4. The Builder target initially faulted during CMake's test discovery
+before any case ran; retrying with `DYLD_PRINT_LIBRARIES=1` discovered and ran
+all 24 cases. These results and the MacOS Cook/Game smoke close the selected
+shader-route integration and wrong-backend artifact checks. Output parity for
+the declared Metal/Vulkan image set remains open.
 
 ### Stage 0 workload and RHI inventory
 
@@ -301,9 +313,26 @@ indirect draw and dispatch. Direct and indexed indirect triangle records pass
 exact RGBA8 GPU readback, and an indirect compute dispatch updates its result
 buffer with checked values, in both execution modes. A GPU-authored indexed
 indirect argument record now crosses a compute-to-graphics encoder boundary in
-one submission and fills the target with checked pixels in both modes. Constant
-blend factors, broader render state, other texture dimensions, and production
-material-program qualification remain open.
+one submission and fills the target with checked pixels in both modes. The
+remaining constant-color, constant-alpha, and source-alpha-saturate blend
+factors now map to Metal. A zero blend constant matches the current Vulkan
+pipeline default; constant-factor and saturation draws pass exact RGBA8 readback
+in both execution modes. Broader render state and full editor material-preview
+qualification remain open.
+Metal graphics pipelines now admit line-list topology and carry it through
+direct, indexed, and indirect draws. A recorded line draw produces the expected
+partial 8x8 target coverage in both execution modes; editor line rendering
+remains part of the Stage 4 application workload gate.
+The authored `/Engine/ImGui` vertex and fragment shaders now compile through
+the selected ShaderBuild route for both Metal and Vulkan, then execute through
+production RHI recording, submission, and readback. A textured, vertex-tinted,
+straight-alpha panel clipped to a 2x2 region of a 4x4 target matches between
+Metal and Vulkan/MoltenVK within 1 LSB per RGBA8 channel in both inline and
+threaded modes; pixels outside the scissor stay at the clear color. The authored
+`/Engine/HitProxyOverlay` shader also passes an exact paired `RG32_UINT` ID and
+distance-bit readback for covered and clipped pixels on both backends and both
+execution modes. These are bounded shader-to-RHI paired-image slices. A
+representative editor panel and retained capture/diff artifacts remain open.
 Two RGBA8 color attachments now share a render pass with independently mapped
 blend state; a fragment shader writing red and green outputs passes exact GPU
 readback from both targets in inline and threaded modes. BGRA8, sRGB RGBA/BGRA,
@@ -354,7 +383,8 @@ ShaderBuild. Material cooked-program schema 12 carries each stage's target,
 code format, native binding map, and compute thread-group dimensions;
 MacOS/Game serialization, decode, and
 wrong-platform rejection pass focused tests, including real Metal material
-compilation. A full asset cook and packaged Metal game launch remain unqualified.
+compilation. A MacOS project Cook and Debug Game run now pass; standalone
+distribution packaging remains unqualified.
 
 ### Stage 0 capability and image comparison matrix
 
@@ -375,7 +405,7 @@ corresponding native behavior is implemented and verified.
 | `R11G11B10_FLOAT` | GBuffer emissive render and sample | Native allocation with render/read usage; native MSL float render and exact packed-bit readback passed; selected-route output and sampling pending |
 | `RGBA16_FLOAT` | Scene color, cloud compute/storage, cube environment | Native 2D render/read/write and cube read/write allocation; native MSL float render and exact half-bit readback passed; selected-route compute storage write and half-bit readback passed; Metal RHI cube-face mip transfer and exact-byte readback passed; native cube +X/−X nearest sampling passed; linear filtering and selected-route sampling pending |
 | `RGBA32_FLOAT`, `R16_FLOAT`, `RG8_UNORM` | Normal/default and authored texture sampling | Native sampled allocation; RGBA32 2D upload and linear filtering passed with exact float readback; selected-route sampling pending |
-| `RG32_UINT` | Hit-proxy integer target and readback | Native render-target allocation; native MSL integer render and exact 64-bit pixel readback passed; selected-route hit-proxy output pending |
+| `RG32_UINT` | Hit-proxy integer target and readback | Native render-target allocation and exact 64-bit pixel readback passed; authored selected-route hit-proxy overlay output matches Vulkan/MoltenVK exactly on covered and clipped pixels in a 4x4 production-RHI fixture; editor viewport capture pending |
 | `D32` | Scene/shadow depth, sampled depth array | Native 2D and three-layer depth-array allocation; native MSL depth clear/write/store and float readback passed; Metal RHI one-color-plus-D32 depth occlusion and exact float readback passed; three distinct array-layer clears and comparison sampling passed; selected-route depth sampling pending |
 | `BC1_UNORM`, `BC1_UNORM_SRGB` | Authored sky-cube sampling | M4 reports BC compression support. Metal RHI cube allocation, pitched block-row upload, exact compressed-byte readback through a one-texel mip, and BC1 sRGB sampled linear decoding passed in inline and threaded modes; full editor image comparison pending. |
 
@@ -427,6 +457,10 @@ owning boundaries without spreading native Metal types into Renderer code.
 
 - Add a `MetalRHI` module, integrated through the existing dynamic-RHI module
   boundary. Keep Vulkan selectable for regression comparison and recovery.
+- Use pinned Apple Metal-cpp for the native backend. Move resource and command
+  ownership to explicit C++ RAII as calls migrate; keep Objective-C++ only where
+  Cocoa window interop requires it. Do not treat a syntax-only conversion as
+  complete without GPU lifetime and readback validation.
 - Start with one physical command queue supporting graphics, compute, and
   transfer work. Publish capabilities conservatively; use documented fallback
   behavior for independent queues and experimental split transitions.
@@ -496,6 +530,12 @@ implicit viewport clear submission, and the default shader compile target,
 running for 43 seconds without a startup assertion; the run was stopped with
 Ctrl-C. Visible output and interactive window behavior were not verified on
 this host, where ImGui reported no platform monitors.
+A later visible Editor attempt on this host initialized Metal and renderer
+modules but could not finish Editor startup while the macOS session was locked;
+screen capture showed a system removable-volume permission dialog for the
+application-test host. The attempt was interrupted after 71 seconds. It does
+not qualify visible presentation, resize, or close behavior; the hidden-window
+Editor and native `CAMetalLayer` tests remain the bounded evidence.
 The RHI loader now accepts `DURIN_RHI_BACKEND=vulkan|metal`, defaults to
 Vulkan, rejects invalid names, and unloads the selected module by identity.
 MetalRHI is registered in the Engine closure. On M4/macOS 27.0.1, its native
@@ -550,12 +590,12 @@ remain unverified.
 
 - [x] Register `MetalRHI` and its platform build dependencies; implement explicit
   backend selection with useful unsupported-platform/device diagnostics.
-- [ ] Decouple ApplicationCore startup from unconditional Vulkan requirements;
+- [x] Decouple ApplicationCore startup from unconditional Vulkan requirements;
   retain the existing Vulkan startup path and headless initialization contract.
 - [x] Create the Metal device, baseline queue, and immutable capability report.
 - [ ] Implement native layer/drawable ownership and viewport creation,
   presentation, resize, minimization, close, and shutdown behavior.
-- [ ] Verify both inline and threaded command execution ownership where applicable.
+- [x] Verify both inline and threaded command execution ownership where applicable.
 
 Acceptance: a selectable Metal application presents a clear frame and survives
 repeated resize/minimize/close cycles; headless initialization works; Vulkan
@@ -586,7 +626,7 @@ reuse. Unsupported operations follow the documented capability/error contract.
 
 Dependencies: Stages 0 and 2 accepted.
 
-- [ ] Integrate the selected shader route into ShaderBuild and runtime shader
+- [x] Integrate the selected shader route into ShaderBuild and runtime shader
   loading, with target-specific cache and cooked-artifact separation.
 - [ ] Implement graphics/compute pipeline creation, reflection-to-native binding
   maps, constant data, arrays, vertex input, and required render/depth state.
@@ -594,7 +634,7 @@ Dependencies: Stages 0 and 2 accepted.
   preserve pipeline complete-or-failure publication and binding validation.
 - [ ] Run actual global/material shader and compute/readback workloads through
   production command recording, replay, submission, and retirement.
-- [ ] Verify wrong-backend shader artifacts are rejected and cannot contaminate
+- [x] Verify wrong-backend shader artifacts are rejected and cannot contaminate
   caches or silently load into an incompatible device.
 
 Acceptance: representative textured/material draws and compute output match

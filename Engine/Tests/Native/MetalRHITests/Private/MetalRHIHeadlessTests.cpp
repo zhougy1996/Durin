@@ -1,6 +1,13 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#if DURIN_WITH_EDITOR
+#include "Shader/Shader.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Modules/ModuleManager.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#endif
 
 #include <gtest/gtest.h>
 
@@ -34,6 +41,330 @@ namespace
 		}
 	};
 }
+
+#if DURIN_WITH_EDITOR
+TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProductionRHI)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(Durin::FModuleManager::Get().LoadModule("ShaderBuild"));
+	auto* Builder = Durin::IShaderBuildModule::Get();
+	ASSERT_NE(Builder, nullptr);
+	Durin::FShaderCompileOptions Options;
+	Options.Target = Durin::MetalShaderTarget;
+	Options.EntryPoints = {"VertexMain", "FragmentMain"};
+	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
+		Durin::EShaderFrequency::Fragment};
+	const auto MetalCompiled = Builder->CompileMounted("/Engine/ImGui", Options);
+	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderError(MetalCompiled.Error);
+	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
+	Options.Target = Durin::VulkanShaderTarget;
+	const auto VulkanCompiled = Builder->CompileMounted("/Engine/ImGui", Options);
+	ASSERT_TRUE(VulkanCompiled) << Durin::FormatShaderError(VulkanCompiled.Error);
+	ASSERT_EQ(VulkanCompiled.CompiledShaders.size(), 2u);
+	std::array<Durin::FByteBuffer, 2> MetalPixels;
+	for (const char* BackendName : {"metal", "vulkan"})
+	{
+		FScopedEnvironmentVariable SelectedBackend("DURIN_RHI_BACKEND", BackendName);
+		const auto& Compiled = std::string_view(BackendName) == "metal"
+			? MetalCompiled : VulkanCompiled;
+		for (size_t ModeIndex = 0; ModeIndex < 2; ++ModeIndex)
+		{
+			const char* Mode = ModeIndex == 0 ? "inline" : "threaded";
+			SCOPED_TRACE(BackendName);
+			SCOPED_TRACE(Mode);
+			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+			FScopedRHIExit Exit;
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			auto Vertex = Durin::GDynamicRHI->RHICreateShader(
+				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[0]));
+			auto Fragment = Durin::GDynamicRHI->RHICreateShader(
+				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[1]));
+			ASSERT_TRUE(Vertex);
+			ASSERT_TRUE(Fragment);
+			struct FImGuiVertex
+			{
+				float Position[2];
+				float UV[2];
+				float Color[4];
+			};
+			const FImGuiVertex Vertices[3] = {
+				{{-1, -1}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{3, -1}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+				{{-1, 3}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}}};
+			auto VertexDesc = Durin::FRHIBufferCreateDesc::Create(
+				"Authored ImGui vertices", sizeof(Vertices), sizeof(FImGuiVertex),
+				Durin::EBufferUsageFlags::VertexBuffer);
+			VertexDesc.InitialData = {.Data = Vertices, .Size = sizeof(Vertices)};
+			auto VertexResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+				Commands, VertexDesc);
+			ASSERT_TRUE(VertexResult.has_value());
+			auto VertexBuffer = std::move(*VertexResult);
+			Durin::FVertexDeclarationElementList Elements{};
+			Elements[0] = {0, 0, Durin::EVertexElementType::Float2, 0,
+				sizeof(FImGuiVertex)};
+			Elements[1] = {0, 8, Durin::EVertexElementType::Float2, 1,
+				sizeof(FImGuiVertex)};
+			Elements[2] = {0, 16, Durin::EVertexElementType::Float4, 2,
+				sizeof(FImGuiVertex)};
+			auto Declaration = Durin::GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			ASSERT_TRUE(Declaration);
+			const std::array<uint8_t, 4> FontPixel{128, 64, 255, 255};
+			auto FontDesc = Durin::FRHITextureCreateDesc::Create2D(
+				"Authored ImGui font", 1, 1, Durin::EPixelFormat::RGBA8_UNORM);
+			FontDesc.SetFlags(Durin::ETextureCreateFlags::ShaderResource);
+			auto FontResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, FontDesc);
+			ASSERT_TRUE(FontResult.has_value());
+			auto Font = std::move(*FontResult);
+			Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Font.GetReference(),
+				0, 0, Durin::FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 4,
+				std::as_bytes(std::span(FontPixel)));
+			auto FontView = Durin::GDynamicRHI->RHICreateTextureView(
+				Font.GetReference(), Durin::MakeDefaultTextureViewDesc(
+					*Font, Durin::ERHITextureViewUsage::Sampled));
+			auto Sampler = Durin::GDynamicRHI->RHICreateSampler(
+				Durin::FRHISamplerDesc::PointClamp());
+			ASSERT_TRUE(FontView);
+			ASSERT_TRUE(Sampler);
+			const float Projection[4] = {1, 1, 0, 0};
+			auto UniformDesc = Durin::FRHIBufferCreateDesc::Create(
+				"Authored ImGui projection", sizeof(Projection), sizeof(Projection),
+				Durin::EBufferUsageFlags::UniformBuffer);
+			UniformDesc.InitialData = {.Data = Projection, .Size = sizeof(Projection)};
+			auto UniformResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+				Commands, UniformDesc);
+			ASSERT_TRUE(UniformResult.has_value());
+			auto Uniform = std::move(*UniformResult);
+			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(
+				Uniform.GetReference(), {.Offset = 0, .Size = sizeof(Projection),
+					.Type = Durin::ERHIBufferViewType::Uniform});
+			ASSERT_TRUE(UniformView);
+			auto ColorDesc = Durin::FRHITextureCreateDesc::Create2D(
+				"Authored ImGui target", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
+			ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+				| Durin::ETextureCreateFlags::CPUReadback);
+			auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+				Commands, ColorDesc);
+			ASSERT_TRUE(ColorResult.has_value());
+			auto Color = std::move(*ColorResult);
+			Durin::FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
+				Durin::EPixelFormat::RGBA8_UNORM;
+			Pass.ColorRenderTargets[0] = Color.GetReference();
+			Pass.ColorClearValues[0] = Durin::FClearValueBinding(0, 0, 1, 1);
+			Durin::FGraphicsPipelineStateInitializer Initializer;
+			Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
+			Initializer.VertexDeclaration = Declaration.GetReference();
+			Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
+			Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+			Initializer.ColorBlendStates[0] = Durin::FRHIColorBlendState::StraightAlpha();
+			ASSERT_TRUE(Durin::BuildPipelineLayoutFromShaders(
+				Compiled.CompiledShaders, Initializer.PipelineLayout));
+			auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
+				"AuthoredImGui", Initializer);
+			ASSERT_TRUE(Pipeline);
+			const std::array VertexParameters{Durin::FRHIShaderParameterResource{
+				.Resource = UniformView.GetReference(), .SetIndex = 0,
+				.BindingIndex = 2, .Type = Durin::ERHIBindingType::UniformBuffer}};
+			const std::array FragmentParameters{
+				Durin::FRHIShaderParameterResource{.Resource = FontView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0,
+					.Type = Durin::ERHIBindingType::Texture},
+				Durin::FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1,
+					.Type = Durin::ERHIBindingType::Sampler}};
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.BeginRenderPass(Pass, "AuthoredImGui");
+			Commands.SetGraphicsPipelineState(*Pipeline);
+			Commands.SetViewport(0, 0, 0, 4, 4, 1);
+			Commands.SetScissor(1, 1, 2, 2);
+			Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
+			Commands.SetShaderParameters(Vertex.GetReference(), VertexParameters);
+			Commands.SetShaderParameters(Fragment.GetReference(), FragmentParameters);
+			Commands.Draw({.VertexCount = 3});
+			Commands.EndRenderPass();
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(
+				Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
+			Durin::FByteBuffer Pixels;
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				Commands, Color.GetReference(), 0, 0, Pixels));
+			ASSERT_EQ(Pixels.size(), 4u * 4u * 4u);
+			for (size_t Y = 0; Y < 4; ++Y)
+			for (size_t X = 0; X < 4; ++X)
+			{
+				const size_t Index = (Y * 4 + X) * 4;
+				const bool bClipped = X < 1 || X >= 3 || Y < 1 || Y >= 3;
+				const int Expected = bClipped ? 0 : 32;
+				EXPECT_LE(std::abs(int(Pixels[Index]) - Expected), 1);
+				EXPECT_LE(std::abs(int(Pixels[Index + 1]) - Expected), 1);
+				EXPECT_EQ(Pixels[Index + 2], std::byte{255});
+				EXPECT_EQ(Pixels[Index + 3], std::byte{255});
+			}
+			if (std::string_view(BackendName) == "metal")
+				MetalPixels[ModeIndex] = Pixels;
+			else
+			{
+				ASSERT_EQ(Pixels.size(), MetalPixels[ModeIndex].size());
+				for (size_t Index = 0; Index < Pixels.size(); ++Index)
+					EXPECT_LE(std::abs(int(Pixels[Index])
+						- int(MetalPixels[ModeIndex][Index])), 1);
+			}
+		}
+	}
+}
+
+TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
+{
+	FScopedEnvironmentVariable DefaultBackend("DURIN_RHI_BACKEND", "metal");
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(Durin::FModuleManager::Get().LoadModule("ShaderBuild"));
+	auto* Builder = Durin::IShaderBuildModule::Get();
+	ASSERT_NE(Builder, nullptr);
+	Durin::FShaderCompileOptions Options;
+	Options.Target = Durin::MetalShaderTarget;
+	Options.EntryPoints = {"VertexMain", "FragmentMain"};
+	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
+		Durin::EShaderFrequency::Fragment};
+	const auto MetalCompiled = Builder->CompileMounted("/Engine/HitProxyOverlay", Options);
+	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderError(MetalCompiled.Error);
+	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
+	Options.Target = Durin::VulkanShaderTarget;
+	const auto VulkanCompiled = Builder->CompileMounted("/Engine/HitProxyOverlay", Options);
+	ASSERT_TRUE(VulkanCompiled) << Durin::FormatShaderError(VulkanCompiled.Error);
+	ASSERT_EQ(VulkanCompiled.CompiledShaders.size(), 2u);
+	std::array<Durin::FByteBuffer, 2> MetalPixels;
+	for (const char* BackendName : {"metal", "vulkan"})
+	{
+		FScopedEnvironmentVariable SelectedBackend("DURIN_RHI_BACKEND", BackendName);
+		const auto& Compiled = std::string_view(BackendName) == "metal"
+			? MetalCompiled : VulkanCompiled;
+		for (size_t ModeIndex = 0; ModeIndex < 2; ++ModeIndex)
+		{
+			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION",
+				ModeIndex == 0 ? "inline" : "threaded");
+			SCOPED_TRACE(BackendName);
+			SCOPED_TRACE(ModeIndex);
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+			FScopedRHIExit Exit;
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			auto Vertex = Durin::GDynamicRHI->RHICreateShader(
+				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[0]));
+			auto Fragment = Durin::GDynamicRHI->RHICreateShader(
+				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[1]));
+			ASSERT_TRUE(Vertex);
+			ASSERT_TRUE(Fragment);
+			struct FHitVertex { float Position[4]; float Distance; };
+			const FHitVertex Vertices[3] = {
+				{{-1, -1, 0, 1}, 0.25f},
+				{{3, -1, 0, 1}, 0.25f},
+				{{-1, 3, 0, 1}, 0.25f}};
+			auto VertexDesc = Durin::FRHIBufferCreateDesc::Create(
+				"Authored hit-proxy vertices", sizeof(Vertices), sizeof(FHitVertex),
+				Durin::EBufferUsageFlags::VertexBuffer);
+			VertexDesc.InitialData = {.Data = Vertices, .Size = sizeof(Vertices)};
+			auto VertexResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+				Commands, VertexDesc);
+			ASSERT_TRUE(VertexResult.has_value());
+			auto VertexBuffer = std::move(*VertexResult);
+			Durin::FVertexDeclarationElementList Elements{};
+			Elements[0] = {0, 0, Durin::EVertexElementType::Float4, 0,
+				sizeof(FHitVertex)};
+			Elements[1] = {0, 16, Durin::EVertexElementType::Float1, 1,
+				sizeof(FHitVertex)};
+			auto Declaration = Durin::GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			ASSERT_TRUE(Declaration);
+			const uint32_t HitId[4] = {0x12345678u, 0, 0, 0};
+			auto UniformDesc = Durin::FRHIBufferCreateDesc::Create(
+				"Authored hit-proxy ID", sizeof(HitId), sizeof(HitId),
+				Durin::EBufferUsageFlags::UniformBuffer);
+			UniformDesc.InitialData = {.Data = HitId, .Size = sizeof(HitId)};
+			auto UniformResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+				Commands, UniformDesc);
+			ASSERT_TRUE(UniformResult.has_value());
+			auto Uniform = std::move(*UniformResult);
+			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(
+				Uniform.GetReference(), {.Offset = 0, .Size = sizeof(HitId),
+					.Type = Durin::ERHIBufferViewType::Uniform});
+			ASSERT_TRUE(UniformView);
+			auto ColorDesc = Durin::FRHITextureCreateDesc::Create2D(
+				"Authored hit-proxy target", 4, 4, Durin::EPixelFormat::RG32_UINT);
+			ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+				| Durin::ETextureCreateFlags::CPUReadback);
+			auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+				Commands, ColorDesc);
+			ASSERT_TRUE(ColorResult.has_value());
+			auto Color = std::move(*ColorResult);
+			Durin::FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
+				Durin::EPixelFormat::RG32_UINT;
+			Pass.ColorRenderTargets[0] = Color.GetReference();
+			Pass.ColorClearValues[0] = Durin::FClearValueBinding(0, 0, 0, 0);
+			Durin::FGraphicsPipelineStateInitializer Initializer;
+			Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
+			Initializer.VertexDeclaration = Declaration.GetReference();
+			Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
+			Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+			ASSERT_TRUE(Durin::BuildPipelineLayoutFromShaders(
+				Compiled.CompiledShaders, Initializer.PipelineLayout));
+			auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
+				"AuthoredHitProxy", Initializer);
+			ASSERT_TRUE(Pipeline);
+			const std::array Parameters{Durin::FRHIShaderParameterResource{
+				.Resource = UniformView.GetReference(), .SetIndex = 0,
+				.BindingIndex = 0, .Type = Durin::ERHIBindingType::UniformBuffer}};
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.BeginRenderPass(Pass, "AuthoredHitProxy");
+			Commands.SetGraphicsPipelineState(*Pipeline);
+			Commands.SetViewport(0, 0, 0, 4, 4, 1);
+			Commands.SetScissor(1, 1, 2, 2);
+			Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
+			Commands.SetShaderParameters(Fragment.GetReference(), Parameters);
+			Commands.Draw({.VertexCount = 3});
+			Commands.EndRenderPass();
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(
+				Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
+			Durin::FByteBuffer Pixels;
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				Commands, Color.GetReference(), 0, 0, Pixels));
+			ASSERT_EQ(Pixels.size(), 4u * 4u * 2u * sizeof(uint32_t));
+			for (size_t Y = 0; Y < 4; ++Y)
+			for (size_t X = 0; X < 4; ++X)
+			{
+				const size_t Offset = (Y * 4 + X) * 2u * sizeof(uint32_t);
+				uint32_t Id = 0, Distance = 0;
+				std::memcpy(&Id, Pixels.data() + Offset, sizeof(Id));
+				std::memcpy(&Distance, Pixels.data() + Offset + sizeof(Id),
+					sizeof(Distance));
+				const bool bCovered = X >= 1 && X < 3 && Y >= 1 && Y < 3;
+				EXPECT_EQ(Id, bCovered ? HitId[0] : 0u);
+				EXPECT_EQ(Distance, bCovered ? 0x3e800000u : 0u);
+			}
+			if (std::string_view(BackendName) == "metal")
+				MetalPixels[ModeIndex] = Pixels;
+			else EXPECT_EQ(Pixels, MetalPixels[ModeIndex]);
+		}
+	}
+}
+#endif
 
 TEST(FMetalRHIHeadlessTests, DeviceAndSingleQueueInitializeInBothExecutionModes)
 {
@@ -310,6 +641,44 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			EXPECT_EQ(Pixels[Index + 2], std::byte{0});
 			EXPECT_EQ(Pixels[Index + 3], std::byte{255});
 		}
+		const float LinePositions[4] = {-1.0f, 0.0f, 1.0f, 0.0f};
+		auto LineBufferDesc = Durin::FRHIBufferCreateDesc::Create(
+			"Metal line vertices", sizeof(LinePositions), sizeof(float) * 2,
+			Durin::EBufferUsageFlags::VertexBuffer);
+		LineBufferDesc.InitialData = {.Data = LinePositions,
+			.Size = sizeof(LinePositions)};
+		auto LineBufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			Commands, LineBufferDesc);
+		ASSERT_TRUE(LineBufferResult.has_value());
+		auto LineBuffer = std::move(*LineBufferResult);
+		auto LineInitializer = Initializer;
+		LineInitializer.PrimitiveTopology =
+			Durin::FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+		auto LinePipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
+			"MetalLine", LineInitializer);
+		ASSERT_TRUE(LinePipeline);
+		const auto LineSignal = Commands.BeginGPUSubmission(
+			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.BeginRenderPass(Pass, "MetalLine");
+		Commands.SetGraphicsPipelineState(*LinePipeline);
+		Commands.BindVertexBuffer(0, LineBuffer.GetReference(), 0);
+		Commands.Draw({.VertexCount = 2});
+		Commands.EndRenderPass();
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+			Durin::ERHISubmitFlags::SubmitToGPU);
+		ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(
+			LineSignal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
+		Pixels.clear();
+		ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+			Commands, Texture.GetReference(), 0, 0, Pixels));
+		ASSERT_EQ(Pixels.size(), 8u * 8u * 4u);
+		size_t GreenPixels = 0;
+		for (size_t Index = 0; Index < Pixels.size(); Index += 4)
+			if (Pixels[Index] == std::byte{0}
+				&& Pixels[Index + 1] == std::byte{255}) ++GreenPixels;
+		EXPECT_GT(GreenPixels, 0u);
+		EXPECT_LT(GreenPixels, 64u);
 		const auto ClippedSignal = Commands.BeginGPUSubmission(
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.BeginRenderPass(Pass, "MetalClippedTriangle");
@@ -533,6 +902,51 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			EXPECT_EQ(Pixels[Index + 2], std::byte{128});
 			EXPECT_EQ(Pixels[Index + 3], std::byte{255});
 		}
+		auto CheckBlendFactors = [&](const char* Name,
+			const Durin::FRHIColorBlendState& BlendState,
+			std::byte Red, std::byte Blue, std::byte Alpha) {
+			auto BlendFactorInitializer = BlendInitializer;
+			BlendFactorInitializer.ColorBlendStates[0] = BlendState;
+			auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
+				Name, BlendFactorInitializer);
+			EXPECT_TRUE(Pipeline);
+			if (!Pipeline) return;
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.BeginRenderPass(BlendPass, Name);
+			Commands.SetGraphicsPipelineState(*Pipeline);
+			Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
+			Commands.Draw({.VertexCount = 3});
+			Commands.EndRenderPass();
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU);
+			EXPECT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(
+				Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
+			Pixels.clear();
+			EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				Commands, Texture.GetReference(), 0, 0, Pixels));
+			EXPECT_EQ(Pixels.size(), 8u * 8u * 4u);
+			for (size_t Index = 0; Index + 3 < Pixels.size(); Index += 4)
+			{
+				EXPECT_EQ(Pixels[Index], Red);
+				EXPECT_EQ(Pixels[Index + 1], std::byte{0});
+				EXPECT_EQ(Pixels[Index + 2], Blue);
+				EXPECT_EQ(Pixels[Index + 3], Alpha);
+			}
+		};
+		auto ConstantBlend = BlendInitializer.ColorBlendStates[0];
+		ConstantBlend.SrcColorFactor = Durin::ERHIBlendFactor::OneMinusConstantColor;
+		ConstantBlend.DstColorFactor = Durin::ERHIBlendFactor::ConstantColor;
+		ConstantBlend.SrcAlphaFactor = Durin::ERHIBlendFactor::OneMinusConstantAlpha;
+		ConstantBlend.DstAlphaFactor = Durin::ERHIBlendFactor::ConstantAlpha;
+		CheckBlendFactors("MetalConstantBlend", ConstantBlend,
+			std::byte{255}, std::byte{0}, std::byte{128});
+		auto SaturatedBlend = BlendInitializer.ColorBlendStates[0];
+		SaturatedBlend.SrcColorFactor = Durin::ERHIBlendFactor::SrcAlphaSaturate;
+		SaturatedBlend.DstColorFactor = Durin::ERHIBlendFactor::One;
+		CheckBlendFactors("MetalSaturatedBlend", SaturatedBlend,
+			std::byte{0}, std::byte{255}, std::byte{255});
 		auto MaskInitializer = BlendInitializer;
 		MaskInitializer.ColorBlendStates[0] = {};
 		MaskInitializer.ColorBlendStates[0].ColorWriteMask =

@@ -1,0 +1,18 @@
+{
+  "name": "metal-cpp",
+  "order": 26,
+  "kind": "direct_source",
+  "source_dir": "Engine/External/Source/metal-cpp",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/apple/metal-cpp.git",
+    "commit": "27c4382b7151d55a51692cdcb27aaa98752240de",
+    "marker": "Metal/Metal.hpp"
+  },
+  "required_files": [
+    "Foundation/Foundation.hpp",
+    "Metal/Metal.hpp",
+    "QuartzCore/QuartzCore.hpp",
+    "LICENSE.txt"
+  ]
+}

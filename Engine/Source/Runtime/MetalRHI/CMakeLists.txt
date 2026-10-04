@@ -2,7 +2,13 @@ add_durin_module(MetalRHI)
 
 if(APPLE)
 	enable_language(OBJCXX)
-	target_sources(MetalRHI PRIVATE Private/MetalDynamicRHI.mm)
+	set(METAL_CPP_SOURCE_DIR "${DURIN_PROJECT_ROOT_DIR}/External/Source/metal-cpp")
+	if(NOT EXISTS "${METAL_CPP_SOURCE_DIR}/Metal/Metal.hpp")
+		message(FATAL_ERROR
+			"Pinned Metal-cpp source is missing. Prepare it with ./DevTool dependency prepare --libs metal-cpp.")
+	endif()
+	target_include_directories(MetalRHI PRIVATE "${METAL_CPP_SOURCE_DIR}")
+	target_sources(MetalRHI PRIVATE Private/MetalCppDevice.cpp Private/MetalDynamicRHI.mm)
 	set_source_files_properties(Private/MetalDynamicRHI.mm PROPERTIES
 		SKIP_PRECOMPILE_HEADERS ON
 		COMPILE_FLAGS "-fobjc-arc")

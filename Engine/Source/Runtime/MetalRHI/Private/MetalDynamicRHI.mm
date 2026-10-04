@@ -6,6 +6,7 @@
 #include "Backend/RHICompletionBackend.h"
 #include "Backend/RHIDeferredBufferBackend.h"
 #include "MetalBuffer.h"
+#include "MetalCppDevice.h"
 #include "MetalSampler.h"
 #include "MetalTexture.h"
 #include "RHIContext.h"
@@ -137,6 +138,14 @@ namespace Durin
 			case ERHIBlendFactor::DstAlpha: return MTLBlendFactorDestinationAlpha;
 			case ERHIBlendFactor::OneMinusDstAlpha:
 				return MTLBlendFactorOneMinusDestinationAlpha;
+			case ERHIBlendFactor::ConstantColor: return MTLBlendFactorBlendColor;
+			case ERHIBlendFactor::OneMinusConstantColor:
+				return MTLBlendFactorOneMinusBlendColor;
+			case ERHIBlendFactor::ConstantAlpha: return MTLBlendFactorBlendAlpha;
+			case ERHIBlendFactor::OneMinusConstantAlpha:
+				return MTLBlendFactorOneMinusBlendAlpha;
+			case ERHIBlendFactor::SrcAlphaSaturate:
+				return MTLBlendFactorSourceAlphaSaturated;
 			default: return std::nullopt;
 			}
 		}
@@ -238,17 +247,20 @@ namespace Durin
 				id<MTLRenderPipelineState> InPipeline,
 				FRHIRenderTargetLayout InRenderTargets,
 				FRHIRasterizerState InRasterizer,
+				MTLPrimitiveType InPrimitiveType,
 				FPipelineLayoutDesc InLayout,
 				id<MTLDepthStencilState> InDepthStencil)
 				: Vertex(InVertex), Fragment(InFragment), Declaration(InDeclaration),
 					Pipeline(InPipeline), RenderTargets(std::move(InRenderTargets)),
-					Rasterizer(InRasterizer), Layout(std::move(InLayout)),
+					Rasterizer(InRasterizer), PrimitiveType(InPrimitiveType),
+					Layout(std::move(InLayout)),
 					DepthStencil(InDepthStencil) {}
 			auto GetPipeline() const -> id<MTLRenderPipelineState> { return Pipeline; }
 			auto GetRenderTargets() const -> const FRHIRenderTargetLayout&
 				{ return RenderTargets; }
 			auto GetRasterizer() const -> const FRHIRasterizerState&
 				{ return Rasterizer; }
+			auto GetPrimitiveType() const -> MTLPrimitiveType { return PrimitiveType; }
 			auto GetLayout() const -> const FPipelineLayoutDesc& { return Layout; }
 			auto GetVertexShader() const -> FRHIShader* { return Vertex.GetReference(); }
 			auto GetFragmentShader() const -> FRHIShader* { return Fragment.GetReference(); }
@@ -271,6 +283,7 @@ namespace Durin
 			id<MTLRenderPipelineState> Pipeline;
 			FRHIRenderTargetLayout RenderTargets;
 			FRHIRasterizerState Rasterizer;
+			MTLPrimitiveType PrimitiveType;
 			FPipelineLayoutDesc Layout;
 			id<MTLDepthStencilState> DepthStencil;
 		};
@@ -701,6 +714,7 @@ namespace Durin
 				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
 				[RenderEncoder setRenderPipelineState:Pipeline->GetPipeline()];
 				[RenderEncoder setDepthStencilState:Pipeline->GetDepthStencil()];
+				[RenderEncoder setBlendColorRed:0.0f green:0.0f blue:0.0f alpha:0.0f];
 				const auto& Raster = Pipeline->GetRasterizer();
 				[RenderEncoder setCullMode:Raster.CullMode == ERHICullMode::None
 					? MTLCullModeNone : Raster.CullMode == ERHICullMode::Front
@@ -1495,7 +1509,7 @@ namespace Durin
 						== GraphicsPipeline->GetRequiredVertexStreams(),
 					"Metal draw requires a render pipeline and nonempty arguments.");
 				BindGraphicsParameters();
-				[RenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+				[RenderEncoder drawPrimitives:GraphicsPipeline->GetPrimitiveType()
 					vertexStart:Args.FirstVertex vertexCount:Args.VertexCount
 					instanceCount:Args.InstanceCount baseInstance:Args.FirstInstance];
 			}
@@ -1514,7 +1528,7 @@ namespace Durin
 						<= IndexBuffer->GetSize() - ByteOffset,
 					"Metal indexed draw exceeds its index buffer.");
 				BindGraphicsParameters();
-				[RenderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+				[RenderEncoder drawIndexedPrimitives:GraphicsPipeline->GetPrimitiveType()
 					indexCount:Args.IndexCount
 					indexType:IndexBuffer->GetStride() == 2
 						? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
@@ -1540,7 +1554,7 @@ namespace Durin
 					"Metal indirect draw requires complete pipeline and arguments.");
 				auto* Buffer = static_cast<FMetalBuffer*>(ArgumentBuffer);
 				BindGraphicsParameters();
-				[RenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+				[RenderEncoder drawPrimitives:GraphicsPipeline->GetPrimitiveType()
 					indirectBuffer:Buffer->GetHandle()
 					indirectBufferOffset:Offset];
 				[Active->NativeResources addObject:Buffer->GetHandle()];
@@ -1562,7 +1576,7 @@ namespace Durin
 					"Metal indexed indirect draw requires complete state.");
 				auto* Buffer = static_cast<FMetalBuffer*>(ArgumentBuffer);
 				BindGraphicsParameters();
-				[RenderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+				[RenderEncoder drawIndexedPrimitives:GraphicsPipeline->GetPrimitiveType()
 					indexType:IndexBuffer->GetStride() == 2
 						? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
 					indexBuffer:static_cast<FMetalBuffer*>(
@@ -1827,18 +1841,11 @@ namespace Durin
 						throw std::runtime_error("Metal presentation requires a CAMetalLayer.");
 					StartupWindow = Target->NativeWindowHandle;
 				}
-				const NSOperatingSystemVersion OS =
-					[NSProcessInfo processInfo].operatingSystemVersion;
-				if (OS.majorVersion < 27)
-					throw std::runtime_error("MetalRHI requires macOS 27 or newer.");
-				id<MTLDevice> CandidateDevice = MTLCreateSystemDefaultDevice();
-				if (!CandidateDevice)
-					throw std::runtime_error("MetalRHI could not create a Metal device.");
-				if (![CandidateDevice supportsFamily:MTLGPUFamilyApple9])
-					throw std::runtime_error("MetalRHI requires Apple GPU Family 9 or newer.");
-				id<MTLCommandQueue> CandidateQueue = [CandidateDevice newCommandQueue];
-				if (!CandidateQueue)
-					throw std::runtime_error("MetalRHI could not create its command queue.");
+				const auto Native = CreateMetalCppDeviceAndQueue();
+				id<MTLDevice> CandidateDevice =
+					(__bridge_transfer id<MTLDevice>)static_cast<void*>(Native.Device);
+				id<MTLCommandQueue> CandidateQueue =
+					(__bridge_transfer id<MTLCommandQueue>)static_cast<void*>(Native.Queue);
 				Device = CandidateDevice;
 				Queue = CandidateQueue;
 				State = std::make_shared<FMetalSubmissionState>();
@@ -2047,8 +2054,10 @@ namespace Durin
 				if (!Device || !Initializer.BoundShaders.VertexShader
 					|| !Initializer.BoundShaders.FragmentShader
 					|| !Initializer.VertexDeclaration
-					|| Initializer.PrimitiveTopology !=
+					|| (Initializer.PrimitiveTopology !=
 						FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList
+					&& Initializer.PrimitiveTopology !=
+						FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList)
 					|| Initializer.RenderTargetLayout.NumColorRenderTargets > 4
 					|| (Initializer.RenderTargetLayout.NumColorRenderTargets == 0
 						&& !Initializer.RenderTargetLayout.bHasDepthStencil)
@@ -2115,7 +2124,10 @@ namespace Durin
 				Desc.vertexFunction = Vertex->GetFunction();
 				Desc.fragmentFunction = Fragment->GetFunction();
 				Desc.sampleCount = 1;
-				Desc.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+				const bool bLineList = Initializer.PrimitiveTopology
+					== FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+				Desc.inputPrimitiveTopology = bLineList
+					? MTLPrimitiveTopologyClassLine : MTLPrimitiveTopologyClassTriangle;
 				for (uint32 Index = 0;
 					Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
 				{
@@ -2204,6 +2216,7 @@ namespace Durin
 				return new FMetalGraphicsPipelineState(Vertex, Fragment,
 					Initializer.VertexDeclaration, Pipeline,
 					Initializer.RenderTargetLayout, Initializer.RasterizerState,
+					bLineList ? MTLPrimitiveTypeLine : MTLPrimitiveTypeTriangle,
 					std::move(Key->PipelineLayout), DepthStencil);
 			}
 			auto RHICreateComputePipelineState(FName,
