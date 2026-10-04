@@ -66,6 +66,7 @@ namespace Durin
 	// Carries source identity, entry points, variants, and cache policy into compilation.
 	struct FShaderCompileOptions
 	{
+		RENDERCORE_API FShaderCompileOptions();
 		FShaderTargetIdentity Target;
 		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
 		std::string VirtualShaderPath;
@@ -107,18 +108,6 @@ namespace Durin
 		std::vector<FPushConstantRange> PushConstantRanges;
 	};
 
-	// Checked Vulkan descriptor to native Metal slot assignment for one stage.
-	struct FMetalShaderBinding
-	{
-		uint32 SetIndex = 0;
-		uint32 BindingIndex = 0;
-		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
-		uint32 Slot = 0;
-		uint32 Count = 1;
-
-		auto operator==(const FMetalShaderBinding&) const -> bool = default;
-	};
-
 	struct FMetalShaderBindingMap
 	{
 		std::vector<FMetalShaderBinding> Bindings;
@@ -137,6 +126,8 @@ namespace Durin
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		// Reflected [numthreads] for compute; zero for all other stages.
+		std::array<uint32, 3> ComputeThreadGroupSize{};
 		// Source-level entry point requested by the caller, such as `vertexMain`.
 		std::string SourceEntryPoint;
 		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.

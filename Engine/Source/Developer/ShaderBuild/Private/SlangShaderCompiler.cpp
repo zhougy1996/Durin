@@ -578,6 +578,22 @@ namespace Durin
 
 		OutCompiledShader = {};
 		OutCompiledShader.Frequency = Frequency;
+		if (Frequency == EShaderFrequency::Compute)
+		{
+			auto* Entry = ProgramLayout->getEntryPointByIndex(0);
+			if (!Entry)
+				return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
+			SlangUInt GroupSize[3]{};
+			Entry->getComputeThreadGroupSize(3, GroupSize);
+			if (!GroupSize[0] || !GroupSize[1] || !GroupSize[2]
+				|| GroupSize[0] > 1024 || GroupSize[1] > 1024
+				|| GroupSize[2] > 1024
+				|| uint64(GroupSize[0]) * GroupSize[1] * GroupSize[2] > 1024)
+				return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+				OutCompiledShader.ComputeThreadGroupSize[Axis] =
+					static_cast<uint32>(GroupSize[Axis]);
+		}
 		OutCompiledShader.SourceEntryPoint = EntryPointName ? std::string(EntryPointName) : std::string();
 		// Slang's single-entry-point SPIR-V path currently emits `main` as the binary entry point.
 		OutCompiledShader.BinaryEntryPoint = "main";

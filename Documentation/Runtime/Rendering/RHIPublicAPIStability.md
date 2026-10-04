@@ -2,9 +2,9 @@
 
 Summary: Define the source and semantic stability boundary of public RHI headers without promising a C++ binary ABI or unsupported GPU features.
 
-Modules: RHI, RenderCore, VulkanRHI
+Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-04
 
 ## Directory Contract
 
@@ -71,6 +71,12 @@ contracts, including:
 
 The owning semantic documents remain authoritative. This document classifies
 their API surface and does not duplicate their detailed rules.
+
+Shader creation carries the backend target, code format, binary entry point,
+code hash, and Metal binding map with its push-constant slot and remap digest.
+Metal accepts canonical MSL slot assignments and matching native function types;
+Vulkan rejects Metal binding metadata. Pipeline creation retains complete-or-
+failure publication when a required shader or binding contract is incompatible.
 
 ## Current Experimental Families
 

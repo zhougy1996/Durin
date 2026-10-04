@@ -1,6 +1,5 @@
 #include "Shader/ShaderCompilerCore.h"
 
-#include "Hash/CanonicalHash.h"
 
 namespace Durin
 {
@@ -72,20 +71,8 @@ namespace Durin
 				return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
 			Result.PushConstantBufferSlot = NextBuffer;
 		}
-		FXxHash128Builder Identity;
-		UpdateCanonicalHashString(Identity, "Durin.Metal.BindingRemap.v1");
-		UpdateCanonicalHash(Identity, uint32(Frequency));
-		UpdateCanonicalHash(Identity, uint64(Result.Bindings.size()));
-		for (const auto& Binding : Result.Bindings)
-		{
-			UpdateCanonicalHash(Identity, Binding.SetIndex);
-			UpdateCanonicalHash(Identity, Binding.BindingIndex);
-			UpdateCanonicalHash(Identity, uint32(Binding.Type));
-			UpdateCanonicalHash(Identity, Binding.Slot);
-			UpdateCanonicalHash(Identity, Binding.Count);
-		}
-		UpdateCanonicalHash(Identity, Result.PushConstantBufferSlot);
-		Result.Identity = Identity.Finalize();
+		Result.Identity = ComputeMetalBindingRemapIdentity(Frequency,
+			Result.Bindings, Result.PushConstantBufferSlot);
 		return Result;
 	}
 }

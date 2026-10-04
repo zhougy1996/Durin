@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 #include "DynamicRHI.h"
 #include "Backend/RHICompletionBackend.h"
@@ -7,6 +8,7 @@
 #include "MetalSampler.h"
 #include "MetalTexture.h"
 #include "RHIContext.h"
+#include "RHIShaderParameters.h"
 
 namespace Durin
 {
@@ -27,12 +29,42 @@ namespace Durin
 			case EPixelFormat::RGBA16_FLOAT: return MTLPixelFormatRGBA16Float;
 			case EPixelFormat::RGBA32_FLOAT: return MTLPixelFormatRGBA32Float;
 			case EPixelFormat::RG32_UINT: return MTLPixelFormatRG32Uint;
+			case EPixelFormat::D32: return MTLPixelFormatDepth32Float;
 			default: return MTLPixelFormatInvalid;
 			}
 		}
 
+		auto IsMetalColorRenderFormat(EPixelFormat Format) -> bool
+		{
+			return Format == EPixelFormat::R8_UNORM
+				|| Format == EPixelFormat::RGBA8_UNORM
+				|| Format == EPixelFormat::BGRA8_UNORM
+				|| Format == EPixelFormat::SRGBA8_UNORM
+				|| Format == EPixelFormat::SBGRA8_UNORM
+				|| Format == EPixelFormat::R11G11B10_FLOAT
+				|| Format == EPixelFormat::RGBA16_FLOAT
+				|| Format == EPixelFormat::RG32_UINT;
+		}
+
 		auto MetalBytesPerTexel(EPixelFormat Format) -> NSUInteger
 		{ return GetPixelFormatInfo(Format).BytesPerBlock; }
+
+		auto ToMetalVertexFormat(EVertexElementType Type) -> MTLVertexFormat
+		{
+			switch (Type)
+			{
+			case EVertexElementType::Float1: return MTLVertexFormatFloat;
+			case EVertexElementType::Float2: return MTLVertexFormatFloat2;
+			case EVertexElementType::Float3: return MTLVertexFormatFloat3;
+			case EVertexElementType::Float4: return MTLVertexFormatFloat4;
+			case EVertexElementType::Color:
+			case EVertexElementType::UByte4N: return MTLVertexFormatUChar4Normalized;
+			case EVertexElementType::Half2: return MTLVertexFormatHalf2;
+			case EVertexElementType::Half4: return MTLVertexFormatHalf4;
+			case EVertexElementType::Short4N: return MTLVertexFormatShort4Normalized;
+			default: return MTLVertexFormatInvalid;
+			}
+		}
 
 		auto ToMetalAddressMode(ESamplerAddressMode Mode)
 			-> std::optional<MTLSamplerAddressMode>
@@ -64,6 +96,61 @@ namespace Durin
 			return std::nullopt;
 		}
 
+		auto ToMetalDepthCompare(ERHIDepthCompareOp Op)
+			-> std::optional<MTLCompareFunction>
+		{
+			switch (Op)
+			{
+			case ERHIDepthCompareOp::Never: return MTLCompareFunctionNever;
+			case ERHIDepthCompareOp::Less: return MTLCompareFunctionLess;
+			case ERHIDepthCompareOp::Equal: return MTLCompareFunctionEqual;
+			case ERHIDepthCompareOp::LessOrEqual: return MTLCompareFunctionLessEqual;
+			case ERHIDepthCompareOp::Greater: return MTLCompareFunctionGreater;
+			case ERHIDepthCompareOp::NotEqual: return MTLCompareFunctionNotEqual;
+			case ERHIDepthCompareOp::GreaterOrEqual: return MTLCompareFunctionGreaterEqual;
+			case ERHIDepthCompareOp::Always: return MTLCompareFunctionAlways;
+			default: return std::nullopt;
+			}
+		}
+
+		auto ToMetalBlendFactor(ERHIBlendFactor Factor)
+			-> std::optional<MTLBlendFactor>
+		{
+			switch (Factor)
+			{
+			case ERHIBlendFactor::Zero: return MTLBlendFactorZero;
+			case ERHIBlendFactor::One: return MTLBlendFactorOne;
+			case ERHIBlendFactor::SrcColor: return MTLBlendFactorSourceColor;
+			case ERHIBlendFactor::OneMinusSrcColor:
+				return MTLBlendFactorOneMinusSourceColor;
+			case ERHIBlendFactor::DstColor: return MTLBlendFactorDestinationColor;
+			case ERHIBlendFactor::OneMinusDstColor:
+				return MTLBlendFactorOneMinusDestinationColor;
+			case ERHIBlendFactor::SrcAlpha: return MTLBlendFactorSourceAlpha;
+			case ERHIBlendFactor::OneMinusSrcAlpha:
+				return MTLBlendFactorOneMinusSourceAlpha;
+			case ERHIBlendFactor::DstAlpha: return MTLBlendFactorDestinationAlpha;
+			case ERHIBlendFactor::OneMinusDstAlpha:
+				return MTLBlendFactorOneMinusDestinationAlpha;
+			default: return std::nullopt;
+			}
+		}
+
+		auto ToMetalBlendOperation(ERHIBlendOp Op)
+			-> std::optional<MTLBlendOperation>
+		{
+			switch (Op)
+			{
+			case ERHIBlendOp::Add: return MTLBlendOperationAdd;
+			case ERHIBlendOp::Subtract: return MTLBlendOperationSubtract;
+			case ERHIBlendOp::ReverseSubtract:
+				return MTLBlendOperationReverseSubtract;
+			case ERHIBlendOp::Min: return MTLBlendOperationMin;
+			case ERHIBlendOp::Max: return MTLBlendOperationMax;
+			default: return std::nullopt;
+			}
+		}
+
 		struct FMetalSubmissionState
 		{
 			id<MTLCommandQueue> Queue = nil;
@@ -85,8 +172,148 @@ namespace Durin
 			id<MTLCommandBuffer> Command = nil;
 			FRHIGPUSyncPointRef Producer;
 			std::vector<std::shared_ptr<void>> StorageOwners;
+			std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
 			NSMutableArray<id<MTLResource>>* NativeResources = [NSMutableArray new];
 			std::vector<FReadback> Readbacks;
+		};
+
+		class FMetalShader final : public FRHIShader
+		{
+		public:
+			FMetalShader(const FRHIShaderCreateDesc& Desc,
+				id<MTLLibrary> InLibrary, id<MTLFunction> InFunction)
+				: FRHIShader(Desc), Library(InLibrary), Function(InFunction) {}
+
+			auto GetFunction() const -> id<MTLFunction> { return Function; }
+
+		private:
+			id<MTLLibrary> Library;
+			id<MTLFunction> Function;
+		};
+
+		class FMetalComputePipelineState final : public FRHIComputePipelineState
+		{
+		public:
+			FMetalComputePipelineState(FRHIShader* InShader,
+				FPipelineLayoutDesc InLayout, id<MTLComputePipelineState> InPipeline)
+				: Shader(InShader), Layout(std::move(InLayout)), Pipeline(InPipeline) {}
+
+			auto GetPipeline() const -> id<MTLComputePipelineState> { return Pipeline; }
+			auto GetLayout() const -> const FPipelineLayoutDesc& { return Layout; }
+			auto GetShader() const -> FRHIShader* { return Shader.GetReference(); }
+
+		private:
+			FShaderRHIRef Shader;
+			FPipelineLayoutDesc Layout;
+			id<MTLComputePipelineState> Pipeline;
+		};
+
+		class FMetalVertexDeclaration final : public FRHIVertexDeclaration
+		{
+		public:
+			explicit FMetalVertexDeclaration(FVertexDeclarationElementList InElements)
+				: Elements(std::move(InElements)) {}
+			auto GetElements() const -> const FVertexDeclarationElementList& override
+			{ return Elements; }
+		private:
+			FVertexDeclarationElementList Elements;
+		};
+
+		class FMetalGraphicsPipelineState final : public FRHIGraphicsPipelineState
+		{
+		public:
+			FMetalGraphicsPipelineState(FRHIShader* InVertex,
+				FRHIShader* InFragment, FRHIVertexDeclaration* InDeclaration,
+				id<MTLRenderPipelineState> InPipeline,
+				FRHIRenderTargetLayout InRenderTargets,
+				FRHIRasterizerState InRasterizer,
+				FPipelineLayoutDesc InLayout,
+				id<MTLDepthStencilState> InDepthStencil)
+				: Vertex(InVertex), Fragment(InFragment), Declaration(InDeclaration),
+					Pipeline(InPipeline), RenderTargets(std::move(InRenderTargets)),
+					Rasterizer(InRasterizer), Layout(std::move(InLayout)),
+					DepthStencil(InDepthStencil) {}
+			auto GetPipeline() const -> id<MTLRenderPipelineState> { return Pipeline; }
+			auto GetRenderTargets() const -> const FRHIRenderTargetLayout&
+				{ return RenderTargets; }
+			auto GetRasterizer() const -> const FRHIRasterizerState&
+				{ return Rasterizer; }
+			auto GetLayout() const -> const FPipelineLayoutDesc& { return Layout; }
+			auto GetVertexShader() const -> FRHIShader* { return Vertex.GetReference(); }
+			auto GetFragmentShader() const -> FRHIShader* { return Fragment.GetReference(); }
+			auto GetDepthStencil() const -> id<MTLDepthStencilState>
+				{ return DepthStencil; }
+			auto GetRequiredVertexStreams() const -> uint16
+			{
+				uint16 Streams = 0;
+				for (const auto& Element : Declaration->GetElements())
+				{
+					if (Element.Type == EVertexElementType::None) break;
+					Streams |= uint16(1u << Element.StreamIndex);
+				}
+				return Streams;
+			}
+		private:
+			FShaderRHIRef Vertex;
+			FShaderRHIRef Fragment;
+			FVertexDeclarationRHIRef Declaration;
+			id<MTLRenderPipelineState> Pipeline;
+			FRHIRenderTargetLayout RenderTargets;
+			FRHIRasterizerState Rasterizer;
+			FPipelineLayoutDesc Layout;
+			id<MTLDepthStencilState> DepthStencil;
+		};
+
+		class FMetalViewport final : public FRHIViewport
+		{
+		public:
+			FMetalViewport(id<MTLDevice> InDevice, CAMetalLayer* InLayer,
+				uint32 Width, uint32 Height, EPixelFormat InFormat)
+				: Device(InDevice), Layer(InLayer), Format(InFormat)
+			{
+				Layer.device = Device;
+				Layer.pixelFormat = ToMetalPixelFormat(Format);
+				Layer.framebufferOnly = NO;
+				Resize(Width, Height);
+			}
+			auto Resize(uint32 Width, uint32 Height) -> bool
+			{
+				if (!Width || !Height) return false;
+				MTLTextureDescriptor* Native = [MTLTextureDescriptor
+					texture2DDescriptorWithPixelFormat:ToMetalPixelFormat(Format)
+					width:Width height:Height mipmapped:NO];
+				Native.storageMode = MTLStorageModePrivate;
+				Native.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+				id<MTLTexture> Texture = [Device newTextureWithDescriptor:Native];
+				if (!Texture) return false;
+				auto Desc = FRHITextureCreateDesc::Create2D(
+				"Metal viewport back buffer", Width, Height, Format);
+			Desc.SetFlags(ETextureCreateFlags::RenderTargetable
+				| ETextureCreateFlags::ShaderResource
+				| ETextureCreateFlags::SourceCopy
+				| ETextureCreateFlags::CPUReadback);
+			{
+				std::lock_guard Lock(Mutex);
+				BackBuffer = new FMetalTexture(Desc, Texture);
+				Layer.drawableSize = CGSizeMake(Width, Height);
+			}
+			return true;
+			}
+			auto GetBackBuffer(FRHICommandListImmediate&) -> TRefCountPtr<FRHITexture> override
+			{ return SnapshotBackBuffer(); }
+			auto SnapshotBackBuffer() const -> FTextureRHIRef
+			{
+				std::lock_guard Lock(Mutex);
+				return BackBuffer;
+			}
+			auto GetLayer() const -> CAMetalLayer* { return Layer; }
+			auto GetFormat() const -> EPixelFormat override { return Format; }
+		private:
+			id<MTLDevice> Device;
+			CAMetalLayer* Layer;
+			EPixelFormat Format;
+			mutable std::mutex Mutex;
+			FTextureRHIRef BackBuffer;
 		};
 
 		class FMetalCommandContext final : public IRHICommandContext
@@ -120,6 +347,18 @@ namespace Durin
 					"Metal command queue could not allocate a command buffer.");
 				if (StorageOwner) Submission.StorageOwners.push_back(StorageOwner);
 				Active.emplace(std::move(Submission));
+				ComputePipeline = nullptr;
+				ComputeParameters.clear();
+				ComputeParameterOwners.clear();
+				ComputePushConstants.clear();
+				ComputePushConstantWritten.clear();
+				GraphicsPipeline = nullptr;
+				BoundVertexStreams = 0;
+				IndexBuffer = nullptr;
+				GraphicsParameters.clear();
+				GraphicsParameterOwners.clear();
+				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
+				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
 			}
 			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override
 			{
@@ -135,7 +374,12 @@ namespace Durin
 				Pending.push_back(std::move(*Active));
 				Active.reset();
 			}
-			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override { Unsupported(); }
+			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override
+			{
+				requiref(State && !bFrameOpen && !Active,
+					"Metal frame begin requires an idle command context.");
+				bFrameOpen = true;
+			}
 			auto RHISubmitCommands() -> void override
 			{
 				requiref(State && !Active,
@@ -154,12 +398,16 @@ namespace Durin
 						auto SharedState = State;
 						auto Producer = Submission.Producer;
 						auto Owners = std::move(Submission.StorageOwners);
+						auto ResourceOwners = std::make_shared<
+							std::vector<TRefCountPtr<FRHIResource>>>(
+							std::move(Submission.ResourceOwners));
 						auto Readbacks = std::make_shared<std::vector<FMetalPendingSubmission::FReadback>>(
 							std::move(Submission.Readbacks));
 						NSArray<id<MTLResource>>* NativeResources =
 							[Submission.NativeResources copy];
 						[Submission.Command addCompletedHandler:^(id<MTLCommandBuffer> Completed) {
 							(void)Owners;
+							(void)ResourceOwners;
 							(void)NativeResources;
 							for (const auto& Readback : *Readbacks)
 							{
@@ -188,64 +436,313 @@ namespace Durin
 				}
 				Pending.clear();
 			}
-			auto RHIEndFrame() -> void override { Unsupported(); }
+			auto RHIEndFrame() -> void override
+			{
+				requiref(bFrameOpen && !Active && !RenderEncoder,
+					"Metal frame end requires closed GPU submissions.");
+				RHISubmitCommands();
+				bFrameOpen = false;
+			}
 			auto RHIBeginDiagnosticRegion(std::string_view) -> void override { Unsupported(); }
 			auto RHIEndDiagnosticRegion() -> void override { Unsupported(); }
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
 			{
-				requiref(Active && !RenderEncoder && Info.RenderTargetLayout.IsValid()
-					&& Info.RenderTargetLayout.NumColorRenderTargets == 1
-					&& !Info.RenderTargetLayout.bHasDepthStencil
-					&& !Info.RenderTargetLayout.ColorAttachments[0].bHasResolveTarget
-					&& Info.ColorRenderTargetViews[0] && !Info.ColorResolveTargets[0]
-					&& !Info.DepthStencilRenderTarget,
-					"Metal baseline supports one color attachment without resolve or depth.");
-				FRHITexture* Color = Info.ColorRenderTargets[0];
-				const auto& Layout = Info.RenderTargetLayout.ColorAttachments[0].RenderTarget;
-				requiref(Color && Info.ColorRenderTargetViews[0]->GetTexture() == Color
-					&& Color->GetDimension() == ETextureDimension::Texture2D
-					&& Color->GetNumSamples() == 1 && Layout.NumSamples == 1
-					&& Color->GetFormat() == Layout.Format
-					&& EnumHasAnyFlags(Color->GetFlags(), ETextureCreateFlags::RenderTargetable)
-					&& Info.ColorClearValues[0].Binding == EClearBinding::Color,
-					"Metal color attachment does not match its render pass layout.");
-				id<MTLTexture> Texture = static_cast<FMetalTexture*>(Color)->GetHandle();
-				MTLRenderPassDescriptor* Desc = [MTLRenderPassDescriptor renderPassDescriptor];
-				auto* Attachment = Desc.colorAttachments[0];
-				Attachment.texture = Texture;
-				switch (Layout.LoadAction)
+				if (!Active && State)
 				{
-				case ERHIRenderTargetLoadAction::Clear:
-					Attachment.loadAction = MTLLoadActionClear;
-					Attachment.clearColor = MTLClearColorMake(
-						Info.ColorClearValues[0].ClearValue.Color[0],
-						Info.ColorClearValues[0].ClearValue.Color[1],
-						Info.ColorClearValues[0].ClearValue.Color[2],
-						Info.ColorClearValues[0].ClearValue.Color[3]);
-					break;
-				case ERHIRenderTargetLoadAction::Load: Attachment.loadAction = MTLLoadActionLoad; break;
-				case ERHIRenderTargetLoadAction::DontCare: Attachment.loadAction = MTLLoadActionDontCare; break;
+					FMetalPendingSubmission Submission;
+					Submission.Command = [State->Queue commandBuffer];
+					requiref(Submission.Command != nil,
+						"Metal implicit render command allocation failed.");
+					if (StorageOwner) Submission.StorageOwners.push_back(StorageOwner);
+					Active.emplace(std::move(Submission));
+					bImplicitRenderSubmission = true;
 				}
-				Attachment.storeAction = Layout.StoreAction == ERHIRenderTargetStoreAction::Store
-					? MTLStoreActionStore : MTLStoreActionDontCare;
+				requiref(Active && !RenderEncoder && Info.RenderTargetLayout.IsValid()
+					&& Info.RenderTargetLayout.NumColorRenderTargets <= 4
+					&& (Info.RenderTargetLayout.NumColorRenderTargets > 0
+						|| Info.RenderTargetLayout.bHasDepthStencil)
+					&& bool(Info.DepthStencilRenderTarget)
+						== Info.RenderTargetLayout.bHasDepthStencil,
+					"Metal baseline supports up to four color attachments with optional depth.");
+				FRHITexture* Color = Info.ColorRenderTargets[0];
+				MTLRenderPassDescriptor* Desc = [MTLRenderPassDescriptor renderPassDescriptor];
+				for (uint32 Index = 0;
+					Index < Info.RenderTargetLayout.NumColorRenderTargets; ++Index)
+				{
+					FRHITexture* Target = Info.ColorRenderTargets[Index];
+					const auto& AttachmentLayout =
+						Info.RenderTargetLayout.ColorAttachments[Index];
+					const auto& Layout = AttachmentLayout.RenderTarget;
+					requiref(Target && Info.ColorRenderTargetViews[Index]
+						&& Info.ColorRenderTargetViews[Index]->GetTexture() == Target
+						&& !AttachmentLayout.bHasResolveTarget
+						&& !Info.ColorResolveTargets[Index]
+						&& Target->GetDimension() == ETextureDimension::Texture2D
+						&& Target->GetNumSamples() == 1 && Layout.NumSamples == 1
+						&& Target->GetFormat() == Layout.Format
+						&& IsMetalColorRenderFormat(Layout.Format)
+						&& Target->GetSizeX() == Color->GetSizeX()
+						&& Target->GetSizeY() == Color->GetSizeY()
+						&& EnumHasAnyFlags(Target->GetFlags(),
+							ETextureCreateFlags::RenderTargetable)
+						&& Info.ColorClearValues[Index].Binding == EClearBinding::Color,
+						"Metal color attachment does not match its render pass layout.");
+					id<MTLTexture> Texture = static_cast<FMetalTexture*>(Target)->GetHandle();
+					auto* Attachment = Desc.colorAttachments[Index];
+					Attachment.texture = Texture;
+					switch (Layout.LoadAction)
+					{
+					case ERHIRenderTargetLoadAction::Clear:
+						Attachment.loadAction = MTLLoadActionClear;
+						Attachment.clearColor = MTLClearColorMake(
+							Info.ColorClearValues[Index].ClearValue.Color[0],
+							Info.ColorClearValues[Index].ClearValue.Color[1],
+							Info.ColorClearValues[Index].ClearValue.Color[2],
+							Info.ColorClearValues[Index].ClearValue.Color[3]);
+						break;
+					case ERHIRenderTargetLoadAction::Load:
+						Attachment.loadAction = MTLLoadActionLoad; break;
+					case ERHIRenderTargetLoadAction::DontCare:
+						Attachment.loadAction = MTLLoadActionDontCare; break;
+					}
+					Attachment.storeAction = Layout.StoreAction
+						== ERHIRenderTargetStoreAction::Store
+						? MTLStoreActionStore : MTLStoreActionDontCare;
+					[Active->NativeResources addObject:Texture];
+				}
+				id<MTLTexture> DepthTexture = nil;
+				if (Info.RenderTargetLayout.bHasDepthStencil)
+				{
+					FRHITexture* Depth = Info.DepthStencilRenderTarget;
+					const auto& DepthLayout = Info.RenderTargetLayout.DepthStencilAttachment;
+					requiref(Info.DepthStencilRenderTargetView
+						&& Info.DepthStencilRenderTargetView->GetTexture() == Depth
+						&& (Depth->GetDimension() == ETextureDimension::Texture2D
+							|| Depth->GetDimension() == ETextureDimension::Texture2DArray)
+						&& Depth->GetFormat() == EPixelFormat::D32
+						&& DepthLayout.Format == EPixelFormat::D32
+						&& Depth->GetNumSamples() == 1
+						&& DepthLayout.NumSamples == 1
+						&& (!Color || Depth->GetSizeX() == Color->GetSizeX())
+						&& (!Color || Depth->GetSizeY() == Color->GetSizeY())
+						&& EnumHasAnyFlags(Depth->GetFlags(),
+							ETextureCreateFlags::DepthStencilTargetable)
+						&& Info.DepthStencilClearValue.Binding
+							== EClearBinding::DepthStencil,
+						"Metal depth attachment does not match its render pass layout.");
+					DepthTexture = static_cast<FMetalTexture*>(Depth)->GetHandle();
+					Desc.depthAttachment.texture = DepthTexture;
+					Desc.depthAttachment.slice =
+						Info.DepthStencilRenderTargetView->GetDesc().Range.FirstArrayLayer;
+					switch (DepthLayout.LoadAction)
+					{
+					case ERHIRenderTargetLoadAction::Clear:
+						Desc.depthAttachment.loadAction = MTLLoadActionClear;
+						Desc.depthAttachment.clearDepth =
+							Info.DepthStencilClearValue.ClearValue.DSValue.Depth;
+						break;
+					case ERHIRenderTargetLoadAction::Load:
+						Desc.depthAttachment.loadAction = MTLLoadActionLoad; break;
+					case ERHIRenderTargetLoadAction::DontCare:
+						Desc.depthAttachment.loadAction = MTLLoadActionDontCare; break;
+					}
+					Desc.depthAttachment.storeAction =
+						DepthLayout.StoreAction == ERHIRenderTargetStoreAction::Store
+							? MTLStoreActionStore : MTLStoreActionDontCare;
+				}
 				RenderEncoder = [Active->Command renderCommandEncoderWithDescriptor:Desc];
 				requiref(RenderEncoder != nil, "Metal render encoder creation failed.");
-				[Active->NativeResources addObject:Texture];
+				CurrentRenderTargetLayout = Info.RenderTargetLayout;
+				RenderWidth = Color ? Color->GetSizeX()
+					: Info.DepthStencilRenderTarget->GetSizeX();
+				RenderHeight = Color ? Color->GetSizeY()
+					: Info.DepthStencilRenderTarget->GetSizeY();
+				if (DepthTexture) [Active->NativeResources addObject:DepthTexture];
 			}
 			auto RHIEndRenderPass() -> void override
 			{
 				requiref(RenderEncoder != nil, "Metal render pass is not active.");
 				[RenderEncoder endEncoding];
 				RenderEncoder = nil;
+				GraphicsPipeline = nullptr;
+				BoundVertexStreams = 0;
+				IndexBuffer = nullptr;
+				GraphicsParameters.clear();
+				GraphicsParameterOwners.clear();
+				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
+				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				if (bImplicitRenderSubmission)
+				{
+					std::lock_guard Lock(State->Mutex);
+					Active->Producer = State->Timeline->Reserve();
+					requiref(Active->Producer,
+						"Metal implicit render submission could not reserve its queue.");
+					Pending.push_back(std::move(*Active));
+					Active.reset();
+					bImplicitRenderSubmission = false;
+				}
 			}
-			auto RHIBeginDrawingViewport(FRHIViewport*, FRHITexture*) -> void override { Unsupported(); }
-			auto RHIEndDrawingViewport(FRHIViewport*, bool, bool) -> void override { Unsupported(); }
-			auto RHISetViewport(float, float, float, float, float, float) -> void override { Unsupported(); }
-			auto RHISetScissor(float, float, float, float) -> void override { Unsupported(); }
-			auto RHISetDepthBias(float, float, float) -> void override { Unsupported(); }
-			auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState&) -> void override { Unsupported(); }
-			auto RHIBindVertexBuffer(uint32, FRHIBuffer*, uint32) -> void override { Unsupported(); }
-			auto RHIBindIndexBuffer(FRHIBuffer*, uint32) -> void override { Unsupported(); }
+			auto RHIBeginDrawingViewport(FRHIViewport* Viewport,
+				FRHITexture*) -> void override
+			{
+				requiref(State && dynamic_cast<FMetalViewport*>(Viewport)
+					&& !Active && !RenderEncoder,
+					"Metal viewport drawing requires an idle context and viewport.");
+			}
+			auto RHIEndDrawingViewport(FRHIViewport* Viewport,
+				bool bPresent, bool bLockToVsync) -> void override
+			{
+				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
+				requiref(State && MetalViewport && !Active && !RenderEncoder,
+					"Metal viewport presentation requires a closed GPU submission.");
+				if (!bPresent) return;
+				RHISubmitCommands();
+				auto BackBuffer = MetalViewport->SnapshotBackBuffer();
+				if (!BackBuffer) return;
+				CAMetalLayer* Layer = MetalViewport->GetLayer();
+				Layer.displaySyncEnabled = bLockToVsync;
+				id<CAMetalDrawable> Drawable = [Layer nextDrawable];
+				if (!Drawable) return;
+				id<MTLTexture> Source =
+					static_cast<FMetalTexture*>(BackBuffer.GetReference())->GetHandle();
+				id<MTLTexture> Destination = Drawable.texture;
+				if (Source.width != Destination.width
+					|| Source.height != Destination.height
+					|| Source.pixelFormat != Destination.pixelFormat) return;
+				id<MTLCommandBuffer> Command = [State->Queue commandBuffer];
+				requiref(Command != nil, "Metal presentation command allocation failed.");
+				id<MTLBlitCommandEncoder> Encoder = [Command blitCommandEncoder];
+				requiref(Encoder != nil, "Metal presentation blit encoder failed.");
+				[Encoder copyFromTexture:Source sourceSlice:0 sourceLevel:0
+					sourceOrigin:MTLOriginMake(0, 0, 0)
+					sourceSize:MTLSizeMake(Source.width, Source.height, 1)
+					toTexture:Destination destinationSlice:0 destinationLevel:0
+					destinationOrigin:MTLOriginMake(0, 0, 0)];
+				[Encoder endEncoding];
+				[Command presentDrawable:Drawable];
+				auto SharedState = State;
+				[Command addCompletedHandler:^(id<MTLCommandBuffer>) {
+					(void)Source;
+					(void)Drawable;
+					std::lock_guard Lock(SharedState->Mutex);
+					--SharedState->PendingCallbacks;
+					SharedState->Completion.notify_all();
+				}];
+				{
+					std::lock_guard Lock(State->Mutex);
+					++State->PendingCallbacks;
+				}
+				[Command commit];
+			}
+			auto RHISetViewport(float MinX, float MinY, float MinZ,
+				float MaxX, float MaxY, float MaxZ) -> void override
+			{
+				requiref(RenderEncoder && std::isfinite(MinX)
+					&& std::isfinite(MinY) && std::isfinite(MinZ)
+					&& std::isfinite(MaxX) && std::isfinite(MaxY)
+					&& std::isfinite(MaxZ)
+					&& MinX >= 0 && MinY >= 0 && MaxX > MinX && MaxY > MinY
+					&& MaxX <= RenderWidth && MaxY <= RenderHeight
+					&& MinZ >= 0 && MinZ <= 1 && MaxZ >= MinZ && MaxZ <= 1,
+					"Invalid Metal viewport bounds.");
+				const double MaxDepth = MinZ == MaxZ ? MinZ + 1.0 : MaxZ;
+				[RenderEncoder setViewport:MTLViewport{
+					MinX, MinY, MaxX - MinX, MaxY - MinY, MinZ, MaxDepth}];
+				RHISetScissor(MinX, MinY, MaxX - MinX, MaxY - MinY);
+			}
+			auto RHISetScissor(float MinX, float MinY,
+				float Width, float Height) -> void override
+			{
+				requiref(RenderEncoder && std::isfinite(MinX)
+					&& std::isfinite(MinY) && std::isfinite(Width)
+					&& std::isfinite(Height) && MinX >= 0 && MinY >= 0
+					&& Width > 0 && Height > 0
+					&& MinX + Width <= RenderWidth
+					&& MinY + Height <= RenderHeight,
+					"Invalid Metal scissor bounds.");
+				[RenderEncoder setScissorRect:MTLScissorRect{
+					static_cast<NSUInteger>(MinX),
+					static_cast<NSUInteger>(MinY),
+					static_cast<NSUInteger>(Width),
+					static_cast<NSUInteger>(Height)}];
+			}
+			auto RHISetDepthBias(float ConstantFactor, float Clamp,
+				float SlopeFactor) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline
+					&& GraphicsPipeline->GetRasterizer().bEnableDepthBias
+					&& std::isfinite(ConstantFactor) && std::isfinite(Clamp)
+					&& std::isfinite(SlopeFactor),
+					"Metal depth bias requires an active depth-bias pipeline and finite values.");
+				[RenderEncoder setDepthBias:ConstantFactor
+					slopeScale:SlopeFactor clamp:Clamp];
+			}
+			auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void override
+			{
+				auto* Pipeline = dynamic_cast<FMetalGraphicsPipelineState*>(&State);
+				requiref(RenderEncoder && Pipeline
+					&& Pipeline->GetRenderTargets() == CurrentRenderTargetLayout,
+					"Metal graphics pipeline does not match the active render pass.");
+				GraphicsPipeline = Pipeline;
+				BoundVertexStreams = 0;
+				GraphicsParameters.clear();
+				GraphicsParameterOwners.clear();
+				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
+				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				[RenderEncoder setRenderPipelineState:Pipeline->GetPipeline()];
+				[RenderEncoder setDepthStencilState:Pipeline->GetDepthStencil()];
+				const auto& Raster = Pipeline->GetRasterizer();
+				[RenderEncoder setCullMode:Raster.CullMode == ERHICullMode::None
+					? MTLCullModeNone : Raster.CullMode == ERHICullMode::Front
+						? MTLCullModeFront : MTLCullModeBack];
+				[RenderEncoder setFrontFacingWinding:
+					Raster.FrontFace == ERHIFrontFace::Clockwise
+						? MTLWindingClockwise : MTLWindingCounterClockwise];
+				[RenderEncoder setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+				Active->ResourceOwners.emplace_back(Pipeline);
+			}
+			auto RHISetComputePipelineState(FRHIComputePipelineState& State) -> void override
+			{
+				requiref(Active && !RenderEncoder,
+					"Metal compute pipeline requires an active submission outside a render pass.");
+				ComputePipeline = &State;
+				ComputeParameters.clear();
+				ComputeParameterOwners.clear();
+				ComputePushConstants.clear();
+				ComputePushConstantWritten.clear();
+			}
+			auto RHIBindVertexBuffer(uint32 Stream, FRHIBuffer* Resource,
+				uint32 Offset) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && Resource
+					&& Resource->GetResourceType() == ERHIResourceType::Buffer
+					&& EnumHasAnyFlags(Resource->GetUsage(),
+						EBufferUsageFlags::VertexBuffer)
+					&& Stream < 16 && Offset < Resource->GetSize(),
+					"Invalid Metal vertex buffer binding.");
+				auto* Buffer = static_cast<FMetalBuffer*>(Resource);
+				[RenderEncoder setVertexBuffer:Buffer->GetHandle()
+					offset:Offset atIndex:Stream];
+				BoundVertexStreams |= uint16(1u << Stream);
+				[Active->NativeResources addObject:Buffer->GetHandle()];
+				Active->ResourceOwners.emplace_back(Buffer);
+			}
+			auto RHIBindIndexBuffer(FRHIBuffer* Resource, uint32 Offset) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && Resource
+					&& Resource->GetResourceType() == ERHIResourceType::Buffer
+					&& EnumHasAnyFlags(Resource->GetUsage(),
+						EBufferUsageFlags::IndexBuffer)
+					&& (Resource->GetStride() == 2 || Resource->GetStride() == 4)
+					&& Offset % Resource->GetStride() == 0
+					&& Offset < Resource->GetSize(),
+					"Invalid Metal index buffer binding.");
+				IndexBuffer = Resource;
+				IndexBufferOffset = Offset;
+				[Active->NativeResources addObject:
+					static_cast<FMetalBuffer*>(Resource)->GetHandle()];
+				Active->ResourceOwners.emplace_back(Resource);
+			}
 			auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions)
 			-> void override
 			{
@@ -431,8 +928,7 @@ namespace Durin
 						|| Texture->GetDimension() == ETextureDimension::Texture2DArray
 						|| Texture->GetDimension() == ETextureDimension::TextureCube
 						|| Texture->GetDimension() == ETextureDimension::TextureCubeArray)
-					&& ToMetalPixelFormat(Texture->GetFormat()) != MTLPixelFormatInvalid
-					&& EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::DestinationCopy),
+					&& ToMetalPixelFormat(Texture->GetFormat()) != MTLPixelFormatInvalid,
 					"Metal texture upload requires a supported destination texture.");
 				FRHITextureDesc Desc;
 				Desc.Dimension = Texture->GetDimension();
@@ -686,14 +1182,494 @@ namespace Durin
 				State->Completion.wait(Lock,
 					[this] { return State->PendingCallbacks == 0; });
 			}
-			auto RHIPushConstants(EShaderStageFlags, uint32, uint32,
-			const void*) -> void override { Unsupported(); }
-			auto RHISetShaderParameters(FRHIShader*,
-			const std::span<const FRHIShaderParameterResource>&) -> void override
-		{ Unsupported(); }
-			auto RHIDraw(const FRHIDrawArguments&) -> void override { Unsupported(); }
-			auto RHIDrawIndexed(const FRHIDrawIndexedArguments&) -> void override { Unsupported(); }
+			auto RHIPushConstants(EShaderStageFlags Stages, uint32 Offset,
+			uint32 Size, const void* Data) -> void override
+			{
+				if (RenderEncoder)
+				{
+					requiref(GraphicsPipeline && Data && Size
+						&& Offset % 4 == 0 && Size % 4 == 0
+						&& uint64(Offset) + Size <= 65536
+						&& Stages != EShaderStageFlags::None
+						&& (static_cast<uint32>(Stages)
+							& ~static_cast<uint32>(EShaderStageFlags::Vertex
+								| EShaderStageFlags::Fragment)) == 0,
+						"Invalid Metal graphics push constant update.");
+					for (uint32 StageIndex = 0; StageIndex < 2; ++StageIndex)
+					{
+						const auto Stage = StageIndex == 0
+							? EShaderStageFlags::Vertex
+							: EShaderStageFlags::Fragment;
+						if (!EnumHasAnyFlags(Stages, Stage)) continue;
+						for (uint32 Byte = Offset; Byte < Offset + Size; Byte += 4)
+							requiref(std::ranges::any_of(
+								GraphicsPipeline->GetLayout().PushConstantRanges,
+								[&](const auto& Range) {
+									return EnumHasAnyFlags(Range.StageFlags, Stage)
+										&& Byte >= Range.Offset
+										&& Byte + 4 <= uint64(Range.Offset) + Range.Size;
+								}), "Metal graphics push constant update exceeds its layout.");
+						auto& Bytes = GraphicsPushConstants[StageIndex];
+						auto& Written = GraphicsPushConstantWritten[StageIndex];
+						if (Bytes.size() < Offset + Size)
+						{
+							Bytes.resize(Offset + Size);
+							Written.resize(Offset + Size);
+						}
+						std::memcpy(Bytes.data() + Offset, Data, Size);
+						std::fill(Written.begin() + Offset,
+							Written.begin() + Offset + Size, 1);
+					}
+					return;
+				}
+				auto* Pipeline = static_cast<FMetalComputePipelineState*>(
+					ComputePipeline.GetReference());
+				requiref(Active && Pipeline && Stages == EShaderStageFlags::Compute
+					&& Data && Size && Offset % 4 == 0 && Size % 4 == 0
+					&& uint64(Offset) + Size <= 65536,
+					"Invalid Metal compute push constant update.");
+				const auto& Ranges = Pipeline->GetLayout().PushConstantRanges;
+				for (uint32 Byte = Offset; Byte < Offset + Size; Byte += 4)
+					requiref(std::ranges::any_of(Ranges, [&](const auto& Range) {
+						return Byte >= Range.Offset
+							&& Byte + 4 <= uint64(Range.Offset) + Range.Size;
+					}), "Metal compute push constant update exceeds its layout.");
+				if (ComputePushConstants.size() < Offset + Size)
+				{
+					ComputePushConstants.resize(Offset + Size);
+					ComputePushConstantWritten.resize(Offset + Size);
+				}
+				std::memcpy(ComputePushConstants.data() + Offset, Data, Size);
+				std::fill(ComputePushConstantWritten.begin() + Offset,
+					ComputePushConstantWritten.begin() + Offset + Size, 1);
+			}
+			auto RHISetShaderParameters(FRHIShader* Shader,
+			const std::span<const FRHIShaderParameterResource>& Parameters) -> void override
+			{
+				if (RenderEncoder)
+				{
+					auto* Pipeline = GraphicsPipeline.GetReference();
+					const EShaderStageFlags Stage = Pipeline
+						&& Shader == Pipeline->GetVertexShader()
+						? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
+					requiref(Pipeline && (Shader == Pipeline->GetVertexShader()
+						|| Shader == Pipeline->GetFragmentShader())
+						&& ValidateShaderParameterUpdate(Pipeline->GetLayout(),
+							Stage, Parameters).has_value(),
+						"Invalid Metal graphics shader parameter update.");
+					for (const auto& Parameter : Parameters)
+					{
+						requiref(Parameter.Resource,
+							"Metal graphics parameter requires a resource.");
+						auto Existing = std::ranges::find_if(GraphicsParameters,
+							[&](const auto& Item) {
+								return Item.SetIndex == Parameter.SetIndex
+									&& Item.BindingIndex == Parameter.BindingIndex
+									&& Item.ArrayElement == Parameter.ArrayElement;
+							});
+						if (Existing == GraphicsParameters.end())
+							GraphicsParameters.push_back(Parameter);
+						else *Existing = Parameter;
+					}
+					std::ranges::sort(GraphicsParameters, {}, [](const auto& Item) {
+						return std::tuple(Item.SetIndex, Item.BindingIndex,
+							Item.ArrayElement);
+					});
+					GraphicsParameterOwners.clear();
+					for (const auto& Parameter : GraphicsParameters)
+						GraphicsParameterOwners.emplace_back(Parameter.Resource);
+					return;
+				}
+				auto* Pipeline = static_cast<FMetalComputePipelineState*>(
+					ComputePipeline.GetReference());
+				requiref(Active && Pipeline && Shader == Pipeline->GetShader()
+					&& ValidateShaderParameterUpdate(Pipeline->GetLayout(),
+						EShaderStageFlags::Compute, Parameters).has_value(),
+					"Invalid Metal compute shader parameter update.");
+				for (const auto& Parameter : Parameters)
+				{
+					requiref(Parameter.Resource != nullptr,
+						"Metal compute parameter requires a resource.");
+					auto Existing = std::ranges::find_if(ComputeParameters,
+						[&](const auto& Item) {
+							return Item.SetIndex == Parameter.SetIndex
+								&& Item.BindingIndex == Parameter.BindingIndex
+								&& Item.ArrayElement == Parameter.ArrayElement;
+						});
+					if (Existing == ComputeParameters.end())
+						ComputeParameters.push_back(Parameter);
+					else *Existing = Parameter;
+				}
+				std::ranges::sort(ComputeParameters, {}, [](const auto& Item) {
+					return std::tuple(Item.SetIndex, Item.BindingIndex,
+						Item.ArrayElement);
+				});
+				ComputeParameterOwners.clear();
+				for (const auto& Parameter : ComputeParameters)
+					ComputeParameterOwners.emplace_back(Parameter.Resource);
+			}
+			auto RHIDispatch(uint32 X, uint32 Y, uint32 Z) -> void override
+				{ EncodeComputeDispatch(X, Y, Z, nullptr, 0); }
+			auto RHIDispatchIndirect(FRHIBuffer* ArgumentBuffer,
+				uint64 Offset) -> void override
+			{
+				requiref(ArgumentBuffer
+					&& EnumHasAnyFlags(ArgumentBuffer->GetUsage(),
+						EBufferUsageFlags::DrawIndirect)
+					&& Offset <= ArgumentBuffer->GetSize()
+					&& sizeof(FRHIDispatchIndirectArguments)
+						<= ArgumentBuffer->GetSize() - Offset,
+					"Metal indirect dispatch requires a valid argument buffer.");
+				EncodeComputeDispatch(0, 0, 0, ArgumentBuffer, Offset);
+			}
+			auto EncodeComputeDispatch(uint32 X, uint32 Y, uint32 Z,
+				FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
+			{
+				auto* Pipeline = static_cast<FMetalComputePipelineState*>(
+					ComputePipeline.GetReference());
+				requiref(Active && !RenderEncoder && Pipeline
+					&& (ArgumentBuffer || (X && Y && Z))
+					&& ValidateShaderBindingCompleteness(Pipeline->GetLayout(),
+						ComputeParameters).has_value(),
+					"Invalid Metal compute dispatch state.");
+				id<MTLComputeCommandEncoder> Encoder =
+					[Active->Command computeCommandEncoder];
+				requiref(Encoder != nil, "Metal compute encoder creation failed.");
+				[Encoder setComputePipelineState:Pipeline->GetPipeline()];
+				const auto& PushRanges = Pipeline->GetLayout().PushConstantRanges;
+				if (!PushRanges.empty())
+				{
+					uint32 End = 0;
+					for (const auto& Range : PushRanges)
+					{
+						End = std::max(End, Range.Offset + Range.Size);
+						requiref(ComputePushConstantWritten.size()
+							>= uint64(Range.Offset) + Range.Size
+							&& std::ranges::all_of(
+								std::span(ComputePushConstantWritten).subspan(
+									Range.Offset, Range.Size),
+								[](uint8 Written) { return Written != 0; }),
+							"Metal compute push constants are incomplete.");
+					}
+					id<MTLBuffer> Constants = [State->Queue.device
+						newBufferWithBytes:ComputePushConstants.data() length:End
+						options:MTLResourceStorageModeShared];
+					requiref(Constants != nil,
+						"Metal compute push constant allocation failed.");
+					[Encoder setBuffer:Constants offset:0 atIndex:
+						Pipeline->GetShader()->GetMetalPushConstantBufferSlot()];
+					[Active->NativeResources addObject:Constants];
+				}
+				const auto& Map = Pipeline->GetShader()->GetMetalBindings();
+				for (const auto& Parameter : ComputeParameters)
+				{
+					auto Binding = std::ranges::find_if(Map, [&](const auto& Item) {
+						return Item.SetIndex == Parameter.SetIndex
+							&& Item.BindingIndex == Parameter.BindingIndex
+							&& Item.Type == Parameter.Type;
+					});
+					requiref(Binding != Map.end()
+						&& Parameter.ArrayElement < Binding->Count,
+						"Metal compute binding is missing its native slot.");
+					const uint32 Slot = Binding->Slot + Parameter.ArrayElement;
+					if (Parameter.Type == ERHIBindingType::StorageBuffer
+						|| Parameter.Type == ERHIBindingType::UniformBuffer
+						|| Parameter.Type == ERHIBindingType::UniformBufferDynamic)
+					{
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::BufferView,
+							"Metal compute buffer binding requires a buffer view.");
+						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
+						auto* Buffer = static_cast<FMetalBuffer*>(View->GetBuffer());
+						const bool bStorage = Parameter.Type
+							== ERHIBindingType::StorageBuffer;
+						requiref(bStorage
+								? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
+									|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
+								: View->GetDesc().Type == ERHIBufferViewType::Uniform,
+							"Metal compute buffer view does not match its binding type.");
+						requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
+							|| Parameter.Offset == 0,
+							"Metal static compute binding cannot use a dynamic offset.");
+						const uint64 Offset = View->GetDesc().Offset
+							+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
+								? Parameter.Offset : 0);
+						requiref(Offset <= Buffer->GetSize()
+							&& View->GetDesc().Size <= Buffer->GetSize() - Offset,
+							"Metal compute buffer range exceeds its allocation.");
+						[Encoder setBuffer:Buffer->GetHandle() offset:Offset atIndex:Slot];
+						[Active->NativeResources addObject:Buffer->GetHandle()];
+					}
+					else if (Parameter.Type == ERHIBindingType::Texture
+						|| Parameter.Type == ERHIBindingType::StorageImage)
+					{
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::TextureView,
+							"Metal compute texture binding requires a texture view.");
+						auto* View = dynamic_cast<FMetalTextureView*>(
+							static_cast<FRHITextureView*>(Parameter.Resource));
+						requiref(View && View->GetDesc().Usage ==
+							(Parameter.Type == ERHIBindingType::Texture
+								? ERHITextureViewUsage::Sampled
+								: ERHITextureViewUsage::Storage),
+							"Metal compute texture view usage is incompatible.");
+						[Encoder setTexture:View->GetHandle() atIndex:Slot];
+						[Active->NativeResources addObject:View->GetHandle()];
+					}
+					else if (Parameter.Type == ERHIBindingType::Sampler)
+					{
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::Sampler,
+							"Metal compute sampler binding requires a sampler.");
+						auto* Sampler = dynamic_cast<FMetalSampler*>(
+							static_cast<FRHISampler*>(Parameter.Resource));
+						requiref(Sampler, "Metal compute sampler belongs to another backend.");
+						[Encoder setSamplerState:Sampler->GetHandle() atIndex:Slot];
+					}
+					else Unsupported();
+					Active->ResourceOwners.emplace_back(Parameter.Resource);
+				}
+				Active->ResourceOwners.emplace_back(Pipeline);
+				const auto Group = Pipeline->GetShader()->GetComputeThreadGroupSize();
+				if (ArgumentBuffer)
+				{
+					auto* Buffer = static_cast<FMetalBuffer*>(ArgumentBuffer);
+					[Encoder dispatchThreadgroupsWithIndirectBuffer:Buffer->GetHandle()
+						indirectBufferOffset:Offset
+						threadsPerThreadgroup:MTLSizeMake(Group[0], Group[1], Group[2])];
+					[Active->NativeResources addObject:Buffer->GetHandle()];
+					Active->ResourceOwners.emplace_back(ArgumentBuffer);
+				}
+				else [Encoder dispatchThreadgroups:MTLSizeMake(X, Y, Z)
+					threadsPerThreadgroup:MTLSizeMake(Group[0], Group[1], Group[2])];
+				[Encoder endEncoding];
+			}
+			auto RHIDraw(const FRHIDrawArguments& Args) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && Args.VertexCount
+					&& Args.InstanceCount
+					&& (BoundVertexStreams
+						& GraphicsPipeline->GetRequiredVertexStreams())
+						== GraphicsPipeline->GetRequiredVertexStreams(),
+					"Metal draw requires a render pipeline and nonempty arguments.");
+				BindGraphicsParameters();
+				[RenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+					vertexStart:Args.FirstVertex vertexCount:Args.VertexCount
+					instanceCount:Args.InstanceCount baseInstance:Args.FirstInstance];
+			}
+			auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Args) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && IndexBuffer
+					&& Args.IndexCount && Args.InstanceCount
+					&& (BoundVertexStreams
+						& GraphicsPipeline->GetRequiredVertexStreams())
+						== GraphicsPipeline->GetRequiredVertexStreams(),
+					"Metal indexed draw requires complete pipeline and buffer state.");
+				const uint64 ByteOffset = uint64(IndexBufferOffset)
+					+ uint64(Args.FirstIndex) * IndexBuffer->GetStride();
+				requiref(ByteOffset <= IndexBuffer->GetSize()
+					&& uint64(Args.IndexCount) * IndexBuffer->GetStride()
+						<= IndexBuffer->GetSize() - ByteOffset,
+					"Metal indexed draw exceeds its index buffer.");
+				BindGraphicsParameters();
+				[RenderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+					indexCount:Args.IndexCount
+					indexType:IndexBuffer->GetStride() == 2
+						? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
+					indexBuffer:static_cast<FMetalBuffer*>(
+						IndexBuffer.GetReference())->GetHandle()
+					indexBufferOffset:ByteOffset
+					instanceCount:Args.InstanceCount
+					baseVertex:Args.VertexOffset
+					baseInstance:Args.FirstInstance];
+			}
+			auto RHIDrawIndirect(FRHIBuffer* ArgumentBuffer,
+				uint64 Offset) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && ArgumentBuffer
+					&& EnumHasAnyFlags(ArgumentBuffer->GetUsage(),
+						EBufferUsageFlags::DrawIndirect)
+					&& Offset <= ArgumentBuffer->GetSize()
+					&& sizeof(FRHIDrawIndirectArguments)
+						<= ArgumentBuffer->GetSize() - Offset
+					&& (BoundVertexStreams
+						& GraphicsPipeline->GetRequiredVertexStreams())
+						== GraphicsPipeline->GetRequiredVertexStreams(),
+					"Metal indirect draw requires complete pipeline and arguments.");
+				auto* Buffer = static_cast<FMetalBuffer*>(ArgumentBuffer);
+				BindGraphicsParameters();
+				[RenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+					indirectBuffer:Buffer->GetHandle()
+					indirectBufferOffset:Offset];
+				[Active->NativeResources addObject:Buffer->GetHandle()];
+				Active->ResourceOwners.emplace_back(ArgumentBuffer);
+			}
+			auto RHIDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
+				uint64 Offset) -> void override
+			{
+				requiref(RenderEncoder && GraphicsPipeline && IndexBuffer
+					&& ArgumentBuffer
+					&& EnumHasAnyFlags(ArgumentBuffer->GetUsage(),
+						EBufferUsageFlags::DrawIndirect)
+					&& Offset <= ArgumentBuffer->GetSize()
+					&& sizeof(FRHIDrawIndexedIndirectArguments)
+						<= ArgumentBuffer->GetSize() - Offset
+					&& (BoundVertexStreams
+						& GraphicsPipeline->GetRequiredVertexStreams())
+						== GraphicsPipeline->GetRequiredVertexStreams(),
+					"Metal indexed indirect draw requires complete state.");
+				auto* Buffer = static_cast<FMetalBuffer*>(ArgumentBuffer);
+				BindGraphicsParameters();
+				[RenderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+					indexType:IndexBuffer->GetStride() == 2
+						? MTLIndexTypeUInt16 : MTLIndexTypeUInt32
+					indexBuffer:static_cast<FMetalBuffer*>(
+						IndexBuffer.GetReference())->GetHandle()
+					indexBufferOffset:IndexBufferOffset
+					indirectBuffer:Buffer->GetHandle()
+					indirectBufferOffset:Offset];
+				[Active->NativeResources addObject:Buffer->GetHandle()];
+				Active->ResourceOwners.emplace_back(ArgumentBuffer);
+			}
 		private:
+			auto BindGraphicsParameters() -> void
+			{
+				const auto& Layout = GraphicsPipeline->GetLayout();
+				requiref(ValidateShaderBindingCompleteness(Layout,
+					GraphicsParameters).has_value(),
+					"Metal graphics shader bindings are incomplete.");
+				for (uint32 StageIndex = 0; StageIndex < 2; ++StageIndex)
+				{
+					const auto Stage = StageIndex == 0
+						? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
+					auto* Shader = StageIndex == 0
+						? GraphicsPipeline->GetVertexShader()
+						: GraphicsPipeline->GetFragmentShader();
+					if (Shader->GetMetalPushConstantBufferSlot() == UINT32_MAX)
+						continue;
+					uint32 End = 0;
+					for (const auto& Range : Layout.PushConstantRanges)
+					{
+						if (!EnumHasAnyFlags(Range.StageFlags, Stage)) continue;
+						End = std::max(End, Range.Offset + Range.Size);
+						const auto& Written = GraphicsPushConstantWritten[StageIndex];
+						requiref(Written.size() >= uint64(Range.Offset) + Range.Size
+							&& std::ranges::all_of(std::span(Written).subspan(
+								Range.Offset, Range.Size),
+								[](uint8 Value) { return Value != 0; }),
+							"Metal graphics push constants are incomplete.");
+					}
+					requiref(End != 0,
+						"Metal graphics shader push slot lacks a layout range.");
+					id<MTLBuffer> Constants = [State->Queue.device
+						newBufferWithBytes:GraphicsPushConstants[StageIndex].data()
+						length:End options:MTLResourceStorageModeShared];
+					requiref(Constants != nil,
+						"Metal graphics push constant allocation failed.");
+					if (StageIndex == 0)
+						[RenderEncoder setVertexBuffer:Constants offset:0
+							atIndex:Shader->GetMetalPushConstantBufferSlot()];
+					else [RenderEncoder setFragmentBuffer:Constants offset:0
+							atIndex:Shader->GetMetalPushConstantBufferSlot()];
+					[Active->NativeResources addObject:Constants];
+				}
+				for (const auto& Parameter : GraphicsParameters)
+				{
+					const auto& Set = Layout.BindingLayouts[Parameter.SetIndex];
+					const auto Binding = std::ranges::find(Set.BindingLayouts,
+						Parameter.BindingIndex, &FBindingLayoutItem::Slot);
+					requiref(Binding != Set.BindingLayouts.end(),
+						"Metal graphics binding is absent from its layout.");
+					for (const auto Stage : {EShaderStageFlags::Vertex,
+						EShaderStageFlags::Fragment})
+					{
+						if (!EnumHasAnyFlags(Binding->StageFlags, Stage)) continue;
+						auto* Shader = Stage == EShaderStageFlags::Vertex
+							? GraphicsPipeline->GetVertexShader()
+							: GraphicsPipeline->GetFragmentShader();
+						const auto Map = Shader->GetMetalBindings();
+						const auto Native = std::ranges::find_if(Map,
+							[&](const auto& Item) {
+								return Item.SetIndex == Parameter.SetIndex
+									&& Item.BindingIndex == Parameter.BindingIndex
+									&& Item.Type == Parameter.Type;
+							});
+						requiref(Native != Map.end()
+							&& Parameter.ArrayElement < Native->Count,
+							"Metal graphics binding has no native slot.");
+						const uint32 Slot = Native->Slot + Parameter.ArrayElement;
+						if (Parameter.Type == ERHIBindingType::Texture
+							|| Parameter.Type == ERHIBindingType::StorageImage)
+						{
+							requiref(Parameter.Resource->GetResourceType()
+								== ERHIResourceType::TextureView,
+								"Metal graphics texture binding requires a view.");
+							auto* View = dynamic_cast<FMetalTextureView*>(
+								static_cast<FRHITextureView*>(Parameter.Resource));
+							requiref(View && View->GetDesc().Usage ==
+								(Parameter.Type == ERHIBindingType::Texture
+									? ERHITextureViewUsage::Sampled
+									: ERHITextureViewUsage::Storage),
+								"Metal graphics texture view usage is incompatible.");
+							if (Stage == EShaderStageFlags::Vertex)
+								[RenderEncoder setVertexTexture:View->GetHandle()
+									atIndex:Slot];
+							else [RenderEncoder setFragmentTexture:View->GetHandle()
+									atIndex:Slot];
+							[Active->NativeResources addObject:View->GetHandle()];
+						}
+						else if (Parameter.Type == ERHIBindingType::Sampler)
+						{
+							requiref(Parameter.Resource->GetResourceType()
+								== ERHIResourceType::Sampler,
+								"Metal graphics sampler binding requires a sampler.");
+							auto* Sampler = dynamic_cast<FMetalSampler*>(
+								static_cast<FRHISampler*>(Parameter.Resource));
+							requiref(Sampler,
+								"Metal graphics sampler belongs to another backend.");
+							if (Stage == EShaderStageFlags::Vertex)
+								[RenderEncoder setVertexSamplerState:Sampler->GetHandle()
+									atIndex:Slot];
+							else [RenderEncoder setFragmentSamplerState:Sampler->GetHandle()
+									atIndex:Slot];
+						}
+						else if (Parameter.Type == ERHIBindingType::UniformBuffer
+							|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
+							|| Parameter.Type == ERHIBindingType::StorageBuffer)
+						{
+							requiref(Parameter.Resource->GetResourceType()
+								== ERHIResourceType::BufferView,
+								"Metal graphics buffer binding requires a view.");
+							auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
+							auto* Buffer = static_cast<FMetalBuffer*>(View->GetBuffer());
+							const bool bStorage = Parameter.Type
+								== ERHIBindingType::StorageBuffer;
+							requiref(bStorage
+									? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
+										|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
+									: View->GetDesc().Type == ERHIBufferViewType::Uniform,
+								"Metal graphics buffer view type is incompatible.");
+							requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
+								|| Parameter.Offset == 0,
+								"Metal static graphics binding cannot use a dynamic offset.");
+							const uint64 Offset = View->GetDesc().Offset
+								+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
+									? Parameter.Offset : 0);
+							requiref(Offset <= Buffer->GetSize()
+								&& View->GetDesc().Size <= Buffer->GetSize() - Offset,
+								"Metal graphics buffer range exceeds its allocation.");
+							if (Stage == EShaderStageFlags::Vertex)
+								[RenderEncoder setVertexBuffer:Buffer->GetHandle()
+									offset:Offset atIndex:Slot];
+							else [RenderEncoder setFragmentBuffer:Buffer->GetHandle()
+									offset:Offset atIndex:Slot];
+							[Active->NativeResources addObject:Buffer->GetHandle()];
+						}
+						else Unsupported();
+					}
+					Active->ResourceOwners.emplace_back(Parameter.Resource);
+				}
+			}
 			auto CancelPending() -> void
 			{
 				if (!State) return;
@@ -708,9 +1684,23 @@ namespace Durin
 				if (Active)
 					for (const auto& Readback : Active->Readbacks)
 						Readback.Request->Cancel();
-				Active.reset();
+			Active.reset();
+				bImplicitRenderSubmission = false;
 				RenderEncoder = nil;
+				ComputePipeline = nullptr;
+				ComputeParameters.clear();
+				ComputeParameterOwners.clear();
+				ComputePushConstants.clear();
+				ComputePushConstantWritten.clear();
+				GraphicsPipeline = nullptr;
+				BoundVertexStreams = 0;
+				IndexBuffer = nullptr;
+				GraphicsParameters.clear();
+				GraphicsParameterOwners.clear();
+				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
+				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
 				StorageOwner.reset();
+				bFrameOpen = false;
 			}
 			friend class FMetalDynamicRHI;
 			static auto Unsupported() -> void
@@ -720,7 +1710,25 @@ namespace Durin
 			std::shared_ptr<FMetalSubmissionState> State;
 			std::shared_ptr<void> StorageOwner;
 			std::optional<FMetalPendingSubmission> Active;
+			bool bImplicitRenderSubmission = false;
+			bool bFrameOpen = false;
 			id<MTLRenderCommandEncoder> RenderEncoder = nil;
+			FRHIRenderTargetLayout CurrentRenderTargetLayout;
+			uint32 RenderWidth = 0;
+			uint32 RenderHeight = 0;
+			TRefCountPtr<FMetalGraphicsPipelineState> GraphicsPipeline;
+			uint16 BoundVertexStreams = 0;
+			FBufferRHIRef IndexBuffer;
+			uint32 IndexBufferOffset = 0;
+			std::vector<FRHIShaderParameterResource> GraphicsParameters;
+			std::vector<TRefCountPtr<FRHIResource>> GraphicsParameterOwners;
+			std::array<std::vector<std::byte>, 2> GraphicsPushConstants;
+			std::array<std::vector<uint8>, 2> GraphicsPushConstantWritten;
+			TRefCountPtr<FRHIComputePipelineState> ComputePipeline;
+			std::vector<FRHIShaderParameterResource> ComputeParameters;
+			std::vector<TRefCountPtr<FRHIResource>> ComputeParameterOwners;
+			std::vector<std::byte> ComputePushConstants;
+			std::vector<uint8> ComputePushConstantWritten;
 			std::vector<FMetalPendingSubmission> Pending;
 		};
 
@@ -729,8 +1737,14 @@ namespace Durin
 		public:
 			auto Init(const FRHIInitializationContext& Context) -> void override
 			{
-				if (Context.GetPresentationTarget())
-					throw std::runtime_error("Metal presentation is not implemented yet.");
+				if (const auto& Target = Context.GetPresentationTarget())
+				{
+					StartupLayer = (__bridge CAMetalLayer*)Target->NativeMetalLayer;
+					if (!StartupLayer
+						|| ![StartupLayer isKindOfClass:[CAMetalLayer class]])
+						throw std::runtime_error("Metal presentation requires a CAMetalLayer.");
+					StartupWindow = Target->NativeWindowHandle;
+				}
 				const NSOperatingSystemVersion OS =
 					[NSProcessInfo processInfo].operatingSystemVersion;
 				if (OS.majorVersion < 27)
@@ -756,8 +1770,27 @@ namespace Durin
 				QueueCapabilities.Graphics = {0};
 				QueueCapabilities.Compute = {0};
 				CommandContext.Configure(State);
-				// Resource capabilities stay unpublished until native resource
-				// operations implement the limits they report.
+				FRHICapabilities Supported;
+				Supported.SupportedTextureDimensions =
+					ERHITextureDimensionFlags::Texture2D;
+				Supported.MaxTextureDimension2D = 8192;
+				Supported.MaxTextureDimensionCube = 8;
+				Supported.MaxTextureArrayLayers = TextureCubeFaceCount;
+				Supported.ColorSampleCounts = ERHISampleCountFlags::Samples1;
+				Supported.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+				Supported.MaxColorAttachments = 4;
+				Supported.MinStorageBufferOffsetAlignment = 16;
+				Supported.MaxStorageBufferRange = 1u << 27;
+				Supported.MaxFragmentSampledImages = 16;
+				Supported.MaxFragmentSamplers = 16;
+				Supported.MaxFragmentUniformBuffers = 16;
+				Supported.MaxFragmentResources = 31;
+				Supported.MaxUniformBufferRange = 65536;
+				Supported.MinUniformBufferOffsetAlignment = 16;
+				Supported.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+				Supported.bSupportsIndirectDraw = true;
+				Supported.bSupportsIndirectDispatch = true;
+				PublishCapabilities(std::move(Supported));
 			}
 
 			auto Shutdown() -> void override
@@ -776,6 +1809,8 @@ namespace Durin
 				QueueCapabilities = {};
 				Queue = nil;
 				Device = nil;
+				StartupLayer = nil;
+				StartupWindow = nullptr;
 			}
 			auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override
 			{ return QueueCapabilities; }
@@ -819,28 +1854,295 @@ namespace Durin
 				}
 				return ERHIGPUWaitResult::Invalid;
 			}
-			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override
-			{ requiref(false, "Metal frame execution has not been implemented."); }
+			auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override
+			{ CommandContext.RHIBeginFrame(Args); }
 			auto RHIEndFrame() -> void override
-			{ requiref(false, "Metal frame execution has not been implemented."); }
-			auto RHICreateViewport(const FRHIViewportCreateInfo&)
-			-> TRefCountPtr<FRHIViewport> override { return nullptr; }
-			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override
-			{ requiref(false, "Metal viewport resize has not been implemented."); }
+			{ CommandContext.RHIEndFrame(); }
+			auto RHICreateViewport(const FRHIViewportCreateInfo& Info)
+			-> TRefCountPtr<FRHIViewport> override
+			{
+				if (!Device || !Info.NativeWindowHandle || !Info.NativeMetalLayer
+					|| !Info.SizeX || !Info.SizeY) return nullptr;
+				CAMetalLayer* Layer = (__bridge CAMetalLayer*)Info.NativeMetalLayer;
+				if (![Layer isKindOfClass:[CAMetalLayer class]]) return nullptr;
+				if (Info.bAdoptInitializationPresentationCandidate)
+				{
+					if (!StartupLayer || Layer != StartupLayer
+						|| Info.NativeWindowHandle != StartupWindow) return nullptr;
+				}
+				const auto Format = Info.PreferredPixelFormat
+					== EPixelFormat::RGBA16_FLOAT
+					? EPixelFormat::RGBA16_FLOAT
+					: Info.PreferredPixelFormat == EPixelFormat::RGBA8_UNORM
+						|| Info.PreferredPixelFormat == EPixelFormat::BGRA8_UNORM
+						? EPixelFormat::BGRA8_UNORM
+						: EPixelFormat::SBGRA8_UNORM;
+				auto Viewport = MakeRefCount<FMetalViewport>(
+					Device, Layer, Info.SizeX, Info.SizeY, Format);
+				if (!Viewport->SnapshotBackBuffer()) return nullptr;
+				if (Info.bAdoptInitializationPresentationCandidate)
+				{
+					StartupLayer = nil;
+					StartupWindow = nullptr;
+				}
+				return Viewport;
+			}
+			auto RHIResizeViewport(FRHIViewport* Viewport,
+				uint32 Width, uint32 Height, bool) -> void override
+			{
+				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
+				requiref(MetalViewport, "Metal viewport resize requires a Metal viewport.");
+				if (Width && Height)
+					requiref(MetalViewport->Resize(Width, Height),
+						"Metal viewport back buffer recreation failed.");
+			}
 			auto RHICreateGraphicsPipelineState(FName,
-			const FGraphicsPipelineStateInitializer&)
-			-> TRefCountPtr<FRHIGraphicsPipelineState> override { return nullptr; }
+			const FGraphicsPipelineStateInitializer& Initializer)
+			-> TRefCountPtr<FRHIGraphicsPipelineState> override
+			{
+				if (!Device || !Initializer.BoundShaders.VertexShader
+					|| !Initializer.BoundShaders.FragmentShader
+					|| !Initializer.VertexDeclaration
+					|| Initializer.PrimitiveTopology !=
+						FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList
+					|| Initializer.RenderTargetLayout.NumColorRenderTargets > 4
+					|| (Initializer.RenderTargetLayout.NumColorRenderTargets == 0
+						&& !Initializer.RenderTargetLayout.bHasDepthStencil)
+					|| (Initializer.RenderTargetLayout.bHasDepthStencil
+						&& Initializer.RenderTargetLayout.DepthStencilAttachment.Format
+							!= EPixelFormat::D32)
+					|| Initializer.MultisampleState != FRHIMultisampleState{}
+					|| Initializer.DepthStencilState.bEnableStencil
+					|| (!Initializer.RenderTargetLayout.bHasDepthStencil
+						&& Initializer.DepthStencilState != FRHIDepthStencilState{})
+					|| Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
+					|| Initializer.RasterizerState.bEnableDepthClamp
+					|| Initializer.RasterizerState.LineWidth != 1.0f)
+					return nullptr;
+				auto Key = BuildGraphicsPipelineStateKey(Initializer, nullptr);
+				if (!Key || Key->Target != MetalShaderTarget) return nullptr;
+				auto* Vertex = dynamic_cast<FMetalShader*>(
+					Initializer.BoundShaders.VertexShader);
+				auto* Fragment = dynamic_cast<FMetalShader*>(
+					Initializer.BoundShaders.FragmentShader);
+				if (!Vertex || !Fragment)
+					return nullptr;
+				const auto MatchesStage = [&](FMetalShader* Shader,
+				EShaderStageFlags Stage) {
+					const auto Map = Shader->GetMetalBindings();
+					size_t Count = 0;
+					for (uint32 SetIndex = 0;
+						SetIndex < Key->PipelineLayout.BindingLayouts.size(); ++SetIndex)
+						for (const auto& Binding : Key->PipelineLayout
+							.BindingLayouts[SetIndex].BindingLayouts)
+						{
+							if (!EnumHasAnyFlags(Binding.StageFlags, Stage)) continue;
+							if (Count >= Map.size()
+								|| Map[Count].SetIndex != SetIndex
+								|| Map[Count].BindingIndex != Binding.Slot
+								|| Map[Count].Type != Binding.Type
+								|| Map[Count].Count != Binding.ArraySize)
+								return false;
+							++Count;
+						}
+					return Count == Map.size();
+				};
+				if (!MatchesStage(Vertex, EShaderStageFlags::Vertex)
+					|| !MatchesStage(Fragment, EShaderStageFlags::Fragment))
+					return nullptr;
+				for (const auto Stage : {EShaderStageFlags::Vertex,
+					EShaderStageFlags::Fragment})
+				{
+					const bool bPush = std::ranges::any_of(
+						Key->PipelineLayout.PushConstantRanges,
+						[&](const auto& Range) {
+							return EnumHasAnyFlags(Range.StageFlags, Stage);
+						});
+					auto* Shader = Stage == EShaderStageFlags::Vertex
+						? Vertex : Fragment;
+					if (bPush != (Shader->GetMetalPushConstantBufferSlot()
+						!= UINT32_MAX)) return nullptr;
+				}
+				for (const auto& Range : Key->PipelineLayout.PushConstantRanges)
+					if (uint64(Range.Offset) + Range.Size > 65536)
+						return nullptr;
+				MTLRenderPipelineDescriptor* Desc = [MTLRenderPipelineDescriptor new];
+				Desc.vertexFunction = Vertex->GetFunction();
+				Desc.fragmentFunction = Fragment->GetFunction();
+				Desc.sampleCount = 1;
+				Desc.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+				for (uint32 Index = 0;
+					Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
+				{
+				const auto Format = Initializer.RenderTargetLayout.ColorAttachments[Index]
+					.RenderTarget.Format;
+				if (!IsMetalColorRenderFormat(Format))
+					return nullptr;
+				Desc.colorAttachments[Index].pixelFormat = ToMetalPixelFormat(Format);
+				const auto& Blend = Initializer.ColorBlendStates[Index];
+				auto* NativeBlend = Desc.colorAttachments[Index];
+					NativeBlend.blendingEnabled = Blend.bEnable;
+					MTLColorWriteMask WriteMask = MTLColorWriteMaskNone;
+					if (EnumHasAnyFlags(Blend.ColorWriteMask, ERHIColorWriteMask::Red))
+						WriteMask |= MTLColorWriteMaskRed;
+					if (EnumHasAnyFlags(Blend.ColorWriteMask, ERHIColorWriteMask::Green))
+						WriteMask |= MTLColorWriteMaskGreen;
+					if (EnumHasAnyFlags(Blend.ColorWriteMask, ERHIColorWriteMask::Blue))
+						WriteMask |= MTLColorWriteMaskBlue;
+					if (EnumHasAnyFlags(Blend.ColorWriteMask, ERHIColorWriteMask::Alpha))
+						WriteMask |= MTLColorWriteMaskAlpha;
+					NativeBlend.writeMask = WriteMask;
+					if (Blend.bEnable)
+					{
+						const auto SrcColor = ToMetalBlendFactor(Blend.SrcColorFactor);
+						const auto DstColor = ToMetalBlendFactor(Blend.DstColorFactor);
+						const auto SrcAlpha = ToMetalBlendFactor(Blend.SrcAlphaFactor);
+						const auto DstAlpha = ToMetalBlendFactor(Blend.DstAlphaFactor);
+						const auto ColorOp = ToMetalBlendOperation(Blend.ColorOp);
+						const auto AlphaOp = ToMetalBlendOperation(Blend.AlphaOp);
+						if (!SrcColor || !DstColor || !SrcAlpha || !DstAlpha
+							|| !ColorOp || !AlphaOp) return nullptr;
+						NativeBlend.sourceRGBBlendFactor = *SrcColor;
+						NativeBlend.destinationRGBBlendFactor = *DstColor;
+						NativeBlend.rgbBlendOperation = *ColorOp;
+						NativeBlend.sourceAlphaBlendFactor = *SrcAlpha;
+						NativeBlend.destinationAlphaBlendFactor = *DstAlpha;
+						NativeBlend.alphaBlendOperation = *AlphaOp;
+					}
+				}
+				if (Initializer.RenderTargetLayout.bHasDepthStencil)
+					Desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+				MTLVertexDescriptor* VertexDesc = [MTLVertexDescriptor vertexDescriptor];
+				for (const auto& Element : Initializer.VertexDeclaration->GetElements())
+				{
+					if (Element.Type == EVertexElementType::None) break;
+					const MTLVertexFormat Format = ToMetalVertexFormat(Element.Type);
+					if (Format == MTLVertexFormatInvalid
+						|| Element.StreamIndex >= 16 || Element.AttributeIndex >= 31)
+						return nullptr;
+					auto* Attribute = VertexDesc.attributes[Element.AttributeIndex];
+					Attribute.format = Format;
+					Attribute.offset = Element.Offset;
+					Attribute.bufferIndex = Element.StreamIndex;
+					auto* Layout = VertexDesc.layouts[Element.StreamIndex];
+					Layout.stride = Element.Stride;
+					Layout.stepFunction = Element.InputRate
+						== FRHIVertexElementIdentity::EInputRate::Instance
+						? MTLVertexStepFunctionPerInstance
+						: MTLVertexStepFunctionPerVertex;
+				}
+				Desc.vertexDescriptor = VertexDesc;
+				NSError* Error = nil;
+				id<MTLRenderPipelineState> Pipeline = [Device
+					newRenderPipelineStateWithDescriptor:Desc error:&Error];
+				if (!Pipeline)
+				{
+					DURIN_ERROR("Metal graphics pipeline creation failed: {}",
+						Error ? Error.localizedDescription.UTF8String : "unknown error");
+					return nullptr;
+				}
+				id<MTLDepthStencilState> DepthStencil = nil;
+				if (Initializer.RenderTargetLayout.bHasDepthStencil)
+				{
+					const auto Compare = ToMetalDepthCompare(
+						Initializer.DepthStencilState.CompareOp);
+					if (!Compare) return nullptr;
+					MTLDepthStencilDescriptor* DepthDesc = [MTLDepthStencilDescriptor new];
+					DepthDesc.depthCompareFunction =
+						Initializer.DepthStencilState.bEnableTest
+							? *Compare : MTLCompareFunctionAlways;
+					DepthDesc.depthWriteEnabled =
+						Initializer.DepthStencilState.bEnableWrite;
+					DepthStencil = [Device newDepthStencilStateWithDescriptor:DepthDesc];
+					if (!DepthStencil) return nullptr;
+				}
+				return new FMetalGraphicsPipelineState(Vertex, Fragment,
+					Initializer.VertexDeclaration, Pipeline,
+					Initializer.RenderTargetLayout, Initializer.RasterizerState,
+					std::move(Key->PipelineLayout), DepthStencil);
+			}
+			auto RHICreateComputePipelineState(FName,
+			const FComputePipelineStateInitializer& Initializer)
+			-> TRefCountPtr<FRHIComputePipelineState> override
+			{
+				if (!Device || !Initializer.ComputeShader
+					|| Initializer.ComputeShader->GetTarget() != MetalShaderTarget)
+					return nullptr;
+				auto Key = BuildComputePipelineStateKey(Initializer, nullptr);
+				if (!Key) return nullptr;
+				auto* Shader = dynamic_cast<FMetalShader*>(Initializer.ComputeShader);
+				if (!Shader) return nullptr;
+				const auto Bindings = Shader->GetMetalBindings();
+				size_t Count = 0;
+				for (uint32 SetIndex = 0;
+					SetIndex < Key->PipelineLayout.BindingLayouts.size(); ++SetIndex)
+					for (const auto& Binding : Key->PipelineLayout.BindingLayouts[SetIndex].BindingLayouts)
+					{
+						if (Count >= Bindings.size()
+							|| Bindings[Count].SetIndex != SetIndex
+							|| Bindings[Count].BindingIndex != Binding.Slot
+							|| Bindings[Count].Type != Binding.Type
+							|| Bindings[Count].Count != Binding.ArraySize)
+							return nullptr;
+						++Count;
+					}
+				if (Count != Bindings.size()
+					|| Key->PipelineLayout.PushConstantRanges.empty()
+						!= (Shader->GetMetalPushConstantBufferSlot() == UINT32_MAX))
+					return nullptr;
+				for (const auto& Range : Key->PipelineLayout.PushConstantRanges)
+					if (uint64(Range.Offset) + Range.Size > 65536)
+						return nullptr;
+				NSError* Error = nil;
+				id<MTLComputePipelineState> Pipeline = [Device
+					newComputePipelineStateWithFunction:Shader->GetFunction()
+					error:&Error];
+				if (!Pipeline)
+				{
+					DURIN_ERROR("Metal compute pipeline creation failed: {}",
+						Error ? Error.localizedDescription.UTF8String : "unknown error");
+					return nullptr;
+				}
+				const auto Group = Shader->GetComputeThreadGroupSize();
+				if (uint64(Group[0]) * Group[1] * Group[2]
+					> Pipeline.maxTotalThreadsPerThreadgroup) return nullptr;
+				return new FMetalComputePipelineState(Shader,
+					std::move(Key->PipelineLayout), Pipeline);
+			}
 			auto RHIGetDefaultContext() -> IRHICommandContext* override
 			{ return &CommandContext; }
-			auto RHIGetViewportBackBuffer(FRHIViewport*)
-			-> TRefCountPtr<FRHITexture> override { return nullptr; }
-			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
-			-> TRefCountPtr<FRHIVertexDeclaration> override { return nullptr; }
+			auto RHIGetViewportBackBuffer(FRHIViewport* Viewport)
+			-> TRefCountPtr<FRHITexture> override
+			{
+				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
+				return MetalViewport ? MetalViewport->SnapshotBackBuffer() : nullptr;
+			}
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements)
+			-> TRefCountPtr<FRHIVertexDeclaration> override
+			{
+				bool bTail = false;
+				for (const auto& Element : Elements)
+				{
+					if (Element.Type == EVertexElementType::None)
+					{
+						bTail = true;
+						continue;
+					}
+					if (bTail || Element.StreamIndex >= 16
+						|| Element.AttributeIndex >= 31
+						|| ToMetalVertexFormat(Element.Type)
+							== MTLVertexFormatInvalid)
+						return nullptr;
+				}
+				return new FMetalVertexDeclaration(Elements);
+			}
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc& Desc) const -> bool override
 			{
-				constexpr ETextureCreateFlags TransferFlags = ETextureCreateFlags::SourceCopy
+				constexpr ETextureCreateFlags SupportedFlags = ETextureCreateFlags::SourceCopy
 					| ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback
-					| ETextureCreateFlags::RenderTargetable;
+					| ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::DepthStencilTargetable
+					| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::Storage;
 				const bool b2D = Desc.Dimension == ETextureDimension::Texture2D;
 				const bool b2DArray = Desc.Dimension == ETextureDimension::Texture2DArray;
 				const bool bCube = Desc.Dimension == ETextureDimension::TextureCube;
@@ -850,6 +2152,8 @@ namespace Durin
 					&& (b2D || b2DArray || bCube || bCubeArray || b3D)
 					&& ToMetalPixelFormat(Desc.Format) != MTLPixelFormatInvalid
 					&& (b2D || Desc.Format == EPixelFormat::RGBA8_UNORM
+						|| (b3D && Desc.Format == EPixelFormat::R8_UNORM)
+						|| (b2DArray && Desc.Format == EPixelFormat::D32)
 						|| (bCube && Desc.Format == EPixelFormat::RGBA16_FLOAT))
 					&& Desc.NumSamples == 1
 					&& Desc.Extent.x <= (b3D ? 2048 : 16384)
@@ -857,12 +2161,28 @@ namespace Durin
 					&& (!b3D || Desc.Depth <= 2048)
 					&& (!b2DArray || Desc.ArraySize <= 2048)
 					&& (!bCubeArray || Desc.ArraySize <= 2048 * TextureCubeFaceCount)
-					&& EnumHasAnyFlags(Desc.Flags, TransferFlags)
+					&& EnumHasAnyFlags(Desc.Flags, SupportedFlags)
+					&& (!EnumHasAnyFlags(Desc.Flags,
+						ETextureCreateFlags::ShaderResource)
+						|| b2D || bCube || b2DArray || b3D)
+					&& (!EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::Storage)
+						|| (bCube && Desc.Format == EPixelFormat::RGBA16_FLOAT)
+						|| (b2D && (Desc.Format == EPixelFormat::R8_UNORM
+							|| Desc.Format == EPixelFormat::RGBA8_UNORM
+							|| Desc.Format == EPixelFormat::RGBA16_FLOAT)))
 					&& (!EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::RenderTargetable)
 						|| (b2D && Desc.NumMips == 1
-							&& Desc.Format == EPixelFormat::RGBA8_UNORM))
+						&& IsMetalColorRenderFormat(Desc.Format)))
+					&& (!EnumHasAnyFlags(Desc.Flags,
+						ETextureCreateFlags::DepthStencilTargetable)
+						|| ((b2D || b2DArray) && Desc.NumMips == 1
+							&& Desc.Format == EPixelFormat::D32))
+					&& (Desc.Format != EPixelFormat::D32
+						|| !EnumHasAnyFlags(Desc.Flags,
+							ETextureCreateFlags::RenderTargetable
+								| ETextureCreateFlags::Storage))
 					&& (static_cast<uint64>(Desc.Flags)
-						& ~static_cast<uint64>(TransferFlags)) == 0;
+						& ~static_cast<uint64>(SupportedFlags)) == 0;
 			}
 			auto RHITryCreateTexture(FRHICommandListBase&,
 			const FRHITextureCreateDesc& Desc)
@@ -892,8 +2212,15 @@ namespace Durin
 					Native.depth = Desc.Depth;
 				}
 				Native.storageMode = MTLStorageModePrivate;
-				Native.usage = EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::RenderTargetable)
-					? MTLTextureUsageRenderTarget : MTLTextureUsageUnknown;
+				Native.usage = MTLTextureUsageUnknown;
+				if (EnumHasAnyFlags(Desc.Flags,
+					ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::DepthStencilTargetable))
+					Native.usage |= MTLTextureUsageRenderTarget;
+				if (EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::ShaderResource))
+					Native.usage |= MTLTextureUsageShaderRead;
+				if (EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::Storage))
+					Native.usage |= MTLTextureUsageShaderWrite;
 				id<MTLTexture> Texture = [Device newTextureWithDescriptor:Native];
 				if (!Texture)
 					return std::unexpected(FRHICreationError{
@@ -956,8 +2283,51 @@ namespace Durin
 				id<MTLSamplerState> State = [Device newSamplerStateWithDescriptor:Native];
 				return State ? TRefCountPtr<FRHISampler>(new FMetalSampler(State)) : nullptr;
 			}
-			auto RHICreateShader(const FRHIShaderCreateDesc&)
-			-> TRefCountPtr<FRHIShader> override { return nullptr; }
+			auto RHICreateShader(const FRHIShaderCreateDesc& Desc)
+			-> TRefCountPtr<FRHIShader> override
+			{
+				if (!Device || Desc.Target != MetalShaderTarget
+					|| Desc.CodeFormat != EShaderCodeFormat::Msl20Source
+					|| !Desc.EntryPoint || !*Desc.EntryPoint
+					|| Desc.Code.size() < 32
+					|| std::ranges::find(Desc.Code, std::byte{0}) != Desc.Code.end()
+					|| FXxHash128::HashBuffer(Desc.Code) != Desc.Hash
+					|| (Desc.Frequency == EShaderFrequency::Compute
+						&& !IsValidComputeThreadGroupSize(Desc.ComputeThreadGroupSize))
+					|| (Desc.Frequency != EShaderFrequency::Compute
+						&& Desc.ComputeThreadGroupSize != std::array<uint32, 3>{})
+					|| !ValidateMetalBindingRemap(Desc.Frequency,
+						Desc.MetalBindings, Desc.MetalPushConstantBufferSlot,
+						Desc.BindingRemapIdentity)) return nullptr;
+				const std::string_view Source(
+					reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
+				if (!Source.substr(0, 256).contains("#include <metal_stdlib>"))
+					return nullptr;
+				NSString* Text = [[NSString alloc] initWithBytes:Desc.Code.data()
+					length:Desc.Code.size() encoding:NSUTF8StringEncoding];
+				if (!Text) return nullptr;
+				MTLCompileOptions* Options = [MTLCompileOptions new];
+				Options.languageVersion = MTLLanguageVersion2_0;
+				NSError* Error = nil;
+				id<MTLLibrary> Library = [Device newLibraryWithSource:Text
+					options:Options error:&Error];
+				if (!Library)
+				{
+					DURIN_ERROR("Metal shader library compilation failed: {}",
+						Error ? Error.localizedDescription.UTF8String : "unknown error");
+					return nullptr;
+				}
+				NSString* Entry = [NSString stringWithUTF8String:Desc.EntryPoint];
+				if (!Entry) return nullptr;
+				id<MTLFunction> Function = [Library newFunctionWithName:Entry];
+				if (!Function) return nullptr;
+				const MTLFunctionType Expected = Desc.Frequency == EShaderFrequency::Vertex
+					? MTLFunctionTypeVertex
+					: Desc.Frequency == EShaderFrequency::Fragment
+						? MTLFunctionTypeFragment : MTLFunctionTypeKernel;
+				if (Function.functionType != Expected) return nullptr;
+				return new FMetalShader(Desc, Library, Function);
+			}
 			auto RHITryCreateBuffer(FRHICommandListImmediate&,
 			const FRHIBufferCreateDesc& Desc)
 			-> std::expected<FBufferRHIRef, FRHICreationError> override
@@ -994,10 +2364,54 @@ namespace Durin
 			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView> override
 			{
 				if (!Texture || !ValidateTextureViewDesc(Texture, Desc)
-					|| (Desc.Usage != ERHITextureViewUsage::TransferSource
+					|| (Desc.Usage != ERHITextureViewUsage::Sampled
+						&& Desc.Usage != ERHITextureViewUsage::Storage
+						&& Desc.Usage != ERHITextureViewUsage::TransferSource
 						&& Desc.Usage != ERHITextureViewUsage::TransferDestination
-						&& Desc.Usage != ERHITextureViewUsage::ColorAttachment))
+						&& Desc.Usage != ERHITextureViewUsage::ColorAttachment
+						&& Desc.Usage != ERHITextureViewUsage::DepthStencilAttachment))
 					return nullptr;
+			if (Desc.Usage == ERHITextureViewUsage::DepthStencilAttachment
+				&& (Texture->GetDimension() != ETextureDimension::Texture2D
+					&& Texture->GetDimension() != ETextureDimension::Texture2DArray
+						|| Texture->GetFormat() != EPixelFormat::D32
+						|| Desc.Dimension != ERHITextureViewDimension::Texture2D
+						|| Desc.Range.FirstMip != 0 || Desc.Range.NumMips != 1
+						|| Desc.Range.NumArrayLayers != 1))
+					return nullptr;
+			if (Desc.Usage == ERHITextureViewUsage::Sampled
+				|| Desc.Usage == ERHITextureViewUsage::Storage)
+			{
+				MTLTextureType Type = MTLTextureType2D;
+				if (Desc.Usage == ERHITextureViewUsage::Storage)
+				{
+					if (Desc.Dimension != ERHITextureViewDimension::Texture2D)
+						return nullptr;
+				}
+				else switch (Desc.Dimension)
+				{
+				case ERHITextureViewDimension::Texture2D: break;
+				case ERHITextureViewDimension::Texture2DArray:
+					Type = MTLTextureType2DArray; break;
+				case ERHITextureViewDimension::TextureCube:
+					Type = MTLTextureTypeCube; break;
+				case ERHITextureViewDimension::TextureCubeArray:
+					Type = MTLTextureTypeCubeArray; break;
+				case ERHITextureViewDimension::Texture3D:
+					Type = MTLTextureType3D; break;
+				default: return nullptr;
+				}
+				id<MTLTexture> Native = static_cast<FMetalTexture*>(Texture)
+					->GetHandle();
+				id<MTLTexture> View = [Native newTextureViewWithPixelFormat:
+					ToMetalPixelFormat(Desc.Format)
+					textureType:Type
+					levels:NSMakeRange(Desc.Range.FirstMip, Desc.Range.NumMips)
+					slices:NSMakeRange(Desc.Range.FirstArrayLayer,
+						Desc.Range.NumArrayLayers)];
+					return View ? TRefCountPtr<FRHITextureView>(
+						new FMetalTextureView(Texture, Desc, View)) : nullptr;
+				}
 				if (Desc.Usage == ERHITextureViewUsage::ColorAttachment
 					&& (!EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::RenderTargetable)
 						|| Texture->GetDimension() != ETextureDimension::Texture2D
@@ -1014,6 +2428,8 @@ namespace Durin
 			}
 			id<MTLDevice> Device = nil;
 			id<MTLCommandQueue> Queue = nil;
+			CAMetalLayer* StartupLayer = nil;
+			void* StartupWindow = nullptr;
 			std::shared_ptr<FMetalSubmissionState> State;
 			FRHIQueueCapabilities QueueCapabilities;
 			FMetalCommandContext CommandContext;

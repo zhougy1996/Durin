@@ -302,6 +302,8 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const auto& Shader = Output.CompiledShaders[0];
 		ASSERT_EQ(Shader.MetalBindings.size(), 3u);
+		EXPECT_EQ(Shader.ComputeThreadGroupSize,
+			(std::array<uint32, 3>{2, 1, 1}));
 		EXPECT_EQ(Shader.MetalBindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 2}));
 		EXPECT_EQ(Shader.MetalBindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 2}));
 		EXPECT_EQ(Shader.MetalBindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::StorageBuffer, 0, 1}));

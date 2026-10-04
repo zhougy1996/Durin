@@ -13,7 +13,7 @@ namespace Durin::ShaderSharedOutput
 		constexpr uint32 MaximumPushBytes = 65536;
 		constexpr uint64 MaximumStringBytes = 32768;
 		constexpr uint64 MaximumMetadataBytes = 4 + 8 + MaximumStringBytes + 6 * 4
-			+ 32 * (2 * (8 + MaximumStringBytes) + 8 + 16);
+			+ 32 * (2 * (8 + MaximumStringBytes) + 8 + 16 + 12);
 		auto WriteTarget(FBinaryWriter& Writer, const FShaderTargetIdentity& Target) -> void
 		{
 			Writer.WriteU32(uint32(Target.Platform)); Writer.WriteU32(uint32(Target.Backend));
@@ -152,6 +152,7 @@ namespace Durin::ShaderSharedOutput
 		{
 			std::string SourceName, BinaryName;
 			EShaderFrequency Frequency;
+			std::array<uint32, 3> ComputeThreadGroupSize{};
 			FXxHash128 Hash;
 			FSharedByteBuffer Code, Reflection;
 		};
@@ -163,7 +164,7 @@ namespace Durin::ShaderSharedOutput
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 			if (!ValidRequest(Options)) return Failure(EShaderError::PayloadRequestInvalid);
 			const auto Metadata = GetBuildMetadataPayload(Output);
-			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 5
+			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 6
 				|| Metadata.size() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes}))
 				return Failure(EShaderError::PayloadHeaderInvalid);
@@ -181,10 +182,19 @@ namespace Durin::ShaderSharedOutput
 			FEntry Entry; uint32 Frequency = 0, Format = 0;
 				if (!Reader.ReadString(Entry.SourceName, MaximumStringBytes) || !Reader.ReadString(Entry.BinaryName, MaximumStringBytes)
 					|| !Reader.ReadU32(Frequency) || !Reader.ReadU32(Format)
+					|| !Reader.ReadU32(Entry.ComputeThreadGroupSize[0])
+					|| !Reader.ReadU32(Entry.ComputeThreadGroupSize[1])
+					|| !Reader.ReadU32(Entry.ComputeThreadGroupSize[2])
 					|| !Reader.ReadU64(Entry.Hash.HashLow) || !Reader.ReadU64(Entry.Hash.HashHigh)
 					|| Entry.SourceName != Options.EntryPoints[Index] || Entry.BinaryName.empty()
 					|| Frequency != uint32(Options.Frequencies[Index])
-					|| Format != uint32(Target.OutputFormat)) return Failure(EShaderError::PayloadEntryInvalid, Index);
+					|| Format != uint32(Target.OutputFormat)
+					|| (Frequency == uint32(EShaderFrequency::Compute)
+						&& Target == MetalShaderTarget
+						&& !IsValidComputeThreadGroupSize(Entry.ComputeThreadGroupSize))
+					|| (Frequency != uint32(EShaderFrequency::Compute)
+						&& Entry.ComputeThreadGroupSize != std::array<uint32, 3>{}))
+					return Failure(EShaderError::PayloadEntryInvalid, Index);
 				Entry.Frequency = EShaderFrequency(Frequency);
 				const auto* Code = Output.FindValue(ValueId(Index, false));
 				const auto* Reflection = Output.FindValue(ValueId(Index, true));
@@ -206,7 +216,7 @@ namespace Durin::ShaderSharedOutput
 	{
 		if (!Product || !ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
 			return Failure(EShaderError::PayloadRequestInvalid);
-		FBuildOutputBuilder Output("Shader.Output", 5, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
+		FBuildOutputBuilder Output("Shader.Output", 6, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
 		uint64 DataBytes = 0;
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(Product.CompiledShaders.size())); Metadata.WriteString(Options.VirtualShaderPath);
@@ -220,10 +230,16 @@ namespace Durin::ShaderSharedOutput
 				|| Shader.SourceEntryPoint.size() > MaximumStringBytes || Shader.BinaryEntryPoint.empty() || Shader.BinaryEntryPoint.size() > MaximumStringBytes
 				|| !ValidCode(Shader.Code->GetBytes(), Options.Target)
 				|| !ValidMetalMap(Shader)
+				|| (Shader.Frequency == EShaderFrequency::Compute
+					&& Options.Target == MetalShaderTarget
+					&& !IsValidComputeThreadGroupSize(Shader.ComputeThreadGroupSize))
+				|| (Shader.Frequency != EShaderFrequency::Compute
+					&& Shader.ComputeThreadGroupSize != std::array<uint32, 3>{})
 				|| FXxHash128::HashBuffer(Shader.Code->GetBytes()) != Shader.Hash)
 				return Failure(EShaderError::PayloadOutputInvalid, Index);
 			Metadata.WriteString(Shader.SourceEntryPoint); Metadata.WriteString(Shader.BinaryEntryPoint);
 			Metadata.WriteU32(uint32(Shader.Frequency)); Metadata.WriteU32(uint32(Shader.CodeFormat));
+			for (uint32 Axis : Shader.ComputeThreadGroupSize) Metadata.WriteU32(Axis);
 			Metadata.WriteU64(Shader.Hash.HashLow); Metadata.WriteU64(Shader.Hash.HashHigh);
 			const auto& Reflection = Shader.Reflection;
 			if (Reflection.ResourceBindings.size() > MaximumReflectionEntries || Reflection.PushConstantRanges.size() > MaximumReflectionEntries)
@@ -289,6 +305,7 @@ namespace Durin::ShaderSharedOutput
 			FCompiledShader Shader;
 			Shader.Target = Options.Target; Shader.CodeFormat = Options.Target.OutputFormat;
 			Shader.Frequency = Entry.Frequency; Shader.SourceEntryPoint = std::move(Entry.SourceName);
+			Shader.ComputeThreadGroupSize = Entry.ComputeThreadGroupSize;
 			Shader.BinaryEntryPoint = std::move(Entry.BinaryName); Shader.Hash = Entry.Hash;
 			Shader.DebugName = Options.VirtualShaderPath.empty() ? Shader.SourceEntryPoint : Options.VirtualShaderPath + "::" + Shader.SourceEntryPoint;
 			Shader.Code = std::make_shared<const FSharedByteBuffer>(std::move(Entry.Code));

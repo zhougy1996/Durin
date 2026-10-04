@@ -1,11 +1,18 @@
 #include "Shader/Shader.h"
 #include "Hash/CanonicalHash.h"
 #include "DynamicRHI.h"
+#include "RHIGlobals.h"
 #include "Shader/IShaderBuildModule.h"
 #include "ShaderBindingInternal.h"
 
 namespace Durin
 {
+	FShaderCompileOptions::FShaderCompileOptions()
+		: Target(ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"))
+			== ERHIBackend::Metal ? MetalShaderTarget : VulkanShaderTarget)
+	{
+	}
+
 	namespace
 	{
 		using ShaderPrivate::AreShaderBindingTypesCompatible;

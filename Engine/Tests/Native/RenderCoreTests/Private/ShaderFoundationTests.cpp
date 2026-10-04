@@ -620,6 +620,8 @@ namespace Durin
 		CompiledShader.Target = MetalShaderTarget;
 		CompiledShader.CodeFormat = EShaderCodeFormat::Msl20Source;
 		CompiledShader.BindingRemapIdentity = {17, 23};
+		CompiledShader.MetalBindings = {{0, 2, ERHIBindingType::Texture, 0, 1}};
+		CompiledShader.MetalPushConstantBufferSlot = 0;
 		const FRHIShaderCreateDesc CreateDesc = MakeShaderCreateDesc(CompiledShader);
 
 		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Fragment);
@@ -627,6 +629,9 @@ namespace Durin
 		EXPECT_EQ(CreateDesc.Target, MetalShaderTarget);
 		EXPECT_EQ(CreateDesc.CodeFormat, EShaderCodeFormat::Msl20Source);
 		EXPECT_EQ(CreateDesc.BindingRemapIdentity, CompiledShader.BindingRemapIdentity);
+		EXPECT_EQ(CreateDesc.MetalBindings, CompiledShader.MetalBindings);
+		EXPECT_EQ(CreateDesc.MetalPushConstantBufferSlot,
+			CompiledShader.MetalPushConstantBufferSlot);
 		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
 		EXPECT_STREQ(CreateDesc.DebugName, "UnitFragmentShader");
 		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code->size());
@@ -1537,6 +1542,26 @@ namespace Durin
 		const auto Long = FShaderError::FromBuildDiagnostic(Original.Code, std::string(8192, 'x'), 0);
 		EXPECT_EQ(FormatShaderError(Long).size(), 4096u);
 		EXPECT_EQ(Long.GetSemanticFingerprint(), 0u);
+	}
+
+	TEST(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)
+	{
+		const char* Previous = std::getenv("DURIN_RHI_BACKEND");
+		const std::optional<std::string> Saved = Previous
+			? std::optional<std::string>(Previous) : std::nullopt;
+		auto SetBackend = [](const char* Value) {
+#ifdef _WIN32
+			_putenv_s("DURIN_RHI_BACKEND", Value ? Value : "");
+#else
+			if (Value) setenv("DURIN_RHI_BACKEND", Value, 1);
+			else unsetenv("DURIN_RHI_BACKEND");
+#endif
+		};
+		SetBackend("metal");
+		EXPECT_EQ(FShaderCompileOptions{}.Target, MetalShaderTarget);
+		SetBackend("vulkan");
+		EXPECT_EQ(FShaderCompileOptions{}.Target, VulkanShaderTarget);
+		SetBackend(Saved ? Saved->c_str() : nullptr);
 	}
 
 } // namespace Durin

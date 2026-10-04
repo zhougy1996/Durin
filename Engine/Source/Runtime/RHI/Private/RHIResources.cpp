@@ -7,9 +7,79 @@
 #include "Math/Operations.h"
 
 #include "Math/Vector.h"
+#include "Hash/CanonicalHash.h"
 
 namespace Durin
 {
+	auto ComputeMetalBindingRemapIdentity(EShaderFrequency Frequency,
+		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot)
+		-> FXxHash128
+	{
+		FXxHash128Builder Identity;
+		UpdateCanonicalHashString(Identity, "Durin.Metal.BindingRemap.v1");
+		UpdateCanonicalHash(Identity, uint32(Frequency));
+		UpdateCanonicalHash(Identity, uint64(Bindings.size()));
+		for (const auto& Binding : Bindings)
+		{
+			UpdateCanonicalHash(Identity, Binding.SetIndex);
+			UpdateCanonicalHash(Identity, Binding.BindingIndex);
+			UpdateCanonicalHash(Identity, uint32(Binding.Type));
+			UpdateCanonicalHash(Identity, Binding.Slot);
+			UpdateCanonicalHash(Identity, Binding.Count);
+		}
+		UpdateCanonicalHash(Identity, PushConstantBufferSlot);
+		return Identity.Finalize();
+	}
+
+	auto ValidateMetalBindingRemap(EShaderFrequency Frequency,
+		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot,
+		FXxHash128 Identity) -> bool
+	{
+		if (Frequency != EShaderFrequency::Vertex
+			&& Frequency != EShaderFrequency::Fragment
+			&& Frequency != EShaderFrequency::Compute) return false;
+		uint32 NextBuffer = Frequency == EShaderFrequency::Vertex ? 16 : 0;
+		uint32 NextTexture = 0;
+		uint32 NextSampler = 0;
+		uint32 PreviousSet = 0;
+		uint32 PreviousBinding = 0;
+		bool bFirst = true;
+		for (const auto& Binding : Bindings)
+		{
+			if (!bFirst && std::tie(Binding.SetIndex, Binding.BindingIndex)
+					<= std::tie(PreviousSet, PreviousBinding)) return false;
+			bFirst = false;
+			PreviousSet = Binding.SetIndex;
+			PreviousBinding = Binding.BindingIndex;
+			if (Binding.SetIndex > 65535 || Binding.BindingIndex > 65535
+				|| Binding.Count == 0) return false;
+			uint32* Next = nullptr;
+			uint32 Limit = 0;
+			switch (Binding.Type)
+			{
+			case ERHIBindingType::UniformBuffer:
+			case ERHIBindingType::UniformBufferDynamic:
+			case ERHIBindingType::StorageBuffer:
+				Next = &NextBuffer; Limit = 31; break;
+			case ERHIBindingType::Texture:
+			case ERHIBindingType::StorageImage:
+				Next = &NextTexture; Limit = 128; break;
+			case ERHIBindingType::Sampler:
+				Next = &NextSampler; Limit = 16; break;
+			default: return false;
+			}
+			if (*Next > Limit || Binding.Slot != *Next
+				|| Binding.Count > Limit - *Next)
+				return false;
+			*Next += Binding.Count;
+		}
+		if (PushConstantBufferSlot != UINT32_MAX
+			&& (PushConstantBufferSlot != NextBuffer || NextBuffer >= 31))
+			return false;
+		return Identity == ComputeMetalBindingRemapIdentity(
+			Frequency, Bindings, PushConstantBufferSlot);
+	}
+
 	auto FRHICreationError::GetSemanticFingerprint() const -> size_t
 	{
 		size_t Fingerprint = 0;
@@ -694,6 +764,10 @@ namespace Durin
 		if (Initializer.ComputeShader->GetCodeFormat()
 			!= Initializer.ComputeShader->GetTarget().OutputFormat)
 			return std::unexpected(ERHIComputePipelineError::ShaderTargetMismatch);
+		if (Initializer.ComputeShader->GetTarget() == MetalShaderTarget
+			&& !IsValidComputeThreadGroupSize(
+				Initializer.ComputeShader->GetComputeThreadGroupSize()))
+			return std::unexpected(ERHIComputePipelineError::MissingDispatchLimits);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
 			std::unordered_set<uint32> Slots;
@@ -748,6 +822,7 @@ namespace Durin
 		Key.Target = Initializer.ComputeShader->GetTarget();
 		Key.CodeFormat = Initializer.ComputeShader->GetCodeFormat();
 		Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
+		Key.ComputeThreadGroupSize = Initializer.ComputeShader->GetComputeThreadGroupSize();
 		Key.BindingRemapIdentity = Initializer.ComputeShader->GetBindingRemapIdentity();
 		Key.EntryPoint = Initializer.ComputeShader->GetEntryPoint();
 		Key.PipelineLayout = Initializer.PipelineLayout;
@@ -768,6 +843,7 @@ namespace Durin
 		HashShaderTarget(Builder, Key.Target);
 		HashValue(Builder, Key.CodeFormat);
 		HashValue(Builder, Key.ComputeShaderHash);
+		for (uint32 Axis : Key.ComputeThreadGroupSize) HashValue(Builder, Axis);
 		HashValue(Builder, Key.BindingRemapIdentity);
 		HashEntryPoint(Builder, Key.EntryPoint);
 		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());

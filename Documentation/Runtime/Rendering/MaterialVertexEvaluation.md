@@ -52,7 +52,8 @@ Accepted programs contain four fragment artifacts plus `VertexMain`,
 includes the Local and Spline vertex factories. All seven entries, their exact
 frequencies and allowed resource reflection are validated together. MIR version
 7, generator version 11, compiler envelope 11, pass contract 8 and cooked payload
-schema 11 invalidate incompatible cache and cooked artifacts.
+schema 12 invalidate incompatible cache and cooked artifacts. Schema 12 also
+stores reflected compute thread-group dimensions per compiled stage.
 
 Local and Spline vertices apply WPO after vertex-factory deformation. GPU-culling
 vertices use the selected instance transform. Clip displacement transforms the

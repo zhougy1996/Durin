@@ -100,6 +100,28 @@ namespace Durin
 				SPVC_MAKE_MSL_VERSION(2, 0, 0)) != SPVC_SUCCESS
 			|| spvc_compiler_install_compiler_options(Compiler, Options) != SPVC_SUCCESS)
 			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		if (Shader.Frequency == EShaderFrequency::Compute)
+		{
+			const SpvExecutionMode* Modes = nullptr;
+			size_t ModeCount = 0;
+			if (spvc_compiler_get_execution_modes(Compiler, &Modes, &ModeCount)
+				!= SPVC_SUCCESS || !Modes)
+				return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+			bool bLocalSize = false;
+			for (size_t Index = 0; Index < ModeCount; ++Index)
+			{
+				if (Modes[Index] == SpvExecutionModeLocalSizeId)
+					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+				bLocalSize |= Modes[Index] == SpvExecutionModeLocalSize;
+			}
+			if (!bLocalSize)
+				return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+				if (spvc_compiler_get_execution_mode_argument_by_index(
+					Compiler, SpvExecutionModeLocalSize, Axis)
+					!= Shader.ComputeThreadGroupSize[Axis])
+					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		}
 		if (auto Result = RemapBindings(Shader, Compiler, *Stage); !Result) return Result;
 		const char* Source = nullptr;
 		if (spvc_compiler_compile(Compiler, &Source) != SPVC_SUCCESS || !Source || !*Source)

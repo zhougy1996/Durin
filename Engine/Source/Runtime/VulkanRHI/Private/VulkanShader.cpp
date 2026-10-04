@@ -160,7 +160,10 @@ namespace Durin::VulkanRHI
 	{
 		if (InCreateDesc.Target != VulkanShaderTarget
 			|| InCreateDesc.CodeFormat != EShaderCodeFormat::Spirv15
-			|| !InCreateDesc.BindingRemapIdentity.IsZero()) return nullptr;
+			|| !InCreateDesc.BindingRemapIdentity.IsZero()
+			|| !InCreateDesc.MetalBindings.empty()
+			|| InCreateDesc.MetalPushConstantBufferSlot != UINT32_MAX)
+			return nullptr;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Shader);
 #endif

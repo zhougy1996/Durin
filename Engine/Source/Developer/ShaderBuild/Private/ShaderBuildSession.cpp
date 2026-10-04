@@ -23,7 +23,7 @@ namespace Durin
 		auto Boundary(FShaderError Error) -> FBuildInputError { return {FormatShaderError(Error)}; }
 		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
 		auto Descriptor() -> FBuildFunctionDescriptor
-			{ return {"Durin.Shader.Compile", 5, 1, "Shader.Output", 5, FCacheBucket::FromString("Shader")}; }
+			{ return {"Durin.Shader.Compile", 6, 1, "Shader.Output", 6, FCacheBucket::FromString("Shader")}; }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
 			{ return {"Closure", Variant.Value, "ShaderVariant", 7, "Shader.SourceClosure", 2}; }
 		struct FOptions

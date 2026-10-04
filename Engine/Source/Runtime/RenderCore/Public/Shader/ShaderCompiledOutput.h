@@ -9,8 +9,8 @@
 namespace Durin::ShaderCompiledOutput
 {
 	inline constexpr uint32 PayloadMagic = 0x44485344;
-	inline constexpr uint32 PayloadSchemaVersion = 3;
-	inline constexpr uint32 BuilderVersion = 3;
+	inline constexpr uint32 PayloadSchemaVersion = 4;
+	inline constexpr uint32 BuilderVersion = 4;
 	inline constexpr uint32 MaximumEntryPoints = 32;
 	inline constexpr uint64 MaximumValueBytes = 256ull * 1024ull * 1024ull;
 	RENDERCORE_API auto Encode(

@@ -73,6 +73,7 @@ namespace Durin
 				<< Shader.Target.MslLanguageVersion << Shader.Target.BindingRemapSchema
 				<< Shader.CodeFormat;
 			Ar << Shader.Frequency;
+			for (uint32& Axis : Shader.ComputeThreadGroupSize) Ar << Axis;
 			SerializeBoundedString(
 				Ar, Shader.SourceEntryPoint, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
@@ -286,6 +287,12 @@ namespace Durin
 					return {EMaterialCookError::CookedShaderCodeHashInvalid};
 				if (Shader.Target != ExpectedTarget
 					|| Shader.CodeFormat != ExpectedTarget.OutputFormat)
+					return {EMaterialCookError::CookedProgramTargetIncompatible};
+				if ((Shader.Frequency == EShaderFrequency::Compute
+						&& bMetal && !IsValidComputeThreadGroupSize(
+							Shader.ComputeThreadGroupSize))
+					|| (Shader.Frequency != EShaderFrequency::Compute
+						&& Shader.ComputeThreadGroupSize != std::array<uint32, 3>{}))
 					return {EMaterialCookError::CookedProgramTargetIncompatible};
 				if (bMetal)
 				{

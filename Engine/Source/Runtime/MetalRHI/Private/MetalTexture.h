@@ -19,4 +19,17 @@ namespace Durin
 	private:
 		id<MTLTexture> Texture;
 	};
+
+	class FMetalTextureView final : public FRHITextureView
+	{
+	public:
+		FMetalTextureView(FRHITexture* InTexture,
+			const FRHITextureViewDesc& InDesc, id<MTLTexture> InView)
+			: FRHITextureView(InTexture, InDesc), View(InView) {}
+
+		auto GetHandle() const -> id<MTLTexture> { return View; }
+
+	private:
+		id<MTLTexture> View;
+	};
 }

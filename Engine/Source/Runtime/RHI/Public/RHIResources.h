@@ -80,6 +80,25 @@ namespace Durin
 		StorageImage = 5,
 	};
 
+	// Canonical descriptor-to-native-slot mapping carried by Metal shader artifacts.
+	struct FMetalShaderBinding
+	{
+		uint32 SetIndex = 0;
+		uint32 BindingIndex = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 Slot = 0;
+		uint32 Count = 1;
+
+		auto operator==(const FMetalShaderBinding&) const -> bool = default;
+	};
+
+	RHI_API auto ComputeMetalBindingRemapIdentity(EShaderFrequency Frequency,
+		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot)
+		-> FXxHash128;
+	RHI_API auto ValidateMetalBindingRemap(EShaderFrequency Frequency,
+		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot,
+		FXxHash128 Identity) -> bool;
+
 	// Provides thread-safe intrusive lifetime tracking for backend-owned GPU resources.
 	// Once the published reference count reaches zero, deferred deletion is irreversible.
 	class FRHIResource
@@ -286,8 +305,11 @@ namespace Durin
 		auto operator==(const FRHIShaderDesc& Other) const -> bool
 		{
 			return Frequency == Other.Frequency && Hash == Other.Hash
+				&& ComputeThreadGroupSize == Other.ComputeThreadGroupSize
 				&& Target == Other.Target && CodeFormat == Other.CodeFormat
-				&& BindingRemapIdentity == Other.BindingRemapIdentity;
+				&& BindingRemapIdentity == Other.BindingRemapIdentity
+				&& MetalBindings == Other.MetalBindings
+				&& MetalPushConstantBufferSlot == Other.MetalPushConstantBufferSlot;
 		}
 
 		auto operator!=(const FRHIShaderDesc& Other) const -> bool
@@ -298,9 +320,12 @@ namespace Durin
 		FXxHash128 Hash;
 
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		std::array<uint32, 3> ComputeThreadGroupSize{};
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 BindingRemapIdentity{};
+		std::vector<FMetalShaderBinding> MetalBindings;
+		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
 	};
 
 	// Extends shader identity with non-owning compiled-code input used during creation.
@@ -353,10 +378,13 @@ namespace Durin
 		explicit FRHIShader(const FRHIShaderDesc& InCreateDesc)
 			: FRHIResource(ERHIResourceType::Shader)
 			, Frequency(InCreateDesc.Frequency)
+			, ComputeThreadGroupSize(InCreateDesc.ComputeThreadGroupSize)
 			, Hash(InCreateDesc.Hash)
 			, Target(InCreateDesc.Target)
 			, CodeFormat(InCreateDesc.CodeFormat)
 			, BindingRemapIdentity(InCreateDesc.BindingRemapIdentity)
+			, MetalBindings(InCreateDesc.MetalBindings)
+			, MetalPushConstantBufferSlot(InCreateDesc.MetalPushConstantBufferSlot)
 		{
 		}
 		explicit FRHIShader(const FRHIShaderCreateDesc& InCreateDesc)
@@ -366,20 +394,27 @@ namespace Durin
 		}
 
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
+		auto GetComputeThreadGroupSize() const -> std::array<uint32, 3>
+		{ return ComputeThreadGroupSize; }
 
 		auto GetHash() const -> FXxHash128 { return Hash; }
 		auto GetTarget() const -> const FShaderTargetIdentity& { return Target; }
 		auto GetCodeFormat() const -> EShaderCodeFormat { return CodeFormat; }
 		auto GetBindingRemapIdentity() const -> FXxHash128 { return BindingRemapIdentity; }
+		auto GetMetalBindings() const -> std::span<const FMetalShaderBinding> { return MetalBindings; }
+		auto GetMetalPushConstantBufferSlot() const -> uint32 { return MetalPushConstantBufferSlot; }
 		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 
 	protected:
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		std::array<uint32, 3> ComputeThreadGroupSize{};
 
 		FXxHash128 Hash;
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 BindingRemapIdentity{};
+		std::vector<FMetalShaderBinding> MetalBindings;
+		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
 		std::string EntryPoint = "main";
 	};
 
@@ -1786,6 +1821,7 @@ namespace Durin
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 ComputeShaderHash;
+		std::array<uint32, 3> ComputeThreadGroupSize{};
 		FXxHash128 BindingRemapIdentity{};
 		std::string EntryPoint;
 		FPipelineLayoutDesc PipelineLayout;

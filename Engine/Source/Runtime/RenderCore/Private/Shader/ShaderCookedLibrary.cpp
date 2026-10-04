@@ -11,7 +11,7 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 LibraryMagic = 0x424c5344; // DSLB
-		constexpr uint32 LibrarySchemaVersion = 3;
+		constexpr uint32 LibrarySchemaVersion = 4;
 		constexpr uint32 LibraryBuilderVersion = 3;
 		constexpr uint32 LibraryHeaderSize = 112;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;

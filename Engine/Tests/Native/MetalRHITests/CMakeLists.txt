@@ -10,6 +10,7 @@ set_source_files_properties(Private/MetalRHIResourceTests.mm PROPERTIES
 	SKIP_PRECOMPILE_HEADERS ON COMPILE_FLAGS "-fobjc-arc")
 find_library(METAL_FRAMEWORK Metal REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
 
 durin_add_native_test(MetalRHIHeadlessTests
 	KIND qualification
@@ -17,7 +18,7 @@ durin_add_native_test(MetalRHIHeadlessTests
 	MODULES rhi
 	BACKENDS metal
 	SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm
-	LIBRARIES Core RHI MetalRHI ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK}
+	LIBRARIES Core RHI MetalRHI ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
 	INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private"
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 )

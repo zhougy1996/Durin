@@ -9,11 +9,11 @@ Completed:
 
 ## Current Status
 
-Stage 0 is in progress. The Metal backend has device admission, a headless
-queue, initial shared-buffer and color 2D/2D-array/cube/cube-array/3D texture transfers, transfer
+Stage 0 is in progress. The Metal backend has device admission, headless
+frame begin/end and queue submission, initial shared-buffer and color 2D/2D-array/cube/cube-array/3D texture transfers, transfer
 views, sampler creation, and a recorded single-color RGBA8 offscreen clear pass
 whose output is checked after native GPU completion in inline and threaded modes.
-Production shader integration, presentation, full
+Production shader integration, full presentation qualification, full
 runtime qualification, and performance results remain open. The repeatable
 `Tools/ShaderQualification/metal_routes.py` probe generated MSL for 11 authored
 entry points and fixed-shader variants using pinned Slang 2026.5.2. The route
@@ -200,17 +200,86 @@ and push-constant buffer slots, and records the native map and its digest on
 each compiled stage. The direct compiler path passes textured vertex/fragment
 and resource-array compute tests. `ShaderBuilder` now admits canonical Metal
 requests on macOS. Its cold and warm cache paths separate Metal MSL from Vulkan
-SPIR-V, and `ShaderSharedOutput` schema 5 carries the native binding map and
-rejects stale map digests or malformed MSL. `ShaderCompiledOutput` schema 3
-now carries target-specific SPIR-V or MSL plus the validated Metal binding map.
-The cooked shader library schema 3 admits MacOS/Metal records and checks
+SPIR-V, and `ShaderSharedOutput` schema 6 carries the native binding map and
+rejects stale map digests or malformed MSL. `ShaderCompiledOutput` schema 4
+now carries target-specific SPIR-V or MSL, validated Metal binding maps, and
+reflected compute thread-group dimensions checked against SPIR-V execution modes.
+The cooked shader library schema 4 admits MacOS/Metal records and checks
 platform/profile separation. Opening a library validates every required
 record's payload and binding map before publishing it. Unit round trips verify
 Metal library loading and rejection of malformed MSL with recomputed file and
 record digests;
-the full production MacOS cook and game load remain unqualified. Remaining
-Stage 3 work includes Metal shader/pipeline creation and runtime binding
-submission and validation for material programs.
+the full production MacOS cook and game load remain unqualified. Stage 3 now
+has native Metal shader-function creation for checked MSL vertex,
+fragment, and compute entries. The RHI shader descriptor carries the complete
+native binding map and push-constant slot; Metal verifies canonical slots and
+the remap digest before compiling MSL, while Vulkan rejects Metal maps. The
+headless GPU test admits valid functions and rejects wrong targets, formats,
+entries, and stale or noncanonical maps. Native compute pipeline construction
+now validates the reflected binding layout against the shader's Metal map and
+publishes the pipeline only after Metal accepts it; a mismatched layout or
+thread-group size exceeding native limits is rejected. Recorded compute
+dispatch now binds canonical buffer views through the native remap, validates
+complete binding layouts and buffer ranges, and retains resources through GPU
+completion. An offset structured-buffer write passes exact-value GPU readback
+in both inline and threaded replay modes. The same path now snapshots and
+binds validated compute push constants; its GPU readback also passes in both
+modes. Metal now creates native 2D sampled/storage views, maps compute texture
+and sampler bindings, and passes a GPU storage-write then sampled-read workload
+with exact image and buffer readback in both execution modes. Graphics pipeline
+creation and direct triangle draw now pass exact RGBA8 GPU readback through
+production recording in both modes for one color attachment. Float2 vertex
+stream input and 16-bit indexed draw with an index-buffer offset also pass
+exact color readback. The native vertex map admits the Float, Half, UByte4N,
+and Short4N formats used by current renderer paths. Fragment texture, sampler,
+uniform-buffer, and push-constant bindings now pass a sampled draw with exact
+GPU color readback in both modes; the graphics path checks complete layout
+bindings before drawing. Recorded viewport and scissor commands pass a clipped
+draw with exact per-pixel GPU readback. A one-color-plus-D32 pass now clears,
+tests, and writes depth: a near draw occludes a later far draw, and exact
+float depth readback is 0.25 in both execution modes. One-color blend factors,
+operations, and color write masks now map to Metal; straight-alpha blending over
+a cleared blue target and red-only writes pass exact RGBA8 readback in both
+execution modes. A conservative headless capability report now admits native
+indirect draw and dispatch. Direct and indexed indirect triangle records pass
+exact RGBA8 GPU readback, and an indirect compute dispatch updates its result
+buffer with checked values, in both execution modes. A GPU-authored indexed
+indirect argument record now crosses a compute-to-graphics encoder boundary in
+one submission and fills the target with checked pixels in both modes. Constant
+blend factors, broader render state, other texture dimensions, and production
+material-program qualification remain open.
+Two RGBA8 color attachments now share a render pass with independently mapped
+blend state; a fragment shader writing red and green outputs passes exact GPU
+readback from both targets in inline and threaded modes. BGRA8, sRGB RGBA/BGRA,
+and RGBA16F 2D render targets now accept graphics pipelines and pass exact byte
+or half-float GPU readback after a draw in both execution modes. The advertised
+color-attachment limit is now four; one pass writes the production GBuffer's
+three RGBA8 targets and R11G11B10F emissive target with exact byte and packed
+float readback in both modes. The same four-target pass now also writes D32
+depth with exact float readback, qualifying the combined geometry attachment
+layout in both execution modes.
+The R8 visibility/AO render format and RG32_UINT hit-proxy render format now
+accept graphics pipelines. Draws into each pass with exact byte and integer
+GPU readback in both execution modes.
+Native sampled views now admit 2D arrays, cubes, and cube arrays alongside 2D;
+a cube's uploaded +X face passes an exact red result through a production RHI
+compute sample and buffer readback in both execution modes. D32 2D arrays now
+admit single-layer depth attachment views and depth-only render passes.
+The sky-light path's RGBA16F cube storage descriptor and single-face 2D storage
+view now execute a compute write through production RHI; the +X face returns
+the exact expected half-float texel. Other faces, mips, and full sky-light
+processing remain unqualified.
+RGBA8 and R8 3D textures now admit sampled usage, and a mip-specific native 3D
+sampled view is created in the volume transfer qualification. A recorded GPU
+copy into mip 1 followed by a 3D compute shader sample returns the exact first
+voxel value in both execution modes. Complete cloud rendering remains
+unqualified.
+Three layers independently clear and receive a full-screen depth draw, with exact
+0.125 depth readback from each layer in both execution modes. Broader sampled
+dimension workloads and shadow rendering remain unqualified. The shadow path's
+dynamic raster depth-bias command now maps to Metal, and a depth-only pipeline
+with bias enabled passes the layered draw qualification in both modes; bias
+strength and complete production shadow output still need scene qualification.
 `FShaderMap` now preserves the compile target, rejects a
 stage with a mismatched target or code format, and separates identical code
 bytes by target in its cache key. RHI shaders and graphics/compute pipeline
@@ -225,8 +294,9 @@ startup; retrying with `DYLD_PRINT_LIBRARIES=1` ran all cases.
 `ShaderData` now admits MacOS for authored and cooked shader domains, and
 ShaderBuild and Launch select that target when `DURIN_RHI_BACKEND=metal`.
 Material generated compilation now passes the selected Metal target through
-ShaderBuild. Material cooked-program schema 11 carries each stage's target,
-code format, and native binding map; MacOS/Game serialization, decode, and
+ShaderBuild. Material cooked-program schema 12 carries each stage's target,
+code format, native binding map, and compute thread-group dimensions;
+MacOS/Game serialization, decode, and
 wrong-platform rejection pass focused tests, including real Metal material
 compilation. A full asset cook and packaged Metal game launch remain unqualified.
 
@@ -245,12 +315,12 @@ corresponding native behavior is implemented and verified.
 | RHI format | Required use | M4 evidence and remaining gate |
 | --- | --- | --- |
 | `R8_UNORM` | Visibility/AO render, sample, cloud/contact storage write | Native allocation with render, read and write usage; native MSL and selected-route compute writes with exact-byte readback passed; render and sample pending |
-| `RGBA8_UNORM`, `SRGBA8_UNORM`, `SBGRA8_UNORM` | GBuffer, UI, texture sample, sRGB editor/present output | Native allocation with render/read usage; RGBA8 draw and selected-route compute storage output/readback passed; native sRGB RGBA/BGRA render encoding and sampled linear decoding passed with checked channel order and float readback; layer presentation pending |
+| `RGBA8_UNORM`, `SRGBA8_UNORM`, `SBGRA8_UNORM` | GBuffer, UI, texture sample, sRGB editor/present output | Native allocation with render/read usage; RGBA8 draw and selected-route compute storage output/readback passed; Metal RHI direct triangle draw and storage-write/sampled-read pass with exact image/buffer readback passed; native sRGB RGBA/BGRA render encoding and sampled linear decoding passed with checked channel order and float readback; layer presentation pending |
 | `R11G11B10_FLOAT` | GBuffer emissive render and sample | Native allocation with render/read usage; native MSL float render and exact packed-bit readback passed; selected-route output and sampling pending |
 | `RGBA16_FLOAT` | Scene color, cloud compute/storage, cube environment | Native 2D render/read/write and cube read/write allocation; native MSL float render and exact half-bit readback passed; selected-route compute storage write and half-bit readback passed; Metal RHI cube-face mip transfer and exact-byte readback passed; native cube +X/−X nearest sampling passed; linear filtering and selected-route sampling pending |
 | `RGBA32_FLOAT`, `R16_FLOAT`, `RG8_UNORM` | Normal/default and authored texture sampling | Native sampled allocation; RGBA32 2D upload and linear filtering passed with exact float readback; selected-route sampling pending |
 | `RG32_UINT` | Hit-proxy integer target and readback | Native render-target allocation; native MSL integer render and exact 64-bit pixel readback passed; selected-route hit-proxy output pending |
-| `D32` | Scene/shadow depth, sampled depth array | Native 2D and three-layer depth-array allocation; native MSL depth clear/write/store and float readback passed; three distinct array-layer clears and comparison sampling passed; selected-route depth sampling pending |
+| `D32` | Scene/shadow depth, sampled depth array | Native 2D and three-layer depth-array allocation; native MSL depth clear/write/store and float readback passed; Metal RHI one-color-plus-D32 depth occlusion and exact float readback passed; three distinct array-layer clears and comparison sampling passed; selected-route depth sampling pending |
 
 The single-queue baseline requires 2D/3D/cube/array dimensions, views, upload,
 copy, asynchronous texture readback, four simultaneous GBuffer color targets,
@@ -358,19 +428,29 @@ presentation device requests it; its public snapshot still reports a failed
 query to Vulkan initialization. `ApplicationCore` built and
 `NativeWindowModalLoopTests` passed (four cases) on the M4/macOS 27.0.1 host.
 The Cocoa window's installed `CAMetalLayer` is now passed by non-owning handle
-through presentation startup and viewport creation. Metal presentation remains
-rejected during RHI initialization until drawable and frame ownership are ready.
+through presentation startup and viewport creation. Metal now retains this layer,
+creates an sRGB BGRA or BGRA offscreen back buffer, and submits a same-queue
+blit/present after recorded rendering. A standalone `CAMetalLayer` qualification
+case clears, presents, resizes, and recreates the viewport in both execution
+modes, with exact back-buffer pixel readback. Real window integration and
+minimize/close cycles remain unverified. After fixing fallback texture admission,
+implicit viewport clear submission, and the default shader compile target,
+`DURIN_RHI_BACKEND=metal ./DevTool run` initialized the editor and remained
+running for 43 seconds without a startup assertion; the run was stopped with
+Ctrl-C. Visible output and interactive window behavior were not verified on
+this host, where ImGui reported no platform monitors.
 The RHI loader now accepts `DURIN_RHI_BACKEND=vulkan|metal`, defaults to
 Vulkan, rejects invalid names, and unloads the selected module by identity.
 MetalRHI is registered in the Engine closure. On M4/macOS 27.0.1, its native
 device and command queue initialize and shut down through the module loader in
 both inline and threaded headless modes (`MetalRHIHeadlessTests`). It rejects
-older macOS versions, devices below Apple GPU Family 9, and presentation until
-drawable ownership exists. The single physical queue is now reported and empty
+older macOS versions and devices below Apple GPU Family 9. The single physical queue is now reported and empty
 logical submissions remain pending after CPU replay, submit on `SubmitToGPU`,
 and become complete only from native Metal command-buffer completion. The
 qualification target checks two ordered submissions in both execution modes
-and cancellation of replayed but unsubmitted work at shutdown. Native shared
+and cancellation of replayed but unsubmitted work at shutdown. It now also
+checks three consecutive frame boundaries whose pending GPU submissions are
+committed at frame end in both modes. Native shared
 buffers now support initial data, staged writes/uploads, and buffer-to-buffer
 copies through recorded commands. Immutable Metal sampler creation now maps
 filtering, addressing, comparison, border, anisotropy, and LOD state, rejecting
@@ -379,8 +459,8 @@ parent allocation; formatted views remain unsupported. The qualification
 target verifies GPU copy output after releasing the source wrapper before
 replay in both execution modes, recoverable rejection of an invalid buffer
 descriptor, native sampler allocation, and buffer-view lifetime. Private
-2D textures in 11 color formats now admit only transfer/readback
-usage. Recorded buffer/texture and texture/texture blits, padded row layouts,
+2D textures in 11 color formats support transfer/readback, with selected
+sampled, storage, and render usage verified later in Stage 3. Recorded buffer/texture and texture/texture blits, padded row layouts,
 pitched 2D uploads, synchronous and asynchronous readback, validated transfer
 views, and cancellation of unsubmitted readback have native GPU coverage in
 both execution modes. A format-matrix case additionally verifies exact GPU
@@ -391,30 +471,31 @@ texture copies, and pitched volume uploads in both execution modes. RGBA8 2D
 and cube arrays
 also pass recorded layer copies and readback, including a two-face copy across
 the cube boundary and 2D-to-array layer copies, in both execution modes. Other
-array/cube/volume formats,
-shader/render uses, and remaining texture operations are unsupported.
+array/cube/volume formats and remaining texture operations are unsupported.
 The production Metal command path now records a single-color RGBA8 offscreen
 clear pass and reads its exact pixels after GPU completion in inline and
-threaded modes. Other render formats, depth, resolves, and drawing remain
-unsupported. Resource capabilities stay unpublished until the required resource surface is
-implemented and verified. Native failure injection, submission timeouts under
+threaded modes. A conservative immutable capability report now describes the
+up-to-two color/D32 depth targets and single-sample 2D resource subset,
+shader resource limits, compute dispatch limits, and native indirect draw/dispatch.
+Other render formats and resolves remain unsupported. Native failure injection, submission timeouts under
 delayed GPU work, and comprehensive retention across completion remain open.
 Receipt: `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalRHIHeadlessTests.xml`
-(`./DevTool test MetalRHIHeadlessTests --mode qualification --report`, sixteen cases
-passed on the stated M4/Xcode/macOS host).
+(`./DevTool test MetalRHIHeadlessTests --mode qualification --report`; the
+headless target passed on the stated M4/Xcode/macOS host).
 The application-host `MacOSWindowLifecycleTests` target built with
 `DURIN_ENABLE_APPLICATION_TESTS=ON`, but CTest discovery timed out in other
 application-host targets before running it. That configuration was restored to
 `OFF`. An unrelated `StaticMeshRenderPreparationVulkanTests` qualification run
 failed in shader reflection (`Transform` missing) and later trapped during
 test cleanup; it does not validate the changed presentation path. Real Vulkan
-window startup and Metal presentation remain unverified.
+window startup and visible Metal presentation in a real application window
+remain unverified.
 
 - [x] Register `MetalRHI` and its platform build dependencies; implement explicit
   backend selection with useful unsupported-platform/device diagnostics.
 - [ ] Decouple ApplicationCore startup from unconditional Vulkan requirements;
   retain the existing Vulkan startup path and headless initialization contract.
-- [ ] Create the Metal device, baseline queue, and immutable capability report.
+- [x] Create the Metal device, baseline queue, and immutable capability report.
 - [ ] Implement native layer/drawable ownership and viewport creation,
   presentation, resize, minimization, close, and shutdown behavior.
 - [ ] Verify both inline and threaded command execution ownership where applicable.

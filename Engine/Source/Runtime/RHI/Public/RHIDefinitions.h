@@ -67,6 +67,15 @@ namespace Durin
 		RayMiss,
 	};
 
+	constexpr auto IsValidComputeThreadGroupSize(
+		const std::array<uint32, 3>& Size) -> bool
+	{
+		return Size[0] != 0 && Size[0] <= 1024
+			&& Size[1] != 0 && Size[1] <= 1024
+			&& Size[2] != 0 && Size[2] <= 1024
+			&& uint64(Size[0]) * Size[1] * Size[2] <= 1024;
+	}
+
 	// Selects the graphics or compute command context used for recording.
 	enum class ERHIPipeline : uint8
 	{

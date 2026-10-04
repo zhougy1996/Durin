@@ -37,7 +37,10 @@ namespace Durin
 		CreateDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 		CreateDesc.Target = CompiledShader.Target;
 		CreateDesc.CodeFormat = CompiledShader.CodeFormat;
+		CreateDesc.ComputeThreadGroupSize = CompiledShader.ComputeThreadGroupSize;
 		CreateDesc.BindingRemapIdentity = CompiledShader.BindingRemapIdentity;
+		CreateDesc.MetalBindings = CompiledShader.MetalBindings;
+		CreateDesc.MetalPushConstantBufferSlot = CompiledShader.MetalPushConstantBufferSlot;
 		return CreateDesc;
 	}
 

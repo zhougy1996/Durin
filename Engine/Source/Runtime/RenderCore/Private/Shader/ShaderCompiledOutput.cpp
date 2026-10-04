@@ -143,13 +143,19 @@ namespace Durin::ShaderCompiledOutput
 				|| !ValidateCode(*Shader.Code, Options.Target)
 				|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash
 				|| Shader.Reflection.ResourceBindings.size() > GMaximumReflectionEntries
-				|| Shader.Reflection.PushConstantRanges.size() > GMaximumReflectionEntries)
+				|| Shader.Reflection.PushConstantRanges.size() > GMaximumReflectionEntries
+				|| (Shader.Frequency == EShaderFrequency::Compute
+					&& Options.Target == MetalShaderTarget
+					&& !IsValidComputeThreadGroupSize(Shader.ComputeThreadGroupSize))
+				|| (Shader.Frequency != EShaderFrequency::Compute
+					&& Shader.ComputeThreadGroupSize != std::array<uint32, 3>{}))
 				return std::unexpected(FShaderError{.Code = EShaderError::PayloadOutputInvalid, .Index = Index});
 
 			Writer.WriteString(Shader.SourceEntryPoint);
 			Writer.WriteString(Shader.BinaryEntryPoint);
 			Writer.WriteU32(static_cast<uint32>(Shader.Frequency));
 			Writer.WriteU32(uint32(Shader.CodeFormat));
+			for (uint32 Axis : Shader.ComputeThreadGroupSize) Writer.WriteU32(Axis);
 			Writer.WriteString(Shader.DebugName);
 			Writer.WriteU64(Shader.Hash.HashLow);
 			Writer.WriteU64(Shader.Hash.HashHigh);
@@ -258,12 +264,20 @@ namespace Durin::ShaderCompiledOutput
 			if (!Reader.ReadString(Shader.SourceEntryPoint, GMaximumStringBytes)
 				|| !Reader.ReadString(Shader.BinaryEntryPoint, GMaximumStringBytes)
 				|| !Reader.ReadU32(Frequency) || !Reader.ReadU32(Format)
+				|| !Reader.ReadU32(Shader.ComputeThreadGroupSize[0])
+				|| !Reader.ReadU32(Shader.ComputeThreadGroupSize[1])
+				|| !Reader.ReadU32(Shader.ComputeThreadGroupSize[2])
 				|| Format != uint32(Target.OutputFormat)
 				|| !Reader.ReadString(Shader.DebugName, GMaximumStringBytes)
 				|| !Reader.ReadU64(HashLow) || !Reader.ReadU64(HashHigh)
 				|| !Reader.ReadU64(CodeBytes)
 				|| !IsValidFrequency(Frequency)
 				|| Frequency != static_cast<uint32>(Options.Frequencies[Index])
+				|| (Frequency == uint32(EShaderFrequency::Compute)
+					&& Target == MetalShaderTarget
+					&& !IsValidComputeThreadGroupSize(Shader.ComputeThreadGroupSize))
+				|| (Frequency != uint32(EShaderFrequency::Compute)
+					&& Shader.ComputeThreadGroupSize != std::array<uint32, 3>{})
 				|| Shader.SourceEntryPoint != EntryPoint(Options.EntryPoints[Index])
 				|| Shader.BinaryEntryPoint.empty())
 				return std::unexpected(FShaderError{.Code = EShaderError::PayloadEntryInvalid, .Index = Index});

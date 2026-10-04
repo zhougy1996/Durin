@@ -180,7 +180,7 @@ namespace Durin
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
-			"4453484403000000030000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"4453484404000000040000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
 		ASSERT_GE(First.size(), 24u);
 		uint32 Magic = 0;
 		uint32 Schema = 0;
@@ -203,6 +203,7 @@ namespace Durin
 			EXPECT_EQ(Actual.CodeFormat, Wanted.CodeFormat);
 			EXPECT_EQ(Actual.SourceEntryPoint, Wanted.SourceEntryPoint);
 			EXPECT_EQ(Actual.Frequency, Wanted.Frequency);
+			EXPECT_EQ(Actual.ComputeThreadGroupSize, Wanted.ComputeThreadGroupSize);
 			EXPECT_EQ(Actual.Hash, Wanted.Hash);
 			EXPECT_TRUE(std::ranges::equal(Actual.Code->GetBytes(), Wanted.Code->GetBytes()));
 			EXPECT_EQ(Actual.Reflection.ResourceBindings,
@@ -223,7 +224,49 @@ namespace Durin
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
-			"4453484403000000030000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"4453484404000000040000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+	}
+
+	TEST_F(FShaderDerivedDataTests, MetalComputeThreadGroupSurvivesBothPayloads)
+	{
+		FShaderCompileOptions Options = MakeOptions();
+		Options.Target = MetalShaderTarget;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		FCompiledShader Shader;
+		Shader.Target = MetalShaderTarget;
+		Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
+		Shader.Frequency = EShaderFrequency::Compute;
+		Shader.ComputeThreadGroupSize = {8, 4, 2};
+		Shader.SourceEntryPoint = "ComputeMain";
+		Shader.BinaryEntryPoint = "main0";
+		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
+			"kernel void main0(uint3 tid [[thread_position_in_grid]]) {}\n";
+		Shader.Code = std::make_shared<const FSharedByteBuffer>(
+			FSharedByteBuffer::Copy(std::as_bytes(std::span(Source))));
+		Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
+		auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
+		ASSERT_TRUE(Map) << FormatShaderError(Map.error());
+		Shader.MetalBindings = std::move(Map->Bindings);
+		Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
+		Shader.BindingRemapIdentity = Map->Identity;
+		FShaderCompilerOutput Product;
+		Product.Error = {};
+		Product.CompiledShaders.push_back(std::move(Shader));
+		Durin::FByteBuffer Bytes;
+		ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, Product, Bytes));
+		FShaderCompilerOutput Decoded;
+		ASSERT_TRUE(ShaderCompiledOutput::Decode(Bytes, Options, Decoded));
+		ASSERT_EQ(Decoded.CompiledShaders.size(), 1u);
+		EXPECT_EQ(Decoded.CompiledShaders[0].ComputeThreadGroupSize,
+			(std::array<uint32, 3>{8, 4, 2}));
+		auto Shared = ShaderSharedOutput::Make(Options, Product);
+		ASSERT_TRUE(Shared) << FormatShaderError(Shared.error());
+		auto Restored = ShaderSharedOutput::Assemble(Options, *Shared);
+		ASSERT_TRUE(Restored) << FormatShaderError(Restored.error());
+		ASSERT_EQ(Restored->CompiledShaders.size(), 1u);
+		EXPECT_EQ(Restored->CompiledShaders[0].ComputeThreadGroupSize,
+			(std::array<uint32, 3>{8, 4, 2}));
 	}
 
 	TEST_F(FShaderDerivedDataTests, RejectsMalformedValuesWithoutPartialOutput)
@@ -284,10 +327,10 @@ namespace Durin
 		WriteU32At(BadFormat, 82, uint32(EShaderCodeFormat::Msl20Source));
 		ExpectRejected(std::move(BadFormat), EShaderError::PayloadEntryInvalid);
 		Durin::FByteBuffer BadHash = Bytes;
-		BadHash[109] ^= std::byte{1};
+		BadHash[121] ^= std::byte{1};
 		ExpectRejected(std::move(BadHash), EShaderError::PayloadSpirvHashMismatch);
 		Durin::FByteBuffer BadBindingCount = Bytes;
-		WriteU32At(BadBindingCount, 153, 65537);
+		WriteU32At(BadBindingCount, 165, 65537);
 		ExpectRejected(std::move(BadBindingCount), EShaderError::PayloadBindingCountInvalid);
 
 		FShaderCompileOptions WrongRequest = Options;
@@ -322,7 +365,7 @@ namespace Durin
 			const auto Identities = Request->Resolver->Describe(Request->Definition.GetSources(), {});
 			if (!Identities) return {};
 			DerivedData::FBuildActionBuilder Builder(Request->Definition,
-				{"Durin.Shader.Compile", 5, 1, "Shader.Output", 5, DerivedData::FCacheBucket::FromString("Shader")});
+				{"Durin.Shader.Compile", 6, 1, "Shader.Output", 6, DerivedData::FCacheBucket::FromString("Shader")});
 			for (const auto& Identity : *Identities) Builder.AddInput(Identity);
 			auto Action = std::move(Builder).Build();
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
@@ -448,9 +491,9 @@ namespace Durin
 		ASSERT_TRUE(Product) << FormatShaderError(Product.Error);
 		auto Output = ShaderSharedOutput::Make(Options, Product);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.error());
-		EXPECT_EQ(Output->GetSchemaVersion(), 5u);
+		EXPECT_EQ(Output->GetSchemaVersion(), 6u);
 		auto Legacy = CopyShaderOutput(*Output);
-		Legacy.SchemaVersion = 4;
+		Legacy.SchemaVersion = 5;
 		auto OldPayload = std::move(Legacy).Build();
 		ASSERT_TRUE(OldPayload);
 		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *OldPayload));
