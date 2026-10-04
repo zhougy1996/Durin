@@ -261,6 +261,9 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			Commands, VertexBufferDesc);
 		ASSERT_TRUE(VertexBufferResult.has_value());
 		auto VertexBuffer = std::move(*VertexBufferResult);
+		// Exercise an upload recorded before any explicit GPU submission.
+		Commands.WriteBuffer(VertexBuffer.GetReference(), Positions,
+			sizeof(Positions), 0);
 		auto TextureDesc = Durin::FRHITextureCreateDesc::Create2D(
 			"Metal triangle target", 8, 8, Durin::EPixelFormat::RGBA8_UNORM);
 		TextureDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
@@ -287,8 +290,8 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 		Commands.BeginRenderPass(Pass, "MetalTriangle");
-		Commands.SetGraphicsPipelineState(*Pipeline);
 		Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
+		Commands.SetGraphicsPipelineState(*Pipeline);
 		Commands.Draw({.VertexCount = 3});
 		Commands.EndRenderPass();
 		Commands.EndGPUSubmission();

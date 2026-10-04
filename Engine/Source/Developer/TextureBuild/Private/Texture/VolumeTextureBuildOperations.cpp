@@ -7,7 +7,8 @@ namespace Durin
 	auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request) -> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError>
 	{
 		const FVolumeTextureSourceData& SourceData = Request.SourceData.get();
-		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| !SourceData.IsValid()
 			|| SourceData.Format != Request.Settings.OutputFormat)

@@ -33,12 +33,14 @@ namespace Durin::TexturePayloadContainer
 		const auto Profile = Target.Profile == "Game" ? ECookTargetProfile::Game
 			: Target.Profile == "EditorValidation" ? ECookTargetProfile::EditorValidation
 			: ECookTargetProfile::Invalid;
-		if (Target.Platform != "Win64" || Profile == ECookTargetProfile::Invalid)
+		if ((Target.Platform != "Win64" && Target.Platform != "MacOS")
+			|| Profile == ECookTargetProfile::Invalid)
 		{
 			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture Archive target is missing or unsupported.");
 			return false;
 		}
-		Context = {ECookTargetPlatform::Win64, Profile};
+		Context = {Target.Platform == "MacOS" ? ECookTargetPlatform::MacOS
+			: ECookTargetPlatform::Win64, Profile};
 		return true;
 	}
 

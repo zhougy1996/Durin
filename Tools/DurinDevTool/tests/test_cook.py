@@ -9,6 +9,7 @@ from unittest import mock
 import pytest
 
 from durin_dev_tool import cook
+from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
@@ -18,14 +19,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 
-def report(*, status: str = "succeeded") -> str:
+def report(*, status: str = "succeeded", target: str = "win64") -> str:
     return json.dumps(
         {
             "schemaVersion": 1,
             "status": status,
             "code": status,
             "diagnostic": "done",
-            "target": "win64",
+            "target": target,
             "profile": "game",
             "changedBytes": 12,
             "reusedBytes": 4,
@@ -73,6 +74,15 @@ def test_cook_command_grammar_is_top_level_and_explicit() -> None:
     assert namespace.no_incremental
     assert namespace.dry_run
     assert namespace.format_name == "json"
+
+
+def test_macos_cook_target_is_selected_and_reported() -> None:
+    _, namespace = CommandRegistry().parse(
+        ["cook", "--output", "Saved/MacCook", "--target", "macos",
+         "--target-profile", "game"]
+    )
+    assert namespace.target == "macos"
+    assert cook._read_report(report(target="macos"))["target"] == "macos"
 
 
 def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> None:
@@ -148,3 +158,25 @@ def test_cook_rejects_malformed_or_nondeterministic_reports() -> None:
     ]
     with pytest.raises(DevToolError, match="not deterministic"):
         cook._read_report(json.dumps(value))
+
+
+def test_failed_cook_reads_complete_report_from_process_log(tmp_path: Path) -> None:
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    log = tmp_path / "cook.log"
+    log.write_text(report(status="failed", target="macos"), encoding="utf-8")
+    _, namespace = CommandRegistry().parse(
+        ["cook", "--project", str(project), "--output", str(tmp_path / "Cook"),
+         "--target", "macos", "--target-profile", "game", "--json"]
+    )
+    repository = REPOSITORY.at_root(tmp_path)
+    selection = replace(cook.select_runtime(REPOSITORY), repository=repository)
+    output = io.StringIO()
+    with mock.patch.object(cook, "select_runtime", return_value=selection), \
+            mock.patch.object(cook, "invoke_runtime_program",
+                side_effect=BuildToolError("Cook failed", exit_code=1,
+                    output_excerpt="{\n  partial", log_path=log)):
+        assert cook.run(namespace, repository_root=tmp_path,
+            repository_context=repository, stdout=output, stderr=io.StringIO(),
+            executable_resolver=lambda *_args: tmp_path / "DurinAssetTool") == 1
+    assert json.loads(output.getvalue())["target"] == "macos"

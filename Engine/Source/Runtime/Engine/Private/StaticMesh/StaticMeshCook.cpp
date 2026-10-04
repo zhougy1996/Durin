@@ -91,10 +91,12 @@ namespace Durin
 	auto DStaticMesh::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
-		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		if ((Ar.GetTarget().Platform != "Win64"
+				&& Ar.GetTarget().Platform != "MacOS")
+			|| Ar.GetTarget().Profile != "Game")
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
-				"StaticMesh cooked platform data requires the Win64 Game target.");
+				"StaticMesh cooked platform data requires a Win64 or MacOS Game target.");
 			return;
 		}
 		FBulkData RenderProjection;
@@ -140,7 +142,8 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
 				return;
 			}
-			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload,
+				{.Target = {Ar.GetTarget().Platform, "Game"}});
 			Payload.Serialize(RenderWriter);
 			auto RenderBulk = RenderWriter.IsError() ? std::expected<FBulkData, FBulkDataError>{}
 				: FBulkData::TryCreateDetached(RenderBytes);
@@ -181,7 +184,8 @@ namespace Durin
 					return;
 				}
 				FCanonicalMemoryWriter CollisionWriter(
-					CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+					CollisionBytes, EArchivePurpose::CookedPayload,
+					{.Target = {Ar.GetTarget().Platform, "Game"}});
 				CollisionPayload.Serialize(CollisionWriter);
 				auto CollisionBulk = CollisionWriter.IsError() ? std::expected<FBulkData, FBulkDataError>{}
 				: FBulkData::TryCreateDetached(CollisionBytes);
@@ -349,7 +353,8 @@ namespace Durin
 			? BodySetup->GetCollisionQueryPolicy()
 			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		if (const auto Result = DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
-			CollisionMode, CollisionPolicy, Product); !Result)
+			CollisionMode, CollisionPolicy, Product,
+			GetAssetRuntimeConfiguration().GetCookTargetPlatform()); !Result)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this),
 				.ProductCause = std::make_shared<FCookedMeshProductError>(Result.Error)}};
@@ -397,6 +402,8 @@ namespace Durin
 			CookedLoadGeneration.load(std::memory_order_acquire);
 		const uint64 ResourceRevision = GetRenderResourceStatus().Revision;
 		const uint64 MetadataIdentity = BuildStaticCookedMetadataIdentity(*this);
+		const ECookTargetPlatform TargetPlatform =
+			GetAssetRuntimeConfiguration().GetCookTargetPlatform();
 		std::vector<FMeshMaterialSlotDefinition> SlotSnapshot = MaterialSlots;
 
 		FCookedMeshLoadRequest Request{
@@ -408,7 +415,7 @@ namespace Durin
 				.MetadataIdentity = MetadataIdentity},
 			.Fields = {CookedRenderData},
 			.Worker = [SlotSnapshot = std::move(SlotSnapshot), CollisionMode,
-				CollisionPolicy, bRequiresCollision](
+				CollisionPolicy, bRequiresCollision, TargetPlatform](
 				std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken& Cancellation)
 				-> FCookedMeshWorkerResult {
@@ -421,7 +428,7 @@ namespace Durin
 					? Buffers[1].GetBytes() : FByteView{};
 				if (const auto Decoded = DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
 					CollisionBytes, SlotSnapshot, CollisionMode, CollisionPolicy,
-					Result->Product); !Decoded)
+					Result->Product, TargetPlatform); !Decoded)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Product,
 						.ProductCause = std::make_shared<FCookedMeshProductError>(Decoded.Error)}};
@@ -515,7 +522,8 @@ namespace Durin
 			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
 				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
 		};
-		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 #if DURIN_WITH_EDITORONLY_DATA
 		if (!RenderData && !GetSource().IsValid()) return Reject(ECookContributionError::RenderData);

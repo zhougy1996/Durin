@@ -208,8 +208,64 @@ The cooked shader library schema 4 admits MacOS/Metal records and checks
 platform/profile separation. Opening a library validates every required
 record's payload and binding map before publishing it. Unit round trips verify
 Metal library loading and rejection of malformed MSL with recomputed file and
-record digests;
-the full production MacOS cook and game load remain unqualified. Stage 3 now
+record digests. Generic Cook manifests, incremental states, and Cook contexts
+now admit MacOS target identity; MacOS manifest/state encode-decode round trips
+pass alongside the existing Win64 golden hash and all 40 AssetCookTests cases.
+The workspace-wide `all` build passes. The Cook command and engine contributors
+now accept MacOS/Game. A seven-package project Cook succeeds in both dry-run and
+published modes, producing the CMNF manifest, Cook state, package payloads, and
+detached Metal shader library. A second incremental run reused six packages
+(6,108,785 bytes) and recaptured one level (7,484 changed bytes). The five
+Cook CLI tests, 40 AssetCookTests, 156 StaticMeshTests, 134 TextureTests, five
+CookFunctionalTests, and workspace-wide `all` build pass. Runtime package and
+nested payload readers now derive their target from the published manifest.
+The Debug Game preset builds, and the matching Sandbox MacOS Cook reaches level
+initialization and creates post-process and skybox pipelines with the Metal
+pipeline cache. An explicit Sandbox pawn Cook root expands the output to eight
+packages and removes the prior missing-pawn warning. The first 30-tick smoke
+crashed when Metal treated a CPU-authored uniform-buffer view as a native
+`FMetalBuffer`; the crash handler initially obscured the RHI-thread fault.
+Metal now resolves the ordered deferred-buffer snapshot into an immutable native
+copy for graphics and compute binding, retaining the copy and snapshot sidecar
+references through submission. The scene also binds vertex and index buffers
+before its graphics pipeline; Metal now accepts this order. The 30-tick Sandbox
+Cooked Game smoke passes without renderer errors and exits normally on the M4.
+The MacOS Cook output was staged into the Debug Game runtime directory for this
+run; its module log contains MetalRHI but no ShaderBuild load. This qualifies
+the Cook/launch/diagnostics checklist, not standalone distribution packaging.
+Temporarily removing the cooked shader library or corrupting its header produces
+specific renderer diagnostics for both post-process and skybox requests; these
+two bounded diagnostic runs exit zero despite resource failure. The original
+library bytes were restored after each run.
+Both Debug Editor and Debug Game `all` builds pass after this migration. The
+MetalRHIHeadlessTests and MetalShaderQualificationTests qualification targets
+pass on the M4 host; AssetCookTests (41), AssetPackageTests (189),
+CookedMeshLoadingTests (4), StaticMeshTests (156), TextureTests (134), and 32
+native-test tooling cases pass. The successful game smoke receipt is
+`Build/.agent-state/logs/20261004-121112-837002-3669-DurinGame.log`.
+The first Metal Editor smoke exposed `WriteBuffer` calls before an explicit GPU
+submission. Metal now records those uploads as ordered implicit submissions;
+the existing headless triangle fixture verifies this in inline and threaded
+modes and binds its vertex stream before pipeline selection. A hidden-window
+Sandbox Editor 30-tick run initializes and shuts down cleanly. Its remaining
+texture warning initially reported an unsupported BC1 sRGB sky cube. The M4
+reports BC texture compression support and allocates a native BC1 sRGB cube.
+Metal now admits BC1 cubes on supporting devices and uses block-aware upload
+and readback pitches. A native fixture verifies pitched BC1 cube uploads,
+exact compressed-byte readback through the smallest mip, and sampled sRGB-to-
+linear decoding in inline and threaded modes. The subsequent hidden-window
+Editor 30-tick run has no texture fallback warning; visible editor image
+equivalence remains open. Receipt:
+`Build/.agent-state/logs/20261004-122611-137724-4704-DurinEditor.log`.
+An additional Metal GPU fixture dispatches twice after updating one CPU-authored
+uniform buffer without rebinding. In inline and threaded replay, its native
+result buffer contains the first and second versions in separate slots (7 and
+13), including after releasing the logical uniform before GPU completion.
+Metal now caches one native copy per snapshot and queue context, retaining its
+snapshot and sidecars through GPU completion while reusing it across bindings.
+This checks ordered snapshot resolution and retirement for that binding path;
+the wider Stage 0 parameter/layout and image comparison matrix remains open.
+Stage 3 now
 has native Metal shader-function creation for checked MSL vertex,
 fragment, and compute entries. The RHI shader descriptor carries the complete
 native binding map and push-constant slot; Metal verifies canonical slots and
@@ -321,6 +377,7 @@ corresponding native behavior is implemented and verified.
 | `RGBA32_FLOAT`, `R16_FLOAT`, `RG8_UNORM` | Normal/default and authored texture sampling | Native sampled allocation; RGBA32 2D upload and linear filtering passed with exact float readback; selected-route sampling pending |
 | `RG32_UINT` | Hit-proxy integer target and readback | Native render-target allocation; native MSL integer render and exact 64-bit pixel readback passed; selected-route hit-proxy output pending |
 | `D32` | Scene/shadow depth, sampled depth array | Native 2D and three-layer depth-array allocation; native MSL depth clear/write/store and float readback passed; Metal RHI one-color-plus-D32 depth occlusion and exact float readback passed; three distinct array-layer clears and comparison sampling passed; selected-route depth sampling pending |
+| `BC1_UNORM`, `BC1_UNORM_SRGB` | Authored sky-cube sampling | M4 reports BC compression support. Metal RHI cube allocation, pitched block-row upload, exact compressed-byte readback through a one-texel mip, and BC1 sRGB sampled linear decoding passed in inline and threaded modes; full editor image comparison pending. |
 
 The single-queue baseline requires 2D/3D/cube/array dimensions, views, upload,
 copy, asynchronous texture readback, four simultaneous GBuffer color targets,
@@ -552,7 +609,7 @@ Dependencies: Stage 3 production execution accepted.
   agreed lighting, shadow, post-processing, and compute workloads.
 - [ ] Exercise repeated viewport creation/destruction, resize, material changes,
   reload, and application shutdown with validation diagnostics enabled.
-- [ ] Cook target-specific content and launch the game without a ShaderBuild
+- [x] Cook target-specific content and launch the game without a ShaderBuild
   runtime dependency; test missing and incompatible shader-library diagnostics.
 - [ ] Compare Metal and Vulkan/MoltenVK output on the same scenes, resolutions,
   camera states, and settings. Record tolerances and investigate mismatches.

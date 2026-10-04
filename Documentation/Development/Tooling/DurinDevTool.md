@@ -82,6 +82,7 @@ Representative commands are:
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
 .\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
+./DevTool cook --output Saved/Cooked --target macos --target-profile game
 .\DevTool.bat path runtime
 .\DevTool.bat open logs
 ```
@@ -113,7 +114,7 @@ without opening an application loop:
 `--root` is repeatable and augments the project's configured default Level.
 `--output` resolves relative to the checkout and is passed to the native host as
 an absolute path. `--profile` continues to select the host build profile, while
-`--target-profile` selects the Cook runtime profile. `--dry-run` performs
+`--target` selects `win64` or `macos`; `--target-profile` selects the Cook runtime profile. `--dry-run` performs
 discovery and preparation without opening a store transaction.
 
 Each invocation starts one dedicated Cook process and exits when it finishes.

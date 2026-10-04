@@ -135,15 +135,18 @@ never published in the immutable `FRHICapabilities` snapshot.
 
 `DURIN_RHI_BACKEND` selects `vulkan` or `metal` explicitly. An unset value
 selects Vulkan; an invalid value fails RHI initialization with a diagnostic.
-MetalRHI is registered and currently admits only headless startup on macOS 27+
-with Apple GPU Family 9+. It creates a native device and one queue. The Cocoa
-window passes its installed `CAMetalLayer` handle through RHI startup
-and viewport creation, but Metal presentation remains unavailable until drawable
-and frame ownership are implemented. Empty logical submissions publish a
-single-queue topology, stay pending through CPU
-replay, and complete after native Metal command-buffer completion; shutdown
-cancels replayed work that was never submitted. Resource capabilities are not
-published until the required native resource operations are implemented.
+MetalRHI admits headless or `CAMetalLayer` presentation startup on macOS 27+
+with Apple GPU Family 9+. It creates a native device and one physical queue.
+The Cocoa window installs the layer before RHI startup; Metal retains it during
+viewport use, renders to an owned offscreen back buffer, then blits to an
+available drawable and presents. The headless layer qualification covers clear,
+present, resize, and viewport recreation in inline and threaded modes; real
+window minimize/close behavior and visible output remain to be qualified.
+Empty logical submissions publish a single-queue topology, stay pending through
+CPU replay, and complete after native Metal command-buffer completion; shutdown
+cancels replayed work that was never submitted. Metal publishes conservative
+capabilities and rejects unsupported texture descriptions through its exact
+support query.
 Shared Metal buffers support initial data, staged writes/uploads, and
 buffer-to-buffer copies on that queue; source and staging storage remain owned
 through GPU completion. Immutable Metal samplers can be created for normalized
@@ -161,11 +164,15 @@ textures, support mip-aware transfer,
 including cube-face readback and pitched 3D uploads. RGBA8_UNORM 2D arrays and
 cube arrays support layer-wise copies, uploads, readback, and transfer views;
 cube-array layers are numbered by face across cubes. A 2D texture can copy into
-an array layer. Other array/cube/volume formats are not admitted. Metal retains
-upload and readback storage through GPU
-completion; an unsubmitted readback is canceled at shutdown. Shader and render
-usage and non-transfer views are unsupported. Presentation
-requests fail during initialization.
+an array layer. RGBA32_FLOAT cube textures and BC1_UNORM/BC1_UNORM_SRGB cubes
+are also admitted for sampled use; BC1 requires the native device's BC texture
+compression capability and uses block-aware upload/readback pitches. BC1 buffer
+and texture copy usages remain unsupported by the Metal support query. Other
+array/cube/volume formats require their own exact support result. Metal retains
+upload and readback storage through GPU completion; an unsubmitted readback is
+canceled at shutdown. Sampled and storage views, shader functions and pipelines,
+and supported graphics/compute execution are available through the production
+RHI path.
 The selected module is unloaded after its backend and RHI execution thread.
 
 Windowed startup supplies an explicit `FRHIInitializationContext` with the

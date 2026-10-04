@@ -414,7 +414,8 @@ namespace Durin
 			OutResult.InjectionCause = FCookRunInjectionCause{Stage, Index, std::move(ExternalDiagnostic)};
 			return true;
 		};
-		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| (!Request.bDryRun && (Request.OutputRoot.empty() || !Request.OutputRoot.is_absolute())))
 			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
@@ -649,7 +650,9 @@ namespace Durin
 					if (Injected(ECookOperationStage::StageAuxiliary, 0))
 						return Finish(ECookRunStatus::Failed, ECookRunError::AuxiliaryInjectedFailure);
 					FByteBuffer ShaderBytes;
-					if (const auto ShaderResult = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
+				const auto ShaderPlatform = Request.TargetPlatform == ECookTargetPlatform::MacOS
+					? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64;
+				if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
 						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.error());
 						return IsCancelled(Request.IsCancelled)

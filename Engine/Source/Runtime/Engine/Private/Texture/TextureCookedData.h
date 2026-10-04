@@ -8,6 +8,8 @@
 #include "Logging/LogMacros.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
+#include "Asset/Load.h"
+#include "../Asset/CookedArchiveTarget.h"
 
 namespace Durin::TexturePrivate
 {
@@ -17,10 +19,12 @@ namespace Durin::TexturePrivate
 	auto SerializeCookedPlatformData(FArchive& Ar, FBulkData& CookedData,
 		TPlatformData* PlatformData, FName WireOwner, std::string_view Family) -> void
 	{
-		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		if ((Ar.GetTarget().Platform != "Win64"
+				&& Ar.GetTarget().Platform != "MacOS")
+			|| Ar.GetTarget().Profile != "Game")
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
-				std::format("{} cooked platform data requires the Win64 Game target.", Family));
+				std::format("{} cooked platform data requires a Win64 or MacOS Game target.", Family));
 			return;
 		}
 		FBulkData Projection;
@@ -68,7 +72,8 @@ namespace Durin::TexturePrivate
 		if (!Read) return FailCooked(Durin::FormatPackageResourceReadError(Read.Error));
 		const FByteView Bytes = Read.Lock.GetBytes();
 		auto Candidate = std::make_unique<TPlatformData>();
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload,
+			{.Target = AssetPrivate::CookedArchiveTarget(GetAssetRuntimeConfiguration())});
 		Candidate->Serialize(Ar);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{

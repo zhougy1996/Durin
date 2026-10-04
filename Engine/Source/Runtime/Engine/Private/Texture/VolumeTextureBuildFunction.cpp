@@ -24,7 +24,8 @@ namespace Durin::TexturePrivate
 				|| !Read("SourceSchema", Result.SourcePayloadSchemaVersion) || !Read("TargetPlatform", Platform)
 				|| !Read("TargetProfile", Profile) || Format > static_cast<uint32>(EVolumeTextureFormat::RGBA16_FLOAT)
 				|| Filter != static_cast<uint32>(EVolumeTextureMipFilter::Box)
-				|| Platform != static_cast<uint32>(ECookTargetPlatform::Win64)
+				|| (Platform != static_cast<uint32>(ECookTargetPlatform::Win64)
+					&& Platform != static_cast<uint32>(ECookTargetPlatform::MacOS))
 				|| Profile != static_cast<uint32>(ECookTargetProfile::Game))
 				return std::unexpected("Volume build constants are invalid.");
 			Result.Settings = {.OutputFormat = static_cast<EVolumeTextureFormat>(Format), .MipFilter = static_cast<EVolumeTextureMipFilter>(Filter)};

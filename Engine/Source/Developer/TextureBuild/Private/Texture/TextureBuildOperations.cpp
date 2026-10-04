@@ -11,7 +11,8 @@ namespace Durin
 		FTexture2DBuildOutput Product;
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedTarget});

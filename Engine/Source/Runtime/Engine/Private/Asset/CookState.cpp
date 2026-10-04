@@ -82,7 +82,8 @@ namespace Durin
 	auto EncodeCookState(const FCookState& State, FByteBuffer& OutBytes) -> FCookStateResult
 	{
 		OutBytes.clear();
-		if (State.TargetPlatform != ECookTargetPlatform::Win64
+		if ((State.TargetPlatform != ECookTargetPlatform::Win64
+				&& State.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| (State.TargetProfile != ECookTargetProfile::Game
 				&& State.TargetProfile != ECookTargetProfile::EditorValidation)
 			|| State.Entries.size() > MaximumCookStateEntries)
@@ -139,7 +140,8 @@ namespace Durin
 			|| !Reader.Read(Profile) || !Reader.Read(Count) || !Reader.Read(Reserved)
 			|| Magic != CookStateMagic || Version != CookStateVersion || Reserved != 0
 			|| Count > MaximumCookStateEntries || Count > Reader.GetRemainingBytes() / 100
-			|| Platform != static_cast<uint32>(ECookTargetPlatform::Win64)
+			|| (Platform != static_cast<uint32>(ECookTargetPlatform::Win64)
+				&& Platform != static_cast<uint32>(ECookTargetPlatform::MacOS))
 			|| (Profile != static_cast<uint32>(ECookTargetProfile::Game)
 				&& Profile != static_cast<uint32>(ECookTargetProfile::EditorValidation)))
 			return {.Error = ECookStateError::Header, .Actual = Count, .Maximum = MaximumCookStateEntries, .RemainingBytes = Reader.GetRemainingBytes(), .Version = Version, .TargetPlatform = static_cast<ECookTargetPlatform>(Platform), .TargetProfile = static_cast<ECookTargetProfile>(Profile)};

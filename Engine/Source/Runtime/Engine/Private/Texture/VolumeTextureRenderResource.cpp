@@ -30,7 +30,7 @@ namespace Durin
 			.SetDepth(static_cast<uint16>(BaseMip.Depth))
 			.SetFormat(Input->PixelFormat)
 			.SetNumMips(static_cast<uint8>(Input->Mips.size()))
-			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::DestinationCopy);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
 			DURIN_WARN("VolumeTexture description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));

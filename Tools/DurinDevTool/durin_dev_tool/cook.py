@@ -139,9 +139,12 @@ def run(
         if error.exit_code == 130:
             print("Project Cook cancelled.", file=stderr)
             return 130
-        if not error.output_excerpt.strip():
+        if error.log_path is not None and error.log_path.is_file():
+            native_output = error.log_path.read_text(encoding="utf-8")
+        elif error.output_excerpt.strip():
+            native_output = error.output_excerpt
+        else:
             raise
-        native_output = error.output_excerpt
 
     report = _read_report(native_output)
     if namespace.format_name == "json":

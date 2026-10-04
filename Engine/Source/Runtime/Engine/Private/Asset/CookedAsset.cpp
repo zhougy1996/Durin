@@ -8,6 +8,7 @@
 #include "DObject/Package.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -138,7 +139,8 @@ namespace Durin
 
 		auto IsValidTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
-			return Platform == ECookTargetPlatform::Win64
+			return (Platform == ECookTargetPlatform::Win64
+				|| Platform == ECookTargetPlatform::MacOS)
 				   && (Profile == ECookTargetProfile::Game || Profile == ECookTargetProfile::EditorValidation);
 		}
 
@@ -221,6 +223,22 @@ namespace Durin
 		Result.ExecutionDomain = EAssetExecutionDomain::Cooked;
 		Result.PayloadPolicy = EAssetPayloadPolicy::CookedPayloadRequired;
 		Result.CookRoot = std::move(InCookRoot);
+		const auto ManifestPath = Result.CookRoot / "CookManifest.bin";
+		const auto ManifestExists = FFileHelper::FileExists(ManifestPath);
+		if (!ManifestExists)
+			return {.Error = EAssetReadError::IoError,
+				.Message = "Cannot inspect cooked asset manifest."};
+		if (*ManifestExists)
+		{
+			const auto ManifestBytes = FFileHelper::LoadFileToArray(ManifestPath,
+				{.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
+			FCookManifest Manifest;
+			if (!ManifestBytes || !DecodeCookManifest(*ManifestBytes, Manifest)
+				|| Manifest.TargetProfile != ECookTargetProfile::Game)
+				return {.Error = EAssetReadError::CorruptFile,
+					.Message = "Cooked asset manifest is invalid or has a non-game target."};
+			Result.CookTargetPlatform = Manifest.TargetPlatform;
+		}
 		OutConfiguration = std::move(Result);
 		return {};
 	}

@@ -80,8 +80,11 @@ namespace Durin
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,
-		FStaticMeshCookedProduct& OutProduct) -> FCookedMeshProductResult
+		FStaticMeshCookedProduct& OutProduct,
+		ECookTargetPlatform TargetPlatform) -> FCookedMeshProductResult
 	{
+		const FArchiveTarget ArchiveTarget{.Platform = TargetPlatform == ECookTargetPlatform::MacOS
+			? "MacOS" : "Win64", .Profile = "Game"};
 		FStaticMeshCookedProduct Candidate;
 		if (CollisionMode != EBodySetupCollisionSourceMode::None)
 		{
@@ -90,7 +93,7 @@ namespace Durin
 					.ExpectedMode = CollisionMode, .ExpectedPolicy = CollisionPolicy}};
 			FPhysicsCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
-				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
 			CollisionPayload.Serialize(CollisionAr);
 			if (CollisionAr.IsError() || !RequireArchiveEnd(CollisionAr))
 				return ArchiveFailure(ECookedMeshProductError::CollisionArchive, CollisionAr, CollisionBytes.size());
@@ -115,7 +118,7 @@ namespace Durin
 		}
 
 		FStaticMeshPayloadData Payload;
-		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
 		Payload.Serialize(PayloadAr);
 		if (PayloadAr.IsError() || !RequireArchiveEnd(PayloadAr))
 			return ArchiveFailure(ECookedMeshProductError::RenderArchive, PayloadAr, RenderBytes.size());

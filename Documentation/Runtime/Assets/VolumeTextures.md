@@ -160,7 +160,7 @@ non-overlapping, checksummed with XXH3-128, bounded, and validated across all
 three axes before allocation.
 
 The volume producer version is 3 and the primary cooked payload ID is
-`672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts only Win64/Game and emits
+`672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts Win64/Game and MacOS/Game and emits
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an
 importer, and fails transactionally on missing or corrupt bulk. New output is

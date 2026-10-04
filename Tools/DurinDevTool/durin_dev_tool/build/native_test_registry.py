@@ -146,7 +146,7 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
             or PurePosixPath(source).is_absolute()
             or ".." in PurePosixPath(source).parts
             or str(PurePosixPath(source)) != source
-            or not source.endswith(".cpp")
+            or not source.endswith((".cpp", ".mm"))
             for source in sources
         ):
             raise BuildToolError(f'Native-test registry target "{name}" has invalid source paths.')

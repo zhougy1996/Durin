@@ -7,6 +7,7 @@
 #include "Materials/MeshMaterialSlot.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+#include "Asset/CookedAsset.h"
 
 namespace Durin
 {
@@ -59,5 +60,6 @@ namespace Durin
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,
-		FStaticMeshCookedProduct& OutProduct) -> FCookedMeshProductResult;
+		FStaticMeshCookedProduct& OutProduct,
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64) -> FCookedMeshProductResult;
 }

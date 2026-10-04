@@ -47,6 +47,7 @@ namespace Durin
 		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
 		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }
 		auto GetCookRoot() const -> const std::filesystem::path& { return CookRoot; }
+		auto GetCookTargetPlatform() const -> ECookTargetPlatform { return CookTargetPlatform; }
 		auto IsAuthored() const -> bool
 		{
 			return ExecutionDomain == EAssetExecutionDomain::Authored;
@@ -72,6 +73,7 @@ namespace Durin
 		EAssetExecutionDomain ExecutionDomain = EAssetExecutionDomain::Authored;
 		EAssetPayloadPolicy PayloadPolicy = EAssetPayloadPolicy::SourceAndDerivedDataAllowed;
 		std::filesystem::path CookRoot;
+		ECookTargetPlatform CookTargetPlatform = ECookTargetPlatform::Win64;
 	};
 
 	enum class ECookedPathError : uint8

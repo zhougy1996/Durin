@@ -14,7 +14,8 @@ namespace Durin
 	auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError>
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
@@ -127,7 +128,8 @@ namespace Durin
 	{
 		if (Request.HDRPanorama != nullptr)
 		{
-			if (Request.TargetPlatform != ECookTargetPlatform::Win64
+			if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+					&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 				|| Request.TargetProfile != ECookTargetProfile::Game || Request.bSRGB)
 			{
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
@@ -138,7 +140,8 @@ namespace Durin
 				Request.PanoramaSettings, *PlatformData); !Result) return std::unexpected(std::move(Result.error()));
 			return PlatformData;
 		}
-		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
+				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| !Request.FaceImages.get().IsValid())
 		{

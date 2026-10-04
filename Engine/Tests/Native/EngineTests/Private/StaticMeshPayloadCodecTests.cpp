@@ -159,7 +159,8 @@ namespace
 		Durin::FByteBuffer Candidate;
 		FCanonicalMemoryWriter Ar(Candidate,
 			EArchivePurpose::DerivedDataPayload,
-			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64"
+				: Platform == EAssetPayloadTargetPlatform::MacOS ? "MacOS" : "", "Game"}});
 		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar);
 		OutError = Ar.IsError() ? Ar.GetFailure()->Message : std::string{};
 		if (Ar.IsError()) return false;
@@ -175,7 +176,8 @@ namespace
 		FStaticMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes,
 			EArchivePurpose::DerivedDataPayload,
-			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+			{.Target = {Platform == EAssetPayloadTargetPlatform::Win64 ? "Win64"
+				: Platform == EAssetPayloadTargetPlatform::MacOS ? "MacOS" : "", "Game"}});
 		Candidate.Serialize(Ar);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 			return std::unexpected(*Ar.GetFailure());
@@ -443,6 +445,23 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack));
 		ExpectEquivalent(ConvertedBack, Fixture);
 	}
+}
+
+TEST(FStaticMeshPayloadCodecTests, MacOSPayloadRoundTripsAndRejectsWin64Reader)
+{
+	const FStaticMeshPayloadData Fixture = MakeSingleSectionFixture();
+	Durin::FByteBuffer Bytes;
+	std::string Error;
+	ASSERT_TRUE(EncodePayload(Fixture, EAssetPayloadTargetPlatform::MacOS,
+		Bytes, Error)) << Error;
+	FStaticMeshPayloadData Decoded;
+	const auto MacOS = DecodePayload(Bytes, EAssetPayloadTargetPlatform::MacOS,
+		Decoded);
+	ASSERT_TRUE(MacOS) << MacOS.error().Message;
+	ExpectEquivalent(Decoded, Fixture);
+	const auto WrongPlatform = DecodePayload(Bytes,
+		EAssetPayloadTargetPlatform::Win64, Decoded);
+	EXPECT_FALSE(WrongPlatform);
 }
 
 TEST(FStaticMeshPayloadCodecTests,
@@ -956,7 +975,7 @@ TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublis
 		std::byte{1}, std::byte{2}, std::byte{3}}));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(EncodePayload(
-		MakeSingleSectionFixture(), static_cast<EAssetPayloadTargetPlatform>(2), Bytes, Error));
+		MakeSingleSectionFixture(), static_cast<EAssetPayloadTargetPlatform>(3), Bytes, Error));
 }
 
 TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSaveSources)

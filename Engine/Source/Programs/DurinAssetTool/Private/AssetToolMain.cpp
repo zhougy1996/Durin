@@ -164,7 +164,7 @@ namespace
 			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
 			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
-			<< "--target=win64 --profile=game [--root=/Game/Path]... "
+			<< "--target=win64|macos --profile=game [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
 	}
 
@@ -225,9 +225,10 @@ namespace
 				OutError = "cook --output must be absolute.";
 				return false;
 			}
-			if (Options.Target != "win64" || Options.TargetProfile != "game")
+			if ((Options.Target != "win64" && Options.Target != "macos")
+				|| Options.TargetProfile != "game")
 			{
-				OutError = "cook currently requires --target=win64 --profile=game.";
+				OutError = "cook requires --target=win64|macos --profile=game.";
 				return false;
 			}
 			return true;
@@ -802,7 +803,8 @@ namespace
 		Root.SetChildValue("status", CookRunStatusName(Result.Status));
 		Root.SetChildValue("code", Durin::CookRunCodeName(Result));
 		Root.SetChildValue("diagnostic", Durin::FormatCookRunError(Result));
-		Root.SetChildValue("target", "win64");
+		Root.SetChildValue("target", Result.TargetPlatform == ECookTargetPlatform::MacOS
+			? "macos" : "win64");
 		Root.SetChildValue("profile", "game");
 		Root.SetChildValue("changedBytes", Result.ChangedBytes);
 		Root.SetChildValue("reusedBytes", Result.ReusedBytes);
@@ -886,7 +888,8 @@ namespace
 		FCookRunResult Result;
 		const FCookRequest Request{
 			.OutputRoot = Options.OutputRoot,
-			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetPlatform = Options.Target == "macos"
+				? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
 			.TargetProfile = ECookTargetProfile::Game,
 			.ExplicitRoots = std::move(Roots),
 			.IncrementalPolicy = Options.bIncremental ? ECookIncrementalPolicy::Enabled : ECookIncrementalPolicy::Disabled,
@@ -963,6 +966,8 @@ int main(int ArgC, char** ArgV)
 				Error = Durin::FormatCookOutputRootError(Validated);
 				Durin::FCookRunResult Result;
 				Result.Status = Durin::ECookRunStatus::Failed;
+				Result.TargetPlatform = Options.Target == "macos"
+					? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64;
 				Result.Error = Durin::ECookRunError::InvalidOutputRoot;
 				Result.OutputRootCause = std::make_shared<Durin::FCookOutputRootResult>(Validated);
 				if (Options.Format == EOutputFormat::Json)

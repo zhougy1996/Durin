@@ -1,6 +1,7 @@
 #include "AssetPackageTaggedCodec.h"
 #include "AssetPackageByteSource.h"
 #include "AssetPackageLinker.h"
+#include "CookedArchiveTarget.h"
 #include "AssetRegistryResultAdapter.h"
 
 #include "Asset/PackageInspection.h"
@@ -685,7 +686,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 					.SourceFormatVersion = Linker.FormatVersion,
 					.bCooked = Context.bCooked,
 					.Target = Context.bCooked
-						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
+						? CookedArchiveTarget(GetAssetRuntimeConfiguration())
 						: FArchiveTarget{},
 					.BulkResource = Context.BulkResource,
 					.DependencyLoadPolicy = Context.DependencyLoadPolicy,

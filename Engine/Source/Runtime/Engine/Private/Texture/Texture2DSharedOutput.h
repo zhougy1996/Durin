@@ -27,7 +27,8 @@ namespace Durin::TexturePrivate
 		ECookTargetPlatform Platform, ECookTargetProfile Profile)
 		-> std::expected<FTexture2DOutputLayout, std::string>
 	{
-		if (Platform != ECookTargetPlatform::Win64
+		if ((Platform != ECookTargetPlatform::Win64
+				&& Platform != ECookTargetPlatform::MacOS)
 			|| (Profile != ECookTargetProfile::Game && Profile != ECookTargetProfile::EditorValidation)
 			|| Output.GetSchema() != "Texture2D.Output" || Output.GetSchemaVersion() != 2)
 			return std::unexpected("Texture output schema or target is unsupported.");

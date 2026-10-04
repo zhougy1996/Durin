@@ -252,6 +252,23 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	ASSERT_TRUE(InitializeAssetManager());
 }
 
+TEST(FCookedPathTests, RuntimeConfigurationUsesPublishedMacOSTarget)
+{
+	const auto Root = Testing::CreateTestFixtureDirectory("MacOSCookedRuntimeTarget");
+	FCookManifest Manifest{ECookTargetPlatform::MacOS, ECookTargetProfile::Game, {}};
+	FByteBuffer Bytes;
+	ASSERT_TRUE(EncodeCookManifest(Manifest, Bytes));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "CookManifest.bin"));
+	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
+	EXPECT_EQ(Runtime.GetCookTargetPlatform(), ECookTargetPlatform::MacOS);
+	Bytes.back() ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "CookManifest.bin"));
+	const auto Invalid = FAssetRuntimeConfiguration::Cooked(Root, Runtime);
+	EXPECT_FALSE(Invalid);
+	EXPECT_EQ(Runtime.GetCookTargetPlatform(), ECookTargetPlatform::MacOS);
+}
+
 TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigurations)
 {
 	Testing::InitializeDObjectSystemForTests();
@@ -404,6 +421,39 @@ TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 	EXPECT_FALSE(DecodeCookState(Trailing, Decoded));
 	First[4] = std::byte{1}; // Tool-only v1 is deliberately a full cache miss.
 	EXPECT_FALSE(DecodeCookState(First, Decoded));
+}
+
+TEST(FCookTargetTests, MacOSManifestAndStateRetainTargetIdentity)
+{
+	FCookManifest Manifest{
+		ECookTargetPlatform::MacOS,
+		ECookTargetProfile::Game,
+		{{ECookManifestEntryKind::CookedPackage, 1,
+			"Game/Scene.dasset", 16, 7, 8}}
+	};
+	FByteBuffer ManifestBytes;
+	ASSERT_TRUE(EncodeCookManifest(Manifest, ManifestBytes));
+	FCookManifest DecodedManifest;
+	ASSERT_TRUE(DecodeCookManifest(ManifestBytes, DecodedManifest));
+	EXPECT_EQ(DecodedManifest.TargetPlatform, ECookTargetPlatform::MacOS);
+	EXPECT_EQ(DecodedManifest.TargetProfile, ECookTargetProfile::Game);
+	ASSERT_EQ(DecodedManifest.Entries.size(), 1u);
+	EXPECT_EQ(DecodedManifest.Entries[0].RelativePath, "Game/Scene.dasset");
+
+	FCookState State{
+		ECookTargetPlatform::MacOS,
+		ECookTargetProfile::Game,
+		{{"/Game/Scene", {1, 2}, {3, 4}, {}, 16, 0,
+			1, 1, "generic", "captured"}}
+	};
+	FByteBuffer StateBytes;
+	ASSERT_TRUE(EncodeCookState(State, StateBytes));
+	FCookState DecodedState;
+	ASSERT_TRUE(DecodeCookState(StateBytes, DecodedState));
+	EXPECT_EQ(DecodedState.TargetPlatform, ECookTargetPlatform::MacOS);
+	EXPECT_EQ(DecodedState.TargetProfile, ECookTargetProfile::Game);
+	ASSERT_EQ(DecodedState.Entries.size(), 1u);
+	EXPECT_EQ(DecodedState.Entries[0].VirtualPackagePath, "/Game/Scene");
 }
 
 TEST(FCookStateTests, RetainsNestedDependencyErrorsWithoutPartialOutputs)

@@ -10,7 +10,8 @@ namespace Durin
 	enum class EAssetPayloadTargetPlatform : uint32
 	{
 		Unknown = 0,
-		Win64 = 1
+		Win64 = 1,
+		MacOS = 2
 	};
 
 }

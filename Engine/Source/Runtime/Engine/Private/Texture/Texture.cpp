@@ -119,7 +119,8 @@ namespace Durin
 			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
 				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
 		};
-		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 		if (!HasPlatformData()) PostLoad();
 		if (!FinishCachePlatformData()) return Reject(ECookContributionError::PlatformData);

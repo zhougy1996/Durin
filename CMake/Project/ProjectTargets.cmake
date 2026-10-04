@@ -288,7 +288,7 @@ function(add_durin_test target_name)
 			NORMALIZE _durin_workspace_source)
 		if(_durin_workspace_source AND NOT _durin_source_generated
 			AND NOT _durin_test_source MATCHES "\\$<"
-			AND _durin_test_source_absolute MATCHES "\\.cpp$")
+			AND _durin_test_source_absolute MATCHES "\\.(cpp|mm)$")
 			file(RELATIVE_PATH _durin_source_relative "${CMAKE_SOURCE_DIR}"
 				"${_durin_test_source_absolute}")
 			set_property(TARGET ${target_name} APPEND PROPERTY
@@ -299,7 +299,7 @@ function(add_durin_test target_name)
 			NORMALIZE
 			_durin_is_native_test_source)
 		if(_durin_is_native_test_source
-			AND _durin_test_source_absolute MATCHES "\\.cpp$")
+			AND _durin_test_source_absolute MATCHES "\\.(cpp|mm)$")
 			get_property(_durin_existing_owner GLOBAL
 				PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_test_source_absolute}")
 			if(_durin_existing_owner)
@@ -752,7 +752,8 @@ endfunction()
 function(durin_validate_native_test_source_ownership native_test_root)
 	file(GLOB_RECURSE _durin_native_test_sources
 		CONFIGURE_DEPENDS
-		"${native_test_root}/*.cpp")
+		"${native_test_root}/*.cpp"
+		"${native_test_root}/*.mm")
 	get_property(_durin_owned_sources GLOBAL
 		PROPERTY DURIN_OWNED_NATIVE_TEST_SOURCES)
 	list(SORT _durin_native_test_sources)
@@ -853,6 +854,7 @@ endfunction()
 function(durin_validate_native_test_repository_policy native_test_root)
 	file(GLOB_RECURSE _durin_native_test_policy_files
 		"${native_test_root}/*.cpp"
+		"${native_test_root}/*.mm"
 		"${native_test_root}/*.h")
 	foreach(_durin_policy_file IN LISTS _durin_native_test_policy_files)
 		file(READ "${_durin_policy_file}" _durin_policy_content)

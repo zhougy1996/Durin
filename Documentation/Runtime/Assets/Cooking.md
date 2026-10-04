@@ -28,7 +28,7 @@ CMNF entries are sorted by normalized cook-relative path and record kind, requir
 flag, byte extent, and XXH3-128 digest. Raw companions use `PackageBulk`;
 package-only output has no companion entry.
 
-Win64/Game Cook also supplies `Shaders/ShaderLibrary.dslb` as a
+Win64/Game and MacOS/Game Cook also supply `Shaders/ShaderLibrary.dslb` as a
 `ShaderLibrary` auxiliary output. It is detached before the store transaction,
 validated by its producer, staged and committed with package outputs, and
 recorded in CMNF. Failure at its stage or commit participates in the same

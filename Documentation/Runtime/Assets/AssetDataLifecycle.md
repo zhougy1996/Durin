@@ -502,10 +502,11 @@ reuse, diagnostics, cancellation, and rollback are defined in
 
 Package reader policy is defined by [Versioning](Versioning.md#authored-package-policy).
 
-The implemented compatibility identifiers are Win64 platform `1`, Game
-profile `1`, and EditorValidation profile `2`. Production family Cook and
-runtime qualification currently select Win64/Game. Other target/profile pairs
-are unsupported and fail explicitly rather than falling back or guessing.
+The implemented compatibility identifiers are Win64 platform `1`, MacOS
+platform `2`, Game profile `1`, and EditorValidation profile `2`. Production
+family Cook accepts Win64/Game and MacOS/Game. Cooked asset configuration reads
+the published manifest target and uses it for package and nested payload
+decoding. Metal cooked-game runtime qualification remains in progress.
 
 Inspection and explicit repair ownership are defined
 [below](#domain-qualified-inspection-and-repair-ownership).

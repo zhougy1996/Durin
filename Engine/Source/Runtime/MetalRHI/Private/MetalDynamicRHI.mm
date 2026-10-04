@@ -4,11 +4,14 @@
 
 #include "DynamicRHI.h"
 #include "Backend/RHICompletionBackend.h"
+#include "Backend/RHIDeferredBufferBackend.h"
 #include "MetalBuffer.h"
 #include "MetalSampler.h"
 #include "MetalTexture.h"
 #include "RHIContext.h"
+#include "RHICommandList.h"
 #include "RHIShaderParameters.h"
+#include "PipelineStateCache.h"
 
 namespace Durin
 {
@@ -30,6 +33,8 @@ namespace Durin
 			case EPixelFormat::RGBA32_FLOAT: return MTLPixelFormatRGBA32Float;
 			case EPixelFormat::RG32_UINT: return MTLPixelFormatRG32Uint;
 			case EPixelFormat::D32: return MTLPixelFormatDepth32Float;
+			case EPixelFormat::BC1_UNORM: return MTLPixelFormatBC1_RGBA;
+			case EPixelFormat::BC1_UNORM_SRGB: return MTLPixelFormatBC1_RGBA_sRGB;
 			default: return MTLPixelFormatInvalid;
 			}
 		}
@@ -175,6 +180,12 @@ namespace Durin
 			std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
 			NSMutableArray<id<MTLResource>>* NativeResources = [NSMutableArray new];
 			std::vector<FReadback> Readbacks;
+		};
+
+		struct FMetalDeferredBacking
+		{
+			std::shared_ptr<const FRHIDeferredBufferSnapshot> Snapshot;
+			id<MTLBuffer> Handle = nil;
 		};
 
 		class FMetalShader final : public FRHIShader
@@ -684,7 +695,6 @@ namespace Durin
 					&& Pipeline->GetRenderTargets() == CurrentRenderTargetLayout,
 					"Metal graphics pipeline does not match the active render pass.");
 				GraphicsPipeline = Pipeline;
-				BoundVertexStreams = 0;
 				GraphicsParameters.clear();
 				GraphicsParameterOwners.clear();
 				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
@@ -714,13 +724,22 @@ namespace Durin
 			auto RHIBindVertexBuffer(uint32 Stream, FRHIBuffer* Resource,
 				uint32 Offset) -> void override
 			{
-				requiref(RenderEncoder && GraphicsPipeline && Resource
-					&& Resource->GetResourceType() == ERHIResourceType::Buffer
+				requiref(RenderEncoder, "Metal vertex binding requires a render pass.");
+				requiref(Stream < 16, "Metal vertex stream index exceeds 15.");
+				if (!Resource)
+				{
+					[RenderEncoder setVertexBuffer:nil offset:0 atIndex:Stream];
+					BoundVertexStreams &= ~uint16(1u << Stream);
+					return;
+				}
+				requiref(Resource->GetResourceType() == ERHIResourceType::Buffer
 					&& EnumHasAnyFlags(Resource->GetUsage(),
 						EBufferUsageFlags::VertexBuffer)
-					&& Stream < 16 && Offset < Resource->GetSize(),
+					&& Offset <= Resource->GetSize(),
 					"Invalid Metal vertex buffer binding.");
-				auto* Buffer = static_cast<FMetalBuffer*>(Resource);
+				auto* Buffer = dynamic_cast<FMetalBuffer*>(Resource);
+				requiref(Buffer && Buffer->GetHandle(),
+					"Metal vertex buffer has no native allocation.");
 				[RenderEncoder setVertexBuffer:Buffer->GetHandle()
 					offset:Offset atIndex:Stream];
 				BoundVertexStreams |= uint16(1u << Stream);
@@ -729,7 +748,7 @@ namespace Durin
 			}
 			auto RHIBindIndexBuffer(FRHIBuffer* Resource, uint32 Offset) -> void override
 			{
-				requiref(RenderEncoder && GraphicsPipeline && Resource
+				requiref(RenderEncoder && Resource
 					&& Resource->GetResourceType() == ERHIResourceType::Buffer
 					&& EnumHasAnyFlags(Resource->GetUsage(),
 						EBufferUsageFlags::IndexBuffer)
@@ -887,10 +906,21 @@ namespace Durin
 			auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			FByteView Data) -> void override
 			{
-				requiref(Active && Buffer && Offset <= Buffer->GetSize()
+				requiref(State && !RenderEncoder && Buffer
+					&& Offset <= Buffer->GetSize()
 					&& Data.size() <= Buffer->GetSize() - Offset,
 					"Metal buffer upload exceeds its target range.");
 				if (Data.empty()) return;
+				const bool bImplicitUpload = !Active;
+				if (bImplicitUpload)
+				{
+					FMetalPendingSubmission Submission;
+					Submission.Command = [State->Queue commandBuffer];
+					requiref(Submission.Command != nil,
+						"Metal implicit buffer upload command allocation failed.");
+					if (StorageOwner) Submission.StorageOwners.push_back(StorageOwner);
+					Active.emplace(std::move(Submission));
+				}
 				id<MTLBuffer> Staging = [State->Queue.device
 					newBufferWithBytes:Data.data() length:Data.size()
 					options:MTLResourceStorageModeShared];
@@ -904,6 +934,16 @@ namespace Durin
 				[Encoder endEncoding];
 				[Active->NativeResources addObject:Staging];
 				[Active->NativeResources addObject:Target->GetHandle()];
+				Active->ResourceOwners.emplace_back(Buffer);
+				if (bImplicitUpload)
+				{
+					std::lock_guard Lock(State->Mutex);
+					Active->Producer = State->Timeline->Reserve();
+					requiref(Active->Producer,
+						"Metal implicit buffer upload could not reserve its queue.");
+					Pending.push_back(std::move(*Active));
+					Active.reset();
+				}
 			}
 			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			FByteView Data) -> void override
@@ -940,21 +980,23 @@ namespace Durin
 				Desc.Format = Texture->GetFormat();
 				requiref(ValidateTexture2DUpdate(Desc, MipIndex, ArraySlice,
 					Region, SourcePitch).has_value(), "Invalid Metal texture upload region.");
-				const NSUInteger BytesPerTexel = MetalBytesPerTexel(Texture->GetFormat());
-				const uint64 SourceStart = static_cast<uint64>(Region.SrcY) * SourcePitch
-					+ static_cast<uint64>(Region.SrcX) * BytesPerTexel;
+				const auto& Format = GetPixelFormatInfo(Texture->GetFormat());
+				const auto Layout = GetPixelFormatLayout(
+					Texture->GetFormat(), Region.Width, Region.Height);
+				const uint64 SourceStart = static_cast<uint64>(Region.SrcY / Format.BlockSize)
+					* SourcePitch + static_cast<uint64>(Region.SrcX / Format.BlockSize)
+					* Format.BytesPerBlock;
 				const uint64 RequiredBytes = SourceStart
-					+ static_cast<uint64>(Region.Height - 1) * SourcePitch
-					+ static_cast<uint64>(Region.Width) * BytesPerTexel;
+					+ (Layout.BlocksHigh - 1) * SourcePitch + Layout.RowPitch;
 				requiref(RequiredBytes <= SourceData.size(),
 					"Metal texture upload source data is incomplete.");
-				const NSUInteger RowPitch = static_cast<NSUInteger>(Region.Width) * BytesPerTexel;
-				const NSUInteger ByteCount = RowPitch * Region.Height;
+				const NSUInteger RowPitch = Layout.RowPitch;
+				const NSUInteger ByteCount = Layout.DataSize;
 				id<MTLBuffer> Staging = [State->Queue.device newBufferWithLength:ByteCount
 					options:MTLResourceStorageModeShared];
 				requiref(Staging != nil, "Metal texture upload staging allocation failed.");
 				auto* TargetBytes = static_cast<std::byte*>(Staging.contents);
-				for (uint32 Row = 0; Row < Region.Height; ++Row)
+				for (uint32 Row = 0; Row < Layout.BlocksHigh; ++Row)
 					std::memcpy(TargetBytes + static_cast<size_t>(Row) * RowPitch,
 						SourceData.data() + SourceStart + static_cast<uint64>(Row) * SourcePitch,
 						RowPitch);
@@ -1084,9 +1126,9 @@ namespace Durin
 				RHISubmitCommands();
 				const NSUInteger Width = std::max(1u, Texture->GetSizeX() >> MipIndex);
 				const NSUInteger Height = std::max(1u, Texture->GetSizeY() >> MipIndex);
-				const NSUInteger RowPitch = Width
-					* MetalBytesPerTexel(Texture->GetFormat());
-				const NSUInteger ByteCount = RowPitch * Height;
+				const auto Layout = GetPixelFormatLayout(Texture->GetFormat(), Width, Height);
+				const NSUInteger RowPitch = Layout.RowPitch;
+				const NSUInteger ByteCount = Layout.DataSize;
 				id<MTLBuffer> Readback = [State->Queue.device newBufferWithLength:ByteCount
 					options:MTLResourceStorageModeShared];
 				id<MTLCommandBuffer> Command = [State->Queue commandBuffer];
@@ -1127,9 +1169,9 @@ namespace Durin
 				if (!Active) RHISubmitCommands();
 				const NSUInteger Width = std::max(1u, Texture->GetSizeX() >> MipIndex);
 				const NSUInteger Height = std::max(1u, Texture->GetSizeY() >> MipIndex);
-				const NSUInteger RowPitch = Width
-					* MetalBytesPerTexel(Texture->GetFormat());
-				const NSUInteger ByteCount = RowPitch * Height;
+				const auto Layout = GetPixelFormatLayout(Texture->GetFormat(), Width, Height);
+				const NSUInteger RowPitch = Layout.RowPitch;
+				const NSUInteger ByteCount = Layout.DataSize;
 				id<MTLBuffer> Readback = [State->Queue.device newBufferWithLength:ByteCount
 					options:MTLResourceStorageModeShared];
 				id<MTLCommandBuffer> Command = Active
@@ -1366,7 +1408,8 @@ namespace Durin
 					auto Binding = std::ranges::find_if(Map, [&](const auto& Item) {
 						return Item.SetIndex == Parameter.SetIndex
 							&& Item.BindingIndex == Parameter.BindingIndex
-							&& Item.Type == Parameter.Type;
+							&& Item.Type == (Parameter.Type == ERHIBindingType::UniformBufferDynamic
+								? ERHIBindingType::UniformBuffer : Parameter.Type);
 					});
 					requiref(Binding != Map.end()
 						&& Parameter.ArrayElement < Binding->Count,
@@ -1380,7 +1423,7 @@ namespace Durin
 							== ERHIResourceType::BufferView,
 							"Metal compute buffer binding requires a buffer view.");
 						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-						auto* Buffer = static_cast<FMetalBuffer*>(View->GetBuffer());
+						const auto Buffer = ResolveBufferBinding(View);
 						const bool bStorage = Parameter.Type
 							== ERHIBindingType::StorageBuffer;
 						requiref(bStorage
@@ -1394,11 +1437,10 @@ namespace Durin
 						const uint64 Offset = View->GetDesc().Offset
 							+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
 								? Parameter.Offset : 0);
-						requiref(Offset <= Buffer->GetSize()
-							&& View->GetDesc().Size <= Buffer->GetSize() - Offset,
+						requiref(Offset <= Buffer.Size
+							&& View->GetDesc().Size <= Buffer.Size - Offset,
 							"Metal compute buffer range exceeds its allocation.");
-						[Encoder setBuffer:Buffer->GetHandle() offset:Offset atIndex:Slot];
-						[Active->NativeResources addObject:Buffer->GetHandle()];
+						[Encoder setBuffer:Buffer.Handle offset:Offset atIndex:Slot];
 					}
 					else if (Parameter.Type == ERHIBindingType::Texture
 						|| Parameter.Type == ERHIBindingType::StorageImage)
@@ -1532,6 +1574,46 @@ namespace Durin
 				Active->ResourceOwners.emplace_back(ArgumentBuffer);
 			}
 		private:
+			struct FBufferBinding
+			{
+				id<MTLBuffer> Handle;
+				uint64 Size;
+			};
+
+			auto ResolveBufferBinding(FRHIBufferView* View) -> FBufferBinding
+			{
+				auto* Logical = View->GetBuffer();
+				if (IsCPUAuthoredBuffer(Logical))
+				{
+					// Reuse one immutable native copy for each ordered content version.
+					const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Logical);
+					auto Backing = std::static_pointer_cast<FMetalDeferredBacking>(
+						FRHIDeferredBufferBackend::GetBacking(*Snapshot, State.get()));
+					if (!Backing)
+					{
+						const auto Data = Snapshot->GetData();
+						requiref(!Data.empty(), "Metal deferred buffer has no data.");
+						Backing = std::make_shared<FMetalDeferredBacking>();
+						Backing->Snapshot = Snapshot;
+						Backing->Handle = [State->Queue.device
+							newBufferWithBytes:Data.data() length:Data.size()
+							options:MTLResourceStorageModeShared];
+						requiref(Backing->Handle != nil,
+							"Metal deferred buffer allocation failed.");
+						FRHIDeferredBufferBackend::SetBacking(
+							*Snapshot, State.get(), Backing);
+					}
+					Active->StorageOwners.push_back(Backing);
+					[Active->NativeResources addObject:Backing->Handle];
+					return {Backing->Handle, Snapshot->GetData().size()};
+				}
+				auto* Buffer = dynamic_cast<FMetalBuffer*>(Logical);
+				requiref(Buffer && Buffer->GetHandle(),
+					"Metal buffer binding has no native buffer.");
+				[Active->NativeResources addObject:Buffer->GetHandle()];
+				return {Buffer->GetHandle(), Buffer->GetSize()};
+			}
+
 			auto BindGraphicsParameters() -> void
 			{
 				const auto& Layout = GraphicsPipeline->GetLayout();
@@ -1592,7 +1674,8 @@ namespace Durin
 							[&](const auto& Item) {
 								return Item.SetIndex == Parameter.SetIndex
 									&& Item.BindingIndex == Parameter.BindingIndex
-									&& Item.Type == Parameter.Type;
+									&& Item.Type == (Parameter.Type == ERHIBindingType::UniformBufferDynamic
+										? ERHIBindingType::UniformBuffer : Parameter.Type);
 							});
 						requiref(Native != Map.end()
 							&& Parameter.ArrayElement < Native->Count,
@@ -1641,7 +1724,7 @@ namespace Durin
 								== ERHIResourceType::BufferView,
 								"Metal graphics buffer binding requires a view.");
 							auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-							auto* Buffer = static_cast<FMetalBuffer*>(View->GetBuffer());
+							const auto Buffer = ResolveBufferBinding(View);
 							const bool bStorage = Parameter.Type
 								== ERHIBindingType::StorageBuffer;
 							requiref(bStorage
@@ -1655,15 +1738,14 @@ namespace Durin
 							const uint64 Offset = View->GetDesc().Offset
 								+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
 									? Parameter.Offset : 0);
-							requiref(Offset <= Buffer->GetSize()
-								&& View->GetDesc().Size <= Buffer->GetSize() - Offset,
+							requiref(Offset <= Buffer.Size
+								&& View->GetDesc().Size <= Buffer.Size - Offset,
 								"Metal graphics buffer range exceeds its allocation.");
 							if (Stage == EShaderStageFlags::Vertex)
-								[RenderEncoder setVertexBuffer:Buffer->GetHandle()
+								[RenderEncoder setVertexBuffer:Buffer.Handle
 									offset:Offset atIndex:Slot];
-							else [RenderEncoder setFragmentBuffer:Buffer->GetHandle()
+							else [RenderEncoder setFragmentBuffer:Buffer.Handle
 									offset:Offset atIndex:Slot];
-							[Active->NativeResources addObject:Buffer->GetHandle()];
 						}
 						else Unsupported();
 					}
@@ -1791,10 +1873,72 @@ namespace Durin
 				Supported.bSupportsIndirectDraw = true;
 				Supported.bSupportsIndirectDispatch = true;
 				PublishCapabilities(std::move(Supported));
+				PipelineCreationClosed = false;
+			}
+			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
+			{
+				std::lock_guard Lock(PipelineCreationMutex);
+				if (PipelineCreationClosed || !Device || !IsTaskSchedulerRunning()) return nullptr;
+				if (!PipelineCache)
+				{
+					FRHIPipelineCompileBackend Backend;
+					Backend.FindGraphics = [](const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef { return nullptr; };
+					Backend.FindCompute = [](const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef { return nullptr; };
+					Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
+						const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef {
+						@autoreleasepool {
+							return RHICreateGraphicsPipelineState(FName(Inputs.DebugName), Inputs.Initializer);
+						}
+					};
+					Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs,
+						const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef {
+						@autoreleasepool {
+							return RHICreateComputePipelineState(FName(Inputs.DebugName), Inputs.Initializer);
+						}
+					};
+					Backend.PublishTerminalFailure = [](std::exception_ptr Failure) {
+						GCommandListExecutor.ReportExternalFailure(Failure);
+					};
+					PipelineCache = std::make_unique<FRHIPipelineStateCache>(
+						*RHIGetCapabilities(), std::move(Backend));
+				}
+				return PipelineCache.get();
+			}
+			auto RHIStopPipelineCreation() -> void override
+			{
+				FRHIPipelineStateCache* Cache;
+				{
+					std::lock_guard Lock(PipelineCreationMutex);
+					PipelineCreationClosed = true;
+					Cache = PipelineCache.get();
+				}
+				if (Cache) Cache->StopAndWait();
+			}
+			auto RHIRetirePipelineCreationResults() -> void override
+			{
+				FRHIPipelineStateCache* Cache;
+				{
+					std::lock_guard Lock(PipelineCreationMutex);
+					Cache = PipelineCache.get();
+				}
+				if (Cache) Cache->ReleaseResources();
+			}
+			auto RHIIsPipelineCreationClosed() const -> bool override
+			{
+				std::lock_guard Lock(PipelineCreationMutex);
+				return PipelineCreationClosed || (PipelineCache && PipelineCache->IsClosed());
+			}
+			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
+			{
+				std::lock_guard Lock(PipelineCreationMutex);
+				return PipelineCache ? PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{};
 			}
 
 			auto Shutdown() -> void override
 			{
+			RHIStopPipelineCreation();
+			RHIRetirePipelineCreationResults();
+			PipelineCache.reset();
 			CommandContext.CancelPending();
 			if (State)
 			{
@@ -1940,7 +2084,8 @@ namespace Durin
 							if (Count >= Map.size()
 								|| Map[Count].SetIndex != SetIndex
 								|| Map[Count].BindingIndex != Binding.Slot
-								|| Map[Count].Type != Binding.Type
+								|| Map[Count].Type != (Binding.Type == ERHIBindingType::UniformBufferDynamic
+									? ERHIBindingType::UniformBuffer : Binding.Type)
 								|| Map[Count].Count != Binding.ArraySize)
 								return false;
 							++Count;
@@ -2081,7 +2226,8 @@ namespace Durin
 						if (Count >= Bindings.size()
 							|| Bindings[Count].SetIndex != SetIndex
 							|| Bindings[Count].BindingIndex != Binding.Slot
-							|| Bindings[Count].Type != Binding.Type
+							|| Bindings[Count].Type != (Binding.Type == ERHIBindingType::UniformBufferDynamic
+								? ERHIBindingType::UniformBuffer : Binding.Type)
 							|| Bindings[Count].Count != Binding.ArraySize)
 							return nullptr;
 						++Count;
@@ -2148,13 +2294,22 @@ namespace Durin
 				const bool bCube = Desc.Dimension == ETextureDimension::TextureCube;
 				const bool bCubeArray = Desc.Dimension == ETextureDimension::TextureCubeArray;
 				const bool b3D = Desc.Dimension == ETextureDimension::Texture3D;
+				const bool bBC1 = Desc.Format == EPixelFormat::BC1_UNORM
+					|| Desc.Format == EPixelFormat::BC1_UNORM_SRGB;
 				return Device && ValidateTextureCreateDesc(Desc)
 					&& (b2D || b2DArray || bCube || bCubeArray || b3D)
 					&& ToMetalPixelFormat(Desc.Format) != MTLPixelFormatInvalid
+					&& (!bBC1 || (Device.supportsBCTextureCompression
+						&& (static_cast<uint64>(Desc.Flags)
+							& ~static_cast<uint64>(ETextureCreateFlags::ShaderResource
+								| ETextureCreateFlags::CPUReadback)) == 0))
 					&& (b2D || Desc.Format == EPixelFormat::RGBA8_UNORM
 						|| (b3D && Desc.Format == EPixelFormat::R8_UNORM)
 						|| (b2DArray && Desc.Format == EPixelFormat::D32)
-						|| (bCube && Desc.Format == EPixelFormat::RGBA16_FLOAT))
+						|| (bCube && (Desc.Format == EPixelFormat::RGBA16_FLOAT
+						|| Desc.Format == EPixelFormat::RGBA32_FLOAT
+						|| Desc.Format == EPixelFormat::BC1_UNORM
+						|| Desc.Format == EPixelFormat::BC1_UNORM_SRGB)))
 					&& Desc.NumSamples == 1
 					&& Desc.Extent.x <= (b3D ? 2048 : 16384)
 					&& Desc.Extent.y <= (b3D ? 2048 : 16384)
@@ -2433,6 +2588,9 @@ namespace Durin
 			std::shared_ptr<FMetalSubmissionState> State;
 			FRHIQueueCapabilities QueueCapabilities;
 			FMetalCommandContext CommandContext;
+			mutable std::mutex PipelineCreationMutex;
+			std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
+			bool PipelineCreationClosed = false;
 		};
 
 		class FMetalDynamicRHIModule final : public IDynamicRHIModule

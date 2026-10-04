@@ -15,7 +15,8 @@ namespace Durin::AssetPrivate
   auto& Capture = SaveContext.Options.Capture;
   Capture.bCooking = Options.Domain == EAssetPackageSaveDomain::Cooked;
   Capture.bRetainEditorOnlyData = Options.bRetainEditorOnlyData;
-  Capture.Target.Platform = Options.TargetPlatform == ECookTargetPlatform::Win64 ? "Win64" : "";
+  Capture.Target.Platform = Options.TargetPlatform == ECookTargetPlatform::Win64 ? "Win64"
+   : Options.TargetPlatform == ECookTargetPlatform::MacOS ? "MacOS" : "";
   Capture.Target.Profile = Options.TargetProfile == ECookTargetProfile::Game ? "Game"
    : Options.TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : "";
   Capture.SaveOverrides = Options.SaveOverrides;

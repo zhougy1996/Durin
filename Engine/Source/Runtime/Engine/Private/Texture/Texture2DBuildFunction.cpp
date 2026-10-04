@@ -28,7 +28,8 @@ namespace Durin::TexturePrivate
 				|| !Threshold || !SRGB || !Platform || !Profile || *Usage > 255 || *Quality > 255
 				|| *Alpha > 255 || *Resolution > UINT32_MAX)
 				return std::unexpected("Texture2D constants are invalid.");
-			if (*Platform != static_cast<uint64>(ECookTargetPlatform::Win64)
+			if ((*Platform != static_cast<uint64>(ECookTargetPlatform::Win64)
+					&& *Platform != static_cast<uint64>(ECookTargetPlatform::MacOS))
 				|| *Profile != static_cast<uint64>(ECookTargetProfile::Game))
 				return std::unexpected("Texture2D target is unsupported.");
 			FTexture2DBuildInput Input{.Settings = {.Usage = static_cast<ETextureUsage>(*Usage),

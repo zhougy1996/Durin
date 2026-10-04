@@ -24,7 +24,9 @@ namespace Durin::TexturePrivate
 			const auto* Profile = Context.FindConstant<uint64>("TargetProfile");
 			if (!Layout || !Dimension || !Exposure || !SRGB || !Projection || !Platform || !Profile
 				|| *Layout > 1 || *Dimension > MaximumTextureCubeDimension || !*Projection || *Projection > UINT32_MAX
-				|| *Platform != static_cast<uint64>(ECookTargetPlatform::Win64) || *Profile != static_cast<uint64>(ECookTargetProfile::Game))
+				|| (*Platform != static_cast<uint64>(ECookTargetPlatform::Win64)
+					&& *Platform != static_cast<uint64>(ECookTargetPlatform::MacOS))
+				|| *Profile != static_cast<uint64>(ECookTargetProfile::Game))
 				return std::unexpected("Cube build constants are invalid.");
 			FTextureCubeBuildKeyInput Result{.SourceLayout = static_cast<ETextureCubeBuildSourceLayout>(*Layout),
 				.FaceDimension = static_cast<uint32>(*Dimension), .ExposureEV = *Exposure, .bSRGB = *SRGB,

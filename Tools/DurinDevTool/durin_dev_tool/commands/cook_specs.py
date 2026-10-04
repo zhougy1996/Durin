@@ -27,7 +27,7 @@ COMMAND_SPEC = CommandSpec(
             required=True,
             help="absolute or repository-relative Cook output root",
         ),
-        argument("--target", choices=("win64",), required=True),
+        argument("--target", choices=("win64", "macos"), required=True),
         argument(
             "--target-profile",
             choices=("game",),

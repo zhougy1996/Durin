@@ -12,6 +12,11 @@ namespace Durin
 	{
 		auto ResolveMeshTarget(FArchive& Ar, EAssetPayloadTargetPlatform& TargetPlatform) -> bool
 		{
+			if (Ar.GetTarget().Platform == "MacOS")
+			{
+				TargetPlatform = EAssetPayloadTargetPlatform::MacOS;
+				return true;
+			}
 			if (Ar.GetTarget().Platform != "Win64")
 			{
 				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh Archive target is missing or unsupported.");
