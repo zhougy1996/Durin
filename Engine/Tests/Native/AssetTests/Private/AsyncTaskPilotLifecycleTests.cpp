@@ -10,6 +10,7 @@
 #include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 
 namespace
 {
@@ -55,7 +56,7 @@ namespace
 		}));
 		ASSERT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
 		EXPECT_EQ(1u, LargeCompleted);
-		EXPECT_GT(GetTexture2DCompilationDiagnostic(*Texture).Metrics.ResultBytes, 64u);
+		EXPECT_GT(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Metrics.ResultBytes, 64u);
 		EXPECT_FALSE(Deferred.IsComplete());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		CancelTask(Deferred);

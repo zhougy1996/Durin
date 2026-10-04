@@ -67,21 +67,6 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string;
 
-	// Provides a thread-safe snapshot suitable for editor diagnostics.
-	struct FTexture2DCompilationDiagnostic
-	{
-		uint64 RequestId = 0;
-		// Latest-wins serial owned by the compiling manager; unrelated to DDC identity.
-		uint64 RequestSerial = 0;
-		std::string AssetIdentity;
-		FTexture2DCompilationError Error;
-		std::optional<FTexture2DBuildError> BuildCause;
-		FTexture2DCompilationMetrics Metrics;
-		uint64 QueuedNanoseconds = 0;
-		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
-		bool bSourceDecoderInvoked = false;
-	};
-
 }
 
 #endif

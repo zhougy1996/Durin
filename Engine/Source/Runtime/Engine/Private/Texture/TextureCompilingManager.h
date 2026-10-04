@@ -8,10 +8,13 @@
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 #include "Texture/TexturePlatformCache.h"
 
 namespace Durin
 {
+	using AssetPrivate::FTexture2DCompilationDiagnostic;
+
 	struct FTexture2DCompilationWork
 	{
 		std::string AssetIdentity;

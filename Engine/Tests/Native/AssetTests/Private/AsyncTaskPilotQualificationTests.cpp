@@ -10,6 +10,7 @@
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 
 namespace
 {
@@ -314,7 +315,7 @@ namespace
 			uint64 DeclaredInFlightBytes = 0;
 			for (auto* Object : Textures)
 			{
-				const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Object);
+				const auto Diagnostic = AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Object);
 				if (Diagnostic.Phase == ETexture2DCompilationPhase::Preparing
 					|| Diagnostic.Phase == ETexture2DCompilationPhase::Building)
 					DeclaredInFlightBytes += Diagnostic.Metrics.EstimatedBytes;
@@ -328,7 +329,7 @@ namespace
 			uint64 ResultBytes = 0;
 			for (auto* Object : Textures)
 			{
-				const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Object);
+				const auto Diagnostic = AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Object);
 				if (Batch >= WarmupBatches) Texture.QueueNanoseconds.push_back(Diagnostic.QueuedNanoseconds);
 				ResultBytes += Diagnostic.Metrics.ResultBytes;
 				ASSERT_NE(Object->GetPlatformData(), nullptr);

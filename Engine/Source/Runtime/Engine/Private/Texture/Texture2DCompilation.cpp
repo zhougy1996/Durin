@@ -786,7 +786,7 @@ struct FAssetState
 			Texture, std::move(Request), std::move(Completion));
 	}
 
-	auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
+	auto AssetPrivate::GetTexture2DCompilationDiagnosticForTests(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic
 	{
 		const auto Manager = GetTextureCompilingManager();

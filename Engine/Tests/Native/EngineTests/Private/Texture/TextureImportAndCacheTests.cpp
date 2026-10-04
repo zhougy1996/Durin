@@ -5,6 +5,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 #include "Asset/SourceHint.h"
 #include "Misc/FileHelper.h"
 #include "Texture/TextureDerivedData.h"
@@ -348,7 +349,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded))
-		<< Durin::FormatTexture2DCompilationError(Durin::GetTexture2DCompilationDiagnostic(*Loaded).Error);
+		<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Error);
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	ASSERT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
@@ -587,7 +588,7 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DMaxResolution(
 		*Loaded, 1));
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded, 10.0))
-		<< Durin::FormatTexture2DCompilationError(Durin::GetTexture2DCompilationDiagnostic(*Loaded).Error);
+		<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Error);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_NE(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));

@@ -9,6 +9,7 @@
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Actors/StaticMeshActor.h"
@@ -345,7 +346,7 @@ namespace Durin
 		ASSERT_TRUE(AssetForge::Builtins::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB()));
 		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0))
-			<< Durin::FormatTexture2DCompilationError(Durin::GetTexture2DCompilationDiagnostic(*TextureImport.Asset).Error);
+			<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*TextureImport.Asset).Error);
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),

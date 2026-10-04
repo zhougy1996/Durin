@@ -217,8 +217,9 @@ invoking completion.
 `GetTexture2DBuildStatus` supplies the editor with the current phase, pending
 state and a user-facing failure message. Terminal status reflects GameThread
 result application as well as worker execution; a new request clears the old
-failure. The detailed compilation diagnostic remains available for tests and
-investigation. `Ready` means CPU platform data was applied, not GPU readiness.
+failure. The detailed compilation snapshot is available only through the
+`AssetPrivate` test hook for qualification and regression coverage. `Ready`
+means CPU platform data was applied, not GPU readiness.
 
 A new request for an object with active work cancels the old worker and
 completes the old observer as `Superseded`. A late worker result for that
